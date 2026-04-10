@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TodoMVC - scrml</title>
+  <link rel="stylesheet" href="dist/app.css">
+</head>
+<body>
+  <!--
+    scrml TodoMVC — loads compiled output from dist/.
+    To rebuild: bun run compiler/src/index.js benchmarks/todomvc/app.scrml \
+                  - -output benchmarks/todomvc/dist - -convert-legacy-css
+  -->
+
+  <!-- Compiled HTML body is inlined here; alternatively load dist/app.html directly -->
+  <div class="todoapp" id="app-root"></div>
+
+  <script src="dist/scrml-runtime.js"></script>
+  <script src="dist/app.client.js"></script>
+  <script>
+    // Bootstrap: the compiled client JS auto-initializes reactive state and DOM bindings.
+    // If the compiled HTML is served directly (dist/app.html), this file is not needed.
+    // This wrapper exists so you can open index.html in a browser during development.
+  </script>
+
+  <footer class="info">
+    <p>Double-click to edit a todo</p>
+    <p>Written in <a href="https://github.com/scrml">scrml</a></p>
+    <p>Part of <a href="http://todomvc.com">TodoMVC</a></p>
+  </footer>
+</body>
+</html>

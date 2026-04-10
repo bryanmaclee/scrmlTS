@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/ts — Type System
+    //
+    // Resolves type declarations, validates type annotations, builds scope chains,
+    // and performs type checking across the AST.
+    //
+    // Usage:
+    //   import { runTS } from "scrml:compiler/ts"
+    //   const result = runTS({ files, protectAnalysis, routeMap })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runTS: _runTS, TSError: _TSError } = await import("../../compiler/src/type-system.ts");
+    }
+
+    export const runTS = _runTS
+    export const TSError = _TSError
+}
+</program>

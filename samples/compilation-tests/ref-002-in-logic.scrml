@@ -1,0 +1,16 @@
+// ref-002-in-logic.scrml
+// Reference inside logic context. Tests: <#name> in ${}.
+
+< profile name(string) age(number)>
+    <div class="profile">
+        <h2>${name}</>
+        <span>${age} years old</>
+    </>
+</>
+
+<div>
+    ${
+        let showProfile = true
+    }
+    <profile></>
+</>

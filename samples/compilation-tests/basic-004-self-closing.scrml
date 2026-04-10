@@ -1,0 +1,9 @@
+// basic-004-self-closing.scrml
+// Self-closing tags. Tests: void elements with />.
+
+<div>
+    <br/>
+    <hr/>
+    <img src="logo.png" alt="Logo"/>
+    <input type="text" name="field"/>
+</div>

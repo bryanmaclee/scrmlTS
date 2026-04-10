@@ -1,0 +1,86 @@
+// gauntlet-r19/vue-dev.scrml — Recipe Schema Viewer
+// Tests: reflect(literal) control case, for-of in ^{}, rest params in ^{} S52,
+//        emit.raw() S51, struct type declaration
+
+${
+  type Recipe:struct = {
+    id: number,
+    title: string,
+    cuisine: string,
+    servings: number,
+    ingredients: string,
+    instructions: string
+  }
+}
+
+// Compile-time: reflect on Recipe type, emit schema
+^{
+  const info = reflect(Recipe)
+
+  emit("<div class=\"schema\">\n")
+  emit("<h2>Recipe Schema</h2>\n")
+  emit("<ul>\n")
+  for (const field of info.fields) {
+    emit.raw("<li>" + field.name + " : " + field.type + "</li>\n")
+  }
+  emit("</ul>\n")
+  emit("</div>\n")
+}
+
+${
+  @recipeTitle = ""
+  @servings = 4
+}
+
+<div class="recipe-app">
+  <h1>Recipe Book</h1>
+
+  <form>
+    <label>Title
+      <input type="text" bind:value=@recipeTitle placeholder="Recipe name"/>
+    </label>
+    <label>Servings
+      <input type="number" bind:value=@servings min="1" max="20"/>
+    </label>
+  </form>
+
+  <p>Recipe: ${recipeTitle} (serves ${servings})</p>
+</div>
+
+#{
+  .recipe-app {
+    max-width: 600px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+  .schema {
+    background: #f7f7f7;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+  }
+  .schema ul {
+    list-style: none;
+    padding: 0;
+  }
+  .schema li {
+    padding: 0.25rem 0;
+    font-family: monospace;
+    font-size: 0.9rem;
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  input {
+    padding: 0.5rem;
+    font-size: 1rem;
+  }
+}

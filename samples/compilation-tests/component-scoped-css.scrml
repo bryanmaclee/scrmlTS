@@ -1,0 +1,178 @@
+// component-scoped-css.scrml
+// Compilation test: per-component #{} CSS and @scope output.
+//
+// What this file tests and why each part matters:
+//
+//   PART 1 — Program-level #{}: should emit CSS without any @scope wrapper.
+//
+//   PART 2 — Component definitions:
+//             CE Phase 1 captures the root element tag in `raw`.
+//             Badge: simple component with label prop.
+//             Card: simple container with title prop and children slot.
+//
+//   PART 3 — #{} inside caller-provided component content:
+//             After CE expansion, caller children live under the expanded
+//             root which has _expandedFrom set. collect.js propagates the
+//             scope down through children. These #{} blocks should get
+//             _componentScope = "Card" or "Badge" and emit with @scope.
+//             This is the path that actually exercises @scope today.
+//
+// How to read the output:
+//   HTML: look for data-scrml-scope="Card" and data-scrml-scope="Badge"
+//   CSS:  look for @scope ([data-scrml-scope="Card"]) { ... }
+//         and  @scope ([data-scrml-scope="Badge"]) { ... }
+
+<program>
+
+// ====================================================
+// PART 1: Program-level CSS — expected: no @scope wrapper in output
+// ====================================================
+
+#{
+    body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #f0f2f5;
+    }
+
+    .page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .badge-success { background: #c6f6d5; color: #276749; }
+    .badge-danger  { background: #fed7d7; color: #9b2c2c; }
+    .badge-default { background: #e2e8f0; color: #4a5568; }
+
+    .card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .card-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1a202c;
+        margin: 0;
+    }
+
+    .card-body {
+        flex: 1;
+        color: #2d3748;
+    }
+}
+
+// ====================================================
+// PART 2: Component definitions
+//
+// Badge: simple inline label component.
+// Card: content container with title prop and unnamed children slot.
+//
+// Note: Component definitions work best when the body is kept simple.
+// CE Phase 1 captures the full body via raw extraction + re-parse.
+// Complex nested structures (nested #{}, nested components) may not
+// survive the re-parse and should be simplified.
+// ====================================================
+
+${
+    // Badge: small inline label.
+    const Badge = <span class="badge" props={ label: string }>
+        ${label}
+    </>
+}
+
+${
+    // Card: content container with title and children slot.
+    const Card = <div class="card" props={ title: string }>
+        <div class="card-header">
+            <h3 class="card-title">${title}</>
+        </>
+        <div class="card-body">
+            ${...}
+        </>
+    </>
+}
+
+// ====================================================
+// PART 3: #{} inside caller-provided component content
+//
+// These #{} blocks are caller children. After CE expansion they become children
+// of the expanded root (e.g. <div data-scrml-scope="Card">). collect.js walks
+// that node's children with componentScope="Card", so these blocks should get
+// _componentScope="Card" and appear inside an @scope block in CSS output.
+//
+// This is the path that actually exercises the @scope pipeline today.
+// ====================================================
+
+<div class="page">
+
+    // First Card usage — includes #{} as caller content.
+    // Expected CSS output:
+    //   @scope ([data-scrml-scope="Card"]) to ([data-scrml-scope]:not([...])) {
+    //     .account-note { font-size: 0.875rem; color: #718096; }
+    //   }
+    <Card title="User Account">
+        #{
+            .account-note {
+                font-size: 0.875rem;
+                color: #718096;
+                margin-bottom: 0.5rem;
+            }
+        }
+        <p class="account-note">Plan: Pro</>
+        <p>Next renewal: April 15, 2026</>
+    </>
+
+    // Second Card usage — no caller CSS, just children.
+    // HTML output: <div data-scrml-scope="Card" class="card">...
+    // No new @scope block — this card's caller content has no #{}.
+    <Card title="Recent Activity">
+        <p>No recent activity.</>
+    </>
+
+    // Standalone Badge usages.
+    // Each <Badge> expands to <span data-scrml-scope="Badge">.
+    // The #{} here is inside a plain <div>, not inside a <Badge> tag,
+    // so it collects as program-level CSS (no @scope).
+    <div class="badge-row">
+        #{
+            // This #{} is inside a plain <div>, scope=null, emits without @scope.
+            .badge-row {
+                display: flex;
+                gap: 0.5rem;
+                align-items: center;
+            }
+        }
+        <Badge label="New"/>
+        <Badge label="12 items"/>
+        <Badge label="Error"/>
+    </>
+
+</>
+
+</program>

@@ -1,0 +1,20 @@
+// state-type-001-custom.scrml
+// < myState> custom state type: definition and instantiation (§11, §4.2).
+// < stateName attr(type)> declares a state type; <stateName attr=value> instantiates it.
+
+<program>
+
+// Define the state type. Lowercase-after-space is the signal that this is a state type,
+// not an HTML element. Attrs declare required constructor params with types.
+< badge label(string) color(string = "blue")>
+    <span class="badge" style="background: ${color}">
+        ${label}
+    </span>
+</>
+
+// Instantiate the state type — same as using an HTML element at a call site.
+<badge label="Admin" color="crimson"/>
+<badge label="Editor" color="forestgreen"/>
+<badge label="Viewer"/>   // color defaults to "blue"
+
+</program>

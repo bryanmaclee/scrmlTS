@@ -1,0 +1,52 @@
+// Example 02: Counter — reactive state, two-way binding, scoped CSS.
+// Demonstrates @reactive, bind:value, event wiring, #{} CSS.
+
+<program>
+
+${
+  @count = 0
+  @step = 1
+
+  function increment() { @count = @count + @step }
+  function decrement() { @count = @count - @step }
+  function reset()     { @count = 0 }
+}
+
+<div class="counter">
+  <h2>Count: ${@count}</h2>
+
+  <div class="controls">
+    <button onclick=decrement()>−</button>
+    <button onclick=reset()>Reset</button>
+    <button onclick=increment()>+</button>
+  </div>
+
+  <label>
+    Step:
+    <input type="number" bind:value=@step min="1" max="100">
+  </label>
+</div>
+
+#{
+  .counter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 2rem;
+    font-family: sans-serif;
+  }
+
+  .controls {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  button {
+    padding: 0.5rem 1.25rem;
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+}
+
+</program>

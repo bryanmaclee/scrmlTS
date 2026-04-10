@@ -1,0 +1,6 @@
+// basic-003-nested-tags.scrml
+// Nested tags with explicit closers. Tests: nesting, explicit close tags.
+
+<div>
+    <p>A paragraph inside a div.</p>
+</div>

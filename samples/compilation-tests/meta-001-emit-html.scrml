@@ -1,0 +1,23 @@
+// meta-001-emit-html.scrml
+// ^{} compile-time meta: emit() splices markup into the AST at compile time (§22.4).
+// No runtime-only values referenced — compiler classifies this as compile-time meta.
+
+<program>
+
+const navItems = [
+    { href: "/",        label: "Home"    },
+    { href: "/about",   label: "About"   },
+    { href: "/contact", label: "Contact" },
+]
+
+<nav class="main-nav">
+    ^{
+        for (const item of navItems) {
+            emit(`<a href="${item.href}">${item.label}</a>`)
+        }
+    }
+</>
+
+<p>Nav links above are generated at compile time — zero runtime cost.</>
+
+</program>

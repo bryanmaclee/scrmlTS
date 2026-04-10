@@ -1,0 +1,10 @@
+// error-001-basic.scrml
+// Basic error effect block. Tests: !{} syntax.
+
+<div>
+    !{
+        | ::NetworkError e -> let msg = "Network failed"
+        | _ e -> let msg = "Unknown error"
+    }
+    <p>Error handler</>
+</div>

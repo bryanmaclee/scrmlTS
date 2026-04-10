@@ -1,0 +1,12 @@
+// meta-004-config.scrml
+// Meta block for configuration. Tests: ^{} with config data.
+
+<div>
+    ^{
+        let config = {
+            apiUrl: "https://api.example.com",
+            timeout: 5000
+        }
+    }
+    <p>Config loaded</>
+</div>

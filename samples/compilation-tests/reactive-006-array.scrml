@@ -1,0 +1,7 @@
+// reactive-006-array.scrml
+// Reactive array variable. Tests: @ with array values.
+
+<div>
+    ${ @items = ["apple", "banana", "cherry"] }
+    <p>Items loaded</>
+</div>

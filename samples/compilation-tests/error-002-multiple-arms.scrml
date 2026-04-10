@@ -1,0 +1,12 @@
+// error-002-multiple-arms.scrml
+// Error effect with multiple match arms. Tests: !{} with several patterns.
+
+<div>
+    !{
+        | ::NotFoundError e -> let status = 404
+        | ::AuthError e -> let status = 401
+        | ::ServerError e -> let status = 500
+        | _ e -> let status = 0
+    }
+    <p>Multi-error handler</>
+</div>

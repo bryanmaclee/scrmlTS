@@ -1,0 +1,10 @@
+// state-002-typed-attrs.scrml
+// State with multiple typed attributes. Tests: various type annotations in state attrs.
+
+< card title(string) count(number) active(boolean)>
+    <div class="card">
+        <h3>${title}</>
+        <span>${count}</>
+        <span>${active ? "Active" : "Inactive"}</>
+    </>
+</>

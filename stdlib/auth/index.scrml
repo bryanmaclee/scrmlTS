@@ -1,0 +1,247 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:auth — authentication utilities
+    //
+    // Re-exports JWT and password functions. Also provides:
+    //   - createRateLimiter: in-memory rate limiter for auth endpoints
+    //   - generateTotpSecret / verifyTotp: RFC 6238 TOTP (2FA)
+    //
+    // Usage:
+    //   ${ import { signJwt, verifyJwt, hashPassword, createRateLimiter } from 'scrml:auth' }
+    // ---------------------------------------------------------------------------
+
+    export { signJwt, verifyJwt, decodeJwt } from './jwt.scrml'
+    export { hashPassword, verifyPassword, generatePassword } from './password.scrml'
+
+    /**
+     * Create an in-memory rate limiter.
+     *
+     * Tracks requests per key (e.g., IP address or user ID) within a sliding
+     * time window. Uses an in-memory Map — does not persist across server restarts.
+     *
+     * @param options — { windowMs: number, max: number }
+     *   windowMs — time window in milliseconds (e.g., 15 * 60 * 1000 for 15min)
+     *   max      — maximum requests allowed per key within the window
+     *
+     * @returns { check(key: string) → { allowed: boolean, remaining: number, resetAt: number } }
+     *
+     * Example:
+     *   const limiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 })
+     *
+     *   server function login(email, password) {
+     *       const result = limiter.check(email)
+     *       if (!result.allowed) {
+     *           throw new Error(`Too many attempts. Try again at ${new Date(result.resetAt).toISOString()}`)
+     *       }
+     *       // ... proceed with login
+     *   }
+     */
+    export function createRateLimiter(options) {
+        const windowMs = (options && options.windowMs) || 15 * 60 * 1000
+        const max = (options && options.max) || 10
+
+        // Map<key, { count: number, resetAt: number }>
+        const store = new Map()
+
+        return {
+            check(key) {
+                const now = Date.now()
+                let entry = store.get(key)
+
+                if (!entry || entry.resetAt <= now) {
+                    entry = { count: 0, resetAt: now + windowMs }
+                    store.set(key, entry)
+                }
+
+                entry.count++
+                const allowed = entry.count <= max
+                const remaining = Math.max(0, max - entry.count)
+
+                return { allowed, remaining, resetAt: entry.resetAt }
+            },
+
+            /**
+             * Reset the counter for a specific key (e.g., after successful login).
+             */
+            reset(key) {
+                store.delete(key)
+            },
+
+            /**
+             * Get the current state for a key without incrementing.
+             */
+            peek(key) {
+                const now = Date.now()
+                const entry = store.get(key)
+                if (!entry || entry.resetAt <= now) {
+                    return { count: 0, remaining: max, resetAt: now + windowMs }
+                }
+                return {
+                    count: entry.count,
+                    remaining: Math.max(0, max - entry.count),
+                    resetAt: entry.resetAt
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // TOTP (RFC 6238) — manual implementation, no external deps
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Generate a TOTP secret and metadata for 2FA setup.
+     *
+     * The secret is a random 20-byte Base32-encoded string compatible with
+     * authenticator apps (Google Authenticator, Authy, etc.).
+     *
+     * @param options — { issuer?: string, account?: string }
+     * @returns { secret: string, otpauthUrl: string }
+     *
+     * Example:
+     *   const { secret, otpauthUrl } = generateTotpSecret({ account: user.email })
+     *   // Store secret in DB, show otpauthUrl as QR code link to user
+     */
+    export function generateTotpSecret(options) {
+        server {
+            const bytes = new Uint8Array(20)
+            crypto.getRandomValues(bytes)
+
+            // Base32 encode (RFC 4648)
+            const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+            let secret = ""
+            let buffer = 0
+            let bitsLeft = 0
+            for (const byte of bytes) {
+                buffer = (buffer << 8) | byte
+                bitsLeft += 8
+                while (bitsLeft >= 5) {
+                    bitsLeft -= 5
+                    secret += BASE32[(buffer >> bitsLeft) & 31]
+                }
+            }
+            if (bitsLeft > 0) secret += BASE32[(buffer << (5 - bitsLeft)) & 31]
+
+            const issuer = (options && options.issuer) || "scrml"
+            const account = (options && options.account) || "user"
+            const otpauthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(account)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`
+
+            return { secret, otpauthUrl }
+        }
+    }
+
+    /**
+     * Verify a TOTP code against a secret.
+     *
+     * Accepts codes for the current 30-second window and ±1 window (90 seconds
+     * total) to account for clock drift.
+     *
+     * @param code   — 6-digit TOTP code from authenticator app
+     * @param secret — Base32-encoded secret from generateTotpSecret()
+     * @returns Promise<boolean>
+     *
+     * Example:
+     *   const valid = await verifyTotp(form.totpCode, user.totp_secret)
+     *   if (!valid) { throw new Error("Invalid 2FA code") }
+     */
+    export async function verifyTotp(code, secret) {
+        server {
+            const now = Math.floor(Date.now() / 1000)
+            const timeStep = 30
+            const counter = Math.floor(now / timeStep)
+
+            // Check current window ± 1 for clock drift tolerance
+            for (const offset of [-1, 0, 1]) {
+                const expected = await _hotpGenerate(secret, counter + offset)
+                if (expected === code) return true
+            }
+            return false
+        }
+    }
+
+    /**
+     * Internal: Generate a HOTP code for a given counter value.
+     * HOTP = HMAC-SHA1(key, counter) with dynamic truncation → 6 digits.
+     */
+    async function _hotpGenerate(base32Secret, counter) {
+        server {
+            // Decode Base32 secret
+            const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+            let bits = ""
+            for (const char of base32Secret.toUpperCase()) {
+                const idx = BASE32.indexOf(char)
+                if (idx >= 0) bits += idx.toString(2).padStart(5, "0")
+            }
+            const keyBytes = new Uint8Array(Math.floor(bits.length / 8))
+            for (let i = 0; i < keyBytes.length; i++) {
+                keyBytes[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2)
+            }
+
+            // Counter as 8-byte big-endian
+            const counterBuffer = new ArrayBuffer(8)
+            const view = new DataView(counterBuffer)
+            // Write counter as 64-bit big-endian (low 32 bits only for our purposes)
+            view.setUint32(0, 0, false)
+            view.setUint32(4, counter >>> 0, false)
+
+            // HMAC-SHA1
+            const cryptoKey = await crypto.subtle.importKey(
+                "raw",
+                keyBytes,
+                { name: "HMAC", hash: "SHA-1" },
+                false,
+                ["sign"]
+            )
+            const hmacBuffer = await crypto.subtle.sign("HMAC", cryptoKey, counterBuffer)
+            const hmac = new Uint8Array(hmacBuffer)
+
+            // Dynamic truncation
+            const offset = hmac[hmac.length - 1] & 0x0f
+            const code = (
+                ((hmac[offset]     & 0x7f) << 24) |
+                ((hmac[offset + 1] & 0xff) << 16) |
+                ((hmac[offset + 2] & 0xff) << 8)  |
+                 (hmac[offset + 3] & 0xff)
+            ) % 1000000
+
+            return code.toString().padStart(6, "0")
+        }
+    }
+
+    ~{
+        import { assertEqual, assertTruthy, assertFalsy } from 'scrml:test'
+
+        // createRateLimiter — pure in-memory, testable without server context
+        const limiter = createRateLimiter({ windowMs: 60000, max: 3 })
+
+        // First 3 requests allowed
+        const r1 = limiter.check("user@example.com")
+        assertTruthy(r1.allowed)
+        assertEqual(r1.remaining, 2)
+
+        const r2 = limiter.check("user@example.com")
+        assertTruthy(r2.allowed)
+        assertEqual(r2.remaining, 1)
+
+        const r3 = limiter.check("user@example.com")
+        assertTruthy(r3.allowed)
+        assertEqual(r3.remaining, 0)
+
+        // 4th request blocked
+        const r4 = limiter.check("user@example.com")
+        assertFalsy(r4.allowed)
+        assertEqual(r4.remaining, 0)
+
+        // Different key is unaffected
+        const r5 = limiter.check("other@example.com")
+        assertTruthy(r5.allowed)
+
+        // Reset clears the counter
+        limiter.reset("user@example.com")
+        const r6 = limiter.check("user@example.com")
+        assertTruthy(r6.allowed)
+        assertEqual(r6.remaining, 2)
+    }
+}
+</program>

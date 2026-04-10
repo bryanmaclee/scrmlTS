@@ -1,0 +1,58 @@
+// gauntlet-r13: rust dev — state machine with enums and match
+// Tests: Enum::Variant, match expression, exhaustive matching, nested functions
+// R13 focus: Enum::Variant compiles to "Variant", BPP nested functions
+
+<div class="state-machine">
+    ${
+        type AppState:enum = { Loading, Ready, Error, Saving }
+
+        @state = AppState::Loading
+        @data = not
+        @errorMsg = ""
+        @isLoading = true
+        @isReady = false
+        @isError = false
+
+        function loadData() {
+            @state = AppState::Ready
+            @isLoading = false
+            @isReady = true
+        }
+
+        function transition(newState) {
+            function isValid(from, to) {
+                return true
+            }
+            if (isValid(@state, newState)) {
+                @state = newState
+            }
+        }
+
+        function saveData() {
+            @state = AppState::Saving
+            @state = AppState::Ready
+        }
+
+        function retryLoad() {
+            @state = AppState::Loading
+            @isError = false
+            @isLoading = true
+            loadData()
+        }
+    }
+    <h1>State Machine Demo</>
+    <div>Current state: ${@state}</>
+
+    <div if=@isLoading>
+        <p>Loading...</>
+        <button onclick=loadData()>Load</>
+    </div>
+    <div if=@isReady>
+        <p>Data loaded!</>
+        <button onclick=saveData()>Save</>
+    </div>
+    <div if=@isError>
+        <p class="error">${@errorMsg}</>
+        <button onclick=retryLoad()>Retry</>
+    </div>
+</div>

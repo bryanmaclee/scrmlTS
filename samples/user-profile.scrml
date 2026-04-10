@@ -1,0 +1,176 @@
+// user-profile.scrml
+// Reads a user from the DB, displays profile, has an edit form that updates the DB.
+// Demonstrates < db> with protect=, server functions, E-RI-002 pattern,
+// @error = not for absence, bind:value inputs, #{} CSS.
+
+< db src="./app.db" protect="password_hash, reset_token" tables="users">
+
+${
+    @user       = not     // not = not loaded yet; object = loaded user record
+    @editMode   = false
+    @saving     = false
+    @error      = not     // not = no error; string = error message
+    @success    = not     // not = no success; string = success message
+
+    // Reactive form fields for edit mode.
+    @editName  = ""
+    @editEmail = ""
+
+    // Server function: fetches user record. Returns data — client assigns (E-RI-002).
+    server function fetchUser(id) {
+        lift ?{`
+            SELECT id, display_name, email, created_at
+            FROM users WHERE id = ${id} LIMIT 1
+        `}.get()
+    }
+
+    // Server function: persists profile update.
+    server function persistProfile(id, name, email) {
+        ?{`
+            UPDATE users SET display_name = ${name}, email = ${email}
+            WHERE id = ${id}
+        `}.run()
+    }
+
+    function loadUser(id) {
+        let row = fetchUser(id)
+        if (row is not) {
+            @error = "User not found."
+        } else {
+            @user = row
+        }
+    }
+
+    function enterEditMode() {
+        @success = not
+        @error   = not
+        @editName  = @user.display_name
+        @editEmail = @user.email
+        @editMode = true
+    }
+
+    function cancelEdit() {
+        @editMode = false
+    }
+
+    function saveProfile() {
+        @saving = true
+        @error  = not
+        persistProfile(@user.id, @editName, @editEmail)
+        loadUser(@user.id)
+        @saving   = false
+        @editMode = false
+        @success  = "Profile updated."
+    }
+
+    // Initial load — runs once on render.
+    loadUser(userId)
+}
+
+<div class="profile-page" style="font-family: system-ui, sans-serif;">
+
+    <div class="error-banner" if=(not (@error is not))>${@error}</>
+    <div class="success-banner" if=(not (@success is not))>${@success}</>
+
+    <section class="profile-view" if=(not (@user is not))>
+        <div class="profile-header">
+            <h1>${@user.display_name}</>
+            <p class="profile-email">${@user.email}</>
+            <p class="profile-joined">Member since ${@user.created_at}</>
+        </div>
+        <button class="btn-edit" onclick=enterEditMode()>Edit profile</>
+    </section>
+
+    <section class="profile-edit" if=@editMode>
+        <h2>Edit Profile</>
+        <form onsubmit=saveProfile()>
+            <label>
+                Display name
+                <input type="text" bind:value=@editName required/>
+            </label>
+            <label>
+                Email
+                <input type="email" bind:value=@editEmail required/>
+            </label>
+            <div class="form-actions">
+                <button type="submit" disabled=@saving>
+                    ${@saving ? "Saving…" : "Save changes"}
+                </>
+                <button type="button" onclick=cancelEdit()>Cancel</>
+            </div>
+        </form>
+    </section>
+
+</div>
+
+</>
+
+#{
+    .profile-page {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .error-banner {
+        background: #fee2e2;
+        border: 1px solid #fca5a5;
+        color: #991b1b;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+
+    .success-banner {
+        background: #dcfce7;
+        border: 1px solid #86efac;
+        color: #166534;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+
+    .profile-header { margin-bottom: 1.5rem; }
+
+    .profile-header h1 {
+        font-size: 1.875rem;
+        font-weight: 700;
+        margin: 0 0 0.25rem;
+    }
+
+    .profile-email  { color: #6b7280; margin: 0 0 0.25rem; }
+    .profile-joined { font-size: 0.875rem; color: #9ca3af; margin: 0; }
+
+    .profile-edit label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.9rem;
+        margin-bottom: 1rem;
+    }
+
+    input {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+        font-size: 1rem;
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    button {
+        padding: 0.5rem 1.25rem;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        font-size: 0.95rem;
+    }
+
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+}

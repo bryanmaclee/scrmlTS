@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/cg — Code Generator
+    //
+    // Emits JavaScript (client + server), HTML, and CSS from the analyzed AST.
+    // Final stage of the compiler pipeline.
+    //
+    // Usage:
+    //   import { runCG } from "scrml:compiler/cg"
+    //   const result = runCG({ files, routeMap, depGraph, protectAnalysis, mode })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runCG: _runCG, CGError: _CGError } = await import("../../compiler/src/codegen/index.ts");
+    }
+
+    export const runCG = _runCG
+    export const CGError = _CGError
+}
+</program>

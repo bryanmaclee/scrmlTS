@@ -1,0 +1,14 @@
+// control-013-switch.scrml
+// Switch statement. Tests: switch/case in logic.
+
+<div>
+    ${
+        let day = "Monday"
+        switch (day) {
+            case "Monday": let type = "start"; break
+            case "Friday": let type = "end"; break
+            default: let type = "mid"
+        }
+    }
+    <p>Day categorized</>
+</div>

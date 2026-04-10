@@ -1,0 +1,361 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:time — date formatting and timing utilities
+    //
+    // All date formatting functions are pure (no side effects, usable client + server).
+    // Timing utilities (debounce, throttle) are pure functions — no lifecycle awareness.
+    //
+    // Note on debounce/throttle: these do not integrate with scrml's lifecycle system
+    // (no cleanup on component unmount). Use them for non-component contexts or
+    // document the cleanup requirement explicitly. Timer cleanup via lifecycle hooks
+    // is planned for Wave 1b.
+    //
+    // Usage:
+    //   ${ import { formatDate, formatRelative, debounce } from 'scrml:time' }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Format a timestamp as a human-readable date string.
+     *
+     * @param timestamp — Unix timestamp in milliseconds, or a Date object
+     * @param options — Intl.DateTimeFormat options (optional)
+     * @param locale — BCP 47 locale string (default: "en-US")
+     *
+     * Example:
+     *   formatDate(Date.now()) → "Apr 1, 2026"
+     *   formatDate(ts, { month: "long", day: "numeric" }) → "April 1"
+     *   formatDate(ts, { year: "numeric", month: "2-digit", day: "2-digit" }) → "04/01/2026"
+     */
+    export function formatDate(timestamp, options, locale) {
+        const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+        const defaults = { year: "numeric", month: "short", day: "numeric" }
+        return new Intl.DateTimeFormat(locale || "en-US", options || defaults).format(date)
+    }
+
+    /**
+     * Format a timestamp as a time string.
+     *
+     * @param timestamp — Unix timestamp in milliseconds, or a Date object
+     * @param options — Intl.DateTimeFormat options (optional)
+     * @param locale — BCP 47 locale string (default: "en-US")
+     *
+     * Example:
+     *   formatTime(Date.now()) → "2:34 PM"
+     *   formatTime(ts, { hour12: false }) → "14:34"
+     */
+    export function formatTime(timestamp, options, locale) {
+        const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+        const defaults = { hour: "numeric", minute: "2-digit", hour12: true }
+        return new Intl.DateTimeFormat(locale || "en-US", options || defaults).format(date)
+    }
+
+    /**
+     * Format a timestamp as a combined date and time string.
+     *
+     * Example:
+     *   formatDateTime(Date.now()) → "Apr 1, 2026, 2:34 PM"
+     */
+    export function formatDateTime(timestamp, options, locale) {
+        const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+        const defaults = { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }
+        return new Intl.DateTimeFormat(locale || "en-US", options || defaults).format(date)
+    }
+
+    /**
+     * Format a timestamp as a relative time string ("just now", "2m ago", "3d ago").
+     *
+     * Thresholds:
+     *   < 60s        → "just now"
+     *   < 60m        → "Nm ago"
+     *   < 24h        → "Nh ago"
+     *   < 30d        → "Nd ago"
+     *   < 12 months  → "N months ago"
+     *   otherwise    → formatDate(timestamp)
+     *
+     * Example: formatRelative(Date.now() - 120000) → "2m ago"
+     */
+    export function formatRelative(timestamp, now) {
+        const base = now || Date.now()
+        const ts = timestamp instanceof Date ? timestamp.getTime() : timestamp
+        const diff = base - ts
+        const seconds = Math.floor(diff / 1000)
+
+        if (seconds < 60) return "just now"
+        const minutes = Math.floor(seconds / 60)
+        if (minutes < 60) return `${minutes}m ago`
+        const hours = Math.floor(minutes / 60)
+        if (hours < 24) return `${hours}h ago`
+        const days = Math.floor(hours / 24)
+        if (days < 30) return `${days}d ago`
+        const months = Math.floor(days / 30)
+        if (months < 12) return `${months} ${months === 1 ? "month" : "months"} ago`
+        return formatDate(timestamp)
+    }
+
+    /**
+     * Format a duration in milliseconds as a human-readable string.
+     *
+     * Examples:
+     *   formatDuration(500)    → "500ms"
+     *   formatDuration(3000)   → "3s"
+     *   formatDuration(90000)  → "1m 30s"
+     *   formatDuration(3700000) → "1h 1m"
+     */
+    export function formatDuration(ms) {
+        if (ms < 1000) return `${ms}ms`
+        const seconds = Math.floor(ms / 1000)
+        if (seconds < 60) return `${seconds}s`
+        const minutes = Math.floor(seconds / 60)
+        const remainingSecs = seconds % 60
+        if (minutes < 60) {
+            return remainingSecs > 0 ? `${minutes}m ${remainingSecs}s` : `${minutes}m`
+        }
+        const hours = Math.floor(minutes / 60)
+        const remainingMins = minutes % 60
+        return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`
+    }
+
+    /**
+     * Parse a date string in common formats.
+     * Returns a Date object, or null if parsing fails.
+     *
+     * Supported formats: ISO 8601, "YYYY-MM-DD", "MM/DD/YYYY", "DD/MM/YYYY"
+     *
+     * Example:
+     *   parseDate("2026-04-01") → Date object
+     *   parseDate("04/01/2026") → Date object
+     */
+    export function parseDate(str) {
+        if (!str) return null
+        const d = new Date(str)
+        return isNaN(d.getTime()) ? null : d
+    }
+
+    /**
+     * Check if a value is a valid Date or timestamp.
+     * Returns false for null and undefined (not valid date-like values).
+     *
+     * Example: isValidDate("2026-04-01") → true
+     *          isValidDate("not a date") → false
+     *          isValidDate(null) → false
+     */
+    export function isValidDate(value) {
+        if (value === null || value === undefined) return false
+        if (value instanceof Date) return !isNaN(value.getTime())
+        if (value === "") return false
+        const d = new Date(value)
+        return !isNaN(d.getTime())
+    }
+
+    /**
+     * Get the start of a given unit for a timestamp.
+     *
+     * Example:
+     *   startOf(Date.now(), "day") → midnight today
+     *   startOf(Date.now(), "month") → first of this month at midnight
+     *   startOf(Date.now(), "year") → Jan 1 at midnight
+     */
+    export function startOf(timestamp, unit) {
+        const d = new Date(timestamp instanceof Date ? timestamp.getTime() : timestamp)
+        if (unit === "day") {
+            d.setHours(0, 0, 0, 0)
+        } else if (unit === "month") {
+            d.setDate(1)
+            d.setHours(0, 0, 0, 0)
+        } else if (unit === "year") {
+            d.setMonth(0, 1)
+            d.setHours(0, 0, 0, 0)
+        } else if (unit === "hour") {
+            d.setMinutes(0, 0, 0)
+        } else if (unit === "week") {
+            const day = d.getDay()
+            d.setDate(d.getDate() - day)
+            d.setHours(0, 0, 0, 0)
+        }
+        return d
+    }
+
+    /**
+     * Add a number of units to a timestamp. Returns a new Date.
+     *
+     * Example:
+     *   addTime(Date.now(), 7, "days") → one week from now
+     *   addTime(Date.now(), -1, "months") → one month ago
+     */
+    export function addTime(timestamp, amount, unit) {
+        const d = new Date(timestamp instanceof Date ? timestamp.getTime() : timestamp)
+        const u = unit.replace(/s$/, "") // normalize "days" → "day"
+        if (u === "millisecond") d.setMilliseconds(d.getMilliseconds() + amount)
+        else if (u === "second") d.setSeconds(d.getSeconds() + amount)
+        else if (u === "minute") d.setMinutes(d.getMinutes() + amount)
+        else if (u === "hour") d.setHours(d.getHours() + amount)
+        else if (u === "day") d.setDate(d.getDate() + amount)
+        else if (u === "week") d.setDate(d.getDate() + amount * 7)
+        else if (u === "month") d.setMonth(d.getMonth() + amount)
+        else if (u === "year") d.setFullYear(d.getFullYear() + amount)
+        return d
+    }
+
+    /**
+     * Get the difference between two timestamps in the specified unit.
+     *
+     * Example:
+     *   diffTime(Date.now(), yesterday, "hours") → 24
+     */
+    export function diffTime(a, b, unit) {
+        const ta = a instanceof Date ? a.getTime() : a
+        const tb = b instanceof Date ? b.getTime() : b
+        const diffMs = ta - tb
+        const u = unit.replace(/s$/, "") // normalize "days" → "day"
+        if (u === "millisecond") return diffMs
+        if (u === "second") return Math.floor(diffMs / 1000)
+        if (u === "minute") return Math.floor(diffMs / 60000)
+        if (u === "hour") return Math.floor(diffMs / 3600000)
+        if (u === "day") return Math.floor(diffMs / 86400000)
+        if (u === "week") return Math.floor(diffMs / 604800000)
+        if (u === "month") return Math.floor(diffMs / 2592000000)
+        if (u === "year") return Math.floor(diffMs / 31536000000)
+        return diffMs
+    }
+
+    // ---------------------------------------------------------------------------
+    // Timing utilities
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Debounce a function. The debounced function delays invoking fn until after
+     * `delay` milliseconds have elapsed since the last invocation.
+     *
+     * IMPORTANT: Timer cleanup on component unmount is NOT automatic.
+     * If you use this inside a component event handler, call .cancel() when
+     * the component unmounts to prevent memory leaks.
+     *
+     * Example:
+     *   const handleSearch = debounce((query) => search(query), 300)
+     *   // handleSearch.cancel() — cancel pending invocation
+     */
+    export function debounce(fn, delay) {
+        let timer = null
+        function debounced(...args) {
+            if (timer !== null) clearTimeout(timer)
+            timer = setTimeout(() => {
+                timer = null
+                fn.apply(this, args)
+            }, delay)
+        }
+        debounced.cancel = function() {
+            if (timer !== null) {
+                clearTimeout(timer)
+                timer = null
+            }
+        }
+        debounced.flush = function(...args) {
+            if (timer !== null) {
+                clearTimeout(timer)
+                timer = null
+                fn.apply(this, args)
+            }
+        }
+        return debounced
+    }
+
+    /**
+     * Throttle a function. The throttled function invokes fn at most once per
+     * `limit` milliseconds, leading edge by default.
+     *
+     * IMPORTANT: Same timer cleanup caveat as debounce.
+     *
+     * Example:
+     *   const handleScroll = throttle(updateScrollPosition, 16)
+     */
+    export function throttle(fn, limit) {
+        let inThrottle = false
+        let lastArgs = null
+        return function(...args) {
+            if (!inThrottle) {
+                fn.apply(this, args)
+                inThrottle = true
+                setTimeout(() => {
+                    inThrottle = false
+                    if (lastArgs) {
+                        fn.apply(this, lastArgs)
+                        lastArgs = null
+                    }
+                }, limit)
+            } else {
+                lastArgs = args
+            }
+        }
+    }
+
+    /**
+     * Sleep for a specified number of milliseconds.
+     * Returns a Promise — use with await in server functions.
+     *
+     * Example: await sleep(500)
+     */
+    export function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms))
+    }
+
+    ~{
+        import { assertEqual, assertTruthy, assertFalsy, assertInRange } from 'scrml:test'
+
+        // formatRelative — use fixed "now" for deterministic tests
+        const now = 1000000000000  // fixed reference point
+        assertEqual(formatRelative(now, now), "just now")
+        assertEqual(formatRelative(now - 120000, now), "2m ago")
+        assertEqual(formatRelative(now - 3600000, now), "1h ago")
+        assertEqual(formatRelative(now - 86400000 * 2, now), "2d ago")
+        assertEqual(formatRelative(now - 86400000 * 60, now), "2 months ago")
+
+        // formatDuration
+        assertEqual(formatDuration(500), "500ms")
+        assertEqual(formatDuration(3000), "3s")
+        assertEqual(formatDuration(90000), "1m 30s")
+        assertEqual(formatDuration(60000), "1m")
+        assertEqual(formatDuration(3700000), "1h 1m")
+        assertEqual(formatDuration(3600000), "1h")
+
+        // isValidDate — null/undefined return false
+        assertTruthy(isValidDate("2026-04-01"))
+        assertTruthy(isValidDate(new Date()))
+        assertFalsy(isValidDate("not a date"))
+        assertFalsy(isValidDate(null))
+        assertFalsy(isValidDate(undefined))
+        assertFalsy(isValidDate(""))
+
+        // addTime
+        const base = new Date("2026-01-01T00:00:00.000Z")
+        const plusWeek = addTime(base, 1, "week")
+        assertEqual(plusWeek.getUTCDate(), 8)
+
+        const plusMonth = addTime(base, 2, "months")
+        assertEqual(plusMonth.getUTCMonth(), 2)  // March (0-indexed)
+
+        // diffTime
+        const t1 = new Date("2026-01-01T00:00:00Z").getTime()
+        const t2 = new Date("2026-01-08T00:00:00Z").getTime()
+        assertEqual(diffTime(t2, t1, "days"), 7)
+        assertEqual(diffTime(t2, t1, "hours"), 168)
+        assertEqual(diffTime(t2, t1, "week"), 1)
+
+        // startOf
+        const d = new Date("2026-04-15T14:30:00Z")
+        const dayStart = startOf(d, "day")
+        assertEqual(dayStart.getUTCHours(), 0)
+        assertEqual(dayStart.getUTCMinutes(), 0)
+
+        // debounce returns a function with cancel and flush
+        const db = debounce(() => {}, 100)
+        assertTruthy(typeof db === "function")
+        assertTruthy(typeof db.cancel === "function")
+        assertTruthy(typeof db.flush === "function")
+
+        // sleep returns a Promise
+        const p = sleep(0)
+        assertTruthy(typeof p.then === "function")
+    }
+}
+</program>

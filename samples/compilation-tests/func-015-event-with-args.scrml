@@ -1,0 +1,14 @@
+// func-015-event-with-args.scrml
+// Event handler with arguments. Tests: onclick= with arg passing.
+
+<div>
+    ${
+        @selected = ""
+        function selectItem(name) {
+            @selected = name
+        }
+    }
+    <button onclick=selectItem("apple")>Apple</>
+    <button onclick=selectItem("banana")>Banana</>
+    <button onclick=selectItem("cherry")>Cherry</>
+</div>

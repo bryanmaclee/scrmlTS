@@ -1,0 +1,7 @@
+// edge-002-empty-css.scrml
+// Empty CSS block. Tests: #{} with no content.
+
+<div>
+    #{}
+    <p>Empty CSS block</>
+</div>

@@ -1,0 +1,228 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:router — client-side routing helpers
+    //
+    // Utilities for path matching, URL construction, and browser navigation.
+    //
+    // Pure functions (safe everywhere): match(), parseQuery(), buildUrl()
+    // Browser-only functions: navigate(), currentPath(), onNavigate()
+    //
+    // Usage:
+    //   ${ import { match, parseQuery, buildUrl, navigate, onNavigate } from 'scrml:router' }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Match a URL pattern against a path string.
+     *
+     * Returns null if no match, or { params, query } if matched.
+     *
+     * Pattern syntax:
+     *   /users/:id       — named required parameter
+     *   /admin/:id?      — optional parameter (trailing only)
+     *   /files/*         — wildcard (matches anything including slashes)
+     *   /exact/path      — literal match
+     *
+     * Example:
+     *   match("/users/:id", "/users/42")       → { params: { id: "42" }, query: {} }
+     *   match("/files/*", "/files/a/b/c")      → { params: { "*": "a/b/c" }, query: {} }
+     *   match("/admin/:id?", "/admin")          → { params: {}, query: {} }
+     *   match("/users/:id", "/users/99?tab=x") → { params: { id: "99" }, query: { tab: "x" } }
+     */
+    export function match(pattern, path) {
+        if (!path) return null
+
+        const qIdx = path.indexOf("?")
+        const rawPath = qIdx >= 0 ? path.slice(0, qIdx) : path
+        const rawQuery = qIdx >= 0 ? path.slice(qIdx + 1) : ""
+        const query = rawQuery ? parseQuery(rawQuery) : {}
+
+        // Build regex: strip leading slash, reconstruct cleanly
+        const normalized = pattern.startsWith("/") ? pattern.slice(1) : pattern
+        const segments = normalized.split("/")
+        const keys = []
+        let regexStr = "^/"
+
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i]
+            if (i > 0) regexStr += "/"
+
+            if (seg === "*") {
+                keys.push("*")
+                regexStr += "(.*)"
+            } else if (seg.startsWith(":")) {
+                const optional = seg.endsWith("?")
+                const name = optional ? seg.slice(1, -1) : seg.slice(1)
+                keys.push(name)
+                if (optional) {
+                    // Remove the "/" we just added, wrap entire segment as optional
+                    regexStr = regexStr.slice(0, -1)
+                    regexStr += "(?:/([^/]+))?"
+                } else {
+                    regexStr += "([^/]+)"
+                }
+            } else {
+                regexStr += seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+            }
+        }
+        regexStr += "/?$"
+
+        const regex = new RegExp(regexStr)
+        const m = rawPath.match(regex)
+        if (!m) return null
+
+        const params = {}
+        keys.forEach((key, idx) => {
+            if (m[idx + 1] !== undefined) {
+                params[key] = m[idx + 1]
+            }
+        })
+
+        return { params, query }
+    }
+
+    /**
+     * Parse a URL query string into a plain object.
+     *
+     * Handles leading "?" automatically. URL-decodes keys and values.
+     * Plus signs in values are decoded as spaces.
+     *
+     * Example:
+     *   parseQuery("?foo=bar&baz=1")    → { foo: "bar", baz: "1" }
+     *   parseQuery("foo=hello%20world") → { foo: "hello world" }
+     *   parseQuery("")                  → {}
+     */
+    export function parseQuery(queryString) {
+        if (!queryString) return {}
+        const qs = queryString.startsWith("?") ? queryString.slice(1) : queryString
+        if (!qs) return {}
+        const result = {}
+        for (const pair of qs.split("&")) {
+            const eqIdx = pair.indexOf("=")
+            if (eqIdx === -1) {
+                result[decodeURIComponent(pair)] = ""
+            } else {
+                const key = decodeURIComponent(pair.slice(0, eqIdx))
+                const val = decodeURIComponent(pair.slice(eqIdx + 1).replace(/\+/g, " "))
+                result[key] = val
+            }
+        }
+        return result
+    }
+
+    /**
+     * Build a URL from a pattern with parameter substitution.
+     *
+     * Unmatched optional params (:name?) are stripped from the path.
+     *
+     * Example:
+     *   buildUrl("/users/:id", { id: 42 })                     → "/users/42"
+     *   buildUrl("/users/:id", { id: 42 }, { tab: "profile" }) → "/users/42?tab=profile"
+     *   buildUrl("/admin/:id?", {})                            → "/admin"
+     */
+    export function buildUrl(pattern, params, query) {
+        let url = pattern
+        if (params) {
+            for (const [key, value] of Object.entries(params)) {
+                url = url.replace(`:${key}?`, encodeURIComponent(String(value)))
+                url = url.replace(`:${key}`, encodeURIComponent(String(value)))
+            }
+        }
+        url = url.replace(/\/:[a-zA-Z][a-zA-Z0-9]*\?/g, "")
+
+        if (query && Object.keys(query).length > 0) {
+            const qs = Object.entries(query)
+                .filter(([, v]) => v !== undefined && v !== null)
+                .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+                .join("&")
+            if (qs) url += "?" + qs
+        }
+        return url
+    }
+
+    /**
+     * Navigate to a URL using the browser's History API.
+     *
+     * CLIENT-SIDE ONLY.
+     *
+     * @param url     — path or full URL
+     * @param options — { replace?: boolean }
+     */
+    export function navigate(url, options) {
+        const replace = options && options.replace
+        if (replace) {
+            window.history.replaceState({}, "", url)
+        } else {
+            window.history.pushState({}, "", url)
+        }
+        window.dispatchEvent(new PopStateEvent("popstate", { state: {} }))
+    }
+
+    /**
+     * Get the current browser pathname (excludes query string and hash).
+     *
+     * CLIENT-SIDE ONLY.
+     */
+    export function currentPath() {
+        return window.location.pathname
+    }
+
+    /**
+     * Listen for navigation events matching a pattern.
+     *
+     * Fires immediately on the current path, then on every popstate event.
+     * Returns an unsubscribe function — call it to stop listening.
+     *
+     * CLIENT-SIDE ONLY.
+     *
+     * Example:
+     *   const unsub = onNavigate("/users/:id", (path, result) => {
+     *       if (result) { @userId = result.params.id }
+     *   })
+     *   // Call unsub() when component unmounts
+     */
+    export function onNavigate(pattern, handler) {
+        function handlePopState() {
+            const path = window.location.pathname + window.location.search
+            handler(window.location.pathname, match(pattern, path))
+        }
+        window.addEventListener("popstate", handlePopState)
+        handlePopState()
+        return function() {
+            window.removeEventListener("popstate", handlePopState)
+        }
+    }
+
+    ~{
+        import { assertEqual, assertTruthy, assertFalsy } from 'scrml:test'
+
+        const q1 = parseQuery("?foo=bar&baz=1")
+        assertEqual(q1.foo, "bar")
+        assertEqual(q1.baz, "1")
+        assertEqual(Object.keys(parseQuery("")).length, 0)
+
+        assertEqual(buildUrl("/users/:id", { id: 42 }), "/users/42")
+        assertEqual(buildUrl("/blog/:year/:month", { year: 2026, month: "04" }), "/blog/2026/04")
+        assertEqual(buildUrl("/admin/:id?", {}), "/admin")
+
+        const urlWithQuery = buildUrl("/users/:id", { id: 42 }, { tab: "profile" })
+        assertTruthy(urlWithQuery.startsWith("/users/42"))
+        assertTruthy(urlWithQuery.includes("tab=profile"))
+
+        const m1 = match("/users/:id", "/users/42")
+        assertTruthy(m1 !== null)
+        assertEqual(m1.params.id, "42")
+
+        assertFalsy(match("/users/:id", "/posts/1") !== null)
+
+        const m2 = match("/files/*", "/files/a/b/c")
+        assertTruthy(m2 !== null)
+        assertEqual(m2.params["*"], "a/b/c")
+
+        const m3 = match("/users/:id", "/users/99?tab=settings")
+        assertTruthy(m3 !== null)
+        assertEqual(m3.params.id, "99")
+        assertEqual(m3.query.tab, "settings")
+    }
+}
+</program>

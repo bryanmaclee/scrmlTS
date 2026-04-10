@@ -1,0 +1,19 @@
+// type-005-multiple-types.scrml
+// Multiple type declarations. Tests: several type decls in one block.
+
+<div>
+    ${
+        type Priority:enum = {
+            Low
+            Medium
+            High
+            Critical
+        }
+        type TaskStatus:enum = {
+            Todo
+            InProgress
+            Done
+        }
+    }
+    <p>Multiple types</>
+</div>

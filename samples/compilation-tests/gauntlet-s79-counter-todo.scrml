@@ -1,0 +1,203 @@
+// counter-todo.scrml
+// Go/HTMX dev test: counter + todo list
+// Tests: @var reactive state, events, if conditional, for/lift, reactive arrays, CSS, functions
+
+#{
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: system-ui, sans-serif;
+        background: #f5f5f5;
+        color: #222;
+        padding: 2rem;
+        max-width: 560px;
+        margin: 0 auto;
+    }
+
+    .section {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    h2 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #555;
+    }
+
+    .count-display {
+        font-size: 3rem;
+        font-weight: 700;
+        text-align: center;
+        padding: 1rem 0;
+    }
+
+    .btn-row {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: center;
+        margin-top: 0.5rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1.25rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: #fff;
+        cursor: pointer;
+        font-size: 1rem;
+    }
+
+    .btn:hover {
+        background: #f0f0f0;
+    }
+
+    .btn-danger {
+        border-color: #e55;
+        color: #e55;
+    }
+
+    .btn-danger:hover {
+        background: #fff0f0;
+    }
+
+    .note {
+        font-size: 0.8rem;
+        color: #999;
+        text-align: center;
+        margin-top: 0.5rem;
+    }
+
+    .todo-form {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .todo-input {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+
+    .todo-list {
+        list-style: none;
+    }
+
+    .todo-item {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #eee;
+        font-size: 0.95rem;
+    }
+
+    .empty-state {
+        color: #aaa;
+        font-size: 0.9rem;
+        text-align: center;
+        padding: 1rem 0;
+    }
+}
+
+// --- state ---
+${
+    @count = 0
+    @newTodo = ""
+    @todos = []
+
+    function increment() {
+        @count = @count + 1
+    }
+
+    function decrement() {
+        @count = @count - 1
+    }
+
+    // captures current @newTodo and pushes it into @todos
+    // assumption: array spread/push on reactive arrays works like JS .concat()
+    // spec says @var = value triggers re-render — treating this as a full replace
+    function addTodo() {
+        if (@newTodo != "") {
+            @todos = @todos.concat([@newTodo])
+            @newTodo = ""
+        }
+    }
+
+    function reset() {
+        @count = 0
+        @todos = []
+    }
+
+    // tracks the input field as user types
+    function onTodoInput() {
+        // @newTodo is wired via oninput= below — no body needed here
+        // assumption: event.target.value feeds into the bound @var automatically
+        // this is the part I'm not sure about — see Open Questions
+    }
+}
+
+// --- counter section ---
+<div class="section">
+    <h2>Counter</>
+    <div class="count-display">${@count}</>
+    <div class="btn-row">
+        <button class="btn" onclick=decrement()>-</>
+        <button class="btn" onclick=increment()>+</>
+    </div>
+    ${
+        if (@count == 0) {
+            lift <p class="note">Click +/- to change the count</>
+        }
+        if (@count > 9) {
+            lift <p class="note">Getting up there.</>
+        }
+        if (@count < 0) {
+            lift <p class="note">Negative territory.</>
+        }
+    }
+</div>
+
+// --- todo section ---
+<div class="section">
+    <h2>Todo List</>
+    <div class="todo-form">
+        // assumption: oninput= on an input element with a reactive @var binding
+        // updates @newTodo on each keystroke. Not sure if this is value=@newTodo
+        // syntax or if oninput handler is needed. Using oninput=addTodo approach
+        // but wiring @newTodo directly to the input value. Flagged below.
+        <input
+            class="todo-input"
+            type="text"
+            value=@newTodo
+            placeholder="Add a task..."
+            oninput=onTodoInput()
+        />
+        <button class="btn" onclick=addTodo()>Add</>
+    </div>
+    <ul class="todo-list">
+        ${
+            if (@todos.length == 0) {
+                lift <li class="empty-state">No todos yet.</>
+            }
+            for (let item of @todos) {
+                lift <li class="todo-item">${item}</>
+            }
+        }
+    </ul>
+</div>
+
+// --- reset ---
+<div class="btn-row">
+    <button class="btn btn-danger" onclick=reset()>Reset everything</>
+</div>

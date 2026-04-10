@@ -1,0 +1,28 @@
+// combined-010-theme-switcher.scrml
+// Theme switcher. Tests: reactive state + events + type system.
+
+<div class="app">
+    ${
+        type Theme:enum = {
+            Light
+            Dark
+            Auto
+        }
+        @currentTheme = "Light"
+
+        function setTheme(theme) {
+            @currentTheme = theme
+        }
+    }
+    <header>
+        <h1>Theme Switcher</>
+        <div class="theme-controls">
+            <button onclick=setTheme("Light")>Light</>
+            <button onclick=setTheme("Dark")>Dark</>
+            <button onclick=setTheme("Auto")>Auto</>
+        </div>
+    </header>
+    <main>
+        <p>Current theme: ${@currentTheme}</>
+    </main>
+</div>

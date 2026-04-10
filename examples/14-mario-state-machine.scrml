@@ -1,0 +1,250 @@
+#{
+    :root {
+        --mario-red: #E52521;
+        --mario-green: #43B047;
+        --mario-blue: #049CD8;
+        --mario-yellow: #FBBF07;
+        --bg-dark: #1a1a2e;
+        --bg-card: #16213e;
+        --text-light: #eee;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background: var(--bg-dark);
+        color: var(--text-light);
+        font-family: 'Press Start 2P', 'Courier New', monospace;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    .game-container {
+        background: var(--bg-card);
+        border-radius: 16px;
+        padding: 32px;
+        width: 480px;
+        box-shadow: 0 0 40px rgba(5, 156, 216, 0.15);
+        border: 2px solid rgba(255,255,255,0.05);
+    }
+    .title {
+        text-align: center;
+        font-size: 18px;
+        color: var(--mario-yellow);
+        text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+        margin-bottom: 24px;
+    }
+    .stats-bar {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: rgba(0,0,0,0.3);
+        border-radius: 8px;
+        margin-bottom: 20px;
+        font-size: 11px;
+    }
+    .stat { display: flex; align-items: center; gap: 8px; }
+    .stat-label { color: #999; text-transform: uppercase; font-size: 9px; }
+    .mario-display {
+        text-align: center;
+        padding: 32px 0;
+        font-size: 64px;
+        min-height: 140px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .mario-name {
+        font-size: 14px;
+        margin-top: 12px;
+        letter-spacing: 2px;
+        color: var(--mario-yellow);
+    }
+    .warning-bar {
+        background: rgba(229, 37, 33, 0.15);
+        border: 1px solid rgba(229, 37, 33, 0.3);
+        color: var(--mario-red);
+        padding: 8px 16px;
+        border-radius: 6px;
+        text-align: center;
+        font-size: 9px;
+        margin-bottom: 16px;
+    }
+    .power-ups {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .btn {
+        padding: 12px 8px;
+        border: none;
+        border-radius: 8px;
+        font-family: inherit;
+        font-size: 10px;
+        cursor: pointer;
+        color: white;
+        text-shadow: 1px 1px 0 rgba(0,0,0,0.3);
+    }
+    .btn-mushroom { background: var(--mario-green); }
+    .btn-flower { background: var(--mario-yellow); color: #333; text-shadow: none; }
+    .btn-feather { background: var(--mario-blue); }
+    .btn-hurt {
+        background: var(--mario-red);
+        width: 100%;
+        margin-top: 8px;
+        font-size: 11px;
+        padding: 14px;
+    }
+    .btn-restart {
+        background: var(--mario-green);
+        width: 100%;
+        margin-top: 12px;
+        font-size: 11px;
+        padding: 14px;
+    }
+    .game-over-text {
+        font-size: 20px;
+        color: var(--mario-red);
+        margin: 24px 0;
+        text-align: center;
+        text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
+    }
+}
+
+${
+    type PowerUp:enum = { Mushroom, Flower, Feather }
+
+    type MarioState:enum = {
+        Small
+        Big
+        Fire
+        Cape
+
+        transitions {
+            .Small => .Big
+            .Small => .Fire
+            .Small => .Cape
+            .Big   => .Fire
+            .Big   => .Cape
+            .Big   => .Small
+            .Fire  => .Small
+            .Cape  => .Small
+        }
+    }
+
+    @marioState = MarioState.Small
+    @coins = 0
+    @lives = 3
+    @gameOver = false
+    @marioEmoji = "🧍"
+    @marioName = "SMALL MARIO"
+    @isSmall = true
+
+    function updateDisplay() {
+        @marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
+        @marioName = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
+        @isSmall = @marioState == MarioState.Small
+    }
+
+    function eatPowerUp(powerUp) {
+        if (@gameOver) { return }
+        @coins = @coins + 1
+        @marioState = match powerUp {
+            .Mushroom => match @marioState {
+                .Small => MarioState.Big
+                else   => @marioState
+            }
+            .Flower  => MarioState.Fire
+            .Feather => MarioState.Cape
+        }
+        updateDisplay()
+    }
+
+    function getHurt() {
+        if (@gameOver) { return }
+        let wasSmall = @marioState == MarioState.Small
+        @marioState = MarioState.Small
+        updateDisplay()
+        if (wasSmall) {
+            @lives = @lives - 1
+            if (@lives == 0) {
+                @gameOver = true
+            }
+        }
+    }
+
+    function restart() {
+        @marioState = MarioState.Small
+        @coins = 0
+        @lives = 3
+        @gameOver = false
+        updateDisplay()
+    }
+}
+
+< machine MarioMachine for MarioState>
+    .Small => .Big
+    .Small => .Fire
+    .Small => .Cape
+    .Big   => .Fire
+    .Big   => .Cape
+    .Big   => .Small
+    .Fire  => .Small
+    .Cape  => .Small
+</>
+
+<div class="game-container">
+    <h1 class="title">SUPER MARIO STATE MACHINE</>
+
+    <div class="stats-bar">
+        <div class="stat">
+            <span class="stat-label">LIVES</>
+            <span>${@lives}</>
+        </>
+        <div class="stat">
+            <span class="stat-label">COINS</>
+            <span>${@coins}</>
+        </>
+        <div class="stat">
+            <span class="stat-label">STATE</>
+            <span>${@marioState.variant}</>
+        </>
+    </>
+
+    <div class="mario-display">
+        <span>${@marioEmoji}</>
+        <span class="mario-name">${@marioName}</>
+    </>
+
+    ${
+        if (@isSmall) {
+            lift <div class="warning-bar">ONE HIT AND YOU LOSE A LIFE!</>
+        }
+    }
+
+    ${
+        if (@gameOver) {
+            lift <p class="game-over-text">GAME OVER</>
+        }
+    }
+
+    ${
+        if (@gameOver == false) {
+            lift <div>
+                <div class="power-ups">
+                    <button class="btn btn-mushroom" onclick=${eatPowerUp(PowerUp.Mushroom)}>MUSHROOM</>
+                    <button class="btn btn-flower" onclick=${eatPowerUp(PowerUp.Flower)}>FLOWER</>
+                    <button class="btn btn-feather" onclick=${eatPowerUp(PowerUp.Feather)}>FEATHER</>
+                </>
+                <button class="btn btn-hurt" onclick=${getHurt()}>GET HURT</>
+            </>
+        }
+    }
+
+    ${
+        if (@gameOver) {
+            lift <button class="btn btn-restart" onclick=${restart()}>CONTINUE</>
+        }
+    }
+</>

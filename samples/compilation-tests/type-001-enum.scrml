@@ -1,0 +1,13 @@
+// type-001-enum.scrml
+// Basic enum type declaration. Tests: type...enum in logic.
+
+<div>
+    ${
+        type Status:enum = {
+            Active
+            Inactive
+            Pending
+        }
+    }
+    <p>Enum declared</>
+</div>

@@ -1,0 +1,10 @@
+// server-010-multiple-state.scrml
+// Multiple state blocks. Tests: several < ...> blocks.
+
+< config env="production">
+    <p>Config loaded</>
+</>
+
+<div>
+    <p>Main content</>
+</div>

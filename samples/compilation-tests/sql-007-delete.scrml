@@ -1,0 +1,9 @@
+// sql-007-delete.scrml
+// SQL DELETE. Tests: ?{} with delete operation.
+
+<div>
+    ${
+        ?{`DELETE FROM sessions WHERE expired = 1`}
+    }
+    <p>Delete done</>
+</div>

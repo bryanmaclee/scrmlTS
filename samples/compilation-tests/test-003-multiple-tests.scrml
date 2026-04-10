@@ -1,0 +1,13 @@
+// test-003-multiple-tests.scrml
+// Several tests in one ~{} block. Tests: multiple test declarations.
+
+${
+    function add(a, b) { return a + b }
+    function mul(a, b) { return a * b }
+}
+
+~{ "math functions"
+    test "add two numbers" { assert add(2, 3) == 5 }
+    test "add zero" { assert add(0, 5) == 5 }
+    test "multiply" { assert mul(3, 4) == 12 }
+}

@@ -1,0 +1,26 @@
+// combined-001-counter.scrml
+// Counter app with increment/decrement. Tests: reactive + functions + events.
+
+<div class="counter-app">
+    ${
+        @count = 0
+        function increment() {
+            @count = @count + 1
+        }
+        function decrement() {
+            @count = @count - 1
+        }
+        function reset() {
+            @count = 0
+        }
+    }
+    <h1>Counter</>
+    <div class="counter-display">
+        <span class="count">${@count}</>
+    </div>
+    <div class="counter-controls">
+        <button onclick=decrement()>-</>
+        <button onclick=reset()>Reset</>
+        <button onclick=increment()>+</>
+    </div>
+</div>

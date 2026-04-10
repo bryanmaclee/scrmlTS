@@ -1,0 +1,10 @@
+// basic-006-deep-nesting.scrml
+// Deeply nested tags. Tests: multiple levels of nesting.
+
+<div class="level-1">
+    <div class="level-2">
+        <div class="level-3">
+            <span>Deep content</>
+        </div>
+    </div>
+</div>

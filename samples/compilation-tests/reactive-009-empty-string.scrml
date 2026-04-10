@@ -1,0 +1,11 @@
+// reactive-009-empty-string.scrml
+// Reactive variables: empty string for input state, not for absence state.
+// Tests: @ with "" for input, @ with not for absence.
+
+<div>
+    ${
+        @searchQuery = ""
+        @errorMessage = not
+    }
+    <input type="text" placeholder="Search..."/>
+</div>

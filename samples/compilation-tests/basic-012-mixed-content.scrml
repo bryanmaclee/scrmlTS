@@ -1,0 +1,11 @@
+// basic-012-mixed-content.scrml
+// Text mixed with inline elements. Tests: text nodes alongside tags.
+
+<div>
+    <p>
+        This is some text with <strong>bold</>  and <em>italic</>  words.
+    </p>
+    <p>
+        Visit <a href="https://example.com">our website</>  for more info.
+    </p>
+</div>

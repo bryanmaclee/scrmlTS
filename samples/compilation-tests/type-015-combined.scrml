@@ -1,0 +1,22 @@
+// type-015-combined.scrml
+// Multiple types, functions, and reactive state together. Tests: full type scenario.
+
+<div>
+    ${
+        type Role:enum = {
+            Admin
+            Editor
+            Viewer
+        }
+        type UserInfo:struct = {
+            name: string
+            role: string
+            email: string
+        }
+        @currentUser = not
+        function setRole(role) {
+            let updated = role
+        }
+    }
+    <p>Full type system usage</>
+</div>

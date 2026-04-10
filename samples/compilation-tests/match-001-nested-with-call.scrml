@@ -1,0 +1,27 @@
+${
+    type PowerUp:enum = { Mushroom, Flower, Feather }
+    type MarioState:enum = { Small, Big, Fire, Cape }
+    @state = MarioState.Small
+    @label = "Small"
+
+    function updateLabel() {
+        @label = match @state { .Small => "Small" .Big => "Big" .Fire => "Fire" .Cape => "Cape" }
+    }
+
+    function eatPowerUp(powerUp) {
+        @state = match powerUp {
+            .Mushroom => match @state {
+                .Small => MarioState.Big
+                else   => @state
+            }
+            .Flower  => MarioState.Fire
+            .Feather => MarioState.Cape
+        }
+        updateLabel()
+    }
+}
+
+<div>
+    <p>State: ${@label}</>
+    <button onclick=${eatPowerUp(PowerUp.Mushroom)}>Eat</>
+</>

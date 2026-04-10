@@ -1,0 +1,12 @@
+// test-004-assert-equals.scrml
+// Test assert with equality. Tests: assert a == b pattern.
+
+${
+    let name = "scrml"
+    let version = 1
+}
+
+~{ "equality assertions"
+    test "string equality" { assert name == "scrml" }
+    test "number equality" { assert version == 1 }
+}

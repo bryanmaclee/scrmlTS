@@ -1,0 +1,492 @@
+// api-dashboard.scrml
+// An API endpoint management dashboard.
+//
+// Features:
+//   - Endpoint list loaded from ?{}.all()
+//   - Add endpoint form with method enum (GET/POST/PUT/DELETE), URL, description
+//   - Test endpoint button: server function makes fetch, returns status code
+//   - Response display with if=/else-if=/else for status code ranges
+//   - !{} error handling for network failures
+//   - .run() for SQL writes, .prepare() for batch inserts
+//
+// bun:sqlite passthrough coverage tested here:
+//   .all()     — SELECT list
+//   .get()     — SELECT single row (endpoint detail by id)
+//   .run()     — INSERT / UPDATE / DELETE writes
+//   .prepare() — batch import of seed endpoints
+//
+// §8 SQL, §8.5 .run()/.prepare(), §14 enums, §17.1.1 if=/else-if=/else,
+// §19 !{} errors, §6 @reactive, §12 route inference
+
+<program db="./api-dashboard.db">
+
+// ============================================================
+// Types
+// ============================================================
+
+${
+    type HttpMethod:enum = {
+        GET
+        POST
+        PUT
+        DELETE
+    }
+
+    type ResponseState:enum = {
+        Idle
+        Loading
+        Success
+        Error
+    }
+}
+
+// ============================================================
+// Reactive state
+// ============================================================
+
+@endpoints = []
+@newMethod = "GET"
+@newUrl = ""
+@newDescription = ""
+@loading = true
+@submitError = ""
+@testingId = not
+@testStatus = not
+@testBody = ""
+@responseState = "Idle"
+@networkError = ""
+
+// Load on mount
+${ loadEndpoints() }
+
+// ============================================================
+// Markup
+// ============================================================
+
+<div class="api-dashboard">
+
+    <header class="dashboard-header">
+        <h1>API Endpoint Dashboard/
+        <p class="subtitle">Manage and test your API endpoints/
+    </header>
+
+    // --------------------------------------------------------
+    // Add Endpoint Form
+    // --------------------------------------------------------
+    <section class="add-form">
+        <h2>Add Endpoint/
+
+        <div class="error-msg" if=@submitError>${@submitError}/
+
+        <form onsubmit=submitAddEndpoint()>
+            <div class="form-row">
+                <label>Method/
+                <select oninput=setMethod()>
+                    <option value="GET">GET/
+                    <option value="POST">POST/
+                    <option value="PUT">PUT/
+                    <option value="DELETE">DELETE/
+                </select>
+            </div>
+            <div class="form-row">
+                <label>URL/
+                <input
+                    type="text"
+                    oninput=setUrl()
+                    placeholder="https://api.example.com/endpoint"
+                />
+            </div>
+            <div class="form-row">
+                <label>Description/
+                <input
+                    type="text"
+                    oninput=setDescription()
+                    placeholder="What does this endpoint do?"
+                />
+            </div>
+            <button type="submit">Add Endpoint/
+        </form>
+    </section>
+
+    // --------------------------------------------------------
+    // Endpoint List
+    // --------------------------------------------------------
+    <section class="endpoint-list">
+        <h2>Endpoints (${@endpoints.length})/
+
+        <div class="loading-msg" if=@loading>Loading endpoints…/
+
+        <table class="endpoint-table" if=@loading>
+        </table>
+
+        <table class="endpoint-table">
+            <thead>
+                <tr>
+                    <th>Method/
+                    <th>URL/
+                    <th>Description/
+                    <th>Actions/
+                </tr>
+            </thead>
+            <tbody>${
+                for (ep of @endpoints) {
+                    lift <tr>
+                        <td>
+                            <span class="method-badge">${ep.method}/
+                        /
+                        <td>${ep.url}/
+                        <td>${ep.description}/
+                        <td>
+                            <button onclick=testEndpoint(ep.id, ep.url, ep.method)>Test/
+                            <button class="btn-danger" onclick=deleteEndpoint(ep.id)>Delete/
+                        /
+                    </tr>
+                }
+            }
+        </table>
+    </section>
+
+    // --------------------------------------------------------
+    // Test Response Panel
+    // --------------------------------------------------------
+    <section class="response-panel" if=@testingId>
+        <h2>Test Result/
+
+        // Loading state
+        <div class="response-loading" if=@responseState>
+            ${
+                if (@responseState == "Loading") {
+                    lift <p>Testing endpoint…/
+                } else {
+                    lift <p>/
+                }
+            }
+        </div>
+
+        // Network error — !{} handled and placed in @networkError
+        <div class="response-error" if=@networkError>
+            <p class="error-label">Network Error/
+            <p>${@networkError}/
+        </div>
+
+        // Response status display — if=/else-if=/else chain
+        <div class="response-status" if=@testStatus>
+
+            // 2xx success
+            <div class="status-success" if=isSuccess(@testStatus)>
+                <span class="status-code">${@testStatus}/
+                <span class="status-label">Success/
+            </div>
+
+            // 3xx redirect — immediately after the 2xx block
+            <div class="status-redirect" else-if=isRedirect(@testStatus)>
+                <span class="status-code">${@testStatus}/
+                <span class="status-label">Redirect/
+            </div>
+
+            // 4xx client error
+            <div class="status-client-err" else-if=isClientError(@testStatus)>
+                <span class="status-code">${@testStatus}/
+                <span class="status-label">Client Error/
+            </div>
+
+            // 5xx server error
+            <div class="status-server-err" else-if=isServerError(@testStatus)>
+                <span class="status-code">${@testStatus}/
+                <span class="status-label">Server Error/
+            </div>
+
+            // Unknown / unexpected
+            <div class="status-unknown" else>
+                <span class="status-code">${@testStatus}/
+                <span class="status-label">Unknown/
+            </div>
+
+        </div>
+
+        // Response body
+        <div class="response-body" if=@testBody>
+            <h3>Response Body/
+            <pre>${@testBody}/
+        </div>
+
+        <button onclick=clearTest()>Close/
+    </section>
+
+</div>
+
+// ============================================================
+// Logic
+// ============================================================
+
+${
+    // --------------------------------------------------------
+    // Form field handlers (oninput — reading event.target.value
+    // is the workaround for missing bind:value)
+    // --------------------------------------------------------
+    function setMethod() {
+        // FRICTION: No bind:value. Have to manually wire oninput.
+        // In Bun I'd just use a signal and an <select> event listener.
+        // Here I'm wiring it manually because bind:value isn't compiled yet.
+        // Workaround: will use @newMethod as a string — not the enum type.
+        @newMethod = event.target.value
+    }
+
+    function setUrl() {
+        @newUrl = event.target.value
+    }
+
+    function setDescription() {
+        @newDescription = event.target.value
+    }
+
+    // --------------------------------------------------------
+    // READ — load endpoint list
+    // --------------------------------------------------------
+    server function loadEndpoints() {
+        // .all() — the canonical bun:sqlite method for SELECT *
+        @endpoints = ?{`
+            SELECT id, method, url, description, created_at
+            FROM endpoints
+            ORDER BY created_at DESC
+        `}.all()
+        @loading = false
+    }
+
+    // --------------------------------------------------------
+    // WRITE — add new endpoint with .run()
+    // --------------------------------------------------------
+    server function addEndpoint(method, url, description) {
+        // .run() for INSERT — returns { changes, lastInsertRowid }
+        let result = ?{`
+            INSERT INTO endpoints (method, url, description)
+            VALUES (${method}, ${url}, ${description})
+        `}.run() !{
+            | ::SQLError e -> {
+                @submitError = e.message
+                return []
+            }
+            | ::ConflictError e -> {
+                @submitError = "An endpoint with this URL and method already exists."
+                return []
+            }
+        }
+
+        // Refresh the list from DB — source of truth
+        return ?{`
+            SELECT id, method, url, description, created_at
+            FROM endpoints
+            ORDER BY created_at DESC
+        `}.all()
+    }
+
+    function submitAddEndpoint() {
+        if (!@newUrl) {
+            @submitError = "URL is required."
+            return
+        }
+        @submitError = ""
+
+        // Call server function — compiler generates fetch + await
+        // Return value flows back to client, we assign to @endpoints
+        let updated = addEndpoint(@newMethod, @newUrl, @newDescription)
+        @endpoints = updated
+        @newUrl = ""
+        @newDescription = ""
+        @newMethod = "GET"
+    }
+
+    // --------------------------------------------------------
+    // DELETE — remove endpoint with .run()
+    // --------------------------------------------------------
+    server function removeEndpoint(endpointId) {
+        ?{`DELETE FROM endpoints WHERE id = ${endpointId}`}.run()
+        return ?{`
+            SELECT id, method, url, description, created_at
+            FROM endpoints
+            ORDER BY created_at DESC
+        `}.all()
+    }
+
+    function deleteEndpoint(id) {
+        let updated = removeEndpoint(id)
+        @endpoints = updated
+        if (@testingId == id) {
+            @testingId = not
+            @testStatus = not
+            @testBody = ""
+        }
+    }
+
+    // --------------------------------------------------------
+    // TEST — server function makes real HTTP fetch
+    // Returns status code. !{} handles network failures.
+    // --------------------------------------------------------
+    server function fetchEndpoint(url, method) {
+        // Inside a server function, all Bun runtime APIs are available.
+        // This is a real fetch — the spec says server functions compile to
+        // Bun server route handlers. Bun.fetch() is the native implementation.
+        // FRICTION: The spec does not normatively state that Bun runtime APIs
+        // (fetch, Bun.file, crypto, etc.) are available inside `server function`.
+        // Inferring from §1.2: "compiler runs on Bun". Server fn bodies compile
+        // to Bun route handlers. Bun exposes global fetch. Should be fine.
+        // But I'm guessing. This should be explicit in the spec.
+        let resp = fetch(url, { method: method }) !{
+            | ::NetworkError e -> {
+                return { status: 0, body: "", networkError: e.message }
+            }
+            | _ e -> {
+                return { status: 0, body: "", networkError: e.message }
+            }
+        }
+        let body = resp.text() !{
+            | _ e -> { return { status: resp.status, body: "", networkError: "" } }
+        }
+        return { status: resp.status, body: body, networkError: "" }
+    }
+
+    function testEndpoint(id, url, method) {
+        @testingId = id
+        @testStatus = not
+        @testBody = ""
+        @networkError = ""
+        @responseState = "Loading"
+
+        // Server function call — compiler inserts await
+        let result = fetchEndpoint(url, method)
+
+        if (result.networkError) {
+            @networkError = result.networkError
+            @responseState = "Error"
+        } else {
+            @testStatus = result.status
+            @testBody = result.body
+            @responseState = "Success"
+        }
+    }
+
+    // --------------------------------------------------------
+    // PREPARE — batch import of seed endpoints
+    // Demonstrates .prepare() for repeated execution
+    // --------------------------------------------------------
+    server function seedEndpoints(endpoints) {
+        // .prepare() returns a PreparedStatement (bun:sqlite Statement)
+        // without executing. Parameters from the ?{} template are NOT passed
+        // to prepare() — they're supplied at stmt.run() time.
+        // FRICTION: The spec (§8.5.2) says params from ?{} are NOT passed to
+        // .prepare(). So the ?{} expression bindings are ignored — the returned
+        // Statement has no param context. You then call stmt.run(a, b) manually.
+        // This is slightly awkward: the template literals in ?{`... ${x} ...`}.prepare()
+        // are syntactically present but semantically inert. The developer
+        // is writing params twice — once in the template (for type information)
+        // and once in stmt.run(). The spec doesn't call out this discrepancy.
+        // It's confusing enough that it deserves a warning or explicit guidance.
+        const stmt = ?{`
+            INSERT OR IGNORE INTO endpoints (method, url, description)
+            VALUES (?1, ?2, ?3)
+        `}.prepare()
+
+        for (ep of endpoints) {
+            stmt.run(ep.method, ep.url, ep.description)
+        }
+
+        return ?{`
+            SELECT id, method, url, description, created_at
+            FROM endpoints
+            ORDER BY created_at DESC
+        `}.all()
+    }
+
+    // --------------------------------------------------------
+    // Helper functions (client-side — no SQL, no server escalation)
+    // --------------------------------------------------------
+
+    function clearTest() {
+        @testingId = not
+        @testStatus = not
+        @testBody = ""
+        @networkError = ""
+        @responseState = "Idle"
+    }
+
+    function isSuccess(status) {
+        return status >= 200 && status < 300
+    }
+
+    function isRedirect(status) {
+        return status >= 300 && status < 400
+    }
+
+    function isClientError(status) {
+        return status >= 400 && status < 500
+    }
+
+    function isServerError(status) {
+        return status >= 500 && status < 600
+    }
+}
+
+/   // closes <program>
+
+// =============================================================================
+// FRICTION LOG (inline, for analysis)
+// =============================================================================
+//
+// FRICTION-1: bind:value not compiled
+//   @newMethod, @newUrl, @newDescription use manual oninput= wiring.
+//   In Bun I'd write a signal and bind it to the form element.
+//   In scrml the spec says bind:value is spec'd but not compiled (§5.4).
+//   Workaround: oninput=setMethod() + event.target.value inside the function.
+//   This is boilerplate that scrml is supposed to eliminate. HIGH severity.
+//
+// FRICTION-2: .prepare() param binding is confusing
+//   §8.5.2: params from ?{`... ${x} ...`}.prepare() are NOT passed to prepare().
+//   So you write template params for type info but call stmt.run(a, b) manually.
+//   The params in the ?{} template are effectively documentation with no runtime effect.
+//   This is counterintuitive. A developer used to bun:sqlite will expect
+//   stmt = db.prepare("INSERT ... VALUES (?1, ?2)") and then stmt.run(v1, v2).
+//   scrml's .prepare() wraps this but the interface is split across ?{} and stmt.run().
+//   Friction: template params in .prepare() context appear meaningful but aren't.
+//
+// FRICTION-3: fetch() inside server function — not normatively specified
+//   §1.2 says the compiler runs on Bun. §12 says server functions become route handlers.
+//   But the spec never says "inside a server function body, all Bun/Node runtime APIs
+//   are available." I'm making a reasonable inference. If crypto.randomUUID(),
+//   fetch(), Bun.file() etc. are available — state it normatively.
+//   This is a BLOCKER for any real app that calls external APIs from server functions.
+//
+// FRICTION-4: Server functions cannot write @reactive variables (E-RI-002)
+//   addEndpoint() and removeEndpoint() return the updated list, which the client
+//   then assigns to @endpoints. This two-step dance (server returns, client assigns)
+//   is the only way to update reactive state after a server mutation.
+//   In plain Bun I'd just update state directly. In scrml, the server/client split
+//   forces an explicit return-value pattern. This is the right design but
+//   it's not documented as a pattern anywhere I found in the spec.
+//   Medium severity — it's workable once you know the pattern.
+//
+// FRICTION-5: HttpMethod enum unused in practice
+//   I declared HttpMethod:enum with GET/POST/PUT/DELETE. But I never use it for
+//   the <select> because enum-to-DOM binding requires bind:value (not compiled)
+//   or a manual match/if chain to emit <option> elements. The enum exists but
+//   there's no clean path from "enum variant" to "form element value".
+//   In bun:sqlite/Bun land I'd just use a union type string literal.
+//   The enum compile-checks the variants but the wiring to the DOM is unspecified.
+//
+// FRICTION-6: .get() not used (could not find a clean single-row lookup pattern)
+//   The spec shows .first() (§8.3 table). From Wave 1 memory, .get() compiled.
+//   But §8.3 only lists .all(), .first(), .run(), .prepare(). The spec renamed
+//   .get() to .first() for the "first matching row or null" case (§44 multi-DB
+//   says ".first() → T | not"). Which name does the compiler accept?
+//   admin-panel.scrml uses .get() but spec§8.3 lists .first(). Ambiguity.
+//   MEDIUM severity — method name discrepancy between spec and memory.
+//
+// FRICTION-7: ResponseState enum and if=/else-if=/else interaction
+//   I declared ResponseState:enum but the if=/else-if=/else chain compares
+//   @responseState to string literals ("Loading", "Idle", etc.) because
+//   there's no clean enum-value-in-attribute syntax for if=.
+//   The idiomatic form would be: if=@responseState.is(.Loading)
+//   but .is() notation requires the variant to start with `.` (§4.11.3)
+//   and I'm not sure if that works on @variables holding enum values.
+//   The spec (§4.11.3) says: `expression is .VariantName` is valid.
+//   But `@state.is(.Loading)` is different from `@state is .Loading`.
+//   Confusion between method-call and keyword form.

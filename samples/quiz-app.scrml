@@ -1,0 +1,446 @@
+// quiz-app.scrml
+// Gauntlet Round 11 — TypeScript developer perspective
+// Features: Question struct, QuizState enum, score tracking (const @derived),
+// next/prev navigation (else-if= chain), answer selection (optionClass function),
+// results screen (match on quiz state), timer (<timer> state type).
+//
+// FRICTION NOTES embedded inline at decision points.
+
+<program>
+
+// =========================================================================
+// Types — declared at top-level per todo-list.scrml pattern
+// FRICTION: Types must be at file top-level outside ${}. In TypeScript you
+// can declare interfaces anywhere and they're file-scoped. Here the placement
+// matters — types inside ${} are block-scoped.
+// =========================================================================
+
+type QuizState:enum = {
+    NotStarted
+    InProgress
+    Finished
+}
+
+// FRICTION: Struct fields use no type for arrays — "string" covers the
+// options field, but there's no way to write "string[]" or "Array<string>".
+// No generics, no array-typed struct fields. TypeScript: options: string[]
+// Workaround: omit the field from the struct (just document it in comments)
+// and rely on runtime shape of the literal objects.
+type Question:struct = {
+    text: string
+    correctIndex: number
+}
+
+// =========================================================================
+// Reactive state — all client-side (§6.3)
+// =========================================================================
+
+@quizState = QuizState.NotStarted
+
+// FRICTION: No type annotation on @questions. TypeScript: @questions: Question[]
+// Here the type is inferred from the literal array value. No way to say
+// "this must match Question struct" without explicit annotation syntax.
+@questions = [
+    { text: "What is 2 + 2?", options: ["3", "4", "5", "6"], correctIndex: 1 },
+    { text: "What is the capital of France?", options: ["Berlin", "Rome", "Paris", "Madrid"], correctIndex: 2 },
+    { text: "What language runs in the browser?", options: ["Python", "Java", "Ruby", "JavaScript"], correctIndex: 3 },
+    { text: "What does CSS stand for?", options: ["Computer Style Sheets", "Cascading Style Sheets", "Creative Style System", "Coded Style Syntax"], correctIndex: 1 },
+    { text: "Which symbol declares a reactive variable in scrml?", options: ["$", "#", "@", "^"], correctIndex: 2 }
+]
+
+@currentIndex = 0
+@selectedAnswer = -1
+@score = 0
+@timerSeconds = 0
+@timerRunning = false
+
+// Derived reactive values (§6.6) — lazy pull with dirty flags
+// Re-evaluate when upstream @variables change, not at write time.
+const @currentQuestion = @questions[@currentIndex]
+const @scorePercent = @questions.length > 0 ? Math.round((@score </> @questions.length) * 100) : 0
+const @hasNext = @currentIndex < @questions.length - 1
+const @hasPrev = @currentIndex > 0
+
+// =========================================================================
+// Timer — interval state type (§6.7.5)
+// Declared inside <program> scope, runs when @timerRunning is true.
+// Auto-stops when enclosing scope destroys (§6.7.2).
+// =========================================================================
+
+<timer interval=1000 running=@timerRunning>
+    ${ @timerSeconds = @timerSeconds + 1 }
+</>
+
+// =========================================================================
+// Markup — three screens via else-if= chain (§17.1.1)
+// =========================================================================
+
+<div class="quiz-app">
+
+    <h1>scrml Quiz</>
+
+    // ---- Screen 1: NOT STARTED ----
+    // FRICTION: Cannot use `@quizState is .NotStarted` in attribute position
+    // without risk. Multi-token `is` operator expression in unquoted attribute
+    // value is ambiguous for the block splitter. Using function calls instead.
+    // TypeScript: {quizState === QuizState.NotStarted && <div>} — direct comparison
+    <div class="quiz-screen" if=isNotStarted()>
+        <div class="quiz-hero">
+            <p class="quiz-intro">Test your knowledge!</>
+            <p class="quiz-meta">${@questions.length} questions. Timer runs from the first question.</>
+        </div>
+        <button class="btn btn-primary" onclick=startQuiz()>Start Quiz</>
+    </div>
+
+    // ---- Screen 2: IN PROGRESS ----
+    <div class="quiz-screen quiz-screen--active" else-if=isInProgress()>
+
+        // Timer + progress header
+        <div class="quiz-header">
+            <span>Question ${@currentIndex + 1} of ${@questions.length}</>
+            <span class="quiz-timer">${@timerSeconds}s</>
+        </div>
+
+        // Progress bar — derived width from reactive state
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: ${((@currentIndex + 1) / @questions.length) * 100}%"></>
+        </div>
+
+        // Question text
+        <h2 class="quiz-question">${@currentQuestion.text}</>
+
+        // Answer options — for/lift (§17.4)
+        // FRICTION: class:selected= requires a named boolean @reactive variable.
+        // Cannot write class:selected=(@selectedAnswer == i) — the spec (§5.5.2)
+        // says the RHS must be an @-prefixed identifier, not an expression.
+        // TypeScript: className={i === selectedAnswer ? "selected" : ""}
+        // Workaround: function that returns the full class string per option.
+        <div class="quiz-options">${
+            for (let i = 0; i < @currentQuestion.options.length; i++) {
+                let option = @currentQuestion.options[i]
+                lift <button class=optionClass(i) onclick=selectAnswer(i)>
+                    <span class="option-letter">${String.fromCharCode(65 + i)}./
+                    <span class="option-text">${option}/
+                </button>
+            }
+        }
+
+        // Navigation row: Prev / spacer, then Next / Finish
+        // Uses else-if= chain with const @derived values in if= position.
+        // FRICTION: const @derived values (@hasPrev, @hasNext) in if= attribute —
+        // spec says derived values are reactive values; treating like @reactive vars here.
+        <div class="quiz-nav">
+            <button class="btn btn-secondary" if=@hasPrev onclick=prevQuestion()>Previous</>
+            <span class="nav-spacer" else></>
+
+            <button class="btn btn-primary" if=@hasNext onclick=nextQuestion()>Next</>
+            <button class="btn btn-success" else onclick=finishQuiz()>Finish Quiz</>
+        </div>
+
+    </div>
+
+    // ---- Screen 3: FINISHED ----
+    <div class="quiz-screen quiz-screen--results" else>
+
+        <h2 class="results-title">Quiz Complete!</>
+
+        <div class="score-circle">
+            <span class="score-number">${@score}</>${@questions.length}</>
+            <span class="score-pct">${@scorePercent}%</>
+        </div>
+
+        // FRICTION: match must live inside ${}. The result is a string, but
+        // to render it in markup I need a second ${} interpolation.
+        // In React/TypeScript this is a single JSX expression.
+        // In scrml: two steps — declare in ${}, render in ${}.
+        // FRICTION: grade is scoped to its ${} block. To bridge to the next
+        // markup context, using a function instead of a let declaration.
+        <p class="grade-message">${gradeMessage()}</>
+
+        <div class="results-stats">
+            <p>Correct: ${@score} of ${@questions.length}</>
+            <p>Time: ${@timerSeconds} seconds</>
+        </div>
+
+        <button class="btn btn-primary" onclick=restartQuiz()>Play Again</>
+
+    </div>
+
+</div>
+
+// =========================================================================
+// Logic
+// =========================================================================
+
+${
+    function isNotStarted() { return @quizState == QuizState.NotStarted }
+    function isInProgress() { return @quizState == QuizState.InProgress }
+    function isFinished()   { return @quizState == QuizState.Finished }
+
+    function startQuiz() {
+        @quizState = QuizState.InProgress
+        @currentIndex = 0
+        @selectedAnswer = -1
+        @score = 0
+        @timerSeconds = 0
+        @timerRunning = true
+    }
+
+    function selectAnswer(index) {
+        if (@selectedAnswer != -1) { return }
+        @selectedAnswer = index
+        if (index == @currentQuestion.correctIndex) {
+            @score = @score + 1
+        }
+    }
+
+    function nextQuestion() {
+        if (@currentIndex < @questions.length - 1) {
+            @currentIndex = @currentIndex + 1
+            @selectedAnswer = -1
+        }
+    }
+
+    function prevQuestion() {
+        if (@currentIndex > 0) {
+            @currentIndex = @currentIndex - 1
+            @selectedAnswer = -1
+        }
+    }
+
+    function finishQuiz() {
+        @quizState = QuizState.Finished
+        @timerRunning = false
+    }
+
+    function restartQuiz() {
+        @quizState = QuizState.NotStarted
+        @currentIndex = 0
+        @selectedAnswer = -1
+        @score = 0
+        @timerSeconds = 0
+        @timerRunning = false
+    }
+
+    // Returns the CSS class string for an answer option button.
+    // FRICTION: class:selected= forces using a named @reactive boolean var.
+    // For per-iteration selection state that depends on a loop index vs a reactive
+    // value, there is no clean scrml idiom. In TypeScript + React, this is a one-liner.
+    // In scrml, we fall back to a helper function that reads @selectedAnswer.
+    function optionClass(index) {
+        return @selectedAnswer == index ? "option-btn selected" : "option-btn"
+    }
+
+    // Results grade message — uses match on enum (§18)
+    // FRICTION: match is an expression but must be inside ${}. To produce
+    // a string for markup rendering, wrapping in a function avoids the
+    // two-step let-then-render workaround.
+    function gradeMessage() {
+        return match @quizState {
+            .NotStarted :> "Not started"
+            .InProgress :> "In progress..."
+            .Finished :> @scorePercent >= 80 ? "Excellent!" : @scorePercent >= 60 ? "Good job!" : "Keep practicing!"
+        }
+    }
+}
+
+// =========================================================================
+// Styles
+// =========================================================================
+
+<style>
+    .quiz-app {
+        max-width: 620px;
+        margin: 2.5rem auto;
+        padding: 1.5rem;
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .quiz-app h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 1.5rem;
+    }
+
+    .quiz-hero {
+        margin-bottom: 2rem;
+    }
+
+    .quiz-intro {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 0.5rem;
+    }
+
+    .quiz-meta {
+        color: #6b7280;
+        margin-bottom: 1.5rem;
+    }
+
+    .quiz-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.75rem;
+        font-size: 0.875rem;
+        color: #6b7280;
+    }
+
+    .quiz-timer {
+        font-weight: 700;
+        font-size: 1rem;
+        color: #374151;
+    }
+
+    .progress-bar {
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: #3b82f6;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+
+    .quiz-question {
+        font-size: 1.15rem;
+        line-height: 1.5;
+        color: #111827;
+        margin-bottom: 1.25rem;
+        font-weight: 500;
+    }
+
+    .quiz-options {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .option-btn {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        border: 2px solid #e5e7eb;
+        border-radius: 0.5rem;
+        background: white;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+        font-size: 0.925rem;
+        transition: border-color 0.15s, background 0.15s;
+    }
+
+    .option-btn:hover {
+        border-color: #93c5fd;
+        background: #f0f9ff;
+    }
+
+    .option-btn.selected {
+        border-color: #3b82f6;
+        background: #dbeafe;
+        font-weight: 500;
+    }
+
+    .option-letter {
+        font-weight: 700;
+        color: #9ca3af;
+        font-size: 0.8rem;
+        min-width: 1.25rem;
+    }
+
+    .quiz-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .nav-spacer {
+        flex: 1;
+    }
+
+    .btn {
+        padding: 0.6rem 1.2rem;
+        border-radius: 0.375rem;
+        border: none;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: background 0.15s;
+    }
+
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+
+    .btn-secondary {
+        background: #f3f4f6;
+        color: #374151;
+        border: 1px solid #d1d5db;
+    }
+    .btn-secondary:hover { background: #e5e7eb; }
+
+    .btn-success { background: #10b981; color: white; }
+    .btn-success:hover { background: #059669; }
+
+    .results-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 1.5rem;
+    }
+
+    .score-circle {
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        border: 5px solid #3b82f6;
+        background: #eff6ff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1.5rem;
+    }
+
+    .score-number {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1e40af;
+    }
+
+    .score-pct {
+        font-size: 0.95rem;
+        color: #3b82f6;
+        font-weight: 500;
+    }
+
+    .grade-message {
+        text-align: center;
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 1rem;
+    }
+
+    .results-stats {
+        text-align: center;
+        color: #6b7280;
+        font-size: 0.875rem;
+        margin-bottom: 2rem;
+    }
+
+    .results-stats p {
+        margin: 0.25rem 0;
+    }
+</style>
+
+</>

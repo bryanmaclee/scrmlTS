@@ -1,0 +1,12 @@
+// server-007-client-only.scrml
+// Pure client-side page with no server functions. Tests: no server escalation.
+
+<div class="client-app">
+    ${
+        @count = 0
+        function increment() {
+            @count = @count + 1
+        }
+    }
+    <button onclick=increment()>Count: +1</>
+</div>

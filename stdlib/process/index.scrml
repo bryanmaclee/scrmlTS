@@ -1,0 +1,139 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:process — process and environment APIs for scrml applications
+    //
+    // Server-side only. All functions require a server context because they
+    // use Node/Bun process APIs — not available in the browser.
+    //
+    // Usage:
+    //   ${ import { cwd, env, argv, platform, exit, uptime, memoryUsage } from 'scrml:process' }
+    //
+    //   server function showEnv() {
+    //       const home = env("HOME")
+    //       const dir = cwd()
+    //       return `Running in ${dir}, home is ${home}`
+    //   }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Returns the current working directory of the process.
+     *
+     * Example:
+     *   cwd() → "/home/user/project"
+     */
+    export function cwd() {
+        server {
+            return process.cwd()
+        }
+    }
+
+    /**
+     * Returns the value of an environment variable, or undefined if unset.
+     *
+     * Defensive: returns undefined for missing keys rather than throwing.
+     *
+     * Example:
+     *   env("HOME")       → "/home/user"
+     *   env("NONEXISTENT") → undefined
+     */
+    export function env(key) {
+        server {
+            if (key === undefined || key === null) return undefined
+            const val = process.env[String(key)]
+            return val !== undefined ? val : undefined
+        }
+    }
+
+    /**
+     * Returns the array of command-line arguments (process.argv).
+     *
+     * argv()[0] is the runtime path (e.g., bun or node).
+     * argv()[1] is the script path.
+     * argv()[2+] are user-supplied arguments.
+     *
+     * Example:
+     *   argv() → ["/usr/bin/bun", "script.js", "--flag"]
+     */
+    export function argv() {
+        server {
+            return Array.from(process.argv)
+        }
+    }
+
+    /**
+     * Returns the OS platform string (e.g., "linux", "darwin", "win32").
+     *
+     * Example:
+     *   platform() → "linux"
+     */
+    export function platform() {
+        server {
+            return process.platform
+        }
+    }
+
+    /**
+     * Exits the process with the given exit code.
+     * Default code is 0 (success).
+     *
+     * Example:
+     *   exit()  — exits with code 0
+     *   exit(1) — exits with code 1 (error)
+     */
+    export function exit(code) {
+        server {
+            process.exit(code !== undefined ? code : 0)
+        }
+    }
+
+    /**
+     * Returns the process uptime in seconds (time since process started).
+     *
+     * Example:
+     *   uptime() → 12.345
+     */
+    export function uptime() {
+        server {
+            return process.uptime()
+        }
+    }
+
+    /**
+     * Returns memory usage information as an object with three keys:
+     *   - heapUsed:  bytes of V8 heap actually used
+     *   - heapTotal: total V8 heap allocated
+     *   - rss:       resident set size (total memory footprint)
+     *
+     * All values are numbers in bytes.
+     *
+     * Example:
+     *   memoryUsage() → { heapUsed: 4567890, heapTotal: 8000000, rss: 25000000 }
+     */
+    export function memoryUsage() {
+        server {
+            const mem = process.memoryUsage()
+            return {
+                heapUsed: mem.heapUsed,
+                heapTotal: mem.heapTotal,
+                rss: mem.rss
+            }
+        }
+    }
+
+    ~{
+        // Note: server {} blocks cannot be tested in ~{} because ~{} runs at
+        // compile time, not server-side. These tests validate structural
+        // expectations only. Server-side behavior is validated by the unit
+        // tests in compiler/tests/unit/stdlib-process.test.js.
+
+        // cwd() — returns a string (working directory path)
+        // env(key) — returns string or undefined
+        // argv() — returns an array
+        // platform() — returns a string like "linux", "darwin", "win32"
+        // exit(code) — void, terminates process
+        // uptime() — returns a number (seconds)
+        // memoryUsage() — returns { heapUsed, heapTotal, rss }
+    }
+}
+</program>

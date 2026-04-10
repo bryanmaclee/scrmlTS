@@ -1,0 +1,23 @@
+// modern-001-state-with-tests.scrml
+// State constructor + test context. Tests: state + ~{} together.
+
+< counter label(string) initial(number = 0)>
+    ${
+        @count = initial
+        function increment() { @count = @count + 1 }
+        function decrement() { @count = @count - 1 }
+    }
+    <div class="counter">
+        <h3>${label}</>
+        <span>${@count}</>
+        <button onclick=increment()>+</>
+        <button onclick=decrement()>-</>
+    </>
+</>
+
+<counter label="Score" initial=10></>
+
+~{ "counter tests"
+    test "initial value" { assert true }
+    test "increment works" { assert true }
+}

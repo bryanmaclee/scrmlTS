@@ -1,0 +1,16 @@
+// comp-015-search-input.scrml
+// Search input with clear button. Tests: input with actions.
+
+<div class="search-wrapper">
+    ${
+        @query = ""
+        function clearSearch() {
+            @query = ""
+        }
+    }
+    <div class="search-input-group">
+        <input type="text" placeholder="Search..." class="search-field"/>
+        <button class="search-clear" onclick=clearSearch()>Clear</>
+        <button class="search-submit">Search</>
+    </div>
+</div>

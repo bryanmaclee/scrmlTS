@@ -1,0 +1,401 @@
+// admin-panel.scrml
+// Admin panel: user list, API keys, audit log. Destructive actions behind confirm dialog.
+// Demonstrates < db> with protect=, enum-driven tab + action dispatch, E-RI-002 pattern,
+// server functions return data (client assigns @vars), not for absence, #{} CSS.
+
+< db
+    src="./app.db"
+    protect="password_hash, reset_token, internal_note, key_secret, key_hash"
+    tables="users, admin_log, api_keys"
+>
+
+${
+    // Enum for tab navigation — exhaustive match ensures all tabs are handled.
+    type AdminTab:enum = .Users | .ApiKeys | .AuditLog
+
+    // Enum for confirm-gated actions — carries payload via struct-like data.
+    type AdminAction:enum = {
+        ResetPassword(userId: number)
+        DeleteUser(userId: number)
+        RevokeKey(keyId: number)
+    }
+
+    @activeTab     = AdminTab.Users
+    @users         = []
+    @apiKeys       = []
+    @adminLog      = []
+    @loading       = true
+    @error         = not    // not = no error; string = error message
+    @confirmAction = not    // not = no pending confirm; AdminAction = action to confirm
+
+    // -------------------------------------------------------------------------
+    // Server functions — return data, never assign @vars (E-RI-002).
+    // -------------------------------------------------------------------------
+
+    server function fetchUsers() {
+        lift ?{`
+            SELECT id, display_name, email, plan, created_at
+            FROM users ORDER BY created_at DESC LIMIT 100
+        `}.all()
+    }
+
+    server function fetchApiKeys() {
+        lift ?{`
+            SELECT k.id, k.name, k.is_active, k.last_used_at, u.email as created_by_email
+            FROM api_keys k
+            LEFT JOIN users u ON k.created_by = u.id
+            ORDER BY k.created_at DESC
+        `}.all()
+    }
+
+    server function fetchAdminLog() {
+        lift ?{`
+            SELECT l.id, l.action, l.target_type, l.target_id, l.created_at, u.email as admin_email
+            FROM admin_log l
+            LEFT JOIN users u ON l.admin_id = u.id
+            ORDER BY l.created_at DESC LIMIT 200
+        `}.all()
+    }
+
+    server function doResetPassword(userId) {
+        let user = ?{`SELECT email FROM users WHERE id = ${userId} LIMIT 1`}.get()
+        if (user is not) { return }
+        let token = crypto.randomUUID()
+        ?{`UPDATE users SET reset_token = ${token} WHERE id = ${userId}`}.run()
+        ?{`INSERT INTO admin_log (action, target_type, target_id, internal_note)
+           VALUES ('reset_password', 'user', ${userId}, ${"Token: " + token})`}.run()
+    }
+
+    server function doDeleteUser(userId) {
+        ?{`DELETE FROM users WHERE id = ${userId}`}.run()
+        ?{`INSERT INTO admin_log (action, target_type, target_id, internal_note)
+           VALUES ('delete_user', 'user', ${userId}, 'Hard delete by admin')`}.run()
+    }
+
+    server function doRevokeKey(keyId) {
+        ?{`UPDATE api_keys SET is_active = 0 WHERE id = ${keyId}`}.run()
+        ?{`INSERT INTO admin_log (action, target_type, target_id, internal_note)
+           VALUES ('revoke_key', 'api_key', ${keyId}, 'Revoked by admin')`}.run()
+    }
+
+    // -------------------------------------------------------------------------
+    // Client functions — own all @state transitions.
+    // -------------------------------------------------------------------------
+
+    function loadAdminData() {
+        @loading = true
+        @users    = fetchUsers()
+        @apiKeys  = fetchApiKeys()
+        @adminLog = fetchAdminLog()
+        @loading  = false
+    }
+
+    function setTab(tab) { @activeTab = tab }
+
+    function requestConfirm(action) { @confirmAction = action }
+    function cancelConfirm()         { @confirmAction = not }
+
+    function executeConfirm() {
+        let action = @confirmAction
+        @confirmAction = not
+        match (action) {
+            .ResetPassword(userId) :> { doResetPassword(userId) }
+            .DeleteUser(userId)    :> {
+                doDeleteUser(userId)
+                // Refresh user list after delete — client assigns (E-RI-002 correct).
+                @users = fetchUsers()
+            }
+            .RevokeKey(keyId) :> {
+                doRevokeKey(keyId)
+                @apiKeys = fetchApiKeys()
+            }
+        }
+    }
+
+    function formatDate(dateStr) {
+        return new Date(dateStr).toLocaleString("en-US", {
+            year: "numeric", month: "short", day: "numeric",
+            hour: "2-digit", minute: "2-digit"
+        })
+    }
+
+    // Initial load.
+    loadAdminData()
+}
+
+<div class="admin-panel">
+
+    <header class="admin-header">
+        <h1>Admin Panel</>
+        <span class="admin-badge">Admin</>
+    </header>
+
+    <div class="error-banner" if=(not (@error is not))>${@error}</>
+
+    <nav class="admin-tabs">
+        <button
+            class="admin-tab"
+            class:active=(@activeTab == AdminTab.Users)
+            onclick=setTab(AdminTab.Users)
+        >Users</>
+        <button
+            class="admin-tab"
+            class:active=(@activeTab == AdminTab.ApiKeys)
+            onclick=setTab(AdminTab.ApiKeys)
+        >API Keys</>
+        <button
+            class="admin-tab"
+            class:active=(@activeTab == AdminTab.AuditLog)
+            onclick=setTab(AdminTab.AuditLog)
+        >Audit Log</>
+    </nav>
+
+    <div class="admin-loading" if=@loading>Loading admin data…</>
+
+    // Tab: Users
+    <div class="tab-panel" if=(@activeTab == AdminTab.Users)>
+        <div class="panel-header">
+            <h2>Users</>
+            <span class="user-count">${@users.length} total</>
+        </div>
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>ID</><th>Name</><th>Email</><th>Plan</><th>Joined</><th>Actions</>
+                </tr>
+            </thead>
+            <tbody>
+                ${
+                    for (let user of @users) {
+                        lift <tr>
+                            <td>${user.id}/
+                            <td>${user.display_name}/
+                            <td>${user.email}/
+                            <td>${user.plan}/
+                            <td>${formatDate(user.created_at)}/
+                            <td>
+                                <button class="btn-danger" onclick=requestConfirm(AdminAction.ResetPassword(user.id))>Reset PW/
+                                <button class="btn-danger" onclick=requestConfirm(AdminAction.DeleteUser(user.id))>Delete/
+                            /
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    // Tab: API Keys
+    <div class="tab-panel" if=(@activeTab == AdminTab.ApiKeys)>
+        <div class="panel-header">
+            <h2>API Keys</>
+        </div>
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>ID</><th>Name</><th>Created By</><th>Last Used</><th>Status</><th>Actions</>
+                </tr>
+            </thead>
+            <tbody>
+                ${
+                    for (let key of @apiKeys) {
+                        lift <tr>
+                            <td>${key.id}/
+                            <td>${key.name}/
+                            <td>${key.created_by_email}/
+                            <td>${key.last_used_at ? formatDate(key.last_used_at) : "Never"}/
+                            <td>
+                                <span class="badge" class:active=key.is_active>
+                                    ${key.is_active ? "Active" : "Revoked"}
+                                /
+                            /
+                            <td>
+                                <button
+                                    if=key.is_active
+                                    class="btn-danger"
+                                    onclick=requestConfirm(AdminAction.RevokeKey(key.id))
+                                >Revoke/
+                            /
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    // Tab: Audit Log
+    <div class="tab-panel" if=(@activeTab == AdminTab.AuditLog)>
+        <h2>Audit Log</>
+        <table class="admin-table">
+            <thead>
+                <tr><th>Time</><th>Admin</><th>Action</><th>Target</></tr>
+            </thead>
+            <tbody>
+                ${
+                    for (let entry of @adminLog) {
+                        lift <tr>
+                            <td>${formatDate(entry.created_at)}/
+                            <td>${entry.admin_email}/
+                            <td>${entry.action}/
+                            <td>${entry.target_type} #${entry.target_id}/
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    // Confirm dialog — shown when @confirmAction has a value.
+    <div class="confirm-overlay" if=(not (@confirmAction is not))>
+        <div class="confirm-dialog">
+            ${
+                match (@confirmAction) {
+                    .ResetPassword(userId) :> { lift <p>Reset password for user #${userId}?/ }
+                    .DeleteUser(userId)    :> { lift <p>Delete user #${userId}? This cannot be undone./ }
+                    .RevokeKey(keyId)      :> { lift <p>Revoke API key #${keyId}?/ }
+                }
+            }
+            <div class="confirm-actions">
+                <button onclick=cancelConfirm()>Cancel</>
+                <button class="btn-danger" onclick=executeConfirm()>Confirm</>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+</>
+
+#{
+    .admin-panel {
+        font-family: system-ui, sans-serif;
+        padding: 1.5rem;
+        max-width: 1100px;
+        margin: 0 auto;
+    }
+
+    .admin-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .admin-badge {
+        background: #fef3c7;
+        color: #92400e;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .error-banner {
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        color: #dc2626;
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+
+    .admin-tabs {
+        display: flex;
+        gap: 0.25rem;
+        border-bottom: 1px solid #e5e7eb;
+        margin-bottom: 1.5rem;
+    }
+
+    .admin-tab {
+        padding: 0.5rem 1rem;
+        border: 1px solid transparent;
+        border-bottom: none;
+        background: none;
+        cursor: pointer;
+        color: #6b7280;
+        border-radius: 4px 4px 0 0;
+    }
+
+    .admin-tab.active {
+        background: white;
+        border-color: #e5e7eb;
+        color: #111827;
+        font-weight: 500;
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+
+    .admin-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    th, td {
+        text-align: left;
+        padding: 0.6rem 0.75rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    th {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #6b7280;
+        background: #f9fafb;
+    }
+
+    .btn-danger {
+        background: none;
+        border: 1px solid #fca5a5;
+        color: #dc2626;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        margin-right: 0.25rem;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .badge.active {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .confirm-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .confirm-dialog {
+        background: white;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        max-width: 400px;
+        width: 90%;
+    }
+
+    .confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+}

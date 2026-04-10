@@ -1,0 +1,41 @@
+// combined-014-settings.scrml
+// Settings page with tabs and form. Tests: state + events + types.
+
+<div class="settings-page">
+    ${
+        type SettingsTab:enum = {
+            General
+            Privacy
+            Notifications
+        }
+        @activeTab = "General"
+        @notifications = true
+        @darkMode = false
+
+        function switchTab(tab) {
+            @activeTab = tab
+        }
+        function toggleNotifications() {
+            @notifications = !@notifications
+        }
+        function toggleDarkMode() {
+            @darkMode = !@darkMode
+        }
+    }
+    <h1>Settings</>
+    <nav class="settings-tabs">
+        <button onclick=switchTab("General")>General</>
+        <button onclick=switchTab("Privacy")>Privacy</>
+        <button onclick=switchTab("Notifications")>Notifications</>
+    </nav>
+    <div class="settings-content">
+        <div class="setting-item">
+            <label>Dark Mode</>
+            <button onclick=toggleDarkMode()>Toggle</>
+        </div>
+        <div class="setting-item">
+            <label>Notifications</>
+            <button onclick=toggleNotifications()>Toggle</>
+        </div>
+    </div>
+</div>

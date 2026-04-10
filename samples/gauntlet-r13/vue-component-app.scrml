@@ -1,0 +1,49 @@
+// gauntlet-r13: vue dev — component-based app with imports
+// Tests: import system, bind:value, reactive state, for/lift
+// R13 focus: import system (relative path), bind:value ordering, nested functions
+
+<div class="app">
+    ${
+        @items = []
+        @input = ""
+        @sortOrder = "asc"
+
+        function addItem() {
+            function createId() {
+                return Date.now()
+            }
+            if (@input.length > 0) {
+                @items = [...@items, { id: createId(), text: @input }]
+                @input = ""
+            }
+        }
+
+        function removeItem(id) {
+            @items = @items.filter(i => i.id != id)
+        }
+
+        function sortedItems() {
+            return @items
+        }
+    }
+    <h1>Item Manager</>
+    <div class="controls">
+        <input type="text" bind:value=@input placeholder="Add item..."/>
+        <button onclick=addItem()>Add</>
+        <select bind:value=@sortOrder>
+            <option value="asc">A-Z</>
+            <option value="desc">Z-A</>
+        </select>
+    </div>
+    <p>${@items.length} items</>
+    <ul>
+        ${
+            for (let item of sortedItems()) {
+                lift <li>
+                    <span>${item.text}/
+                    <button onclick=removeItem(item.id)>x/
+                </li>
+            }
+        }
+    </ul>
+</div>

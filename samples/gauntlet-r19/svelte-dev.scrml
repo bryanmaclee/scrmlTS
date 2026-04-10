@@ -1,0 +1,110 @@
+// gauntlet-r19/svelte-dev.scrml — Task Tracker with Enum States
+// Tests: enum/match, destructuring in ^{} S52, class:name= dynamic class
+//
+// Tasks have Priority enum. Exhaustive match renders each differently.
+// ^{} block uses destructuring arrow callback — S52 fix target.
+
+${
+  type Priority:enum = .Low | .Medium | .High | .Critical
+
+  @tasks = [
+    { id: 1, title: "Write tests",       priority: Priority.High,     done: false },
+    { id: 2, title: "Update docs",       priority: Priority.Medium,   done: false },
+    { id: 3, title: "Fix login bug",     priority: Priority.Critical, done: false },
+    { id: 4, title: "Refactor CSS",      priority: Priority.Low,      done: true },
+    { id: 5, title: "Add search",        priority: Priority.Medium,   done: false },
+  ]
+
+  @filter = "all"
+
+  function toggleDone(id) {
+    @tasks = tasks.map(t => t.id == id ? { ...t, done: !t.done } : t)
+  }
+
+  function removeTask(id) {
+    @tasks = tasks.filter(t => t.id != id)
+  }
+
+  function setFilter(val) {
+    @filter = val
+  }
+}
+
+// Compile-time: process task metadata.
+^{
+  const taskMeta = [
+    { title: "Write tests", priority: "High" },
+    { title: "Fix login bug", priority: "Critical" },
+  ]
+  for (const item of taskMeta) {
+    emit("<!-- task: " + item.title + " [" + item.priority + "]" + " -->\n")
+  }
+}
+
+<div class="tracker">
+  <h1>Tasks</h1>
+
+  <div class="filters">
+    <button onclick=setFilter("all") class:active=(filter == "all")>All</button>
+    <button onclick=setFilter("open") class:active=(filter == "open")>Open</button>
+    <button onclick=setFilter("done") class:active=(filter == "done")>Done</button>
+  </div>
+
+  <ul class="task-list">
+    ${
+      for (let task of tasks) {
+        const show = filter == "all" ||
+                     (filter == "open" && !task.done) ||
+                     (filter == "done" && task.done)
+        if (!show) continue
+
+        lift <li class="task" class:completed=task.done>
+          <input type="checkbox" checked=task.done onchange=toggleDone(task.id)/>
+          <span class="title">${task.title}</span>
+          ${
+            match (task.priority) {
+              .Low      :> { lift <span class="badge low">Low</span> }
+              .Medium   :> { lift <span class="badge med">Med</span> }
+              .High     :> { lift <span class="badge high">High</span> }
+              .Critical :> { lift <span class="badge crit">Critical</span> }
+            }
+          }
+          <button class="remove" onclick=removeTask(task.id)>x</button>
+        </li>
+      }
+    }
+  </ul>
+</div>
+
+#{
+  .tracker {
+    max-width: 560px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+  .filters {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+  }
+  .task-list {
+    list-style: none;
+    padding: 0;
+  }
+  .task {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #eee;
+  }
+  .badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+  .low  { background: #e0f2fe; color: #0369a1; }
+  .med  { background: #fef9c3; color: #854d0e; }
+  .high { background: #fed7aa; color: #c2410c; }
+  .crit { background: #fecaca; color: #dc2626; font-weight: 700; }
+}

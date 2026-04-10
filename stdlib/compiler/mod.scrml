@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/mod — Module Resolver
+    //
+    // Builds the import graph, detects circular dependencies, validates imports,
+    // and produces compilation order. Already self-hosted — the full scrml
+    // implementation is in module-resolver.scrml.
+    //
+    // Usage:
+    //   import { resolveModules } from "scrml:compiler/mod"
+    //   const result = resolveModules(fileASTs)
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { resolveModules: _resolveModules } = await import("../../compiler/src/module-resolver.js");
+    }
+
+    export const resolveModules = _resolveModules
+}
+</program>

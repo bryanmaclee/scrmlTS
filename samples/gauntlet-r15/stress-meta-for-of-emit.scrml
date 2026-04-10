@@ -1,0 +1,52 @@
+// gauntlet-r15: stress test — for-of loops in ^{} with emit()
+// Tests for-stmt/while-stmt serialization fix in meta blocks
+// Exercises: for-of in meta, emit() inside for-of, nested for-of,
+//            for-of with object destructuring, while loop in meta
+
+<program>
+
+^{
+    const routes = [
+        { path: "/home", label: "Home", icon: "house" },
+        { path: "/about", label: "About", icon: "info" },
+        { path: "/blog", label: "Blog", icon: "pencil" },
+        { path: "/contact", label: "Contact", icon: "mail" }
+    ];
+
+    emit("<nav class=main-nav>\n");
+    for (const route of routes) {
+        emit("  <a class=nav-" + route.icon + " href=" + route.path + ">" + route.label + "/\n");
+    }
+    emit("</nav>\n");
+}
+
+^{
+    const grid = [
+        ["A1", "B1", "C1"],
+        ["A2", "B2", "C2"],
+        ["A3", "B3", "C3"]
+    ];
+
+    emit("<table class=grid>\n");
+    for (const row of grid) {
+        emit("  <tr>\n");
+        for (const cell of row) {
+            emit("    <td>" + cell + "/\n");
+        }
+        emit("  </tr>\n");
+    }
+    emit("</table>\n");
+}
+
+^{
+    const items = ["alpha", "beta", "gamma", "delta"];
+    let i = 0;
+    emit("<ol class=indexed>\n");
+    while (i < items.length) {
+        emit("  <li>" + items[i] + "/\n");
+        i++;
+    }
+    emit("</ol>\n");
+}
+
+</>

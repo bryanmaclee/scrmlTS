@@ -1,0 +1,382 @@
+// gauntlet-r10-zig-buildconfig.scrml
+// Gauntlet Round 10 -- Zig developer perspective
+// Challenge: Build Configuration Dashboard
+// Target platform selector (enum), optimization level slider, feature flags as toggles,
+// dependency list with add/remove, generated build command preview (derived from all
+// settings), save/load configurations.
+//
+// FRICTION NOTE (Zig developer): In Zig, every type is explicit. I declare Platform as
+// an enum, I get exhaustive match, I see every variant at compile time. scrml offers the
+// same with type:enum -- this is the strongest overlap between the two languages. The
+// difference: Zig's exhaustive match is ALWAYS enforced. scrml's is opt-in via match{}.
+// If you never write a match, the compiler never enforces exhaustiveness. That is a
+// meaningful gap.
+
+<program>
+${
+    // --- Type declarations ---
+    // POSITIVE SIGNAL: Enums are first-class. This maps directly to how I think about
+    // platform targets in a build system. In Zig I would write:
+    //   const Platform = enum { wasm, linux_x86_64, macos_arm64, windows_x86_64 };
+    // scrml equivalent is cleaner for UI purposes.
+    type Platform:enum = {
+        WASM
+        LinuxX64
+        MacOSArm64
+        WindowsX64
+    }
+
+    // POSITIVE SIGNAL: OptLevel as an enum. In Zig this would be:
+    //   const OptLevel = enum { debug, release_safe, release_fast, release_small };
+    // The exhaustive match I will write later is the exact analog of Zig's switch on enum.
+    type OptLevel:enum = {
+        Debug
+        ReleaseSafe
+        ReleaseFast
+        ReleaseSmall
+    }
+
+    type SaveStatus:enum = {
+        Idle
+        Saving
+        Saved
+        Error
+    }
+}
+
+${
+    // --- Reactive state ---
+    // FRICTION NOTE (Zig developer): In Zig, every mutation is explicit and local.
+    // When I write @platform = Platform.WASM, I KNOW that triggers re-renders of
+    // everything that reads @platform. But I CANNOT see from this source what subscribes
+    // to @platform. The dependency graph is implicit. In Zig, a change to a field
+    // triggers nothing -- you call the render function yourself. The hidden subscriber
+    // model is the primary point of friction from a "I can see everything" perspective.
+    @platform = "WASM"
+    @optLevel = "Debug"
+    @stripDebug = false
+    @enableLTO = false
+    @enableSingleThreaded = false
+    @enableSanitizeThread = false
+    @enableEmitDocs = false
+    @saveStatus = "Idle"
+
+    // Dependencies list -- reactive array
+    // FRICTION NOTE (Zig developer): @deps is a reactive array. But what triggers
+    // a re-render when I push to it? In Zig, this would be explicit:
+    //   deps.append(allocator, new_dep) catch return error.OutOfMemory;
+    //   render(deps.items);
+    // Here, the re-render is silent. I cannot see who re-renders on @deps mutation.
+    // Also: does @deps = @deps.concat([newDep]) trigger one re-render or two?
+    // The answer is "one" (batching), but nothing in the source makes that visible.
+    @deps = ["std", "build_runner"]
+    @newDepInput = ""
+
+    // POSITIVE SIGNAL: const @derived is the strongest feature I have encountered from
+    // a Zig perspective. This is compile-time DAG construction -- the compiler statically
+    // walks the expression, extracts all @variable references as dependency edges, and
+    // emits _scrml_derived_subscribe calls. That is EXACTLY what comptime would do in Zig
+    // if Zig had reactive semantics. The lazy pull + dirty flag model maps to how I reason
+    // about invalidation in a build system: a dirty node is only re-evaluated when read,
+    // not eagerly. This is correct.
+    //
+    // FRICTION NOTE: The stale-read window (§6.6.5) is defined behavior. A read between
+    // a write and the microtask flush returns a stale value. In Zig there is no equivalent
+    // hazard because Zig has no reactive system. But if there were, you would require
+    // explicit flush() calls rather than making stale reads "defined behavior". The
+    // opt-in flush() is good; the "stale is defined" framing is the concern.
+    const @buildCommand = buildCommandFor(@platform, @optLevel, @stripDebug, @enableLTO, @enableSingleThreaded, @deps)
+}
+
+${
+    // --- Pure helper functions ---
+    // POSITIVE SIGNAL: pure functions map directly to my Zig mental model.
+    // In Zig, a function that takes only value parameters and returns a value
+    // with no side effects is "pure" by convention. scrml makes this explicit
+    // and verifiable at compile time. This is the right design.
+
+    pure function platformFlag(platform) {
+        if (platform == "WASM") { return "-target wasm32-freestanding" }
+        if (platform == "LinuxX64") { return "-target x86_64-linux" }
+        if (platform == "MacOSArm64") { return "-target aarch64-macos" }
+        if (platform == "WindowsX64") { return "-target x86_64-windows" }
+        return "-target unknown"
+    }
+
+    // FRICTION NOTE (Zig developer): I WANT to write this as a match expression.
+    //   const cmd = match platform {
+    //     ::WASM -> "-target wasm32-freestanding"
+    //     ::LinuxX64 -> "-target x86_64-linux"
+    //     ...
+    //   }
+    // But @platform is a string ("WASM"), not a Platform enum value. To use match I would
+    // need toEnum() coercion. And even then, §18.16 was only recently added for string
+    // literal match. The type system gap between string state and enum type is a genuine
+    // friction point. In Zig, if Platform is an enum, you never hold it as a string --
+    // you hold it as Platform. The scrml reactive system stores @platform = "WASM"
+    // (a string), so the enum type and the runtime value are disconnected.
+    // Workaround: use if/else chains. This is the same thing Wave 1 devs hit.
+
+    pure function optFlag(optLevel) {
+        if (optLevel == "Debug") { return "-O Debug" }
+        if (optLevel == "ReleaseSafe") { return "-O ReleaseSafe" }
+        if (optLevel == "ReleaseFast") { return "-O ReleaseFast" }
+        if (optLevel == "ReleaseSmall") { return "-O ReleaseSmall" }
+        return "-O Debug"
+    }
+
+    pure function depsFlags(deps) {
+        let flags = ""
+        for (let dep of deps) {
+            flags = flags + " --dep " + dep
+        }
+        return flags
+    }
+
+    // The derived build command. Takes all config params and assembles the zig build string.
+    // FRICTION NOTE: This function takes @platform and @optLevel as strings, not as enum
+    // values. The Platform and OptLevel enum types I declared above are not used here at all.
+    // They exist in the type registry but my reactive state bypasses them entirely because
+    // @platform is declared as @platform = "WASM" (a string). In Zig, this would be a
+    // compile error: you cannot assign a string to a Platform field.
+    // SUGGESTED FIX: Allow @platform = Platform::WASM (enum variant as reactive initial
+    // value), with the runtime storing the enum tag. This bridges the gap.
+    pure function buildCommandFor(platform, optLevel, stripDebug, enableLTO, singleThreaded, deps) {
+        let cmd = "zig build"
+        cmd = cmd + " " + platformFlag(platform)
+        cmd = cmd + " " + optFlag(optLevel)
+        if (stripDebug) { cmd = cmd + " --strip" }
+        if (enableLTO) { cmd = cmd + " -flto" }
+        if (singleThreaded) { cmd = cmd + " -fsingle-threaded" }
+        cmd = cmd + depsFlags(deps)
+        return cmd
+    }
+
+    // --- Mutation functions ---
+    // FRICTION NOTE (Zig developer): These functions mutate @reactive state.
+    // In Zig there is no equivalent -- every state change is visible at the call site.
+    // Here, setPlatform("WASM") silently queues a re-render of everything that reads
+    // @platform. The re-render is invisible to the caller. This is convenient for web UI
+    // but violates "explicit over implicit".
+    //
+    // What would help: a compiler warning showing the re-render surface for each @var
+    // mutation site. Something like: "This assignment to @platform will re-render:
+    // [buildCommand, platformSelector, commandPreview]". That would make the
+    // implicit side effect visible without requiring explicit wiring.
+
+    function setPlatform(p) {
+        @platform = p
+    }
+
+    function setOptLevel(o) {
+        @optLevel = o
+    }
+
+    function toggleStripDebug() {
+        @stripDebug = !@stripDebug
+    }
+
+    function toggleLTO() {
+        @enableLTO = !@enableLTO
+    }
+
+    function toggleSingleThreaded() {
+        @enableSingleThreaded = !@enableSingleThreaded
+    }
+
+    function toggleSanitizeThread() {
+        @enableSanitizeThread = !@enableSanitizeThread
+    }
+
+    function toggleEmitDocs() {
+        @enableEmitDocs = !@enableEmitDocs
+    }
+
+    function addDependency() {
+        if (@newDepInput.length > 0) {
+            @deps = @deps.concat([@newDepInput])
+            @newDepInput = ""
+        }
+    }
+
+    function removeDep(depName) {
+        @deps = @deps.filter(function(d) { return d != depName })
+    }
+
+    function updateNewDepInput(val) {
+        @newDepInput = val
+    }
+
+    // Save/load config -- server functions
+    // FRICTION NOTE (Zig developer): This is where error handling becomes critical.
+    // saveConfig() calls a server function that could fail. In Zig I would write:
+    //   try saveConfig(allocator, config);
+    // The error is forced to be handled at the call site. In scrml, if saveConfig()
+    // fails on the server, what happens? The spec says (§19.2): "Error propagation is
+    // inferred by the compiler (Zig-style)". But there is no `try` keyword. There is no
+    // error union syntax. The !{} handler is opt-in and I see no enforcement that it
+    // is used. If I never write !{}, errors are silently swallowed.
+    //
+    // The claim "Zig-style error propagation" in §19.2 is aspirational. The current
+    // model is closer to JavaScript's uncaught Promise rejections than Zig's explicit
+    // error unions. This is the single most important divergence from Zig's "explicit
+    // over implicit" philosophy in the current spec.
+    server function saveConfig() {
+        // In a real app: serialize current config to DB
+        // @saveStatus = "Saving"  -- BLOCKED: E-RI-002, server fn cannot mutate @reactive
+        // This is a genuine friction point: I want to set loading state from the
+        // server function but cannot. The client/server boundary forces a split that
+        // is implicit in the spec but not in the code.
+    }
+
+    function handleSave() {
+        @saveStatus = "Saving"
+        saveConfig()
+        @saveStatus = "Saved"
+    }
+}
+
+// --- Markup ---
+// Platform selector
+<div class="build-config-dashboard">
+    <h1>Build Configuration</>
+
+    <section class="config-section">
+        <h2>Target Platform</>
+        // FRICTION NOTE: I want to render these platform buttons by iterating over
+        // Platform.variants (§14.4.2). The spec says enum types have a .variants property
+        // for iteration. But: (a) I don't know if this is implemented in the compiler,
+        // and (b) my @platform is a string so comparison requires string matching, not
+        // enum comparison. The enum type and the runtime state are decoupled.
+        // I fall back to manual buttons -- same workaround that kills type safety.
+        <div class="platform-buttons">
+            <button onclick=setPlatform("WASM")>WASM</>
+            <button onclick=setPlatform("LinuxX64")>Linux x64</>
+            <button onclick=setPlatform("MacOSArm64")>macOS ARM64</>
+            <button onclick=setPlatform("WindowsX64")>Windows x64</>
+        </div>
+        <p>Selected: ${@platform}</>
+    </section>
+
+    <section class="config-section">
+        <h2>Optimization Level</>
+        // FRICTION NOTE: Again, I want match here. The @optLevel is a string. I want:
+        //   match @optLevel {
+        //     ::Debug -> "No optimization, full debug info"
+        //     ::ReleaseSafe -> "Optimized with safety checks"
+        //     ::ReleaseFast -> "Maximum performance"
+        //     ::ReleaseSmall -> "Minimum binary size"
+        //   }
+        // But @optLevel is a string, not an OptLevel enum value. The type system cannot
+        // help me here. If/else chains are the only option.
+        <div class="opt-buttons">
+            <button onclick=setOptLevel("Debug")>Debug</>
+            <button onclick=setOptLevel("ReleaseSafe")>ReleaseSafe</>
+            <button onclick=setOptLevel("ReleaseFast")>ReleaseFast</>
+            <button onclick=setOptLevel("ReleaseSmall")>ReleaseSmall</>
+        </div>
+        <p>Selected: ${@optLevel}</>
+    </section>
+
+    <section class="config-section">
+        <h2>Feature Flags</>
+        // FRICTION NOTE: Boolean flags are the cleanest part of this app.
+        // @stripDebug is a bool, the toggle function flips it, the disabled attribute
+        // reads it. This is the part of scrml that most resembles Zig: explicit bool,
+        // explicit toggle, explicit read. No hidden behavior.
+        <div class="feature-flags">
+            <div class="flag-row">
+                <label>Strip Debug Info</>
+                <button onclick=toggleStripDebug()>${@stripDebug ? "ON" : "OFF"}</>
+            </div>
+            <div class="flag-row">
+                <label>Link-Time Optimization</>
+                <button onclick=toggleLTO()>${@enableLTO ? "ON" : "OFF"}</>
+            </div>
+            <div class="flag-row">
+                <label>Single-Threaded</>
+                <button onclick=toggleSingleThreaded()>${@enableSingleThreaded ? "ON" : "OFF"}</>
+            </div>
+            <div class="flag-row">
+                <label>Sanitize Thread</>
+                <button onclick=toggleSanitizeThread()>${@enableSanitizeThread ? "ON" : "OFF"}</>
+            </div>
+            <div class="flag-row">
+                <label>Emit Documentation</>
+                <button onclick=toggleEmitDocs()>${@enableEmitDocs ? "ON" : "OFF"}</>
+            </div>
+        </div>
+    </section>
+
+    <section class="config-section">
+        <h2>Dependencies</>
+        <div class="dep-list">
+            ${
+                for (let dep of @deps) {
+                    lift <div class="dep-row">
+                        <span class="dep-name">${dep}</>
+                        <button onclick=removeDep(dep)>Remove</>
+                    </div>
+                }
+            }
+        </div>
+        <div class="dep-add">
+            // FRICTION NOTE: Two-way binding (bind:value) is spec'd (§5.4) but
+            // according to the Memory doc, it does not yet compile. I must use
+            // manual oninput= wiring. This is the same workaround every Wave 1
+            // developer used. In Zig there is no equivalent -- you always wire
+            // inputs manually. So this is not friction from a Zig perspective,
+            // but it IS friction from the scrml promise perspective: the spec
+            // says "bind:value=@newDepInput" should work but doesn't yet.
+            <input type="text" placeholder="Add dependency" oninput=updateNewDepInput(event.target.value)/>
+            <button onclick=addDependency()>Add</>
+        </div>
+    </section>
+
+    <section class="config-section">
+        <h2>Generated Command</>
+        // POSITIVE SIGNAL: This is where const @buildCommand shines. The command
+        // preview updates automatically whenever @platform, @optLevel, any flag, or
+        // @deps changes. I did not wire any subscription -- the compiler inferred all
+        // dependency edges from the buildCommandFor() arguments. This is the scrml
+        // feature most analogous to comptime evaluation: static dependency graph
+        // construction from expression analysis. In Zig this would require explicit
+        // invalidation logic.
+        <div class="command-preview">
+            <code>${@buildCommand}</>
+        </div>
+        // bun.eval() for compile-time constant -- testing §29 integration
+        // FRICTION NOTE: bun.eval() and ^{} are two separate compile-time mechanisms.
+        // Zig has ONE (comptime). In Zig, everything that can be known at compile time
+        // uses the same mechanism. In scrml, bun.eval() handles "evaluate this JS string
+        // at compile time and inline the result", while ^{} handles "access compiler
+        // internals, AST, type registry". These are different scopes of operation, but
+        // the BOUNDARY between them is not clearly specified. Can I call bun.eval()
+        // inside a ^{} block? Can a ^{} block produce a compile-time constant that gets
+        // inlined like bun.eval()? The spec does not answer this.
+        <p class="build-meta">scrml compiler version ${ bun.eval("'0.5.0-draft'") }</>
+    </section>
+
+    <section class="config-section">
+        <h2>Save Configuration</>
+        // FRICTION NOTE: The save/load flow exposes the deepest error handling gap.
+        // handleSave() sets @saveStatus = "Saving", calls saveConfig() (server fn),
+        // then sets @saveStatus = "Saved". But if saveConfig() fails, there is no
+        // explicit error propagation from the server fn back to the client. In Zig:
+        //   const result = saveConfig() catch |err| {
+        //       setSaveStatus(.Error);
+        //       return err;
+        //   };
+        // In scrml, I would need to wrap saveConfig() in a !{} handler:
+        //   saveConfig() !{
+        //     | _ e -> @saveStatus = "Error"
+        //   }
+        // But nothing forces me to write that !{} handler. If I omit it, the error is
+        // silently dropped. This is the opposite of Zig's mandatory error handling.
+        <div class="save-status">
+            <p>Status: ${@saveStatus}</>
+            <button onclick=handleSave()>Save Config</>
+        </div>
+    </section>
+</div>
+</program>

@@ -1,0 +1,67 @@
+// protect-001-basic-auth.scrml
+// protect= on < db> state block. Password hash is hidden from client code (§11.3).
+// Functions that touch protected fields auto-escalate to server routes.
+// Note: requires auth.db to exist. Will produce E-PA-001 without it.
+
+<program>
+
+< db src="auth.db" protect="password_hash" tables="users">
+    ${
+        @email    = ""
+        @password = ""
+        @error    = ""
+
+        // authenticate touches password_hash — compiler escalates to server.
+        // Approach D: server function returns error message or null (not assigns @error).
+        // Client wrapper handleSubmit calls authenticate and assigns @error.
+        server function authenticate(email: string, password: string) {
+            let user = ?{`
+                SELECT id, email, password_hash
+                FROM users
+                WHERE email = ${email}
+                LIMIT 1
+            `}.first()
+
+            if (user is not) {
+                return "No account found for that email."
+            }
+
+            // verifyHash is a hypothetical helper; point is password_hash is in scope.
+            if (!verifyHash(password, user.password_hash)) {
+                return "Incorrect password."
+            }
+
+            return ""
+        }
+
+        function handleSubmit() {
+            @error = ""
+            let result = authenticate(@email, @password)
+            if (result == "") {
+                navigate("/dashboard")
+            } else {
+                @error = result
+            }
+        }
+    }
+
+    <form class="login-form" onsubmit=handleSubmit()>
+        <h2>Sign In</>
+
+        <p class="error" if=(@error != "")>${@error}</>
+
+        <label>
+            Email
+            <input type="email" bind:value=@email>
+        </label>
+
+        <label>
+            Password
+            <input type="password" bind:value=@password>
+        </label>
+
+        <button type="submit">Sign In</>
+    </form>
+</>
+
+</program>

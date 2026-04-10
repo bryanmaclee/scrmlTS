@@ -1,0 +1,70 @@
+// card.scrml — reusable Card component.
+// Demonstrates props={} typed declaration, snippet slots, #{} scoped CSS.
+// header and body are required snippets; actions is optional.
+
+${
+    const Card = <div class="card" props={
+        title:     string,
+        subtitle?: string,
+        actions?:  snippet,
+    }>
+        <header class="card__header">
+            <h2 class="card__title">${title}/
+            // Render subtitle only when provided — presence check with not.
+            <p class="card__subtitle" if=(not (subtitle is not))>${subtitle}/
+        </header>
+
+        <section class="card__body">
+            ${...}
+        </section>
+
+        // Render actions footer only when actions slot was provided.
+        <footer class="card__actions" if=(not (actions is not))>
+            ${render actions()}
+        /
+    /
+}
+
+#{
+    .card {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .card__header {
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .card__title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #1a202c;
+        margin: 0;
+    }
+
+    .card__subtitle {
+        font-size: 0.875rem;
+        color: #718096;
+        margin: 0.25rem 0 0;
+    }
+
+    .card__body {
+        flex: 1;
+        color: #2d3748;
+    }
+
+    .card__actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid #e2e8f0;
+    }
+}

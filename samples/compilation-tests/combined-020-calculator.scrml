@@ -1,0 +1,57 @@
+// combined-020-calculator.scrml
+// Simple calculator. Tests: reactive + functions + events + logic.
+
+<div class="calculator">
+    ${
+        @display = "0"
+        @current = 0
+        @operator = ""
+
+        function pressDigit(d) {
+            if (@display == "0") {
+                @display = d
+            } else {
+                @display = @display + d
+            }
+        }
+        function pressOp(op) {
+            @current = Number(@display)
+            @operator = op
+            @display = "0"
+        }
+        function calculate() {
+            let b = Number(@display)
+            if (@operator == "+") {
+                @display = String(@current + b)
+            }
+            if (@operator == "-") {
+                @display = String(@current - b)
+            }
+            @operator = ""
+        }
+        function clear() {
+            @display = "0"
+            @current = 0
+            @operator = ""
+        }
+    }
+    <div class="calc-display">
+        <span>${@display}</>
+    </div>
+    <div class="calc-buttons">
+        <button onclick=pressDigit("7")>7</>
+        <button onclick=pressDigit("8")>8</>
+        <button onclick=pressDigit("9")>9</>
+        <button onclick=pressOp("+")>+</>
+        <button onclick=pressDigit("4")>4</>
+        <button onclick=pressDigit("5")>5</>
+        <button onclick=pressDigit("6")>6</>
+        <button onclick=pressOp("-")>-</>
+        <button onclick=pressDigit("1")>1</>
+        <button onclick=pressDigit("2")>2</>
+        <button onclick=pressDigit("3")>3</>
+        <button onclick=calculate()>=</>
+        <button onclick=pressDigit("0")>0</>
+        <button onclick=clear()>C</>
+    </div>
+</div>

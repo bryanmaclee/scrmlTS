@@ -1,0 +1,110 @@
+// rust-dev-lin-lift-pipeline.scrml
+// Debate implementation: lin + lift multi-stage data pipeline
+//
+// Scenario: an order processing pipeline where a payment token is produced
+// early (at fetch time), threaded through validation, and consumed exactly
+// once at the point where the charge is submitted to the payment processor.
+//
+// In Rust this would be: let token: PaymentToken = fetch_token();
+// The token is moved through each stage. You cannot accidentally double-charge
+// because the value is moved into charge(). lin models the same intent.
+
+<program db="sqlite:./orders.db">
+
+${
+    type OrderStatus:enum = {
+        Pending
+        Validated
+        Charged
+        Failed
+    }
+
+    type Order = struct {
+        id: number,
+        amount: number,
+        status: string
+    }
+
+    // Stage 1: fetch order from DB (server boundary — SQL access)
+    server function fetchOrder(orderId: number) -> Order {
+        let row = ?{`SELECT id, amount, status FROM orders WHERE id = ?1`}(orderId).get()
+        return row
+    }
+
+    // Stage 2: validate order. Returns the amount if valid, fails otherwise.
+    server function validateOrder(order: Order) -> number {
+        if (order.status !== "pending") {
+            return 0
+        }
+        return order.amount
+    }
+
+    // Stage 3: fetch a payment token. This is the lin value — a one-time-use
+    // credential from the payment processor. Using it twice would mean two charges.
+    server function fetchPaymentToken(amount: number) -> string {
+        // In production: call payment processor API here
+        return "tok_" + amount + "_" + Date.now()
+    }
+
+    // Stage 4: submit charge. Consumes the token. After this call the token
+    // is gone — the payment processor invalidates it.
+    server function submitCharge(token: string, amount: number) -> boolean {
+        // In production: POST to payment processor
+        return true
+    }
+
+    // Stage 5: record the result
+    server function recordCharge(orderId: number, success: boolean) {
+        if (success) {
+            ?{`UPDATE orders SET status = 'charged' WHERE id = ?1`}(orderId).run()
+        } else {
+            ?{`UPDATE orders SET status = 'failed'  WHERE id = ?1`}(orderId).run()
+        }
+    }
+}
+
+// ---- The pipeline proper ----
+// lin paymentToken is produced at stage 3 and consumed exactly once at stage 4.
+// Without lin, nothing stops a copy-paste bug from calling submitCharge(token)
+// twice — billing the customer double. lin makes that a compile error.
+
+@orderId = 1
+@pipelineResult = "idle"
+
+<div class="pipeline">
+    <h1>Order Processing Pipeline/
+    <p>Order ID: ${@orderId}/
+
+    <button onclick=runPipeline()>Process Order/
+
+    <p>${@pipelineResult}/
+</div>
+
+${
+    server function runPipeline() {
+        // Stage 1: load
+        let order = fetchOrder(@orderId)
+
+        // Stage 2: validate
+        let amount = validateOrder(order)
+        if (amount === 0) {
+            @pipelineResult = "Order not eligible for charging"
+            return
+        }
+
+        // Stage 3: acquire token — lin ensures exactly-once use
+        lin paymentToken = fetchPaymentToken(amount)
+
+        // Stage 4: submit charge — this is the ONE consumption of paymentToken.
+        // Attempting to also call log(paymentToken) after this would be E-LIN-002.
+        // Attempting to call submitCharge inside the if-branch only would be E-LIN-003.
+        let success = submitCharge(paymentToken, amount)
+
+        // Stage 5: record
+        recordCharge(@orderId, success)
+
+        @pipelineResult = success ? "Charged successfully" : "Charge failed"
+    }
+}
+
+</program>

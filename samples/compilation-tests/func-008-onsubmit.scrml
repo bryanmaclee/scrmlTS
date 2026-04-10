@@ -1,0 +1,14 @@
+// func-008-onsubmit.scrml
+// Form submit handler. Tests: onsubmit= attribute.
+
+<div>
+    ${
+        function handleSubmit() {
+            let submitted = true
+        }
+    }
+    <form onsubmit=handleSubmit()>
+        <input type="text" name="field" placeholder="Enter value"/>
+        <button type="submit">Submit</>
+    </form>
+</div>

@@ -1,0 +1,51 @@
+// react-dev-lin-lift-pipeline.scrml
+// React developer perspective: lin+lift for multi-stage data pipeline.
+//
+// In React, the closest analogy to this problem is:
+//   - A server action fetches an auth token
+//   - The token must travel through a component tree without prop drilling
+//   - You'd reach for useContext, or pass it explicitly through every intermediate component
+//   - Neither feels clean. Context is a global. Prop drilling is verbosity.
+//
+// scrml's lin+lift collapses this: declare once, the compiler proves single use.
+// No context. No prop drilling. The value routes directly to where it's consumed.
+
+<program db="./orders.db" tables="orders,users,line_items">
+
+${
+    function fetchAuthToken() -> string {
+        return "Bearer eyJ0eXAiOi..."
+    }
+
+    function fetchCurrentUserId() -> number {
+        return 42
+    }
+}
+
+// === PIPELINE: token produced at top, consumed at the only correct site ===
+// React mental model: imagine a deeply nested component needing a one-time
+// auth header. You'd either useContext (global, risky) or thread it through
+// every intermediate prop (verbose). Here: declare lin, use exactly once.
+
+<section class="order-pipeline">${
+    lin authToken = fetchAuthToken()
+    let userId = fetchCurrentUserId()
+    let orders = ?{`SELECT id, total, status FROM orders WHERE user_id = ${userId}`}.all()
+
+    // The compiler proves authToken is not touched before this lift.
+    // It is not touched after. This is exactly the prop-drilling problem solved.
+    lift <div class="auth-context" data-token=authToken>
+        <h2>Your Orders/
+        <ul>${
+            for (let order of orders) {
+                lift <li class="order-item">
+                    <span>${order.id}/
+                    <span class="total">${order.total}/
+                    <span class="status">${order.status}/
+                </li>
+            }
+        }</>
+    </div>
+}</>
+
+</program>

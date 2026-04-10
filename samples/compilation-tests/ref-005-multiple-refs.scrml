@@ -1,0 +1,18 @@
+// ref-005-multiple-refs.scrml
+// Several references in one file. Tests: multiple <#ref> elements.
+
+< header title(string)>
+    <h1>${title}</>
+</>
+
+< footer year(number)>
+    <p>Copyright ${year}</>
+</>
+
+<div class="page">
+    <header></>
+    <main>
+        <p>Content</>
+    </>
+    <footer></>
+</>

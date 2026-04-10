@@ -1,0 +1,30 @@
+// combined-006-search-filter.scrml
+// Search with filter. Tests: reactive + events + conditionals.
+
+<div class="search-page">
+    ${
+        @query = ""
+        @results = []
+        @loading = false
+
+        function doSearch() {
+            @loading = true
+            @results = ["Result 1", "Result 2", "Result 3"]
+            @loading = false
+        }
+    }
+    <h1>Search</>
+    <form onsubmit=doSearch()>
+        <input type="text" name="q" placeholder="Search..."/>
+        <button type="submit">Search</>
+    </form>
+    <div class="results">
+        ${
+            for (let result of @results) {
+                lift <div class="result-item">
+                    <p>${result}</>
+                </div>
+            }
+        }
+    </div>
+</div>

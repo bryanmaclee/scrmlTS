@@ -1,0 +1,112 @@
+// react-dev-lin-lift-edge-cases.scrml
+// React developer perspective: edge cases for lin+lift.
+//
+// Three cases, React lens first:
+//   A. lin in if/else branches with lift — the "conditional render" problem
+//   B. lin in a loop with lift — the "renderItem()" instinct wall
+//   C. lin lifted across a component boundary — the "context without Context"
+
+<program db="./app.db" tables="sessions,content">
+
+${
+    function isAdmin() -> boolean { return true }
+    function fetchAdminToken() -> string { return "admin-tok-xyz" }
+    function fetchUserToken() -> string { return "user-tok-abc" }
+}
+
+// ======================================================================
+// CASE A: lin in if/else branches with lift
+// ======================================================================
+// React equivalent:
+//   const token = isAdmin ? getAdminToken() : getUserToken()
+//   return <p>Authenticated: {token}</p>
+//
+// That's trivial in React. The question in scrml: does lin play nicely with
+// if-as-expression? Answer from the spec (§34.4.2, §17.6): yes, with the
+// if-as-expression form. Both branches lift a value, the result binds to lin.
+// The consumption is the binding itself. Then token is lifted once to markup.
+//
+// This is actually CLEANER than React because the compiler proves both
+// branches produced a value — no runtime "token might be undefined" bugs.
+
+<div class="auth-banner">${
+    lin token = if (isAdmin()) {
+        lift fetchAdminToken()
+    } else {
+        lift fetchUserToken()
+    }
+
+    // token declared. Consumed here, exactly once.
+    lift <p class="token-display">Authenticated: ${token}/
+}</>
+
+// ======================================================================
+// CASE B: lin in a loop with lift — where React instincts hit the wall
+// ======================================================================
+// React instinct: map() over items, pass token down to each row.
+//   items.map(item => <Row key={item.id} token={token} item={item} />)
+// The token is READ many times. React doesn't care — it's just a closure capture.
+//
+// lin cares. A lot.
+//
+// §34.4.4: lin SHALL NOT be consumed inside loop bodies. The loop is a
+// potential multi-execution site. If you write `for (item of items) { useToken(lin) }`
+// the compiler fires E-LIN-002 unconditionally — it doesn't check whether the
+// loop runs 0 or 1000 times. The rejection is static and categorical.
+//
+// This is the sharpest React/scrml friction point for lin:
+// In React, closing over a value in a map callback is the DEFAULT pattern.
+// In scrml, that pattern is an error if the closed-over value is lin.
+//
+// Workaround: consume lin into a regular let BEFORE the loop.
+// The let is unrestricted — closures, loops, whatever. Only lin has the constraint.
+
+${
+    function fetchBatchKey() -> string { return "batch-2026-04-10" }
+}
+
+<ul class="batch-list">${
+    lin batchKey = fetchBatchKey()
+    let batchLabel = batchKey        // lin consumed here (single use). batchLabel is free.
+    let items = ?{`SELECT id, name FROM content ORDER BY id`}.all()
+
+    for (let item of items) {
+        lift <li class="batch-item" data-batch=batchLabel>
+            <span>${item.id}/
+            <span>${item.name}/
+        </li>
+    }
+}</>
+
+// ======================================================================
+// CASE C: lin lifted across a component boundary — "context without Context"
+// ======================================================================
+// React mental model: you have a token. A deeply nested component needs it.
+// Your options: useContext (implicit, global), prop drilling (explicit, verbose).
+//
+// scrml lin+lift is a third option: the value is produced at the parent logic
+// context, consumed EXACTLY ONCE at the lift site (which is the outermost
+// consumer), and the child just receives a plain value. No context object.
+// No provider. No consumer. The compiler tracks it — you don't have to.
+//
+// §35.3 rule 4: "lift x where x is lin. The lift statement consumes x
+// and initializes ~ to the lifted value."
+// The component boundary is transparent to this — the lift site is in the parent.
+
+${
+    function loadSessionToken() -> string { return "sess-abc-xyz-789" }
+}
+
+<div class="app-shell">${
+    lin sessionToken = loadSessionToken()
+
+    // sessionToken consumed here at the lift site.
+    // The child markup receives it as a data attribute — plain value, no lin tracking.
+    // Compiler guarantee: sessionToken was not used before here, will not be used after.
+    lift <div class="secure-panel" data-session=sessionToken>
+        <h3>Secure Content/
+        <p>Session established./
+    </div>
+}</>
+
+</program>

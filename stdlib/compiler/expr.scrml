@@ -1,0 +1,28 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/expr — Expression Parser
+    //
+    // Acorn-based structured expression parsing for scrml. Parses JS expressions
+    // with @ reactive variable sigil support, walks ESTree ASTs, extracts
+    // identifiers and reactive dependencies, and rewrites reactive references.
+    //
+    // Usage:
+    //   import { parseExpression, extractIdentifiersFromAST } from "scrml:compiler/expr"
+    //   const { ast, error } = parseExpression("@count + 1")
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { parseExpression: _parseExpression, parseStatements: _parseStatements, walk: _walk, extractIdentifiersFromAST: _extractIdentifiersFromAST, extractReactiveDepsFromAST: _extractReactiveDepsFromAST, astToJs: _astToJs, rewriteReactiveRefsAST: _rewriteReactiveRefsAST, rewriteServerReactiveRefsAST: _rewriteServerReactiveRefsAST } = await import("../../compiler/src/expression-parser.ts");
+    }
+
+    export const parseExpression = _parseExpression
+    export const parseStatements = _parseStatements
+    export const walk = _walk
+    export const extractIdentifiersFromAST = _extractIdentifiersFromAST
+    export const extractReactiveDepsFromAST = _extractReactiveDepsFromAST
+    export const astToJs = _astToJs
+    export const rewriteReactiveRefsAST = _rewriteReactiveRefsAST
+    export const rewriteServerReactiveRefsAST = _rewriteServerReactiveRefsAST
+}
+</program>

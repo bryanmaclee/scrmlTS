@@ -1,0 +1,197 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:auth/jwt — JWT signing and verification (HS256)
+    //
+    // Manual HS256 implementation using Bun's Web Crypto API (crypto.subtle).
+    // No external jwt library required.
+    //
+    // IMPORTANT: signJwt and verifyJwt are server-only (use server {} blocks).
+    // decodeJwt is pure and safe in any context.
+    // ---------------------------------------------------------------------------
+
+    // ---------------------------------------------------------------------------
+    // Base64url helpers (pure)
+    // ---------------------------------------------------------------------------
+
+    function base64urlEncode(buffer) {
+        // buffer is ArrayBuffer or Uint8Array
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
+        let str = ""
+        for (const b of bytes) {
+            str += String.fromCharCode(b)
+        }
+        return btoa(str)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=/g, "")
+    }
+
+    function base64urlDecode(str) {
+        // Add padding
+        let s = str.replace(/-/g, "+").replace(/_/g, "/")
+        while (s.length % 4) s += "="
+        const binary = atob(s)
+        const bytes = new Uint8Array(binary.length)
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i)
+        }
+        return bytes
+    }
+
+    /**
+     * Sign a JWT with HS256.
+     *
+     * The payload gets iat (issued at) and exp (expiry) claims added automatically.
+     *
+     * @param payload   — plain object to encode as JWT payload
+     * @param secret    — HMAC signing secret (string)
+     * @param expiresIn — expiry in seconds (default: 3600 = 1 hour)
+     * @returns Promise<string> — signed JWT token
+     *
+     * Example:
+     *   const token = await signJwt({ userId: 42, role: "admin" }, process.env.JWT_SECRET)
+     */
+    export async function signJwt(payload, secret, expiresIn) {
+        server {
+            const now = Math.floor(Date.now() / 1000)
+            const exp = now + (expiresIn !== undefined ? expiresIn : 3600)
+
+            const header = { alg: "HS256", typ: "JWT" }
+            const claims = { ...payload, iat: now, exp }
+
+            const headerStr = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)))
+            const payloadStr = base64urlEncode(new TextEncoder().encode(JSON.stringify(claims)))
+            const signingInput = `${headerStr}.${payloadStr}`
+
+            const keyData = new TextEncoder().encode(secret)
+            const cryptoKey = await crypto.subtle.importKey(
+                "raw",
+                keyData,
+                { name: "HMAC", hash: "SHA-256" },
+                false,
+                ["sign"]
+            )
+            const signatureBuffer = await crypto.subtle.sign(
+                "HMAC",
+                cryptoKey,
+                new TextEncoder().encode(signingInput)
+            )
+            const signature = base64urlEncode(signatureBuffer)
+            return `${signingInput}.${signature}`
+        }
+    }
+
+    /**
+     * Verify a JWT and decode its payload.
+     *
+     * Returns { valid: true, payload } if valid and not expired.
+     * Returns { valid: false, reason: "expired" | "invalid" | "malformed" } otherwise.
+     * Never throws on invalid input.
+     *
+     * @param token  — JWT string
+     * @param secret — HMAC signing secret (same as used in signJwt)
+     *
+     * Example:
+     *   const result = await verifyJwt(token, process.env.JWT_SECRET)
+     *   if (result.valid) { @currentUser = result.payload }
+     */
+    export async function verifyJwt(token, secret) {
+        server {
+            const decoded = decodeJwt(token)
+            if (!decoded) {
+                return { valid: false, reason: "malformed" }
+            }
+
+            // Check expiry before signature (fast path)
+            const now = Math.floor(Date.now() / 1000)
+            if (decoded.exp && decoded.exp < now) {
+                return { valid: false, reason: "expired" }
+            }
+
+            // Verify signature
+            try {
+                const parts = token.split(".")
+                if (parts.length !== 3) return { valid: false, reason: "malformed" }
+
+                const signingInput = `${parts[0]}.${parts[1]}`
+                const expectedSig = parts[2]
+
+                const keyData = new TextEncoder().encode(secret)
+                const cryptoKey = await crypto.subtle.importKey(
+                    "raw",
+                    keyData,
+                    { name: "HMAC", hash: "SHA-256" },
+                    false,
+                    ["sign"]
+                )
+                const signatureBuffer = await crypto.subtle.sign(
+                    "HMAC",
+                    cryptoKey,
+                    new TextEncoder().encode(signingInput)
+                )
+                const actualSig = base64urlEncode(signatureBuffer)
+
+                if (actualSig !== expectedSig) {
+                    return { valid: false, reason: "invalid" }
+                }
+
+                return { valid: true, payload: decoded }
+            } catch(e) {
+                return { valid: false, reason: "invalid" }
+            }
+        }
+    }
+
+    /**
+     * Decode a JWT payload without verifying the signature.
+     *
+     * PURE FUNCTION — safe in any context (client or server).
+     * Does NOT validate the signature or check expiry.
+     * Use for reading non-sensitive fields from a token you already verified.
+     *
+     * @param token — JWT string
+     * @returns payload object or null if malformed
+     *
+     * Example:
+     *   const payload = decodeJwt(token)
+     *   if (payload && payload.role === "admin") { ... }
+     */
+    export function decodeJwt(token) {
+        if (!token || typeof token !== "string") return null
+        const parts = token.split(".")
+        if (parts.length !== 3) return null
+        try {
+            const bytes = base64urlDecode(parts[1])
+            const json = new TextDecoder().decode(bytes)
+            return JSON.parse(json)
+        } catch(e) {
+            return null
+        }
+    }
+
+    ~{
+        import { assertEqual, assertTruthy, assertFalsy } from 'scrml:test'
+
+        // decodeJwt — pure, no server context needed
+        // Build a minimal valid JWT structure for testing decode only
+        // Header: {"alg":"HS256","typ":"JWT"}
+        // Payload: {"sub":"1234","name":"Alice","iat":1000000}
+        const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }))
+            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+        const payload = btoa(JSON.stringify({ sub: "1234", name: "Alice", iat: 1000000 }))
+            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
+        const fakeToken = `${header}.${payload}.fakesig`
+
+        const decoded = decodeJwt(fakeToken)
+        assertTruthy(decoded !== null)
+        assertEqual(decoded.sub, "1234")
+        assertEqual(decoded.name, "Alice")
+
+        // decodeJwt null cases
+        assertFalsy(decodeJwt(null) !== null)
+        assertFalsy(decodeJwt("not.a.token.at.all.extra") !== null)
+        assertFalsy(decodeJwt("") !== null)
+    }
+}
+</program>

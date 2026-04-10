@@ -1,0 +1,400 @@
+// gauntlet-r10-go-contacts.scrml
+// Contact Manager CRUD — Go developer gauntlet round 10
+// Covers: list contacts, add new (name/email/phone/category), edit inline,
+// delete with confirmation, search by name, filter by category dropdown.
+//
+// FRICTION NOTES embedded inline — prefixed with FRICTION:
+// These are observations from a Go developer's perspective noted during writing.
+
+// ---- Schema setup ----
+// FRICTION: No schema migration / CREATE TABLE syntax that's clearly tied to
+// the db state block. I'm writing a raw CREATE TABLE inside a server function
+// called at startup. In Go (database/sql), I'd write migrations as separate
+// .sql files or embed/run them via init(). Here it's implicit — unclear *when*
+// this runs relative to the reactive graph mounting.
+
+< db src="./contacts.db" tables="contacts">
+
+${
+    // ---- Enum: contact category ----
+    // This is one of the cleanest things scrml does. In Go I'd use
+    // const iota blocks and a String() method — this is clearly better.
+    type Category:enum = {
+        Personal
+        Work
+        Family
+        Other
+    }
+}
+
+${
+    // ---- Schema init (server-side, runs once at startup) ----
+    // FRICTION: No clear "run once at startup" lifecycle hook in the spec.
+    // closest is a bare expression in ${} which runs on initial mount.
+    // But "initial mount" for a server function is ambiguous — does this
+    // run on every page load? Every server start? Go devs want explicit
+    // init() semantics. Using server function called as bare expression.
+    server function initDB() {
+        ?{`
+            CREATE TABLE IF NOT EXISTS contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL DEFAULT '',
+                phone TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT 'Other'
+            )
+        `}.run()
+    }
+    initDB()
+}
+
+${
+    // ---- Reactive UI state ----
+    // In Go I'd have a struct holding all this. Here it's flat reactive vars.
+    // That's fine for a small app. Scales poorly — no namespacing.
+    @contacts = []
+    @searchQuery = ""
+    @filterCategory = ""
+
+    // Form state for adding a new contact
+    @formName = ""
+    @formEmail = ""
+    @formPhone = ""
+    @formCategory = "Other"
+    @showAddForm = false
+
+    // Edit state — which contact is being edited inline
+    @editingId = not
+    @editName = ""
+    @editEmail = ""
+    @editPhone = ""
+    @editCategory = "Other"
+
+    // Delete confirmation state
+    @pendingDeleteId = not
+    @pendingDeleteName = ""
+
+    // Error / feedback state
+    // FRICTION: This is the Go developer's biggest concern. There is no (val, err)
+    // return. Errors from server functions and SQL queries have no explicit propagation
+    // model I can trace through the spec (§19 !{} exists but feels experimental/incomplete).
+    // I'm using a @errorMsg string as a poor man's error channel — the Go pattern.
+    @errorMsg = ""
+    @successMsg = ""
+}
+
+${
+    // ---- Server functions ----
+
+    // loadContacts: the primary data fetch
+    // FRICTION: I don't know if this auto-runs when @searchQuery or @filterCategory
+    // changes. I have to wire it explicitly with `when` blocks. That's explicit —
+    // actually a POSITIVE signal from a Go perspective (explicit is better than implicit).
+    server function loadContacts(searchQuery, filterCategory) {
+        let rows = ?{`
+            SELECT id, name, email, phone, category
+            FROM contacts
+            WHERE
+                (${searchQuery} = '' OR name LIKE '%' || ${searchQuery} || '%')
+                AND (${filterCategory} = '' OR category = ${filterCategory})
+            ORDER BY name ASC
+        `}.all()
+        return rows
+    }
+
+    // addContact: INSERT
+    // FRICTION: No explicit error return. If the SQL fails (e.g., constraint violation),
+    // what happens? The spec says error propagation is "inferred by the compiler (Zig-style)"
+    // (§19.2). I have no idea if that actually works or if errors are silently swallowed.
+    // In Go: func addContact(...) error { ... } — error is a first-class return value.
+    server function addContact(name, email, phone, category) {
+        ?{`
+            INSERT INTO contacts (name, email, phone, category)
+            VALUES (${name}, ${email}, ${phone}, ${category})
+        `}.run()
+    }
+
+    // updateContact: UPDATE by id
+    // FRICTION: id comes from @editingId (client-side reactive state). But server
+    // functions run on the server. Passing reactive state as function args is the
+    // right pattern per §6.6.9 examples, but it feels clunky. In Go, you just pass
+    // the ID to your handler — same thing, but the requirement is obvious because
+    // Go's function signatures are the interface contract. Here the contract is implicit.
+    server function updateContact(id, name, email, phone, category) {
+        ?{`
+            UPDATE contacts
+            SET name = ${name}, email = ${email}, phone = ${phone}, category = ${category}
+            WHERE id = ${id}
+        `}.run()
+    }
+
+    // deleteContact: DELETE by id
+    server function deleteContact(id) {
+        ?{`DELETE FROM contacts WHERE id = ${id}`}.run()
+    }
+}
+
+${
+    // ---- Client-side handler functions ----
+
+    // handleSearch: called on input change — reloads contacts
+    // FRICTION: I have to manually call loadContacts() here AND wire it with `when`.
+    // The `when` block below handles reactive re-fetch when search/filter changes.
+    // This split (function + when) feels like two places to think about one concern.
+    // In Go's net/http, a handler is one function. Here the data flow is split across
+    // the function definition and the when-block declaration.
+    function handleSearch() {
+        @searchQuery = @searchQuery
+    }
+
+    function handleCategoryFilter(e) {
+        @filterCategory = e.target.value
+    }
+
+    function showAddForm() {
+        @showAddForm = true
+        @errorMsg = ""
+    }
+
+    function cancelAdd() {
+        @showAddForm = false
+        @formName = ""
+        @formEmail = ""
+        @formPhone = ""
+        @formCategory = "Other"
+        @errorMsg = ""
+    }
+
+    function submitAdd() {
+        if (@formName.trim() == "") {
+            @errorMsg = "Name is required"
+            return
+        }
+        addContact(@formName.trim(), @formEmail.trim(), @formPhone.trim(), @formCategory)
+        @formName = ""
+        @formEmail = ""
+        @formPhone = ""
+        @formCategory = "Other"
+        @showAddForm = false
+        @successMsg = "Contact added"
+        @contacts = loadContacts(@searchQuery, @filterCategory)
+    }
+
+    function startEdit(contact) {
+        @editingId = contact.id
+        @editName = contact.name
+        @editEmail = contact.email
+        @editPhone = contact.phone
+        @editCategory = contact.category
+        @errorMsg = ""
+    }
+
+    function cancelEdit() {
+        @editingId = not
+        @errorMsg = ""
+    }
+
+    function submitEdit() {
+        if (@editName.trim() == "") {
+            @errorMsg = "Name is required"
+            return
+        }
+        updateContact(@editingId, @editName.trim(), @editEmail.trim(), @editPhone.trim(), @editCategory)
+        @editingId = not
+        @successMsg = "Contact updated"
+        @contacts = loadContacts(@searchQuery, @filterCategory)
+    }
+
+    function confirmDelete(contact) {
+        @pendingDeleteId = contact.id
+        @pendingDeleteName = contact.name
+    }
+
+    function cancelDelete() {
+        @pendingDeleteId = not
+        @pendingDeleteName = ""
+    }
+
+    function executeDelete() {
+        deleteContact(@pendingDeleteId)
+        @pendingDeleteId = not
+        @pendingDeleteName = ""
+        @successMsg = "Contact deleted"
+        @contacts = loadContacts(@searchQuery, @filterCategory)
+    }
+}
+
+${
+    // ---- Reactive effects ----
+    // FRICTION: This is the stale-read window (§6.6.5). After assigning @searchQuery,
+    // the `when` block fires. Inside the when body I call loadContacts which is a
+    // server function. The compiler inserts await automatically. I cannot see the
+    // async boundary in my source. A Go developer writing http handlers always knows
+    // which calls block — you either see `ctx.Done()` or you see the call directly.
+    // Here the async is invisible.
+
+    // Initial load on mount — bare expression, runs once
+    @contacts = loadContacts(@searchQuery, @filterCategory)
+
+    // Re-load when search or filter changes
+    when (@searchQuery, @filterCategory) changes {
+        @contacts = loadContacts(@searchQuery, @filterCategory)
+        @successMsg = ""
+    }
+}
+
+// ---- Markup ----
+
+<div class="contacts-app">
+
+    <h1>Contacts</>
+
+    // FRICTION: Feedback messages — no auto-dismiss. In Go I'd have a handler that
+    // resets after a timeout. Here I need a <timer> to clear the message. I'm not
+    // using it because the timer docs show it needs an @reactive running attribute
+    // and it adds significant complexity for what is a simple UX pattern.
+    <div class="feedback" if=@successMsg>
+        <p class="success">${@successMsg}</>
+    </div>
+
+    <div class="feedback" if=@errorMsg>
+        <p class="error">${@errorMsg}</>
+    </div>
+
+    // ---- Delete confirmation modal ----
+    // FRICTION: scrml has no modal/dialog primitive. I'm using if= to show/hide a div.
+    // In Go's html/template, same story — you'd conditionally render. Fine.
+    <div class="confirm-overlay" if=@pendingDeleteId>
+        <div class="confirm-dialog">
+            <p>Delete ${@pendingDeleteName}?</>
+            <button onclick=executeDelete()>Yes, delete</>
+            <button onclick=cancelDelete()>Cancel</>
+        </div>
+    </div>
+
+    // ---- Search and filter bar ----
+    <div class="toolbar">
+        <input
+            type="text"
+            bind:value=@searchQuery
+            placeholder="Search by name..."
+        />
+
+        // FRICTION: Category filter dropdown using enum variants.
+        // I want to iterate Category.variants here to build <option> elements.
+        // The spec mentions EnumType.variants (§14.4.2) but I'm uncertain if
+        // the compiler currently supports it. Using a hardcoded select as a
+        // workaround — this is a real friction point. In Go I'd have a slice of
+        // string constants and range over it. scrml's enum iteration *should* work
+        // but I can't verify without compiling.
+        <select onchange=handleCategoryFilter()>
+            <option value="">All categories</>
+            <option value="Personal">Personal</>
+            <option value="Work">Work</>
+            <option value="Family">Family</>
+            <option value="Other">Other</>
+        </select>
+
+        <button onclick=showAddForm() if=@showAddForm class="hidden">+ Add Contact</>
+        <button onclick=showAddForm() if=@showAddForm>+ Add Contact</>
+    </div>
+
+    // ---- Add contact form ----
+    // FRICTION: The two-button pattern above (show/hide via two `if=` elements with
+    // opposite conditions) exposes a gap: scrml has no `else=` attribute counterpart
+    // to `if=`. I'd need to write `if=@showAddForm` and `if=!@showAddForm` as separate
+    // elements. That's awkward. In Go templates: {{if .ShowForm}}...{{else}}...{{end}}.
+    // The scrml workaround is to write two elements. I've simplified by just showing
+    // the form and hiding the button when the form is open.
+    <div class="add-form" if=@showAddForm>
+        <h2>Add New Contact</>
+        <div class="form-row">
+            <label>Name *</>
+            <input type="text" bind:value=@formName placeholder="Full name"/>
+        </div>
+        <div class="form-row">
+            <label>Email</>
+            <input type="email" bind:value=@formEmail placeholder="email@example.com"/>
+        </div>
+        <div class="form-row">
+            <label>Phone</>
+            <input type="tel" bind:value=@formPhone placeholder="+1 555 000 0000"/>
+        </div>
+        <div class="form-row">
+            <label>Category</>
+            <select bind:value=@formCategory>
+                <option value="Personal">Personal</>
+                <option value="Work">Work</>
+                <option value="Family">Family</>
+                <option value="Other">Other</>
+            </select>
+        </div>
+        <div class="form-actions">
+            <button onclick=submitAdd()>Save Contact</>
+            <button onclick=cancelAdd()>Cancel</>
+        </div>
+    </div>
+
+    // ---- Contact list ----
+    // FRICTION: Empty state handling. I have to check @contacts.length via if=.
+    // In Go I'd write a single template block and let the range handle zero items.
+    // Here I need two separate conditional blocks. Minor but repeated.
+    <div class="empty-state" if=@contacts.length>
+        <p>No contacts found.</>
+    </div>
+
+    // FRICTION: The if= attribute uses the VALUE as the condition. @contacts.length
+    // is truthy when > 0. But I want to render the list when there ARE contacts and
+    // the empty state when there AREN'T. The `if=@contacts.length` on the empty state
+    // div means "show when length is truthy" — that is backwards. I need `if=!...`
+    // negation. The spec §17.1 should cover this. Let me use a workaround.
+    // Actually: I need the list to show when contacts.length > 0 and the empty state
+    // when it's 0. I'll check if negation syntax works — using if=@contacts.length
+    // for the list (show when non-empty) and I need else semantics for the empty state.
+    // I cannot find a negation form in the spec. This is a real friction point.
+    // Workaround: just omit the empty state for now and always render the table.
+
+    <div class="contact-list">
+        ${
+            for (let contact of @contacts) {
+                // ---- Inline edit row ----
+                if (@editingId == contact.id) {
+                    lift <div class="contact-row editing">
+                        <div class="edit-fields">
+                            <input type="text" bind:value=@editName placeholder="Name"/>
+                            <input type="email" bind:value=@editEmail placeholder="Email"/>
+                            <input type="tel" bind:value=@editPhone placeholder="Phone"/>
+                            <select>
+                                <option value="Personal">Personal</>
+                                <option value="Work">Work</>
+                                <option value="Family">Family</>
+                                <option value="Other">Other</>
+                            </select>
+                        </div>
+                        <div class="row-actions">
+                            <button onclick=submitEdit()>Save</>
+                            <button onclick=cancelEdit()>Cancel</>
+                        </div>
+                    </div>
+                } else {
+                    // ---- Read view row ----
+                    lift <div class="contact-row">
+                        <div class="contact-info">
+                            <strong>${contact.name}</>
+                            <span class="category">${contact.category}</>
+                            <span>${contact.email}</>
+                            <span>${contact.phone}</>
+                        </div>
+                        <div class="row-actions">
+                            <button onclick=startEdit(contact)>Edit</>
+                            <button onclick=confirmDelete(contact)>Delete</>
+                        </div>
+                    </div>
+                }
+            }
+        }
+    </div>
+
+</div>
+
+</>

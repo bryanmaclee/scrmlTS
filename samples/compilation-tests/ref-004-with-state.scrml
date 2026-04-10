@@ -1,0 +1,10 @@
+// ref-004-with-state.scrml
+// Reference to a state instance. Tests: <#ref> with state.
+
+< item title(string)>
+    <li>${title}</>
+</>
+
+<ul>
+    <item></>
+</>

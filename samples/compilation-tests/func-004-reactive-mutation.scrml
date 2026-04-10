@@ -1,0 +1,13 @@
+// func-004-reactive-mutation.scrml
+// Function modifying reactive state. Tests: @ mutation in function.
+
+<div>
+    ${
+        @count = 0
+        function increment() {
+            @count = @count + 1
+        }
+    }
+    <button onclick=increment()>+1</>
+    <p>Counter ready</>
+</div>

@@ -1,0 +1,25 @@
+<div
+  ${
+    type AppTheme = enum { Light | Dark | System | HighContrast }
+
+    ^{
+      let APP_CONFIG = bun.eval(`return {
+        defaultTheme: process.env.DEFAULT_THEME || "System",
+        appName: process.env.APP_NAME || "MyApp",
+      }`)
+
+      let themeVariants = reflect(AppTheme).variants
+    }
+  }
+  <h1>${APP_CONFIG.appName} Theme Selector</>
+  <div class="theme-picker"
+    ${
+      for (let theme of themeVariants) {
+        lift <label
+          <input type="radio" name="theme" value=theme</>
+          ${theme}
+        </label>
+      }
+    }
+  </div>
+</div>

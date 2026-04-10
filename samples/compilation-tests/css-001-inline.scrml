@@ -1,0 +1,10 @@
+// css-001-inline.scrml
+// Inline CSS block. Tests: #{} syntax.
+
+<div>
+    #{
+        color: red;
+        font-size: 16px;
+    }
+    <p>Styled content</>
+</div>

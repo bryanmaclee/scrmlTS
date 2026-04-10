@@ -1,0 +1,3 @@
+[test]
+root = "compiler/tests/"
+timeout = 10000

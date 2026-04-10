@@ -1,0 +1,7 @@
+// control-009-conditional-attr.scrml
+// Conditional attribute on markup tag. Tests: if= attribute with reactive var.
+
+<div>
+    ${ @showBanner = true }
+    <div class="banner" if=@showBanner>Welcome to our site!</>
+</div>

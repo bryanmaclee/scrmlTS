@@ -1,0 +1,63 @@
+// canvas-setup.scrml
+// Reusable canvas helper module. Exports setup functions for canvas, keyboard, and resize.
+// Uses ref=, cleanup(), and ^{} patterns internally so consumers don't repeat boilerplate.
+
+<program>
+
+${
+  // useCanvas: Initialize a 2D canvas context from a ref'd element.
+  // Returns { ctx, canvas } after the element is mounted.
+  export function useCanvas(el) {
+    let ctx = not
+    ^{
+      ctx = el.getContext('2d')
+    }
+    cleanup(() => {
+      // Canvas cleanup: clear the canvas on teardown
+      if (ctx) {
+        ctx.clearRect(0, 0, el.width, el.height)
+      }
+    })
+    return { ctx, canvas: el }
+  }
+
+  // useKeyboard: Register keyboard event handlers with automatic cleanup.
+  // bindings is an object: { key: handler }, e.g. { "Escape": () => reset() }
+  export function useKeyboard(bindings) {
+    let handler = not
+    ^{
+      handler = (event) => {
+        const fn = bindings[event.key]
+        if (fn) fn(event)
+      }
+      document.addEventListener('keydown', handler)
+    }
+    cleanup(() => {
+      if (handler) {
+        document.removeEventListener('keydown', handler)
+      }
+    })
+  }
+
+  // useResize: Observe element resize with automatic cleanup.
+  // callback receives { width, height, entry } on each resize.
+  export function useResize(el, callback) {
+    let observer = not
+    ^{
+      observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect
+          callback({ width, height, entry })
+        }
+      })
+      observer.observe(el)
+    }
+    cleanup(() => {
+      if (observer) {
+        observer.disconnect()
+      }
+    })
+  }
+}
+
+</>

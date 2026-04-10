@@ -1,0 +1,14 @@
+// server-005-mixed.scrml
+// Mixed server and client content. Tests: server func + client markup.
+
+<div>
+    ${
+        server function loadData() {
+            return ?{`SELECT title FROM articles LIMIT 5`}
+        }
+    }
+    <h1>Articles</>
+    <ul>
+        <li>Article list goes here</>
+    </ul>
+</div>

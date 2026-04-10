@@ -1,0 +1,73 @@
+// gauntlet-r14: rust dev — state machine with enums and nested functions
+// Tests R13 fixes: Enum::Variant in match + conditionals, nested functions
+// New: ~ tilde-decl, enum comparisons in if= attributes
+
+<div class="state-machine">
+    ${
+        type AppState:enum = { Loading, Ready, Error, Saving }
+
+        @state = AppState::Loading
+        @data = not
+        @errorMsg = ""
+        @isLoading = true
+        @isReady = false
+        @isError = false
+
+        statusLabel = "System Status"
+
+        function loadData() {
+            @state = AppState::Ready
+            @isLoading = false
+            @isReady = true
+            @data = [{ id: 1, value: "loaded" }]
+        }
+
+        function transition(newState) {
+            function isValid(from, to) {
+                return true
+            }
+            if (isValid(@state, newState)) {
+                @state = newState
+            }
+        }
+
+        function saveData() {
+            function prepareSave(d) {
+                return d
+            }
+            const prepared = prepareSave(@data)
+            @state = AppState::Saving
+            @state = AppState::Ready
+        }
+
+        function retryLoad() {
+            @state = AppState::Loading
+            @isError = false
+            @isLoading = true
+            loadData()
+        }
+
+        function triggerError(msg) {
+            @state = AppState::Error
+            @errorMsg = msg
+            @isError = true
+            @isReady = false
+        }
+    }
+    <h1>${statusLabel}</>
+    <div>Current state: ${@state}</>
+
+    <div if=@isLoading>
+        <p>Loading...</>
+        <button onclick=loadData()>Load</>
+    </div>
+    <div if=@isReady>
+        <p>Data loaded!</>
+        <button onclick=saveData()>Save</>
+        <button onclick=triggerError("Test error")>Force Error</>
+    </div>
+    <div if=@isError>
+        <p class="error">${@errorMsg}</>
+        <button onclick=retryLoad()>Retry</>
+    </div>
+</div>

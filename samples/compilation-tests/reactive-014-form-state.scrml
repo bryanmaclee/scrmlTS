@@ -1,0 +1,16 @@
+// reactive-014-form-state.scrml
+// Reactive variables for form state management. Tests: @ for UI state.
+
+<div>
+    ${
+        @formName = ""
+        @formEmail = ""
+        @isSubmitting = false
+        @hasError = false
+    }
+    <form>
+        <input type="text" name="name" placeholder="Name"/>
+        <input type="email" name="email" placeholder="Email"/>
+        <button type="submit">Submit</>
+    </form>
+</div>

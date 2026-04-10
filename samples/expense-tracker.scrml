@@ -1,0 +1,317 @@
+// expense-tracker.scrml
+// Gauntlet R11 — Vue developer building an expense tracker in scrml
+// Features: expense list, category enum, monthly total, category filter,
+//           add expense form, delete with confirm, SQL persistence
+
+<program db="./expenses.db">
+
+// --- Type declarations ---
+${
+    type Category:enum = {
+        Food
+        Transport
+        Housing
+        Entertainment
+        Health
+        Other
+    }
+}
+
+// --- Reactive state + derived ---
+${
+    @expenses = []
+    @filterCategory = "All"
+    @confirmDeleteId = not
+
+    // Form state (manual wiring — no bind:value yet)
+    @formAmount = ""
+    @formCategory = "Food"
+    @formDate = ""
+    @formDescription = ""
+    @formError = ""
+    @isSubmitting = false
+
+    // Derived: monthly total recomputes whenever @expenses changes
+    const @monthlyTotal = @expenses.reduce(function(acc, e) { return acc + e.amount }, 0)
+}
+
+// --- Server functions ---
+${
+    server function loadExpenses() {
+        return ?{`SELECT id, amount, category, date, description FROM expenses ORDER BY date DESC`}.all()
+    }
+
+    server function addExpense(amount, category, date, description) {
+        ?{`INSERT INTO expenses (amount, category, date, description) VALUES (${amount}, ${category}, ${date}, ${description})`}.run()
+        return loadExpenses()
+    }
+
+    server function deleteExpense(id) {
+        ?{`DELETE FROM expenses WHERE id = ${id}`}.run()
+        return loadExpenses()
+    }
+}
+
+// --- Event handlers and helpers ---
+${
+    function onLoad() {
+        @expenses = loadExpenses()
+    }
+
+    function updateFilterCategory() {
+        @filterCategory = event.target.value
+    }
+
+    function updateFormAmount() {
+        @formAmount = event.target.value
+    }
+
+    function updateFormCategory() {
+        @formCategory = event.target.value
+    }
+
+    function updateFormDate() {
+        @formDate = event.target.value
+    }
+
+    function updateFormDescription() {
+        @formDescription = event.target.value
+    }
+
+    function submitExpense() {
+        event.preventDefault()
+        @formError = ""
+
+        if (!@formAmount || isNaN(parseFloat(@formAmount))) {
+            @formError = "Amount must be a valid number"
+            return
+        }
+        if (!@formDate) {
+            @formError = "Date is required"
+            return
+        }
+        if (!@formDescription) {
+            @formError = "Description is required"
+            return
+        }
+
+        @isSubmitting = true
+        @expenses = addExpense(parseFloat(@formAmount), @formCategory, @formDate, @formDescription)
+        @formAmount = ""
+        @formDate = ""
+        @formDescription = ""
+        @isSubmitting = false
+    }
+
+    function requestDelete(id) {
+        @confirmDeleteId = id
+    }
+
+    function cancelDelete() {
+        @confirmDeleteId = not
+    }
+
+    function confirmDelete() {
+        let id = @confirmDeleteId
+        @confirmDeleteId = not
+        @expenses = deleteExpense(id)
+    }
+
+    function isConfirming(id) {
+        return @confirmDeleteId == id
+    }
+
+    function getVisible() {
+        if (@filterCategory == "All") {
+            return @expenses
+        }
+        return @expenses.filter(function(e) { return e.category == @filterCategory })
+    }
+}
+
+// --- Initial load ---
+${ onLoad() }
+
+// --- Markup ---
+<div class="expense-tracker">
+
+    <h1>Expense Tracker/
+
+    // Monthly total (const @monthlyTotal is a derived reactive value)
+    <div class="summary">
+        <span class="label">Monthly Total:/
+        <span class="total-amount">${@monthlyTotal}/
+    /
+
+    // Filter by category
+    <div class="filter-bar">
+        <label>Category:/
+        <select oninput=updateFilterCategory()>
+            <option value="All">All/
+            <option value="Food">Food/
+            <option value="Transport">Transport/
+            <option value="Housing">Housing/
+            <option value="Entertainment">Entertainment/
+            <option value="Health">Health/
+            <option value="Other">Other/
+        /
+    /
+
+    // Expense list with category color badges and inline delete confirm
+    <div class="expense-list">
+        ${
+            let visible = getVisible()
+            if (visible.length == 0) {
+                lift <p class="empty-state">No expenses found./
+            } else {
+                for (let expense of visible) {
+                    lift <div class="expense-row" key=${expense.id}>
+                        <div class="expense-meta">
+                            <span class="expense-date">${expense.date}/
+                            <span class="badge badge-${expense.category}">${expense.category}/
+                        /
+                        <div class="expense-body">
+                            <span class="expense-desc">${expense.description}/
+                            <span class="expense-amount">${expense.amount}/
+                        /
+                        <div class="expense-actions">
+                            <div if=isConfirming(expense.id)>
+                                <span>Delete this expense?/
+                                <button onclick=confirmDelete()>Yes/
+                                <button onclick=cancelDelete()>No/
+                            /
+                            <div else>
+                                <button onclick=requestDelete(expense.id)>Delete/
+                            /
+                        /
+                    </div>
+                }
+            }
+        }
+    /
+
+    // Add expense form
+    <form class="add-expense-form" onsubmit=submitExpense()>
+        <h2>Add Expense/
+
+        <p class="form-error" if=@formError>${@formError}/
+
+        <label>Amount
+            <input type="number" step="0.01" placeholder="0.00" value=@formAmount oninput=updateFormAmount()/>
+        /
+
+        <label>Category
+            <select value=@formCategory oninput=updateFormCategory()>
+                <option value="Food">Food/
+                <option value="Transport">Transport/
+                <option value="Housing">Housing/
+                <option value="Entertainment">Entertainment/
+                <option value="Health">Health/
+                <option value="Other">Other/
+            /
+        /
+
+        <label>Date
+            <input type="date" value=@formDate oninput=updateFormDate()/>
+        /
+
+        <label>Description
+            <input type="text" placeholder="What was this for?" value=@formDescription oninput=updateFormDescription()/>
+        /
+
+        <button type="submit" disabled=@isSubmitting>Add Expense/
+    </form>
+
+/
+
+<style>
+.expense-tracker {
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 24px;
+    font-family: system-ui, sans-serif;
+}
+.summary {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 16px 24px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+.total-amount {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1a1a2e;
+}
+.filter-bar {
+    margin-bottom: 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+.expense-list { margin-bottom: 32px; }
+.expense-row {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+.badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+}
+.badge-Food { background: #4caf50; }
+.badge-Transport { background: #2196f3; }
+.badge-Housing { background: #9c27b0; }
+.badge-Entertainment { background: #ff9800; }
+.badge-Health { background: #f44336; }
+.badge-Other { background: #607d8b; }
+.expense-amount {
+    font-weight: bold;
+    font-size: 16px;
+}
+.add-expense-form {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px 24px;
+}
+.add-expense-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 500;
+}
+.add-expense-form input,
+.add-expense-form select {
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+.form-error {
+    color: #c62828;
+    background: #ffebee;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+.empty-state {
+    color: #888;
+    text-align: center;
+    padding: 24px;
+}
+/
+
+/

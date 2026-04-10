@@ -1,0 +1,23 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/tab — Tree AST Builder
+    //
+    // Converts block splitter output into a structured FileAST with nodes,
+    // imports, exports, type declarations, and component definitions.
+    //
+    // Usage:
+    //   import { buildAST } from "scrml:compiler/tab"
+    //   const fileAST = buildAST(bsOutput)
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { buildAST: _buildAST, runTAB: _runTAB, parseLogicBody: _parseLogicBody, TABError: _TABError } = await import("../../compiler/src/ast-builder.js");
+    }
+
+    export const buildAST = _buildAST
+    export const runTAB = _runTAB
+    export const parseLogicBody = _parseLogicBody
+    export const TABError = _TABError
+}
+</program>

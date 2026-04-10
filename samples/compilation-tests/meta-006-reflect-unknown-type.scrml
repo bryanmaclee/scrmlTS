@@ -1,0 +1,8 @@
+<div
+  ${
+    ^{
+      let result = reflect(NonExistentType)
+    }
+  }
+  <p>This should produce E-META-003: NonExistentType is not declared</>
+/div

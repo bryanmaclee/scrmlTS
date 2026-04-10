@@ -1,0 +1,202 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:test — assertion utilities for ~{} inline test blocks
+    //
+    // This module has no stdlib dependencies. It uses raw assertions internally
+    // (no circular import problem). All other stdlib modules import from here.
+    //
+    // Usage inside ~{} blocks:
+    //   ~{
+    //       import { assertEqual, assertThrows, assertTruthy, assertFalsy } from 'scrml:test'
+    //       assertEqual(myFn(1), 2)
+    //   }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Assert two values are deeply equal (JSON comparison).
+     * Throws TestError with a human-readable message if they differ.
+     */
+    export function assertEqual(actual, expected, message) {
+        const a = JSON.stringify(actual)
+        const e = JSON.stringify(expected)
+        if (a !== e) {
+            const msg = message ? `${message}: expected ${e}, got ${a}` : `Expected ${e}, got ${a}`
+            throw new Error(`[scrml:test] assertEqual failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert two values are NOT equal (JSON comparison).
+     */
+    export function assertNotEqual(actual, expected, message) {
+        const a = JSON.stringify(actual)
+        const e = JSON.stringify(expected)
+        if (a === e) {
+            const msg = message ? `${message}: expected values to differ, both are ${a}` : `Expected values to differ, both are ${a}`
+            throw new Error(`[scrml:test] assertNotEqual failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert a value is truthy.
+     */
+    export function assertTruthy(value, message) {
+        if (!value) {
+            const msg = message || `Expected truthy value, got ${JSON.stringify(value)}`
+            throw new Error(`[scrml:test] assertTruthy failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert a value is falsy.
+     */
+    export function assertFalsy(value, message) {
+        if (value) {
+            const msg = message || `Expected falsy value, got ${JSON.stringify(value)}`
+            throw new Error(`[scrml:test] assertFalsy failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert a value is null or undefined.
+     */
+    export function assertNull(value, message) {
+        if (value !== null && value !== undefined) {
+            const msg = message || `Expected null or undefined, got ${JSON.stringify(value)}`
+            throw new Error(`[scrml:test] assertNull failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert a value is NOT null or undefined.
+     */
+    export function assertDefined(value, message) {
+        if (value === null || value === undefined) {
+            const msg = message || `Expected a defined value, got ${JSON.stringify(value)}`
+            throw new Error(`[scrml:test] assertDefined failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert a function throws. Optionally assert the thrown error's message
+     * contains a given string.
+     *
+     * Example: assertThrows(() => myFn(), "invalid input")
+     */
+    export function assertThrows(fn, expectedMessageSubstring) {
+        let threw = false
+        let caughtMessage = null
+        try {
+            fn()
+        } catch (e) {
+            threw = true
+            caughtMessage = e?.message || String(e)
+        }
+        if (!threw) {
+            throw new Error(`[scrml:test] assertThrows failed — expected function to throw, but it did not`)
+        }
+        if (expectedMessageSubstring && !caughtMessage.includes(expectedMessageSubstring)) {
+            throw new Error(`[scrml:test] assertThrows failed — expected error message to contain "${expectedMessageSubstring}", got: "${caughtMessage}"`)
+        }
+    }
+
+    /**
+     * Assert a function does NOT throw.
+     */
+    export function assertNoThrow(fn, message) {
+        try {
+            fn()
+        } catch (e) {
+            const msg = message || `Expected no throw, but got: ${e?.message || e}`
+            throw new Error(`[scrml:test] assertNoThrow failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert a number is within an inclusive range.
+     */
+    export function assertInRange(value, min, max, message) {
+        if (typeof value !== "number" || value < min || value > max) {
+            const msg = message || `Expected ${value} to be between ${min} and ${max}`
+            throw new Error(`[scrml:test] assertInRange failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Assert an array or string contains a given item or substring.
+     */
+    export function assertContains(container, item, message) {
+        const has = Array.isArray(container)
+            ? container.some(x => JSON.stringify(x) === JSON.stringify(item))
+            : typeof container === "string" && container.includes(item)
+        if (!has) {
+            const msg = message || `Expected ${JSON.stringify(container)} to contain ${JSON.stringify(item)}`
+            throw new Error(`[scrml:test] assertContains failed — ${msg}`)
+        }
+    }
+
+    /**
+     * Group a set of related assertions under a named label.
+     * All assertions run; errors are collected and re-thrown together.
+     *
+     * Example:
+     *   group("email validation", () => {
+     *       assertEqual(validate("x@y.z"), true)
+     *       assertEqual(validate("notanemail"), false)
+     *   })
+     */
+    export function group(label, fn) {
+        try {
+            fn()
+        } catch (e) {
+            throw new Error(`[scrml:test] group "${label}" failed — ${e.message}`)
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Self-test (no circular import — raw assertions only)
+    // ---------------------------------------------------------------------------
+    ~{
+        // assertEqual passes for equal values
+        let threw = false
+        try { assertEqual(1, 2) } catch(e) { threw = true }
+        if (!threw) { throw new Error("assertEqual should throw on mismatch") }
+
+        // assertEqual does not throw for equal values
+        assertEqual(1, 1)
+        assertEqual({ a: 1 }, { a: 1 })
+        assertEqual([1, 2, 3], [1, 2, 3])
+
+        // assertTruthy
+        assertTruthy(1)
+        assertTruthy("x")
+        assertTruthy([])
+
+        // assertFalsy
+        assertFalsy(0)
+        assertFalsy("")
+        assertFalsy(null)
+
+        // assertThrows catches throws
+        assertThrows(() => { throw new Error("boom") })
+        assertThrows(() => { throw new Error("specific message") }, "specific")
+
+        // assertNoThrow passes for non-throwing functions
+        assertNoThrow(() => { const x = 1 + 1 })
+
+        // assertContains
+        assertContains([1, 2, 3], 2)
+        assertContains("hello world", "world")
+
+        // assertNull
+        assertNull(null)
+        assertNull(undefined)
+
+        // assertDefined
+        assertDefined(0)
+        assertDefined("")
+        assertDefined(false)
+    }
+}
+</program>

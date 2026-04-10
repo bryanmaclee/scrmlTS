@@ -1,0 +1,100 @@
+// debate-lin-lift-edge-cases.scrml
+// Edge cases for lin+lift interaction as requested by the debate challenge.
+//
+// Three cases:
+//   A. lin in if/else branches with lift — must consume in BOTH branches (§34.4.2)
+//   B. lin in a loop with lift — ALWAYS an error (§34.4.4), no workaround
+//   C. lin lifted across a component boundary — consumed at lift site in parent
+
+<program db="./app.db" tables="sessions,content">
+
+// ======================================================================
+// CASE A: lin in if/else branches with lift
+// ======================================================================
+// The spec (§34.4.2) requires consumption on every execution path.
+// Both branches must lift/consume the lin value.
+// This is correct and mirrors Rust's move semantics in match arms.
+
+${
+    function isAdmin() -> boolean { return true }
+    function fetchAdminToken() -> string { return "admin-tok-xyz" }
+    function fetchUserToken() -> string { return "user-tok-abc" }
+}
+
+<div class="auth-banner">${
+    lin token = if (isAdmin()) {
+        lift fetchAdminToken()
+    } else {
+        lift fetchUserToken()
+    }
+    // token is now consumed — it was the result of the if-as-expression
+    // The compiler sees: token is declared once, consumed once (at the if-as-expression binding).
+    // This is valid: both branches produce a value, token is the single result.
+
+    lift <p class="token-display">Authenticated: ${token}/
+}</>
+
+// ======================================================================
+// CASE B: lin in a loop with lift — the unconditional rejection
+// ======================================================================
+// §34.4.4 states: lin SHALL NOT be consumed inside loop bodies.
+// The compiler rejects this unconditionally because the loop body is a
+// potential multi-execution site. The lin guarantee would be violated
+// on any loop that runs more than once.
+//
+// This is where lin and lift diverge from each other in the spec.
+// lift inside a loop is VALID and expected (§32.6 elision rule).
+// lin inside a loop is ALWAYS invalid (§34.4.4).
+//
+// The workaround: consume lin BEFORE the loop. Use a regular let for the
+// value you need inside the loop body.
+
+${
+    function fetchBatchKey() -> string { return "batch-2026-04-10" }
+}
+
+<ul class="batch-list">${
+    lin batchKey = fetchBatchKey()
+    let batchLabel = batchKey          // consume lin into a regular let — one consumption
+    let items = ?{`SELECT id, name FROM content ORDER BY id`}.all()
+
+    // batchKey is now consumed. batchLabel is a regular let — can be used freely in the loop.
+    for (let item of items) {
+        lift <li class="batch-item" data-batch=batchLabel>
+            <span>${item.id}/
+            <span>${item.name}/
+        </li>
+    }
+}</>
+
+// ======================================================================
+// CASE C: lin lifted across a component boundary
+// ======================================================================
+// When lin is consumed by a lift statement, the lift site IS the consumption.
+// The spec is explicit: "lift x where x is lin. The lift statement consumes x
+// and initializes ~ to the lifted value." (§35.3 rule 4)
+//
+// Lifting across a component boundary works exactly the same way.
+// The lin variable is consumed at the lift site in the parent logic context.
+// The child component receives the value as a prop — no lin tracking beyond that.
+//
+// NOTE: If you lift a struct/object containing the lin value, the struct
+// assignment counts as the consumption (§35.3, last normative statement).
+
+${
+    function loadSessionToken() -> string { return "sess-abc-xyz-789" }
+}
+
+<div class="app-shell">${
+    lin sessionToken = loadSessionToken()
+
+    // Consumed here — at the lift site. The component receives it as a plain value.
+    // lin guarantee: the token was NOT used anywhere before this point,
+    // and will NOT be usable after (compiler enforces).
+    lift <div class="secure-panel" data-session=sessionToken>
+        <h3>Secure Content/
+        <p>Session established./
+    </div>
+}</>
+
+</program>

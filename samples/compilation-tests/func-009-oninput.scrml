@@ -1,0 +1,12 @@
+// func-009-oninput.scrml
+// Input change handler. Tests: oninput= attribute.
+
+<div>
+    ${
+        @searchText = ""
+        function onSearch() {
+            let query = @searchText
+        }
+    }
+    <input type="text" oninput=onSearch() placeholder="Search..."/>
+</div>

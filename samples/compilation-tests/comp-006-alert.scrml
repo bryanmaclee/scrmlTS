@@ -1,0 +1,15 @@
+// comp-006-alert.scrml
+// Alert/notification pattern. Tests: dismissible alert.
+
+<div>
+    ${
+        @showAlert = true
+        function dismiss() {
+            @showAlert = false
+        }
+    }
+    <div class="alert alert-info" if=showAlert>
+        <span>This is an informational alert.</>
+        <button onclick=dismiss()>Dismiss</>
+    </div>
+</div>

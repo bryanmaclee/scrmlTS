@@ -1,0 +1,11 @@
+// test-010-nested-context.scrml
+// Test context at various nesting levels. Tests: ~{} placement.
+
+<div class="app">
+    <p>Main content</>
+</>
+
+~{ "top-level tests"
+    test "basic truth" { assert true }
+    test "number comparison" { assert 1 + 1 == 2 }
+}

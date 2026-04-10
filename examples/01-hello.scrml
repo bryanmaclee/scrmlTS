@@ -1,0 +1,13 @@
+// Example 01: Hello — bare markup, no state, no logic.
+// Demonstrates the three closer forms: explicit </tag>, trailing /, and bare /.
+
+<program>
+
+<div>
+  <h1>Hello, scrml</>
+  <p>Three ways to close a tag: explicit, trailing, or bare.</p>
+  <footer>No framework. Just output.
+  </>
+</>
+
+</program>

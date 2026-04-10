@@ -1,0 +1,41 @@
+${
+    type OrderStatus:enum = {
+        Pending
+        Processing
+        Shipped
+        Delivered
+        Cancelled
+
+        transitions {
+            .Pending    => .Processing
+            .Pending    => .Cancelled
+            .Processing => .Shipped
+            .Processing => .Cancelled
+            .Shipped    => .Delivered
+        }
+    }
+
+    @status = OrderStatus.Pending
+
+    function advance() {
+        @status = OrderStatus.Processing
+    }
+
+    function ship() {
+        @status = OrderStatus.Shipped
+    }
+}
+
+< machine AdminFlow for OrderStatus>
+    .Pending    => .Processing
+    .Processing => .Shipped
+    .Shipped    => .Delivered
+    .Delivered  => .Pending
+    .Cancelled  => .Pending
+</>
+
+<div>
+    <h1>Order Status: ${@status.variant}</>
+    <button onclick=${advance()}>Advance</>
+    <button onclick=${ship()}>Ship</>
+</>

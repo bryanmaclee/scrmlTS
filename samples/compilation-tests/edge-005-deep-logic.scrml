@@ -1,0 +1,15 @@
+// edge-005-deep-logic.scrml
+// Logic block with deeply nested braces. Tests: brace tracking depth.
+
+<div>
+    ${
+        let data = {
+            level1: {
+                level2: {
+                    value: "deep"
+                }
+            }
+        }
+    }
+    <p>Deep nesting</>
+</div>

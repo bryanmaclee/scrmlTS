@@ -1,0 +1,157 @@
+<program>
+
+#{
+  body { font-family: system-ui, sans-serif; background: #f9fafb; padding: 2rem 1rem; }
+  .container { max-width: 42rem; margin: 0 auto; }
+  h1 { font-size: 1.875rem; font-weight: 700; color: #111827; margin-bottom: 2rem; }
+  .form-card { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 2rem; }
+  .form-group { margin-bottom: 1rem; }
+  .form-label { display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem; }
+  .form-input { display: block; width: 100%; border: 1px solid #d1d5db; border-radius: 0.375rem; padding: 0.5rem; box-sizing: border-box; }
+  .form-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .form-check { display: flex; align-items: center; gap: 0.5rem; }
+  .form-check input { width: 1rem; height: 1rem; }
+  .form-check label { font-size: 0.875rem; color: #374151; }
+  .btn-submit { width: 100%; background: #2563eb; color: white; padding: 0.5rem 1rem; border: none; border-radius: 0.375rem; font-weight: 500; cursor: pointer; }
+  .btn-submit:hover { background: #1d4ed8; }
+  .error-text { font-size: 0.875rem; color: #dc2626; margin-top: 0.25rem; }
+  .results-card { background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 0.5rem; padding: 1.5rem; }
+  .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .results-header h2 { font-size: 1.25rem; font-weight: 600; }
+  .stats { display: flex; gap: 0.75rem; font-size: 0.875rem; }
+  .stat-high { color: #dc2626; font-weight: 500; }
+  .stat-sub { color: #16a34a; font-weight: 500; }
+  .filter-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .filter-btn { padding: 0.25rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; border: none; cursor: pointer; background: #e5e7eb; color: #374151; }
+  .filter-btn.active { background: #2563eb; color: white; }
+  .submission-list { list-style: none; padding: 0; margin: 0; }
+  .submission-item { padding: 0.75rem 0; border-bottom: 1px solid #e5e7eb; }
+  .submission-top { display: flex; justify-content: space-between; }
+  .submission-name { font-weight: 500; }
+  .badge { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 0.375rem; }
+  .badge-high { background: #fee2e2; color: #991b1b; }
+  .badge-medium { background: #fef9c3; color: #854d0e; }
+  .badge-low { background: #dcfce7; color: #166534; }
+  .submission-meta { font-size: 0.875rem; color: #6b7280; }
+  .submission-msg { font-size: 0.875rem; margin-top: 0.25rem; }
+  textarea { resize: vertical; }
+}
+
+<div class="container">
+  <h1>Contact Form</h1>
+
+  ${
+    @name = ""
+    @email = ""
+    @subject = "general"
+    @message = ""
+    @priority = "medium"
+    @subscribe = false
+    @submissions = []
+    @filter = "all"
+    @nameErr = ""
+    @emailErr = ""
+    @messageErr = ""
+
+    fn validate() {
+      let valid = true
+      if (@name.trim().length < 2) {
+        @nameErr = "Name must be at least 2 characters"
+        valid = false
+      } else {
+        @nameErr = ""
+      }
+      if (!@email.includes("@") || @email.trim().length < 3) {
+        @emailErr = "Invalid email address"
+        valid = false
+      } else {
+        @emailErr = ""
+      }
+      if (@message.trim().length < 10) {
+        @messageErr = "Message must be at least 10 characters"
+        valid = false
+      } else if (@message.length > 500) {
+        @messageErr = "Message too long"
+        valid = false
+      } else {
+        @messageErr = ""
+      }
+      return valid
+    }
+
+    fn handleSubmit() {
+      if (validate()) {
+        @submissions = [...@submissions, { name: @name, email: @email, subject: @subject, message: @message, priority: @priority, subscribe: @subscribe }]
+        @name = ""
+        @email = ""
+        @subject = "general"
+        @message = ""
+        @priority = "medium"
+        @subscribe = false
+      }
+    }
+
+    fn activeCount() {
+      return @submissions.filter(fn (s) { return s.priority == "high" }).length
+    }
+
+    fn subscribedCount() {
+      return @submissions.filter(fn (s) { return s.subscribe }).length
+    }
+
+    fn filteredSubmissions() {
+      if (@filter == "all") { return @submissions }
+      return @submissions.filter(fn (s) { return s.priority == @filter })
+    }
+  }
+
+  <form class="form-card" onsubmit=${handleSubmit()}>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input class="form-input" type="text" bind:value=@name />
+      <p class="error-text">${@nameErr}</p>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input class="form-input" type="email" bind:value=@email />
+      <p class="error-text">${@emailErr}</p>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Subject</label>
+        <select class="form-input" bind:value=@subject>
+          <option value="general">General</option>
+          <option value="support">Support</option>
+          <option value="billing">Billing</option>
+          <option value="partnership">Partnership</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Priority</label>
+        <select class="form-input" bind:value=@priority>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Message</label>
+      <textarea class="form-input" rows="4" bind:value=@message></textarea>
+      <p class="error-text">${@messageErr}</p>
+    </div>
+
+    <div class="form-check">
+      <input type="checkbox" bind:value=@subscribe />
+      <label>Subscribe to newsletter</label>
+    </div>
+
+    <button class="btn-submit" type="submit">Submit</button>
+  </form>
+</div>
+
+</program>

@@ -1,0 +1,75 @@
+// gauntlet-r18: react dev — Form generator using reflect() on struct types
+// Tests: struct definition, reflect(StructName), emit() for form field generation,
+//        conditional input types based on field type, compound emit patterns
+
+<program>
+
+${
+    type UserProfile:struct = {
+        username: string,
+        email: string,
+        age: number,
+        bio: string,
+        active: boolean
+    }
+
+    type Address:struct = {
+        street: string,
+        city: string,
+        state: string,
+        zip: string,
+        country: string
+    }
+}
+
+<div class="form-generator">
+    <h1>Auto-Generated Forms</>
+
+    <h2>User Profile Form</>
+    ^{
+        const info = reflect(UserProfile);
+        emit("<form class=profile-form>\n");
+        info.fields.forEach(function(field) {
+            emit("  <div class=form-group>\n");
+            emit("    <label>" + field.name + " (" + field.type + ")" + "/\n");
+            if (field.type === "number") {
+                emit("    <input type=number name=" + field.name + " placeholder=" + field.name + "/>\n");
+            } else if (field.type === "boolean") {
+                emit("    <input type=checkbox name=" + field.name + "/>\n");
+            } else {
+                emit("    <input type=text name=" + field.name + " placeholder=" + field.name + "/>\n");
+            }
+            emit("  </div>\n");
+        });
+        emit("  <button type=submit>Save Profile/\n");
+        emit("</form>\n");
+    }
+
+    <h2>Address Form</>
+    ^{
+        const addr = reflect(Address);
+        emit("<form class=address-form>\n");
+        addr.fields.forEach(function(f) {
+            emit("  <div class=form-group>\n");
+            emit("    <label>" + f.name + "/\n");
+            emit("    <input type=text name=" + f.name + " placeholder=" + f.name + "/>\n");
+            emit("  </div>\n");
+        });
+        emit("  <button type=submit>Save Address/\n");
+        emit("</form>\n");
+    }
+
+    <h2>Combined Summary</>
+    ^{
+        const user = reflect(UserProfile);
+        const address = reflect(Address);
+        const total = user.fields.length + address.fields.length;
+        emit("<p>Total fields across both forms: " + total + "/\n");
+        emit("<ul>\n");
+        emit("  <li>UserProfile: " + user.fields.length + " fields/\n");
+        emit("  <li>Address: " + address.fields.length + " fields/\n");
+        emit("</ul>\n");
+    }
+</div>
+
+</>

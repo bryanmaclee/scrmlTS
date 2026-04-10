@@ -1,0 +1,39 @@
+// gauntlet-r13: solid dev — fine-grained reactivity patterns
+// Tests: reactive variables, derived values, nested functions in callbacks, enums
+// R13 focus: BPP nested functions, Enum::Variant, bind:value
+
+<div class="signals-demo">
+    ${
+        type Theme:enum = { Light, Dark }
+
+        @count = 0
+        @multiplier = 2
+        @theme = Theme::Light
+
+        function increment() {
+            @count = @count + 1
+        }
+
+        function computed() {
+            return @count * @multiplier
+        }
+
+        function toggleTheme() {
+            function getNext(current) {
+                return current == Theme::Light ? Theme::Dark : Theme::Light
+            }
+            @theme = getNext(@theme)
+        }
+    }
+    <div>
+        <h1>Reactive Signals</>
+        <p>Count: ${@count}</>
+        <p>Computed (x${@multiplier}): ${computed()}</>
+        <p>Theme: ${@theme}</>
+        <div class="controls">
+            <button onclick=increment()>+1</>
+            <input type="range" bind:value=@multiplier min="1" max="10"/>
+            <button onclick=toggleTheme()>Toggle Theme</>
+        </div>
+    </div>
+</div>

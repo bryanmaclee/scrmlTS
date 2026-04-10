@@ -1,0 +1,48 @@
+// gauntlet-r15: stress test — db with nested markup + onclick handlers
+// Tests BUG-R14-005 fix: DOMContentLoaded wiring for markup inside state/db nodes
+// Exercises: <db> tag, nested markup, onclick in both top-level and lift contexts,
+//            bind:value, for/lift, reactive state inside db scope
+
+< db src="./test.db" tables="items">
+    ${
+        @items = ?{`SELECT id, name, done FROM items`}
+        @newName = ""
+        @filterDone = false
+
+        server function addItem() {
+            ?{`INSERT INTO items (name, done) VALUES (${@newName}, 0)`}.run()
+            @items = ?{`SELECT id, name, done FROM items`}
+        }
+
+        server function removeItem(itemId) {
+            ?{`DELETE FROM items WHERE id = ${itemId}`}.run()
+            @items = ?{`SELECT id, name, done FROM items`}
+        }
+
+        server function toggleItem(itemId, currentDone) {
+            ?{`UPDATE items SET done = ${currentDone ? 0 : 1} WHERE id = ${itemId}`}.run()
+            @items = ?{`SELECT id, name, done FROM items`}
+        }
+
+        function clearFilter() {
+            @filterDone = false
+        }
+    }
+    <h1>Item Manager</>
+    <div class="controls">
+        <input type="text" bind:value=@newName placeholder="New item name"/>
+        <button onclick=addItem()>Add Item</>
+        <button onclick=clearFilter()>Show All</>
+    </div>
+    <ul>
+        ${
+            for (let item of @items) {
+                lift <li>
+                    <span>${item.name}/
+                    <button onclick=toggleItem(item.id, item.done)>Toggle/
+                    <button onclick=removeItem(item.id)>Remove/
+                </li>
+            }
+        }
+    </ul>
+</>

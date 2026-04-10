@@ -1,0 +1,152 @@
+// Example 09: Error handling — failable functions, fail keyword, !{} inline handler.
+// A contact form that can fail at validation or submission. Error types are enums
+// with renders clauses so they display themselves inside < errorBoundary>.
+
+<program>
+
+${
+    // Declare error enum first so the type is in scope for the failable functions below.
+    type ContactError:enum = {
+        EmptyName
+            renders <p class="field-error">Name is required.</>
+        EmptyEmail
+            renders <p class="field-error">Email is required.</>
+        InvalidEmail(email: string)
+            renders <p class="field-error">${email} is not a valid email address.</>
+        SubmitFailed(reason: string)
+            renders <div class="error-banner">Submission failed: ${reason}</>
+    }
+
+    @name  = ""
+    @email = ""
+    @body  = ""
+
+    @submitted = false
+    @sending   = false
+
+    // validate() is pure and failable. Returns nothing on success.
+    function validate()! -> ContactError {
+        if (@name == "")  fail ContactError::EmptyName
+        if (@email == "") fail ContactError::EmptyEmail
+        // Minimal email check — just needs an @.
+        if (!@email.includes("@")) fail ContactError::InvalidEmail(@email)
+    }
+
+    // submit() is server-side and failable. The compiler escalates to a server route
+    // because it touches external I/O. We treat a hypothetical server call here.
+    server function submit(name: string, email: string, body: string)! -> ContactError {
+        // In real code this would call an email API. Returning success for demonstration.
+    }
+
+    function handleSubmit() {
+        @sending = true
+
+        // validate() is failable — must handle the result.
+        let validationResult = validate() !{
+            | ::EmptyName      -> { @sending = false }
+            | ::EmptyEmail     -> { @sending = false }
+            | ::InvalidEmail e -> { @sending = false }
+        }
+
+        // submit() is also failable. Propagate its errors to the caller's error boundary.
+        submit(@name, @email, @body) !{
+            | ::SubmitFailed e -> { @sending = false }
+        }
+
+        @sending   = false
+        @submitted = true
+    }
+}
+
+< errorBoundary>
+    <div class="contact-form">
+        <h1>Contact Us</>
+
+        <div if=@submitted>
+            <p class="success">Thanks! We'll be in touch.</>
+        </div>
+
+        <form if=(!@submitted) onsubmit=handleSubmit()>
+            <label>
+                Name
+                <input type="text" bind:value=@name placeholder="Your name">
+            </label>
+
+            <label>
+                Email
+                <input type="email" bind:value=@email placeholder="you@example.com">
+            </label>
+
+            <label>
+                Message
+                <textarea bind:value=@body placeholder="What's on your mind?"></textarea>
+            </label>
+
+            <button type="submit" disabled=@sending>
+                ${@sending ? "Sending…" : "Send Message"}
+            </button>
+        </form>
+    </div>
+</>
+
+#{
+    .contact-form {
+        max-width: 480px;
+        margin: 2rem auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        font-family: sans-serif;
+    }
+
+    label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    input, textarea {
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+
+    .field-error {
+        color: #c0392b;
+        font-size: 0.85rem;
+        margin: 0;
+    }
+
+    .error-banner {
+        background: #fdecea;
+        border: 1px solid #c0392b;
+        border-radius: 4px;
+        padding: 0.75rem 1rem;
+        color: #c0392b;
+    }
+
+    .success {
+        color: #27ae60;
+        font-weight: bold;
+    }
+
+    button {
+        padding: 0.6rem 1.5rem;
+        background: #2c3e50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1rem;
+        align-self: flex-start;
+    }
+
+    button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+}
+
+</program>

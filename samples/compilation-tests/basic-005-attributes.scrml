@@ -1,0 +1,7 @@
+// basic-005-attributes.scrml
+// Tags with various attribute types. Tests: quoted strings, identifiers, boolean attrs.
+
+<div class="container" id="main">
+    <input type="text" placeholder="Enter name" required/>
+    <button disabled>Submit</>
+</div>

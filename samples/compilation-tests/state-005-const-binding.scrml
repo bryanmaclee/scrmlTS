@@ -1,0 +1,17 @@
+// state-005-const-binding.scrml
+// Const binding to state. Tests: const x = < thing> pattern.
+
+${
+    const Widget = "widget"
+}
+
+< panel title(string)>
+    <div class="panel">
+        <h3>${title}</>
+        content
+    </>
+</>
+
+<panel title="Dashboard">
+    <p>Content here</>
+</>

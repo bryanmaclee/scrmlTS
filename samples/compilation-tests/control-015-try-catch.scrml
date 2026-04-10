@@ -1,0 +1,14 @@
+// control-015-try-catch.scrml
+// Try/catch block. Tests: error handling in logic.
+
+<div>
+    ${
+        let result = not
+        try {
+            result = JSON.parse('{"key": "value"}')
+        } catch (e) {
+            result = not
+        }
+    }
+    <p>Parse attempted</>
+</div>

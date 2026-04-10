@@ -1,0 +1,148 @@
+// Example 13: Nested <program> — web worker for off-thread computation.
+// The main app hands prime-finding work to a worker so the UI stays responsive.
+// Communication is message-passing (.send() / when message).
+
+<program>
+
+// The worker program lives in its own isolated execution context.
+// No parent-scope bindings are visible inside it (E-PROG-003 if you try).
+<program name="primes">
+    ${
+        // Sieve of Eratosthenes up to limit.
+        function sieve(limit: number) -> number[] {
+            const flags = Array(limit + 1).fill(true)
+            flags[0] = false
+            flags[1] = false
+            for (let i = 2; i * i <= limit; i++) {
+                if (flags[i]) {
+                    for (let j = i * i; j <= limit; j += i) {
+                        flags[j] = false
+                    }
+                }
+            }
+            // Collect the primes.
+            const primes = []
+            for (let i = 2; i <= limit; i++) {
+                if (flags[i]) primes.push(i)
+            }
+            return primes
+        }
+
+        // when message fires whenever the parent calls <#primes>.send(data).
+        when message(data) {
+            const result = sieve(data.limit)
+            // Send result back to parent.
+            send({ limit: data.limit, primes: result, count: result.length })
+        }
+    }
+</>
+
+// Parent-side state.
+${
+    @limit   = 1000
+    @result  = not
+    @running = false
+
+    function findPrimes() {
+        @running = true
+        @result  = not
+        <#primes>.send({ limit: @limit })
+    }
+
+    // when message from <#primes> fires when the worker calls send().
+    when message from <#primes> (data) {
+        @result  = data
+        @running = false
+    }
+
+    when error from <#primes> (e) {
+        @running = false
+        // In a real app, surface this to the user.
+    }
+}
+
+<div class="app">
+    <h1>Prime Finder</>
+    <p>Computation runs off-thread in a Web Worker.</>
+
+    <div class="controls">
+        <label>
+            Find primes up to:
+            <input type="number" bind:value=@limit min="10" max="1000000">
+        </label>
+        <button onclick=findPrimes() disabled=@running>
+            ${@running ? "Computing…" : "Find Primes"}
+        </button>
+    </>
+
+    // Show results only when @result has a value — use `is not not` for presence check.
+    <div class="results" if=(@result is not not)>
+        <p>
+            Found <strong>${@result.count}</strong>
+            primes up to <strong>${@result.limit}</strong>.
+        </>
+        <p class="sample">
+            First 10: ${@result.primes.slice(0, 10).join(", ")}…
+        </>
+    </>
+</>
+
+#{
+    .app {
+        max-width: 560px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font-family: sans-serif;
+    }
+
+    .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin: 1.5rem 0;
+    }
+
+    label {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    input[type="number"] {
+        padding: 0.4rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        width: 8rem;
+        font-size: 1rem;
+    }
+
+    button {
+        padding: 0.5rem 1.25rem;
+        font-size: 1rem;
+        border: 1px solid #333;
+        border-radius: 4px;
+        cursor: pointer;
+        background: #2c3e50;
+        color: white;
+        align-self: flex-start;
+    }
+
+    button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .results {
+        padding: 1rem;
+        background: #f5f5f5;
+        border-radius: 6px;
+    }
+
+    .sample {
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #555;
+    }
+}
+
+</program>

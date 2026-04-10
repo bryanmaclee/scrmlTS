@@ -1,0 +1,14 @@
+// comp-013-tooltip.scrml
+// Tooltip pattern. Tests: hover state management.
+
+<div>
+    ${
+        @showTip = false
+    }
+    <div class="tooltip-wrapper">
+        <button>Hover me</>
+        <div class="tooltip" if=showTip>
+            <p>This is helpful tooltip text.</>
+        </div>
+    </div>
+</div>

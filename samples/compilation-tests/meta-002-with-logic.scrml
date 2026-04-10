@@ -1,0 +1,10 @@
+// meta-002-with-logic.scrml
+// Meta block with logic. Tests: ^{} with computations.
+
+<div>
+    ^{
+        let buildTime = "2026-03-28"
+        let version = "1.0.0"
+    }
+    <p>Meta info ready</>
+</div>

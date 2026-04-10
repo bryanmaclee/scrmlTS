@@ -1,0 +1,29 @@
+// reactive-018-class-binding.scrml
+// Dynamic class binding demonstrations: class: directive and template literal.
+// Tests: §5.5 dynamic class binding — conditional toggle, multiple directives,
+//        static class coexistence, template literal interpolation.
+
+<div>
+    ${
+        @isActive = false
+        @loading = false
+        @hasError = false
+        @theme = "dark"
+    }
+
+    <div id="toggle-target" class:active=@isActive>
+        Toggle me
+    </div>
+
+    <div id="status-box" class="status" class:loading=@loading class:error=@hasError>
+        ${@loading ? "Loading..." : @hasError ? "Error" : "OK"}
+    </div>
+
+    <button id="base-button" class="btn" class:active=@isActive>
+        Toggle
+    </button>
+
+    <div id="themed-card" class="card card-${@theme}">
+        Themed card
+    </div>
+</div>

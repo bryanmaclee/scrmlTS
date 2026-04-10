@@ -1,0 +1,9 @@
+// sql-010-create-table.scrml
+// SQL CREATE TABLE. Tests: ?{} with DDL.
+
+<div>
+    ${
+        ?{`CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, message TEXT, created_at TEXT)`}
+    }
+    <p>Table created</>
+</div>

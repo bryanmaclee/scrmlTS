@@ -1,0 +1,20 @@
+// basic-008-semantic-html.scrml
+// HTML5 semantic elements. Tests: header, nav, main, section, article, footer.
+
+<header>
+    <nav>
+        <a href="/">Home</>
+        <a href="/about">About</>
+    </nav>
+</header>
+<main>
+    <section>
+        <article>
+            <h2>Article Title</>
+            <p>Article body text goes here.</>
+        </article>
+    </section>
+</main>
+<footer>
+    <p>Copyright 2026</>
+</footer>

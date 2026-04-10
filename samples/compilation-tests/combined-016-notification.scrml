@@ -1,0 +1,29 @@
+// combined-016-notification.scrml
+// Notification system. Tests: reactive array + events + lift + dismiss.
+
+<div class="notification-center">
+    ${
+        @notifications = []
+        @nextId = 1
+
+        function addNotification(msg) {
+            @notifications = [...@notifications, { id: @nextId, text: msg }]
+            @nextId = @nextId + 1
+        }
+
+        function dismissNotification(id) {
+            @notifications = @notifications.filter(n => n.id != id)
+        }
+    }
+    <button onclick=addNotification("New notification!")>Add Notification</>
+    <div class="notification-list">
+        ${
+            for (let notif of @notifications) {
+                lift <div class="notification">
+                    <span>${notif.text}</>
+                    <button onclick=dismissNotification(notif.id)>X</>
+                </div>
+            }
+        }
+    </div>
+</div>

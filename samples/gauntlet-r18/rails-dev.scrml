@@ -1,0 +1,96 @@
+// gauntlet-r18: rails dev — Auto-CRUD generator using reflect() + emit()
+// Tests: struct definition, reflect() on multiple structs, emit() for full
+//        CRUD UI generation, conditional input types, nested emit loops,
+//        combining reflect metadata with emit output
+
+<program>
+
+${
+    type Product:struct = {
+        name: string,
+        price: number,
+        category: string,
+        inStock: boolean,
+        description: string
+    }
+
+    type Customer:struct = {
+        firstName: string,
+        lastName: string,
+        email: string,
+        phone: string,
+        loyaltyPoints: number
+    }
+}
+
+<div class="crud-app">
+    <h1>Auto-CRUD Admin</>
+
+    ^{
+        const productInfo = reflect(Product);
+        const customerInfo = reflect(Customer);
+
+        const models = [
+            { name: "Product", fields: productInfo.fields },
+            { name: "Customer", fields: customerInfo.fields }
+        ];
+
+        models.forEach(function(model) {
+            const fields = model.fields;
+
+            emit("<section class=crud-" + model.name.toLowerCase() + ">\n");
+            emit("  <h2>" + model.name + " Management/\n");
+            emit("  <p>" + fields.length + " fields/\n");
+
+            emit("  <div class=crud-create>\n");
+            emit("    <h3>Create " + model.name + "/\n");
+            emit("    <form class=create-form>\n");
+            fields.forEach(function(field) {
+                emit("      <div class=field-row>\n");
+                emit("        <label>" + field.name + "/\n");
+                if (field.type === "number") {
+                    emit("        <input type=number name=" + field.name + " placeholder=" + field.name + "/>\n");
+                } else if (field.type === "boolean") {
+                    emit("        <label class=checkbox>\n");
+                    emit("          <input type=checkbox name=" + field.name + "/>\n");
+                    emit("          " + field.name + "\n");
+                    emit("        </label>\n");
+                } else {
+                    emit("        <input type=text name=" + field.name + " placeholder=" + field.name + "/>\n");
+                }
+                emit("      </div>\n");
+            });
+            emit("      <button type=submit>Create/\n");
+            emit("    </form>\n");
+            emit("  </div>\n");
+
+            emit("  <div class=crud-list>\n");
+            emit("    <h3>" + model.name + " List/\n");
+            emit("    <table>\n");
+            emit("      <thead>\n        <tr>\n");
+            fields.forEach(function(f) {
+                emit("          <th>" + f.name + "/\n");
+            });
+            emit("          <th>Actions/\n");
+            emit("        </tr>\n      </thead>\n");
+            emit("      <tbody>\n");
+            emit("        <tr>\n");
+            fields.forEach(function(f) {
+                emit("          <td>-/\n");
+            });
+            emit("          <td>\n            <button>Edit/\n            <button>Delete/\n          </td>\n");
+            emit("        </tr>\n");
+            emit("      </tbody>\n");
+            emit("    </table>\n");
+            emit("  </div>\n");
+
+            emit("</section>\n");
+        });
+    }
+
+    <footer>
+        <p>Generated from struct definitions via reflect() + emit()</>
+    </footer>
+</div>
+
+</>

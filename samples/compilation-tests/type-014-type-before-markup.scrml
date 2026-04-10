@@ -1,0 +1,14 @@
+// type-014-type-before-markup.scrml
+// Type declarations in a top-level logic block before markup. Tests: type at top level.
+
+${
+    type Theme:enum = {
+        Light
+        Dark
+        System
+    }
+}
+
+<div>
+    <p>Theme options defined</>
+</div>

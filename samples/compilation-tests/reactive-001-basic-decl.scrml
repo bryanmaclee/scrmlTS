@@ -1,0 +1,7 @@
+// reactive-001-basic-decl.scrml
+// Basic reactive variable declaration. Tests: @ sigil in logic.
+
+<div>
+    ${ @count = 0 }
+    <p>Counter ready</>
+</div>

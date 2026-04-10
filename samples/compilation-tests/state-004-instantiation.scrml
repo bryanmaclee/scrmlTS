@@ -1,0 +1,10 @@
+// state-004-instantiation.scrml
+// State instantiation. Tests: using a state type with attribute values.
+
+< greeting name(string)>
+    <p>Hello, ${name}</>
+</>
+
+<div class="app">
+    <greeting name="world"></>
+</>

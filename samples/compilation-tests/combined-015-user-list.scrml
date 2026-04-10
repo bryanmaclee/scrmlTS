@@ -1,0 +1,22 @@
+// combined-015-user-list.scrml
+// User list with server data. Tests: server function + SQL + lift.
+
+< db src="./test.db" tables="users">
+    ${
+        server function getUsers() {
+            return ?{`SELECT id, name, email FROM users`}
+        }
+        @users = []
+    }
+    <h1>User Directory</>
+    <div class="user-list">
+        ${
+            for (let user of @users) {
+                lift <div class="user-card">
+                    <h3>${user.name}</>
+                    <p>${user.email}</>
+                </div>
+            }
+        }
+    </div>
+</>

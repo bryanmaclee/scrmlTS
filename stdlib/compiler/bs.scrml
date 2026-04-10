@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/bs — Block Splitter
+    //
+    // Tokenizes raw scrml source into blocks (markup, logic, style, meta, etc.).
+    // First stage of the compiler pipeline.
+    //
+    // Usage:
+    //   import { splitBlocks } from "scrml:compiler/bs"
+    //   const result = splitBlocks(filePath, source)
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { splitBlocks: _splitBlocks, runBlockSplitter: _runBlockSplitter } = await import("../../compiler/src/block-splitter.js");
+    }
+
+    export const splitBlocks = _splitBlocks
+    export const runBlockSplitter = _runBlockSplitter
+}
+</program>

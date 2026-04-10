@@ -1,0 +1,10 @@
+// logic-010-array-decl.scrml
+// Array declarations in logic blocks. Tests: array literals.
+
+<div>
+    ${
+        let colors = ["red", "green", "blue"]
+        let nums = [1, 2, 3, 4, 5]
+    }
+    <p>Arrays ready</>
+</div>

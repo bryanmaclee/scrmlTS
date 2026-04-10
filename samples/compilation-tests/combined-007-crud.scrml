@@ -1,0 +1,48 @@
+// combined-007-crud.scrml
+// CRUD operations. Tests: SQL + forms + state + control flow.
+
+< db src="./test.db" tables="users">
+    ${
+        @users = ?{`SELECT id, name, email FROM users`}
+        @editingId = not
+        @newName = ""
+        @newEmail = ""
+
+        function createUser() {
+            ?{`INSERT INTO users (name, email) VALUES ('New', 'new@example.com')`}
+            @users = ?{`SELECT id, name, email FROM users`}
+        }
+
+        function deleteUser(id) {
+            @editingId = id
+        }
+
+        function refreshList() {
+            @users = ?{`SELECT id, name, email FROM users`}
+        }
+    }
+    <h1>User Management</>
+    <button onclick=createUser()>Add User</>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</>
+                <th>Email</>
+                <th>Actions</>
+            </tr>
+        </thead>
+        <tbody>
+            ${
+                for (let user of @users) {
+                    lift <tr>
+                        <td>${user.name}</>
+                        <td>${user.email}</>
+                        <td>
+                            <button onclick=deleteUser(user.id)>Delete</>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</>

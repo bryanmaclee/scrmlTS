@@ -1,0 +1,8 @@
+// edge-007-special-chars.scrml
+// Special characters in text. Tests: ampersand, angle brackets in text.
+
+<div>
+    <p>Price: $9.99 each</>
+    <p>5 items = $49.95 total</>
+    <p>Terms apply</>
+</div>

@@ -1,0 +1,11 @@
+// reactive-002-multiple.scrml
+// Multiple reactive variables. Tests: several @ declarations.
+
+<div>
+    ${
+        @name = "Guest"
+        @loggedIn = false
+        @itemCount = 0
+    }
+    <p>State initialized</>
+</div>

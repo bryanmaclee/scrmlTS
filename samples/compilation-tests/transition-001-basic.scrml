@@ -1,0 +1,18 @@
+// transition-001-basic.scrml
+// Transition directives on if= elements. Tests: transition:fade, in:slide, out:fly.
+
+<div>
+    ${
+        @visible = true
+    }
+    <p if=@visible transition:fade>Fading content</>
+    <p if=@visible in:slide>Slide-in only</>
+    <p if=@visible out:fly>Fly-out only</>
+    <p if=@visible in:fade out:slide>Mixed transitions</>
+    <button onclick=toggle()>Toggle</>
+    ${
+        function toggle() {
+            @visible = !@visible
+        }
+    }
+</div>

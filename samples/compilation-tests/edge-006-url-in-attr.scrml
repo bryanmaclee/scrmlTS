@@ -1,0 +1,8 @@
+// edge-006-url-in-attr.scrml
+// URL with // in attribute. Tests: comment suppression inside quotes.
+
+<div>
+    <a href="https://example.com/page">Link</>
+    <img src="https://cdn.example.com/image.png" alt="CDN Image"/>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css"/>
+</div>

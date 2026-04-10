@@ -1,0 +1,11 @@
+<div
+  ${
+    let username = "alice"
+    @count = 0
+
+    ^{
+      let greeting = username + " has " + count + " posts"
+    }
+  }
+  <p>This should produce two E-META-001 errors: username and count are runtime vars</>
+/div

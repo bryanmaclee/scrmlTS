@@ -1,0 +1,19 @@
+// modern-005-ref-and-state.scrml
+// Reference with state types. Tests: <#ref> combined with state.
+
+< navItem label(string) href(string)>
+    <a href=href>${label}</>
+</>
+
+< sidebar>
+    <nav class="sidebar">
+        <navItem></>
+    </>
+</>
+
+<div class="layout">
+    <sidebar></>
+    <main>
+        <p>Main content</>
+    </>
+</>

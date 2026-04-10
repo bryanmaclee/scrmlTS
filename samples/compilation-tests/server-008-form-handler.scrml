@@ -1,0 +1,14 @@
+// server-008-form-handler.scrml
+// Form with server-side handler. Tests: form + server function.
+
+<div>
+    ${
+        server function createUser() {
+            ?{`INSERT INTO users (name) VALUES ('New User')`}
+        }
+    }
+    <form onsubmit=createUser()>
+        <input type="text" name="name" placeholder="Name"/>
+        <button type="submit">Create</>
+    </form>
+</div>

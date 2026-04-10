@@ -1,0 +1,302 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:store/kv — SQLite-backed key-value store
+    //
+    // A simple persistent key-value store using bun:sqlite.
+    // All operations are synchronous (SQLite is synchronous in Bun).
+    //
+    // IMPORTANT: These functions use bun:sqlite, which is a server-side only
+    // dependency. Call from server function bodies.
+    //
+    // Schema:
+    //   CREATE TABLE IF NOT EXISTS kv_store (
+    //     namespace TEXT NOT NULL,
+    //     key TEXT NOT NULL,
+    //     value TEXT NOT NULL,
+    //     expires_at INTEGER,
+    //     PRIMARY KEY (namespace, key)
+    //   )
+    //
+    // TTL: entries with expires_at set are expired lazily on get().
+    // ---------------------------------------------------------------------------
+
+    import Database from "bun:sqlite"
+
+    function _initDb(db) {
+        db.run(`
+            CREATE TABLE IF NOT EXISTS kv_store (
+                namespace TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                expires_at INTEGER,
+                PRIMARY KEY (namespace, key)
+            )
+        `)
+    }
+
+    /**
+     * Create a key-value store backed by a SQLite file.
+     *
+     * @param dbPath    — file path for SQLite DB, or ":memory:" for in-memory
+     * @param namespace — optional prefix for key isolation (default: "default")
+     * @returns store object with get/set/delete/has/keys/clear/close methods
+     *
+     * Example:
+     *   const store = createStore("./data/app.db")
+     *   store.set("user:1", { name: "Alice" })
+     *   const user = store.get("user:1")  // → { name: "Alice" }
+     *
+     *   // With TTL (auto-expires after 60 seconds):
+     *   store.set("session:abc", { userId: 1 }, 60)
+     */
+    export function createStore(dbPath, namespace) {
+        const ns = namespace || "default"
+        const db = new Database(dbPath)
+        _initDb(db)
+
+        const stmtGet = db.prepare(
+            "SELECT value, expires_at FROM kv_store WHERE namespace = ? AND key = ?"
+        )
+        const stmtSet = db.prepare(
+            "INSERT OR REPLACE INTO kv_store (namespace, key, value, expires_at) VALUES (?, ?, ?, ?)"
+        )
+        const stmtDelete = db.prepare(
+            "DELETE FROM kv_store WHERE namespace = ? AND key = ?"
+        )
+        const stmtHas = db.prepare(
+            "SELECT 1 FROM kv_store WHERE namespace = ? AND key = ?"
+        )
+        const stmtKeys = db.prepare(
+            "SELECT key FROM kv_store WHERE namespace = ? AND (expires_at IS NULL OR expires_at > ?)"
+        )
+        const stmtKeysPrefix = db.prepare(
+            "SELECT key FROM kv_store WHERE namespace = ? AND key LIKE ? ESCAPE '\\' AND (expires_at IS NULL OR expires_at > ?)"
+        )
+        const stmtClear = db.prepare(
+            "DELETE FROM kv_store WHERE namespace = ?"
+        )
+        const stmtDeleteExpired = db.prepare(
+            "DELETE FROM kv_store WHERE namespace = ? AND expires_at IS NOT NULL AND expires_at <= ?"
+        )
+
+        return {
+            /**
+             * Get a value by key.
+             * Returns parsed JSON value, or null if not found or expired.
+             */
+            get(key) {
+                const now = Date.now()
+                const row = stmtGet.get(ns, key)
+                if (!row) return null
+                if (row.expires_at !== null && row.expires_at <= now) {
+                    stmtDelete.run(ns, key)
+                    return null
+                }
+                try {
+                    return JSON.parse(row.value)
+                } catch(e) {
+                    return row.value
+                }
+            },
+
+            /**
+             * Set a value by key.
+             * @param ttl — time to live in seconds (optional)
+             */
+            set(key, value, ttl) {
+                const expiresAt = ttl ? Date.now() + ttl * 1000 : null
+                stmtSet.run(ns, key, JSON.stringify(value), expiresAt)
+            },
+
+            /**
+             * Delete a key.
+             */
+            delete(key) {
+                stmtDelete.run(ns, key)
+            },
+
+            /**
+             * Check if a key exists and has not expired.
+             */
+            has(key) {
+                const now = Date.now()
+                const row = stmtGet.get(ns, key)
+                if (!row) return false
+                if (row.expires_at !== null && row.expires_at <= now) {
+                    stmtDelete.run(ns, key)
+                    return false
+                }
+                return true
+            },
+
+            /**
+             * List all non-expired keys, optionally filtered by a prefix.
+             */
+            keys(prefix) {
+                const now = Date.now()
+                if (prefix) {
+                    const escaped = prefix.replace(/[%_\\]/g, "\\$&")
+                    const rows = stmtKeysPrefix.all(ns, escaped + "%", now)
+                    return rows.map(r => r.key)
+                }
+                const rows = stmtKeys.all(ns, now)
+                return rows.map(r => r.key)
+            },
+
+            /**
+             * Remove all keys in this namespace.
+             */
+            clear() {
+                stmtClear.run(ns)
+            },
+
+            /**
+             * Close the database connection.
+             */
+            close() {
+                db.close()
+            },
+
+            /**
+             * Remove all expired entries from this namespace (maintenance).
+             * Normally not needed — get() lazily removes expired entries on access.
+             */
+            purgeExpired() {
+                stmtDeleteExpired.run(ns, Date.now())
+            }
+        }
+    }
+
+    /**
+     * Create a session-scoped store (namespace = "session").
+     * Convenience wrapper for createStore with session isolation.
+     *
+     * Example:
+     *   const sessions = createSessionStore("./data/sessions.db")
+     *   sessions.set(sessionId, { userId: 42 }, 3600)  // expires in 1 hour
+     */
+    export function createSessionStore(dbPath) {
+        return createStore(dbPath, "session")
+    }
+
+    /**
+     * Create an atomic counter store.
+     *
+     * Counters are stored as integers in the kv_store table.
+     *
+     * @param dbPath    — file path for SQLite DB, or ":memory:" for in-memory
+     * @param namespace — optional namespace (default: "counters")
+     *
+     * Example:
+     *   const counters = createCounter("./data/counters.db")
+     *   counters.increment("page_views")   // → 1
+     *   counters.increment("page_views")   // → 2
+     *   counters.get("page_views")         // → 2
+     */
+    export function createCounter(dbPath, namespace) {
+        const store = createStore(dbPath, namespace || "counters")
+        return {
+            /**
+             * Increment a counter by `by` (default: 1). Returns new value.
+             */
+            increment(key, by) {
+                const current = store.get(key) || 0
+                const next = current + (by !== undefined ? by : 1)
+                store.set(key, next)
+                return next
+            },
+
+            /**
+             * Decrement a counter by `by` (default: 1). Returns new value.
+             */
+            decrement(key, by) {
+                const current = store.get(key) || 0
+                const next = current - (by !== undefined ? by : 1)
+                store.set(key, next)
+                return next
+            },
+
+            /**
+             * Reset a counter to 0.
+             */
+            reset(key) {
+                store.set(key, 0)
+            },
+
+            /**
+             * Get the current value of a counter (default: 0 if not set).
+             */
+            get(key) {
+                return store.get(key) || 0
+            },
+
+            /**
+             * Close the underlying database connection.
+             */
+            close() {
+                store.close()
+            }
+        }
+    }
+
+    ~{
+        import { assertEqual, assertTruthy, assertFalsy } from 'scrml:test'
+
+        // Use :memory: for tests — no filesystem side effects
+        const store = createStore(":memory:")
+
+        // set + get
+        store.set("hello", "world")
+        assertEqual(store.get("hello"), "world")
+
+        // JSON value
+        store.set("user", { name: "Alice", age: 30 })
+        const user = store.get("user")
+        assertEqual(user.name, "Alice")
+        assertEqual(user.age, 30)
+
+        // has
+        assertTruthy(store.has("hello"))
+        assertFalsy(store.has("nonexistent"))
+
+        // delete
+        store.delete("hello")
+        assertFalsy(store.has("hello"))
+        assertFalsy(store.get("hello") !== null)
+
+        // keys
+        store.set("a", 1)
+        store.set("b", 2)
+        store.set("c", 3)
+        const keys = store.keys()
+        assertTruthy(keys.includes("a"))
+        assertTruthy(keys.includes("b"))
+
+        // keys with prefix
+        store.set("prefix:one", 1)
+        store.set("prefix:two", 2)
+        store.set("other", 3)
+        const prefixKeys = store.keys("prefix:")
+        assertTruthy(prefixKeys.includes("prefix:one"))
+        assertTruthy(prefixKeys.includes("prefix:two"))
+        assertFalsy(prefixKeys.includes("other"))
+
+        // clear
+        store.clear()
+        assertEqual(store.keys().length, 0)
+        store.close()
+
+        // createCounter
+        const counter = createCounter(":memory:")
+        assertEqual(counter.get("hits"), 0)
+        assertEqual(counter.increment("hits"), 1)
+        assertEqual(counter.increment("hits"), 2)
+        assertEqual(counter.increment("hits", 5), 7)
+        assertEqual(counter.decrement("hits", 2), 5)
+        counter.reset("hits")
+        assertEqual(counter.get("hits"), 0)
+        counter.close()
+    }
+}
+</program>

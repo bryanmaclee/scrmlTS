@@ -1,0 +1,50 @@
+// gauntlet-r13: bun dev — SQL operations and server functions
+// Tests: ?{SQL}.run() chaining, server function + @data ordering, E-RI-002 false positive
+// R13 focus: SQL .run() chains, E-RI-002 false positive fix, bind:value ordering
+
+< db src="./app.db" tables="tasks,categories">
+    ${
+        @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+        @categories = ?{`SELECT id, name FROM categories`}
+        @newTask = ""
+        @selectedCat = ""
+
+        server function addTask() {
+            ?{`INSERT INTO tasks (title, category, done) VALUES (${@newTask}, ${@selectedCat}, 0)`}.run()
+            @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+        }
+
+        server function toggleTask(id, done) {
+            ?{`UPDATE tasks SET done = ${done ? 0 : 1} WHERE id = ${id}`}.run()
+            @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+        }
+
+        server function deleteCompleted() {
+            ?{`DELETE FROM tasks WHERE done = 1`}.run()
+            @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+        }
+    }
+    <h1>Task Manager</>
+    <div class="add-form">
+        <input type="text" bind:value=@newTask placeholder="New task"/>
+        <select bind:value=@selectedCat>
+            ${
+                for (let cat of @categories) {
+                    lift <option value=${cat.id}>${cat.name}/
+                }
+            }
+        </select>
+        <button onclick=addTask()>Add</>
+    </div>
+    <button onclick=deleteCompleted()>Clear Completed</>
+    <ul>
+        ${
+            for (let task of @tasks) {
+                lift <li>
+                    <span>${task.title} (${task.category})/
+                    <button onclick=toggleTask(task.id, task.done)>Toggle/
+                </li>
+            }
+        }
+    </ul>
+</>

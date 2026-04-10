@@ -1,0 +1,128 @@
+// Example 11: Meta-programming — ^{} compile-time code generation.
+// Generates a color palette swatch grid from a data array without writing
+// repetitive markup by hand. emit() runs at compile time; output is static HTML.
+
+<program>
+
+// The palette data lives at the top level so it's a compile-time constant.
+// ^{} classifies as compile-time when it references no runtime values.
+const palette = [
+    { name: "slate",   hex: "#64748b" },
+    { name: "rose",    hex: "#f43f5e" },
+    { name: "amber",   hex: "#f59e0b" },
+    { name: "emerald", hex: "#10b981" },
+    { name: "sky",     hex: "#0ea5e9" },
+    { name: "violet",  hex: "#8b5cf6" },
+]
+
+<div class="palette">
+    <h1>Brand Colors</>
+    <div class="swatches">
+        ^{
+            // This block runs at compile time. For each color in the palette array,
+            // emit() splices markup into the AST as if we'd written it by hand.
+            for (const color of palette) {
+                emit(`<div class="swatch">
+                    <div class="chip" style="background:${color.hex}"></div>
+                    <span class="name">${color.name}</span>
+                    <code>${color.hex}</code>
+                </div>`)
+            }
+        }
+    </>
+</>
+
+// A second meta block demonstrates reflect() for compile-time type inspection.
+// This one emits a debug table of a struct's fields — useful during development.
+${
+    type Token:struct = {
+        id:     number,
+        value:  string,
+        expiry: number,
+    }
+}
+
+<details class="type-info">
+    <summary>Token type fields (compile-time generated)</>
+    <table>
+        <thead>
+            <tr><th>Field</><th>Type</></tr>
+        </thead>
+        <tbody>
+            ^{
+                // reflect(Token) resolves at compile time — direct registry lookup.
+                // Emits one table row per field in the Token struct.
+                const info = reflect(Token)
+                for (const field of info.fields) {
+                    emit(`<tr><td>${field.name}</td><td><code>${field.type}</code></td></tr>`)
+                }
+            }
+        </tbody>
+    </table>
+</details>
+
+#{
+    .palette {
+        padding: 2rem;
+        font-family: sans-serif;
+    }
+
+    .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .swatch {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .chip {
+        width: 80px;
+        height: 80px;
+        border-radius: 8px;
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    .name {
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+
+    code {
+        color: #555;
+        font-size: 0.75rem;
+    }
+
+    .type-info {
+        margin-top: 2rem;
+        padding: 1rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+
+    table {
+        border-collapse: collapse;
+        margin-top: 0.5rem;
+        width: 100%;
+    }
+
+    th, td {
+        text-align: left;
+        padding: 0.4rem 0.8rem;
+        border-bottom: 1px solid #eee;
+    }
+
+    th {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        color: #888;
+    }
+}
+
+</program>

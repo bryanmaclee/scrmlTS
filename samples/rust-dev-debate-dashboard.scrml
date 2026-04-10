@@ -1,0 +1,358 @@
+<program db="dashboard.db">
+
+${
+    // ─── RemoteData state shape — defined once, three sources use it ───────────
+    // The Rust instinct: make the type first. If the type is right,
+    // the logic almost writes itself.
+
+    // Users data state
+    type UsersRemote:enum = {
+        NotAsked
+        Loading
+        Ready(users)
+        Failed(message: string)
+
+        transitions {
+            .NotAsked => .Loading
+            .Loading  => .Ready
+            .Loading  => .Failed
+            .Ready    => .Loading
+            .Failed   => .Loading
+        }
+    }
+
+    // Orders data state
+    type OrdersRemote:enum = {
+        NotAsked
+        Loading
+        Ready(orders)
+        Failed(message: string)
+
+        transitions {
+            .NotAsked => .Loading
+            .Loading  => .Ready
+            .Loading  => .Failed
+            .Ready    => .Loading
+            .Failed   => .Loading
+        }
+    }
+
+    // Metrics data state
+    type MetricsRemote:enum = {
+        NotAsked
+        Loading
+        Ready(metrics)
+        Failed(message: string)
+
+        transitions {
+            .NotAsked => .Loading
+            .Loading  => .Ready
+            .Loading  => .Failed
+            .Ready    => .Loading
+            .Failed   => .Loading
+        }
+    }
+
+    // Form submission state — tracks optimistic update lifecycle
+    // Note: Saving carries the optimistic order so we can render it
+    // immediately while the server round-trip completes.
+    type OrderSubmit:enum = {
+        Idle
+        Saving(optimistic)
+        Committed(order)
+        Failed(optimistic, message: string)
+
+        transitions {
+            .Idle       => .Saving
+            .Saving     => .Committed
+            .Saving     => .Failed
+            .Committed  => .Idle
+            .Failed     => .Saving
+            .Failed     => .Idle
+        }
+    }
+
+    @usersState   = UsersRemote.NotAsked
+    @ordersState  = OrdersRemote.NotAsked
+    @metricsState = MetricsRemote.NotAsked
+    @submitState  = OrderSubmit.Idle
+
+    @newOrderItem   = ""
+    @newOrderAmount = ""
+
+    // ─── Server functions ──────────────────────────────────────────────────────
+
+    server function fetchUsers() {
+        return ?{`SELECT id, name, email FROM users ORDER BY name`}.all()
+    }
+
+    server function fetchOrders() {
+        return ?{`SELECT id, item, amount, created_at FROM orders ORDER BY created_at DESC`}.all()
+    }
+
+    server function fetchMetrics() {
+        return ?{`
+            SELECT
+                COUNT(*) as total_orders,
+                SUM(amount) as total_revenue,
+                AVG(amount) as avg_order
+            FROM orders
+        `}.get()
+    }
+
+    server function createOrder(item, amount) {
+        ?{`INSERT INTO orders (item, amount) VALUES (${item}, ${amount})`}.run()
+        return ?{`SELECT id, item, amount, created_at FROM orders ORDER BY created_at DESC LIMIT 1`}.get()
+    }
+
+    // ─── Load functions — each transitions its own state machine ──────────────
+
+    function loadUsers() {
+        @usersState = UsersRemote.Loading
+        let result = fetchUsers()
+        @usersState = UsersRemote.Ready(result)
+    }
+
+    function loadOrders() {
+        @ordersState = OrdersRemote.Loading
+        let result = fetchOrders()
+        @ordersState = OrdersRemote.Ready(result)
+    }
+
+    function loadMetrics() {
+        @metricsState = MetricsRemote.Loading
+        let result = fetchMetrics()
+        @metricsState = MetricsRemote.Ready(result)
+    }
+
+    // ─── Optimistic order submit ───────────────────────────────────────────────
+    // Rust instinct: the optimistic state IS a variant, not a flag.
+    // We carry the optimistic data inside .Saving so the render side
+    // can display it without any if/@flag coordination.
+
+    function handleSubmit() {
+        let item   = @newOrderItem
+        let amount = @newOrderAmount
+
+        // Build the optimistic order — id: -1 signals "not yet persisted"
+        let optimistic = { id: -1, item: item, amount: amount, created_at: "pending" }
+
+        @submitState  = OrderSubmit.Saving(optimistic)
+        @newOrderItem   = ""
+        @newOrderAmount = ""
+
+        let confirmed = createOrder(item, amount)
+
+        // Server returned the real row — transition to Committed
+        // then immediately refresh the orders list so everything is consistent
+        @submitState = OrderSubmit.Committed(confirmed)
+        loadOrders()
+        loadMetrics()
+    }
+
+    function dismissSubmit() {
+        @submitState = OrderSubmit.Idle
+    }
+}
+
+// ─── Kick off all three fetches on mount ──────────────────────────────────────
+// SS13 parallel model: independent CPS calls become Promise.all in codegen.
+on mount {
+    loadUsers()
+    loadOrders()
+    loadMetrics()
+}
+
+// ─── Machines — enforce the state graph at the boundary ───────────────────────
+// Rust instinct: the state machine IS the type. Transitions that
+// aren't listed here are compile errors, not runtime surprises.
+
+< machine UsersController for UsersRemote>
+    .NotAsked => .Loading
+    .Loading  => .Ready
+    .Loading  => .Failed
+    .Ready    => .Loading
+    .Failed   => .Loading
+</>
+
+< machine OrdersController for OrdersRemote>
+    .NotAsked => .Loading
+    .Loading  => .Ready
+    .Loading  => .Failed
+    .Ready    => .Loading
+    .Failed   => .Loading
+</>
+
+< machine MetricsController for MetricsRemote>
+    .NotAsked => .Loading
+    .Loading  => .Ready
+    .Loading  => .Failed
+    .Ready    => .Loading
+    .Failed   => .Loading
+</>
+
+< machine SubmitController for OrderSubmit>
+    .Idle      => .Saving
+    .Saving    => .Committed
+    .Saving    => .Failed
+    .Committed => .Idle
+    .Failed    => .Saving
+    .Failed    => .Idle
+</>
+
+// ─── Markup ───────────────────────────────────────────────────────────────────
+
+<div class="dashboard">
+
+    <h1>Dashboard</>
+
+    // ── Metrics strip ─────────────────────────────────────────────────────────
+    <section class="metrics-strip">
+        match @metricsState {
+            .NotAsked => { <div class="metric-card loading">Waiting...</> }
+            .Loading  => { <div class="metric-card loading">Loading metrics...</> }
+            .Ready(m) => {
+                <div class="metric-card">
+                    <span class="metric-label">Total Orders</>
+                    <span class="metric-value">${m.total_orders}</>
+                </>
+                <div class="metric-card">
+                    <span class="metric-label">Revenue</>
+                    <span class="metric-value">${m.total_revenue}</>
+                </>
+                <div class="metric-card">
+                    <span class="metric-label">Avg Order</>
+                    <span class="metric-value">${m.avg_order}</>
+                </>
+            }
+            .Failed(msg) => {
+                <div class="metric-card error">
+                    <span>Metrics unavailable: ${msg}</>
+                    <button onclick=loadMetrics()>Retry</>
+                </>
+            }
+        }
+    </>
+
+    // ── Main content: Orders + Users side by side ─────────────────────────────
+    <div class="main-grid">
+
+        // ── Orders column ─────────────────────────────────────────────────────
+        <section class="orders-panel">
+            <h2>Orders</>
+
+            // ── New order form ─────────────────────────────────────────────────
+            <form class="new-order-form" onsubmit=handleSubmit()>
+                <input
+                    type="text"
+                    placeholder="Item name"
+                    oninput=${@newOrderItem = event.target.value}
+                    value=${@newOrderItem}
+                    disabled=${@submitState is .Saving}
+                />
+                <input
+                    type="number"
+                    placeholder="Amount"
+                    oninput=${@newOrderAmount = event.target.value}
+                    value=${@newOrderAmount}
+                    disabled=${@submitState is .Saving}
+                />
+                <button
+                    type="submit"
+                    disabled=${@submitState is .Saving}
+                >
+                    match @submitState {
+                        .Saving => { "Saving..." }
+                        else    => { "Add Order" }
+                    }
+                </>
+            </>
+
+            // ── Submit state feedback ─────────────────────────────────────────
+            // Only .Committed and .Failed need UI — other variants are silent.
+            // This is the "make illegal states unrepresentable" payoff:
+            // we cannot accidentally show a success message while Saving.
+            match @submitState {
+                .Committed(order) => {
+                    <div class="submit-success">
+                        <span>Order "${order.item}" saved.</>
+                        <button onclick=dismissSubmit()>OK</>
+                    </>
+                }
+                .Failed(optimistic, msg) => {
+                    <div class="submit-error">
+                        <span>Failed to save "${optimistic.item}": ${msg}</>
+                        <button onclick=handleSubmit()>Retry</>
+                        <button onclick=dismissSubmit()>Cancel</>
+                    </>
+                }
+                else => {}
+            }
+
+            // ── Orders list ───────────────────────────────────────────────────
+            match @ordersState {
+                .NotAsked => {}
+                .Loading  => { <div class="panel-loading">Loading orders...</> }
+                .Ready(orders) => {
+                    <ul class="orders-list">
+                        // Show the optimistic entry at top while Saving
+                        match @submitState {
+                            .Saving(optimistic) => {
+                                lift <li class="order-row optimistic">
+                                    <span class="order-item">${optimistic.item} (saving...)</>
+                                    <span class="order-amount">${optimistic.amount}</>
+                                </>
+                            }
+                            else => {}
+                        }
+                        ${
+                            for (let order of orders) {
+                                lift <li class="order-row">
+                                    <span class="order-item">${order.item}</>
+                                    <span class="order-amount">${order.amount}</>
+                                </>
+                            }
+                        }
+                    </>
+                }
+                .Failed(msg) => {
+                    <div class="panel-error">
+                        <span>Could not load orders: ${msg}</>
+                        <button onclick=loadOrders()>Retry</>
+                    </>
+                }
+            }
+        </>
+
+        // ── Users column ──────────────────────────────────────────────────────
+        <section class="users-panel">
+            <h2>Users</>
+            match @usersState {
+                .NotAsked => {}
+                .Loading  => { <div class="panel-loading">Loading users...</> }
+                .Ready(users) => {
+                    <ul class="users-list">
+                        ${
+                            for (let user of users) {
+                                lift <li class="user-row">
+                                    <span class="user-name">${user.name}</>
+                                    <span class="user-email">${user.email}</>
+                                </>
+                            }
+                        }
+                    </>
+                }
+                .Failed(msg) => {
+                    <div class="panel-error">
+                        <span>Could not load users: ${msg}</>
+                        <button onclick=loadUsers()>Retry</>
+                    </>
+                }
+            }
+        </>
+
+    </>
+
+</>
+
+</program>

@@ -1,0 +1,15 @@
+// type-013-type-with-reactive.scrml
+// Types alongside reactive state. Tests: type + @reactive with enum variant.
+
+<div>
+    ${
+        type ViewMode:enum = {
+            Grid
+            List
+            Compact
+        }
+        @currentView = ViewMode.Grid
+        @itemsPerPage = 20
+    }
+    <p>View settings</>
+</div>

@@ -1,0 +1,19 @@
+// comp-005-tabs.scrml
+// Tab navigation pattern. Tests: tab state management.
+
+<div>
+    ${
+        @activeTab = "general"
+        function setTab(tab) {
+            @activeTab = tab
+        }
+    }
+    <nav class="tabs">
+        <button onclick=setTab("general")>General</>
+        <button onclick=setTab("settings")>Settings</>
+        <button onclick=setTab("advanced")>Advanced</>
+    </nav>
+    <div class="tab-content">
+        <p>Tab content area</>
+    </div>
+</div>

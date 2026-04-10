@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/me — Meta Eval
+    //
+    // Evaluates compile-time ^{} blocks with emit() and splices results
+    // into the AST. Runs after MC, before DG.
+    //
+    // Usage:
+    //   import { runMetaEval } from "scrml:compiler/me"
+    //   const result = runMetaEval({ files })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runMetaEval: _runMetaEval, MetaEvalError: _MetaEvalError } = await import("../../compiler/src/meta-eval.ts");
+    }
+
+    export const runMetaEval = _runMetaEval
+    export const MetaEvalError = _MetaEvalError
+}
+</program>

@@ -1,0 +1,18 @@
+// test-008-test-enum.scrml
+// Testing enum matching. Tests: enum + match + test.
+
+type Color:enum = { Red, Green, Blue }
+
+${
+    function label(c) {
+        return match c {
+            .Red :> "red"
+            .Green :> "green"
+            .Blue :> "blue"
+        }
+    }
+}
+
+~{ "enum tests"
+    test "red label" { assert label(.Red) == "red" }
+}

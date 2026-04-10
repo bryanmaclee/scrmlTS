@@ -1,0 +1,34 @@
+// combined-008-wizard.scrml
+// Multi-step wizard. Tests: state + conditionals + events.
+
+<div class="wizard">
+    ${
+        @step = 1
+        @name = ""
+        @email = ""
+        @plan = "basic"
+
+        function nextStep() {
+            @step = @step + 1
+        }
+        function prevStep() {
+            @step = @step - 1
+        }
+        function submit() {
+            @step = 4
+        }
+    }
+    <h1>Setup Wizard</>
+    <div class="wizard-progress">
+        <span>Step ${@step} of 3</>
+    </div>
+    <div class="wizard-step" if=@step>
+        <div class="step-content">
+            <h2>Personal Info</>
+            <input type="text" name="name" placeholder="Name"/>
+        </div>
+        <div class="step-actions">
+            <button onclick=nextStep()>Next</>
+        </div>
+    </div>
+</div>

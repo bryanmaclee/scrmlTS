@@ -1,0 +1,12 @@
+// type-003-tuple.scrml
+// Tuple type declaration. Tests: type...tuple in logic.
+
+<div>
+    ${
+        type Point:tuple = {
+            number
+            number
+        }
+    }
+    <p>Tuple declared</>
+</div>

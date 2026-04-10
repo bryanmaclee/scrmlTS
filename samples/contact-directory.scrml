@@ -1,0 +1,275 @@
+// contact-directory.scrml
+// Gauntlet Round 11 — HTMX developer perspective
+// Contact directory: list, search, add/edit form, category tags, delete confirm, error handling
+// Uses: @reactive, bind:value, ?{} SQL, for/lift, if=, class:, !{} errors, server functions
+
+< db src="./contacts.db" tables="contacts">
+
+    // --- Reactive state ---
+    @searchTerm = ""
+    @showAddForm = false
+    @editingId = not
+    @confirmDeleteId = not
+    @saveError = ""
+    @formName = ""
+    @formEmail = ""
+    @formPhone = ""
+    @formCategory = "work"
+    @isSubmitting = false
+    @hasSearch = false
+
+    // --- Server functions ---
+    ${
+        server function loadContacts(search) {
+            return ?{`
+                SELECT id, name, email, phone, category
+                FROM contacts
+                WHERE (${search} IS NULL OR name LIKE '%' || ${search} || '%' OR email LIKE '%' || ${search} || '%')
+                ORDER BY name ASC
+            `}.all()
+        }
+    }
+
+    ${
+        server function addContact(name, email, phone, category) {
+            ?{`INSERT INTO contacts (name, email, phone, category) VALUES (${name}, ${email}, ${phone}, ${category})`}.run()
+        }
+    }
+
+    ${
+        server function updateContact(id, name, email, phone, category) {
+            ?{`UPDATE contacts SET name = ${name}, email = ${email}, phone = ${phone}, category = ${category} WHERE id = ${id}`}.run()
+        }
+    }
+
+    ${
+        server function deleteContact(id) {
+            ?{`DELETE FROM contacts WHERE id = ${id}`}.run()
+        }
+    }
+
+    // --- Client functions ---
+    ${
+        function openAddForm() {
+            @formName = ""
+            @formEmail = ""
+            @formPhone = ""
+            @formCategory = "work"
+            @editingId = not
+            @showAddForm = true
+            @saveError = ""
+        }
+
+        function openEditForm(id, name, email, phone, category) {
+            @editingId = id
+            @formName = name
+            @formEmail = email
+            @formPhone = phone
+            @formCategory = category
+            @showAddForm = true
+            @saveError = ""
+        }
+
+        function cancelForm() {
+            @showAddForm = false
+            @editingId = not
+            @saveError = ""
+        }
+
+        function requestDelete(id) {
+            @confirmDeleteId = id
+        }
+
+        function cancelDelete() {
+            @confirmDeleteId = not
+        }
+    }
+
+    // --- Submit handler with !{} error handling ---
+    ${
+        function handleSubmit() {
+            @isSubmitting = true
+            @saveError = ""
+            if (not (@editingId is not)) {
+                updateContact(@editingId, @formName, @formEmail, @formPhone, @formCategory) !{
+                    | ::SQLError e -> {
+                        @saveError = e.message
+                        @isSubmitting = false
+                        return
+                    }
+                    | _ e -> {
+                        @saveError = "Unexpected error updating contact."
+                        @isSubmitting = false
+                        return
+                    }
+                }
+            } else {
+                addContact(@formName, @formEmail, @formPhone, @formCategory) !{
+                    | ::SQLError e -> {
+                        @saveError = e.message
+                        @isSubmitting = false
+                        return
+                    }
+                    | ::ConflictError e -> {
+                        @saveError = "A contact with that email already exists."
+                        @isSubmitting = false
+                        return
+                    }
+                    | _ e -> {
+                        @saveError = "Unexpected error saving contact."
+                        @isSubmitting = false
+                        return
+                    }
+                }
+            }
+            @isSubmitting = false
+            @showAddForm = false
+            @editingId = not
+        }
+    }
+
+    ${
+        function confirmDelete() {
+            let id = @confirmDeleteId
+            @confirmDeleteId = not
+            deleteContact(id) !{
+                | ::SQLError e -> {
+                    @saveError = e.message
+                    return
+                }
+                | _ e -> {
+                    @saveError = "Delete failed."
+                    return
+                }
+            }
+        }
+    }
+
+    // --- Page markup ---
+    <div class="contact-directory">
+
+        <div class="page-header">
+            <h1>Contact Directory</>
+            <button onclick=openAddForm() class="btn-primary">Add Contact</>
+        </>
+
+        // Global error banner
+        <div class="error-banner" if=@saveError>
+            <p>${@saveError}</>
+        </>
+
+        // Search bar — bind:value wires two-way binding to @searchTerm
+        <div class="search-bar">
+            <input
+                type="search"
+                placeholder="Search by name or email..."
+                bind:value=@searchTerm
+            />
+        </>
+
+        // Add / Edit form — visible when @showAddForm is true
+        <div class="form-panel" if=@showAddForm>
+            <h2>${not (@editingId is not) ? "Edit Contact" : "Add Contact"}</>
+
+            <form onsubmit=handleSubmit()>
+                <div class="field">
+                    <label>Name</>
+                    <input
+                        type="text"
+                        name="name"
+                        required
+                        bind:value=@formName
+                        placeholder="Full name"
+                    />
+                </>
+                <div class="field">
+                    <label>Email</>
+                    <input
+                        type="email"
+                        name="email"
+                        required
+                        bind:value=@formEmail
+                        placeholder="email@example.com"
+                    />
+                </>
+                <div class="field">
+                    <label>Phone</>
+                    <input
+                        type="tel"
+                        name="phone"
+                        bind:value=@formPhone
+                        placeholder="+1 555 000 0000"
+                    />
+                </>
+                <div class="field">
+                    <label>Category</>
+                    <select name="category" bind:value=@formCategory>
+                        <option value="work">Work</>
+                        <option value="personal">Personal</>
+                        <option value="family">Family</>
+                        <option value="other">Other</>
+                    </select>
+                </>
+                <div class="form-actions">
+                    <button type="submit" disabled=@isSubmitting>
+                        ${@isSubmitting ? "Saving..." : "Save Contact"}</>
+                    <button type="button" onclick=cancelForm()>Cancel</>
+                </>
+            </form>
+        </>
+
+        // Contact list — query driven by @searchTerm
+        <div class="contact-list">
+
+            ${
+                let contacts = loadContacts(@searchTerm) !{
+                    | ::SQLError e -> { @saveError = e.message; [] }
+                    | _ e -> { @saveError = "Failed to load contacts."; [] }
+                }
+            }
+
+            ${
+                if (contacts.length == 0) {
+                    lift <div class="empty-state">
+                        <p>No contacts found./
+                    </div>
+                }
+            }
+
+            ${
+                for (let contact of contacts) {
+                    lift <div class="contact-card" class:active=@hasSearch>
+                        <div class="contact-main">
+                            <span class="contact-name">${contact.name}/
+                            <span class="contact-tag">${contact.category}/
+                        </div>
+                        <div class="contact-details">
+                            <span>${contact.email}/
+                            <span>${contact.phone}/
+                        </div>
+                        <div class="contact-actions">
+                            <button
+                                onclick=openEditForm(contact.id, contact.name, contact.email, contact.phone, contact.category)
+                                class="btn-edit"
+                            >Edit/
+                            <button
+                                onclick=requestDelete(contact.id)
+                                class="btn-delete"
+                            >Delete/
+                        </div>
+                    </div>
+                }
+            }
+
+            // Delete confirmation panel — shown when @confirmDeleteId is set
+            <div class="delete-confirm" if=@confirmDeleteId>
+                <p>Are you sure you want to delete this contact? This cannot be undone.</>
+                <button onclick=confirmDelete() class="btn-danger">Yes, delete</>
+                <button onclick=cancelDelete() class="btn-cancel">Cancel</>
+            </>
+
+        </>
+
+    </>
+
+</>

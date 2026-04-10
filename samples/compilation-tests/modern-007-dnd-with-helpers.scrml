@@ -1,0 +1,96 @@
+// modern-007-dnd-with-helpers.scrml
+// Drag-and-drop interface using imported DnD helpers. Tests that DOM-heavy
+// drag/drop patterns can be encapsulated in reusable modules.
+
+<program>
+
+${
+  import { useDraggable, useDropZone } from './helpers/dnd-setup'
+
+  @items = [
+    { id: 1, text: "Task A", zone: "todo" },
+    { id: 2, text: "Task B", zone: "todo" },
+    { id: 3, text: "Task C", zone: "done" },
+  ]
+
+  function moveItem(itemId, targetZone) {
+    @items = @items.map(item =>
+      item.id == itemId ? { ...item, zone: targetZone } : item
+    )
+  }
+}
+
+<div class="kanban-board">
+  <div class="column" ref=@todoColumn>
+    <h2>To Do</>
+    ${
+      for (item of @items.filter(i => i.zone == "todo")) {
+        lift <div class="card" ref=@cardEl draggable="true">
+          ${item.text}
+        </>
+      }
+    }
+  </>
+
+  <div class="column" ref=@doneColumn>
+    <h2>Done</>
+    ${
+      for (item of @items.filter(i => i.zone == "done")) {
+        lift <div class="card" ref=@cardEl draggable="true">
+          ${item.text}
+        </>
+      }
+    }
+  </>
+</>
+
+${
+  // Set up drop zones using the imported helper — no dragover/dragleave/drop
+  // event listener boilerplate needed
+  useDropZone(@todoColumn, fn(e) {
+    let itemId = parseInt(e.dataTransfer.getData("text/plain"))
+    moveItem(itemId, "todo")
+  })
+
+  useDropZone(@doneColumn, fn(e) {
+    let itemId = parseInt(e.dataTransfer.getData("text/plain"))
+    moveItem(itemId, "done")
+  })
+}
+
+#{
+  .kanban-board {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+  }
+  .column {
+    flex: 1;
+    min-height: 300px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .column h2 {
+    margin-top: 0;
+    font-size: 1.2em;
+    color: #333;
+  }
+  .card {
+    background: white;
+    padding: 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    cursor: grab;
+  }
+  .card:active {
+    cursor: grabbing;
+  }
+  .drop-target-active {
+    background: #e3f2fd;
+    border: 2px dashed #2196f3;
+  }
+}
+
+</>

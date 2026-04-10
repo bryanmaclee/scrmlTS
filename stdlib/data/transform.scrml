@@ -1,0 +1,351 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:data/transform — data transformation utilities
+    //
+    // Pure functions for common data manipulation: picking, omitting, grouping,
+    // sorting, deduplication, flattening, and key remapping.
+    //
+    // All functions are pure and side-effect free — safe to use anywhere.
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Pick a subset of keys from an object.
+     * Returns a new object with only the specified keys.
+     *
+     * Example: pick({ a: 1, b: 2, c: 3 }, ["a", "c"]) → { a: 1, c: 3 }
+     */
+    export function pick(obj, keys) {
+        const result = {}
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                result[key] = obj[key]
+            }
+        }
+        return result
+    }
+
+    /**
+     * Omit specific keys from an object.
+     * Returns a new object without the specified keys.
+     *
+     * Example: omit({ a: 1, b: 2, c: 3 }, ["b"]) → { a: 1, c: 3 }
+     */
+    export function omit(obj, keys) {
+        const keySet = new Set(keys)
+        const result = {}
+        for (const key of Object.keys(obj)) {
+            if (!keySet.has(key)) {
+                result[key] = obj[key]
+            }
+        }
+        return result
+    }
+
+    /**
+     * Rename keys in an object using a mapping.
+     *
+     * Example: mapKeys({ first_name: "Alice" }, { first_name: "firstName" })
+     *          → { firstName: "Alice" }
+     */
+    export function mapKeys(obj, keyMap) {
+        const result = {}
+        for (const key of Object.keys(obj)) {
+            const newKey = keyMap[key] || key
+            result[newKey] = obj[key]
+        }
+        return result
+    }
+
+    /**
+     * Map values of an object, keeping keys.
+     *
+     * Example: mapValues({ a: 1, b: 2 }, x => x * 2) → { a: 2, b: 4 }
+     */
+    export function mapValues(obj, fn) {
+        const result = {}
+        for (const [key, value] of Object.entries(obj)) {
+            result[key] = fn(value, key)
+        }
+        return result
+    }
+
+    /**
+     * Group an array of items by a key or key function.
+     *
+     * Example: groupBy([{role:"admin"},{role:"user"},{role:"admin"}], "role")
+     *          → { admin: [{...}, {...}], user: [{...}] }
+     */
+    export function groupBy(array, keyOrFn) {
+        const fn = typeof keyOrFn === "function" ? keyOrFn : (item) => item[keyOrFn]
+        const result = {}
+        for (const item of array) {
+            const key = String(fn(item))
+            result[key] = result[key] || []
+            result[key].push(item)
+        }
+        return result
+    }
+
+    /**
+     * Index an array into a Map by a unique key field or function.
+     * Useful for O(1) lookup by ID.
+     *
+     * Example: indexBy(users, "id") → Map { 1 => {...}, 2 => {...} }
+     */
+    export function indexBy(array, keyOrFn) {
+        const fn = typeof keyOrFn === "function" ? keyOrFn : (item) => item[keyOrFn]
+        const result = new Map()
+        for (const item of array) {
+            result.set(fn(item), item)
+        }
+        return result
+    }
+
+    /**
+     * Sort an array by a key or comparator. Does not mutate the original.
+     *
+     * Example: sortBy(users, "name") → sorted alphabetically
+     *          sortBy(users, u => u.score, "desc") → sorted high-to-low
+     */
+    export function sortBy(array, keyOrFn, direction) {
+        const fn = typeof keyOrFn === "function" ? keyOrFn : (item) => item[keyOrFn]
+        const dir = direction === "desc" ? -1 : 1
+        return [...array].sort((a, b) => {
+            const va = fn(a)
+            const vb = fn(b)
+            if (va < vb) return -1 * dir
+            if (va > vb) return 1 * dir
+            return 0
+        })
+    }
+
+    /**
+     * Remove duplicate items from an array.
+     * Optionally specify a key function to compare by.
+     *
+     * Example: unique([1, 2, 2, 3]) → [1, 2, 3]
+     *          unique(users, u => u.id) → deduplicated by id
+     */
+    export function unique(array, keyOrFn) {
+        if (!keyOrFn) {
+            return [...new Set(array)]
+        }
+        const fn = typeof keyOrFn === "function" ? keyOrFn : (item) => item[keyOrFn]
+        const seen = new Set()
+        const result = []
+        for (const item of array) {
+            const key = fn(item)
+            if (!seen.has(key)) {
+                seen.add(key)
+                result.push(item)
+            }
+        }
+        return result
+    }
+
+    /**
+     * Flatten an array one level deep.
+     *
+     * Example: flatten([[1, 2], [3, 4]]) → [1, 2, 3, 4]
+     */
+    export function flatten(array) {
+        return array.flat()
+    }
+
+    /**
+     * Flatten an array to arbitrary depth.
+     *
+     * Example: flattenDeep([[[1]], [2, 3]]) → [1, 2, 3]
+     */
+    export function flattenDeep(array) {
+        return array.flat(Infinity)
+    }
+
+    /**
+     * Chunk an array into groups of a given size.
+     *
+     * Example: chunk([1,2,3,4,5], 2) → [[1,2],[3,4],[5]]
+     */
+    export function chunk(array, size) {
+        if (size < 1) return []
+        const result = []
+        for (let i = 0; i < array.length; i += size) {
+            result.push(array.slice(i, i + size))
+        }
+        return result
+    }
+
+    /**
+     * Convert a camelCase string to snake_case.
+     *
+     * Example: toSnakeCase("firstName") → "first_name"
+     *          toSnakeCase("addressLine1") → "address_line1"
+     */
+    export function toSnakeCase(str) {
+        return str.replace(/([A-Z])/g, "_$1").toLowerCase().replace(/^_/, "")
+    }
+
+    /**
+     * Convert a snake_case string to camelCase.
+     * Handles underscores before both letters and digits.
+     *
+     * Example: toCamelCase("first_name") → "firstName"
+     *          toCamelCase("address_line_1") → "addressLine1"
+     */
+    export function toCamelCase(str) {
+        return str.replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase())
+    }
+
+    /**
+     * Convert all keys of an object (and nested objects) from snake_case
+     * to camelCase. Useful when consuming a SQL result set.
+     *
+     * Example: camelizeKeys({ first_name: "Alice", address_line_1: "123 St" })
+     *          → { firstName: "Alice", addressLine1: "123 St" }
+     */
+    export function camelizeKeys(obj) {
+        if (Array.isArray(obj)) {
+            return obj.map(camelizeKeys)
+        }
+        if (obj !== null && typeof obj === "object") {
+            const result = {}
+            for (const [key, value] of Object.entries(obj)) {
+                result[toCamelCase(key)] = camelizeKeys(value)
+            }
+            return result
+        }
+        return obj
+    }
+
+    /**
+     * Convert all keys of an object (and nested objects) from camelCase
+     * to snake_case. Useful when writing to a SQL database.
+     *
+     * Example: snakifyKeys({ firstName: "Alice" }) → { first_name: "Alice" }
+     */
+    export function snakifyKeys(obj) {
+        if (Array.isArray(obj)) {
+            return obj.map(snakifyKeys)
+        }
+        if (obj !== null && typeof obj === "object") {
+            const result = {}
+            for (const [key, value] of Object.entries(obj)) {
+                result[toSnakeCase(key)] = snakifyKeys(value)
+            }
+            return result
+        }
+        return obj
+    }
+
+    /**
+     * Deep merge two objects. Arrays are replaced (not merged).
+     *
+     * Example: deepMerge({ a: { b: 1 } }, { a: { c: 2 } })
+     *          → { a: { b: 1, c: 2 } }
+     */
+    export function deepMerge(target, source) {
+        if (typeof target !== "object" || typeof source !== "object") return source
+        if (Array.isArray(source)) return source
+        const result = { ...target }
+        for (const [key, value] of Object.entries(source)) {
+            if (typeof value === "object" && value !== null && !Array.isArray(value) &&
+                typeof result[key] === "object" && result[key] !== null) {
+                result[key] = deepMerge(result[key], value)
+            } else {
+                result[key] = value
+            }
+        }
+        return result
+    }
+
+    /**
+     * Clamp a number between min and max.
+     *
+     * Example: clamp(150, 0, 100) → 100
+     */
+    export function clamp(value, minimum, maximum) {
+        return Math.min(Math.max(value, minimum), maximum)
+    }
+
+    /**
+     * Paginate an array.
+     *
+     * Returns: { items, page, pageSize, totalPages, total, hasNext, hasPrev }
+     */
+    export function paginate(array, page, pageSize) {
+        const total = array.length
+        const totalPages = Math.ceil(total / pageSize)
+        const currentPage = clamp(page, 1, totalPages || 1)
+        const start = (currentPage - 1) * pageSize
+        const items = array.slice(start, start + pageSize)
+        return {
+            items,
+            page: currentPage,
+            pageSize,
+            total,
+            totalPages,
+            hasNext: currentPage < totalPages,
+            hasPrev: currentPage > 1
+        }
+    }
+
+    ~{
+        import { assertEqual, assertTruthy } from 'scrml:test'
+
+        // pick
+        assertEqual(pick({ a: 1, b: 2, c: 3 }, ["a", "c"]), { a: 1, c: 3 })
+        assertEqual(pick({ a: 1 }, ["b"]), {})
+
+        // omit
+        assertEqual(omit({ a: 1, b: 2, c: 3 }, ["b"]), { a: 1, c: 3 })
+
+        // mapKeys
+        assertEqual(mapKeys({ first_name: "Alice" }, { first_name: "firstName" }), { firstName: "Alice" })
+
+        // groupBy
+        const grouped = groupBy([{r:"a"},{r:"b"},{r:"a"}], "r")
+        assertEqual(grouped.a.length, 2)
+        assertEqual(grouped.b.length, 1)
+
+        // sortBy
+        const sorted = sortBy([{n:3},{n:1},{n:2}], "n")
+        assertEqual(sorted[0].n, 1)
+        assertEqual(sorted[2].n, 3)
+
+        const sortedDesc = sortBy([{n:1},{n:3},{n:2}], "n", "desc")
+        assertEqual(sortedDesc[0].n, 3)
+
+        // unique
+        assertEqual(unique([1,2,2,3,1]), [1,2,3])
+        assertEqual(unique([{id:1},{id:2},{id:1}], "id").length, 2)
+
+        // chunk
+        assertEqual(chunk([1,2,3,4,5], 2), [[1,2],[3,4],[5]])
+
+        // toSnakeCase / toCamelCase
+        assertEqual(toSnakeCase("firstName"), "first_name")
+        assertEqual(toCamelCase("first_name"), "firstName")
+        assertEqual(toCamelCase("address_line_1"), "addressLine1")
+
+        // camelizeKeys
+        assertEqual(camelizeKeys({ first_name: "Alice", role_id: 1 }), { firstName: "Alice", roleId: 1 })
+
+        // deepMerge
+        assertEqual(deepMerge({ a: { b: 1 } }, { a: { c: 2 } }), { a: { b: 1, c: 2 } })
+
+        // clamp
+        assertEqual(clamp(150, 0, 100), 100)
+        assertEqual(clamp(-5, 0, 100), 0)
+        assertEqual(clamp(50, 0, 100), 50)
+
+        // paginate
+        const page = paginate([1,2,3,4,5,6,7], 2, 3)
+        assertEqual(page.items, [4,5,6])
+        assertEqual(page.page, 2)
+        assertEqual(page.totalPages, 3)
+        assertTruthy(page.hasNext)
+        assertTruthy(page.hasPrev)
+    }
+}
+</program>

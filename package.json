@@ -1,0 +1,28 @@
+{
+  "name": "scrmlts",
+  "version": "0.2.0",
+  "type": "module",
+  "private": true,
+  "workspaces": ["compiler", "shared"],
+  "bin": {
+    "scrml": "compiler/src/cli.js"
+  },
+  "scripts": {
+    "compile": "bun run compiler/src/cli.js compile",
+    "test": "bun test compiler/tests/",
+    "test:coverage": "bun test compiler/tests/ --coverage",
+    "watch": "bun --watch compiler/src/cli.js compile",
+    "bench": "bun run compiler/src/cli.js compile samples/compilation-tests/ --timing",
+    "security": "bun run compiler/src/cli.js compile samples/compilation-tests/ && node --check samples/compilation-tests/*/dist/*.client.js 2>&1",
+    "lsp": "bun run lsp/server.js --stdio"
+  },
+  "dependencies": {
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.11"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.8.9",
+    "happy-dom": "^20.8.9",
+    "puppeteer": "^24.40.0"
+  }
+}

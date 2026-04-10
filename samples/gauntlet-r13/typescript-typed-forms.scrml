@@ -1,0 +1,52 @@
+// gauntlet-r13: typescript dev — typed form with validation
+// Tests: type annotations, enum types, bind:value, nested validation functions
+// R13 focus: bind:value ordering, BPP nested functions, Enum::Variant
+
+<div class="typed-form">
+    ${
+        type Status:enum = { Draft, Review, Published }
+
+        @title = ""
+        @content = ""
+        @status = Status::Draft
+        @isDraft = true
+        @isReview = false
+        @isValid = false
+
+        function validate() {
+            function checkLength(str, min) {
+                return str.length >= min
+            }
+            function checkNotEmpty(str) {
+                return checkLength(str, 1)
+            }
+            @isValid = checkNotEmpty(@title) && checkLength(@content, 10)
+            return @isValid
+        }
+
+        function submit() {
+            if (validate()) {
+                @status = Status::Review
+                @isDraft = false
+                @isReview = true
+            }
+        }
+
+        function publish() {
+            @status = Status::Published
+            @isReview = false
+        }
+    }
+    <h1>Content Editor</>
+    <div class="form">
+        <label>Title</>
+        <input type="text" bind:value=@title placeholder="Enter title"/>
+        <label>Content</>
+        <textarea bind:value=@content placeholder="Write content (min 10 chars)"/>
+        <p>Status: ${@status}</>
+        <div class="actions">
+            <button onclick=submit() if=@isDraft>Submit for Review</>
+            <button onclick=publish() if=@isReview>Publish</>
+        </div>
+    </div>
+</div>

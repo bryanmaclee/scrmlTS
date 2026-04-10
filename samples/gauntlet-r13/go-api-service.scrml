@@ -1,0 +1,43 @@
+// gauntlet-r13: go dev — minimal API service
+// Tests: server functions, SQL .run() chaining, middleware handle(), E-RI-002 false positive fix
+// R13 focus: handle() middleware, SQL .run(), E-RI-002 false positive after server call
+
+< db src="./api.db" tables="entries">
+    ${ server function handle(request, resolve) {
+        const start = Date.now()
+        const response = resolve(request)
+        return response
+    }}
+
+    ${
+        @entries = ?{`SELECT id, title, body FROM entries`}
+        @newTitle = ""
+
+        server function createEntry() {
+            ?{`INSERT INTO entries (title, body) VALUES (${@newTitle}, 'default')`}.run()
+            @entries = ?{`SELECT id, title, body FROM entries`}
+        }
+
+        server function deleteEntry(id) {
+            ?{`DELETE FROM entries WHERE id = ${id}`}.run()
+            @entries = ?{`SELECT id, title, body FROM entries`}
+        }
+    }
+    <h1>API Entries</>
+    <input type="text" bind:value=@newTitle placeholder="New entry"/>
+    <button onclick=createEntry()>Create</>
+    <table>
+        <tbody>
+            ${
+                for (let entry of @entries) {
+                    lift <tr>
+                        <td>${entry.title}/
+                        <td>
+                            <button onclick=deleteEntry(entry.id)>Delete/
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</>

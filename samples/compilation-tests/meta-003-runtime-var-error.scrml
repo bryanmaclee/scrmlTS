@@ -1,0 +1,10 @@
+<div
+  ${
+    let providerKey = "google"
+
+    ^{
+      let secret = bun.eval(`return process.env[${providerKey}.toUpperCase() + "_SECRET"]`)
+    }
+  }
+  <p>This should produce E-META-001: providerKey is a runtime variable</>
+/div

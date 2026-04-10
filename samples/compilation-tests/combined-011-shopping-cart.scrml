@@ -1,0 +1,44 @@
+// combined-011-shopping-cart.scrml
+// Shopping cart. Tests: reactive array + functions + events + lift.
+
+<div class="shop">
+    ${
+        @cart = []
+        @total = 0
+
+        function addToCart(name, price) {
+            @cart = [...@cart, { name: name, price: price }]
+            @total = @total + price
+        }
+
+        function clearCart() {
+            @cart = []
+            @total = 0
+        }
+    }
+    <h1>Shop</>
+    <div class="products">
+        <div class="product">
+            <h3>Widget</>
+            <p>$9.99</>
+            <button onclick=addToCart("Widget", 9.99)>Add to Cart</>
+        </div>
+        <div class="product">
+            <h3>Gadget</>
+            <p>$19.99</>
+            <button onclick=addToCart("Gadget", 19.99)>Add to Cart</>
+        </div>
+    </div>
+    <div class="cart">
+        <h2>Cart</>
+        <ul>
+            ${
+                for (let item of @cart) {
+                    lift <li>${item.name} - $${item.price}</>
+                }
+            }
+        </ul>
+        <p>Total: $${@total}</>
+        <button onclick=clearCart()>Clear Cart</>
+    </div>
+</div>

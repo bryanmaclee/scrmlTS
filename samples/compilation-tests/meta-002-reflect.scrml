@@ -1,0 +1,29 @@
+// meta-002-reflect.scrml
+// ^{} compile-time meta: reflect(TypeName) returns type info from the compiler registry (§22.4.2).
+// reflect(User) resolves at compile time — direct registry lookup, zero runtime cost.
+
+<program>
+
+${
+    type User:struct = {
+        id:    number,
+        name:  string,
+        email: string,
+        role:  string,
+    }
+}
+
+<div class="schema-view">
+    <h3>User struct fields</>
+    <ul>
+        ^{
+            // reflect(User) — compile-time path because User is a type-name literal.
+            const info = reflect(User)
+            for (const field of info.fields) {
+                emit(`<li><code>${field.name}</code>: ${field.type}</li>`)
+            }
+        }
+    </>
+</>
+
+</program>

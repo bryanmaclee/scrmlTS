@@ -1,0 +1,13 @@
+// css-002-multiple-props.scrml
+// CSS block with multiple properties. Tests: #{} with many declarations.
+
+<div>
+    #{
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 16px;
+    }
+    <p>Card with styles</>
+</div>

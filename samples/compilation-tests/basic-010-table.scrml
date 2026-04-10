@@ -1,0 +1,24 @@
+// basic-010-table.scrml
+// A simple HTML table. Tests: table, thead, tbody, tr, th, td.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</>
+            <th>Age</>
+            <th>City</>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Alice</>
+            <td>30</>
+            <td>NYC</>
+        </tr>
+        <tr>
+            <td>Bob</>
+            <td>25</>
+            <td>LA</>
+        </tr>
+    </tbody>
+</table>

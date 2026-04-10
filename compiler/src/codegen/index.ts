@@ -1,0 +1,554 @@
+/**
+ * @module codegen/index
+ *
+ * Entry point for the Code Generator (CG, Stage 8).
+ *
+ * Orchestrates the three-phase execution model:
+ *   1. Analyze — walk ASTs and collect per-file data (analyze.js)
+ *   2. Plan   — populate BindingRegistry during HTML emission
+ *   3. Emit   — generate HTML, CSS, server JS, and client JS (browser mode)
+ *              OR library JS + server JS (library mode)
+ *
+ * Exports `runCG()` as the sole public entry point, plus `CGError` for
+ * error handling by downstream stages.
+ *
+ * Mode: 'browser' (default) | 'library'
+ *   browser: HTML + client IIFE JS + server JS (original behavior, unchanged)
+ *   library: ES module exports JS + server JS (for stdlib / self-hosting)
+ */
+
+import { scanClassesFromHtml, getAllUsedCSS } from "../tailwind-classes.js";
+import { basename } from "path";
+import { SCRML_RUNTIME, RUNTIME_FILENAME } from "../runtime-template.js";
+import { CGError } from "./errors.ts";
+import { resetVarCounter } from "./var-counter.ts";
+import { escapeHtmlAttr } from "./utils.ts";
+import { generateHtml } from "./emit-html.ts";
+import { generateCss } from "./emit-css.ts";
+import { generateServerJs } from "./emit-server.ts";
+import { generateClientJs } from "./emit-client.js";
+import { generateLibraryJs } from "./emit-library.ts";
+import { BindingRegistry } from "./binding-registry.ts";
+import { analyzeAll } from "./analyze.ts";
+import { generateTestJs } from "./emit-test.ts";
+import { generateWorkerJs } from "./emit-worker.ts";
+import { SourceMapBuilder, appendSourceMappingUrl } from "./source-map.ts";
+import { EncodingContext } from "./type-encoding.ts";
+import { collectTopLevelLogicStatements } from "./collect.ts";
+import type { CompileContext } from "./context.ts";
+
+// ---------------------------------------------------------------------------
+// Input / output types
+// ---------------------------------------------------------------------------
+
+export interface CgRouteEntry {
+  boundary?: string;
+}
+
+export interface CgRouteMap {
+  functions: Map<string, CgRouteEntry>;
+  authMiddleware?: Map<string, CgAuthMiddleware | null>;
+}
+
+export interface CgAuthMiddleware {
+  csrf?: "auto" | "off";
+}
+
+export interface CgDepGraph {
+  nodes: Map<string, object>;
+  edges: Array<{ from: string; to: string }>;
+}
+
+export interface CgProtectAnalysis {
+  views?: Map<string, object>;
+}
+
+export interface CgInput {
+  files: object[];
+  routeMap?: CgRouteMap;
+  depGraph?: CgDepGraph;
+  protectAnalysis?: CgProtectAnalysis;
+  sourceMap?: boolean;
+  embedRuntime?: boolean;
+  mode?: "browser" | "library";
+  /** When true, generate bun:test output from ~{} test blocks. */
+  testMode?: boolean;
+  /** Enable output name encoding (§47). Default: false. */
+  encoding?: boolean | { enabled: boolean; debug?: boolean };
+}
+
+export interface CgFileOutput {
+  sourceFile: string;
+  serverJs?: string | null;
+  clientJs?: string | null;
+  libraryJs?: string | null;
+  html?: string | null;
+  css?: string | null;
+  /** Generated bun:test JS output from ~{} test blocks (testMode only). */
+  testJs?: string | null;
+  /** Worker JS bundles keyed by worker name (§4.12.4). */
+  workerBundles?: Map<string, string>;
+  clientJsMap?: string;
+  serverJsMap?: string;
+}
+
+export interface CgOutput {
+  outputs: Map<string, CgFileOutput>;
+  errors: CGError[];
+  runtimeJs?: string | null;
+  runtimeFilename?: string;
+}
+
+/**
+ * Run the Code Generator (CG, Stage 8).
+ */
+export function runCG(input: CgInput): CgOutput {
+  const {
+    files,
+    routeMap,
+    depGraph,
+    protectAnalysis,
+    embedRuntime = false,
+    sourceMap = false,
+    mode = "browser",
+    testMode = false,
+    encoding: encodingInput = false,
+  } = input;
+
+  // Resolve encoding configuration (§47)
+  const encodingOpts = typeof encodingInput === "object"
+    ? encodingInput
+    : { enabled: encodingInput ?? false };
+
+  resetVarCounter();
+
+  const outputs = new Map<string, CgFileOutput>();
+  const errors: CGError[] = [];
+
+  // Validate inputs
+  if (!files || files.length === 0) {
+    return { outputs, errors };
+  }
+
+  const safeRouteMap: CgRouteMap = routeMap ?? { functions: new Map() };
+  const safeDepGraph: CgDepGraph = depGraph ?? { nodes: new Map(), edges: [] };
+
+  // Analysis pass: collect all data from AST before emission begins.
+  const { fileAnalyses, protectedFields } = analyzeAll({
+    files,
+    routeMap: safeRouteMap,
+    depGraph: safeDepGraph,
+    protectAnalysis,
+  });
+
+  // Validate dependency graph edges reference known node IDs
+  if (safeDepGraph.nodes && safeDepGraph.edges) {
+    for (const edge of safeDepGraph.edges) {
+      if (!safeDepGraph.nodes.has(edge.from)) {
+        errors.push(new CGError(
+          "E-CG-003",
+          `E-CG-003: Internal: dependency graph references unknown source node '${edge.from}'. This is likely a compiler bug — please report it with your .scrml file.`,
+          { file: "", start: 0, end: 0, line: 0, col: 0 },
+        ));
+      }
+      if (!safeDepGraph.nodes.has(edge.to)) {
+        errors.push(new CGError(
+          "E-CG-003",
+          `E-CG-003: Internal: dependency graph references unknown target node '${edge.to}'. This is likely a compiler bug — please report it with your .scrml file.`,
+          { file: "", start: 0, end: 0, line: 0, col: 0 },
+        ));
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Worker extraction pre-pass (§4.12.4): find nested <program name="...">
+  // nodes, extract them from parent ASTs, and compile as separate bundles.
+  // ---------------------------------------------------------------------------
+  const workerBundlesPerFile = new Map<string, Map<string, string>>();
+
+  for (const fileAST of files) {
+    const filePath = (fileAST as any).filePath as string;
+    const nodes: any[] = (fileAST as any).ast?.nodes ?? (fileAST as any).nodes ?? [];
+
+    interface WorkerDef {
+      name: string;
+      children: any[];
+      whenMessage: any | null;
+    }
+
+    const workerDefs = new Map<string, WorkerDef>();
+
+    function extractWorkerPrograms(parentChildren: any[]): void {
+      for (let i = parentChildren.length - 1; i >= 0; i--) {
+        const node = parentChildren[i];
+        if (!node || typeof node !== "object") continue;
+
+        if (node.kind === "markup" && node.tag === "program") {
+          const attrs: any[] = node.attributes ?? node.attrs ?? [];
+          const nameAttr = attrs.find((a: any) => a.name === "name");
+          if (nameAttr) {
+            const nameVal = nameAttr.value;
+            let workerName: string | null = null;
+            if (nameVal?.kind === "string-literal") {
+              workerName = nameVal.value;
+            } else if (nameVal?.kind === "variable-ref") {
+              workerName = (nameVal.name ?? "").replace(/^@/, "");
+            }
+            if (workerName) {
+              const children: any[] = node.children ?? [];
+              let whenMessage: any | null = null;
+              for (const child of children) {
+                if (child?.kind === "logic") {
+                  for (const stmt of (child.body ?? [])) {
+                    if (stmt?.kind === "when-message") {
+                      whenMessage = stmt;
+                      break;
+                    }
+                  }
+                }
+                if (whenMessage) break;
+              }
+              workerDefs.set(workerName, { name: workerName, children, whenMessage });
+              parentChildren.splice(i, 1);
+              continue;
+            }
+          }
+        }
+
+        if (node.kind === "markup" && (node.children?.length > 0)) {
+          extractWorkerPrograms(node.children);
+        }
+      }
+    }
+
+    extractWorkerPrograms(nodes);
+
+    if (workerDefs.size > 0) {
+      const bundles = new Map<string, string>();
+      for (const [name, def] of workerDefs) {
+        bundles.set(name, generateWorkerJs(name, def.children, def.whenMessage));
+      }
+      workerBundlesPerFile.set(filePath, bundles);
+    }
+
+    // §4.12.6: DB scope annotation — tag children of <program db="..."> with _dbScope
+    let dbScopeCounter = 0;
+    function annotateDbScopes(parentChildren: any[]): void {
+      for (const node of parentChildren) {
+        if (!node || typeof node !== "object") continue;
+        if (node.kind === "markup" && node.tag === "program") {
+          const attrs: any[] = node.attributes ?? node.attrs ?? [];
+          const dbAttr = attrs.find((a: any) => a.name === "db");
+          const nameAttr = attrs.find((a: any) => a.name === "name");
+          if (dbAttr && !nameAttr) {
+            // Scoped DB context — tag all children with the scoped DB variable
+            const dbVal = dbAttr.value?.value ?? dbAttr.value?.name ?? "";
+            const scopedDbVar = `_scrml_db_${++dbScopeCounter}`;
+            (node as any)._dbScope = { dbVar: scopedDbVar, connectionString: dbVal };
+            // Tag all descendant logic/sql nodes
+            function tagDescendants(children: any[]): void {
+              for (const child of children) {
+                if (!child) continue;
+                (child as any)._dbVar = scopedDbVar;
+                if (child.children) tagDescendants(child.children);
+                if (child.body && Array.isArray(child.body)) {
+                  for (const stmt of child.body) {
+                    if (stmt) (stmt as any)._dbVar = scopedDbVar;
+                  }
+                }
+              }
+            }
+            tagDescendants(node.children ?? []);
+          }
+        }
+        if (node.kind === "markup" && node.children?.length > 0) {
+          annotateDbScopes(node.children);
+        }
+      }
+    }
+    annotateDbScopes(nodes);
+  }
+
+  // Process each file
+  for (const fileAST of files) {
+    const filePath = (fileAST as any).filePath as string;
+    const analysis = fileAnalyses.get(filePath);
+    const nodes: object[] = analysis ? (analysis as any).nodes : [];
+
+    // Check for unknown types in nodeTypes
+    if ((fileAST as any).nodeTypes) {
+      for (const [nodeId, type] of (fileAST as any).nodeTypes as Map<string, any>) {
+        if (type && type.kind === "unknown") {
+          errors.push(new CGError(
+            "E-CG-001",
+            `E-CG-001: Internal: node '${nodeId}' has an unrecognized type. ` +
+            `This is likely a compiler bug — please report it with your .scrml file.`,
+            { file: filePath, start: 0, end: 0, line: 1, col: 1 },
+          ));
+        }
+      }
+    }
+
+    // Resolve auth middleware for this file (from RI output)
+    const authMW = safeRouteMap.authMiddleware?.get(filePath) ?? null;
+    // Resolve §39 middleware config from AST (compiler-auto tier)
+    const middlewareCfg = (fileAST as any).middlewareConfig ?? null;
+
+    // ---------------------------------------------------------------------------
+    // Generate server JS — emitted in both browser and library mode.
+    // ---------------------------------------------------------------------------
+    let serverJs: string | null = generateServerJs(fileAST, safeRouteMap, errors, authMW, middlewareCfg) || null;
+
+    // ---------------------------------------------------------------------------
+    // Generate CSS — emitted in both modes.
+    // ---------------------------------------------------------------------------
+    const userCss: string = generateCss(nodes, analysis?.cssBlocks) || "";
+
+    // ---------------------------------------------------------------------------
+    // LIBRARY MODE — emit ES module exports, skip HTML and browser client JS
+    // ---------------------------------------------------------------------------
+    if (mode === "library") {
+      const libCtx: CompileContext = {
+        filePath,
+        fileAST,
+        routeMap: safeRouteMap,
+        depGraph: safeDepGraph,
+        protectedFields,
+        authMiddleware: authMW,
+        middlewareConfig: middlewareCfg,
+        csrfEnabled: false,
+        encodingCtx: null,
+        mode,
+        testMode,
+        dbVar: "_scrml_db",
+        workerNames: [],
+        errors,
+        registry: new BindingRegistry(),
+        derivedNames: new Set<string>(),
+        analysis: analysis ?? null,
+      };
+      const libraryJs: string | null = generateLibraryJs(libCtx) || null;
+
+      const css: string | null = userCss || null;
+
+      let serverJsMap: string | null = null;
+      const base = basename(filePath, ".scrml");
+      if (sourceMap) {
+        const sourceBasename = `${base}.scrml`;
+        if (serverJs) {
+          const serverMapFile = `${base}.server.js.map`;
+          const serverMapBuilder = new SourceMapBuilder(sourceBasename);
+          const serverLines = serverJs.split("\n");
+          for (let i = 0; i < serverLines.length; i++) {
+            serverMapBuilder.addMapping(i, 0, 0);
+          }
+          serverJsMap = serverMapBuilder.generate(`${base}.server.js`);
+          serverJs = appendSourceMappingUrl(serverJs, serverMapFile);
+        }
+      }
+
+      const fileWorkerBundles = workerBundlesPerFile.get(filePath);
+      const libOutput: CgFileOutput = {
+        sourceFile: filePath,
+        libraryJs,
+        serverJs,
+        css,
+        ...(fileWorkerBundles && { workerBundles: fileWorkerBundles }),
+        ...(serverJsMap !== null && { serverJsMap }),
+      };
+      outputs.set(filePath, libOutput);
+      continue;
+    }
+
+    // ---------------------------------------------------------------------------
+    // BROWSER MODE (default) — HTML + client IIFE JS + server JS
+    // ---------------------------------------------------------------------------
+
+    const hasServerFns = [...safeRouteMap.functions.entries()].some(
+      ([id, route]) => id.startsWith(filePath + "::") && route.boundary === "server"
+    );
+    const csrfEnabled = authMW !== null ? authMW.csrf === "auto" : hasServerFns;
+
+    const registry = new BindingRegistry();
+
+    const fileWorkerNames = workerBundlesPerFile.has(filePath)
+      ? [...workerBundlesPerFile.get(filePath)!.keys()]
+      : [];
+
+    // Construct CompileContext early so all emitters can use it.
+    // encodingCtx starts null and is set after HTML gen.
+    const compileCtx: CompileContext = {
+      filePath,
+      fileAST,
+      routeMap: safeRouteMap,
+      depGraph: safeDepGraph,
+      protectedFields,
+      authMiddleware: authMW,
+      middlewareConfig: middlewareCfg,
+      csrfEnabled,
+      encodingCtx: null,
+      mode,
+      testMode,
+      dbVar: "_scrml_db",
+      workerNames: fileWorkerNames,
+      errors,
+      registry,
+      derivedNames: new Set<string>(),
+      analysis: analysis ?? null,
+      usedRuntimeChunks: new Set(['core', 'scope', 'errors', 'transitions']),
+    };
+
+    const hasMarkup = (analysis as any)?.markupNodes?.length > 0;
+    // Bug R18: After meta-eval, emit() may replace meta blocks with text nodes
+    // that have no sibling markup. Check for any renderable content, not just
+    // markup nodes.
+    const hasRenderableContent = hasMarkup || nodes.some((n: any) =>
+      n && typeof n === "object" && (
+        (n.kind === "text" && typeof n.value === "string" && n.value.trim() !== "") ||
+        (n.kind === "text" && typeof n.text === "string" && n.text.trim() !== "") ||
+        n.kind === "state" ||
+        n.kind === "if-chain"
+      )
+    );
+    const htmlBody: string | null = hasRenderableContent
+      ? generateHtml(nodes, compileCtx)
+      : null;
+
+    let tailwindCss = "";
+    if (htmlBody) {
+      const usedClasses = scanClassesFromHtml(htmlBody);
+      tailwindCss = getAllUsedCSS(usedClasses);
+    }
+
+    const cssParts: string[] = [];
+    if (userCss) cssParts.push(userCss);
+    if (tailwindCss) cssParts.push(tailwindCss);
+    const css: string | null = cssParts.length > 0 ? cssParts.join("\n") : null;
+
+    // Create per-file EncodingContext (§47) and set it on the compile context
+    const encodingCtx = new EncodingContext({
+      enabled: encodingOpts.enabled,
+      debug: encodingOpts.debug,
+    });
+    compileCtx.encodingCtx = encodingCtx;
+
+    // Register reactive variables with the encoding context
+    if (encodingCtx.enabled) {
+      const topLevelLogic = analysis?.topLevelLogic ?? collectTopLevelLogicStatements(fileAST);
+      for (const stmt of topLevelLogic) {
+        if ((stmt as any).kind === "reactive-decl" && (stmt as any).name) {
+          const type = (fileAST as any).nodeTypes?.get((stmt as any).name) ?? { kind: "asIs", constraint: null };
+          encodingCtx.register((stmt as any).name, type);
+        }
+      }
+    }
+
+    const clientJsRaw: string | null = generateClientJs(compileCtx) || null;
+
+    let clientJs: string | null = clientJsRaw;
+    if (clientJsRaw && !embedRuntime) {
+      const runtimeEnd = clientJsRaw.indexOf("\n// --- end scrml reactive runtime ---");
+      if (runtimeEnd !== -1) {
+        const afterRuntime = clientJsRaw.substring(
+          runtimeEnd + "\n// --- end scrml reactive runtime ---".length
+        );
+        clientJs = `// Requires: ${RUNTIME_FILENAME}\n` + afterRuntime;
+      } else {
+        const runtimeStart = clientJsRaw.indexOf("// --- scrml reactive runtime ---");
+        if (runtimeStart !== -1) {
+          const navigateEnd = clientJsRaw.indexOf("function _scrml_navigate(path) {");
+          if (navigateEnd !== -1) {
+            const closeBrace = clientJsRaw.indexOf("}\n", navigateEnd + 30);
+            if (closeBrace !== -1) {
+              const before = clientJsRaw.substring(0, runtimeStart);
+              const after = clientJsRaw.substring(closeBrace + 2);
+              clientJs = before + `// Requires: ${RUNTIME_FILENAME}\n` + after;
+            }
+          }
+        }
+      }
+    }
+
+    const base = basename(filePath, ".scrml");
+    let html: string | null = null;
+    if (htmlBody) {
+      const docParts: string[] = [];
+      docParts.push("<!DOCTYPE html>");
+      docParts.push("<html lang=\"en\">");
+      docParts.push("<head>");
+      docParts.push("  <meta charset=\"UTF-8\">");
+      docParts.push("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
+      docParts.push(`  <title>${escapeHtmlAttr(base)}</title>`);
+      if (css) {
+        docParts.push(`  <link rel="stylesheet" href="${base}.css">`);
+      }
+      docParts.push("</head>");
+      docParts.push("<body>");
+      docParts.push(htmlBody);
+      if (clientJs && !embedRuntime) {
+        docParts.push(`<script src="${RUNTIME_FILENAME}"></script>`);
+      }
+      if (clientJs) {
+        docParts.push(`<script src="${base}.client.js"></script>`);
+      }
+      docParts.push("</body>");
+      docParts.push("</html>");
+      html = docParts.join("\n");
+    }
+
+    let clientJsMap: string | null = null;
+    let serverJsMap: string | null = null;
+
+    if (sourceMap) {
+      const sourceBasename = `${base}.scrml`;
+
+      if (clientJs) {
+        const clientMapFile = `${base}.client.js.map`;
+        const clientMapBuilder = new SourceMapBuilder(sourceBasename);
+        const clientLines = clientJs.split("\n");
+        for (let i = 0; i < clientLines.length; i++) {
+          clientMapBuilder.addMapping(i, 0, 0);
+        }
+        clientJsMap = clientMapBuilder.generate(`${base}.client.js`);
+        clientJs = appendSourceMappingUrl(clientJs, clientMapFile);
+      }
+
+      if (serverJs) {
+        const serverMapFile = `${base}.server.js.map`;
+        const serverMapBuilder = new SourceMapBuilder(sourceBasename);
+        const serverLines = serverJs.split("\n");
+        for (let i = 0; i < serverLines.length; i++) {
+          serverMapBuilder.addMapping(i, 0, 0);
+        }
+        serverJsMap = serverMapBuilder.generate(`${base}.server.js`);
+        serverJs = appendSourceMappingUrl(serverJs, serverMapFile);
+      }
+    }
+
+    // Generate test JS when testMode is enabled
+    const testJs: string | null = testMode
+      ? generateTestJs(filePath, (analysis as any)?.testGroups ?? [], []) ?? null
+      : null;
+
+    const fileWorkerBundles = workerBundlesPerFile.get(filePath);
+    const browserOutput: CgFileOutput = {
+      sourceFile: filePath,
+      html,
+      css,
+      clientJs,
+      serverJs,
+      ...(testJs !== null && { testJs }),
+      ...(fileWorkerBundles && { workerBundles: fileWorkerBundles }),
+      ...(clientJsMap !== null && { clientJsMap }),
+      ...(serverJsMap !== null && { serverJsMap }),
+    };
+    outputs.set(filePath, browserOutput);
+  }
+
+  const runtimeJs = embedRuntime ? null : SCRML_RUNTIME;
+
+  return { outputs, errors, runtimeJs, runtimeFilename: RUNTIME_FILENAME };
+}
+
+export { CGError } from "./errors.ts";

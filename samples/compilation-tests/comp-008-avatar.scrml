@@ -1,0 +1,14 @@
+// comp-008-avatar.scrml
+// Avatar display pattern. Tests: initial-based avatar.
+
+<div class="avatar-group">
+    ${
+        let users = ["Alice", "Bob", "Charlie"]
+        for (let user of users) {
+            lift <div class="avatar">
+                <span class="avatar-initial">${user.charAt(0)}</>
+                <span class="avatar-name">${user}</>
+            </div>
+        }
+    }
+</div>

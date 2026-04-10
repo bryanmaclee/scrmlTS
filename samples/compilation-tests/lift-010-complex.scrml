@@ -1,0 +1,19 @@
+// lift-010-complex.scrml
+// Lift with complex nested structure. Tests: deep lift markup.
+
+<div class="user-list">
+    ${
+        let users = ["Alice", "Bob", "Charlie"]
+        for (let user of users) {
+            lift <div class="user-row">
+                <div class="avatar">
+                    <span>${user.charAt(0)}</>
+                </div>
+                <div class="info">
+                    <strong>${user}</>
+                    <span class="role">Member</>
+                </div>
+            </div>
+        }
+    }
+</div>

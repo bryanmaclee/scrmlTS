@@ -1,0 +1,61 @@
+// gauntlet-r14: bun dev — SQL operations and server functions
+// Tests R13 fixes: SQL @var rewriting, E-RI-002 false positive suppression
+// New: ~ tilde-decl, multiple server functions with @var sets after SQL
+
+< db src="./app.db" tables="tasks,categories">
+    ${
+        @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+        @categories = ?{`SELECT id, name FROM categories`}
+        @newTask = ""
+        @selectedCat = ""
+        @taskCount = 0
+
+        dbName = "app.db"
+
+        server function addTask() {
+            ?{`INSERT INTO tasks (title, category, done) VALUES (${@newTask}, ${@selectedCat}, 0)`}.run()
+            @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+            @taskCount = @taskCount + 1
+        }
+
+        server function toggleTask(taskId, currentDone) {
+            ?{`UPDATE tasks SET done = ${currentDone ? 0 : 1} WHERE id = ${taskId}`}.run()
+            @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+        }
+
+        server function deleteCompleted() {
+            ?{`DELETE FROM tasks WHERE done = 1`}.run()
+            @tasks = ?{`SELECT id, title, category, done FROM tasks`}
+            @taskCount = 0
+        }
+
+        server function addCategory(catName) {
+            ?{`INSERT INTO categories (name) VALUES (${catName})`}.run()
+            @categories = ?{`SELECT id, name FROM categories`}
+        }
+    }
+    <h1>Task Manager (${dbName})</>
+    <div class="add-form">
+        <input type="text" bind:value=@newTask placeholder="New task"/>
+        <select bind:value=@selectedCat>
+            ${
+                for (let cat of @categories) {
+                    lift <option value=${cat.id}>${cat.name}/
+                }
+            }
+        </select>
+        <button onclick=addTask()>Add</>
+    </div>
+    <p>Tasks added: ${@taskCount}</>
+    <button onclick=deleteCompleted()>Clear Completed</>
+    <ul>
+        ${
+            for (let task of @tasks) {
+                lift <li>
+                    <span>${task.title} (${task.category})/
+                    <button onclick=toggleTask(task.id, task.done)>Toggle/
+                </li>
+            }
+        }
+    </ul>
+</>

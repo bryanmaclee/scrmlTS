@@ -1,0 +1,9 @@
+// sql-006-update.scrml
+// SQL UPDATE. Tests: ?{} with update operation.
+
+<div>
+    ${
+        ?{`UPDATE users SET active = 1 WHERE id = 42`}
+    }
+    <p>Update done</>
+</div>

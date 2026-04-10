@@ -1,0 +1,7 @@
+// reactive-003-string.scrml
+// Reactive string variable. Tests: @ with string values.
+
+<div>
+    ${ @greeting = "Hello, World!" }
+    <p>Greeting set</>
+</div>

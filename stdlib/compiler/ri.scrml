@@ -1,0 +1,25 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/ri — Route Inference
+    //
+    // Infers server-side routes from function declarations, builds the route map,
+    // and detects auth middleware requirements.
+    //
+    // Usage:
+    //   import { runRI } from "scrml:compiler/ri"
+    //   const result = runRI({ files, protectAnalysis })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runRI: _runRI, RIError: _RIError, collectFileFunctions: _collectFileFunctions, generateRouteName: _generateRouteName, buildFunctionIndex: _buildFunctionIndex, buildPageRouteTree: _buildPageRouteTree } = await import("../../compiler/src/route-inference.ts");
+    }
+
+    export const runRI = _runRI
+    export const RIError = _RIError
+    export const collectFileFunctions = _collectFileFunctions
+    export const generateRouteName = _generateRouteName
+    export const buildFunctionIndex = _buildFunctionIndex
+    export const buildPageRouteTree = _buildPageRouteTree
+}
+</program>

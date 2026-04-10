@@ -1,0 +1,417 @@
+// debate-async-dashboard-svelte.scrml
+// Svelte dev's debate implementation: async dashboard with 3 parallel data
+// sources and optimistic order submission.
+//
+// Position: C + E (RemoteData enums now, loading keyword sugar deferred).
+// Approach C is the right foundation. But the enum verbosity is real pain —
+// the sugar (E) should land before this goes to general availability.
+
+< db src="./app.db" tables="users, orders, metrics">
+
+    // =========================================================================
+    // TYPE DEFINITIONS — the RemoteData pattern, defined once per data shape
+    // =========================================================================
+    //
+    // In Svelte I'd write: let users = $state([]), usersLoading = $state(true)
+    // That's 2 vars per source = 6 vars for 3 sources. But it allows impossible
+    // states: usersLoading=true AND users=[populated]. C eliminates that.
+    //
+    // The cost: 12 lines of enum definition per source before a single query.
+    // This is the verbosity Rust and I agree on. But the structure is RIGHT.
+
+    ${
+        type UsersState:enum = {
+            Loading
+            Ready(users)
+            Failed(message: string)
+
+            transitions {
+                .Loading => .Ready
+                .Loading => .Failed
+                .Ready   => .Loading
+                .Failed  => .Loading
+            }
+        }
+
+        type OrdersState:enum = {
+            Loading
+            Ready(orders)
+            Failed(message: string)
+
+            transitions {
+                .Loading => .Ready
+                .Loading => .Failed
+                .Ready   => .Loading
+                .Failed  => .Loading
+            }
+        }
+
+        type MetricsState:enum = {
+            Loading
+            Ready(metrics)
+            Failed(message: string)
+
+            transitions {
+                .Loading => .Ready
+                .Loading => .Failed
+                .Ready   => .Loading
+                .Failed  => .Loading
+            }
+        }
+
+        type OrderSubmit:enum = {
+            Idle
+            Submitting(optimisticOrder)
+            Succeeded(newOrder)
+            Failed(optimisticOrder, message: string)
+
+            transitions {
+                .Idle       => .Submitting
+                .Submitting => .Succeeded
+                .Submitting => .Failed
+                .Succeeded  => .Idle
+                .Failed     => .Idle
+                .Failed     => .Submitting
+            }
+        }
+    }
+
+    // =========================================================================
+    // REACTIVE STATE — one @var per domain, no impossible combinations
+    // =========================================================================
+
+    ${
+        @usersState   = UsersState.Loading
+        @ordersState  = OrdersState.Loading
+        @metricsState = MetricsState.Loading
+        @submitState  = OrderSubmit.Idle
+
+        // Form fields — these have no enum, they are just values
+        @newOrderProduct = ""
+        @newOrderAmount  = ""
+    }
+
+    // =========================================================================
+    // SERVER FUNCTIONS
+    // =========================================================================
+
+    ${
+        server function fetchUsers() {
+            return ?{`SELECT id, name, email, role FROM users ORDER BY name`}.all()
+        }
+
+        server function fetchOrders() {
+            return ?{`
+                SELECT o.id, o.product, o.amount_cents, o.status, o.created_at,
+                       u.name as user_name
+                FROM orders o
+                JOIN users u ON o.user_id = u.id
+                ORDER BY o.created_at DESC
+                LIMIT 20
+            `}.all()
+        }
+
+        server function fetchMetrics() {
+            return ?{`
+                SELECT
+                    COUNT(*) as total_orders,
+                    SUM(amount_cents) as total_revenue_cents,
+                    COUNT(CASE WHEN status = "pending" THEN 1 END) as pending_count,
+                    COUNT(CASE WHEN status = "complete" THEN 1 END) as complete_count
+                FROM orders
+            `}.get()
+        }
+
+        server function submitOrder(product, amountCents) {
+            ?{`
+                INSERT INTO orders (product, amount_cents, status, created_at)
+                VALUES (${product}, ${amountCents}, "pending", datetime("now"))
+            `}.run()
+            return ?{`SELECT * FROM orders ORDER BY id DESC LIMIT 1`}.get()
+        }
+    }
+
+    // =========================================================================
+    // LOGIC FUNCTIONS — orchestration + transitions
+    // =========================================================================
+
+    ${
+        // loadDashboard: fires three independent calls.
+        // Compiler sees no data dependency between fetchUsers(), fetchOrders(),
+        // fetchMetrics() and should parallelize via Promise.all (SS13.3).
+        // Each settles into its own enum state independently.
+        function loadDashboard() {
+            @usersState   = UsersState.Loading
+            @ordersState  = OrdersState.Loading
+            @metricsState = MetricsState.Loading
+
+            // Three parallel fetches — flat synchronous-looking code per SS13
+            let users   = fetchUsers()
+            let orders  = fetchOrders()
+            let metrics = fetchMetrics()
+
+            @usersState   = UsersState.Ready(users)
+            @ordersState  = OrdersState.Ready(orders)
+            @metricsState = MetricsState.Ready(metrics)
+        }
+
+        // updateOrderInput / updateProductInput — oninput handlers
+        // This is the bind:value gap in raw form. In Svelte I'd write:
+        //   bind:value={newOrderProduct}
+        // Here I need explicit handlers. Noted. Not a blocker, but it's 4 lines
+        // per form field instead of 1.
+        function updateProduct() {
+            @newOrderProduct = event.target.value
+        }
+
+        function updateAmount() {
+            @newOrderAmount = event.target.value
+        }
+
+        // handleSubmitOrder — optimistic update pattern
+        // The enum is doing real work here: Submitting(optimisticOrder) carries
+        // the optimistic record IN the state. No separate @optimisticItem needed.
+        // In Svelte I'd manage this with two separate $state vars plus a derived.
+        // The enum variant with payload is cleaner.
+        function handleSubmitOrder() {
+            let amountCents = Math.round(parseFloat(@newOrderAmount) * 100)
+            let optimistic = {
+                id: -1,
+                product: @newOrderProduct,
+                amount_cents: amountCents,
+                status: "pending",
+                user_name: "You",
+                created_at: "just now"
+            }
+
+            @submitState = OrderSubmit.Submitting(optimistic)
+            @newOrderProduct = ""
+            @newOrderAmount = ""
+
+            // Server call. CPS splits here: @submitState = Submitting was
+            // already set above the await boundary. The call suspends.
+            // On return we're in the second CPS continuation.
+            let newOrder = submitOrder(optimistic.product, optimistic.amount_cents)
+
+            @submitState = OrderSubmit.Succeeded(newOrder)
+
+            // Refresh orders list to include the confirmed order
+            let updatedOrders = fetchOrders()
+            @ordersState = OrdersState.Ready(updatedOrders)
+
+            // Reset submit state after brief success display
+            @submitState = OrderSubmit.Idle
+        }
+
+        function dismissError() {
+            @submitState = OrderSubmit.Idle
+        }
+
+        function formatCents(cents) {
+            return "$" + (cents / 100).toFixed(2)
+        }
+
+        function formatDate(str) {
+            return new Date(str).toLocaleDateString("en-US", {
+                month: "short", day: "numeric", year: "numeric"
+            })
+        }
+    }
+
+    // Fire on mount — no loading state before this because we start in Loading
+    // variant, not a separate @loading boolean. The enum carries the initial state.
+    on mount { loadDashboard() }
+
+    // =========================================================================
+    // MARKUP
+    // =========================================================================
+
+    <div class="dashboard">
+
+        <header class="dashboard-header">
+            <h1>Dashboard/
+            <button onclick=loadDashboard()>Refresh/
+        </header>
+
+        // ---------------------------------------------------------------
+        // METRICS SECTION — top of the page, summary numbers
+        // ---------------------------------------------------------------
+        <section class="metrics-section">
+            <h2>Summary/
+
+            // This match is exhaustive. The compiler knows MetricsState has
+            // exactly .Loading, .Ready, .Failed — no fallthrough possible.
+            // In Svelte I'd write: {#if metricsLoading}...{:else if metricsError}...
+            // That's not exhaustive — I could forget a case. The match IS.
+            ${
+                match @metricsState {
+                    .Loading => {
+                        lift <div class="metrics-loading">Loading metrics...</>
+                    }
+                    .Failed(msg) => {
+                        lift <div class="metrics-error">
+                            <p>Could not load metrics: ${msg}/
+                            <button onclick=loadDashboard()>Retry/
+                        </>
+                    }
+                    .Ready(metrics) => {
+                        lift <div class="metrics-grid">
+                            <div class="metric-card">
+                                <span class="metric-value">${metrics.total_orders}/
+                                <span class="metric-label">Total Orders/
+                            </>
+                            <div class="metric-card">
+                                <span class="metric-value">${formatCents(metrics.total_revenue_cents)}/
+                                <span class="metric-label">Revenue/
+                            </>
+                            <div class="metric-card">
+                                <span class="metric-value">${metrics.pending_count}/
+                                <span class="metric-label">Pending/
+                            </>
+                            <div class="metric-card">
+                                <span class="metric-value">${metrics.complete_count}/
+                                <span class="metric-label">Complete/
+                            </>
+                        </>
+                    }
+                }
+            }
+        </section>
+
+        <div class="dashboard-columns">
+
+            // ---------------------------------------------------------------
+            // USERS SECTION
+            // ---------------------------------------------------------------
+            <section class="users-section">
+                <h2>Users/
+                ${
+                    match @usersState {
+                        .Loading => {
+                            lift <div class="loading-state">Loading users...</>
+                        }
+                        .Failed(msg) => {
+                            lift <div class="error-state">
+                                <p>Error: ${msg}/
+                                <button onclick=loadDashboard()>Retry/
+                            </>
+                        }
+                        .Ready(users) => {
+                            lift <ul class="user-list">
+                                ${
+                                    for (let u of users) {
+                                        lift <li class="user-item">
+                                            <span class="user-name">${u.name}/
+                                            <span class="user-email">${u.email}/
+                                            <span class="user-role">${u.role}/
+                                        </>
+                                    }
+                                }
+                            </>
+                        }
+                    }
+                }
+            </section>
+
+            // ---------------------------------------------------------------
+            // ORDERS SECTION + NEW ORDER FORM
+            // ---------------------------------------------------------------
+            <section class="orders-section">
+                <h2>Orders/
+
+                // New order form — optimistic submit
+                // The Submitting variant disables inputs while in flight.
+                // The payload (optimisticOrder) is visible in the list below
+                // before the server confirms. That's the optimistic update.
+                <form class="new-order-form" onsubmit=handleSubmitOrder()>
+                    <input
+                        type="text"
+                        placeholder="Product name"
+                        value=@newOrderProduct
+                        oninput=updateProduct()
+                        disabled=${@submitState is .Submitting}
+                    />
+                    <input
+                        type="number"
+                        placeholder="Amount (USD)"
+                        value=@newOrderAmount
+                        oninput=updateAmount()
+                        disabled=${@submitState is .Submitting}
+                    />
+                    <button
+                        type="submit"
+                        disabled=${@submitState is .Submitting}
+                    >
+                        ${
+                            match @submitState {
+                                .Submitting(o) => { lift "Submitting..." }
+                                else => { lift "Add Order" }
+                            }
+                        }
+                    /
+                </form>
+
+                // Submit feedback — inline below the form
+                ${
+                    match @submitState {
+                        .Succeeded(order) => {
+                            lift <div class="submit-success">
+                                Order confirmed: ${order.product} (${formatCents(order.amount_cents)})/
+                            </>
+                        }
+                        .Failed(optimistic, msg) => {
+                            lift <div class="submit-error">
+                                <p>Failed to save ${optimistic.product}: ${msg}/
+                                <button onclick=dismissError()>Dismiss/
+                            </>
+                        }
+                        else => {}
+                    }
+                }
+
+                // Orders list — merges optimistic + server data
+                ${
+                    match @ordersState {
+                        .Loading => {
+                            lift <div class="loading-state">Loading orders...</>
+                        }
+                        .Failed(msg) => {
+                            lift <div class="error-state">Error: ${msg}</>
+                        }
+                        .Ready(orders) => {
+                            // Show optimistic row first if submitting
+                            lift <ul class="order-list">
+                                ${
+                                    match @submitState {
+                                        .Submitting(optimistic) => {
+                                            lift <li class="order-item order-item--optimistic">
+                                                <span>${optimistic.product}/
+                                                <span>${formatCents(optimistic.amount_cents)}/
+                                                <span class="status-pending">saving.../
+                                            </>
+                                        }
+                                        else => {}
+                                    }
+                                }
+                                ${
+                                    for (let o of orders) {
+                                        lift <li class="order-item">
+                                            <span>${o.product}/
+                                            <span>${formatCents(o.amount_cents)}/
+                                            <span class="order-user">${o.user_name}/
+                                            <span class="order-status">${o.status}/
+                                            <span class="order-date">${formatDate(o.created_at)}/
+                                        </>
+                                    }
+                                }
+                            </>
+                        }
+                    }
+                }
+            </section>
+
+        </div>
+
+    </div>
+
+/   // closes < db>

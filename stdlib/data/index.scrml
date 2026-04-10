@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:data — data utilities index
+    //
+    // Re-exports everything from validate and transform.
+    // Import from 'scrml:data' to get all utilities in one import.
+    //
+    // Usage:
+    //   ${ import { validate, required, email, pick, groupBy } from 'scrml:data' }
+    // ---------------------------------------------------------------------------
+
+    export { validate, isValid, firstError, required, email, minLength, maxLength,
+             exactLength, pattern, min, max, numeric, integer, matches, oneOf, url,
+             custom, emailField, passwordField, passwordConfirmField } from './validate.scrml'
+
+    export { pick, omit, mapKeys, mapValues, groupBy, indexBy, sortBy, unique,
+             flatten, flattenDeep, chunk, toSnakeCase, toCamelCase, camelizeKeys,
+             snakifyKeys, deepMerge, clamp, paginate } from './transform.scrml'
+}
+</program>

@@ -1,0 +1,16 @@
+<div
+  ${
+    type SearchFilter = enum { All | Posts | Comments | Media | People }
+
+    ^{
+      let filters = reflect(SearchFilter).variants
+    }
+  }
+  <div class="filter-bar"
+    ${
+      for (let f of filters) {
+        lift <button onclick=onFilterChange(f)>${f}</button>
+      }
+    }
+  </div>
+</div>

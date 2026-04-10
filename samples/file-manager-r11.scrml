@@ -1,0 +1,214 @@
+// file-manager-r11.scrml
+// Gauntlet Round 11 — Odin developer evaluation
+// File manager: SQL data, enum types, reactive state, sort, filter, select, bulk delete, breadcrumbs
+
+<program db="./files.db">
+
+${
+    type FileType:enum = {
+        Document
+        Image
+        Video
+        Archive
+        Other
+    }
+}
+
+${
+    @files = []
+    @selectedIds = []
+    @sortCol = "name"
+    @sortDir = "asc"
+    @filterType = "All"
+    @showConfirm = false
+    @breadcrumbs = ["Home", "Documents", "Projects"]
+}
+
+${
+    server function loadFiles() {
+        return ?{`
+            SELECT id, name, size, type, modified
+            FROM files
+            ORDER BY name ASC
+        `}.all()
+    }
+
+    server function deleteFiles(ids) {
+        for (let id of ids) {
+            ?{`DELETE FROM files WHERE id = ${id}`}.run()
+        }
+        return ?{`
+            SELECT id, name, size, type, modified
+            FROM files
+            ORDER BY name ASC
+        `}.all()
+    }
+}
+
+${
+    function initLoad() {
+        @files = loadFiles()
+    }
+}
+
+${ initLoad() }
+
+${
+    function toggleSelect(id) {
+        if (@selectedIds.includes(id)) {
+            @selectedIds = @selectedIds.filter(x => x != id)
+        } else {
+            @selectedIds = [...@selectedIds, id]
+        }
+    }
+
+    function selectAll() {
+        let visible = getVisibleFiles()
+        @selectedIds = visible.map(f => f.id)
+    }
+
+    function clearSelection() {
+        @selectedIds = []
+    }
+
+    function setSort(col) {
+        if (@sortCol == col) {
+            @sortDir = @sortDir == "asc" ? "desc" : "asc"
+        } else {
+            @sortCol = col
+            @sortDir = "asc"
+        }
+    }
+
+    function setFilter(ft) {
+        @filterType = ft
+        @selectedIds = []
+    }
+
+    function getVisibleFiles() {
+        let filtered = @filterType == "All"
+            ? @files
+            : @files.filter(f => f.type == @filterType)
+        return filtered.slice().sort((a, b) => {
+            let av = a[@sortCol]
+            let bv = b[@sortCol]
+            if (av < bv) return @sortDir == "asc" ? -1 : 1
+            if (av > bv) return @sortDir == "asc" ? 1 : -1
+            return 0
+        })
+    }
+
+    function fileIcon(fileType) {
+        if (fileType == "Document") return "[D]"
+        if (fileType == "Image") return "[I]"
+        if (fileType == "Video") return "[V]"
+        if (fileType == "Archive") return "[A]"
+        return "[?]"
+    }
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + " B"
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB"
+        return (bytes / 1048576).toFixed(1) + " MB"
+    }
+
+    function confirmDelete() {
+        @showConfirm = true
+    }
+
+    function cancelDelete() {
+        @showConfirm = false
+    }
+
+    function doDelete() {
+        @files = deleteFiles(@selectedIds)
+        @selectedIds = []
+        @showConfirm = false
+    }
+
+    function sortIndicator(col) {
+        if (@sortCol != col) return ""
+        return @sortDir == "asc" ? " ^" : " v"
+    }
+}
+
+<div class="file-manager">
+
+    <nav class="breadcrumbs">
+        ${
+            for (let i = 0; i < @breadcrumbs.length; i++) {
+                let crumb = @breadcrumbs[i]
+                lift <span class="crumb">${crumb}/
+            }
+        }
+    </nav>
+
+    <div class="toolbar">
+        <div class="filter-bar">
+            <button onclick=setFilter("All")>All</>
+            <button onclick=setFilter("Document")>Documents</>
+            <button onclick=setFilter("Image")>Images</>
+            <button onclick=setFilter("Video")>Videos</>
+            <button onclick=setFilter("Archive")>Archives</>
+            <button onclick=setFilter("Other")>Other</>
+        </div>
+
+        <div class="selection-actions">
+            <span>${@selectedIds.length} selected</>
+            <button onclick=selectAll()>Select All</>
+            <button onclick=clearSelection()>Clear</>
+        </div>
+
+        <div class="bulk-actions" if=@selectedIds.length>
+            <button class="delete-btn" onclick=confirmDelete()>Delete Selected</>
+        </div>
+    </div>
+
+    <div class="confirm-dialog" if=@showConfirm>
+        <p>Delete ${@selectedIds.length} file(s)? This cannot be undone.</>
+        <button onclick=doDelete()>Confirm Delete</>
+        <button onclick=cancelDelete()>Cancel</>
+    </div>
+
+    <table class="file-table">
+        <thead>
+            <tr>
+                <th><button onclick=setSort("name")>Name${sortIndicator("name")}</></th>
+                <th><button onclick=setSort("size")>Size${sortIndicator("size")}</></th>
+                <th>Type</th>
+                <th><button onclick=setSort("modified")>Modified${sortIndicator("modified")}</></th>
+                <th>Select</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${
+                let rows = getVisibleFiles()
+                for (let file of rows) {
+                    let sel = @selectedIds.includes(file.id)
+                    lift <tr class="file-row" onclick=toggleSelect(file.id)>
+                        <td>
+                            <span class="icon">${fileIcon(file.type)}/
+                            ${file.name}
+                        </td>
+                        <td>${formatSize(file.size)}/
+                        <td>${file.type}/
+                        <td>${file.modified}/
+                        <td>${sel ? "X" : "O"}/
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+
+    <div class="type-legend">
+        <div if=@filterType>Showing: ${@filterType}</>
+    </div>
+
+    <div class="status-bar">
+        <span>${@files.length} total files</>
+        <span>${@selectedIds.length} selected</>
+    </div>
+
+</div>
+
+</>

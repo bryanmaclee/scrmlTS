@@ -1,0 +1,12 @@
+{
+  "name": "compiler",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.8.9"
+  },
+  "dependencies": {
+    "acorn": "^8.16.0",
+    "astring": "^1.9.0"
+  }
+}

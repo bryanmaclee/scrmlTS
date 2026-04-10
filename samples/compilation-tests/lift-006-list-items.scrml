@@ -1,0 +1,16 @@
+// lift-006-list-items.scrml
+// Lift producing list items from an array. Tests: simple lift loop.
+
+<div>
+    <h2>Navigation</>
+    <nav>
+        <ul>
+            ${
+                let links = ["Home", "About", "Contact"]
+                for (let link of links) {
+                    lift <li><a href="#">${link}</a></li>
+                }
+            }
+        </ul>
+    </nav>
+</div>

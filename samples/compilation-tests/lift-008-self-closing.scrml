@@ -1,0 +1,11 @@
+// lift-008-self-closing.scrml
+// Lift with self-closing elements. Tests: lift with void elements.
+
+<div class="gallery">
+    ${
+        let images = ["cat.jpg", "dog.jpg", "bird.jpg"]
+        for (let img of images) {
+            lift <img src="${img}" alt="Photo"/>
+        }
+    }
+</div>

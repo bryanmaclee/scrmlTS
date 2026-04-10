@@ -1,0 +1,29 @@
+// when-001-basic-effect.scrml
+// when @var changes {} — reactive effect that runs on dependency change (§6.7.4).
+// Should compile cleanly.
+
+<program>
+
+${
+    @query  = ""
+    @page   = 1
+    @status = "idle"
+
+    // Reset page to 1 whenever the search query changes.
+    // Body does NOT run on mount — only on subsequent changes.
+    when @query changes {
+        @page = 1
+    }
+
+    // Effect that reads a variable not in the dep list — valid, dep list is explicit.
+    when @page changes {
+        @status = "loading"
+    }
+}
+
+<div>
+    <input type="text" bind:value=@query placeholder="Search…">
+    <p>Page: ${@page} — ${@status}</>
+</>
+
+</program>

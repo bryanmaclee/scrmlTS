@@ -1,0 +1,17 @@
+// type-011-enum-many-variants.scrml
+// Enum with many variants. Tests: larger enum.
+
+<div>
+    ${
+        type HttpMethod:enum = {
+            GET
+            POST
+            PUT
+            DELETE
+            PATCH
+            HEAD
+            OPTIONS
+        }
+    }
+    <p>HTTP methods</>
+</div>

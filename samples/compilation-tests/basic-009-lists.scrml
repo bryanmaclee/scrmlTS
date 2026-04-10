@@ -1,0 +1,18 @@
+// basic-009-lists.scrml
+// Ordered and unordered lists. Tests: ul, ol, li nesting.
+
+<div>
+    <h3>Shopping List</>
+    <ul>
+        <li>Apples</>
+        <li>Bread</>
+        <li>Milk</>
+    </ul>
+
+    <h3>Steps</>
+    <ol>
+        <li>First step</>
+        <li>Second step</>
+        <li>Third step</>
+    </ol>
+</div>

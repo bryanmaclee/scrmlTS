@@ -1,0 +1,74 @@
+{
+  "name": "scrml",
+  "displayName": "scrml",
+  "description": "Language support for scrml — syntax highlighting, diagnostics, completions, hover, and go-to-definition",
+  "version": "0.1.0",
+  "publisher": "scrml",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:scrml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "scrml",
+        "aliases": ["scrml", "SCRML"],
+        "extensions": [".scrml"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "scrml",
+        "scopeName": "source.scrml",
+        "path": "./syntaxes/scrml.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.javascript.scrml": "javascript",
+          "meta.embedded.block.sql.scrml": "sql",
+          "meta.embedded.block.css.scrml": "css",
+          "meta.embedded.block.meta.scrml": "javascript"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "scrml",
+      "properties": {
+        "scrml.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the scrml LSP server (lsp/server.js). If empty, uses the bundled server."
+        },
+        "scrml.server.runtime": {
+          "type": "string",
+          "default": "bun",
+          "enum": ["bun", "node"],
+          "description": "Runtime to use for the LSP server."
+        },
+        "scrml.trace.server": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "messages", "verbose"],
+          "description": "Traces the communication between VS Code and the scrml language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.0.0"
+  }
+}

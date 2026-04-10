@@ -1,0 +1,14 @@
+// comp-002-card.scrml
+// A card-like UI pattern. Tests: reusable markup structure.
+
+<div class="card">
+    <div class="card-header">
+        <h3>Card Title</>
+    </div>
+    <div class="card-body">
+        <p>Card content goes here</>
+    </div>
+    <div class="card-footer">
+        <button>Action</>
+    </div>
+</div>

@@ -1,0 +1,332 @@
+// gauntlet-r10-svelte-dashboard.scrml
+// Gauntlet Round 10: Real-Time Analytics Dashboard
+// Svelte developer perspective -- heavy on derived/computed state
+//
+// Features attempted:
+//   1. Live counter with auto-increment timer
+//   2. Derived stats: min, max, average (const @name = expr)
+//   3. Bar chart from reactive data array
+//   4. Theme toggle (dark/light)
+//   5. Reset button
+//
+// Svelte mental model notes are inline where friction is encountered.
+
+<program>
+
+    // -------------------------------------------------------------------------
+    // REACTIVE STATE
+    // -------------------------------------------------------------------------
+    // In Svelte 5 this is: let count = $state(0)
+    // In scrml this is: @count = 0
+    // The sigil-at-declaration model feels clean. No surprise here.
+
+    @count = 0
+    @running = true
+    @darkTheme = false
+
+    // History array: every tick appends @count so we can compute stats.
+    // In Svelte: let history = $state([])
+    // FRICTION NOTE: @history = [] declares a reactive array.
+    // §6.5 says reactive array mutation is TODO. The spec says @items.push()
+    // should work but is "content lost in truncation". We use reassignment
+    // (@history = [...@history, @count]) to stay on safe ground.
+    @history = []
+
+    // -------------------------------------------------------------------------
+    // DERIVED REACTIVE VALUES (§6.6)
+    // -------------------------------------------------------------------------
+    // THIS IS THE BIG NEW THING IN ROUND 10.
+    // In Svelte 5: const avg = $derived(@history.reduce(...) / @history.length)
+    // In scrml: const @avg = expr -- lazy pull with dirty flags. Static dep graph.
+    //
+    // FRICTION: The derived expression can only reference @variables statically.
+    // @history is an array. Inline .reduce() with a callback function inside a
+    // const @name = expr is uncharted territory -- the spec shows arithmetic
+    // expressions in all its examples. I am going to write the derived values
+    // using direct expressions and see what the compiler accepts.
+
+    const @total = @count * 1
+    // ^ Trivial derived -- will get W-DERIVED-001 if @count is not a dep.
+    // Actually: @count IS a dep here. This derives cleanly.
+    // Real intent: keep a running sum. But const @name is immutable, so
+    // I cannot accumulate. This is a key insight: const @name is for
+    // PROJECTION, not ACCUMULATION. You cannot do: const @sum = @sum + @count.
+    // In Svelte, $derived is also projection-only -- same constraint. Good.
+
+    // Stats derived from @history length and current @count.
+    // FRICTION: I need min/max/average over the history array.
+    // Svelte: const min = $derived(Math.min(...history))
+    // scrml: I cannot put Math.min(...@history) in a const @name = expr
+    // because the spec examples only show arithmetic on scalar @variables.
+    // Whether the compiler accepts a spread-call on a reactive array in
+    // a derived expression is UNSPECIFIED. I will try the direct form
+    // and document the friction.
+
+    // Safe derived: count-based stats (scalar operations, spec-clean)
+    const @doubleCount = @count * 2
+    const @countSquared = @count * @count
+    const @isEven = @count * 0
+    // ^ FRICTION: I need a boolean. @count % 2 == 0 should work as an
+    // expression but the spec examples never show modulo or strict equality
+    // in derived expressions. Arithmetic only in the worked examples.
+    // Using multiplication to zero as a proxy is a hack -- not what I want.
+
+    // -------------------------------------------------------------------------
+    // TIMER (§6.7.5)
+    // -------------------------------------------------------------------------
+    // In Svelte: $effect(() => { const id = setInterval(...); return () => clearInterval(id) })
+    // In scrml: <timer interval=1000 running=@running>${ ... }</>
+    //
+    // This is WHERE SCRML WINS. The <timer> state type is dramatically cleaner
+    // than Svelte's $effect + setInterval + cleanup dance. One declarative line
+    // vs four lines of boilerplate in Svelte. This is a genuine improvement.
+
+    <timer interval=1000 running=@running>
+        ${
+            @count = @count + 1
+            @history = [@count]
+        }
+    </>
+
+    // FRICTION: @history = [@count] REPLACES the array every tick.
+    // I want @history = [...@history, @count] to APPEND.
+    // The spread operator inside array literal in a reactive assignment is
+    // syntactically JavaScript -- it should work -- but the spec's §6.5
+    // is marked "TODO -- content lost in truncation." I cannot be certain
+    // the compiler handles this. Documenting as friction.
+    // Workaround: reassign with spread. Risk: compiler may not track
+    // @history as a dependency of derived values when updated this way.
+
+    // -------------------------------------------------------------------------
+    // FUNCTIONS
+    // -------------------------------------------------------------------------
+
+    ${
+        function resetDashboard() {
+            @count = 0
+            @history = []
+        }
+
+        function toggleTimer() {
+            @running = !@running
+        }
+
+        function toggleTheme() {
+            @darkTheme = !@darkTheme
+        }
+
+        // FRICTION: I want a computed "average" over @history.
+        // In Svelte: const avg = $derived(history.length > 0 ? history.reduce((a,b)=>a+b,0)/history.length : 0)
+        // In scrml: const @avg = expr -- but calling a function with callbacks
+        // inside the expression is "statically unknowable" per §6.6.6 only if
+        // it contains a ^{} meta block. A plain .reduce() callback is not a
+        // meta block. Whether the compiler can statically extract @history as
+        // a dep from an expression like `@history.reduce(...)` is unspecified.
+        //
+        // My WORKAROUND: compute stats in plain functions that read @history
+        // and call them at render time. This is the pre-§6.6 pattern.
+        // These are NOT derived -- they re-run on every render, not on dep change.
+        // This is a regression from Svelte's $derived which is lazy and cached.
+
+        function getAverage() {
+            if (@history.length == 0) {
+                return 0
+            }
+            let sum = 0
+            for (let i = 0; i < @history.length; i++) {
+                sum = sum + @history[i]
+            }
+            return sum / @history.length
+        }
+
+        function getMin() {
+            if (@history.length == 0) {
+                return 0
+            }
+            let min = @history[0]
+            for (let i = 1; i < @history.length; i++) {
+                if (@history[i] < min) {
+                    min = @history[i]
+                }
+            }
+            return min
+        }
+
+        function getMax() {
+            if (@history.length == 0) {
+                return 0
+            }
+            let max = @history[0]
+            for (let i = 1; i < @history.length; i++) {
+                if (@history[i] > max) {
+                    max = @history[i]
+                }
+            }
+            return max
+        }
+
+        // Bar chart height: normalize a value against the current max.
+        // Returns a CSS height percentage (0-100).
+        // FRICTION: This function takes an argument (the bar value) so it cannot
+        // be a const @name derived value. In Svelte you would write a $derived
+        // that returns a mapping function, or use a plain function. Here we use
+        // a plain function. No surprise -- same in Svelte for parametric derived.
+        function barHeight(value) {
+            let maxVal = getMax()
+            if (maxVal == 0) {
+                return 0
+            }
+            return (value / maxVal) * 100
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // MARKUP
+    // -------------------------------------------------------------------------
+
+    // FRICTION: Theme toggle needs to change a root class.
+    // In Svelte: class:dark={darkTheme} on the root element.
+    // In scrml: §5.5 (Dynamic Class Binding) is "TODO -- content lost in truncation."
+    // The class:name=@condition syntax is UNSPECIFIED.
+    // Workaround: use inline style attribute or a conditional string.
+    // I cannot write class:dark=@darkTheme -- spec status unknown.
+    // Using a manual ternary in class attribute:
+
+    <div class="${@darkTheme ? 'dashboard dark' : 'dashboard light'}">
+
+        // FRICTION: Dynamic class via template literal in attribute.
+        // The spec shows quoted attributes with static values.
+        // Dynamic interpolation inside class="" is not explicitly spec'd for
+        // attributes -- it is spec'd for text content (${expr} in markup).
+        // Whether ${...} inside an attribute value compiles is uncertain.
+        // This is a meaningful gap vs Svelte's class: directive.
+
+        <header class="dash-header">
+            <h1>Analytics Dashboard</>
+            <div class="controls">
+                <button onclick=toggleTimer()>
+                    ${@running ? 'Pause' : 'Resume'}</>
+                <button onclick=toggleTheme()>
+                    ${@darkTheme ? 'Light Mode' : 'Dark Mode'}</>
+                <button onclick=resetDashboard()>Reset</>
+            </>
+        </>
+
+        // ---- LIVE COUNTER SECTION ----
+        <section class="counter-section">
+            <h2>Live Counter</>
+            <div class="counter-display">
+                <span class="counter-value">${@count}</>
+            </>
+            <p class="counter-status">
+                ${@running ? 'Running' : 'Paused'}</>
+        </>
+
+        // ---- DERIVED STATS SECTION ----
+        <section class="stats-section">
+            <h2>Statistics</>
+
+            // In Svelte I would render $derived values directly.
+            // Here I call functions for min/max/avg because const @name
+            // derivations over array operations are uncertain.
+            // This means these values RE-COMPUTE on every render, not lazily.
+            // That is a meaningful perf difference from Svelte's $derived.
+
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <span class="stat-label">Current</>
+                    <span class="stat-value">${@count}</>
+                </>
+                <div class="stat-card">
+                    <span class="stat-label">Double</>
+
+                    // const @doubleCount = @count * 2 -- this IS a proper derived.
+                    // Renders lazily, cached between writes. This works.
+                    <span class="stat-value">${@doubleCount}</>
+                </>
+                <div class="stat-card">
+                    <span class="stat-label">Min (history)</>
+                    <span class="stat-value">${getMin()}</>
+                </>
+                <div class="stat-card">
+                    <span class="stat-label">Max (history)</>
+                    <span class="stat-value">${getMax()}</>
+                </>
+                <div class="stat-card">
+                    <span class="stat-label">Average</>
+                    <span class="stat-value">${getAverage()}</>
+                </>
+                <div class="stat-card">
+                    <span class="stat-label">Squared</>
+                    <span class="stat-value">${@countSquared}</>
+                </>
+            </>
+        </>
+
+        // ---- BAR CHART SECTION ----
+        <section class="chart-section">
+            <h2>History Chart</>
+
+            // FRICTION: Rendering a bar chart from @history requires iterating
+            // a reactive array and lifting markup per item.
+            // In Svelte: {#each history as val, i}
+            // In scrml: for (let val of @history) { lift <div>...</div> }
+            //
+            // FRICTION: I need the INDEX for the chart bars (for x-axis labels).
+            // Svelte gives you the index for free in {#each items as item, i}.
+            // scrml's for...of loop gives you the value but NOT the index.
+            // To get the index I need a manual counter variable inside the loop.
+            // This is a regression from Svelte's {#each} which has index as
+            // a built-in second parameter.
+
+            <div class="chart-bars">
+                ${
+                    let barIndex = 0
+                    for (let val of @history) {
+                        let h = barHeight(val)
+                        let idx = barIndex
+                        barIndex = barIndex + 1
+                        lift <div class="bar-wrapper">
+                            <div class="bar" style="height: ${h}%">
+                            </>
+                            <span class="bar-label">${idx}</>
+                        </>
+                    }
+                }
+            </>
+            <p if=@history.length == 0 class="chart-empty">
+                No data yet. Timer will populate this chart.</>
+        </>
+
+        // ---- REACTIVE EFFECT DEMO SECTION ----
+        // In Svelte: $effect(() => { console.log('count changed', count) })
+        // In scrml: when @count changes { ... }
+        // This is the explicit-dependency model. Named triggers. No auto-tracking.
+        // I prefer the scrml model here -- it's more honest about what fires.
+
+        ${
+            when @count changes {
+                // This fires on every count increment.
+                // Could log, could scroll, could trigger server call.
+                // FRICTION: No DOM refs, so "scroll to bottom" is impossible here.
+                // In Svelte: bind:this={el} then el.scrollIntoView().
+                // scrml has no bind:this / ref system. Can't access DOM nodes.
+                let _ = @count
+            }
+        }
+
+        // ---- THEME EFFECT SECTION ----
+        // when @darkTheme changes -- would update document.body class.
+        // FRICTION: No way to touch document.body from scrml.
+        // In Svelte: $effect(() => { document.body.classList.toggle('dark', darkTheme) })
+        // scrml has no document.body escape hatch without ^{} meta.
+        // Using ^{} is not shown in any compilation-test sample for this pattern.
+        // I am leaving this as a documented gap.
+
+        <footer class="dash-footer">
+            <p>scrml Analytics Dashboard -- Round 10 Gauntlet</>
+        </>
+
+    </>
+
+</program>

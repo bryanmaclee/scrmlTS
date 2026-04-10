@@ -1,0 +1,18 @@
+// comp-010-progress.scrml
+// Progress bar pattern. Tests: reactive progress display.
+
+<div>
+    ${
+        @progress = 65
+        function updateProgress(val) {
+            @progress = val
+        }
+    }
+    <div class="progress-container">
+        <div class="progress-bar">
+            <div class="progress-fill">
+                <span>${@progress}%</>
+            </div>
+        </div>
+    </div>
+</div>

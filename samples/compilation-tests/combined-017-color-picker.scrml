@@ -1,0 +1,21 @@
+// combined-017-color-picker.scrml
+// Color picker. Tests: reactive + events + dynamic display.
+
+<div class="color-picker">
+    ${
+        @selectedColor = "red"
+        function pickColor(color) {
+            @selectedColor = color
+        }
+    }
+    <h2>Pick a Color</>
+    <div class="color-options">
+        <button onclick=pickColor("red")>Red</>
+        <button onclick=pickColor("green")>Green</>
+        <button onclick=pickColor("blue")>Blue</>
+        <button onclick=pickColor("purple")>Purple</>
+    </div>
+    <div class="color-preview">
+        <p>Selected: ${@selectedColor}</>
+    </div>
+</div>

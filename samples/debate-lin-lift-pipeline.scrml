@@ -1,0 +1,61 @@
+// debate-lin-lift-pipeline.scrml
+// Demonstrates lin+lift for multi-stage data pipeline.
+// The value is produced early (auth token fetched at top of logic block),
+// then consumed much later at the lift site — no threading required.
+//
+// In Svelte you'd thread the token through every intermediate function call,
+// pass it as a prop, or shove it into a store. scrml's lin eliminates all of that.
+
+<program db="./orders.db" tables="orders,users,line_items">
+
+// === STAGE 1: Auth token produced early ===
+// lin declares single-use ownership at the top of the logic block.
+// Token travels through the pipeline. No function signature needs it.
+// The compiler statically guarantees it reaches the lift site exactly once.
+
+${
+    function fetchAuthToken() -> string {
+        // In production: derive from session, sign, return.
+        return "Bearer eyJ0eXAiOi..."
+    }
+
+    function fetchCurrentUserId() -> number {
+        return 42
+    }
+
+    function buildOrderRow(order: any, token: string) -> string {
+        // token consumed here — only once
+        return "order-" + order.id + "-auth-" + token
+    }
+}
+
+// === STAGE 2: Declare lin at top of anonymous logic context ===
+// The value must travel from declaration to the lift site. scrml enforces this
+// without any plumbing. In Svelte you'd write a $derived or thread the variable
+// through every intermediate step manually.
+
+<section class="order-pipeline">${
+    lin authToken = fetchAuthToken()
+    let userId = fetchCurrentUserId()
+    let orders = ?{`SELECT id, total, status FROM orders WHERE user_id = ${userId}`}.all()
+
+    // === STAGE 3: Token consumed at the lift site, much later ===
+    // authToken declared above, used below. The compiler proves this is exactly once.
+    // The intermediate SQL query, the userId fetch — none of them touch authToken.
+    // No prop drilling. No store. No closure. Just lin.
+
+    lift <div class="auth-context" data-token=authToken>
+        <h2>Your Orders/
+        <ul>${
+            for (let order of orders) {
+                lift <li class="order-item">
+                    <span>${order.id}/
+                    <span class="total">${order.total}/
+                    <span class="status">${order.status}/
+                </li>
+            }
+        }</>
+    </div>
+}</>
+
+</program>

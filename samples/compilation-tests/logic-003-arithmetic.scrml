@@ -1,0 +1,12 @@
+// logic-003-arithmetic.scrml
+// Arithmetic expressions. Tests: numbers, operators in logic blocks.
+
+<div>
+    ${
+        let a = 10
+        let b = 20
+        let sum = a + b
+        let product = a * b
+    }
+    <p>Calculations complete</>
+</div>

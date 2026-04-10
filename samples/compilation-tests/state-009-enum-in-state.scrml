@@ -1,0 +1,14 @@
+// state-009-enum-in-state.scrml
+// Enum types used in state attributes. Tests: enum + state interaction.
+
+type Status:enum = { Active, Inactive, Pending }
+
+< statusBadge status(Status)>
+    <span class="status">
+        ${ match status {
+            .Active :> "Active"
+            .Inactive :> "Inactive"
+            .Pending :> "Pending"
+        } }
+    </>
+</>

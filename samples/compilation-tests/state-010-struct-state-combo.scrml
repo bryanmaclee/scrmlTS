@@ -1,0 +1,15 @@
+// state-010-struct-state-combo.scrml
+// Struct + state type together. Tests: struct definition used with state.
+
+type Address:struct = {
+    street: string,
+    city: string,
+    zip: string
+}
+
+< addressCard addr(Address)>
+    <div class="address">
+        <p>${addr.street}</>
+        <p>${addr.city}, ${addr.zip}</>
+    </>
+</>

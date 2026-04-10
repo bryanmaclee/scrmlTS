@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/dg — Dependency Graph
+    //
+    // Builds the reactive dependency graph between state variables, derived
+    // values, and DOM bindings. Detects circular dependencies and ordering.
+    //
+    // Usage:
+    //   import { runDG } from "scrml:compiler/dg"
+    //   const result = runDG({ files, routeMap })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runDG: _runDG, DGError: _DGError } = await import("../../compiler/src/dependency-graph.ts");
+    }
+
+    export const runDG = _runDG
+    export const DGError = _DGError
+}
+</program>

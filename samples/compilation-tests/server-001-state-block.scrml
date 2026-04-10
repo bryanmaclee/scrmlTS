@@ -1,0 +1,6 @@
+// server-001-state-block.scrml
+// Basic state block using < db> syntax. Tests: state block with space after <.
+
+< db src="./test.db" tables="users">
+    <p>Database connected</>
+</>

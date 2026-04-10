@@ -1,0 +1,10 @@
+// test-001-basic.scrml
+// Simple test context. Tests: ~{ test "name" { assert true } } pattern.
+
+<div>
+    <p>App content</>
+</>
+
+~{ "basic tests"
+    test "truth" { assert true }
+}

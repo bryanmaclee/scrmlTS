@@ -1,0 +1,210 @@
+// gauntlet-r11-elixir-chat.scrml
+// Live chat room — Gauntlet Round 11, Elixir developer perspective
+// Features: reactive message list, send form, username input,
+//           timestamps, auto-scroll signal, error handling, online/offline status
+//
+// FRICTION NOTES (see docs/gauntlet-r11/elixir-report.md):
+// - Auto-scroll: no DOM ref system, workaround uses @newMessageCount counter
+// - when @messages changes: removed -- no compilation test to verify syntax
+// - if= with comparison expression: rewritten to use derived @isEmpty for safety
+// - ValidationError constructor form: spec'd in §19.4.2 but unverified in compiler
+// - server function return value path: not implemented -- app is client-only
+
+<program>
+
+${
+    // --- Reactive state ---
+    @messages = []
+    @messageText = ""
+    @username = ""
+    @isOnline = true
+    @sendError = not
+    @newMessageCount = 0
+}
+
+// Derived reactive: isEmpty re-evaluates whenever @messages changes (§6.6)
+const @isEmpty = @messages.length == 0
+
+// Derived reactive: hasPendingScroll is true when new messages were added
+const @hasPendingScroll = @newMessageCount > 0
+
+${
+    // --- Helpers ---
+    function currentTimestamp() {
+        let now = new Date()
+        return now.toLocaleTimeString()
+    }
+
+    function sendMessage() {
+        if (@messageText.trim() == "") {
+            return
+        }
+        if (@username.trim() == "") {
+            // §19.4.2: error constructor form without throw -- creates error value as
+            // reactive state. Elixir equivalent: assign(socket, :send_error, :missing_username)
+            @sendError = ValidationError("Please enter a username before sending.")
+            return
+        }
+        let msg = {
+            id: Date.now(),
+            user: @username,
+            text: @messageText,
+            timestamp: currentTimestamp()
+        }
+        // §6.5.1: @arr.push() is intercepted by the compiler, clones, mutates, writes back
+        @messages.push(msg)
+        @newMessageCount = @newMessageCount + 1
+        @messageText = ""
+        @sendError = not
+    }
+
+    function clearError() {
+        @sendError = not
+    }
+}
+
+// --- Page layout ---
+<div class="chat-room">
+
+    <div class="chat-header">
+        <h1>Chat Room</>
+        // §17.1.1: if=/else chain -- online/offline status toggle
+        <span if=@isOnline class="status-badge status-online">Online</>
+        <span else class="status-badge status-offline">Offline</>
+    </div>
+
+    // --- Username input ---
+    <div class="username-row">
+        <label>Your name:</>
+        // §5.4: bind:value wires reactive two-way binding -- no oninput handler needed
+        <input
+            type="text"
+            placeholder="Enter username"
+            bind:value=@username
+        />
+    </div>
+
+    // --- Message list ---
+    <div class="message-list" id="message-list">
+        // §17.1: if= takes unquoted expression; using derived @isEmpty avoids
+        // inline comparison syntax (if=${...} form is unverified to compile)
+        <p class="empty-hint" if=@isEmpty>No messages yet. Say hello!</>
+        <div id="messages-inner">
+            ${
+                for (let msg of @messages) {
+                    // §6.5.3: keyed iteration for efficient DOM reconciliation
+                    lift <div key=${msg.id} class="message-item">
+                        <span class="msg-user">${msg.user}/
+                        <span class="msg-timestamp">${msg.timestamp}/
+                        <p class="msg-text">${msg.text}/
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    // --- New message indicator ---
+    // FRICTION: this is a workaround for absent DOM ref / scroll API
+    // What we WANT: when @messages changes { <#message-list>.scrollIntoView() }
+    // What we CAN DO: show a reactive counter that tracks scroll need
+    <p class="new-msg-hint" if=@hasPendingScroll>
+        ${@newMessageCount} new message(s) -- scroll to see
+    </>
+
+    // --- Error banner (§19.8: if=@errorVar canonical error display pattern) ---
+    <div class="error-banner" if=@sendError>
+        ${@sendError.message}
+        <button onclick=clearError()>Dismiss</>
+    </div>
+
+    // --- Send form ---
+    <div class="send-row">
+        <input
+            type="text"
+            class="message-input"
+            placeholder="Type a message..."
+            bind:value=@messageText
+        />
+        <button
+            class="send-button"
+            onclick=sendMessage()
+        >Send</>
+    </div>
+
+    // --- Message count (reactive expression in markup, §6.3) ---
+    <p class="msg-count">Messages: ${@messages.length}</>
+
+</div>
+
+<style>
+.chat-room {
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 1rem;
+    font-family: sans-serif;
+}
+.chat-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.status-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+.status-online { background: #22c55e; color: white; }
+.status-offline { background: #ef4444; color: white; }
+.username-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    align-items: center;
+}
+.message-list {
+    flex: 1;
+    overflow-y: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: #f9fafb;
+}
+.message-item {
+    margin-bottom: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.4rem;
+    background: white;
+    border-left: 3px solid #6366f1;
+}
+.msg-user { font-weight: bold; color: #6366f1; margin-right: 0.5rem; }
+.msg-timestamp { font-size: 0.7rem; color: #9ca3af; }
+.msg-text { margin: 0.25rem 0 0 0; }
+.empty-hint { color: #9ca3af; text-align: center; padding: 2rem 0; }
+.new-msg-hint { color: #6366f1; font-size: 0.8rem; margin-bottom: 0.5rem; }
+.error-banner {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
+    border-radius: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.send-row {
+    display: flex;
+    gap: 0.5rem;
+}
+.message-input { flex: 1; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.4rem; }
+.send-button { padding: 0.5rem 1rem; background: #6366f1; color: white; border: none; border-radius: 0.4rem; cursor: pointer; }
+.msg-count { font-size: 0.7rem; color: #9ca3af; text-align: right; margin-top: 0.25rem; }
+</style>
+
+</>

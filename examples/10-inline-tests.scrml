@@ -1,0 +1,121 @@
+// Example 10: Inline tests — ~{} test sigil stripped from production.
+// A counter with reactive state. Tests verify state transitions directly.
+// ~{} blocks are compile-time artifacts: present in dev, absent in production output.
+
+<program>
+
+${
+    @count = 0
+    @step  = 1
+
+    function increment() { @count = @count + @step }
+    function decrement() { @count = @count - @step }
+    function reset()     { @count = 0 }
+    function setStep(n)  { @step = n }
+}
+
+<div class="counter">
+    <h2>Counter</>
+    <p class="value">${@count}</>
+
+    <div class="controls">
+        <button onclick=decrement()>−</button>
+        <button onclick=reset()>Reset</button>
+        <button onclick=increment()>+</button>
+    </div>
+
+    <label>
+        Step size:
+        <input type="number" bind:value=@step min="1" max="10">
+    </label>
+</div>
+
+// Inline tests. These do not ship. The compiler strips ~{} from production builds.
+// Tests run during `bun test` against the compiled module.
+~{ "counter — state transitions"
+    test "initial count is 0" {
+        assert @count == 0
+    }
+
+    test "increment adds step" {
+        @count = 0
+        @step  = 1
+        increment()
+        assert @count == 1
+    }
+
+    test "decrement subtracts step" {
+        @count = 5
+        @step  = 2
+        decrement()
+        assert @count == 3
+    }
+
+    test "reset returns to 0 regardless of count" {
+        @count = 99
+        reset()
+        assert @count == 0
+    }
+
+    test "step size affects increment" {
+        @count = 0
+        setStep(5)
+        increment()
+        assert @count == 5
+    }
+
+    test "count cannot go below 0 via decrement" {
+        // Language doesn't enforce this — note the assumption so product can decide.
+        // For now this test documents observed behavior, not a guarantee.
+        @count = 0
+        @step  = 1
+        decrement()
+        assert @count == -1   // currently allowed; clamping would need a guard in decrement()
+    }
+}
+
+#{
+    .counter {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding: 2rem;
+        font-family: sans-serif;
+    }
+
+    .value {
+        font-size: 3rem;
+        font-weight: bold;
+        margin: 0;
+    }
+
+    .controls {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    button {
+        padding: 0.5rem 1.25rem;
+        font-size: 1.1rem;
+        cursor: pointer;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: white;
+    }
+
+    label {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-size: 0.9rem;
+    }
+
+    input[type="number"] {
+        width: 4rem;
+        padding: 0.25rem;
+        text-align: center;
+    }
+}
+
+</program>

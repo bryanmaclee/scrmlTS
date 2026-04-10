@@ -1,0 +1,365 @@
+// gauntlet-r11: rust dev -- state machine visualizer
+// Features exercised:
+//   - enum type (AppState: Idle, Loading, Success, Error)
+//   - @reactive state and reactive arrays
+//   - match expression over enum (in function body, lifted to markup)
+//   - if=/else-if=/else chain for status badges
+//   - class: directives for active state highlighting (requires @bool vars)
+//   - for/lift for history log
+//   - !{} -- attempted; falls back to try/catch for plain JS errors (see comments)
+//   - transition buttons that mutate @state
+
+<program>
+
+${
+    type AppState:enum = {
+        Idle
+        Loading
+        Success
+        Error
+    }
+}
+
+// -------------------------------------------------------------------------
+// Reactive state
+// -------------------------------------------------------------------------
+
+${
+    @state = AppState::Idle
+    @history = []
+    @errorMessage = ""
+    @lastResult = ""
+
+    // Per-state boolean flags for class: directives.
+    // class: requires @reactive on RHS (E-ATTR-013 if not).
+    // Rust dev friction: I want class:active=(@state is .Idle) directly
+    // but class: only accepts a bare @var, not an expression. Mirror booleans
+    // are boilerplate I'd never write in Rust.
+    @isIdle = true
+    @isLoading = false
+    @isSuccess = false
+    @isError = false
+}
+
+// -------------------------------------------------------------------------
+// Functions
+// -------------------------------------------------------------------------
+
+${
+    function syncFlags() {
+        @isIdle = @state is .Idle
+        @isLoading = @state is .Loading
+        @isSuccess = @state is .Success
+        @isError = @state is .Error
+    }
+
+    function pushHistory(label) {
+        @history = [...@history, { label: label, ts: Date.now() }]
+    }
+
+    function stateLabel(s) {
+        return match s {
+            .Idle    :> "Idle"
+            .Loading :> "Loading"
+            .Success :> "Success"
+            .Error   :> "Error"
+        }
+    }
+
+    function transitionTo(target) {
+        let prevLabel = stateLabel(@state)
+        @state = target
+        syncFlags()
+        let nextLabel = stateLabel(target)
+        pushHistory(prevLabel + " -> " + nextLabel)
+    }
+
+    function startLoad() {
+        transitionTo(AppState::Loading)
+        // FRICTION: !{} error context applies to scrml-typed errors (from
+        // server functions, ?{} SQL blocks). simulateFetch() is a plain
+        // client-side JS function that throws a native Error. No !{} arm
+        // can match ::NetworkError on a plain JS throw. The only option here
+        // is try/catch inside ${}. This is a real gap: if I had a server
+        // function I could write:
+        //   let result = loadFromServer() !{
+        //     | ::NetworkError e -> { @errorMessage = e.message; transitionTo(AppState::Error) }
+        //   }
+        // But for client-only code, try/catch is forced.
+        try {
+            let ok = simulateFetch()
+            @lastResult = ok
+            transitionTo(AppState::Success)
+        } catch (e) {
+            @errorMessage = e.message
+            transitionTo(AppState::Error)
+        }
+    }
+
+    function simulateFetch() {
+        if (Math.random() < 0.5) {
+            throw new Error("Connection refused: remote host unreachable")
+        }
+        return "Record 42: {name: Alice, score: 99}"
+    }
+
+    function reset() {
+        @errorMessage = ""
+        @lastResult = ""
+        @history = []
+        transitionTo(AppState::Idle)
+    }
+
+    function stateDescription() {
+        return match @state {
+            .Idle    :> "System is idle. Press Load to begin."
+            .Loading :> "Fetching data from remote..."
+            .Success :> "Data loaded successfully."
+            .Error   :> "An error occurred. See message below."
+        }
+    }
+
+    function historyEmpty() {
+        return @history.length == 0
+    }
+
+    function hasHistory() {
+        return @history.length > 0
+    }
+}
+
+// -------------------------------------------------------------------------
+// Markup
+// -------------------------------------------------------------------------
+
+<div class="state-machine">
+    <h1>State Machine Visualizer</>
+
+    // --- State indicator nodes with class: active highlighting ---
+    <div class="state-nodes">
+        <div class="state-node" class:active=@isIdle>
+            <span class="node-label">Idle</>
+        </div>
+        <div class="state-arrow">-></>
+        <div class="state-node" class:active=@isLoading>
+            <span class="node-label">Loading</>
+        </div>
+        <div class="state-arrow">-></>
+        <div class="state-node" class:active=@isSuccess>
+            <span class="node-label">Success</>
+        </div>
+        <div class="state-arrow">-></>
+        <div class="state-node state-node--error" class:active=@isError>
+            <span class="node-label">Error</>
+        </div>
+    </div>
+
+    // --- Status badge: if=/else-if=/else chain ---
+    // FRICTION: I want exhaustive match directly in markup but match is only
+    // valid inside ${}. The if=/else-if=/else chain gives no compiler-enforced
+    // exhaustiveness -- I could silently omit the Error case and the compiler
+    // would not complain. In Rust, match in JSX-equivalent would be exhaustive.
+    <div class="status-badge-area">
+        <span class="badge badge--idle"    if=@isIdle>IDLE</>
+        <span class="badge badge--loading" else-if=@isLoading>LOADING</>
+        <span class="badge badge--success" else-if=@isSuccess>SUCCESS</>
+        <span class="badge badge--error"   else>ERROR</>
+    </div>
+
+    // --- Current state description (from match in function) ---
+    <p class="state-description">${stateDescription()}</>
+
+    // --- Error message (only when in Error state) ---
+    <div class="error-panel" if=@isError>
+        <p class="error-message">${@errorMessage}</>
+    </div>
+
+    // --- Success result (only when in Success state) ---
+    <div class="result-panel" if=@isSuccess>
+        <p class="result-data">${@lastResult}</>
+    </div>
+
+    // --- Transition buttons ---
+    <div class="controls">
+        <button class="btn btn--load" onclick=startLoad()>Load</>
+        <button class="btn btn--reset" onclick=reset()>Reset</>
+    </div>
+
+    // --- History log ---
+    <div class="history-panel">
+        <h2>Transition History</>
+        <p class="history-empty" if=historyEmpty()>No transitions yet.</>
+        <ul class="history-list" if=hasHistory()> ${
+            for (let entry of @history) {
+                lift <li class="history-entry">${entry.label}/
+            }
+        }
+        </ul>
+    </div>
+
+</div>
+
+// -------------------------------------------------------------------------
+// Styles
+// -------------------------------------------------------------------------
+
+<style>
+    .state-machine {
+        max-width: 640px;
+        margin: 2rem auto;
+        padding: 1.5rem;
+        font-family: system-ui, sans-serif;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+    }
+
+    h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+    }
+
+    .state-nodes {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .state-node {
+        padding: 0.5rem 1rem;
+        border: 2px solid #d1d5db;
+        border-radius: 0.375rem;
+        color: #6b7280;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+
+    .state-node.active {
+        border-color: #3b82f6;
+        color: #1d4ed8;
+        font-weight: 600;
+        background: #eff6ff;
+    }
+
+    .state-node--error.active {
+        border-color: #ef4444;
+        color: #dc2626;
+        background: #fef2f2;
+    }
+
+    .state-arrow {
+        color: #9ca3af;
+        font-size: 1rem;
+    }
+
+    .status-badge-area {
+        margin-bottom: 1rem;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+    }
+
+    .badge--idle    { background: #f3f4f6; color: #374151; }
+    .badge--loading { background: #fef3c7; color: #92400e; }
+    .badge--success { background: #d1fae5; color: #065f46; }
+    .badge--error   { background: #fee2e2; color: #991b1b; }
+
+    .state-description {
+        color: #4b5563;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+    }
+
+    .error-panel {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 0.375rem;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .error-message {
+        color: #dc2626;
+        font-size: 0.875rem;
+        margin: 0;
+    }
+
+    .result-panel {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 0.375rem;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .result-data {
+        color: #166534;
+        font-size: 0.875rem;
+        font-family: monospace;
+        margin: 0;
+    }
+
+    .controls {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1.25rem;
+        border: none;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .btn--load  { background: #3b82f6; color: white; }
+    .btn--reset { background: #e5e7eb; color: #374151; }
+
+    .btn--load:hover  { background: #2563eb; }
+    .btn--reset:hover { background: #d1d5db; }
+
+    .history-panel {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 1rem;
+    }
+
+    .history-panel h2 {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.5rem;
+    }
+
+    .history-empty {
+        color: #9ca3af;
+        font-size: 0.875rem;
+    }
+
+    .history-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        font-size: 0.8rem;
+        color: #6b7280;
+        max-height: 160px;
+        overflow-y: auto;
+    }
+
+    .history-entry {
+        padding: 0.25rem 0;
+        border-bottom: 1px solid #f3f4f6;
+        font-family: monospace;
+    }
+</style>
+
+</>

@@ -1,0 +1,587 @@
+// gauntlet-r10-odin-filebrowser.scrml
+// File/folder tree browser: nested tree, expand/collapse, file icons,
+// breadcrumb path, file details panel, create folder, rename, search.
+// Gauntlet Round 10 — written from an Odin developer perspective.
+// Author: Odin developer evaluating scrml (2026-03-31)
+
+<program>
+
+// ========================================
+// DATA MODEL
+// In Odin: explicit struct definitions, no hidden fields.
+// In scrml: JS objects. No compile-time field validation.
+// FRICTION NOTE: no way to declare a FileNode struct that the
+// compiler enforces at the lift site. We are in JS-land.
+// ========================================
+
+${
+    // FileNode shape (comment as documentation, not enforced):
+    // { id: number, name: string, type: "folder"|"file",
+    //   ext: string, size: number, modified: string,
+    //   children: FileNode[], expanded: boolean }
+
+    // Root file tree -- static initial data
+    @tree = [
+        {
+            id: 1,
+            name: "src",
+            type: "folder",
+            ext: "",
+            size: 0,
+            modified: "2026-03-28",
+            expanded: false,
+            children: [
+                {
+                    id: 2,
+                    name: "main",
+                    type: "file",
+                    ext: "odin",
+                    size: 4096,
+                    modified: "2026-03-29",
+                    expanded: false,
+                    children: []
+                },
+                {
+                    id: 3,
+                    name: "renderer",
+                    type: "file",
+                    ext: "odin",
+                    size: 12288,
+                    modified: "2026-03-30",
+                    expanded: false,
+                    children: []
+                },
+                {
+                    id: 4,
+                    name: "platform",
+                    type: "folder",
+                    ext: "",
+                    size: 0,
+                    modified: "2026-03-25",
+                    expanded: false,
+                    children: [
+                        {
+                            id: 5,
+                            name: "linux",
+                            type: "file",
+                            ext: "odin",
+                            size: 2048,
+                            modified: "2026-03-20",
+                            expanded: false,
+                            children: []
+                        },
+                        {
+                            id: 6,
+                            name: "windows",
+                            type: "file",
+                            ext: "odin",
+                            size: 2560,
+                            modified: "2026-03-20",
+                            expanded: false,
+                            children: []
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 7,
+            name: "build",
+            type: "folder",
+            ext: "",
+            size: 0,
+            modified: "2026-03-31",
+            expanded: false,
+            children: [
+                {
+                    id: 8,
+                    name: "output",
+                    type: "file",
+                    ext: "bin",
+                    size: 131072,
+                    modified: "2026-03-31",
+                    expanded: false,
+                    children: []
+                }
+            ]
+        },
+        {
+            id: 9,
+            name: "README",
+            type: "file",
+            ext: "md",
+            size: 1024,
+            modified: "2026-03-15",
+            expanded: false,
+            children: []
+        }
+    ]
+
+    // UI state
+    @selectedId = not
+    @selectedNode = not
+    @breadcrumb = ["root"]
+    @searchQuery = ""
+    @searchResults = []
+    @isSearching = false
+    @showCreateFolder = false
+    @newFolderName = ""
+    @renamingId = not
+    @renameValue = ""
+    @detailsOpen = true
+
+    // ========================================
+    // TREE OPERATIONS
+    // In Odin: explicit pointer traversal, known stack depth.
+    // In scrml: recursive JS functions in ${}. The recursion model
+    // is JS -- GC, unbounded stack. No explicit allocator.
+    // FRICTION NOTE: findNode and toggleNode both recurse over @tree.
+    // We cannot reason about the cost of triggering @tree reactivity
+    // on every toggle -- the full dependency graph re-renders on
+    // assignment, but we cannot enumerate what re-renders.
+    // ========================================
+
+    function findNode(nodes, id) {
+        for (let node of nodes) {
+            if (node.id == id) {
+                return node
+            }
+            if (node.children.length > 0) {
+                let found = findNode(node.children, id)
+                if (not (found is not)) {
+                    return found
+                }
+            }
+        }
+        return not
+    }
+
+    function toggleExpand(id) {
+        // FRICTION: to trigger reactivity we must reassign @tree.
+        // There is no @tree.mutate() or explicit "mark dirty" call.
+        // We rebuild the entire tree array to get reactive update.
+        // In Odin: you'd flip a flag in the struct and call
+        // render_tree(&tree) explicitly. Here the re-render scope
+        // is invisible -- does the whole page re-render or just
+        // the subtree? The spec (SS30) says "dependents re-evaluate"
+        // but what counts as a dependent of @tree is compiler-inferred.
+        function patchNode(nodes, targetId) {
+            return nodes.map(n => {
+                if (n.id == targetId) {
+                    return { ...n, expanded: !n.expanded }
+                }
+                if (n.children.length > 0) {
+                    return { ...n, children: patchNode(n.children, targetId) }
+                }
+                return n
+            })
+        }
+        @tree = patchNode(@tree, id)
+    }
+
+    function selectNode(id) {
+        let node = findNode(@tree, id)
+        @selectedId = id
+        @selectedNode = node
+    }
+
+    function getIconForNode(node) {
+        if (node.type == "folder") {
+            return node.expanded ? "[v]" : "[>]"
+        }
+        if (node.ext == "odin") { return "[O]" }
+        if (node.ext == "md")   { return "[M]" }
+        if (node.ext == "bin")  { return "[B]" }
+        return "[F]"
+    }
+
+    function formatSize(bytes) {
+        if (bytes == 0) { return "--" }
+        if (bytes < 1024) { return bytes + " B" }
+        if (bytes < 1048576) { return Math.round(bytes / 1024) + " KB" }
+        return Math.round(bytes / 1048576) + " MB"
+    }
+
+    // ========================================
+    // SEARCH
+    // Walks the tree and collects matching nodes into a flat array.
+    // FRICTION: @searchResults is assigned a plain array of objects.
+    // No type annotation possible on the result. In Odin you'd have
+    // [dynamic]^FileNode -- typed, allocator-aware, explicit.
+    // ========================================
+
+    function runSearch() {
+        @isSearching = @searchQuery.length > 0
+        if (!@isSearching) {
+            @searchResults = []
+            return
+        }
+        let q = @searchQuery.toLowerCase()
+        function collectMatches(nodes) {
+            let acc = []
+            for (let n of nodes) {
+                if (n.name.toLowerCase().indexOf(q) != -1) {
+                    acc = [...acc, n]
+                }
+                if (n.children.length > 0) {
+                    let sub = collectMatches(n.children)
+                    acc = [...acc, ...sub]
+                }
+            }
+            return acc
+        }
+        @searchResults = collectMatches(@tree)
+    }
+
+    function clearSearch() {
+        @searchQuery = ""
+        @searchResults = []
+        @isSearching = false
+    }
+
+    // ========================================
+    // CREATE FOLDER
+    // FRICTION: "create folder" needs to insert into the tree.
+    // We insert at root level only -- inserting into a selected
+    // folder requires another recursive patchNode-style walk.
+    // In Odin: append(&selected_folder.children, new_node) --
+    // one line, explicit, obvious.
+    // ========================================
+
+    function confirmCreateFolder() {
+        if (@newFolderName.length == 0) { return }
+        let newId = Date.now()
+        let newFolder = {
+            id: newId,
+            name: @newFolderName,
+            type: "folder",
+            ext: "",
+            size: 0,
+            modified: "2026-03-31",
+            expanded: false,
+            children: []
+        }
+        @tree = [...@tree, newFolder]
+        @newFolderName = ""
+        @showCreateFolder = false
+    }
+
+    function cancelCreateFolder() {
+        @newFolderName = ""
+        @showCreateFolder = false
+    }
+
+    // ========================================
+    // RENAME
+    // FRICTION: same recursive-patch problem as toggleExpand.
+    // Every mutation to tree structure requires full tree rebuild
+    // for reactivity. In Odin: mutate in place, call render().
+    // ========================================
+
+    function startRename(id, currentName) {
+        @renamingId = id
+        @renameValue = currentName
+    }
+
+    function confirmRename() {
+        if (@renameValue.length == 0) { return }
+        function patchName(nodes, targetId, newName) {
+            return nodes.map(n => {
+                if (n.id == targetId) {
+                    return { ...n, name: newName }
+                }
+                if (n.children.length > 0) {
+                    return { ...n, children: patchName(n.children, targetId, newName) }
+                }
+                return n
+            })
+        }
+        @tree = patchName(@tree, @renamingId, @renameValue)
+        if (not (@selectedNode is not) && @selectedNode.id == @renamingId) {
+            @selectedNode = { ...@selectedNode, name: @renameValue }
+        }
+        @renamingId = not
+        @renameValue = ""
+    }
+
+    function cancelRename() {
+        @renamingId = not
+        @renameValue = ""
+    }
+}
+
+// ========================================
+// LAYOUT
+// ========================================
+
+<div class="filebrowser">
+
+    // ---- Header / Toolbar ----
+    <header class="fb-header">
+        <h1>File Browser</>
+        <div class="fb-toolbar">
+            <input
+                type="text"
+                placeholder="Search files..."
+                oninput=runSearch()
+            />
+            <button onclick=clearSearch()>Clear</>
+            <button onclick=toggleShowCreateFolder()>New Folder</>
+        </div>
+    </header>
+
+    // ---- Breadcrumb ----
+    // FRICTION: breadcrumb is @breadcrumb = ["root"] array.
+    // Rendering a breadcrumb requires iterating with index to
+    // know if we're at the last item. scrml has no enumerate().
+    // for...of gives value only. We use manual index tracking.
+    <nav class="fb-breadcrumb">
+        ${
+            let crumbIndex = 0
+            for (let crumb of @breadcrumb) {
+                lift <span class="crumb">
+                    <span>${crumb}</>
+                </span>
+                crumbIndex = crumbIndex + 1
+            }
+        }
+    </nav>
+
+    // ---- Create Folder Panel ----
+    // FRICTION: `if=@showCreateFolder` -- the if= attribute
+    // conditionally renders the element. This is scrml's inline
+    // conditional. In Odin: explicit if block around the render call.
+    // Here we cannot see WHEN the condition is checked relative
+    // to other renders -- hidden control flow.
+    <div class="fb-create-folder" if=@showCreateFolder>
+        <input
+            type="text"
+            placeholder="Folder name..."
+            oninput=updateNewFolderName()
+        />
+        <button onclick=confirmCreateFolder()>Create</>
+        <button onclick=cancelCreateFolder()>Cancel</>
+    </div>
+
+    // ---- Main Body: Tree + Details ----
+    <div class="fb-body">
+
+        // ---- Tree Panel ----
+        <div class="fb-tree">
+            <h2>Files</>
+
+            // Search results view
+            <div class="fb-search-results" if=@isSearching>
+                <strong>Search results for "${@searchQuery}"</>
+                <ul>
+                    ${
+                        if (@searchResults.length == 0) {
+                            lift <li class="fb-no-results">No files found</>
+                        } else {
+                            for (let result of @searchResults) {
+                                lift <li class="fb-search-item">
+                                    <button onclick=selectNode(result.id)>
+                                        <span class="fb-icon">${getIconForNode(result)}</>
+                                        <span class="fb-name">${result.name + (result.ext ? "." + result.ext : "")}</>
+                                    </button>
+                                </li>
+                            }
+                        }
+                    }
+                </ul>
+            </div>
+
+            // Normal tree view
+            <ul class="fb-tree-root" if=@isSearching>
+            </ul>
+
+            // FRICTION ZONE: recursive tree rendering.
+            // scrml has no recursive component/template mechanism in a
+            // single file. To render a nested tree (folders inside
+            // folders) you need to either:
+            //   a) flatten the tree before rendering (losing hierarchy)
+            //   b) use a multi-file component (cross-file component system)
+            //   c) hard-code two levels of nesting in markup
+            //
+            // In Odin: you'd write render_tree_node() that calls itself.
+            // In scrml: a function inside ${ } cannot emit markup via lift
+            // from within itself recursively in a single-file context.
+            // The `lift` accumulator buffer is implicit and the compiler
+            // does not expose a "render subtree" primitive.
+            //
+            // WORKAROUND: hard-code two levels. This is a real limitation.
+            // A real file browser needs arbitrary depth. We cannot express
+            // that in a single scrml file without the component system.
+            <ul class="fb-tree-root">
+                ${
+                    for (let node of @tree) {
+                        if (@renamingId == node.id) {
+                            lift <li class="fb-node fb-renaming">
+                                <input
+                                    type="text"
+                                    oninput=updateRenameValue()
+                                />
+                                <button onclick=confirmRename()>OK</>
+                                <button onclick=cancelRename()>X</>
+                            </li>
+                        } else {
+                            lift <li class="fb-node">
+                                <button class="fb-node-row" onclick=selectNode(node.id)>
+                                    <span class="fb-expand" onclick=toggleExpand(node.id)>
+                                        ${node.type == "folder" ? (node.expanded ? "v" : ">") : " "}</>
+                                    </span>
+                                    <span class="fb-icon">${getIconForNode(node)}</>
+                                    <span class="fb-label">
+                                        ${node.name + (node.ext ? "." + node.ext : "")}</>
+                                    </span>
+                                </button>
+                                <button class="fb-rename-btn" onclick=startRename(node.id, node.name)>rename</>
+                                // ---- Level 2: children of root nodes ----
+                                // FRICTION: this is a hard-coded second level.
+                                // A real app needs N levels. We cannot recurse
+                                // in scrml without cross-file components.
+                                <ul if=node.expanded>
+                                    ${
+                                        for (let child of node.children) {
+                                            if (@renamingId == child.id) {
+                                                lift <li class="fb-node fb-renaming">
+                                                    <input
+                                                        type="text"
+                                                        oninput=updateRenameValue()
+                                                    />
+                                                    <button onclick=confirmRename()>OK</>
+                                                    <button onclick=cancelRename()>X</>
+                                                </li>
+                                            } else {
+                                                lift <li class="fb-node fb-child">
+                                                    <button class="fb-node-row" onclick=selectNode(child.id)>
+                                                        <span class="fb-expand" onclick=toggleExpand(child.id)>
+                                                            ${child.type == "folder" ? (child.expanded ? "v" : ">") : " "}</>
+                                                        </span>
+                                                        <span class="fb-icon">${getIconForNode(child)}</>
+                                                        <span class="fb-label">
+                                                            ${child.name + (child.ext ? "." + child.ext : "")}</>
+                                                        </span>
+                                                    </button>
+                                                    <button class="fb-rename-btn" onclick=startRename(child.id, child.name)>rename</>
+                                                    // Level 3 (last hard-coded level)
+                                                    <ul if=child.expanded>
+                                                        ${
+                                                            for (let grandchild of child.children) {
+                                                                lift <li class="fb-node fb-grandchild">
+                                                                    <button class="fb-node-row" onclick=selectNode(grandchild.id)>
+                                                                        <span class="fb-icon">${getIconForNode(grandchild)}</>
+                                                                        <span class="fb-label">
+                                                                            ${grandchild.name + (grandchild.ext ? "." + grandchild.ext : "")}</>
+                                                                        </span>
+                                                                    </button>
+                                                                    <button class="fb-rename-btn" onclick=startRename(grandchild.id, grandchild.name)>rename</>
+                                                                </li>
+                                                            }
+                                                        }
+                                                    </ul>
+                                                </li>
+                                            }
+                                        }
+                                    }
+                                </ul>
+                            </li>
+                        }
+                    }
+                }
+            </ul>
+        </div>
+
+        // ---- Details Panel ----
+        // FRICTION: conditional rendering of the details panel.
+        // `if=@selectedNode` should work when @selectedNode is non-null.
+        // But what if @selectedNode is a plain object? The truthiness
+        // check is implicit JS coercion, not a typed null check.
+        // In Odin: you'd pattern-match on Maybe(FileNode) explicitly.
+        // Here it's JS truthiness -- silent implicit coercion.
+        <div class="fb-details" if=@selectedNode>
+            <h2>Details</>
+            <button onclick=toggleDetails()>
+                ${@detailsOpen ? "Hide" : "Show"}</>
+            <div class="fb-details-content" if=@detailsOpen>
+                <dl>
+                    <dt>Name</>
+                    <dd>${not (@selectedNode is not) ? @selectedNode.name : ""}</>
+                    <dt>Type</>
+                    <dd>${not (@selectedNode is not) ? @selectedNode.type : ""}</>
+                    <dt>Extension</>
+                    <dd>${not (@selectedNode is not) ? (@selectedNode.ext ? "." + @selectedNode.ext : "none") : ""}</>
+                    <dt>Size</>
+                    <dd>${not (@selectedNode is not) ? formatSize(@selectedNode.size) : ""}</>
+                    <dt>Modified</>
+                    <dd>${not (@selectedNode is not) ? @selectedNode.modified : ""}</>
+                </dl>
+                <div class="fb-detail-actions">
+                    <button onclick=startRename(@selectedNode.id, @selectedNode.name)>Rename</>
+                </div>
+            </div>
+        </div>
+
+        // Empty state when nothing is selected
+        <div class="fb-details fb-no-selection" if=@selectedNode>
+            <p>Select a file or folder to see details</>
+        </div>
+
+    </div>
+
+    // ---- Status Bar ----
+    <footer class="fb-status">
+        <span>${@isSearching ? @searchResults.length + " results" : @tree.length + " items at root"}</>
+        <span if=@selectedNode>Selected: ${not (@selectedNode is not) ? @selectedNode.name : ""}</>
+    </footer>
+
+</div>
+
+// ========================================
+// HELPER FUNCTIONS (declared after markup -- still in scope)
+// FRICTION: in Odin, all declarations must precede use OR be in
+// a separate file. In scrml, ${ } blocks appear to be hoisted
+// or evaluated after full parse. The ordering rules are
+// not explicit in the spec for function visibility.
+// ========================================
+
+${
+    function toggleShowCreateFolder() {
+        @showCreateFolder = !@showCreateFolder
+    }
+
+    function updateNewFolderName() {
+        // FRICTION: we cannot bind the input value to @newFolderName
+        // using bind:value because the spec says it's not compiled yet
+        // (per Memory notes). We need event.target.value but scrml
+        // does not expose the raw event object in the function call
+        // form `oninput=fn()`. This is a real gap:
+        //
+        //   <input oninput=updateNewFolderName()>
+        //
+        // How does updateNewFolderName() access the current value?
+        // In Odin: the event is an explicit parameter you pass.
+        // In scrml: the event is... implicit? Or not accessible?
+        // The only working pattern we see in samples is using
+        // a named input field and reading it from the form --
+        // but that requires form submission, not live typing.
+        //
+        // WORKAROUND: document.getElementById() via JS -- but
+        // scrml has no DOM access API exposed. We are stuck.
+        // We leave this as a known friction item and acknowledge
+        // the input state will not be wired to @newFolderName.
+        @newFolderName = "new-folder"
+    }
+
+    function updateRenameValue() {
+        // Same problem as updateNewFolderName.
+        // Cannot read input.value without event object or bind:value.
+        @renameValue = "renamed"
+    }
+
+    function toggleDetails() {
+        @detailsOpen = !@detailsOpen
+    }
+}
+
+</program>

@@ -1,0 +1,109 @@
+// gauntlet-r19/angular-dev.scrml — Runtime Meta Theme Inspector
+// Tests: RUNTIME ^{} meta blocks, _scrml_meta_effect, @reactive consumption
+//        inside ^{}, runtime reflect(@var) S52
+//
+// This file tests runtime meta — ^{} blocks that reference @reactive state
+// and execute at runtime, not compile time. The compiler should emit
+// _scrml_meta_effect() with captured bindings.
+
+${
+  type ThemeConfig:struct = {
+    primary: string,
+    secondary: string,
+    background: string,
+    fontSize: number
+  }
+
+  type LayoutConfig:struct = {
+    maxWidth: number,
+    columns: number,
+    gap: number
+  }
+
+  @selectedType = "ThemeConfig"
+  @inspectorOpen = false
+
+  function toggleInspector() {
+    @inspectorOpen = !inspectorOpen
+  }
+
+  function switchType(name) {
+    @selectedType = name
+  }
+}
+
+<div class="app">
+  <h1>Runtime Meta Inspector</h1>
+
+  <div class="controls">
+    <button onclick=switchType("ThemeConfig")>Theme Config</button>
+    <button onclick=switchType("LayoutConfig")>Layout Config</button>
+    <button onclick=toggleInspector()>
+      ${inspectorOpen ? "Hide" : "Show"} Inspector
+    </button>
+  </div>
+
+  <p>Current type: ${selectedType}</p>
+
+  // Inspector panel — uses compile-time meta to emit field info for each type.
+  <div class="inspector" show=inspectorOpen>
+    <div show=(selectedType == "ThemeConfig")>
+      <h3>Fields for ThemeConfig</h3>
+      <ul>
+        ^{
+          const themeInfo = reflect(ThemeConfig)
+          for (const field of themeInfo.fields) {
+            emit("<li><strong>" + field.name + "</strong>: " + field.type + "</li>")
+          }
+        }
+      </ul>
+    </div>
+    <div show=(selectedType == "LayoutConfig")>
+      <h3>Fields for LayoutConfig</h3>
+      <ul>
+        ^{
+          const layoutInfo = reflect(LayoutConfig)
+          for (const field of layoutInfo.fields) {
+            emit("<li><strong>" + field.name + "</strong>: " + field.type + "</li>")
+          }
+        }
+      </ul>
+    </div>
+  </div>
+</div>
+
+#{
+  .app {
+    max-width: 600px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+  .controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #fff;
+  }
+  .inspector {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+  }
+  .inspector ul {
+    list-style: none;
+    padding: 0;
+  }
+  .inspector li {
+    padding: 0.3rem 0;
+    font-family: monospace;
+    font-size: 0.9rem;
+  }
+}

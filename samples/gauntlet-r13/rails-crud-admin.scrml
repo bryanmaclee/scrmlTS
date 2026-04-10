@@ -1,0 +1,67 @@
+// gauntlet-r13: rails dev — CRUD admin panel
+// Tests: SQL operations, server functions, bind:value, E-RI-002 false positive
+// R13 focus: SQL .run() chains, server function + @data (E-RI-002), bind:value
+
+< db src="./admin.db" tables="products">
+    ${
+        @products = ?{`SELECT id, name, price, stock FROM products`}
+        @editId = not
+        @editName = ""
+        @editPrice = ""
+
+        server function createProduct() {
+            ?{`INSERT INTO products (name, price, stock) VALUES ('New Product', 0, 0)`}.run()
+            @products = ?{`SELECT id, name, price, stock FROM products`}
+        }
+
+        server function updateProduct() {
+            ?{`UPDATE products SET name = ${@editName}, price = ${@editPrice} WHERE id = ${@editId}`}.run()
+            @editId = not
+            @products = ?{`SELECT id, name, price, stock FROM products`}
+        }
+
+        server function deleteProduct(id) {
+            ?{`DELETE FROM products WHERE id = ${id}`}.run()
+            @products = ?{`SELECT id, name, price, stock FROM products`}
+        }
+
+        function startEdit(id, name, price) {
+            @editId = id
+            @editName = name
+            @editPrice = price
+        }
+
+        function cancelEdit() {
+            @editId = not
+        }
+    }
+    <h1>Product Admin</>
+    <button onclick=createProduct()>New Product</>
+    <div if=@editId>
+        <h2>Edit Product</>
+        <input type="text" bind:value=@editName placeholder="Name"/>
+        <input type="number" bind:value=@editPrice placeholder="Price"/>
+        <button onclick=updateProduct()>Save</>
+        <button onclick=cancelEdit()>Cancel</>
+    </div>
+    <table>
+        <thead>
+            <tr><th>Name</><th>Price</><th>Stock</><th>Actions</></tr>
+        </thead>
+        <tbody>
+            ${
+                for (let p of @products) {
+                    lift <tr>
+                        <td>${p.name}/
+                        <td>$${p.price}/
+                        <td>${p.stock}/
+                        <td>
+                            <button onclick=startEdit(p.id, p.name, p.price)>Edit/
+                            <button onclick=deleteProduct(p.id)>Delete/
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</>

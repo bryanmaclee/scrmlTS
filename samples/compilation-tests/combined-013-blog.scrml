@@ -1,0 +1,19 @@
+// combined-013-blog.scrml
+// Blog post list with SQL. Tests: SQL + lift + markup + structure.
+
+<div class="blog">
+    ${
+        let posts = ?{`SELECT id, title FROM articles`}
+    }
+    <h1>Blog</>
+    <div class="post-list">
+        ${
+            for (let post of posts) {
+                lift <article class="post-preview">
+                    <h2>${post.title}</>
+                    <p>Read more...</>
+                </article>
+            }
+        }
+    </div>
+</div>

@@ -1,0 +1,303 @@
+// gauntlet-r10-htmx-feedback.scrml
+// Round 10 — Server-Driven Feedback Form
+// Author: Senior HTMX developer evaluating scrml
+// Date: 2026-03-31
+//
+// Challenge: multiple question types (text, rating 1-5, multiple choice),
+// server-side validation, inline error display, success message after
+// submit, form reset. Emphasize server interaction simplicity.
+//
+// HTMX MENTAL MODEL NOTES (written as I go):
+//   In HTMX this would be: form hx-post="/feedback" hx-target="#result"
+//   The server returns an HTML fragment. Done. No client state at all.
+//   In scrml I have to reason about @reactive variables, server functions,
+//   and the reactive wiring. Let's see how far I get.
+
+< db src="./feedback.db" tables="feedback_responses,feedback_questions">
+    ${
+        // --- Question type enum ---
+        // FRICTION: I want to match on strings returned from the DB (e.g., "text",
+        // "rating", "choice"). The spec says match only works on enum variants.
+        // I must use if/else chains instead. This is the same pain from Round 9.
+        type QuestionKind:enum = {
+            Text
+            Rating
+            Choice
+        }
+
+        // --- Reactive UI state ---
+        // HTMX COMMENT: In HTMX I wouldn't have any of this. The server owns it.
+        // But scrml's model requires I declare state for every piece of UI feedback.
+        @submitted = false
+        @submitting = false
+        @errorMsg = ""
+        @fieldErrors = {}
+
+        // --- Form field values ---
+        // These mirror the form inputs so server fn can read them.
+        // FRICTION: FormData access inside server functions is not specified. I am
+        // forced to use @reactive vars as the data carrier from client to server.
+        // In HTMX: the form just POSTs. All fields go automatically.
+        @feedbackText = ""
+        @rating = 0
+        @selectedChoice = ""
+        @contactEmail = ""
+
+        // --- Server function: validate and persist ---
+        // HTMX EQUIVALENT: hx-post="/api/feedback" — the endpoint does this work
+        // and returns HTML. No client/server boundary management needed.
+        //
+        // FRICTION: I cannot tell at source-reading time what HTTP route this compiles
+        // to. In HTMX I write hx-post="/feedback" and I know exactly what URL is hit.
+        // scrml abstracts the endpoint. That is a mental model mismatch.
+        server function submitFeedback() {
+            // Server-side validation
+            // FRICTION: No validation DSL. Must write this by hand.
+            // HTMX devs typically validate on the server and return error HTML.
+            // scrml's server fn does the same logic, but returning errors back to
+            // the client requires mutating @reactive vars — which means the client
+            // knows about validation state. That IS more complex than returning HTML.
+
+            let errors = {}
+            let hasErrors = false
+
+            if (@feedbackText.length == 0) {
+                errors.feedbackText = "Please share your feedback"
+                hasErrors = true
+            }
+
+            if (@feedbackText.length > 2000) {
+                errors.feedbackText = "Feedback must be under 2000 characters"
+                hasErrors = true
+            }
+
+            if (@rating < 1 || @rating > 5) {
+                errors.rating = "Please select a rating from 1 to 5"
+                hasErrors = true
+            }
+
+            if (@selectedChoice == "") {
+                errors.selectedChoice = "Please pick one option"
+                hasErrors = true
+            }
+
+            if (@contactEmail.length > 0) {
+                // Basic email check — no built-in validation API
+                // FRICTION: HTMX devs rely on type="email" + required from HTML.
+                // scrml has no equivalent of HTML5 constraint validation at the server
+                // level. We fall back to manual checks.
+                let hasAt = @contactEmail.indexOf("@") > -1
+                if (!hasAt) {
+                    errors.contactEmail = "Enter a valid email address"
+                    hasErrors = true
+                }
+            }
+
+            if (hasErrors) {
+                @fieldErrors = errors
+                @errorMsg = "Please fix the errors below"
+                return
+            }
+
+            // All valid — persist to DB
+            ?{`INSERT INTO feedback_responses (feedback_text, rating, choice, contact_email, created_at)
+               VALUES (${@feedbackText}, ${@rating}, ${@selectedChoice}, ${@contactEmail}, datetime('now'))`}.run()
+
+            // Reset state after successful save
+            @fieldErrors = {}
+            @errorMsg = ""
+            @feedbackText = ""
+            @rating = 0
+            @selectedChoice = ""
+            @contactEmail = ""
+            @submitted = true
+            @submitting = false
+        }
+
+        function handleSubmit() {
+            @submitting = true
+            @errorMsg = ""
+            submitFeedback()
+        }
+
+        function resetForm() {
+            @submitted = false
+            @feedbackText = ""
+            @rating = 0
+            @selectedChoice = ""
+            @contactEmail = ""
+            @errorMsg = ""
+            @fieldErrors = {}
+        }
+
+        function setRating(val) {
+            @rating = val
+        }
+
+        function chooseOption(val) {
+            @selectedChoice = val
+        }
+    }
+
+    // --- Success state ---
+    // HTMX EQUIVALENT: hx-swap="outerHTML" on the form — server returns success div
+    // In scrml I toggle visibility with if=. Close enough mentally.
+    <div class="feedback-success" if=@submitted>
+        <h2>Thank you for your feedback!</>
+        <p>Your response has been recorded. We read every submission.</>
+        <button onclick=resetForm()>Submit another response</>
+    </div>
+
+    // --- Form (visible when not yet submitted) ---
+    // FRICTION: No `if=!@submitted` negation syntax documented clearly.
+    // The compiled-003-form-validation.scrml uses `if=submitted` (no @).
+    // Combined-012-login uses `if=error` (no @). I'll follow that pattern.
+    // But for negation I'm stuck — I need to show the form when NOT submitted.
+    // WORKAROUND: I wrap the form in a container and use a separate @showForm
+    // derived from !@submitted. I cannot do if=!@submitted directly (unverified).
+    // This is significant friction: HTMX just hides the form server-side.
+    <div class="feedback-wrapper">
+        ${
+            // WORKAROUND for negated conditional
+            // Using a wrapping state that tracks form visibility separately
+            // This is 2 extra reactive vars for what HTMX handles with zero vars.
+        }
+
+        <div class="feedback-form-container">
+            <h1>Share Your Feedback</>
+            <p class="subtitle">Help us improve. Every response shapes what we build next.</>
+
+            // --- Top-level error banner ---
+            <div class="error-banner" if=@errorMsg>
+                <p>${@errorMsg}</>
+            </div>
+
+            <form onsubmit=handleSubmit()>
+
+                // == Question 1: Open text ==
+                <div class="question-block">
+                    <label class="question-label">
+                        1. What's your experience with our product so far?
+                        <span class="required">*</span>
+                    </label>
+                    <textarea name="feedback_text" rows="5"
+                        placeholder="Tell us what's working, what isn't, and what you wish existed..."
+                        oninput=setFeedbackText()>
+                    </textarea>
+                    // FRICTION: No bind:value for textarea. I need oninput= to sync
+                    // @feedbackText. But oninput= only takes a function name, not an
+                    // inline expression. I cannot write oninput=@feedbackText=event.target.value
+                    // So I need another named function. This is real friction.
+                    // In HTMX: the textarea value goes with form POST automatically.
+                    // No sync function needed at all.
+                    <div class="field-error" if=@fieldErrors.feedbackText>
+                        // FRICTION: Accessing object property in if= attribute
+                        // is unverified. `if=@fieldErrors.feedbackText` may not work.
+                        // Workaround would be a dedicated @feedbackTextError var.
+                        // In HTMX: server renders the error span inline. No client state.
+                        <span>${@fieldErrors.feedbackText}</>
+                    </div>
+                </div>
+
+                // == Question 2: Star rating 1-5 ==
+                <div class="question-block">
+                    <label class="question-label">
+                        2. How would you rate your overall experience?
+                        <span class="required">*</span>
+                    </label>
+                    <div class="star-rating">
+                        // FRICTION: Dynamic class based on reactive comparison.
+                        // The spec 5.5 mentions dynamic class binding but unclear
+                        // if class-expression pattern works. Noting the uncertainty.
+                        <button type="button" onclick=setRating(1) class="star">1</>
+                        <button type="button" onclick=setRating(2) class="star">2</>
+                        <button type="button" onclick=setRating(3) class="star">3</>
+                        <button type="button" onclick=setRating(4) class="star">4</>
+                        <button type="button" onclick=setRating(5) class="star">5</>
+                    </div>
+                    <p class="rating-display">Selected: ${@rating} of 5</>
+                    <div class="field-error" if=@fieldErrors.rating>
+                        <span>${@fieldErrors.rating}</>
+                    </div>
+                </div>
+
+                // == Question 3: Multiple choice ==
+                <div class="question-block">
+                    <label class="question-label">
+                        3. Which best describes how you use our product?
+                        <span class="required">*</span>
+                    </label>
+                    <div class="choice-group">
+                        // FRICTION: Radio-button-style selection with active state.
+                        // In HTMX: input type=radio elements, server gets it.
+                        // In scrml: onclick to set selectedChoice, check for active styling.
+                        // No native radio binding visible in the spec without bind:value.
+                        <button type="button" onclick=chooseOption("daily")>Daily — it is part of my regular workflow</button>
+                        <button type="button" onclick=chooseOption("weekly")>Weekly — I check in periodically</button>
+                        <button type="button" onclick=chooseOption("occasional")>Occasionally — when I have a specific need</button>
+                        <button type="button" onclick=chooseOption("evaluating")>Just evaluating — I am still deciding</button>
+                    </div>
+                    <p class="selected-display">Selected: ${@selectedChoice}</>
+                    <div class="field-error" if=@fieldErrors.selectedChoice>
+                        <span>${@fieldErrors.selectedChoice}</>
+                    </div>
+                </div>
+
+                // == Question 4: Optional email ==
+                <div class="question-block">
+                    <label class="question-label">
+                        4. Email address (optional — if you'd like a follow-up)
+                    </label>
+                    <input type="email" name="contact_email"
+                        placeholder="you@example.com"
+                        oninput=captureEmail()/>
+                    // FRICTION: Same oninput sync problem as textarea above.
+                    // Every input needs a named function to sync its @var.
+                    // This is 4 extra functions for what HTMX handles with zero.
+                    <div class="field-error" if=@fieldErrors.contactEmail>
+                        <span>${@fieldErrors.contactEmail}</>
+                    </div>
+                </div>
+
+                // == Submit button ==
+                <div class="form-actions">
+                    <button type="submit" class="submit-btn">
+                        // FRICTION: I want to disable the button while @submitting is true
+                        // and change its text. Conditional disabled= attribute needs
+                        // `disabled=@submitting` — not sure if boolean attrs work this way.
+                        // In HTMX: hx-indicator shows spinner, button disables via htmx:beforeRequest.
+                        Submit Feedback
+                    </>
+                    <p class="submitting-msg" if=@submitting>
+                        Saving your response...
+                    </>
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+    // --- Missing input sync functions ---
+    // I need these to wire oninput= but they reference event.target.value which
+    // scrml's event handler signature doesn't define clearly.
+    // FRICTION: No event object access pattern is shown in compilation tests.
+    // All examples call functions with no args (oninput=onSearch(), func-009).
+    // I cannot do oninput=fn(event.target.value) — that's not the pattern.
+    // I write the functions and hope the compiler threads the event through.
+    ${
+        function setFeedbackText() {
+            // SPEC GAP: How do I access the input value here?
+            // In HTMX: it's in the POST body automatically. Zero code.
+            // In a real browser event handler: event.target.value
+            // scrml's event model is unspecified for value capture.
+            // This is a BLOCKER for any form that syncs input values to @vars.
+            @feedbackText = ""
+        }
+
+        function captureEmail() {
+            // Same problem as above. Placeholder only.
+            @contactEmail = ""
+        }
+    }
+
+</>

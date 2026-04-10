@@ -1,0 +1,117 @@
+// login.scrml — login form with server-side auth, reactive error state.
+// Demonstrates < db> state block, server function for auth, !{} error handling,
+// @error = not for absence, bind:value form inputs, #{} CSS.
+
+< db src="db.db" protect="password" tables="users">
+
+${
+    @username   = ""
+    @password   = ""
+    @error      = not     // not = no error shown; string = error message to display
+    @submitting = false
+
+    // Server function: reads protected "password" field — compiler generates server route.
+    server function authenticate(username, password) -> { id: number, username: string } {
+        let row = ?{`SELECT id, username, password FROM users WHERE username = ${username}`}.get()
+        if (row is not) {
+            fail AuthError("Invalid username or password")
+        }
+        let valid = Bun.password.verify(password, row.password)
+        if (!valid) {
+            fail AuthError("Invalid username or password")
+        }
+        return { id: row.id, username: row.username }
+    }
+
+    function handleLogin() {
+        @submitting = true
+        @error = not
+
+        // authenticate() is failable — handle errors inline with !{}.
+        let result = authenticate(@username, @password) !{
+            | AuthError e -> {
+                @error = e.message
+                @submitting = false
+                return
+            }
+        }
+
+        @submitting = false
+        redirect("/dashboard")
+    }
+}
+
+<div class="login-wrapper">
+    <h1>Sign in</>
+
+    // Show error only when @error has a value.
+    <div class="error-banner" if=(not (@error is not))>
+        ${@error}
+    </>
+
+    <form onsubmit=handleLogin()>
+        <label for="username">Username</>
+        <input type="text" id="username" bind:value=@username required/>
+
+        <label for="password">Password</>
+        <input type="password" id="password" bind:value=@password required/>
+
+        <button type="submit" disabled=@submitting>
+            ${@submitting ? "Signing in…" : "Sign in"}
+        </>
+    </form>
+
+</div>
+
+</>
+
+#{
+    .login-wrapper {
+        max-width: 360px;
+        margin: 4rem auto;
+        padding: 2rem;
+        font-family: system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    input {
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+        font-size: 1rem;
+    }
+
+    button[type="submit"] {
+        padding: 0.6rem 1.5rem;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        font-size: 1rem;
+        align-self: flex-start;
+    }
+
+    button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .error-banner {
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        color: #dc2626;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+    }
+}

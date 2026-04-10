@@ -1,0 +1,733 @@
+// gauntlet-r10-rails-blog.scrml
+// Rails-developer gauntlet: Blog CMS
+// Features: post list, create/edit form, delete with confirmation,
+//           single post view, tag system (add/remove), filter by tag.
+// Persistence via ?{} (bun:sqlite). Convention-over-configuration style.
+
+// ========================================
+// DATABASE SCHEMA SETUP
+// ========================================
+// In Rails: db/schema.rb + migrations. Here: raw CREATE TABLE.
+// No generators. No migration versioning. Manual DDL at boot.
+
+< db src="./blog.db" tables="posts,tags,post_tags" protect="internal_notes">
+
+    ${
+        // Schema bootstrap — Rails equivalent would be db/migrate/001_create_posts.rb
+        // Key friction: no migration history, no rollback, no version tracking.
+        // If you change a column, you ALTER manually or blow away the file.
+        ?{`CREATE TABLE IF NOT EXISTS posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            published INTEGER NOT NULL DEFAULT 0,
+            internal_notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`}
+
+        ?{`CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        )`}
+
+        ?{`CREATE TABLE IF NOT EXISTS post_tags (
+            post_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            PRIMARY KEY (post_id, tag_id),
+            FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )`}
+    }
+
+    // ========================================
+    // REACTIVE UI STATE
+    // ========================================
+    // Rails equivalent: @instance_variables in controller actions.
+    // Here: client-side reactive state that drives conditional rendering.
+    // Key difference: ONE file holds what Rails splits across controller + views.
+
+    ${
+        // View mode: which "page" are we on
+        // Rails: routes + controllers give you pages for free.
+        // scrml: manage view state manually with @vars + if= attributes.
+        @currentView = "list"       // "list" | "new" | "edit" | "show"
+        @currentPostId = not
+
+        // Form fields — Rails: strong_params / form_with. scrml: manual @vars.
+        // Friction: no form builder, no csrf_meta_tag, no field_with_errors.
+        @formTitle = ""
+        @formBody = ""
+        @formPublished = false
+        @formError = ""
+
+        // Tag management state
+        @newTagName = ""
+        @activeTagFilter = not     // not = "All posts"
+
+        // Delete confirmation state
+        @confirmDeleteId = not
+
+        // Tag input for post form (comma-separated string approach)
+        @formTagInput = ""
+
+        // Loaded data — server fetches populate these
+        @posts = []
+        @allTags = []
+        @currentPost = not
+        @currentPostTags = []
+    }
+
+    // ========================================
+    // SERVER FUNCTIONS (Rails: controller actions)
+    // ========================================
+    // Rails: resources :posts generates 7 routes + controller actions.
+    // scrml: each server function below is inferred as a route (SS12).
+    // Friction: no `rails routes` equivalent to see what got generated.
+    // Positive: colocation — logic lives right next to markup that triggers it.
+
+    ${
+        // INDEX action — Rails: def index; @posts = Post.all
+        // No scope chaining, no .published, no .order — raw SQL.
+        server function loadPosts(tagFilter) {
+            // Null-coalescing WHERE pattern (SS 8.4) for optional tag filter.
+            // Rails equivalent: Post.where(tag_id: tag_filter) or Post.all
+            // Friction: verbose. No named scope. No .tagged_with(:tag).
+            let rows = ?{`
+                SELECT DISTINCT p.id, p.title, p.body, p.published, p.created_at
+                FROM posts p
+                LEFT JOIN post_tags pt ON pt.post_id = p.id
+                LEFT JOIN tags t ON t.id = pt.tag_id
+                WHERE (${tagFilter} IS NULL OR t.name = ${tagFilter})
+                ORDER BY p.created_at DESC
+            `}.all()
+            return rows
+        }
+
+        // SHOW action — Rails: def show; @post = Post.find(params[:id])
+        // No .find_by_id, no rescue ActiveRecord::RecordNotFound.
+        server function loadPost(postId) {
+            let post = ?{`SELECT * FROM posts WHERE id = ${postId}`}.first()
+            return post
+        }
+
+        // Load tags for a specific post — Rails: @post.tags (has_many :through)
+        // Friction: no association magic. Manual JOIN every time.
+        server function loadPostTags(postId) {
+            let tags = ?{`
+                SELECT t.id, t.name
+                FROM tags t
+                INNER JOIN post_tags pt ON pt.tag_id = t.id
+                WHERE pt.post_id = ${postId}
+                ORDER BY t.name ASC
+            `}.all()
+            return tags
+        }
+
+        // Load all tags for the sidebar/filter — Rails: Tag.all.order(:name)
+        server function loadAllTags() {
+            let tags = ?{`SELECT id, name FROM tags ORDER BY name ASC`}.all()
+            return tags
+        }
+
+        // CREATE action — Rails: def create; @post = Post.new(post_params); @post.save
+        // Friction: no model validations. Manual SQL. No callbacks (before_save, etc.).
+        // Rails validates presence of title in the model. Here: you check yourself.
+        server function createPost(title, body, published, tagNames) {
+            if (!title || title.trim() == "") {
+                return { ok: false, error: "Title can't be blank" }
+            }
+            if (!body || body.trim() == "") {
+                return { ok: false, error: "Body can't be blank" }
+            }
+            // Rails: Post.create! raises. scrml: you handle errors manually.
+            let publishedInt = published ? 1 : 0
+            ?{`INSERT INTO posts (title, body, published) VALUES (${title}, ${body}, ${publishedInt})`}.run()
+            let newPost = ?{`SELECT id FROM posts ORDER BY id DESC LIMIT 1`}.first()
+            let newId = newPost.id
+
+            // Tag association — Rails: @post.tags = Tag.where(name: tag_names)
+            // Friction: has_many :through association needs 3 manual SQL queries.
+            if (tagNames && tagNames.length > 0) {
+                for (let tagName of tagNames) {
+                    let trimmed = tagName.trim()
+                    if (trimmed != "") {
+                        ?{`INSERT OR IGNORE INTO tags (name) VALUES (${trimmed})`}.run()
+                        let tag = ?{`SELECT id FROM tags WHERE name = ${trimmed}`}.first()
+                        ?{`INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (${newId}, ${tag.id})`}.run()
+                    }
+                }
+            }
+            return { ok: true, id: newId }
+        }
+
+        // UPDATE action — Rails: def update; @post.update(post_params)
+        // No .update! magic, no dirty tracking, no updated_at auto-touch.
+        // Friction: must manually set updated_at. Rails does this for free via ActiveRecord.
+        server function updatePost(postId, title, body, published, tagNames) {
+            if (!title || title.trim() == "") {
+                return { ok: false, error: "Title can't be blank" }
+            }
+            if (!body || body.trim() == "") {
+                return { ok: false, error: "Body can't be blank" }
+            }
+            let publishedInt = published ? 1 : 0
+            ?{`UPDATE posts SET title = ${title}, body = ${body}, published = ${publishedInt}, updated_at = datetime('now') WHERE id = ${postId}`}.run()
+
+            // Re-sync tags: delete old, insert new
+            // Rails: @post.tags = new_tags (handles the join table automatically)
+            // Friction: this whole block is 4 SQL calls. Rails: one assignment.
+            ?{`DELETE FROM post_tags WHERE post_id = ${postId}`}.run()
+            if (tagNames && tagNames.length > 0) {
+                for (let tagName of tagNames) {
+                    let trimmed = tagName.trim()
+                    if (trimmed != "") {
+                        ?{`INSERT OR IGNORE INTO tags (name) VALUES (${trimmed})`}.run()
+                        let tag = ?{`SELECT id FROM tags WHERE name = ${trimmed}`}.first()
+                        ?{`INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (${postId}, ${tag.id})`}.run()
+                    }
+                }
+            }
+            return { ok: true }
+        }
+
+        // DESTROY action — Rails: def destroy; @post.destroy
+        // No dependent: :destroy cascade at ORM layer — we rely on SQL FK ON DELETE CASCADE.
+        server function deletePost(postId) {
+            ?{`DELETE FROM posts WHERE id = ${postId}`}.run()
+            return { ok: true }
+        }
+
+        // Tag: add standalone tag to global list
+        server function createTag(name) {
+            if (!name || name.trim() == "") {
+                return { ok: false, error: "Tag name can't be blank" }
+            }
+            ?{`INSERT OR IGNORE INTO tags (name) VALUES (${name})`}.run()
+            return { ok: true }
+        }
+
+        // Remove a tag from a post — Rails: @post.tags.delete(tag)
+        server function removeTagFromPost(postId, tagId) {
+            ?{`DELETE FROM post_tags WHERE post_id = ${postId} AND tag_id = ${tagId}`}.run()
+            return { ok: true }
+        }
+    }
+
+    // ========================================
+    // CLIENT EVENT HANDLERS (navigate between views, wire up forms)
+    // ========================================
+    // Rails: these are implicit in link_to, button_to, form_with.
+    // scrml: explicit JS-style handlers that mutate @vars to change view.
+
+    ${
+        function showList() {
+            @currentView = "list"
+            @currentPostId = not
+            @formError = ""
+            let result = loadPosts(@activeTagFilter)
+            @posts = result
+            let tags = loadAllTags()
+            @allTags = tags
+        }
+
+        function showNew() {
+            @currentView = "new"
+            @formTitle = ""
+            @formBody = ""
+            @formPublished = false
+            @formTagInput = ""
+            @formError = ""
+        }
+
+        function showEdit(postId) {
+            @currentView = "edit"
+            @currentPostId = postId
+            @formError = ""
+            let post = loadPost(postId)
+            @currentPost = post
+            @formTitle = post.title
+            @formBody = post.body
+            @formPublished = post.published == 1
+            let postTags = loadPostTags(postId)
+            @currentPostTags = postTags
+            @formTagInput = postTags.map(t => t.name).join(", ")
+        }
+
+        function showPost(postId) {
+            @currentView = "show"
+            @currentPostId = postId
+            let post = loadPost(postId)
+            @currentPost = post
+            let postTags = loadPostTags(postId)
+            @currentPostTags = postTags
+        }
+
+        function handleCreate() {
+            let tagNames = @formTagInput.split(",").map(t => t.trim()).filter(t => t != "")
+            let result = createPost(@formTitle, @formBody, @formPublished, tagNames)
+            if (result.ok) {
+                showList()
+            } else {
+                @formError = result.error
+            }
+        }
+
+        function handleUpdate() {
+            let tagNames = @formTagInput.split(",").map(t => t.trim()).filter(t => t != "")
+            let result = updatePost(@currentPostId, @formTitle, @formBody, @formPublished, tagNames)
+            if (result.ok) {
+                showPost(@currentPostId)
+            } else {
+                @formError = result.error
+            }
+        }
+
+        function requestDelete(postId) {
+            @confirmDeleteId = postId
+        }
+
+        function cancelDelete() {
+            @confirmDeleteId = not
+        }
+
+        function confirmDelete() {
+            let result = deletePost(@confirmDeleteId)
+            @confirmDeleteId = not
+            if (result.ok) {
+                showList()
+            }
+        }
+
+        function filterByTag(tagName) {
+            @activeTagFilter = tagName
+            let result = loadPosts(tagName)
+            @posts = result
+        }
+
+        function clearTagFilter() {
+            @activeTagFilter = not
+            let result = loadPosts(not)
+            @posts = result
+        }
+
+        function handleRemoveTag(postId, tagId) {
+            let result = removeTagFromPost(postId, tagId)
+            if (result.ok) {
+                let updatedTags = loadPostTags(postId)
+                @currentPostTags = updatedTags
+            }
+        }
+
+        function handleAddGlobalTag() {
+            let result = createTag(@newTagName)
+            if (result.ok) {
+                @newTagName = ""
+                let tags = loadAllTags()
+                @allTags = tags
+            }
+        }
+    }
+
+    // ========================================
+    // INITIAL DATA LOAD — Rails: controller before_action / index action
+    // ========================================
+    // Bare expression in logic context runs at initial render (SS 7.3).
+    // Rails: before_action :load_posts — explicit hook with named method.
+    // scrml: just a bare call, no framework ceremony.
+    ${
+        let initialPosts = loadPosts(not)
+        @posts = initialPosts
+        let initialTags = loadAllTags()
+        @allTags = initialTags
+    }
+
+    // ========================================
+    // LAYOUT SHELL — Rails: app/views/layouts/application.html.erb
+    // ========================================
+    // Friction: no layout inheritance. No yield. No content_for.
+    // This file IS the layout AND the view AND the controller.
+    // Single-file model is powerful for small apps but layering is missing.
+
+    <div class="blog-app">
+
+        <header class="blog-header">
+            <h1>Blog CMS</>
+            <nav>
+                <button onclick=showList()>All Posts</>
+                <button onclick=showNew()>New Post</>
+            </nav>
+        </header>
+
+        // ========================================
+        // DELETE CONFIRMATION DIALOG — Rails: turbo confirm, or JS confirm()
+        // ========================================
+        // Friction: no built-in confirm dialog. Manual overlay state.
+        // Rails: data: { turbo_confirm: "Are you sure?" } on button_to.
+        // scrml: manual @confirmDeleteId + conditional overlay.
+
+        <div class="confirm-overlay" if=@confirmDeleteId>
+            <div class="confirm-box">
+                <p>Are you sure you want to delete this post? This cannot be undone.</>
+                <button onclick=confirmDelete()>Yes, Delete</>
+                <button onclick=cancelDelete()>Cancel</>
+            </div>
+        </div>
+
+        <main class="blog-main">
+
+            // ======================================
+            // SIDEBAR: Tag Filter — Rails: sidebar partial + link_to
+            // ======================================
+
+            <aside class="tag-sidebar">
+                <h3>Filter by Tag</>
+                <button onclick=clearTagFilter()>All Posts</>
+                ${
+                    for (let tag of @allTags) {
+                        lift <button
+                            class="tag-filter-btn"
+                            onclick=filterByTag(tag.name)>
+                            ${tag.name}
+                        </button>
+                    }
+                }
+                <div class="add-tag-form">
+                    <h4>Add Tag</>
+                    <input
+                        type="text"
+                        value=@newTagName
+                        oninput=${@newTagName = event.target.value}
+                        placeholder="Tag name"/>
+                    <button onclick=handleAddGlobalTag()>Add</>
+                </div>
+            </aside>
+
+            <section class="blog-content">
+
+                // ===================================
+                // POST LIST VIEW — Rails: index.html.erb
+                // ===================================
+                // if= attribute for conditional rendering (SS spec §control)
+
+                <div class="view-list" if=@currentView == "list">
+                    <h2>Posts
+                    ${
+                        if (@activeTagFilter) {
+                            lift <span class="filter-indicator"> — tagged: ${@activeTagFilter}</span>
+                        }
+                    }
+                    </>
+
+                    <div if=@posts.length == 0>
+                        <p class="empty-state">No posts yet. Create your first one!</>
+                    </div>
+
+                    <ul class="post-list" if=@posts.length>
+                        ${
+                            for (let post of @posts) {
+                                lift <li class="post-item">
+                                    <div class="post-header">
+                                        <h3 class="post-title">${post.title}</>
+                                        <span class="post-status">
+                                        ${post.published ? "Published" : "Draft"}
+                                        </>
+                                    </div>
+                                    <p class="post-date">Created: ${post.created_at}</>
+                                    <div class="post-actions">
+                                        <button onclick=showPost(post.id)>View</>
+                                        <button onclick=showEdit(post.id)>Edit</>
+                                        <button
+                                            class="btn-danger"
+                                            onclick=requestDelete(post.id)>Delete</>
+                                    </div>
+                                </li>
+                            }
+                        }
+                    </ul>
+                </div>
+
+                // ===================================
+                // SHOW VIEW — Rails: show.html.erb
+                // ===================================
+                // Tag removal inline — Rails: button_to posts_tag_path(@post, tag), method: :delete
+
+                <div class="view-show" if=@currentView == "show">
+                    <div class="post-nav">
+                        <button onclick=showList()>Back to Posts</>
+                        <button onclick=showEdit(@currentPostId)>Edit</>
+                        <button class="btn-danger" onclick=requestDelete(@currentPostId)>Delete</>
+                    </div>
+
+                    <article class="post-article" if=@currentPost>
+                        <h2>${@currentPost.title}</>
+                        <div class="post-meta">
+                            <span>${@currentPost.published ? "Published" : "Draft"}</>
+                            <span> | Created: ${@currentPost.created_at}</>
+                        </div>
+                        <div class="post-body">
+                            <p>${@currentPost.body}</>
+                        </div>
+
+                        // Tag display + removal — Rails: @post.tags.each with button_to
+                        // Friction: no partial for the tag badge. No collection rendering helper.
+                        <div class="post-tags">
+                            <strong>Tags:</>
+                            ${
+                                if (@currentPostTags.length == 0) {
+                                    lift <span class="no-tags">No tags</>
+                                }
+                                for (let tag of @currentPostTags) {
+                                    lift <span class="tag-badge">
+                                        ${tag.name}
+                                        <button
+                                            class="tag-remove"
+                                            onclick=handleRemoveTag(@currentPostId, tag.id)>x</>
+                                    </span>
+                                }
+                            }
+                        </div>
+                    </article>
+                </div>
+
+                // ===================================
+                // NEW POST FORM — Rails: new.html.erb + form_with(model: @post)
+                // ===================================
+                // Friction: no form builder abstraction.
+                // No label helper, no field_with_errors CSS class injection on failure.
+                // No csrf_field (the compiler should handle this — but it's unspecified).
+                // Manual oninput= handlers instead of bind:value (bind: may not compile yet).
+
+                <div class="view-new" if=@currentView == "new">
+                    <h2>New Post</>
+                    <div class="form-error" if=@formError>
+                        <p>${@formError}</>
+                    </div>
+                    <form class="post-form" onsubmit=handleCreate()>
+                        <div class="form-field">
+                            <label>Title</>
+                            <input
+                                type="text"
+                                value=@formTitle
+                                oninput=${@formTitle = event.target.value}
+                                placeholder="Post title"
+                                required/>
+                        </div>
+                        <div class="form-field">
+                            <label>Body</>
+                            <textarea
+                                oninput=${@formBody = event.target.value}
+                                placeholder="Write your post...">
+                            </textarea>
+                        </div>
+                        <div class="form-field form-checkbox">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked=@formPublished
+                                    onchange=${@formPublished = event.target.checked}/>
+                                Published
+                            </>
+                        </div>
+                        <div class="form-field">
+                            <label>Tags (comma-separated)</>
+                            <input
+                                type="text"
+                                value=@formTagInput
+                                oninput=${@formTagInput = event.target.value}
+                                placeholder="ruby, rails, web"/>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit">Create Post</>
+                            <button type="button" onclick=showList()>Cancel</>
+                        </div>
+                    </form>
+                </div>
+
+                // ===================================
+                // EDIT POST FORM — Rails: edit.html.erb + form_with(model: @post)
+                // ===================================
+                // Same form, different action. Rails DRYs this with a shared partial.
+                // Friction: scrml has components (SS15) but no generator to scaffold them.
+                // A <PostForm> component would be the right abstraction here,
+                // but you write it from scratch.
+
+                <div class="view-edit" if=@currentView == "edit">
+                    <h2>Edit Post</>
+                    <div class="form-error" if=@formError>
+                        <p>${@formError}</>
+                    </div>
+                    <form class="post-form" onsubmit=handleUpdate()>
+                        <div class="form-field">
+                            <label>Title</>
+                            <input
+                                type="text"
+                                value=@formTitle
+                                oninput=${@formTitle = event.target.value}
+                                placeholder="Post title"
+                                required/>
+                        </div>
+                        <div class="form-field">
+                            <label>Body</>
+                            <textarea
+                                oninput=${@formBody = event.target.value}
+                                placeholder="Write your post...">
+                            </textarea>
+                        </div>
+                        <div class="form-field form-checkbox">
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    checked=@formPublished
+                                    onchange=${@formPublished = event.target.checked}/>
+                                Published
+                            </>
+                        </div>
+                        <div class="form-field">
+                            <label>Tags (comma-separated)</>
+                            <input
+                                type="text"
+                                value=@formTagInput
+                                oninput=${@formTagInput = event.target.value}
+                                placeholder="ruby, rails, web"/>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit">Update Post</>
+                            <button type="button" onclick=showList()>Cancel</>
+                        </div>
+                    </form>
+                </div>
+
+            </section>
+        </main>
+
+        #{
+            .blog-app {
+                font-family: sans-serif;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 1rem;
+            }
+            .blog-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: 2px solid #333;
+                margin-bottom: 1.5rem;
+            }
+            .blog-main {
+                display: grid;
+                grid-template-columns: 220px 1fr;
+                gap: 2rem;
+            }
+            .tag-sidebar {
+                background: #f5f5f5;
+                padding: 1rem;
+                border-radius: 4px;
+            }
+            .tag-filter-btn {
+                display: block;
+                width: 100%;
+                margin-bottom: 0.5rem;
+                text-align: left;
+                cursor: pointer;
+            }
+            .post-list {
+                list-style: none;
+                padding: 0;
+            }
+            .post-item {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 1rem;
+                margin-bottom: 1rem;
+            }
+            .post-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+            }
+            .post-status {
+                font-size: 0.8em;
+                color: #666;
+            }
+            .btn-danger {
+                color: red;
+                border-color: red;
+            }
+            .confirm-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 100;
+            }
+            .confirm-box {
+                background: white;
+                padding: 2rem;
+                border-radius: 8px;
+                max-width: 400px;
+            }
+            .form-field {
+                margin-bottom: 1rem;
+            }
+            .form-field label {
+                display: block;
+                font-weight: bold;
+                margin-bottom: 0.25rem;
+            }
+            .form-field input[type="text"],
+            .form-field textarea {
+                width: 100%;
+                padding: 0.5rem;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            .form-field textarea {
+                height: 200px;
+                resize: vertical;
+            }
+            .form-error {
+                background: #fee;
+                border: 1px solid #f00;
+                padding: 0.75rem;
+                border-radius: 4px;
+                margin-bottom: 1rem;
+            }
+            .tag-badge {
+                display: inline-block;
+                background: #e0e0ff;
+                border-radius: 12px;
+                padding: 0.2rem 0.6rem;
+                margin: 0.2rem;
+                font-size: 0.85em;
+            }
+            .tag-remove {
+                border: none;
+                background: none;
+                cursor: pointer;
+                color: #666;
+                margin-left: 0.3rem;
+            }
+            .filter-indicator {
+                font-size: 0.85em;
+                color: #666;
+                font-weight: normal;
+            }
+            .empty-state {
+                color: #999;
+                font-style: italic;
+            }
+            .post-nav {
+                margin-bottom: 1rem;
+                display: flex;
+                gap: 0.5rem;
+            }
+        }
+
+    </div>
+
+</>
+// close < db> state block

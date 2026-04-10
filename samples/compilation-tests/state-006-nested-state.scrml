@@ -1,0 +1,15 @@
+// state-006-nested-state.scrml
+// State containing another state. Tests: nested state definitions.
+
+< inner label(string)>
+    <span class="inner">${label}</>
+</>
+
+< outer title(string)>
+    <div class="outer">
+        <h2>${title}</>
+        <inner label="nested item"></>
+    </>
+</>
+
+<outer title="Container"></>

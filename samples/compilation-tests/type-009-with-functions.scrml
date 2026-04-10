@@ -1,0 +1,17 @@
+// type-009-with-functions.scrml
+// Types used alongside functions. Tests: type + function declarations.
+
+<div>
+    ${
+        type Direction:enum = {
+            North
+            South
+            East
+            West
+        }
+        function getOpposite(dir) {
+            return "opposite"
+        }
+    }
+    <p>Types and functions</>
+</div>

@@ -1,0 +1,41 @@
+// combined-012-login.scrml
+// Login page. Tests: form + reactive state + events.
+
+<div class="login-page">
+    ${
+        @username = ""
+        @password = ""
+        @error = ""
+        @loggedIn = false
+
+        function handleLogin() {
+            if (@username.length == 0) {
+                @error = "Username is required"
+                return
+            }
+            if (@password.length == 0) {
+                @error = "Password is required"
+                return
+            }
+            @error = ""
+            @loggedIn = true
+        }
+    }
+    <div class="login-card">
+        <h1>Login</>
+        <div class="error" if=error>
+            <p>${@error}</>
+        </div>
+        <form onsubmit=handleLogin()>
+            <div class="field">
+                <label>Username</>
+                <input type="text" name="username" placeholder="Enter username"/>
+            </div>
+            <div class="field">
+                <label>Password</>
+                <input type="password" name="password" placeholder="Enter password"/>
+            </div>
+            <button type="submit">Sign In</>
+        </form>
+    </div>
+</div>

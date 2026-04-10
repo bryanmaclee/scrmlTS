@@ -1,0 +1,16 @@
+<div
+  ${
+    ^{
+      let WEBHOOK_CONFIG = bun.eval(`
+        return {
+          maxRetries: parseInt(process.env.WEBHOOK_MAX_RETRIES || "5"),
+          timeoutMs: parseInt(process.env.WEBHOOK_TIMEOUT || "10000"),
+          signatureHeader: process.env.WEBHOOK_SIG_HEADER || "X-Webhook-Signature",
+        }
+      `)
+    }
+  }
+  <p>Max retries: ${WEBHOOK_CONFIG.maxRetries}</>
+  <p>Timeout: ${WEBHOOK_CONFIG.timeoutMs}ms</>
+  <p>Signature header: ${WEBHOOK_CONFIG.signatureHeader}</>
+/div

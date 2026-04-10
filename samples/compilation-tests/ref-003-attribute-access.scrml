@@ -1,0 +1,13 @@
+// ref-003-attribute-access.scrml
+// Reference with attribute access. Tests: reference in attribute context.
+
+< widget label(string)>
+    <div class="widget">
+        <h3>${label}</>
+    </>
+</>
+
+<div>
+    <widget></>
+    <p>Widget reference above</>
+</>

@@ -1,0 +1,338 @@
+// gauntlet-r10-ts-components.scrml
+// Gauntlet Round 10 -- TypeScript Developer Perspective
+// Challenge: Reusable Component Kit
+// Components: Modal, Tabs, Dropdown, Toast
+// Then: Demo page using all four.
+//
+// FRICTION NOTE: scrml has no cross-file import in the compiler yet (SS21 unimplemented).
+// All components must be defined in a single file as inline const definitions.
+// In TypeScript this would be 5 separate files with import/export.
+// This is the single biggest structural deviation from the TypeScript mental model.
+//
+// FRICTION NOTE: The compiled-021 sample shows components via ${ const X = <div/> }
+// inside logic blocks. The spec (SS15) says const components are top-level declarations.
+// The compiler currently accepts the inline-logic form. We use the spec form here.
+// If it fails, we fall back to the logic-block form.
+
+<program>
+
+// ========================================
+// SHARED ENUM TYPES
+// ========================================
+// TypeScript: type ToastSeverity = 'info' | 'success' | 'warning' | 'error'
+// scrml: enum with exhaustive match. No string-backing. No reverse mapping.
+// FRICTION: Cannot initialize @toastQueue items with ToastSeverity:: values
+// stored in a plain string -- must use the enum variant directly.
+
+${
+    type ToastSeverity:enum = {
+        Info
+        Success
+        Warning
+        Error
+    }
+}
+
+// ========================================
+// COMPONENT 1: MODAL
+// ========================================
+// TypeScript mental model:
+//   interface ModalProps { isOpen: boolean; onClose: () => void; title: string }
+//   const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => ...
+//
+// scrml approach:
+//   bind: for the boolean toggle (two-way via parent @var)
+//   ${...} for children slot
+//   Function-typed prop for onClose callback (escape hatch, W-COMPONENT-001 expected)
+//
+// FRICTION: No generic slot typing. TypeScript would have children: React.ReactNode.
+// scrml has ${...} unnamed children spread -- untyped, no constraint on what caller passes.
+//
+// FRICTION: bind: restricted to primitive types (string, number, boolean per SS15.11.1).
+// That actually covers this case perfectly -- boolean for visibility toggle.
+
+${
+    const Modal = <div class="modal-overlay"
+        props={
+            bind visible: boolean,
+            title: string,
+            onClose?: () => void
+        }
+    >
+        <div class="modal-container" if=visible>
+            <div class="modal-header">
+                <h2>${title}</>
+                <button onclick=${ visible = false }>x</>
+            </div>
+            <div class="modal-body">
+                ${...}
+            </div>
+            <div class="modal-footer">
+                <button onclick=${ visible = false }>Close</>
+            </div>
+        </div>
+    </div>
+}
+
+// ========================================
+// COMPONENT 2: TABS
+// ========================================
+// TypeScript mental model:
+//   interface Tab { id: string; label: string }
+//   interface TabsProps<T extends Tab> { tabs: T[]; activeTab: string; onTabChange: (id: string) => void }
+//
+// FRICTION: No generics. Cannot write TabsProps<T extends Tab>.
+// scrml: the tabs prop accepts an array -- inferred as asIs, no shape constraint.
+// In TypeScript we'd constrain: tabs must be an array of objects with id and label fields.
+// In scrml there is no way to express "array of objects that have at least these fields."
+//
+// FRICTION: bind: works for activeTab (string). That's the clean path.
+// Function-typed prop for onTabChange -- W-COMPONENT-001 will fire.
+
+${
+    const Tabs = <div class="tabs-container"
+        props={
+            tabs: string,
+            bind activeTab: string,
+            onTabChange?: (tab: string) => void
+        }
+    >
+        <div class="tabs-header">
+            ${
+                // FRICTION: tabs prop declared as string but we need an array.
+                // No array type syntax is shown in the prop declaration grammar.
+                // TypeScript: tabs: Array<{ id: string; label: string }>
+                // scrml props block only shows: string, number, boolean, and struct types.
+                // We cannot express "array of records" in the props block type system.
+                // Workaround: declare as string (wrong type), use as array at runtime.
+                // This is the most concrete type-safety gap encountered in this exercise.
+                for (let tab of tabs) {
+                    lift <button
+                        class=${ tab.id == activeTab ? "tab-active" : "tab" }
+                        onclick=${ activeTab = tab.id }
+                    >${tab.label}</>
+                }
+            }
+        </div>
+        <div class="tabs-content">
+            ${...}
+        </div>
+    </div>
+}
+
+// ========================================
+// COMPONENT 3: DROPDOWN
+// ========================================
+// TypeScript mental model:
+//   interface Option<T> { value: T; label: string }
+//   interface DropdownProps<T> { options: Option<T>[]; value: T; onChange: (v: T) => void }
+//
+// FRICTION: Again no generics. The value could be string or number.
+// In scrml we must pick one or use untyped props.
+// Workaround: declare value as string (most common case). Number values get implicit coercion.
+//
+// bind: covers the selected value (string). Clean.
+// isOpen is internal state -- @reactive inside the component body.
+// FRICTION: No way to declare internal component state separately from props.
+// In React: useState inside the component. In scrml: @var inside ${ } in the component body.
+// This works but the syntax blurs "component-internal reactive state" with "logic block vars."
+
+${
+    const Dropdown = <div class="dropdown"
+        props={
+            options: string,
+            bind value: string,
+            placeholder?: string
+        }
+    >
+        ${
+            @isOpen = false
+
+            function toggleOpen() {
+                @isOpen = !@isOpen
+            }
+
+            function selectOption(optValue) {
+                value = optValue
+                @isOpen = false
+            }
+        }
+        <button class="dropdown-trigger" onclick=toggleOpen()>
+            ${value ? value : placeholder ?? "Select..."}</>
+        </button>
+        <div class="dropdown-menu" if=@isOpen>
+            ${
+                for (let opt of options) {
+                    lift <button
+                        class="dropdown-item"
+                        onclick=selectOption(opt.value)
+                    >${opt.label}</>
+                }
+            }
+        </div>
+    </div>
+}
+
+// ========================================
+// COMPONENT 4: TOAST NOTIFICATION ITEM
+// ========================================
+// TypeScript mental model:
+//   interface Toast { id: number; message: string; severity: 'info' | 'success' | 'warning' | 'error' }
+//   const ToastItem: React.FC<{ toast: Toast; onDismiss: (id: number) => void }> = ...
+//
+// FRICTION: We have a ToastSeverity enum but it was declared in a separate logic block above.
+// The props block type system (SS15.10) does NOT accept enum types declared elsewhere
+// in the same file as prop types. The grammar shows: string, number, boolean, and struct types.
+// No enum type reference in props. So we cannot write: severity: ToastSeverity
+//
+// Workaround: severity as string, use string match (SS18.16) inside the component.
+// This is the string-to-enum coercion gap documented in TOP-10-FINDINGS #6.
+//
+// POSITIVE: string match (SS18.16) makes the workaround clean.
+// match @severity { "info" -> ... "success" -> ... _ -> ... } works.
+
+${
+    const ToastItem = <div class="toast"
+        props={
+            toastId: number,
+            message: string,
+            severity: string,
+            onDismiss: (id: number) => void
+        }
+    >
+        ${
+            function severityClass() {
+                match severity {
+                    "info"    -> "toast-info"
+                    "success" -> "toast-success"
+                    "warning" -> "toast-warning"
+                    "error"   -> "toast-error"
+                    _         -> "toast-info"
+                }
+            }
+        }
+        <div class="toast-inner">
+            <span class=${ severityClass() }>${message}</>
+            <button onclick=onDismiss(toastId)>x</>
+        </div>
+    </div>
+}
+
+// ========================================
+// TOAST MANAGER (orchestrator -- not a reusable component, a singleton)
+// ========================================
+// TypeScript mental model: a custom hook or context that manages the queue.
+// useToast() -> { add, remove, toasts }
+//
+// scrml approach: reactive @array at file scope, functions at file scope.
+// FRICTION: No hook / composable abstraction. Logic must live inline.
+// Workaround: declare at the top of the demo section.
+// This is actually ACCEPTABLE -- scrml's reactivity model is file-scoped anyway.
+
+${
+    @toasts = []
+    @nextToastId = 1
+
+    function addToast(message, severity) {
+        const id = @nextToastId
+        @toasts = [...@toasts, { id: id, message: message, severity: severity }]
+        @nextToastId = @nextToastId + 1
+    }
+
+    function dismissToast(id) {
+        @toasts = @toasts.filter(t => t.id != id)
+    }
+}
+
+// ========================================
+// DEMO PAGE
+// ========================================
+// TypeScript mental model: an App component that imports and composes the above.
+// FRICTION: In TypeScript, <Modal> here would have typed props enforced by the compiler.
+// In scrml, props ARE declared (SS15.10) so required props are enforced. This is good.
+// The gap is: prop values that are wrong TYPE are not caught without generics.
+
+${
+    @showModal = false
+    @activeTab = "tab1"
+    @selectedDropdownValue = ""
+    @selectedDropdownValue2 = ""
+
+    let tabList = [
+        { id: "tab1", label: "Overview" },
+        { id: "tab2", label: "Details" },
+        { id: "tab3", label: "Settings" }
+    ]
+
+    let dropdownOptions = [
+        { value: "react", label: "React" },
+        { value: "svelte", label: "Svelte" },
+        { value: "scrml", label: "scrml" }
+    ]
+}
+
+<main class="demo-page">
+    <h1>Component Kit Demo</>
+
+    // ---- MODAL DEMO ----
+    <section class="demo-section">
+        <h2>Modal</>
+        <button onclick=${ @showModal = true }>Open Modal</>
+        <Modal visible=@showModal title="Hello from scrml">
+            <p>This is the modal body. Children flow through the unnamed slot.</>
+        </Modal>
+    </section>
+
+    // ---- TABS DEMO ----
+    <section class="demo-section">
+        <h2>Tabs</>
+        <Tabs tabs=tabList activeTab=@activeTab>
+            <div if=${ @activeTab == "tab1" }>
+                <p>Overview content here</>
+            </div>
+            <div if=${ @activeTab == "tab2" }>
+                <p>Details content here</>
+            </div>
+            <div if=${ @activeTab == "tab3" }>
+                <p>Settings content here</>
+            </div>
+        </Tabs>
+    </section>
+
+    // ---- DROPDOWN DEMO ----
+    <section class="demo-section">
+        <h2>Dropdown</>
+        <Dropdown
+            options=dropdownOptions
+            value=@selectedDropdownValue
+            placeholder="Choose a framework"
+        >
+        </Dropdown>
+        <p>Selected: ${@selectedDropdownValue}</>
+    </section>
+
+    // ---- TOAST DEMO ----
+    <section class="demo-section">
+        <h2>Toast Notifications</>
+        <div class="toast-buttons">
+            <button onclick=addToast("Info message", "info")>Info Toast</>
+            <button onclick=addToast("Success!", "success")>Success Toast</>
+            <button onclick=addToast("Watch out", "warning")>Warning Toast</>
+            <button onclick=addToast("Something broke", "error")>Error Toast</>
+        </div>
+        <div class="toast-queue">
+            ${
+                for (let t of @toasts) {
+                    lift <ToastItem
+                        toastId=t.id
+                        message=t.message
+                        severity=t.severity
+                        onDismiss=dismissToast
+                    />
+                }
+            }
+        </div>
+    </section>
+</main>
+
+</program>

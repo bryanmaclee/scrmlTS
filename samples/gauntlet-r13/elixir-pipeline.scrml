@@ -1,0 +1,47 @@
+// gauntlet-r13: elixir dev — data pipeline with pattern matching
+// Tests: match expressions, enums, server functions, SQL
+// R13 focus: Enum::Variant, E-RI-002 false positive, SQL .run()
+
+< db src="./pipeline.db" tables="jobs">
+    ${
+        type JobStatus:enum = { Pending, Running, Complete, Failed }
+
+        @jobs = ?{`SELECT id, name, status FROM jobs`}
+        @selectedJob = not
+
+        server function createJob(name) {
+            ?{`INSERT INTO jobs (name, status) VALUES (${name}, 'Pending')`}.run()
+            @jobs = ?{`SELECT id, name, status FROM jobs`}
+        }
+
+        server function updateJobStatus(id, status) {
+            ?{`UPDATE jobs SET status = ${status} WHERE id = ${id}`}.run()
+            @jobs = ?{`SELECT id, name, status FROM jobs`}
+        }
+
+        server function runJob(id) {
+            updateJobStatus(id, "Running")
+            @selectedJob = id
+        }
+    }
+    <h1>Job Pipeline</>
+    <button onclick=createJob("New Job")>Create Job</>
+    <table>
+        <thead>
+            <tr><th>Job</><th>Status</><th>Actions</></tr>
+        </thead>
+        <tbody>
+            ${
+                for (let job of @jobs) {
+                    lift <tr>
+                        <td>${job.name}/
+                        <td>${job.status}/
+                        <td>
+                            <button onclick=runJob(job.id)>Run/
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</>

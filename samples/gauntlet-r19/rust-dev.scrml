@@ -1,0 +1,113 @@
+// gauntlet-r19/rust-dev.scrml — Component Showcase
+// Tests: components with props, enum/match, for-of in ^{} S51,
+//        default params in ^{} S52
+
+${
+  type Severity:enum = .Info | .Warning | .Error | .Success
+}
+
+// Compile-time: generate showcase index using for-of
+^{
+  const components = ["Button", "Card", "Alert", "Badge"]
+
+  emit("<nav class=\"index\">\n")
+  for (const comp of components) {
+    emit("<a href=\"#" + comp.toLowerCase() + "\">" + comp + " (md)" + "</a>\n")
+  }
+  emit("</nav>\n")
+}
+
+<div class="showcase">
+  <h1>Component Library</h1>
+
+  <section id="button">
+    <h2>Buttons</h2>
+    <div class="row">
+      <button class="btn">Primary</button>
+      <button class="btn">Secondary</button>
+      <button class="btn">Danger</button>
+    </div>
+  </section>
+
+  <section id="card">
+    <h2>Cards</h2>
+    <div class="row">
+      <div class="card">
+        <h3>Feature A</h3>
+        <p>Description of feature A.</p>
+      </div>
+      <div class="card">
+        <h3>Feature B</h3>
+        <p>Description of feature B.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="alert">
+    <h2>Alerts</h2>
+    <div class="alert">
+      <span class="alert-icon">i</span>
+      <span class="alert-text">This is informational.</span>
+    </div>
+    <div class="alert">
+      <span class="alert-icon">!</span>
+      <span class="alert-text">Please check your input.</span>
+    </div>
+    <div class="alert">
+      <span class="alert-icon">x</span>
+      <span class="alert-text">Something went wrong.</span>
+    </div>
+    <div class="alert">
+      <span class="alert-icon">✓</span>
+      <span class="alert-text">Operation completed.</span>
+    </div>
+  </section>
+</div>
+
+#{
+  .showcase {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    font-family: system-ui, sans-serif;
+  }
+  .index {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .index a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+  }
+  .btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #fff;
+  }
+  .card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    width: 200px;
+  }
+  .alert {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    background: #f3f4f6;
+  }
+  .alert-icon {
+    font-weight: 700;
+  }
+}

@@ -1,0 +1,18 @@
+<div>
+  ${
+    type PostStatus = enum { Draft | Published | Archived }
+
+    ^{
+      let variants = reflect(PostStatus).variants
+      let count = variants.length
+    }
+  }
+  <h1>Post Status Variants</>
+  <ul>
+    ${
+      for (let v of variants) {
+        lift <li>${v}</>
+      }
+    }
+  </ul>
+</div>

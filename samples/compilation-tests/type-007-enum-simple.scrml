@@ -1,0 +1,12 @@
+// type-007-enum-simple.scrml
+// Simple two-value enum. Tests: minimal enum.
+
+<div>
+    ${
+        type Toggle:enum = {
+            On
+            Off
+        }
+    }
+    <p>Toggle defined</>
+</div>

@@ -1,0 +1,26 @@
+// meta-data-table.scrml
+// Use ^{} with emit() to generate a data table from compile-time config.
+// Tests: emit() producing a complete table structure with headers and rows.
+
+<program>
+
+^{
+    const columns = ["Name", "Role", "Status"];
+    const rows = [
+        ["Alice", "Engineer", "Active"],
+        ["Bob", "Designer", "Active"],
+        ["Carol", "PM", "On Leave"],
+        ["Dave", "QA", "Active"]
+    ];
+
+    emit("<table class=data-table>\n");
+    emit("  <thead>\n    <tr>\n");
+    columns.forEach(function(col) { emit("      <th>" + col + "/\n"); });
+    emit("    </tr>\n  </thead>\n");
+    emit("  <tbody>\n");
+    rows.forEach(function(row) { emit("    <tr>\n"); row.forEach(function(cell) { emit("      <td>" + cell + "/\n"); }); emit("    </tr>\n"); });
+    emit("  </tbody>\n");
+    emit("</table>\n");
+}
+
+</>

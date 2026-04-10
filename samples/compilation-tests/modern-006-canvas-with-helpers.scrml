@@ -1,0 +1,74 @@
+// modern-006-canvas-with-helpers.scrml
+// Canvas drawing app that imports reusable helpers instead of repeating
+// ref=/cleanup()/^{} boilerplate. Tests the module import pattern for
+// DOM-heavy canvas code.
+
+<program>
+
+${
+  import { useCanvas, useKeyboard, useResize } from './helpers/canvas-setup'
+
+  @color = "black"
+  @lineWidth = 3
+  @isDrawing = false
+  @lastX = 0
+  @lastY = 0
+}
+
+<div class="drawing-app">
+  <div class="toolbar">
+    <button onclick=${fn() { @color = "black" }}>Black</>
+    <button onclick=${fn() { @color = "red" }}>Red</>
+    <button onclick=${fn() { @color = "blue" }}>Blue</>
+    <input type="range" min="1" max="20" bind:value=@lineWidth />
+    <span>Width: ${@lineWidth}</>
+  </>
+  <canvas ref=@canvasEl width="800" height="600"/>
+</>
+
+${
+  // Set up canvas using the imported helper — no ^{}/cleanup() boilerplate needed
+  const { ctx } = useCanvas(@canvasEl)
+
+  // Set up keyboard shortcuts — one call instead of 5+ lines of setup/cleanup
+  useKeyboard({
+    "Escape": fn() {
+      // Clear canvas
+      ctx.clearRect(0, 0, @canvasEl.width, @canvasEl.height)
+    },
+    "b": fn() { @color = "black" },
+    "r": fn() { @color = "red" },
+  })
+
+  // Set up resize observer — one call instead of 8+ lines of setup/cleanup
+  useResize(@canvasEl, fn(size) {
+    @canvasEl.width = size.width
+    @canvasEl.height = size.height
+  })
+
+  // Drawing logic
+  function startDraw(e) {
+    @isDrawing = true
+    @lastX = e.offsetX
+    @lastY = e.offsetY
+  }
+
+  function draw(e) {
+    if (!@isDrawing) return
+    ctx.beginPath()
+    ctx.strokeStyle = @color
+    ctx.lineWidth = @lineWidth
+    ctx.lineCap = "round"
+    ctx.moveTo(@lastX, @lastY)
+    ctx.lineTo(e.offsetX, e.offsetY)
+    ctx.stroke()
+    @lastX = e.offsetX
+    @lastY = e.offsetY
+  }
+
+  function stopDraw() {
+    @isDrawing = false
+  }
+}
+
+</>

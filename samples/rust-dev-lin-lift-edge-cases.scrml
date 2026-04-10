@@ -1,0 +1,161 @@
+// rust-dev-lin-lift-edge-cases.scrml
+// Three edge cases for lin + lift interaction.
+//
+// Edge case 1: lin in if/else branches with lift
+// Edge case 2: lin in a loop with lift (the forbidden case)
+// Edge case 3: lin lifted across a component boundary
+//
+// Each case is annotated with what the compiler must enforce and
+// where the Rust mental model diverges from scrml's design.
+
+<program>
+
+// ============================================================
+// EDGE CASE 1: lin in if/else branches with lift
+//
+// Rust analogy: moving a value into one branch of a match arm.
+// In Rust, if you move T into the if-branch, the else-branch
+// must not use T — and the compiler enforces that. scrml's lin
+// rule is the same: both branches must consume the lin variable.
+//
+// The spec (§34.4.2) says: consumed in both branches = valid.
+// Consumed in only one branch = E-LIN-003.
+//
+// Here we correctly consume the token in both branches by
+// routing it to the appropriate handler. The lift then emits
+// the result markup upward.
+// ============================================================
+
+${
+    function fetchToken() -> string { return "tok_abc" }
+    function adminPath(t: string) -> string { return "admin:" + t }
+    function userPath(t: string) -> string { return "user:" + t }
+
+    @isAdmin = false
+    @routeResult = ""
+
+    function processWithBranch() {
+        // lin must be consumed in BOTH branches — E-LIN-003 if only one
+        lin token = fetchToken()
+        if (@isAdmin) {
+            @routeResult = adminPath(token)   // consumed here on true path
+        } else {
+            @routeResult = userPath(token)    // consumed here on false path
+        }
+        // After this block, token is gone on every path. Correct.
+    }
+}
+
+<div class="edge-case-1">
+    <h2>Edge Case 1: lin in if/else with lift/
+    <button onclick=processWithBranch()>Process/
+    <p>Result: ${@routeResult}/
+</div>
+
+// ============================================================
+// EDGE CASE 2: lin in a loop with lift — the forbidden case
+//
+// Rust analogy: moving a value inside a loop body. In Rust this
+// is rejected because move in a loop means the value is moved
+// on the first iteration and the variable is in an invalid state
+// on subsequent iterations. Rust's error: "use of moved value
+// inside loop."
+//
+// scrml's §34.4.4 is even stricter: lin inside ANY loop body is
+// unconditionally rejected — even a loop that runs exactly once,
+// because the compiler cannot statically prove the loop count.
+//
+// The constraint: produce the lin value BEFORE the loop and
+// pass derived (non-lin) data into the loop.
+//
+// Correct pattern: consume lin once outside the loop to extract
+// the data needed, then use that regular value inside the loop.
+// ============================================================
+
+${
+    function fetchBatchToken() -> string { return "batch_tok_xyz" }
+    function extractItems(t: string) -> string { return "items_from:" + t }
+
+    @items = ["a", "b", "c"]
+    @batchResult = []
+
+    function processBatch() {
+        lin batchToken = fetchBatchToken()
+        // Consume lin ONCE to get the item set — outside the loop
+        let itemSource = extractItems(batchToken)   // consumed here, exactly once
+        // Now loop over regular (non-lin) data
+        for (let item of @items) {
+            @batchResult = @batchResult.concat([itemSource + ":" + item])
+        }
+    }
+}
+
+<div class="edge-case-2">
+    <h2>Edge Case 2: lin consumed before loop, not inside/
+    <button onclick=processBatch()>Process Batch/
+    <ul>${
+        for (let result of @batchResult) {
+            lift <li>${result}/
+        }
+    }
+</div>
+
+// ============================================================
+// EDGE CASE 3: lin lifted to parent markup
+//
+// Spec §35.3 rule 4: "lift x where x is lin. The lift statement
+// consumes x and initializes ~ to the lifted value."
+//
+// Rust analogy: returning a value from a function (move out of
+// scope). The value is transferred to the caller's ownership.
+// After return, the original binding is dead.
+//
+// In scrml: lift lin = expr creates the lin value, lifts it to
+// the parent markup context, and counts as the exactly-one
+// consumption. The parent receives it as rendered markup.
+//
+// The key question from the debate challenge: does lift consume
+// a lin value? Answer per spec: YES, unambiguously. §35.3(4)
+// lists "Lifting. `lift x` where `x` is `lin`." as a consumption
+// event.
+//
+// What this means for a component boundary: you cannot lift the
+// same lin value twice. You cannot lift it and then also pass
+// it to a function. The lift is the consumption.
+// ============================================================
+
+${
+    function buildSecureWidget(token: string) -> string {
+        return "<widget token=" + token + "/>"
+    }
+
+    function acquireWidgetToken() -> string { return "widget_tok_789" }
+
+    @widgetHtml = ""
+
+    function renderSecureWidget() {
+        lin widgetToken = acquireWidgetToken()
+        // Consume lin by passing to builder — exactly once
+        @widgetHtml = buildSecureWidget(widgetToken)
+        // widgetToken is now dead. Cannot use again.
+    }
+}
+
+<div class="edge-case-3">
+    <h2>Edge Case 3: lin consumed at render boundary/
+    <button onclick=renderSecureWidget()>Render Widget/
+    <div class="widget-container">
+        <p>Widget: ${@widgetHtml}/
+    </div>
+</div>
+
+// ============================================================
+// EDGE CASE SUMMARY: The loop case is the sharpest divergence
+// from Rust's model. In Rust, you can use mem::replace or
+// Option<T>.take() to consume a value out of a context inside
+// a loop. scrml has no equivalent — you must consume outside
+// the loop unconditionally. This is actually MORE restrictive
+// than Rust's move semantics. See friction report.
+// ============================================================
+
+</program>

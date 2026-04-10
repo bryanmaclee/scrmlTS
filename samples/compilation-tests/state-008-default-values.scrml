@@ -1,0 +1,11 @@
+// state-008-default-values.scrml
+// State with default attribute values. Tests: attrib(type = default) pattern.
+
+< badge label(string) color(string = "blue") size(number = 16)>
+    <span class="badge">
+        ${label}
+    </>
+</>
+
+<badge label="New"></>
+<badge label="Hot" color="red"></>

@@ -1,0 +1,54 @@
+// gauntlet-r13: react dev — auth dashboard
+// Tests: import system (scrml:crypto), middleware handle(), nested callbacks, bind:value
+// R13 focus: import system, middleware, BPP nested functions, bind:value ordering
+
+${ import { hash } from 'scrml:crypto' }
+
+${ server function handle(request, resolve) {
+    const session = request.headers.get('Authorization')
+    if (!session) {
+        return new Response('Unauthorized', { status: 401 })
+    }
+    const response = resolve(request)
+    return response
+}}
+
+<div class="dashboard">
+    ${
+        @username = ""
+        @password = ""
+        @loggedIn = false
+        @users = []
+
+        server function login() {
+            const hashed = hash(@password)
+            @loggedIn = true
+            @users = ?{`SELECT id, name FROM users`}
+        }
+
+        function handleInput(value) {
+            function validate(v) {
+                return v.length > 0
+            }
+            if (validate(value)) {
+                @username = value
+            }
+        }
+    }
+    <div if=!@loggedIn>
+        <h1>Login</>
+        <input type="text" bind:value=@username placeholder="Username"/>
+        <input type="password" bind:value=@password placeholder="Password"/>
+        <button onclick=login()>Sign In</>
+    </div>
+    <div if=@loggedIn>
+        <h1>Welcome, ${@username}</>
+        <ul>
+            ${
+                for (let user of @users) {
+                    lift <li>${user.name}/
+                }
+            }
+        </ul>
+    </div>
+</div>

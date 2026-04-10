@@ -1,0 +1,34 @@
+// gauntlet-r13: zig dev — minimal explicit app
+// Tests: simple reactive state, functions, for/lift, bind:value
+// R13 focus: bind:value ordering, basic compilation sanity
+
+<div class="minimal-app">
+    ${
+        @items = []
+        @input = ""
+        @count = 0
+
+        function add() {
+            @count = @count + 1
+            @items = [...@items, { id: @count, name: @input }]
+            @input = ""
+        }
+
+        function remove(id) {
+            @items = @items.filter(i => i.id != id)
+        }
+    }
+    <h1>Items (${@count})</>
+    <input type="text" bind:value=@input placeholder="Name"/>
+    <button onclick=add()>Add</>
+    <ul>
+        ${
+            for (let item of @items) {
+                lift <li>
+                    ${item.name}
+                    <button onclick=remove(item.id)>x/
+                </li>
+            }
+        }
+    </ul>
+</div>

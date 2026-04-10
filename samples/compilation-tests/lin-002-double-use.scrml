@@ -1,0 +1,19 @@
+// lin-002-double-use.scrml
+// lin variable consumed twice — demonstrates the linear type constraint.
+// The compiler should reject this with E-LIN-002 (double consumption).
+
+<program>
+
+${
+    function fetchToken() -> string { return "tok_abc123" }
+    function useToken(t: string)   { }
+    function logToken(t: string)   { }
+
+    lin token = fetchToken()
+    useToken(token)   // first consumption — valid
+    logToken(token)   // second consumption — E-LIN-002: lin variable consumed more than once
+}
+
+<p>This file demonstrates an expected compile error (E-LIN-002).</>
+
+</program>

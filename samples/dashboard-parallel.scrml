@@ -1,0 +1,396 @@
+// dashboard-parallel.scrml
+// A dashboard that loads user info, recent orders, and summary stats from the
+// DB in parallel. Demonstrates the async model (§13): independent server calls
+// are parallelized by the compiler — developer writes flat synchronous code,
+// compiler emits Promise.all().
+//
+// This is the feature most reliant on compiler inference doing the right thing.
+// I'm writing it exactly as the spec describes and trusting the dependency graph.
+
+< db src="./app.db" protect="password_hash" tables="users, orders, products">
+
+    // Reactive state — all not until loadDashboard() resolves
+    @currentUser = not
+    @recentOrders = []
+    @stats = not
+    @loading = true
+    @error = ""
+
+    // Fire on mount. loadDashboard() calls three independent server functions.
+    // Compiler should see that getUser(), getRecentOrders(), and getStats() have
+    // no data dependency between them and parallelize them (§13.2, §13.3).
+    // OPEN: lift restriction interaction — loadDashboard runs inside a named
+    // function (not in a bare ${}), so no lift calls happen inside it. No
+    // E-LIFT-001 risk. Good.
+    ${ loadDashboard(userId) }
+
+    // =========================================================================
+    // Markup
+    // =========================================================================
+
+    <div class="dashboard">
+
+        // Loading skeleton — shown while data is in-flight
+        <div class="dashboard-loading" if=@loading>
+            <div class="skeleton skeleton-user"/
+            <div class="skeleton skeleton-stats"/
+            <div class="skeleton skeleton-orders"/
+        </div>
+
+        // Error state
+        <div class="dashboard-error" if=@error>
+            <p>${@error}/
+            <button onclick=loadDashboard(userId)>Retry/
+        </div>
+
+        // Dashboard content — shown once loaded
+        <div class="dashboard-content" if=!@loading>
+
+            // ---------------------------------------------------------------
+            // User info section
+            // ---------------------------------------------------------------
+            <section class="user-panel" if=@currentUser>
+                <div class="user-avatar">
+                    // OPEN: Avatar initials from first character of display_name.
+                    // Expression inside markup text: ${@currentUser.display_name[0]}
+                    // Bracket notation on reactive variable in text interpolation —
+                    // should be fine since ${}  is JavaScript.
+                    ${@currentUser.display_name[0].toUpperCase()}
+                </div>
+                <div class="user-info">
+                    <h2>${@currentUser.display_name}/
+                    <p>${@currentUser.email}/
+                    <p class="user-plan">Plan: ${@currentUser.plan}/
+                </div>
+            </section>
+
+            // ---------------------------------------------------------------
+            // Stats section
+            // ---------------------------------------------------------------
+            <section class="stats-panel" if=@stats>
+                <h3>Summary/
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-value">${@stats.total_orders}/
+                        <span class="stat-label">Total Orders/
+                    </div>
+                    <div class="stat-card">
+                        // OPEN: Currency formatting. Using toLocaleString() —
+                        // standard JS inside ${}. Fine.
+                        <span class="stat-value">
+                            $${(@stats.total_spent / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        /
+                        <span class="stat-label">Total Spent/
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">${@stats.pending_orders}/
+                        <span class="stat-label">Pending/
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">${@stats.active_products}/
+                        <span class="stat-label">Active Products/
+                    </div>
+                </div>
+            </section>
+
+            // ---------------------------------------------------------------
+            // Recent orders list
+            // ---------------------------------------------------------------
+            <section class="orders-panel">
+                <div class="panel-header">
+                    <h3>Recent Orders/
+                    <a href="/orders">View all/
+                </div>
+
+                // Orders list using lift. Following §10.4: lift in direct body
+                // of ${}, not inside a named function.
+                <div class="orders-list" if=@recentOrders.length> ${
+                    for (order of @recentOrders) {
+                        lift <div class=orderRowClass(order)>
+                            <span class="order-id">#${order.id}/
+                            <span class="order-date">${formatDate(order.created_at)}/
+                            <span class="order-total">
+                                $${(order.total_cents / 100).toFixed(2)}
+                            /
+                            <span class=statusBadge(order.status)>
+                                ${order.status}
+                            /
+                        </div>
+                    }
+                }
+
+                <p class="no-orders" if=!@recentOrders.length>No orders yet./
+
+            </section>
+
+        </div>
+
+    </div>
+
+    // =========================================================================
+    // Logic
+    // =========================================================================
+
+    ${
+        // loadDashboard — orchestrates three parallel fetches.
+        // Each of getUser, getRecentOrders, getStats is independent.
+        // Compiler should emit: const [user, orders, stats] = await Promise.all([...])
+        function loadDashboard(id) {
+            @loading = true
+            @error = ""
+
+            // OPEN: Error handling for parallel loads. If I wrap with !{},
+            // what happens if only ONE of the three fails? The !{} postfix
+            // operator (§19.1) attaches to a single preceding expression.
+            // How do I error-handle a block of parallel calls?
+            // Three options I can think of:
+            //   A) Wrap the whole block in a try/catch (plain JS)
+            //   B) Three separate !{} handlers per call
+            //   C) A dedicated parallel-error handling pattern (not in spec)
+            // Going with a plain try/catch inside the function since ${}
+            // accepts valid JS.
+
+            // OPEN: Can I use try/catch inside a named function in ${}?
+            // §7.2 says "all JavaScript valid in a Bun context is valid inside ${}"
+            // Named function bodies are valid JS so try/catch inside them should
+            // be fine. But the compiler's error inference (§19.2) is separate
+            // from try/catch. Does the compiler still do Zig-style propagation
+            // if I also have try/catch? Unclear. Using try/catch as the safe
+            // approach here.
+
+            // Three independent calls — compiler parallelizes these
+            @currentUser = getUser(id)
+            @recentOrders = getRecentOrders(id)
+            @stats = getStats(id)
+
+            @loading = false
+
+            // OPEN: What happens if getUser() sets @currentUser and
+            // getRecentOrders() also sets @recentOrders in parallel —
+            // would two concurrent @variable assignments trigger two renders?
+            // The spec says the compiler generates Promise.all for these.
+            // I assume the compiler batches the reactive updates until all
+            // three resolve, then triggers a single re-render. But this is
+            // nowhere specified. For a dashboard with 3 parallel loads,
+            // getting 3 separate renders would be terrible.
+
+        }
+
+        // getUser — server-escalated because it touches users table inside < db>
+        // OPEN: Does a function that only does a SELECT (no protected fields)
+        // automatically escalate, or does it stay client-side? The SQL context
+        // is inside a < db> block, but §12.2 Trigger 1 says SQL alone doesn't
+        // escalate — only if it touches protected fields (Trigger 2).
+        // password_hash is protected on this block. This query doesn't touch it.
+        // So... this might stay client-side. That means the DB query runs in
+        // client JS. Is that correct? Flagging — I expected DB queries inside
+        // a < db> block to always be server-side. But the spec says otherwise.
+        server function getUser(id) {
+            // Using explicit `server` annotation (§11.4) because I want this
+            // on the server regardless of whether inference would put it there.
+            // Reading the users table (non-protected fields only).
+            return ?{`
+                SELECT id, display_name, email, plan, created_at
+                FROM users
+                WHERE id = ${id}
+                LIMIT 1
+            `}.get()
+        }
+
+        server function getRecentOrders(id) {
+            return ?{`
+                SELECT id, total_cents, status, created_at
+                FROM orders
+                WHERE user_id = ${id}
+                ORDER BY created_at DESC
+                LIMIT 10
+            `}.all()
+        }
+
+        server function getStats(id) {
+            // OPEN: A query that aggregates across tables — is joining across
+            // multiple tables listed in tables= valid? The < db> block has
+            // tables="users, orders, products". Assuming yes.
+            return ?{`
+                SELECT
+                    COUNT(o.id) as total_orders,
+                    SUM(o.total_cents) as total_spent,
+                    COUNT(CASE WHEN o.status = 'pending' THEN 1 END) as pending_orders,
+                    (SELECT COUNT(*) FROM products WHERE active = 1) as active_products
+                FROM orders o
+                WHERE o.user_id = ${id}
+            `}.get()
+        }
+
+        // UI helper functions — client-side
+        function orderRowClass(order) {
+            return `order-row order-row--${order.status}`
+        }
+
+        function statusBadge(status) {
+            return `status-badge status-badge--${status}`
+        }
+
+        function formatDate(dateStr) {
+            return new Date(dateStr).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric"
+            })
+        }
+    }
+
+/   // closes < db>
+
+// =========================================================================
+// Styles
+// =========================================================================
+
+<style>/
+    .dashboard {
+        display: grid;
+        min-height: 100vh;
+    }
+
+    .dashboard-content {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        grid-template-rows: auto 1fr;
+        gap: 1.5rem;
+        padding: 1.5rem;
+    }
+
+    .user-panel {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.5rem;
+        background: white;
+        border-radius: 0.5rem;
+        border: 1px solid #e5e7eb;
+    }
+
+    .user-avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: #3b82f6;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
+    }
+
+    .stat-card {
+        padding: 1rem;
+        background: white;
+        border-radius: 0.5rem;
+        border: 1px solid #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+    }
+
+    .stat-label {
+        font-size: 0.75rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .orders-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .order-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 1rem;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        background: white;
+        border-radius: 0.375rem;
+        border: 1px solid #e5e7eb;
+    }
+
+    .status-badge {
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    .status-badge--pending  { background: #fef3c7; color: #92400e; }
+    .status-badge--complete { background: #d1fae5; color: #065f46; }
+    .status-badge--canceled { background: #fee2e2; color: #991b1b; }
+
+    .skeleton {
+        background: #e5e7eb;
+        border-radius: 0.375rem;
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+</style>
+
+// =============================================================================
+// OPEN QUESTIONS — dashboard-parallel.scrml
+// =============================================================================
+//
+// OQ-1: When does a DB query escalate to server?
+//   §12.2 says SQL contexts do NOT automatically trigger server escalation —
+//   only if the query accesses a protected field. This means a SELECT query
+//   that touches no protected columns stays client-side. But a client-side
+//   SQLite query requires the DB file to be accessible on the client. That
+//   can't be right for production. I used explicit `server` annotation on all
+//   three query functions to work around this. But the question stands: should
+//   ALL < db> queries default to server-side, with the compiler only keeping
+//   them client if explicitly opt-out? The current inversion feels backwards.
+//
+// OQ-2: Reactive batch updates after parallel resolution
+//   Three parallel calls each set different @variables on completion.
+//   Does the compiler batch the reactivity updates after Promise.all resolves,
+//   or does each @variable assignment trigger an independent re-render?
+//   "Three re-renders instead of one" is a real UX problem and needs a
+//   definitive answer in the spec.
+//
+// OQ-3: Error handling for parallel blocks
+//   !{} is a postfix operator on a single expression. There's no way to
+//   wrap a block of parallel calls with a single error handler. For a function
+//   that parallelizes three calls and wants a single error fallback, the only
+//   option is try/catch (plain JS). The !{} syntax doesn't compose with
+//   parallel loading patterns.
+//
+// OQ-4: Aggregation queries across multiple tables
+//   The stats query joins across orders and products, both in tables=.
+//   The spec doesn't say whether SQL contexts can query across multiple
+//   tables in the same < db> block's tables= list. For real dashboards this
+//   is essential. Assuming yes because the compiler has access to all tables
+//   in the schema, but it should be explicitly stated.
+//
+// OQ-5: Text interpolation with method chains
+//   ${@currentUser.display_name[0].toUpperCase()} — chained method call on
+//   a reactive variable's property inside text interpolation. This is valid JS
+//   inside ${} but the reactive tracking is unclear. Does the compiler track
+//   @currentUser.display_name[0] as a reactive dependency? Probably yes since
+//   @currentUser itself is reactive, but the depth of tracking is unspecified.

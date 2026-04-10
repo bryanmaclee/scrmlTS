@@ -1,0 +1,53 @@
+// gauntlet-r14: zig dev — minimal explicit app
+// Tests R13 fixes: basic compilation, bind:value
+// New: ~ tilde-decl, checkbox bind:value, multiple input types
+
+<div class="minimal-app">
+    ${
+        @items = []
+        @input = ""
+        @count = 0
+        @showDone = true
+
+        heading = "Items"
+
+        function add() {
+            @count = @count + 1
+            @items = [...@items, { id: @count, name: @input, done: false }]
+            @input = ""
+        }
+
+        function remove(itemId) {
+            @items = @items.filter(i => i.id != itemId)
+            @count = @count - 1
+        }
+
+        function toggleDone(itemId) {
+            @items = @items.map(i => i.id == itemId ? { ...i, done: !i.done } : i)
+        }
+
+        function clearAll() {
+            @items = []
+            @count = 0
+        }
+    }
+    <h1>${heading} (${@count})</>
+    <input type="text" bind:value=@input placeholder="Name"/>
+    <button onclick=add()>Add</>
+    <button onclick=clearAll()>Clear All</>
+    <label>
+        <input type="checkbox" bind:value=@showDone/>
+        Show completed
+    </label>
+    <ul>
+        ${
+            for (let item of @items) {
+                lift <li>
+                    ${item.name}
+                    <button onclick=toggleDone(item.id)>Toggle/
+                    <button onclick=remove(item.id)>x/
+                </li>
+            }
+        }
+    </ul>
+</div>

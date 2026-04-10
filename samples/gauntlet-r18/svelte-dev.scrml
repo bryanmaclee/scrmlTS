@@ -1,0 +1,79 @@
+// gauntlet-r18: svelte dev — Debug dashboard with runtime ^{} effects
+// Tests: runtime ^{} meta blocks referencing @reactive vars,
+//        _scrml_meta_effect auto-tracking, meta.emit() for runtime HTML injection,
+//        multiple reactive variables tracked by a single effect
+
+<program>
+
+<div class="debug-dashboard">
+    ${
+        @counter = 0
+        @message = "ready"
+        @logEntries = []
+        @theme = "light"
+
+        function increment() {
+            @counter = @counter + 1
+        }
+
+        function decrement() {
+            @counter = @counter - 1
+        }
+
+        function setMessage(text) {
+            @message = text
+        }
+
+        function toggleTheme() {
+            if (@theme == "light") {
+                @theme = "dark"
+            } else {
+                @theme = "light"
+            }
+        }
+
+        function addLog(entry) {
+            @logEntries = [...@logEntries, entry]
+        }
+    }
+
+    <h1>Debug Dashboard</>
+    <div class="controls">
+        <button onclick=increment()>+</>
+        <button onclick=decrement()>-</>
+        <span>Counter: ${@counter}</>
+    </div>
+
+    <div class="message-panel">
+        <button onclick=setMessage("hello")>Say Hello</>
+        <button onclick=setMessage("working")>Working</>
+        <button onclick=setMessage("done")>Done</>
+        <p>Message: ${@message}</>
+    </div>
+
+    <div class="theme-panel">
+        <button onclick=toggleTheme()>Toggle Theme</>
+        <p>Current theme: ${@theme}</>
+    </div>
+
+    <div class="debug-log">
+        <h2>Reactive Effect Monitor</>
+        ^{
+            addLog("counter=" + @counter + " message=" + @message + " theme=" + @theme)
+        }
+        <p>Effect runs whenever @counter, @message, or @theme change</>
+    </div>
+
+    <div class="log-display">
+        <h3>Log Entries</>
+        <ul>
+            ${
+                for (let entry of @logEntries) {
+                    lift <li>${entry}/
+                }
+            }
+        </ul>
+    </div>
+</div>
+
+</>

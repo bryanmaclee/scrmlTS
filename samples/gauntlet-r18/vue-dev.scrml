@@ -1,0 +1,56 @@
+// gauntlet-r18: vue dev — Plugin system using emit()
+// Tests: compile-time ^{} with emit(), data-driven markup generation,
+//        conditional emit branches, multiple emit blocks composing a page,
+//        forEach callback pattern in meta
+
+<program>
+
+^{
+    const plugins = [
+        { name: "analytics", enabled: true, icon: "chart", priority: 1 },
+        { name: "auth", enabled: true, icon: "lock", priority: 2 },
+        { name: "notifications", enabled: true, icon: "bell", priority: 3 },
+        { name: "debug", enabled: false, icon: "bug", priority: 99 },
+        { name: "monitoring", enabled: true, icon: "eye", priority: 4 }
+    ];
+
+    const activePlugins = plugins.filter(function(p) { return p.enabled; });
+    activePlugins.sort(function(a, b) { return a.priority - b.priority; });
+
+    emit("<div class=plugin-dashboard>\n");
+    emit("  <h1>Plugin System/\n");
+    emit("  <p>" + activePlugins.length + " of " + plugins.length + " plugins active/\n");
+
+    emit("  <nav class=plugin-nav>\n");
+    activePlugins.forEach(function(plugin) {
+        emit("    <a class=plugin-link-" + plugin.icon + " href=\"#" + plugin.name + "\">" + plugin.name + "/\n");
+    });
+    emit("  </nav>\n");
+
+    emit("  <div class=plugin-panels>\n");
+    activePlugins.forEach(function(plugin) {
+        emit("    <div id=" + plugin.name + " class=plugin-panel>\n");
+        emit("      <h2>" + plugin.name + " (priority " + plugin.priority + ")" + "/\n");
+        if (plugin.name === "analytics") {
+            emit("      <div class=chart-placeholder>\n        <p>Analytics charts render here/\n      </div>\n");
+        } else if (plugin.name === "auth") {
+            emit("      <div class=auth-status>\n        <p>Authentication module/\n      </div>\n");
+        } else if (plugin.name === "notifications") {
+            emit("      <div class=notif-center>\n        <p>Notification center/\n      </div>\n");
+        } else {
+            emit("      <p>Plugin " + plugin.name + " content/\n");
+        }
+        emit("    </div>\n");
+    });
+    emit("  </div>\n");
+
+    emit("  <footer>\n");
+    emit("    <p>Disabled plugins: ");
+    const disabled = plugins.filter(function(p) { return !p.enabled; });
+    disabled.forEach(function(p) { emit(p.name + " "); });
+    emit("/\n");
+    emit("  </footer>\n");
+    emit("</div>\n");
+}
+
+</>

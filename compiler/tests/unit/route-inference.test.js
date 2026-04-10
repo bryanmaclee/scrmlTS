@@ -1,0 +1,2099 @@
+/**
+ * Route Inferrer (RI) — Unit Tests
+ *
+ * Tests for src/route-inference.js (Stage 5).
+ *
+ * All FileAST and ProtectAnalysis inputs are constructed programmatically.
+ * No real SQLite databases are used. No real file parsing is used.
+ *
+ * Coverage:
+ *   §1  Client-default — function with no escalation triggers stays 'client'
+ *   §2  Trigger 2 — protected field access escalates to 'server'
+ *   §3  Trigger 2 — destructuring of protected field escalates to 'server'
+ *   §4  Trigger 4 — explicit server annotation escalates to 'server'
+ *   §5  Trigger 1 — server-only resource access (Bun.file, fs.readFileSync, etc.)
+ *   §6  Direct-only escalation — caller of server fn stays client (no transitive escalation)
+ *   §7  Direct-only escalation — only direct-trigger functions escalate (multi-hop)
+ *   §8  Direct-only escalation — cycle detection (no infinite loop)
+ *   §9  E-RI-001 — pure + server-escalated = compile error
+ *   §10 E-RI-002 — server-escalated function with reactive assignment
+ *   §11 E-ROUTE-001 — computed member access produces warning
+ *   §12 External function calls are non-escalating
+ *   §13 Multiple escalation reasons accumulate
+ *   §14 pure function with no escalation — no error
+ *   §15 RouteMap entry shape — FunctionRoute fields correct
+ *   §16 PureDecl nodes appear in RouteMap
+ *   §17 Cross-file transitive escalation
+ *   §18 fn-shorthand nodes appear in RouteMap (fnKind==="fn")
+ */
+
+import { describe, test, expect } from "bun:test";
+import { runRI, RIError, buildPageRouteTree } from "../../src/route-inference.js";
+
+// ---------------------------------------------------------------------------
+// FileAST / ProtectAnalysis construction helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal span factory.
+ * @param {number} start
+ * @param {string} [file]
+ * @returns {{ file: string, start: number, end: number, line: number, col: number }}
+ */
+function span(start, file = "/test/app.scrml") {
+  return { file, start, end: start + 10, line: 1, col: start + 1 };
+}
+
+/**
+ * Build a function-decl LogicNode.
+ *
+ * @param {object} opts
+ * @param {string}   opts.name
+ * @param {string[]} [opts.params]
+ * @param {object[]} [opts.body]    — LogicNode[] (already parsed, no BareExpr wrappers)
+ * @param {boolean}  [opts.isServer]
+ * @param {string}   [opts.fnKind]  — 'function' | 'fn'
+ * @param {number}   [opts.spanStart]
+ * @param {string}   [opts.file]
+ * @returns {object}  — function-decl node
+ */
+function makeFunctionDecl({
+  name,
+  params = [],
+  body = [],
+  isServer = false,
+  fnKind = "function",
+  spanStart = 10,
+  file = "/test/app.scrml",
+}) {
+  return {
+    id: spanStart,
+    kind: "function-decl",
+    name,
+    params,
+    body,
+    fnKind,
+    isServer,
+    span: span(spanStart, file),
+  };
+}
+
+/**
+ * Build a pure-decl LogicNode.
+ *
+ * @param {object} opts
+ * @param {string}   opts.name
+ * @param {string[]} [opts.params]
+ * @param {object[]} [opts.body]
+ * @param {number}   [opts.spanStart]
+ * @param {string}   [opts.file]
+ * @returns {object}  — pure-decl node
+ */
+
+/**
+ * Build a bare-expr LogicNode.
+ *
+ * @param {string} expr
+ * @param {number} [spanStart]
+ * @param {string} [file]
+ * @returns {object}
+ */
+function makeBareExpr(expr, spanStart = 20, file = "/test/app.scrml") {
+  return {
+    id: spanStart,
+    kind: "bare-expr",
+    expr,
+    span: span(spanStart, file),
+  };
+}
+
+/**
+ * Build a let-decl LogicNode.
+ *
+ * @param {string} name
+ * @param {string} init
+ * @param {number} [spanStart]
+ * @param {string} [file]
+ * @returns {object}
+ */
+function makeLetDecl(name, init, spanStart = 30, file = "/test/app.scrml") {
+  return {
+    id: spanStart,
+    kind: "let-decl",
+    name,
+    init,
+    span: span(spanStart, file),
+  };
+}
+
+/**
+ * Build a reactive-decl LogicNode (@name = init).
+ *
+ * @param {string} name   — without the @ prefix
+ * @param {string} init
+ * @param {number} [spanStart]
+ * @param {string} [file]
+ * @returns {object}
+ */
+function makeReactiveDecl(name, init, spanStart = 40, file = "/test/app.scrml") {
+  return {
+    id: spanStart,
+    kind: "reactive-decl",
+    name,
+    init,
+    span: span(spanStart, file),
+  };
+}
+
+/**
+ * Build a minimal FileAST with a single logic block containing the given
+ * function nodes.
+ *
+ * @param {string}   filePath
+ * @param {object[]} fnNodes  — function-decl or pure-decl nodes
+ * @returns {object}  — FileAST
+ */
+function makeFileAST(filePath, fnNodes) {
+  return {
+    filePath,
+    nodes: [
+      {
+        id: 1,
+        kind: "logic",
+        body: fnNodes,
+        span: span(0, filePath),
+      },
+    ],
+    imports: [],
+    exports: [],
+    components: [],
+    typeDecls: [],
+    spans: new Map(),
+  };
+}
+
+/**
+ * Build a minimal ProtectAnalysis with the given protected fields for a
+ * single db state block.
+ *
+ * @param {string}   stateBlockId  — e.g. "/test/app.scrml::5"
+ * @param {string}   tableName
+ * @param {string[]} protectedFields
+ * @returns {{ views: Map<string, object> }}
+ */
+function makeProtectAnalysis(stateBlockId, tableName, protectedFields) {
+  const tableTypeView = {
+    tableName,
+    fullSchema: protectedFields.map(f => ({ name: f, sqlType: "TEXT", nullable: true, isPrimaryKey: false })),
+    clientSchema: [],
+    protectedFields: new Set(protectedFields),
+  };
+
+  const dbTypeViews = {
+    stateBlockId,
+    dbPath: "/test/app.db",
+    tables: new Map([[tableName, tableTypeView]]),
+  };
+
+  const views = new Map([[stateBlockId, dbTypeViews]]);
+  return { views };
+}
+
+/**
+ * Empty ProtectAnalysis (no protected fields).
+ * @returns {{ views: Map<string, object> }}
+ */
+function emptyProtectAnalysis() {
+  return { views: new Map() };
+}
+
+/**
+ * Helper: run RI and assert no errors.
+ */
+function runRIClean(files, protectAnalysis = emptyProtectAnalysis()) {
+  const result = runRI({ files, protectAnalysis });
+  return result;
+}
+
+/**
+ * Get a FunctionRoute by function name from a RouteMap.
+ * Searches all entries for a functionNodeId whose corresponding fnNode.name matches.
+ *
+ * Since FunctionNodeId is "{filePath}::{span.start}", we need to use the span.start
+ * we gave the function node.
+ */
+function getRoute(routeMap, filePath, spanStart) {
+  const id = `${filePath}::${spanStart}`;
+  return routeMap.functions.get(id);
+}
+
+// ---------------------------------------------------------------------------
+// §1  Client-default
+// ---------------------------------------------------------------------------
+
+describe("§1 — client-default: function with no escalation triggers", () => {
+  test("a plain function with no server access is 'client'", () => {
+    const fn = makeFunctionDecl({
+      name: "greet",
+      body: [makeBareExpr("return name + ' hello'")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route).toBeDefined();
+    expect(route.boundary).toBe("client");
+    expect(route.escalationReasons).toHaveLength(0);
+    expect(route.generatedRouteName).toBeNull();
+    expect(route.serverEntrySpan).toBeNull();
+    expect(errors.filter(e => e.code !== "E-ROUTE-001")).toHaveLength(0);
+  });
+
+  test("a function with arithmetic body is 'client'", () => {
+    const fn = makeFunctionDecl({
+      name: "add",
+      body: [makeBareExpr("return a + b")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("a function with let-decl body is 'client'", () => {
+    const fn = makeFunctionDecl({
+      name: "compute",
+      body: [
+        makeLetDecl("x", "a * 2"),
+        makeBareExpr("return x + b"),
+      ],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("all functions in file are represented in routeMap", () => {
+    const fn1 = makeFunctionDecl({ name: "a", spanStart: 10 });
+    const fn2 = makeFunctionDecl({ name: "b", spanStart: 50 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn1, fn2]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    expect(routeMap.functions.size).toBe(2);
+    expect(getRoute(routeMap, "/test/app.scrml", 10)).toBeDefined();
+    expect(getRoute(routeMap, "/test/app.scrml", 50)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §2  Trigger 2 — protected field access via member expression
+// ---------------------------------------------------------------------------
+
+describe("§2 — trigger 2: protected field access via member expression", () => {
+  test("bare-expr with .protectedField access escalates to 'server'", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "checkPassword",
+      body: [makeBareExpr("return row.passwordHash === hash")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons).toHaveLength(1);
+    expect(route.escalationReasons[0].kind).toBe("protected-field-access");
+    expect(route.escalationReasons[0].field).toBe("passwordHash");
+    expect(errors.filter(e => e.code === "E-RI-001" || e.code === "E-RI-002")).toHaveLength(0);
+  });
+
+  test("function without protected field access stays 'client' even with PA present", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "displayUser",
+      body: [makeBareExpr("return row.name")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("accessing a non-protected field does not escalate", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "getName",
+      body: [makeBareExpr("return user.email")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("protected field access in a chained member expr escalates", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["ssn"]);
+
+    const fn = makeFunctionDecl({
+      name: "checkSsn",
+      body: [makeBareExpr("if (result.user.ssn === input) return true")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3  Trigger 2 — destructuring of protected field
+// ---------------------------------------------------------------------------
+
+describe("§3 — trigger 2: destructuring of protected field", () => {
+  test("let-decl with destructuring of protected field escalates", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    // `let { name, passwordHash } = row` produces let-decl with name="" init="{ name, passwordHash } = row"
+    const fn = makeFunctionDecl({
+      name: "displayUser",
+      body: [makeLetDecl("", "{ name, passwordHash } = users.find(userId)")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].kind).toBe("protected-field-access");
+    expect(route.escalationReasons[0].field).toBe("passwordHash");
+  });
+
+  test("let-decl destructuring without protected field does not escalate", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "display",
+      body: [makeLetDecl("", "{ name, email } = users.find(userId)")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("destructuring with aliased rename syntax detected via field name", () => {
+    // `let { passwordHash: ph } = row` — init is "{ passwordHash: ph } = row"
+    // The field name appears before the colon — should match.
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "checkHash",
+      body: [makeLetDecl("", "{ passwordHash: ph } = row")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §4  Trigger 4 — explicit server annotation
+// ---------------------------------------------------------------------------
+
+describe("§4 — trigger 4: explicit server annotation", () => {
+  test("isServer: true escalates to 'server' with explicit-annotation reason", () => {
+    const fn = makeFunctionDecl({
+      name: "loadData",
+      isServer: true,
+      body: [makeBareExpr("return fetchData()")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons).toHaveLength(1);
+    expect(route.escalationReasons[0].kind).toBe("explicit-annotation");
+    expect(route.generatedRouteName).not.toBeNull();
+    expect(route.generatedRouteName).toContain("loadData");
+    // No E-RI-001 or E-RI-002 errors (no pure, no reactive assignment).
+    expect(errors.filter(e => e.code === "E-RI-001" || e.code === "E-RI-002")).toHaveLength(0);
+  });
+
+  test("explicit annotation produces non-null serverEntrySpan", () => {
+    const fn = makeFunctionDecl({ name: "action", isServer: true });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.serverEntrySpan).not.toBeNull();
+    expect(route.serverEntrySpan.start).toBe(10);
+  });
+
+  test("isServer: false does not trigger explicit-annotation escalation", () => {
+    const fn = makeFunctionDecl({ name: "clientFn", isServer: false });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+    const annotationReasons = route.escalationReasons.filter(r => r.kind === "explicit-annotation");
+    expect(annotationReasons).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §5  Trigger 1 — server-only resource access
+// ---------------------------------------------------------------------------
+
+describe("§5 — trigger 1: server-only resource access", () => {
+  test("Bun.file() access escalates to 'server' with server-only-resource reason", () => {
+    const fn = makeFunctionDecl({
+      name: "readConfig",
+      body: [makeBareExpr("const file = Bun.file('/etc/config.json')")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].kind).toBe("server-only-resource");
+    expect(route.escalationReasons[0].resourceType).toBe("Bun.file");
+  });
+
+  test("fs.readFileSync access escalates to 'server'", () => {
+    const fn = makeFunctionDecl({
+      name: "loadFile",
+      body: [makeBareExpr("return fs.readFileSync('/data/config.txt', 'utf8')")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].kind).toBe("server-only-resource");
+    expect(route.escalationReasons[0].resourceType).toBe("fs.readFileSync");
+  });
+
+  test("Bun.env access escalates to 'server'", () => {
+    const fn = makeFunctionDecl({
+      name: "getSecret",
+      body: [makeBareExpr("return Bun.env.API_KEY")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].resourceType).toBe("Bun.env");
+  });
+
+  test("process.env access escalates to 'server'", () => {
+    const fn = makeFunctionDecl({
+      name: "getKey",
+      body: [makeBareExpr("return process.env.SECRET")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+  });
+
+  test("SQL block itself (bare-expr) does NOT auto-trigger server escalation", () => {
+    // Per §12.2 Trigger 1 note: ?{} SQL does NOT auto-trigger via trigger 1.
+    // In a function body, SQL would appear as a bare-expr referencing a SQL query.
+    // Here we simulate a function that uses db but does not access protected fields.
+    const fn = makeFunctionDecl({
+      name: "fetchAll",
+      body: [makeBareExpr("return users.findAll()")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("Bun.write() escalates to 'server'", () => {
+    const fn = makeFunctionDecl({
+      name: "writeLog",
+      body: [makeBareExpr("await Bun.write('/var/log/app.log', message)")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].resourceType).toBe("Bun.write");
+  });
+
+  test("new Database() escalates to 'server'", () => {
+    const fn = makeFunctionDecl({
+      name: "openDb",
+      body: [makeBareExpr("const db = new Database('/path/to.db')")],
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+  });
+
+  test("reactive-decl with SQL init escalates to server (BUG-REACTIVE-SERVER-LEAK)", () => {
+    // @users = ?{`SELECT * FROM users`} inside a function body must escalate to server.
+    // Previously, walkBodyForTriggers skipped detectServerOnlyResource for reactive-decl
+    // nodes, leaving the function as client-boundary and causing E-CG-006.
+    const fn = makeFunctionDecl({
+      name: "loadUsers",
+      body: [makeReactiveDecl("users", "?{`SELECT id, name FROM users`}")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons.length).toBeGreaterThan(0);
+    expect(route.escalationReasons[0].kind).toBe("server-only-resource");
+    expect(route.escalationReasons[0].resourceType).toBe("sql-query");
+  });
+
+  test("reactive-decl without SQL in init stays client-boundary", () => {
+    // @count = 0 has no server trigger — must stay client.
+    const fn = makeFunctionDecl({
+      name: "resetCount",
+      body: [makeReactiveDecl("count", "0")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §6  Transitive escalation — single hop
+// ---------------------------------------------------------------------------
+
+describe("§6 — direct-only escalation: calling server fn stays client", () => {
+  test("caller of server-escalated function stays client (no transitive escalation)", () => {
+    // serverFn is explicitly server-escalated.
+    // clientCaller calls serverFn — with direct-only escalation, it stays CLIENT.
+    const serverFn = makeFunctionDecl({
+      name: "serverFn",
+      isServer: true,
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "clientCaller",
+      body: [makeBareExpr("serverFn(data)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, callerFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const callerRoute = getRoute(routeMap, "/test/app.scrml", 50);
+    // Direct-only escalation: clientCaller has no direct triggers — stays client.
+    // The server call becomes a fetch stub at codegen time.
+    expect(callerRoute.boundary).toBe("client");
+    expect(callerRoute.escalationReasons).toHaveLength(0);
+  });
+
+  test("callee that is 'client' does not escalate its caller", () => {
+    const clientFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return x + 1")],
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "useHelper",
+      body: [makeBareExpr("return helper(5)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [clientFn, callerFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const callerRoute = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(callerRoute.boundary).toBe("client");
+  });
+
+  test("server-escalated function itself is in the routeMap", () => {
+    const serverFn = makeFunctionDecl({ name: "dbFn", isServer: true, spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route).toBeDefined();
+    expect(route.boundary).toBe("server");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §7  Transitive escalation — multi-hop
+// ---------------------------------------------------------------------------
+
+describe("§7 — direct-only escalation: only direct-trigger functions escalate", () => {
+  test("three-hop chain: A calls B calls C (server) — only C escalated (direct trigger)", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["secretToken"]);
+
+    // C accesses protected field directly.
+    const fnC = makeFunctionDecl({
+      name: "C",
+      body: [makeBareExpr("return row.secretToken")],
+      spanStart: 10,
+    });
+    // B calls C.
+    const fnB = makeFunctionDecl({
+      name: "B",
+      body: [makeBareExpr("return C(data)")],
+      spanStart: 50,
+    });
+    // A calls B.
+    const fnA = makeFunctionDecl({
+      name: "A",
+      body: [makeBareExpr("return B(input)")],
+      spanStart: 90,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fnC, fnB, fnA]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const routeC = getRoute(routeMap, "/test/app.scrml", 10);
+    const routeB = getRoute(routeMap, "/test/app.scrml", 50);
+    const routeA = getRoute(routeMap, "/test/app.scrml", 90);
+
+    expect(routeC.boundary).toBe("server"); // C has direct trigger (protected field)
+    // With direct-only escalation, B and A stay client-side.
+    // They call server functions but use fetch stubs — no transitive escalation.
+    expect(routeB.boundary).toBe("client");
+    expect(routeA.boundary).toBe("client");
+  });
+
+  test("unrelated function in same file is not escalated", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["ssn"]);
+
+    const fnProtected = makeFunctionDecl({
+      name: "getSSN",
+      body: [makeBareExpr("return row.ssn")],
+      spanStart: 10,
+    });
+    const fnUnrelated = makeFunctionDecl({
+      name: "sayHello",
+      body: [makeBareExpr("return 'hello'")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fnProtected, fnUnrelated]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const routeUnrelated = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(routeUnrelated.boundary).toBe("client");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §8  Transitive escalation — cycle detection
+// ---------------------------------------------------------------------------
+
+describe("§8 — direct-only escalation: cycle detection (no infinite loop)", () => {
+  test("mutually recursive functions — no infinite loop, cycle breaks cleanly", () => {
+    // A calls B, B calls A — cycle.
+    // Neither directly accesses protected fields or server resources.
+    // Expected: both are 'client'.
+    const fnA = makeFunctionDecl({
+      name: "A",
+      body: [makeBareExpr("return B(x)")],
+      spanStart: 10,
+    });
+    const fnB = makeFunctionDecl({
+      name: "B",
+      body: [makeBareExpr("return A(x)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fnA, fnB]);
+    // This must complete without hanging.
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const routeA = getRoute(routeMap, "/test/app.scrml", 10);
+    const routeB = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(routeA.boundary).toBe("client");
+    expect(routeB.boundary).toBe("client");
+  });
+
+  test("cycle where one member is server-escalated — only server-annotated member escalates", () => {
+    // A calls B (server), B calls A — cycle where B is server.
+    // B has direct annotation — stays server.
+    // A calls B but has no direct triggers — stays client.
+    const fnA = makeFunctionDecl({
+      name: "A",
+      body: [makeBareExpr("return B(x)")],
+      spanStart: 10,
+    });
+    const fnB = makeFunctionDecl({
+      name: "B",
+      isServer: true,
+      body: [makeBareExpr("return A(x)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fnA, fnB]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const routeB = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(routeB.boundary).toBe("server"); // B has direct annotation
+    // A calls B (server) but A has no direct triggers — stays client.
+    const routeA = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(routeA.boundary).toBe("client");
+  });
+
+  test("three-way cycle — no infinite loop", () => {
+    // A → B → C → A (cycle).
+    const fnA = makeFunctionDecl({ name: "A", body: [makeBareExpr("return B()")], spanStart: 10 });
+    const fnB = makeFunctionDecl({ name: "B", body: [makeBareExpr("return C()")], spanStart: 50 });
+    const fnC = makeFunctionDecl({ name: "C", body: [makeBareExpr("return A()")], spanStart: 90 });
+    const fileAST = makeFileAST("/test/app.scrml", [fnA, fnB, fnC]);
+
+    // Must complete without infinite loop or stack overflow.
+    const { routeMap } = runRIClean([fileAST]);
+    expect(routeMap.functions.size).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §9  E-RI-001 — pure + server-escalated
+// ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// §10 E-RI-002 — server-escalated function with reactive assignment
+// ---------------------------------------------------------------------------
+
+describe("§10 — E-RI-002: server-escalated function assigns to @reactive variable", () => {
+  test("server function with reactive-decl assignment produces E-RI-002", () => {
+    const fn = makeFunctionDecl({
+      name: "updateCount",
+      isServer: true,
+      body: [
+        makeBareExpr("fetchData()"),
+        makeReactiveDecl("count", "5"),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(1);
+    expect(riErrors[0].message).toContain("E-RI-002");
+  });
+
+  test("E-RI-002 only fires on server-escalated functions, not client functions", () => {
+    // A client function that assigns @reactive is fine (it's the expected pattern).
+    const fn = makeFunctionDecl({
+      name: "onClick",
+      isServer: false,
+      body: [makeReactiveDecl("count", "count + 1")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+  });
+
+  test("client function calling server fn with reactive assignment — stays client, no E-RI-002", () => {
+    const serverFn = makeFunctionDecl({ name: "serverHelper", isServer: true, spanStart: 10 });
+    // Caller has no direct triggers — stays CLIENT.
+    // Client functions can freely assign reactive state. No CPS needed.
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      body: [
+        makeBareExpr("serverHelper()"),
+        makeReactiveDecl("result", "serverHelper()"),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, callerFn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // With direct-only escalation: caller is CLIENT (no direct triggers).
+    // Client functions can assign reactive state freely. No E-RI-002.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const callerRoute = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(callerRoute.boundary).toBe("client");
+    expect(callerRoute.cpsSplit).toBeNull();
+  });
+
+  test("server function without reactive assignment — no E-RI-002", () => {
+    const fn = makeFunctionDecl({
+      name: "fetchUser",
+      isServer: true,
+      body: [makeBareExpr("return getUser(id)")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+  });
+
+
+  test("purely transitive escalation with @reactive = serverFn() — CPS handles, no E-RI-002", () => {
+    // A function that calls a server function and assigns the result to @reactive.
+    // The function has NO direct server triggers (no SQL, no Bun.*, no protected fields,
+    // no explicit server annotation). It is escalated only via transitive callee.
+    // CPS transformation handles this: @data = fetchData() is a reactive-server pattern.
+    // E-RI-002 must NOT fire.
+    const serverFn = makeFunctionDecl({
+      name: "fetchData",
+      isServer: true,
+      body: [makeBareExpr("return getRecords()")],
+      spanStart: 10,
+    });
+    const clientFn = makeFunctionDecl({
+      name: "loadData",
+      body: [makeReactiveDecl("data", "fetchData()", 60)],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, clientFn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+  });
+
+  test("function calling server fn with reactive in nested if-stmt — stays client, no E-RI-002", () => {
+    // A function with no direct server triggers that has a reactive assignment NESTED
+    // inside an if-stmt. With direct-only escalation, this function stays client-side.
+    // Client functions can mutate reactive state at any nesting depth. No E-RI-002.
+    const serverFn = makeFunctionDecl({
+      name: "fetchData",
+      isServer: true,
+      body: [makeBareExpr("return getRecords()")],
+      spanStart: 10,
+    });
+    const ifStmt = {
+      id: 71,
+      kind: "if-stmt",
+      condition: "@shouldLoad",
+      consequent: [makeReactiveDecl("data", "fetchData()", 72)],
+      alternate: null,
+      span: span(71),
+    };
+    const clientFn = makeFunctionDecl({
+      name: "conditionalLoad",
+      body: [ifStmt, makeBareExpr("fetchData()", 80)],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, clientFn]);
+    const { errors } = runRIClean([fileAST]);
+
+    // conditionalLoad has no direct server triggers — it is client-side.
+    // Client functions can freely assign reactive state. E-RI-002 must NOT fire.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+  });
+
+  test("function calling server fn (via callee) with nested reactive — stays client, no E-RI-002", () => {
+    // A function with no direct server triggers (no explicit annotation, no protect=
+    // access, no SQL, no Bun.*). It has a reactive assignment nested inside an if-stmt.
+    // With direct-only escalation, this function stays CLIENT. No E-RI-002.
+    const serverFn = makeFunctionDecl({
+      name: "doServerWork",
+      isServer: true,
+      body: [makeBareExpr("return performWork()")],
+      spanStart: 10,
+    });
+    // The caller is transitively escalated via doServerWork().
+    // The reactive assignment is nested inside an if-stmt — CPS cannot split it.
+    const ifStmt = {
+      id: 81,
+      kind: "if-stmt",
+      condition: "shouldRun",
+      consequent: [makeReactiveDecl("result", "doServerWork()", 82)],
+      alternate: null,
+      span: span(81),
+    };
+    const callerFn = makeFunctionDecl({
+      name: "orchestrate",
+      body: [ifStmt, makeBareExpr("doServerWork()", 90)],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, callerFn]);
+    const { errors } = runRIClean([fileAST]);
+
+    // orchestrate has no direct triggers — it is client. E-RI-002 must NOT fire.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §11 E-ROUTE-001 — computed member access warning
+// ---------------------------------------------------------------------------
+
+describe("§11 — E-ROUTE-001: computed member access warning", () => {
+  test("computed member access in bare-expr produces E-ROUTE-001 warning", () => {
+    const fn = makeFunctionDecl({
+      name: "getDynField",
+      body: [makeBareExpr("return row[fieldKey]")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const warnings = errors.filter(e => e.code === "E-ROUTE-001");
+    expect(warnings.length).toBeGreaterThanOrEqual(1);
+    expect(warnings[0].message).toContain("E-ROUTE-001");
+  });
+
+  test("E-ROUTE-001 does NOT escalate the function to server", () => {
+    const fn = makeFunctionDecl({
+      name: "getDynField",
+      body: [makeBareExpr("return row[fieldKey]")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("function with direct access only (no computed) — no E-ROUTE-001", () => {
+    const fn = makeFunctionDecl({
+      name: "getName",
+      body: [makeBareExpr("return row.name")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const warnings = errors.filter(e => e.code === "E-ROUTE-001");
+    expect(warnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §12 External function calls are non-escalating
+// ---------------------------------------------------------------------------
+
+describe("§12 — external function calls: non-escalating by default", () => {
+  test("calling console.log (external) does not escalate function", () => {
+    const fn = makeFunctionDecl({
+      name: "logSomething",
+      body: [makeBareExpr("console.log(message)")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("calling Math.max (external built-in) does not escalate", () => {
+    const fn = makeFunctionDecl({
+      name: "getMax",
+      body: [makeBareExpr("return Math.max(a, b)")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("calling fetch (external browser API) does not escalate", () => {
+    const fn = makeFunctionDecl({
+      name: "loadUrl",
+      body: [makeBareExpr("return fetch('https://example.com')")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("function calling only external functions stays client even with many callees", () => {
+    const fn = makeFunctionDecl({
+      name: "process",
+      body: [
+        makeBareExpr("const a = parseInt(x)"),
+        makeBareExpr("const b = parseFloat(y)"),
+        makeBareExpr("return JSON.stringify({ a, b })"),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §13 Multiple escalation reasons accumulate
+// ---------------------------------------------------------------------------
+
+describe("§13 — multiple escalation reasons accumulate", () => {
+  test("function with both explicit annotation and protected field access: both reasons", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "serverWithProtected",
+      isServer: true,
+      body: [makeBareExpr("return row.passwordHash")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons.length).toBeGreaterThanOrEqual(2);
+
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("explicit-annotation");
+    expect(kinds).toContain("protected-field-access");
+  });
+
+  test("function with server resource and protected field: both reasons recorded", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["ssn"]);
+
+    const fn = makeFunctionDecl({
+      name: "multiTrigger",
+      body: [
+        makeBareExpr("const f = Bun.file('/data')"),
+        makeBareExpr("return row.ssn"),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    const kinds = route.escalationReasons.map(r => r.kind);
+    expect(kinds).toContain("server-only-resource");
+    expect(kinds).toContain("protected-field-access");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §14 pure function with no escalation — no error, stays client
+// ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// §15 RouteMap entry shape — FunctionRoute fields correct
+// ---------------------------------------------------------------------------
+
+describe("§15 — FunctionRoute entry shape", () => {
+  test("client FunctionRoute has null generatedRouteName and null serverEntrySpan", () => {
+    const fn = makeFunctionDecl({ name: "clientFn", spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.functionNodeId).toBe("/test/app.scrml::10");
+    expect(route.boundary).toBe("client");
+    expect(route.escalationReasons).toEqual([]);
+    expect(route.generatedRouteName).toBeNull();
+    expect(route.serverEntrySpan).toBeNull();
+  });
+
+  test("server FunctionRoute has non-null generatedRouteName and serverEntrySpan", () => {
+    const fn = makeFunctionDecl({ name: "serverFn", isServer: true, spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.functionNodeId).toBe("/test/app.scrml::10");
+    expect(route.boundary).toBe("server");
+    expect(route.generatedRouteName).not.toBeNull();
+    expect(typeof route.generatedRouteName).toBe("string");
+    expect(route.serverEntrySpan).not.toBeNull();
+    expect(route.serverEntrySpan.start).toBe(10);
+  });
+
+  test("FunctionNodeId format is '{filePath}::{span.start}'", () => {
+    const fn = makeFunctionDecl({ name: "fn", spanStart: 77, file: "/project/main.scrml" });
+    const fileAST = makeFileAST("/project/main.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = routeMap.functions.get("/project/main.scrml::77");
+    expect(route).toBeDefined();
+    expect(route.functionNodeId).toBe("/project/main.scrml::77");
+  });
+
+  test("routeMap.functions is a Map", () => {
+    const fn = makeFunctionDecl({ name: "fn", spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    expect(routeMap.functions).toBeInstanceOf(Map);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §16 PureDecl nodes appear in RouteMap
+// ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// §17 Cross-file transitive escalation
+// ---------------------------------------------------------------------------
+
+describe("§17 — cross-file direct-only escalation", () => {
+  test("function in fileA calling server function in fileB — stays client (no transitive escalation)", () => {
+    // fileB has a server-escalated function.
+    const serverFn = makeFunctionDecl({
+      name: "serverAction",
+      isServer: true,
+      spanStart: 10,
+      file: "/test/fileB.scrml",
+    });
+    const fileB = makeFileAST("/test/fileB.scrml", [serverFn]);
+
+    // fileA calls serverAction (defined in fileB).
+    // With direct-only escalation, the caller stays client-side and uses a fetch stub.
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      body: [makeBareExpr("return serverAction(data)")],
+      spanStart: 20,
+      file: "/test/fileA.scrml",
+    });
+    const fileA = makeFileAST("/test/fileA.scrml", [callerFn]);
+
+    const { routeMap } = runRIClean([fileA, fileB]);
+
+    const callerRoute = routeMap.functions.get("/test/fileA.scrml::20");
+    expect(callerRoute).toBeDefined();
+    expect(callerRoute.boundary).toBe("client");
+  });
+
+  test("cross-file: caller of client function stays client", () => {
+    const clientFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return x + 1")],
+      spanStart: 10,
+      file: "/test/fileB.scrml",
+    });
+    const fileB = makeFileAST("/test/fileB.scrml", [clientFn]);
+
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      body: [makeBareExpr("return helper(5)")],
+      spanStart: 20,
+      file: "/test/fileA.scrml",
+    });
+    const fileA = makeFileAST("/test/fileA.scrml", [callerFn]);
+
+    const { routeMap } = runRIClean([fileA, fileB]);
+
+    const callerRoute = routeMap.functions.get("/test/fileA.scrml::20");
+    expect(callerRoute.boundary).toBe("client");
+  });
+
+  test("cross-file cycle — no infinite loop, terminates", () => {
+    // fileA.A calls fileB.B, fileB.B calls fileA.A — cross-file cycle.
+    const fnA = makeFunctionDecl({
+      name: "A",
+      body: [makeBareExpr("return B()")],
+      spanStart: 10,
+      file: "/test/fileA.scrml",
+    });
+    const fileA = makeFileAST("/test/fileA.scrml", [fnA]);
+
+    const fnB = makeFunctionDecl({
+      name: "B",
+      body: [makeBareExpr("return A()")],
+      spanStart: 10,
+      file: "/test/fileB.scrml",
+    });
+    const fileB = makeFileAST("/test/fileB.scrml", [fnB]);
+
+    // Must terminate.
+    const { routeMap } = runRIClean([fileA, fileB]);
+    expect(routeMap.functions.size).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §18 fn-shorthand nodes (fnKind === 'fn') in RouteMap
+// ---------------------------------------------------------------------------
+
+describe("§18 — fn-shorthand nodes in RouteMap", () => {
+  test("function-decl with fnKind='fn' appears in routeMap", () => {
+    const fn = makeFunctionDecl({ name: "shortFn", fnKind: "fn", spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route).toBeDefined();
+    expect(route.boundary).toBe("client");
+  });
+
+  test("server fn-shorthand is escalated via explicit annotation", () => {
+    const fn = makeFunctionDecl({ name: "serverShort", fnKind: "fn", isServer: true, spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].kind).toBe("explicit-annotation");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19 Empty file — no errors, empty routeMap
+// ---------------------------------------------------------------------------
+
+describe("§19 — edge cases", () => {
+  test("empty files array produces empty routeMap and no errors", () => {
+    const { routeMap, errors } = runRIClean([]);
+    expect(routeMap.functions.size).toBe(0);
+    expect(errors).toHaveLength(0);
+  });
+
+  test("file with no function nodes produces empty routeMap", () => {
+    const fileAST = {
+      filePath: "/test/empty.scrml",
+      nodes: [],
+      imports: [],
+      exports: [],
+      components: [],
+      typeDecls: [],
+      spans: new Map(),
+    };
+    const { routeMap } = runRIClean([fileAST]);
+    expect(routeMap.functions.size).toBe(0);
+  });
+
+  test("errors array is always an array (never undefined)", () => {
+    const fn = makeFunctionDecl({ name: "fn", spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+    expect(Array.isArray(errors)).toBe(true);
+  });
+
+  test("routeMap.functions is a Map even for empty input", () => {
+    const { routeMap } = runRIClean([]);
+    expect(routeMap.functions).toBeInstanceOf(Map);
+  });
+
+  test("function with no body nodes is client-default", () => {
+    const fn = makeFunctionDecl({ name: "noop", body: [], spanStart: 10 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+
+  test("runRI returns no-throw on null-ish node in body", () => {
+    const fn = makeFunctionDecl({
+      name: "weirdFn",
+      body: [null, undefined, makeBareExpr("return 1")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    // Should not throw.
+    expect(() => runRIClean([fileAST])).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §20 CPS transformation — server/client boundary splitting
+// ---------------------------------------------------------------------------
+
+describe("§20 — CPS transformation: server/client boundary splitting", () => {
+  test("classic loadData pattern: @loading, server call, @data — client fn, no E-RI-002", () => {
+    // The canonical loadData pattern:
+    //   @loading = true
+    //   fetchFromDB()        // fetchFromDB is server-escalated (direct annotation)
+    //   @loading = false
+    // With direct-only escalation: loadData has no direct server triggers.
+    // loadData stays CLIENT-side. The fetch stub handles the server call.
+    // Client functions can freely set @reactive — no E-RI-002, no CPS needed.
+    const fetchFn = makeFunctionDecl({
+      name: "fetchFromDB",
+      isServer: true,
+      body: [makeBareExpr("return db.query('SELECT * FROM users')")],
+      spanStart: 10,
+    });
+    const loadData = makeFunctionDecl({
+      name: "loadData",
+      body: [
+        makeReactiveDecl("loading", "true", 60),
+        makeBareExpr("fetchFromDB()", 70),
+        makeReactiveDecl("loading", "false", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fetchFn, loadData]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // No E-RI-002 — loadData is a client function, reactive assignments are fine.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    // loadData is client with no cpsSplit needed.
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.boundary).toBe("client");
+    expect(route.cpsSplit).toBeNull();
+  });
+
+  test("@data = serverCall() pattern — client fn, no E-RI-002, no cpsSplit", () => {
+    const serverFn = makeFunctionDecl({
+      name: "getUsers",
+      isServer: true,
+      body: [makeBareExpr("return db.query('SELECT * FROM users')")],
+      spanStart: 10,
+    });
+    const loadFn = makeFunctionDecl({
+      name: "loadUsers",
+      body: [
+        makeReactiveDecl("loading", "true", 60),
+        makeReactiveDecl("data", "getUsers()", 70),
+        makeReactiveDecl("loading", "false", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, loadFn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // With direct-only escalation: loadUsers has no direct server triggers.
+    // It stays CLIENT-side. No E-RI-002, no CPS needed.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.boundary).toBe("client");
+    expect(route.cpsSplit).toBeNull();
+  });
+
+  test("function with explicit server annotation but no server body statements — E-RI-002 stands", () => {
+    // isServer: true escalates the function, but no individual body statement
+    // is a server trigger. CPS cannot split because there are no server statements.
+    const fn = makeFunctionDecl({
+      name: "annotatedFn",
+      isServer: true,
+      body: [
+        makeReactiveDecl("count", "count + 1"),
+        makeBareExpr("console.log(count)"),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // CPS not eligible because no server statements in body — E-RI-002 fires.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(1);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.cpsSplit).toBeNull();
+  });
+
+  test("CPS split with Bun.file server trigger in bare-expr", () => {
+    const fn = makeFunctionDecl({
+      name: "loadConfig",
+      body: [
+        makeReactiveDecl("loading", "true", 60),
+        makeBareExpr("const config = Bun.file('/etc/config.json')", 70),
+        makeReactiveDecl("config", "config", 80),
+        makeReactiveDecl("loading", "false", 90),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toEqual([1]); // Bun.file is index 1
+    expect(route.cpsSplit.clientStmtIndices).toEqual([0, 2, 3]); // reactive assignments
+  });
+
+  test("mixed statement (bare-expr with @var AND server resource) — CPS NOT eligible, E-RI-002 fires", () => {
+    // A bare-expr that both assigns @reactive AND accesses a server-only resource:
+    // CPS cannot split a single expression. E-RI-002 fires for all server-escalated
+    // functions where CPS is not eligible, regardless of the escalation reason.
+    const fn = makeFunctionDecl({
+      name: "mixedFn",
+      body: [
+        { id: 60, kind: "bare-expr", expr: "@data = Bun.file('/etc/data.json')", span: span(60) },
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // E-RI-002 fires: CPS is not eligible for this single mixed expression.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(1);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.cpsSplit).toBeNull();
+  });
+
+  test("client-only function with reactive assignments — no cpsSplit, no E-RI-002", () => {
+    const fn = makeFunctionDecl({
+      name: "increment",
+      body: [makeReactiveDecl("count", "count + 1")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("client");
+    expect(route.cpsSplit).toBeNull();
+  });
+
+  test("server function with no reactive assignments — no cpsSplit, no E-RI-002", () => {
+    const fn = makeFunctionDecl({
+      name: "fetchUser",
+      isServer: true,
+      body: [makeBareExpr("return getUser(id)")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).toBeNull();
+  });
+
+  test("cpsSplit is null for all client-boundary functions", () => {
+    const fn1 = makeFunctionDecl({ name: "a", spanStart: 10 });
+    const fn2 = makeFunctionDecl({ name: "b", spanStart: 50 });
+    const fileAST = makeFileAST("/test/app.scrml", [fn1, fn2]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    for (const [, route] of routeMap.functions) {
+      expect(route.cpsSplit).toBeNull();
+    }
+  });
+
+  test("protected field access as server trigger enables CPS split", () => {
+    const pa = makeProtectAnalysis("/test/app.scrml::0", "users", ["passwordHash"]);
+
+    const fn = makeFunctionDecl({
+      name: "verifyUser",
+      body: [
+        makeReactiveDecl("status", "'checking'", 60),
+        makeBareExpr("const result = row.passwordHash === input", 70),
+        makeReactiveDecl("status", "'done'", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRI({ files: [fileAST], protectAnalysis: pa });
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toEqual([1]);
+    expect(route.cpsSplit.clientStmtIndices).toEqual([0, 2]);
+  });
+
+  test("SQL block as server trigger enables CPS split", () => {
+    const fn = makeFunctionDecl({
+      name: "queryAndUpdate",
+      body: [
+        makeReactiveDecl("loading", "true", 60),
+        { id: 70, kind: "sql", query: "SELECT * FROM users", span: span(70) },
+        makeReactiveDecl("loading", "false", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toEqual([1]);
+  });
+
+  test("multiple server statements in CPS split", () => {
+    const fn = makeFunctionDecl({
+      name: "multiServer",
+      body: [
+        makeReactiveDecl("status", "'starting'", 60),
+        makeBareExpr("const file1 = Bun.file('/a')", 70),
+        makeBareExpr("const file2 = Bun.file('/b')", 80),
+        makeReactiveDecl("status", "'done'", 90),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toEqual([1, 2]);
+    expect(route.cpsSplit.clientStmtIndices).toEqual([0, 3]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19 — Explicit route= and method= attributes
+// ---------------------------------------------------------------------------
+
+describe("§19 — explicit route= and method= attributes", () => {
+  test("server function with route= uses explicit route as generatedRouteName", () => {
+    const fn = makeFunctionDecl({
+      name: "oauthCallback",
+      isServer: true,
+      body: [makeBareExpr("return handleOAuth()")],
+      spanStart: 10,
+    });
+    fn.route = "/oauth/callback";
+    fn.method = "GET";
+
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.generatedRouteName).toBe("/oauth/callback");
+    expect(route.explicitRoute).toBe("/oauth/callback");
+    expect(route.explicitMethod).toBe("GET");
+  });
+
+  test("server function without route= gets generated route name", () => {
+    const fn = makeFunctionDecl({
+      name: "fetchData",
+      isServer: true,
+      body: [makeBareExpr("return getData()")],
+      spanStart: 10,
+    });
+
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.generatedRouteName).toContain("__ri_route_fetchData");
+    expect(route.explicitRoute).toBeNull();
+    expect(route.explicitMethod).toBeNull();
+  });
+
+  test("function with route= but no server triggers is still client", () => {
+    const fn = makeFunctionDecl({
+      name: "hello",
+      body: [makeBareExpr("console.log('hi')")],
+      spanStart: 10,
+    });
+    fn.route = "/hello";
+    fn.method = "GET";
+
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    // No server triggers, so it stays client even with route= attribute
+    expect(route.boundary).toBe("client");
+    expect(route.generatedRouteName).toBeNull();
+  });
+
+  test("server function with route= only (no method=) defaults explicitMethod to null", () => {
+    const fn = makeFunctionDecl({
+      name: "webhook",
+      isServer: true,
+      body: [makeBareExpr("return processWebhook()")],
+      spanStart: 10,
+    });
+    fn.route = "/webhooks/stripe";
+
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.explicitRoute).toBe("/webhooks/stripe");
+    expect(route.explicitMethod).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19 File-based page routing — buildPageRouteTree
+// ---------------------------------------------------------------------------
+
+describe("buildPageRouteTree", () => {
+  test("index.scrml in routes/ maps to /", () => {
+    const files = [makeFileAST("/app/src/routes/index.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    expect(pages.size).toBe(1);
+    const page = pages.get("/app/src/routes/index.scrml");
+    expect(page).toBeDefined();
+    expect(page.urlPattern).toBe("/");
+    expect(page.params).toEqual([]);
+    expect(page.isCatchAll).toBe(false);
+  });
+
+  test("static file maps to its name as URL segment", () => {
+    const files = [makeFileAST("/app/src/routes/about.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("/app/src/routes/about.scrml");
+    expect(page.urlPattern).toBe("/about");
+    expect(page.params).toEqual([]);
+  });
+
+  test("nested static file maps to nested URL", () => {
+    const files = [makeFileAST("/app/src/routes/users/settings.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("/app/src/routes/users/settings.scrml");
+    expect(page.urlPattern).toBe("/users/settings");
+    expect(page.params).toEqual([]);
+  });
+
+  test("[param].scrml maps to dynamic segment :param", () => {
+    const files = [makeFileAST("/app/src/routes/users/[id].scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("/app/src/routes/users/[id].scrml");
+    expect(page.urlPattern).toBe("/users/:id");
+    expect(page.params).toEqual(["id"]);
+    expect(page.isCatchAll).toBe(false);
+  });
+
+  test("[...slug].scrml maps to catch-all route", () => {
+    const files = [makeFileAST("/app/src/routes/posts/[...slug].scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("/app/src/routes/posts/[...slug].scrml");
+    expect(page.urlPattern).toBe("/posts/*slug");
+    expect(page.params).toEqual(["slug"]);
+    expect(page.isCatchAll).toBe(true);
+  });
+
+  test("nested index.scrml maps to parent directory URL", () => {
+    const files = [makeFileAST("/app/src/routes/users/index.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("/app/src/routes/users/index.scrml");
+    expect(page.urlPattern).toBe("/users");
+  });
+
+  test("_layout.scrml is excluded from page routes", () => {
+    const files = [
+      makeFileAST("/app/src/routes/_layout.scrml", []),
+      makeFileAST("/app/src/routes/index.scrml", []),
+    ];
+    const pages = buildPageRouteTree(files);
+    expect(pages.has("/app/src/routes/_layout.scrml")).toBe(false);
+    expect(pages.has("/app/src/routes/index.scrml")).toBe(true);
+  });
+
+  test("file not under routes/ gets root URL /", () => {
+    const files = [makeFileAST("/app/src/app.scrml", [])];
+    const pages = buildPageRouteTree(files);
+    const page = pages.get("/app/src/app.scrml");
+    expect(page.urlPattern).toBe("/");
+  });
+
+  test("multiple files build complete route tree", () => {
+    const files = [
+      makeFileAST("/app/src/routes/index.scrml", []),
+      makeFileAST("/app/src/routes/about.scrml", []),
+      makeFileAST("/app/src/routes/users/[id].scrml", []),
+      makeFileAST("/app/src/routes/users/index.scrml", []),
+    ];
+    const pages = buildPageRouteTree(files);
+    expect(pages.size).toBe(4);
+    expect(pages.get("/app/src/routes/index.scrml").urlPattern).toBe("/");
+    expect(pages.get("/app/src/routes/about.scrml").urlPattern).toBe("/about");
+    expect(pages.get("/app/src/routes/users/[id].scrml").urlPattern).toBe("/users/:id");
+    expect(pages.get("/app/src/routes/users/index.scrml").urlPattern).toBe("/users");
+  });
+
+  test("runRI includes pages in routeMap", () => {
+    const files = [makeFileAST("/app/src/routes/index.scrml", [])];
+    const { routeMap } = runRI({ files, protectAnalysis: { views: new Map() } });
+    expect(routeMap.pages).toBeDefined();
+    expect(routeMap.pages.size).toBe(1);
+  });
+});
+// ---------------------------------------------------------------------------
+// §21 — scrml: module imports recognized as server triggers for CPS
+// (Regression test for BUG-R15-003)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a FileAST with imports.
+ * Like makeFileAST but accepts an imports array for testing scrml: stdlib recognition.
+ */
+function makeFileASTWithImports(filePath, fnNodes, imports) {
+  return {
+    filePath,
+    nodes: [
+      {
+        id: 1,
+        kind: 'logic',
+        body: fnNodes,
+        span: span(0, filePath),
+      },
+    ],
+    imports,
+    exports: [],
+    components: [],
+    typeDecls: [],
+    spans: new Map(),
+  };
+}
+
+/**
+ * Build an import-decl node.
+ */
+function makeImportDecl(names, source, spanStart = 5) {
+  return {
+    id: spanStart,
+    kind: 'import-decl',
+    names,
+    source,
+    raw: "import { " + names.join(", ") + " } from " + source,
+    span: span(spanStart),
+  };
+}
+
+describe('§21 — scrml: module imports recognized as server triggers for CPS (BUG-R15-003)', () => {
+  test('server function calling hash() from scrml:crypto with reactive assignments — CPS splits, no E-RI-002', () => {
+    // This is the BUG-R15-003 regression test.
+    // login() calls hash() imported from scrml:crypto and sets @loggedIn, @users.
+    // hash() is not in resolvedServerFnIds but is a server-only import.
+    // CPS should split: hash() call stays server, @reactive assignments go to client.
+    const loginFn = makeFunctionDecl({
+      name: 'login',
+      isServer: true,
+      body: [
+        makeLetDecl('hashed', 'hash(password)', 20),
+        makeReactiveDecl('loggedIn', 'true', 30),
+        makeReactiveDecl('users', '[{ id: 1 }]', 40),
+      ],
+      spanStart: 10,
+    });
+    const hashImport = makeImportDecl(['hash'], 'scrml:crypto');
+    const fileAST = makeFileASTWithImports('/test/app.scrml', [loginFn], [hashImport]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // E-RI-002 must NOT fire — CPS handles the split.
+    const riErrors = errors.filter(e => e.code === 'E-RI-002');
+    expect(riErrors).toHaveLength(0);
+
+    // login() should have cpsSplit with hash() call on the server side.
+    const route = getRoute(routeMap, '/test/app.scrml', 10);
+    expect(route).toBeDefined();
+    expect(route.boundary).toBe('server');
+    expect(route.cpsSplit).not.toBeNull();
+    // Server indices: [0] (const hashed = hash(...))
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+    // Client indices: [1, 2] (@loggedIn and @users)
+    expect(route.cpsSplit.clientStmtIndices).toContain(1);
+    expect(route.cpsSplit.clientStmtIndices).toContain(2);
+  });
+
+  test('server function calling scrml:auth verify() with reactive assignment — CPS splits, no E-RI-002', () => {
+    // Same pattern but with scrml:auth instead of scrml:crypto.
+    const authFn = makeFunctionDecl({
+      name: 'checkAuth',
+      isServer: true,
+      body: [
+        makeLetDecl('ok', 'verify(token)', 20),
+        makeReactiveDecl('authenticated', 'ok', 30),
+      ],
+      spanStart: 10,
+    });
+    const verifyImport = makeImportDecl(['verify'], 'scrml:auth');
+    const fileAST = makeFileASTWithImports('/test/app.scrml', [authFn], [verifyImport]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === 'E-RI-002');
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, '/test/app.scrml', 10);
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+  });
+
+  test('explicit server function with ONLY reactive assignments and scrml: import — E-RI-002 still fires', () => {
+    // The scrml: import exists but the function body has no non-reactive statements.
+    // There is nothing to put on the server side — CPS cannot split.
+    // This should still emit E-RI-002 (the function is server but has no server work in body).
+    const fn = makeFunctionDecl({
+      name: 'badFn',
+      isServer: true,
+      body: [
+        makeReactiveDecl('count', 'count + 1', 20),
+      ],
+      spanStart: 10,
+    });
+    const hashImport = makeImportDecl(['hash'], 'scrml:crypto');
+    const fileAST = makeFileASTWithImports('/test/app.scrml', [fn], [hashImport]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // E-RI-002 fires: import exists but body has only reactive assignments.
+    const riErrors = errors.filter(e => e.code === 'E-RI-002');
+    expect(riErrors).toHaveLength(1);
+
+    const route = getRoute(routeMap, '/test/app.scrml', 10);
+    expect(route.cpsSplit).toBeNull();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §22 — ?{} SQL sigil in let-decl/const-decl init escalates to server (BUG-R13-002)
+// ---------------------------------------------------------------------------
+
+describe("§22 — ?{} SQL sigil in let-decl/const-decl escalates to server (BUG-R13-002)", () => {
+  test("let-decl with ?{} SQL sigil in init escalates function to server boundary", () => {
+    // Regression test for BUG-R13-002: `let newMsg = ?{\`SELECT...\`}.get()` inside a function
+    // must trigger server escalation. Previously, isServerTriggerStatement() did not detect
+    // the ?{} SQL sigil in let-decl init strings, causing E-CG-006 in the CPS wrapper.
+    const fn = makeFunctionDecl({
+      name: "sendMessage",
+      body: [
+        makeLetDecl("newMsg", "?{`SELECT id FROM messages WHERE id = 1`}.get()", 20),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].kind).toBe("server-only-resource");
+    expect(route.escalationReasons[0].resourceType).toBe("sql-query");
+    // No E-CG-006 errors
+    const cgErrors = errors.filter(e => e.code === "E-CG-006");
+    expect(cgErrors).toHaveLength(0);
+  });
+
+  test("const-decl with ?{} SQL sigil in init escalates function to server boundary", () => {
+    // Same as let-decl but with const-decl kind.
+    const fn = makeFunctionDecl({
+      name: "loadData",
+      body: [
+        {
+          id: 20,
+          kind: "const-decl",
+          name: "rows",
+          init: "?{`SELECT * FROM users`}.all()",
+          span: { file: "/test/app.scrml", start: 20, end: 30, line: 1, col: 21 },
+        },
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].resourceType).toBe("sql-query");
+  });
+
+  test("let-decl with ?{} SQL in init + reactive-decl — CPS splits correctly, no E-RI-002", () => {
+    // The full BUG-R13-002 pattern: a function has a let-decl containing SQL and a reactive
+    // assignment. CPS should split: SQL let-decl is server-side, reactive-decl is client-side.
+    // Without the fix, the let-decl was not recognized as a server trigger and E-CG-006 fired.
+    const fn = makeFunctionDecl({
+      name: "sendMessage",
+      body: [
+        makeLetDecl("newMsg", "?{`SELECT id, body FROM messages ORDER BY id DESC LIMIT 1`}.get()", 20),
+        makeReactiveDecl("messages", "[...@messages, newMsg]", 30),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    // E-RI-002 must NOT fire — CPS handles the split.
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    // sendMessage should be server-escalated with CPS split.
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+    // Server side: the SQL let-decl (index 0)
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+    // Client side: the reactive assignment (index 1)
+    expect(route.cpsSplit.clientStmtIndices).toContain(1);
+  });
+
+  test("bare-expr with ?{} SQL sigil escalates function to server boundary", () => {
+    // ?{} SQL in a bare-expr should also trigger server escalation via SERVER_ONLY_PATTERNS.
+    const fn = makeFunctionDecl({
+      name: "runQuery",
+      body: [
+        makeBareExpr("?{`DELETE FROM sessions WHERE expired = 1`}.run()", 20),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons[0].resourceType).toBe("sql-query");
+  });
+});
+
+// §23 — session object escalates to server (BUG-R13-003)
+describe("§23 — session object escalates to server (BUG-R13-003)", () => {
+  test("session.userId in function body escalates to server", () => {
+    const fn = makeFunctionDecl({
+      name: "initSession",
+      body: [
+        makeBareExpr("let uid = session.userId", 20),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { routeMap } = runRIClean([fileAST]);
+    const route = getRoute(routeMap, "/test/app.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.escalationReasons.some(r => r.resourceType === "session")).toBe(true);
+  });
+
+  test("session + reactive var produces E-RI-002 (CPS cannot split session access + reactive assign)", () => {
+    const fn = makeFunctionDecl({
+      name: "initSession",
+      body: [
+        makeBareExpr("@currentUserId = session.userId", 20),
+      ],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+    // session access causes server escalation; bare-expr mixes reactive assign + server resource.
+    // CPS cannot split a single bare-expr; E-RI-002 fires.
+    const ri002 = errors.filter(e => e.code === "E-RI-002");
+    expect(ri002).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §24 — No transitive escalation: client fn calling server fn stays client
+// ---------------------------------------------------------------------------
+
+describe("§24 — client function calling server function stays client", () => {
+  test("doCheckout pattern: @state assignments + server call — all client, no E-RI-002", () => {
+    // The motivating example for this fix:
+    //   @checkoutState = CheckoutState.Loading()    <- client reactive assign
+    //   const result = processPayment(100)           <- calls server fn
+    //   @checkoutState = CheckoutState.Confirmed(result)  <- client reactive assign
+    // With direct-only escalation: doCheckout has no direct triggers.
+    // It stays CLIENT. Reactive assignments are fine. No E-RI-002.
+    const serverFn = makeFunctionDecl({
+      name: "processPayment",
+      isServer: true,
+      spanStart: 10,
+    });
+    const clientFn = makeFunctionDecl({
+      name: "doCheckout",
+      body: [
+        makeReactiveDecl("checkoutState", "CheckoutState.Loading()", 60),
+        makeBareExpr("const result = processPayment(100)", 70),
+        makeReactiveDecl("checkoutState", "CheckoutState.Confirmed(result)", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [serverFn, clientFn]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/app.scrml", 50);
+    expect(route.boundary).toBe("client");
+    expect(route.cpsSplit).toBeNull();
+
+    const ri002 = errors.filter(e => e.code === "E-RI-002");
+    expect(ri002).toHaveLength(0);
+  });
+
+  test("directly annotated server function with reactive assignment still triggers E-RI-002 (no CPS split possible)", () => {
+    // server function with reactive assignment nested in if (CPS cannot split nested reactive).
+    // This IS a direct trigger (explicit annotation), so E-RI-002 still fires.
+    const ifStmt = {
+      id: 71,
+      kind: "if-stmt",
+      condition: "true",
+      consequent: [makeReactiveDecl("result", "42", 72)],
+      alternate: null,
+      span: span(71),
+    };
+    const fn = makeFunctionDecl({
+      name: "badServerFn",
+      isServer: true,
+      body: [ifStmt],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const ri002 = errors.filter(e => e.code === "E-RI-002");
+    expect(ri002).toHaveLength(1);
+  });
+
+  test("multi-hop chain: only direct-trigger function escalates", () => {
+    // A calls B calls C where C has a direct trigger (Bun.env).
+    // B calls C but has no direct triggers — stays client.
+    // A calls B but has no direct triggers — stays client.
+    const fnC = makeFunctionDecl({
+      name: "C",
+      body: [makeBareExpr("return Bun.env.SECRET")],
+      spanStart: 10,
+    });
+    const fnB = makeFunctionDecl({
+      name: "B",
+      body: [makeBareExpr("return C()")],
+      spanStart: 50,
+    });
+    const fnA = makeFunctionDecl({
+      name: "A",
+      body: [makeBareExpr("return B()")],
+      spanStart: 90,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fnC, fnB, fnA]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    expect(getRoute(routeMap, "/test/app.scrml", 10).boundary).toBe("server"); // C: direct trigger
+    expect(getRoute(routeMap, "/test/app.scrml", 50).boundary).toBe("client"); // B: no direct trigger
+    expect(getRoute(routeMap, "/test/app.scrml", 90).boundary).toBe("client"); // A: no direct trigger
+  });
+});

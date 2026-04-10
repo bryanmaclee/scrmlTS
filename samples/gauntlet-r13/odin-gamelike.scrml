@@ -1,0 +1,50 @@
+// gauntlet-r13: odin dev — game-like state management
+// Tests: enums, state transitions, nested functions, reactive updates
+// R13 focus: Enum::Variant, BPP nested functions
+
+<div class="game">
+    ${
+        type Direction:enum = { North, South, East, West }
+        type GameState:enum = { Menu, Playing, Paused, GameOver }
+
+        @state = GameState::Menu
+        @isMenu = true
+        @isPlaying = false
+        @x = 0
+        @y = 0
+        @score = 0
+
+        function move(dir) {
+            function applyDelta(pos, delta) {
+                return pos + delta
+            }
+            if (dir == Direction::North) { @y = applyDelta(@y, -1) }
+            if (dir == Direction::South) { @y = applyDelta(@y, 1) }
+            if (dir == Direction::East)  { @x = applyDelta(@x, 1) }
+            if (dir == Direction::West)  { @x = applyDelta(@x, -1) }
+            @score = @score + 1
+        }
+
+        function startGame() {
+            @state = GameState::Playing
+            @isMenu = false
+            @isPlaying = true
+            @x = 0
+            @y = 0
+            @score = 0
+        }
+    }
+    <h1>Explorer</>
+    <div if=@isMenu>
+        <button onclick=startGame()>Start Game</>
+    </div>
+    <div if=@isPlaying>
+        <p>Position: (${@x}, ${@y}) Score: ${@score}</>
+        <div class="controls">
+            <button onclick=move(Direction::North)>N</>
+            <button onclick=move(Direction::South)>S</>
+            <button onclick=move(Direction::East)>E</>
+            <button onclick=move(Direction::West)>W</>
+        </div>
+    </div>
+</div>

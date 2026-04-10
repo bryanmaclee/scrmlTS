@@ -1,0 +1,340 @@
+// gauntlet-r10-solid-spreadsheet.scrml
+// Round 10 Gauntlet: Reactive 5x5 Mini-Spreadsheet
+//
+// SolidJS mental model being expressed:
+//   @cells     = createSignal([...25 formula strings])
+//   @values    = createSignal([...25 display values])
+//   @selectedCell = createSignal(0)
+//   @formulaBar   = createMemo(() => @cells[@selectedCell])
+//   evaluateAll() = runs formula evaluation, like a createEffect on @cells
+//   getCellClass() = derived CSS class from selection state
+//
+// FRICTION AREAS NOTED INLINE:
+//   [F1] No reactive array element access -- @cells[i] is not tracked per-element
+//   [F2] const @formulaBar cannot use dynamic index (@cells[@selectedCell])
+//   [F3] No Show equivalent -- must use boolean @vars for conditional rendering
+//   [F4] No dynamic class binding (§5.5 is TODO) -- manual function workaround
+//   [F5] for/lift in nested table structure requires index arithmetic by hand
+//   [F6] when @cells changes {} is coarse -- all 25 cells re-evaluate on any edit
+//   [F7] Formula bar reactive sync: @formulaBar must be updated in selectCell()
+//       AND in updateCell() -- two write sites instead of one createMemo
+
+<program>
+
+${
+    // --- Cell identity helpers ---
+    // Row 0 = row 1, Col 0 = col A, etc.
+    // Flat index: row * 5 + col
+    const ROWS = 5
+    const COLS = 5
+    const CELL_COUNT = 25
+
+    // Column header labels
+    const COL_LABELS = ["A", "B", "C", "D", "E"]
+    const ROW_LABELS = ["1", "2", "3", "4", "5"]
+
+    // Convert a cell reference like "A1" to a flat index
+    function cellRefToIndex(ref) {
+        let col = ref.charCodeAt(0) - 65  // A=0, B=1, ...
+        let row = parseInt(ref.slice(1)) - 1
+        if (col < 0 || col >= COLS || row < 0 || row >= ROWS) {
+            return -1
+        }
+        return row * COLS + col
+    }
+
+    // Convert flat index to cell label like "A1"
+    function indexToRef(idx) {
+        let row = Math.floor(idx / COLS)
+        let col = idx % COLS
+        return COL_LABELS[col] + ROW_LABELS[row]
+    }
+}
+
+${
+    // --- Reactive State ---
+
+    // [F1] FRICTION: @cells is a single reactive variable holding a JS array.
+    // Solid would give you createSignal([]) with setter granularity, or better,
+    // a createStore() for fine-grained per-index reactivity.
+    // scrml has no reactive store / per-key reactive object. All 25 cells share
+    // one @cells signal. Editing any cell makes the entire array "changed."
+    @cells = ["", "", "", "", "",
+              "", "", "", "", "",
+              "", "", "", "", "",
+              "", "", "", "", "",
+              "", "", "", "", ""]
+
+    // @values holds the evaluated display value for each cell.
+    // [F2] FRICTION: Ideally this would be:
+    //   const @values = @cells.map((formula, i) => evaluateFormula(formula, i))
+    // But const @derived requires static dependency expressions -- you cannot
+    // use .map() with a function that reads other @variables inside it.
+    // There is no createMemo equivalent for derived arrays.
+    // Workaround: @values is a mutable @var re-computed in evaluateAll().
+    @values = ["", "", "", "", "",
+               "", "", "", "", "",
+               "", "", "", "", "",
+               "", "", "", "", "",
+               "", "", "", "", ""]
+
+    // Currently selected cell (flat index 0-24)
+    @selectedCell = 0
+
+    // [F7] FRICTION: @formulaBar should be a derived value:
+    //   const @formulaBar = @cells[@selectedCell]
+    // This cannot be expressed as const @derived because the dependency is
+    // dynamic (@cells indexed by @selectedCell -- both @vars, not static dep).
+    // Solid handles this naturally: createMemo(() => cells()[selectedCell()])
+    // scrml cannot express this. @formulaBar must be manually kept in sync
+    // at every write site (selectCell, updateCell). Two update paths instead
+    // of one source of truth.
+    @formulaBar = ""
+
+    // [F3] FRICTION: To show/hide editing UI, Solid would use:
+    //   <Show when={selectedCell() >= 0}>
+    // scrml uses if= on a boolean @var. The condition @selectedCell >= 0 is
+    // always true (0-24 range) so we don't need it here, but for conditional
+    // sections like "show error state" we need a separate @showError boolean.
+    @hasError = false
+    @errorMessage = ""
+}
+
+${
+    // --- Formula Evaluation Engine ---
+    // Evaluates a formula string. If it starts with "=", parse it as an
+    // expression with A1-style cell references. Otherwise treat as literal.
+    //
+    // [F6] FRICTION: In Solid, each cell's value would be:
+    //   createMemo(() => evaluate(cells()[i], cells))
+    // creating 25 individual memos each with fine-grained dependency tracking.
+    // When cell A1 changes, only cells that reference A1 re-evaluate.
+    // In scrml, evaluateAll() recomputes ALL 25 cells on ANY change because
+    // @values is one flat array with no per-element reactive tracking.
+    // This is O(n) work on every keystroke vs Solid's surgical O(deps) updates.
+
+    function evaluateFormula(formula, idx, currentCells) {
+        if (!formula || formula == "") {
+            return ""
+        }
+        if (!formula.startsWith("=")) {
+            // Treat as literal -- number or text
+            let num = Number(formula)
+            if (!isNaN(num) && formula != "") {
+                return String(num)
+            }
+            return formula
+        }
+        // Parse as formula (starts with "=")
+        let expr = formula.slice(1)
+        // Replace A1-style references with their current values
+        // Simple regex replacement: [A-E][1-5]
+        let resolved = expr.replace(/([A-E][1-5])/g, function(match) {
+            let refIdx = cellRefToIndex(match)
+            if (refIdx == -1 || refIdx == idx) {
+                return "0"  // circular or invalid ref resolves to 0
+            }
+            let refVal = currentCells[refIdx]
+            if (!refVal || refVal == "") {
+                return "0"
+            }
+            if (refVal.startsWith("=")) {
+                // For simplicity, evaluate one level of depth
+                // [LIMITATION: no recursive resolution in this pass]
+                return "0"
+            }
+            let num = Number(refVal)
+            return isNaN(num) ? "0" : String(num)
+        })
+        // Evaluate the expression safely
+        // Note: in a real implementation this would be a safe expression parser.
+        // scrml has no compile-time safe eval -- this is a runtime concern.
+        let result = ""
+        result = String(eval(resolved))
+        return result
+    }
+
+    // Re-evaluates all 25 cells in dependency order (naive -- two passes for now)
+    // [F6] This is the coarse reactivity cost: all 25 cells, every edit.
+    function evaluateAll() {
+        let snapshot = @cells.slice()
+        let newValues = []
+        let i = 0
+        while (i < CELL_COUNT) {
+            // [F6] Avoid .push() (triggers E-ROUTE-001). Use spread accumulation.
+            newValues = [...newValues, evaluateFormula(snapshot[i], i, snapshot)]
+            i = i + 1
+        }
+        @values = newValues
+    }
+}
+
+${
+    // --- Cell interaction handlers ---
+
+    function selectCell(idx) {
+        @selectedCell = idx
+        // [F7] Manual sync: formulaBar must be updated here AND in updateCell.
+        // In Solid this would be automatic via createMemo.
+        @formulaBar = @cells[idx]
+    }
+
+    function updateFormulaBar(newVal) {
+        // User is typing in the formula bar -- update the reactive var
+        @formulaBar = newVal
+    }
+
+    function commitFormula() {
+        // Commit the formula bar value to the selected cell
+        // [F1] Array mutation: @cells[idx] = val is not supported in scrml.
+        // @cells is a reactive array but scrml §6.5 (reactive array mutation)
+        // is marked TODO. There is no @cells[@selectedCell] = val syntax.
+        // Workaround: rebuild the entire array (expensive but works).
+        let idx = @selectedCell
+        // [F1] Use .map() to rebuild array without computed index assignment (avoids E-ROUTE-001).
+        let counter1 = 0
+        let newCells = @cells.map((cell) => {
+            let result = counter1 == idx ? @formulaBar : cell
+            counter1 = counter1 + 1
+            return result
+        })
+        @cells = newCells
+        // Now re-evaluate all dependent cells
+        evaluateAll()
+    }
+
+    function updateCell(idx, val) {
+        // Direct cell update (e.g., from oninput on a cell)
+        // [F1] Use .map() to rebuild array without computed index assignment (avoids E-ROUTE-001).
+        let counter2 = 0
+        let newCells = @cells.map((cell) => {
+            let result = counter2 == idx ? val : cell
+            counter2 = counter2 + 1
+            return result
+        })
+        @cells = newCells
+        @selectedCell = idx
+        // [F7] Must also update formulaBar manually -- derived sync problem
+        @formulaBar = val
+        evaluateAll()
+    }
+
+    // [F4] FRICTION: getCellClass ideally would be reactive and computed per-cell.
+    // In Solid: class:selected={selectedCell() == idx}
+    // §5.5 (dynamic class binding) is TODO in scrml.
+    // Workaround: function that returns a class string, called per cell in the loop.
+    // But this is not reactive -- it only reflects state at render time.
+    function getCellClass(idx) {
+        if (@selectedCell == idx) {
+            return "cell cell-selected"
+        }
+        return "cell"
+    }
+
+    function getDisplayValue(idx) {
+        let v = @values[idx]
+        if (v == undefined || v is not) {
+            return ""
+        }
+        return v
+    }
+}
+
+// --- Initial evaluation on mount ---
+// Solid would use createEffect(() => { ... }) to auto-run on mount + dependency change.
+// scrml uses bare expressions in ${}  which run at mount per §17.3.
+// [LIFECYCLE NOTE] This bare call runs once at mount. For reactive re-evaluation
+// when @cells changes, we would use: when @cells changes { evaluateAll() }
+// But evaluateAll() is already called inside updateCell/commitFormula, so the
+// when block would be redundant (and W-LIFECYCLE-006 would warn about it anyway
+// since the body reads/writes @variables).
+// We rely on explicit calls instead of an effect -- this is the scrml pattern.
+${ evaluateAll() }
+
+// --- Markup ---
+<div class="spreadsheet-app">
+
+    // Formula bar
+    <div class="formula-bar">
+        <span class="cell-ref-label">${indexToRef(@selectedCell)}</>
+        <input
+            class="formula-input"
+            type="text"
+            value=@formulaBar
+            oninput=updateFormulaBar(event.target.value)
+        />
+        <button onclick=commitFormula()>OK</>
+    </div>
+
+    // Spreadsheet table
+    <table class="sheet-grid">
+
+        // Column headers row (A B C D E)
+        <thead>
+            <tr>
+                <th class="corner-header"></>
+                ${
+                    for (let c = 0; c < COLS; c = c + 1) {
+                        lift <th class="col-header">${COL_LABELS[c]}</>
+                    }
+                }
+            </tr>
+        </thead>
+
+        // Data rows
+        <tbody>
+            ${
+                // [F5] FRICTION: Nested for/lift for a 2D grid.
+                // In Solid: <For each={Array.from({length: 5}, (_, r) => r)}>
+                //   {row => <tr><For each={Array.from({length: 5}, (_, c) => c)}>
+                //     {col => <td>...</td>}
+                //   </For></tr>}
+                // </For>
+                // In scrml: nested for + lift. The outer lift must wrap the <tr>
+                // which itself contains inner for + lift for <td> elements.
+                // Friction: you cannot lift partial markup. The entire <tr>
+                // must be emitted as one unit, but the inner cells are
+                // generated by a nested loop. This requires the inner loop
+                // to be INSIDE the <tr>'s lifted content, not at the same
+                // level as the outer lift.
+                // The pattern: outer loop lifts <tr>, and INSIDE that lifted
+                // <tr> you have a ${ for(cols) { lift <td> } } block.
+                // This does compile per the spec's nested markup rules.
+                for (let r = 0; r < ROWS; r = r + 1) {
+                    lift <tr>
+                        <th class="row-header">${ROW_LABELS[r]}</>
+                        ${
+                            for (let c = 0; c < COLS; c = c + 1) {
+                                let cellIdx = r * COLS + c
+                                let dispVal = getDisplayValue(cellIdx)
+                                // [F4] getCellClass() is not reactive --
+                                // it reads @selectedCell at call time.
+                                // Solid's class: binding would be reactive.
+                                let cellClass = getCellClass(cellIdx)
+                                lift <td class=cellClass onclick=selectCell(cellIdx)>
+                                    <input
+                                        class="cell-input"
+                                        type="text"
+                                        value=dispVal
+                                        oninput=updateCell(cellIdx, event.target.value)
+                                    />
+                                </td>
+                            }
+                        }
+                    </tr>
+                }
+            }
+        </tbody>
+
+    </table>
+
+    // Status bar
+    <div class="status-bar">
+        <span>Cell: ${indexToRef(@selectedCell)}</>
+        <span>Value: ${getDisplayValue(@selectedCell)}</>
+        <span if=@hasError class="error-msg">${@errorMessage}</>
+    </div>
+
+</div>
+
+</program>

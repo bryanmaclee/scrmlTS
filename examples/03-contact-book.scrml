@@ -1,0 +1,102 @@
+// Example 03: Contact Book — full-stack in one file.
+// Demonstrates < > state blocks with protect=, ?{} SQL, server functions,
+// form binding, for/lift list rendering. This is a real app.
+
+// State block — protect= forces password_hash to server-only. The compiler
+// generates a server route automatically; we never touch routing code.
+<program auth="required">
+
+< db src="contacts.db" protect="password_hash" tables="contacts">
+
+  ${
+    @name  = ""
+    @email = ""
+    @phone = ""
+
+    // Server functions return data or run mutations — they never assign @vars.
+    // Client functions own @state transitions (E-RI-002).
+    server function persistContact(name, email, phone) {
+      ?{`INSERT INTO contacts (name, email, phone) VALUES (${name}, ${email}, ${phone})`}.run()
+    }
+
+    function addContact() {
+      persistContact(@name, @email, @phone)
+      @name  = ""
+      @email = ""
+      @phone = ""
+    }
+
+    server function deleteContact(id) {
+      ?{`DELETE FROM contacts WHERE id = ${id}`}.run()
+    }
+
+    server function loadContacts() {
+      lift ?{`SELECT id, name, email, phone FROM contacts ORDER BY name`}.all()
+    }
+  }
+
+  <div class="contact-book">
+    <h1>Contact Book</h1>
+
+    <form onsubmit=addContact()>
+      <input type="text"  bind:value=@name  placeholder="Name"  required/>
+      <input type="email" bind:value=@email placeholder="Email" required/>
+      <input type="tel"   bind:value=@phone placeholder="Phone"/>
+      <button type="submit">Add Contact</button>
+    </form>
+
+    <ul class="contacts">
+      ${
+        for (let contact of loadContacts()) {
+          lift <li class="contact-row">
+            <span class="name">${contact.name}</span>
+            <span class="email">${contact.email}</span>
+            <span class="phone">${contact.phone}</span>
+            <button onclick=deleteContact(contact.id)>Remove</button>
+          </li>
+        }
+      }
+    </ul>
+  </div>
+
+</>
+
+#{
+  .contact-book {
+    max-width: 640px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  form {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+
+  input {
+    flex: 1;
+    padding: 0.5rem;
+    min-width: 140px;
+  }
+
+  .contacts {
+    list-style: none;
+    padding: 0;
+  }
+
+  .contact-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #eee;
+  }
+
+  .name  { font-weight: 600; flex: 1; }
+  .email { color: #555; flex: 1.5; }
+  .phone { color: #777; flex: 1; }
+}
+
+</program>

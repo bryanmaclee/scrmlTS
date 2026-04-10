@@ -1,0 +1,29 @@
+// combined-004-data-table.scrml
+// Data table with SQL data. Tests: SQL + lift + markup.
+
+<div class="data-table-page">
+    ${
+        let users = ?{`SELECT id, name, email FROM users`}
+    }
+    <h1>Users</>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</>
+                <th>Name</>
+                <th>Email</>
+            </tr>
+        </thead>
+        <tbody>
+            ${
+                for (let user of users) {
+                    lift <tr>
+                        <td>${user.id}</>
+                        <td>${user.name}</>
+                        <td>${user.email}</>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</div>

@@ -1,0 +1,16 @@
+// state-003-constructor-with-logic.scrml
+// State constructor with logic block inside. Tests: ${} inside state body.
+
+< counter label(string) initial(number)>
+    ${
+        @count = initial
+        function increment() {
+            @count = @count + 1
+        }
+    }
+    <div class="counter">
+        <h2>${label}</>
+        <span>${@count}</>
+        <button onclick=increment()>+</>
+    </>
+</>

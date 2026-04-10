@@ -1,0 +1,15 @@
+// edge-008-mixed-closers.scrml
+// Mix of closer styles. Tests: explicit, inferred, and self-closing together.
+
+<div class="container">
+    <header>
+        <h1>Title</>
+        <br/>
+    </header>
+    <main>
+        <p>Paragraph with explicit close</p>
+        <p>Paragraph with inferred close</>
+        <hr/>
+    </main>
+    <footer>Footer text</>
+</div>

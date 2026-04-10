@@ -1,0 +1,35 @@
+// when-002-message-handler.scrml
+// when message {} — message handler inside a nested <program> worker (§43.5.2, §46).
+// Tests: nested program + message passing + when message from.
+
+<program>
+
+// Worker: receives a number, doubles it, sends back.
+<program name="doubler">
+    ${
+        when message(data) {
+            send({ result: data.value * 2 })
+        }
+    }
+</>
+
+${
+    @input  = 21
+    @result = not
+
+    function runDoubler() {
+        <#doubler>.send({ value: @input })
+    }
+
+    when message from <#doubler> (data) {
+        @result = data.result
+    }
+}
+
+<div>
+    <input type="number" bind:value=@input>
+    <button onclick=runDoubler()>Double it</>
+    <p if=(@result != not)>Result: ${@result}</>
+</>
+
+</program>

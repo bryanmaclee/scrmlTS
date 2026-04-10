@@ -1,0 +1,8 @@
+// state-001-basic-constructor.scrml
+// Basic state constructor. Tests: < statename attr(type)> pattern.
+
+< thing name(string)>
+    <div class="thing">
+        <h2>${name}</>
+    </>
+</>

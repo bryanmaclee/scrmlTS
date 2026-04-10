@@ -1,0 +1,15 @@
+// modern-004-canary-pattern.scrml
+// Test context inside meta context canary. Tests: ~{} inside ^{}.
+
+<div class="app">
+    ^{
+        let el = document.createElement("div")
+        el.textContent = "Dynamic content"
+        lift el
+    }
+    <p>Static content</>
+</>
+
+~{ "canary"
+    test "page loads" { assert true }
+}

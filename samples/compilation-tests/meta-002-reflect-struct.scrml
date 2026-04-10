@@ -1,0 +1,18 @@
+<div
+  ${
+    type UserProfile = struct { username: string, email: string, age: number }
+
+    ^{
+      let fields = reflect(UserProfile).fields
+      let fieldNames = fields.map(f => f.name)
+    }
+  }
+  <h1>User Profile Fields</>
+  <ul>
+    ${
+      for (let f of fields) {
+        lift <li>${f.name}: ${f.type}</>
+      }
+    }
+  </ul>
+</div>

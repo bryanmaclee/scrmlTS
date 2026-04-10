@@ -1,0 +1,29 @@
+// combined-002-todo.scrml
+// Simple todo list. Tests: reactive + control flow + events + lift.
+
+<div class="todo-app">
+    ${
+        @todos = []
+        @inputText = ""
+
+        function addTodo() {
+            let text = @inputText
+            if (text.length > 0) {
+                @todos = [...@todos, { text: text, done: false }]
+                @inputText = ""
+            }
+        }
+    }
+    <h1>Todo List</>
+    <form onsubmit=addTodo()>
+        <input type="text" name="todo" placeholder="Add a todo"/>
+        <button type="submit">Add</>
+    </form>
+    <ul>
+        ${
+            for (let todo of @todos) {
+                lift <li>${todo.text}</>
+            }
+        }
+    </ul>
+</div>

@@ -1,0 +1,16 @@
+// test-009-test-reactive.scrml
+// Testing @reactive behavior. Tests: reactive + test.
+
+@value = 42
+
+${
+    function setValue(v) {
+        @value = v
+    }
+}
+
+<p>${@value}</>
+
+~{ "reactive"
+    test "initial value" { assert @value == 42 }
+}

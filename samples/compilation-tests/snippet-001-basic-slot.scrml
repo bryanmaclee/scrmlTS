@@ -1,0 +1,22 @@
+// snippet-001-basic-slot.scrml
+// Basic snippet/slot usage. Component declares snippet-typed props.
+// Call site fills slots with slot="name" on direct children (§16.5).
+
+<program>
+
+${
+    const Panel = <div class="panel" props={
+        title:    snippet,
+        content:  snippet,
+    }>
+        <div class="panel__title">${render title()}</>
+        <div class="panel__content">${render content()}</>
+    </>
+}
+
+<Panel>
+    <h2 slot="title">Hello from a slot</>
+    <p slot="content">This paragraph was injected at the call site.</>
+</>
+
+</program>

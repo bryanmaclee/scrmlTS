@@ -1,0 +1,10 @@
+// reactive-005-boolean.scrml
+// Reactive boolean variable. Tests: @ with boolean values.
+
+<div>
+    ${
+        @isVisible = true
+        @isDarkMode = false
+    }
+    <p>Flags set</>
+</div>

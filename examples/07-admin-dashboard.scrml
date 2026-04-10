@@ -1,0 +1,174 @@
+// Example 07: Admin Dashboard — compile-time metaprogramming for a data table.
+// Demonstrates ^{} meta block, reflect() to introspect a type's fields,
+// emit() to generate table headers at compile time, ?{} SQL for rows.
+// The table header HTML is generated from the type definition — change the
+// type, the header updates. No manual sync.
+
+<program auth="required">
+
+${
+  type User = {
+    id:       int,
+    username: string,
+    email:    string,
+    role:     string,
+    joined:   date,
+  }
+}
+
+// Compile-time: reflect on User fields, emit a <th> for each.
+// The ^{} block runs at compile time and is replaced by its emitted output.
+^{
+  const info = reflect(User)
+  for (const field of info.fields) {
+    if (field.name == "id") continue
+    const cap = field.name.charAt(0).toUpperCase() + field.name.slice(1)
+    emit("<th class=\"col-" + field.name + "\">" + cap + "</th>")
+  }
+}
+
+< db src="admin.db" protect="password_hash" tables="users, audit_log">
+
+${
+  @search  = ""
+  @roleFilter = "all"
+
+  server function fetchUsers() {
+    lift ?{`
+      SELECT id, username, email, role, joined
+      FROM users
+      WHERE
+        (${@search} = "" OR username LIKE ${"%" + @search + "%"} OR email LIKE ${"%" + @search + "%"})
+        AND (${@roleFilter} = "all" OR role = ${@roleFilter})
+      ORDER BY joined DESC
+      LIMIT 100
+    `}.all()
+  }
+
+  server function deleteUser(id) {
+    ?{`DELETE FROM users WHERE id = ${id}`}.run()
+  }
+}
+
+<div class="dashboard">
+  <header class="dash-header">
+    <h1>Users</>
+    <div class="filters">
+      <input type="search" bind:value=@search placeholder="Search…">
+      <select bind:value=@roleFilter>
+        <option value="all">All roles</option>
+        <option value="admin">Admin</option>
+        <option value="member">Member</option>
+        <option value="viewer">Viewer</option>
+      </select>
+    </div>
+  </header>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        // Compile-time emitted headers land here (from ^{} above).
+        // At runtime this is just static HTML — no runtime reflection.
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${
+        for (let user of fetchUsers()) {
+          lift <tr>
+            <td>${user.username}</td>
+            <td>${user.email}</td>
+            <td><span class="badge badge-${user.role}">${user.role}</span></td>
+            <td>${user.joined}</td>
+            <td>
+              <button class="btn-danger" onclick=deleteUser(user.id)>Delete</button>
+            </td>
+          </tr>
+        }
+      }
+    </tbody>
+  </table>
+
+</div>
+
+</>
+
+#{
+  .dashboard {
+    font-family: sans-serif;
+    padding: 1.5rem;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .dash-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+  }
+
+  .filters {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  input[type="search"], select {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.9rem;
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  th {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 2px solid #e5e7eb;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #6b7280;
+  }
+
+  td {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+  }
+
+  tr:hover td {
+    background: #f9fafb;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .badge-admin  { background: #fef3c7; color: #92400e; }
+  .badge-member { background: #dbeafe; color: #1e40af; }
+  .badge-viewer { background: #f3f4f6; color: #374151; }
+
+  .btn-danger {
+    background: none;
+    border: 1px solid #fca5a5;
+    color: #dc2626;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+
+  .btn-danger:hover {
+    background: #fef2f2;
+  }
+}
+
+</program>

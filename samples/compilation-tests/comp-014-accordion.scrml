@@ -1,0 +1,29 @@
+// comp-014-accordion.scrml
+// Accordion pattern. Tests: expandable sections.
+
+<div class="accordion">
+    ${
+        @openSection = 0
+        function toggleSection(idx) {
+            @openSection = idx
+        }
+    }
+    <div class="accordion-item">
+        <button onclick=toggleSection(1)>Section 1</>
+        <div class="accordion-content">
+            <p>Content for section 1</>
+        </div>
+    </div>
+    <div class="accordion-item">
+        <button onclick=toggleSection(2)>Section 2</>
+        <div class="accordion-content">
+            <p>Content for section 2</>
+        </div>
+    </div>
+    <div class="accordion-item">
+        <button onclick=toggleSection(3)>Section 3</>
+        <div class="accordion-content">
+            <p>Content for section 3</>
+        </div>
+    </div>
+</div>

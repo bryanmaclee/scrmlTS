@@ -1,0 +1,15 @@
+// reactive-015-complex-init.scrml
+// Reactive variables with complex initial values. Tests: @ with nested structures.
+
+<div>
+    ${
+        @settings = {
+            theme: "light",
+            fontSize: 16,
+            notifications: true
+        }
+        @history = []
+        @activeTab = "general"
+    }
+    <p>Settings initialized</>
+</div>

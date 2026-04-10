@@ -1,0 +1,32 @@
+// combined-009-chat.scrml
+// Simple chat interface. Tests: reactive array + events + lift.
+
+<div class="chat-app">
+    ${
+        @messages = []
+        @inputMsg = ""
+
+        function sendMessage() {
+            let text = @inputMsg
+            if (text.length > 0) {
+                @messages = [...@messages, { text: text, sender: "me" }]
+                @inputMsg = ""
+            }
+        }
+    }
+    <h1>Chat</>
+    <div class="message-list">
+        ${
+            for (let msg of @messages) {
+                lift <div class="message">
+                    <strong>${msg.sender}</>
+                    <p>${msg.text}</>
+                </div>
+            }
+        }
+    </div>
+    <form onsubmit=sendMessage()>
+        <input type="text" name="msg" placeholder="Type a message..."/>
+        <button type="submit">Send</>
+    </form>
+</div>

@@ -1,0 +1,33 @@
+// combined-019-gallery.scrml
+// Image gallery. Tests: reactive + lift + navigation.
+
+<div class="gallery">
+    ${
+        @currentIndex = 0
+        let images = ["photo1.jpg", "photo2.jpg", "photo3.jpg", "photo4.jpg"]
+
+        function next() {
+            @currentIndex = (@currentIndex + 1) % images.length
+        }
+        function prev() {
+            @currentIndex = (@currentIndex - 1 + images.length) % images.length
+        }
+    }
+    <h1>Gallery</>
+    <div class="gallery-viewer">
+        <button onclick=prev()>Previous</>
+        <div class="gallery-image">
+            <p>Image ${@currentIndex + 1}</>
+        </div>
+        <button onclick=next()>Next</>
+    </div>
+    <div class="gallery-thumbnails">
+        ${
+            for (let img of images) {
+                lift <div class="thumbnail">
+                    <span>${img}</>
+                </div>
+            }
+        }
+    </div>
+</div>

@@ -1,0 +1,13 @@
+// meta-005-nested.scrml
+// Meta block nested inside markup. Tests: ^{} in context.
+
+<div class="app">
+    <header>
+        ^{ let headerVersion = "2.0" }
+        <h1>App Header</>
+    </header>
+    <main>
+        ^{ let mainConfig = "default" }
+        <p>Main content</>
+    </main>
+</div>

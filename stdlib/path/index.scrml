@@ -1,0 +1,164 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:path — file path manipulation utilities
+    //
+    // Server-side only. All functions require a server context because they
+    // delegate to Node's `path` module (POSIX by default).
+    //
+    // Usage:
+    //   ${ import { join, resolve, dirname, basename, extname } from 'scrml:path' }
+    //
+    //   server function buildOutput(srcFile) {
+    //       const dir = dirname(srcFile)
+    //       const name = basename(srcFile, ".ts")
+    //       return join(dir, "dist", name + ".js")
+    //   }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Join path segments into a single path.
+     * Delegates to Node's path.join().
+     *
+     * Example:
+     *   join("src", "components", "App.js") → "src/components/App.js"
+     *   join("/usr", "local", "bin")        → "/usr/local/bin"
+     *   join("a", "..", "b")                → "b"
+     */
+    export function join(...segments) {
+        server {
+            const path = require("node:path")
+            const filtered = segments.filter(s => s != null)
+            if (filtered.length === 0) return "."
+            return path.join(...filtered)
+        }
+    }
+
+    /**
+     * Resolve path segments into an absolute path.
+     * Processes from right to left; the first absolute segment wins.
+     * Delegates to Node's path.resolve().
+     *
+     * Example:
+     *   resolve("/usr", "local", "bin")    → "/usr/local/bin"
+     *   resolve("src", "index.js")         → "/cwd/src/index.js"
+     *   resolve("/a", "/b", "c")           → "/b/c"
+     */
+    export function resolve(...segments) {
+        server {
+            const path = require("node:path")
+            const filtered = segments.filter(s => s != null)
+            if (filtered.length === 0) return path.resolve()
+            return path.resolve(...filtered)
+        }
+    }
+
+    /**
+     * Get the parent directory of a file path.
+     * Delegates to Node's path.dirname().
+     *
+     * Example:
+     *   dirname("/usr/local/bin/node")  → "/usr/local/bin"
+     *   dirname("src/index.js")         → "src"
+     *   dirname("/")                    → "/"
+     */
+    export function dirname(filePath) {
+        server {
+            const path = require("node:path")
+            if (filePath == null) return "."
+            return path.dirname(filePath)
+        }
+    }
+
+    /**
+     * Get the file name portion of a path.
+     * Optionally strips a given extension suffix.
+     * Delegates to Node's path.basename().
+     *
+     * Example:
+     *   basename("/usr/local/bin/node")     → "node"
+     *   basename("src/index.ts", ".ts")     → "index"
+     *   basename("archive.tar.gz", ".gz")   → "archive.tar"
+     */
+    export function basename(filePath, ext) {
+        server {
+            const path = require("node:path")
+            if (filePath == null) return ""
+            if (ext != null) return path.basename(filePath, ext)
+            return path.basename(filePath)
+        }
+    }
+
+    /**
+     * Get the file extension from a path (including the dot).
+     * Delegates to Node's path.extname().
+     *
+     * Example:
+     *   extname("index.js")      → ".js"
+     *   extname("archive.tar.gz") → ".gz"
+     *   extname("README")         → ""
+     *   extname(".gitignore")     → ""
+     */
+    export function extname(filePath) {
+        server {
+            const path = require("node:path")
+            if (filePath == null) return ""
+            return path.extname(filePath)
+        }
+    }
+
+    /**
+     * Compute the relative path from one location to another.
+     * Delegates to Node's path.relative().
+     *
+     * Example:
+     *   relative("/usr/local", "/usr/local/bin/node") → "bin/node"
+     *   relative("/a/b", "/a/b")                      → ""
+     *   relative("/a/b/c", "/a/d/e")                  → "../../d/e"
+     */
+    export function relative(from, to) {
+        server {
+            const path = require("node:path")
+            if (from == null) from = "."
+            if (to == null) to = "."
+            return path.relative(from, to)
+        }
+    }
+
+    /**
+     * Normalize a path, resolving '.' and '..' segments and collapsing
+     * repeated separators.
+     * Delegates to Node's path.normalize().
+     *
+     * Example:
+     *   normalize("/usr/local/../bin")  → "/usr/bin"
+     *   normalize("a//b///c")           → "a/b/c"
+     *   normalize("a/./b/../c")         → "a/c"
+     */
+    export function normalize(filePath) {
+        server {
+            const path = require("node:path")
+            if (filePath == null) return "."
+            return path.normalize(filePath)
+        }
+    }
+
+    /**
+     * Platform path separator.
+     * Always "/" on POSIX (Linux, macOS), "\" on Windows.
+     */
+    export const sep = "/"
+
+    ~{
+        // Note: server {} blocks cannot be tested in ~{} because ~{} runs at
+        // compile time, not server-side. These tests validate structural
+        // expectations only. Server-side behavior is validated by the unit
+        // tests in compiler/tests/unit/stdlib-path.test.js.
+
+        import { assertEqual } from 'scrml:test'
+
+        // The sep constant is not server-gated — verify it directly
+        assertEqual(sep, "/")
+    }
+}
+</program>

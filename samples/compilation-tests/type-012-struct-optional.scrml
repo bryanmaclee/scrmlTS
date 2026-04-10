@@ -1,0 +1,13 @@
+// type-012-struct-optional.scrml
+// Struct with potentially nullable fields. Tests: struct field types.
+
+<div>
+    ${
+        type Config:struct = {
+            host: string
+            port: number
+            debug: boolean
+        }
+    }
+    <p>Config struct</>
+</div>

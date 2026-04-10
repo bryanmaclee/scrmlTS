@@ -1,0 +1,182 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:http — HTTP client utilities
+    //
+    // Typed fetch wrapper with timeout, retry, and response normalization.
+    //
+    // All functions return a normalized response object:
+    //   { ok: boolean, status: number, data: any, headers: Headers, raw: Response }
+    //
+    //   ok     — true if status is 2xx
+    //   data   — parsed JSON if Content-Type includes "application/json", else string
+    //   raw    — the original Response object
+    //
+    // Errors: network failures throw. HTTP 4xx/5xx does NOT throw — check ok.
+    //
+    // Options: { timeout?, headers?, retry?, retryDelay? }
+    //   timeout   — abort after N ms (default: 10000)
+    //   retry     — retry count on network errors only (default: 0)
+    //   retryDelay — base delay ms, exponential: delay * attempt (default: 1000)
+    //
+    // IMPORTANT: Intended for server function bodies. fetch is available
+    // server-side in Bun. Do not call from client-side reactive code.
+    //
+    // Usage:
+    //   ${ import { get, post, withBaseUrl, isOk } from 'scrml:http' }
+    // ---------------------------------------------------------------------------
+
+    async function _request(url, options) {
+        const opts = options || {}
+        const timeout = opts.timeout !== undefined ? opts.timeout : 10000
+        const retryCount = opts.retry || 0
+        const retryDelay = opts.retryDelay !== undefined ? opts.retryDelay : 1000
+        const extraHeaders = opts.headers || {}
+
+        const fetchOptions = {
+            method: opts.method || "GET",
+            headers: {}
+        }
+        for (const [k, v] of Object.entries(extraHeaders)) {
+            fetchOptions.headers[k] = v
+        }
+        if (opts.body !== undefined) {
+            if (typeof opts.body === "string") {
+                fetchOptions.body = opts.body
+            } else {
+                fetchOptions.body = JSON.stringify(opts.body)
+                if (!fetchOptions.headers["Content-Type"] && !fetchOptions.headers["content-type"]) {
+                    fetchOptions.headers["Content-Type"] = "application/json"
+                }
+            }
+        }
+
+        let lastError = null
+        for (let attempt = 0; attempt <= retryCount; attempt++) {
+            if (attempt > 0) {
+                await new Promise(resolve => setTimeout(resolve, retryDelay * attempt))
+            }
+            let timeoutId = null
+            try {
+                const controller = new AbortController()
+                fetchOptions.signal = controller.signal
+                if (timeout > 0) {
+                    timeoutId = setTimeout(() => controller.abort(), timeout)
+                }
+                const raw = await fetch(url, fetchOptions)
+                if (timeoutId) clearTimeout(timeoutId)
+                const contentType = raw.headers.get("content-type") || ""
+                let data
+                if (contentType.includes("application/json")) {
+                    data = await raw.json()
+                } else {
+                    data = await raw.text()
+                }
+                return { ok: raw.ok, status: raw.status, data, headers: raw.headers, raw }
+            } catch(err) {
+                if (timeoutId) clearTimeout(timeoutId)
+                if (err.name === "AbortError") {
+                    throw new Error(`[scrml:http] Request timed out after ${timeout}ms: ${url}`)
+                }
+                lastError = err
+                if (attempt === retryCount) throw lastError
+            }
+        }
+        throw lastError
+    }
+
+    /**
+     * Perform a GET request.
+     * Example: const res = await get("/api/users")
+     */
+    export async function get(url, options) {
+        return _request(url, { ...options, method: "GET" })
+    }
+
+    /**
+     * Perform a POST request. Object body is JSON-serialized automatically.
+     * Example: const res = await post("/api/users", { name: "Alice" })
+     */
+    export async function post(url, body, options) {
+        return _request(url, { ...options, method: "POST", body })
+    }
+
+    /**
+     * Perform a PUT request.
+     */
+    export async function put(url, body, options) {
+        return _request(url, { ...options, method: "PUT", body })
+    }
+
+    /**
+     * Perform a DELETE request. Named `del` — `delete` is a reserved keyword.
+     */
+    export async function del(url, options) {
+        return _request(url, { ...options, method: "DELETE" })
+    }
+
+    /**
+     * Perform a PATCH request.
+     */
+    export async function patch(url, body, options) {
+        return _request(url, { ...options, method: "PATCH", body })
+    }
+
+    /**
+     * Create an HTTP client with a fixed base URL.
+     *
+     * Relative paths are prefixed with baseUrl. Absolute URLs pass through.
+     *
+     * Example:
+     *   const api = withBaseUrl("https://api.example.com")
+     *   const user = await api.get("/users/42")
+     */
+    export function withBaseUrl(baseUrl) {
+        function resolveUrl(path) {
+            if (path.startsWith("http://") || path.startsWith("https://")) return path
+            const base = baseUrl.replace(/\/$/, "")
+            const p = path.startsWith("/") ? path : "/" + path
+            return base + p
+        }
+        return {
+            get:   (path, opts) => get(resolveUrl(path), opts),
+            post:  (path, body, opts) => post(resolveUrl(path), body, opts),
+            put:   (path, body, opts) => put(resolveUrl(path), body, opts),
+            del:   (path, opts) => del(resolveUrl(path), opts),
+            patch: (path, body, opts) => patch(resolveUrl(path), body, opts),
+        }
+    }
+
+    /**
+     * Check if a response indicates success (2xx status).
+     */
+    export function isOk(response) {
+        return response && response.ok === true
+    }
+
+    /**
+     * Check if a response indicates a client or server error (4xx or 5xx).
+     */
+    export function isError(response) {
+        return response && response.status >= 400
+    }
+
+    ~{
+        import { assertTruthy, assertFalsy } from 'scrml:test'
+
+        assertTruthy(isOk({ ok: true, status: 200 }))
+        assertFalsy(isOk({ ok: false, status: 404 }))
+        assertFalsy(isOk(null))
+        assertTruthy(isError({ ok: false, status: 400 }))
+        assertTruthy(isError({ ok: false, status: 500 }))
+        assertFalsy(isError({ ok: true, status: 200 }))
+
+        const client = withBaseUrl("https://api.example.com")
+        assertTruthy(typeof client.get === "function")
+        assertTruthy(typeof client.post === "function")
+        assertTruthy(typeof client.put === "function")
+        assertTruthy(typeof client.del === "function")
+        assertTruthy(typeof client.patch === "function")
+    }
+}
+</program>

@@ -1,0 +1,6 @@
+// edge-004-only-comments.scrml
+// File with only comments. Tests: no meaningful content.
+
+// This is a comment
+// And another comment
+// And a third comment

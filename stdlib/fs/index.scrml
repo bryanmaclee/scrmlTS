@@ -1,0 +1,174 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:fs — file system utilities for scrml applications
+    //
+    // Server-side only. All functions require a server context because they
+    // use Node.js / Bun file system APIs — not available in the browser.
+    //
+    // Usage:
+    //   ${ import { readFileSync, writeFileSync, existsSync } from 'scrml:fs' }
+    //
+    //   server function loadConfig(path) {
+    //       if (existsSync(path)) {
+    //           return JSON.parse(readFileSync(path))
+    //       }
+    //       return {}
+    //   }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Read the contents of a file synchronously.
+     *
+     * Returns the file content as a string (default encoding: "utf-8").
+     * Throws if the file does not exist or is not readable.
+     *
+     * Example:
+     *   readFileSync("/tmp/data.txt")             → "file contents..."
+     *   readFileSync("/tmp/data.bin", "base64")   → "base64encoded..."
+     */
+    export function readFileSync(path, encoding) {
+        server {
+            const fs = require("node:fs")
+            return fs.readFileSync(path, { encoding: encoding || "utf-8" })
+        }
+    }
+
+    /**
+     * Write content to a file synchronously.
+     *
+     * Creates the file if it does not exist. Overwrites if it does.
+     * Default encoding: "utf-8".
+     *
+     * Example:
+     *   writeFileSync("/tmp/out.txt", "hello world")
+     *   writeFileSync("/tmp/out.txt", data, "base64")
+     */
+    export function writeFileSync(path, content, encoding) {
+        server {
+            const fs = require("node:fs")
+            fs.writeFileSync(path, content, { encoding: encoding || "utf-8" })
+        }
+    }
+
+    /**
+     * Check whether a file or directory exists at the given path.
+     *
+     * Returns true if the path exists, false otherwise.
+     * Never throws — safe to use as a guard.
+     *
+     * Example:
+     *   existsSync("/tmp/config.json") → true
+     *   existsSync("/tmp/nope")        → false
+     */
+    export function existsSync(path) {
+        server {
+            const fs = require("node:fs")
+            return fs.existsSync(path)
+        }
+    }
+
+    /**
+     * Create a directory synchronously.
+     *
+     * By default, creates directories recursively (like `mkdir -p`).
+     * Pass options to override: { recursive: false }.
+     *
+     * Example:
+     *   mkdirSync("/tmp/a/b/c")                     — creates full path
+     *   mkdirSync("/tmp/flat", { recursive: false }) — single level only
+     */
+    export function mkdirSync(dir, options) {
+        server {
+            const fs = require("node:fs")
+            const opts = options || { recursive: true }
+            fs.mkdirSync(dir, opts)
+        }
+    }
+
+    /**
+     * Read the contents of a directory synchronously.
+     *
+     * Returns an array of filenames (strings) in the directory.
+     * Throws if the directory does not exist.
+     *
+     * Example:
+     *   readdirSync("/tmp/mydir") → ["file1.txt", "file2.txt"]
+     */
+    export function readdirSync(dir) {
+        server {
+            const fs = require("node:fs")
+            return fs.readdirSync(dir)
+        }
+    }
+
+    /**
+     * Get file or directory status information synchronously.
+     *
+     * Returns an object with:
+     *   - isFile      — true if the path is a regular file
+     *   - isDirectory — true if the path is a directory
+     *   - size        — size in bytes
+     *   - mtime       — last modification time (Date)
+     *
+     * Returns undefined if the path does not exist (does not throw).
+     *
+     * Example:
+     *   statSync("/tmp/data.txt")
+     *     → { isFile: true, isDirectory: false, size: 42, mtime: Date }
+     */
+    export function statSync(path) {
+        server {
+            const fs = require("node:fs")
+            try {
+                const s = fs.statSync(path)
+                return {
+                    isFile: s.isFile(),
+                    isDirectory: s.isDirectory(),
+                    size: s.size,
+                    mtime: s.mtime
+                }
+            } catch(e) {
+                return undefined
+            }
+        }
+    }
+
+    /**
+     * Remove a file or directory synchronously.
+     *
+     * Options:
+     *   - recursive (default false) — remove directories and their contents
+     *   - force (default false) — ignore errors if path does not exist
+     *
+     * Example:
+     *   rmSync("/tmp/old.txt")
+     *   rmSync("/tmp/olddir", { recursive: true, force: true })
+     */
+    export function rmSync(path, options) {
+        server {
+            const fs = require("node:fs")
+            const opts = options || { recursive: false, force: false }
+            fs.rmSync(path, opts)
+        }
+    }
+
+    ~{
+        // Note: server {} blocks cannot be tested in ~{} because ~{} runs at
+        // compile time, not server-side. These tests validate structural
+        // expectations only. Server-side behavior is validated by the unit
+        // tests in compiler/tests/unit/stdlib-fs.test.js.
+
+        import { assertTruthy } from 'scrml:test'
+
+        // Verify all exports are functions
+        assertTruthy(typeof readFileSync === "function")
+        assertTruthy(typeof writeFileSync === "function")
+        assertTruthy(typeof existsSync === "function")
+        assertTruthy(typeof mkdirSync === "function")
+        assertTruthy(typeof readdirSync === "function")
+        assertTruthy(typeof statSync === "function")
+        assertTruthy(typeof rmSync === "function")
+    }
+}
+</program>

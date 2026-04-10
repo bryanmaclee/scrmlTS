@@ -1,0 +1,13 @@
+// type-002-struct.scrml
+// Basic struct type declaration. Tests: type...struct in logic.
+
+<div>
+    ${
+        type User:struct = {
+            name: string
+            age: number
+            active: boolean
+        }
+    }
+    <p>Struct declared</>
+</div>

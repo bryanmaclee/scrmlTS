@@ -1,0 +1,9 @@
+// meta-001-basic.scrml
+// Basic meta block. Tests: ^{} syntax.
+
+<div>
+    ^{
+        let metaInfo = "compile-time data"
+    }
+    <p>Meta block</>
+</div>

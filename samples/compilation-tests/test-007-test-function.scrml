@@ -1,0 +1,16 @@
+// test-007-test-function.scrml
+// Testing functions. Tests: function declaration + test.
+
+${
+    function greet(name) {
+        return "Hello, " + name
+    }
+    function double(x) {
+        return x * 2
+    }
+}
+
+~{ "functions"
+    test "greet returns string" { assert greet("world") == "Hello, world" }
+    test "double works" { assert double(5) == 10 }
+}

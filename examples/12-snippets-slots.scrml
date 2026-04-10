@@ -1,0 +1,140 @@
+// Example 12: Snippet/slot system — named content regions in components.
+// A Card component declares header and body as snippet-typed props.
+// Call sites fill the slots with slot="name" on direct children.
+
+<program>
+
+// Card: two required named slots (header, body) and one optional slot (actions).
+// The component body renders each slot with ${render propName()}.
+${
+    const Card = <div class="card" props={
+        header:   snippet,
+        body:     snippet,
+        actions?: snippet,
+    }>
+        ${children}
+        <div class="card__header">
+            ${render header()}
+        </>
+        <div class="card__body">
+            ${render body()}
+        </>
+        // Render actions only when the slot has been provided — presence check.
+        <div class="card__actions" if=(not (actions is not))>
+            ${render actions()}
+        </>
+    </>
+}
+
+// ProfileCard: a specialized card that takes a user struct and renders profile info.
+// Uses Card as its outer shell and fills the slots programmatically.
+${
+    type User:struct = {
+        name:   string,
+        role:   string,
+        email:  string,
+        avatar: string,
+    }
+
+    @users = [
+        { name: "Ada Lovelace",  role: "Engineer",   email: "ada@example.com",  avatar: "🧑‍💻" },
+        { name: "Grace Hopper",  role: "Admiral",     email: "grace@example.com", avatar: "👩‍✈️" },
+        { name: "Alan Turing",   role: "Mathematician", email: "alan@example.com", avatar: "🧠" },
+    ]
+}
+
+<div class="app">
+    <h1>Team Directory</>
+
+    // Basic card — all three slots filled.
+    <Card>
+        <h2 slot="header">Welcome</>
+        <p slot="body">This directory lists the team. Select anyone to view their profile.</>
+        <button slot="actions" onclick=showAll()>View All</>
+    </>
+
+    // Cards generated from a list — header and body slots, no actions slot.
+    <div class="team-grid">
+        ${ for (u of @users) {
+            lift <Card>
+                <span slot="header">
+                    ${u.avatar} ${u.name}
+                </span>
+                <dl slot="body">
+                    <dt>Role</><dd>${u.role}</>
+                    <dt>Email</><dd><a href="mailto:${u.email}">${u.email}</></a></>
+                </>
+            </>
+        }}
+    </>
+
+    // A card with only required slots (no actions) — valid because actions is optional.
+    <Card>
+        <h3 slot="header">About this demo</>
+        <p slot="body">
+            Slots let you inject markup into a component from the call site.
+            The compiler desugars slot= attributes into snippet prop assignments.
+        </>
+    </>
+</>
+
+#{
+    .app {
+        max-width: 860px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font-family: sans-serif;
+    }
+
+    .card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 1rem;
+    }
+
+    .card__header {
+        background: #f5f5f5;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #ddd;
+        font-weight: 600;
+    }
+
+    .card__body {
+        padding: 1rem;
+    }
+
+    .card__actions {
+        padding: 0.5rem 1rem;
+        border-top: 1px solid #eee;
+        display: flex;
+        gap: 0.5rem;
+        background: #fafafa;
+    }
+
+    .team-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 1rem;
+    }
+
+    dl {
+        margin: 0;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.2rem 0.75rem;
+        font-size: 0.9rem;
+    }
+
+    dt { font-weight: 600; color: #555; }
+
+    button {
+        padding: 0.4rem 1rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        cursor: pointer;
+        background: white;
+    }
+}
+
+</program>

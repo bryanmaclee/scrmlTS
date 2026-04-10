@@ -1,0 +1,74 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler — Compiler API umbrella module
+    //
+    // Re-exports all pipeline stages and the full compilation function.
+    // Individual stages are also importable directly:
+    //
+    //   import { splitBlocks } from "scrml:compiler/bs"
+    //   import { buildAST }    from "scrml:compiler/tab"
+    //   import { runCE }       from "scrml:compiler/ce"
+    //   import { runBPP }      from "scrml:compiler/bpp"
+    //   import { runPA }       from "scrml:compiler/pa"
+    //   import { runRI }       from "scrml:compiler/ri"
+    //   import { runTS }       from "scrml:compiler/ts"
+    //   import { runMetaChecker }  from "scrml:compiler/mc"
+    //   import { runMetaEval }     from "scrml:compiler/me"
+    //   import { runDG }       from "scrml:compiler/dg"
+    //   import { runCG }       from "scrml:compiler/cg"
+    //   import { resolveModules }  from "scrml:compiler/mod"
+    //   import { parseExpression } from "scrml:compiler/expr"
+    //
+    // Or import everything from the umbrella:
+    //
+    //   import { compileScrml, splitBlocks, buildAST } from "scrml:compiler"
+    //
+    // Pipeline order: BS → TAB → MOD → CE → BPP → PA → RI → TS → MC → ME → DG → CG
+    // ---------------------------------------------------------------------------
+
+    ^{
+        // Full pipeline
+        const { compileScrml: _compileScrml, scanDirectory: _scanDirectory } = await import("../../compiler/src/api.js");
+
+        // Stage entry points
+        const { splitBlocks: _splitBlocks } = await import("../../compiler/src/block-splitter.js");
+        const { buildAST: _buildAST } = await import("../../compiler/src/ast-builder.js");
+        const { resolveModules: _resolveModules } = await import("../../compiler/src/module-resolver.js");
+        const { runCE: _runCE } = await import("../../compiler/src/component-expander.ts");
+        const { runBPP: _runBPP } = await import("../../compiler/src/body-pre-parser.ts");
+        const { runPA: _runPA } = await import("../../compiler/src/protect-analyzer.ts");
+        const { runRI: _runRI } = await import("../../compiler/src/route-inference.ts");
+        const { runTS: _runTS } = await import("../../compiler/src/type-system.ts");
+        const { runMetaChecker: _runMetaChecker } = await import("../../compiler/src/meta-checker.ts");
+        const { runMetaEval: _runMetaEval } = await import("../../compiler/src/meta-eval.ts");
+        const { runDG: _runDG } = await import("../../compiler/src/dependency-graph.ts");
+        const { runCG: _runCG } = await import("../../compiler/src/codegen/index.ts");
+
+        // Expression parser
+        const { parseExpression: _parseExpression, extractIdentifiersFromAST: _extractIdentifiersFromAST } = await import("../../compiler/src/expression-parser.ts");
+    }
+
+    // Full pipeline
+    export const compileScrml = _compileScrml
+    export const scanDirectory = _scanDirectory
+
+    // Stage entry points (pipeline order)
+    export const splitBlocks = _splitBlocks
+    export const buildAST = _buildAST
+    export const resolveModules = _resolveModules
+    export const runCE = _runCE
+    export const runBPP = _runBPP
+    export const runPA = _runPA
+    export const runRI = _runRI
+    export const runTS = _runTS
+    export const runMetaChecker = _runMetaChecker
+    export const runMetaEval = _runMetaEval
+    export const runDG = _runDG
+    export const runCG = _runCG
+
+    // Expression parser utilities
+    export const parseExpression = _parseExpression
+    export const extractIdentifiersFromAST = _extractIdentifiersFromAST
+}
+</program>

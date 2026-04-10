@@ -1,0 +1,17 @@
+// meta-component-gen.scrml
+// Use ^{} with emit() to generate a reusable card component template.
+// Tests: emit() producing markup with attributes and nested elements.
+
+<program>
+
+^{
+    const cards = [
+        { title: "Dashboard", icon: "home", desc: "View your overview" },
+        { title: "Settings", icon: "gear", desc: "Configure your account" },
+        { title: "Profile", icon: "user", desc: "Edit your profile" }
+    ];
+
+    cards.forEach(function(card) { emit("<div class=card-" + card.icon + ">\n  <h2>" + card.title + "/\n  <p>" + card.desc + "/\n</div>\n"); });
+}
+
+</>

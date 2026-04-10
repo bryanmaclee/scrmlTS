@@ -1,0 +1,40 @@
+// snippet-002-parametric.scrml
+// Parametric snippet: slot accepts a typed argument (§16.6).
+// Call site provides a lambda; slot= desugaring does not apply to parametric snippets.
+
+<program>
+
+${
+    type Item:struct = {
+        id:    number,
+        label: string,
+    }
+}
+
+// List renders each item by calling the row snippet with the item value.
+${
+    const List = <div class="list" props={
+        items:  Item[],
+        row:    snippet(item: Item),
+    }>
+        ${ for (i of items) {
+            lift <div class="list__row">${render row(i)}</>
+        }}
+    </>
+}
+
+${
+    @items = [
+        { id: 1, label: "First"  },
+        { id: 2, label: "Second" },
+        { id: 3, label: "Third"  },
+    ]
+}
+
+// Call site provides a lambda for the parametric slot.
+<List
+    items=@items
+    row={ (item) => <span>${item.id}. ${item.label}</span> }
+/>
+
+</program>

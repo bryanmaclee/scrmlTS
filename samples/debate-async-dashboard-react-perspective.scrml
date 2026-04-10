@@ -1,0 +1,555 @@
+// debate-async-dashboard-react-perspective.scrml
+// React perspective implementation for the async loading state debate.
+// Advocates: Approach C (RemoteData enum foundation) as the typed core,
+// with Approach E (loading keyword sugar) as the ergonomic layer.
+//
+// Challenge: dashboard fetching 3 data sources on mount + form with optimistic update.
+// Approach demonstrated: C + E combined (C where expressiveness matters, E for the common case).
+
+<program>
+
+${
+    // ── RemoteData pattern ──────────────────────────────────────────────
+    // In React this would be a discriminated union type:
+    //   type State<T> = { status: 'idle' } | { status: 'loading' }
+    //                 | { status: 'success', data: T } | { status: 'error', error: string }
+    //
+    // scrml does this with explicit enums per data type — no generics yet.
+    // The transitions block is a strict upgrade over React: impossible transitions
+    // are caught at compile time, not discovered at runtime.
+
+    type UsersState:enum = {
+        Idle
+        Loading
+        Loaded(users)
+        Failed(message: string)
+
+        transitions {
+            .Idle    => .Loading
+            .Loading => .Loaded
+            .Loading => .Failed
+            .Loaded  => .Loading
+            .Failed  => .Loading
+        }
+    }
+
+    type OrdersState:enum = {
+        Idle
+        Loading
+        Loaded(orders)
+        Failed(message: string)
+
+        transitions {
+            .Idle    => .Loading
+            .Loading => .Loaded
+            .Loading => .Failed
+            .Loaded  => .Loading
+            .Failed  => .Loading
+        }
+    }
+
+    type MetricsState:enum = {
+        Idle
+        Loading
+        Loaded(metrics)
+        Failed(message: string)
+
+        transitions {
+            .Idle    => .Loading
+            .Loading => .Loaded
+            .Loading => .Failed
+            .Loaded  => .Loading
+            .Failed  => .Loading
+        }
+    }
+
+    // ── Optimistic order creation — this is where C wins over D and E ──
+    // React's useOptimistic() adds the optimistic item to the list while the
+    // mutation is in flight, then replaces it on confirmation or removes on
+    // error. The Saving(existing, optimistic) variant carries BOTH the
+    // confirmed list AND the pending item in one place. You cannot do this
+    // with a flat @orders.pending boolean — there is nowhere to put the
+    // optimistic payload.
+    //
+    // In React terms, this is useActionState + useOptimistic collapsed into
+    // a single typed state variable that the compiler validates.
+
+    type OrdersOp:enum = {
+        Idle
+        Saving(existingOrders, optimisticOrder)
+        Saved(orders)
+        SaveFailed(existingOrders, message: string)
+
+        transitions {
+            .Idle       => .Saving
+            .Saving     => .Saved
+            .Saving     => .SaveFailed
+            .Saved      => .Idle
+            .SaveFailed => .Idle
+            .SaveFailed => .Saving
+        }
+    }
+
+    // ── Reactive state ──────────────────────────────────────────────────
+    @usersState   = UsersState.Idle
+    @ordersState  = OrdersState.Idle
+    @metricsState = MetricsState.Idle
+    @ordersOp     = OrdersOp.Idle
+
+    // ── Form state ──────────────────────────────────────────────────────
+    // React controlled inputs: value={state} + onChange={handler}
+    // scrml: no bind:value yet, use oninput= with manual assignment.
+    // This is a known friction point logged in previous sessions.
+    @newOrderProduct = ""
+    @newOrderAmount  = ""
+
+    // ── Server functions ────────────────────────────────────────────────
+    // These are the "use server" functions in React RSC terms.
+    // CPS handles the @state = Loading; @data = fn(); @state = Loaded(data) pattern.
+
+    server function fetchUsers() {
+        return ?{`SELECT id, name, email FROM users ORDER BY name`}.all()
+    }
+
+    server function fetchOrders() {
+        return ?{`SELECT id, product, amount, status FROM orders ORDER BY id DESC LIMIT 50`}.all()
+    }
+
+    server function fetchMetrics() {
+        return ?{`
+            SELECT
+                COUNT(*) as total_orders,
+                SUM(amount) as total_revenue,
+                AVG(amount) as avg_order
+            FROM orders
+        `}.first()
+    }
+
+    server function createOrder(product, amount) {
+        ?{`INSERT INTO orders (product, amount, status) VALUES (${product}, ${amount}, "pending")`}.run()
+        return ?{`SELECT id, product, amount, status FROM orders ORDER BY id DESC LIMIT 50`}.all()
+    }
+
+    // ── Load functions (CPS boundary) ──────────────────────────────────
+    // React equivalent: useEffect(() => { fetchData().then(setData) }, [])
+    // In scrml, CPS splits these at the await boundary so the three server
+    // calls in loadDashboard become Promise.all'd by the compiler (SS13.3).
+    // The developer writes flat sequential code; the compiler parallelizes.
+    //
+    // NOTE: This is genuinely better than React's manual Promise.all:
+    //   const [users, orders, metrics] = await Promise.all([...])
+    // The scrml developer gets parallelization without writing it.
+
+    function loadDashboard() {
+        @usersState   = UsersState.Loading
+        @ordersState  = OrdersState.Loading
+        @metricsState = MetricsState.Loading
+
+        let usersResult   = fetchUsers()
+        let ordersResult  = fetchOrders()
+        let metricsResult = fetchMetrics()
+
+        @usersState   = UsersState.Loaded(usersResult)
+        @ordersState  = OrdersState.Loaded(ordersResult)
+        @metricsState = MetricsState.Loaded(metricsResult)
+    }
+
+    // ── Optimistic order submission ─────────────────────────────────────
+    // React's pattern with useOptimistic + useActionState:
+    //
+    //   const [optimisticOrders, addOptimistic] = useOptimistic(orders, (state, newOrder) =>
+    //     [...state, { ...newOrder, id: -1 }]
+    //   )
+    //   const [state, formAction] = useActionState(async (_, formData) => {
+    //     addOptimistic({ product, amount })
+    //     const result = await createOrder(product, amount)
+    //     return result
+    //   })
+    //
+    // scrml's version is more explicit but the state machine makes the valid
+    // paths VISIBLE. The Saving(existing, optimistic) variant is the explicit
+    // encoding of what React's useOptimistic does implicitly.
+    //
+    // The key difference: in React you can call addOptimistic() at any time,
+    // even from an invalid state. In scrml, the transitions block ensures you
+    // can only Saving from Idle. The compiler enforces the happy path.
+
+    function handleAddOrder() {
+        match @ordersState {
+            .Loaded(currentOrders) => {
+                let optimistic = { id: -1, product: @newOrderProduct, amount: @newOrderAmount, status: "pending" }
+                @ordersOp = OrdersOp.Saving(currentOrders, optimistic)
+                let product = @newOrderProduct
+                let amount  = @newOrderAmount
+                @newOrderProduct = ""
+                @newOrderAmount  = ""
+                let freshOrders = createOrder(product, amount)
+                @ordersOp    = OrdersOp.Saved(freshOrders)
+                @ordersState = OrdersState.Loaded(freshOrders)
+                @ordersOp    = OrdersOp.Idle
+            }
+            else => {}
+        }
+    }
+
+    function handleProductInput() {
+        @newOrderProduct = event.target.value
+    }
+
+    function handleAmountInput() {
+        @newOrderAmount = event.target.value
+    }
+}
+
+on mount { loadDashboard() }
+
+<div class="dashboard">
+
+    <header class="dashboard-header">
+        <h1>Dashboard</>
+        <button
+            onclick=loadDashboard()
+            class="refresh-btn"
+        >Refresh</>
+    </header>
+
+    // ── Metrics row ─────────────────────────────────────────────────────
+    // React: <Suspense fallback={<MetricsSkeleton/>}><MetricsPanel/></Suspense>
+    // scrml: exhaustive match — the compiler will catch if we miss a variant.
+    // This is the key advantage over React Suspense: no runtime surprise.
+
+    <section class="metrics-row">
+        ${
+            match @metricsState {
+                .Idle => { lift <div class="metric-card">Not loaded</> }
+                .Loading => { lift <div class="metric-card loading">Loading metrics...</> }
+                .Failed(msg) => { lift <div class="metric-card error">Error: ${msg}</> }
+                .Loaded(metrics) => {
+                    lift <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-label">Total Orders</>
+                            <span class="metric-value">${metrics.total_orders}</>
+                        </>
+                        <div class="metric-card">
+                            <span class="metric-label">Revenue</>
+                            <span class="metric-value">${metrics.total_revenue}</>
+                        </>
+                        <div class="metric-card">
+                            <span class="metric-label">Avg Order</>
+                            <span class="metric-value">${metrics.avg_order}</>
+                        </>
+                    </>
+                }
+            }
+        }
+    </section>
+
+    // ── Two-panel content area ──────────────────────────────────────────
+
+    <div class="content-panels">
+
+        // ── Users panel ────────────────────────────────────────────────
+        <section class="panel users-panel">
+            <h2>Users</>
+            ${
+                match @usersState {
+                    .Idle => { lift <p>Not loaded</> }
+                    .Loading => { lift <div class="spinner">Loading users...</> }
+                    .Failed(msg) => {
+                        lift <div class="panel-error">
+                            <p>Failed to load users: ${msg}</>
+                            <button onclick=loadDashboard()>Retry</>
+                        </>
+                    }
+                    .Loaded(users) => {
+                        lift <ul class="user-list">
+                            ${
+                                for (let user of users) {
+                                    lift <li class="user-item">
+                                        <span class="user-name">${user.name}</>
+                                        <span class="user-email">${user.email}</>
+                                    </>
+                                }
+                            }
+                        </>
+                    }
+                }
+            }
+        </section>
+
+        // ── Orders panel ───────────────────────────────────────────────
+        // This panel shows the optimistic update in action.
+        // React: {optimisticOrders.map(o => <OrderRow key={o.id} order={o}/>)}
+        // scrml: the match on @ordersOp overlays the optimistic item on top
+        //        of whatever @ordersState contains. The Saving variant carries
+        //        the real list AND the optimistic item as named payloads.
+
+        <section class="panel orders-panel">
+            <h2>Orders</>
+
+            // ── New order form ──────────────────────────────────────────
+            // React: <form action={formAction}> with useActionState.
+            // scrml: manual controlled inputs (bind:value not yet compiled).
+            // The disabled state comes from the OrdersOp machine — if we are
+            // Saving, the form is locked. One state var does all of it.
+
+            <form class="new-order-form" onsubmit=handleAddOrder()>
+                <input
+                    type="text"
+                    placeholder="Product name"
+                    oninput=handleProductInput()
+                    disabled=${@ordersOp is .Saving}
+                    class="order-input"
+                />
+                <input
+                    type="number"
+                    placeholder="Amount"
+                    oninput=handleAmountInput()
+                    disabled=${@ordersOp is .Saving}
+                    class="order-input"
+                />
+                <button
+                    type="submit"
+                    disabled=${@ordersOp is .Saving}
+                    class="submit-btn"
+                >
+                    ${match @ordersOp {
+                        .Saving => { "Saving..." }
+                        else    => { "Add Order" }
+                    }}
+                </>
+            </form>
+
+            // ── Save error feedback ─────────────────────────────────────
+            ${
+                match @ordersOp {
+                    .SaveFailed(existingOrders, msg) => {
+                        lift <div class="save-error">
+                            <p>Failed to save: ${msg}</>
+                            <button onclick=handleAddOrder()>Retry</>
+                        </>
+                    }
+                    else => {}
+                }
+            }
+
+            // ── Orders list with optimistic overlay ─────────────────────
+            ${
+                match @ordersState {
+                    .Idle => { lift <p>Not loaded</> }
+                    .Loading => { lift <div class="spinner">Loading orders...</> }
+                    .Failed(msg) => { lift <div class="panel-error">Failed: ${msg}</> }
+                    .Loaded(orders) => {
+                        // When saving, we splice the optimistic row on top.
+                        // React's useOptimistic does this implicitly by mutating the
+                        // display list. scrml makes it explicit: we match on the op
+                        // state and decide what list to render. More verbose, fully
+                        // transparent. The Saving variant carries existingOrders and
+                        // optimisticOrder as typed payloads — no "magic list mutation."
+
+                        match @ordersOp {
+                            .Saving(existingOrders, optimisticOrder) => {
+                                lift <ul class="order-list">
+                                    <li class="order-item optimistic">
+                                        <span>${optimisticOrder.product}</>
+                                        <span>${optimisticOrder.amount}</>
+                                        <span class="status saving">Saving...</>
+                                    </>
+                                    ${
+                                        for (let order of existingOrders) {
+                                            lift <li class="order-item">
+                                                <span>${order.product}</>
+                                                <span>${order.amount}</>
+                                                <span class="status">${order.status}</>
+                                            </>
+                                        }
+                                    }
+                                </>
+                            }
+                            else => {
+                                lift <ul class="order-list">
+                                    ${
+                                        for (let order of orders) {
+                                            lift <li class="order-item">
+                                                <span>${order.product}</>
+                                                <span>${order.amount}</>
+                                                <span class="status">${order.status}</>
+                                            </>
+                                        }
+                                    }
+                                </>
+                            }
+                        }
+                    }
+                }
+            }
+        </section>
+
+    </>
+
+</>
+
+#{
+    .dashboard {
+        font-family: system-ui, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 1.5rem;
+    }
+
+    .dashboard-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .metrics-row {
+        margin-bottom: 1.5rem;
+    }
+
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+    }
+
+    .metric-card {
+        background: #f4f4f4;
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .metric-label {
+        font-size: 0.8rem;
+        color: #777;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .metric-value {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #111;
+    }
+
+    .content-panels {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 1.5rem;
+    }
+
+    .panel {
+        background: #fff;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 1.25rem;
+    }
+
+    .panel h2 {
+        margin: 0 0 1rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .user-list, .order-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .user-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    .user-name {
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+
+    .user-email {
+        font-size: 0.75rem;
+        color: #888;
+    }
+
+    .order-item {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #f0f0f0;
+        font-size: 0.875rem;
+    }
+
+    .order-item.optimistic {
+        opacity: 0.6;
+        background: #fffbea;
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .status.saving {
+        color: #d69e2e;
+        font-style: italic;
+    }
+
+    .new-order-form {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .order-input {
+        flex: 1;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font-size: 0.875rem;
+    }
+
+    .submit-btn, .refresh-btn {
+        padding: 0.4rem 1rem;
+        background: #3b82f6;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+    }
+
+    .submit-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .spinner, .loading {
+        color: #888;
+        font-size: 0.875rem;
+        padding: 0.5rem 0;
+    }
+
+    .panel-error, .save-error {
+        background: #fff0f0;
+        border: 1px solid #fca5a5;
+        border-radius: 6px;
+        padding: 0.75rem;
+        font-size: 0.875rem;
+        color: #b91c1c;
+        margin-bottom: 0.75rem;
+    }
+}
+
+</>

@@ -1,0 +1,29 @@
+// comp-004-modal.scrml
+// Modal dialog pattern. Tests: modal markup with state.
+
+<div>
+    ${
+        @isOpen = false
+        function openModal() {
+            @isOpen = true
+        }
+        function closeModal() {
+            @isOpen = false
+        }
+    }
+    <button onclick=openModal()>Open Modal</>
+    <div class="modal-overlay" if=isOpen>
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Modal Title</>
+                <button onclick=closeModal()>X</>
+            </div>
+            <div class="modal-body">
+                <p>Modal content here</>
+            </div>
+            <div class="modal-footer">
+                <button onclick=closeModal()>Close</>
+            </div>
+        </div>
+    </div>
+</div>

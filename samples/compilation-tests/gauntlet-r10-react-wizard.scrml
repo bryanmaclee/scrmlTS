@@ -1,0 +1,281 @@
+// gauntlet-r10-react-wizard.scrml
+// Gauntlet Round 10 -- React developer perspective
+// Multi-step registration wizard: Step 1 (name/email), Step 2 (preferences), Step 3 (review/submit)
+// Tests: multi-step state, shared state across steps, back/forward nav, per-step validation,
+//        progress indicator, checkboxes, radio buttons, conditional rendering, reactive arrays
+
+<program>
+
+${
+    // --- Step tracking ---
+    @currentStep = 1
+    const totalSteps = 3
+
+    // --- Step 1 state: Personal Info ---
+    @firstName = ""
+    @lastName = ""
+    @email = ""
+
+    // --- Step 2 state: Preferences ---
+    @selectedPlan = "free"
+    @emailUpdates = false
+    @smsAlerts = false
+    @newsletter = false
+
+    // --- Step 3 / submission state ---
+    @isSubmitting = false
+    @submitError = ""
+    @submitted = false
+
+    // --- Validation errors per step ---
+    @step1Errors = []
+    @step2Errors = []
+
+    // --- Validation functions ---
+    function validateStep1() {
+        @step1Errors = []
+        if (@firstName.length == 0) {
+            @step1Errors = [...@step1Errors, "First name is required"]
+        }
+        if (@lastName.length == 0) {
+            @step1Errors = [...@step1Errors, "Last name is required"]
+        }
+        if (@email.length == 0) {
+            @step1Errors = [...@step1Errors, "Email is required"]
+        }
+        if (@email.length > 0 && !@email.includes("@")) {
+            @step1Errors = [...@step1Errors, "Email must be valid"]
+        }
+        return @step1Errors.length == 0
+    }
+
+    function validateStep2() {
+        @step2Errors = []
+        if (@selectedPlan.length == 0) {
+            @step2Errors = [...@step2Errors, "Please select a plan"]
+        }
+        return @step2Errors.length == 0
+    }
+
+    // --- Navigation functions ---
+    function goNext() {
+        if (@currentStep == 1) {
+            if (validateStep1()) {
+                @currentStep = 2
+            }
+        } else if (@currentStep == 2) {
+            if (validateStep2()) {
+                @currentStep = 3
+            }
+        }
+    }
+
+    function goBack() {
+        if (@currentStep > 1) {
+            @currentStep = @currentStep - 1
+        }
+    }
+
+    // --- Input handlers (no bind:value available -- manual oninput) ---
+    function handleFirstName() {
+        @firstName = event.target.value
+    }
+    function handleLastName() {
+        @lastName = event.target.value
+    }
+    function handleEmail() {
+        @email = event.target.value
+    }
+    function handlePlanFree() {
+        @selectedPlan = "free"
+    }
+    function handlePlanPro() {
+        @selectedPlan = "pro"
+    }
+    function handlePlanEnterprise() {
+        @selectedPlan = "enterprise"
+    }
+    function handleEmailUpdates() {
+        @emailUpdates = !@emailUpdates
+    }
+    function handleSmsAlerts() {
+        @smsAlerts = !@smsAlerts
+    }
+    function handleNewsletter() {
+        @newsletter = !@newsletter
+    }
+
+    // --- Submit ---
+    server function submitRegistration(firstName, lastName, email, plan, emailUpdates, smsAlerts, newsletter) {
+        ?{`INSERT INTO registrations (first_name, last_name, email, plan, email_updates, sms_alerts, newsletter)
+           VALUES (${firstName}, ${lastName}, ${email}, ${plan}, ${emailUpdates}, ${smsAlerts}, ${newsletter})`}.run()
+        return "ok"
+    }
+
+    function handleSubmit() {
+        @isSubmitting = true
+        @submitError = ""
+        let result = submitRegistration(@firstName, @lastName, @email, @selectedPlan, @emailUpdates, @smsAlerts, @newsletter)
+        if (result == "ok") {
+            @submitted = true
+        } else {
+            @submitError = "Submission failed. Please try again."
+        }
+        @isSubmitting = false
+    }
+}
+
+// --- Progress Indicator ---
+<div class="wizard-container">
+    <div class="progress-bar">
+        <div class="step-indicator">
+            <span class="step-number">Step ${@currentStep} of ${totalSteps}</>
+        </>
+        <div class="progress-dots">
+            ${
+                for (let i = 1; i <= totalSteps; i++) {
+                    lift <span class="dot">${i}</>
+                }
+            }
+        </>
+    </>
+
+    // --- Success state ---
+    <div class="wizard-success" if=@submitted>
+        <h2>Registration Complete!</>
+        <p>Welcome, ${@firstName}! Your ${@selectedPlan} plan is ready.</>
+    </>
+
+    // --- Step 1: Personal Info ---
+    <div class="wizard-step step-1" if=@currentStep>
+        <h2>Step 1: Personal Information</>
+        <div class="form-fields">
+            <div class="field">
+                <label>First Name</>
+                <input
+                    type="text"
+                    name="firstName"
+                    placeholder="Enter your first name"
+                    oninput=handleFirstName()/>
+            </>
+            <div class="field">
+                <label>Last Name</>
+                <input
+                    type="text"
+                    name="lastName"
+                    placeholder="Enter your last name"
+                    oninput=handleLastName()/>
+            </>
+            <div class="field">
+                <label>Email Address</>
+                <input
+                    type="email"
+                    name="email"
+                    placeholder="you@example.com"
+                    oninput=handleEmail()/>
+            </>
+        </>
+        <div class="step-errors" if=@step1Errors.length>
+            <ul>
+                ${
+                    for (let err of @step1Errors) {
+                        lift <li class="error-item">${err}</>
+                    }
+                }
+            </>
+        </>
+        <div class="step-actions">
+            <button class="btn-primary" onclick=goNext()>Next: Preferences</>
+        </>
+    </>
+
+    // --- Step 2: Preferences ---
+    <div class="wizard-step step-2" if=@currentStep>
+        <h2>Step 2: Your Preferences</>
+        <div class="form-fields">
+            <fieldset class="plan-selector">
+                <legend>Choose a Plan</>
+                <label class="radio-label">
+                    <input type="radio" name="plan" value="free" oninput=handlePlanFree()/>
+                    Free - Basic features</>
+                <label class="radio-label">
+                    <input type="radio" name="plan" value="pro" oninput=handlePlanPro()/>
+                    Pro - Advanced features</>
+                <label class="radio-label">
+                    <input type="radio" name="plan" value="enterprise" oninput=handlePlanEnterprise()/>
+                    Enterprise - Everything</>
+            </>
+            <fieldset class="notification-prefs">
+                <legend>Notification Preferences</>
+                <label class="checkbox-label">
+                    <input type="checkbox" name="emailUpdates" onchange=handleEmailUpdates()/>
+                    Email updates</>
+                <label class="checkbox-label">
+                    <input type="checkbox" name="smsAlerts" onchange=handleSmsAlerts()/>
+                    SMS alerts</>
+                <label class="checkbox-label">
+                    <input type="checkbox" name="newsletter" onchange=handleNewsletter()/>
+                    Newsletter</>
+            </>
+        </>
+        <div class="step-errors" if=@step2Errors.length>
+            <ul>
+                ${
+                    for (let err of @step2Errors) {
+                        lift <li class="error-item">${err}</>
+                    }
+                }
+            </>
+        </>
+        <div class="step-actions">
+            <button class="btn-secondary" onclick=goBack()>Back</>
+            <button class="btn-primary" onclick=goNext()>Next: Review</>
+        </>
+    </>
+
+    // --- Step 3: Review and Submit ---
+    <div class="wizard-step step-3" if=@currentStep>
+        <h2>Step 3: Review Your Information</>
+        <div class="review-section">
+            <h3>Personal Info</>
+            <div class="review-row">
+                <span class="review-label">Name:</>
+                <span class="review-value">${@firstName} ${@lastName}</>
+            </>
+            <div class="review-row">
+                <span class="review-label">Email:</>
+                <span class="review-value">${@email}</>
+            </>
+        </>
+        <div class="review-section">
+            <h3>Preferences</>
+            <div class="review-row">
+                <span class="review-label">Plan:</>
+                <span class="review-value">${@selectedPlan}</>
+            </>
+            <div class="review-row">
+                <span class="review-label">Email Updates:</>
+                <span class="review-value">${@emailUpdates ? "Yes" : "No"}</>
+            </>
+            <div class="review-row">
+                <span class="review-label">SMS Alerts:</>
+                <span class="review-value">${@smsAlerts ? "Yes" : "No"}</>
+            </>
+            <div class="review-row">
+                <span class="review-label">Newsletter:</>
+                <span class="review-value">${@newsletter ? "Yes" : "No"}</>
+            </>
+        </>
+        <div class="submit-error" if=@submitError.length>
+            <p class="error-text">${@submitError}</>
+        </>
+        <div class="step-actions">
+            <button class="btn-secondary" onclick=goBack()>Back</>
+            <button class="btn-primary" disabled=@isSubmitting onclick=handleSubmit()>
+                ${@isSubmitting ? "Submitting..." : "Complete Registration"}</>
+        </>
+    </>
+
+</>
+
+</program>

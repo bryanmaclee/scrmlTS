@@ -1,0 +1,72 @@
+// gauntlet-r14: vue dev — component-based app
+// Tests R13 fixes: nested functions, function name mangling
+// New: ~ tilde-decl, multiple nested functions, parenthesized onclick
+
+<div class="app">
+    ${
+        @items = []
+        @input = ""
+        @sortOrder = "asc"
+        @editingId = not
+        @editText = ""
+
+        appName = "Item Manager v2"
+
+        function addItem() {
+            function createId() {
+                return Date.now()
+            }
+            function trimInput(text) {
+                return text.trim()
+            }
+            let cleaned = trimInput(@input)
+            if (cleaned.length > 0) {
+                @items = [...@items, { id: createId(), text: cleaned }]
+                @input = ""
+            }
+        }
+
+        function removeItem(id) {
+            @items = @items.filter(i => i.id != id)
+        }
+
+        function startEditing(itemId, itemText) {
+            @editingId = itemId
+            @editText = itemText
+        }
+
+        function saveEdit() {
+            @items = @items.map(i => i.id == @editingId ? { ...i, text: @editText } : i)
+            @editingId = not
+        }
+
+        function sortedItems() {
+            return @items
+        }
+    }
+    <h1>${appName}</>
+    <div class="controls">
+        <input type="text" bind:value=@input placeholder="Add item..."/>
+        <button onclick=addItem()>Add</>
+        <select bind:value=@sortOrder>
+            <option value="asc">A-Z</>
+            <option value="desc">Z-A</>
+        </select>
+    </div>
+    <p>${@items.length} items</>
+    <div if=@editingId>
+        <input type="text" bind:value=@editText/>
+        <button onclick=saveEdit()>Save</>
+    </div>
+    <ul>
+        ${
+            for (let item of sortedItems()) {
+                lift <li>
+                    <span>${item.text}/
+                    <button onclick=startEditing(item.id, item.text)>Edit/
+                    <button onclick=removeItem(item.id)>x/
+                </li>
+            }
+        }
+    </ul>
+</div>

@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/ce — Component Expander
+    //
+    // Resolves component references and expands them into markup subtrees.
+    // Runs after TAB and Module Resolution, before BPP.
+    //
+    // Usage:
+    //   import { runCE } from "scrml:compiler/ce"
+    //   const result = runCE({ files, exportRegistry, fileASTMap })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runCE: _runCE, runCEFile: _runCEFile } = await import("../../compiler/src/component-expander.ts");
+    }
+
+    export const runCE = _runCE
+    export const runCEFile = _runCEFile
+}
+</program>

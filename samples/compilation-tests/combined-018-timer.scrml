@@ -1,0 +1,29 @@
+// combined-018-timer.scrml
+// Timer display. Tests: reactive + function + display.
+
+<div class="timer">
+    ${
+        @seconds = 0
+        @running = false
+
+        function start() {
+            @running = true
+        }
+        function stop() {
+            @running = false
+        }
+        function reset() {
+            @seconds = 0
+            @running = false
+        }
+    }
+    <h1>Timer</>
+    <div class="timer-display">
+        <span class="time">${@seconds}s</>
+    </div>
+    <div class="timer-controls">
+        <button onclick=start()>Start</>
+        <button onclick=stop()>Stop</>
+        <button onclick=reset()>Reset</>
+    </div>
+</div>

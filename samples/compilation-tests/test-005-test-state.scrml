@@ -1,0 +1,13 @@
+// test-005-test-state.scrml
+// Testing a state type. Tests: state + test interaction.
+
+< item name(string) price(number)>
+    <div class="item">
+        <span>${name}</>
+        <span>${price}</>
+    </>
+</>
+
+~{ "state type"
+    test "item has name" { assert true }
+}

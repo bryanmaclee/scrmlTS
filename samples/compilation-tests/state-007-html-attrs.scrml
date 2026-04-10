@@ -1,0 +1,8 @@
+// state-007-html-attrs.scrml
+// HTML attribute validation. Tests: standard HTML attributes on elements.
+
+<div class="container" id="main">
+    <a href="https://example.com" target="_blank">Link</>
+    <p class="intro" id="first">First paragraph</>
+    <span data-value="42">Data attribute</>
+</>

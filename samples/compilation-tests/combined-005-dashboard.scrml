@@ -1,0 +1,36 @@
+// combined-005-dashboard.scrml
+// Dashboard with stats cards. Tests: multiple features together.
+
+<div class="dashboard">
+    ${
+        @activePanel = "overview"
+        function setPanel(name) {
+            @activePanel = name
+        }
+        let totalUsers = 1250
+        let activeToday = 340
+        let revenue = 45600
+    }
+    <header>
+        <h1>Dashboard</>
+        <nav>
+            <button onclick=setPanel("overview")>Overview</>
+            <button onclick=setPanel("analytics")>Analytics</>
+            <button onclick=setPanel("settings")>Settings</>
+        </nav>
+    </header>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <h3>Total Users</>
+            <span class="stat-value">${totalUsers}</>
+        </div>
+        <div class="stat-card">
+            <h3>Active Today</>
+            <span class="stat-value">${activeToday}</>
+        </div>
+        <div class="stat-card">
+            <h3>Revenue</>
+            <span class="stat-value">${revenue}</>
+        </div>
+    </div>
+</div>

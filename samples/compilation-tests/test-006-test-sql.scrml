@@ -1,0 +1,14 @@
+// test-006-test-sql.scrml
+// Testing SQL queries. Tests: ~{} alongside db state.
+
+< db src="test.db" tables="items">
+    ${
+        server function getItems() {
+            return ?{`SELECT * FROM items`}
+        }
+    }
+</>
+
+~{ "sql queries"
+    test "getItems exists" { assert true }
+}

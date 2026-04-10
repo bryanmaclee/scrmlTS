@@ -1,0 +1,10 @@
+// reactive-012-computed.scrml
+// Reactive variables computed from other values. Tests: @ with expressions.
+
+<div>
+    ${
+        @width = 300
+        @height = 200
+    }
+    <p>Dimensions set</>
+</div>

@@ -1,0 +1,35 @@
+// gauntlet-r15: stress test — bun.eval() in markup interpolations
+// Tests section 29: compile-time bun.eval() for constant inlining
+// Exercises: bun.eval() in text interpolation, bun.eval() in logic blocks,
+//            bun.eval() alongside reactive state, bun.eval() with string returns
+
+<program>
+
+${
+    @counter = 0
+    @message = ""
+
+    appVersion = bun.eval("'1.2.3'")
+    buildYear = bun.eval("new Date().getFullYear().toString()")
+    featureCount = bun.eval("(3 + 7).toString()")
+
+    function increment() {
+        @counter = @counter + 1
+    }
+
+    function setMessage(text) {
+        @message = text
+    }
+}
+
+<div class="app">
+    <h1>App v${appVersion}</>
+    <p>Built in ${buildYear}</>
+    <p>Features: ${featureCount}</>
+    <p>Counter: ${@counter}</>
+    <button onclick=increment()>Count</>
+    <button onclick=setMessage("hello")>Say Hello</>
+    <p if=@message.length>${@message}</>
+</div>
+
+</>

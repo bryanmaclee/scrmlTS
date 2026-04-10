@@ -1,0 +1,453 @@
+/**
+ * Meta Eval — Compile-time evaluation of ^{} meta blocks with emit().
+ *
+ * This pass runs between DG (Stage 7) and CG (Stage 8). It walks the AST
+ * looking for `kind: "meta"` nodes that are compile-time eligible (use
+ * compile-time APIs like emit() or reflect(), and do NOT reference runtime
+ * @var reactive variables). Eligible blocks are evaluated using new Function(),
+ * and any emit() calls produce scrml source that is re-parsed and spliced
+ * into the AST in place of the meta node.
+ *
+ * Integration point: called from api.js between DG and CG.
+ *
+ * Input:
+ *   {
+ *     files: TypedFileAST[],
+ *     depGraph?: object,
+ *     routeMap?: object,
+ *   }
+ *
+ * Output:
+ *   { files: TypedFileAST[], errors: MetaEvalError[] }
+ *
+ * Error codes:
+ *   E-META-EVAL-001  Compile-time meta evaluation failed (runtime error)
+ *   E-META-EVAL-002  Re-parsing emitted code failed
+ */
+
+import { splitBlocks } from "./block-splitter.js";
+import { buildAST } from "./ast-builder.js";
+import { bodyUsesCompileTimeApis, createReflect, buildFileTypeRegistry, collectMetaLocals } from "./meta-checker.ts";
+import { rewriteBunEval } from "./codegen/rewrite.ts";
+import type { Span, FileAST, ASTNode, MetaNode, LogicStatement } from "./types/ast.ts";
+
+// ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
+/** A MetaEval error produced during compile-time meta block evaluation. */
+export interface MetaEvalErrorShape {
+  code: string;
+  message: string;
+  span: Span;
+  severity: "error" | "warning";
+}
+
+export class MetaEvalError implements MetaEvalErrorShape {
+  code: string;
+  message: string;
+  span: Span;
+  severity: "error" | "warning";
+
+  constructor(
+    code: string,
+    message: string,
+    span: Span,
+    severity: "error" | "warning" = "error",
+  ) {
+    this.code = code;
+    this.message = message;
+    this.span = span;
+    this.severity = severity;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Type aliases for meta-eval internals
+// ---------------------------------------------------------------------------
+
+/** The type registry produced by buildFileTypeRegistry — an opaque record. */
+type TypeRegistry = Record<string, unknown>;
+
+// ---------------------------------------------------------------------------
+// Check if a meta block references runtime reactive variables (@var).
+//
+// A meta block body that contains any reactive-decl node, or any bare-expr /
+// initializer string referencing @someVar, is NOT compile-time eligible.
+// ---------------------------------------------------------------------------
+
+function bodyReferencesReactiveVars(body: LogicStatement[]): boolean {
+  if (!Array.isArray(body)) return false;
+
+  function walk(nodes: LogicStatement[]): boolean {
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+
+      // Reactive declarations: @name = expr
+      if ((node as ASTNode).kind === "reactive-decl") return true;
+
+      // Check expressions for @var references
+      if ((node as ASTNode).kind === "bare-expr" && (node as { expr?: string }).expr && /@[A-Za-z_$]/.test((node as { expr: string }).expr)) return true;
+      if (((node as ASTNode).kind === "let-decl" || (node as ASTNode).kind === "const-decl") && (node as { init?: string }).init && /@[A-Za-z_$]/.test((node as { init: string }).init)) return true;
+
+      // Walk children (but not nested meta — they are independent)
+      if ((node as ASTNode).kind !== "meta") {
+        const n = node as Record<string, unknown>;
+        if (Array.isArray(n.body) && walk(n.body as LogicStatement[])) return true;
+        if (Array.isArray(n.children) && walk(n.children as LogicStatement[])) return true;
+        if (Array.isArray(n.consequent) && walk(n.consequent as LogicStatement[])) return true;
+        if (Array.isArray(n.alternate) && walk(n.alternate as LogicStatement[])) return true;
+      }
+    }
+    return false;
+  }
+
+  return walk(body);
+}
+
+// ---------------------------------------------------------------------------
+// Serialize meta block body nodes back to JavaScript source.
+//
+// This is a best-effort serialization of the parsed logic body. It handles
+// the common node kinds: bare-expr, let-decl, const-decl, for-loop, if-stmt,
+// return-stmt. Complex constructs may not round-trip perfectly, but the
+// common emit() patterns work.
+// ---------------------------------------------------------------------------
+
+// Rewrite reflect(TypeName) → reflect("TypeName") in any expression string,
+// but ONLY for identifiers that are NOT meta-local variables.
+//
+// The AST parser stores `reflect(Color)` with `Color` as an unquoted
+// identifier token. The runtime createReflect() function requires a string
+// argument. This rewrite corrects the call before it reaches new Function().
+//
+// When the argument is a meta-local variable (declared with let/const inside
+// the same ^{} block), we leave it as-is — the JS variable will resolve at
+// eval time and pass its string value to createReflect() at execution.
+//
+// Examples:
+//   reflect(Color)          → reflect("Color")   (bare type name — rewrite)
+//   reflect(typeName)       → reflect(typeName)   (meta-local var — no rewrite)
+//   reflect("Color")        → reflect("Color")   (already quoted — no rewrite)
+const REFLECT_IDENT_RE = /\breflect\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)/g;
+
+function rewriteReflectCalls(expr: string, locals: Set<string> = new Set()): string {
+  if (!expr || typeof expr !== "string") return expr;
+  return expr.replace(REFLECT_IDENT_RE, (match, ident) => {
+    // If this identifier is a meta-local variable, leave it as-is so it
+    // resolves to the variable's value at eval time.
+    if (locals.has(ident)) return match;
+    // Otherwise it's a bare type name — quote it for createReflect().
+    return `reflect("${ident}")`;
+  });
+}
+
+function serializeBody(nodes: LogicStatement[], locals: Set<string> = new Set()): string {
+  if (!Array.isArray(nodes)) return "";
+  const parts: string[] = [];
+
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    parts.push(serializeNode(node as ASTNode, locals));
+  }
+
+  return parts.join("\n");
+}
+
+function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
+  const n = node as Record<string, unknown>;
+  switch (node.kind) {
+    case "bare-expr":
+      return `${rewriteReflectCalls(rewriteBunEval(n.expr as string), locals)};`;
+
+    case "let-decl":
+      return n.init != null ? `let ${n.name} = ${rewriteReflectCalls(rewriteBunEval(n.init as string), locals)};` : `let ${n.name};`;
+
+    case "const-decl":
+      return n.init != null ? `const ${n.name} = ${rewriteReflectCalls(rewriteBunEval(n.init as string), locals)};` : `const ${n.name};`;
+
+    case "for-loop": {
+      const iter = (n.iterable || n.collection || "") as string;
+      const body = serializeBody((n.body || []) as LogicStatement[], locals);
+      if (n.indexVariable) {
+        // for (let idx = 0; ...) style — use the raw expr if available
+        return `for (${n.rawInit || `let ${n.variable} = 0`}; ${n.rawTest || ""}; ${n.rawUpdate || `${n.variable}++`}) {\n${body}\n}`;
+      }
+      // for-of style
+      return `for (const ${n.variable} of ${iter}) {\n${body}\n}`;
+    }
+
+    case "if-stmt": {
+      let code = `if (${n.condition || n.test || "true"}) {\n${serializeBody((n.consequent || n.body || []) as LogicStatement[], locals)}\n}`;
+      if (n.alternate && (n.alternate as LogicStatement[]).length > 0) {
+        code += ` else {\n${serializeBody(n.alternate as LogicStatement[], locals)}\n}`;
+      }
+      return code;
+    }
+
+    case "return-stmt":
+      return n.value ? `return ${rewriteBunEval(n.value as string)};` : "return;";
+
+    default:
+      // For unrecognized nodes, try expr field or skip
+      if (n.expr) return `${n.expr};`;
+      return "";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Re-parse emitted scrml source code into AST nodes.
+// ---------------------------------------------------------------------------
+
+function reparseEmitted(emittedCode: string, errors: MetaEvalError[], raw: boolean = false): ASTNode[] {
+  try {
+    // When raw=true (emit.raw()), skip escape-sequence normalization and pass
+    // the string to the block splitter verbatim (SPEC §22.4.1).
+    // When raw=false (emit()), normalize escape sequences so the block splitter
+    // receives real newlines, quotes, tabs, and backslashes.
+    let normalized: string;
+    if (raw) {
+      normalized = emittedCode;
+    } else {
+      // Normalize escape sequences from emit() output:
+      // - literal \n → actual newline (tokenizer preserves \n in strings)
+      // - literal \" → actual " (tokenizer preserves \" in strings)
+      // - literal \\ → actual \ (tokenizer preserves \\ in strings)
+      normalized = emittedCode
+        .replaceAll("\\\\", "\x00BACKSLASH\x00")  // protect real backslash pairs
+        .replaceAll("\\n", "\n")
+        .replaceAll('\\"', '"')
+        .replaceAll("\\t", "\t")
+        .replaceAll("\x00BACKSLASH\x00", "\\");
+    }
+    const bsOutput = splitBlocks("__meta_emit__", normalized);
+    const tabOutput = buildAST(bsOutput);
+
+    if (tabOutput.errors && tabOutput.errors.length > 0) {
+      for (const e of tabOutput.errors) {
+        // Skip warnings (W- prefixed codes) — these are non-fatal advisory messages
+        // from the parser (e.g., W-PROGRAM-001 about missing <program> root)
+        const code = (e as { code?: string }).code || "";
+        if (code.startsWith("W-")) continue;
+
+        errors.push(new MetaEvalError(
+          "E-META-EVAL-002",
+          `Re-parsing emitted meta code failed: ${(e as { message?: string }).message || code}`,
+          (e as { tabSpan?: Span }).tabSpan || { file: "__meta_emit__", start: 0, end: 0, line: 1, col: 1 },
+        ));
+      }
+    }
+
+    return (tabOutput.ast?.nodes ?? []) as ASTNode[];
+  } catch (e) {
+    errors.push(new MetaEvalError(
+      "E-META-EVAL-002",
+      `Re-parsing emitted meta code failed: ${(e as Error).message}`,
+      { file: "__meta_emit__", start: 0, end: 0, line: 1, col: 1 },
+    ));
+    return [];
+  }
+}
+
+// Extract escape-sequence normalization so it can be applied per-entry
+// before concatenation (used by evaluateMetaBlock — see bug #16/#17 fix).
+function normalizeEmitCode(code: string): string {
+  return code
+    .replaceAll("\\\\", "\x00BACKSLASH\x00")  // protect real backslash pairs
+    .replaceAll("\\n", "\n")
+    .replaceAll('\\"', '"')
+    .replaceAll("\\t", "\t")
+    .replaceAll("\x00BACKSLASH\x00", "\\");
+}
+
+// ---------------------------------------------------------------------------
+// Evaluate a single compile-time meta block.
+// ---------------------------------------------------------------------------
+
+function evaluateMetaBlock(
+  metaNode: MetaNode,
+  typeRegistry: TypeRegistry,
+  errors: MetaEvalError[],
+): ASTNode[] | null {
+  const body = metaNode.body;
+  if (!Array.isArray(body) || body.length === 0) return null;
+
+  // Collect meta-local variables declared in this block. These identifiers
+  // must NOT be rewritten by rewriteReflectCalls — they are JS variables
+  // that will resolve to their string values at eval time.
+  const metaLocals = collectMetaLocals(body as LogicStatement[]);
+
+  // Serialize the body to a JS string
+  const bodyCode = serializeBody(body, metaLocals);
+
+  // Build the emit() and reflect() functions
+  const emitted: Array<{ code: string; raw: boolean }> = [];
+  function emitFn(code: unknown): void {
+    if (typeof code === "string") {
+      emitted.push({ code, raw: false });
+    } else {
+      emitted.push({ code: String(code), raw: false });
+    }
+  }
+  (emitFn as unknown as Record<string, unknown>).raw = (html: unknown): void => {
+    emitted.push({ code: typeof html === "string" ? html : String(html), raw: true });
+  };
+
+  const reflectFn = createReflect(typeRegistry);
+
+  // Execute using new Function()
+  try {
+    const fn = new Function("emit", "reflect", bodyCode);
+    fn(emitFn, reflectFn);
+  } catch (e) {
+    errors.push(new MetaEvalError(
+      "E-META-EVAL-001",
+      `Compile-time meta evaluation failed: ${(e as Error).message}`,
+      metaNode.span || { file: "unknown", start: 0, end: 0, line: 1, col: 1 },
+    ));
+    return null;
+  }
+
+  // If nothing was emitted, remove the meta node (replace with nothing)
+  if (emitted.length === 0) return [];
+
+  // Bug fix #16/#17: concatenate all emit() outputs into a single string
+  // and reparse once. Per-entry reparsing caused unclosed-tag fragments to be
+  // silently dropped by splitBlocks, losing attributes and structure.
+  // Each entry is normalized per its semantics (raw vs. escape-normalized)
+  // before concatenation. The combined string is passed to reparseEmitted
+  // with raw=true since normalization has already been applied.
+  const combined = emitted
+    .map(e => e.raw ? e.code : normalizeEmitCode(e.code))
+    .join("");
+  return reparseEmitted(combined, errors, /* raw= */ true);
+}
+
+// ---------------------------------------------------------------------------
+// Walk the AST and evaluate compile-time meta blocks.
+//
+// When a meta block is evaluated, the resulting nodes replace it in the
+// parent's body or children array.
+// ---------------------------------------------------------------------------
+
+function processNodeList(
+  nodes: ASTNode[],
+  typeRegistry: TypeRegistry,
+  errors: MetaEvalError[],
+): boolean {
+  if (!Array.isArray(nodes)) return false;
+
+  let changed = false;
+  let i = 0;
+
+  while (i < nodes.length) {
+    const node = nodes[i];
+    if (!node || typeof node !== "object") {
+      i++;
+      continue;
+    }
+
+    if (node.kind === "meta") {
+      const body = (node as MetaNode).body;
+
+      // Check compile-time eligibility:
+      // 1. Must use compile-time APIs (emit, reflect, etc.)
+      // 2. Must NOT reference reactive @vars
+      const isCompileTime = bodyUsesCompileTimeApis(body || []);
+      const hasReactiveVars = bodyReferencesReactiveVars(body || []);
+
+      if (isCompileTime && !hasReactiveVars) {
+        const replacementNodes = evaluateMetaBlock(node as MetaNode, typeRegistry, errors);
+
+        if (replacementNodes !== null) {
+          // Splice the replacement nodes in place of the meta node
+          nodes.splice(i, 1, ...replacementNodes);
+          changed = true;
+          // Don't increment i — we need to process the newly inserted nodes
+          // (they might contain nested meta blocks, though unlikely)
+          i += replacementNodes.length;
+          continue;
+        }
+      }
+      // Not compile-time eligible or evaluation failed — leave the node
+    }
+
+    // Recurse into children and body arrays
+    const n = node as Record<string, unknown>;
+    if (Array.isArray(n.children)) {
+      if (processNodeList(n.children as ASTNode[], typeRegistry, errors)) changed = true;
+    }
+    if (Array.isArray(n.body) && node.kind !== "meta") {
+      if (processNodeList(n.body as ASTNode[], typeRegistry, errors)) changed = true;
+    }
+
+    i++;
+  }
+
+  return changed;
+}
+
+// ---------------------------------------------------------------------------
+// Input/output interfaces
+// ---------------------------------------------------------------------------
+
+/** Input to the meta-eval pass. */
+export interface MetaEvalInput {
+  files: FileAST[];
+  depGraph?: unknown;
+  routeMap?: unknown;
+}
+
+/** Output of the meta-eval pass. */
+export interface MetaEvalOutput {
+  files: FileAST[];
+  errors: MetaEvalError[];
+  depGraph?: unknown;
+  routeMap?: unknown;
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Run the meta-eval pass. Evaluates compile-time ^{} meta blocks that use
+ * emit() and replaces them with the parsed output.
+ */
+export function runMetaEval(input: MetaEvalInput): MetaEvalOutput {
+  const { files = [], depGraph, routeMap } = input;
+
+  const allErrors: MetaEvalError[] = [];
+
+  for (const fileAST of files) {
+    // Build the type registry from this file (reuse the meta-checker helper)
+    const extendedAST = fileAST as FileAST & { _metaReflectRegistry?: TypeRegistry };
+    const typeRegistry: TypeRegistry = extendedAST._metaReflectRegistry || buildFileTypeRegistry(fileAST);
+
+    // Get the AST node list
+    const nodes = (fileAST.ast?.nodes ?? (fileAST as unknown as { nodes?: ASTNode[] }).nodes ?? []) as ASTNode[];
+
+    // Process all meta blocks
+    processNodeList(nodes, typeRegistry, allErrors);
+  }
+
+  return {
+    files,
+    errors: allErrors,
+    depGraph,
+    routeMap,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Exports for testing
+// ---------------------------------------------------------------------------
+
+export {
+  bodyReferencesReactiveVars,
+  serializeBody,
+  serializeNode,
+  reparseEmitted,
+  evaluateMetaBlock,
+  processNodeList,
+};

@@ -1,0 +1,12 @@
+// error-004-in-logic.scrml
+// Error effect inside a logic block. Tests: !{} nested in ${}.
+
+<div>
+    ${
+        let data = not
+        !{
+            | ::ParseError e -> let fixed = "default"
+        }
+    }
+    <p>Error in logic</>
+</div>

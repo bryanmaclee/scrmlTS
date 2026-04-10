@@ -1,0 +1,488 @@
+// recipe-book.scrml
+// A recipe book: list with add/edit/delete, reactive ingredients array,
+// category enum filter, search by name, favorite toggle, empty state.
+//
+// Gauntlet Round 11 -- Svelte developer perspective.
+//
+// Features exercised:
+//   @reactive, const @derived (§6.6), manual oninput= (no bind:value),
+//   if=/else/else-if= (§17.1.1), for/lift (§6.5.3), type:enum (§14),
+//   match/else (§18, string arms per §18.16), class: (§5.5),
+//   ?{} SQL (§8), !{} error handling (§19)
+
+// ==========================================================================
+// Type declarations -- file-scope inside ${}
+// ==========================================================================
+
+${
+    type Category:enum = {
+        Breakfast
+        Lunch
+        Dinner
+        Dessert
+    }
+}
+
+// ==========================================================================
+// Database scope
+// ==========================================================================
+
+< db src="./recipes.db" tables="recipes">
+
+// ==========================================================================
+// Reactive state
+// ==========================================================================
+
+@recipes = []
+@selectedCategory = "All"
+@searchQuery = ""
+@editMode = false
+@editingId = not
+@loadError = not
+@saveError = not
+
+// Form state for add / edit
+@formTitle = ""
+@formCategory = "Breakfast"
+@formIngredients = []
+@formNewIngredient = ""
+
+// Derived filtered list -- scrml's const @name (§6.6) maps to Svelte's $derived
+// Lazy pull: re-evaluates when @recipes, @searchQuery, or @selectedCategory changes
+const @filteredRecipes = @recipes.filter(r => {
+    let matchesSearch = @searchQuery == "" || r.title.toLowerCase().includes(@searchQuery.toLowerCase())
+    let matchesCategory = @selectedCategory == "All" || r.category == @selectedCategory
+    return matchesSearch && matchesCategory
+})
+
+// ==========================================================================
+// Markup
+// ==========================================================================
+
+<div class="recipe-book">
+
+    <h1>Recipe Book</>
+
+    // ---- Controls ----
+    <div class="controls">
+        // FRICTION NOTE: Svelte uses bind:value={searchQuery} here (one attribute).
+        // scrml requires: value=@searchQuery (one-way) + oninput=updateSearch() + a function.
+        // Every controlled input costs three tokens of ceremony instead of one.
+        <input
+            class="search-input"
+            type="text"
+            placeholder="Search recipes..."
+            value=@searchQuery
+            oninput=updateSearch()
+        />
+
+        <select onchange=updateCategory()>
+            <option value="All">All Categories</>
+            <option value="Breakfast">Breakfast</>
+            <option value="Lunch">Lunch</>
+            <option value="Dinner">Dinner</>
+            <option value="Dessert">Dessert</>
+        </select>
+    </>
+
+    // ---- Error banners ----
+    <div class="error-banner" if=@loadError>
+        ${@loadError.message}
+    </>
+
+    <div class="save-error" if=@saveError>
+        ${@saveError.message}
+    </>
+
+    // ---- Add / Edit form ----
+    <div class="recipe-form">
+
+        <h2 if=@editMode>Edit Recipe</>
+        <h2 else>Add Recipe</>
+
+        <form onsubmit=submitForm()>
+            <input
+                type="text"
+                placeholder="Recipe title"
+                value=@formTitle
+                oninput=updateTitle()
+                required
+            />
+
+            <select onchange=updateFormCategory()>
+                <option value="Breakfast">Breakfast</>
+                <option value="Lunch">Lunch</>
+                <option value="Dinner">Dinner</>
+                <option value="Dessert">Dessert</>
+            </select>
+
+            // Ingredients: reactive array, individual add/remove
+            <div class="ingredients">
+                <h3>Ingredients</>
+
+                <ul>${
+                    for (let ingredient of @formIngredients) {
+                        lift <li class="ingredient-item">
+                            <span>${ingredient}/
+                            <button type="button" onclick=removeIngredient(ingredient)>x/
+                        </li>
+                    }
+                }</>
+
+                <div class="add-ingredient">
+                    <input
+                        type="text"
+                        placeholder="Add ingredient..."
+                        value=@formNewIngredient
+                        oninput=updateNewIngredient()
+                    />
+                    <button type="button" onclick=addIngredient()>Add</>
+                </>
+            </>
+
+            <button type="submit" if=@editMode>Save Changes</>
+            <button type="submit" else>Add Recipe</>
+            <button type="button" if=@editMode onclick=cancelEdit()>Cancel</>
+        </form>
+    </>
+
+    // ---- Empty state vs recipe list ----
+    // if=/else-if=/else chain (§17.1.1): two empty-state cases + the populated list
+    <div class="empty-state" if=(@recipes.length == 0)>
+        <p>No recipes yet. Add your first one above.</>
+    </>
+
+    <div class="empty-state" else-if=(@filteredRecipes.length == 0)>
+        <p>No recipes match your search or filter.</>
+    </>
+
+    <ul class="recipe-list" else>${
+        for (let recipe of @filteredRecipes) {
+            // class:favorite= toggles .favorite when recipe.isFaved is true
+            // Svelte equivalent: class:favorite={recipe.isFaved}
+            lift <li class="recipe-card" class:favorite=(recipe.isFaved)>
+                <div class="recipe-header">
+                    <h3 class="recipe-title">${recipe.title}/
+                    <span class="recipe-category">
+                        ${
+                            match recipe.category {
+                                "Breakfast" :> "Breakfast"
+                                "Lunch" :> "Lunch"
+                                "Dinner" :> "Dinner"
+                                "Dessert" :> "Dessert"
+                                else :> recipe.category
+                            }
+                        }
+                    /
+                /
+
+                <ul class="recipe-ingredients">${
+                    for (let ing of recipe.ingredients) {
+                        lift <li>${ing}/
+                    }
+                }/
+
+                <div class="recipe-actions">
+                    <button
+                        class="fave-btn"
+                        class:active=(recipe.isFaved)
+                        onclick=toggleFavorite(recipe.id)
+                    >
+                        ${recipe.isFaved ? "Unfavorite" : "Favorite"}
+                    /
+                    <button onclick=editRecipe(recipe.id)>Edit/
+                    <button class="delete-btn" onclick=deleteRecipe(recipe.id)>Delete/
+                /
+            </li>
+        }
+    }</>
+
+</>
+
+// ==========================================================================
+// Logic
+// ==========================================================================
+
+${
+    // Bare expression runs at mount (§17.3)
+    loadRecipes()
+
+    function loadRecipes() {
+        // !{} postfix error handling (§19.5) -- arms use -> separator, not =>
+        let rows = ?{`
+            SELECT id, title, category, ingredients, is_faved
+            FROM recipes
+            ORDER BY title ASC
+        `}.all() !{
+            | ::SQLError e -> { @loadError = e; [] }
+        }
+        @recipes = rows.map(r => ({
+            id: r.id,
+            title: r.title,
+            category: r.category,
+            ingredients: JSON.parse(r.ingredients || "[]"),
+            isFaved: r.is_faved == 1
+        }))
+    }
+
+    // Input handlers: one per controlled field.
+    // FRICTION: Svelte bind:value={@searchQuery} = 1 attribute.
+    // scrml: value=@searchQuery oninput=updateSearch() + this function = 3 things.
+    // Multiplied across 4 form fields = 12 extra lines of boilerplate vs 4.
+    function updateSearch() {
+        @searchQuery = event.target.value
+    }
+
+    function updateCategory() {
+        @selectedCategory = event.target.value
+    }
+
+    function updateTitle() {
+        @formTitle = event.target.value
+    }
+
+    function updateFormCategory() {
+        @formCategory = event.target.value
+    }
+
+    function updateNewIngredient() {
+        @formNewIngredient = event.target.value
+    }
+
+    function addIngredient() {
+        let trimmed = @formNewIngredient.trim()
+        if (!trimmed) { return }
+        @formIngredients.push(trimmed)
+        @formNewIngredient = ""
+    }
+
+    function removeIngredient(name) {
+        @formIngredients = @formIngredients.filter(i => i != name)
+    }
+
+    function submitForm() {
+        event.preventDefault()
+        if (!@formTitle.trim()) { return }
+        if (@editMode && not (@editingId is not)) {
+            saveEdit()
+        } else {
+            addRecipe()
+        }
+    }
+
+    server function addRecipe() {
+        let ingredientsJson = JSON.stringify(@formIngredients)
+        ?{`
+            INSERT INTO recipes (title, category, ingredients, is_faved)
+            VALUES (${@formTitle}, ${@formCategory}, ${ingredientsJson}, 0)
+        `}.run() !{
+            | ::SQLError e -> { @saveError = e; return }
+        }
+        @saveError = not
+        resetForm()
+        loadRecipes()
+    }
+
+    server function saveEdit() {
+        let ingredientsJson = JSON.stringify(@formIngredients)
+        ?{`
+            UPDATE recipes
+            SET title = ${@formTitle},
+                category = ${@formCategory},
+                ingredients = ${ingredientsJson}
+            WHERE id = ${@editingId}
+        `}.run() !{
+            | ::SQLError e -> { @saveError = e; return }
+        }
+        @saveError = not
+        resetForm()
+        loadRecipes()
+    }
+
+    server function deleteRecipe(id) {
+        ?{`DELETE FROM recipes WHERE id = ${id}`}.run() !{
+            | ::SQLError e -> { @loadError = e; return }
+        }
+        loadRecipes()
+    }
+
+    server function toggleFavorite(id) {
+        let recipe = @recipes.find(r => r.id == id)
+        if (!recipe) { return }
+        let newFaved = recipe.isFaved ? 0 : 1
+        ?{`UPDATE recipes SET is_faved = ${newFaved} WHERE id = ${id}`}.run() !{
+            | ::SQLError e -> { @loadError = e; return }
+        }
+        loadRecipes()
+    }
+
+    function editRecipe(id) {
+        let recipe = @recipes.find(r => r.id == id)
+        if (!recipe) { return }
+        @editMode = true
+        @editingId = id
+        @formTitle = recipe.title
+        @formCategory = recipe.category
+        @formIngredients = recipe.ingredients.slice()
+        @saveError = not
+    }
+
+    function cancelEdit() {
+        resetForm()
+    }
+
+    function resetForm() {
+        @editMode = false
+        @editingId = not
+        @formTitle = ""
+        @formCategory = "Breakfast"
+        @formIngredients = []
+        @formNewIngredient = ""
+        @saveError = not
+    }
+}
+
+// ==========================================================================
+// Styles
+// ==========================================================================
+
+<style>
+    .recipe-book {
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font-family: system-ui, sans-serif;
+    }
+
+    .controls {
+        display: flex;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .search-input {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+        font-size: 1rem;
+    }
+
+    .recipe-form {
+        background: #f9fafb;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin-bottom: 2rem;
+        border: 1px solid #e5e7eb;
+    }
+
+    .ingredients {
+        margin: 1rem 0;
+    }
+
+    .ingredient-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.25rem 0;
+    }
+
+    .add-ingredient {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+
+    .recipe-list {
+        list-style: none;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+
+    .recipe-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        background: white;
+    }
+
+    .recipe-card.favorite {
+        border-color: #f59e0b;
+        background: #fffbeb;
+    }
+
+    .recipe-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 0.5rem;
+    }
+
+    .recipe-title {
+        margin: 0;
+        font-size: 1rem;
+    }
+
+    .recipe-category {
+        font-size: 0.75rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .recipe-ingredients {
+        list-style: disc;
+        padding-left: 1.25rem;
+        margin: 0.5rem 0;
+        font-size: 0.875rem;
+        color: #374151;
+    }
+
+    .recipe-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .fave-btn {
+        background: none;
+        border: 1px solid #d1d5db;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .fave-btn.active {
+        background: #f59e0b;
+        color: white;
+        border-color: #d97706;
+    }
+
+    .delete-btn {
+        background: none;
+        border: none;
+        color: #ef4444;
+        cursor: pointer;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem 0;
+        color: #9ca3af;
+    }
+
+    .error-banner,
+    .save-error {
+        background: #fee2e2;
+        border: 1px solid #fca5a5;
+        color: #991b1b;
+        padding: 0.75rem 1rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+</style>
+
+</>

@@ -1,0 +1,22 @@
+// modern-002-projection.scrml
+// Struct + enum + state projection. Tests: type system integration.
+
+type Priority:enum = { Low, Medium, High }
+
+type Task:struct = {
+    id: number,
+    title: string,
+    priority: Priority,
+    done: boolean
+}
+
+< taskItem task(Task)>
+    <div class="task">
+        <span>${task.title}</>
+        <span>${ match task.priority {
+            .Low :> "Low"
+            .Medium :> "Medium"
+            .High :> "High"
+        } }</>
+    </>
+</>

@@ -1,0 +1,184 @@
+// traffic-light.scrml — §51 State Machine gauntlet
+// Tests: enum + transitions{}, < machine> declaration, match for state cycling,
+// reactive @light variable, class:name= conditional classes, #{} CSS.
+//
+// NOTE: Previously ran without a <program> wrapper due to a BS bug that caused
+// close-tag mismatch when < machine> appeared inside <program>. That bug has been
+// fixed (see docs/changes/fix-bs-machine-closer). The < machine> state block now
+// correctly uses its `/` closer without consuming the outer `</program>` tag.
+// This file intentionally stays at top-level (no <program>) to test that path;
+// machine-basic.scrml is the reference for machine-in-program behavior.
+
+${
+    type TrafficLight:enum = {
+        Red
+        Yellow
+        Green
+
+        transitions {
+            .Red    => .Green
+            .Green  => .Yellow
+            .Yellow => .Red
+        }
+    }
+
+    @light = TrafficLight.Red
+
+    // cycle() advances through Red → Green → Yellow → Red
+    // match arms use => (canonical per §51, not :>)
+    function cycle() {
+        @light = match @light {
+            .Red    => TrafficLight.Green
+            .Green  => TrafficLight.Yellow
+            .Yellow => TrafficLight.Red
+        }
+    }
+}
+
+< machine TrafficController for TrafficLight>
+    .Red    => .Green
+    .Green  => .Yellow
+    .Yellow => .Red
+</>
+
+// ASSUMPTION: < machine> at top level (not nested inside markup element) is the
+// correct placement per machine-basic.scrml sample. Placing it inside a <div>
+// might rebind the machine scope — spec is silent on this.
+
+<div class="traffic-app">
+
+    <h1>Traffic Light Simulator</>
+
+    <div class="light-housing">
+
+        // Red light circle — active when @light is Red
+        // ASSUMPTION: class:name= takes a parenthesized bool expression.
+        // Confirmed by todo-list.scrml: class:active=(@filter == FilterMode.All)
+        // Using == not === per task brief.
+        <div
+            class="light red-light"
+            class:active=(@light == TrafficLight.Red)
+        ></>
+
+        <div
+            class="light yellow-light"
+            class:active=(@light == TrafficLight.Yellow)
+        ></>
+
+        <div
+            class="light green-light"
+            class:active=(@light == TrafficLight.Green)
+        ></>
+
+    </>
+
+    // Display current state as text. @light.variant gives the enum variant string.
+    // Confirmed by machine-basic.html: el.textContent = _scrml_reactive_get("status").variant
+    <p class="state-label">Current: ${@light.variant}</>
+
+    // onclick= takes functionName() — confirmed by func-003-onclick.scrml pattern
+    // and machine-basic.scrml (advance, ship use bare function refs but onclick=advance
+    // without parens seems to not fire — using cycle() with parens to be safe)
+    <button class="cycle-btn" onclick=cycle()>Advance Signal</>
+
+</>
+
+#{
+    .traffic-app {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.5rem;
+        padding: 2rem;
+        font-family: sans-serif;
+        background: #1a1a1a;
+        min-height: 100vh;
+        color: #eee;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        color: #ccc;
+    }
+
+    .light-housing {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+        background: #2a2a2a;
+        border: 3px solid #444;
+        border-radius: 16px;
+        padding: 1.25rem 1rem;
+        width: 96px;
+    }
+
+    .light {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        border: 2px solid #333;
+        // dim by default — active class lights them up
+        opacity: 0.15;
+        transition: opacity 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    // ASSUMPTION: .light.active targeting a class:active= element compiles to
+    // a class="light active" style toggle on the DOM node. If the compiler emits
+    // data-scrml-bind-class="active" instead of toggling .active directly, this
+    // CSS selector won't work. Spec §51 is silent on what DOM mutation class:name=
+    // actually produces. Using standard `.light.active` hoping for toggled classList.
+
+    .red-light {
+        background: #e53e3e;
+    }
+
+    .red-light.active {
+        opacity: 1;
+        box-shadow: 0 0 18px 6px rgba(229, 62, 62, 0.7);
+    }
+
+    .yellow-light {
+        background: #d69e2e;
+    }
+
+    .yellow-light.active {
+        opacity: 1;
+        box-shadow: 0 0 18px 6px rgba(214, 158, 46, 0.7);
+    }
+
+    .green-light {
+        background: #38a169;
+    }
+
+    .green-light.active {
+        opacity: 1;
+        box-shadow: 0 0 18px 6px rgba(56, 161, 105, 0.7);
+    }
+
+    .state-label {
+        font-size: 1.1rem;
+        font-weight: 500;
+        color: #aaa;
+        letter-spacing: 0.03em;
+    }
+
+    .cycle-btn {
+        padding: 0.6rem 2rem;
+        font-size: 1rem;
+        font-weight: 600;
+        background: #3b82f6;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        letter-spacing: 0.02em;
+        transition: background 0.15s ease;
+    }
+
+    .cycle-btn:hover {
+        background: #2563eb;
+    }
+}

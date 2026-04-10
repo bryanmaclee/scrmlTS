@@ -1,0 +1,6 @@
+// server-003-protect-multi.scrml
+// State block protecting multiple fields. Tests: protect= with multiple values.
+
+< db src="./test.db" protect="password_hash, api_key, secret_token" tables="users">
+    <p>Multi-field protection</>
+</>

@@ -1,0 +1,352 @@
+// gauntlet-r11-task-dashboard.scrml
+// Task management dashboard — Gauntlet Round 11
+// React developer perspective: component tree → single scrml file,
+// useState → @reactive, useEffect → bare ${ call }, controlled inputs → oninput=
+
+<program db="./tasks.db">
+
+// ---- Type Declarations ----
+
+${
+    type Status:enum = {
+        Todo
+        InProgress
+        Done
+    }
+
+    type Priority:enum = {
+        Low
+        Medium
+        High
+    }
+}
+
+// ---- Reactive State ----
+
+${
+    // Task list — source of truth (like useState([]))
+    @tasks = []
+
+    // Filter state
+    @statusFilter = "All"
+    @searchText = ""
+
+    // Form state — add/edit task
+    @formTitle = ""
+    @formPriority = "Medium"
+    @formStatus = "Todo"
+    @editingId = not
+    @showForm = false
+
+    // Validation and save errors
+    @formError = not
+    @saveError = not
+}
+
+// ---- Helper Functions ----
+
+${
+    // Derived: filtered tasks (computed from @tasks, @statusFilter, @searchText)
+    function filteredTasks() {
+        let result = @tasks
+        if (@statusFilter != "All") {
+            result = result.filter(function(t) { return t.status == @statusFilter })
+        }
+        if (@searchText.length > 0) {
+            let q = @searchText.toLowerCase()
+            result = result.filter(function(t) { return t.title.toLowerCase().includes(q) })
+        }
+        return result
+    }
+
+    // Derived: count per status (string-based since enum type declared but not runtime-typed here)
+    function countByStatus(status) {
+        return @tasks.filter(function(t) { return t.status == status }).length
+    }
+
+    // Boolean helpers for if= attributes (complex expressions can't go in unquoted attrs)
+    function hasTasks() {
+        return @tasks.length > 0
+    }
+
+    function noTasks() {
+        return @tasks.length == 0
+    }
+
+    function noFilterResults() {
+        return filteredTasks().length == 0
+    }
+
+    function isEditing() {
+        return not (@editingId is not)
+    }
+
+    function hasFormError() {
+        return not (@formError is not)
+    }
+
+    function hasSaveError() {
+        return not (@saveError is not)
+    }
+
+    // CSS class helpers
+    function priorityClass(priority) {
+        if (priority == "High") { return "priority-high" }
+        if (priority == "Medium") { return "priority-medium" }
+        return "priority-low"
+    }
+
+    function statusClass(status) {
+        if (status == "Done") { return "status-done" }
+        if (status == "InProgress") { return "status-inprogress" }
+        return "status-todo"
+    }
+
+    function filterActive(filterValue) {
+        return @statusFilter == filterValue
+    }
+}
+
+// ---- Server Functions ----
+
+${
+    server function loadTasks() {
+        return ?{`SELECT id, title, status, priority FROM tasks ORDER BY id DESC`}.all()
+    }
+
+    server function createTask(title, status, priority) {
+        ?{`INSERT INTO tasks (title, status, priority) VALUES (${title}, ${status}, ${priority})`}.run()
+        return ?{`SELECT id, title, status, priority FROM tasks ORDER BY id DESC`}.all()
+    }
+
+    server function updateTask(id, title, status, priority) {
+        ?{`UPDATE tasks SET title = ${title}, status = ${status}, priority = ${priority} WHERE id = ${id}`}.run()
+        return ?{`SELECT id, title, status, priority FROM tasks ORDER BY id DESC`}.all()
+    }
+
+    server function deleteTask(id) {
+        ?{`DELETE FROM tasks WHERE id = ${id}`}.run()
+        return ?{`SELECT id, title, status, priority FROM tasks ORDER BY id DESC`}.all()
+    }
+}
+
+// ---- Client Event Handlers ----
+
+${
+    function openAddForm() {
+        @editingId = not
+        @formTitle = ""
+        @formPriority = "Medium"
+        @formStatus = "Todo"
+        @formError = not
+        @showForm = true
+    }
+
+    function openEditForm(task) {
+        @editingId = task.id
+        @formTitle = task.title
+        @formStatus = task.status
+        @formPriority = task.priority
+        @formError = not
+        @showForm = true
+    }
+
+    function closeForm() {
+        @showForm = false
+        @editingId = not
+        @formError = not
+    }
+
+    function validateForm() {
+        if (@formTitle.trim().length == 0) {
+            @formError = "Title is required"
+            return false
+        }
+        if (@formTitle.trim().length > 200) {
+            @formError = "Title must be 200 characters or fewer"
+            return false
+        }
+        return true
+    }
+
+    function saveTask() {
+        if (!validateForm()) {
+            return
+        }
+        @formError = not
+        @saveError = not
+        if (not (@editingId is not)) {
+            @tasks = updateTask(@editingId, @formTitle.trim(), @formStatus, @formPriority)
+        } else {
+            @tasks = createTask(@formTitle.trim(), @formStatus, @formPriority)
+        }
+        closeForm()
+    }
+
+    function removeTask(id) {
+        @tasks = deleteTask(id)
+    }
+
+    function setStatusFilter(status) {
+        @statusFilter = status
+    }
+
+    function handleSearchInput() {
+        @searchText = event.target.value
+    }
+
+    function handleTitleInput() {
+        @formTitle = event.target.value
+    }
+
+    function handlePriorityInput() {
+        @formPriority = event.target.value
+    }
+
+    function handleStatusFormInput() {
+        @formStatus = event.target.value
+    }
+}
+
+// ---- Initialize on load (like useEffect(fn, []) — runs once on mount) ----
+${ @tasks = loadTasks() }
+
+// ---- Markup ----
+
+<div class="dashboard">
+
+    <header class="dashboard-header">
+        <h1>Task Dashboard</>
+        <button class="btn btn-primary" onclick=openAddForm()>Add Task</>
+    </header>
+
+    // Status count summary bar
+    <div class="status-bar">
+        <div class="status-count">
+            <span class="count-label">Todo</>
+            <span class="count-value">${countByStatus("Todo")}</>
+        </div>
+        <div class="status-count">
+            <span class="count-label">In Progress</>
+            <span class="count-value">${countByStatus("InProgress")}</>
+        </div>
+        <div class="status-count">
+            <span class="count-label">Done</>
+            <span class="count-value">${countByStatus("Done")}</>
+        </div>
+        <div class="status-count">
+            <span class="count-label">Total</>
+            <span class="count-value">${@tasks.length}</>
+        </div>
+    </div>
+
+    // Search and filter controls
+    <div class="controls">
+        <input
+            type="text"
+            class="search-input"
+            placeholder="Search tasks..."
+            oninput=handleSearchInput()
+        />
+        <div class="filter-buttons">
+            <button class="btn filter-btn" onclick=setStatusFilter("All")>All</>
+            <button class="btn filter-btn" onclick=setStatusFilter("Todo")>Todo</>
+            <button class="btn filter-btn" onclick=setStatusFilter("InProgress")>In Progress</>
+            <button class="btn filter-btn" onclick=setStatusFilter("Done")>Done</>
+        </div>
+    </div>
+
+    // Save error banner
+    <div class="error-banner" if=hasSaveError()>
+        <p>${@saveError}</>
+    </div>
+
+    // Empty state — no tasks at all
+    <div class="empty-state" if=noTasks()>
+        <p>No tasks yet. Click "Add Task" to get started.</>
+    </div>
+
+    // Task list — only shown when tasks exist
+    <div class="task-list" if=hasTasks()>
+        ${
+            let visible = filteredTasks()
+            for (let task of visible) {
+                lift <div class="task-card">
+                    <div class="task-header">
+                        <h3 class="task-title">${task.title}/
+                        <div class="task-actions">
+                            <button class="btn btn-edit" onclick=openEditForm(task)>Edit/
+                            <button class="btn btn-delete" onclick=removeTask(task.id)>Delete/
+                        </div>
+                    </div>
+                    <div class="task-meta">
+                        <span class=statusClass(task.status)>${task.status}/
+                        <span class=priorityClass(task.priority)>${task.priority}/
+                    </div>
+                </div>
+            }
+        }
+
+        // Empty filter result message
+        <div class="empty-filter" if=noFilterResults()>
+            <p>No tasks match your current filter.</>
+        </div>
+    </div>
+
+    // Add/Edit form modal
+    <div class="modal-overlay" if=@showForm>
+        <div class="modal">
+
+            <div class="modal-header">
+                <h2 if=isEditing()>Edit Task</>
+                <h2 else>Add Task</>
+                <button class="btn btn-close" onclick=closeForm()>X</>
+            </div>
+
+            // Validation error display
+            <div class="form-error" if=hasFormError()>
+                <p>${@formError}</>
+            </div>
+
+            <form class="task-form">
+
+                <div class="form-field">
+                    <label>Title</>
+                    <input
+                        type="text"
+                        class="form-input"
+                        oninput=handleTitleInput()
+                        placeholder="Task title (required)"
+                    />
+                </div>
+
+                <div class="form-field">
+                    <label>Status</>
+                    <select class="form-select" oninput=handleStatusFormInput()>
+                        <option value="Todo">Todo</>
+                        <option value="InProgress">In Progress</>
+                        <option value="Done">Done</>
+                    </select>
+                </div>
+
+                <div class="form-field">
+                    <label>Priority</>
+                    <select class="form-select" oninput=handlePriorityInput()>
+                        <option value="Low">Low</>
+                        <option value="Medium">Medium</>
+                        <option value="High">High</>
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick=closeForm()>Cancel</>
+                    <button type="button" class="btn btn-primary" onclick=saveTask()>Save</>
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+</div>
+
+</>

@@ -1,0 +1,201 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:format — string and number formatting utilities
+    //
+    // All functions are pure (no side effects, no server context required).
+    // Safe to use in both server function bodies and client-side reactive code.
+    //
+    // Usage:
+    //   ${ import { formatCurrency, pluralize, slug, truncate } from 'scrml:format' }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Format a number as a currency string.
+     * Uses Intl.NumberFormat — respects locale conventions.
+     *
+     * Example:
+     *   formatCurrency(1234.56, "USD")          → "$1,234.56"
+     *   formatCurrency(1234.56, "EUR", "de-DE") → "1.234,56 €"
+     */
+    export function formatCurrency(amount, currency, locale) {
+        return new Intl.NumberFormat(locale || "en-US", {
+            style: "currency",
+            currency: currency || "USD"
+        }).format(amount)
+    }
+
+    /**
+     * Format a number with optional decimal places and thousands separators.
+     *
+     * Example:
+     *   formatNumber(1234567.89)      → "1,234,567.89"
+     *   formatNumber(1234567.89, 0)   → "1,234,568"
+     *   formatNumber(0.4567, 2)       → "0.46"
+     */
+    export function formatNumber(n, decimals, locale) {
+        const opts = {}
+        if (decimals !== undefined && decimals !== null) {
+            opts.minimumFractionDigits = decimals
+            opts.maximumFractionDigits = decimals
+        }
+        return new Intl.NumberFormat(locale || "en-US", opts).format(n)
+    }
+
+    /**
+     * Pluralize a word based on a count.
+     * If no plural form is provided, appends "s" to the singular.
+     *
+     * Example:
+     *   pluralize(1, "item")              → "1 item"
+     *   pluralize(3, "item")              → "3 items"
+     *   pluralize(3, "child", "children") → "3 children"
+     */
+    export function pluralize(count, singular, plural) {
+        const word = count === 1 ? singular : (plural || singular + "s")
+        return `${count} ${word}`
+    }
+
+    /**
+     * Truncate a string to a maximum length (including suffix).
+     * Default suffix: "..."
+     *
+     * Note: " →" is 2 chars (space + arrow), so maxLength 10 leaves 8 for content.
+     *
+     * Example:
+     *   truncate("Hello world this is long", 10)       → "Hello w..."
+     *   truncate("Hello world", 20)                    → "Hello world"
+     *   truncate("Hello world this is long", 10, " →") → "Hello wo →"
+     */
+    export function truncate(str, maxLength, suffix) {
+        if (!str) return str
+        const sfx = suffix !== undefined ? suffix : "..."
+        if (str.length <= maxLength) return str
+        return str.slice(0, maxLength - sfx.length) + sfx
+    }
+
+    /**
+     * Convert a string to a URL-safe slug.
+     * NFD normalization strips diacritics. Non-alphanumeric → hyphen.
+     *
+     * Example:
+     *   slug("Hello World! This is a Test") → "hello-world-this-is-a-test"
+     *   slug("Héllo Wörld")                 → "hello-world"
+     */
+    export function slug(str) {
+        if (!str) return ""
+        return str
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+    }
+
+    /**
+     * Capitalize the first letter of a string.
+     * Example: capitalize("hello world") → "Hello world"
+     */
+    export function capitalize(str) {
+        if (!str) return str
+        return str.charAt(0).toUpperCase() + str.slice(1)
+    }
+
+    /**
+     * Convert a string to title case.
+     * Example: titleCase("hello world") → "Hello World"
+     */
+    export function titleCase(str) {
+        if (!str) return str
+        return str.replace(/\b\w/g, c => c.toUpperCase())
+    }
+
+    /**
+     * Split camelCase or PascalCase into space-separated words.
+     * Example: toWords("helloWorld") → "hello World"
+     */
+    export function toWords(str) {
+        if (!str) return str
+        return str
+            .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+            .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+            .trim()
+    }
+
+    /**
+     * Pad a string on the left to a given length.
+     * Example: padLeft("42", 5, "0") → "00042"
+     */
+    export function padLeft(str, length, char) {
+        return String(str).padStart(length, char || " ")
+    }
+
+    /**
+     * Pad a string on the right to a given length.
+     * Example: padRight("hi", 5, "-") → "hi---"
+     */
+    export function padRight(str, length, char) {
+        return String(str).padEnd(length, char || " ")
+    }
+
+    /**
+     * Format a byte count as a human-readable string (1024-based).
+     *
+     * Example:
+     *   formatBytes(0)          → "0 Bytes"
+     *   formatBytes(1024)       → "1 KB"
+     *   formatBytes(1536)       → "1.5 KB"
+     *   formatBytes(1073741824) → "1 GB"
+     */
+    export function formatBytes(bytes, decimals) {
+        if (bytes === 0) return "0 Bytes"
+        const k = 1024
+        const dm = decimals !== undefined ? decimals : 1
+        const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB"]
+        const i = Math.floor(Math.log(bytes) / Math.log(k))
+        const value = bytes / Math.pow(k, i)
+        const formatted = dm === 0 ? Math.round(value) : parseFloat(value.toFixed(dm))
+        return `${formatted} ${sizes[i]}`
+    }
+
+    /**
+     * Format a decimal value (0.0 to 1.0) as a percentage string.
+     *
+     * Example:
+     *   formatPercent(0.42)      → "42%"
+     *   formatPercent(0.4256, 1) → "42.6%"
+     */
+    export function formatPercent(value, decimals) {
+        const dm = decimals !== undefined ? decimals : 0
+        return `${(value * 100).toFixed(dm)}%`
+    }
+
+    ~{
+        import { assertEqual, assertTruthy, assertFalsy } from 'scrml:test'
+
+        assertEqual(formatNumber(1234567.89), "1,234,567.89")
+        assertEqual(formatNumber(1234567.89, 0), "1,234,568")
+        assertEqual(formatNumber(0.4567, 2), "0.46")
+        assertEqual(pluralize(1, "item"), "1 item")
+        assertEqual(pluralize(3, "item"), "3 items")
+        assertEqual(pluralize(3, "child", "children"), "3 children")
+        assertEqual(truncate("Hello world this is long", 10), "Hello w...")
+        assertEqual(truncate("Hello world", 20), "Hello world")
+        // " →" is 2 chars: 10 - 2 = 8 chars content → "Hello wo →"
+        assertEqual(truncate("Hello world this is long", 10, " \u2192"), "Hello wo \u2192")
+        assertEqual(slug("Hello World! This is a Test"), "hello-world-this-is-a-test")
+        assertEqual(slug("H\u00e9llo W\u00f6rld"), "hello-world")
+        assertEqual(capitalize("hello world"), "Hello world")
+        assertEqual(titleCase("hello world"), "Hello World")
+        assertEqual(toWords("helloWorld"), "hello World")
+        assertEqual(padLeft("42", 5, "0"), "00042")
+        assertEqual(padRight("hi", 5, "-"), "hi---")
+        assertEqual(formatBytes(0), "0 Bytes")
+        assertEqual(formatBytes(1024), "1 KB")
+        assertEqual(formatBytes(1536), "1.5 KB")
+        assertEqual(formatBytes(1073741824), "1 GB")
+        assertEqual(formatPercent(0.42), "42%")
+        assertEqual(formatPercent(0.4256, 1), "42.6%")
+    }
+}
+</program>

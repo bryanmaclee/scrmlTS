@@ -1,0 +1,438 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "scrml",
+  "scopeName": "source.scrml",
+  "fileTypes": ["scrml"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#type-declaration" },
+    { "include": "#meta-block" },
+    { "include": "#sql-block" },
+    { "include": "#logic-block" },
+    { "include": "#css-inline-block" },
+    { "include": "#style-block" },
+    { "include": "#error-effect-block" },
+    { "include": "#markup-self-closing" },
+    { "include": "#markup-close-tag" },
+    { "include": "#markup-open-tag" },
+    { "include": "#bare-closer" },
+    { "include": "#reactive-variable" },
+    { "include": "#string-double" },
+    { "include": "#string-backtick" },
+    { "include": "#top-level-keywords" },
+    { "include": "#number" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-slash.scrml",
+      "match": "//.*$"
+    },
+
+    "type-declaration": {
+      "begin": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*:\\s*(enum|struct)\\b",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.type.scrml" },
+        "2": { "name": "entity.name.type.scrml" },
+        "3": { "name": "keyword.declaration.type-kind.scrml" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.end.scrml" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        {
+          "name": "variable.other.enummember.scrml",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "entity.name.type.scrml",
+          "match": "\\b[a-z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+
+    "logic-block": {
+      "name": "meta.embedded.block.javascript.scrml",
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.logic.begin.scrml" }
+      },
+      "end": "(?=\\})",
+      "patterns": [
+        { "include": "#logic-block-inner" }
+      ]
+    },
+
+    "logic-block-inner": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#logic-block" },
+        { "include": "#sql-block" },
+        { "include": "#meta-block" },
+        { "include": "#css-inline-block" },
+        { "include": "#string-double" },
+        { "include": "#string-single" },
+        { "include": "#string-backtick" },
+        { "include": "#reactive-variable" },
+        { "include": "#lift-keyword" },
+        { "include": "#match-keyword" },
+        { "include": "#logic-keywords" },
+        { "include": "#function-declaration" },
+        { "include": "#arrow-function" },
+        { "include": "#tilde-keyword" },
+        { "include": "#operator" },
+        { "include": "#number" },
+        { "include": "#boolean" },
+        { "include": "#null-undefined" },
+        { "include": "#markup-self-closing" },
+        { "include": "#markup-close-tag" },
+        { "include": "#markup-open-tag" },
+        { "include": "#bare-closer" },
+        { "include": "#nested-braces" }
+      ]
+    },
+
+    "nested-braces": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.begin.scrml" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.end.scrml" }
+      },
+      "patterns": [
+        { "include": "#logic-block-inner" }
+      ]
+    },
+
+    "sql-block": {
+      "name": "meta.embedded.block.sql.scrml",
+      "begin": "\\?\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.sql.begin.scrml" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.sql.end.scrml" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#string-double" },
+        { "include": "#string-backtick" },
+        { "include": "#reactive-variable" },
+        { "include": "#sql-keywords" },
+        { "include": "#number" }
+      ]
+    },
+
+    "sql-keywords": {
+      "name": "keyword.other.sql.scrml",
+      "match": "\\b(?i:SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|NOT|IN|LIKE|BETWEEN|ORDER|BY|ASC|DESC|LIMIT|OFFSET|GROUP|HAVING|DISTINCT|AS|COUNT|SUM|AVG|MIN|MAX|CREATE|TABLE|ALTER|DROP|INDEX|VIEW|NULL|IS|EXISTS|CASE|WHEN|THEN|ELSE|END|UNION|ALL|PRIMARY|KEY|FOREIGN|REFERENCES|UNIQUE|CHECK|DEFAULT|CONSTRAINT|INTEGER|TEXT|REAL|BLOB|BOOLEAN)\\b"
+    },
+
+    "meta-block": {
+      "name": "meta.embedded.block.meta.scrml",
+      "begin": "\\^\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.meta.begin.scrml" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.meta.end.scrml" }
+      },
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#string-double" },
+        { "include": "#string-backtick" },
+        { "include": "#reactive-variable" },
+        { "include": "#logic-keywords" },
+        { "include": "#number" },
+        { "include": "#nested-braces" }
+      ]
+    },
+
+    "css-inline-block": {
+      "name": "meta.embedded.block.css.scrml",
+      "begin": "#\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.css.begin.scrml" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.css.end.scrml" }
+      },
+      "patterns": [
+        { "include": "#css-property" },
+        { "include": "#string-double" },
+        { "include": "#number" },
+        { "include": "#comment" }
+      ]
+    },
+
+    "css-property": {
+      "match": "([a-zA-Z-]+)\\s*:",
+      "captures": {
+        "1": { "name": "support.type.property-name.css" }
+      }
+    },
+
+    "style-block": {
+      "name": "meta.embedded.block.css.scrml",
+      "begin": "<style>|<style/",
+      "beginCaptures": {
+        "0": { "name": "entity.name.tag.style.scrml" }
+      },
+      "end": "</style>",
+      "endCaptures": {
+        "0": { "name": "entity.name.tag.style.scrml" }
+      },
+      "patterns": [
+        { "include": "source.css" }
+      ]
+    },
+
+    "error-effect-block": {
+      "name": "meta.embedded.block.error-effect.scrml",
+      "begin": "!\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.block.error-effect.begin.scrml" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.block.error-effect.end.scrml" }
+      },
+      "patterns": [
+        { "include": "#logic-block-inner" }
+      ]
+    },
+
+    "markup-open-tag": {
+      "begin": "(<)\\s*([a-zA-Z][a-zA-Z0-9-]*)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.scrml" },
+        "2": { "name": "entity.name.tag.scrml" }
+      },
+      "end": ">|(?=/>)|(?=/\\s*$)|(?=$)",
+      "patterns": [
+        { "include": "#tag-attribute" }
+      ]
+    },
+
+    "markup-close-tag": {
+      "match": "(</)\\s*([a-zA-Z][a-zA-Z0-9-]*)\\s*(>)",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.begin.scrml" },
+        "2": { "name": "entity.name.tag.scrml" },
+        "3": { "name": "punctuation.definition.tag.end.scrml" }
+      }
+    },
+
+    "markup-self-closing": {
+      "match": "/>",
+      "name": "punctuation.definition.tag.self-close.scrml"
+    },
+
+    "bare-closer": {
+      "match": "^\\s*(/\\s*)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.tag.close.scrml" }
+      }
+    },
+
+    "tag-attribute": {
+      "patterns": [
+        { "include": "#protect-attribute" },
+        { "include": "#bind-attribute" },
+        { "include": "#event-attribute" },
+        { "include": "#if-attribute" },
+        { "include": "#generic-attribute" }
+      ]
+    },
+
+    "protect-attribute": {
+      "match": "(protect)(=)(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "support.type.property-name.protect.scrml" },
+        "2": { "name": "punctuation.separator.key-value.scrml" },
+        "3": { "name": "string.quoted.double.scrml" }
+      }
+    },
+
+    "bind-attribute": {
+      "match": "(bind:[a-zA-Z]+)(=)(@[a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "support.type.property-name.bind.scrml" },
+        "2": { "name": "punctuation.separator.key-value.scrml" },
+        "3": { "name": "variable.other.reactive.scrml" }
+      }
+    },
+
+    "event-attribute": {
+      "match": "(on[a-z]+)(=)([a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?)",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.event.scrml" },
+        "2": { "name": "punctuation.separator.key-value.scrml" },
+        "3": { "name": "entity.name.function.scrml" }
+      }
+    },
+
+    "if-attribute": {
+      "match": "(if)(=)([^\\s>]+)",
+      "captures": {
+        "1": { "name": "keyword.control.conditional.scrml" },
+        "2": { "name": "punctuation.separator.key-value.scrml" },
+        "3": { "name": "meta.expression.scrml" }
+      }
+    },
+
+    "generic-attribute": {
+      "patterns": [
+        {
+          "match": "([a-zA-Z][a-zA-Z0-9-:]*)(=)(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.scrml" },
+            "2": { "name": "punctuation.separator.key-value.scrml" },
+            "3": { "name": "string.quoted.double.scrml" }
+          }
+        },
+        {
+          "match": "([a-zA-Z][a-zA-Z0-9-:]*)(=)(@[a-zA-Z_][a-zA-Z0-9_.]*)",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.scrml" },
+            "2": { "name": "punctuation.separator.key-value.scrml" },
+            "3": { "name": "variable.other.reactive.scrml" }
+          }
+        },
+        {
+          "match": "([a-zA-Z][a-zA-Z0-9-:]*)(=)([a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?)",
+          "captures": {
+            "1": { "name": "entity.other.attribute-name.scrml" },
+            "2": { "name": "punctuation.separator.key-value.scrml" },
+            "3": { "name": "meta.attribute-value.scrml" }
+          }
+        },
+        {
+          "name": "entity.other.attribute-name.scrml",
+          "match": "[a-zA-Z][a-zA-Z0-9-:]*(?=\\s|>|/|$)"
+        }
+      ]
+    },
+
+    "reactive-variable": {
+      "name": "variable.other.reactive.scrml",
+      "match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+    },
+
+    "lift-keyword": {
+      "name": "keyword.control.lift.scrml",
+      "match": "\\blift\\b"
+    },
+
+    "match-keyword": {
+      "match": "\\b(match)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.match.scrml" }
+      }
+    },
+
+    "tilde-keyword": {
+      "name": "keyword.operator.tilde.scrml",
+      "match": "~"
+    },
+
+    "function-declaration": {
+      "match": "\\b(function|fn|pure|server)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.function.scrml" },
+        "2": { "name": "entity.name.function.scrml" }
+      }
+    },
+
+    "arrow-function": {
+      "match": "=>",
+      "name": "storage.type.function.arrow.scrml"
+    },
+
+    "logic-keywords": {
+      "name": "keyword.control.scrml",
+      "match": "\\b(let|const|lin|var|if|else|for|while|of|in|do|return|break|continue|throw|try|catch|finally|switch|case|default|new|delete|typeof|instanceof|void|async|await|yield|import|export|from|as|is|class|extends|super|this|navigate|using|with|function|fn|pure|server|match|lift|type|enum|struct)\\b"
+    },
+
+    "top-level-keywords": {
+      "name": "keyword.control.scrml",
+      "match": "\\b(type|enum|struct|import|export|from|as)\\b"
+    },
+
+    "operator": {
+      "name": "keyword.operator.scrml",
+      "match": "===|!==|==|!=|<=|>=|&&|\\|\\||\\?\\?|\\+\\+|--|\\*\\*|=>|::|->|\\.\\.\\."
+    },
+
+    "string-double": {
+      "name": "string.quoted.double.scrml",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.scrml",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "string-single": {
+      "name": "string.quoted.single.scrml",
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        {
+          "name": "constant.character.escape.scrml",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "string-backtick": {
+      "name": "string.template.scrml",
+      "begin": "`",
+      "end": "`",
+      "patterns": [
+        {
+          "name": "constant.character.escape.scrml",
+          "match": "\\\\."
+        },
+        {
+          "name": "meta.template.expression.scrml",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.template-expression.begin.scrml" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.template-expression.end.scrml" }
+          },
+          "patterns": [
+            { "include": "#logic-block-inner" }
+          ]
+        }
+      ]
+    },
+
+    "number": {
+      "name": "constant.numeric.scrml",
+      "match": "\\b\\d+(\\.\\d+)?\\b"
+    },
+
+    "boolean": {
+      "name": "constant.language.boolean.scrml",
+      "match": "\\b(true|false)\\b"
+    },
+
+    "null-undefined": {
+      "name": "constant.language.scrml",
+      "match": "\\b(null|undefined)\\b"
+    }
+  }
+}

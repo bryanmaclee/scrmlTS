@@ -1,0 +1,83 @@
+// gauntlet-r19/react-dev.scrml — Dynamic Form Builder
+// Tests: reflect(variable) S52, for-of in ^{} S51, emit.raw() S51
+//
+// Three struct types. A compile-time ^{} block uses for-of to iterate
+// fields and emit.raw() for verbatim output. The runtime path uses
+// reflect(typeName) where typeName is a variable.
+
+${
+  type ContactInfo:struct = {
+    name: string,
+    email: string,
+    phone: string
+  }
+
+  type ShippingAddress:struct = {
+    street: string,
+    city: string,
+    state: string,
+    zip: string
+  }
+
+  type PaymentMethod:struct = {
+    cardHolder: string,
+    cardNumber: string,
+    expiry: string,
+    cvv: number
+  }
+}
+
+// Compile-time: emit schema comments using for-of (S51 fix) and emit.raw() (S51)
+^{
+  const types = ["ContactInfo", "ShippingAddress", "PaymentMethod"]
+  for (const typeName of types) {
+    const info = reflect(typeName)
+    for (const field of info.fields) {
+      emit.raw("<!-- schema: " + typeName + "." + field.name + " -->\n")
+    }
+  }
+}
+
+${
+  @currentType = "ContactInfo"
+  @submitted = false
+
+  function selectType(name) {
+    @currentType = name
+    @submitted = false
+  }
+}
+
+<div class="form-builder">
+  <h1>Dynamic Form Builder</h1>
+
+  <div class="type-selector">
+    <button onclick=selectType("ContactInfo")>Contact</button>
+    <button onclick=selectType("ShippingAddress")>Shipping</button>
+    <button onclick=selectType("PaymentMethod")>Payment</button>
+  </div>
+
+  <p>Selected: ${currentType}</p>
+
+  <div class="success" show=submitted>
+    Form submitted!
+  </div>
+</div>
+
+#{
+  .form-builder {
+    max-width: 480px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+  .type-selector {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  .success {
+    background: #d4edda;
+    padding: 8px 12px;
+    border-radius: 4px;
+  }
+}

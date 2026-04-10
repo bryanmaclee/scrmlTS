@@ -1,0 +1,260 @@
+// gauntlet-r11-go-url-shortener.scrml
+// URL shortener built from a Go developer's mental model.
+//
+// Features:
+//   - Create short URL form (oninput= manual binding, server function, ?{} SQL insert)
+//   - List all URLs with click counts
+//   - Redirect endpoint (server function reads DB, returns redirect)
+//   - Delete URL
+//   - Error handling with !{} for duplicate URLs
+//   - Status display with if=/else
+//
+// Go-brain observations inline as comments.
+// bind:value deliberately replaced with oninput= since no compilation test
+// proves bind:value compiles (Wave 1 finding: spec-defined but compiler gaps).
+
+// ============================================================
+// State — db-backed.
+// In Go: type URLStore struct { db *sql.DB }
+// Here: the < db> block gives the compiler the schema.
+// ============================================================
+
+< db src="./urls.db" tables="urls">
+
+    // Reactive state — these are the only things that re-render.
+    // In Go I'd pass these as function arguments. Here the compiler
+    // tracks them as a dependency graph — I can't inspect the graph.
+    @shortCode = ""
+    @longUrl = ""
+    @errorMsg = ""
+    @successMsg = ""
+    @urls = []
+
+    // ============================================================
+    // Helper functions for conditional rendering.
+    // In Go I'd use simple bool returns from methods.
+    // Here I need named functions because if= can't evaluate
+    // negation inline (if=!@urls.length may not parse as expected).
+    // ============================================================
+
+    ${
+        function hasUrls() {
+            return @urls.length > 0
+        }
+
+        function hasNoUrls() {
+            return @urls.length == 0
+        }
+
+        function hasError() {
+            return @errorMsg != ""
+        }
+
+        function hasSuccess() {
+            return @successMsg != ""
+        }
+    }
+
+    // ============================================================
+    // Server functions
+    // Route inference decides the URL — I cannot see it.
+    // In Go I write: mux.HandleFunc("/api/shorten", h.Create)
+    // ============================================================
+
+    ${
+        // Update shortCode reactive state from input.
+        // Manual two-way binding because bind:value has no compilation test.
+        // In Go: formData.Get("short_code") in the handler.
+        function updateShortCode() {
+            @shortCode = event.target.value
+        }
+
+        function updateLongUrl() {
+            @longUrl = event.target.value
+        }
+
+        function clearStatus() {
+            @errorMsg = ""
+            @successMsg = ""
+        }
+    }
+
+    ${
+        // Create a new short URL.
+        // Duplicate short codes raise ConflictError from the UNIQUE constraint.
+        // In Go: handle sql.ErrNoRows, check for unique constraint error explicitly.
+        server function createShortUrl() {
+            if (!@shortCode || !@longUrl) {
+                @errorMsg = "Both fields are required"
+                @successMsg = ""
+                return
+            }
+            ?{`INSERT INTO urls (short_code, long_url, clicks) VALUES (${@shortCode}, ${@longUrl}, 0)`}.run() !{
+                | ::ConflictError _ -> {
+                    @errorMsg = "Short code already in use. Choose another."
+                    @successMsg = ""
+                    return
+                }
+                | ::SQLError e -> {
+                    @errorMsg = "Database error. Please try again."
+                    @successMsg = ""
+                    return
+                }
+            }
+            @errorMsg = ""
+            @successMsg = "Created: /" + @shortCode
+            @shortCode = ""
+            @longUrl = ""
+            loadUrls()
+        }
+
+        // Load all URLs. Called on mount and after mutations.
+        // In Go: func (s *Store) List() ([]URL, error)
+        // Here: no explicit error return type — !{} handles it.
+        server function loadUrls() {
+            @urls = ?{`SELECT short_code, long_url, clicks FROM urls ORDER BY clicks DESC`}.all() !{
+                | ::SQLError e -> {
+                    @errorMsg = "Failed to load URLs"
+                    []
+                }
+            }
+        }
+
+        // Redirect — look up long URL, increment clicks, 302 redirect.
+        // In Go: http.Redirect(w, r, longUrl, http.StatusFound)
+        // Here: navigate() with .Hard infers a server 302.
+        server function redirectUrl(code) {
+            let row = ?{`SELECT long_url FROM urls WHERE short_code = ${code}`}.first() !{
+                | ::SQLError e -> {
+                    @errorMsg = "Lookup failed"
+                    return
+                }
+            }
+            if (row is not) {
+                @errorMsg = "Short URL not found: " + code
+                return
+            }
+            ?{`UPDATE urls SET clicks = clicks + 1 WHERE short_code = ${code}`}.run() !{
+                | ::SQLError _ -> {
+                    // Non-fatal: click count update failure doesn't block redirect.
+                    // In Go: log.Printf("click increment failed: %v", err)
+                }
+            }
+            navigate(row.long_url, .Hard)
+        }
+
+        // Delete a short URL.
+        // In Go: func (s *Store) Delete(code string) error
+        server function deleteUrl(code) {
+            ?{`DELETE FROM urls WHERE short_code = ${code}`}.run() !{
+                | ::SQLError e -> {
+                    @errorMsg = "Delete failed"
+                    @successMsg = ""
+                    return
+                }
+            }
+            @successMsg = "Deleted /" + code
+            @errorMsg = ""
+            loadUrls()
+        }
+    }
+
+    // ============================================================
+    // Bare expression: execute at initial render (§17.3).
+    // In Go this would be init() or a constructor call.
+    // ============================================================
+
+    ${ loadUrls() }
+
+    // ============================================================
+    // Markup
+    // ============================================================
+
+    <div class="url-shortener">
+
+        <h1>URL Shortener</>
+
+        // --------------------------------------------------------
+        // Create form
+        // --------------------------------------------------------
+
+        <form class="create-form" onsubmit=createShortUrl()>
+
+            <h2>Create Short URL</>
+
+            <div class="field">
+                <label>Short Code</>
+                <input
+                    type="text"
+                    value=@shortCode
+                    oninput=updateShortCode()
+                    placeholder="e.g. go-blog"
+                    class="input"
+                />
+            </div>
+
+            <div class="field">
+                <label>Long URL</>
+                <input
+                    type="url"
+                    value=@longUrl
+                    oninput=updateLongUrl()
+                    placeholder="https://example.com/very/long/url"
+                    class="input"
+                />
+            </div>
+
+            <button type="submit" class="btn-primary">Create</>
+
+        </form>
+
+        // --------------------------------------------------------
+        // Status display — if=/else chain (§17.1.1)
+        // In Go: if err != nil { } else if msg != "" { }
+        // if= with a function call because if=@errorMsg may not handle
+        // truthy-string evaluation consistently.
+        // --------------------------------------------------------
+
+        <div class="status-error" if=hasError()>
+            ${@errorMsg}
+            <button onclick=clearStatus() class="dismiss">x</>
+        </div>
+        <div class="status-success" if=hasSuccess()>
+            ${@successMsg}
+            <button onclick=clearStatus() class="dismiss">x</>
+        </div>
+
+        // --------------------------------------------------------
+        // URL list
+        // --------------------------------------------------------
+
+        <h2>All Short URLs</>
+
+        <p class="no-urls" if=hasNoUrls()>No short URLs yet. Create one above.</>
+
+        <table class="url-table" if=hasUrls()>
+            <thead>
+                <tr>
+                    <th>Short Code</>
+                    <th>Long URL</>
+                    <th>Clicks</>
+                    <th>Actions</>
+                </tr>
+            </thead>
+            <tbody>${
+                for (let url of @urls) {
+                    lift <tr>
+                        <td class="short-code-cell">${url.short_code}/
+                        <td class="long-url-cell">${url.long_url}/
+                        <td class="clicks-cell">${url.clicks}/
+                        <td>
+                            <button onclick=deleteUrl(url.short_code) class="btn-delete">Delete/
+                        </td>
+                    </tr>
+                }
+            }</tbody>
+        </table>
+
+    </div>
+
+</>

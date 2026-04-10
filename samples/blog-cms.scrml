@@ -1,0 +1,445 @@
+// blog-cms.scrml
+// Blog CMS: Post CRUD with status enum (Draft/Published/Archived),
+// filtered post list, rich text preview, SQL CRUD, protect=, error handling.
+//
+// Rails developer perspective:
+// - < db protect="admin_notes"> = attr_accessible / strong_parameters
+// - server function = controller action
+// - @reactive = controller instance variable (client-side, reactive)
+// - ?{} SQL = ActiveRecord.find_by_sql (no ORM, no migrations, no validations)
+// - const @publishedCount = computed attribute / counter_cache
+// - if=/else-if=/else = ERB conditional blocks
+// - bind:value=@var = form_for field binding (two-way)
+// - lift = partial rendering in a loop
+
+// =========================================================================
+// Types — must be inside ${ } at file scope (per compilation-test pattern)
+// Equivalent to: class Post < ApplicationRecord
+//                  enum status: [:draft, :published, :archived]
+//                end
+// =========================================================================
+
+${
+    type PostStatus:enum = {
+        Draft
+        Published
+        Archived
+    }
+}
+
+// =========================================================================
+// Database state block
+// protect= prevents admin_notes and internal_id from appearing in client
+// queries — equivalent to Rails attr_accessible or strong_parameters
+// =========================================================================
+
+< db src="./blog.db" protect="admin_notes,internal_id" tables="posts">
+
+    // =====================================================================
+    // Reactive state
+    // Rails equivalent: @posts, @post instance variables in controller
+    // Key difference: these are CLIENT-SIDE reactive vars, not server state
+    // =====================================================================
+
+    @posts = []
+    @activeFilter = "All"
+    @selectedPost = not
+    @isEditing = false
+    @saveError = ""
+    @saveSuccess = false
+
+    // Form state for the post editor
+    @formTitle = ""
+    @formBody = ""
+    @formStatus = "Draft"
+
+    // Derived reactive value: count of published posts (§6.6)
+    // const @name = expr syntax — lazy pull with dirty flags
+    // Rails equivalent: Post.where(status: :published).count
+    // Key difference: this is client-side derived from @posts array, not DB query
+    const @publishedCount = @posts.filter(p => p.status == "Published").length
+
+    // =====================================================================
+    // Load on mount (like Rails before_action :load_posts)
+    // Bare expression in ${ } executes at initial render (§17.3)
+    // =====================================================================
+
+    ${ loadPosts() }
+
+    // =====================================================================
+    // Markup
+    // =====================================================================
+
+    <div class="blog-cms">
+
+        <header class="cms-header">
+            <h1>Blog CMS/
+            <span class="stat">${@publishedCount} published/
+        </header>
+
+        // Error banner — rendered when @saveError is truthy
+        // Rails equivalent: flash[:error] in the layout
+        <div class="error-banner" if=@saveError>
+            <p>${@saveError}/
+            <button onclick=clearError()>Dismiss/
+        </div>
+
+        // Success message
+        <div class="success-banner" if=@saveSuccess>
+            <p>Post saved./
+        </div>
+
+        // ---------------------------------------------------------------
+        // Filter bar — All / Draft / Published / Archived
+        // Rails equivalent: scope-based URL params (?status=published)
+        // scrml equivalent: client-side reactive filter (no page reload)
+        // ---------------------------------------------------------------
+
+        <nav class="filter-bar">
+            <button class=filterBtnClass("All") onclick=setFilter("All")>
+                All (${@posts.length})
+            /
+            <button class=filterBtnClass("Draft") onclick=setFilter("Draft")>
+                Draft
+            /
+            <button class=filterBtnClass("Published") onclick=setFilter("Published")>
+                Published (${@publishedCount})
+            /
+            <button class=filterBtnClass("Archived") onclick=setFilter("Archived")>
+                Archived
+            /
+        </nav>
+
+        // ---------------------------------------------------------------
+        // Post list — if=/else chain (§17.1.1)
+        // Rails equivalent: <%= if @posts.empty? %> ... <% else %> ... <% end %>
+        // ---------------------------------------------------------------
+
+        <section class="post-list">
+
+            <div class="post-list-header">
+                <h2>Posts/
+                <button class="btn-primary" onclick=newPost()>New Post/
+            </div>
+
+            // Show table when posts exist
+            <div class="post-table-wrap" if=@posts.length>
+                <table class="posts-table">
+                    <thead>
+                        <tr>
+                            <th>Title/
+                            <th>Status/
+                            <th>Actions/
+                        </tr>
+                    </thead>
+                    <tbody>${
+                        for (post of filteredPosts()) {
+                            lift <tr key=${post.id}>
+                                <td class="post-title">${post.title}/
+                                <td>
+                                    <span class=statusBadgeClass(post.status)>
+                                        ${post.status}
+                                    /
+                                /
+                                <td class="post-actions">
+                                    <button onclick=editPost(post.id)>Edit/
+                                    <button onclick=previewPost(post.id)>Preview/
+                                    <button class="btn-danger" onclick=deletePost(post.id)>Delete/
+                                </td>
+                            </tr>
+                        }
+                    }
+                </table>
+            </div>
+
+            // else: empty state — sibling immediately follows if= element
+            <div class="empty-state" else>
+                <p>No posts yet. Create your first post above./
+            </div>
+
+        </section>
+
+        // ---------------------------------------------------------------
+        // Post editor — shown when @isEditing
+        // Rails equivalent: new.html.erb / edit.html.erb sharing _form partial
+        // bind:value=@var = two-way binding (§5.4) — Rails form_for equivalent
+        // ---------------------------------------------------------------
+
+        <section class="post-editor" if=@isEditing>
+
+            <h2>${@selectedPost ? "Edit Post" : "New Post"}/
+
+            <form class="post-form" onsubmit=savePost()>
+
+                <div class="field">
+                    <label>Title/
+                    <input
+                        type="text"
+                        name="title"
+                        bind:value=@formTitle
+                        placeholder="Post title"
+                    />
+                </div>
+
+                <div class="field">
+                    <label>Body/
+                    <textarea
+                        name="body"
+                        bind:value=@formBody
+                        placeholder="Write your post here..."
+                        rows="10"
+                    >/
+                </div>
+
+                <div class="field">
+                    <label>Status/
+                    <select name="status" bind:value=@formStatus>
+                        <option value="Draft">Draft/
+                        <option value="Published">Published/
+                        <option value="Archived">Archived/
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">
+                        ${@selectedPost ? "Update Post" : "Create Post"}
+                    /
+                    <button type="button" onclick=cancelEdit()>Cancel/
+                </div>
+
+            </form>
+
+        </section>
+
+        // ---------------------------------------------------------------
+        // Rich text preview panel
+        // Rails equivalent: show action / posts#show
+        // ---------------------------------------------------------------
+
+        <section class="post-preview" if=@selectedPost>
+            <div class="preview-header">
+                <h2>Preview/
+                <button onclick=closePreview()>Close/
+            </div>
+
+            <article class="preview-content">
+                <h1>${@selectedPost ? @selectedPost.title : ""}/
+                <div class=statusBadgeClass(@selectedPost ? @selectedPost.status : "")>
+                    ${@selectedPost ? @selectedPost.status : ""}
+                /
+                // Rich text preview: body as preformatted text
+                // Rails: simple_format(@post.body)
+                <div class="preview-body">
+                    ${@selectedPost ? @selectedPost.body : ""}
+                /
+            </article>
+        </section>
+
+    </div>
+
+    // =====================================================================
+    // Logic — all functions
+    // =====================================================================
+
+    ${
+        // -----------------------------------------------------------------
+        // Client-side helpers
+        // -----------------------------------------------------------------
+
+        function filteredPosts() {
+            if (@activeFilter == "All") {
+                return @posts
+            }
+            return @posts.filter(p => p.status == @activeFilter)
+        }
+
+        function setFilter(status) {
+            @activeFilter = status
+        }
+
+        function filterBtnClass(status) {
+            return @activeFilter == status
+                ? "filter-btn filter-btn--active"
+                : "filter-btn"
+        }
+
+        function statusBadgeClass(status) {
+            if (status == "Published") { return "badge badge--published" }
+            if (status == "Draft") { return "badge badge--draft" }
+            if (status == "Archived") { return "badge badge--archived" }
+            return "badge"
+        }
+
+        function newPost() {
+            @selectedPost = not
+            @formTitle = ""
+            @formBody = ""
+            @formStatus = "Draft"
+            @isEditing = true
+            @saveError = ""
+            @saveSuccess = false
+        }
+
+        function editPost(postId) {
+            let post = @posts.find(p => p.id == postId)
+            if (!post) { return }
+            @selectedPost = post
+            @formTitle = post.title
+            @formBody = post.body
+            @formStatus = post.status
+            @isEditing = true
+            @saveError = ""
+            @saveSuccess = false
+        }
+
+        function previewPost(postId) {
+            let post = @posts.find(p => p.id == postId)
+            @selectedPost = post
+            @isEditing = false
+        }
+
+        function closePreview() {
+            @selectedPost = not
+        }
+
+        function cancelEdit() {
+            @isEditing = false
+            @selectedPost = not
+        }
+
+        function clearError() {
+            @saveError = ""
+        }
+
+        // -----------------------------------------------------------------
+        // Server functions — DB operations
+        // All these are auto-escalated to server routes (§12.2 Trigger 1)
+        // because they contain ?{} SQL contexts
+        // Rails equivalent: controller actions + ActiveRecord model calls
+        // -----------------------------------------------------------------
+
+        // INDEX — Rails: Post.order(created_at: :desc)
+        server function loadPosts() {
+            return ?{`
+                SELECT id, title, body, status, created_at
+                FROM posts
+                ORDER BY created_at DESC
+            `}.all()
+        }
+
+        // CREATE — Rails: Post.create(post_params)
+        server function createPost(title, body, status) {
+            let result = ?{`
+                INSERT INTO posts (title, body, status, created_at)
+                VALUES (${title}, ${body}, ${status}, datetime('now'))
+            `}.run()
+            return result.lastInsertRowid
+        }
+
+        // UPDATE — Rails: @post.update(post_params)
+        server function updatePost(id, title, body, status) {
+            ?{`
+                UPDATE posts
+                SET title = ${title}, body = ${body}, status = ${status}
+                WHERE id = ${id}
+            `}.run()
+        }
+
+        // DESTROY — Rails: @post.destroy
+        server function destroyPost(id) {
+            ?{`DELETE FROM posts WHERE id = ${id}`}.run()
+        }
+
+        // -----------------------------------------------------------------
+        // Prepared statement example (§8.5.2)
+        // Rails: no equivalent — Rails always prepares automatically
+        // scrml: explicit .prepare() for batch/repeated operations
+        // -----------------------------------------------------------------
+
+        server function bulkUpdateStatus(ids, newStatus) {
+            const stmt = ?{`UPDATE posts SET status = ${newStatus} WHERE id = ${ids}`}.prepare()
+            for (id of ids) {
+                stmt.run(id, newStatus)
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Form save handler
+        // Rails equivalent: create / update controller action
+        // !{} error handling on SQL calls (§19)
+        // -----------------------------------------------------------------
+
+        function savePost() {
+            let title = @formTitle.trim()
+            let body = @formBody.trim()
+            let status = @formStatus
+
+            // Manual validation
+            // Rails: validates :title, presence: true (one line, model-level)
+            // scrml: explicit if/return guards — no model validation layer
+            if (!title) {
+                @saveError = "Title cannot be blank."
+                return
+            }
+            if (!body) {
+                @saveError = "Body cannot be blank."
+                return
+            }
+
+            @saveError = ""
+
+            if (@selectedPost) {
+                // UPDATE path — Rails: @post.update(post_params)
+                updatePost(@selectedPost.id, title, body, status) !{
+                    | ::SQLError e -> {
+                        @saveError = "Save failed: " + e.message
+                        return
+                    }
+                    | _ e -> {
+                        @saveError = "Unexpected error: " + e.message
+                        return
+                    }
+                }
+            } else {
+                // CREATE path — Rails: Post.create(post_params)
+                let newId = createPost(title, body, status) !{
+                    | ::SQLError e -> {
+                        @saveError = "Create failed: " + e.message
+                        return
+                    }
+                    | ::ConflictError e -> {
+                        @saveError = "A post with this title already exists."
+                        return
+                    }
+                    | _ e -> {
+                        @saveError = "Unexpected error: " + e.message
+                        return
+                    }
+                }
+            }
+
+            // Reload posts after save
+            // Rails: redirect_to @posts (server redirect)
+            // scrml: re-fetch from server and update reactive state
+            @posts = loadPosts()
+            @isEditing = false
+            @selectedPost = not
+            @saveSuccess = true
+        }
+
+        function deletePost(postId) {
+            destroyPost(postId) !{
+                | ::SQLError e -> {
+                    @saveError = "Delete failed: " + e.message
+                    return
+                }
+                | _ e -> {
+                    @saveError = "Unexpected error: " + e.message
+                    return
+                }
+            }
+            @posts = loadPosts()
+        }
+    }
+
+/   // closes < db>

@@ -1,0 +1,435 @@
+// gauntlet-r11-zig-buildconfig.scrml
+// Gauntlet Round 11 -- Zig developer perspective
+// Build Configuration Tool
+// Features: BuildTarget struct, Platform enum, Optimization enum, add/remove targets,
+//           flag management with reactive arrays, config preview, match on platform,
+//           export as JSON (server function)
+
+<program>
+
+${
+    // ---- TYPE DECLARATIONS ----
+    // POSITIVE SIGNAL: enum types are first-class. In Zig:
+    //   const Platform = enum { Linux, MacOS, Windows, WASM };
+    // The exhaustive match guarantee over enum values is the deepest conceptual
+    // overlap between Zig and scrml.
+
+    type Platform:enum = {
+        Linux
+        MacOS
+        Windows
+        WASM
+    }
+
+    type Optimization:enum = {
+        Debug
+        ReleaseSafe
+        ReleaseFast
+        ReleaseSmall
+    }
+
+    // Struct type for a build target -- pure data, no methods.
+    // POSITIVE SIGNAL: structs as pure data map to Zig's struct declarations.
+    // In Zig: const BuildTarget = struct { id: u32, name: []const u8, ... };
+    type BuildTarget:struct = {
+        id: number
+        name: string
+        platform: string
+        optimization: string
+        flags: string
+    }
+
+    type ExportStatus:enum = {
+        Idle
+        Exporting
+        Done
+        Failed
+    }
+}
+
+${
+    // ---- REACTIVE STATE ----
+    // FRICTION NOTE (Zig developer): In Zig every mutation is a visible function call.
+    // When I write @targets.push(t) I know this triggers re-renders of every markup
+    // expression reading @targets -- but I CANNOT see from source which expressions those
+    // are. The dependency graph is compiler-inferred and invisible to the reader.
+    //
+    // In Zig, you call render() yourself, explicitly. Here, re-render is implicit.
+    // What would help: a compiler diagnostic "writes to @targets re-render: [target
+    // list, target count]". That makes implicit side effects visible.
+
+    @targets = []
+    @nextId = 1
+
+    // New target form inputs
+    @newName = ""
+    @newPlatform = "Linux"
+    @newOptimization = "Debug"
+    @newFlags = ""
+
+    // Flag editing state
+    @editingTargetId = not
+    @editFlagInput = ""
+
+    // Export state
+    @exportStatus = "Idle"
+    @exportedJson = ""
+
+    // Derived: count of targets
+    // POSITIVE SIGNAL: const @derived is the scrml feature most analogous to Zig
+    // comptime. The compiler statically walks the expression, extracts @targets as
+    // a dependency edge, and emits dirty flag + lazy pull wiring. Static dependency
+    // graph construction from expression analysis -- exactly what comptime would do
+    // if Zig had reactive semantics.
+    //
+    // FRICTION NOTE: the stale-read window (§6.6.5) -- a synchronous read between
+    // a write and the microtask flush returns a stale cached value. In Zig there is
+    // no equivalent hazard. If Zig had reactive semantics, stale reads would be a
+    // compile error or require explicit flush(). Defining stale reads as "correct
+    // behavior" rather than as an error is the friction point here.
+    const @targetCount = @targets.length
+}
+
+${
+    // ---- HELPER FUNCTIONS ----
+
+    // Platform description via string match (§18.16)
+    // FRICTION NOTE: @newPlatform holds a string "Linux", not a Platform.Linux
+    // enum value. The Platform:enum type I declared is in the type registry but
+    // the reactive variable bypasses it -- @newPlatform = "Linux" is a string.
+    //
+    // In Zig, if you declare a field as Platform you CANNOT assign a string to it.
+    // The type system enforces this. In scrml, the reactive system and the type
+    // system are disconnected for @variable declarations: there is no syntax to say
+    //   @newPlatform:Platform = .Linux
+    // and have the compiler enforce that @newPlatform is always a Platform variant.
+    //
+    // CONSEQUENCE: I cannot write an exhaustive match over @newPlatform using enum
+    // arms (E-TYPE-028 would fire). I must use string literal match (§18.16) which
+    // has no exhaustiveness enforcement. The enum type is decorative at runtime.
+    //
+    // SUGGESTED FIX: Allow typed reactive declarations:
+    //   @newPlatform:Platform = .Linux
+    // With the compiler enforcing that all assignments are Platform variants.
+    // Then enum match would work: match @newPlatform { .Linux :> ... }
+    pure function platformDescription(p) {
+        if (p == "Linux") { return "GNU/Linux x86_64 (ELF binary)" }
+        if (p == "MacOS") { return "macOS ARM64 / x86_64 (Mach-O binary)" }
+        if (p == "Windows") { return "Windows x86_64 MSVC (PE/COFF binary)" }
+        if (p == "WASM") { return "WebAssembly freestanding (.wasm module)" }
+        return "Unknown platform"
+    }
+
+    pure function optimizationDescription(o) {
+        if (o == "Debug") { return "No optimization, full debug info, safety on" }
+        if (o == "ReleaseSafe") { return "Optimized, safety checks still enabled" }
+        if (o == "ReleaseFast") { return "Maximum performance, safety checks off" }
+        if (o == "ReleaseSmall") { return "Minimum binary size" }
+        return "Unknown optimization level"
+    }
+
+    // Build command generator -- pure function
+    // POSITIVE SIGNAL: `pure` keyword maps to Zig's functional purity convention.
+    // In Zig, a function with only value parameters and no global state is pure
+    // by convention. scrml makes this explicit and compiler-verifiable.
+    pure function buildCommand(target) {
+        let cmd = "zig build"
+        if (target.platform == "Linux") { cmd = cmd + " -Dtarget=x86_64-linux" }
+        if (target.platform == "MacOS") { cmd = cmd + " -Dtarget=aarch64-macos" }
+        if (target.platform == "Windows") { cmd = cmd + " -Dtarget=x86_64-windows" }
+        if (target.platform == "WASM") { cmd = cmd + " -Dtarget=wasm32-freestanding" }
+        cmd = cmd + " -Doptimize=" + target.optimization
+        if (target.flags.length > 0) { cmd = cmd + " " + target.flags }
+        return cmd
+    }
+
+    // Serialize targets to JSON
+    pure function targetsToJson(targets) {
+        if (targets.length == 0) { return "[]" }
+        let lines = []
+        for (let t of targets) {
+            let entry = "  {\"id\":" + t.id + ",\"name\":\"" + t.name + "\",\"platform\":\"" + t.platform + "\",\"optimization\":\"" + t.optimization + "\",\"flags\":\"" + t.flags + "\"}"
+            lines.push(entry)
+        }
+        return "[\n" + lines.join(",\n") + "\n]"
+    }
+}
+
+${
+    // ---- MUTATION FUNCTIONS ----
+
+    function addTarget() {
+        if (@newName.length == 0) { return }
+        let t = { id: @nextId, name: @newName, platform: @newPlatform, optimization: @newOptimization, flags: @newFlags }
+        @targets.push(t)
+        @nextId = @nextId + 1
+        @newName = ""
+        @newFlags = ""
+    }
+
+    // Remove a target by ID
+    // FRICTION NOTE (Zig developer): In Zig: try targets.swapRemoveAt(index)
+    // The error is forced to be handled. Here @targets.filter() silently
+    // succeeds (JS arrays do not fail). The absence of an error surface is
+    // a JS runtime property, not a scrml property -- but coming from Zig where
+    // memory allocation can fail, the silence is notable.
+    function removeTarget(id) {
+        @targets = @targets.filter(function(t) { return t.id != id })
+    }
+
+    function startEditFlags(targetId, currentFlags) {
+        @editingTargetId = targetId
+        @editFlagInput = currentFlags
+    }
+
+    function saveFlags() {
+        if (@editingTargetId is not) { return }
+        @targets = @targets.map(function(t) {
+            if (t.id != @editingTargetId) { return t }
+            return { id: t.id, name: t.name, platform: t.platform, optimization: t.optimization, flags: @editFlagInput }
+        })
+        @editingTargetId = not
+        @editFlagInput = ""
+    }
+
+    function cancelEditFlags() {
+        @editingTargetId = not
+        @editFlagInput = ""
+    }
+
+    function updateNewName(v) { @newName = v }
+    function updateNewPlatform(v) { @newPlatform = v }
+    function updateNewOptimization(v) { @newOptimization = v }
+    function updateNewFlags(v) { @newFlags = v }
+    function updateEditFlagInput(v) { @editFlagInput = v }
+}
+
+${
+    // ---- SERVER FUNCTION ----
+    // FRICTION NOTE (Zig developer): This is the error handling friction zone.
+    // In Zig:
+    //   const result = try exportToFile(allocator, json_bytes);
+    // The `try` keyword is MANDATORY. You cannot ignore error propagation.
+    // scrml's !{} handler is opt-in. W-ERROR-001 fires as a WARNING if I never
+    // attach a !{} handler. A warning is not enforcement. This is the deepest
+    // divergence from Zig's "explicit over implicit" philosophy in scrml.
+    //
+    // POSITIVE SIGNAL: the !{} postfix syntax is cleaner than try/catch.
+    // The design direction (errors are values, error handling is local to the
+    // expression) is correct. The enforcement level is too weak.
+    //
+    // The scrml model should upgrade W-ERROR-001 to an ERROR for server function
+    // calls that can fail (NetworkError is always possible across the boundary).
+    // That single change would bring scrml's error model much closer to Zig's.
+    server function exportTargetsToFile(targetsJson) {
+        return targetsJson
+    }
+}
+
+${
+    // Client wrapper for export
+    // FRICTION NOTE: I must set @exportStatus = "Exporting" BEFORE the server call
+    // because the server function cannot mutate client @reactive state (E-RI-002).
+    // This forces a client-wrapper pattern that is architecturally correct but
+    // the reason is implicit -- you discover it at compile time if the error fires,
+    // but the E-RI-002 message should explicitly explain the client/server boundary
+    // and suggest the wrapper pattern as the fix.
+    function handleExport() {
+        @exportStatus = "Exporting"
+        let json = targetsToJson(@targets)
+        @exportedJson = exportTargetsToFile(json)
+        @exportStatus = "Done"
+    }
+}
+
+// ============================================================
+// MARKUP
+// ============================================================
+
+<div class="build-config-tool">
+    <h1>Zig Build Configuration Manager/
+    <p>Defined targets: ${@targetCount}/
+
+    // ---- Add Target Form ----
+    <section class="add-target-form">
+        <h2>New Build Target/
+
+        <div class="form-row">
+            <label>Target Name/
+            // bind:value is the idiomatic scrml form. Using it here.
+            // In Zig there is no equivalent -- you wire inputs manually.
+            // From a "Zig mental model" perspective, bind:value is fine because
+            // it is one explicit directive with a well-defined expansion
+            // (§5.4: desugars to value=@var oninput=${@var=event.target.value}).
+            // The expansion is visible in the spec. Not hidden behavior.
+            <input type="text" bind:value=@newName placeholder="e.g. release-wasm"/>
+        </div>
+
+        <div class="form-row">
+            <label>Platform/
+            // FRICTION NOTE: I want to render these options from Platform.variants
+            // (§14.4.2). The spec marks §14.4.2 as TODO -- the section content was
+            // lost in truncation. Enum iteration is not yet fully specified.
+            // Even if it were, @newPlatform is a string so .variants would give me
+            // Platform enum values I cannot compare with @newPlatform without toEnum().
+            // Manual select options are the only reliable working pattern.
+            <select oninput=updateNewPlatform(event.target.value)>
+                <option value="Linux">Linux x64/
+                <option value="MacOS">macOS ARM64/
+                <option value="Windows">Windows x64/
+                <option value="WASM">WASM freestanding/
+            </select>
+        </div>
+
+        <div class="form-row">
+            <label>Optimization/
+            <select oninput=updateNewOptimization(event.target.value)>
+                <option value="Debug">Debug/
+                <option value="ReleaseSafe">ReleaseSafe/
+                <option value="ReleaseFast">ReleaseFast/
+                <option value="ReleaseSmall">ReleaseSmall/
+            </select>
+        </div>
+
+        <div class="form-row">
+            <label>Extra Flags/
+            <input type="text" bind:value=@newFlags placeholder="e.g. -Dgpu=true -Dgl=true"/>
+        </div>
+
+        <button onclick=addTarget()>Add Target/
+    </section>
+
+    // ---- Target List ----
+    <section class="target-list">
+        <h2>Build Targets/
+
+        // Show empty state message when no targets exist
+        <p if=@targetCount class="targets-count">${@targetCount} target(s) configured/
+        <p if=@targetCount class="empty-hint">Use the form above to add your first target./
+
+        <div class="targets">${
+            for (let t of @targets) {
+                lift <div class="target-card">
+                    <div class="target-header">
+                        <strong>${t.name}/
+                        <span>${t.platform}/
+                        <span>${t.optimization}/
+                        <button onclick=removeTarget(t.id)>Remove/
+                    </div>
+                    <div class="target-command">
+                        <code>${buildCommand(t)}/
+                    </div>
+                    <div class="target-flags">
+                        <span>Flags: ${t.flags.length > 0 ? t.flags : "(none)"}/
+                        <button onclick=startEditFlags(t.id, t.flags)>Edit Flags/
+                    </div>
+                </div>
+            }
+        }</div>
+    </section>
+
+    // ---- Flag Editor ----
+    // Shown only when a target is selected for flag editing
+    // POSITIVE SIGNAL: if=@editingTargetId is clean -- renders the section only
+    // when editingTargetId is non-null. Direct mapping from Zig's optional type
+    // semantics (treat null as "not present"). No friction here.
+    <section class="flag-editor" if=@editingTargetId>
+        <h2>Edit Flags/
+        <input type="text" bind:value=@editFlagInput placeholder="space-separated flags"/>
+        <div class="flag-actions">
+            <button onclick=saveFlags()>Save Flags/
+            <button onclick=cancelEditFlags()>Cancel/
+        </div>
+    </section>
+
+    // ---- Platform Info via match (§18.16 string literal match) ----
+    // FRICTION NOTE: This is where the enum/string disconnect is most visible.
+    // I declared Platform:enum above. Ideally I would match on @newPlatform as
+    // a Platform enum value and get exhaustiveness enforcement (E-TYPE-020).
+    // Instead @newPlatform is a string, so I use §18.16 string literal match.
+    //
+    // String match has NO exhaustiveness enforcement (§18.16 is explicit: "SHALL
+    // NOT be enforced"). So I lose the primary benefit of having an enum type.
+    //
+    // In Zig, this situation is impossible: if Platform is an enum, the variable
+    // IS an enum. You cannot hold a Platform value as a string. The type system
+    // prevents the disconnect at the point of declaration.
+    //
+    // The scrml model needs typed reactive variables (@var:Type = .Variant) to
+    // close this gap. Until then, enum types and reactive state are in different
+    // worlds and match cannot provide exhaustiveness over @reactive enum state.
+    <section class="platform-info">
+        <h2>Platform Details/
+        <p>${platformDescription(@newPlatform)}/
+        ${
+            let details = match @newPlatform {
+                "Linux" :> "Link flags: -lc. Output: ELF64. ABI: GNU."
+                "MacOS" :> "Link flags: -framework Foundation. Output: Mach-O. ABI: macOS."
+                "Windows" :> "Link flags: -lkernel32. Output: PE32+. ABI: MSVC."
+                "WASM" :> "No libc. No OS. Export functions with 'export'. Import via @import."
+                else :> "Select a platform to see details."
+            }
+            lift <p class="platform-detail">${details}/
+        }
+    </section>
+
+    // ---- Optimization Info via match ----
+    <section class="optimization-info">
+        <h2>Optimization Details/
+        <p>${optimizationDescription(@newOptimization)}/
+        ${
+            let optDetails = match @newOptimization {
+                "Debug" :> "Zig default. Bounds checking, overflow detection, all assertions."
+                "ReleaseSafe" :> "~15% faster than Debug. Safety checks preserved. Recommended for production."
+                "ReleaseFast" :> "Fastest. All safety disabled. Undefined behavior is real UB. Use with care."
+                "ReleaseSmall" :> "Smallest binary. Optimizes for size over speed. Good for WASM targets."
+                else :> "Select an optimization level to see details."
+            }
+            lift <p class="opt-detail">${optDetails}/
+        }
+    </section>
+
+    // ---- Export Section ----
+    <section class="export-section">
+        <h2>Export Configuration/
+
+        // if/else-if/else chain for export status display
+        // POSITIVE SIGNAL: the if=/else-if=/else chain is clean and readable.
+        // From a Zig perspective this is the most natural conditional rendering
+        // in scrml. The desugaring is transparent.
+        //
+        // FRICTION NOTE: I WANT to match on @exportStatus as an ExportStatus enum
+        // value here. But same issue -- @exportStatus = "Idle" is a string,
+        // ExportStatus.Idle is an enum variant. They are disconnected.
+        // So I use string comparison via if= attributes.
+        <div class="export-status">
+            <p if=@exportStatus class="status-text">Status: ${@exportStatus}/
+        </div>
+
+        <button onclick=handleExport()>Export as JSON/
+
+        <div class="export-result" if=@exportedJson>
+            <h3>Generated JSON/
+            <pre class="json-output">${@exportedJson}/
+        </div>
+    </section>
+
+    // ---- Compile-time metadata ----
+    // FRICTION NOTE (Zig developer): scrml has TWO compile-time mechanisms where
+    // Zig has ONE (comptime). In Zig, comptime handles both:
+    //   (a) compile-time constant evaluation (what bun.eval() does)
+    //   (b) code generation and type-system access (what ^{} does)
+    //
+    // Having two separate mechanisms creates an ambiguity: which one do I use when?
+    // The boundary between them is underspecified. Can bun.eval() be called inside
+    // ^{}? Can ^{} produce inlined constants? The spec does not answer this.
+    //
+    // In Zig this never arises: comptime is comptime. One mechanism, one set of rules,
+    // one mental model. The single-mechanism design is cleaner.
+    <footer class="app-footer">
+        <p>scrml ${ bun.eval("'0.5.1-draft'") } / Build Config Tool v1.0/
+    </footer>
+
+</div>
+
+</program>

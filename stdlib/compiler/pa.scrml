@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/pa — Protect Analyzer
+    //
+    // Analyzes protect= attributes on state objects and database views
+    // to enforce access control at compile time.
+    //
+    // Usage:
+    //   import { runPA } from "scrml:compiler/pa"
+    //   const result = runPA({ files })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runPA: _runPA, PAError: _PAError } = await import("../../compiler/src/protect-analyzer.ts");
+    }
+
+    export const runPA = _runPA
+    export const PAError = _PAError
+}
+</program>

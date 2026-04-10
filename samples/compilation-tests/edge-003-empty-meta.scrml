@@ -1,0 +1,7 @@
+// edge-003-empty-meta.scrml
+// Empty meta block. Tests: ^{} with no content.
+
+<div>
+    ^{}
+    <p>Empty meta block</>
+</div>

@@ -1,0 +1,11 @@
+// basic-015-heading-levels.scrml
+// All heading levels. Tests: h1 through h6.
+
+<div>
+    <h1>Heading Level 1</>
+    <h2>Heading Level 2</>
+    <h3>Heading Level 3</>
+    <h4>Heading Level 4</>
+    <h5>Heading Level 5</>
+    <h6>Heading Level 6</>
+</div>

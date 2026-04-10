@@ -1,0 +1,617 @@
+// gauntlet-r10-elixir-chat.scrml
+// Chat room application -- Gauntlet Round 10 -- Elixir/Phoenix LiveView perspective
+//
+// Architecture note from an Elixir developer:
+// In Phoenix LiveView, this entire app would be a single GenServer process on the server.
+// All state lives server-side. The server pushes DOM diffs over a WebSocket.
+// Room switching, message sending, typing indicators -- all handled by handle_event callbacks.
+// The client is a thin JavaScript layer that only manages WebSocket + DOM patching.
+//
+// In scrml, state is split: @vars are client-side reactive, < db> is server-side data.
+// Server functions are RPC calls. There is no WebSocket push mechanism.
+// The architecture is fundamentally client-side-reactive, not server-push.
+// This matters enormously for a chat app. I will document exactly where I feel this.
+
+// ---- Reactive state (client-side) ----
+// In LiveView: ALL of this would be socket.assigns on the server.
+// In scrml: this is client memory. Server knows nothing about @currentRoom or @userName
+// unless we explicitly pass them in server function calls.
+${
+    @currentRoomId = 1
+    @currentRoomName = "general"
+    @userName = ""
+    @messageText = ""
+    @messages = []
+    @rooms = []
+    @isTyping = false
+    @typingUsers = []
+    @isSending = false
+    @hasJoined = false
+}
+
+// ---- Enum: message kind ----
+// In Elixir, this would be an atom: :text | :system | :error
+// scrml match requires enums, so we declare one here.
+// Friction note: DB returns TEXT columns, not enum variants.
+// We cannot match on the raw DB value -- we must coerce to enum first.
+${
+    type MessageKind:enum = {
+        Text
+        System
+        Error
+    }
+}
+
+// ---- Database state block ----
+// This is the closest scrml gets to a GenServer holding server-side state.
+// In Elixir, the GenServer OWNS all state. Here, < db> is just a data boundary.
+// The < db> does not hold @currentRoomId -- the client does.
+// Server functions must accept roomId as a parameter because the server
+// cannot reach into client @vars. This is the fundamental LiveView divergence.
+< db src="./chat.db" protect="password_hash" tables="rooms,messages,users">
+
+    // ---- Room list (sidebar) ----
+    // In LiveView: loaded once on mount via handle_params, then updated by PubSub broadcasts.
+    // In scrml: we poll for room list. No push mechanism available.
+    // The <poll> construct is the closest approximation to periodic refresh.
+    // It is NOT real-time. It is polling. This is a significant downgrade from LiveView.
+    <poll id="roomPoller" interval=5000>
+        ${
+            // Fetch all rooms from DB. In LiveView, this would be a subscribe + receive.
+            // Here we pull on an interval. The 5-second lag is unavoidable without WebSockets.
+            @rooms = loadRooms()
+        }
+    </>
+
+    // ---- Message poller (main panel) ----
+    // In LiveView: Phoenix.PubSub broadcasts new messages to all subscribers instantly.
+    // In scrml: we poll every 2 seconds. Not real-time. 2s lag for every message.
+    // This is the deepest friction point of the entire app.
+    <poll id="messagePoller" interval=2000 running=@hasJoined>
+        ${
+            @messages = loadMessages(@currentRoomId)
+        }
+    </>
+
+    // ---- Typing indicator poller ----
+    // In LiveView: handle_event("typing", ...) broadcasts to all room subscribers via PubSub.
+    // The indicator appears within milliseconds across all connected clients.
+    // In scrml: we poll the DB for typing status every 1500ms.
+    // This requires a typing_status table in the DB -- a hack to simulate server push.
+    // The lag is 1.5 seconds minimum. Not a typing indicator. A typing history viewer.
+    // NOTE: interval < 500ms would emit W-LIFECYCLE-005 if body called server function.
+    // 1500ms is above the threshold but still unacceptably slow for UX.
+    <poll id="typingPoller" interval=1500 running=@hasJoined>
+        ${
+            @typingUsers = loadTypingUsers(@currentRoomId)
+        }
+    </>
+
+    // ---- Server functions (like LiveView handle_event callbacks) ----
+    // In LiveView, handle_event/3 receives (event_name, params, socket) and returns {:noreply, socket}
+    // or {:reply, map, socket}. The socket IS the state. Pattern matching on event names routes
+    // to the right handler. In scrml, each server function is a named RPC endpoint.
+    // There is no unified "receive" with pattern matching across all events.
+    ${
+        server function loadRooms() {
+            let rows = ?{`SELECT id, name, description FROM rooms ORDER BY name ASC`}.all()
+            return rows
+        }
+
+        server function loadMessages(roomId) {
+            // Friction: roomId comes from client @currentRoomId.
+            // In LiveView, socket.assigns.current_room_id is already on the server.
+            // Here we must pass it across the client-server boundary every poll tick.
+            // That's a network round-trip just to pass state the server should own.
+            let rows = ?{`
+                SELECT m.id, m.content, m.inserted_at, u.username
+                FROM messages m
+                JOIN users u ON m.user_id = u.id
+                WHERE m.room_id = ${roomId}
+                ORDER BY m.inserted_at ASC
+                LIMIT 100
+            `}.all()
+            return rows
+        }
+
+        server function sendMessage(roomId, username, content) {
+            // Validation that would be a changeset in Ecto:
+            // In Elixir: Message.changeset(%Message{}, params) |> Repo.insert()
+            // In scrml: raw SQL with manual validation logic.
+            // No changeset equivalent. No Ecto associations. No Repo pattern.
+            if (content.trim().length == 0) {
+                return { ok: false, error: "Message cannot be empty" }
+            }
+            let user = ?{`SELECT id FROM users WHERE username = ${username}`}.first()
+            if (!user) {
+                return { ok: false, error: "User not found" }
+            }
+            ?{`
+                INSERT INTO messages (room_id, user_id, content, inserted_at)
+                VALUES (${roomId}, ${user.id}, ${content}, datetime('now'))
+            `}.run()
+            return { ok: true }
+        }
+
+        server function setTypingStatus(roomId, username, isTyping) {
+            // Hack: simulate server-push by writing typing status to DB.
+            // In LiveView, this would be: Phoenix.PubSub.broadcast(room_topic, {:typing, username})
+            // No table write needed. No polling needed. Instant delivery.
+            // Here we upsert a typing_status row and let the poll pick it up.
+            // This is DB abuse as a poor man's pub/sub. Every Elixir dev recognizes this anti-pattern.
+            ?{`
+                INSERT INTO typing_status (room_id, username, last_typed)
+                VALUES (${roomId}, ${username}, datetime('now'))
+                ON CONFLICT (room_id, username) DO UPDATE SET last_typed = datetime('now')
+            `}.run()
+            if (!isTyping) {
+                ?{`
+                    DELETE FROM typing_status
+                    WHERE room_id = ${roomId} AND username = ${username}
+                `}.run()
+            }
+        }
+
+        server function loadTypingUsers(roomId) {
+            // Only show users who typed in the last 5 seconds (stale typing status cleanup)
+            let rows = ?{`
+                SELECT username FROM typing_status
+                WHERE room_id = ${roomId}
+                AND last_typed > datetime('now', '-5 seconds')
+            `}.all()
+            return rows
+        }
+
+        server function joinRoom(roomId, username) {
+            // In LiveView: subscribe to room topic via Phoenix.PubSub here.
+            // handle_info receives broadcasts and socket.assigns gets updated, pushing DOM diff.
+            // In scrml: "joining" a room just means setting client state.
+            // There is no subscribe mechanism. No handle_info equivalent.
+            let user = ?{`SELECT id FROM users WHERE username = ${username}`}.first()
+            if (!user) {
+                ?{`INSERT INTO users (username) VALUES (${username})`}.run()
+            }
+            return { ok: true }
+        }
+
+        server function switchRoom(roomId) {
+            let room = ?{`SELECT id, name FROM rooms WHERE id = ${roomId}`}.first()
+            return room
+        }
+    }
+
+    // ---- Client-side functions (like LiveView JS hooks but inline) ----
+    ${
+        function handleJoin() {
+            if (@userName.trim().length == 0) {
+                return
+            }
+            let result = joinRoom(@currentRoomId, @userName)
+            if (result.ok) {
+                @hasJoined = true
+            }
+        }
+
+        function handleSend() {
+            if (@messageText.trim().length == 0) {
+                return
+            }
+            @isSending = true
+            // Clear typing status when sending
+            setTypingStatus(@currentRoomId, @userName, false)
+            @isTyping = false
+
+            let result = sendMessage(@currentRoomId, @userName, @messageText)
+            if (result.ok) {
+                @messageText = ""
+                // Immediately refresh messages after send.
+                // In LiveView, the server pushes the update. No polling lag.
+                // Here we manually trigger a reload.
+                @messages = loadMessages(@currentRoomId)
+            }
+            @isSending = false
+        }
+
+        function handleRoomSwitch(roomId, roomName) {
+            // In LiveView: handle_event("switch_room", %{"id" => id}, socket)
+            // Updates socket.assigns.current_room_id, reloads messages, re-subscribes to PubSub topic.
+            // All happens server-side. New DOM diff pushed to client.
+            // In scrml: update client state, manually reload messages.
+            setTypingStatus(@currentRoomId, @userName, false)
+            @currentRoomId = roomId
+            @currentRoomName = roomName
+            @messages = loadMessages(roomId)
+        }
+
+        function handleTyping() {
+            // Update typing status server-side every time user types.
+            // In LiveView, this is debounced push events. Here we call a server fn on every keystroke.
+            // This means an HTTP round-trip per keypress. Expensive. LiveView handles this more elegantly
+            // with debouncing built into phx-debounce attribute.
+            if (!@isTyping) {
+                @isTyping = true
+                setTypingStatus(@currentRoomId, @userName, true)
+            }
+        }
+
+        function handleInputClear() {
+            // When input is cleared/blurred, remove typing indicator
+            if (@isTyping) {
+                @isTyping = false
+                setTypingStatus(@currentRoomId, @userName, false)
+            }
+        }
+
+        function formatTimestamp(ts) {
+            // In Elixir: NaiveDateTime.to_string() or Timex for formatting.
+            // In scrml: raw JavaScript. No stdlib for date formatting.
+            // This feels like falling back to vanilla JS inside a typed language.
+            let d = new Date(ts)
+            return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        }
+
+        function messageClass(msg) {
+            if (msg.username == @userName) {
+                return "message message--own"
+            }
+            return "message message--other"
+        }
+
+        function typingText() {
+            // In Elixir, this would pattern match:
+            //   def typing_text([]), do: ""
+            //   def typing_text([user]), do: "#{user} is typing..."
+            //   def typing_text([u1, u2]), do: "#{u1} and #{u2} are typing..."
+            //   def typing_text(users), do: "Several people are typing..."
+            // In scrml: no function head pattern matching. Must use if/else or ternary.
+            // This is the most painful loss from Elixir. Multi-clause functions by pattern
+            // are the idiomatic Elixir way to express this. scrml offers no equivalent.
+            let others = @typingUsers.filter(u => u.username != @userName)
+            if (others.length == 0) {
+                return ""
+            }
+            if (others.length == 1) {
+                return others[0].username + " is typing..."
+            }
+            if (others.length == 2) {
+                return others[0].username + " and " + others[1].username + " are typing..."
+            }
+            return "Several people are typing..."
+        }
+    }
+
+    // ---- JOIN SCREEN ----
+    // Shown when user has not entered a name yet.
+    // In LiveView, this would be a separate LiveView or a conditional mount.
+    <div class="join-screen" if=!@hasJoined>
+        <div class="join-card">
+            <h1>Chat</>
+            <p>Enter your name to join</>
+            <input
+                type="text"
+                placeholder="Your name"
+                value=@userName
+                oninput=${ @userName = event.target.value }
+            />
+            <button onclick=handleJoin()>Join</>
+        </div>
+    </div>
+
+    // ---- MAIN CHAT LAYOUT ----
+    <div class="chat-layout" if=@hasJoined>
+
+        // ---- SIDEBAR: room list ----
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Rooms</>
+            </div>
+            <ul class="room-list">
+                ${
+                    for (let room of @rooms) {
+                        lift <li
+                            class=${ room.id == @currentRoomId ? "room-item room-item--active" : "room-item" }
+                            onclick=handleRoomSwitch(room.id, room.name)>
+                            <span class="room-name">${room.name}</>
+                        </li>
+                    }
+                }
+            </ul>
+        </div>
+
+        // ---- MAIN PANEL: message history + input ----
+        <div class="main-panel">
+
+            // ---- Room header ----
+            <div class="panel-header">
+                <h2>${@currentRoomName}</>
+                <span class="user-badge">Logged in as: ${@userName}</>
+            </div>
+
+            // ---- Message history ----
+            // In LiveView, this re-renders only the changed rows via DOM diffing.
+            // scrml's reactivity model replaces the full list when @messages changes.
+            // No virtual-DOM diffing is specified in the scrml runtime.
+            // For 100 messages, full replacement is fine. For 10,000, it degrades.
+            <div class="message-list">
+                ${
+                    for (let msg of @messages) {
+                        lift <div class=${messageClass(msg)}>
+                            <div class="message-meta">
+                                <span class="message-author">${msg.username}</>
+                                <span class="message-time">${formatTimestamp(msg.inserted_at)}</>
+                            </div>
+                            <div class="message-content">${msg.content}</>
+                        </div>
+                    }
+                }
+            </div>
+
+            // ---- Typing indicator ----
+            // In LiveView: Phoenix.Presence tracks who is typing in real-time.
+            // phx-debounce="500" on the input fires events only after 500ms pause.
+            // Typing indicator updates within ~100ms across all clients.
+            // In scrml: we poll every 1500ms. The indicator is 1.5 seconds stale minimum.
+            // For a chat app, this is the difference between "this works" and "this ships".
+            <div class="typing-indicator" if=@typingUsers.length>
+                <span class="typing-dots">...</span>
+                <span>${typingText()}</>
+            </div>
+
+            // ---- Message input ----
+            <div class="input-area">
+                <input
+                    type="text"
+                    class="message-input"
+                    placeholder="Type a message..."
+                    value=@messageText
+                    oninput=${
+                        @messageText = event.target.value
+                        handleTyping()
+                    }
+                    onblur=handleInputClear()
+                />
+                <button
+                    class="send-button"
+                    onclick=handleSend()
+                    disabled=@isSending
+                >
+                    ${ @isSending ? "Sending..." : "Send" }
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+// Close the < db> state block
+</>
+
+// ---- Styles ----
+#{
+    .join-screen {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        background: #f0f2f5;
+    }
+
+    .join-card {
+        background: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+        width: 320px;
+    }
+
+    .join-card h1 {
+        margin-bottom: 0.5rem;
+        font-size: 2rem;
+        color: #1a1a2e;
+    }
+
+    .join-card input {
+        width: 100%;
+        padding: 0.5rem;
+        margin: 1rem 0;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+
+    .join-card button {
+        width: 100%;
+        padding: 0.75rem;
+        background: #4a90d9;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 1rem;
+        cursor: pointer;
+    }
+
+    .chat-layout {
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    .sidebar {
+        width: 240px;
+        background: #1a1a2e;
+        color: white;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sidebar-header {
+        padding: 1rem;
+        border-bottom: 1px solid #2d2d4e;
+    }
+
+    .sidebar-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: #a0aec0;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .room-list {
+        list-style: none;
+        margin: 0;
+        padding: 0.5rem 0;
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .room-item {
+        padding: 0.6rem 1rem;
+        cursor: pointer;
+        border-radius: 4px;
+        margin: 0 0.5rem;
+        color: #a0aec0;
+    }
+
+    .room-item:hover {
+        background: #2d2d4e;
+        color: white;
+    }
+
+    .room-item--active {
+        background: #4a90d9;
+        color: white;
+    }
+
+    .main-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: #f8f9fa;
+    }
+
+    .panel-header {
+        padding: 1rem 1.5rem;
+        background: white;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .panel-header h2 {
+        margin: 0;
+        font-size: 1.2rem;
+    }
+
+    .user-badge {
+        font-size: 0.85rem;
+        color: #718096;
+    }
+
+    .message-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .message {
+        max-width: 70%;
+        padding: 0.6rem 0.9rem;
+        border-radius: 8px;
+        background: white;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .message--own {
+        align-self: flex-end;
+        background: #ebf5fb;
+    }
+
+    .message--other {
+        align-self: flex-start;
+    }
+
+    .message-meta {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .message-author {
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: #4a5568;
+    }
+
+    .message-time {
+        font-size: 0.75rem;
+        color: #a0aec0;
+    }
+
+    .message-content {
+        font-size: 0.95rem;
+        color: #1a202c;
+    }
+
+    .typing-indicator {
+        padding: 0.4rem 1.5rem;
+        font-size: 0.82rem;
+        color: #718096;
+        font-style: italic;
+        min-height: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .typing-dots {
+        font-weight: bold;
+        letter-spacing: 0.1em;
+        animation: blink 1.4s infinite;
+    }
+
+    .input-area {
+        padding: 1rem 1.5rem;
+        background: white;
+        border-top: 1px solid #e2e8f0;
+        display: flex;
+        gap: 0.75rem;
+    }
+
+    .message-input {
+        flex: 1;
+        padding: 0.6rem 0.9rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        font-size: 0.95rem;
+        outline: none;
+    }
+
+    .message-input:focus {
+        border-color: #4a90d9;
+    }
+
+    .send-button {
+        padding: 0.6rem 1.2rem;
+        background: #4a90d9;
+        color: white;
+        border: none;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 0.9rem;
+    }
+
+    .send-button:disabled {
+        background: #a0aec0;
+        cursor: not-allowed;
+    }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+}

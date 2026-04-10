@@ -1,0 +1,65 @@
+// gauntlet-r14: solid dev — fine-grained reactivity with enums
+// Tests R13 fixes: Enum::Variant compilation, nested functions
+// New: ~ tilde-decl, enum in ternary, enum as function argument
+
+<div class="signals-demo">
+    ${
+        type Theme:enum = { Light, Dark }
+
+        @count = 0
+        @multiplier = 2
+        @theme = Theme::Light
+        @history = []
+
+        label = "Reactive Signals v2"
+
+        function increment() {
+            @count = @count + 1
+            @history = [...@history, @count]
+        }
+
+        function decrement() {
+            @count = @count - 1
+            @history = [...@history, @count]
+        }
+
+        function computed() {
+            return @count * @multiplier
+        }
+
+        function toggleTheme() {
+            function getNext(current) {
+                return current == Theme::Light ? Theme::Dark : Theme::Light
+            }
+            @theme = getNext(@theme)
+        }
+
+        function resetAll() {
+            @count = 0
+            @multiplier = 2
+            @theme = Theme::Light
+            @history = []
+        }
+    }
+    <div>
+        <h1>${label}</>
+        <p>Count: ${@count}</>
+        <p>Computed (x${@multiplier}): ${computed()}</>
+        <p>Theme: ${@theme}</>
+        <div class="controls">
+            <button onclick=decrement()>-1</>
+            <button onclick=increment()>+1</>
+            <input type="range" bind:value=@multiplier min="1" max="10"/>
+            <button onclick=toggleTheme()>Toggle Theme</>
+            <button onclick=resetAll()>Reset</>
+        </div>
+        <h3>History</>
+        <ul>
+            ${
+                for (let val of @history) {
+                    lift <li>${val}/
+                }
+            }
+        </ul>
+    </div>
+</div>

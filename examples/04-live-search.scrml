@@ -1,0 +1,87 @@
+// Example 04: Live Search — reactive filtering with no framework wiring.
+// Demonstrates @query bound to input, derived filtering via for/lift,
+// class:highlighted= dynamic class toggle, #{} scoped styles.
+// No useEffect, no computed, no store. Just @query and a for loop.
+
+<program>
+
+${
+  @query = ""
+
+  // Static data — in production this could come from a ?{} query.
+  const people = [
+    { id: 1, name: "Ada Lovelace",    role: "Mathematician" },
+    { id: 2, name: "Grace Hopper",    role: "Computer Scientist" },
+    { id: 3, name: "Alan Turing",     role: "Logician" },
+    { id: 4, name: "Linus Torvalds",  role: "Engineer" },
+    { id: 5, name: "Barbara Liskov",  role: "Computer Scientist" },
+    { id: 6, name: "Donald Knuth",    role: "Author" },
+  ]
+}
+
+<div class="search-app">
+  <h1>People</>
+
+  <input
+    type="search"
+    bind:value=@query
+    placeholder="Filter by name or role…"
+    class="search-input"
+  >
+
+  <ul class="results">
+    ${
+      const q = @query.toLowerCase()
+      for (let p of people) {
+        const matches = p.name.toLowerCase().includes(q) ||
+                        p.role.toLowerCase().includes(q)
+        if (!matches) continue
+
+        lift <li class="result-item" class:highlighted=(q.length > 0)>
+          <span class="person-name">${p.name}</span>
+          <span class="person-role">${p.role}</span>
+        </li>
+      }
+    }
+  </ul>
+
+</div>
+
+#{
+  .search-app {
+    max-width: 500px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    box-sizing: border-box;
+  }
+
+  .results {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .result-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.65rem 0.5rem;
+    border-bottom: 1px solid #eee;
+    transition: background 0.1s;
+  }
+
+  .result-item.highlighted {
+    background: #f0f7ff;
+  }
+
+  .person-name { font-weight: 600; }
+  .person-role { color: #777; font-size: 0.9rem; }
+}
+
+</program>

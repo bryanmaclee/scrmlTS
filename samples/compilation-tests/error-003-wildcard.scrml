@@ -1,0 +1,9 @@
+// error-003-wildcard.scrml
+// Error effect with wildcard only. Tests: !{} with catch-all.
+
+<div>
+    !{
+        | _ e -> let fallback = true
+    }
+    <p>Catch-all handler</>
+</div>

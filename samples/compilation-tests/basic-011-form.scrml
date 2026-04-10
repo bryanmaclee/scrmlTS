@@ -1,0 +1,19 @@
+// basic-011-form.scrml
+// A basic HTML form. Tests: form elements, various input types.
+
+<form action="/submit" method="post">
+    <div class="field">
+        <label for="name">Name</>
+        <input type="text" id="name" name="name" placeholder="Your name" required/>
+    </div>
+    <div class="field">
+        <label for="email">Email</>
+        <input type="email" id="email" name="email" placeholder="you@example.com" required/>
+    </div>
+    <div class="field">
+        <label for="message">Message</>
+        <textarea id="message" name="message">
+        </textarea>
+    </div>
+    <button type="submit">Send</>
+</form>

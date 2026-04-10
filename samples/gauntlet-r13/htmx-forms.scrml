@@ -1,0 +1,60 @@
+// gauntlet-r13: htmx dev — form-heavy app with server interactions
+// Tests: bind:value, server functions, E-RI-002 false positive, nested callbacks
+// R13 focus: bind:value ordering fix, E-RI-002 false positive after serverFn then @set
+
+<div class="contact-form">
+    ${
+        @name = ""
+        @email = ""
+        @message = ""
+        @submitted = false
+        @errors = []
+
+        function validateForm() {
+            function checkRequired(field, label) {
+                if (field.length == 0) {
+                    return label + " is required"
+                }
+                return not
+            }
+            let nameErr = checkRequired(@name, "Name")
+            let emailErr = checkRequired(@email, "Email")
+            @errors = [nameErr, emailErr].filter(e => not (e is not))
+            return @errors.length == 0
+        }
+
+        server function submitForm() {
+            if (validateForm()) {
+                ?{`INSERT INTO messages (name, email, body) VALUES (${@name}, ${@email}, ${@message})`}
+                @submitted = true
+            }
+        }
+    }
+    <h1>Contact Us</>
+    <div if=!@submitted>
+        <div class="field">
+            <label>Name</>
+            <input type="text" bind:value=@name/>
+        </div>
+        <div class="field">
+            <label>Email</>
+            <input type="email" bind:value=@email/>
+        </div>
+        <div class="field">
+            <label>Message</>
+            <textarea bind:value=@message></>
+        </div>
+        <button onclick=submitForm()>Send</>
+        <ul if=@errors.length>
+            ${
+                for (let err of @errors) {
+                    lift <li class="error">${err}/
+                }
+            }
+        </ul>
+    </div>
+    <div if=@submitted>
+        <h2>Thank you, ${@name}!</>
+        <p>We will get back to you at ${@email}.</>
+    </div>
+</div>

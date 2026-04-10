@@ -1,0 +1,113 @@
+// gauntlet-r19/go-dev.scrml — API Monitor Dashboard
+// Tests: class:name=boolExpr, @reactive state, for/lift,
+//        destructuring in ^{} S52, #{} grid layout
+
+${
+  @endpoints = [
+    { name: "Users API",    url: "/api/users",    status: "ok",    latency: 42 },
+    { name: "Orders API",   url: "/api/orders",   status: "ok",    latency: 87 },
+    { name: "Payments API", url: "/api/payments", status: "error", latency: 2100 },
+    { name: "Search API",   url: "/api/search",   status: "ok",    latency: 156 },
+    { name: "Auth API",     url: "/api/auth",     status: "warn",  latency: 340 },
+  ]
+
+  @selectedName = ""
+
+  function selectEndpoint(name) {
+    @selectedName = name
+  }
+}
+
+// Compile-time: generate endpoint documentation
+^{
+  const apiDocs = [
+    { name: "Users API", url: "/api/users" },
+    { name: "Orders API", url: "/api/orders" },
+  ]
+  for (const doc of apiDocs) {
+    emit("<!-- endpoint: " + doc.name + " -> " + doc.url + " -->\n")
+  }
+}
+
+<div class="dashboard">
+  <h1>API Monitor</h1>
+
+  <div class="grid">
+    ${
+      for (let ep of endpoints) {
+        lift <div class="endpoint-card"
+                  class:healthy=(ep.status == "ok")
+                  class:warning=(ep.status == "warn")
+                  class:error=(ep.status == "error")
+                  onclick=selectEndpoint(ep.name)>
+          <h3>${ep.name}</h3>
+          <p class="url">${ep.url}</p>
+          <div class="metrics">
+            <span class="status">${ep.status}</span>
+            <span class="latency">${ep.latency}ms</span>
+          </div>
+        </div>
+      }
+    }
+  </div>
+
+  <div class="detail" show=selectedName>
+    <h2>Selected: ${selectedName}</h2>
+  </div>
+</div>
+
+#{
+  .dashboard {
+    font-family: sans-serif;
+    padding: 1.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .endpoint-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .endpoint-card:hover {
+    border-color: #93c5fd;
+  }
+  .endpoint-card.healthy {
+    border-left: 4px solid #22c55e;
+  }
+  .endpoint-card.warning {
+    border-left: 4px solid #eab308;
+  }
+  .endpoint-card.error {
+    border-left: 4px solid #ef4444;
+  }
+  .url {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: #666;
+  }
+  .metrics {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .status {
+    font-weight: 600;
+  }
+  .latency {
+    color: #888;
+  }
+  .detail {
+    background: #f9fafb;
+    padding: 1rem;
+    border-radius: 6px;
+  }
+}

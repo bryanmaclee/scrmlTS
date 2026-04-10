@@ -1,0 +1,1590 @@
+import { genVar } from "./var-counter.ts";
+import { splitBareExprStatements } from "./compat/parser-workarounds.js";
+import { rewriteReactiveRefsAST, rewriteServerReactiveRefsAST } from "../expression-parser.ts";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface InlineMatchArm {
+  kind: "variant" | "string" | "wildcard" | "not";
+  test: string | null;
+  result: string;
+}
+
+interface SqlParams {
+  sql: string;
+  params: string[];
+}
+
+interface TemplateAttrResult {
+  jsExpr: string;
+  reactiveVars: Set<string>;
+}
+
+/**
+ * Context threaded through every rewrite pass.
+ *
+ * Each field is optional — passes that don't need a field ignore it.
+ * This avoids n-ary function signatures and keeps passes independently callable.
+ */
+export interface RewriteContext {
+  /** Compiler error accumulator. Passes that emit diagnostics push here. */
+  errors?: any[];
+  /** Derived reactive variable names for derived-aware @-ref rewriting. */
+  derivedNames?: Set<string> | null;
+  /** Database variable name for SQL rewrite (server path). Default: "_scrml_db". */
+  dbVar?: string;
+}
+
+/**
+ * A single rewrite pass. Takes the current expression string and an optional
+ * context, returns the transformed string.
+ */
+type RewritePass = (input: string, ctx: RewriteContext) => string;
+
+// ---------------------------------------------------------------------------
+// rewriteReactiveRefs
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `@varName` reactive references to runtime getter calls.
+ */
+export function rewriteReactiveRefs(expr: string, derivedNames: Set<string> | null = null): string {
+  if (!expr || typeof expr !== "string") return expr;
+
+  const astRewrite = rewriteReactiveRefsAST(expr, derivedNames);
+  if (astRewrite.ok) return astRewrite.result;
+
+  const hasDerived = derivedNames && derivedNames.size > 0;
+
+  const result: string[] = [];
+  let inString: string | null = null;
+  let i = 0;
+  let segStart = 0;
+
+  while (i < expr.length) {
+    const ch = expr[i];
+
+    if (inString === null) {
+      if (ch === '"' || ch === "'" || ch === '`') {
+        const segment = expr.slice(segStart, i);
+        result.push(_rewriteSegment(segment, hasDerived ? derivedNames : null));
+        inString = ch;
+        segStart = i;
+      }
+    } else {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === inString) {
+        result.push(expr.slice(segStart, i + 1));
+        inString = null;
+        segStart = i + 1;
+      }
+    }
+    i++;
+  }
+
+  const remaining = expr.slice(segStart);
+  if (inString === null) {
+    result.push(_rewriteSegment(remaining, hasDerived ? derivedNames : null));
+  } else {
+    result.push(remaining);
+  }
+
+  return result.join("");
+}
+
+function _rewriteSegment(segment: string, derivedNames: Set<string> | null): string {
+  if (!derivedNames) {
+    return segment.replace(/@([A-Za-z_$][A-Za-z0-9_$]*)/g, '_scrml_reactive_get("$1")');
+  }
+  return segment.replace(/@([A-Za-z_$][A-Za-z0-9_$]*)/g, (_, name: string) => {
+    if (derivedNames.has(name)) {
+      return `_scrml_derived_get("${name}")`;
+    }
+    return `_scrml_reactive_get("${name}")`;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// extractSqlParams
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract `${expr}` interpolations from a SQL template literal string.
+ */
+export function extractSqlParams(sqlContent: string): SqlParams {
+  const params: string[] = [];
+  let sql = "";
+  let i = 0;
+
+  while (i < sqlContent.length) {
+    if (sqlContent[i] === '$' && sqlContent[i + 1] === '{') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < sqlContent.length && depth > 0) {
+        if (sqlContent[j] === '{') depth++;
+        else if (sqlContent[j] === '}') depth--;
+        if (depth > 0) j++;
+      }
+      const paramExpr = sqlContent.slice(i + 2, j);
+      params.push(paramExpr);
+      sql += `?${params.length}`;
+      i = j + 1;
+    } else {
+      sql += sqlContent[i];
+      i++;
+    }
+  }
+
+  return { sql, params };
+}
+
+// ---------------------------------------------------------------------------
+// rewriteSqlRefs
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `?{`...`}.method()` and bare `?{`...`}` inline SQL blocks to
+ * parameterized runtime database calls.
+ *
+ * Special handling for `.prepare()`:
+ *   `?{`INSERT INTO users (name) VALUES (${name})`}.prepare()`
+ *   → `_scrml_db.prepare("INSERT INTO users (name) VALUES (?1)")`
+ *
+ * The `.prepare()` method returns a reusable PreparedStatement. Bound params
+ * are NOT passed at prepare time — they are passed when the statement is
+ * later executed via `.run()`, `.all()`, or `.get()` on the returned object.
+ * This matches the bun:sqlite API (§8.5).
+ *
+ * All other methods (`.all()`, `.first()`, `.get()`, `.run()`) pass bound
+ * params immediately at call time.
+ */
+export function rewriteSqlRefs(expr: string, dbVar: string = "_scrml_db"): string {
+  if (!expr || typeof expr !== "string") return expr;
+
+  let result = expr.replace(/\?\{`([^`]*)`\}\.(\w+)\(\)/g, (_, sqlContent: string, method: string) => {
+    const { sql, params } = extractSqlParams(sqlContent);
+    // .prepare() returns a reusable PreparedStatement — params are bound at
+    // execution time, not at prepare time. Emit db.prepare(sql) without params.
+    if (method === "prepare") {
+      return `${dbVar}.prepare(${JSON.stringify(sql)})`;
+    }
+    const argList = params.length > 0 ? params.join(", ") : "";
+    return `${dbVar}.query(${JSON.stringify(sql)}).${method}(${argList})`;
+  });
+
+  result = result.replace(/\?\{`([^`]*)`\}/g, (_, sqlContent: string) => {
+    const { sql, params } = extractSqlParams(sqlContent);
+    const argList = params.length > 0 ? params.join(", ") : "";
+    return `_scrml_sql_exec(${JSON.stringify(sql)}${argList ? `, ${argList}` : ""})`;
+  });
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// rewriteNavigateCalls
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `navigate(path)` calls to the runtime navigation function.
+ */
+export function rewriteNavigateCalls(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  return expr.replace(/\bnavigate\s*\(/g, '_scrml_navigate(');
+}
+
+// ---------------------------------------------------------------------------
+// rewriteWorkerRefs
+// ---------------------------------------------------------------------------
+
+/**
+ * §4.12.4: Rewrite `<#name>.send(expr)` worker references to runtime worker calls.
+ * Must run BEFORE rewriteInputStateRefs which would consume the `<#name>` pattern.
+ */
+export function rewriteWorkerRefs(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  // <#name>.send(expr) → _scrml_worker_name.send(expr)
+  // Handle both compact form (<#name>) and tokenizer-spaced form (< # name >)
+  if (expr.includes("<#")) {
+    expr = expr.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>\s*\.\s*send\s*\(/g, '_scrml_worker_$1.send(');
+  }
+  if (expr.includes("< #")) {
+    expr = expr.replace(/<\s*#\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*>\s*\.\s*send\s*\(/g, '_scrml_worker_$1.send(');
+  }
+  return expr;
+}
+
+// ---------------------------------------------------------------------------
+// rewriteRequestRefs
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `<#identifier>.loading|data|error|stale|refetch` request state references (§6.7.7).
+ * Must run BEFORE rewriteInputStateRefs which would consume the `<#name>` pattern.
+ */
+export function rewriteRequestRefs(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  if (!expr.includes("<#")) return expr;
+  return expr.replace(
+    /<#([A-Za-z_$][A-Za-z0-9_$]*)>\s*\.\s*(loading|data|error|stale|refetch)/g,
+    "_scrml_request_$1.$2"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// rewriteInputStateRefs
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `<#identifier>` input state references to runtime registry lookups (§35).
+ */
+export function rewriteInputStateRefs(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  return expr.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>/g, '_scrml_input_state_registry.get("$1")');
+}
+
+// ---------------------------------------------------------------------------
+// rewriteBunEval
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluate `bun.eval("...")` calls at compile time and replace with literal results.
+ */
+export function rewriteBunEval(expr: string, errors?: any[]): string {
+  if (!expr || typeof expr !== "string") return expr;
+  if (!expr.includes("bun") || !/\bbun\s*\.\s*eval\b/.test(expr)) return expr;
+
+  return expr.replace(/\bbun\s*\.\s*eval\s*\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)\s*\)/g, (match: string, strArg: string) => {
+    const code = strArg.slice(1, -1);
+    try {
+      const trimmedCode = code.trim();
+      const fn = (trimmedCode.startsWith("return ") || trimmedCode.startsWith("return\n") || trimmedCode.startsWith("return\t"))
+        ? new Function(code)
+        : new Function(`return (${code})`);
+      const result = fn();
+      if (result === undefined) return "undefined";
+      if (result === null) return "null";
+      if (typeof result === "string") return JSON.stringify(result);
+      if (typeof result === "number" || typeof result === "boolean") return String(result);
+      return JSON.stringify(result);
+    } catch (err: any) {
+      if (errors) {
+        errors.push({
+          code: "E-EVAL-001",
+          message: `E-EVAL-001: bun.eval() failed at compile time: ${err.message}. Expression: ${code}. ` +
+          `Check the expression for syntax errors. bun.eval() runs during compilation, so runtime APIs are not available.`,
+          severity: "error",
+        });
+      }
+      return match;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// rewriteIsOperator
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite the scrml `is` operator for single-variant enum checks.
+ */
+export function rewriteIsOperator(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  // `is null` / `is undefined` — after rewriteNotKeyword converts `not` → `null`,
+  // `x is not` becomes `x is null`. Rewrite to strict equality check.
+  expr = expr.replace(/\bis\s+null\b/g, '=== null');
+  expr = expr.replace(/\bis\s+undefined\b/g, '=== undefined');
+  // Allow optional whitespace between '.' and variant name: block-splitter may emit
+  // "is . Small" (space after dot). The \s* handles both "is .Small" and "is . Small".
+  expr = expr.replace(/\bis\s+[A-Z][A-Za-z0-9_]*\.\s*([A-Z][A-Za-z0-9_]*)\b/g, '=== "$1"');
+  expr = expr.replace(/\bis\s+\.\s*([A-Z][A-Za-z0-9_]*)\b/g, '=== "$1"');
+  return expr;
+}
+
+// ---------------------------------------------------------------------------
+// rewritePresenceGuard
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `(x) => { body }` presence guard to `if (x !== null && x !== undefined) { body }` (§42).
+ *
+ * Only rewrites when the ENTIRE expression is a single-identifier presence guard:
+ *   ( identifier ) => { ... }
+ *
+ * This does NOT rewrite multi-param arrows `(x, y) => ...` or expression-body
+ * arrows `x => x + 1` or inline callbacks like `.map((x) => x.value)`.
+ *
+ * Safe because this runs on the bare-expr string — a standalone `(x) => { body }`
+ * at statement level is unambiguously a presence guard, not a value-producing arrow.
+ */
+export function rewritePresenceGuard(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  // Quick exit: must contain "=>" and "{"
+  if (!expr.includes("=>") || !expr.includes("{")) return expr;
+
+  const trimmed = expr.trim();
+  // Match: ( identifier ) => { body }
+  // The body may span multiple lines/tokens — use a brace-counting approach.
+  const presenceRe = /^\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*\{([\s\S]*)\}\s*$/;
+
+  const m = trimmed.match(presenceRe);
+  if (!m) return expr;
+
+  const varName = m[1];
+  const body = m[2]; // raw body content (already has spaces from tokenizer)
+
+  return `if (${varName} !== null && ${varName} !== undefined) {${body}}`;
+}
+
+// rewriteNotKeyword
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `not` keyword and `is not` operator to JavaScript equivalents (§42).
+ * Also detects E-SYNTAX-010 (`null`/`undefined` in value position) and
+ * E-TYPE-042 (`== not`/`!= not`) when an errors array is provided.
+ */
+export function rewriteNotKeyword(expr: string, errors?: any[]): string {
+  if (!expr || typeof expr !== "string") return expr;
+
+  const hasNot = expr.includes("not");
+  const hasSome = expr.includes("some");
+  const hasNull = expr.includes("null");
+  const hasUndefined = expr.includes("undefined");
+
+  if (!hasNot && !hasSome && !hasNull && !hasUndefined) return expr;
+
+  // Split on string literals to avoid rewriting inside quoted content.
+  const result: string[] = [];
+  let inString: string | null = null;
+  let i = 0;
+  let segStart = 0;
+
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (inString === null) {
+      if (ch === '"' || ch === "'" || ch === '`') {
+        result.push(_rewriteNotSegment(expr.slice(segStart, i), errors));
+        inString = ch;
+        segStart = i;
+      }
+    } else {
+      if (ch === '\\') {
+        i++; // skip escaped character
+      } else if (ch === inString) {
+        inString = null;
+        i++;
+        result.push(expr.slice(segStart, i)); // preserve string literal as-is
+        segStart = i;
+        continue;
+      }
+    }
+    i++;
+  }
+  result.push(_rewriteNotSegment(expr.slice(segStart), errors));
+  return result.join("");
+}
+
+function _rewriteNotSegment(segment: string, errors?: any[]): string {
+  // E-TYPE-042: detect `== not` / `!= not` / `=== not` / `!== not` patterns (§42)
+  if (errors) {
+    const eqNotRe = /(?:===?|!==?)\s*not(?![A-Za-z0-9_$])/g;
+    let eqNotMatch;
+    while ((eqNotMatch = eqNotRe.exec(segment)) !== null) {
+      const op = eqNotMatch[0].trim().replace(/\s*not$/, "");
+      const hint = op.startsWith("!") ? "!(x is not)" : "x is not";
+      errors.push({
+        code: "E-TYPE-042",
+        message: `E-TYPE-042: \`${op} not\` is not a valid absence check. Use \`${hint}\` instead — scrml uses \`is not\` for absence checks (§42).`,
+      });
+    }
+  }
+  // E-SYNTAX-010: detect `null` or `undefined` as standalone identifiers (§42)
+  if (errors) {
+    const nullRe = /(?<![A-Za-z0-9_$.])(null|undefined)(?![A-Za-z0-9_$])/g;
+    let nullMatch;
+    while ((nullMatch = nullRe.exec(segment)) !== null) {
+      errors.push({
+        code: "E-SYNTAX-010",
+        message: `E-SYNTAX-010: \`${nullMatch[1]}\` is not a valid scrml value. Use \`not\` instead — scrml uses \`not\` as the unified absence value (§42).`,
+      });
+    }
+  }
+  // Match `@varName is not not` or `identifier is not not` (presence check, §42).
+  // MUST run before the `is not` replacement — otherwise the first `is not` consumes
+  // the token and the trailing `not` becomes a stray `null`.
+  segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is not not(?![A-Za-z0-9_$])/g,
+    '($1 !== null && $1 !== undefined)');
+  // Match `x is some` — positive presence check (§42.2.2a).
+  segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is some(?![A-Za-z0-9_$])/g,
+    '($1 !== null && $1 !== undefined)');
+  // Match `@varName is not` or `identifier is not` or `dotted.path is not` (absence check).
+  // The @-prefix is included in the capture so it is preserved in the output
+  // (the @-to-reactive_get() rewrite runs after this pass).
+  segment = segment.replace(/(@?[A-Za-z_$][A-Za-z0-9_$.]*) is not(?![A-Za-z0-9_$])/g,
+    '($1 === null || $1 === undefined)');
+  // `not (expr)` — logical negation before a parenthesized expression → `!(expr)`
+  segment = segment.replace(/(?<![A-Za-z0-9_$@])not\s*\(/g, '!(');
+  // Bare `not` as a value → `null`
+  segment = segment.replace(/(?<![A-Za-z0-9_$@])not(?![A-Za-z0-9_$])/g, 'null');
+  return segment;
+}
+
+// ---------------------------------------------------------------------------
+// parseInlineMatchArm / splitInlineArms / rewriteMatchExpr
+// ---------------------------------------------------------------------------
+
+/** Strip trailing comma from arm result (BUG: arm splitter includes separator). */
+function stripTrailingComma(s: string): string {
+  const t = s.trim();
+  return t.endsWith(",") ? t.slice(0, -1).trim() : t;
+}
+
+function parseInlineMatchArm(text: string): InlineMatchArm | null {
+  const newVariantMatch = text.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*(\w+)\s*\))?\s*(?:=>|:>)\s*([\s\S]+)$/);
+  if (newVariantMatch) {
+    return { kind: "variant", test: newVariantMatch[1], result: stripTrailingComma(newVariantMatch[3]) };
+  }
+
+  const newDqMatch = text.match(/^"((?:[^"\\]|\\.)*)"\s*(?:=>|:>)\s*([\s\S]+)$/);
+  if (newDqMatch) {
+    return { kind: "string", test: `"${newDqMatch[1]}"`, result: stripTrailingComma(newDqMatch[2]) };
+  }
+
+  const newSqMatch = text.match(/^'((?:[^'\\]|\\.)*)'\s*(?:=>|:>)\s*([\s\S]+)$/);
+  if (newSqMatch) {
+    return { kind: "string", test: `'${newSqMatch[1]}'`, result: stripTrailingComma(newSqMatch[2]) };
+  }
+
+  // §42: `not => expr` — absence arm in inline match
+  const notArmMatch = text.match(/^not\s*(?:=>|:>)\s*([\s\S]+)$/);
+  if (notArmMatch) {
+    return { kind: "not", test: null, result: stripTrailingComma(notArmMatch[1]) };
+  }
+
+  const newWildcardMatch = text.match(/^else\s*(?:(?:=>|:>)\s*)?([\s\S]+)$/);
+  if (newWildcardMatch) {
+    return { kind: "wildcard", test: null, result: stripTrailingComma(newWildcardMatch[1]) };
+  }
+
+  const legacyVariantMatch = text.match(/^::\s*(\w+)(?:\s*\(\s*(\w+)\s*\))?\s*->\s*([\s\S]+)$/);
+  if (legacyVariantMatch) {
+    return { kind: "variant", test: legacyVariantMatch[1], result: stripTrailingComma(legacyVariantMatch[3]) };
+  }
+
+  const legacyDqMatch = text.match(/^"((?:[^"\\]|\\.)*)"\s*->\s*([\s\S]+)$/);
+  if (legacyDqMatch) {
+    return { kind: "string", test: `"${legacyDqMatch[1]}"`, result: stripTrailingComma(legacyDqMatch[2]) };
+  }
+
+  const legacySqMatch = text.match(/^'((?:[^'\\]|\\.)*)'\s*->\s*([\s\S]+)$/);
+  if (legacySqMatch) {
+    return { kind: "string", test: `'${legacySqMatch[1]}'`, result: stripTrailingComma(legacySqMatch[2]) };
+  }
+
+  const legacyWildcardMatch = text.match(/^_\s*->\s*([\s\S]+)$/);
+  if (legacyWildcardMatch) {
+    return { kind: "wildcard", test: null, result: stripTrailingComma(legacyWildcardMatch[1]) };
+  }
+
+  // §42 presence arm: (identifier) => expr — counterpart to `not => expr`
+  const presenceArmMatch = text.match(/^\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*(?:=>|:>)\s*([\s\S]+)$/);
+  if (presenceArmMatch) {
+    return { kind: "wildcard", test: null, result: stripTrailingComma(presenceArmMatch[2]) };
+  }
+
+  return null;
+}
+
+/**
+ * Split a multi-arm string on arm boundaries.
+ *
+ * Private version for use in splitInlineArms when inline match arms are on one
+ * line without newline separators (BUG-R13-001). Same logic as splitMultiArmString
+ * in emit-control-flow.ts — duplicated here to avoid cross-module coupling.
+ *
+ * An arm boundary is detected when we find an arm-start token at a non-string
+ * position that is not a property access:
+ *   - .UpperCase  (new variant arm — only when NOT preceded by identifier char)
+ *   - "..." =>    (string literal arm, followed by => or ->)
+ *   - '...' =>    (string literal arm, followed by => or ->)
+ *   - else        (wildcard arm — when preceded by whitespace or start)
+ *   - ::letter    (legacy variant arm)
+ *   - _ ->        (legacy wildcard arm)
+ *
+ * Returns [s] when only zero or one arm boundary is found.
+ */
+function _splitMultiArmString(s: string): string[] {
+  const armStartPositions: number[] = [];
+  let inString: string | null = null;
+  let braceDepth = 0; // skip arm detection inside nested { } blocks
+  let i = 0;
+
+  while (i < s.length) {
+    const ch = s[i];
+
+    if (inString !== null) {
+      if (ch === "\\") { i += 2; continue; }
+      if (ch === inString) { inString = null; }
+      i++;
+      continue;
+    }
+
+    // Track brace depth — skip arm detection inside nested { } blocks
+    if (ch === "{") { braceDepth++; i++; continue; }
+    if (ch === "}") { if (braceDepth > 0) braceDepth--; i++; continue; }
+    if (braceDepth > 0) { i++; continue; }
+
+    if (/\s/.test(ch)) { i++; continue; }
+
+    // New variant arm: .UpperCase or . UpperCase (BS adds spaces around .)
+    // Only when NOT preceded by an identifier char.
+    // IMPORTANT: skip whitespace before the dot. The block-splitter emits
+    // "MarioState . Big" with spaces around '.'. Without skipping whitespace,
+    // s[i-1] is ' ' (space), which passes !/[A-Za-z0-9_$]/.test() — incorrectly
+    // treating .Big as a new arm start instead of a property access.
+    if (ch === "." && i + 1 < s.length) {
+      let nextNonSpace = i + 1;
+      while (nextNonSpace < s.length && s[nextNonSpace] === " ") nextNonSpace++;
+      if (nextNonSpace < s.length && /[A-Z]/.test(s[nextNonSpace])) {
+                // An arm boundary is a .UpperCase token followed by => (or ->) at the same depth.
+        // This is the only reliable signal that distinguishes arm starts from property accesses
+        // in the single-line token-joined format that collectExpr produces (e.g.,
+        // "MarioState . Fire . Feather => ..." — .Fire has no arrow, .Feather does).
+        //
+        // Strategy: look AHEAD past the variant name (and optional payload binding) to check
+        // for =>. If present, it's an arm boundary. Otherwise, it's a property access result.
+        // Apply the original prevCh rule ONLY when => is NOT found (property access cases like
+        // "Status.InProgress .Done => ..." still need splitting at .Done).
+        let nameEnd = nextNonSpace;
+        while (nameEnd < s.length && /[A-Za-z0-9_]/.test(s[nameEnd])) nameEnd++;
+        let afterName = nameEnd;
+        while (afterName < s.length && s[afterName] === " ") afterName++;
+        // Skip optional payload binding: (binding)
+        if (afterName < s.length && s[afterName] === "(") {
+          let pd = 1; afterName++;
+          while (afterName < s.length && pd > 0) {
+            if (s[afterName] === "(") pd++;
+            else if (s[afterName] === ")") pd--;
+            afterName++;
+          }
+          while (afterName < s.length && s[afterName] === " ") afterName++;
+        }
+        const isFollowedByArrow = s.slice(afterName, afterName + 2) === "=>" || s.slice(afterName, afterName + 2) === "->";
+        if (isFollowedByArrow) {
+          // Definitive arm start — check original prevCh rule to avoid mid-result property accesses
+          const prevCh = i > 0 ? s[i - 1] : null;
+          if (prevCh === null || !/[A-Za-z0-9_$]/.test(prevCh)) {
+            armStartPositions.push(i);
+          }
+        }
+      }
+      i++;
+      continue;
+    }
+
+    // String literal arm: "..." => / '...' => or -> only (not bare strings in results)
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      let j = i + 1;
+      while (j < s.length && s[j] !== q) {
+        if (s[j] === "\\") j++;
+        j++;
+      }
+      if (j < s.length) {
+        let k = j + 1;
+        while (k < s.length && /\s/.test(s[k])) k++;
+        if (s.slice(k, k + 2) === "=>" || s.slice(k, k + 2) === "->") {
+          armStartPositions.push(i);
+          inString = q;
+          i++;
+          continue;
+        }
+      }
+      inString = q;
+      i++;
+      continue;
+    }
+
+    // §42 absence arm: not => — only when preceded by whitespace or start
+    if (s.slice(i, i + 3) === "not" && (i + 3 >= s.length || /[\s=]/.test(s[i + 3]))) {
+      const prevCh = i > 0 ? s[i - 1] : null;
+      if (prevCh === null || /\s/.test(prevCh)) {
+        let k = i + 3;
+        while (k < s.length && /\s/.test(s[k])) k++;
+        if (s.slice(k, k + 2) === "=>") {
+          armStartPositions.push(i);
+          i += 3;
+          continue;
+        }
+      }
+    }
+
+    // Wildcard arm: else — only when preceded by whitespace or start-of-string
+    if (s.slice(i, i + 4) === "else" && (i + 4 >= s.length || /[\s=>]/.test(s[i + 4]))) {
+      const prevCh = i > 0 ? s[i - 1] : null;
+      if (prevCh === null || /\s/.test(prevCh)) {
+        armStartPositions.push(i);
+        i += 4;
+        continue;
+      }
+    }
+
+    // Legacy variant arm: ::Letter
+    if (ch === ":" && i + 1 < s.length && s[i + 1] === ":" && i + 2 < s.length && /[A-Za-z_]/.test(s[i + 2])) {
+      armStartPositions.push(i);
+      i += 2;
+      continue;
+    }
+
+    // Legacy wildcard: _ ->
+    if (ch === "_") {
+      let k = i + 1;
+      while (k < s.length && /\s/.test(s[k])) k++;
+      if (s.slice(k, k + 2) === "->") {
+        armStartPositions.push(i);
+      }
+    }
+
+    // §42 presence arm: (identifier) => — only when preceded by whitespace or start
+    if (ch === "(") {
+      const prevCh = i > 0 ? s[i - 1] : null;
+      if (prevCh === null || /\s/.test(prevCh)) {
+        const presenceRe = /^\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)\s*=>/;
+        if (presenceRe.test(s.slice(i))) {
+          armStartPositions.push(i);
+        }
+      }
+    }
+
+    i++;
+  }
+
+  if (armStartPositions.length <= 1) return [s];
+
+  const result: string[] = [];
+  for (let idx = 0; idx < armStartPositions.length; idx++) {
+    const start = armStartPositions[idx];
+    const end = idx + 1 < armStartPositions.length ? armStartPositions[idx + 1] : s.length;
+    const arm = s.slice(start, end).trim();
+    if (arm) result.push(arm);
+  }
+  return result.length > 0 ? result : [s];
+}
+
+function splitInlineArms(armsStr: string): string[] {
+  // Count net brace depth change in a line, ignoring string literals.
+  // Used to group continuation lines from nested match expressions.
+  function braceChange(line: string): number {
+    let depth = 0;
+    let inStr: string | null = null;
+    for (let ci = 0; ci < line.length; ci++) {
+      const c = line[ci];
+      if (inStr !== null) {
+        if (c === '\\') { ci++; continue; }
+        if (c === inStr) inStr = null;
+      } else {
+        if (c === '"' || c === "'" || c === '`') inStr = c;
+        else if (c === '{') depth++;
+        else if (c === '}') depth--;
+      }
+    }
+    return depth;
+  }
+
+  const lines = armsStr
+    .split(/\n/)
+    .map((line: string) => line.trim())
+    .filter((line: string) => line.length > 0);
+
+  if (lines.length <= 1) {
+    // Single line: try arm-boundary splitting (BUG-R13-001).
+    const src = lines.length === 1 ? lines[0] : armsStr.trim();
+    const byBoundary = _splitMultiArmString(src);
+    return byBoundary.length > 1 ? byBoundary : lines;
+  }
+
+  // Multi-line: group continuation lines when brace depth > 0 (nested { } blocks).
+  // This handles nested match expressions inside arm results.
+  const groups: string[] = [];
+  let current: string | null = null;
+  let depth = 0;
+
+  for (const line of lines) {
+    const delta = braceChange(line);
+    if (current === null) {
+      current = line;
+      depth = delta;
+    } else if (depth > 0) {
+      // Still inside nested braces — this line belongs to the current arm.
+      current += '\n' + line;
+      depth += delta;
+    } else {
+      // depth was 0 before this line: new arm starts here.
+      groups.push(current);
+      current = line;
+      depth = delta;
+    }
+  }
+  if (current !== null) groups.push(current);
+
+  return groups.length > 1 ? groups : lines;
+}
+
+/**
+ * Rewrite inline `match expr { ... }` expressions to a JS IIFE.
+ */
+export function rewriteMatchExpr(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  const matchIdx = expr.indexOf("match ");
+  if (matchIdx === -1) return expr;
+
+  const matchRegex = /\bmatch\s+([\s\S]*?)\s*\{([\s\S]*)\}\s*$/;
+  const m = expr.match(matchRegex);
+  if (!m) return expr;
+
+  // Strip leading "partial " keyword from prefix (§18.18 partial match)
+  const prefix = expr.slice(0, matchIdx).replace(/\bpartial\s+$/, "");
+  const matchTarget = m[1].trim();
+  const armsStr = m[2].trim();
+
+  const armLines = splitInlineArms(armsStr);
+  const arms: InlineMatchArm[] = [];
+
+  for (const line of armLines) {
+    const arm = parseInlineMatchArm(line);
+    if (arm) arms.push(arm);
+  }
+
+  if (arms.length === 0) {
+    const newCompactRegex = /\.\s*([A-Z][A-Za-z0-9_]*)\s*(?:\(\s*\w+\s*\))?\s*=>\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^.]+?)(?=\s*\.\s*[A-Z]|\s*$)/g;
+    let compactMatch: RegExpExecArray | null;
+    while ((compactMatch = newCompactRegex.exec(armsStr)) !== null) {
+      arms.push({ kind: "variant", test: compactMatch[1], result: compactMatch[2].trim() });
+    }
+  }
+
+  if (arms.length === 0) {
+    const legacyRegex = /::\s*(\w+)\s*(?:\(\s*(\w+)\s*\))?\s*-\s*>\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^:]+?)(?=\s*::\s*\w|\s*$)/g;
+    let legacyMatch: RegExpExecArray | null;
+    while ((legacyMatch = legacyRegex.exec(armsStr)) !== null) {
+      arms.push({ kind: "variant", test: legacyMatch[1], result: legacyMatch[3].trim() });
+    }
+  }
+
+  if (arms.length === 0) return expr;
+
+  const tmpVar = genVar("match");
+  const lines: string[] = [];
+  lines.push(`(function() {`);
+  lines.push(`  const ${tmpVar} = ${matchTarget};`);
+
+  let conditionIndex = 0;
+  for (const arm of arms) {
+    // Recursively rewrite nested match expressions in arm results
+    const result = arm.result.includes("match ") ? rewriteMatchExpr(arm.result) : arm.result;
+    if (arm.kind === "wildcard") {
+      lines.push(`  else return ${result};`);
+    } else {
+      const kw = conditionIndex === 0 ? "if" : "else if";
+      let condition: string;
+      if (arm.kind === "not") {
+        // §42: `not` match arm checks for absence (null or undefined)
+        condition = `${tmpVar} === null || ${tmpVar} === undefined`;
+      } else if (arm.kind === "variant") {
+        condition = `${tmpVar} === "${arm.test}"`;
+      } else {
+        condition = `${tmpVar} === ${arm.test}`;
+      }
+      lines.push(`  ${kw} (${condition}) return ${result};`);
+      conditionIndex++;
+    }
+  }
+
+  lines.push(`})()`);
+
+  return prefix + lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// rewriteFnKeyword
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite scrml `fn` shorthand to `function` keyword.
+ */
+export function rewriteFnKeyword(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  return expr.replace(/\bfn\b/g, "function");
+}
+
+// ---------------------------------------------------------------------------
+// findMatchingBrace / fixBlockBody / rewriteInlineFunctionBodies
+// ---------------------------------------------------------------------------
+
+function findMatchingBrace(str: string, openPos: number): number {
+  let depth = 1;
+  let j = openPos + 1;
+  let inStr: string | null = null;
+  while (j < str.length && depth > 0) {
+    const ch = str[j];
+    if (inStr === null) {
+      if (ch === '"' || ch === "'" || ch === '`') inStr = ch;
+      else if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+    } else {
+      if (ch === '\\') { j++; }
+      else if (ch === inStr) inStr = null;
+    }
+    if (depth > 0) j++;
+  }
+  return depth === 0 ? j : -1;
+}
+
+function fixBlockBody(body: string): string {
+  if (!body) return body;
+
+  const hasSemicolons = /;/.test(body);
+  const hasNewlines = /\n/.test(body);
+
+  let processed = "";
+  let i = 0;
+  while (i < body.length) {
+    const ch = body[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      let j = i + 1;
+      while (j < body.length) {
+        if (body[j] === '\\') { j += 2; continue; }
+        if (body[j] === ch) { j++; break; }
+        j++;
+      }
+      processed += body.slice(i, j);
+      i = j;
+      continue;
+    }
+    if (ch === '{') {
+      const closeIdx = findMatchingBrace(body, i);
+      if (closeIdx > i) {
+        const innerBody = body.slice(i + 1, closeIdx).trim();
+        const fixedInner = fixBlockBody(innerBody);
+        processed += "{ " + fixedInner + " }";
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+    processed += ch;
+    i++;
+  }
+
+  if (!hasSemicolons && !hasNewlines) {
+    const stmts = splitBareExprStatements(processed);
+    if (stmts.length > 1) {
+      return stmts.map((s: string) => s.trim()).filter(Boolean).join("; ");
+    }
+  }
+
+  return processed;
+}
+
+/**
+ * Rewrite inline function bodies to insert semicolons between merged statements.
+ */
+export function rewriteInlineFunctionBodies(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < expr.length) {
+    const funcMatch = expr.slice(i).match(/^(function\s*\([^)]*\)\s*)\{/);
+    if (funcMatch) {
+      result.push(expr.slice(i, i + funcMatch[1].length));
+      i += funcMatch[1].length;
+      if (expr[i] === '{') {
+        const closeIdx = findMatchingBrace(expr, i);
+        if (closeIdx > i) {
+          const body = expr.slice(i + 1, closeIdx).trim();
+          const fixedBody = fixBlockBody(body);
+          result.push("{ ");
+          result.push(fixedBody);
+          result.push(" }");
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    result.push(expr[i]);
+    i++;
+  }
+
+  return result.join("");
+}
+
+// ---------------------------------------------------------------------------
+// rewriteEnumToEnum
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `EnumType.toEnum(expr)` and `toEnum(EnumType, expr)` to runtime lookup table calls.
+ *
+ * §14.4.1 — Method form:   `Status.toEnum(raw)` → `(Status_toEnum[raw] ?? null)`
+ * §14.4.1 — Function form: `toEnum(Status, raw)` → `(Status_toEnum[raw] ?? null)`
+ *
+ * Returns null (JS) on no match. In scrml source, `not` is the absence value (§42);
+ * `not` compiles to null/undefined in JS. The `?? null` fallback here is correct.
+ *
+ * DB workflow idiom (§14.4.3): use toEnum() inside .map() on query results:
+ *   @tasks = ?{`SELECT * FROM tasks`}.all().map(row => ({
+ *     ...row,
+ *     status: TaskStatus.toEnum(row.status) ?? row.status
+ *   }))
+ */
+export function rewriteEnumToEnum(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  // Method form: Status.toEnum(rawValue)
+  expr = expr.replace(
+    /\b([A-Z][A-Za-z0-9_]*)\s*\.\s*toEnum\s*\(\s*([^)]+)\s*\)/g,
+    (_, typeName: string, arg: string) => `(${typeName}_toEnum[${arg.trim()}] ?? null)`,
+  );
+  // Function form: toEnum(Status, rawValue)
+  expr = expr.replace(
+    /\btoEnum\s*\(\s*([A-Z][A-Za-z0-9_]*)\s*,\s*([^)]+)\s*\)/g,
+    (_, typeName: string, arg: string) => `(${typeName}_toEnum[${arg.trim()}] ?? null)`,
+  );
+  return expr;
+}
+
+// ---------------------------------------------------------------------------
+// rewriteEnumVariantAccess
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite value-position enum variant references to string literals.
+ */
+// ---------------------------------------------------------------------------
+// stripTransitionsBlock
+// ---------------------------------------------------------------------------
+
+/**
+ * §51.2: Strip `transitions { ... }` blocks from enum body text.
+ * These are parsed by the type system but must not appear in JS output.
+ */
+function stripTransitionsBlock(expr: string): string {
+  const idx = expr.indexOf("transitions");
+  if (idx < 0) return expr;
+  // Check that "transitions" is followed by whitespace+brace (not a variable name)
+  const afterTransitions = expr.slice(idx + "transitions".length);
+  if (!/^\s*\{/.test(afterTransitions)) return expr;
+  const braceStart = expr.indexOf("{", idx + "transitions".length);
+  if (braceStart < 0) return expr;
+  let depth = 0;
+  let i = braceStart;
+  while (i < expr.length) {
+    if (expr[i] === "{") depth++;
+    else if (expr[i] === "}") { depth--; if (depth === 0) { i++; break; } }
+    i++;
+  }
+  // Remove the transitions keyword + braced block
+  return expr.slice(0, idx).trimEnd() + "\n" + expr.slice(i);
+}
+
+export function rewriteEnumVariantAccess(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  // Block-splitter adds spaces around `.` — collapse `X . UpperIdent` → `X.UpperIdent`
+  // so the negative lookbehind below can correctly distinguish member access (e.g.
+  // `Color . Red` → `Color.Red`, kept as-is) from standalone `.VariantName`.
+  // Only collapse when the property starts uppercase to avoid touching `todo . completed`.
+  expr = expr.replace(/([A-Za-z0-9_$])\s+\.\s+([A-Z][A-Za-z0-9_$]*)/g, "$1.$2");
+
+  // §14.4.2 — EnumType.variants → EnumType_variants (PascalCase identifiers only)
+  expr = expr.replace(/\b([A-Z][A-Za-z0-9_]*)\s*\.\s*variants\b/g, "$1_variants");
+
+  // §14.5 — Payload variant construction: EnumType.Variant(expr) → { variant: "Variant", value: (expr) }
+  // Bug fix: use balanced-paren extraction to handle nested calls like eatPowerUp(m, p).
+  // Old regex `([^)]*)` failed on nested parens.
+  const variantPayloadRe = /\b([A-Z][A-Za-z0-9_]*)\.([A-Z][A-Za-z0-9_]*)\s*\(/g;
+  let vpMatch: RegExpExecArray | null;
+  let lastIndex = 0;
+  const vpParts: string[] = [];
+
+  while ((vpMatch = variantPayloadRe.exec(expr)) !== null) {
+    const matchStart = vpMatch.index;
+    const openParen = variantPayloadRe.lastIndex - 1; // position of '('
+    // Walk forward to find balanced close paren
+    let depth = 1;
+    let k = openParen + 1;
+    while (k < expr.length && depth > 0) {
+      if (expr[k] === '(') depth++;
+      else if (expr[k] === ')') depth--;
+      k++;
+    }
+    if (depth !== 0) {
+      // Unbalanced parens — skip this match and continue
+      variantPayloadRe.lastIndex = matchStart + 1;
+      continue;
+    }
+    const closeParen = k - 1;
+    const arg = expr.slice(openParen + 1, closeParen).trim();
+    const variantName = vpMatch[2];
+    vpParts.push(expr.slice(lastIndex, matchStart));
+    vpParts.push(`{ variant: "${variantName}", value: (${arg}) }`);
+    lastIndex = k;
+    variantPayloadRe.lastIndex = k;
+  }
+  vpParts.push(expr.slice(lastIndex));
+  expr = vpParts.join("");
+
+  // Standalone .VariantName (compact form, not preceded by identifier) → "VariantName"
+  expr = expr.replace(/(?<![A-Za-z0-9_$.])\.\s*([A-Z][A-Za-z0-9_]*)\b/g, '"$1"');
+  expr = expr.replace(/\b[A-Z][A-Za-z0-9_]*\s*::\s*([A-Z][A-Za-z0-9_]*)/g, '"$1"');
+  expr = expr.replace(/\s*::\s*([A-Z][A-Za-z0-9_]*)/g, '"$1"');
+  return expr;
+}
+
+// ---------------------------------------------------------------------------
+// rewriteStructConstruction
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `StructName { fields }` struct construction literals to plain JS objects.
+ *
+ * Structs are pure data (§14.3) — they compile to plain JS objects.
+ * `Mario { x: 1, y: 2 }` → `{ x: 1, y: 2 }`
+ *
+ * Safety rules:
+ * - Only matches PascalCase identifier immediately followed by `{` (optional whitespace).
+ * - NOT preceded by `.` (which would be an enum member access already rewritten).
+ * - NOT preceded by identifier chars (word boundary).
+ * - Excludes class declarations (keyword `class` or `extends` before the name).
+ *
+ * This runs AFTER rewriteEnumVariantAccess, so `Foo.Bar(x)` is already gone
+ * and cannot be confused with struct construction.
+ */
+export function rewriteStructConstruction(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  // Quick exit: no PascalCase identifier candidates
+  if (!/[A-Z]/.test(expr)) return expr;
+
+  return expr.replace(
+    /(?<![.A-Za-z0-9_$])([A-Z][A-Za-z0-9_]*)\s*\{/g,
+    (match: string, name: string, offset: number) => {
+      // Don't rewrite class declarations: `class Foo {` or `extends Foo {`
+      const before = expr.slice(Math.max(0, offset - 15), offset);
+      if (/\b(?:class|extends)\s+$/.test(before)) return match;
+      // Don't rewrite export/function/interface/type declarations
+      if (/\b(?:function|interface|type|enum)\s+$/.test(before)) return match;
+      return "{";
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// rewriteEqualityOps
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite scrml equality operators to JavaScript strict equality (§45).
+ */
+export function rewriteEqualityOps(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  if (!expr.includes("==") && !expr.includes("!=")) return expr;
+
+  const result: string[] = [];
+  let inString: string | null = null;
+  let i = 0;
+  let segStart = 0;
+
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (inString === null) {
+      if (ch === '"' || ch === "'" || ch === '`') {
+        result.push(_rewriteEqualitySegment(expr.slice(segStart, i)));
+        inString = ch;
+        segStart = i;
+      }
+    } else {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === inString) {
+        inString = null;
+        i++;
+        result.push(expr.slice(segStart, i));
+        segStart = i;
+        continue;
+      }
+    }
+    i++;
+  }
+  result.push(_rewriteEqualitySegment(expr.slice(segStart)));
+  return result.join("");
+}
+
+function _rewriteEqualitySegment(segment: string): string {
+  return segment
+    .replace(/([^!=])={2}(?!=)/g, "$1===")
+    .replace(/!={1}(?!=)/g, "!==");
+}
+
+// ---------------------------------------------------------------------------
+// rewriteRenderKeyword — E-TYPE-071 (§14.9, §16.8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect `render` keyword in expressions that survived past CE.
+ * If `render name()` or `render name(expr)` appears in a rewrite-phase expression,
+ * it was NOT inside a component body (CE would have consumed it). Emit E-TYPE-071.
+ * The expression is passed through unchanged — the error is diagnostic only.
+ */
+export function rewriteRenderKeyword(expr: string, errors?: any[]): string {
+  if (!expr || typeof expr !== "string") return expr;
+  if (!expr.includes("render")) return expr;
+
+  if (errors) {
+    const renderRe = /(?<![A-Za-z0-9_$])render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+    let match;
+    while ((match = renderRe.exec(expr)) !== null) {
+      errors.push({
+        code: "E-TYPE-071",
+        message: `E-TYPE-071: \`render ${match[1]}(...)\` is only valid inside a component body. ` +
+          `The \`render\` keyword invokes snippet-typed props and must appear inside a component ` +
+          `that declares the snippet prop. Move this into a component body or remove it (§16.8).`,
+      });
+    }
+  }
+  return expr;
+}
+
+// ---------------------------------------------------------------------------
+// rewriteTildeRef (§32 tilde pipeline accumulator)
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace standalone `~` occurrences in an expression with the current tilde
+ * accumulator variable name. Called by emitLogicBody() before rewriteExpr().
+ *
+ * The replacement is word-boundary aware: `~` must not be preceded or
+ * followed by a word character (letter, digit, underscore). The tokenizer
+ * emits `~` surrounded by spaces (e.g. `~ * 2`), so a simple regex suffices.
+ *
+ * @param expr - the raw scrml expression string
+ * @param tildeVar - the generated JS variable name (e.g. `_scrml_tilde_1`)
+ * @returns the expression with `~` replaced by tildeVar
+ */
+export function rewriteTildeRef(expr: string, tildeVar: string): string {
+  if (!expr || !tildeVar || !expr.includes("~")) return expr;
+  // Replace `~` not preceded/followed by identifier chars.
+  // Uses negative lookbehind/lookahead to avoid replacing inside identifiers.
+  return expr.replace(/(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])/g, tildeVar);
+}
+
+// ---------------------------------------------------------------------------
+// rewriteReactiveAssign
+// ---------------------------------------------------------------------------
+
+/**
+ * Fix leaked reactive assignments: _scrml_reactive_get("name") = expr
+ * → _scrml_reactive_set("name", expr)
+ *
+ * This pattern arises when rewriteReactiveRefs converts @name in LHS position
+ * of an assignment expression to _scrml_reactive_get("name"), then a later
+ * expression-aware pass (e.g. rewriteMatchExpr) embeds it in a return statement.
+ *
+ * The fix: detect assignment to reactive getter and convert to reactive setter.
+ * Uses balanced-paren extraction to handle nested expressions in the RHS.
+ *
+ * Only operates outside string literals.
+ */
+export function rewriteReactiveAssign(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+  if (!expr.includes('_scrml_reactive_get')) return expr;
+
+  // Pattern: _scrml_reactive_get("name") = <expr>
+  // where <expr> is everything up to the next ; or end of string (not inside parens).
+  // We use a character-walk to handle nested expressions correctly.
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < expr.length) {
+    // Look for _scrml_reactive_get("name") = pattern
+    const getterRe = /^_scrml_reactive_get\("([^"]+)"\)\s*=(?!=)/;
+    const slice = expr.slice(i);
+    const m = slice.match(getterRe);
+
+    if (m) {
+      const varName = m[1];
+      const afterAssign = i + m[0].length;
+      // Skip whitespace after =
+      let rhsStart = afterAssign;
+      while (rhsStart < expr.length && /\s/.test(expr[rhsStart])) rhsStart++;
+      // Walk RHS to find end (up to ; or end of string at depth 0)
+      let depth = 0;
+      let j = rhsStart;
+      let inStr: string | null = null;
+      while (j < expr.length) {
+        const ch = expr[j];
+        if (inStr !== null) {
+          if (ch === '\\') { j += 2; continue; }
+          if (ch === inStr) inStr = null;
+        } else {
+          if (ch === '"' || ch === "'" || ch === '`') { inStr = ch; }
+          else if (ch === '(' || ch === '[' || ch === '{') depth++;
+          else if (ch === ')' || ch === ']' || ch === '}') {
+            if (depth === 0) break;
+            depth--;
+          }
+          else if (ch === ';' && depth === 0) break;
+        }
+        j++;
+      }
+      const rhs = expr.slice(rhsStart, j).trim();
+      result.push(`_scrml_reactive_set("${varName}", ${rhs})`);
+      i = j;
+    } else {
+      // Check for string literal — skip it
+      if (expr[i] === '"' || expr[i] === "'" || expr[i] === '`') {
+        const q = expr[i];
+        result.push(q);
+        i++;
+        while (i < expr.length) {
+          if (expr[i] === '\\') { result.push(expr.slice(i, i + 2)); i += 2; continue; }
+          result.push(expr[i]);
+          if (expr[i] === q) { i++; break; }
+          i++;
+        }
+      } else {
+        result.push(expr[i]);
+        i++;
+      }
+    }
+  }
+
+  return result.join('');
+}
+
+// ---------------------------------------------------------------------------
+// Visitor Pattern — Pass Arrays and Runner
+// ---------------------------------------------------------------------------
+
+/**
+ * Pass ordering rationale for client expressions:
+ *
+ *  Pass 1: rewritePresenceGuard     — converts (x) => { body } guard syntax before `is not` patterns
+ *  Pass 2: rewriteNotKeyword        — rewrites `is not`, `is not not`, bare `not`; needs @x intact
+ *  Pass 3: rewriteRenderKeyword     — diagnostic only; no transformation, safe anywhere early
+ *  Pass 4: rewriteBunEval           — compile-time eval; independent of other rewrites
+ *  Pass 5: rewriteWorkerRefs        — <#name>.send() before rewriteInputStateRefs consumes <#name>
+ *  Pass 6: rewriteRequestRefs       — <#name>.loading|data|... before rewriteInputStateRefs
+ *  Pass 7: rewriteInputStateRefs    — <#name> → registry lookup; must run after worker+request refs
+ *  Pass 8: rewriteSqlRefs           — ?{`...`} SQL blocks; independent of reactive refs
+ *  Pass 9: rewriteEnumToEnum        — Type.toEnum(x); independent, before reactive refs
+ * Pass 10: rewriteReactiveRefs      — @var → _scrml_reactive_get; must run after `is not` stabilized
+ * Pass 10.5: rewriteReactiveAssign  — fix @var = expr leaked to getter LHS: reactive_get(x)= → reactive_set(x,)
+ * Pass 11: rewriteNavigateCalls     — navigate() → _scrml_navigate; independent
+ * Pass 12: rewriteIsOperator        — `is Enum.Variant` → === "Variant"; after reactive refs
+ * Pass 13: rewriteMatchExpr         — inline match {...}; after is-operator, recursive
+ * Pass 14: rewriteEnumVariantAccess — Enum.Variant, .Variant; must run before struct construction
+ * Pass 15: rewriteStructConstruction — Name { fields } → { fields }; after enum variants consumed
+ * Pass 16: rewriteFnKeyword         — fn → function; structural, before inline body fixup
+ * Pass 17: rewriteInlineFunctionBodies — insert semicolons in merged function bodies
+ * Pass 18: rewriteEqualityOps       — == → ===, != → !==; outermost to avoid false matches
+ *
+ * Server passes omit rewriteRenderKeyword, rewriteBunEval, and rewriteEqualityOps.
+ * Server pass 7 uses rewriteServerReactiveRefs instead of rewriteReactiveRefs.
+ * Server passes reorder SQL and reactive refs: server-reactive runs before SQL (not after).
+ * Server pass 8.5 re-runs rewriteServerReactiveRefs after SQL to catch @var references that
+ *   were inside backtick strings during pass 7 (skipped) but exposed as plain identifiers
+ *   in the argList after rewriteSqlRefs extracts them from SQL template params.
+ */
+
+/**
+ * Execute a flat array of rewrite passes over an input string using reduce.
+ * Each pass receives the accumulated string and the shared context.
+ */
+function runPasses(input: string, passes: RewritePass[], ctx: RewriteContext): string {
+  return passes.reduce((s, pass) => pass(s, ctx), input);
+}
+
+// ---------------------------------------------------------------------------
+// Client pass definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * All client-side rewrite passes in execution order.
+ * These are used by rewriteExpr and rewriteExprWithDerived.
+ */
+const clientPasses: RewritePass[] = [
+  // Pass 1
+  (s, _ctx) => rewritePresenceGuard(s),
+  // Pass 2
+  (s, ctx) => rewriteNotKeyword(s, ctx.errors),
+  // Pass 3
+  (s, ctx) => rewriteRenderKeyword(s, ctx.errors),
+  // Pass 4
+  (s, ctx) => rewriteBunEval(s, ctx.errors),
+  // Pass 5
+  (s, _ctx) => rewriteWorkerRefs(s),
+  // Pass 6
+  (s, _ctx) => rewriteRequestRefs(s),
+  // Pass 7
+  (s, _ctx) => rewriteInputStateRefs(s),
+  // Pass 8
+  (s, _ctx) => rewriteSqlRefs(s),
+  // Pass 9
+  (s, _ctx) => rewriteEnumToEnum(s),
+  // Pass 9.5: early struct construction strip — ensures `@var` inside `Type { ...@var }` is
+  // visible to rewriteReactiveRefs (the AST parser chokes on `Identifier {` prefix).
+  (s, _ctx) => rewriteStructConstruction(s),
+  // Pass 10: derivedNames-aware reactive ref rewrite
+  (s, ctx) => rewriteReactiveRefs(s, ctx.derivedNames ?? null),
+  // Pass 10.5: fix leaked reactive assignments (reactive getter on LHS of =)
+  // @mario = expr → after pass 10: _scrml_reactive_get("mario") = expr → reactive_set
+  (s, _ctx) => rewriteReactiveAssign(s),
+  // Pass 11
+  (s, _ctx) => rewriteNavigateCalls(s),
+  // Pass 12
+  (s, _ctx) => rewriteIsOperator(s),
+  // Pass 13
+  (s, _ctx) => rewriteMatchExpr(s),
+  // Pass 13.5: strip transitions {} blocks from enum bodies (§51.2)
+  (s, _ctx) => stripTransitionsBlock(s),
+  // Pass 14
+  (s, _ctx) => rewriteEnumVariantAccess(s),
+  // Pass 15
+  (s, _ctx) => rewriteStructConstruction(s),
+  // Pass 16
+  (s, _ctx) => rewriteFnKeyword(s),
+  // Pass 17
+  (s, _ctx) => rewriteInlineFunctionBodies(s),
+  // Pass 18
+  (s, _ctx) => rewriteEqualityOps(s),
+];
+
+// ---------------------------------------------------------------------------
+// Server pass definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * All server-side rewrite passes in execution order.
+ * Used by rewriteServerExpr.
+ *
+ * Differences from client passes:
+ * - No rewriteRenderKeyword (server code has no render calls)
+ * - No rewriteBunEval (compile-time eval not needed on server path)
+ * - No rewriteEqualityOps (server emitter handles equality separately)
+ * - Uses rewriteServerReactiveRefs instead of rewriteReactiveRefs
+ * - rewriteServerReactiveRefs runs BEFORE rewriteSqlRefs (different ordering from client)
+ * - rewriteSqlRefs uses ctx.dbVar for the database variable name
+ */
+const serverPasses: RewritePass[] = [
+  // Pass 1
+  (s, _ctx) => rewritePresenceGuard(s),
+  // Pass 2
+  (s, _ctx) => rewriteNotKeyword(s),
+  // Pass 3
+  (s, _ctx) => rewriteWorkerRefs(s),
+  // Pass 4
+  (s, _ctx) => rewriteRequestRefs(s),
+  // Pass 5
+  (s, _ctx) => rewriteInputStateRefs(s),
+  // Pass 6
+  (s, _ctx) => rewriteEnumToEnum(s),
+  // Pass 6.5: early struct construction strip (same reason as client pass 9.5)
+  (s, _ctx) => rewriteStructConstruction(s),
+  // Pass 7: server-side reactive refs (different from client rewriteReactiveRefs)
+  (s, _ctx) => rewriteServerReactiveRefs(s),
+  // Pass 8: SQL with server dbVar
+  (s, ctx) => rewriteSqlRefs(s, ctx.dbVar ?? "_scrml_db"),
+  // Pass 8.5: re-run server reactive refs to catch @var that rewriteSqlRefs exposed.
+  // rewriteSqlRefs extracts @var from SQL template params (${@var}) into plain JS argList
+  // positions. Those @var were inside backtick strings during pass 7 and were skipped.
+  // Running rewriteServerReactiveRefs again here rewrites them before they reach the output.
+  (s, _ctx) => rewriteServerReactiveRefs(s),
+  // Pass 9
+  (s, _ctx) => rewriteNavigateCalls(s),
+  // Pass 10
+  (s, _ctx) => rewriteIsOperator(s),
+  // Pass 11
+  (s, _ctx) => rewriteMatchExpr(s),
+  // Pass 11.5: strip transitions {} blocks from enum bodies (§51.2)
+  (s, _ctx) => stripTransitionsBlock(s),
+  // Pass 12
+  (s, _ctx) => rewriteEnumVariantAccess(s),
+  // Pass 13
+  (s, _ctx) => rewriteStructConstruction(s),
+  // Pass 14
+  (s, _ctx) => rewriteFnKeyword(s),
+  // Pass 15
+  (s, _ctx) => rewriteInlineFunctionBodies(s),
+];
+
+// ---------------------------------------------------------------------------
+// rewriteExpr (main entry point)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply all client expression rewrites in sequence (no derived-name awareness).
+ *
+ * Pass ordering is defined in clientPasses above. Key constraints:
+ * - rewritePresenceGuard and rewriteNotKeyword run BEFORE rewriteReactiveRefs
+ *   (patterns like `@x is not` need @x intact — after reactive rewrite it becomes
+ *   _scrml_reactive_get("x") which `is not` regex can't match)
+ * - rewriteStructConstruction runs AFTER rewriteEnumVariantAccess so that
+ *   `Foo.Bar(x)` is already rewritten before struct construction stripping touches it
+ * - rewriteWorkerRefs and rewriteRequestRefs run BEFORE rewriteInputStateRefs
+ *   (all three consume <#name> patterns; worker/request refs must claim theirs first)
+ */
+export function rewriteExpr(expr: string, errors?: any[]): string {
+  return runPasses(expr, clientPasses, { errors });
+}
+
+// ---------------------------------------------------------------------------
+// rewriteExprWithDerived
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply all client expression rewrites with derived-name awareness (§6.6).
+ *
+ * When derivedNames is provided and non-empty, @varName references to derived
+ * variables are rewritten to _scrml_derived_get("name") instead of
+ * _scrml_reactive_get("name"). All other passes are identical to rewriteExpr.
+ *
+ * Note: this variant does not thread errors — callers that need both derived
+ * awareness and error reporting should call rewriteExpr with errors after
+ * pre-processing with rewriteNotKeyword/rewritePresenceGuard manually.
+ */
+export function rewriteExprWithDerived(expr: string, derivedNames: Set<string> | null): string {
+  if (!derivedNames || derivedNames.size === 0) return rewriteExpr(expr);
+  return runPasses(expr, clientPasses, { derivedNames });
+}
+
+// ---------------------------------------------------------------------------
+// rewriteServerReactiveRefs / rewriteServerExpr / serverRewriteEmitted
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite `@varName` reactive references to server-side request body lookups.
+ */
+export function rewriteServerReactiveRefs(expr: string): string {
+  if (!expr || typeof expr !== "string") return expr;
+
+  const astRewrite = rewriteServerReactiveRefsAST(expr);
+  if (astRewrite.ok) return astRewrite.result;
+
+  const result: string[] = [];
+  let inString: string | null = null;
+  let i = 0;
+  let segStart = 0;
+
+  while (i < expr.length) {
+    const ch = expr[i];
+
+    if (inString === null) {
+      if (ch === '"' || ch === "'" || ch === '`') {
+        const segment = expr.slice(segStart, i);
+        result.push(segment.replace(/@([A-Za-z_$][A-Za-z0-9_$]*)/g, '_scrml_body["$1"]'));
+        inString = ch;
+        segStart = i;
+      }
+    } else {
+      if (ch === '\\') {
+        i++;
+      } else if (ch === inString) {
+        result.push(expr.slice(segStart, i + 1));
+        inString = null;
+        segStart = i + 1;
+      }
+    }
+    i++;
+  }
+
+  const remaining = expr.slice(segStart);
+  if (inString === null) {
+    result.push(remaining.replace(/@([A-Za-z_$][A-Za-z0-9_$]*)/g, '_scrml_body["$1"]'));
+  } else {
+    result.push(remaining);
+  }
+
+  return result.join("");
+}
+
+/**
+ * Apply all expression rewrites for server handler context.
+ *
+ * Pass ordering is defined in serverPasses above. Key differences from client:
+ * - No rewriteEqualityOps, rewriteRenderKeyword, or rewriteBunEval
+ * - Uses rewriteServerReactiveRefs (maps @var to request body) instead of rewriteReactiveRefs
+ * - rewriteServerReactiveRefs runs BEFORE rewriteSqlRefs (opposite of client ordering)
+ * - dbVar is threaded via context for the SQL pass
+ */
+export function rewriteServerExpr(expr: string, dbVar: string = "_scrml_db"): string {
+  return runPasses(expr, serverPasses, { dbVar });
+}
+
+/**
+ * Post-process emitted JS code for server handler context.
+ */
+export function serverRewriteEmitted(code: string): string {
+  if (!code) return code;
+  return code
+    .replace(/_scrml_reactive_get\("([^"]+)"\)/g, '_scrml_body["$1"]')
+    .replace(/_scrml_derived_get\("([^"]+)"\)/g, '_scrml_body["$1"]');
+}
+
+// ---------------------------------------------------------------------------
+// hasTemplateInterpolation / rewriteTemplateAttrValue
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a string attribute value contains template literal interpolations.
+ */
+export function hasTemplateInterpolation(value: string): boolean {
+  if (!value || typeof value !== "string") return false;
+  return /\$\{/.test(value);
+}
+
+/**
+ * Rewrite a string attribute value containing `${...}` interpolations into
+ * a JS template literal expression.
+ */
+export function rewriteTemplateAttrValue(value: string): TemplateAttrResult {
+  const reactiveVars = new Set<string>();
+
+  let result = "`";
+  let i = 0;
+
+  while (i < value.length) {
+    if (value[i] === '$' && value[i + 1] === '{') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < value.length && depth > 0) {
+        if (value[j] === '{') depth++;
+        else if (value[j] === '}') depth--;
+        if (depth > 0) j++;
+      }
+      const interiorExpr = value.slice(i + 2, j);
+
+      const rewrittenExpr = interiorExpr.replace(/@([A-Za-z_$][A-Za-z0-9_$]*)/g, (_, name: string) => {
+        reactiveVars.add(name);
+        return `_scrml_reactive_get("${name}")`;
+      });
+
+      result += `\${${rewrittenExpr}}`;
+      i = j + 1;
+    } else if (value[i] === '`') {
+      result += '\\`';
+      i++;
+    } else if (value[i] === '\\' && i + 1 < value.length) {
+      result += value[i] + value[i + 1];
+      i += 2;
+    } else {
+      result += value[i];
+      i++;
+    }
+  }
+
+  result += "`";
+
+  return { jsExpr: result, reactiveVars };
+}

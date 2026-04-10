@@ -1,0 +1,14 @@
+// type-006-struct-nested.scrml
+// Struct with complex field types. Tests: struct fields.
+
+<div>
+    ${
+        type Address:struct = {
+            street: string
+            city: string
+            state: string
+            zip: string
+        }
+    }
+    <p>Address struct</>
+</div>

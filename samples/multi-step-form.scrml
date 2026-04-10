@@ -1,0 +1,240 @@
+// multi-step-form.scrml
+// A 3-step onboarding form: Personal Info → Address → Confirmation.
+// Demonstrates type:enum for step state, match exhaustive dispatch,
+// struct types for form data, bind:value inputs, server function for submit,
+// E-RI-002: server persists, client owns @state transitions.
+
+${
+    type Step:enum = .PersonalInfo | .Address | .Confirm | .Submitted
+
+    type PersonalInfo:struct = {
+        firstName: string,
+        lastName:  string,
+        email:     string,
+        phone:     string,
+    }
+
+    type AddressInfo:struct = {
+        street:  string,
+        city:    string,
+        state:   string,
+        zip:     string,
+        country: string,
+    }
+
+    @currentStep  = Step.PersonalInfo
+    @personalData = not
+    @addressData  = not
+    @submitting   = false
+    @submitError  = not
+
+    // Form fields — bound via bind:value in each step's markup.
+    @firstName = ""
+    @lastName  = ""
+    @email     = ""
+    @phone     = ""
+    @street    = ""
+    @city      = ""
+    @stateVal  = ""
+    @zip       = ""
+    @country   = "US"
+
+    // Server function only persists — never assigns @vars (E-RI-002).
+    server function persistSignup(personal, address) {
+        ?{`
+            INSERT INTO signups (first_name, last_name, email, phone, street, city, state, zip, country)
+            VALUES (${personal.firstName}, ${personal.lastName}, ${personal.email}, ${personal.phone},
+                    ${address.street}, ${address.city}, ${address.state}, ${address.zip}, ${address.country})
+        `}.run()
+    }
+
+    function personalDone() {
+        @personalData = {
+            firstName: @firstName,
+            lastName:  @lastName,
+            email:     @email,
+            phone:     @phone,
+        }
+        @currentStep = Step.Address
+    }
+
+    function addressDone() {
+        @addressData = {
+            street:  @street,
+            city:    @city,
+            state:   @stateVal,
+            zip:     @zip,
+            country: @country,
+        }
+        @currentStep = Step.Confirm
+    }
+
+    function submitForm() {
+        @submitting = true
+        @submitError = not
+        persistSignup(@personalData, @addressData)
+        @submitting = false
+        @currentStep = Step.Submitted
+    }
+
+    function goBack() {
+        match (@currentStep) {
+            .PersonalInfo :> {}
+            .Address      :> { @currentStep = Step.PersonalInfo }
+            .Confirm      :> { @currentStep = Step.Address }
+            .Submitted    :> {}
+        }
+    }
+}
+
+<div class="onboarding">
+
+    // Progress indicator — active class via class:name= binding.
+    <div class="progress-bar">
+        <span class="step-dot" class:active=(@currentStep == Step.PersonalInfo)>1</>
+        <span class="step-dot" class:active=(@currentStep == Step.Address)>2</>
+        <span class="step-dot" class:active=(@currentStep == Step.Confirm)>3</>
+    </div>
+
+    <div class="error-banner" if=(not (@submitError is not))>${@submitError}</>
+
+    ${
+        match (@currentStep) {
+            .PersonalInfo :> {
+                lift <section class="form-step">
+                    <h2>Personal Information/
+                    <label>First name <input type="text" bind:value=@firstName required>/</label>
+                    <label>Last name  <input type="text" bind:value=@lastName required>/</label>
+                    <label>Email      <input type="email" bind:value=@email required>/</label>
+                    <label>Phone      <input type="tel" bind:value=@phone>/</label>
+                    <div class="step-actions">
+                        <button onclick=personalDone()>Next: Address/
+                    </div>
+                </section>
+            }
+            .Address :> {
+                lift <section class="form-step">
+                    <h2>Address/
+                    <label>Street  <input type="text" bind:value=@street required>/</label>
+                    <label>City    <input type="text" bind:value=@city required>/</label>
+                    <label>State   <input type="text" bind:value=@stateVal required>/</label>
+                    <label>ZIP     <input type="text" bind:value=@zip required>/</label>
+                    <label>Country <input type="text" bind:value=@country required>/</label>
+                    <div class="step-actions">
+                        <button onclick=goBack()>Back/
+                        <button onclick=addressDone()>Next: Confirm/
+                    </div>
+                </section>
+            }
+            .Confirm :> {
+                lift <section class="form-step">
+                    <h2>Confirm Details/
+                    <dl>
+                        <dt>Name/<dd>${@firstName} ${@lastName}/
+                        <dt>Email/<dd>${@email}/
+                        <dt>Street/<dd>${@street}/
+                        <dt>City/<dd>${@city}, ${@stateVal} ${@zip}/
+                    </dl>
+                    <div class="step-actions">
+                        <button onclick=goBack()>Back/
+                        <button onclick=submitForm() disabled=@submitting>
+                            ${@submitting ? "Submitting…" : "Submit"}
+                        /
+                    </div>
+                </section>
+            }
+            .Submitted :> {
+                lift <section class="form-step success">
+                    <h2>Welcome aboard!/
+                    <p>Your account is being set up./
+                </section>
+            }
+        }
+    }
+
+</div>
+
+#{
+    .onboarding {
+        max-width: 480px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font-family: system-ui, sans-serif;
+    }
+
+    .progress-bar {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .step-dot {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: #e5e7eb;
+        color: #6b7280;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.875rem;
+        font-weight: 600;
+    }
+
+    .step-dot.active {
+        background: #2563eb;
+        color: white;
+    }
+
+    .form-step {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.9rem;
+    }
+
+    input {
+        padding: 0.5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 0.375rem;
+        font-size: 1rem;
+    }
+
+    .step-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    button {
+        padding: 0.5rem 1.25rem;
+        background: #2563eb;
+        color: white;
+        border: none;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        font-size: 0.95rem;
+    }
+
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .error-banner {
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        color: #dc2626;
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        margin-bottom: 1rem;
+    }
+
+    .success { text-align: center; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; }
+    dt { font-weight: 600; color: #374151; }
+}

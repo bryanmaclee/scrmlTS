@@ -1,0 +1,85 @@
+// dnd-setup.scrml
+// Reusable drag-and-drop helper module. Exports setup functions for draggable
+// elements and drop zones. Uses ref=, cleanup(), and ^{} internally.
+
+<program>
+
+${
+  // useDraggable: Make an element draggable with automatic cleanup.
+  // Returns reactive state { isDragging, x, y } that updates during drag.
+  export function useDraggable(el) {
+    @isDragging = false
+    @dragX = 0
+    @dragY = 0
+    let offsetX = 0
+    let offsetY = 0
+
+    function onPointerDown(e) {
+      @isDragging = true
+      offsetX = e.clientX - el.getBoundingClientRect().left
+      offsetY = e.clientY - el.getBoundingClientRect().top
+      el.setPointerCapture(e.pointerId)
+    }
+
+    function onPointerMove(e) {
+      if (!@isDragging) return
+      @dragX = e.clientX - offsetX
+      @dragY = e.clientY - offsetY
+      el.style.transform = `translate(${@dragX}px, ${@dragY}px)`
+    }
+
+    function onPointerUp(e) {
+      @isDragging = false
+      el.releasePointerCapture(e.pointerId)
+    }
+
+    ^{
+      el.style.cursor = 'grab'
+      el.style.touchAction = 'none'
+      el.addEventListener('pointerdown', onPointerDown)
+      document.addEventListener('pointermove', onPointerMove)
+      document.addEventListener('pointerup', onPointerUp)
+    }
+
+    cleanup(() => {
+      el.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+    })
+  }
+
+  // useDropZone: Set up a drop zone that accepts dragged elements.
+  // onDrop callback receives the drop event.
+  // onDragOver callback (optional) receives dragover events for visual feedback.
+  export function useDropZone(el, onDrop, onDragOver) {
+    function handleDragOver(e) {
+      e.preventDefault()
+      el.classList.add('drop-target-active')
+      if (onDragOver) onDragOver(e)
+    }
+
+    function handleDragLeave(e) {
+      el.classList.remove('drop-target-active')
+    }
+
+    function handleDrop(e) {
+      e.preventDefault()
+      el.classList.remove('drop-target-active')
+      if (onDrop) onDrop(e)
+    }
+
+    ^{
+      el.addEventListener('dragover', handleDragOver)
+      el.addEventListener('dragleave', handleDragLeave)
+      el.addEventListener('drop', handleDrop)
+    }
+
+    cleanup(() => {
+      el.removeEventListener('dragover', handleDragOver)
+      el.removeEventListener('dragleave', handleDragLeave)
+      el.removeEventListener('drop', handleDrop)
+    })
+  }
+}
+
+</>

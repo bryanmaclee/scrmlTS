@@ -1,0 +1,177 @@
+// Example 05: Multi-Step Form — wizard UI with components, enums, match, lin.
+// Demonstrates type:enum, match exhaustive dispatch, component props,
+// lin one-shot submission token. Steps: Info → Preferences → Confirm.
+
+<program>
+
+${
+  type Step:enum = .Info | .Preferences | .Confirm
+
+  @currentStep = Step.Info
+
+  // Form data — accumulated across steps.
+  @firstName = ""
+  @lastName  = ""
+  @email     = ""
+  @theme     = "light"
+  @newsletter = false
+
+  // Linear token: created once, consumed by submit. Compiler enforces
+  // it's not dropped and not used twice.
+  lin submitToken = createSubmitToken()
+
+  function next() {
+    match (@currentStep) {
+      .Info        :> { @currentStep = Step.Preferences }
+      .Preferences :> { @currentStep = Step.Confirm }
+      .Confirm     :> {}   // handled by submit
+    }
+  }
+
+  function back() {
+    match (@currentStep) {
+      .Info        :> {}   // already first step
+      .Preferences :> { @currentStep = Step.Info }
+      .Confirm     :> { @currentStep = Step.Preferences }
+    }
+  }
+
+  // Server function only persists — no @state assignments (E-RI-002).
+  server function persistSignup(firstName, lastName, email, theme, newsletter) {
+    ?{`
+      INSERT INTO signups (first_name, last_name, email, theme, newsletter)
+      VALUES (${firstName}, ${lastName}, ${email}, ${theme}, ${newsletter})
+    `}.run()
+  }
+
+  function submit() {
+    // submitToken consumed here — exactly once, compiler enforced.
+    use submitToken
+    persistSignup(@firstName, @lastName, @email, @theme, @newsletter)
+    @currentStep = Step.Confirm
+  }
+}
+
+// Step components — each accepts only the fields it needs.
+// Component definitions must be inside ${ } blocks so the compiler
+// recognizes them as component-def nodes (not top-level text).
+
+${
+  const InfoStep = <div class="step">
+    <h2>Your Info</>
+    <label>First Name <input type="text" bind:value=@firstName required></label>
+    <label>Last Name  <input type="text" bind:value=@lastName  required></label>
+    <label>Email      <input type="email" bind:value=@email    required></label>
+    <div class="step-nav">
+      <span></span>
+      <button onclick=next()>Next</button>
+    </div>
+  </div>
+
+  const PreferencesStep = <div class="step">
+    <h2>Preferences</>
+    <label>
+      Theme:
+      <select bind:value=@theme>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="system">System</option>
+      </select>
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" bind:value=@newsletter>
+      Subscribe to newsletter
+    </label>
+    <div class="step-nav">
+      <button onclick=back()>Back</button>
+      <button onclick=next()>Next</button>
+    </div>
+  </div>
+
+  const ConfirmStep = <div class="step">
+    <h2>Confirm</>
+    <dl>
+      <dt>Name</dt>   <dd>${@firstName} ${@lastName}</dd>
+      <dt>Email</dt>  <dd>${@email}</dd>
+      <dt>Theme</dt>  <dd>${@theme}</dd>
+      <dt>Newsletter</dt> <dd>${@newsletter ? "Yes" : "No"}</dd>
+    </dl>
+    <div class="step-nav">
+      <button onclick=back()>Back</button>
+      <button onclick=submit()>Submit</button>
+    </div>
+  </div>
+}
+
+<div class="wizard">
+  <div class="progress">
+    <span class:active=(@currentStep == Step.Info)>1. Info</span>
+    <span class:active=(@currentStep == Step.Preferences)>2. Preferences</span>
+    <span class:active=(@currentStep == Step.Confirm)>3. Confirm</span>
+  </div>
+
+  ${
+    match (@currentStep) {
+      .Info        :> { lift <InfoStep> }
+      .Preferences :> { lift <PreferencesStep> }
+      .Confirm     :> { lift <ConfirmStep> }
+    }
+  }
+
+</div>
+
+#{
+  .wizard {
+    max-width: 480px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  .progress {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .progress span {
+    color: #aaa;
+    font-size: 0.85rem;
+  }
+
+  .progress span.active {
+    color: #2563eb;
+    font-weight: 600;
+  }
+
+  .step {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.9rem;
+  }
+
+  .checkbox-label {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  input, select {
+    padding: 0.5rem;
+    font-size: 1rem;
+  }
+
+  .step-nav {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 1rem;
+  }
+}
+
+</program>

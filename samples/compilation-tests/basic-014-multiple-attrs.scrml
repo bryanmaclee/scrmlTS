@@ -1,0 +1,17 @@
+// basic-014-multiple-attrs.scrml
+// Tags with many attributes. Tests: multiple attributes on a single tag.
+
+<div
+    class="wrapper"
+    id="app"
+    role="main"
+    aria-label="Application"
+>
+    <input
+        type="text"
+        name="search"
+        placeholder="Search..."
+        autocomplete="off"
+        class="search-input"
+    />
+</div>

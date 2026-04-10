@@ -1,0 +1,182 @@
+// calculator.scrml
+// Odin dev test: retro calculator
+// Tests: @var reactive state, string concat, parseInt, if conditionals,
+//        events with arguments, multiple functions, CSS grid
+
+#{
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        background: #1a1a1a;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        font-family: monospace;
+    }
+
+    .calc {
+        width: 300px;
+        background: #2a2a2a;
+        border: 2px solid #444;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    .screen {
+        background: #111;
+        border: 1px solid #333;
+        border-radius: 4px;
+        color: #00ff41;
+        font-size: 32px;
+        font-family: monospace;
+        text-align: right;
+        padding: 12px 16px;
+        margin-bottom: 12px;
+        min-height: 56px;
+        overflow: hidden;
+        letter-spacing: 2px;
+        // subtle scanline feel — no shadow trickery, just the color does it
+    }
+
+    .btn-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+    }
+
+    .btn {
+        background: #3a3a3a;
+        border: 1px solid #555;
+        border-radius: 4px;
+        color: #ccc;
+        font-size: 18px;
+        font-family: monospace;
+        padding: 16px 0;
+        cursor: pointer;
+        text-align: center;
+    }
+
+    .btn:hover {
+        background: #484848;
+        color: #fff;
+    }
+
+    .btn:active {
+        background: #222;
+        border-color: #00ff41;
+    }
+
+    .btn-op {
+        background: #1e3a1e;
+        border-color: #2d5a2d;
+        color: #00cc33;
+    }
+
+    .btn-op:hover {
+        background: #254d25;
+        color: #00ff41;
+    }
+
+    .btn-clear {
+        background: #3a1e1e;
+        border-color: #5a2d2d;
+        color: #cc3333;
+        grid-column: span 2;
+    }
+
+    .btn-clear:hover {
+        background: #4d2525;
+        color: #ff4444;
+    }
+
+    .btn-equals {
+        background: #1e2e3a;
+        border-color: #2d455a;
+        color: #3399cc;
+        grid-column: span 2;
+    }
+
+    .btn-equals:hover {
+        background: #253d4d;
+        color: #44aadd;
+    }
+}
+
+// --- state and logic ---
+${
+    @display = "0"
+    @current = 0
+    @previous = 0
+    @operator = ""
+
+    function pressDigit(d) {
+        if (@display == "0") {
+            @display = d
+        } else {
+            @display = @display + d
+        }
+    }
+
+    function pressOperator(op) {
+        @previous = parseInt(@display)
+        @operator = op
+        @display = "0"
+    }
+
+    function calculate() {
+        let b = parseInt(@display)
+        let result = 0
+        if (@operator == "+") { result = @previous + b }
+        if (@operator == "-") { result = @previous - b }
+        if (@operator == "*") { result = @previous * b }
+        // division: guarding zero separately — if the spec has no division op,
+        // this is intentional; / is a closer in scrml. Left out.
+        @display = "" + result
+        @operator = ""
+    }
+
+    function clearAll() {
+        @display = "0"
+        @current = 0
+        @previous = 0
+        @operator = ""
+    }
+}
+
+// --- markup ---
+<div class="calc">
+    <div class="screen">${@display}</>
+
+    <div class="btn-grid">
+        // row 1: 7 8 9 *
+        <button class="btn" onclick=pressDigit("7")>7</>
+        <button class="btn" onclick=pressDigit("8")>8</>
+        <button class="btn" onclick=pressDigit("9")>9</>
+        <button class="btn btn-op" onclick=pressOperator("*")>*</>
+
+        // row 2: 4 5 6 -
+        <button class="btn" onclick=pressDigit("4")>4</>
+        <button class="btn" onclick=pressDigit("5")>5</>
+        <button class="btn" onclick=pressDigit("6")>6</>
+        <button class="btn btn-op" onclick=pressOperator("-")>-</>
+
+        // row 3: 1 2 3 +
+        <button class="btn" onclick=pressDigit("1")>1</>
+        <button class="btn" onclick=pressDigit("2")>2</>
+        <button class="btn" onclick=pressDigit("3")>3</>
+        <button class="btn btn-op" onclick=pressOperator("+")>+</>
+
+        // row 4: clear (2-wide) 0 equals (2-wide)
+        // assumption: grid-column: span 2 via .btn-clear / .btn-equals classes
+        // the CSS handles the spanning; markup just applies the class
+        <button class="btn btn-clear" onclick=clearAll()>CLR</>
+        <button class="btn" onclick=pressDigit("0")>0</>
+        <button class="btn btn-equals" onclick=calculate()>=</>
+    </div>
+</div>

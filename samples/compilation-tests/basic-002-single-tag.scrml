@@ -1,0 +1,4 @@
+// basic-002-single-tag.scrml
+// A single div tag with text content. Tests: basic markup, inferred closer.
+
+<div>Hello World</>

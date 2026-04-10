@@ -1,0 +1,11 @@
+// server-004-server-func.scrml
+// Server function inside a state block. Tests: server function + state.
+
+< db src="./test.db" tables="users">
+    ${
+        server function getUsers() {
+            return ?{`SELECT id, name FROM users`}
+        }
+    }
+    <p>Server function in state</>
+</>

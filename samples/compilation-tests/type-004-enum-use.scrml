@@ -1,0 +1,14 @@
+// type-004-enum-use.scrml
+// Enum usage with reactive state. Tests: type declaration + reactive enum variant.
+
+<div>
+    ${
+        type Color:enum = {
+            Red
+            Green
+            Blue
+        }
+        @selectedColor = Color.Red
+    }
+    <p>Color enum used</>
+</div>

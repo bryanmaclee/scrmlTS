@@ -1,0 +1,21 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/bpp — Body Pre-Parser
+    //
+    // Pre-parses logic body statements for pattern matching, destructuring,
+    // and other complex syntax before the main analysis passes.
+    //
+    // Usage:
+    //   import { runBPP } from "scrml:compiler/bpp"
+    //   const result = runBPP({ files })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runBPP: _runBPP, runBPPFile: _runBPPFile } = await import("../../compiler/src/body-pre-parser.ts");
+    }
+
+    export const runBPP = _runBPP
+    export const runBPPFile = _runBPPFile
+}
+</program>

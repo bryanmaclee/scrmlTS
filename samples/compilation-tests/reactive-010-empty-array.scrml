@@ -1,0 +1,9 @@
+// reactive-010-empty-array.scrml
+// Reactive variable initialized to empty array. Tests: @ with [].
+
+<div>
+    ${ @todos = [] }
+    <ul>
+        <li>No items yet</>
+    </ul>
+</div>

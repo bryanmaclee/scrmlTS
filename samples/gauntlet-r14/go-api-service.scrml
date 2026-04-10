@@ -1,0 +1,55 @@
+// gauntlet-r14: go dev — API service with middleware
+// Tests R13 fixes: handle() middleware without middlewareConfig, SQL @var rewriting
+// New: handle() with NO <program> attrs, bare tilde-decl
+
+< db src="./api.db" tables="entries">
+    ${ server function handle(request, resolve) {
+        const start = Date.now()
+        const response = resolve(request)
+        return response
+    }}
+
+    ${
+        @entries = ?{`SELECT id, title, body FROM entries`}
+        @newTitle = ""
+        @newBody = ""
+
+        apiVersion = "v2"
+
+        server function createEntry() {
+            ?{`INSERT INTO entries (title, body) VALUES (${@newTitle}, ${@newBody})`}.run()
+            @entries = ?{`SELECT id, title, body FROM entries`}
+        }
+
+        server function deleteEntry(entryId) {
+            ?{`DELETE FROM entries WHERE id = ${entryId}`}.run()
+            @entries = ?{`SELECT id, title, body FROM entries`}
+        }
+
+        server function updateEntry(entryId, newTitle) {
+            ?{`UPDATE entries SET title = ${newTitle} WHERE id = ${entryId}`}.run()
+            @entries = ?{`SELECT id, title, body FROM entries`}
+        }
+    }
+    <h1>API Entries (${apiVersion})</>
+    <div class="add-form">
+        <input type="text" bind:value=@newTitle placeholder="Title"/>
+        <input type="text" bind:value=@newBody placeholder="Body"/>
+        <button onclick=createEntry()>Create</>
+    </div>
+    <table>
+        <tbody>
+            ${
+                for (let entry of @entries) {
+                    lift <tr>
+                        <td>${entry.title}/
+                        <td>${entry.body}/
+                        <td>
+                            <button onclick=deleteEntry(entry.id)>Delete/
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+</>

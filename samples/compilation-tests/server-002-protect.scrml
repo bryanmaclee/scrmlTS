@@ -1,0 +1,6 @@
+// server-002-protect.scrml
+// State block with protect attribute. Tests: protect= on state blocks.
+
+< db src="./test.db" protect="password_hash" tables="users">
+    <p>Protected database</>
+</>

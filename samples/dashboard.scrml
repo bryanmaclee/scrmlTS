@@ -1,0 +1,307 @@
+// dashboard.scrml — dashboard with reactive counter, DB item list, item cards
+
+// OPEN: No import/module system. If card.scrml defines a Card component, how
+// do I use it here? In React you'd import it. In scrml I see no import syntax.
+// Assuming the compiler either auto-discovers all .scrml components in the
+// project, or there's a future import statement. Writing Card as if it's
+// already in scope and flagging the dependency.
+
+// =============================================================================
+// Inline component — ItemCard
+// (Defined here since I can't import from card.scrml yet — see OQ-IMPORT)
+// OPEN: Can components be defined inside a file that also renders markup, or
+// must components be in their own file? Using const at the top level and
+// assuming it's file-scoped.
+// =============================================================================
+
+// OPEN: The component definition syntax uses `const Name = <element props>`.
+// What's the root element type for a card? Using <article> — feels right for
+// a list item card semantically.
+const ItemCard = <article class="item-card">
+    // Required prop — bare attribute, type inferred from usage
+    title
+    // Optional prop with default
+    // OPEN: Can a prop default be an empty string written as =""? Or does the
+    // default have to be a variable? Using status="active" as a concrete default.
+    status="active"
+    // OPEN: The spec says props are declared as attributes on the root element.
+    // What about a prop that's a number or boolean? I need itemId as an integer
+    // to link to a detail page. Writing itemId with no default (required) and
+    // hoping the compiler infers integer from usage.
+    itemId
+
+    <header class="item-card__header">
+        <h3>${title}/
+        // OPEN: Conditional class based on prop value. I want to add a CSS class
+        // "status--inactive" when status != "active". No conditional class
+        // syntax in the spec. Using a logic context to build the class string.
+        <span class=${statusClass(status)}>${status}/
+    </header>
+
+    // Named slot for body content — empty = required slot (caller must fill or it's empty)
+    <section class="item-card__body">
+        // OPEN: Named slots. The spec says "empty named element = slot".
+        // How do I name a slot? Is the element name the slot name, or is there
+        // a slot= attribute? Using a slot= attribute pattern — most familiar
+        // from Web Components, but the spec doesn't confirm this syntax.
+        <slot name="body"/
+    </section>
+
+    // Named slot for actions
+    <footer class="item-card__actions">
+        <slot name="actions"/
+    </footer>
+
+    ${
+        function statusClass(s) {
+            // OPEN: String interpolation inside a function return. Using template
+            // literals — valid JS inside ${}, so this should work.
+            return `status status--${s}`
+        }
+    }
+
+</article>
+
+// =============================================================================
+// Page state + DB connection
+// =============================================================================
+
+// Client-only reactive counter. No DB, no protect. The compiler should keep
+// this entirely client-side.
+// OPEN: State vs. plain @variable. The spec says "trivial in-memory counter is
+// NOT state unless count is output to user." This counter IS output to the user
+// (displayed in markup), so does it need < state> syntax, or is a top-level
+// @variable sufficient? Using @counter directly — it feels lighter and the
+// spec example in DESIGN.md uses @variable for reactive bindings.
+@counter = 0
+
+// DB state for the items list
+< db src="db.sql" tables="items">
+
+    // Reactive item list — compiler should see this is driven by a DB query
+    // and assign it appropriately.
+    // OPEN: How do I declare that @items is the result of a DB query that can
+    // be refreshed? I'm assigning it in the loadItems function and calling
+    // loadItems on mount. But "on mount" has no spec equivalent yet.
+    @items = []
+
+    // OPEN: Lifecycle hooks. No mount/unmount/created lifecycle in the spec.
+    // I need to fetch items when the page loads. Using an immediately-executing
+    // bare expression in a ${}  block as the closest thing to "on mount."
+    // This is the correct pattern per the spec ("bare expression = executes
+    // immediately on render") but "on render" vs "on mount" is ambiguous for
+    // a server-fetched list.
+    ${ loadItems() }
+
+    // ==========================================================================
+    // Layout
+    // ==========================================================================
+
+    <div class="dashboard">
+
+        // -- Counter section --------------------------------------------------
+        <section class="dashboard__counter">
+            <h2>Session Counter/
+            <p class="counter-value">${@counter}/
+            <div class="counter-controls">
+                <button onclick=decrement()>−/
+                // OPEN: Can I inline a ${ } expression as an attribute value?
+                // I want aria-label="counter: 3" dynamically. Using a logic
+                // context inline in the attribute — unsure if that's valid.
+                // OPEN: Attribute expressions. Spec says attr=name for variable
+                // reference but doesn't cover attr=${expr} for computed values.
+                // Using attr=expr notation without curlies, hoping it resolves.
+                <span aria-live="polite" aria-label=counterLabel()>${@counter}/
+                <button onclick=increment()>+/
+            </div>
+        </section>
+
+        // -- Items list section -----------------------------------------------
+        <section class="dashboard__items">
+            <div class="section-header">
+                <h2>Items/
+                // reload button — triggers loadItems() again
+                <button class="btn-reload" onclick=loadItems()>Reload/
+            </div>
+
+            // OPEN: Loading state. While the fetch is in-flight, I want to show
+            // a spinner. No loading state primitive in the spec. Using a
+            // @loading flag set inside loadItems.
+            ${
+                if (@loading) {
+                    lift <div class="spinner" aria-label="Loading items…"/
+                }
+            }
+
+            // Render item cards from @items
+            // OPEN: List rendering. The spec shows a for loop inside a logic
+            // context with lift <li ...>. Doing the same here with ItemCard.
+            // But ItemCard is a component, not a plain element — does lift
+            // work the same way with component instances?
+            <ul class="item-list"> ${
+                for (item of @items) {
+                    lift <li>
+                        // OPEN: Slot filling syntax for a component. If I use
+                        // <ItemCard title=item.title itemId=item.id>, how do I
+                        // provide the named "body" slot content? Web Components
+                        // use <span slot="body">...</span> as children. Assuming
+                        // the same pattern here since the spec doesn't specify
+                        // an alternative. This is a significant unknown.
+                        <ItemCard title=item.title status=item.status itemId=item.id>
+                            <p slot="body">${item.description}/
+                            <a slot="actions" href=itemDetailUrl(item.id)>View details/
+                        </ItemCard>
+                    </li>
+                }
+            /
+
+        </section>
+
+    </div>
+
+    // =========================================================================
+    // Logic
+    // =========================================================================
+
+    ${
+        function increment() {
+            @counter = @counter + 1
+        }
+
+        function decrement() {
+            // OPEN: Preventing @counter from going below 0. Using a plain
+            // conditional — should work fine.
+            if (@counter > 0) {
+                @counter = @counter - 1
+            }
+        }
+
+        function counterLabel() {
+            return `counter: ${@counter}`
+        }
+
+        function loadItems() {
+            @loading = true
+
+            // OPEN: @loading was never declared at the top. Can I assign to an
+            // undeclared @variable inside a function and have it reactive?
+            // Or must all reactive variables be declared at scope top?
+            // Assuming reactive variables must be declared. Moving @loading to
+            // the top of the state block — but I've already written it here.
+            // In practice I'd declare it up top. Flagging as a declaration-order
+            // question.
+
+            @items = ?{`
+                SELECT id, title, description, status, created_at
+                FROM items
+                ORDER BY created_at DESC
+                LIMIT 50
+            `}.all()
+
+            @loading = false
+
+            // OPEN: Error handling on DB load. If this query fails (network
+            // issue, DB down), I want to surface an error to the user.
+            // The !{} context catches errors but I'm not sure if it catches
+            // errors that bubble out of ?{} queries, or if I need to wrap the
+            // query in !{} explicitly.
+        }
+
+        function itemDetailUrl(id) {
+            // OPEN: URL construction for detail pages. No routing API.
+            // Using a plain string template — developer-managed URL scheme.
+            return `/items/${id}`
+        }
+    }
+
+/   // closes < db>
+
+<style>/
+    .dashboard {
+        display: grid;
+        grid-template-columns: 1fr 3fr;
+        gap: 2rem;
+        padding: 2rem;
+    }
+
+    .counter-value {
+        font-size: 3rem;
+        font-weight: bold;
+        // CSS variable syntax — using scrml's = for definition
+        color: accent-color #3b82f6;
+    }
+
+    .counter-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .item-list {
+        list-style: none;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    // OPEN: Can I use Tailwind classes in the <style> block, or only in markup?
+    // Using plain CSS here to be safe.
+</style>
+
+// =============================================================================
+// OPEN QUESTIONS — dashboard.scrml
+// =============================================================================
+//
+// OQ-1: Cross-file component import
+//   No module/import system defined. How does a component defined in card.scrml
+//   become available in dashboard.scrml? Auto-discovery? Explicit import?
+//
+// OQ-2: In-file component definition location
+//   Can `const ComponentName = <element>` appear in the same file as page
+//   markup, or must components be isolated files?
+//
+// OQ-3: Client-only reactive state vs. state block
+//   The spec says in-memory state that IS rendered to the user is state.
+//   Does @counter at top level (outside a < state> block) suffice, or does
+//   even a client counter need to be inside a < state> wrapper?
+//
+// OQ-4: Lifecycle / on-mount
+//   No lifecycle hooks. I used a bare expression ${ loadItems() } to run on
+//   render. Is "executes immediately on render" the same as "on mount"? What
+//   about re-renders — does it re-run on every re-render or only once?
+//
+// OQ-5: Named slot filling from the call site
+//   The spec confirms named slots with a slot= attribute pattern (inferred
+//   from Web Components), but doesn't specify the call-site syntax. I used
+//   <child slot="name">. Is that right?
+//
+// OQ-6: lift with component instances
+//   The spec examples show lift <li value=name>. Does lift work equally with
+//   component instances like lift <ItemCard title=...>?
+//
+// OQ-7: Reactive variable declaration order
+//   Can @loading be assigned inside a function without being declared at scope
+//   top? Or must all reactive variables be declared at the block's opening?
+//
+// OQ-8: Conditional class binding
+//   No syntax for conditional/computed class attributes. Workaround is a
+//   function call returning a string: class=statusClass(status). Verbose but
+//   works given existing spec. A class:condition=value shorthand would help.
+//
+// OQ-9: Attribute expressions (computed values)
+//   attr=name works for a variable. attr=fn() works for a function call.
+//   What about aria-label=counterLabel() — does a function call in an
+//   attribute context return a string and set the attribute? Assuming yes.
+//
+// OQ-10: ?{} error propagation
+//   If a query inside loadItems() throws (connection error, bad SQL), does
+//   the error propagate to the nearest !{} error context automatically, or
+//   does the developer need to wrap each query?

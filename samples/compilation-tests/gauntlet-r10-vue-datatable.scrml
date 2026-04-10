@@ -1,0 +1,361 @@
+// gauntlet-r10-vue-datatable.scrml
+// Gauntlet Round 10 -- Interactive Data Table
+// Features: column sorting, text search/filter, row selection with checkboxes,
+//           bulk delete, pagination (10/page), add-row modal form.
+// Vue developer perspective -- this is what I'd build in Vue 3, translated to scrml.
+
+< db src="./test.db" tables="employees">
+    ${
+        // --- State ---
+        // Vue equivalent: ref([]) for each of these
+        server function loadEmployees() {
+            return ?{`SELECT id, name, department, role, salary, active FROM employees ORDER BY name ASC`}.all()
+        }
+        // Initialize empty; populated via loadInitialData() below
+        @employees = []
+
+        // Sorting state
+        // In Vue: ref("name") and ref("asc")
+        @sortCol = "name"
+        @sortDir = "asc"
+
+        // Search/filter state
+        // In Vue: v-model on the search input. In scrml: bind:value + @searchTerm
+        @searchTerm = ""
+
+        // Selection state
+        // In Vue: ref([]) + computed set for O(1) lookup
+        @selectedIds = []
+
+        // Pagination state
+        @currentPage = 1
+        @pageSize = 10
+
+        // Modal state
+        @showModal = false
+        @newName = ""
+        @newDepartment = ""
+        @newRole = ""
+        @newSalary = ""
+
+        // --- Derived state ---
+        // In Vue: computed(() => ...) with automatic dep tracking.
+        // scrml §6.6: const @name = expr, lazy pull with dirty flags.
+        // This is the closest thing to Vue's computed(). The dirty-flag approach
+        // means scrml won't re-filter on every keystroke unless @searchTerm changes.
+
+        const @filteredEmployees = @searchTerm
+            ? @employees.filter(e =>
+                e.name.toLowerCase().includes(@searchTerm.toLowerCase()) ||
+                e.department.toLowerCase().includes(@searchTerm.toLowerCase()) ||
+                e.role.toLowerCase().includes(@searchTerm.toLowerCase())
+              )
+            : @employees
+
+        const @sortedEmployees = @filteredEmployees.slice().sort((a, b) => {
+            let av = a[@sortCol]
+            let bv = b[@sortCol]
+            if (typeof av == "number") {
+                return @sortDir == "asc" ? av - bv : bv - av
+            }
+            let as = String(av).toLowerCase()
+            let bs = String(bv).toLowerCase()
+            return @sortDir == "asc"
+                ? as < bs ? -1 : as > bs ? 1 : 0
+                : bs < as ? -1 : bs > as ? 1 : 0
+        })
+
+        const @totalPages = Math.ceil(@filteredEmployees.length / @pageSize)
+
+        const @paginatedEmployees = @sortedEmployees.slice(
+            (@currentPage - 1) * @pageSize,
+            @currentPage * @pageSize
+        )
+
+        const @allOnPageSelected = @paginatedEmployees.length > 0 &&
+            @paginatedEmployees.every(e => @selectedIds.includes(e.id))
+
+        // --- Actions ---
+
+        function sortBy(col) {
+            if (@sortCol == col) {
+                @sortDir = @sortDir == "asc" ? "desc" : "asc"
+            } else {
+                @sortCol = col
+                @sortDir = "asc"
+            }
+            @currentPage = 1
+        }
+
+        function updateSearch() {
+            @searchTerm = event.target.value
+            @currentPage = 1
+        }
+
+        function clearSearch() {
+            @searchTerm = ""
+            @currentPage = 1
+        }
+
+        function toggleSelectRow(id) {
+            if (@selectedIds.includes(id)) {
+                @selectedIds = @selectedIds.filter(x => x != id)
+            } else {
+                @selectedIds = [...@selectedIds, id]
+            }
+        }
+
+        function toggleSelectAll() {
+            if (@allOnPageSelected) {
+                let pageIds = @paginatedEmployees.map(e => e.id)
+                @selectedIds = @selectedIds.filter(id => !pageIds.includes(id))
+            } else {
+                let pageIds = @paginatedEmployees.map(e => e.id)
+                let merged = [...@selectedIds]
+                for (let id of pageIds) {
+                    if (!merged.includes(id)) {
+                        merged = [...merged, id]
+                    }
+                }
+                @selectedIds = merged
+            }
+        }
+
+        // Approach D: server function takes explicit params, returns fresh data.
+        // Client wrapper assigns the returned data to reactive state.
+        server function doDeleteSelected(ids) {
+            for (let id of ids) {
+                ?{`DELETE FROM employees WHERE id = ${id}`}.run()
+            }
+            return loadEmployees()
+        }
+
+        function bulkDelete() {
+            let refreshed = doDeleteSelected(@selectedIds)
+            @employees = refreshed
+            @selectedIds = []
+        }
+
+        function openAddModal() {
+            @newName = ""
+            @newDepartment = ""
+            @newRole = ""
+            @newSalary = ""
+            @showModal = true
+        }
+
+        function closeModal() {
+            @showModal = false
+        }
+
+        function updateNewName() {
+            @newName = event.target.value
+        }
+
+        function updateNewDepartment() {
+            @newDepartment = event.target.value
+        }
+
+        function updateNewRole() {
+            @newRole = event.target.value
+        }
+
+        function updateNewSalary() {
+            @newSalary = event.target.value
+        }
+
+        // Approach D: server function takes explicit params, returns fresh data.
+        server function doInsertEmployee(name, department, role, salary) {
+            ?{`INSERT INTO employees (name, department, role, salary, active) VALUES (${name}, ${department}, ${role}, ${salary}, 1)`}.run()
+            return loadEmployees()
+        }
+
+        function addEmployee() {
+            let refreshed = doInsertEmployee(@newName, @newDepartment, @newRole, @newSalary)
+            @employees = refreshed
+            @showModal = false
+        }
+
+        function goToPage(n) {
+            @currentPage = n
+        }
+
+        function prevPage() {
+            if (@currentPage > 1) {
+                @currentPage = @currentPage - 1
+            }
+        }
+
+        function nextPage() {
+            if (@currentPage < @totalPages) {
+                @currentPage = @currentPage + 1
+            }
+        }
+
+        // Reset to page 1 whenever search or filter causes fewer pages
+        when @filteredEmployees changes {
+            if (@currentPage > @totalPages) {
+                @currentPage = 1
+            }
+        }
+
+        // Initial data load — client calls server function to populate @employees
+        function loadInitialData() {
+            @employees = loadEmployees()
+        }
+    }
+
+    // Load initial data at mount
+    ${
+        loadInitialData()
+    }
+
+    // --- Toolbar ---
+    <div class="datatable-toolbar">
+        <div class="datatable-search">
+            <input
+                type="text"
+                placeholder="Search by name, department, or role..."
+                value=@searchTerm
+                oninput=updateSearch()
+            />
+            <button onclick=clearSearch() if=@searchTerm>Clear</>
+        </div>
+        <div class="datatable-actions">
+            <button
+                class="btn-danger"
+                onclick=bulkDelete()
+                disabled=@selectedIds.length
+            >
+                Delete Selected (${@selectedIds.length})</>
+            <button class="btn-primary" onclick=openAddModal()>Add Employee</>
+        </div>
+    </div>
+
+    // --- Table ---
+    <table class="datatable">
+        <thead>
+            <tr>
+                <th>
+                    <input
+                        type="checkbox"
+                        checked=@allOnPageSelected
+                        onclick=toggleSelectAll()
+                    />
+                </th>
+                <th onclick=sortBy("name")>
+                    Name ${@sortCol == "name" ? (@sortDir == "asc" ? " ^" : " v") : ""}
+                </th>
+                <th onclick=sortBy("department")>
+                    Department ${@sortCol == "department" ? (@sortDir == "asc" ? " ^" : " v") : ""}
+                </th>
+                <th onclick=sortBy("role")>
+                    Role ${@sortCol == "role" ? (@sortDir == "asc" ? " ^" : " v") : ""}
+                </th>
+                <th onclick=sortBy("salary")>
+                    Salary ${@sortCol == "salary" ? (@sortDir == "asc" ? " ^" : " v") : ""}
+                </th>
+            </tr>
+        </thead>
+        <tbody>
+            ${
+                for (let emp of @paginatedEmployees) {
+                    let isSelected = @selectedIds.includes(emp.id)
+                    lift <tr class=${isSelected ? "row-selected" : ""}>
+                        <td>
+                            <input
+                                type="checkbox"
+                                checked=isSelected
+                                onclick=toggleSelectRow(emp.id)
+                            />
+                        </td>
+                        <td>${emp.name}</>
+                        <td>${emp.department}</>
+                        <td>${emp.role}</>
+                        <td>${emp.salary}</>
+                    </tr>
+                }
+            }
+            <tr if=@paginatedEmployees.length>
+                <td colspan="5" class="empty-state">No employees found.</>
+            </tr>
+        </tbody>
+    </table>
+
+    // --- Pagination ---
+    <div class="datatable-pagination">
+        <span>
+            Showing ${(@currentPage - 1) * @pageSize + 1}–${Math.min(@currentPage * @pageSize, @filteredEmployees.length)} of ${@filteredEmployees.length}
+        </span>
+        <div class="pagination-controls">
+            <button onclick=prevPage() disabled=@currentPage>Prev</>
+            ${
+                let pages = Array.from({length: @totalPages}, (_, i) => i + 1)
+                for (let p of pages) {
+                    let isActive = p == @currentPage
+                    lift <button
+                        class=${isActive ? "page-btn active" : "page-btn"}
+                        onclick=goToPage(p)
+                    >${p}</>
+                }
+            }
+            <button onclick=nextPage() disabled=@currentPage>Next</>
+        </div>
+    </div>
+
+    // --- Add Employee Modal ---
+    <div class="modal-overlay" if=@showModal>
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Employee</>
+                <button onclick=closeModal()>x</>
+            </div>
+            <div class="modal-body">
+                <form onsubmit=addEmployee()>
+                    <div class="form-field">
+                        <label>Name</>
+                        <input
+                            type="text"
+                            value=@newName
+                            oninput=updateNewName()
+                            placeholder="Full name"
+                            required
+                        />
+                    </div>
+                    <div class="form-field">
+                        <label>Department</>
+                        <input
+                            type="text"
+                            value=@newDepartment
+                            oninput=updateNewDepartment()
+                            placeholder="e.g. Engineering"
+                        />
+                    </div>
+                    <div class="form-field">
+                        <label>Role</>
+                        <input
+                            type="text"
+                            value=@newRole
+                            oninput=updateNewRole()
+                            placeholder="e.g. Senior Engineer"
+                        />
+                    </div>
+                    <div class="form-field">
+                        <label>Salary</>
+                        <input
+                            type="number"
+                            value=@newSalary
+                            oninput=updateNewSalary()
+                            placeholder="Annual salary"
+                        />
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" onclick=closeModal()>Cancel</>
+                        <button type="submit" class="btn-primary">Add Employee</>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</>

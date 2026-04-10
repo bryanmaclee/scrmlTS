@@ -1,0 +1,11 @@
+// error-005-typed.scrml
+// Error effect with typed errors. Tests: !{} with type patterns.
+
+<div>
+    !{
+        | ::ValidationError err -> let msg = "Validation failed"
+        | ::TimeoutError err -> let msg = "Request timed out"
+        | _ err -> let msg = "Something went wrong"
+    }
+    <p>Typed error handler</>
+</div>

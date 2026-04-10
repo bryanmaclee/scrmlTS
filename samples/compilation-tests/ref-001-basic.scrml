@@ -1,0 +1,10 @@
+// ref-001-basic.scrml
+// Basic reference syntax. Tests: <#name> pattern.
+
+< user name(string)>
+    <span class="user">${name}</>
+</>
+
+<div>
+    <user></>
+</>

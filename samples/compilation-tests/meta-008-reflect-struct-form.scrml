@@ -1,0 +1,20 @@
+<div
+  ${
+    type ContactInfo = struct { name: string, email: string, phone: string, company: string }
+
+    ^{
+      let fields = reflect(ContactInfo).fields
+    }
+  }
+  <form
+    ${
+      for (let field of fields) {
+        lift <div class="form-field"
+          <label>${field.name}</>
+          <input type="text" name=field.name placeholder=field.name</>
+        /div
+      }
+    }
+    <button type="submit">Submit</>button
+  /form
+/div

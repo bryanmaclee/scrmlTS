@@ -1,0 +1,101 @@
+// gauntlet-r18: go dev — Type-safe API client + library mode test
+// Tests: enum definition, reflect() on enums for exhaustive handler generation,
+//        emit() producing switch/match-like code, struct reflect for payload types,
+//        combining enum + struct reflect in one file
+
+<program>
+
+${
+    type HttpMethod:enum = { GET | POST | PUT | DELETE | PATCH }
+
+    type ApiEndpoint:struct = {
+        path: string,
+        method: string,
+        description: string,
+        authenticated: boolean
+    }
+
+    type ApiResponse:struct = {
+        status: number,
+        body: string,
+        headers: string
+    }
+}
+
+<div class="api-client">
+    <h1>Type-Safe API Client</>
+
+    <section class="method-handlers">
+        <h2>HTTP Method Handlers</>
+        ^{
+            const methods = reflect(HttpMethod);
+            emit("<div class=method-registry>\n");
+            emit("  <p>Registered methods: " + methods.variants.length + "/\n");
+            emit("  <ul>\n");
+            methods.variants.forEach(function(variant) {
+                emit("    <li class=method-" + variant.toLowerCase() + ">\n");
+                emit("      <strong>" + variant + "/\n");
+                if (variant === "GET") {
+                    emit("      <span>Read-only, cacheable/\n");
+                } else if (variant === "POST") {
+                    emit("      <span>Create resource/\n");
+                } else if (variant === "PUT") {
+                    emit("      <span>Full update/\n");
+                } else if (variant === "DELETE") {
+                    emit("      <span>Remove resource/\n");
+                } else if (variant === "PATCH") {
+                    emit("      <span>Partial update/\n");
+                }
+                emit("    </li>\n");
+            });
+            emit("  </ul>\n");
+            emit("</div>\n");
+        }
+    </section>
+
+    <section class="endpoint-schema">
+        <h2>Endpoint Schema</>
+        ^{
+            const endpoint = reflect(ApiEndpoint);
+            emit("<div class=schema-view>\n");
+            emit("  <h3>ApiEndpoint fields/\n");
+            emit("  <table class=schema-table>\n");
+            emit("    <thead><tr><th>Field/<th>Type/<th>Input/</tr></thead>\n");
+            emit("    <tbody>\n");
+            endpoint.fields.forEach(function(field) {
+                emit("      <tr>\n");
+                emit("        <td>" + field.name + "/\n");
+                emit("        <td>" + field.type + "/\n");
+                if (field.type === "boolean") {
+                    emit("        <td><input type=checkbox/>/\n");
+                } else if (field.type === "number") {
+                    emit("        <td><input type=number/>/\n");
+                } else {
+                    emit("        <td><input type=text/>/\n");
+                }
+                emit("      </tr>\n");
+            });
+            emit("    </tbody>\n");
+            emit("  </table>\n");
+            emit("</div>\n");
+        }
+    </section>
+
+    <section class="response-schema">
+        <h2>Response Schema</>
+        ^{
+            const resp = reflect(ApiResponse);
+            emit("<div class=response-fields>\n");
+            emit("  <h3>ApiResponse (" + resp.fields.length + " fields)/\n");
+            resp.fields.forEach(function(field) {
+                emit("  <div class=resp-field>\n");
+                emit("    <code>" + field.name + "/\n");
+                emit("    <span class=type-badge>" + field.type + "/\n");
+                emit("  </div>\n");
+            });
+            emit("</div>\n");
+        }
+    </section>
+</div>
+
+</>

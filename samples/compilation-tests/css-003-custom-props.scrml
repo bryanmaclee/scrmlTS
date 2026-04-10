@@ -1,0 +1,11 @@
+// css-003-custom-props.scrml
+// CSS custom properties. Tests: #{} with -- properties.
+
+<div>
+    #{
+        --primary-color: blue;
+        --font-size: 14px;
+        color: var(--primary-color);
+    }
+    <p>Custom properties</>
+</div>

@@ -1,0 +1,6 @@
+// server-006-state-with-tables.scrml
+// State block with tables attribute. Tests: tables= on state block.
+
+< db src="./test.db" tables="users, posts">
+    <p>Tables scoped</>
+</>

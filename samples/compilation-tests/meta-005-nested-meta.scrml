@@ -1,0 +1,13 @@
+<div
+  ${
+    ^{
+      let ENV = bun.eval(`return process.env.NODE_ENV || "development"`)
+
+      ^{
+        let isDev = ENV == "development"
+        let debugEnabled = isDev
+      }
+    }
+  }
+  <p>Environment: ${ENV}</>
+/div

@@ -1,0 +1,9 @@
+// comp-003-button.scrml
+// Button variants. Tests: reusable button patterns.
+
+<div class="button-group">
+    <button class="btn btn-primary">Primary</>
+    <button class="btn btn-secondary">Secondary</>
+    <button class="btn btn-danger">Danger</>
+    <button class="btn btn-outline">Outline</>
+</div>

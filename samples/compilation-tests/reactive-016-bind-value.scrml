@@ -1,0 +1,38 @@
+// reactive-016-bind-value.scrml
+// Two-way binding demonstrations: bind:value, bind:checked, bind:group, path binding.
+// Tests: §5.4 bind directives — text input, number input, select, checkbox, radio, path.
+
+<div>
+    ${
+        @username = ""
+        @age = 0
+        @country = "us"
+        @agreed = false
+        @size = "medium"
+        @profile = { city: "" }
+    }
+
+    // Text input: bind:value syncs @username on "input" event
+    <input type="text" id="username-input" placeholder="Username" bind:value=@username />
+
+    // Number input: bind:value syncs @age on "input" event
+    <input type="text" id="age-input" placeholder="Age" bind:value=@age />
+
+    // Select: bind:value syncs @country on "change" event
+    <select id="country-select" bind:value=@country>
+        <option value="us">United States</option>
+        <option value="ca">Canada</option>
+        <option value="uk">United Kingdom</option>
+    </select>
+
+    // Checkbox: bind:checked syncs @agreed on "change" event
+    <input type="checkbox" id="agree-checkbox" bind:checked=@agreed />
+
+    // Radio group: bind:group syncs @size on "change" event
+    <input type="radio" name="size" value="small" bind:group=@size />
+    <input type="radio" name="size" value="medium" bind:group=@size />
+    <input type="radio" name="size" value="large" bind:group=@size />
+
+    // Path binding: bind:value on nested object field @profile.city
+    <input type="text" id="city-input" placeholder="City" bind:value=@profile.city />
+</div>

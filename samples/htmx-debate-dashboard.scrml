@@ -1,0 +1,283 @@
+// htmx-debate-dashboard.scrml
+// Author: Senior HTMX developer — debate submission for async loading state
+// Date: 2026-04-10
+//
+// ARGUMENT: Approach A (Canonical Manual CPS) is right for now.
+// Not because it is elegant, but because every other approach adds a
+// concept the developer must learn before they can do anything. The
+// manual CPS pattern is teachable in one worked example. Ship that.
+//
+// CHALLENGE: Dashboard with 3 data sources on mount + form with optimistic update.
+// My position: implement this with the CPS pattern (Approach A), then show where
+// it genuinely hurts — and argue why the cure (E) is worse than the disease.
+
+< db src="./dashboard.db" tables="users,orders,metrics">
+    ${
+        // --- Three data sources with individual loading state ---
+        // HTMX EQUIVALENT: three separate hx-get calls. Each fires independently.
+        // hx-get="/users" hx-trigger="load" hx-target="#users-list"
+        // hx-get="/orders" hx-trigger="load" hx-target="#orders-list"
+        // hx-get="/metrics" hx-trigger="load" hx-target="#metrics-panel"
+        // Each returns an HTML fragment. No JS at all.
+        //
+        // In scrml, I declare reactive state for every piece of async data.
+        // This is the manual CPS pattern. It is verbose. It is clear.
+
+        @users = []
+        @usersLoading = false
+        @usersError = ""
+
+        @orders = []
+        @ordersLoading = false
+        @ordersError = ""
+
+        @metrics = {}
+        @metricsLoading = false
+        @metricsError = ""
+
+        // --- New order form state ---
+        @newOrderProduct = ""
+        @newOrderQty = 1
+        @orderSubmitting = false
+        @orderError = ""
+
+        // --- Server functions: data read path ---
+        // SS13 guarantees these run in parallel when called from loadDashboard()
+        // That is the one place scrml's async model is BETTER than naive HTMX.
+        // Three hx-get calls fire in sequence by default unless you coordinate.
+        // scrml's Promise.all compilation is genuinely good here.
+
+        server function fetchUsers() {
+            return ?{`SELECT id, name, email, created_at FROM users ORDER BY created_at DESC LIMIT 50`}.all()
+        }
+
+        server function fetchOrders() {
+            return ?{`SELECT o.id, o.product, o.qty, o.status, u.name as customer
+                      FROM orders o JOIN users u ON o.user_id = u.id
+                      ORDER BY o.created_at DESC LIMIT 50`}.all()
+        }
+
+        server function fetchMetrics() {
+            let totalUsers = ?{`SELECT COUNT(*) as count FROM users`}.get()
+            let totalOrders = ?{`SELECT COUNT(*) as count FROM orders`}.get()
+            let pendingOrders = ?{`SELECT COUNT(*) as count FROM orders WHERE status = 'pending'`}.get()
+            return { totalUsers: totalUsers.count, totalOrders: totalOrders.count, pendingOrders: pendingOrders.count }
+        }
+
+        // --- Server function: write path with optimistic update ---
+        server function createOrder(product, qty) {
+            ?{`INSERT INTO orders (product, qty, status, user_id, created_at)
+               VALUES (${product}, ${qty}, 'pending', 1, datetime('now'))`}.run()
+            return ?{`SELECT o.id, o.product, o.qty, o.status, u.name as customer
+                      FROM orders o JOIN users u ON o.user_id = u.id
+                      ORDER BY o.created_at DESC LIMIT 50`}.all()
+        }
+
+        // --- Load all three sources on mount ---
+        // CPS splits this so @usersLoading = true runs before fetchUsers() awaits.
+        // SS13.3 parallel execution kicks in when the compiler sees independent calls.
+        //
+        // HONEST FRICTION: the dev cannot verify parallelism from source.
+        // In HTMX: three hx-get attributes on three divs. Parallelism is obvious.
+        // Here I trust the compiler. That trust is earned by the spec, not visible.
+        function loadDashboard() {
+            @usersLoading = true
+            @ordersLoading = true
+            @metricsLoading = true
+            @usersError = ""
+            @ordersError = ""
+            @metricsError = ""
+
+            @users = fetchUsers()
+            @usersLoading = false
+
+            @orders = fetchOrders()
+            @ordersLoading = false
+
+            @metrics = fetchMetrics()
+            @metricsLoading = false
+        }
+
+        // --- Optimistic order submit ---
+        // HTMX EQUIVALENT: hx-post="/orders" hx-target="#orders-list" hx-swap="afterbegin"
+        // The server returns a new <li> fragment. One attribute. Zero client state.
+        //
+        // Scrml requires: a local optimistic insert, a server call, reconciliation.
+        // This is genuinely more work. But the server IS authoritative — the final
+        // @orders = createOrder(...) replaces the optimistic entry with real DB state.
+        // That reconciliation is correct behavior. HTMX leaves stale optimistic rows
+        // around if the server returns an error. scrml's replace-on-confirm is safer.
+
+        function handleAddOrder() {
+            let product = @newOrderProduct
+            let qty = @newOrderQty
+
+            if (product.length == 0) {
+                @orderError = "Product name is required"
+                return
+            }
+
+            // Optimistic insert — give immediate feedback
+            // The -1 id signals this row is not yet confirmed by the server
+            @orders = [{ id: -1, product: product, qty: qty, status: "pending", customer: "You" }, ...@orders]
+            @newOrderProduct = ""
+            @newOrderQty = 1
+            @orderSubmitting = true
+            @orderError = ""
+
+            // Server call confirms and returns authoritative list
+            // Replaces the optimistic row automatically (no manual reconciliation loop)
+            @orders = createOrder(product, qty)
+            @orderSubmitting = false
+        }
+
+        function setProduct() {
+            // FRICTION NOTE: event.target.value access pattern is unspecified.
+            // In HTMX: input goes with form POST. Zero code here.
+            // This function exists only to wire oninput= to @newOrderProduct.
+            // Real form data sync requires a spec decision on event object shape.
+            @newOrderProduct = ""
+        }
+    }
+
+    on mount { loadDashboard() }
+
+    // =========================================================================
+    // MARKUP — Dashboard layout
+    // =========================================================================
+
+    <div class="dashboard">
+        <header class="dashboard-header">
+            <h1>Operations Dashboard</>
+            <button onclick=loadDashboard() class="refresh-btn">Refresh</>
+        </header>
+
+        // --- Metrics bar: three numbers at a glance ---
+        // HTMX EQUIVALENT: hx-get="/metrics" hx-trigger="load" hx-target="this"
+        // Server renders <div class="metrics-bar">...</div>. One line of HTML.
+        //
+        // In scrml: conditional rendering against @metricsLoading.
+        // The ergonomics here are actually reasonable. if= is clear.
+        <div class="metrics-bar">
+            <div class="metric-card" if=@metricsLoading>
+                <p>Loading metrics...</>
+            </div>
+            <div class="metric-card" if=@metricsError>
+                <p class="error">${@metricsError}</>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <span class="metric-label">Total Users</>
+                    <span class="metric-value">${@metrics.totalUsers}</>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Total Orders</>
+                    <span class="metric-value">${@metrics.totalOrders}</>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">Pending Orders</>
+                    <span class="metric-value">${@metrics.pendingOrders}</>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-body">
+
+            // --- New Order Form ---
+            // HTMX EQUIVALENT: <form hx-post="/orders" hx-target="#orders-list" hx-swap="afterbegin">
+            // That is it. No state. No JS. Server returns new <tr>.
+            //
+            // Scrml requires: @vars for each field, oninput sync functions,
+            // a submit handler with optimistic logic, loading state.
+            // This is the form ergonomics gap. It is real and significant.
+            <section class="new-order-section">
+                <h2>Add Order</>
+                <div class="error-msg" if=@orderError>
+                    <p>${@orderError}</>
+                </div>
+                <form onsubmit=handleAddOrder()>
+                    <div class="form-row">
+                        <label for="product">Product</>
+                        <input id="product" name="product" type="text"
+                            placeholder="Product name"
+                            oninput=setProduct()/>
+                    </div>
+                    <div class="form-row">
+                        <label for="qty">Quantity</>
+                        <input id="qty" name="qty" type="number"
+                            placeholder="1"/>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit">
+                            ${@orderSubmitting ? "Adding..." : "Add Order"}
+                        </>
+                    </div>
+                </form>
+            </section>
+
+            <div class="dashboard-panels">
+
+                // --- Orders panel ---
+                <section class="panel orders-panel">
+                    <h2>Recent Orders</>
+                    <div if=@ordersLoading class="loading-state">
+                        <p>Loading orders...</>
+                    </div>
+                    <div if=@ordersError class="error-state">
+                        <p>${@ordersError}</>
+                    </div>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>ID</>
+                                <th>Product</>
+                                <th>Qty</>
+                                <th>Customer</>
+                                <th>Status</>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${
+                                for (let order of @orders) {
+                                    // Optimistic rows have id == -1
+                                    // The class signals unconfirmed state visually
+                                    let rowClass = order.id == -1 ? "optimistic-row" : ""
+                                    lift <tr class=${rowClass}>
+                                        <td>${order.id == -1 ? "..." : order.id}</>
+                                        <td>${order.product}</>
+                                        <td>${order.qty}</>
+                                        <td>${order.customer}</>
+                                        <td>${order.status}</>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </section>
+
+                // --- Users panel ---
+                <section class="panel users-panel">
+                    <h2>Users</>
+                    <div if=@usersLoading class="loading-state">
+                        <p>Loading users...</>
+                    </div>
+                    <div if=@usersError class="error-state">
+                        <p>${@usersError}</>
+                    </div>
+                    <ul class="users-list">
+                        ${
+                            for (let user of @users) {
+                                lift <li class="user-item">
+                                    <span class="user-name">${user.name}</>
+                                    <span class="user-email">${user.email}</>
+                                </li>
+                            }
+                        }
+                    </ul>
+                </section>
+
+            </div>
+        </div>
+    </div>
+
+</>

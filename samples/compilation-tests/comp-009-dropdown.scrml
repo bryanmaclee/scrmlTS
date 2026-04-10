@@ -1,0 +1,17 @@
+// comp-009-dropdown.scrml
+// Dropdown menu pattern. Tests: toggle dropdown.
+
+<div class="dropdown">
+    ${
+        @isOpen = false
+        function toggle() {
+            @isOpen = !@isOpen
+        }
+    }
+    <button onclick=toggle()>Menu</>
+    <ul class="dropdown-menu" if=isOpen>
+        <li><a href="#">Profile</a></li>
+        <li><a href="#">Settings</a></li>
+        <li><a href="#">Logout</a></li>
+    </ul>
+</div>

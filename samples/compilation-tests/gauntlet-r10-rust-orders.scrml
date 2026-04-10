@@ -1,0 +1,293 @@
+<program>
+
+// gauntlet-r10-rust-orders.scrml
+// Order Status Tracker — Gauntlet Round 10
+// A Rust developer's exploration of scrml enums, match, and state machines.
+// Orders move: Pending -> Processing -> Shipped -> Delivered (or Cancelled).
+
+${
+    // --- Type declarations ---
+    // In Rust this would be:
+    //   #[derive(Debug, Clone, PartialEq)]
+    //   enum OrderStatus { Pending, Processing, Shipped, Delivered, Cancelled }
+    //
+    // scrml's enum is clean. No derive macros needed — the language handles display
+    // and comparison natively. However, no associated data on variants (tested below).
+    type OrderStatus:enum = {
+        Pending
+        Processing
+        Shipped
+        Delivered
+        Cancelled
+    }
+
+    // In Rust: enum TransitionError { InvalidTransition, AlreadyFinal }
+    // scrml: we get the same variant style, but error handling is NOT Result<T,E>.
+    // The !{} error context is spec'd but compiler support is unverified.
+    // We model this as a plain enum and use if/else for now.
+    type TransitionResult:enum = {
+        Ok
+        InvalidTransition
+    }
+
+    // --- Reactive state ---
+    // In Rust this would be a Vec<Order> behind Arc<RwLock<>> for thread safety.
+    // scrml's @reactive is simpler: single-threaded reactive JS model.
+    // No lifetimes, no borrowing — just reactive assignment.
+    @orders = [
+        { id: 1, customer: "Alice Chen", item: "Mechanical Keyboard", status: "Pending", history: ["Created: Pending"] },
+        { id: 2, customer: "Bob Nguyen", item: "USB-C Hub", status: "Processing", history: ["Created: Pending", "Moved: Processing"] },
+        { id: 3, customer: "Carol Davis", item: "Monitor Stand", status: "Shipped", history: ["Created: Pending", "Moved: Processing", "Moved: Shipped"] }
+    ]
+    @selectedOrderId = 0
+    @nextId = 4
+    @newCustomer = ""
+    @newItem = ""
+
+    // --- State machine: valid transitions ---
+    // In Rust this would be a method on the enum:
+    //   impl OrderStatus {
+    //       fn valid_transitions(&self) -> &[OrderStatus] { ... }
+    //   }
+    // scrml has no methods on enums. We use a plain function.
+    // The Rust instinct is to put behavior on the type. scrml separates data from logic entirely.
+    //
+    // FRICTION NOTE: No way to call `status.validTransitions()`.
+    // Must call `validTransitions(status)` — the type carries no behavior.
+    function validTransitions(status) {
+        // FRICTION: match is enum-only, but @orders stores status as string ("Pending").
+        // We cannot match on a string field from the array directly.
+        // This is TOP-10-FINDINGS #1 and #6 combined.
+        // Workaround: use if/else chains on the string value.
+        // A Rust developer's first instinct is:
+        //   match status { OrderStatus::Pending => vec![Processing], ... }
+        // That doesn't work here because status is a string from the JS object array.
+        if (status == "Pending") {
+            return ["Processing", "Cancelled"]
+        } else if (status == "Processing") {
+            return ["Shipped", "Cancelled"]
+        } else if (status == "Shipped") {
+            return ["Delivered", "Cancelled"]
+        } else {
+            return []
+        }
+    }
+
+    function isFinalState(status) {
+        return status == "Delivered" || status == "Cancelled"
+    }
+
+    // --- State label for display ---
+    // In Rust: impl Display for OrderStatus { fmt() }
+    // scrml: plain function. No trait implementation possible — no trait system.
+    // FRICTION: No impl blocks, no trait bounds. The Display pattern is boilerplate.
+    function statusLabel(status) {
+        if (status == "Pending") { return "Pending" }
+        if (status == "Processing") { return "Processing" }
+        if (status == "Shipped") { return "Shipped" }
+        if (status == "Delivered") { return "Delivered" }
+        if (status == "Cancelled") { return "Cancelled" }
+        return "Unknown"
+    }
+
+    function statusClass(status) {
+        if (status == "Pending") { return "status-pending" }
+        if (status == "Processing") { return "status-processing" }
+        if (status == "Shipped") { return "status-shipped" }
+        if (status == "Delivered") { return "status-delivered" }
+        if (status == "Cancelled") { return "status-cancelled" }
+        return "status-unknown"
+    }
+
+    // --- Transition logic ---
+    // In Rust this would return Result<(), TransitionError>
+    // and callers would use the ? operator.
+    // scrml: no Result type, no ? operator. Error handling via if/else or !{}.
+    // FRICTION: Every caller must manually check the return value.
+    function transitionOrder(orderId, newStatus) {
+        let order = @orders.find(o => o.id == orderId)
+        if (!order) { return }
+
+        let valid = validTransitions(order.status)
+        if (valid.indexOf(newStatus) == -1) {
+            // In Rust: return Err(TransitionError::InvalidTransition)
+            // scrml: we have no propagation mechanism. Just return.
+            // The caller has no way to know it failed without an out-of-band signal.
+            return
+        }
+
+        let timestamp = "Moved: " + newStatus
+        let updatedOrder = {
+            id: order.id,
+            customer: order.customer,
+            item: order.item,
+            status: newStatus,
+            history: [...order.history, timestamp]
+        }
+        @orders = @orders.map(o => o.id == orderId ? updatedOrder : o)
+    }
+
+    function selectOrder(id) {
+        @selectedOrderId = id
+    }
+
+    function addOrder() {
+        if (@newCustomer.length > 0 && @newItem.length > 0) {
+            let newOrder = {
+                id: @nextId,
+                customer: @newCustomer,
+                item: @newItem,
+                status: "Pending",
+                history: ["Created: Pending"]
+            }
+            @orders = [...@orders, newOrder]
+            @nextId = @nextId + 1
+            @newCustomer = ""
+            @newItem = ""
+        }
+    }
+
+    function selectedOrder() {
+        if (@selectedOrderId == 0) { return not }
+        return @orders.find(o => o.id == @selectedOrderId) || not
+    }
+}
+
+<div class="order-tracker">
+    <header class="tracker-header">
+        <h1>Order Status Tracker</>
+        <p class="subtitle">Type-safe state machine — Gauntlet R10</>
+    </header>
+
+    <section class="add-order">
+        <h2>Add New Order</>
+        <div class="add-order-form">
+            <input
+                type="text"
+                placeholder="Customer name"
+                oninput=${ @newCustomer = event.target.value }
+            />
+            <input
+                type="text"
+                placeholder="Item description"
+                oninput=${ @newItem = event.target.value }
+            />
+            <button onclick=addOrder()>Create Order</>
+        </div>
+    </section>
+
+    <div class="tracker-layout">
+
+        <section class="order-list">
+            <h2>Orders (${@orders.length})</>
+            <ul class="orders">
+                ${
+                    for (let order of @orders) {
+                        lift <li
+                            class="order-item"
+                            onclick=selectOrder(order.id)
+                        >
+                            <div class="order-summary">
+                                <span class="order-id">#${order.id}</>
+                                <span class="order-customer">${order.customer}</>
+                            </div>
+                            <div class="order-meta">
+                                <span class="order-item-name">${order.item}</>
+                                <span class="order-status ${statusClass(order.status)}">${statusLabel(order.status)}</>
+                            </div>
+                        </li>
+                    }
+                }
+            </ul>
+        </section>
+
+        <section class="order-detail" if=${not (selectedOrder() is not)}>
+            <h2>Order Detail</>
+            ${
+                let detail = selectedOrder()
+                if (detail) {
+                    lift <div class="detail-card">
+                        <div class="detail-header">
+                            <h3>Order #${detail.id}</>
+                            <span class="detail-status ${statusClass(detail.status)}">${statusLabel(detail.status)}</>
+                        </div>
+                        <dl class="detail-fields">
+                            <dt>Customer</>
+                            <dd>${detail.customer}</>
+                            <dt>Item</>
+                            <dd>${detail.item}</>
+                        </dl>
+
+                        <div class="transitions" if=${validTransitions(detail.status).length > 0}>
+                            <h4>Valid Transitions</>
+                            <div class="transition-buttons">
+                                ${
+                                    for (let next of validTransitions(detail.status)) {
+                                        lift <button
+                                            class="transition-btn transition-to-${next.toLowerCase()}"
+                                            onclick=transitionOrder(detail.id, next)
+                                        >
+                                            Move to ${next}</>
+                                        </button>
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        <div class="final-badge" if=${isFinalState(detail.status)}>
+                            <span>Final State — no further transitions</>
+                        </div>
+
+                        <div class="history">
+                            <h4>Transition History</>
+                            <ol class="history-list">
+                                ${
+                                    for (let entry of detail.history) {
+                                        lift <li class="history-entry">${entry}</>
+                                    }
+                                }
+                            </ol>
+                        </div>
+                    </div>
+                }
+            }
+        </section>
+
+        <section class="order-detail-empty" if=${selectedOrder() is not}>
+            <p class="empty-hint">Select an order to view details and manage transitions.</>
+        </section>
+
+    </div>
+
+    <section class="status-legend">
+        <h2>Status State Machine</>
+        <div class="legend-grid">
+            <div class="legend-item">
+                <span class="status-pending">Pending</>
+                <span class="arrow">to:</>
+                <span>Processing, Cancelled</>
+            </div>
+            <div class="legend-item">
+                <span class="status-processing">Processing</>
+                <span class="arrow">to:</>
+                <span>Shipped, Cancelled</>
+            </div>
+            <div class="legend-item">
+                <span class="status-shipped">Shipped</>
+                <span class="arrow">to:</>
+                <span>Delivered, Cancelled</>
+            </div>
+            <div class="legend-item">
+                <span class="status-delivered">Delivered</>
+                <span class="arrow">FINAL</>
+            </div>
+            <div class="legend-item">
+                <span class="status-cancelled">Cancelled</>
+                <span class="arrow">FINAL</>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+</program>

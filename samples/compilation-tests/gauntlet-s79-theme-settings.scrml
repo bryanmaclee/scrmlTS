@@ -1,0 +1,328 @@
+// theme-settings.scrml
+// Vue dev gauntlet: theme + settings panel
+// Tests: enum, match, class:name=, ==, bind:value, events, conditional, CSS, functions
+
+#{
+    * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+    }
+
+    body {
+        font-family: system-ui, sans-serif;
+        padding: 2rem;
+        max-width: 640px;
+        margin: 0 auto;
+        transition: background 0.2s, color 0.2s;
+    }
+
+    // light theme — default
+    .app.light {
+        background: #ffffff;
+        color: #1a1a1a;
+    }
+
+    // dark theme
+    .app.dark {
+        background: #1a1a1a;
+        color: #eeeeee;
+    }
+
+    // system theme — neutral
+    .app.system {
+        background: #f0f0f0;
+        color: #222222;
+    }
+
+    .app {
+        min-height: 100vh;
+        padding: 2rem;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 2rem;
+    }
+
+    .section {
+        border: 1px solid rgba(128, 128, 128, 0.3);
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .section-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.5;
+        margin-bottom: 1rem;
+    }
+
+    .theme-buttons {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .btn {
+        padding: 0.5rem 1.25rem;
+        border: 1px solid rgba(128, 128, 128, 0.4);
+        border-radius: 6px;
+        background: transparent;
+        cursor: pointer;
+        font-size: 0.9rem;
+        color: inherit;
+        transition: background 0.15s;
+    }
+
+    .btn:hover {
+        background: rgba(128, 128, 128, 0.15);
+    }
+
+    .btn.active {
+        border-color: currentColor;
+        font-weight: 600;
+        background: rgba(128, 128, 128, 0.2);
+    }
+
+    .font-size-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .font-size-display {
+        font-size: 1.25rem;
+        font-weight: 700;
+        min-width: 3ch;
+        text-align: center;
+    }
+
+    .username-input {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid rgba(128, 128, 128, 0.4);
+        border-radius: 6px;
+        font-size: 1rem;
+        background: transparent;
+        color: inherit;
+        margin-bottom: 0.75rem;
+    }
+
+    .username-input:focus {
+        outline: 2px solid rgba(128, 128, 128, 0.5);
+    }
+
+    .greeting {
+        font-size: 1.1rem;
+        font-weight: 500;
+        margin-top: 0.5rem;
+    }
+
+    .preview-block {
+        padding: 1rem;
+        border-radius: 6px;
+        background: rgba(128, 128, 128, 0.1);
+        font-size: 1rem;
+        line-height: 1.6;
+    }
+
+    .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.35rem 0;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+        font-size: 0.9rem;
+    }
+
+    .summary-label {
+        opacity: 0.6;
+    }
+
+    .summary-value {
+        font-weight: 600;
+    }
+}
+
+// --- state and logic ---
+${
+    // enum declaration — comma separation not needed, newline-delimited works
+    type Theme:enum = { Light, Dark, System }
+
+    // reactive defaults
+    @theme = Theme.Light
+    @fontSize = 16
+    @username = ""
+
+    // derive background color from current theme — used in preview section
+    // assumption: match as expression assigned to @var works inline here
+    @bgColor = match @theme {
+        .Light  => "#ffffff"
+        .Dark   => "#1a1a1a"
+        .System => "#f0f0f0"
+    }
+
+    // derive a human-readable theme label — needed in summary
+    @themeLabel = match @theme {
+        .Light  => "Light"
+        .Dark   => "Dark"
+        .System => "System"
+    }
+
+    function setTheme(t) {
+        @theme = t
+        // re-derive dependent values when theme changes
+        // assumption: match expressions don't auto-recompute — must re-assign manually
+        // (in Vue this would be a computed, here I treat it as explicit re-assignment)
+        @bgColor = match @theme {
+            .Light  => "#ffffff"
+            .Dark   => "#1a1a1a"
+            .System => "#f0f0f0"
+        }
+        @themeLabel = match @theme {
+            .Light  => "Light"
+            .Dark   => "Dark"
+            .System => "System"
+        }
+    }
+
+    function increaseFontSize() {
+        if (@fontSize < 24) {
+            @fontSize = @fontSize + 1
+        }
+    }
+
+    function decreaseFontSize() {
+        if (@fontSize > 10) {
+            @fontSize = @fontSize - 1
+        }
+    }
+
+    // resolve display name — "Guest" when @username is empty
+    // assumption: comparing @username to not (null/absence) OR checking empty string
+    // the spec says `not` is null/absence — empty string is a different thing
+    // treating "" as the absence signal here since bind:value starts as ""
+    // this feels like a gap: no isEmpty helper, no `not` for ""
+    function displayName() {
+        if (@username == "") {
+            lift "Guest"
+        } else {
+            lift @username
+        }
+    }
+}
+
+// --- root container — class:dark= and class:light= toggle on theme state ---
+// assumption: class:system= follows the same pattern, just not in the challenge spec
+<div class="app"
+    class:light=(@theme == Theme.Light)
+    class:dark=(@theme == Theme.Dark)
+    class:system=(@theme == Theme.System)
+>
+
+    <h1>Settings</>
+
+    // --- theme selector ---
+    <div class="section">
+        <p class="section-title">Theme</>
+        <div class="theme-buttons">
+            // assumption: class:active= on each button to show which is selected
+            // Vue developer instinct — should feel the same as class binding there
+            <button class="btn"
+                class:active=(@theme == Theme.Light)
+                onclick=setTheme(Theme.Light)
+            >Light</>
+            <button class="btn"
+                class:active=(@theme == Theme.Dark)
+                onclick=setTheme(Theme.Dark)
+            >Dark</>
+            <button class="btn"
+                class:active=(@theme == Theme.System)
+                onclick=setTheme(Theme.System)
+            >System</>
+        </div>
+    </div>
+
+    // --- font size controls ---
+    <div class="section">
+        <p class="section-title">Font Size</>
+        <div class="font-size-row">
+            <button class="btn" onclick=decreaseFontSize()>−</>
+            <span class="font-size-display">${@fontSize}</>
+            <button class="btn" onclick=increaseFontSize()>+</>
+        </div>
+    </div>
+
+    // --- username ---
+    <div class="section">
+        <p class="section-title">Username</>
+        // bind:value= wires two-way to @username — confirmed pattern from reactive-016
+        <input class="username-input" type="text" placeholder="Enter your name..." bind:value=@username />
+        // greeting: conditional show "Guest" vs actual name
+        // I want: ${@username != "" ? @username : "Guest"} — ternary would be cleaner
+        // but using if/lift to stay consistent with proven patterns
+        <p class="greeting">
+            ${
+                if (@username == "") {
+                    lift "Hello, Guest"
+                } else {
+                    lift "Hello, ${@username}"
+                }
+            }
+        </>
+    </div>
+
+    // --- theme preview --- match on @theme for descriptive text
+    <div class="section">
+        <p class="section-title">Preview</>
+        <div class="preview-block">
+            ${
+                // match expression lifted as content — checks all three arms
+                // assumption: lift of a string interpolation works here
+                lift match @theme {
+                    .Light  => "You are in Light mode. Clean, bright, easy on paper."
+                    .Dark   => "You are in Dark mode. Easy on the eyes at night."
+                    .System => "Following System preference. Adapts to your OS setting."
+                }
+            }
+            // current background color derived from theme
+            <p style="margin-top: 0.5rem; font-size: 0.8rem; opacity: 0.6;">Background: ${@bgColor}</>
+        </div>
+    </div>
+
+    // --- settings summary --- all current values in one place
+    <div class="section">
+        <p class="section-title">Current Settings</>
+        <div class="summary-row">
+            <span class="summary-label">Theme</>
+            <span class="summary-value">${@themeLabel}</>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Font Size</>
+            <span class="summary-value">${@fontSize}px</>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Username</>
+            // same conditional again — wish I could call displayName() inline
+            // assumption: function returning lift is not directly usable in interpolation
+            // flagged below in open questions
+            <span class="summary-value">
+                ${
+                    if (@username == "") {
+                        lift "Guest"
+                    } else {
+                        lift @username
+                    }
+                }
+            </>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Background</>
+            <span class="summary-value">${@bgColor}</>
+        </div>
+    </div>
+
+</>  // closes .app div

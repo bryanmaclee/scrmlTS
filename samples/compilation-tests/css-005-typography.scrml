@@ -1,0 +1,12 @@
+// css-005-typography.scrml
+// CSS typography properties. Tests: #{} with font properties.
+
+<div>
+    #{
+        font-family: system-ui, sans-serif;
+        font-weight: 600;
+        line-height: 1.5;
+        letter-spacing: 0.02em;
+    }
+    <h1>Styled Heading</>
+</div>

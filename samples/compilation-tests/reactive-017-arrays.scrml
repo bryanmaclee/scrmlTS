@@ -1,0 +1,36 @@
+// reactive-017-arrays.scrml
+// Reactive array operations: spread-replace, filter, for/lift iteration, length expression.
+// Tests: §6.5 reactive arrays — append via spread, remove via filter, for/lift re-render, count.
+
+<div>
+    ${
+        @items = []
+        @nextId = 1
+        @filter = ""
+
+        function addItem() {
+            @items = [...@items, { id: @nextId, name: "Item " + @nextId }]
+            @nextId = @nextId + 1
+        }
+
+        function removeFirst() {
+            @items = @items.filter(item => item.id != 1)
+        }
+    }
+
+    <button id="add-btn" onclick=addItem()>Add Item</>
+
+    <button id="remove-btn" onclick=removeFirst()>Remove First</>
+
+    <input id="filter-input" type="text" bind:value=@filter />
+
+    <div id="list">
+        ${
+            for (let item of @items) {
+                lift <div class="item">${item.name}</>
+            }
+        }
+    </div>
+
+    <p id="count">Count: ${@items.length}</>
+</div>

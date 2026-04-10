@@ -1,0 +1,1308 @@
+import { rewriteExpr } from "./rewrite.js";
+import { emitLogicNode } from "./emit-logic.js";
+import { genVar } from "./var-counter.ts";
+import { VOID_ELEMENTS } from "./utils.ts";
+
+// ---------------------------------------------------------------------------
+// Render keyword rewriter (§16.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Transform `render name(args)` → `name(args)` in expressions within component bodies.
+ * The `render` keyword is a scrml sigil for invoking snippet-typed props. Inside a
+ * component body (after CE expansion), `render row(i)` should compile to `row(i)` — a
+ * direct call to the snippet prop lambda. This transform runs before rewriteExpr so the
+ * resulting function call is visible to subsequent expression passes.
+ *
+ * @param {string} expr
+ * @returns {string}
+ */
+function rewriteRenderCall(expr) {
+  if (!expr || typeof expr !== 'string' || !expr.includes('render')) return expr;
+  return expr.replace(/(?<![A-Za-z0-9_$])render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g, '$1(');
+}
+
+// ---------------------------------------------------------------------------
+// Attribute string parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a tokenizer-spaced attribute string into an array of {name, value} pairs.
+ *
+ * The tokenizer produces attribute strings with spaces around `=` and around
+ * attribute values. Examples:
+ *   `class = "card"`  →  [{name: "class", value: "card"}]
+ *   `href = "#"`      →  [{name: "href", value: "#"}]
+ *   `checked`         →  [{name: "checked", value: null}]
+ *   `src = "${img}" alt = "Photo"` → [{name:"src",value:"${img}"},{name:"alt",value:"Photo"}]
+ *
+ * Attribute values may contain `${expr}` interpolations — preserve them as-is.
+ *
+ * @param {string} attrsStr — raw attribute string
+ * @returns {Array<{name: string, value: string|null}>}
+ */
+function parseAttrs(attrsStr) {
+  if (!attrsStr || !attrsStr.trim()) return [];
+  const attrs = [];
+  let i = 0;
+  const s = attrsStr.trim();
+
+  while (i < s.length) {
+    // Skip whitespace
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (i >= s.length) break;
+
+    // Skip trailing / (self-closer marker)
+    if (s[i] === '/') { i++; continue; }
+
+    // Read attribute name (alphanumeric, -, :, .)
+    let nameStart = i;
+    while (i < s.length && /[A-Za-z0-9_:\-.]/.test(s[i])) i++;
+    let name = s.slice(nameStart, i).trim();
+    if (!name) { i++; continue; }
+
+    // BUG-4 fix: handle tokenizer-spaced hyphenated names like `data - id`.
+    // After reading "data", if whitespace is followed by `-` then more name chars,
+    // merge them into a single hyphenated attribute name.
+    while (true) {
+      let j = i;
+      while (j < s.length && /\s/.test(s[j])) j++;
+      if (j < s.length && s[j] === '-') {
+        let k = j + 1;
+        while (k < s.length && /\s/.test(s[k])) k++;
+        if (k < s.length && /[A-Za-z]/.test(s[k])) {
+          // Check this isn't actually an = sign coming (not a hyphenated continuation)
+          let nameEnd = k;
+          while (nameEnd < s.length && /[A-Za-z0-9_:\-.]/.test(s[nameEnd])) nameEnd++;
+          let afterName = nameEnd;
+          while (afterName < s.length && /\s/.test(s[afterName])) afterName++;
+          // Only merge if the next part is NOT followed by = (which would mean
+          // this is a separate attribute like `- id = "val"`)
+          // Actually for hyphenated attrs like data-id, the merged name IS followed by =
+          // So always merge when we see name-space-hyphen-space-name pattern
+          const nextPart = s.slice(k, nameEnd);
+          name = name + "-" + nextPart;
+          i = nameEnd;
+          continue;
+        }
+      }
+      break;
+    }
+
+    // Skip whitespace
+    while (i < s.length && /\s/.test(s[i])) i++;
+
+    // Check for = sign
+    if (i < s.length && s[i] === '=') {
+      i++; // consume =
+      // Skip whitespace
+      while (i < s.length && /\s/.test(s[i])) i++;
+
+      let value = "";
+      if (i < s.length && (s[i] === '"' || s[i] === "'")) {
+        // Quoted value
+        const quote = s[i];
+        i++; // consume opening quote
+        const valueStart = i;
+        while (i < s.length && s[i] !== quote) {
+          if (s[i] === '\\') i++; // skip escaped char
+          i++;
+        }
+        value = s.slice(valueStart, i);
+        if (i < s.length) i++; // consume closing quote
+      } else {
+        // Unquoted value — read until whitespace, but track paren depth
+        // so that spaced expressions like `deleteTodo ( todo . id )` are
+        // captured as a single value instead of being split at the first space.
+        //
+        // The tokenizer inserts spaces around parens, so we must look ahead
+        // through whitespace: if the next non-whitespace char is `(`, continue
+        // reading (it's a function call argument list, not a new attribute).
+        const valueStart = i;
+        let depth = 0;
+        while (i < s.length) {
+          if (s[i] === '(' || s[i] === '{') depth++;
+          else if (s[i] === ')' || s[i] === '}') {
+            depth--;
+            if (depth < 0) break;
+            // After closing delimiter at depth 0, stop — value is complete
+            if (depth === 0) { i++; break; }
+          } else if (/\s/.test(s[i]) && depth === 0) {
+            // At depth 0, whitespace normally ends the value — but peek ahead
+            // to see if a `(` or `{` follows (tokenizer-spaced call or expression block).
+            let peek = i;
+            while (peek < s.length && /\s/.test(s[peek])) peek++;
+            if (peek < s.length && (s[peek] === '(' || s[peek] === '{')) {
+              // It's a paren group or brace block — keep reading
+              i++;
+              continue;
+            }
+            break;
+          }
+          i++;
+        }
+        value = s.slice(valueStart, i);
+      }
+      attrs.push({ name, value });
+    } else {
+      // Boolean attribute (no value)
+      attrs.push({ name, value: null });
+    }
+  }
+
+  return attrs;
+}
+
+// ---------------------------------------------------------------------------
+// Content text parser (for interpolation segments)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse lift content text that may contain `$$ { expr }` (literal $ + interpolation)
+ * or `$ { expr }` interpolation patterns from the tokenizer.
+ * Pushes { type: "text" | "expr", value } items into the parts array.
+ */
+export function parseLiftContentParts(text, parts) {
+  let i = 0;
+  let literalStart = 0;
+
+  while (i < text.length) {
+    // Check for $$ { pattern — literal $ followed by ${ interpolation
+    if (text[i] === '$' && text[i + 1] === '$' && i + 2 < text.length) {
+      let j = i + 2;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (j < text.length && text[j] === '{') {
+        let depth = 1;
+        let k = j + 1;
+        while (k < text.length && depth > 0) {
+          if (text[k] === '{') depth++;
+          else if (text[k] === '}') depth--;
+          k++;
+        }
+        if (depth === 0) {
+          if (i > literalStart) {
+            parts.push({ type: "text", value: text.slice(literalStart, i) });
+          }
+          parts.push({ type: "text", value: "$" });
+          const exprInside = text.slice(j + 1, k - 1).trim();
+          parts.push({ type: "expr", value: exprInside });
+          literalStart = k;
+          i = k;
+          continue;
+        }
+      }
+    }
+    // Check for ${ pattern — interpolation (compact form)
+    if (text[i] === '$' && text[i + 1] === '{') {
+      let j = i + 2;
+      let depth = 1;
+      while (j < text.length && depth > 0) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') depth--;
+        j++;
+      }
+      if (depth === 0) {
+        if (i > literalStart) {
+          parts.push({ type: "text", value: text.slice(literalStart, i) });
+        }
+        const exprInside = text.slice(i + 2, j - 1).trim();
+        parts.push({ type: "expr", value: exprInside });
+        literalStart = j;
+        i = j;
+        continue;
+      }
+    }
+    // Check for `$ { expr }` (tokenizer spaces $ away from {)
+    if (text[i] === '$' && i + 1 < text.length && /\s/.test(text[i + 1])) {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (j < text.length && text[j] === '{') {
+        let depth = 1;
+        let k = j + 1;
+        while (k < text.length && depth > 0) {
+          if (text[k] === '{') depth++;
+          else if (text[k] === '}') depth--;
+          k++;
+        }
+        if (depth === 0) {
+          if (i > literalStart) {
+            parts.push({ type: "text", value: text.slice(literalStart, i) });
+          }
+          const exprInside = text.slice(j + 1, k - 1).trim();
+          parts.push({ type: "expr", value: exprInside });
+          literalStart = k;
+          i = k;
+          continue;
+        }
+      }
+    }
+    i++;
+  }
+
+  // Push remaining literal
+  if (literalStart < text.length) {
+    const remaining = text.slice(literalStart);
+    if (remaining.trim()) {
+      parts.push({ type: "text", value: remaining });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Nested tag detection helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a string contains a tokenizer-spaced opening tag like `< div` or `< a`.
+ * The tokenizer separates `<` from the tag name with a space.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function hasNestedTag(s) {
+  return /<\s*[A-Za-z]/.test(s);
+}
+
+/**
+ * Check if a string is a tokenizer-spaced closing tag like `< / a >` or `< / li >`.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function isClosingTagFragment(s) {
+  return /^<\s*\//.test(s);
+}
+
+/**
+ * Check if a string contains a tokenizer-spaced closing tag like `< / div >`.
+ * Unlike isClosingTagFragment, this checks anywhere in the string, not just the start.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function containsClosingTag(s) {
+  return /<\s*\/\s*[A-Za-z]/.test(s);
+}
+
+/**
+ * Split a content string containing multiple tokenizer-spaced tags into segments.
+ * Each segment is { type: "text"|"open-tag"|"close-tag", ... }.
+ *
+ * Example: `< / span > < span class = "date" >`
+ * → [{ type: "close-tag", tag: "span" }, { type: "open-tag", tag: "span", attrsStr: "class = \"date\"" }]
+ *
+ * @param {string} s — content that may contain tokenizer-spaced tags
+ * @returns {Array<{type: string, tag?: string, attrsStr?: string, text?: string}>}
+ */
+function splitTagSegments(s) {
+  const segments = [];
+  let i = 0;
+  let textStart = 0;
+
+  while (i < s.length) {
+    // Check for tag opening `<`
+    if (s[i] === '<') {
+      // Flush preceding text
+      if (i > textStart) {
+        const text = s.slice(textStart, i).trim();
+        if (text) segments.push({ type: "text", text });
+      }
+
+      // Determine if closing tag or opening tag
+      let j = i + 1;
+      while (j < s.length && /\s/.test(s[j])) j++;
+
+      if (j < s.length && s[j] === '/') {
+        // Closing tag: `< / tagname >`
+        j++;
+        while (j < s.length && /\s/.test(s[j])) j++;
+        let tagStart = j;
+        while (j < s.length && /[A-Za-z0-9-]/.test(s[j])) j++;
+        const tag = s.slice(tagStart, j);
+        // Skip to >
+        while (j < s.length && s[j] !== '>') j++;
+        if (j < s.length) j++; // consume >
+        segments.push({ type: "close-tag", tag });
+        textStart = j;
+        i = j;
+        continue;
+      } else if (j < s.length && /[A-Za-z]/.test(s[j])) {
+        // Opening tag: `< tagname attrs >`
+        let tagStart = j;
+        while (j < s.length && /[A-Za-z0-9-]/.test(s[j])) j++;
+        const tag = s.slice(tagStart, j);
+
+        // Read attributes until >
+        const attrsStart = j;
+        while (j < s.length) {
+          if (s[j] === '>') break;
+          if (s[j] === '"' || s[j] === "'") {
+            const q = s[j]; j++;
+            while (j < s.length && s[j] !== q) {
+              if (s[j] === '\\') j++;
+              j++;
+            }
+            if (j < s.length) j++;
+            continue;
+          }
+          j++;
+        }
+        const attrsStr = s.slice(attrsStart, j).trim();
+        if (j < s.length && s[j] === '>') j++; // consume >
+        segments.push({ type: "open-tag", tag, attrsStr });
+        textStart = j;
+        i = j;
+        continue;
+      }
+    }
+    i++;
+  }
+
+  // Flush remaining text
+  if (textStart < s.length) {
+    const text = s.slice(textStart).trim();
+    if (text) segments.push({ type: "text", text });
+  }
+
+  return segments;
+}
+
+// ---------------------------------------------------------------------------
+// createElement emission helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit setAttribute calls for a parsed attrs array.
+ * Returns lines like: `_el.setAttribute("class", "card");`
+ * For attrs that have `${expr}` values, uses a template literal.
+ *
+ * @param {string} elVar — the variable name of the element
+ * @param {Array<{name: string, value: string|null}>} attrs
+ * @returns {string[]}
+ */
+function emitSetAttrs(elVar, attrs) {
+  const lines = [];
+  for (const attr of attrs) {
+    if (attr.value === null) {
+      // Boolean attribute
+      lines.push(`${elVar}.setAttribute(${JSON.stringify(attr.name)}, "");`);
+    } else if (/^on[a-z]/.test(attr.name)) {
+      // BUG-6 fix: event attributes like onclick, ondblclick, onsubmit
+      // must use addEventListener, not setAttribute
+      const eventName = attr.name.replace(/^on/, "");
+      // The value may be a function call like "toggleTodo(todo.id)" or just a name
+      const handlerExpr = attr.value.includes('${') || /\$\s*\{/.test(attr.value)
+        ? (() => {
+            const parts = [];
+            parseLiftContentParts(attr.value, parts);
+            return parts.map(p => p.type === "expr" ? rewriteExpr(p.value) : p.value).join("");
+          })()
+        : rewriteExpr(attr.value);
+      lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${handlerExpr}; });`);
+    } else {
+      // Check if the value contains interpolation (compact or tokenizer-spaced)
+      if (attr.value.includes('${') || /\$\s*\{/.test(attr.value)) {
+        // Rebuild as template literal with rewritten expressions
+        const parts = [];
+        parseLiftContentParts(attr.value, parts);
+        let tpl = "`";
+        for (const p of parts) {
+          if (p.type === "expr") {
+            tpl += "${" + rewriteExpr(rewriteRenderCall(p.value)) + "}";
+          } else {
+            tpl += p.value.replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+          }
+        }
+        tpl += "`";
+        lines.push(`${elVar}.setAttribute(${JSON.stringify(attr.name)}, ${tpl});`);
+      } else {
+        lines.push(`${elVar}.setAttribute(${JSON.stringify(attr.name)}, ${JSON.stringify(attr.value)});`);
+      }
+    }
+  }
+  return lines;
+}
+
+/**
+ * Emit JS statements that set the text content of an element from a list of parts.
+ * Pure text → textContent assignment. Mixed content → appendChild(createTextNode(`...`)).
+ *
+ * @param {string} elVar — the variable name of the element
+ * @param {Array<{type: string, value: string}>} parts — text/expr parts
+ * @returns {string[]} — JS lines
+ */
+function emitSetContent(elVar, parts) {
+  if (!parts || parts.length === 0) return [];
+
+  const hasExpr = parts.some(p => p.type === "expr");
+
+  if (!hasExpr) {
+    const combined = parts.map(p => p.value).join("");
+    if (!combined.trim()) return [];
+    return [`${elVar}.textContent = ${JSON.stringify(combined)};`];
+  }
+
+  // Build a template literal for mixed text/expression content
+  let tpl = "`";
+  for (const p of parts) {
+    if (p.type === "expr") {
+      tpl += "${" + rewriteExpr(rewriteRenderCall(p.value)) + "}";
+    } else {
+      tpl += p.value.replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+    }
+  }
+  tpl += "`";
+  return [`${elVar}.appendChild(document.createTextNode(${tpl}));`];
+}
+
+/**
+ * Walk a markup AST node recursively and emit createElement chains.
+ * Returns the variable name of the root element.
+ *
+ * @param {object} node — markup AST node { kind:"markup", tag, attributes, children }
+ * @param {string[]} lines — accumulator for JS lines
+ * @returns {string} — the variable name of the created element
+ */
+function emitCreateElementFromMarkup(node, lines) {
+  const tag = node.tag ?? node.tagName ?? "div";
+  const attrs = node.attributes ?? node.attrs ?? [];
+  const children = node.children ?? [];
+  const isVoid = VOID_ELEMENTS.has(tag);
+
+  const elVar = genVar(`lift_el`);
+  lines.push(`const ${elVar} = document.createElement(${JSON.stringify(tag)});`);
+
+  // Emit setAttribute calls
+  for (const attr of attrs) {
+    if (!attr) continue;
+    const name = attr.name;
+    const val = attr.value;
+
+    if (!val || val.kind === "absent") {
+      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, "");`);
+    } else if (val.kind === "string-literal") {
+      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(val.value)});`);
+    } else if (val.kind === "variable-ref") {
+      const varName = (val.name || "").replace(/^@/, "");
+      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewriteExpr(varName)});`);
+    } else if (val.kind === "call-ref") {
+      // Event handler — use addEventListener
+      const eventName = name.replace(/^on/, "");
+      lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, ${val.name});`);
+    } else if (typeof val === "string") {
+      // Raw string value
+      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(val)});`);
+    } else if (val.kind === "expr" || val.kind === "props-block") {
+      // Inline expression from ${...} attribute (e.g. oninput=${@var = event.target.value})
+      // or props-block. For event attrs, use addEventListener; otherwise setAttribute.
+      const raw = val.raw ?? val.propsDecl ?? "";
+      if (/^on[a-z]/.test(name)) {
+        const eventName = name.replace(/^on/, "");
+        const rewritten = rewriteExpr(raw);
+        lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
+      } else {
+        const rewritten = rewriteExpr(raw);
+        lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${rewritten} ?? ""));`);
+      }
+    }
+  }
+
+  if (!isVoid) {
+    for (const child of children) {
+      if (!child) continue;
+
+      if (child.kind === "text") {
+        const text = child.value ?? child.text ?? "";
+        if (text.trim()) {
+          lines.push(`${elVar}.appendChild(document.createTextNode(${JSON.stringify(text)}));`);
+        }
+      } else if (child.kind === "markup") {
+        const childVar = emitCreateElementFromMarkup(child, lines);
+        lines.push(`${elVar}.appendChild(${childVar});`);
+      } else if (child.kind === "logic") {
+        // Logic block in markup — emit as a text node with the evaluated expression
+        if (child.body) {
+          for (const logicChild of child.body) {
+            if (logicChild && logicChild.kind === "bare-expr" && logicChild.expr) {
+              const rewritten = rewriteExpr(rewriteRenderCall(logicChild.expr));
+              lines.push(`${elVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return elVar;
+}
+
+// ---------------------------------------------------------------------------
+// Tag expression string parser (for tokenizer-fragmented lift expressions)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a tokenizer-spaced tag expression string into { tag, attrsStr, content }.
+ *
+ * Input: `< div class = "card" > content /`
+ * or:    `< li > Step content /`
+ * or:    `< img src = "x.jpg" alt = "Photo" /`   (self-closing void element)
+ *
+ * The tokenizer separates `<` from the tag name and `=` from attribute values with spaces.
+ * This parser handles that spacing correctly.
+ *
+ * @param {string} expr
+ * @returns {{ tag: string, attrsStr: string, content: string } | null}
+ */
+function parseTagExprString(expr) {
+  if (!expr) return null;
+  const s = expr.trim();
+  if (s[0] !== '<') return null;
+
+  let i = 1;
+
+  // Skip whitespace after <
+  while (i < s.length && /\s/.test(s[i])) i++;
+
+  // Skip if next char is / (closing tag)
+  if (i < s.length && s[i] === '/') return null;
+
+  // Read tag name
+  const tagStart = i;
+  while (i < s.length && /[A-Za-z0-9-]/.test(s[i])) i++;
+  if (i === tagStart) return null; // No tag name
+  const tag = s.slice(tagStart, i);
+
+  // Read attributes — everything up to (but not including) the first unquoted >
+  const attrsStart = i;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '>') break;
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      i++;
+      while (i < s.length && s[i] !== q) {
+        if (s[i] === '\\') i++;
+        i++;
+      }
+      if (i < s.length) i++; // consume closing quote
+      continue;
+    }
+    i++;
+  }
+  const attrsStr = s.slice(attrsStart, i).trim();
+
+  // Consume the > if present
+  if (i < s.length && s[i] === '>') i++;
+
+  // Skip whitespace after >
+  while (i < s.length && /\s/.test(s[i])) i++;
+
+  // Content is everything after the `>`, with the trailing `/` (lift closer) stripped
+  let content = s.slice(i);
+  content = content.replace(/\s*\/\s*$/, "").trim();
+
+  return { tag, attrsStr, content };
+}
+
+/**
+ * Emit createElement JS from a tokenizer-spaced tag expression string.
+ * Returns { lines: string[], varName: string } or null if not a tag expression.
+ *
+ * Only handles simple content (text + interpolations).
+ * Content containing nested tags (tokenizer-spaced `< tag`) is left to the caller.
+ *
+ * @param {string} expr — raw tokenizer string like `< li > ${item} /`
+ * @returns {{ lines: string[], varName: string } | null}
+ */
+function emitCreateElementFromExprString(expr) {
+  const parsed = parseTagExprString(expr);
+  if (!parsed) return null;
+
+  const { tag, attrsStr, content } = parsed;
+  const isVoid = VOID_ELEMENTS.has(tag);
+  const lines = [];
+  const elVar = genVar(`lift_el`);
+
+  lines.push(`const ${elVar} = document.createElement(${JSON.stringify(tag)});`);
+
+  // Parse and emit attributes
+  if (attrsStr) {
+    const attrs = parseAttrs(attrsStr);
+    const attrLines = emitSetAttrs(elVar, attrs);
+    for (const l of attrLines) lines.push(l);
+  }
+
+  // Emit content
+  if (content && !isVoid) {
+    if (hasNestedTag(content)) {
+      // Content contains nested child elements — split into child segments and recurse.
+      // Each child is either a `< tag ... /` element or text between elements.
+      const childSegments = splitChildTagSegments(content);
+      for (const seg of childSegments) {
+        const trimmed = seg.trim();
+        if (!trimmed) continue;
+        if (hasNestedTag(trimmed) || /^<\s*[A-Za-z]/.test(trimmed)) {
+          // Child element — recurse
+          const childResult = emitCreateElementFromExprString(trimmed);
+          if (childResult) {
+            for (const l of childResult.lines) lines.push(l);
+            lines.push(`${elVar}.appendChild(${childResult.varName});`);
+          }
+        } else {
+          // Text content between child elements
+          const textParts = [];
+          parseLiftContentParts(trimmed, textParts);
+          if (textParts.length > 0) {
+            const textLines = emitSetContent(elVar, textParts);
+            for (const l of textLines) lines.push(l);
+          }
+        }
+      }
+    } else {
+      const parts = [];
+      parseLiftContentParts(content, parts);
+      if (parts.length > 0) {
+        const contentLines = emitSetContent(elVar, parts);
+        for (const l of contentLines) lines.push(l);
+      }
+    }
+  }
+
+  return { lines, varName: elVar };
+}
+
+/**
+ * Split a content string containing multiple child elements into segments.
+ * Each segment is either a complete `< tag ... /` element or text between elements.
+ * Uses `/` as the element closer, tracking `<` depth to handle nesting.
+ */
+function splitChildTagSegments(content) {
+  const segments = [];
+  let i = 0;
+  let segStart = 0;
+
+  while (i < content.length) {
+    // Look for a tag open: `< letter` (tokenizer-spaced)
+    if (content[i] === '<') {
+      let j = i + 1;
+      while (j < content.length && /\s/.test(content[j])) j++;
+      if (j < content.length && /[A-Za-z]/.test(content[j])) {
+        // Found a child tag start — push any text before it
+        const textBefore = content.slice(segStart, i).trim();
+        if (textBefore) segments.push(textBefore);
+
+        // Find the matching closer `/` for this tag, tracking nesting
+        let depth = 1;
+        let k = j;
+        // Skip past tag name
+        while (k < content.length && /[A-Za-z0-9-]/.test(content[k])) k++;
+        // Scan for the matching `/` closer
+        let inString = null;
+        while (k < content.length && depth > 0) {
+          const ch = content[k];
+          if (inString) {
+            if (ch === '\\') { k++; }
+            else if (ch === inString) { inString = null; }
+          } else if (ch === '"' || ch === "'") {
+            inString = ch;
+          } else if (ch === '<') {
+            // Check if it's another tag open (not closing tag)
+            let peek = k + 1;
+            while (peek < content.length && /\s/.test(content[peek])) peek++;
+            if (peek < content.length && /[A-Za-z]/.test(content[peek])) {
+              depth++;
+            }
+          } else if (ch === '/') {
+            depth--;
+            if (depth === 0) {
+              // Found the closer — include it in the segment
+              segments.push(content.slice(i, k + 1).trim());
+              segStart = k + 1;
+              i = k + 1;
+              break;
+            }
+          }
+          k++;
+        }
+        if (depth > 0) {
+          // No closer found — push remainder as text
+          segments.push(content.slice(i).trim());
+          segStart = content.length;
+          i = content.length;
+        }
+        continue;
+      }
+    }
+    i++;
+  }
+
+  // Push any trailing text
+  const trailing = content.slice(segStart).trim();
+  if (trailing) segments.push(trailing);
+
+  return segments;
+}
+
+// ---------------------------------------------------------------------------
+// Fragmented for-loop body detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a for-loop body contains a lift-expr followed by fragmented HTML/logic nodes.
+ * This pattern arises from the parser fragmenting `lift <tag>content</tag>` across multiple nodes.
+ *
+ * Two fragmentation patterns are detected:
+ * 1. bare-expr with HTML chars (<, >, /) — explicit HTML fragment tokens
+ * 2. tilde-decl with lowercase HTML attribute name — attribute tokens (e.g. `onclick = handler()`)
+ *    misparsed as variable assignments when they appeared after a BLOCK_REF split the attribute
+ *    stream. For example, `checked=${todo.completed}` causes a BLOCK_REF boundary; the following
+ *    `onclick = toggleTodo(id)` tokens fire the tilde-decl rule in parseOneStatement because
+ *    IDENT followed by `=` at depth 0 is treated as a variable assignment.
+ */
+export function hasFragmentedLiftBody(body) {
+  if (!body || body.length < 2) return false;
+  const hasLift = body.some(n => n && n.kind === "lift-expr");
+  // Pattern 1: bare-expr with HTML chars (< > /) — explicit HTML fragment
+  const hasBareHtmlFragment = body.some(n => n && n.kind === "bare-expr" &&
+    typeof n.expr === "string" && /[<>/]/.test(n.expr));
+  // Pattern 2: tilde-decl with lowercase HTML attribute name — attribute tokens misparsed
+  // as variable assignments. e.g. `onclick = toggleTodo(id)` → tilde-decl{name:"onclick"}
+  const hasTildeDeclFragment = body.some(n => n && n.kind === "tilde-decl" &&
+    typeof n.name === "string" && /^[a-z][a-z0-9\-_:]*$/.test(n.name));
+  return hasLift && (hasBareHtmlFragment || hasTildeDeclFragment);
+}
+
+// ---------------------------------------------------------------------------
+// emitForStmtWithContainer — for-loop emitter that routes inner lift to parent
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a for-of loop where inner lift-expr calls target containerElVar instead
+ * of calling _scrml_lift() globally. Used by emitConsolidatedLift to correctly
+ * scope nested lift inside a lifted element (§10.6 nested lift scoping rule).
+ *
+ * Without this helper, a for-loop body's lift-expr nodes call emitLiftExpr()
+ * with no containerVar, which emits _scrml_lift(factory) — targeting the global
+ * lift accumulator (document.body fallback) instead of the nearest enclosing
+ * lifted element.
+ *
+ * @param {object} forNode — for-stmt AST node
+ * @param {string} containerElVar — variable name of the enclosing element to
+ *   append to (e.g. the <li> being built by the outer lift)
+ * @returns {string}
+ */
+function emitForStmtWithContainer(forNode, containerElVar) {
+  const lines = [];
+  let varName = forNode.variable ?? forNode.name ?? 'item';
+  let iterable = forNode.iterable ?? forNode.collection ?? '[]';
+
+  if (typeof iterable === 'string') {
+    // C-style for loop: pass through to emitLogicNode (containerVar not needed for C-style)
+    const cStyleMatch = iterable.match(/^\(\s*(.*?)\s*;\s*(.*?)\s*;\s*(.*?)\s*\)$/s);
+    if (cStyleMatch) {
+      return emitLogicNode(forNode, {});
+    }
+    // Match "( [let|const|var] VAR of EXPR )" or "( VAR of EXPR )"
+    const forOfMatch = iterable.match(/^\(\s*(?:(?:let|const|var)\s+)?(\w+)\s+of\s+(.*)\s*\)$/s);
+    if (forOfMatch) {
+      if (varName === 'item' && forOfMatch[1] !== 'item') {
+        varName = forOfMatch[1];
+      }
+      iterable = forOfMatch[2].trim();
+    }
+  }
+
+  const rewrittenIterable = rewriteExpr(iterable);
+  lines.push(`for (const ${varName} of ${rewrittenIterable}) {`);
+
+  const body = forNode.body ?? [];
+  for (const child of body) {
+    if (!child) continue;
+    if (child.kind === 'lift-expr') {
+      // Route inner lift to the container element — NOT to _scrml_lift() globally
+      const code = emitLiftExpr(child, { containerVar: containerElVar });
+      if (code) {
+        for (const line of code.split('\n')) lines.push('  ' + line);
+      }
+    } else {
+      const code = emitLogicNode(child, {});
+      if (code) lines.push('  ' + code);
+    }
+  }
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// emitConsolidatedLift — fragmented for-loop body path
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit createElement JS from a fragmented for-loop body.
+ * Handles the pattern where `lift <tag>content</tag>` is fragmented across multiple
+ * AST nodes due to BLOCK_REF boundaries (interpolations like `${expr}`).
+ *
+ * Body structure example (for `lift <li>${link}/`):
+ *   [lift-expr{expr="< li >"}, logic{bare-expr:"link"}, bare-expr("< / a > < / li >")]
+ *
+ * Returns JS string with createElement chains wrapped in `_scrml_lift(() => {...})`.
+ *
+ * @param {object[]} body
+ * @param {object} [opts] — optional context
+ * @param {string} [opts.containerVar] — when set, emit `containerVar.appendChild(factory())`
+ *   instead of `_scrml_lift(factory)`. Used by reactive list render functions (§6.5.3).
+ */
+export function emitConsolidatedLift(body, opts = {}) {
+  // Find the first lift-expr
+  const liftIdx = body.findIndex(n => n && n.kind === "lift-expr");
+  if (liftIdx === -1) return "";
+
+  const containerVar = opts.containerVar ?? null;
+  const directReturn = opts.directReturn ?? false;
+
+  // Pre-statements (before the lift)
+  const preStatements = [];
+  for (let i = 0; i < liftIdx; i++) {
+    const child = body[i];
+    if (!child) continue;
+    const code = emitLogicNode(child, opts);
+    if (code) preStatements.push(code);
+  }
+
+  // Check if the lift-expr has a full markup AST — emit directly
+  const firstLift = body[liftIdx];
+  if (firstLift && firstLift.kind === "lift-expr" && firstLift.expr) {
+    const liftExpr = firstLift.expr;
+    if (liftExpr.kind === "markup" && liftExpr.node) {
+      const lines = [];
+      const rootVar = emitCreateElementFromMarkup(liftExpr.node, lines);
+      const factoryBody = lines.join("\n    ");
+      let factoryCode;
+      if (directReturn) {
+        factoryCode = `${factoryBody}\n  return ${rootVar};`;
+      } else if (containerVar) {
+        factoryCode = `${containerVar}.appendChild((() => {\n    ${factoryBody}\n    return ${rootVar};\n  })());`;
+      } else {
+        factoryCode = `_scrml_lift(() => {\n    ${factoryBody}\n    return ${rootVar};\n  });`;
+      }
+      const allLines = [...preStatements, factoryCode];
+      return allLines.join("\n  ");
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Nested element tree builder
+  //
+  // Instead of creating a single flat element, we build a proper tree by
+  // tracking an element stack. Nested opening tags push new elements onto
+  // the stack; closing tags pop them. Content and interpolations go into
+  // the current top-of-stack element. Logic blocks (for-loops, if-stmts)
+  // that contain lift children get their output appended to the current
+  // parent element.
+  // -----------------------------------------------------------------------
+
+  const lines = [];
+  // Element stack: [{ varName, tag }]
+  const elementStack = [];
+
+  // pendingAttrName: tracks when a BLOCK_REF splits an attribute (e.g. checked=${expr})
+  // When attrsStr ends with `attrname =`, the next logic node is the attribute VALUE,
+  // not text content of the element.
+  let pendingAttrName = null;
+
+  /** Get the current parent element variable (top of stack) */
+  function currentParent() {
+    return elementStack.length > 0 ? elementStack[elementStack.length - 1].varName : null;
+  }
+
+  /** Get the current element entry (top of stack). */
+  function currentElement() {
+    return elementStack.length > 0 ? elementStack[elementStack.length - 1] : null;
+  }
+
+  /**
+   * Create a new element, emit setAttribute calls, and optionally
+   * appendChild to the current parent.
+   *
+   * FIX (toggle-checkbox-trace): Detect and strip a trailing incomplete attribute
+   * BEFORE calling parseAttrs. This prevents spurious empty-value entries like
+   * setAttribute("data-id", "") when the tokenizer fragments `data-id=${expr}` as
+   * `data - id =` (raw text) followed by a BLOCK_REF for the value.
+   * The trailing regex also matches tokenizer-spaced hyphenated names like `data - id`.
+   */
+  function pushElement(tag, attrsStr) {
+    pendingAttrName = null;
+    const elVar = genVar(`lift_el`);
+    lines.push(`const ${elVar} = document.createElement(${JSON.stringify(tag)});`);
+    if (attrsStr) {
+      // Detect and strip a trailing incomplete attribute (e.g. `checked =` or `data - id =`)
+      // BEFORE calling parseAttrs. This happens when a BLOCK_REF splits the attribute value
+      // from its name. The tokenizer spaces hyphens: `data-id` becomes `data - id`.
+      // Stripping prevents parseAttrs from emitting a spurious empty-value entry like
+      // setAttribute("data-id", "") followed by a separate setAttribute("id", todo.id).
+      let cleanAttrsStr = attrsStr.trim();
+      const trailingMatch = /([a-z][a-z0-9_]*(?:\s*-\s*[a-z][a-z0-9_]*)*)\s*=\s*$/.exec(cleanAttrsStr);
+      if (trailingMatch) {
+        // Remove the trailing `name =` (including tokenizer-spaced forms like `data - id =`)
+        cleanAttrsStr = cleanAttrsStr.slice(0, cleanAttrsStr.length - trailingMatch[0].length).trim();
+        // Normalize the name: collapse tokenizer spaces around hyphens (`data - id` → `data-id`)
+        pendingAttrName = trailingMatch[1].replace(/\s*-\s*/g, "-");
+      }
+      const attrs = parseAttrs(cleanAttrsStr);
+      const attrLines = emitSetAttrs(elVar, attrs);
+      for (const l of attrLines) lines.push(l);
+    }
+    const parent = currentParent();
+    if (parent) {
+      lines.push(`${parent}.appendChild(${elVar});`);
+    }
+    elementStack.push({ varName: elVar, tag });
+    return elVar;
+  }
+
+  /** Pop element stack on closing tag. */
+  function popElement(tag) {
+    pendingAttrName = null;
+    if (elementStack.length > 1) {
+      // Pop the top element — it's already been appended to its parent
+      const top = elementStack[elementStack.length - 1];
+      // Only pop if the tag matches (or if it's a mismatched close, still pop to recover)
+      elementStack.pop();
+    }
+  }
+
+  /** Add text/expression content to the current element. */
+  function addContentToCurrentElement(parts) {
+    const parent = currentParent();
+    if (!parent || parts.length === 0) return;
+    // Do not add text content to void elements (e.g. <input>, <br>, <img>)
+    const curEl = currentElement();
+    if (curEl && VOID_ELEMENTS.has(curEl.tag)) return;
+    const contentLines = emitSetContent(parent, parts);
+    for (const l of contentLines) lines.push(l);
+  }
+
+  /**
+   * Process a content string that may contain multiple nested tags.
+   * Handles: text, opening tags (push element), closing tags (pop element).
+   */
+  function processContentWithTags(content) {
+    if (!content || !content.trim()) return;
+
+    // If no HTML tags at all, treat as plain content
+    if (!hasNestedTag(content) && !containsClosingTag(content)) {
+      const parts = [];
+      // Strip trailing / (lift closer)
+      const cleaned = content.replace(/\s*\/\s*$/, "").trim();
+      if (cleaned) {
+        parseLiftContentParts(cleaned, parts);
+        addContentToCurrentElement(parts);
+      }
+      return;
+    }
+
+    const segments = splitTagSegments(content);
+    for (const seg of segments) {
+      if (seg.type === "open-tag") {
+        pushElement(seg.tag, seg.attrsStr || "");
+      } else if (seg.type === "close-tag") {
+        popElement(seg.tag);
+      } else if (seg.type === "text") {
+        let text = seg.text;
+        // Strip trailing / (lift closer)
+        text = text.replace(/\s*\/\s*$/, "").trim();
+        // Skip bare > fragments (tag closers that got separated from the tag)
+        if (!text || text === ">") continue;
+        const parts = [];
+        parseLiftContentParts(text, parts);
+        addContentToCurrentElement(parts);
+      }
+    }
+  }
+
+  // Parse the root element from the lift-expr
+  let rootTag = "div";
+  let rootAttrsStr = "";
+  let rootContent = "";
+
+  const liftNode = body[liftIdx];
+  if (liftNode && liftNode.kind === "lift-expr" && liftNode.expr) {
+    const liftExpr = liftNode.expr;
+    if (liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
+      const expr = liftExpr.expr.trim();
+      const parsed = parseTagExprString(expr);
+      if (parsed) {
+        rootTag = parsed.tag;
+        rootAttrsStr = parsed.attrsStr;
+        rootContent = parsed.content || "";
+      }
+    }
+  }
+
+  // Create the root element
+  const rootVar = pushElement(rootTag, rootAttrsStr);
+
+  // Process any content/nested tags from the lift-expr itself
+  if (rootContent) {
+    processContentWithTags(rootContent);
+  }
+
+  // Walk remaining body nodes after the lift-expr
+  for (let i = liftIdx + 1; i < body.length; i++) {
+    const child = body[i];
+    if (!child) continue;
+
+    if (child.kind === "logic" && child.body) {
+      // Logic block: ${expr} interpolation or ${for loop} or ${if stmt}
+      // Check if the logic body contains only bare-expr nodes (simple interpolation)
+      const hasComplexChildren = child.body.some(n => n && (
+        n.kind === "for-stmt" || n.kind === "if-stmt" || n.kind === "while-stmt" ||
+        n.kind === "lift-expr" || n.kind === "function-decl"
+      ));
+
+      if (hasComplexChildren) {
+        // Complex logic block — emit each child, routing lift output to current parent
+        const parent = currentParent();
+        for (const logicChild of child.body) {
+          if (!logicChild) continue;
+          if (logicChild.kind === "lift-expr") {
+            const code = emitLiftExpr(logicChild, { containerVar: parent });
+            if (code) lines.push(code);
+          } else if (logicChild.kind === "for-stmt" && parent) {
+            // FIX (b2-nested-lift): route inner for-loop's lift-exprs to the current
+            // parent element instead of emitting _scrml_lift() globally. Without this,
+            // lift <span> inside for (item of group.items) targets document.body, not <li>.
+            const code = emitForStmtWithContainer(logicChild, parent);
+            if (code) lines.push(code);
+          } else {
+            // Other nodes (if-stmt, while-stmt, function-decl) — emit via emitLogicNode
+            const code = emitLogicNode(logicChild, opts);
+            if (code) lines.push(code);
+          }
+        }
+      } else {
+        // Simple interpolation — extract bare-expr values as content or attribute values
+        for (const logicChild of child.body) {
+          if (logicChild && logicChild.kind === "bare-expr" && logicChild.expr) {
+            if (pendingAttrName !== null) {
+              // This logic node is the value for a BLOCK_REF-split attribute
+              // e.g. `checked = ${todo.completed}` — the `todo.completed` part
+              // For event attributes (e.g. oninput, onclick), use addEventListener.
+              const elVar = currentParent();
+              if (elVar) {
+                const attrName = pendingAttrName;
+                pendingAttrName = null;
+                const rewritten = rewriteExpr(logicChild.expr);
+                if (/^on[a-z]/.test(attrName)) {
+                  const eventName = attrName.replace(/^on/, "");
+                  lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
+                } else {
+                  lines.push(`${elVar}.setAttribute(${JSON.stringify(attrName)}, String(${rewritten} ?? ""));`);
+                }
+              }
+            } else {
+              const parts = [{ type: "expr", value: logicChild.expr }];
+              addContentToCurrentElement(parts);
+            }
+          }
+        }
+      }
+    } else if (child.kind === "bare-expr" && typeof child.expr === "string") {
+      let expr = child.expr.trim();
+      if (!expr) continue;
+      // Skip bare / (lift closer)
+      if (/^\/\s*$/.test(expr)) continue;
+      // Skip bare >
+      if (expr === ">") continue;
+
+      // Detect attribute continuation: a fragment that starts with an attribute name
+      // followed by `=` (without a leading `<`). This happens when a void element's
+      // remaining attributes are flushed as a text fragment after a BLOCK_REF split.
+      // Examples: `onclick = toggleTodo ( todo . id ) / >` or `type = "checkbox"`
+      const isAttrContinuation = !expr.startsWith("<") &&
+        /^[a-z][a-z0-9\-_:]*\s*=/.test(expr);
+      if (isAttrContinuation) {
+        const elEntry = currentElement();
+        if (elEntry) {
+          // Split: attr part is before the first `<` tag marker (if any)
+          const firstTagIdx = expr.search(/<\s*[A-Za-z/]/);
+          const attrPart = firstTagIdx === -1 ? expr : expr.slice(0, firstTagIdx);
+          const remainder = firstTagIdx === -1 ? "" : expr.slice(firstTagIdx);
+          const attrs = parseAttrs(attrPart);
+          const attrLines = emitSetAttrs(elEntry.varName, attrs);
+          for (const l of attrLines) lines.push(l);
+          pendingAttrName = null;
+          if (remainder.trim()) {
+            processContentWithTags(remainder);
+          }
+        }
+        continue;
+      }
+
+      // Process content that may contain opening/closing tags
+      if (hasNestedTag(expr) || isClosingTagFragment(expr) || containsClosingTag(expr)) {
+        processContentWithTags(expr);
+      } else {
+        // Plain text/expression content
+        expr = expr.replace(/\s*\/\s*$/, "").trim();
+        if (expr) {
+          const parts = [];
+          parseLiftContentParts(expr, parts);
+          addContentToCurrentElement(parts);
+        }
+      }
+    }
+    // tilde-decl: an HTML attribute assignment that the AST builder misidentified as a
+    // variable declaration. This happens when attribute tokens like `onclick = toggleTodo(id)`
+    // appear after a BLOCK_REF split the attribute stream (e.g. `checked=${expr}` causes a
+    // BLOCK_REF; the following `onclick =` tokens fire the tilde-decl rule because IDENT
+    // followed by `=` at depth 0 is parsed as a variable assignment by parseOneStatement).
+    // Guard: only treat as attr if the name matches the HTML attribute pattern (all lowercase).
+    else if (child.kind === "tilde-decl" && /^[a-z][a-z0-9\-_:]*$/.test(child.name || "")) {
+      const elEntry = currentElement();
+      if (elEntry) {
+        const attrName = child.name;
+        const rawInit = (child.init || "").trim();
+
+        // Split the init at the first ` / >` self-closer, respecting paren depth.
+        // Example: `toggleTodo ( todo . id ) / > < label ondblclick = startEdit ( ... ) >`
+        //   → attrValue = `toggleTodo ( todo . id )`, remainder = `< label ondblclick = ... >`
+        let attrValue = rawInit;
+        let remainder = "";
+        let depth = 0;
+        let selfCloserIdx = -1;
+        for (let ci = 0; ci < rawInit.length; ci++) {
+          if (rawInit[ci] === "(") depth++;
+          else if (rawInit[ci] === ")") depth--;
+          else if (depth === 0 && rawInit[ci] === "/") {
+            let j = ci + 1;
+            while (j < rawInit.length && /\s/.test(rawInit[j])) j++;
+            if (j < rawInit.length && rawInit[j] === ">") {
+              selfCloserIdx = ci;
+              break;
+            }
+          }
+        }
+        if (selfCloserIdx !== -1) {
+          attrValue = rawInit.slice(0, selfCloserIdx).trim();
+          // Advance past `/ >` — skip `/`, optional whitespace, `>`
+          let afterSelfCloser = selfCloserIdx + 1;
+          while (afterSelfCloser < rawInit.length && /\s/.test(rawInit[afterSelfCloser])) afterSelfCloser++;
+          afterSelfCloser++; // skip `>`
+          while (afterSelfCloser < rawInit.length && /\s/.test(rawInit[afterSelfCloser])) afterSelfCloser++;
+          remainder = rawInit.slice(afterSelfCloser).trim();
+        }
+
+        // Apply the attribute to the current element using the existing attr/event emitter
+        const syntheticAttrsStr = attrName + " = " + attrValue;
+        const attrs = parseAttrs(syntheticAttrsStr);
+        const attrLines = emitSetAttrs(elEntry.varName, attrs);
+        for (const l of attrLines) lines.push(l);
+        pendingAttrName = null;
+
+        // Pop void elements that are now fully closed (self-closer was present in the init)
+        if (selfCloserIdx !== -1 && VOID_ELEMENTS.has(elEntry.tag)) {
+          popElement(elEntry.tag);
+        }
+
+        // Process any content following the self-closer (sibling tags and text)
+        if (remainder) {
+          processContentWithTags(remainder);
+        }
+      }
+    }
+    // Other node kinds (for-stmt, if-stmt at top level of body) —
+    // emit as JS inside the factory
+    else if (child.kind === "for-stmt") {
+      // FIX (b2-nested-lift): route inner lift-exprs to the current element (§10.6).
+      // Top-level for-stmt in the body loop means we're inside a lifted element;
+      // currentParent() returns that element. Route lift-exprs there, not globally.
+      const parent = currentParent();
+      if (parent) {
+        const code = emitForStmtWithContainer(child, parent);
+        if (code) lines.push(code);
+      } else {
+        const code = emitLogicNode(child, opts);
+        if (code) lines.push(code);
+      }
+    } else if (child.kind === "if-stmt" || child.kind === "while-stmt") {
+      const code = emitLogicNode(child, opts);
+      if (code) lines.push(code);
+    }
+  }
+
+  const factoryBody = lines.join("\n    ");
+  let factoryCode;
+  if (directReturn) {
+    factoryCode = `${factoryBody}\n  return ${rootVar};`;
+  } else if (containerVar) {
+    factoryCode = `${containerVar}.appendChild((() => {\n    ${factoryBody}\n    return ${rootVar};\n  })());`;
+  } else {
+    factoryCode = `_scrml_lift(() => {\n    ${factoryBody}\n    return ${rootVar};\n  });`;
+  }
+  const allLines = [...preStatements, factoryCode];
+  return allLines.join("\n  ");
+}
+
+// ---------------------------------------------------------------------------
+// emitLiftExpr — main entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a lift expression — generates a _scrml_lift(() => element) runtime call.
+ *
+ * Lift expressions come in two forms:
+ * 1. { kind: "markup", node: MarkupAST } — inline markup block
+ * 2. { kind: "expr", expr: string } — text expression like "<li>${item}/"
+ *
+ * For markup nodes, we walk the AST and emit createElement chains.
+ * For expr strings, we parse `< tag > content /` patterns and generate
+ * createElement chains. Event handlers become real closures via addEventListener.
+ *
+ * If no tag pattern is found, we emit _scrml_lift(() => document.createTextNode(expr)).
+ *
+ * @param {object} node — lift-expr AST node
+ * @param {object} [opts] — optional context
+ * @param {string} [opts.containerVar] — when set, emit `containerVar.appendChild(factory())`
+ *   instead of `_scrml_lift(factory)`. Used by reactive list render functions (§6.5.3).
+ * @returns {string}
+ */
+export function emitLiftExpr(node, opts = {}) {
+  if (!node || !node.expr) return "";
+
+  const containerVar = opts.containerVar ?? null;
+  const liftExpr = node.expr;
+
+  if (liftExpr.kind === "markup" && liftExpr.node) {
+    // Full markup AST node — walk recursively and emit createElement chains
+    const lines = [];
+    const rootVar = emitCreateElementFromMarkup(liftExpr.node, lines);
+    const factoryBody = lines.join("\n  ");
+    if (containerVar) {
+      return `${containerVar}.appendChild((() => {\n  ${factoryBody}\n  return ${rootVar};\n})());`;
+    }
+    return `_scrml_lift(() => {\n  ${factoryBody}\n  return ${rootVar};\n});`;
+  }
+
+  if (liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
+    const expr = liftExpr.expr.trim();
+
+    // Try to parse `< tag attrs > content /` pattern
+    const result = emitCreateElementFromExprString(expr);
+    if (result) {
+      const { lines, varName } = result;
+      const factoryBody = lines.join("\n  ");
+      if (containerVar) {
+        return `${containerVar}.appendChild((() => {\n  ${factoryBody}\n  return ${varName};\n})());`;
+      }
+      return `_scrml_lift(() => {\n  ${factoryBody}\n  return ${varName};\n});`;
+    }
+
+    // No tag pattern — emit as text node with the expression value
+    const rewritten = rewriteExpr(expr);
+    if (containerVar) {
+      return `${containerVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`;
+    }
+    return `_scrml_lift(() => document.createTextNode(String(${rewritten} ?? "")));`;
+  }
+
+  return "";
+}

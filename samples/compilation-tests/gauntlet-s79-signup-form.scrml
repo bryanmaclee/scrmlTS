@@ -1,0 +1,221 @@
+// glassbox/g-03/signup-form.scrml
+// Signup form — tests bind:value, enums, match, validation, conditional rendering, CSS.
+// Written by a TS dev learning scrml.
+
+${
+    type FormState:enum = { Editing, Submitting, Success }
+
+    @username = ""
+    @email = ""
+    @password = ""
+    @confirmPassword = ""
+    @formState = FormState.Editing
+
+    // Validation flags — computed reactively on each keystroke via bind:value
+    @usernameError = ""
+    @emailError = ""
+    @passwordError = ""
+    @confirmError = ""
+    @isValid = false
+
+    function validate() {
+        @usernameError = ""
+        @emailError = ""
+        @passwordError = ""
+        @confirmError = ""
+
+        if (@username.length < 3) {
+            @usernameError = "Username must be at least 3 characters"
+        }
+
+        // Checking for @ in email — basic but covers the test requirement
+        if (@email.length == 0 || !@email.includes("@")) {
+            @emailError = "Enter a valid email address"
+        }
+
+        if (@password.length < 8) {
+            @passwordError = "Password must be at least 8 characters"
+        }
+
+        if (@confirmPassword != @password) {
+            @confirmError = "Passwords do not match"
+        }
+
+        @isValid = (
+            @username.length >= 3 &&
+            @email.includes("@") &&
+            @password.length >= 8 &&
+            @confirmPassword == @password
+        )
+    }
+
+    // Called on every field change so errors update in real time.
+    // Assumption: bind:value fires on every input event, so calling validate() on
+    // oninput works. But I'm wiring it to the form's oninput, not per-field — see markup.
+
+    function handleSubmit() {
+        validate()
+        if (@isValid) {
+            @formState = FormState.Submitting
+            // In a real app this would be: server function submitSignup() { ?{...} }
+            // For now, transition to Success after simulating a round-trip.
+            // Assumption: no setTimeout or async in scrml yet without a server fn.
+            // I'll just go straight to Success — flagging this below.
+            @formState = FormState.Success
+        }
+    }
+}
+
+<div class="signup-card">
+    #{
+        .signup-card {
+            max-width: 420px;
+            margin: 48px auto;
+            padding: 32px;
+            border-radius: 8px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+            background: #fff;
+            font-family: system-ui, sans-serif;
+        }
+
+        h2 {
+            margin: 0 0 24px;
+            font-size: 1.5rem;
+            color: #111;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 4px;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            transition: border-color 0.15s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #4f6ef7;
+        }
+
+        .error-msg {
+            font-size: 0.78rem;
+            color: #d32f2f;
+            margin-top: 4px;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: #4f6ef7;
+            color: #fff;
+            margin-top: 8px;
+            transition: opacity 0.15s;
+        }
+
+        .submit-btn.invalid {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        .status-msg {
+            text-align: center;
+            padding: 16px;
+            font-size: 1rem;
+        }
+
+        .status-msg.success {
+            color: #2e7d32;
+            font-weight: 600;
+        }
+
+        .status-msg.submitting {
+            color: #555;
+        }
+    }
+
+    <h2>Create your account</>
+
+    // Match on formState to swap the whole body — this is the clearest pattern I found.
+    // The match expression here produces markup via lift inside each arm.
+    // Assumption: match arms that lift markup work the same as if/lift.
+    // I couldn't find a sample that does lift inside match arms — see open questions.
+    ${
+        match @formState {
+            .Editing => lift
+                <form oninput=validate() onsubmit=handleSubmit()>
+                    <div class="form-group">
+                        <label>Username</>
+                        <input type="text" bind:value=@username placeholder="at least 3 chars"/>
+                        ${
+                            if (@usernameError.length > 0) {
+                                lift <span class="error-msg">${@usernameError}</>
+                            }
+                        }
+                    </div>
+
+                    <div class="form-group">
+                        <label>Email</>
+                        <input type="email" bind:value=@email placeholder="you@example.com"/>
+                        ${
+                            if (@emailError.length > 0) {
+                                lift <span class="error-msg">${@emailError}</>
+                            }
+                        }
+                    </div>
+
+                    <div class="form-group">
+                        <label>Password</>
+                        <input type="password" bind:value=@password placeholder="8+ characters"/>
+                        ${
+                            if (@passwordError.length > 0) {
+                                lift <span class="error-msg">${@passwordError}</>
+                            }
+                        }
+                    </div>
+
+                    <div class="form-group">
+                        <label>Confirm password</>
+                        <input type="password" bind:value=@confirmPassword placeholder="Repeat password"/>
+                        ${
+                            if (@confirmError.length > 0) {
+                                lift <span class="error-msg">${@confirmError}</>
+                            }
+                        }
+                    </div>
+
+                    <button type="submit" class="submit-btn" class:invalid=!@isValid>
+                        Create account
+                    </>
+                </form>
+
+            .Submitting => lift
+                <div class="status-msg submitting">
+                    Signing you up...
+                </>
+
+            .Success => lift
+                <div class="status-msg success">
+                    Account created — welcome!
+                </>
+        }
+    }
+</div>

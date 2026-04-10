@@ -1,0 +1,591 @@
+/**
+ * HTML Element Shape Registry — foundation for state type system.
+ *
+ * Every HTML element is a pre-defined state type with a hard-coded attribute
+ * shape. This module provides the canonical registry of all supported HTML
+ * elements, their valid attributes (with types), void element status, and
+ * DOM rendering flag.
+ *
+ * Design notes:
+ * - Per the spec draft (section 35.1), HTML elements ARE state types that
+ *   happen to render to the DOM. <div> and <session> go through the same
+ *   instantiation mechanism; the difference is that div's shape is pre-defined
+ *   here while session's shape is user-defined.
+ * - Global attributes (class, id, style, title, hidden, tabindex, etc.) are
+ *   shared across all elements via GLOBAL_ATTRIBUTES.
+ * - Element-specific attributes are merged with globals at registry build time.
+ * - Attribute types use string names matching the scrml type system primitives:
+ *   "string", "number", "boolean".
+ *
+ * Exports:
+ *   getElementShape(tagName) → shape | null
+ *   isHtmlElement(tagName)   → boolean
+ *   getAllElementNames()      → string[]
+ *   GLOBAL_ATTRIBUTES        → Map<string, {type, required, default}>
+ */
+
+// ---------------------------------------------------------------------------
+// Attribute descriptor helper
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {string} type     — scrml type name: "string", "number", "boolean"
+ * @param {boolean} required — whether the attribute is required at instantiation
+ * @param {*} defaultValue   — default value if not provided (null = no default)
+ * @returns {{ type: string, required: boolean, default: * }}
+ */
+function attr(type, required = false, defaultValue = null) {
+  return { type, required, default: defaultValue };
+}
+
+// ---------------------------------------------------------------------------
+// Global HTML attributes
+//
+// These are valid on every HTML element. Merged into each element shape.
+// See: https://html.spec.whatwg.org/multipage/dom.html#global-attributes
+// ---------------------------------------------------------------------------
+
+export const GLOBAL_ATTRIBUTES = new Map([
+  ["class",          attr("string")],
+  ["id",             attr("string")],
+  ["style",          attr("string")],
+  ["title",          attr("string")],
+  ["hidden",         attr("boolean")],
+  ["tabindex",       attr("number")],
+  ["dir",            attr("string")],
+  ["lang",           attr("string")],
+  ["accesskey",      attr("string")],
+  ["autocapitalize", attr("string")],
+  ["autofocus",      attr("boolean")],
+  ["contenteditable", attr("string")],
+  ["draggable",      attr("string")],
+  ["enterkeyhint",   attr("string")],
+  ["inputmode",      attr("string")],
+  ["is",             attr("string")],
+  ["itemid",         attr("string")],
+  ["itemprop",       attr("string")],
+  ["itemref",        attr("string")],
+  ["itemscope",      attr("boolean")],
+  ["itemtype",       attr("string")],
+  ["nonce",          attr("string")],
+  ["part",           attr("string")],
+  ["popover",        attr("string")],
+  ["role",           attr("string")],
+  ["slot",           attr("string")],
+  ["spellcheck",     attr("string")],
+  ["translate",      attr("string")],
+  // Event handler attributes — all string (JS expression)
+  ["onclick",        attr("string")],
+  ["onchange",       attr("string")],
+  ["oninput",        attr("string")],
+  ["onsubmit",       attr("string")],
+  ["onfocus",        attr("string")],
+  ["onblur",         attr("string")],
+  ["onkeydown",      attr("string")],
+  ["onkeyup",        attr("string")],
+  ["onkeypress",     attr("string")],
+  ["onmousedown",    attr("string")],
+  ["onmouseup",      attr("string")],
+  ["onmouseover",    attr("string")],
+  ["onmouseout",     attr("string")],
+  ["onmousemove",    attr("string")],
+  ["onload",         attr("string")],
+  ["onerror",        attr("string")],
+  ["onscroll",       attr("string")],
+  ["onresize",       attr("string")],
+  // Drag and drop events
+  ["ondragstart",    attr("string")],
+  ["ondragend",      attr("string")],
+  ["ondragover",     attr("string")],
+  ["ondragenter",    attr("string")],
+  ["ondragleave",    attr("string")],
+  ["ondrop",         attr("string")],
+  ["ondrag",         attr("string")],
+  // Touch events
+  ["ontouchstart",   attr("string")],
+  ["ontouchmove",    attr("string")],
+  ["ontouchend",     attr("string")],
+  ["ontouchcancel",  attr("string")],
+  // Clipboard events
+  ["oncopy",         attr("string")],
+  ["oncut",          attr("string")],
+  ["onpaste",        attr("string")],
+  // Pointer events
+  ["onpointerdown",  attr("string")],
+  ["onpointerup",    attr("string")],
+  ["onpointermove",  attr("string")],
+  // Misc
+  ["oncontextmenu",  attr("string")],
+  ["ondblclick",     attr("string")],
+  ["onwheel",        attr("string")],
+]);
+
+// ---------------------------------------------------------------------------
+// Element-specific attribute definitions
+//
+// Only element-specific attributes are listed here. Global attributes are
+// merged in during registry construction.
+// ---------------------------------------------------------------------------
+
+const ELEMENT_DEFS = [
+  // --- Flow content / containers ---
+  { tag: "div",      isVoid: false, attrs: [], domInterface: "HTMLDivElement" },
+  { tag: "span",     isVoid: false, attrs: [], domInterface: "HTMLSpanElement" },
+  { tag: "p",        isVoid: false, attrs: [], domInterface: "HTMLParagraphElement" },
+  { tag: "main",     isVoid: false, attrs: [], domInterface: "HTMLElement" },
+  { tag: "section",  isVoid: false, attrs: [], domInterface: "HTMLElement" },
+  { tag: "article",  isVoid: false, attrs: [], domInterface: "HTMLElement" },
+  { tag: "aside",    isVoid: false, attrs: [], domInterface: "HTMLElement" },
+  { tag: "nav",      isVoid: false, attrs: [], domInterface: "HTMLElement" },
+  { tag: "header",   isVoid: false, attrs: [], domInterface: "HTMLElement" },
+  { tag: "footer",   isVoid: false, attrs: [], domInterface: "HTMLElement" },
+
+  // --- Headings ---
+  { tag: "h1", isVoid: false, attrs: [], domInterface: "HTMLHeadingElement" },
+  { tag: "h2", isVoid: false, attrs: [], domInterface: "HTMLHeadingElement" },
+  { tag: "h3", isVoid: false, attrs: [], domInterface: "HTMLHeadingElement" },
+  { tag: "h4", isVoid: false, attrs: [], domInterface: "HTMLHeadingElement" },
+  { tag: "h5", isVoid: false, attrs: [], domInterface: "HTMLHeadingElement" },
+  { tag: "h6", isVoid: false, attrs: [], domInterface: "HTMLHeadingElement" },
+
+  // --- Links and media ---
+  {
+    tag: "a", isVoid: false, domInterface: "HTMLAnchorElement", attrs: [
+      ["href",     attr("string")],
+      ["target",   attr("string")],
+      ["rel",      attr("string")],
+      ["download", attr("string")],
+      ["hreflang", attr("string")],
+      ["type",     attr("string")],
+      ["referrerpolicy", attr("string")],
+      ["ping",     attr("string")],
+    ],
+  },
+  {
+    tag: "img", isVoid: true, domInterface: "HTMLImageElement", attrs: [
+      ["src",      attr("string", true)],
+      ["alt",      attr("string", true)],
+      ["width",    attr("number")],
+      ["height",   attr("number")],
+      ["loading",  attr("string")],
+      ["decoding", attr("string")],
+      ["srcset",   attr("string")],
+      ["sizes",    attr("string")],
+      ["crossorigin", attr("string")],
+      ["usemap",   attr("string")],
+      ["ismap",    attr("boolean")],
+      ["referrerpolicy", attr("string")],
+    ],
+  },
+
+  // --- Form elements ---
+  {
+    tag: "input", isVoid: true, domInterface: "HTMLInputElement", attrs: [
+      ["type",         attr("string", false, "text")],
+      ["name",         attr("string")],
+      ["value",        attr("string")],
+      ["placeholder",  attr("string")],
+      ["required",     attr("boolean")],
+      ["disabled",     attr("boolean")],
+      ["readonly",     attr("boolean")],
+      ["checked",      attr("boolean")],
+      ["min",          attr("string")],
+      ["max",          attr("string")],
+      ["step",         attr("string")],
+      ["pattern",      attr("string")],
+      ["maxlength",    attr("number")],
+      ["minlength",    attr("number")],
+      ["size",         attr("number")],
+      ["autocomplete", attr("string")],
+      ["list",         attr("string")],
+      ["multiple",     attr("boolean")],
+      ["accept",       attr("string")],
+      ["capture",      attr("string")],
+      ["form",         attr("string")],
+      ["formaction",   attr("string")],
+      ["formmethod",   attr("string")],
+      ["formnovalidate", attr("boolean")],
+      ["formtarget",   attr("string")],
+      ["alt",          attr("string")],
+      ["src",          attr("string")],
+      ["width",        attr("number")],
+      ["height",       attr("number")],
+    ],
+  },
+  {
+    tag: "button", isVoid: false, domInterface: "HTMLButtonElement", attrs: [
+      ["type",         attr("string", false, "submit")],
+      ["name",         attr("string")],
+      ["value",        attr("string")],
+      ["disabled",     attr("boolean")],
+      ["form",         attr("string")],
+      ["formaction",   attr("string")],
+      ["formmethod",   attr("string")],
+      ["formnovalidate", attr("boolean")],
+      ["formtarget",   attr("string")],
+      ["popovertarget", attr("string")],
+      ["popovertargetaction", attr("string")],
+    ],
+  },
+  {
+    tag: "form", isVoid: false, domInterface: "HTMLFormElement", attrs: [
+      ["action",       attr("string")],
+      ["method",       attr("string")],
+      ["enctype",      attr("string")],
+      ["target",       attr("string")],
+      ["novalidate",   attr("boolean")],
+      ["autocomplete", attr("string")],
+      ["name",         attr("string")],
+      ["rel",          attr("string")],
+      ["accept-charset", attr("string")],
+    ],
+  },
+  {
+    tag: "select", isVoid: false, domInterface: "HTMLSelectElement", attrs: [
+      ["name",         attr("string")],
+      ["required",     attr("boolean")],
+      ["disabled",     attr("boolean")],
+      ["multiple",     attr("boolean")],
+      ["size",         attr("number")],
+      ["form",         attr("string")],
+      ["autocomplete", attr("string")],
+    ],
+  },
+  {
+    tag: "option", isVoid: false, domInterface: "HTMLOptionElement", attrs: [
+      ["value",    attr("string")],
+      ["selected", attr("boolean")],
+      ["disabled", attr("boolean")],
+      ["label",    attr("string")],
+    ],
+  },
+  {
+    tag: "textarea", isVoid: false, domInterface: "HTMLTextAreaElement", attrs: [
+      ["name",         attr("string")],
+      ["rows",         attr("number")],
+      ["cols",         attr("number")],
+      ["placeholder",  attr("string")],
+      ["required",     attr("boolean")],
+      ["disabled",     attr("boolean")],
+      ["readonly",     attr("boolean")],
+      ["maxlength",    attr("number")],
+      ["minlength",    attr("number")],
+      ["wrap",         attr("string")],
+      ["form",         attr("string")],
+      ["autocomplete", attr("string")],
+    ],
+  },
+  {
+    tag: "label", isVoid: false, domInterface: "HTMLLabelElement", attrs: [
+      ["for", attr("string")],
+    ],
+  },
+
+  // --- Table elements ---
+  {
+    tag: "table", isVoid: false, domInterface: "HTMLTableElement", attrs: [],
+  },
+  {
+    tag: "tr", isVoid: false, domInterface: "HTMLTableRowElement", attrs: [],
+  },
+  {
+    tag: "td", isVoid: false, domInterface: "HTMLTableCellElement", attrs: [
+      ["colspan",  attr("number")],
+      ["rowspan",  attr("number")],
+      ["headers",  attr("string")],
+    ],
+  },
+  {
+    tag: "th", isVoid: false, domInterface: "HTMLTableCellElement", attrs: [
+      ["colspan",  attr("number")],
+      ["rowspan",  attr("number")],
+      ["headers",  attr("string")],
+      ["scope",    attr("string")],
+      ["abbr",     attr("string")],
+    ],
+  },
+
+  // --- List elements ---
+  { tag: "ul", isVoid: false, attrs: [], domInterface: "HTMLUListElement" },
+  {
+    tag: "ol", isVoid: false, domInterface: "HTMLOListElement", attrs: [
+      ["start",    attr("number")],
+      ["reversed", attr("boolean")],
+      ["type",     attr("string")],
+    ],
+  },
+  {
+    tag: "li", isVoid: false, domInterface: "HTMLLIElement", attrs: [
+      ["value", attr("number")],
+    ],
+  },
+
+  // --- Media elements ---
+  {
+    tag: "video", isVoid: false, domInterface: "HTMLVideoElement", attrs: [
+      ["src",      attr("string")],
+      ["poster",   attr("string")],
+      ["width",    attr("number")],
+      ["height",   attr("number")],
+      ["controls", attr("boolean")],
+      ["autoplay", attr("boolean")],
+      ["loop",     attr("boolean")],
+      ["muted",    attr("boolean")],
+      ["preload",  attr("string")],
+      ["playsinline", attr("boolean")],
+      ["crossorigin", attr("string")],
+    ],
+  },
+  {
+    tag: "audio", isVoid: false, domInterface: "HTMLAudioElement", attrs: [
+      ["src",      attr("string")],
+      ["controls", attr("boolean")],
+      ["autoplay", attr("boolean")],
+      ["loop",     attr("boolean")],
+      ["muted",    attr("boolean")],
+      ["preload",  attr("string")],
+      ["crossorigin", attr("string")],
+    ],
+  },
+  {
+    tag: "canvas", isVoid: false, domInterface: "HTMLCanvasElement", attrs: [
+      ["width",  attr("number")],
+      ["height", attr("number")],
+    ],
+  },
+
+  // --- Void / self-closing elements ---
+  { tag: "br", isVoid: true, attrs: [], domInterface: "HTMLBRElement" },
+  {
+    tag: "hr", isVoid: true, attrs: [], domInterface: "HTMLHRElement",
+  },
+
+  // --- SVG elements ---
+  // SVG elements are valid HTML5 embedded content. They use the SVG namespace
+  // but are registered here as pre-defined state types for the compiler.
+  {
+    tag: "svg", isVoid: false, domInterface: "SVGSVGElement", attrs: [
+      ["xmlns",       attr("string")],
+      ["viewBox",     attr("string")],
+      ["width",       attr("string")],
+      ["height",      attr("string")],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["preserveAspectRatio", attr("string")],
+    ],
+  },
+  {
+    tag: "rect", isVoid: true, domInterface: "SVGRectElement", attrs: [
+      ["x",           attr("string")],
+      ["y",           attr("string")],
+      ["width",       attr("string")],
+      ["height",      attr("string")],
+      ["rx",          attr("string")],
+      ["ry",          attr("string")],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+  {
+    tag: "circle", isVoid: true, domInterface: "SVGCircleElement", attrs: [
+      ["cx",          attr("string")],
+      ["cy",          attr("string")],
+      ["r",           attr("string")],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+  {
+    tag: "line", isVoid: true, domInterface: "SVGLineElement", attrs: [
+      ["x1",          attr("string")],
+      ["y1",          attr("string")],
+      ["x2",          attr("string")],
+      ["y2",          attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["stroke-dasharray", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+  {
+    tag: "path", isVoid: true, domInterface: "SVGPathElement", attrs: [
+      ["d",           attr("string", true)],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["stroke-linecap", attr("string")],
+      ["stroke-linejoin", attr("string")],
+      ["stroke-dasharray", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+  {
+    tag: "g", isVoid: false, domInterface: "SVGGElement", attrs: [
+      ["transform",   attr("string")],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+  // SVG <text> — note: conflicts with HTML concept of "text node" but is a valid
+  // SVG element. The tag name "text" in markup context is an SVG text element.
+  {
+    tag: "text", isVoid: false, domInterface: "SVGTextElement", attrs: [
+      ["x",           attr("string")],
+      ["y",           attr("string")],
+      ["dx",          attr("string")],
+      ["dy",          attr("string")],
+      ["text-anchor", attr("string")],
+      ["dominant-baseline", attr("string")],
+      ["font-size",   attr("string")],
+      ["font-family", attr("string")],
+      ["fill",        attr("string")],
+      ["transform",   attr("string")],
+    ],
+  },
+  {
+    tag: "polyline", isVoid: true, domInterface: "SVGPolylineElement", attrs: [
+      ["points",      attr("string", true)],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+  {
+    tag: "polygon", isVoid: true, domInterface: "SVGPolygonElement", attrs: [
+      ["points",      attr("string", true)],
+      ["fill",        attr("string")],
+      ["stroke",      attr("string")],
+      ["stroke-width", attr("string")],
+      ["opacity",     attr("string")],
+    ],
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Registry construction
+//
+// Merge global attributes into each element shape and build the lookup Map.
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {{
+ *   tag: string,
+ *   attributes: Map<string, {type: string, required: boolean, default: *}>,
+ *   isVoid: boolean,
+ *   rendersToDom: true,
+ * }} ElementShape
+ */
+
+/** @type {Map<string, ElementShape>} */
+const REGISTRY = new Map();
+
+for (const def of ELEMENT_DEFS) {
+  /** @type {Map<string, {type: string, required: boolean, default: *}>} */
+  const attributes = new Map(GLOBAL_ATTRIBUTES);
+
+  // Merge element-specific attributes (override globals if name collision).
+  for (const [name, descriptor] of def.attrs) {
+    attributes.set(name, descriptor);
+  }
+
+  REGISTRY.set(def.tag, {
+    tag: def.tag,
+    attributes,
+    isVoid: def.isVoid,
+    rendersToDom: true,
+    domInterface: def.domInterface ?? "HTMLElement",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// <program> root element — not an HTML element, but a pre-defined state type
+//
+// Per §6 (approved decision): every scrml file starts with <program>.
+// It's a state type with known attributes for DB connection, protection,
+// table scope, HTML spec version, and worker naming.
+// Unlike HTML elements, program does NOT render to DOM.
+// ---------------------------------------------------------------------------
+
+REGISTRY.set("program", {
+  tag: "program",
+  attributes: new Map([
+    ...GLOBAL_ATTRIBUTES,
+    ["db",            attr("string")],    // database connection path
+    ["protect",       attr("string")],    // global protect list (comma-separated field names)
+    ["tables",        attr("string")],    // tables in scope (comma-separated)
+    ["html",          attr("string")],    // HTML spec version (default: latest)
+    ["name",          attr("string")],    // worker program name (omit for main program)
+    // Session/auth attributes (Option C hybrid — approved 2026-03-28)
+    ["auth",          attr("string")],    // "required" | "optional" | absent (default: absent)
+    ["loginRedirect", attr("string")],    // redirect path when auth fails (default: "/login")
+    ["csrf",          attr("string")],    // "auto" | "off" (default: "off")
+    ["sessionExpiry", attr("string")],    // session TTL (default: "1h")
+  ]),
+  isVoid: false,
+  rendersToDom: false,
+});
+
+// ---------------------------------------------------------------------------
+// <errorBoundary> — error rendering boundary for the Renderable Enum Variants
+// error system.
+//
+// Wraps content that may produce error values from failable function calls.
+// When an error value is returned inside an errorBoundary, the error's
+// `renders` clause (from its enum variant) is displayed. If no renders clause
+// exists, the optional `fallback` attribute's markup is used.
+//
+// Does NOT render to DOM — it's a compiler-level construct.
+// ---------------------------------------------------------------------------
+
+REGISTRY.set("errorboundary", {
+  tag: "errorBoundary",
+  attributes: new Map([
+    ...GLOBAL_ATTRIBUTES,
+    ["fallback", attr("string")],  // optional fallback markup
+  ]),
+  isVoid: false,
+  rendersToDom: false,
+});
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up an HTML element shape by tag name.
+ *
+ * @param {string} tagName — lowercase HTML tag name (e.g. "div", "input")
+ * @returns {ElementShape|null} — the element shape, or null if not a known HTML element
+ */
+export function getElementShape(tagName) {
+  return REGISTRY.get(tagName.toLowerCase()) ?? null;
+}
+
+/**
+ * Check whether a tag name is a known HTML element (renders to DOM).
+ * Note: `program` is a registered element but NOT an HTML element.
+ *
+ * @param {string} tagName
+ * @returns {boolean}
+ */
+export function isHtmlElement(tagName) {
+  const shape = REGISTRY.get(tagName.toLowerCase());
+  return shape != null && shape.rendersToDom === true;
+}
+
+/**
+ * Get all registered HTML element tag names.
+ *
+ * @returns {string[]}
+ */
+export function getAllElementNames() {
+  return Array.from(REGISTRY.keys());
+}

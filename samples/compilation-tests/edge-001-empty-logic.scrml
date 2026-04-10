@@ -1,0 +1,7 @@
+// edge-001-empty-logic.scrml
+// Empty logic block. Tests: ${ } with no content.
+
+<div>
+    ${}
+    <p>Empty logic block</>
+</div>

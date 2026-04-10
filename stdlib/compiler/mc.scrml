@@ -1,0 +1,26 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:compiler/mc — Meta Checker
+    //
+    // Validates phase separation in ^{} meta blocks (E-META-001) and
+    // reflect() API calls (E-META-003). Already self-hosted — this module
+    // re-exports from the JS implementation; the full scrml implementation
+    // is in meta-checker.scrml.
+    //
+    // Usage:
+    //   import { runMetaChecker } from "scrml:compiler/mc"
+    //   const result = runMetaChecker({ files })
+    // ---------------------------------------------------------------------------
+
+    ^{
+        const { runMetaChecker: _runMetaChecker, MetaError: _MetaError, buildFileTypeRegistry: _buildFileTypeRegistry, createReflect: _createReflect, bodyUsesCompileTimeApis: _bodyUsesCompileTimeApis } = await import("../../compiler/src/meta-checker.ts");
+    }
+
+    export const runMetaChecker = _runMetaChecker
+    export const MetaError = _MetaError
+    export const buildFileTypeRegistry = _buildFileTypeRegistry
+    export const createReflect = _createReflect
+    export const bodyUsesCompileTimeApis = _bodyUsesCompileTimeApis
+}
+</program>

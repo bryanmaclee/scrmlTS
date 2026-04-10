@@ -1,0 +1,18 @@
+// combined-021-component-basic.scrml
+// Basic component-style composition with reactive props.
+// Tests: reactive state in markup interpolation, class composition, badge pattern.
+
+<div class="card featured">
+    ${
+        @title = "My Card"
+        @status = "active"
+        @author = "Admin"
+        @rating = 5
+    }
+    <h2>${@title}</>
+    <span class="badge small">${@status}</>
+    <div class="meta">
+        <span class="author">${@author}</>
+        <span class="rating">${@rating}</>
+    </div>
+</div>

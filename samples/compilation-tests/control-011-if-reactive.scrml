@@ -1,0 +1,12 @@
+// control-011-if-reactive.scrml
+// If conditional with reactive variable. Tests: if with @.
+
+<div>
+    ${
+        @loggedIn = true
+        if (@loggedIn) {
+            let greeting = "Welcome back!"
+        }
+    }
+    <p>Auth check done</>
+</div>

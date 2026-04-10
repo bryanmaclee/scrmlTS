@@ -1,0 +1,82 @@
+// integration-001-stripe-mini.scrml
+// Minimal Stripe-like dashboard exercising all 5 fixed codegen bugs:
+//   Bug 1: Event handler arguments (onclick=fn("arg"))
+//   Bug 2: Loop variable scoping (for-of with named variable)
+//   Bug 3: Form preventDefault (onsubmit handler)
+//   Bug 4: Conditional display (if=@var)
+//   Bug 5: Input binding (bind:value=@var)
+
+<div class="stripe-mini-dashboard">
+    ${
+        @payments = [{ id: "pay_001", amount: 49.99, customer: "Alice" }, { id: "pay_002", amount: 129.00, customer: "Bob" }]
+        @selectedPayment = not
+        @showRefundModal = false
+        @refundAmount = ""
+        @searchQuery = ""
+        @statusMessage = ""
+
+        function selectPayment(paymentId) {
+            @selectedPayment = paymentId
+        }
+
+        function openRefundModal() {
+            @showRefundModal = true
+        }
+
+        function closeRefundModal() {
+            @showRefundModal = false
+            @refundAmount = ""
+        }
+
+        function handleRefund() {
+            @statusMessage = "Refund processed for " + @refundAmount
+            @showRefundModal = false
+            @refundAmount = ""
+        }
+    }
+
+    <h1>Payments Dashboard</>
+
+    <div class="search-bar">
+        <input type="text" placeholder="Search payments..." bind:value=@searchQuery />
+    </div>
+
+    <table class="payments-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Customer</th>
+                <th>Amount</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${
+                for (let payment of @payments) {
+                    lift <tr>${payment.id} ${payment.customer} ${payment.amount}</>
+                }
+            }
+        </tbody>
+    </table>
+
+    <div class="actions">
+        <button onclick=selectPayment("pay_001")>Select Payment 1</>
+        <button onclick=selectPayment("pay_002")>Select Payment 2</>
+        <button onclick=openRefundModal()>Open Refund Modal</>
+    </div>
+
+    <div class="refund-modal" if=@showRefundModal>
+        <h2>Process Refund</>
+        <form onsubmit=handleRefund()>
+            <label>Refund Amount:
+                <input type="number" bind:value=@refundAmount />
+            </label>
+            <button type="submit">Process Refund</>
+            <button type="button" onclick=closeRefundModal()>Cancel</>
+        </form>
+    </div>
+
+    <div class="status" if=@statusMessage>
+        <p>${@statusMessage}</>
+    </div>
+</div>

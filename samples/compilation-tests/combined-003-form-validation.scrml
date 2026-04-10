@@ -1,0 +1,39 @@
+// combined-003-form-validation.scrml
+// Form with validation state. Tests: reactive + events + conditionals.
+
+<div class="registration-form">
+    ${
+        @name = ""
+        @email = ""
+        @submitted = false
+        @errors = []
+
+        function validateAndSubmit() {
+            @errors = []
+            if (@name.length == 0) {
+                @errors = [...@errors, "Name is required"]
+            }
+            if (@email.length == 0) {
+                @errors = [...@errors, "Email is required"]
+            }
+            if (@errors.length == 0) {
+                @submitted = true
+            }
+        }
+    }
+    <h2>Registration</>
+    <form onsubmit=validateAndSubmit()>
+        <div class="field">
+            <label>Name</>
+            <input type="text" name="name" placeholder="Your name"/>
+        </div>
+        <div class="field">
+            <label>Email</>
+            <input type="email" name="email" placeholder="Your email"/>
+        </div>
+        <button type="submit">Register</>
+    </form>
+    <div class="success" if=@submitted>
+        <p>Registration successful!</>
+    </div>
+</div>

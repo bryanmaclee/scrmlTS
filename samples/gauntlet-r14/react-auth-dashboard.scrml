@@ -1,0 +1,65 @@
+// gauntlet-r14: react dev — auth dashboard
+// Tests R13 fixes: import emit, handle() middleware, nested functions, if= parens
+// New: ~ tilde-decl (bare name=expr), parenthesized onclick args
+
+${ import { hash } from 'scrml:crypto' }
+
+${ server function handle(request, resolve) {
+    const token = request.headers.get('Authorization')
+    if (!token) {
+        return new Response('Unauthorized', { status: 401 })
+    }
+    const response = resolve(request)
+    return response
+}}
+
+<div class="dashboard">
+    ${
+        @username = ""
+        @password = ""
+        @loggedIn = false
+        @users = []
+        @error = ""
+
+        server function login() {
+            const hashed = hash(@password)
+            @loggedIn = true
+            @users = [{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }]
+        }
+
+        function handleInput(value) {
+            function validate(v) {
+                return v.length > 0
+            }
+            if (validate(value)) {
+                @username = value
+            }
+        }
+
+        function removeUser(userId) {
+            @users = @users.filter(u => u.id != userId)
+        }
+
+        greeting = "Welcome back"
+    }
+    <div if=!@loggedIn>
+        <h1>Login</>
+        <input type="text" bind:value=@username placeholder="Username"/>
+        <input type="password" bind:value=@password placeholder="Password"/>
+        <button onclick=login()>Sign In</>
+        <p if=@error.length class="error">${@error}</>
+    </div>
+    <div if=@loggedIn>
+        <h1>${greeting}, ${@username}</>
+        <ul>
+            ${
+                for (let user of @users) {
+                    lift <li>
+                        ${user.name}
+                        <button onclick=removeUser(user.id)>Remove/
+                    </li>
+                }
+            }
+        </ul>
+    </div>
+</div>
