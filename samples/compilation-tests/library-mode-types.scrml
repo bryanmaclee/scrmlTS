@@ -1,0 +1,48 @@
+// library-mode-types.scrml
+// Regression sample for Bug R18 #2: --mode library must not emit raw scrml
+// type declarations as JavaScript. Each type declaration must be stripped
+// from the output; only exported functions and constants may appear.
+//
+// Repro: bun compiler/src/cli.js compile <this-file> -o dist/ --mode library
+// Expected: output passes `node --check` (valid ES module, no raw type syntax)
+// Previously failing: output contained `type HttpMethod:enum = { GET | ... }`
+//   causing SyntaxError: Unexpected identifier 'HttpMethod'
+
+<program>
+
+${
+    // Enum type declaration — pipe-separated variants
+    type HttpMethod:enum = { GET | POST | PUT | DELETE | PATCH }
+
+    // Struct type declaration — named fields with type annotations
+    type ApiRequest:struct = {
+        path: string,
+        method: string,
+        body: string,
+        authenticated: boolean
+    }
+
+    // Struct with numeric field
+    type ApiResponse:struct = {
+        status: number,
+        body: string,
+        ok: boolean
+    }
+
+    // Exported function using the types above (types are compile-time only)
+    export function buildRequest(path, method) {
+        return { path, method, body: "", authenticated: false }
+    }
+
+    export function isSuccess(response) {
+        return response.status >= 200 && response.status < 300
+    }
+
+    export const DEFAULT_METHOD = "GET"
+}
+
+<div>
+    <p>Library mode type test — check compiled JS output, not this markup.</>
+</>
+
+</>
