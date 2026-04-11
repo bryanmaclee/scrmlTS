@@ -1,6 +1,6 @@
 # Escape-Hatch Catalog: expr-ast-phase-1 corpus audit
 
-Generated: 2026-04-11T23:30:57.661Z
+Generated: 2026-04-11T23:32:45.109Z
 Branch: `changes/expr-ast-phase-1-audit`
 Phase: Phase 1.5 audit (idempotency invariant)
 
