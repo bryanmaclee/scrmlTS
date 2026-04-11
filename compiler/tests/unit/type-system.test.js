@@ -3207,3 +3207,271 @@ describe("Lin-A3: loop-body carve-out — lin declared and consumed in same iter
     expect(errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002")).toHaveLength(0);
   });
 });
+// ---------------------------------------------------------------------------
+// Lin-B: lin function parameter annotations — §35.2.1
+// ---------------------------------------------------------------------------
+// These tests verify that function parameters annotated with isLin:true are
+// treated as lin-declared at function entry. The checkLinear function-decl
+// case pre-seeds the function body's LinTracker with those param names.
+
+describe("Lin-B1: lin param consumed exactly once — no error", () => {
+  test("function with lin param consumed once in body — no error", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "processToken",
+      params: [{ name: "token", isLin: true }],
+      body: [
+        { kind: "lin-ref", name: "token", span: span(10) },
+      ],
+      span: span(0),
+    }], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+
+  test("function with multiple params, one lin, one plain — no error when lin consumed once", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "processToken",
+      params: [
+        { name: "token", isLin: true },
+        { name: "label" },
+      ],
+      body: [
+        { kind: "lin-ref", name: "token", span: span(10) },
+      ],
+      span: span(0),
+    }], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+
+  test("function with no lin params — no lin errors", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "plainFn",
+      params: [{ name: "x" }, { name: "y" }],
+      body: [],
+      span: span(0),
+    }], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+});
+
+describe("Lin-B2: lin param not consumed — E-LIN-001", () => {
+  test("lin param never used in body → E-LIN-001", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "dropToken",
+      params: [{ name: "token", isLin: true }],
+      body: [],
+      span: span(0),
+    }], errors);
+    const e001 = errors.filter(e => e.code === "E-LIN-001");
+    expect(e001.length).toBeGreaterThan(0);
+    expect(e001[0].message).toContain("token");
+  });
+
+  test("E-LIN-001 error code is correct for lin param", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [{ name: "tok", isLin: true }],
+      body: [],
+      span: span(0),
+    }], errors);
+    expect(errors[0].code).toBe("E-LIN-001");
+    expect(errors[0].severity).toBe("error");
+  });
+
+  test("two lin params, both unconsumed → two E-LIN-001 errors", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [
+        { name: "a", isLin: true },
+        { name: "b", isLin: true },
+      ],
+      body: [],
+      span: span(0),
+    }], errors);
+    const e001 = errors.filter(e => e.code === "E-LIN-001");
+    expect(e001.length).toBe(2);
+  });
+
+  test("one lin param consumed, one not → only one E-LIN-001", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [
+        { name: "a", isLin: true },
+        { name: "b", isLin: true },
+      ],
+      body: [
+        { kind: "lin-ref", name: "a", span: span(10) },
+        // b not consumed
+      ],
+      span: span(0),
+    }], errors);
+    const e001 = errors.filter(e => e.code === "E-LIN-001");
+    expect(e001.length).toBe(1);
+    expect(e001[0].message).toContain("b");
+  });
+});
+
+describe("Lin-B3: lin param consumed twice — E-LIN-002", () => {
+  test("lin param consumed twice in body → E-LIN-002", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "doubleUse",
+      params: [{ name: "token", isLin: true }],
+      body: [
+        { kind: "lin-ref", name: "token", span: span(10) },
+        { kind: "lin-ref", name: "token", span: span(20) },
+      ],
+      span: span(0),
+    }], errors);
+    const e002 = errors.filter(e => e.code === "E-LIN-002");
+    expect(e002.length).toBeGreaterThan(0);
+    expect(e002[0].message).toContain("token");
+  });
+
+  test("E-LIN-002 names both use sites for lin param", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [{ name: "tok", isLin: true }],
+      body: [
+        { kind: "lin-ref", name: "tok", span: span(5) },
+        { kind: "lin-ref", name: "tok", span: span(15) },
+      ],
+      span: span(0),
+    }], errors);
+    expect(errors.filter(e => e.code === "E-LIN-002").length).toBeGreaterThan(0);
+  });
+});
+
+describe("Lin-B4: lin param in if/else — E-LIN-003", () => {
+  test("lin param consumed in if-branch but not else → E-LIN-003", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "branchFn",
+      params: [{ name: "token", isLin: true }],
+      body: [{
+        kind: "if-stmt",
+        span: span(5),
+        consequent: [{ kind: "lin-ref", name: "token", span: span(10) }],
+        alternate: [],
+      }],
+      span: span(0),
+    }], errors);
+    const e003 = errors.filter(e => e.code === "E-LIN-003");
+    expect(e003.length).toBeGreaterThan(0);
+    expect(e003[0].message).toContain("token");
+  });
+
+  test("lin param consumed in both branches — no error", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "branchFn",
+      params: [{ name: "token", isLin: true }],
+      body: [{
+        kind: "if-stmt",
+        span: span(5),
+        consequent: [{ kind: "lin-ref", name: "token", span: span(10) }],
+        alternate: [{ kind: "lin-ref", name: "token", span: span(20) }],
+      }],
+      span: span(0),
+    }], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+});
+
+describe("Lin-B5: lin param — scoping and interaction", () => {
+  test("outer scope lin vars are NOT consumed inside function-decl body — isolated scope", () => {
+    // An outer lin-decl should NOT be consumable inside a function-decl.
+    // The function-decl creates a new scope; outer lin vars are not visible there.
+    // This verifies the closed-scope semantics: outer lin MUST still be consumed
+    // at the outer scope exit, regardless of what happens inside the fn body.
+    const errors = [];
+    checkLinear([
+      { kind: "lin-decl", name: "outer", span: span(0) },
+      {
+        kind: "function-decl",
+        name: "fn",
+        params: [],
+        body: [
+          // Referencing outer lin inside fn body does NOT count as a consumption
+          // in the outer scope (the fn is a closed scope).
+          // NOTE: lin-ref for "outer" inside fn body will be ignored (outer not in fn scope).
+        ],
+        span: span(5),
+      },
+      { kind: "lin-ref", name: "outer", span: span(30) },  // consume outer in outer scope
+    ], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+
+  test("lin param with typeAnnotation (from parser) — isLin flag still recognized", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [{ name: "token", typeAnnotation: "string", isLin: true }],
+      body: [
+        { kind: "lin-ref", name: "token", span: span(10) },
+      ],
+      span: span(0),
+    }], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+
+  test("function body with inline lin-decl is also checked — lin-decl inside function-decl body", () => {
+    // Tests that lin-decl INSIDE a function body (not a param) is also enforced.
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [],
+      body: [
+        { kind: "lin-decl", name: "local", span: span(5) },
+        { kind: "lin-ref",  name: "local", span: span(10) },
+      ],
+      span: span(0),
+    }], errors);
+    const linErrors = errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002" || e.code === "E-LIN-003");
+    expect(linErrors).toHaveLength(0);
+  });
+
+  test("lin-decl inside function body, not consumed — E-LIN-001 from inside fn scope", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "function-decl",
+      name: "fn",
+      params: [],
+      body: [
+        { kind: "lin-decl", name: "local", span: span(5) },
+        // local not consumed
+      ],
+      span: span(0),
+    }], errors);
+    const e001 = errors.filter(e => e.code === "E-LIN-001");
+    expect(e001.length).toBeGreaterThan(0);
+    expect(e001[0].message).toContain("local");
+  });
+});

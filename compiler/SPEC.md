@@ -12041,7 +12041,53 @@ A `lin` declaration binds a name to a value and marks that binding as linear. Th
 
 - `lin` SHALL be a declaration keyword valid inside any logic context `${ }` body and inside any function body.
 - A `lin` declaration SHALL bind the identifier immutably. The compiler SHALL reject any reassignment to a `lin`-declared identifier after its initial declaration.
-- `lin` SHALL NOT be valid as a type annotation on function parameters in this version of the specification. This may be extended in a future version. Until then, a `lin` annotation on a function parameter position SHALL be a compile error.
+- A function parameter MAY be declared `lin` by prefixing it with the `lin` keyword (§35.2.1). A `lin`-annotated parameter is treated as a linear binding at function entry; the consume-exactly-once rule (§35.3) applies to it for the duration of the function body.
+
+### 35.2.1 Linear Function Parameters
+
+A function parameter may be declared linear by prefixing it with `lin`:
+
+```scrml
+function processToken(lin token: string) {
+    useToken(token)   // consumed exactly once — valid
+}
+
+server function submitRequest(lin ticket: RequestTicket) {
+    sendTicket(ticket)
+}
+
+fn transform(lin src: Data, dst: Data) {
+    dst.value = src.value   // lin src consumed exactly once
+}
+```
+
+The grammar extension is:
+
+```
+parameter ::= ['lin'] identifier [':' type-annotation]
+```
+
+**Semantics:**
+
+- A `lin`-annotated parameter is **bound as linear at function entry**. Before the function returns on any execution path, the parameter must have been consumed exactly once.
+- The consume-exactly-once rule (§35.3) applies identically to `lin` parameters as it does to `lin` local declarations. All five consumption events (expression read, function argument, closure capture, `lift`, match subject) apply.
+- All three error conditions (E-LIN-001, E-LIN-002, E-LIN-003) apply to `lin` parameters originating from the function's parameter list.
+- A `lin` parameter interacts with `lift`, closures, and `match` exactly as a `lin` local declaration declared immediately at the top of the function body.
+- The `lin` parameter keyword does NOT affect the calling convention or JS output. It is a compile-time constraint only.
+
+**Control flow (§35.4 rules apply):**
+
+- If the function has an `if`/`else` conditional, the `lin` parameter must be consumed in both branches (E-LIN-003 if asymmetric).
+- If the function body contains a `match`, every arm must consume the `lin` parameter exactly once.
+- The `lin` parameter must not be consumed inside a loop body (E-LIN-002), per the outer-scope loop rule (§35.4.4).
+
+**Normative statements:**
+
+- A `lin`-annotated parameter SHALL be bound as linear at function entry. The compiler SHALL enforce the consume-exactly-once rule (§35.3) on every execution path through the function body.
+- The compiler SHALL emit E-LIN-001 if a `lin` parameter is not consumed on at least one execution path through the function body.
+- The compiler SHALL emit E-LIN-002 if a `lin` parameter is consumed more than once on any execution path.
+- The compiler SHALL emit E-LIN-003 if a `lin` parameter is consumed in some branches but not all.
+- A `lin` parameter annotation SHALL have no effect on the emitted JS output. The constraint is compile-time only.
 
 ### 35.3 Consumption Events
 
