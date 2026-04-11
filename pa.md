@@ -119,7 +119,7 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 
 ### What this PA does NOT touch
 - `~/projects/scrml8/` — FROZEN, read-only archive
-- Sibling project repos: scrml, giti, 6nz (user opens a separate Claude instance for those)
+- Sibling project repos: scrml-support, giti, 6nz (user opens a separate Claude instance for those) — **except** writing message files into their `handOffs/incoming/` (see Cross-repo messaging below)
 
 ### Session-start checklist (this repo only)
 1. Read `pa.md` (this file)
@@ -145,9 +145,64 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 - Session header: `## Session N — YYYY-MM-DD` (N is this repo's session count)
 
 ### What NOT to do
-- Do not edit files in sibling project repos (scrml, giti, 6nz — user opens a different Claude instance)
+- Do not edit files in sibling project repos (scrml-support, giti, 6nz — user opens a different Claude instance). The single exception is dropping message files into `<sibling>/handOffs/incoming/` — see Cross-repo messaging below.
 - Do not modify scrml8 (frozen)
 - Do not commit to main directly
 - Do not bypass pre-commit hooks without explicit user authorization
 - Do not run resource-mapper in write mode on scrml8 (frozen)
 - Do not treat stale sources as authoritative — check currency flags
+
+---
+
+## Cross-repo messaging (dropbox)
+
+**You are the PA for scrmlTS.** Your own inbox is `handOffs/incoming/` in this repo.
+
+The four ecosystem projects (scrmlTS, scrml-support, giti, 6nz) communicate asynchronously through file-based dropboxes. Each repo owns `handOffs/incoming/` — unread messages sit there; once this PA reads and acts on them, they move to `handOffs/incoming/read/`.
+
+**This is the ONE sanctioned exception** to "do not write into sibling repos." PAs may write message files into a sibling's `handOffs/incoming/` — nothing else in the sibling repo is touched.
+
+### Inbox (this PA reads)
+- `/home/bryan/scrmlMaster/scrmlTS/handOffs/incoming/` — unread
+- `/home/bryan/scrmlMaster/scrmlTS/handOffs/incoming/read/` — archive
+
+### Outbox targets (this PA may write into)
+- scrml-support: `/home/bryan/scrmlMaster/scrml-support/handOffs/incoming/`
+- giti:          `/home/bryan/scrmlMaster/giti/handOffs/incoming/`
+- 6nz:           `/home/bryan/scrmlMaster/6NZ/handOffs/incoming/`
+
+### Message file format
+
+Filename: `YYYY-MM-DD-HHMM-<from>-to-<to>-<slug>.md`
+Example: `2026-04-11-1432-scrmlTS-to-giti-auth-api-ready.md`
+
+```markdown
+---
+from: scrmlTS
+to: giti
+date: 2026-04-11
+subject: <one-line subject>
+needs: reply | action | fyi
+status: unread
+---
+
+<body — what happened, what the recipient should know or do, file paths / repros / links>
+```
+
+### Session-start: check incoming
+
+Add to the session-start checklist (after reading `hand-off.md`):
+- List `handOffs/incoming/*.md` (ignore the `read/` subdir)
+- If any exist, surface them to the user at session start alongside "caught up / next priority"
+- After the user acknowledges or acts on a message, move it to `handOffs/incoming/read/` (preserve filename)
+
+### Sending a message
+
+When this PA needs to tell another project something (bug found, feature ready to test, spec question, unblocked status):
+1. Confirm with the user what to send and to whom
+2. Write the message file directly into the target's `handOffs/incoming/` (absolute path above)
+3. Log the send in this repo's `hand-off.md` so there's a local trail
+
+### Scope of the exception
+- **Allowed:** creating new `.md` files inside `<sibling>/handOffs/incoming/`
+- **NOT allowed:** reading, editing, or deleting anything else in a sibling repo. Messages are a one-way write; the sibling's PA reads them in its own session.
