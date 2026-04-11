@@ -81,13 +81,13 @@
 
 ## E. Examples (14 files — verified S86)
 
-13/14 compile clean. Locations at `examples/`:
+**14/14 compile clean** (S2 2026-04-10). Locations at `examples/`:
 
 - [x][x] 01-hello, 02-counter, 03-contact-book, 04-live-search, 05-multi-step-form
 - [x][x] 06-kanban-board, 07-admin-dashboard, 08-chat, 09-error-handling, 10-inline-tests
 - [x][x] 11-meta-programming, 14-mario-state-machine
-- [x][x] 13-worker — **FIXED** (ex13-route-warning-fix: E-ROUTE-001 severity + worker body suppression)
-- [ ][ ] 12-snippets-slots — E-COMPONENT-020 (snippet expansion bug)
+- [x][x] 13-worker — **FIXED S2** (ex13-route-warning-fix: E-ROUTE-001 severity + worker body suppression)
+- [x][x] 12-snippets-slots — **FIXED S2** (ex12-component-normalize: normalizeTokenizedRaw bare-closer + open-tag whitespace)
 
 ---
 
@@ -171,14 +171,14 @@
 
 ## M. Known bugs + issues
 
-1. Example 12 — E-COMPONENT-020 (snippet expansion for `Card`)
+1. ~~Example 12 — E-COMPONENT-020 (snippet expansion for `Card`)~~ — **FIXED** (ex12-component-normalize S2 — `normalizeTokenizedRaw` missed internal bare closers `</>` + open-tag trailing whitespace; multi-line component bodies now parse correctly)
 2. ~~Example 13 — E-ROUTE-001 (computed array access in worker)~~ — **FIXED** (ex13-route-warning-fix: added `severity:"warning"` to E-ROUTE-001 + suppressed inside `<program name="...">` worker bodies)
 3. ~~BUG-R15-005: `\n` literal in emit() HTML~~ — **FIXED** (meta-fix-batch S2 — verified already resolved by earlier S52 `normalizeEmitCode`)
 4. ~~E-META-001 false positives (destructuring, rest params, default params)~~ — **FIXED** (meta-fix-batch S2 — destructuring/rest-params verified clean; for-of fixed via `serializeNode` `for-stmt` case)
 5. 2 skipped tests — both in `compiler/tests/unit/callback-props.test.js` §I (lines 436, 440). Blocked on lack of inline-source compile API (`compileScrml` takes file paths only). Unblock path: either (a) add `compileScrmlSource({source, virtualPath})` sibling, or (b) lightweight temp-file harness inside the test. Audited S2 2026-04-10 — prior "10 skipped" claim was stale.
 6. E-SYNTAX-043 partial (complex expressions may pass through)
 7. WebSocket CLI bugs — 6 in dev.js/build.js blocking `<channel>` runtime
-8. Ghost error patterns — 10 remaining
+8. ~~Ghost error patterns — 10 remaining~~ — **MITIGATED** (ghost-lint-prepass S2 — new lint pre-pass with 10 W-LINT-* patterns catches React/Vue/Svelte ghost syntax before the main compile)
 9. ~~False E-DG-002 for @vars consumed inside runtime `^{}` blocks~~ — **FIXED** (meta-fix-batch S2)
 10. ~~`reflect(variableName)` inside callback params rewritten to string literal~~ — **FIXED** (meta-fix-batch S2)
 
@@ -195,10 +195,10 @@
 - [ ][ ] **Lin spec gaps** — `read lin` (v2 feature), lin params v2, loop-body carve-out, `~` double-obligation errors, E-LIN-002 message. Batch A (loop carve-out + DX messages) dispatched S2; Batch B/C (v2 features) pending.
 
 ### P2 — DX
-- [x][ ] Ghost error mitigation — 10 patterns pending
+- [x][x] **Ghost error mitigation** — lint pre-pass landed S2 (ghost-lint-prepass, 10 W-LINT-* patterns, +71 tests)
 - [ ][ ] Async loading stdlib helpers (RemoteData — deferred)
 - [ ][ ] Async loading sugar (Approach E — deferred)
-- [ ][ ] Fix example 12 (E-COMPONENT-020 snippet expansion) — example 13 fixed S2
+- [x][x] **Fix example 12** — ex12-component-normalize S2. Examples now 14/14 clean.
 - [x][x] **Library mode type declarations** — R18 #2 verified fixed S2 (was already resolved by prior work; regression tests + sample added via library-mode-types batch)
 
 ### P3 — Self-host completion
