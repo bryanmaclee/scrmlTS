@@ -1,0 +1,110 @@
+// css-scope-01.scrml
+// DQ-7 CSS @scope — compilation test
+//
+// Covers:
+//   - Program-level #{}: global CSS (no @scope wrapper)
+//   - Constructor-level #{} with selectors: @scope block with data-scrml root
+//   - Constructor-level #{} flat-declaration: inline style="" on root element
+//   - Donut scope: parent constructor CSS stops at child [data-scrml] boundary
+//   - Tailwind utility classes: outside @scope, globally tree-shaken
+//
+// Expected HTML output:
+//   <div data-scrml="Card" class="card-wrapper">
+//     <h2 class="card-title">Title</h2>
+//   </div>
+//   <span data-scrml="Badge">Active</span>
+//
+// Expected CSS output:
+//   /* global — no @scope */
+//   body { margin: 0; font-family: system-ui, sans-serif; }
+//
+//   /* Card constructor — @scope block */
+//   @scope ([data-scrml="Card"]) to ([data-scrml]) {
+//     .card-wrapper { background: white; border-radius: 8px; padding: 1rem; }
+//     .card-title { font-size: 1.25rem; font-weight: 600; }
+//   }
+//
+//   /* Badge constructor — @scope block */
+//   @scope ([data-scrml="Badge"]) to ([data-scrml]) {
+//     .badge { border-radius: 9999px; padding: 2px 8px; font-size: 0.75rem; }
+//   }
+//
+// Flat-declaration #{} inside Card → inline style on root:
+//   <div data-scrml="Card" style="color: #111; line-height: 1.5;" ...>
+
+<program>
+
+// =====================================================
+// PART 1: Global CSS (program-level)
+// =====================================================
+#{
+    body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #f0f2f5;
+    }
+}
+
+// =====================================================
+// PART 2: Component definitions with scoped CSS
+// =====================================================
+
+${
+    // Badge: inline label component with selector-based #{} CSS
+    const Badge = <span props={ label: string }>
+        #{
+            .badge {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 9999px;
+                padding: 2px 8px;
+                font-size: 0.75rem;
+                font-weight: 600;
+                background: #e2e8f0;
+                color: #4a5568;
+            }
+        }
+        <span class="badge">${label}</>
+    </>
+}
+
+${
+    // Card: container component with BOTH selector CSS and flat-declaration CSS
+    //   - Selector #{}: .card-wrapper and .card-title → @scope block in CSS
+    //   - Flat declaration #{}: color and line-height → style="" on root element
+    const Card = <div class="card-wrapper" props={ title: string }>
+        #{
+            .card-wrapper {
+                background: white;
+                border-radius: 8px;
+                padding: 1rem;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+            .card-title {
+                font-size: 1.25rem;
+                font-weight: 600;
+                color: #1a202c;
+                margin: 0 0 0.5rem;
+            }
+        }
+        #{
+            color: #111;
+            line-height: 1.5;
+        }
+        <h2 class="card-title">${title}</>
+        ${...}
+    </>
+}
+
+// =====================================================
+// PART 3: Usage — triggers CE expansion and @scope
+// =====================================================
+
+<div class="page p-8">
+    <Card title="System Status">
+        <Badge label="Active"/>
+        <Badge label="3 running"/>
+    </>
+</>
+
+</program>

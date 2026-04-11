@@ -1,6 +1,9 @@
 // component-scoped-css.scrml
 // Compilation test: per-component #{} CSS and @scope output.
 //
+// DQ-7: uses native CSS @scope with data-scrml="Name" attribute.
+// Old attribute data-scrml-scope has been replaced by data-scrml.
+//
 // What this file tests and why each part matters:
 //
 //   PART 1 — Program-level #{}: should emit CSS without any @scope wrapper.
@@ -18,9 +21,9 @@
 //             This is the path that actually exercises @scope today.
 //
 // How to read the output:
-//   HTML: look for data-scrml-scope="Card" and data-scrml-scope="Badge"
-//   CSS:  look for @scope ([data-scrml-scope="Card"]) { ... }
-//         and  @scope ([data-scrml-scope="Badge"]) { ... }
+//   HTML: look for data-scrml="Card" and data-scrml="Badge"
+//   CSS:  look for @scope ([data-scrml="Card"]) to ([data-scrml]) { ... }
+//         and  @scope ([data-scrml="Badge"]) to ([data-scrml]) { ... }
 
 <program>
 
@@ -122,7 +125,7 @@ ${
 // PART 3: #{} inside caller-provided component content
 //
 // These #{} blocks are caller children. After CE expansion they become children
-// of the expanded root (e.g. <div data-scrml-scope="Card">). collect.js walks
+// of the expanded root (e.g. <div data-scrml="Card">). collect.js walks
 // that node's children with componentScope="Card", so these blocks should get
 // _componentScope="Card" and appear inside an @scope block in CSS output.
 //
@@ -133,7 +136,7 @@ ${
 
     // First Card usage — includes #{} as caller content.
     // Expected CSS output:
-    //   @scope ([data-scrml-scope="Card"]) to ([data-scrml-scope]:not([...])) {
+    //   @scope ([data-scrml="Card"]) to ([data-scrml]) {
     //     .account-note { font-size: 0.875rem; color: #718096; }
     //   }
     <Card title="User Account">
@@ -149,14 +152,14 @@ ${
     </>
 
     // Second Card usage — no caller CSS, just children.
-    // HTML output: <div data-scrml-scope="Card" class="card">...
+    // HTML output: <div data-scrml="Card" class="card">...
     // No new @scope block — this card's caller content has no #{}.
     <Card title="Recent Activity">
         <p>No recent activity.</>
     </>
 
     // Standalone Badge usages.
-    // Each <Badge> expands to <span data-scrml-scope="Badge">.
+    // Each <Badge> expands to <span data-scrml="Badge">.
     // The #{} here is inside a plain <div>, not inside a <Badge> tag,
     // so it collects as program-level CSS (no @scope).
     <div class="badge-row">

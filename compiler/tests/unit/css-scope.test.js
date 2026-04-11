@@ -2,25 +2,30 @@
  * CSS @scope — Unit Tests
  *
  * Tests for native CSS @scope wrapping of component-level style blocks.
- * Design decision: compiler wraps constructor-level #{} CSS in a native @scope block.
+ * Design decision DQ-7: compiler wraps constructor-level #{} CSS in a native @scope block.
  * Class names are NEVER mangled. Source CSS = compiled CSS.
  *
  * Coverage:
  *   T1  Component CSS (css-inline inside _expandedFrom node) wrapped in @scope
  *   T2  Program-level CSS (not inside a component) NOT wrapped
- *   T3  data-scrml-scope attribute appears on component root element
- *   T4  data-scrml-scope does NOT appear on non-component elements
+ *   T3  data-scrml attribute appears on component root element
+ *   T4  data-scrml does NOT appear on non-component elements
  *   T5  Nested components each get their own @scope (donut scope boundary)
- *   T6  data-scrml-scope is the FIRST attribute emitted (before other attrs)
+ *   T6  data-scrml is the FIRST attribute emitted (before other attrs)
  *   T7  Style block inside a component is wrapped in @scope
  *   T8  Program-level style block is NOT wrapped
  *   T9  Multiple components produce separate @scope blocks
- *   T10 @scope selector uses correct donut syntax
+ *   T10 @scope selector uses correct donut syntax (DQ-7: to ([data-scrml]))
+ *   T11 Flat-declaration #{} inside a component emits as inline style="" (DQ-7)
+ *   T12 Flat-declaration #{} inside a component does NOT appear in CSS output
+ *   T13 Flat-declaration #{} at program scope still emits to CSS (not inline)
+ *   T14 Mixed flat+selector #{} inside a component: selector → @scope, flat → inline style
+ *   T15 data-scrml attribute on component root uses exact value "ComponentName"
  */
 
 import { describe, test, expect } from "bun:test";
 import { runCG } from "../../src/code-generator.js";
-import { generateCss } from "../../src/codegen/emit-css.ts";
+import { generateCss, isFlatDeclarationBlock, renderFlatDeclarationAsInlineStyle } from "../../src/codegen/emit-css.ts";
 import { collectCssBlocks } from "../../src/codegen/collect.js";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +82,10 @@ function makeCssInlineBlock(body, s = span(0)) {
   return { kind: "css-inline", body, span: s };
 }
 
+function makeCssInlineWithRules(rules, s = span(0)) {
+  return { kind: "css-inline", rules, span: s };
+}
+
 function makeStyleBlock(body, s = span(0)) {
   return { kind: "style", body, span: s };
 }
@@ -101,7 +110,7 @@ function runCGSimple(nodes, filePath = "/test/app.scrml") {
 // T1: Component CSS wrapped in @scope
 // ---------------------------------------------------------------------------
 
-describe("CSS @scope — component scoping", () => {
+describe("CSS @scope — component scoping (DQ-7)", () => {
   test("T1: css-inline inside a component root node is wrapped in @scope", () => {
     const cssBlock = makeCssInlineBlock(".card { color: red; }");
     const componentRoot = makeExpandedComponent("Card", "div", [cssBlock]);
@@ -109,7 +118,7 @@ describe("CSS @scope — component scoping", () => {
 
     const css = generateCss(nodes);
 
-    expect(css).toContain('@scope ([data-scrml-scope="Card"])');
+    expect(css).toContain('@scope ([data-scrml="Card"])');
     expect(css).toContain(".card { color: red; }");
     // The @scope block should contain the CSS
     expect(css).toMatch(/@scope.*{[\s\S]*.card { color: red; }[\s\S]*}/);
@@ -125,24 +134,25 @@ describe("CSS @scope — component scoping", () => {
     expect(css).toContain("body { margin: 0; }");
   });
 
-  test("T3: data-scrml-scope attribute on component root element", () => {
+  test("T3: data-scrml attribute on component root element", () => {
     const componentRoot = makeExpandedComponent("Card", "div", []);
     const nodes = [componentRoot];
 
     const { output } = runCGSimple(nodes);
     const html = output?.html ?? "";
 
-    expect(html).toContain('data-scrml-scope="Card"');
+    expect(html).toContain('data-scrml="Card"');
   });
 
-  test("T4: data-scrml-scope NOT on non-component elements", () => {
+  test("T4: data-scrml scope attribute NOT on non-component elements", () => {
     const plainDiv = makeMarkupNode("div", [], []);
     const nodes = [plainDiv];
 
     const { output } = runCGSimple(nodes);
     const html = output?.html ?? "";
 
-    expect(html).not.toContain("data-scrml-scope");
+    // data-scrml="..." (with equals sign) must not appear on plain elements
+    expect(html).not.toContain('data-scrml="');
   });
 
   test("T5: nested components each get their own @scope (donut scope boundary)", () => {
@@ -157,19 +167,18 @@ describe("CSS @scope — component scoping", () => {
     const css = generateCss(nodes);
 
     // Both components should have their own @scope block
-    expect(css).toContain('@scope ([data-scrml-scope="Card"])');
-    expect(css).toContain('@scope ([data-scrml-scope="Button"])');
+    expect(css).toContain('@scope ([data-scrml="Card"])');
+    expect(css).toContain('@scope ([data-scrml="Button"])');
 
-    // Each uses donut scope — stops at its own boundary
-    expect(css).toContain('to ([data-scrml-scope]:not([data-scrml-scope="Card"]))');
-    expect(css).toContain('to ([data-scrml-scope]:not([data-scrml-scope="Button"]))');
+    // DQ-7 donut scope: to ([data-scrml]) — stops at ANY nested [data-scrml] boundary
+    expect(css).toContain('to ([data-scrml])');
 
     // CSS content is unchanged (no class mangling)
     expect(css).toContain(".card { padding: 16px; }");
     expect(css).toContain(".btn { font-size: 14px; }");
   });
 
-  test("T6: data-scrml-scope is emitted before other attributes", () => {
+  test("T6: data-scrml is emitted before other attributes", () => {
     // Component root with a class attribute
     const componentRoot = {
       kind: "markup",
@@ -185,8 +194,8 @@ describe("CSS @scope — component scoping", () => {
     const { output } = runCGSimple(nodes);
     const html = output?.html ?? "";
 
-    // data-scrml-scope should appear before class in the tag
-    const scopeIdx = html.indexOf('data-scrml-scope="Wrapper"');
+    // data-scrml should appear before class in the tag
+    const scopeIdx = html.indexOf('data-scrml="Wrapper"');
     const classIdx = html.indexOf('class="wrapper"');
     expect(scopeIdx).toBeGreaterThanOrEqual(0);
     expect(classIdx).toBeGreaterThanOrEqual(0);
@@ -200,7 +209,7 @@ describe("CSS @scope — component scoping", () => {
 
     const css = generateCss(nodes);
 
-    expect(css).toContain('@scope ([data-scrml-scope="Hero"])');
+    expect(css).toContain('@scope ([data-scrml="Hero"])');
     expect(css).toContain(".heading { font-weight: bold; }");
   });
 
@@ -224,23 +233,172 @@ describe("CSS @scope — component scoping", () => {
     const nodes = [cardRoot, badgeRoot];
     const css = generateCss(nodes);
 
-    expect(css).toContain('@scope ([data-scrml-scope="Card"])');
-    expect(css).toContain('@scope ([data-scrml-scope="Badge"])');
+    expect(css).toContain('@scope ([data-scrml="Card"])');
+    expect(css).toContain('@scope ([data-scrml="Badge"])');
     expect(css).toContain(".card { background: white; }");
     expect(css).toContain(".badge { color: green; }");
   });
 
-  test("T10: @scope selector uses correct donut syntax", () => {
+  test("T10: @scope selector uses correct DQ-7 donut syntax", () => {
     const cssBlock = makeCssInlineBlock(".item { display: flex; }");
     const componentRoot = makeExpandedComponent("List", "ul", [cssBlock]);
     const nodes = [componentRoot];
 
     const css = generateCss(nodes);
 
-    // Full donut @scope pattern
+    // DQ-7 donut scope: parent stops at any [data-scrml] boundary (any child constructor)
     expect(css).toContain(
-      '@scope ([data-scrml-scope="List"]) to ([data-scrml-scope]:not([data-scrml-scope="List"])) {'
+      '@scope ([data-scrml="List"]) to ([data-scrml]) {'
     );
+  });
+
+  test("T15: data-scrml attribute value matches component name exactly", () => {
+    const componentRoot = makeExpandedComponent("TodoItem", "li", []);
+    const nodes = [componentRoot];
+
+    const { output } = runCGSimple(nodes);
+    const html = output?.html ?? "";
+
+    expect(html).toContain('data-scrml="TodoItem"');
+    // Must not use old data-scrml-scope attribute name
+    expect(html).not.toContain("data-scrml-scope");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T11-T14: Flat-declaration #{} → inline style="" (DQ-7)
+// ---------------------------------------------------------------------------
+
+describe("CSS @scope — flat-declaration inline style (DQ-7)", () => {
+  test("T11: flat-declaration #{} inside a component emits as inline style='' on the element", () => {
+    // Flat-declaration #{}: only prop:value pairs, no selectors
+    const flatCss = makeCssInlineWithRules([
+      { prop: "color", value: "red", span: span(0) },
+      { prop: "font-size", value: "14px", span: span(0) },
+    ]);
+    const componentRoot = makeExpandedComponent("Card", "div", [flatCss]);
+    const nodes = [componentRoot];
+
+    const { output } = runCGSimple(nodes);
+    const html = output?.html ?? "";
+
+    // The flat CSS should appear as inline style on the element
+    expect(html).toContain('style="');
+    expect(html).toContain("color: red;");
+    expect(html).toContain("font-size: 14px;");
+  });
+
+  test("T12: flat-declaration #{} inside a component does NOT appear in CSS output", () => {
+    const flatCss = makeCssInlineWithRules([
+      { prop: "margin", value: "0", span: span(0) },
+    ]);
+    const componentRoot = makeExpandedComponent("Card", "div", [flatCss]);
+    const nodes = [componentRoot];
+
+    // generateCss should NOT include the flat rule (it goes to inline style instead)
+    const css = generateCss(nodes);
+
+    // Should not appear in @scope block (flat-declaration skipped from CSS)
+    expect(css).not.toContain("margin: 0;");
+    // And no @scope block at all (no selector rules to scope)
+    expect(css).not.toContain("@scope");
+  });
+
+  test("T13: flat-declaration #{} at program scope still emits to global CSS (not inline)", () => {
+    // At program scope, flat declarations stay in global CSS
+    const flatCss = makeCssInlineWithRules([
+      { prop: "color", value: "blue", span: span(0) },
+    ]);
+    const nodes = [flatCss]; // program-level, no _expandedFrom
+
+    const css = generateCss(nodes);
+
+    // Should appear in CSS output as global (no @scope)
+    expect(css).toContain("color: blue;");
+    expect(css).not.toContain("@scope");
+  });
+
+  test("T14: mixed #{} (flat decls + selectors) inside component: selectors→@scope, flat→inline", () => {
+    // A component with two css-inline blocks:
+    //   1. flat-declaration → inline style
+    //   2. selector block → @scope CSS
+    const flatCss = makeCssInlineWithRules([
+      { prop: "display", value: "flex", span: span(0) },
+    ]);
+    const selectorCss = makeCssInlineBlock(".title { font-weight: bold; }");
+    const componentRoot = makeExpandedComponent("Card", "div", [flatCss, selectorCss]);
+    const nodes = [componentRoot];
+
+    const css = generateCss(nodes);
+    const { output } = runCGSimple(nodes);
+    const html = output?.html ?? "";
+
+    // Selector CSS → @scope block in CSS
+    expect(css).toContain('@scope ([data-scrml="Card"])');
+    expect(css).toContain(".title { font-weight: bold; }");
+
+    // Flat CSS → NOT in the CSS file (goes to inline style)
+    expect(css).not.toContain("display: flex;");
+
+    // Flat CSS → appears as inline style on the HTML element
+    expect(html).toContain('style="');
+    expect(html).toContain("display: flex;");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isFlatDeclarationBlock and renderFlatDeclarationAsInlineStyle — unit tests
+// ---------------------------------------------------------------------------
+
+describe("isFlatDeclarationBlock — unit tests", () => {
+  test("returns true for a block with only prop:value rules (no selectors)", () => {
+    const block = makeCssInlineWithRules([
+      { prop: "color", value: "red", span: span(0) },
+      { prop: "margin", value: "0", span: span(0) },
+    ]);
+    expect(isFlatDeclarationBlock(block)).toBe(true);
+  });
+
+  test("returns false for a block with a selector rule", () => {
+    const block = makeCssInlineWithRules([
+      { selector: ".foo", declarations: [{ prop: "color", value: "red", span: span(0) }], span: span(0) },
+    ]);
+    expect(isFlatDeclarationBlock(block)).toBe(false);
+  });
+
+  test("returns false for mixed (selector + flat) block", () => {
+    const block = makeCssInlineWithRules([
+      { prop: "color", value: "red", span: span(0) },
+      { selector: ".foo", declarations: [], span: span(0) },
+    ]);
+    expect(isFlatDeclarationBlock(block)).toBe(false);
+  });
+
+  test("returns false for empty rules array", () => {
+    const block = makeCssInlineWithRules([]);
+    expect(isFlatDeclarationBlock(block)).toBe(false);
+  });
+
+  test("returns false for body-string block (no rules array)", () => {
+    const block = makeCssInlineBlock("color: red;");
+    expect(isFlatDeclarationBlock(block)).toBe(false);
+  });
+});
+
+describe("renderFlatDeclarationAsInlineStyle — unit tests", () => {
+  test("renders flat rules as 'prop: value; prop: value;' string", () => {
+    const block = makeCssInlineWithRules([
+      { prop: "color", value: "red", span: span(0) },
+      { prop: "font-size", value: "14px", span: span(0) },
+    ]);
+    const result = renderFlatDeclarationAsInlineStyle(block);
+    expect(result).toContain("color: red;");
+    expect(result).toContain("font-size: 14px;");
+  });
+
+  test("returns empty string for empty rules", () => {
+    const block = makeCssInlineWithRules([]);
+    expect(renderFlatDeclarationAsInlineStyle(block)).toBe("");
   });
 });
 

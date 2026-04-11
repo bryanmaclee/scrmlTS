@@ -29,6 +29,51 @@ interface CSSBlock {
 }
 
 /**
+ * Detect whether a css-inline block is "flat-declaration" — i.e. all rules are
+ * bare `prop: value;` pairs with no selectors. Flat-declaration blocks inside a
+ * component scope compile to inline `style=""` on the containing element (DQ-7),
+ * not to a scoped CSS file entry.
+ *
+ * A block is flat-declaration when:
+ *   - It has a `rules` array (not a raw body string), AND
+ *   - Every rule has `rule.prop` set and NO rule has `rule.selector`
+ *
+ * Program-level flat-declaration blocks are NOT affected — they still emit to the
+ * global stylesheet.
+ */
+export function isFlatDeclarationBlock(block: { rules?: unknown; body?: string; text?: string; value?: string }): boolean {
+  const rules = (block as CSSBlock).rules;
+  if (!rules || !Array.isArray(rules) || rules.length === 0) return false;
+  return rules.every(r => r.prop != null && r.selector == null);
+}
+
+/**
+ * Render a flat-declaration css-inline block as an inline CSS `style=""` value.
+ * Returns the raw "prop: value; prop: value;" string (no surrounding quotes).
+ * Used by emit-html.ts to inject `style="..."` attributes.
+ */
+export function renderFlatDeclarationAsInlineStyle(block: { rules?: unknown }): string {
+  const rules = (block as CSSBlock).rules;
+  if (!rules || !Array.isArray(rules)) return "";
+  const parts: string[] = [];
+  for (const rule of rules) {
+    if (rule.prop && rule.value !== undefined) {
+      let value = rule.value;
+      if (rule.reactiveRefs && rule.reactiveRefs.length > 0) {
+        if (rule.isExpression) {
+          const exprPropName = `scrml-expr-${rule.reactiveRefs.map((r: { name: string }) => r.name).join("-")}`;
+          value = `var(--${exprPropName})`;
+        } else {
+          value = replaceCssVarRefs(value);
+        }
+      }
+      parts.push(`${rule.prop}: ${value};`);
+    }
+  }
+  return parts.join(" ");
+}
+
+/**
  * Render the CSS rules from a single CSS block (inline #{} or style block)
  * into a CSS string fragment.
  */
@@ -82,12 +127,16 @@ function renderCssBlock(block: CSSBlock): string {
  * Component-scoped CSS (blocks inside a component expanded by CE, tagged with
  * `_componentScope` by collectCssBlocks) is wrapped in a native CSS @scope block:
  *
- *   @scope ([data-scrml-scope="ComponentName"]) to ([data-scrml-scope]:not([data-scrml-scope="ComponentName"])) {
+ *   @scope ([data-scrml="ComponentName"]) to ([data-scrml]) {
  *     /* original rules unchanged *\/
  *   }
  *
- * The "donut scope" (`to (...)`) ensures rules do not bleed into nested
- * components that have their own scope boundary.
+ * The "donut scope" (`to ([data-scrml])`) ensures rules do not bleed into nested
+ * components that have their own [data-scrml] attribute (DQ-7 native @scope).
+ *
+ * Flat-declaration #{} blocks inside a component scope (blocks with only bare
+ * `prop: value;` pairs and no selectors) are skipped here — emit-html.ts emits
+ * them as inline `style=""` attributes on the containing element (DQ-7).
  *
  * Program-level CSS (not inside any component) is emitted without wrapping.
  *
@@ -114,11 +163,16 @@ export function generateCss(nodes: object[], cssBlocks?: { inlineBlocks: object[
     if (body) parts.push(body);
   }
 
-  // --- Component-scoped CSS (wrapped in @scope) ---
+  // --- Component-scoped CSS (wrapped in @scope, DQ-7 native CSS @scope) ---
+  // Flat-declaration #{} blocks (all bare prop:value, no selectors) are skipped —
+  // emit-html.ts handles them as inline style="" attributes.
   /** componentName → rendered CSS fragments */
   const componentCssMap = new Map<string, string[]>();
 
   for (const block of componentInlineBlocks) {
+    // Skip flat-declaration blocks — they're emitted as inline style by emit-html.ts
+    if (isFlatDeclarationBlock(block)) continue;
+
     const name = block._componentScope!;
     const css = renderCssBlock(block);
     if (!css) continue;
@@ -134,8 +188,11 @@ export function generateCss(nodes: object[], cssBlocks?: { inlineBlocks: object[
   }
 
   for (const [name, cssParts] of componentCssMap) {
+    // DQ-7: native CSS @scope with donut boundary.
+    // data-scrml="Name" is the scope root. [data-scrml] (any value) is the donut limit —
+    // rules do not bleed into nested constructor boundaries.
     const scopeBlock = [
-      `@scope ([data-scrml-scope="${name}"]) to ([data-scrml-scope]:not([data-scrml-scope="${name}"])) {`,
+      `@scope ([data-scrml="${name}"]) to ([data-scrml]) {`,
       cssParts.join("\n"),
       `}`,
     ].join("\n");

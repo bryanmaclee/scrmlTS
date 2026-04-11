@@ -5,6 +5,7 @@ import { hasTemplateInterpolation, rewriteBunEval } from "./rewrite.js";
 import { CGError } from "./errors.ts";
 import type { BindingRegistry } from "./binding-registry.ts";
 import type { CompileContext } from "./context.ts";
+import { isFlatDeclarationBlock, renderFlatDeclarationAsInlineStyle } from "./emit-css.ts";
 
 // Supported bind: attribute names per SPEC §5.4
 const SUPPORTED_BIND_NAMES = new Set(["value", "valueAsNumber", "checked", "selected", "files", "group"]);
@@ -433,10 +434,33 @@ export function generateHtml(
         }
       }
 
+      // DQ-7: Pre-scan children for flat-declaration #{} blocks.
+      // Flat-declaration #{} (all prop:value pairs, no selectors) compiles to
+      // inline style="" on the containing element instead of an @scope CSS block.
+      // Only applies to elements inside a component scope (_expandedFrom set).
+      let flatInlineStyle: string | null = null;
+      if (node._expandedFrom) {
+        const flatParts: string[] = [];
+        for (const child of children) {
+          if (child && child.kind === "css-inline" && isFlatDeclarationBlock(child)) {
+            const inline = renderFlatDeclarationAsInlineStyle(child);
+            if (inline) flatParts.push(inline);
+          }
+        }
+        if (flatParts.length > 0) flatInlineStyle = flatParts.join(" ");
+      }
+
       parts.push(`<${tag}`);
 
       if (node._expandedFrom) {
-        parts.push(` data-scrml-scope="${escapeHtmlAttr(node._expandedFrom)}"`);
+        // DQ-7: data-scrml="Name" is the @scope root attribute (native CSS @scope).
+        // Replaces prior data-scrml-scope="Name" attribute.
+        parts.push(` data-scrml="${escapeHtmlAttr(node._expandedFrom)}"`);
+      }
+
+      // DQ-7: inject flat-declaration #{} content as inline style=""
+      if (flatInlineStyle) {
+        parts.push(` style="${escapeHtmlAttr(flatInlineStyle)}"`);
       }
 
       for (const attr of attrs) {
