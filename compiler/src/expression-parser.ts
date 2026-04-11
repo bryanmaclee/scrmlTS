@@ -1202,7 +1202,12 @@ export function emitStringFromTree(node: ExprNode): string {
       const paramStr = params.length === 1 && !node.params[0].isRest ? params[0] : `(${params.join(", ")})`;
 
       if (node.body.kind === "expr") {
-        const bodyStr = emitStringFromTree(node.body.value);
+        let bodyStr = emitStringFromTree(node.body.value);
+        // Arrow functions returning object literals need parentheses to avoid
+        // ambiguity with block statements: `x => ({ a: 1 })` not `x => { a: 1 }`
+        if (node.body.value.kind === "object") {
+          bodyStr = `(${bodyStr})`;
+        }
         if (node.fnStyle === "arrow") {
           return node.isAsync ? `async ${paramStr} => ${bodyStr}` : `${paramStr} => ${bodyStr}`;
         }
@@ -1250,4 +1255,216 @@ export function emitStringFromTree(node: ExprNode): string {
  */
 export function normalizeWhitespace(s: string): string {
   return s.replace(/\s+/g, " ").trim();
+}
+
+// ---------------------------------------------------------------------------
+// deepEqualExprNode — structural equality for ExprNode trees
+// ---------------------------------------------------------------------------
+//
+// Compares two ExprNode trees structurally, ignoring `span` fields.
+// Spans are excluded because reparsed nodes start at offset 0 while the
+// original nodes may have real source offsets — spans differ by design.
+//
+// This is the correct equivalence relation for the idempotency invariant:
+//   parse(emit(node)) deepEquals node
+//
+// Escape-hatch nodes: compared by normalized raw string content.
+// All other kinds: strict structural equality on non-span fields.
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural deep equality for ExprNode trees.
+ * Ignores `span` fields on all nodes.
+ * Escape-hatch nodes compare by whitespace-normalized `raw`.
+ *
+ * @returns true if a and b are structurally equal (ignoring spans).
+ */
+export function deepEqualExprNode(a: ExprNode, b: ExprNode): boolean {
+  if (a.kind !== b.kind) return false;
+
+  switch (a.kind) {
+    case "ident": {
+      const bNode = b as typeof a;
+      return a.name === bNode.name;
+    }
+
+    case "lit": {
+      const bNode = b as typeof a;
+      if (a.litType !== bNode.litType) return false;
+      // Compare raw for template literals; compare value for all others
+      if (a.litType === "template") return a.raw === bNode.raw;
+      // NaN != NaN in JS, but structurally equal
+      if (typeof a.value === "number" && typeof bNode.value === "number") {
+        if (isNaN(a.value) && isNaN(bNode.value)) return true;
+      }
+      return a.value === bNode.value;
+    }
+
+    case "array": {
+      const bNode = b as typeof a;
+      if (a.elements.length !== bNode.elements.length) return false;
+      return a.elements.every((el, i) =>
+        deepEqualExprNode(el as ExprNode, bNode.elements[i] as ExprNode)
+      );
+    }
+
+    case "object": {
+      const bNode = b as typeof a;
+      if (a.props.length !== bNode.props.length) return false;
+      return a.props.every((p, i) => {
+        const q = bNode.props[i];
+        if (p.kind !== q.kind) return false;
+        if (p.kind === "spread" && q.kind === "spread") {
+          return deepEqualExprNode(p.argument, q.argument);
+        }
+        if (p.kind === "shorthand" && q.kind === "shorthand") {
+          return p.name === q.name;
+        }
+        if (p.kind === "prop" && q.kind === "prop") {
+          if (p.computed !== q.computed) return false;
+          const keysEqual = typeof p.key === "string" && typeof q.key === "string"
+            ? p.key === q.key
+            : typeof p.key === "object" && typeof q.key === "object"
+              ? deepEqualExprNode(p.key, q.key)
+              : false;
+          return keysEqual && deepEqualExprNode(p.value, q.value);
+        }
+        return false;
+      });
+    }
+
+    case "spread": {
+      const bNode = b as typeof a;
+      return deepEqualExprNode(a.argument, bNode.argument);
+    }
+
+    case "unary": {
+      const bNode = b as typeof a;
+      return a.op === bNode.op
+        && a.prefix === bNode.prefix
+        && deepEqualExprNode(a.argument, bNode.argument);
+    }
+
+    case "binary": {
+      const bNode = b as typeof a;
+      return a.op === bNode.op
+        && deepEqualExprNode(a.left, bNode.left)
+        && deepEqualExprNode(a.right, bNode.right);
+    }
+
+    case "assign": {
+      const bNode = b as typeof a;
+      return a.op === bNode.op
+        && deepEqualExprNode(a.target, bNode.target)
+        && deepEqualExprNode(a.value, bNode.value);
+    }
+
+    case "ternary": {
+      const bNode = b as typeof a;
+      return deepEqualExprNode(a.condition, bNode.condition)
+        && deepEqualExprNode(a.consequent, bNode.consequent)
+        && deepEqualExprNode(a.alternate, bNode.alternate);
+    }
+
+    case "member": {
+      const bNode = b as typeof a;
+      return a.property === bNode.property
+        && a.optional === bNode.optional
+        && deepEqualExprNode(a.object, bNode.object);
+    }
+
+    case "index": {
+      const bNode = b as typeof a;
+      return a.optional === bNode.optional
+        && deepEqualExprNode(a.object, bNode.object)
+        && deepEqualExprNode(a.index, bNode.index);
+    }
+
+    case "call": {
+      const bNode = b as typeof a;
+      if (a.optional !== bNode.optional) return false;
+      if (a.args.length !== bNode.args.length) return false;
+      return deepEqualExprNode(a.callee, bNode.callee)
+        && a.args.every((arg, i) =>
+          deepEqualExprNode(arg as ExprNode, bNode.args[i] as ExprNode)
+        );
+    }
+
+    case "new": {
+      const bNode = b as typeof a;
+      if (a.args.length !== bNode.args.length) return false;
+      return deepEqualExprNode(a.callee, bNode.callee)
+        && a.args.every((arg, i) =>
+          deepEqualExprNode(arg as ExprNode, bNode.args[i] as ExprNode)
+        );
+    }
+
+    case "lambda": {
+      const bNode = b as typeof a;
+      if (a.fnStyle !== bNode.fnStyle) return false;
+      if (a.isAsync !== bNode.isAsync) return false;
+      if (a.params.length !== bNode.params.length) return false;
+      const paramsEqual = a.params.every((p, i) => {
+        const q = bNode.params[i];
+        if (p.name !== q.name) return false;
+        if ((p.isRest ?? false) !== (q.isRest ?? false)) return false;
+        if ((p.isLin ?? false) !== (q.isLin ?? false)) return false;
+        if ((p.typeAnnotation ?? "") !== (q.typeAnnotation ?? "")) return false;
+        if (p.defaultValue && q.defaultValue) {
+          return deepEqualExprNode(p.defaultValue, q.defaultValue);
+        }
+        return !p.defaultValue && !q.defaultValue;
+      });
+      if (!paramsEqual) return false;
+      if (a.body.kind !== bNode.body.kind) return false;
+      if (a.body.kind === "expr" && bNode.body.kind === "expr") {
+        return deepEqualExprNode(a.body.value, bNode.body.value);
+      }
+      // Block bodies: compare by statement count — Phase 1 doesn't structure them
+      if (a.body.kind === "block" && bNode.body.kind === "block") {
+        return a.body.stmts.length === bNode.body.stmts.length;
+      }
+      return false;
+    }
+
+    case "cast": {
+      const bNode = b as typeof a;
+      return a.targetType === bNode.targetType
+        && deepEqualExprNode(a.expression, bNode.expression);
+    }
+
+    case "match-expr": {
+      const bNode = b as typeof a;
+      if (!deepEqualExprNode(a.subject, bNode.subject)) return false;
+      // rawArms is a raw-string format whose element count depends on
+      // how the source was line-wrapped (arm splitter is newline-based).
+      // After emit+reparse, all arms may be joined into fewer elements.
+      // Compare by normalizing: join all arms, collapse whitespace, compare.
+      const aArmsNorm = normalizeWhitespace(a.rawArms.join(" "));
+      const bArmsNorm = normalizeWhitespace(bNode.rawArms.join(" "));
+      return aArmsNorm === bArmsNorm;
+    }
+
+    case "sql-ref": {
+      // SQL refs: both sides are placeholders; nodeId may differ in reparse
+      // (nodeId is -1 for parsed refs) — compare as equal if both are sql-ref
+      return true;
+    }
+
+    case "input-state-ref": {
+      const bNode = b as typeof a;
+      return a.name === bNode.name;
+    }
+
+    case "escape-hatch": {
+      const bNode = b as typeof a;
+      // Escape-hatch: compare by whitespace-normalized raw content
+      return normalizeWhitespace(a.raw) === normalizeWhitespace(bNode.raw);
+    }
+
+    default: {
+      const _never: never = a;
+      return false;
+    }
+  }
 }
