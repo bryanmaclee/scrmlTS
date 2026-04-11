@@ -1,0 +1,281 @@
+{
+  "generatedAt": "2026-04-11T23:32:45.109Z",
+  "branch": "changes/expr-ast-phase-1-audit",
+  "phase": "Phase 1.5 audit (idempotency invariant)",
+  "summary": {
+    "filesAudited": 14,
+    "totalExprNodesChecked": 82,
+    "totalEscapeHatches": 3,
+    "escapeHatchRate": "3.66%",
+    "byCategory": {
+      "interpolated-template": 0,
+      "block-lambda": 0,
+      "nested-paren-is": 0,
+      "parse-error": 3,
+      "conversion-error": 0,
+      "unclassified": 0
+    }
+  },
+  "files": [
+    {
+      "file": "01-hello.scrml",
+      "astError": null,
+      "exprNodesChecked": 0,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "02-counter.scrml",
+      "astError": null,
+      "exprNodesChecked": 3,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "03-contact-book.scrml",
+      "astError": null,
+      "exprNodesChecked": 4,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "04-live-search.scrml",
+      "astError": null,
+      "exprNodesChecked": 3,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "05-multi-step-form.scrml",
+      "astError": null,
+      "exprNodesChecked": 8,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "06-kanban-board.scrml",
+      "astError": null,
+      "exprNodesChecked": 7,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "07-admin-dashboard.scrml",
+      "astError": null,
+      "exprNodesChecked": 4,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "08-chat.scrml",
+      "astError": null,
+      "exprNodesChecked": 9,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "09-error-handling.scrml",
+      "astError": null,
+      "exprNodesChecked": 6,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "10-inline-tests.scrml",
+      "astError": null,
+      "exprNodesChecked": 4,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "11-meta-programming.scrml",
+      "astError": null,
+      "exprNodesChecked": 2,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "12-snippets-slots.scrml",
+      "astError": null,
+      "exprNodesChecked": 1,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "13-worker.scrml",
+      "astError": null,
+      "exprNodesChecked": 10,
+      "idempotencyFailures": 0,
+      "totalEscapes": 3,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 3,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [
+        {
+          "category": "parse-error",
+          "raw": "( let i = 2 ; i * i <= limit ; i + + )",
+          "strField": "iterable",
+          "strValue": "( let i = 2 ; i * i <= limit ; i + + )",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "category": "parse-error",
+          "raw": "( let j = i * i ; j <= limit ; j += i )",
+          "strField": "iterable",
+          "strValue": "( let j = i * i ; j <= limit ; j += i )",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "category": "parse-error",
+          "raw": "( let i = 2 ; i <= limit ; i + + )",
+          "strField": "iterable",
+          "strValue": "( let i = 2 ; i <= limit ; i + + )",
+          "astNodeKind": "for-stmt"
+        }
+      ],
+      "idempotencyFailureDetails": []
+    },
+    {
+      "file": "14-mario-state-machine.scrml",
+      "astError": null,
+      "exprNodesChecked": 21,
+      "idempotencyFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "idempotencyFailureDetails": []
+    }
+  ]
+}

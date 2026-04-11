@@ -45,6 +45,8 @@ import {
   tokenizePassthrough as _defaultTokenizePassthrough,
 } from "./tokenizer.ts";
 
+import { parseExprToNode } from "./expression-parser.ts";
+
 // Module-level tokenizer references — overridable by buildAST(bsOutput, tokenizerOverrides)
 let tokenizeAttributes = _defaultTokenizeAttributes;
 let tokenizeLogic = _defaultTokenizeLogic;
@@ -771,6 +773,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * Phase 1: safely parse an expression string to ExprNode.
+   * Never throws — returns undefined on failure.
+   * Used to populate parallel ExprNode fields alongside existing string fields.
+   */
+  function safeParseExprToNode(expr, startOffset) {
+    if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
+    try {
+      return parseExprToNode(expr, filePath, startOffset ?? 0);
+    } catch (_e) {
+      return undefined;
+    }
+  }
+
+  /**
    * Collect tokens into a raw expression string up to (but not including)
    * the next statement boundary. Returns { expr: string, span }.
    *
@@ -1218,10 +1234,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           return { id: ++counter.next, kind: "let-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "let-decl", name, init: expr, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       } else {
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "let-decl", name, init: expr, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       }
     }
 
@@ -1235,7 +1251,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (peek().text === "=" && peek(1)?.text !== "=") {
           consume();
           const { expr, span } = collectExpr();
-          return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: expr, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
         } else {
           return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: "", span: spanOf(startTok, peek()) };
         }
@@ -1255,7 +1271,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           return { id: ++counter.next, kind: "const-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "const-decl", name, init: expr, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "const-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       } else {
         return { id: ++counter.next, kind: "const-decl", name, init: "", span: tokenSpan(startTok, filePath) };
       }
@@ -1279,7 +1295,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "reactive-debounced-decl", name, init: expr, delay, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "reactive-debounced-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), delay, span: spanOf(startTok, peek()) };
       }
       const { expr, span } = collectExpr();
       return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + " " + name + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) };
@@ -1380,6 +1396,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             target: name,
             path: pathSegments,
             value: expr,
+            valueExpr: safeParseExprToNode(expr, 0),
             span: spanOf(startTok, peek()),
           };
         }
@@ -1405,7 +1422,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "reactive-decl", name, init: expr, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       }
 
       // @set(@obj, "path", value) — explicit escape hatch
@@ -1531,6 +1548,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         variable,
         iterable,
         body,
+        iterExpr: safeParseExprToNode(iterable, 0),
         span: spanOf(startTok, peek()),
       };
     }
@@ -1554,6 +1572,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         kind: "while-stmt",
         condition: condition.trim(),
         body,
+        condExpr: safeParseExprToNode(condition.trim(), 0),
         span: spanOf(startTok, peek()),
       };
     }
@@ -1579,6 +1598,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         kind: "do-while-stmt",
         condition: condition.trim(),
         body,
+        condExpr: safeParseExprToNode(condition.trim(), 0),
         span: spanOf(startTok, peek()),
       };
     }
@@ -1645,6 +1665,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: "return-stmt",
         expr: expr.trim(),
+        exprNode: safeParseExprToNode(expr.trim(), 0),
         span: spanOf(startTok, peek()),
       };
     }
@@ -1657,6 +1678,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: "throw-stmt",
         expr: expr.trim(),
+        exprNode: safeParseExprToNode(expr.trim(), 0),
         span: spanOf(startTok, peek()),
       };
     }
@@ -1713,6 +1735,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         header: header.trim(),
         partial: true,
         body,
+        headerExpr: safeParseExprToNode(header.trim(), 0),
         span: spanOf(startTok, peek()),
       };
     }
@@ -1732,6 +1755,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         kind: `${keyword}-stmt`,
         header: header.trim(),
         body,
+        headerExpr: safeParseExprToNode(header.trim(), 0),
         span: spanOf(startTok, peek()),
       };
 
@@ -1842,7 +1866,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const name = startTok.text;
         consume(); // consume `=`
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "tilde-decl", name, init: expr, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "tilde-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       }
     }
 
@@ -1945,7 +1969,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       consume();                  // consume 'mount'
       consume();                  // consume '{'
       const { body, span: bodySpan } = collectBracedBody();
-      return { id: ++counter.next, kind: "bare-expr", expr: body, span: spanOf(startTok, peek()) };
+      return { id: ++counter.next, kind: "bare-expr", expr: body, exprNode: safeParseExprToNode(body, 0), span: spanOf(startTok, peek()) };
     }
 
     // §6.7.1b: ON DISMOUNT — `on dismount { body }` desugars to cleanup(() => { body })
@@ -2074,6 +2098,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       condition: condition.trim(),
       consequent,
       alternate,
+      condExpr: safeParseExprToNode(condition.trim(), 0),
       span: spanOf(startTok, peek()),
     };
   }
@@ -2621,6 +2646,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             target: name,
             path: pathSegments,
             value: expr,
+            valueExpr: safeParseExprToNode(expr, 0),
             span: spanOf(startTok, peek()),
           });
           continue;
@@ -3249,6 +3275,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         variable,
         iterable,
         body,
+        iterExpr: safeParseExprToNode(iterable, 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -3275,6 +3302,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         kind: "while-stmt",
         condition: condition.trim(),
         body,
+        condExpr: safeParseExprToNode(condition.trim(), 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -3296,6 +3324,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         kind: "do-while-stmt",
         condition: condition.trim(),
         body,
+        condExpr: safeParseExprToNode(condition.trim(), 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -3360,6 +3389,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: "return-stmt",
         expr: expr.trim(),
+        exprNode: safeParseExprToNode(expr.trim(), 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -3373,6 +3403,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: "throw-stmt",
         expr: expr.trim(),
+        exprNode: safeParseExprToNode(expr.trim(), 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -3394,6 +3425,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         header: header.trim(),
         partial: true,
         body,
+        headerExpr: safeParseExprToNode(header.trim(), 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -3414,6 +3446,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         kind: `${keyword}-stmt`,
         header: header.trim(),
         body,
+        headerExpr: safeParseExprToNode(header.trim(), 0),
         span: spanOf(startTok, peek()),
       };
 
@@ -3856,7 +3889,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       consume();                  // consume 'mount'
       consume();                  // consume '{'
       const { body, span: bodySpan } = collectBracedBody();
-      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: body, span: spanOf(startTok, peek()) });
+      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: body, exprNode: safeParseExprToNode(body, 0), span: spanOf(startTok, peek()) });
       continue;
     }
 

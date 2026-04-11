@@ -346,6 +346,8 @@ export interface LetDeclNode extends BaseNode {
   init: string;
   /** If-as-expression: `let a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
+  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
 }
 
 /** A `const` declaration: `const name = expr`. */
@@ -357,6 +359,8 @@ export interface ConstDeclNode extends BaseNode {
   init: string;
   /** If-as-expression: `const a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
+  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
 }
 
 /**
@@ -369,6 +373,8 @@ export interface TildeDeclNode extends BaseNode {
   name: string;
   /** Initializer expression (raw string). */
   init: string;
+  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
 }
 
 // -- Reactive Declarations --
@@ -382,6 +388,8 @@ export interface ReactiveDeclNode extends BaseNode {
   init: string;
   /** True if declared with `@shared` modifier (section 37.4). */
   isShared?: boolean;
+  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
 }
 
 /** A derived reactive declaration: `const @name = expr`. */
@@ -391,6 +399,8 @@ export interface ReactiveDerivedDeclNode extends BaseNode {
   name: string;
   /** Derivation expression (raw string). */
   init: string;
+  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
 }
 
 /** A debounced reactive declaration: `@debounced(N) name = expr`. */
@@ -402,6 +412,8 @@ export interface ReactiveDebouncedDeclNode extends BaseNode {
   init: string;
   /** Debounce delay in milliseconds (default 300). */
   delay: number;
+  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
 }
 
 /**
@@ -416,6 +428,8 @@ export interface ReactiveNestedAssignNode extends BaseNode {
   path: string[];
   /** Value expression (raw string). */
   value: string;
+  /** Phase 1: structured ExprNode form of `value`. Populated by ast-builder. */
+  valueExpr?: ExprNode;
 }
 
 /**
@@ -499,6 +513,8 @@ export interface IfStmtNode extends BaseNode {
   consequent: LogicStatement[];
   /** Alternate branch (else/else-if chain), or null. */
   alternate: LogicStatement[] | null;
+  /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
+  condExpr?: ExprNode;
 }
 
 /** An if-as-expression: `const a = if (cond) { lift val }`. */
@@ -510,6 +526,8 @@ export interface IfExprNode extends BaseNode {
   consequent: LogicStatement[];
   /** Alternate branch (else chain), or null. */
   alternate: LogicStatement[] | null;
+  /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
+  condExpr?: ExprNode;
 }
 
 /** A for loop: `for variable in iterable { body }`. */
@@ -521,6 +539,8 @@ export interface ForStmtNode extends BaseNode {
   iterable: string;
   /** Loop body statements. */
   body: LogicStatement[];
+  /** Phase 1: structured ExprNode form of `iterable`. Populated by ast-builder. */
+  iterExpr?: ExprNode;
 }
 
 /** A while loop: `while condition { body }`. */
@@ -530,6 +550,8 @@ export interface WhileStmtNode extends BaseNode {
   condition: string;
   /** Loop body statements. */
   body: LogicStatement[];
+  /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
+  condExpr?: ExprNode;
 }
 
 /** A return statement: `return expr`. */
@@ -537,6 +559,8 @@ export interface ReturnStmtNode extends BaseNode {
   kind: "return-stmt";
   /** Return expression (raw string). */
   expr: string;
+  /** Phase 1: structured ExprNode form of `expr`. Populated by ast-builder. */
+  exprNode?: ExprNode;
 }
 
 /** A throw statement: `throw ErrorType("message")`. */
@@ -544,6 +568,8 @@ export interface ThrowStmtNode extends BaseNode {
   kind: "throw-stmt";
   /** Throw expression (raw string). */
   expr: string;
+  /** Phase 1: structured ExprNode form of `expr`. Populated by ast-builder. */
+  exprNode?: ExprNode;
 }
 
 /** A switch statement: `switch header { body }`. */
@@ -553,6 +579,8 @@ export interface SwitchStmtNode extends BaseNode {
   header: string;
   /** Body statements. */
   body: LogicStatement[];
+  /** Phase 1: structured ExprNode form of `header`. Populated by ast-builder. */
+  headerExpr?: ExprNode;
 }
 
 /** A try/catch/finally statement. */
@@ -581,6 +609,8 @@ export interface MatchStmtNode extends BaseNode {
   header: string;
   /** Body statements (match arms). */
   body: LogicStatement[];
+  /** Phase 1: structured ExprNode form of `header`. Populated by ast-builder. */
+  headerExpr?: ExprNode;
 }
 
 // -- Expressions --
@@ -590,6 +620,8 @@ export interface BareExprNode extends BaseNode {
   kind: "bare-expr";
   /** Raw expression string. */
   expr: string;
+  /** Phase 1: structured ExprNode form of `expr`. Populated by ast-builder. */
+  exprNode?: ExprNode;
 }
 
 /**
@@ -931,3 +963,363 @@ export interface TABErrorInfo {
   /** Severity level (defaults to "error"; "warning" for W- codes). */
   severity?: "error" | "warning";
 }
+
+// ---------------------------------------------------------------------------
+// ExprNode — Structured Expression AST (Phase 1 migration target)
+// ---------------------------------------------------------------------------
+// Added: 2026-04-11 (Phase 0 design)
+// Phase 1: these types exist alongside string-form fields.
+// Phase 4: string-form fields are removed.
+//
+// Every ExprNode carries a `span` that points at the exact source region.
+// The invariant: `emitStringFromTree(node)` === original string-form field value
+// holds throughout Phase 1 and Phase 2.
+// ---------------------------------------------------------------------------
+
+export interface ExprSpan {
+  /** Absolute file path. */
+  file: string;
+  /** Byte offset of the first token of this expression. */
+  start: number;
+  /** Byte offset one past the last token of this expression. */
+  end: number;
+  /** 1-based line number of the first token. */
+  line: number;
+  /** 1-based column number of the first token. */
+  col: number;
+}
+
+// ---- Leaf Nodes ----
+
+/** An identifier: `x`, `foo`, `~` (pipeline accumulator), `@name` (reactive). */
+export interface IdentExpr {
+  kind: "ident";
+  span: ExprSpan;
+  /** The identifier text. For reactive vars, includes `@`. For tilde, is `"~"`. */
+  name: string;
+}
+
+/**
+ * A literal value.
+ * `litType` discriminates the sub-type for the type system.
+ */
+export interface LitExpr {
+  kind: "lit";
+  span: ExprSpan;
+  /** Raw source text of the literal (preserves exact string content). */
+  raw: string;
+  /** Interpreted value — for number: parsed float; for string: unescaped content;
+   *  for bool: true/false; for null/undefined/not: the keyword string. */
+  value: string | number | boolean | null;
+  litType:
+    | "number"
+    | "string"      // double-quoted string
+    | "template"    // back-tick string (static, no live interpolation)
+    | "bool"
+    | "null"
+    | "undefined"
+    | "not";        // §42 absence value — compiles to null
+}
+
+// ---- Compound Primary Nodes ----
+
+/** `[a, b, ...rest]` array literal. `elements` may contain spread nodes. */
+export interface ArrayExpr {
+  kind: "array";
+  span: ExprSpan;
+  elements: (ExprNode | SpreadExpr)[];
+}
+
+/** `{ k: v, shorthand, ...spread }` object literal. */
+export interface ObjectExpr {
+  kind: "object";
+  span: ExprSpan;
+  props: ObjectProp[];
+}
+
+export type ObjectProp =
+  | { kind: "prop"; key: string | ExprNode; value: ExprNode; computed: boolean; span: ExprSpan }
+  | { kind: "shorthand"; name: string; span: ExprSpan }
+  | { kind: "spread"; argument: ExprNode; span: ExprSpan };
+
+/** `...expr` spread operator (inside array/object literals and call arg lists). */
+export interface SpreadExpr {
+  kind: "spread";
+  span: ExprSpan;
+  argument: ExprNode;
+}
+
+// ---- Operations ----
+
+/**
+ * Prefix and postfix unary operators.
+ *
+ * Operators: `!`, `-`, `+`, `~` (bitwise NOT), `typeof`, `void`, `delete`, `await`,
+ * `++` (prefix), `--` (prefix), `++` (postfix), `--` (postfix).
+ *
+ * `not (expr)` — §42 prefix negation — is modeled as `unary { op: "!", prefix: true }`.
+ * The `not` keyword rewrites to `!` during the unary parse.
+ */
+export interface UnaryExpr {
+  kind: "unary";
+  span: ExprSpan;
+  op:
+    | "!" | "-" | "+" | "~"
+    | "typeof" | "void" | "delete" | "await"
+    | "++" | "--";
+  argument: ExprNode;
+  /** true = prefix (`!x`), false = postfix (`x++`). */
+  prefix: boolean;
+}
+
+/**
+ * All binary infix operators.
+ *
+ * Scrml-specific `op` values:
+ * - `"is"` — enum membership check: `x is .Variant`
+ * - `"is-not"` — absence check: `x is not` → `(x === null || x === undefined)`
+ * - `"is-some"` — presence check: `x is some` → `(x !== null && x !== undefined)`
+ * - `"is-not-not"` — double-negation presence: `x is not not` (same semantics as is-some)
+ * - `"??"` — null coalescing
+ *
+ * Standard JS `op` values: arithmetic, comparison, logical, bitwise, equality.
+ *
+ * Note: `==` and `!=` are scrml equality operators (§45) — they compile to structural
+ * comparison, not JS `===`/`!==`. The `op` field carries `"=="` / `"!="` as-is; the
+ * codegen layer interprets them per §45.
+ */
+export interface BinaryExpr {
+  kind: "binary";
+  span: ExprSpan;
+  op:
+    | "+" | "-" | "*" | "/" | "%" | "**"
+    | "==" | "!="
+    | "<" | "<=" | ">" | ">="
+    | "&&" | "||" | "??"
+    | "&" | "|" | "^" | "<<" | ">>" | ">>>"
+    | "in" | "instanceof"
+    | "is" | "is-not" | "is-some" | "is-not-not";
+  left: ExprNode;
+  /**
+   * For `is` / `is-not` / `is-some` / `is-not-not`: right holds the pattern
+   * (an `ident` for enum variant name, or a `lit { litType: "null" }` for absence).
+   * For standard binary ops: right is the right-hand expression.
+   */
+  right: ExprNode;
+}
+
+/** Assignment: `x = expr`, `x += expr`, etc. (§50). */
+export interface AssignExpr {
+  kind: "assign";
+  span: ExprSpan;
+  op:
+    | "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**="
+    | "&&=" | "||=" | "??="
+    | "&=" | "|=" | "^=" | "<<=" | ">>=" | ">>>=";
+  target: ExprNode;
+  value: ExprNode;
+}
+
+/** `cond ? consequent : alternate` ternary. */
+export interface TernaryExpr {
+  kind: "ternary";
+  span: ExprSpan;
+  condition: ExprNode;
+  consequent: ExprNode;
+  alternate: ExprNode;
+}
+
+// ---- Access and Call ----
+
+/**
+ * Member access: `expr.prop` or `expr?.prop`.
+ *
+ * `property` is a plain string (not an ExprNode) because property names in scrml
+ * are always static identifiers. Computed access `expr[idx]` is `IndexExpr`.
+ * This choice matches ESTree (MemberExpression.computed=false case) and avoids
+ * creating spurious ident nodes for property names that are not bindings.
+ */
+export interface MemberExpr {
+  kind: "member";
+  span: ExprSpan;
+  object: ExprNode;
+  /** Static property name (no `@`, no `~`). */
+  property: string;
+  /** true if optional chain: `?.` */
+  optional: boolean;
+}
+
+/** Index access: `expr[idx]` or `expr?.[idx]`. */
+export interface IndexExpr {
+  kind: "index";
+  span: ExprSpan;
+  object: ExprNode;
+  index: ExprNode;
+  /** true if optional chain: `?.[` */
+  optional: boolean;
+}
+
+/** Function call: `callee(args)` or `callee?.(args)`. */
+export interface CallExpr {
+  kind: "call";
+  span: ExprSpan;
+  callee: ExprNode;
+  args: (ExprNode | SpreadExpr)[];
+  /** true if optional chain: `?.()` */
+  optional: boolean;
+}
+
+/** `new Callee(args)`. */
+export interface NewExpr {
+  kind: "new";
+  span: ExprSpan;
+  callee: ExprNode;
+  args: (ExprNode | SpreadExpr)[];
+}
+
+// ---- Lambda and Inline Function ----
+
+/**
+ * Arrow function or `fn` shorthand.
+ *
+ * `params` uses the same `FunctionParam` type as `FunctionDeclNode` will eventually
+ * use once params are structured.
+ *
+ * `body`:
+ * - `{ kind: "expr"; value: ExprNode }` — expression body: `x => x + 1`
+ * - `{ kind: "block"; stmts: LogicStatement[] }` — block body: `x => { return x + 1 }`
+ *
+ * `fnStyle`:
+ * - `"arrow"` — `(x) => expr` or `(x) => { ... }`
+ * - `"fn"` — `fn(x) { ... }` (scrml shorthand, same as arrow with block body)
+ * - `"function"` — `function(x) { ... }` (inline function expression)
+ *
+ * Phase 1 note: block bodies are represented as EscapeHatchExpr in esTreeToExprNode
+ * because converting block statements requires the full ast-builder statement loop.
+ * Only expression-body arrows are fully structured in Phase 1.
+ */
+export interface LambdaExpr {
+  kind: "lambda";
+  span: ExprSpan;
+  params: LambdaParam[];
+  body:
+    | { kind: "expr"; value: ExprNode }
+    | { kind: "block"; stmts: LogicStatement[] };
+  isAsync: boolean;
+  fnStyle: "arrow" | "fn" | "function";
+}
+
+export interface LambdaParam {
+  name: string;
+  typeAnnotation?: string;
+  defaultValue?: ExprNode;
+  isRest?: boolean;
+  isLin?: boolean;     // §35.2.1 lin parameter
+}
+
+// ---- Type Cast ----
+
+/**
+ * `expr as TypeName` type cast.
+ *
+ * `targetType` is a raw string (not a structured type node) because scrml's type system
+ * is not yet fully structured. When type nodes are structured in a future phase, this
+ * field will become a TypeNode.
+ */
+export interface CastExpr {
+  kind: "cast";
+  span: ExprSpan;
+  expression: ExprNode;
+  targetType: string;
+}
+
+// ---- Inline Match ----
+
+/**
+ * `match expr { arm arm ... }` inline match expression.
+ *
+ * Modeled as an expression node so it can appear in value position:
+ * `let label = match @state { .Small => "small" else => "big" }`.
+ *
+ * `arms` carry the raw arm text (pre-structured). During Phase 2 (semantic passes),
+ * arms will be structured into typed arm nodes.
+ */
+export interface MatchExpr {
+  kind: "match-expr";
+  span: ExprSpan;
+  subject: ExprNode;
+  /** Raw arm strings for Phase 1. Replace with structured MatchArm[] in Phase 2. */
+  rawArms: string[];
+}
+
+// ---- SQL Block Reference ----
+
+/**
+ * `?{ sql query }` SQL block reference appearing inside an expression.
+ *
+ * In the current parser, SQL blocks are `BLOCK_REF` tokens (block splitter level).
+ * When they appear inside an expression context, they are modeled as opaque references.
+ * This node type allows the structured parser to preserve them without losing position info.
+ */
+export interface SqlRefExpr {
+  kind: "sql-ref";
+  span: ExprSpan;
+  /** The SQLNode this expression-position SQL block resolves to. */
+  nodeId: number;
+}
+
+// ---- Input State Reference ----
+
+/**
+ * `<#identifier>` input state reference.
+ * Currently rewritten to `_scrml_input_state_registry.get("name")` by `rewriteInputStateRefs`.
+ * In the structured AST, preserved as a typed node until codegen.
+ */
+export interface InputStateRefExpr {
+  kind: "input-state-ref";
+  span: ExprSpan;
+  name: string;
+}
+
+// ---- Escape Hatch ----
+
+/**
+ * Escape hatch for ESTree node types not yet mapped to ExprNode.
+ * Fires when esTreeToExprNode encounters an unsupported ESTree node type.
+ * All escape-hatch occurrences are tracked and reported.
+ * Zero escape hatches on the examples corpus is a Phase 1 exit criterion.
+ */
+export interface EscapeHatchExpr {
+  kind: "escape-hatch";
+  span: ExprSpan;
+  /** Original ESTree node type that triggered the escape hatch. */
+  estreeType: string;
+  /** Raw source text of the unsupported expression. */
+  raw: string;
+}
+
+// ---- Union ----
+
+/**
+ * All expression node types. Use `node.kind` to discriminate.
+ */
+export type ExprNode =
+  | IdentExpr
+  | LitExpr
+  | ArrayExpr
+  | ObjectExpr
+  | SpreadExpr
+  | UnaryExpr
+  | BinaryExpr
+  | AssignExpr
+  | TernaryExpr
+  | MemberExpr
+  | IndexExpr
+  | CallExpr
+  | NewExpr
+  | LambdaExpr
+  | CastExpr
+  | MatchExpr
+  | SqlRefExpr
+  | InputStateRefExpr
+  | EscapeHatchExpr;

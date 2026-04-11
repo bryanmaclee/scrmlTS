@@ -17,6 +17,15 @@ import * as acorn from "acorn";
 // @ts-ignore — astring ships its own types
 import { generate as astringGenerate } from "astring";
 
+import type {
+  ExprNode, ExprSpan,
+  IdentExpr, LitExpr, ArrayExpr, ObjectExpr, ObjectProp, SpreadExpr,
+  UnaryExpr, BinaryExpr, AssignExpr, TernaryExpr,
+  MemberExpr, IndexExpr, CallExpr, NewExpr,
+  LambdaExpr, LambdaParam,
+  CastExpr, MatchExpr, SqlRefExpr, InputStateRefExpr, EscapeHatchExpr,
+} from "./types/ast.ts";
+
 // ---------------------------------------------------------------------------
 // ESTree types (minimal local definitions — acorn provides runtime shapes)
 // ---------------------------------------------------------------------------
@@ -460,5 +469,1002 @@ export function rewriteServerReactiveRefsAST(expr: string): RewriteResult {
     return { result: astToJs(ast).trim(), ok: true };
   } catch {
     return { result: expr, ok: false };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: ExprNode conversion
+// ---------------------------------------------------------------------------
+// These functions implement the structured expression AST migration.
+// Design doc: /scrml-support/docs/deep-dives/expression-ast-phase-0-design-2026-04-11.md
+// ---------------------------------------------------------------------------
+
+/**
+ * Null span — used when we cannot determine a precise source span.
+ * Callers with real offsets should pass them via parseExprToNode.
+ */
+function nullSpan(filePath: string): ExprSpan {
+  return { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+}
+
+/**
+ * Construct an ExprSpan from an ESTree node's `start`/`end` positions
+ * plus a base offset for the enclosing source region.
+ */
+function spanFromEstree(node: ESNode, filePath: string, baseOffset: number): ExprSpan {
+  const start = (typeof node.start === "number" ? node.start : 0) + baseOffset;
+  const end = (typeof node.end === "number" ? node.end : 0) + baseOffset;
+  return { file: filePath, start, end, line: 1, col: 1 };
+}
+
+// ---------------------------------------------------------------------------
+// Pre-processing scrml-specific forms before Acorn
+// ---------------------------------------------------------------------------
+//
+// Acorn cannot parse scrml-specific operators: `is`, `is not`, `is some`,
+// `is not not`, `is given`, `match { ... }`.
+//
+// Strategy: replace these with placeholder function calls that Acorn CAN parse,
+// then convert those calls back to the correct ExprNode types in esTreeToExprNode.
+//
+// Placeholder scheme:
+//   x is not not  → __scrml_is_not_not__(x)
+//   x is not      → __scrml_is_not__(x)
+//   x is some     → __scrml_is_some__(x)
+//   x is given    → __scrml_is_some__(x)   (alias per OQ-9)
+//   x is .Var     → __scrml_is_variant__(x, ".Var")
+//   x is T.Var    → __scrml_is_variant__(x, "T.Var")
+//
+// Limitation: these replacements are regex-based and operate on the pre-processed
+// string. They handle the common cases found in the examples corpus. Complex nested
+// forms (multiple is operators) may not round-trip perfectly — those fire EscapeHatch.
+//
+// `match` expressions: replace entire `match expr { ... }` with
+//   __scrml_match__(expr, "arm1", "arm2", ...)
+// where each arm is a quoted string. The arm content is preserved verbatim.
+// ---------------------------------------------------------------------------
+
+const SCRML_PLACEHOLDER_PREFIX = "__scrml_";
+
+/** Pre-process scrml-specific operators for Acorn parsing. Returns transformed string. */
+function preprocessForAcorn(raw: string): string {
+  let s = raw.trim();
+
+  // Replace `match expr { arms }` with placeholder
+  // This is processed first because match may contain `is` operators inside arms.
+  s = preprocessMatchExprs(s);
+
+  // Replace `is not not` (must come before `is not`)
+  // Pattern: <expr> is not not — left side is everything before ` is not not`
+  // We anchor on ` is not not` as a suffix (for the simple case)
+  // For parenthesized forms: (expr) is not not → __scrml_is_not_not__((expr))
+  s = s.replace(/\)\s+is\s+not\s+not(?!\s+not)/g, ") is_not_not_PLACEHOLDER");
+  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+not\s+not(?!\s+not)/g, "__scrml_is_not_not__($1)");
+  s = s.replace(/\)\s*is_not_not_PLACEHOLDER/g, ") __scrml_is_not_not_result__");
+
+  // Replace `is not not` via parenthesized form
+  s = s.replace(/(__scrml_is_not_not_result__)/g, "__scrml_is_not_not_sentinel__");
+
+  // Replace `(expr) is not not` cleanly
+  s = s.replace(/\(([^)]+)\)\s+is\s+not\s+not/g, "__scrml_is_not_not__(($1))");
+
+  // Replace `is not` (absence check)
+  s = s.replace(/\)\s+is\s+not(?!\s+not)/g, ")__scrml_is_not_suffix__");
+  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+not(?!\s+not)/g, "__scrml_is_not__($1)");
+  s = s.replace(/\(([^)]+)\)\s+is\s+not(?!\s+not)/g, "__scrml_is_not__(($1))");
+  s = s.replace(/\)__scrml_is_not_suffix__/g, "__scrml_is_not__(PLACEHOLDER_PAREN)");
+
+  // Replace `is some` / `is given` (presence check)
+  s = s.replace(/\)\s+is\s+(?:some|given)/g, ").__scrml_is_some_suffix__");
+  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+(?:some|given)/g, "__scrml_is_some__($1)");
+  s = s.replace(/\(([^)]+)\)\s+is\s+(?:some|given)/g, "__scrml_is_some__(($1))");
+  s = s.replace(/\)__scrml_is_some_suffix__/g, "__scrml_is_some__(PLACEHOLDER_PAREN_SOME)");
+
+  // Replace `is .Variant` (enum variant check, dot-prefixed)
+  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+(\.[A-Z][A-Za-z0-9_]*)/g,
+    '__scrml_is_variant__($1, "$2")');
+  s = s.replace(/\(([^)]+)\)\s+is\s+(\.[A-Z][A-Za-z0-9_]*)/g,
+    '__scrml_is_variant__(($1), "$2")');
+
+  // Replace `is TypeName.Variant` (qualified enum variant check)
+  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+([A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*)/g,
+    '__scrml_is_variant__($1, "$2")');
+
+  return s;
+}
+
+/** Pre-process `match subject { arms }` expressions. */
+function preprocessMatchExprs(s: string): string {
+  // Find `match` followed by an expression and a brace block
+  // This is a simple balanced-brace scanner — handles one level of nesting
+  const matchRe = /\bmatch\s+/g;
+  let result = s;
+  let searchFrom = 0;
+  let m: RegExpExecArray | null;
+
+  // Process match expressions right-to-left to handle nesting
+  const matches: Array<{ index: number; end: number; raw: string }> = [];
+
+  matchRe.lastIndex = 0;
+  while ((m = matchRe.exec(s)) !== null) {
+    const matchStart = m.index;
+    // Find the opening brace
+    const braceIdx = s.indexOf("{", m.index + m[0].length);
+    if (braceIdx === -1) continue;
+
+    // Extract subject (between `match ` and `{`)
+    const subjectRaw = s.slice(m.index + m[0].length, braceIdx).trim();
+
+    // Find closing brace (balanced)
+    let depth = 1;
+    let i = braceIdx + 1;
+    while (i < s.length && depth > 0) {
+      if (s[i] === "{") depth++;
+      else if (s[i] === "}") depth--;
+      i++;
+    }
+    const matchEnd = i;
+    const armsRaw = s.slice(braceIdx + 1, i - 1).trim();
+
+    matches.push({ index: matchStart, end: matchEnd, raw: s.slice(matchStart, matchEnd) });
+  }
+
+  // Replace right-to-left so indices stay valid
+  for (let k = matches.length - 1; k >= 0; k--) {
+    const { index, end, raw } = matches[k];
+    // Extract subject and arms from the raw match text
+    const innerBraceIdx = raw.indexOf("{");
+    const subject = raw.slice("match ".length, innerBraceIdx).trim();
+    const armsContent = raw.slice(innerBraceIdx + 1, -1).trim();
+
+    // Split arms by `\n` or `.` prefixed arm starts — simple approach
+    // Each arm is: `.Variant => expr` or `else => expr`
+    // We keep arms as raw strings
+    const armStrings = splitMatchArms(armsContent);
+    const armsQuoted = armStrings.map(a => JSON.stringify(a.trim())).join(", ");
+
+    const replacement = `__scrml_match__(${subject}, ${armsQuoted})`;
+    result = result.slice(0, index) + replacement + result.slice(end);
+  }
+
+  return result;
+}
+
+/** Split match arms content into individual arm strings. */
+function splitMatchArms(content: string): string[] {
+  // Arms are separated by `.` at the start of a line or whitespace-dot pattern
+  // Simple split on ` .` or `\n.` boundaries, keeping the dot
+  const arms: string[] = [];
+  // Split on newlines first, then re-join arm continuations
+  const lines = content.split(/\n/);
+  let current = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // A new arm starts when line starts with `.` or `else`
+    if (current && (trimmed.startsWith(".") || trimmed.startsWith("else"))) {
+      arms.push(current.trim());
+      current = trimmed;
+    } else {
+      current += (current ? " " : "") + trimmed;
+    }
+  }
+  if (current.trim()) arms.push(current.trim());
+  // Fallback: if only one arm or no newlines, try splitting on whitespace-. pattern
+  if (arms.length === 0 && content.trim()) {
+    arms.push(content.trim());
+  }
+  return arms;
+}
+
+// ---------------------------------------------------------------------------
+// esTreeToExprNode — convert Acorn ESTree to ExprNode
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert an Acorn ESTree node to an ExprNode.
+ *
+ * @param node - ESTree node from Acorn
+ * @param filePath - Source file path (for spans)
+ * @param baseOffset - Byte offset of the expression start in the source file
+ * @param rawSource - The original raw source string (before preprocessing) for escape hatch
+ */
+export function esTreeToExprNode(
+  node: ESNode,
+  filePath: string,
+  baseOffset: number,
+  rawSource?: string,
+): ExprNode {
+  const span = spanFromEstree(node, filePath, baseOffset);
+
+  switch (node.type) {
+    // ---- Identifier ----
+    case "Identifier": {
+      const name = node.name as string;
+      // Handle __scrml_input_<id>__ placeholders back to input-state-ref
+      if (name.startsWith("__scrml_input_") && name.endsWith("__")) {
+        const inputName = name.slice("__scrml_input_".length, -2);
+        return { kind: "input-state-ref", span, name: inputName } satisfies InputStateRefExpr;
+      }
+      // Handle __scrml_sql_placeholder__
+      if (name === "__scrml_sql_placeholder__") {
+        return { kind: "sql-ref", span, nodeId: -1 } satisfies SqlRefExpr;
+      }
+      // Handle worker refs __scrml_worker_<id>__
+      if (name.startsWith("__scrml_worker_") && name.endsWith("__")) {
+        // Worker refs are handled at a higher level; emit as ident for now
+        return { kind: "ident", span, name } satisfies IdentExpr;
+      }
+      return { kind: "ident", span, name } satisfies IdentExpr;
+    }
+
+    // ---- Literals ----
+    case "Literal": {
+      const raw = node.raw as string ?? String(node.value);
+      const value = node.value;
+      if (typeof value === "number") {
+        return { kind: "lit", span, raw, value, litType: "number" } satisfies LitExpr;
+      }
+      if (typeof value === "boolean") {
+        return { kind: "lit", span, raw, value, litType: "bool" } satisfies LitExpr;
+      }
+      if (value === null) {
+        return { kind: "lit", span, raw, value: null, litType: "null" } satisfies LitExpr;
+      }
+      if (typeof value === "string") {
+        // Template literals that survived preprocessing are string literals
+        const litType = raw && raw.startsWith("`") ? "template" : "string";
+        return { kind: "lit", span, raw, value, litType } satisfies LitExpr;
+      }
+      // BigInt or other exotic literals
+      return makeEscapeHatch(node, span, rawSource ?? String(node.value));
+    }
+
+    // ---- Template Literal (back-tick string with no live interpolation) ----
+    case "TemplateLiteral": {
+      const quasis = (node.quasis as ESNode[]) ?? [];
+      if (quasis.length === 1) {
+        const quasi = quasis[0];
+        const cooked = (quasi as { value?: { cooked?: string } }).value?.cooked ?? "";
+        const raw = "`" + cooked + "`";
+        return { kind: "lit", span, raw, value: cooked, litType: "template" } satisfies LitExpr;
+      }
+      // Template literal with expressions — not yet structured
+      return makeEscapeHatch(node, span, rawSource ?? "");
+    }
+
+    // ---- Unary ----
+    case "UnaryExpression": {
+      const op = node.operator as string;
+      const argument = esTreeToExprNode(node.argument as ESNode, filePath, baseOffset);
+      const validOps = ["!", "-", "+", "~", "typeof", "void", "delete", "await"];
+      if (!validOps.includes(op)) return makeEscapeHatch(node, span, rawSource ?? "");
+      return {
+        kind: "unary", span,
+        op: op as UnaryExpr["op"],
+        argument,
+        prefix: true,
+      } satisfies UnaryExpr;
+    }
+
+    // ---- Update (prefix/postfix ++ / --) ----
+    case "UpdateExpression": {
+      const op = node.operator as string; // "++" or "--"
+      const argument = esTreeToExprNode(node.argument as ESNode, filePath, baseOffset);
+      return {
+        kind: "unary", span,
+        op: op as "++" | "--",
+        argument,
+        prefix: node.prefix as boolean,
+      } satisfies UnaryExpr;
+    }
+
+    // ---- Await ----
+    case "AwaitExpression": {
+      const argument = esTreeToExprNode(node.argument as ESNode, filePath, baseOffset);
+      return {
+        kind: "unary", span,
+        op: "await",
+        argument,
+        prefix: true,
+      } satisfies UnaryExpr;
+    }
+
+    // ---- Binary ----
+    case "BinaryExpression": {
+      const op = node.operator as string;
+      const left = esTreeToExprNode(node.left as ESNode, filePath, baseOffset);
+      const right = esTreeToExprNode(node.right as ESNode, filePath, baseOffset);
+      // All JS binary ops are valid in the BinaryExpr union
+      return { kind: "binary", span, op: op as BinaryExpr["op"], left, right } satisfies BinaryExpr;
+    }
+
+    // ---- Logical (&&, ||, ??) ----
+    case "LogicalExpression": {
+      const op = node.operator as string;
+      const left = esTreeToExprNode(node.left as ESNode, filePath, baseOffset);
+      const right = esTreeToExprNode(node.right as ESNode, filePath, baseOffset);
+      return { kind: "binary", span, op: op as BinaryExpr["op"], left, right } satisfies BinaryExpr;
+    }
+
+    // ---- Assignment ----
+    case "AssignmentExpression": {
+      const op = node.operator as string;
+      const target = esTreeToExprNode(node.left as ESNode, filePath, baseOffset);
+      const value = esTreeToExprNode(node.right as ESNode, filePath, baseOffset);
+      return { kind: "assign", span, op: op as AssignExpr["op"], target, value } satisfies AssignExpr;
+    }
+
+    // ---- Ternary ----
+    case "ConditionalExpression": {
+      const condition = esTreeToExprNode(node.test as ESNode, filePath, baseOffset);
+      const consequent = esTreeToExprNode(node.consequent as ESNode, filePath, baseOffset);
+      const alternate = esTreeToExprNode(node.alternate as ESNode, filePath, baseOffset);
+      return { kind: "ternary", span, condition, consequent, alternate } satisfies TernaryExpr;
+    }
+
+    // ---- Member Access ----
+    case "MemberExpression": {
+      const object = esTreeToExprNode(node.object as ESNode, filePath, baseOffset);
+      const computed = node.computed as boolean;
+      const optional = node.optional as boolean ?? false;
+
+      if (computed) {
+        // Computed access: expr[index]
+        const index = esTreeToExprNode(node.property as ESNode, filePath, baseOffset);
+        return { kind: "index", span, object, index, optional } satisfies IndexExpr;
+      } else {
+        // Static access: expr.prop
+        const propNode = node.property as ESNode;
+        const property = propNode.name as string ?? (propNode.value as string);
+        return { kind: "member", span, object, property, optional } satisfies MemberExpr;
+      }
+    }
+
+    // ---- Optional Chain wrapper (Acorn wraps optional chains) ----
+    case "ChainExpression": {
+      // Acorn wraps optional chain expressions in ChainExpression
+      // Recurse on the inner expression
+      return esTreeToExprNode(node.expression as ESNode, filePath, baseOffset, rawSource);
+    }
+
+    // ---- Call ----
+    case "CallExpression": {
+      const callee = node.callee as ESNode;
+      const optional = node.optional as boolean ?? false;
+      const rawArgs = (node.arguments as ESNode[]) ?? [];
+
+      // Check for scrml placeholder calls
+      if (callee.type === "Identifier") {
+        const calleeName = callee.name as string;
+
+        if (calleeName === "__scrml_is_not_not__") {
+          const left = esTreeToExprNode(rawArgs[0] as ESNode, filePath, baseOffset);
+          const nullNode: LitExpr = { kind: "lit", span, raw: "null", value: null, litType: "null" };
+          return { kind: "binary", span, op: "is-not-not", left, right: nullNode } satisfies BinaryExpr;
+        }
+        if (calleeName === "__scrml_is_not__") {
+          const left = esTreeToExprNode(rawArgs[0] as ESNode, filePath, baseOffset);
+          const nullNode: LitExpr = { kind: "lit", span, raw: "null", value: null, litType: "null" };
+          return { kind: "binary", span, op: "is-not", left, right: nullNode } satisfies BinaryExpr;
+        }
+        if (calleeName === "__scrml_is_some__") {
+          const left = esTreeToExprNode(rawArgs[0] as ESNode, filePath, baseOffset);
+          const nullNode: LitExpr = { kind: "lit", span, raw: "null", value: null, litType: "null" };
+          return { kind: "binary", span, op: "is-some", left, right: nullNode } satisfies BinaryExpr;
+        }
+        if (calleeName === "__scrml_is_variant__") {
+          const left = esTreeToExprNode(rawArgs[0] as ESNode, filePath, baseOffset);
+          const variantLit = rawArgs[1] as ESNode;
+          const variantName = variantLit.value as string ?? "";
+          const right: IdentExpr = { kind: "ident", span, name: variantName };
+          return { kind: "binary", span, op: "is", left, right } satisfies BinaryExpr;
+        }
+        if (calleeName === "__scrml_match__") {
+          // First arg is subject, rest are arm strings
+          const subject = esTreeToExprNode(rawArgs[0] as ESNode, filePath, baseOffset);
+          const rawArmNodes = rawArgs.slice(1) as ESNode[];
+          const rawArmsArr = rawArmNodes.map(a => a.value as string ?? "");
+          return { kind: "match-expr", span, subject, rawArms: rawArmsArr } satisfies MatchExpr;
+        }
+      }
+
+      // Normal call
+      const calleeExpr = esTreeToExprNode(callee, filePath, baseOffset);
+      const args = rawArgs.map(a => {
+        if (a.type === "SpreadElement") {
+          const arg = esTreeToExprNode((a as { argument: ESNode }).argument, filePath, baseOffset);
+          return { kind: "spread" as const, span: spanFromEstree(a, filePath, baseOffset), argument: arg } satisfies SpreadExpr;
+        }
+        return esTreeToExprNode(a, filePath, baseOffset);
+      });
+      return { kind: "call", span, callee: calleeExpr, args, optional } satisfies CallExpr;
+    }
+
+    // ---- New ----
+    case "NewExpression": {
+      const calleeExpr = esTreeToExprNode(node.callee as ESNode, filePath, baseOffset);
+      const rawArgs = (node.arguments as ESNode[]) ?? [];
+      const args = rawArgs.map(a => {
+        if (a.type === "SpreadElement") {
+          const arg = esTreeToExprNode((a as { argument: ESNode }).argument, filePath, baseOffset);
+          return { kind: "spread" as const, span: spanFromEstree(a, filePath, baseOffset), argument: arg } satisfies SpreadExpr;
+        }
+        return esTreeToExprNode(a, filePath, baseOffset);
+      });
+      return { kind: "new", span, callee: calleeExpr, args } satisfies NewExpr;
+    }
+
+    // ---- Array ----
+    case "ArrayExpression": {
+      const elements = ((node.elements as (ESNode | null)[]) ?? []).map(el => {
+        if (!el) return { kind: "lit" as const, span, raw: "undefined", value: undefined as unknown as null, litType: "undefined" as const } satisfies LitExpr;
+        if (el.type === "SpreadElement") {
+          const arg = esTreeToExprNode((el as { argument: ESNode }).argument, filePath, baseOffset);
+          return { kind: "spread" as const, span: spanFromEstree(el, filePath, baseOffset), argument: arg } satisfies SpreadExpr;
+        }
+        return esTreeToExprNode(el, filePath, baseOffset);
+      });
+      return { kind: "array", span, elements } satisfies ArrayExpr;
+    }
+
+    // ---- Object ----
+    case "ObjectExpression": {
+      const props: ObjectProp[] = ((node.properties as ESNode[]) ?? []).map(p => {
+        const propSpan = spanFromEstree(p, filePath, baseOffset);
+        if (p.type === "SpreadElement") {
+          const arg = esTreeToExprNode((p as { argument: ESNode }).argument, filePath, baseOffset);
+          return { kind: "spread" as const, argument: arg, span: propSpan } satisfies Extract<ObjectProp, { kind: "spread" }>;
+        }
+        // Property
+        const keyNode = (p as { key: ESNode }).key;
+        const computed = (p as { computed?: boolean }).computed ?? false;
+        const shorthand = (p as { shorthand?: boolean }).shorthand ?? false;
+        const valueNode = (p as { value: ESNode }).value;
+
+        if (shorthand && keyNode.type === "Identifier") {
+          return { kind: "shorthand" as const, name: keyNode.name as string, span: propSpan } satisfies Extract<ObjectProp, { kind: "shorthand" }>;
+        }
+
+        const key: string | ExprNode = computed
+          ? esTreeToExprNode(keyNode, filePath, baseOffset)
+          : (keyNode.name as string ?? keyNode.value as string ?? "");
+        const value = esTreeToExprNode(valueNode, filePath, baseOffset);
+        return { kind: "prop" as const, key, value, computed, span: propSpan } satisfies Extract<ObjectProp, { kind: "prop" }>;
+      });
+      return { kind: "object", span, props } satisfies ObjectExpr;
+    }
+
+    // ---- Arrow Function / Function Expression ----
+    case "ArrowFunctionExpression":
+    case "FunctionExpression": {
+      const isAsync = node.async as boolean ?? false;
+      const fnStyle: LambdaExpr["fnStyle"] =
+        node.type === "ArrowFunctionExpression" ? "arrow" : "function";
+      const params = convertParams((node.params as ESNode[]) ?? [], filePath, baseOffset);
+      const bodyNode = node.body as ESNode;
+
+      if (bodyNode.type !== "BlockStatement") {
+        // Expression body: `x => expr`
+        const value = esTreeToExprNode(bodyNode, filePath, baseOffset);
+        return {
+          kind: "lambda", span, params, isAsync, fnStyle,
+          body: { kind: "expr", value },
+        } satisfies LambdaExpr;
+      }
+
+      // Block body: we cannot fully convert block statements in Phase 1.
+      // Convert to EscapeHatchExpr with the raw body text.
+      return makeEscapeHatch(node, span, rawSource ?? "");
+    }
+
+    // ---- Sequence Expression (a, b, c) — not common but valid ----
+    case "SequenceExpression": {
+      // Model as nested binary with comma op — use EscapeHatch for now
+      return makeEscapeHatch(node, span, rawSource ?? "");
+    }
+
+    // ---- Spread (in spread position, handled by parent; standalone is escape hatch) ----
+    case "SpreadElement": {
+      const argument = esTreeToExprNode((node as { argument: ESNode }).argument, filePath, baseOffset);
+      return { kind: "spread", span, argument } satisfies SpreadExpr;
+    }
+
+    // ---- Parenthesized expression (Acorn doesn't emit a node for these — transparent) ----
+
+    default: {
+      // Unknown ESTree node type — emit escape hatch
+      return makeEscapeHatch(node, span, rawSource ?? "");
+    }
+  }
+}
+
+/** Create an EscapeHatchExpr for an unsupported ESTree node type. */
+function makeEscapeHatch(node: ESNode, span: ExprSpan, rawSource: string): EscapeHatchExpr {
+  return {
+    kind: "escape-hatch",
+    span,
+    estreeType: node.type,
+    raw: rawSource,
+  } satisfies EscapeHatchExpr;
+}
+
+/** Convert ESTree parameter nodes to LambdaParam[]. */
+function convertParams(params: ESNode[], filePath: string, baseOffset: number): LambdaParam[] {
+  return params.map(p => {
+    if (p.type === "Identifier") {
+      return { name: p.name as string };
+    }
+    if (p.type === "RestElement") {
+      const arg = (p as { argument: ESNode }).argument;
+      return { name: arg.name as string ?? "", isRest: true };
+    }
+    if (p.type === "AssignmentPattern") {
+      const left = (p as { left: ESNode }).left;
+      const right = (p as { right: ESNode }).right;
+      const defaultValue = esTreeToExprNode(right, filePath, baseOffset);
+      return { name: left.name as string ?? "", defaultValue };
+    }
+    // Destructured patterns — not yet structured
+    return { name: "__destructured__" };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// parseExprToNode — top-level entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a scrml expression string into a structured ExprNode.
+ *
+ * @param raw - The raw expression string (as produced by collectExpr / joinWithNewlines)
+ * @param filePath - Absolute path of the source file (for span reporting)
+ * @param offset - Byte offset of the expression start in the preprocessed source file
+ * @returns A structured ExprNode. Returns EscapeHatchExpr on parse failure.
+ */
+export function parseExprToNode(raw: string, filePath: string, offset: number): ExprNode {
+  if (!raw || typeof raw !== "string" || !raw.trim()) {
+    // Empty expression — return a null-literal placeholder
+    const span: ExprSpan = { file: filePath, start: offset, end: offset, line: 1, col: 1 };
+    return { kind: "lit", span, raw: "", value: null, litType: "null" } satisfies LitExpr;
+  }
+
+  const trimmed = raw.trim();
+
+  // Apply scrml-specific preprocessing to convert `is`/`match` etc.
+  let processed = trimmed;
+
+  // Preprocessing for scrml-specific operators
+  processed = preprocessForAcorn(processed);
+
+  // Standard parseExpression preprocessing (SQL, input-state, worker refs)
+  // parseExpression already does this, but we also do it here so we can
+  // pass the pre-processed string directly if needed.
+
+  // Try to parse the processed expression
+  let estree: ESNode | null = null;
+  let parseError: string | null = null;
+
+  try {
+    const result = parseExpression(processed);
+    estree = result.ast;
+    parseError = result.error;
+  } catch (e) {
+    parseError = (e as Error).message;
+  }
+
+  if (!estree) {
+    // Parse failed — return escape hatch
+    const span: ExprSpan = { file: filePath, start: offset, end: offset + trimmed.length, line: 1, col: 1 };
+    return {
+      kind: "escape-hatch",
+      span,
+      estreeType: "ParseError",
+      raw: trimmed,
+    } satisfies EscapeHatchExpr;
+  }
+
+  try {
+    return esTreeToExprNode(estree, filePath, offset, trimmed);
+  } catch (e) {
+    const span: ExprSpan = { file: filePath, start: offset, end: offset + trimmed.length, line: 1, col: 1 };
+    return {
+      kind: "escape-hatch",
+      span,
+      estreeType: "ConversionError",
+      raw: trimmed,
+    } satisfies EscapeHatchExpr;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// emitStringFromTree — ExprNode → string (round-trip invariant check)
+// ---------------------------------------------------------------------------
+//
+// Converts an ExprNode back to a token-joined string that should be equivalent
+// to the original string-form field (modulo whitespace normalization).
+//
+// Whitespace normalization rule: collapse multiple spaces to single space, trim.
+// This matches collectExpr's joinWithNewlines which adds spaces between tokens.
+//
+// Design doc §5.2: "the invariant check may fail on whitespace differences.
+// Mitigation: normalize whitespace in the invariant check."
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a string from an ExprNode tree.
+ *
+ * The result is equivalent to the original expression string modulo whitespace
+ * normalization. Used for the Phase 1 round-trip invariant tests.
+ *
+ * @param node - The ExprNode to emit
+ * @returns String representation of the expression
+ */
+export function emitStringFromTree(node: ExprNode): string {
+  switch (node.kind) {
+    case "ident":
+      return node.name;
+
+    case "lit": {
+      if (node.litType === "not") return "not";
+      if (node.litType === "null") return node.raw || "null";
+      if (node.litType === "undefined") return "undefined";
+      return node.raw;
+    }
+
+    case "array": {
+      const elems = node.elements.map(e => emitStringFromTree(e as ExprNode)).join(", ");
+      return `[${elems}]`;
+    }
+
+    case "object": {
+      const props = node.props.map(p => {
+        if (p.kind === "spread") return `...${emitStringFromTree(p.argument)}`;
+        if (p.kind === "shorthand") return p.name;
+        const keyStr = typeof p.key === "string"
+          ? (p.computed ? `[${p.key}]` : p.key)
+          : (p.computed ? `[${emitStringFromTree(p.key)}]` : emitStringFromTree(p.key));
+        return `${keyStr}: ${emitStringFromTree(p.value)}`;
+      });
+      return `{${props.length > 0 ? " " + props.join(", ") + " " : ""}}`;
+    }
+
+    case "spread":
+      return `...${emitStringFromTree(node.argument)}`;
+
+    case "unary": {
+      const arg = emitStringFromTree(node.argument);
+      if (!node.prefix) return `${arg}${node.op}`;
+      // Special keyword operators need a space
+      const needsSpace = ["typeof", "void", "delete", "await"].includes(node.op);
+      return needsSpace ? `${node.op} ${arg}` : `${node.op}${arg}`;
+    }
+
+    case "binary": {
+      const left = emitStringFromTree(node.left);
+      const right = emitStringFromTree(node.right);
+      switch (node.op) {
+        case "is": return `${left} is ${right}`;
+        case "is-not": return `${left} is not`;
+        case "is-some": return `${left} is some`;
+        case "is-not-not": return `${left} is not not`;
+        default: return `${left} ${node.op} ${right}`;
+      }
+    }
+
+    case "assign": {
+      const target = emitStringFromTree(node.target);
+      const value = emitStringFromTree(node.value);
+      return `${target} ${node.op} ${value}`;
+    }
+
+    case "ternary": {
+      const cond = emitStringFromTree(node.condition);
+      const cons = emitStringFromTree(node.consequent);
+      const alt = emitStringFromTree(node.alternate);
+      return `${cond} ? ${cons} : ${alt}`;
+    }
+
+    case "member": {
+      const obj = emitStringFromTree(node.object);
+      const sep = node.optional ? "?." : ".";
+      return `${obj}${sep}${node.property}`;
+    }
+
+    case "index": {
+      const obj = emitStringFromTree(node.object);
+      const idx = emitStringFromTree(node.index);
+      const sep = node.optional ? "?." : "";
+      return `${obj}${sep}[${idx}]`;
+    }
+
+    case "call": {
+      const callee = emitStringFromTree(node.callee);
+      const args = node.args.map(a => emitStringFromTree(a as ExprNode)).join(", ");
+      const sep = node.optional ? "?." : "";
+      return `${callee}${sep}(${args})`;
+    }
+
+    case "new": {
+      const callee = emitStringFromTree(node.callee);
+      const args = node.args.map(a => emitStringFromTree(a as ExprNode)).join(", ");
+      return `new ${callee}(${args})`;
+    }
+
+    case "lambda": {
+      const params = node.params.map(p => {
+        let s = p.isLin ? `lin ${p.name}` : p.name;
+        if (p.typeAnnotation) s += `: ${p.typeAnnotation}`;
+        if (p.defaultValue) s += ` = ${emitStringFromTree(p.defaultValue)}`;
+        if (p.isRest) s = `...${p.name}`;
+        return s;
+      });
+      const paramStr = params.length === 1 && !node.params[0].isRest ? params[0] : `(${params.join(", ")})`;
+
+      if (node.body.kind === "expr") {
+        let bodyStr = emitStringFromTree(node.body.value);
+        // Arrow functions returning object literals need parentheses to avoid
+        // ambiguity with block statements: `x => ({ a: 1 })` not `x => { a: 1 }`
+        if (node.body.value.kind === "object") {
+          bodyStr = `(${bodyStr})`;
+        }
+        if (node.fnStyle === "arrow") {
+          return node.isAsync ? `async ${paramStr} => ${bodyStr}` : `${paramStr} => ${bodyStr}`;
+        }
+        // fn style — emit as arrow for Phase 1 round-trip
+        return node.isAsync ? `async ${paramStr} => ${bodyStr}` : `${paramStr} => ${bodyStr}`;
+      }
+
+      // Block body — not fully structured in Phase 1, raw text unavailable
+      // This path only reached if LambdaExpr with block body was somehow constructed;
+      // in practice Phase 1 block bodies become EscapeHatchExpr.
+      return "/* block body */";
+    }
+
+    case "cast":
+      return `${emitStringFromTree(node.expression)} as ${node.targetType}`;
+
+    case "match-expr": {
+      const subject = emitStringFromTree(node.subject);
+      const arms = node.rawArms.join(" ");
+      return `match ${subject} { ${arms} }`;
+    }
+
+    case "sql-ref":
+      return `?{ /* sql */ }`;
+
+    case "input-state-ref":
+      return `<#${node.name}>`;
+
+    case "escape-hatch":
+      // Emit verbatim — the escape hatch preserves the raw source
+      return node.raw;
+
+    default: {
+      // Exhaustive check
+      const _never: never = node;
+      return "";
+    }
+  }
+}
+
+/**
+ * Normalize whitespace in a string for round-trip invariant comparison.
+ * Collapses multiple spaces/newlines to single space, trims.
+ * This is the normalization function used by invariant tests.
+ */
+export function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+// ---------------------------------------------------------------------------
+// deepEqualExprNode — structural equality for ExprNode trees
+// ---------------------------------------------------------------------------
+//
+// Compares two ExprNode trees structurally, ignoring `span` fields.
+// Spans are excluded because reparsed nodes start at offset 0 while the
+// original nodes may have real source offsets — spans differ by design.
+//
+// This is the correct equivalence relation for the idempotency invariant:
+//   parse(emit(node)) deepEquals node
+//
+// Escape-hatch nodes: compared by normalized raw string content.
+// All other kinds: strict structural equality on non-span fields.
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural deep equality for ExprNode trees.
+ * Ignores `span` fields on all nodes.
+ * Escape-hatch nodes compare by whitespace-normalized `raw`.
+ *
+ * @returns true if a and b are structurally equal (ignoring spans).
+ */
+export function deepEqualExprNode(a: ExprNode, b: ExprNode): boolean {
+  if (a.kind !== b.kind) return false;
+
+  switch (a.kind) {
+    case "ident": {
+      const bNode = b as typeof a;
+      return a.name === bNode.name;
+    }
+
+    case "lit": {
+      const bNode = b as typeof a;
+      if (a.litType !== bNode.litType) return false;
+      // Compare raw for template literals; compare value for all others
+      if (a.litType === "template") return a.raw === bNode.raw;
+      // NaN != NaN in JS, but structurally equal
+      if (typeof a.value === "number" && typeof bNode.value === "number") {
+        if (isNaN(a.value) && isNaN(bNode.value)) return true;
+      }
+      return a.value === bNode.value;
+    }
+
+    case "array": {
+      const bNode = b as typeof a;
+      if (a.elements.length !== bNode.elements.length) return false;
+      return a.elements.every((el, i) =>
+        deepEqualExprNode(el as ExprNode, bNode.elements[i] as ExprNode)
+      );
+    }
+
+    case "object": {
+      const bNode = b as typeof a;
+      if (a.props.length !== bNode.props.length) return false;
+      return a.props.every((p, i) => {
+        const q = bNode.props[i];
+        if (p.kind !== q.kind) return false;
+        if (p.kind === "spread" && q.kind === "spread") {
+          return deepEqualExprNode(p.argument, q.argument);
+        }
+        if (p.kind === "shorthand" && q.kind === "shorthand") {
+          return p.name === q.name;
+        }
+        if (p.kind === "prop" && q.kind === "prop") {
+          if (p.computed !== q.computed) return false;
+          const keysEqual = typeof p.key === "string" && typeof q.key === "string"
+            ? p.key === q.key
+            : typeof p.key === "object" && typeof q.key === "object"
+              ? deepEqualExprNode(p.key, q.key)
+              : false;
+          return keysEqual && deepEqualExprNode(p.value, q.value);
+        }
+        return false;
+      });
+    }
+
+    case "spread": {
+      const bNode = b as typeof a;
+      return deepEqualExprNode(a.argument, bNode.argument);
+    }
+
+    case "unary": {
+      const bNode = b as typeof a;
+      return a.op === bNode.op
+        && a.prefix === bNode.prefix
+        && deepEqualExprNode(a.argument, bNode.argument);
+    }
+
+    case "binary": {
+      const bNode = b as typeof a;
+      return a.op === bNode.op
+        && deepEqualExprNode(a.left, bNode.left)
+        && deepEqualExprNode(a.right, bNode.right);
+    }
+
+    case "assign": {
+      const bNode = b as typeof a;
+      return a.op === bNode.op
+        && deepEqualExprNode(a.target, bNode.target)
+        && deepEqualExprNode(a.value, bNode.value);
+    }
+
+    case "ternary": {
+      const bNode = b as typeof a;
+      return deepEqualExprNode(a.condition, bNode.condition)
+        && deepEqualExprNode(a.consequent, bNode.consequent)
+        && deepEqualExprNode(a.alternate, bNode.alternate);
+    }
+
+    case "member": {
+      const bNode = b as typeof a;
+      return a.property === bNode.property
+        && a.optional === bNode.optional
+        && deepEqualExprNode(a.object, bNode.object);
+    }
+
+    case "index": {
+      const bNode = b as typeof a;
+      return a.optional === bNode.optional
+        && deepEqualExprNode(a.object, bNode.object)
+        && deepEqualExprNode(a.index, bNode.index);
+    }
+
+    case "call": {
+      const bNode = b as typeof a;
+      if (a.optional !== bNode.optional) return false;
+      if (a.args.length !== bNode.args.length) return false;
+      return deepEqualExprNode(a.callee, bNode.callee)
+        && a.args.every((arg, i) =>
+          deepEqualExprNode(arg as ExprNode, bNode.args[i] as ExprNode)
+        );
+    }
+
+    case "new": {
+      const bNode = b as typeof a;
+      if (a.args.length !== bNode.args.length) return false;
+      return deepEqualExprNode(a.callee, bNode.callee)
+        && a.args.every((arg, i) =>
+          deepEqualExprNode(arg as ExprNode, bNode.args[i] as ExprNode)
+        );
+    }
+
+    case "lambda": {
+      const bNode = b as typeof a;
+      if (a.fnStyle !== bNode.fnStyle) return false;
+      if (a.isAsync !== bNode.isAsync) return false;
+      if (a.params.length !== bNode.params.length) return false;
+      const paramsEqual = a.params.every((p, i) => {
+        const q = bNode.params[i];
+        if (p.name !== q.name) return false;
+        if ((p.isRest ?? false) !== (q.isRest ?? false)) return false;
+        if ((p.isLin ?? false) !== (q.isLin ?? false)) return false;
+        if ((p.typeAnnotation ?? "") !== (q.typeAnnotation ?? "")) return false;
+        if (p.defaultValue && q.defaultValue) {
+          return deepEqualExprNode(p.defaultValue, q.defaultValue);
+        }
+        return !p.defaultValue && !q.defaultValue;
+      });
+      if (!paramsEqual) return false;
+      if (a.body.kind !== bNode.body.kind) return false;
+      if (a.body.kind === "expr" && bNode.body.kind === "expr") {
+        return deepEqualExprNode(a.body.value, bNode.body.value);
+      }
+      // Block bodies: compare by statement count — Phase 1 doesn't structure them
+      if (a.body.kind === "block" && bNode.body.kind === "block") {
+        return a.body.stmts.length === bNode.body.stmts.length;
+      }
+      return false;
+    }
+
+    case "cast": {
+      const bNode = b as typeof a;
+      return a.targetType === bNode.targetType
+        && deepEqualExprNode(a.expression, bNode.expression);
+    }
+
+    case "match-expr": {
+      const bNode = b as typeof a;
+      if (!deepEqualExprNode(a.subject, bNode.subject)) return false;
+      // rawArms is a raw-string format whose element count depends on
+      // how the source was line-wrapped (arm splitter is newline-based).
+      // After emit+reparse, all arms may be joined into fewer elements.
+      // Compare by normalizing: join all arms, collapse whitespace, compare.
+      const aArmsNorm = normalizeWhitespace(a.rawArms.join(" "));
+      const bArmsNorm = normalizeWhitespace(bNode.rawArms.join(" "));
+      return aArmsNorm === bArmsNorm;
+    }
+
+    case "sql-ref": {
+      // SQL refs: both sides are placeholders; nodeId may differ in reparse
+      // (nodeId is -1 for parsed refs) — compare as equal if both are sql-ref
+      return true;
+    }
+
+    case "input-state-ref": {
+      const bNode = b as typeof a;
+      return a.name === bNode.name;
+    }
+
+    case "escape-hatch": {
+      const bNode = b as typeof a;
+      // Escape-hatch: compare by whitespace-normalized raw content
+      return normalizeWhitespace(a.raw) === normalizeWhitespace(bNode.raw);
+    }
+
+    default: {
+      const _never: never = a;
+      return false;
+    }
   }
 }
