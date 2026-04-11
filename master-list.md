@@ -189,8 +189,8 @@
 
 ### P1 — Language Completeness
 - [ ][ ] **DQ-12** — `is not`/`is some` on compound expressions (§42.2.4). Parser change needed.
-- [ ][ ] **DQ-7** — CSS `#{}` scoping strategy. Needs user decision.
-- [x][ ] **DQ-11** — WebSocket / server-push. Spec complete (§38). Implementation not started.
+- [x][ ] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED S2 2026-04-10: native CSS `@scope` (Approach B)**. Implementation pending: update `emit-css.ts` + `emit-html.ts` + SS24.6 spec text. See `scrml-support/design-insights.md` for rationale. Prerequisite: fix `tokenizeCSS` brace-stripping bug first.
+- [x][x] **DQ-11** — WebSocket / server-push. Spec complete (§38). **CLI implementation complete S2 2026-04-10 (websocket-cli-batch)** — 6 bugs fixed in dev.js/build.js/emit-channel.ts, channel runtime unblocked end-to-end.
 - [ ][ ] **Lin spec gaps** — `read lin`, lin params v2, loop-body carve-out, `~` double-obligation errors.
 
 ### P2 — DX
