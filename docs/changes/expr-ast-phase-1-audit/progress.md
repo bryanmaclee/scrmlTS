@@ -10,3 +10,14 @@
   cannot reconcile token-joiner spaces (e.g. "foo . bar") with AST-emitted compact form
   ("foo.bar"). Not a Phase 1 implementation bug -- the ExprNode trees are correct. The
   invariant test framework needs structural comparison rather than string comparison.
+- [Phase 1.5] Invariant swap task received.
+- [Phase 1.5] Added deepEqualExprNode to expression-parser.ts (~205 LOC).
+- [Phase 1.5] Fixed emitStringFromTree lambda: wrap object literal bodies in parens.
+- [Phase 1.5] Fixed deepEqualExprNode match-expr: compare arms by join-normalized content.
+- [Phase 1.5] Updated expr-node-round-trip.test.js: expectIdempotent helper + §4 tests.
+- [Phase 1.5] Updated expr-node-corpus-invariant.test.js: idempotency invariant.
+- [Phase 1.5] Test results: 4902 unit pass (3 pre-existing fail); 15 integration pass (2 pre-existing fail).
+- [Phase 1.5] Corpus: 14/14 files pass; 3 escape-hatches (unchanged).
+- [Phase 1.5] Committed: 561d759
+- [Phase 1.5] Anomaly report updated: CLEAR FOR MERGE.
+- [COMPLETE] All Phase 1 exit criteria met. Branch ready for merge.
