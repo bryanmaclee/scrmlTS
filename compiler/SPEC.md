@@ -12142,12 +12142,36 @@ for (item of items) {
 }
 ```
 
-`lin` variables SHALL NOT be consumed inside loop bodies. To use a `lin` value in an iteration context, the developer must consume it once outside the loop or before the loop begins.
+`lin` variables from **outer scope** SHALL NOT be consumed inside loop bodies. To use a `lin` value from an outer scope in an iteration context, the developer must consume it once outside the loop or before the loop begins.
+
+**Loop-body carve-out (§34.4.4.1):** A `lin` variable that is both **declared and consumed within the same loop iteration** is permitted. This allows each iteration to mint, use, and consume a fresh linear resource independently. The `lin` variable must not escape the iteration — it must be fully consumed before the iteration ends.
+
+```scrml
+// Valid — lin declared and consumed within each iteration
+for (const item of items) {
+    lin token = mintToken()
+    submitOne(token)  // consumed within iteration — valid
+}
+
+// Invalid — outer lin consumed inside loop — E-LIN-002
+lin token = mintToken()
+for (const item of items) {
+    submitOne(token)  // Error E-LIN-002: outer lin consumed inside loop
+}
+
+// Invalid — loop-local lin not consumed before iteration ends — E-LIN-001
+for (const item of items) {
+    lin token = mintToken()
+    // token never consumed — Error E-LIN-001
+}
+```
 
 **Normative statements:**
 
-- A `lin` variable consumed inside any loop body (`for`, `while`, `do...while`) SHALL be a compile error.
-- The compiler SHALL treat any loop body as a potential multi-execution site and SHALL reject `lin` consumption inside loop bodies unconditionally. The specific error code is E-LIN-002 (the loop can execute more than once on at least one execution path).
+- A `lin` variable from an outer scope consumed inside any loop body (`for`, `while`, `do...while`) SHALL be a compile error (E-LIN-002).
+- A `lin` variable declared inside a loop body and consumed within the **same iteration** SHALL be valid (loop-body carve-out, §34.4.4.1).
+- A `lin` variable declared inside a loop body that is NOT consumed before the iteration scope ends SHALL be a compile error (E-LIN-001).
+- The compiler SHALL verify, for each loop-local `lin` variable, that exactly one consumption appears on every path before the iteration scope exits.
 
 ### 35.5 Error Conditions
 

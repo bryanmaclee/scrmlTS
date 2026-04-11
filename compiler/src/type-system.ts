@@ -3351,6 +3351,8 @@ interface LinErrorDescriptor {
   varName: string;
   span: Span;
   secondUseSpan?: Span;
+  /** Span of the `lift` expression that first consumed this lin variable (Lin-A1). */
+  liftSite?: Span;
 }
 
 interface TildeErrorDescriptor {
@@ -3364,15 +3366,19 @@ interface TildeErrorDescriptor {
 class LinTracker {
   _vars: Map<string, LinState>;
   _firstUseSpan: Map<string, Span>;
+  /** Lin-A1: tracks which variables were first consumed via `lift expr`. */
+  _liftSites: Map<string, Span>;
 
   constructor() {
     this._vars = new Map();
     this._firstUseSpan = new Map();
+    this._liftSites = new Map();
   }
 
   declare(name: string): void {
     this._vars.set(name, "unconsumed");
     this._firstUseSpan.delete(name);
+    this._liftSites.delete(name);
   }
 
   consume(name: string, span: Span): LinErrorDescriptor | null {
@@ -3385,12 +3391,25 @@ class LinTracker {
         varName: name,
         span: this._firstUseSpan.get(name) ?? span,
         secondUseSpan: span,
+        liftSite: this._liftSites.get(name),
       };
     }
 
     this._vars.set(name, "consumed");
     this._firstUseSpan.set(name, span);
     return null;
+  }
+
+  /**
+   * Lin-A1: Consume a lin variable via a `lift` expression.
+   * Records the lift site so E-LIN-002 messages can surface it.
+   */
+  consumeViaLift(name: string, span: Span): LinErrorDescriptor | null {
+    const err = this.consume(name, span);
+    if (!err) {
+      this._liftSites.set(name, span);
+    }
+    return err;
   }
 
   forceConsume(name: string, span?: Span): void {
@@ -3580,11 +3599,18 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
   function emitLinError(desc: LinErrorDescriptor, contextSpan?: Span): void {
     const s = desc.span ?? contextSpan ?? mkSpan();
     if (desc.code === "E-LIN-002") {
+      // Lin-A1: when the first consumption was via `lift`, surface the lift site.
+      const liftNote = desc.liftSite
+        ? ` Note: \`lift\` consumed this lin variable at line ${desc.liftSite.line} — ` +
+          `\`lift\` counts as a move, so the variable is consumed when lifted.`
+        : "";
       errors.push(new TSError(
         "E-LIN-002",
         `E-LIN-002: Linear variable \`${desc.varName}\` consumed more than once. ` +
-        `First use at col ${s.col ?? "?"}; second use at col ${desc.secondUseSpan?.col ?? "?"}. ` +
-        `A 'lin' variable can only be used once. Clone it first, or change to 'const'/'let' if reuse is intended.`,
+        `First use at line ${s.line ?? "?"}, col ${s.col ?? "?"}; ` +
+        `second use at line ${desc.secondUseSpan?.line ?? "?"}, col ${desc.secondUseSpan?.col ?? "?"}.` +
+        liftNote +
+        ` A 'lin' variable can only be used once. Clone it first, or change to 'const'/'let' if reuse is intended.`,
         s,
       ));
     } else if (desc.code === "E-LIN-001") {
@@ -3672,6 +3698,31 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
         }
         const initErr = tt.initialize(node.span as Span, false);
         if (initErr) emitTildeError(initErr, node.span as Span | undefined);
+        break;
+      }
+
+      case "lift-expr": {
+        // Lin-A1: `lift x` counts as consuming the lin variable `x`.
+        // AST shape: lift-expr has expr: { kind: "expr", expr: "<identifier>" }.
+        // We scan the expression string for a bare lin variable name as the lift target.
+        const liftInner = node.expr as { kind?: string; expr?: string; node?: ASTNodeLike } | undefined;
+        if (liftInner && liftInner.kind === "expr" && typeof liftInner.expr === "string") {
+          const exprStr = liftInner.expr.trim();
+          const checkLiftConsumption = (tracker: LinTracker): void => {
+            for (const linName of tracker.names()) {
+              if (tracker.isUnconsumed(linName) && exprStr === linName) {
+                const err = tracker.consumeViaLift(linName, (node.span ?? mkSpan()) as Span);
+                if (err) emitLinError(err, node.span as Span | undefined);
+              }
+            }
+          };
+          checkLiftConsumption(lt);
+          if (parentLinTracker) checkLiftConsumption(parentLinTracker);
+        }
+        // Recurse into embedded markup lift (lift { markup-block }).
+        if (liftInner && liftInner.kind === "markup" && liftInner.node) {
+          walkNode(liftInner.node as ASTNodeLike, lt, tt, loop);
+        }
         break;
       }
 
@@ -3839,6 +3890,12 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
 
   function walkLoopBody(loopBody: ASTNodeLike[], lt: LinTracker, tt: TildeTracker, elide: boolean): void {
     if (!Array.isArray(loopBody)) return;
+
+    // Lin-A3: Lin variables declared AND consumed within the same loop iteration
+    // are permitted. Track them in a per-iteration local tracker (loopLocalLin).
+    // Variables from outer scope (in `lt`) are still rejected with E-LIN-002.
+    const loopLocalLin = new LinTracker();
+
     for (const node of loopBody) {
       if (!node || typeof node !== "object") continue;
 
@@ -3851,7 +3908,36 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
         continue;
       }
 
+      // Lin-A3 carve-out: lin-decl at top level of the loop body is registered
+      // in loopLocalLin, not the outer tracker.
+      if (node.kind === "lin-decl") {
+        loopLocalLin.declare(node.name as string);
+        continue;
+      }
+
+      // Lin-A3: lin-ref for a loop-local variable resolves against loopLocalLin.
+      if (node.kind === "lin-ref") {
+        const name = node.name as string;
+        if (loopLocalLin.has(name)) {
+          const err = loopLocalLin.consume(name, (node.span ?? mkSpan()) as Span);
+          if (err) emitLinError(err, node.span as Span | undefined);
+          continue;
+        }
+        // Falls through to walkNode for outer-scope lin rejection (E-LIN-002).
+      }
+
       walkNode(node, lt, tt, /* inLoop= */ true);
+    }
+
+    // Lin-A3: Unconsumed loop-local lin vars → E-LIN-001.
+    for (const varName of loopLocalLin.unconsumedNames()) {
+      errors.push(new TSError(
+        "E-LIN-001",
+        `E-LIN-001: Linear variable \`${varName}\` declared inside a loop body but not consumed within the same iteration. ` +
+        `A 'lin' variable declared inside a loop must be consumed before the iteration ends. ` +
+        `Pass it to a function, return it, or remove the 'lin' qualifier if single-use isn't needed.`,
+        mkSpan(),
+      ));
     }
   }
 

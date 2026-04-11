@@ -3049,3 +3049,161 @@ describe("E-TYPE-081: partial match in rendering context", () => {
     expect(e081).toHaveLength(0);
   });
 });
+
+// Lin Batch A tests (lin-batch-a)
+
+// ---------------------------------------------------------------------------
+// Lin-A1: lift-expr consumes lin variable
+// ---------------------------------------------------------------------------
+
+describe("Lin-A1: lift-expr consumes lin variable", () => {
+  test("lift x where x is lin — x is consumed (no E-LIN-001)", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "lin-decl", name: "token", span: span(0) },
+      { kind: "lift-expr", expr: { kind: "expr", expr: "token" }, span: span(10) },
+    ], errors);
+    expect(errors.filter(e => e.code === "E-LIN-001")).toHaveLength(0);
+    expect(errors.filter(e => e.code === "E-LIN-002")).toHaveLength(0);
+  });
+
+  test("lift x then use x again — E-LIN-002 fires", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "lin-decl", name: "token", span: span(0) },
+      { kind: "lift-expr", expr: { kind: "expr", expr: "token" }, span: { file: "/test/app.scrml", start: 10, end: 20, line: 3, col: 1 } },
+      { kind: "lin-ref",   name: "token", span: { file: "/test/app.scrml", start: 30, end: 40, line: 5, col: 1 } },
+    ], errors);
+    const e = errors.filter(e => e.code === "E-LIN-002");
+    expect(e.length).toBeGreaterThan(0);
+    expect(e[0].message).toContain("token");
+  });
+
+  test("E-LIN-002 message mentions lift and line number when lift consumed the var (Lin-A1)", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "lin-decl", name: "tok", span: span(0) },
+      { kind: "lift-expr", expr: { kind: "expr", expr: "tok" }, span: { file: "/test/app.scrml", start: 10, end: 20, line: 7, col: 1 } },
+      { kind: "lin-ref",   name: "tok", span: { file: "/test/app.scrml", start: 30, end: 40, line: 9, col: 1 } },
+    ], errors);
+    const e = errors.filter(e => e.code === "E-LIN-002");
+    expect(e.length).toBeGreaterThan(0);
+    expect(e[0].message).toContain("lift");
+    expect(e[0].message).toContain("7");
+  });
+
+  test("lift non-lin identifier — no spurious lin errors", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "lift-expr", expr: { kind: "expr", expr: "result" }, span: span(0) },
+    ], errors);
+    expect(errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lin-A2: tilde + lin double-obligation — investigation result
+// ---------------------------------------------------------------------------
+// Finding: the tilde double-obligation trap (hand-off-134.md) is addressed by:
+//   1. Existing E-TILDE-002 for the ~ accumulator side (§41 tests above)
+//   2. Lin-A1 fix for the lift-of-lin-var side (tested above)
+// No additional source changes needed for Lin-A2. Status: ADDRESSED.
+
+describe("Lin-A2: tilde + lin double-obligation — integration verification", () => {
+  test("tilde reinit without consumption produces E-TILDE-002 (non-regressed)", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "tilde-init", span: span(0) },
+      { kind: "tilde-init", span: span(5) },
+      { kind: "tilde-ref",  span: span(10) },
+    ], errors);
+    expect(errors.filter(e => e.code === "E-TILDE-002").length).toBeGreaterThan(0);
+  });
+
+  test("lift lin-var then re-use — E-LIN-002 with lift note (Lin-A2 + Lin-A1 integration)", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "lin-decl", name: "payment", span: span(0) },
+      { kind: "lift-expr", expr: { kind: "expr", expr: "payment" }, span: { file: "/test/app.scrml", start: 10, end: 20, line: 3, col: 5 } },
+      { kind: "lin-ref",   name: "payment", span: { file: "/test/app.scrml", start: 30, end: 40, line: 5, col: 5 } },
+    ], errors);
+    const e = errors.filter(e => e.code === "E-LIN-002");
+    expect(e.length).toBeGreaterThan(0);
+    expect(e[0].message).toMatch(/lift/i);
+    expect(e[0].message).toContain("payment");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lin-A3: Loop-body carve-out
+// ---------------------------------------------------------------------------
+
+describe("Lin-A3: loop-body carve-out — lin declared and consumed in same iteration", () => {
+  test("for-loop: lin declared and consumed within body — no error (carve-out)", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "for-loop",
+      span: span(0),
+      body: [
+        { kind: "lin-decl", name: "token", span: span(5) },
+        { kind: "lin-ref",  name: "token", span: span(10) },
+      ],
+    }], errors);
+    expect(errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002")).toHaveLength(0);
+  });
+
+  test("for-loop: lin declared outside, used inside — E-LIN-002 (existing rejection preserved)", () => {
+    const errors = [];
+    checkLinear([
+      { kind: "lin-decl", name: "token", span: span(0) },
+      { kind: "for-loop", span: span(5), body: [
+        { kind: "lin-ref", name: "token", span: span(10) },
+      ]},
+    ], errors);
+    const e = errors.filter(e => e.code === "E-LIN-002");
+    expect(e.length).toBeGreaterThan(0);
+    expect(e[0].message).toContain("token");
+    expect(e[0].message).toContain("loop");
+  });
+
+  test("for-loop: lin declared in body but NOT consumed — E-LIN-001", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "for-loop",
+      span: span(0),
+      body: [
+        { kind: "lin-decl", name: "token", span: span(5) },
+      ],
+    }], errors);
+    const e = errors.filter(e => e.code === "E-LIN-001");
+    expect(e.length).toBeGreaterThan(0);
+    expect(e[0].message).toContain("token");
+  });
+
+  test("for-loop: lin declared in body, consumed twice — E-LIN-002", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "for-loop",
+      span: span(0),
+      body: [
+        { kind: "lin-decl", name: "token", span: span(5) },
+        { kind: "lin-ref",  name: "token", span: span(10) },
+        { kind: "lin-ref",  name: "token", span: span(15) },
+      ],
+    }], errors);
+    expect(errors.filter(e => e.code === "E-LIN-002").length).toBeGreaterThan(0);
+  });
+
+  test("while-loop: lin declared and consumed within body — no error (carve-out applies)", () => {
+    const errors = [];
+    checkLinear([{
+      kind: "while-loop",
+      span: span(0),
+      body: [
+        { kind: "lin-decl", name: "tok", span: span(5) },
+        { kind: "lin-ref",  name: "tok", span: span(10) },
+      ],
+    }], errors);
+    expect(errors.filter(e => e.code === "E-LIN-001" || e.code === "E-LIN-002")).toHaveLength(0);
+  });
+});
