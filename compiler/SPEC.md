@@ -4738,6 +4738,16 @@ Valid inside markup and state contexts, and at program scope (top-level in the p
 - `#{}` inside a markup element applies styles at the element level (inline or scoped per compiler settings).
 - Using `#{}` at top level SHALL NOT be a compile error or warning.
 
+**Normative statements (DQ-7 — CSS Scoping):**
+
+- `#{}` inside a **state type constructor** compiles to a native CSS `@scope ([data-scrml="ConstructorName"]) to ([data-scrml]) { ... }` block in the output `.css` file. Class names are NOT mangled.
+- The constructor's root element SHALL carry the attribute `data-scrml="ConstructorName"` in the emitted HTML.
+- **Flat-declaration `#{}` blocks** (blocks containing only bare `property: value;` pairs with no selectors) inside a constructor scope compile to inline `style="prop: value; ..."` on the containing element. They do NOT appear in the CSS file.
+- **Donut scope** is implicit. The `@scope` block uses `to ([data-scrml])` as its limit — constructor CSS does not bleed into nested constructors.
+- **Program-level `#{}` blocks** are emitted as global CSS without any `@scope` wrapper. Unchanged from DQ-6.
+- **Tailwind utility classes** (§26) live outside `@scope` and are NOT affected by this scoping system.
+- CSS variable bridge (`@var` references in `#{}`) continues to work inside `@scope` blocks unchanged.
+
 ### 9.2 Style Block
 
 ```
@@ -11366,22 +11376,50 @@ This is valid. The property name `border-color` is the full token before `:`. Th
 
 CSS variable scoping follows normal CSS custom property cascade rules. The compiler does not alter scoping behavior.
 
-### 25.6 Component-Scoped CSS
+### 25.6 Constructor-Scoped CSS — Native `@scope` (DQ-7)
 
-The compiler auto-scopes component styles by default. For each component, the compiler SHALL:
+scrml compiles constructor-level `#{}` CSS to native CSS `@scope` blocks. Class names are never mangled. The compiled CSS is human-readable and 1:1 with the source CSS.
 
-1. Assign a unique scope ID to the component.
-2. Hash class names used in that component's style blocks.
-3. Apply the scoped class selectors to matching elements inside the component automatically.
+**Compilation rules:**
 
-The developer writes normal class names inside component style blocks. The scoping is invisible.
+1. **Selector-based `#{}` inside a constructor** compiles to:
+   ```css
+   @scope ([data-scrml="ConstructorName"]) to ([data-scrml]) {
+     /* original rules unchanged */
+   }
+   ```
+   The constructor's root element carries `data-scrml="ConstructorName"` in the emitted HTML.
 
-**Global escape hatches:**
-- `<style global>` block: styles in this block are not scoped.
-- `.css` files: styles are not scoped by default.
-- Tailwind utility classes are always global (compiler-managed).
+2. **Flat-declaration `#{}` blocks** (containing only `property: value;` pairs, no selectors) inside a constructor compile to `style="prop: value;"` on the containing element. They do not appear in the `.css` file.
 
-**SPEC ISSUE:** Deep selectors (a parent component styling internals of a child component) are tracked in SPEC-ISSUE-006.
+3. **Program-level `#{}` blocks** (not inside any constructor) are emitted as global CSS without wrapping.
+
+4. **Donut scope** is implicit. The `to ([data-scrml])` clause in every `@scope` block means constructor CSS does not leak into child constructors. No `:deep()` escape hatch is needed.
+
+5. **Tailwind utility classes** (§26) are never wrapped in `@scope`. They remain globally scoped.
+
+**Example:**
+
+Source:
+```scrml
+< card title(string)>
+    #{
+        .card { padding: 16px; border: 1px solid #e5e7eb; }
+    }
+    <div class="card" data-scrml="card">
+        <h2>${title}/
+    </div>
+/
+```
+
+Compiled CSS:
+```css
+@scope ([data-scrml="card"]) to ([data-scrml]) {
+    .card { padding: 16px; border: 1px solid #e5e7eb; }
+}
+```
+
+**SPEC-ISSUE-006 resolved.** The `to ([data-scrml])` donut boundary naturally prevents style leakage into child constructors. No deep-selector syntax is needed.
 
 ---
 
