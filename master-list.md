@@ -192,7 +192,7 @@
 - [x][x] **DQ-12 (Phase A)** — `is not`/`is some` on **parenthesized** compound expressions. **IMPLEMENTED S2 2026-04-10 (dq12-phase-a)** — `_rewriteParenthesizedIsOp` in `rewrite.ts`, temp-var single-evaluation per §42.2.4. Phase B (bare compound form, no parens) deferred as future work.
 - [x][x] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED + IMPLEMENTED S2 2026-04-10 (dq7-css-scope)** — native CSS `@scope` (Approach B). `emit-css.ts` + `emit-html.ts` + SPEC §9.1 + §25.6 rewrite landed. `data-scrml` attribute, donut scope, flat-declaration `#{}` → inline style.
 - [x][x] **DQ-11** — WebSocket / server-push. Spec complete (§38). **CLI implementation complete S2 2026-04-10 (websocket-cli-batch)** — 6 bugs fixed in dev.js/build.js/emit-channel.ts, channel runtime unblocked end-to-end.
-- [ ][ ] **Lin spec gaps** — `read lin` (v2 feature), lin params v2, loop-body carve-out, `~` double-obligation errors, E-LIN-002 message. Batch A (loop carve-out + DX messages) dispatched S2; Batch B/C (v2 features) pending.
+- [x][ ] **Lin spec gaps** — Batch A ✅ S2 (loop carve-out + DX msgs); **Batch B ✅ S3 2026-04-11** (`lin` function params, §35.2.1 added, parser + type-system, +15 unit tests, merge `90f1630`). Batch C (`read lin` + real-pipeline `linNodes` wiring) pending. Known gap: E2E `fileAST.linNodes` population deferred to Batch C.
 
 ### P2 — DX
 - [x][x] **Ghost error mitigation** — lint pre-pass landed S2 (ghost-lint-prepass, 10 W-LINT-* patterns, +71 tests)
