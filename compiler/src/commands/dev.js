@@ -124,12 +124,12 @@ let registeredWsHandlers = null;
  * Scan `outputDir` for `*.server.js` files, dynamically import each, and
  * collect every export that looks like a route object or WebSocket handlers.
  *
- * Route object shape (as emitted by emit-server.js):
+ * Route object shape (as emitted by emit-server.ts):
  *   export const _scrml_route_foo = { path, method, handler }
- *   export const _scrml_route_ws  = { path, method: "GET", isWebSocket: true, handler }
+ *   export const _scrml_route_ws_<name> = { path, method: "GET", isWebSocket: true, handler }
  *
  * WebSocket handlers shape (as emitted by emit-channel.ts):
- *   export const _scrml_ws_handlers = { open(ws), message(ws, raw), close(ws) }
+ *   export const _scrml_ws_handlers = { open(ws), message(ws, raw), close(ws, code, reason) }
  *
  * Bun caches ES module imports by specifier. To force a reload after
  * recompilation we append a `?t=<timestamp>` cache-buster to the import URL.
@@ -143,7 +143,8 @@ async function loadServerRoutes(outputDir) {
 
   let entries;
   try {
-    entries = await Bun.readdir(outputDir);
+    // Bug 1 fix: Bun.readdir() does not exist — use readdirSync from node:fs (already imported).
+    entries = readdirSync(outputDir);
   } catch {
     // Output dir may not exist yet on the very first run before compilation.
     return;
