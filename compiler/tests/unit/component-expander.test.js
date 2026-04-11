@@ -1101,4 +1101,74 @@ describe("§Q Multi-root expansion — array return is backward compatible with 
     const vAttr = div.attrs.find(a => a.name === "data-v");
     expect(vAttr.value.value).toBe("2");
   });
+
+  // Regression: normalizeTokenizedRaw dropped internal bare closers `</>` and
+  // left internal whitespace before `>` in open tags, so any multi-line
+  // component body failed BS+TAB re-parse with empty output, causing
+  // E-COMPONENT-020 at every use site. Fixed S2 2026-04-10 (example 12 fix).
+  describe("multi-line component bodies (example 12 regression)", () => {
+    test("multi-line component with nested elements registers", () => {
+      const source = `<program>
+\${
+    const Card = <div class="card">
+        <div class="card__header">
+            Header text
+        </>
+        <div class="card__body">
+            Body text
+        </>
+    </>
+}
+<Card/>
+</program>`;
+      const { errors } = runCEOn(source);
+      expect(errors.filter(e => e.code === "E-COMPONENT-020")).toHaveLength(0);
+      expect(errors.filter(e => e.code === "E-COMPONENT-021")).toHaveLength(0);
+    });
+
+    test("multi-line component with ${render} slot interpolations registers", () => {
+      const source = `<program>
+\${
+    const Card = <div class="card" props={
+        header: snippet,
+        body: snippet,
+    }>
+        <div class="card__header">
+            \${render header()}
+        </>
+        <div class="card__body">
+            \${render body()}
+        </>
+    </>
+}
+<Card>
+    <h2 slot="header">Hello</>
+    <p slot="body">Body</>
+</>
+</program>`;
+      const { errors } = runCEOn(source);
+      expect(errors.filter(e => e.code === "E-COMPONENT-020")).toHaveLength(0);
+      expect(errors.filter(e => e.code === "E-COMPONENT-021")).toHaveLength(0);
+    });
+
+    test("component with optional snippet prop (snippet?) registers", () => {
+      const source = `<program>
+\${
+    const Card = <div class="card" props={
+        body: snippet,
+        actions?: snippet,
+    }>
+        <div class="card__body">
+            \${render body()}
+        </>
+    </>
+}
+<Card>
+    <p slot="body">Body</>
+</>
+</program>`;
+      const { errors } = runCEOn(source);
+      expect(errors.filter(e => e.code === "E-COMPONENT-020")).toHaveLength(0);
+    });
+  });
 });

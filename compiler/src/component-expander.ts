@@ -233,10 +233,14 @@ function findMaxId(nodes: ASTNode[]): number {
 function normalizeTokenizedRaw(raw: string): string {
   let s = raw.trim();
 
-  // Step 1a: Normalize tokenized closing tags: "< / ident >" → "</ident>"
-  //   The logic tokenizer produces `<`, `/`, `ident`, `>` as separate tokens,
-  //   so closing tags appear as "< / div >" (with spaces) in the raw.
-  //   Must be done before step 1 so the `<` is not misidentified as an opener.
+  // Step 1a': Normalize tokenized BARE closers: "< / >" → "</>"
+  //   Multi-line component bodies contain internal bare closers like "</>" that
+  //   the logic tokenizer emits as "< / >" (three tokens with spaces). Must run
+  //   before Step 1 so the `<` is not misidentified as an opener.
+  s = s.replace(/< \/ >/g, "</>");
+
+  // Step 1a: Normalize tokenized NAMED closing tags: "< / ident >" → "</ident>"
+  //   Closing tags like "</div>" appear as "< / div >" (with spaces) in the raw.
   s = s.replace(/< \/ ([A-Za-z][A-Za-z0-9_-]*) >/g, "</$1>");
 
   // Step 1: Remove space between `<` and the tag name (applied globally)
@@ -244,6 +248,14 @@ function normalizeTokenizedRaw(raw: string): string {
   //   The logic tokenizer produces `< tagname` with a space for every opening tag.
   //   Changed from anchored /^<\s+/ to global /< ([A-Za-z])/g to handle nested tags.
   s = s.replace(/< ([A-Za-z])/g, "<$1");
+
+  // Step 1b: Strip whitespace before `>` inside open tags (applied globally, not
+  //   end-anchored). Multi-line component bodies have many internal open tags
+  //   like `<div class="x" >` — the token-join leaves a space before `>`. Strip
+  //   it whenever the token BEFORE the `>` is an ident-like or string-literal
+  //   token (word char or closing quote), which indicates we're inside a tag.
+  //   Runs before self-close handling so `/ >` is preserved.
+  s = s.replace(/([A-Za-z0-9_"])\s+>/g, "$1>");
 
   // Step 2: Handle self-closing closer "/ >" at end → "/>"
   //   The logic tokenizer produces `/` and `>` as separate tokens,
