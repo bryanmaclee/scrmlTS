@@ -1,0 +1,23 @@
+<program>
+// Regression test for BUG-META-6: false E-DG-002 for @vars consumed only
+// inside runtime ^{} meta blocks. The dependency graph must count @var
+// assignments inside runtime meta blocks as consumption sites, not flag them
+// as "declared but never consumed".
+
+${
+  @counter = 0
+  @message = "hello"
+  @theme = "dark"
+}
+
+<div>
+  <p>Count: ${@counter}</p>
+</div>
+
+^{
+  @counter += 1
+  @message = "updated by meta"
+  @theme = "light"
+}
+
+</program>

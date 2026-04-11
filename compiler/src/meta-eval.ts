@@ -27,7 +27,7 @@
 
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
-import { bodyUsesCompileTimeApis, createReflect, buildFileTypeRegistry, collectMetaLocals } from "./meta-checker.ts";
+import { bodyUsesCompileTimeApis, createReflect, buildFileTypeRegistry, collectMetaLocals, extractParamBindings } from "./meta-checker.ts";
 import { rewriteBunEval } from "./codegen/rewrite.ts";
 import type { Span, FileAST, ASTNode, MetaNode, LogicStatement } from "./types/ast.ts";
 
@@ -131,12 +131,69 @@ function bodyReferencesReactiveVars(body: LogicStatement[]): boolean {
 //   reflect("Color")        → reflect("Color")   (already quoted — no rewrite)
 const REFLECT_IDENT_RE = /\breflect\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)/g;
 
+// Extract all inline function parameter bindings from a bare-expr string.
+// This handles cases like `items.forEach(function(typeName) { reflect(typeName) })`
+// where `typeName` is a parameter binding inside the expression string — not
+// visible to collectMetaLocals (which only walks AST nodes, not expr strings).
+// Without this, rewriteReflectCalls would incorrectly rewrite reflect(typeName)
+// to reflect("typeName"). (BUG-META-4)
+function extractInlineParamBindings(expr: string): Set<string> {
+  const inlineLocals = new Set<string>();
+  if (!expr || typeof expr !== "string") return inlineLocals;
+
+  // Named or anonymous function parameters: function(a, b) or function name(a, b)
+  const fnParamRe = /\bfunction\s*(?:[A-Za-z_$][A-Za-z0-9_$]*)?\s*\(([^)]*)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = fnParamRe.exec(expr)) !== null) {
+    extractParamBindings(m[1], inlineLocals);
+  }
+
+  // Arrow function — single unparenthesized parameter: `ident =>`
+  // e.g. `items.forEach(typeName => { ... })` — typeName must be captured.
+  const arrowSingleRe = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*=>/g;
+  while ((m = arrowSingleRe.exec(expr)) !== null) {
+    inlineLocals.add(m[1]);
+  }
+
+  // Arrow function with parenthesized params — depth-track to handle destructuring
+  // e.g. `items.forEach(({ a, b }) => { ... })` — a, b must be captured.
+  for (let i = 0; i < expr.length; i++) {
+    if (expr[i] !== "(") continue;
+    let depth = 1;
+    let j = i + 1;
+    while (j < expr.length && depth > 0) {
+      const ch = expr[j];
+      if (ch === "(" || ch === "{" || ch === "[") depth++;
+      else if (ch === ")" || ch === "}" || ch === "]") depth--;
+      j++;
+    }
+    if (depth !== 0) continue;
+    const afterParen = expr.slice(j).match(/^\s*=>/);
+    if (!afterParen) continue;
+    const paramList = expr.slice(i + 1, j - 1);
+    extractParamBindings(paramList, inlineLocals);
+  }
+
+  return inlineLocals;
+}
+
 function rewriteReflectCalls(expr: string, locals: Set<string> = new Set()): string {
   if (!expr || typeof expr !== "string") return expr;
+
+  // Build effective locals: the passed-in locals PLUS any inline function/arrow
+  // parameter bindings declared within this expression string. This prevents
+  // reflect(typeName) from being rewritten when typeName is a callback parameter
+  // like in `items.forEach(function(typeName) { reflect(typeName) })`.
+  // (BUG-META-4 fix)
+  const inlineParams = extractInlineParamBindings(expr);
+  const effectiveLocals = inlineParams.size > 0
+    ? new Set([...locals, ...inlineParams])
+    : locals;
+
   return expr.replace(REFLECT_IDENT_RE, (match, ident) => {
-    // If this identifier is a meta-local variable, leave it as-is so it
-    // resolves to the variable's value at eval time.
-    if (locals.has(ident)) return match;
+    // If this identifier is a meta-local variable (or inline callback param),
+    // leave it as-is so it resolves to the variable's value at eval time.
+    if (effectiveLocals.has(ident)) return match;
     // Otherwise it's a bare type name — quote it for createReflect().
     return `reflect("${ident}")`;
   });
@@ -175,6 +232,25 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
       }
       // for-of style
       return `for (const ${n.variable} of ${iter}) {\n${body}\n}`;
+    }
+
+    // BUG-META-2 fix: the logic-context for-of loop is parsed as kind "for-stmt"
+    // (not "for-loop" which is the markup-template loop). Add explicit handling so
+    // that `for (const x of items)` inside ^{} meta blocks is serialized correctly.
+    case "for-stmt": {
+      const iter = (n.iterable || n.collection || n.iter || "") as string;
+      const loopBody = serializeBody((n.body || []) as LogicStatement[], locals);
+      if (n.variable && iter) {
+        // for-of style: for (const variable of iterable)
+        return `for (const ${n.variable} of ${iter}) {\n${loopBody}\n}`;
+      }
+      // Fallback for traditional C-style for loops with rawInit/rawTest/rawUpdate
+      if (n.rawInit !== undefined || n.rawTest !== undefined || n.rawUpdate !== undefined) {
+        return `for (${n.rawInit || ""}; ${n.rawTest || ""}; ${n.rawUpdate || ""}) {\n${loopBody}\n}`;
+      }
+      // Last resort: try expr field
+      if (n.expr) return `${n.expr};`;
+      return "";
     }
 
     case "if-stmt": {

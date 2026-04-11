@@ -1263,4 +1263,90 @@ describe("T15 — derived value (const @var = expr) dependency tracking", () => 
     );
     expect(transitiveReads.length).toBe(1);
   });
+
+  // ---------------------------------------------------------------------------
+  // BUG-META-6: false E-DG-002 for @vars consumed inside runtime ^{} blocks
+  // ---------------------------------------------------------------------------
+
+  test("BUG-META-6: @var assigned via reactive-decl in runtime meta body counts as consumed", () => {
+    // In a runtime ^{} meta block, `@message = "changed"` is parsed as a
+    // reactive-decl AST node (name: "message", init: '"changed"'). The DG's
+    // sweepNodeForAtRefs function must treat this as consumption of @message,
+    // not just as a bare assignment. Otherwise E-DG-002 fires falsely.
+    const counter = makeReactiveDecl("counter", "0", 0);
+    const message = makeReactiveDecl("message", '"hello"', 10);
+    const theme = makeReactiveDecl("theme", '"dark"', 20);
+    const logic = makeLogicBlock([counter, message, theme]);
+
+    // A markup node consuming @counter (so @counter is NOT flagged E-DG-002)
+    const markup = {
+      kind: "markup",
+      tag: "div",
+      attrs: [],
+      children: [{ kind: "logic", body: [makeBareExpr("@counter", 50)], span: span(45) }],
+      span: span(40),
+    };
+
+    // A runtime meta block (no compile-time APIs) that assigns @message and @theme
+    const metaNode = {
+      kind: "meta",
+      body: [
+        // @message = "changed" — parsed as reactive-decl in meta body
+        { kind: "reactive-decl", name: "message", init: '"changed"', span: span(60) },
+        // @theme = "light" — parsed as reactive-decl in meta body
+        { kind: "reactive-decl", name: "theme", init: '"light"', span: span(70) },
+      ],
+      span: span(55),
+    };
+
+    const programNode = {
+      kind: "markup",
+      tag: "program",
+      attrs: [],
+      children: [logic, markup, metaNode],
+      span: span(0),
+    };
+
+    const fileAST = makeFileAST([programNode]);
+    const routeMap = makeRouteMap([]);
+
+    const { errors } = runDG({ files: [fileAST], routeMap });
+    const dg002 = errors.filter(e => e.code === "E-DG-002");
+
+    // @message and @theme are consumed in the runtime meta block — no E-DG-002
+    expect(dg002.length).toBe(0);
+  });
+
+  test("BUG-META-6: @var read in meta body bare-expr counts as consumed", () => {
+    // Verify that @counter += 1 (parsed as bare-expr "@counter += 1") inside
+    // a runtime meta body is also correctly counted as a consumption.
+    const counter = makeReactiveDecl("counter", "0", 0);
+    const logic = makeLogicBlock([counter]);
+
+    const metaNode = {
+      kind: "meta",
+      body: [
+        // @counter += 1 — parsed as bare-expr
+        { kind: "bare-expr", expr: "@counter += 1", span: span(30) },
+      ],
+      span: span(25),
+    };
+
+    const programNode = {
+      kind: "markup",
+      tag: "program",
+      attrs: [],
+      children: [logic, metaNode],
+      span: span(0),
+    };
+
+    const fileAST = makeFileAST([programNode]);
+    const routeMap = makeRouteMap([]);
+
+    const { errors } = runDG({ files: [fileAST], routeMap });
+    const dg002 = errors.filter(e => e.code === "E-DG-002");
+
+    // @counter is consumed in the runtime meta block — no E-DG-002
+    expect(dg002.length).toBe(0);
+  });
 });

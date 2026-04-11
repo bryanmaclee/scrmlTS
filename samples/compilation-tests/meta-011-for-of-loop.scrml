@@ -1,0 +1,13 @@
+<program>
+// Regression test for BUG-META-2: for (const x of items) inside ^{} meta blocks.
+// Previously, `for-stmt` nodes in the meta body were not serialized by serializeNode,
+// causing the loop body (and its emit() calls) to be silently dropped.
+
+^{
+  const colors = ["red", "green", "blue"]
+  for (const color of colors) {
+    emit("<li class=color-" + color + ">" + color + "</li>")
+  }
+}
+
+</program>

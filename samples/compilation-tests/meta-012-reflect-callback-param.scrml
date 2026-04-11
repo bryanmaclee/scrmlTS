@@ -1,0 +1,27 @@
+<program>
+// Regression test for BUG-META-4: reflect(variable) in a forEach callback param.
+// Previously, REFLECT_IDENT_RE would rewrite reflect(typeName) to reflect("typeName")
+// even when typeName was an inline function parameter (not a type name), causing
+// E-META-EVAL-001 at runtime.
+
+type Product:struct = {
+  name: string,
+  price: number
+}
+
+type Customer:struct = {
+  name: string,
+  email: string
+}
+
+^{
+  const types = ["Product", "Customer"]
+  types.forEach(function(typeName) {
+    const info = reflect(typeName)
+    emit("<section>")
+    emit("<h2>" + typeName + " (" + info.fields.length + " fields)</h2>")
+    emit("</section>")
+  })
+}
+
+</program>

@@ -655,4 +655,124 @@ describe("meta-eval", () => {
     expect(div).toBeDefined();
   });
 
+  // ---------------------------------------------------------------------------
+  // BUG-META-2: for-stmt (for-of) inside ^{} meta blocks
+  // ---------------------------------------------------------------------------
+
+  test("§25 BUG-META-2: for-stmt (for-of) in meta body serializes correctly", () => {
+    // for (const item of items) was parsed as kind "for-stmt" not "for-loop".
+    // serializeNode didn't handle "for-stmt", producing empty string and losing
+    // the loop body including its emit() calls.
+    const forStmtNode = {
+      id: 10,
+      kind: "for-stmt",
+      variable: "item",
+      iterable: "items",
+      body: [bareExpr('emit("<p>" + item + "</p>")')],
+      span: { file: "test.scrml", start: 0, end: 100, line: 1, col: 1 },
+    };
+    const body = [
+      constDecl("items", '["a", "b", "c"]'),
+      forStmtNode,
+    ];
+    const typeRegistry = new Map();
+    const errors = [];
+
+    const result = evaluateMetaBlock(metaNode(body), typeRegistry, errors);
+
+    expect(errors).toHaveLength(0);
+    expect(result).not.toBeNull();
+    // Should produce 3 <p> elements
+    const pNodes = result.filter(n => n.kind === "markup" && n.tag === "p");
+    expect(pNodes.length).toBe(3);
+  });
+
+  test("§25b BUG-META-2: serializeNode handles for-stmt without producing empty string", () => {
+    // Direct serializeNode test — must not return empty for for-stmt nodes.
+    const forStmtNode = {
+      id: 10,
+      kind: "for-stmt",
+      variable: "x",
+      iterable: "arr",
+      body: [bareExpr('emit(x)')],
+      span: { file: "test.scrml", start: 0, end: 50, line: 1, col: 1 },
+    };
+    const result = serializeNode(forStmtNode, new Set());
+    expect(result).toContain("for");
+    expect(result).toContain("x");
+    expect(result).toContain("arr");
+  });
+
+  // ---------------------------------------------------------------------------
+  // BUG-META-4: reflect(variable) in inline callback params must not be rewritten
+  // ---------------------------------------------------------------------------
+
+  test("§26 BUG-META-4: reflect(typeName) in forEach callback param not rewritten", () => {
+    // `types.forEach(function(typeName) { reflect(typeName) })` — typeName is a
+    // callback parameter. It is NOT a meta-local declared at the top level, so
+    // collectMetaLocals doesn't see it. rewriteReflectCalls must detect inline
+    // function params and skip them.
+    const typeRegistry = new Map();
+    typeRegistry.set("Product", { kind: "struct", name: "Product", fields: new Map([["name", { kind: "primitive", name: "string" }]]) });
+    typeRegistry.set("Customer", { kind: "struct", name: "Customer", fields: new Map([["name", { kind: "primitive", name: "string" }]]) });
+
+    const body = [
+      constDecl("types", '["Product", "Customer"]'),
+      bareExpr('types.forEach(function(typeName) { const info = reflect(typeName); emit("<section><h2>" + typeName + "</h2></section>"); })'),
+    ];
+    const errors = [];
+
+    const result = evaluateMetaBlock(metaNode(body), typeRegistry, errors);
+
+    // Should succeed — reflect(typeName) resolves to the string value in the array
+    expect(errors).toHaveLength(0);
+    expect(result).not.toBeNull();
+    // Should produce 2 section elements
+    const sections = result.filter(n => n.kind === "markup" && n.tag === "section");
+    expect(sections.length).toBe(2);
+  });
+
+  test("§26b BUG-META-4: reflect(TypeName) bare type still gets rewritten", () => {
+    // Regression guard: bare reflect(Color) with no surrounding function call
+    // MUST still be rewritten to reflect("Color"). The BUG-META-4 fix must not
+    // prevent rewriting of direct type name references.
+    const typeRegistry = new Map();
+    typeRegistry.set("Color", { kind: "enum", name: "Color", variants: ["Red", "Green", "Blue"] });
+
+    const body = [
+      constDecl("info", "reflect(Color)"),
+      bareExpr('emit("<p>" + info.variants.join(",") + "</p>")'),
+    ];
+    const errors = [];
+
+    const result = evaluateMetaBlock(metaNode(body), typeRegistry, errors);
+
+    expect(errors).toHaveLength(0);
+    expect(result).not.toBeNull();
+    const p = result.find(n => n.kind === "markup" && n.tag === "p");
+    expect(p).toBeDefined();
+    // Text should contain enum variant names
+    const text = p.children?.find(c => c.kind === "text");
+    expect(text?.value).toContain("Red");
+  });
+
+  test("§26c BUG-META-4: reflect(param) in arrow function callback not rewritten", () => {
+    // Arrow function variant: items.forEach(typeName => reflect(typeName))
+    const typeRegistry = new Map();
+    typeRegistry.set("Product", { kind: "struct", name: "Product", fields: new Map([["id", { kind: "primitive", name: "number" }]]) });
+
+    const body = [
+      constDecl("types", '["Product"]'),
+      bareExpr('types.forEach(typeName => { const info = reflect(typeName); emit("<p>" + typeName + "</p>"); })'),
+    ];
+    const errors = [];
+
+    const result = evaluateMetaBlock(metaNode(body), typeRegistry, errors);
+
+    expect(errors).toHaveLength(0);
+    expect(result).not.toBeNull();
+    const p = result.find(n => n.kind === "markup" && n.tag === "p");
+    expect(p).toBeDefined();
+  });
+
 });

@@ -1187,6 +1187,18 @@ export function runDG(input: DGInput): DGOutput {
         const metaBody = (node as Record<string, unknown>).body;
         if (Array.isArray(metaBody)) {
           for (const child of metaBody as ASTNode[]) {
+            // BUG-META-6 fix: reactive-decl nodes inside runtime ^{} meta blocks
+            // represent @var assignments (e.g. `@message = "changed"` is parsed as
+            // reactive-decl with name="message"). The name field is not in exprFields
+            // so sweepNodeForAtRefs misses it. Treat the name as an @var consumption.
+            if (
+              (child as Record<string, unknown>).kind === "reactive-decl" &&
+              typeof (child as Record<string, unknown>).name === "string"
+            ) {
+              const varName = (child as Record<string, unknown>).name as string;
+              const readers = reactiveVarReaders.get(varName);
+              if (readers) readers.add(MARKUP_READER_SENTINEL);
+            }
             sweepNodeForAtRefs(child);
           }
         }
