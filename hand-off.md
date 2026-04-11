@@ -62,11 +62,26 @@ Now that TS-G fires in the real pipeline on real ASTs, this gap is live — but 
   - **C.** Hybrid — parser emits `lin-decl` only; references stay as strings with `checkLinear` doing name tracking
 - Recommendation + migration plan for existing 60 unit tests expected in the deep-dive.
 
+### Strategic pivot — Lin Batch C Step 2 parked, expression AST migration committed
+
+After reviewing the full lin deep-dive, the user rejected Option C as bandaiding and asked for the perfect-end-state path regardless of work involved. The answer (present in the deep-dive's own prior-art survey, just not in its recommendation): **scrml stores expressions as re-joined token strings, not as structured AST nodes.** Every string-scan workaround (`MustUseTracker.scanExpression`, regex `\bname\b` patterns, token-level rewrites like `is not`/DQ-12/CSS `#{}`/route `${}`) is a symptom of the same root cause. No production linear type system works this way — Rust, Linear Haskell, Koka, OCaml, TypeScript all use structured expression ASTs.
+
+**Decision:** commit to a multi-phase structured-expression-AST migration. Lin enforcement lands in Phase 2 as a natural consequence, not as a targeted fix. Option C is frozen — NOT shipped.
+
+**Phases (committed S4):**
+- **Phase 0 — Design.** Expression grammar + precedence table + `ExprNode` shapes + migration sequencing. In flight this session. Deep-dive dispatched (Sonnet, background) → `scrml-support/docs/deep-dives/expression-ast-phase-0-design-2026-04-11.md`. Brief covers: grammar A, AST shapes B, migration sequencing C, open questions D.
+- **Phase 1 — Parallel fields.** `collectExpr()` also emits structured `ExprNode` alongside the existing string. Invariant: `emitStringFromTree(node.initExpr) === node.init`. Consumers unchanged. Main stays green.
+- **Phase 2 — Semantic passes migrate.** Type-system → lin/tilde → protect analyzer → dep graph → meta-checker → route-inference. **Lin enforcement becomes sound and fires E2E here.** Integration tests added. §35.2.1 lin-params finally works end-to-end.
+- **Phase 3 — Codegen migrates.** `rewriteExpr(string)` → `emitExpr(ExprNode)`. String rewrites become tree transforms. The big phase (~14k LOC codegen directory).
+- **Phase 4 — Drop string fields.** Remove `init: string`, `expr: string`, etc. from AST shape.
+- **Phase 5 — Self-host parity.** `ast.scrml` and downstream .scrml modules mirror the migration. Done last because scrmlTS is the working driver.
+
 ### Housekeeping not yet done
 
-- [ ] Append this discovery to `scrml-support/user-voice.md` as an agent-note (pending)
-- [ ] Pre-existing uncommitted working-tree changes on `pa.md` (Cross-repo messaging dropbox section) — not from this session, belongs to prior unsaved work. **Flag to user: what do you want to do with these?**
-- [ ] Hand-off + master-list commits pending (test hook runs — will verify)
+- [x] Master-list updated (P1 lin line re-flagged, new P5 entry for expression AST migration)
+- [ ] Pre-existing uncommitted pa.md changes (Cross-repo messaging dropbox section — not from this session) still sitting in working tree. **Flag to user: what do you want to do with these?**
+- [ ] Phase 0 design deep-dive in flight — will notify on completion
+- [ ] Hand-off commit pending
 
 ## Tags
 #session-4 #in-progress

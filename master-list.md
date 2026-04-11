@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-11 (S4 — Lin Batch C Step 1 merged, structural lin-enforcement gap surfaced)
+**Last updated:** 2026-04-11 (S4 — committed to structured expression AST migration as root-cause fix for lin + many other passes)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -192,7 +192,7 @@
 - [x][x] **DQ-12 (Phase A)** — `is not`/`is some` on **parenthesized** compound expressions. **IMPLEMENTED S2 2026-04-10 (dq12-phase-a)** — `_rewriteParenthesizedIsOp` in `rewrite.ts`, temp-var single-evaluation per §42.2.4. Phase B (bare compound form, no parens) deferred as future work.
 - [x][x] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED + IMPLEMENTED S2 2026-04-10 (dq7-css-scope)** — native CSS `@scope` (Approach B). `emit-css.ts` + `emit-html.ts` + SPEC §9.1 + §25.6 rewrite landed. `data-scrml` attribute, donut scope, flat-declaration `#{}` → inline style.
 - [x][x] **DQ-11** — WebSocket / server-push. Spec complete (§38). **CLI implementation complete S2 2026-04-10 (websocket-cli-batch)** — 6 bugs fixed in dev.js/build.js/emit-channel.ts, channel runtime unblocked end-to-end.
-- [x][ ] **Lin spec gaps** — Batch A ✅ S2 (loop carve-out + DX msgs); **Batch B ✅ S3 2026-04-11** (`lin` function params, §35.2.1, parser + type-system, +15 unit tests, merge `90f1630`); **Batch C Step 1 ✅ S4 2026-04-11** (TS-G wiring fix — `fileAST.nodes ?? fileAST.ast?.nodes` dual-shape fallback, dead `linNodes` interface field removed, 234 unit tests pass). **⚠ STRUCTURAL GAP SURFACED S4:** real-pipeline `checkLinear` never fires on parser output — `ast-builder.js` emits `tilde-decl`/string refs, not the `lin-decl`/`lin-ref` kinds `checkLinear` walks. All ~60 existing lin unit tests use synthetic AST shapes; E2E enforcement has been silent since the feature was introduced (Batch B's lin-param path has the same problem). Batch C Step 2 gated on T3 deep-dive at `scrml-support/docs/deep-dives/lin-enforcement-ast-wiring-2026-04-11.md`. See `docs/changes/lin-batch-c-step1/anomaly-report.md`.
+- [x][ ] **Lin spec gaps** — Batch A ✅ S2; Batch B ✅ S3 (§35.2.1 lin-params, merge `90f1630`); Batch C Step 1 ✅ S4 (TS-G wiring fix, merge `503f5b9`, 234 unit tests pass). **⚠ BATCH C STEP 2 PARKED S4:** real-pipeline lin enforcement is blocked by a deeper root cause — scrml stores expressions as re-joined token strings, not as structured AST nodes. All ~60 existing lin unit tests use synthetic AST shapes; E2E enforcement has been silent since the feature was introduced. This is the same limitation blocking clean tilde tracking, dep-graph edges, protect analysis scoping, and LSP identifier features. Fix rolled up into the structured expression AST migration (see P5 below). Lin enforcement lands in Phase 2 of that migration. See `scrml-support/docs/deep-dives/lin-enforcement-ast-wiring-2026-04-11.md` + `docs/changes/lin-batch-c-step1/anomaly-report.md`.
 
 ### P2 — DX
 - [x][x] **Ghost error mitigation** — lint pre-pass landed S2 (ghost-lint-prepass, 10 W-LINT-* patterns, +71 tests)
@@ -209,6 +209,7 @@
 - [x][x] rewrite.ts visitor pattern (done S80)
 - [ ][ ] TS migrations: ast-builder, block-splitter (tokenizer done)
 - [ ][ ] Codegen IR (typed instruction nodes)
+- [ ][ ] **🏗 STRUCTURED EXPRESSION AST MIGRATION (multi-phase, committed S4 2026-04-11)** — replace string-form expression fields (`init`, `expr`, `condition`, etc.) with structured `ExprNode` trees throughout the compiler. Root cause fix for lin enforcement, tilde precision, dep-graph edges, protect analyzer scoping, LSP identifier features, error span precision, and spec tightness. Scope: comparable to original compiler bring-up (~months). Phased migration with parallel-field invariants to keep main green. Phase 0 (design deep-dive) in flight S4 → `scrml-support/docs/deep-dives/expression-ast-phase-0-design-2026-04-11.md`. Phases: (0) design + spec grammar; (1) parallel `ExprNode` fields in AST, string form retained; (2) semantic passes migrate to tree (lin enforcement lands here); (3) codegen migrates to tree emitter; (4) drop string fields; (5) self-host parity port. All other P1/P2 work continues in parallel unless it touches expression fields.
 
 ### P6 — Research (deferred to post-beta)
 - Package manager alternative, scrml-native import system, sidecars, WASM, `?{}` multi-db, WASM sigils, `use foreign:`, refinement types, var reuse optimization.
