@@ -172,12 +172,14 @@
 
 1. Example 12 — E-COMPONENT-020 (snippet expansion for `Card`)
 2. Example 13 — E-ROUTE-001 (computed array access in worker)
-3. BUG-R15-005: `\n` literal in emit() HTML (P3)
-4. E-META-001 false positives (destructuring, rest params, default params)
+3. ~~BUG-R15-005: `\n` literal in emit() HTML~~ — **FIXED** (meta-fix-batch S2 — verified already resolved by earlier S52 `normalizeEmitCode`)
+4. ~~E-META-001 false positives (destructuring, rest params, default params)~~ — **FIXED** (meta-fix-batch S2 — destructuring/rest-params verified clean; for-of fixed via `serializeNode` `for-stmt` case)
 5. 10 skipped tests (2 callback-props bind codegen, others minor)
 6. E-SYNTAX-043 partial (complex expressions may pass through)
 7. WebSocket CLI bugs — 6 in dev.js/build.js blocking `<channel>` runtime
 8. Ghost error patterns — 10 remaining
+9. ~~False E-DG-002 for @vars consumed inside runtime `^{}` blocks~~ — **FIXED** (meta-fix-batch S2)
+10. ~~`reflect(variableName)` inside callback params rewritten to string literal~~ — **FIXED** (meta-fix-batch S2)
 
 **Fix details + rationale for each:** `scrml-support/docs/` (look up by bug ID or topic).
 

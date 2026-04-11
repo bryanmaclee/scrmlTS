@@ -1,0 +1,30 @@
+<program>
+// §38 channel-basic.scrml — minimal WebSocket channel sample
+// Verifies: channel parses, client IIFE emitted, server route exported as
+// export const _scrml_route_ws_chat (not routes.push).
+
+@messages = []
+@status = "connecting"
+
+<div>
+  <h1>Chat</>
+  <p class="status">Status: {status}</>
+
+  <channel name="chat"
+           topic="general"
+           onclient:open=onConnected()
+           onclient:close=onDisconnected()
+           onserver:message=handleMessage(msg)>
+    ${
+      @shared count = 0
+    }
+  </>
+
+  <ul>
+    {messages.map(m => <li>{m}</>)}
+  </>
+
+  <input bind:value=@draft />
+  <button onclick=sendMessage()>Send</>
+</>
+</program>
