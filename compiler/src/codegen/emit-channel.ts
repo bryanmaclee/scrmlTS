@@ -3,7 +3,7 @@ import { emitLogicNode } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 
 /**
- * §35 `<channel>` — WebSocket state type codegen.
+ * §38 `<channel>` — WebSocket state type codegen.
  *
  * `<channel>` is a lifecycle markup element that generates persistent WebSocket
  * infrastructure. It emits no HTML. Like `<timer>` and `<poll>`, the AST node is
@@ -122,6 +122,7 @@ function extractChannelAttrs(node: any): ChannelAttrs {
 
 /**
  * Extract `onserver:` lifecycle attribute handlers from a channel node.
+ * These are server-side handlers used in `_scrml_ws_handlers` (Bun WebSocket server callbacks).
  */
 function extractChannelHandlers(node: any): ChannelHandlers {
   const attrs: any[] = node.attrs ?? node.attributes ?? [];
@@ -141,6 +142,35 @@ function extractChannelHandlers(node: any): ChannelHandlers {
     open: attrToCall(attrMap.get("onserver:open")),
     message: attrToCall(attrMap.get("onserver:message")),
     close: attrToCall(attrMap.get("onserver:close")),
+  };
+}
+
+/**
+ * Extract `onclient:` lifecycle attribute handlers from a channel node.
+ * These are client-side handlers wired to the browser WebSocket events.
+ *
+ * Bug 4 fix: The original code used `extractChannelHandlers` (onserver:*) for the
+ * client-side browser WebSocket events — that was wrong. onclient:open/close/error
+ * are distinct from onserver:open/message/close.
+ */
+function extractClientHandlers(node: any): { open: string | null; close: string | null; error: string | null } {
+  const attrs: any[] = node.attrs ?? node.attributes ?? [];
+  const attrMap = new Map<string, any>(attrs.map((a: any) => [a.name, a]));
+
+  function attrToCall(attr: any): string | null {
+    if (!attr) return null;
+    const v = attr.value;
+    if (!v) return null;
+    if (v.kind === "call") return `${v.name}(${v.args ?? ""})`;
+    if (v.kind === "variable-ref") return `${v.name}()`;
+    if (v.kind === "string-literal") return v.value;
+    return null;
+  }
+
+  return {
+    open: attrToCall(attrMap.get("onclient:open")),
+    close: attrToCall(attrMap.get("onclient:close")),
+    error: attrToCall(attrMap.get("onclient:error")),
   };
 }
 
@@ -176,7 +206,8 @@ export function extractSharedVars(node: any): string[] {
 export function emitChannelClientJs(node: any, errors: CGError[], filePath: string): string[] {
   const lines: string[] = [];
   const { name, safeName, topic, reconnectMs } = extractChannelAttrs(node);
-  const { open: openHandler, message: msgHandler } = extractChannelHandlers(node);
+  // Bug 4 fix: use onclient:* handlers for client-side browser WebSocket events.
+  const { open: clientOpenHandler, close: clientCloseHandler, error: clientErrorHandler } = extractClientHandlers(node);
   const sharedVars = extractSharedVars(node);
 
   const varName = `_scrml_ws_${safeName}`;
@@ -184,14 +215,15 @@ export function emitChannelClientJs(node: any, errors: CGError[], filePath: stri
   const reconnVar = "_reconn";
   const connectFn = "_connect";
 
-  lines.push(`// <channel name="${name}" topic="${topic}"> — WebSocket client (§35)`);
+  lines.push(`// <channel name="${name}" topic="${topic}"> — WebSocket client (§38)`);
   lines.push(`const ${varName} = (() => {`);
   lines.push(`  let ${wsVar}, ${reconnVar};`);
   lines.push(`  function ${connectFn}() {`);
-  lines.push(`    ${wsVar} = new WebSocket(\`ws://\${location.host}/_scrml_ws/${safeName}\`);`);
+  // Bug 3 fix: use protocol-relative WebSocket URL (ws:// on HTTP, wss:// on HTTPS).
+  lines.push(`    ${wsVar} = new WebSocket(\`\${location.protocol === 'https:' ? 'wss' : 'ws'}://\${location.host}/_scrml_ws/${safeName}\`);`);
 
-  if (openHandler) {
-    lines.push(`    ${wsVar}.onopen = () => { ${openHandler}; };`);
+  if (clientOpenHandler) {
+    lines.push(`    ${wsVar}.onopen = () => { ${clientOpenHandler}; };`);
   } else {
     lines.push(`    ${wsVar}.onopen = () => {};`);
   }
@@ -210,17 +242,25 @@ export function emitChannelClientJs(node: any, errors: CGError[], filePath: stri
     lines.push(`        }`);
   }
 
-  if (msgHandler) {
-    lines.push(`        ${msgHandler};`);
-  }
-
   lines.push(`      } catch (_e) {}`);
   lines.push(`    };`);
 
+  if (clientErrorHandler) {
+    lines.push(`    ${wsVar}.onerror = (err) => { ${clientErrorHandler}; };`);
+  }
+
   if (reconnectMs > 0) {
-    lines.push(`    ${wsVar}.onclose = () => { ${reconnVar} = setTimeout(${connectFn}, ${reconnectMs}); };`);
+    if (clientCloseHandler) {
+      lines.push(`    ${wsVar}.onclose = () => { ${clientCloseHandler}; ${reconnVar} = setTimeout(${connectFn}, ${reconnectMs}); };`);
+    } else {
+      lines.push(`    ${wsVar}.onclose = () => { ${reconnVar} = setTimeout(${connectFn}, ${reconnectMs}); };`);
+    }
   } else {
-    lines.push(`    ${wsVar}.onclose = () => {};`);
+    if (clientCloseHandler) {
+      lines.push(`    ${wsVar}.onclose = () => { ${clientCloseHandler}; };`);
+    } else {
+      lines.push(`    ${wsVar}.onclose = () => {};`);
+    }
   }
 
   lines.push(`  }`);
@@ -254,15 +294,23 @@ export function emitChannelClientJs(node: any, errors: CGError[], filePath: stri
 
 /**
  * Emit server-side JavaScript for a single `<channel>` node.
+ *
+ * Bug 2 fix: The original code emitted `routes.push({...})` — `routes` is never
+ * declared in .server.js files. All other routes are emitted as
+ * `export const _scrml_route_XXX = { path, method, handler }` so that
+ * `discoverServerRoutes` (build.js) and `loadServerRoutes` (dev.js) can find them.
+ * Channel WS upgrade routes must follow the same pattern.
  */
 export function emitChannelServerJs(node: any, errors: CGError[], filePath: string, hasAuth = false): string[] {
   const lines: string[] = [];
   const { name, safeName, topic, hasProtect } = extractChannelAttrs(node);
 
   const path = `/_scrml_ws/${safeName}`;
+  // Route export name follows the same convention as HTTP routes: _scrml_route_ws_<safeName>
+  const routeExportName = `_scrml_route_ws_${safeName}`;
 
-  lines.push(`// <channel name="${name}"> — WebSocket upgrade route (§35)`);
-  lines.push(`routes.push({`);
+  lines.push(`// <channel name="${name}"> — WebSocket upgrade route (§38)`);
+  lines.push(`export const ${routeExportName} = {`);
   lines.push(`  path: ${JSON.stringify(path)},`);
   lines.push(`  method: "GET",`);
   lines.push(`  isWebSocket: true,`);
@@ -277,7 +325,7 @@ export function emitChannelServerJs(node: any, errors: CGError[], filePath: stri
   lines.push(`    const ok = server.upgrade(req, { data: { __ch: ${JSON.stringify(name)}, __topic: ${JSON.stringify(topic)} } });`);
   lines.push(`    return ok ? undefined : new Response("WebSocket upgrade failed", { status: 400 });`);
   lines.push(`  },`);
-  lines.push(`});`);
+  lines.push(`};`);
 
   return lines;
 }
@@ -288,6 +336,10 @@ export function emitChannelServerJs(node: any, errors: CGError[], filePath: stri
 
 /**
  * Emit the merged `_scrml_ws_handlers` export for all channels in a file.
+ *
+ * Bug 5 fix: `close` handler signature updated to `close(ws, code, reason)` to
+ * match Bun's WebSocket close handler signature. Previously emitted `close(ws)`,
+ * which dropped the close code and reason.
  */
 export function emitChannelWsHandlers(channelNodes: any[], errors: CGError[], filePath: string): string[] {
   if (channelNodes.length === 0) return [];
@@ -337,8 +389,8 @@ export function emitChannelWsHandlers(channelNodes: any[], errors: CGError[], fi
   lines.push(`    } catch (_e) {}`);
   lines.push(`  },`);
 
-  // close
-  lines.push(`  close(ws) {`);
+  // close — Bug 5 fix: include code and reason params (Bun passes them)
+  lines.push(`  close(ws, code, reason) {`);
   lines.push(`    ws.unsubscribe(ws.data.__topic);`);
   for (const node of channelNodes) {
     const { name } = extractChannelAttrs(node);
