@@ -137,6 +137,7 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 - Feed project-mapper (for this repo) on session start or when files change significantly
 - Feed resource-mapper (scrml-support corpus) when a diagnostic agent needs broad context
 - Process non-compliance reports from project-mapper — propose dispositions to user, deref approved items to scrml-support/archive/
+- **Every gauntlet dev dispatch MUST include `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` in the briefing** — this is the Ghost-Pattern mitigation (Solution #1 of `scrml-support/docs/ghost-error-mitigation-plan.md`). Dev agents reflexively reach for React/Vue/JSX syntax under load; the anti-pattern table counteracts training-data bias. The brief must say: "Read `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` before writing any code, and reread it before each feature." Skipping this costs overseer time and pollutes bug reports.
 
 ### Writing to user-voice.md
 - Append-only, verbatim

@@ -1,0 +1,23 @@
+#!/bin/bash
+# scrmlTS pre-commit hook
+# Checks:
+#   1. Branch is not main (warning — only PA should commit to main)
+#   2. Test suite passes (unit + integration + conformance, excluding browser)
+
+set -e
+
+BRANCH=$(git branch --show-current)
+if [ "$BRANCH" = "main" ]; then
+  echo "⚠  WARNING: Committing directly to 'main'." >&2
+  echo "   Agents must use feature branches. Only the PA merges into main." >&2
+  echo "   If you are the PA making an intentional main commit, this is fine." >&2
+fi
+
+echo "Running tests (unit + integration + conformance, excluding browser)..."
+if ! bun test compiler/tests/unit compiler/tests/integration compiler/tests/conformance --bail 2>&1; then
+  echo "✗ Tests failed. Fix before committing." >&2
+  exit 1
+fi
+
+echo "✓ Pre-commit checks passed."
+exit 0
