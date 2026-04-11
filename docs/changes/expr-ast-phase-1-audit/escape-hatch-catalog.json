@@ -1,0 +1,705 @@
+{
+  "generatedAt": "2026-04-11T22:38:12.823Z",
+  "branch": "changes/expr-ast-phase-1-audit",
+  "phase": "Phase 1 audit",
+  "summary": {
+    "filesAudited": 14,
+    "totalExprNodesChecked": 82,
+    "totalEscapeHatches": 3,
+    "escapeHatchRate": "3.66%",
+    "byCategory": {
+      "interpolated-template": 0,
+      "block-lambda": 0,
+      "nested-paren-is": 0,
+      "parse-error": 3,
+      "conversion-error": 0,
+      "unclassified": 0
+    }
+  },
+  "files": [
+    {
+      "file": "01-hello.scrml",
+      "astError": null,
+      "exprNodesChecked": 0,
+      "roundTripFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": []
+    },
+    {
+      "file": "02-counter.scrml",
+      "astError": null,
+      "exprNodesChecked": 3,
+      "roundTripFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": []
+    },
+    {
+      "file": "03-contact-book.scrml",
+      "astError": null,
+      "exprNodesChecked": 4,
+      "roundTripFailures": 1,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "iterExpr",
+          "strField": "iterable",
+          "original": "loadContacts ( )",
+          "emitted": "loadContacts()",
+          "normOriginal": "loadContacts ( )",
+          "normEmitted": "loadContacts()",
+          "astNodeKind": "for-stmt"
+        }
+      ]
+    },
+    {
+      "file": "04-live-search.scrml",
+      "astError": null,
+      "exprNodesChecked": 3,
+      "roundTripFailures": 2,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "p . name . toLowerCase ( ) . includes ( q ) ||\np . role . toLowerCase ( ) . includes ( q )",
+          "emitted": "p.name.toLowerCase().includes(q) || p.role.toLowerCase().includes(q)",
+          "normOriginal": "p . name . toLowerCase ( ) . includes ( q ) || p . role . toLowerCase ( ) . includes ( q )",
+          "normEmitted": "p.name.toLowerCase().includes(q) || p.role.toLowerCase().includes(q)",
+          "astNodeKind": "const-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( ! matches )",
+          "emitted": "!matches",
+          "normOriginal": "( ! matches )",
+          "normEmitted": "!matches",
+          "astNodeKind": "if-stmt"
+        }
+      ]
+    },
+    {
+      "file": "05-multi-step-form.scrml",
+      "astError": null,
+      "exprNodesChecked": 8,
+      "roundTripFailures": 8,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "headerExpr",
+          "strField": "header",
+          "original": "( @currentStep )",
+          "emitted": "@currentStep",
+          "normOriginal": "( @currentStep )",
+          "normEmitted": "@currentStep",
+          "astNodeKind": "match-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "Step . Preferences",
+          "emitted": "Step.Preferences",
+          "normOriginal": "Step . Preferences",
+          "normEmitted": "Step.Preferences",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "Step . Confirm",
+          "emitted": "Step.Confirm",
+          "normOriginal": "Step . Confirm",
+          "normEmitted": "Step.Confirm",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "headerExpr",
+          "strField": "header",
+          "original": "( @currentStep )",
+          "emitted": "@currentStep",
+          "normOriginal": "( @currentStep )",
+          "normEmitted": "@currentStep",
+          "astNodeKind": "match-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "Step . Info",
+          "emitted": "Step.Info",
+          "normOriginal": "Step . Info",
+          "normEmitted": "Step.Info",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "Step . Preferences",
+          "emitted": "Step.Preferences",
+          "normOriginal": "Step . Preferences",
+          "normEmitted": "Step.Preferences",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "Step . Confirm",
+          "emitted": "Step.Confirm",
+          "normOriginal": "Step . Confirm",
+          "normEmitted": "Step.Confirm",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "headerExpr",
+          "strField": "header",
+          "original": "( @currentStep )",
+          "emitted": "@currentStep",
+          "normOriginal": "( @currentStep )",
+          "normEmitted": "@currentStep",
+          "astNodeKind": "match-stmt"
+        }
+      ]
+    },
+    {
+      "file": "06-kanban-board.scrml",
+      "astError": null,
+      "exprNodesChecked": 7,
+      "roundTripFailures": 4,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "@cards . map ( c => c . id == id ? { ... c , status : newStatus } : c )",
+          "emitted": "@cards.map(c => c.id == id ? { ...c, status: newStatus } : c)",
+          "normOriginal": "@cards . map ( c => c . id == id ? { ... c , status : newStatus } : c )",
+          "normEmitted": "@cards.map(c => c.id == id ? { ...c, status: newStatus } : c)",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( card . status != Status . Todo )",
+          "emitted": "card.status != Status.Todo",
+          "normOriginal": "( card . status != Status . Todo )",
+          "normEmitted": "card.status != Status.Todo",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( card . status != Status . InProgress )",
+          "emitted": "card.status != Status.InProgress",
+          "normOriginal": "( card . status != Status . InProgress )",
+          "normEmitted": "card.status != Status.InProgress",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( card . status != Status . Done )",
+          "emitted": "card.status != Status.Done",
+          "normOriginal": "( card . status != Status . Done )",
+          "normEmitted": "card.status != Status.Done",
+          "astNodeKind": "if-stmt"
+        }
+      ]
+    },
+    {
+      "file": "07-admin-dashboard.scrml",
+      "astError": null,
+      "exprNodesChecked": 4,
+      "roundTripFailures": 4,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "iterExpr",
+          "strField": "iterable",
+          "original": "info . fields",
+          "emitted": "info.fields",
+          "normOriginal": "info . fields",
+          "normEmitted": "info.fields",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( field . name == \"id\" )",
+          "emitted": "field.name == \"id\"",
+          "normOriginal": "( field . name == \"id\" )",
+          "normEmitted": "field.name == \"id\"",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "field . name . charAt ( 0 ) . toUpperCase ( ) + field . name . slice ( 1 )",
+          "emitted": "field.name.charAt(0).toUpperCase() + field.name.slice(1)",
+          "normOriginal": "field . name . charAt ( 0 ) . toUpperCase ( ) + field . name . slice ( 1 )",
+          "normEmitted": "field.name.charAt(0).toUpperCase() + field.name.slice(1)",
+          "astNodeKind": "const-decl"
+        },
+        {
+          "exprField": "iterExpr",
+          "strField": "iterable",
+          "original": "fetchUsers ( )",
+          "emitted": "fetchUsers()",
+          "normOriginal": "fetchUsers ( )",
+          "normEmitted": "fetchUsers()",
+          "astNodeKind": "for-stmt"
+        }
+      ]
+    },
+    {
+      "file": "08-chat.scrml",
+      "astError": null,
+      "exprNodesChecked": 9,
+      "roundTripFailures": 8,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @draft . trim ( ) == \"\" )",
+          "emitted": "@draft.trim() == \"\"",
+          "normOriginal": "( @draft . trim ( ) == \"\" )",
+          "normEmitted": "@draft.trim() == \"\"",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "{\nid : crypto . randomUUID ( ) ,\nauthor_id : @authorId ,\nbody : @draft ,\nsent_at : new Date ( ) . toISOString ( ) ,\n}",
+          "emitted": "{ id: crypto.randomUUID(), author_id: @authorId, body: @draft, sent_at: new Date().toISOString() }",
+          "normOriginal": "{ id : crypto . randomUUID ( ) , author_id : @authorId , body : @draft , sent_at : new Date ( ) . toISOString ( ) , }",
+          "normEmitted": "{ id: crypto.randomUUID(), author_id: @authorId, body: @draft, sent_at: new Date().toISOString() }",
+          "astNodeKind": "const-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "[ ... @messages , msg ]",
+          "emitted": "[...@messages, msg]",
+          "normOriginal": "[ ... @messages , msg ]",
+          "normEmitted": "[...@messages, msg]",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "\"\"\npersistMessage ( msg . id , msg . author_id , msg . body , msg . sent_at )",
+          "emitted": "\"\"",
+          "normOriginal": "\"\" persistMessage ( msg . id , msg . author_id , msg . body , msg . sent_at )",
+          "normEmitted": "\"\"",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( e . key == \"Enter\" && ! e . shiftKey )",
+          "emitted": "e.key == \"Enter\" && !e.shiftKey",
+          "normOriginal": "( e . key == \"Enter\" && ! e . shiftKey )",
+          "normEmitted": "e.key == \"Enter\" && !e.shiftKey",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @messages . length == 0 )",
+          "emitted": "@messages.length == 0",
+          "normOriginal": "( @messages . length == 0 )",
+          "normEmitted": "@messages.length == 0",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "loadMessages ( )",
+          "emitted": "loadMessages()",
+          "normOriginal": "loadMessages ( )",
+          "normEmitted": "loadMessages()",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "msg . author_id == @authorId",
+          "emitted": "msg.author_id == @authorId",
+          "normOriginal": "msg . author_id == @authorId",
+          "normEmitted": "msg.author_id == @authorId",
+          "astNodeKind": "const-decl"
+        }
+      ]
+    },
+    {
+      "file": "09-error-handling.scrml",
+      "astError": null,
+      "exprNodesChecked": 6,
+      "roundTripFailures": 3,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @name == \"\" )",
+          "emitted": "@name == \"\"",
+          "normOriginal": "( @name == \"\" )",
+          "normEmitted": "@name == \"\"",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @email == \"\" )",
+          "emitted": "@email == \"\"",
+          "normOriginal": "( @email == \"\" )",
+          "normEmitted": "@email == \"\"",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( ! @email . includes ( \"@\" ) )",
+          "emitted": "!@email.includes(\"@\")",
+          "normOriginal": "( ! @email . includes ( \"@\" ) )",
+          "normEmitted": "!@email.includes(\"@\")",
+          "astNodeKind": "if-stmt"
+        }
+      ]
+    },
+    {
+      "file": "10-inline-tests.scrml",
+      "astError": null,
+      "exprNodesChecked": 4,
+      "roundTripFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": []
+    },
+    {
+      "file": "11-meta-programming.scrml",
+      "astError": null,
+      "exprNodesChecked": 2,
+      "roundTripFailures": 1,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "iterExpr",
+          "strField": "iterable",
+          "original": "info . fields",
+          "emitted": "info.fields",
+          "normOriginal": "info . fields",
+          "normEmitted": "info.fields",
+          "astNodeKind": "for-stmt"
+        }
+      ]
+    },
+    {
+      "file": "12-snippets-slots.scrml",
+      "astError": null,
+      "exprNodesChecked": 1,
+      "roundTripFailures": 0,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": []
+    },
+    {
+      "file": "13-worker.scrml",
+      "astError": null,
+      "exprNodesChecked": 10,
+      "roundTripFailures": 5,
+      "totalEscapes": 3,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 3,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [
+        {
+          "category": "parse-error",
+          "raw": "( let i = 2 ; i * i <= limit ; i + + )",
+          "strField": "iterable",
+          "strValue": "( let i = 2 ; i * i <= limit ; i + + )",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "category": "parse-error",
+          "raw": "( let j = i * i ; j <= limit ; j += i )",
+          "strField": "iterable",
+          "strValue": "( let j = i * i ; j <= limit ; j += i )",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "category": "parse-error",
+          "raw": "( let i = 2 ; i <= limit ; i + + )",
+          "strField": "iterable",
+          "strValue": "( let i = 2 ; i <= limit ; i + + )",
+          "astNodeKind": "for-stmt"
+        }
+      ],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "Array ( limit + 1 ) . fill ( true )",
+          "emitted": "Array(limit + 1).fill(true)",
+          "normOriginal": "Array ( limit + 1 ) . fill ( true )",
+          "normEmitted": "Array(limit + 1).fill(true)",
+          "astNodeKind": "const-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( flags [ i ] )",
+          "emitted": "flags[i]",
+          "normOriginal": "( flags [ i ] )",
+          "normEmitted": "flags[i]",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "[ ]",
+          "emitted": "[]",
+          "normOriginal": "[ ]",
+          "normEmitted": "[]",
+          "astNodeKind": "const-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( flags [ i ] )",
+          "emitted": "flags[i]",
+          "normOriginal": "( flags [ i ] )",
+          "normEmitted": "flags[i]",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "not\n_scrml_worker_primes . send ( { limit : @limit } )",
+          "emitted": "not",
+          "normOriginal": "not _scrml_worker_primes . send ( { limit : @limit } )",
+          "normEmitted": "not",
+          "astNodeKind": "reactive-decl"
+        }
+      ]
+    },
+    {
+      "file": "14-mario-state-machine.scrml",
+      "astError": null,
+      "exprNodesChecked": 21,
+      "roundTripFailures": 14,
+      "totalEscapes": 0,
+      "escapesByCategory": {
+        "interpolated-template": 0,
+        "block-lambda": 0,
+        "nested-paren-is": 0,
+        "parse-error": 0,
+        "conversion-error": 0,
+        "unclassified": 0
+      },
+      "escapeDetails": [],
+      "roundTripFailureDetails": [
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "@marioState == MarioState . Small",
+          "emitted": "@marioState == MarioState.Small",
+          "normOriginal": "@marioState == MarioState . Small",
+          "normEmitted": "@marioState == MarioState.Small",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @gameOver )",
+          "emitted": "@gameOver",
+          "normOriginal": "( @gameOver )",
+          "normEmitted": "@gameOver",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "match powerUp {\n. Mushroom => match @marioState {\n. Small => MarioState . Big\nelse => @marioState\n}\n. Flower => MarioState . Fire\n. Feather => MarioState . Cape\n}\nupdateDisplay ( )",
+          "emitted": "match powerUp { . Mushroom => match @marioState { . Small => MarioState . Big else => @marioState } . Flower => MarioState . Fire . Feather => MarioState . Cape }",
+          "normOriginal": "match powerUp { . Mushroom => match @marioState { . Small => MarioState . Big else => @marioState } . Flower => MarioState . Fire . Feather => MarioState . Cape } updateDisplay ( )",
+          "normEmitted": "match powerUp { . Mushroom => match @marioState { . Small => MarioState . Big else => @marioState } . Flower => MarioState . Fire . Feather => MarioState . Cape }",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @gameOver )",
+          "emitted": "@gameOver",
+          "normOriginal": "( @gameOver )",
+          "normEmitted": "@gameOver",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "@marioState == MarioState . Small",
+          "emitted": "@marioState == MarioState.Small",
+          "normOriginal": "@marioState == MarioState . Small",
+          "normEmitted": "@marioState == MarioState.Small",
+          "astNodeKind": "let-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "MarioState . Small",
+          "emitted": "MarioState.Small",
+          "normOriginal": "MarioState . Small",
+          "normEmitted": "MarioState.Small",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( wasSmall )",
+          "emitted": "wasSmall",
+          "normOriginal": "( wasSmall )",
+          "normEmitted": "wasSmall",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "condExpr",
+          "strField": "condition",
+          "original": "( @lives == 0 )",
+          "emitted": "@lives == 0",
+          "normOriginal": "( @lives == 0 )",
+          "normEmitted": "@lives == 0",
+          "astNodeKind": "if-stmt"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "MarioState . Small",
+          "emitted": "MarioState.Small",
+          "normOriginal": "MarioState . Small",
+          "normEmitted": "MarioState.Small",
+          "astNodeKind": "reactive-decl"
+        },
+        {
+          "exprField": "initExpr",
+          "strField": "init",
+          "original": "false\nupdateDisplay ( )",
+          "emitted": "false",
+          "normOriginal": "false updateDisplay ( )",
+          "normEmitted": "false",
+          "astNodeKind": "reactive-decl"
+        }
+      ]
+    }
+  ]
+}
