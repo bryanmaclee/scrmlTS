@@ -296,7 +296,6 @@ interface FileAST extends Record<string, unknown> {
   filePath: string;
   nodes?: ASTNodeLike[];
   typeDecls?: ASTNodeLike[];
-  linNodes?: ASTNodeLike[];
 }
 
 interface ProtectAnalysis {
@@ -4260,9 +4259,18 @@ function processFile(
   );
 
   // TS-G: Linear type enforcement pass.
-  const linNodes = (fileAST.linNodes as ASTNodeLike[] | undefined) ?? [];
-  if (linNodes.length > 0) {
-    checkLinear(linNodes, errors, { file: filePath });
+  // The real pipeline passes { filePath, ast: FileAST, errors } objects to
+  // runTS (CE output shape). fileAST.nodes is therefore undefined at the outer
+  // level; the actual nodes live under fileAST.ast.nodes. Use the same
+  // dual-shape fallback that buildOverloadRegistry uses at line 4060.
+  // checkLinear's default case descends into .body and .children so
+  // markup.children and logic.body both get visited; function-decl recurses
+  // with its own scope and breaks, so no double-walk occurs.
+  const allLinNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+    ?? [];
+  if (allLinNodes.length > 0) {
+    checkLinear(allLinNodes, errors, { file: filePath });
   }
 
   // TS-H: Loop control flow validation (E-LOOP-001/002/005).
