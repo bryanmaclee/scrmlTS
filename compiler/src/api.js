@@ -22,6 +22,7 @@ import { runCG } from "./code-generator.js";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules } from "./module-resolver.js";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
+import { lintGhostPatterns } from "./lint-ghost-patterns.js";
 
 // ---------------------------------------------------------------------------
 // Directory scanner
@@ -111,6 +112,7 @@ function convertLegacyCssSource(source) {
  * @returns {{
  *   errors: object[],
  *   warnings: object[],
+ *   lintDiagnostics: object[],
  *   fileCount: number,
  *   outputDir: string,
  *   durationMs: number,
@@ -157,6 +159,27 @@ export function compileScrml(options = {}) {
 
   const pipelineStart = performance.now();
 
+  // ---------------------------------------------------------------------------
+  // Ghost-error lint pre-pass (runs before Stage 2 / BS)
+  // Non-fatal: diagnostics are returned in lintDiagnostics[], never in errors[].
+  // The real compiler always runs regardless of lint findings.
+  // ---------------------------------------------------------------------------
+  const allLintDiagnostics = [];
+  for (const inputFile of inputFiles) {
+    try {
+      const filePath = resolve(inputFile);
+      const source = readFileSync(filePath, "utf8");
+      const diags = lintGhostPatterns(source, filePath);
+      for (const d of diags) {
+        allLintDiagnostics.push({ ...d, filePath });
+        if (verbose) log(`  [LINT] ${filePath}:${d.line}:${d.column} ${d.code}: ${d.message}`);
+      }
+    } catch {
+      // Lint errors must not block compilation — silently skip unreadable files here
+      // (BS will report the real read error below)
+    }
+  }
+
   // Stage 2: Block Splitter (per-file)
   // When selfHostModules.splitBlocks is provided, use it instead of the JS original.
   const _splitBlocks = selfHostModules?.splitBlocks ?? splitBlocks;
@@ -182,7 +205,7 @@ export function compileScrml(options = {}) {
   if (bsResults.length === 0) {
     const errors = allErrors;
     const warnings = [];
-    return { errors, warnings, fileCount: 0, outputDir: outputDir || "", durationMs: 0, outputs: new Map() };
+    return { errors, warnings, lintDiagnostics: allLintDiagnostics, fileCount: 0, outputDir: outputDir || "", durationMs: 0, outputs: new Map() };
   }
 
   // Stage 3: TAB (per-file)
@@ -441,6 +464,7 @@ export function compileScrml(options = {}) {
   return {
     errors,
     warnings,
+    lintDiagnostics: allLintDiagnostics,
     fileCount,
     outputDir: outputDir || "",
     durationMs,
