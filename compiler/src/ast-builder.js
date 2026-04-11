@@ -2171,18 +2171,24 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // §53: parse param entries into {name, typeAnnotation?} objects.
     // "x: number(>0)" → {name: "x", typeAnnotation: "number(>0)"}
     // "x" → {name: "x"}
+    // §35.2.1: lin-annotated params — "lin x" or "lin x: string" → {name: "x", isLin: true, ...}
     // Downstream consumers (emit-functions.ts, emit-server.ts, type-system.ts) already
     // handle both string and {name} forms via typeof checks.
     function pushParam(raw) {
       const s = raw.trim();
       if (!s) return;
-      const colonIdx = s.indexOf(':');
+      // §35.2.1: detect `lin name` prefix — parameter declared as linear.
+      const LIN_PREFIX = /^lin\s+(.+)$/;
+      const linMatch = LIN_PREFIX.exec(s);
+      const isLin = linMatch !== null;
+      const effective = isLin ? linMatch[1].trim() : s;
+      const colonIdx = effective.indexOf(':');
       if (colonIdx === -1) {
-        params.push({ name: s });
+        params.push(isLin ? { name: effective, isLin: true } : { name: effective });
       } else {
-        const name = s.slice(0, colonIdx).trim();
-        const typeAnnotation = s.slice(colonIdx + 1).trim() || null;
-        params.push({ name, typeAnnotation });
+        const name = effective.slice(0, colonIdx).trim();
+        const typeAnnotation = effective.slice(colonIdx + 1).trim() || null;
+        params.push(isLin ? { name, typeAnnotation, isLin: true } : { name, typeAnnotation });
       }
     }
     while (true) {
@@ -2199,6 +2205,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         cur = "";
         consume();
       } else {
+        // Insert a space before IDENT/KEYWORD tokens to prevent concatenation like
+        // `lin token` → `lintoken`. Punctuation tokens (: ( ) > etc.) don't need spaces.
+        if (cur.length > 0 && (tok.kind === 'IDENT' || tok.kind === 'KEYWORD' || tok.kind === 'AT_IDENT') &&
+            cur[cur.length - 1] !== ' ') {
+          cur += ' ';
+        }
         cur += tok.text;
         consume();
       }

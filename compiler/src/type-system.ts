@@ -3574,6 +3574,8 @@ interface CheckLinearOpts {
   mustUseTracker?: MustUseTracker | null;
   inLoop?: boolean;
   file?: string;
+  /** §35.2.1: Names of lin-annotated function parameters to pre-declare in this scope. */
+  preDeclaredLinNames?: string[];
 }
 
 /**
@@ -3586,9 +3588,16 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     mustUseTracker: parentMustUseTracker = null,
     inLoop = false,
     file = "/unknown",
+    preDeclaredLinNames = [],
   } = opts;
 
   const linTracker = new LinTracker();
+  // §35.2.1: Pre-seed the tracker with lin-annotated function parameters.
+  // These are treated as "declared at function entry" — the consume-exactly-once
+  // rule applies to the entire function body scope.
+  for (const paramName of preDeclaredLinNames) {
+    linTracker.declare(paramName);
+  }
   const tildeTracker = parentTildeTracker ?? new TildeTracker();
   const mustUseTracker = new MustUseTracker();
 
@@ -3831,6 +3840,35 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
         const loopBody = (node.body as ASTNodeLike[] | undefined) ?? [];
         const elide = !hasNonLiftTildeConsumer(loopBody);
         walkLoopBody(loopBody, lt, tt, elide);
+        break;
+      }
+
+      case "function-decl": {
+        // §35.2.1: Function declarations create a new linear scope.
+        // Lin-annotated params (isLin: true on the param object) are pre-declared
+        // as linear in the function body scope.
+        const fnParams = (node.params as ASTNodeLike[] | undefined) ?? [];
+        const linParamNames: string[] = [];
+        for (const param of fnParams) {
+          if (param && typeof param === "object" && (param as ASTNodeLike).isLin) {
+            const pName = (param as ASTNodeLike).name as string | undefined;
+            if (pName) linParamNames.push(pName);
+          }
+        }
+        // Recursively check the function body as a new scope.
+        // If there are lin params, pass them as preDeclaredLinNames.
+        // Always recurse so nested lin-decls inside the function body are checked.
+        checkLinear(
+          (node.body as ASTNodeLike[] | undefined) ?? [],
+          errors,
+          {
+            file,
+            preDeclaredLinNames: linParamNames,
+            // Do NOT pass parentLinTracker — function bodies are a closed lin scope.
+            // Outer lin vars cannot be consumed inside a function body (they would
+            // need to be passed as parameters).
+          },
+        );
         break;
       }
 
