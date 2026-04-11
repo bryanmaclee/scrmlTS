@@ -17,7 +17,7 @@
  *   §8  Direct-only escalation — cycle detection (no infinite loop)
  *   §9  E-RI-001 — pure + server-escalated = compile error
  *   §10 E-RI-002 — server-escalated function with reactive assignment
- *   §11 E-ROUTE-001 — computed member access produces warning
+ *   §11 E-ROUTE-001 — computed member access produces warning (with severity:"warning")
  *   §12 External function calls are non-escalating
  *   §13 Multiple escalation reasons accumulate
  *   §14 pure function with no escalation — no error
@@ -25,6 +25,7 @@
  *   §16 PureDecl nodes appear in RouteMap
  *   §17 Cross-file transitive escalation
  *   §18 fn-shorthand nodes appear in RouteMap (fnKind==="fn")
+ *   §25 E-ROUTE-001 suppressed inside worker bodies (<program name="...">)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -164,6 +165,63 @@ function makeFileAST(filePath, fnNodes) {
         span: span(0, filePath),
       },
     ],
+    imports: [],
+    exports: [],
+    components: [],
+    typeDecls: [],
+    spans: new Map(),
+  };
+}
+
+/**
+ * Build a FileAST that simulates a file with a nested worker program:
+ *   <program>
+ *     <program name="workerName">
+ *       ${workerFnNodes}
+ *     </>
+ *     ${topLevelFnNodes}
+ *   </program>
+ *
+ * The worker body is represented as a markup node with tag="program" and
+ * a name attribute. The function nodes inside it live in a logic block
+ * that is a child of the worker markup node.
+ *
+ * @param {string}   filePath
+ * @param {string}   workerName
+ * @param {object[]} workerFnNodes  — function-decl nodes inside the worker
+ * @param {object[]} [topFnNodes]   — function-decl nodes at the top level (outside worker)
+ * @returns {object}  — FileAST
+ */
+function makeWorkerFileAST(filePath, workerName, workerFnNodes, topFnNodes = []) {
+  const workerLogicNode = {
+    id: 100,
+    kind: "logic",
+    body: workerFnNodes,
+    span: span(100, filePath),
+  };
+
+  const workerMarkupNode = {
+    id: 90,
+    kind: "markup",
+    tag: "program",
+    attrs: [{ name: "name", value: workerName }],
+    children: [workerLogicNode],
+    selfClosing: false,
+    closerForm: "</>",
+    isComponent: false,
+    span: span(90, filePath),
+  };
+
+  const topLogicNode = {
+    id: 1,
+    kind: "logic",
+    body: topFnNodes,
+    span: span(0, filePath),
+  };
+
+  return {
+    filePath,
+    nodes: [workerMarkupNode, topLogicNode],
     imports: [],
     exports: [],
     components: [],
@@ -960,6 +1018,22 @@ describe("§11 — E-ROUTE-001: computed member access warning", () => {
     const warnings = errors.filter(e => e.code === "E-ROUTE-001");
     expect(warnings.length).toBeGreaterThanOrEqual(1);
     expect(warnings[0].message).toContain("E-ROUTE-001");
+  });
+
+  test("E-ROUTE-001 carries severity: 'warning' (Bug 1 fix)", () => {
+    // E-ROUTE-001 must have severity === "warning" so api.js classifies it
+    // as a warning (not an error) at line 438-439 of api.js.
+    const fn = makeFunctionDecl({
+      name: "getDynField",
+      body: [makeBareExpr("return row[fieldKey]")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const warnings = errors.filter(e => e.code === "E-ROUTE-001");
+    expect(warnings.length).toBeGreaterThanOrEqual(1);
+    expect(warnings[0].severity).toBe("warning");
   });
 
   test("E-ROUTE-001 does NOT escalate the function to server", () => {
@@ -2095,5 +2169,93 @@ describe("§24 — client function calling server function stays client", () => 
     expect(getRoute(routeMap, "/test/app.scrml", 10).boundary).toBe("server"); // C: direct trigger
     expect(getRoute(routeMap, "/test/app.scrml", 50).boundary).toBe("client"); // B: no direct trigger
     expect(getRoute(routeMap, "/test/app.scrml", 90).boundary).toBe("client"); // A: no direct trigger
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §25 — E-ROUTE-001 suppressed inside worker bodies (<program name="...">)
+//
+// Bug 2 fix: Worker programs (<program name="primes">) are isolated execution
+// contexts with no access to protected fields or shared reactive state.
+// Computed member access inside worker bodies (e.g., flags[i], flags[j]) is
+// safe and expected (array indexing). E-ROUTE-001 must NOT fire inside workers.
+// ---------------------------------------------------------------------------
+
+describe("§25 — E-ROUTE-001: suppressed inside worker bodies", () => {
+  test("computed member access inside <program name='...'> worker body does NOT produce E-ROUTE-001", () => {
+    // Simulates the sieve() function in examples/13-worker.scrml.
+    // flags[0] = false, flags[j] = false — all computed array access in a worker.
+    const sieveFn = makeFunctionDecl({
+      name: "sieve",
+      body: [
+        makeBareExpr("const flags = Array(limit + 1).fill(true)", 110),
+        makeBareExpr("flags[0] = false", 120),
+        makeBareExpr("flags[1] = false", 130),
+        makeBareExpr("for (let j = i * i; j <= limit; j += i) { flags[j] = false }", 140),
+      ],
+      spanStart: 105,
+    });
+    const fileAST = makeWorkerFileAST("/test/worker.scrml", "primes", [sieveFn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const route001 = errors.filter(e => e.code === "E-ROUTE-001");
+    expect(route001).toHaveLength(0);
+  });
+
+  test("computed member access at top level (non-worker) still produces E-ROUTE-001", () => {
+    // Same computed access pattern but at the top level — not in a worker.
+    // E-ROUTE-001 must fire here, and must carry severity: "warning".
+    const fn = makeFunctionDecl({
+      name: "getField",
+      body: [makeBareExpr("return row[fieldKey]", 20)],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/app.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const route001 = errors.filter(e => e.code === "E-ROUTE-001");
+    expect(route001.length).toBeGreaterThanOrEqual(1);
+    expect(route001[0].severity).toBe("warning");
+  });
+
+  test("worker body function does not escalate to server due to E-ROUTE-001 suppression", () => {
+    // The sieve function in the worker body should stay client-boundary
+    // (workers are isolated — no protected fields, no escalation triggers).
+    const sieveFn = makeFunctionDecl({
+      name: "sieve",
+      body: [
+        makeBareExpr("flags[0] = false", 120),
+        makeBareExpr("flags[j] = false", 140),
+      ],
+      spanStart: 105,
+    });
+    const fileAST = makeWorkerFileAST("/test/worker.scrml", "primes", [sieveFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = routeMap.functions.get("/test/worker.scrml::105");
+    expect(route).toBeDefined();
+    expect(route.boundary).toBe("client");
+  });
+
+  test("top-level function and worker function in same file: worker silent, top-level warns", () => {
+    // A file with both a top-level function and a worker function using computed access.
+    // The top-level function should produce E-ROUTE-001; the worker function should not.
+    const workerFn = makeFunctionDecl({
+      name: "sieve",
+      body: [makeBareExpr("flags[i] = false", 120)],
+      spanStart: 105,
+    });
+    const topFn = makeFunctionDecl({
+      name: "lookup",
+      body: [makeBareExpr("return table[key]", 200)],
+      spanStart: 195,
+    });
+    const fileAST = makeWorkerFileAST("/test/mixed.scrml", "compute", [workerFn], [topFn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const route001 = errors.filter(e => e.code === "E-ROUTE-001");
+    // Only the top-level function's computed access should produce E-ROUTE-001.
+    expect(route001).toHaveLength(1);
+    expect(route001[0].severity).toBe("warning");
   });
 });

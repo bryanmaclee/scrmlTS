@@ -155,6 +155,7 @@ interface RouteWarning {
   code: string;
   message: string;
   span: Span;
+  severity?: "error" | "warning";
 }
 
 /** CPS eligibility analysis result. */
@@ -403,6 +404,58 @@ export function collectFileFunctions(fileAST: FileAST): FunctionDeclNode[] {
   return result;
 }
 
+/**
+ * Collect the span.start values of all function nodes that live inside a
+ * nested <program name="..."> worker body.
+ *
+ * Worker programs are markup nodes with tag === "program" AND a non-empty
+ * `name` attribute. The root <program> has no name attribute.
+ *
+ * Functions inside worker bodies cannot access protected fields or shared
+ * reactive state — no DB access, no server escalation triggers are meaningful
+ * there. E-ROUTE-001 is suppressed for these functions.
+ */
+function collectWorkerBodyFunctionIds(fileAST: FileAST): Set<number> {
+  const nodes: ASTNode[] = fileAST.nodes ?? ((fileAST as any).ast ? (fileAST as any).ast.nodes : []);
+  const result = new Set<number>();
+
+  function visitNodes(astNodes: ASTNode[], insideWorker: boolean): void {
+    for (const node of astNodes) {
+      if (!node || typeof node !== "object") continue;
+
+      // Detect a named <program name="..."> markup node — this is a worker body.
+      let enteringWorker = insideWorker;
+      if (node.kind === "markup" && (node as any).tag === "program") {
+        const attrs: any[] = (node as any).attrs ?? [];
+        const hasName = attrs.some(
+          (a: any) => a && (a.name === "name" || a.key === "name") && (a.value || a.val),
+        );
+        if (hasName) {
+          enteringWorker = true;
+        }
+      }
+
+      // Collect all functions inside worker bodies.
+      if (enteringWorker && node.kind === "logic") {
+        const logicNode = node as LogicNode;
+        if (Array.isArray(logicNode.body)) {
+          for (const fn of collectFunctionNodes(logicNode.body)) {
+            result.add(fn.span.start);
+          }
+        }
+      }
+
+      // Recurse into children.
+      if ("children" in node && Array.isArray((node as any).children)) {
+        visitNodes((node as any).children, enteringWorker);
+      }
+    }
+  }
+
+  visitNodes(nodes, false);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // FunctionNodeId
 // ---------------------------------------------------------------------------
@@ -442,12 +495,19 @@ export function generateRouteName(functionName: string): string {
  *   triggers  — EscalationReason[] from direct body analysis (NOT transitive)
  *   callees   — string[] of directly-called function names (for transitive escalation)
  *   warnings  — RouteWarning[] for unresolvable callees (E-ROUTE-001)
+ *
+ * @param isWorkerBody — when true, E-ROUTE-001 is suppressed. Worker program bodies
+ *   (<program name="...">) are isolated execution contexts with no access to protected
+ *   fields or shared reactive state. Computed member access there is safe and expected
+ *   (e.g., array indexing in sieve algorithms). Emitting E-ROUTE-001 inside workers
+ *   would be noise with no actionable signal.
  */
 export function walkBodyForTriggers(
   body: LogicStatement[],
   protectedFields: Set<string>,
   stateBlockIdByField: Map<string, string>,
   filePath: string,
+  isWorkerBody: boolean = false,
 ): WalkResult {
   const triggers: EscalationReason[] = [];
   const callees: string[] = [];
@@ -495,7 +555,9 @@ export function walkBodyForTriggers(
       callees.push(...names);
 
       // E-ROUTE-001: computed member access warning.
-      if (COMPUTED_MEMBER_REGEX.test(expr)) {
+      // Suppressed inside worker bodies — workers have no protected fields or shared
+      // reactive state, so computed array indexing (e.g., flags[i]) is safe and expected.
+      if (!isWorkerBody && COMPUTED_MEMBER_REGEX.test(expr)) {
         warnings.push({
           code: "E-ROUTE-001",
           message:
@@ -504,6 +566,7 @@ export function walkBodyForTriggers(
             `If this accesses a protected field via a computed key, it will not be detected by route inference. ` +
             `Use a direct property access (e.g., \`row.fieldName\`) to ensure correct route placement.`,
           span: node.span,
+          severity: "warning",
         });
       }
 
@@ -996,6 +1059,10 @@ export function runRI(input: RIInput): RIOutput {
     const filePath = fileAST.filePath;
     const fnNodes = collectFileFunctions(fileAST);
 
+    // Collect the span.start values of functions inside worker bodies
+    // (<program name="...">) so we can suppress E-ROUTE-001 for them.
+    const workerBodyFnIds = collectWorkerBodyFunctionIds(fileAST);
+
     for (const fnNode of fnNodes) {
       const fnNodeId = makeFunctionNodeId(filePath, fnNode);
 
@@ -1009,12 +1076,15 @@ export function runRI(input: RIInput): RIOutput {
       }
 
       // Scan the function body for direct triggers and callees.
+      // E-ROUTE-001 is suppressed for functions inside worker bodies.
       const body = Array.isArray(fnNode.body) ? fnNode.body : [];
+      const isWorkerBody = workerBodyFnIds.has(fnNode.span.start);
       const { triggers: bodyTriggers, callees, warnings } = walkBodyForTriggers(
         body,
         allProtectedFields,
         stateBlockIdByField,
         filePath,
+        isWorkerBody,
       );
 
       const directTriggers: EscalationReason[] = [...explicitTriggers, ...bodyTriggers];
@@ -1079,9 +1149,11 @@ export function runRI(input: RIInput): RIOutput {
   // ------------------------------------------------------------------
 
   for (const [fnNodeId, record] of analysisMap) {
-    // Accumulate E-ROUTE-001 warnings.
+    // Accumulate E-ROUTE-001 warnings (with severity propagated).
     for (const w of record.warnings) {
-      errors.push(new RIError(w.code, w.message, w.span));
+      const riErr = new RIError(w.code, w.message, w.span);
+      if (w.severity) riErr.severity = w.severity;
+      errors.push(riErr);
     }
 
     // §39.3: handle() escape hatch — treat as middleware boundary.

@@ -81,13 +81,13 @@
 
 ## E. Examples (14 files — verified S86)
 
-12/14 compile clean. Locations at `examples/`:
+13/14 compile clean. Locations at `examples/`:
 
 - [x][x] 01-hello, 02-counter, 03-contact-book, 04-live-search, 05-multi-step-form
 - [x][x] 06-kanban-board, 07-admin-dashboard, 08-chat, 09-error-handling, 10-inline-tests
 - [x][x] 11-meta-programming, 14-mario-state-machine
+- [x][x] 13-worker — **FIXED** (ex13-route-warning-fix: E-ROUTE-001 severity + worker body suppression)
 - [ ][ ] 12-snippets-slots — E-COMPONENT-020 (snippet expansion bug)
-- [ ][ ] 13-worker — E-ROUTE-001 (computed array access in worker)
 
 ---
 
@@ -171,7 +171,7 @@
 ## M. Known bugs + issues
 
 1. Example 12 — E-COMPONENT-020 (snippet expansion for `Card`)
-2. Example 13 — E-ROUTE-001 (computed array access in worker)
+2. ~~Example 13 — E-ROUTE-001 (computed array access in worker)~~ — **FIXED** (ex13-route-warning-fix: added `severity:"warning"` to E-ROUTE-001 + suppressed inside `<program name="...">` worker bodies)
 3. ~~BUG-R15-005: `\n` literal in emit() HTML~~ — **FIXED** (meta-fix-batch S2 — verified already resolved by earlier S52 `normalizeEmitCode`)
 4. ~~E-META-001 false positives (destructuring, rest params, default params)~~ — **FIXED** (meta-fix-batch S2 — destructuring/rest-params verified clean; for-of fixed via `serializeNode` `for-stmt` case)
 5. 10 skipped tests (2 callback-props bind codegen, others minor)
@@ -197,7 +197,7 @@
 - [x][ ] Ghost error mitigation — 10 patterns pending
 - [ ][ ] Async loading stdlib helpers (RemoteData — deferred)
 - [ ][ ] Async loading sugar (Approach E — deferred)
-- [ ][ ] Fix example 12 + 13
+- [ ][ ] Fix example 12 (example 13 now fixed)
 
 ### P3 — Self-host completion
 - [ ][ ] CE + ME self-host (not yet ported)
