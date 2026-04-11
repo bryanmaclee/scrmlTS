@@ -388,6 +388,80 @@ export function rewriteNotKeyword(expr: string, errors?: any[]): string {
   return result.join("");
 }
 
+// ---------------------------------------------------------------------------
+// _rewriteParenthesizedIsOp — Phase A: (expr) is not / is some / is not not
+// ---------------------------------------------------------------------------
+// Scans `segment` for patterns: `) is not not`, `) is some`, `) is not`
+// (in that priority order). For each match, walks backwards from the `)` to
+// find the matching `(` (handling nested parens). Replaces the entire
+// `(expr) is X` with a temp-var form that evaluates `expr` exactly once.
+//
+//   (expr) is not not  →  ((__scrml_tmp_N = (expr)) != null)   [presence]
+//   (expr) is some     →  ((__scrml_tmp_N = (expr)) != null)   [presence]
+//   (expr) is not      →  ((__scrml_tmp_N = (expr)) == null)   [absence]
+//
+// Uses double-equals (== / !=) to match both null and undefined in one check.
+// Only the parenthesized form is handled here. Identifier/dotted paths are
+// handled by the existing regex patterns below (unchanged). §42.2.4 Phase A.
+function _rewriteParenthesizedIsOp(segment: string): string {
+  // Each entry: the operator suffix to search for after `)` and the op kind.
+  // Order matters: check `is not not` before `is not` to avoid partial match.
+  type OpDef = { suffix: string; op: "presence" | "absence" };
+  const ops: OpDef[] = [
+    { suffix: " is not not", op: "presence" },
+    { suffix: " is some",    op: "presence" },
+    { suffix: " is not",     op: "absence"  },
+  ];
+
+  for (const { suffix, op } of ops) {
+    let searchFrom = 0;
+    while (true) {
+      // Find next occurrence of `) is X` — the closing paren of the compound
+      // expression immediately before the operator keyword.
+      const opIdx = segment.indexOf(')' + suffix, searchFrom);
+      if (opIdx === -1) break;
+
+      // Walk backwards from opIdx to find the matching opening paren.
+      let depth = 0;
+      let parenStart = -1;
+      for (let k = opIdx; k >= 0; k--) {
+        if (segment[k] === ')') depth++;
+        else if (segment[k] === '(') {
+          depth--;
+          if (depth === 0) { parenStart = k; break; }
+        }
+      }
+
+      if (parenStart === -1) {
+        // No matching open paren found (malformed input). Skip past this match.
+        searchFrom = opIdx + 1;
+        continue;
+      }
+
+      // Extract the full parenthesized expression (including the outer parens).
+      const parenExpr = segment.slice(parenStart, opIdx + 1); // e.g. "(regex.exec(str))"
+
+      // Generate a unique temp var for single-evaluation guarantee (§42.2.4).
+      const tmp = genVar("tmp");
+
+      // Build the replacement: assign expr to tmp, then check tmp once.
+      const cmp = op === "absence" ? "==" : "!=";
+      const replacement = `((${tmp} = ${parenExpr}) ${cmp} null)`;
+
+      // Splice the replacement into the segment.
+      const fullMatch = parenExpr + suffix;
+      const before = segment.slice(0, parenStart);
+      const after  = segment.slice(parenStart + fullMatch.length);
+      segment = before + replacement + after;
+
+      // Advance past the replacement to avoid re-processing it.
+      searchFrom = parenStart + replacement.length;
+    }
+  }
+
+  return segment;
+}
+
 function _rewriteNotSegment(segment: string, errors?: any[]): string {
   // E-TYPE-042: detect `== not` / `!= not` / `=== not` / `!== not` patterns (§42)
   if (errors) {
@@ -413,6 +487,10 @@ function _rewriteNotSegment(segment: string, errors?: any[]): string {
       });
     }
   }
+  // §42.2.4 Phase A — parenthesized-form: (expr) is not / is some / is not not.
+  // Must run BEFORE identifier-only patterns — those patterns start with an
+  // identifier character class and will never match a leading `)`.
+  segment = _rewriteParenthesizedIsOp(segment);
   // Match `@varName is not not` or `identifier is not not` (presence check, §42).
   // MUST run before the `is not` replacement — otherwise the first `is not` consumes
   // the token and the trailing `not` becomes a stray `null`.

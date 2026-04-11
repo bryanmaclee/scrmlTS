@@ -14024,6 +14024,8 @@ if ((getUser(id)) is some) { renderUser() }
 - Parentheses around a compound expression — `(expr) is not` — are accepted and have no special meaning beyond grouping.
 - `(expr) is given` is a valid alias for `(expr) is some` in an inline boolean position.
 
+**Implementation note (DQ-12 Phase A):** The current compiler implements parenthesized compound operands — `(expr) is not`, `(expr) is some`, `(expr) is not not` — by rewriting them to a temp-var form that guarantees single evaluation. Bare compound expressions without parentheses (e.g., `regex.exec(str) is not`) are not yet supported and are tracked as DQ-12 Phase B; using bare compound expressions without parens will produce incorrect JS output until Phase B is complete.
+
 ### 42.3 Type Rules
 
 #### 42.3.1 Optional Type Union
