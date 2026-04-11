@@ -1,5 +1,5 @@
 /**
- * <channel> WebSocket state type — §35
+ * <channel> WebSocket state type — §38
  *
  * Tests for <channel> parsing, codegen output, and error codes.
  *
@@ -18,11 +18,14 @@
  * §13 @shared variables emit _scrml_reactive_subscribe sync calls
  * §14 emit-channel.js collectChannelNodes finds channel nodes
  * §15 emitChannelClientJs emits IIFE for named channel
- * §16 emitChannelServerJs emits routes.push with WebSocket upgrade
+ * §16 emitChannelServerJs emits export const _scrml_route_ws_<name> (not routes.push)
  * §17 emitChannelWsHandlers emits _scrml_ws_handlers export
  * §18 Multiple channels in same file are each emitted
  * §19 channel name is URL-safe (kebab → underscore in JS ident)
  * §20 broadcast and disconnect are tokenizer keywords
+ * §21 WebSocket URL uses protocol-relative scheme (not hardcoded ws://)
+ * §22 onclient: handlers are wired to browser WebSocket events
+ * §23 emitChannelWsHandlers close handler has (ws, code, reason) signature
  */
 
 import { describe, test, expect } from "bun:test";
@@ -562,26 +565,16 @@ describe("§15: emitChannelClientJs emits complete IIFE", () => {
     expect(code).toContain("send:");
   });
 
-  test("emits onopen= handler when specified", () => {
+  test("emits onopen= handler when onclient:open is specified", () => {
+    // onclient:open wires to browser ws.onopen
     const node = makeChannelNode([
       makeStringAttr("name", "chat"),
-      makeCallAttr("onserver:open", "handleOpen", ""),
+      makeCallAttr("onclient:open", "handleOpen", ""),
     ]);
     const lines = emitChannelClientJs(node, [], "/test/app.scrml");
     const code = lines.join("\n");
     expect(code).toContain("onopen");
     expect(code).toContain("handleOpen");
-  });
-
-  test("emits onmessage= handler when specified", () => {
-    const node = makeChannelNode([
-      makeStringAttr("name", "chat"),
-      makeCallAttr("onserver:message", "handleMsg", "msg"),
-    ]);
-    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
-    const code = lines.join("\n");
-    expect(code).toContain("onmessage");
-    expect(code).toContain("handleMsg");
   });
 
   test("E-CHANNEL-001 is pushed when name= is missing (via compileSource)", () => {
@@ -600,15 +593,26 @@ describe("§15: emitChannelClientJs emits complete IIFE", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §16: emitChannelServerJs emits WebSocket upgrade route
+// §16: emitChannelServerJs emits export const _scrml_route_ws_<name>
+//
+// Bug 2 fix: The original code emitted `routes.push({...})` — `routes` is never
+// declared in .server.js files. Fixed to emit `export const _scrml_route_ws_<name>`.
 // ---------------------------------------------------------------------------
 
-describe("§16: emitChannelServerJs emits upgrade route", () => {
-  test("emits routes.push with correct path", () => {
+describe("§16: emitChannelServerJs emits upgrade route as export const", () => {
+  test("emits export const _scrml_route_ws_<name> (not routes.push)", () => {
     const node = makeChannelNode([makeStringAttr("name", "chat")]);
     const lines = emitChannelServerJs(node, [], "/test/app.scrml");
     const code = lines.join("\n");
-    expect(code).toContain("routes.push");
+    // Must be exported as a named constant, not routes.push
+    expect(code).toContain("export const _scrml_route_ws_chat");
+    expect(code).not.toContain("routes.push");
+  });
+
+  test("exported route has correct path", () => {
+    const node = makeChannelNode([makeStringAttr("name", "chat")]);
+    const lines = emitChannelServerJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
     expect(code).toContain("/_scrml_ws/chat");
   });
 
@@ -638,6 +642,13 @@ describe("§16: emitChannelServerJs emits upgrade route", () => {
     const lines = emitChannelServerJs(node, [], "/test/app.scrml", false);
     const code = lines.join("\n");
     expect(code).not.toContain("_scrml_auth_check");
+  });
+
+  test("route export name uses safeName (kebab → underscore)", () => {
+    const node = makeChannelNode([makeStringAttr("name", "live-chat")]);
+    const lines = emitChannelServerJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    expect(code).toContain("export const _scrml_route_ws_live_chat");
   });
 });
 
@@ -770,5 +781,109 @@ describe("§20: broadcast and disconnect are tokenizer keywords", () => {
     const disconnectToken = tokens.find(t => t.text === "disconnect");
     expect(disconnectToken).toBeDefined();
     expect(disconnectToken.kind).toBe("KEYWORD");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §21: WebSocket URL uses protocol-relative scheme
+//
+// Bug 3 fix: original code used hardcoded `ws://` which breaks on HTTPS.
+// Correct output uses `location.protocol === 'https:' ? 'wss' : 'ws'`.
+// ---------------------------------------------------------------------------
+
+describe("§21: WebSocket URL uses protocol-relative scheme (not hardcoded ws://)", () => {
+  test("client IIFE uses protocol-relative WebSocket URL", () => {
+    const node = makeChannelNode([makeStringAttr("name", "chat")]);
+    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    // Must not hardcode ws://
+    expect(code).not.toContain("ws://");
+    // Must use protocol detection
+    expect(code).toContain("location.protocol");
+    expect(code).toContain("wss");
+  });
+
+  test("URL is constructed as template literal with protocol detection", () => {
+    const node = makeChannelNode([makeStringAttr("name", "updates")]);
+    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    expect(code).toContain("location.protocol === 'https:'");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §22: onclient: handlers are wired to browser WebSocket events
+//
+// Bug 4 fix: the original code wired onserver:open/message to browser ws.onopen/ws.onmessage.
+// Fixed to use onclient:open, onclient:close, onclient:error for browser events.
+// ---------------------------------------------------------------------------
+
+describe("§22: onclient: handlers wire to browser WebSocket events", () => {
+  test("onclient:open wires to ws.onopen", () => {
+    const node = makeChannelNode([
+      makeStringAttr("name", "chat"),
+      makeCallAttr("onclient:open", "onConnected", ""),
+    ]);
+    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    expect(code).toContain("onopen");
+    expect(code).toContain("onConnected");
+  });
+
+  test("onclient:close wires to ws.onclose", () => {
+    const node = makeChannelNode([
+      makeStringAttr("name", "chat"),
+      makeCallAttr("onclient:close", "onDisconnected", ""),
+    ]);
+    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    expect(code).toContain("onclose");
+    expect(code).toContain("onDisconnected");
+  });
+
+  test("onclient:error wires to ws.onerror", () => {
+    const node = makeChannelNode([
+      makeStringAttr("name", "chat"),
+      makeCallAttr("onclient:error", "onError", "err"),
+    ]);
+    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    expect(code).toContain("onerror");
+    expect(code).toContain("onError");
+  });
+
+  test("onserver:open does NOT wire to client ws.onopen", () => {
+    // onserver:open is for the Bun server side (_scrml_ws_handlers), not the browser
+    const node = makeChannelNode([
+      makeStringAttr("name", "chat"),
+      makeCallAttr("onserver:open", "serverOpen", ""),
+    ]);
+    const lines = emitChannelClientJs(node, [], "/test/app.scrml");
+    const code = lines.join("\n");
+    // serverOpen should NOT appear in client JS — it belongs in _scrml_ws_handlers
+    expect(code).not.toContain("serverOpen");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §23: emitChannelWsHandlers close handler has (ws, code, reason) signature
+//
+// Bug 5 fix: Bun calls close(ws, code, reason) — original emitted close(ws) only.
+// ---------------------------------------------------------------------------
+
+describe("§23: emitChannelWsHandlers close handler has full signature", () => {
+  test("close handler signature includes code and reason", () => {
+    const node = makeChannelNode([makeStringAttr("name", "chat")]);
+    const lines = emitChannelWsHandlers([node], [], "/test/app.scrml");
+    const code = lines.join("\n");
+    // Must have the full Bun close handler signature
+    expect(code).toContain("close(ws, code, reason)");
+  });
+
+  test("close handler still calls ws.unsubscribe", () => {
+    const node = makeChannelNode([makeStringAttr("name", "chat")]);
+    const lines = emitChannelWsHandlers([node], [], "/test/app.scrml");
+    const code = lines.join("\n");
+    expect(code).toContain("ws.unsubscribe");
   });
 });

@@ -6,6 +6,8 @@
  *  - Each adapter function: fly, railway, render, docker
  *  - Static target warning behavior (W-DEPLOY-001)
  *  - generateDockerfile content
+ *  - discoverServerRoutes WebSocket channel handling (§38 regressions)
+ *  - generateServerEntry WebSocket channel wiring (§38 regressions)
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
@@ -372,5 +374,95 @@ describe("generateServerEntry", () => {
       { filename: "app.server.js", routeNames: ["_scrml_route_home"] },
     ]);
     expect(content).toContain('import { _scrml_route_home } from "./app.server.js"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §38 WebSocket channel — discoverServerRoutes regression tests
+//
+// Bug 2 fix: emitChannelServerJs now emits export const _scrml_route_ws_<name>
+// instead of routes.push({...}). Verify discoverServerRoutes correctly separates
+// the WS upgrade route from the _scrml_ws_handlers export.
+// ---------------------------------------------------------------------------
+
+describe("§38 discoverServerRoutes: WebSocket channel separation", () => {
+  beforeEach(setupTmp);
+  afterEach(teardownTmp);
+
+  test("_scrml_ws_handlers export goes to wsHandlerNames, not routeNames", () => {
+    writeFileSync(
+      join(tmpDir, "chat.server.js"),
+      [
+        `export const _scrml_ws_handlers = { open(ws) {}, message(ws, raw) {}, close(ws, code, reason) {} };`,
+        `export const _scrml_route_ws_chat = { path: "/_scrml_ws/chat", method: "GET", isWebSocket: true, handler: (req, server) => {} };`,
+      ].join("\n")
+    );
+    const result = discoverServerRoutes(tmpDir);
+    expect(result).toHaveLength(1);
+    expect(result[0].wsHandlerNames).toContain("_scrml_ws_handlers");
+    // WS upgrade route goes to routeNames (not wsHandlerNames)
+    expect(result[0].routeNames).toContain("_scrml_route_ws_chat");
+  });
+
+  test("_scrml_ws_handlers does NOT appear in routeNames", () => {
+    writeFileSync(
+      join(tmpDir, "chat.server.js"),
+      `export const _scrml_ws_handlers = { open(ws) {}, message(ws, raw) {}, close(ws, code, reason) {} };`
+    );
+    const result = discoverServerRoutes(tmpDir);
+    expect(result).toHaveLength(1);
+    expect(result[0].routeNames).not.toContain("_scrml_ws_handlers");
+    expect(result[0].wsHandlerNames).toContain("_scrml_ws_handlers");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §38 WebSocket channel — generateServerEntry regression tests
+// ---------------------------------------------------------------------------
+
+describe("§38 generateServerEntry: WebSocket channel wiring", () => {
+  test("includes websocket: option when _scrml_ws_handlers is present", () => {
+    const content = generateServerEntry([
+      {
+        filename: "chat.server.js",
+        routeNames: ["_scrml_route_ws_chat"],
+        wsHandlerNames: ["_scrml_ws_handlers"],
+      },
+    ]);
+    expect(content).toContain("websocket:");
+    expect(content).toContain("_scrml_ws_merged");
+  });
+
+  test("imports both route and ws handler from same server file", () => {
+    const content = generateServerEntry([
+      {
+        filename: "chat.server.js",
+        routeNames: ["_scrml_route_ws_chat"],
+        wsHandlerNames: ["_scrml_ws_handlers"],
+      },
+    ]);
+    expect(content).toContain("_scrml_route_ws_chat");
+    expect(content).toContain("_scrml_ws_handlers");
+    expect(content).toContain('from "./chat.server.js"');
+  });
+
+  test("WS upgrade route dispatch includes isWebSocket check", () => {
+    const content = generateServerEntry([
+      {
+        filename: "chat.server.js",
+        routeNames: ["_scrml_route_ws_chat"],
+        wsHandlerNames: ["_scrml_ws_handlers"],
+      },
+    ]);
+    expect(content).toContain("isWebSocket");
+    expect(content).toContain("route.handler(req, server)");
+  });
+
+  test("no websocket: option when no channels", () => {
+    const content = generateServerEntry([
+      { filename: "app.server.js", routeNames: ["_scrml_route_home"], wsHandlerNames: [] },
+    ]);
+    expect(content).not.toContain("websocket:");
+    expect(content).not.toContain("_scrml_ws_merged");
   });
 });
