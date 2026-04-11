@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-10 (S86 — initial split from scrml8)
+**Last updated:** 2026-04-11 (S4 — Lin Batch C Step 1 merged, structural lin-enforcement gap surfaced)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -192,7 +192,7 @@
 - [x][x] **DQ-12 (Phase A)** — `is not`/`is some` on **parenthesized** compound expressions. **IMPLEMENTED S2 2026-04-10 (dq12-phase-a)** — `_rewriteParenthesizedIsOp` in `rewrite.ts`, temp-var single-evaluation per §42.2.4. Phase B (bare compound form, no parens) deferred as future work.
 - [x][x] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED + IMPLEMENTED S2 2026-04-10 (dq7-css-scope)** — native CSS `@scope` (Approach B). `emit-css.ts` + `emit-html.ts` + SPEC §9.1 + §25.6 rewrite landed. `data-scrml` attribute, donut scope, flat-declaration `#{}` → inline style.
 - [x][x] **DQ-11** — WebSocket / server-push. Spec complete (§38). **CLI implementation complete S2 2026-04-10 (websocket-cli-batch)** — 6 bugs fixed in dev.js/build.js/emit-channel.ts, channel runtime unblocked end-to-end.
-- [x][ ] **Lin spec gaps** — Batch A ✅ S2 (loop carve-out + DX msgs); **Batch B ✅ S3 2026-04-11** (`lin` function params, §35.2.1 added, parser + type-system, +15 unit tests, merge `90f1630`). Batch C (`read lin` + real-pipeline `linNodes` wiring) pending. Known gap: E2E `fileAST.linNodes` population deferred to Batch C.
+- [x][ ] **Lin spec gaps** — Batch A ✅ S2 (loop carve-out + DX msgs); **Batch B ✅ S3 2026-04-11** (`lin` function params, §35.2.1, parser + type-system, +15 unit tests, merge `90f1630`); **Batch C Step 1 ✅ S4 2026-04-11** (TS-G wiring fix — `fileAST.nodes ?? fileAST.ast?.nodes` dual-shape fallback, dead `linNodes` interface field removed, 234 unit tests pass). **⚠ STRUCTURAL GAP SURFACED S4:** real-pipeline `checkLinear` never fires on parser output — `ast-builder.js` emits `tilde-decl`/string refs, not the `lin-decl`/`lin-ref` kinds `checkLinear` walks. All ~60 existing lin unit tests use synthetic AST shapes; E2E enforcement has been silent since the feature was introduced (Batch B's lin-param path has the same problem). Batch C Step 2 gated on T3 deep-dive at `scrml-support/docs/deep-dives/lin-enforcement-ast-wiring-2026-04-11.md`. See `docs/changes/lin-batch-c-step1/anomaly-report.md`.
 
 ### P2 — DX
 - [x][x] **Ghost error mitigation** — lint pre-pass landed S2 (ghost-lint-prepass, 10 W-LINT-* patterns, +71 tests)

@@ -1,64 +1,77 @@
-# scrmlTS — Session 3 Hand-Off (FINAL)
+# scrmlTS — Session 4 Hand-Off (IN PROGRESS)
 
 **Date:** 2026-04-11
-**Next session rotation target:** `handOffs/hand-off-3.md`
-**Tests (unit):** 2,283 → **2,298** pass (+15 on `type-system.test.js`), 2 skip, 90 pre-existing fail
-**Examples:** 14/14 clean (unchanged)
+**Next session rotation target:** `handOffs/hand-off-4.md`
+**Starting test baseline (unit):** 2,298 pass, 2 skip, 90 pre-existing fail (from S3 final)
 
-## Session 3 at a glance
+## Session 4 start state
 
-Short session. One pipeline batch merged — **Lin Batch B** (`lin` function parameters, §35.2.1). Status line reconfigured to show ctx% / 5h% / 7d%. Durable feedback captured: pipeline dispatches must be smaller/single-concern going forward.
+Rotated S3 → `handOffs/hand-off-3.md`. PA caught up on pa.md, S3 final hand-off, and last user-voice entries (S85/S86).
 
-## Pipeline batches merged
+## Carry-over context
 
-| # | Branch | Summary | Tests Δ |
-|---|---|---|---|
-| 1 | `changes/lin-batch-b` | §35.2 prohibition lifted → §35.2.1 added. `ast-builder.js` parses `lin name` prefix in param lists; `type-system.ts` seeds linear tracker with param-origin bindings so E-LIN-001/002/003 apply to function params; 15 new unit tests (Lin-B1..B5) | +15 |
+- **Known gap:** Lin Batch B landed parser + type-system + unit tests, but real-pipeline `linNodes` population from AST walker is NOT wired. E2E `lin`-param enforcement pending — first candidate for Batch C.
+- **Bun runner bug:** full-scope `bun test` segfaults (Bun v1.3.6); run subdirs individually.
+- **Pipeline dispatch rule (durable feedback):** single-concern slices only — parser-only, then type-system-only, etc. No bundled briefs.
+- **Agent model split:** background agents on Sonnet, PA on Opus.
+- **PA commits manually** from main; pipeline agents often have git blocked; worktree isolation unreliable.
 
-**Merge commit:** `90f1630` (main). Branch: `changes/lin-batch-b`. Feature commit: `b038b8e`.
+## Next-wave candidates (from S3)
 
-## Known gap flagged by pipeline agent
+1. **Lin Batch C** — `read lin` borrow-like + real-pipeline `linNodes` wiring (E2E gap). T2.
+2. Mother-app 50/51 fails (R17)
+3. Ghost-lint Solution #1 (inline agent prompt edit)
+4. Skipped tests unblock (temp-file harness in `callback-props.test.js`)
+5. E-SYNTAX-043 parser tightening
+6. `meta.*` runtime API
+7. DQ-12 Phase B — bare compound
+8. `scripts/git-hooks/` versioning
+9. `compiler/SPEC-INDEX.md` refresh
+10. Bun segfault — repro/file/pin
 
-**Real-pipeline `linNodes` population.** Batch B adds parser + type-system infrastructure and unit-level tests. The E2E compile path does not yet populate `fileAST.linNodes` from the AST walker — meaning end-to-end enforcement of `lin` params via a real compile is pending. Candidate first step of Batch C.
+## Session log
 
-## Infrastructure / housekeeping
+### Lin Batch C Step 1 — MERGED, but revealed structural gap
 
-- **Status line configured** (`~/.claude/settings.json` + `~/.claude/statusline-command.sh`) — shows `ctx X% | 5h Y% | 7d Z%` per Claude Code session JSON. Dashes if rate-limit fields unavailable. Restart CC to see it.
-- **Batch-size feedback saved to memory** — `~/.claude/projects/-home-bryan-scrmlMaster-scrmlTS/memory/feedback_batch_size.md`. Rule: single-concern dispatches (parser-only, then type-system-only, etc.) rather than bundled. Reason: multiple S2/S3 agents exhausted context on broad briefs.
-- **scrmlFormula.md** added to repo root — playful scientific Lagrangian of scrml (user request, easter egg).
+**Branch:** `changes/lin-batch-c-step1` → main (merge commit this session)
+**Agent:** `scrml-dev-pipeline` (Sonnet), single-concern slice per batch-size rule
+**Scope delivered:**
+- TS-G entry rewired: `fileAST.nodes ?? fileAST.ast?.nodes ?? []` (dual-shape fallback matches existing `buildOverloadRegistry` pattern at L4060 — CE wraps AST as `{filePath, ast, errors}`, so naive `.nodes` is always undefined)
+- Dead `linNodes?: ASTNodeLike[]` field removed from local `FileAST` interface
+- 234 unit tests pass, 0 regressions
 
-## Test-run note
+**Scope NOT delivered (agent stopped at boundary — correct behavior):**
+- E2E integration tests. Cannot pass as written — see gap below.
 
-Full `bun test` (from repo root or scoped to `compiler/tests`) crashes with a Bun runner segfault at `panic(main thread): Segmentation fault at address 0x18`. Running individual subdirs (`compiler/tests/unit`, `compiler/tests/integration`, `compiler/tests/conformance`, `compiler/tests/self-host`, `compiler/tests/commands`, `compiler/tests/browser`) all succeed cleanly. This is a **Bun v1.3.6 runner bug**, not a code regression. Not reproduced on the Lin Batch B diff specifically — only triggers on large multi-file invocation. Open question for next session: repro, file bun issue, or pin bun version.
+### STRUCTURAL GAP: lin-enforcement has never worked E2E
 
-## Next-wave candidates (unchanged from S2 + new)
+Discovered by the pipeline agent while trying to write E2E tests. **This predates Batch B and Batch C — it's been latent since linear types were first added.**
 
-1. **Lin Batch C** — `read lin` borrow-like read + real-pipeline `linNodes` wiring (the E2E gap flagged above). T2.
-2. **Mother-app 50/51 fails** — bigger component/slot surface (R17 report)
-3. **Ghost-lint Solution #1** — ~1hr inline edit to `scrml-developer.md` agent prompt
-4. **Skipped tests unblock** — temp-file harness in `callback-props.test.js`
-5. **E-SYNTAX-043 parser tightening**
-6. **`meta.*` runtime API**
-7. **DQ-12 Phase B** — bare compound
-8. **`scripts/git-hooks/` versioning** — mirror `.git/hooks/` into repo
-9. **Spec-index refresh** — `compiler/SPEC-INDEX.md` stale lines
-10. **Bun segfault on full test run** — investigate / file upstream / pin version
+- `checkLinear` walks the tree looking for `kind: "lin-decl"` and `kind: "lin-ref"` nodes (type-system.ts:3655, 3670)
+- `ast-builder.js` **never emits either kind**. `lin x = expr` in a logic block produces `{kind: "tilde-decl"}` + `{kind: "bare-expr", expr: "lin"}`. Variable references are strings in `init`/`expr` fields.
+- All ~60 existing `checkLinear` unit tests construct synthetic hand-crafted ASTs with the expected kinds. Unit tests are green; real compile is silent.
+- **Batch B's lin-param path has the same bug:** function-decl case reads `param.isLin` correctly and seeds `preDeclaredLinNames`, but body references are strings — no `lin-ref` nodes to consume them. Any *correct* lin-param usage would spuriously E-LIN-001 in real compile. (We only got away with this pre-Step-1 because TS-G never fired at all.)
 
-## Gotchas to remember (S2 carry-over + S3)
+Now that TS-G fires in the real pipeline on real ASTs, this gap is live — but does nothing harmful yet because no `lin-decl`/`lin-ref` nodes appear, so `checkLinear` walks and silently finds nothing.
 
-- Pipeline agents have git blocked often — PA commits manually from main.
-- Worktree isolation is unreliable — agents sometimes write to main tree.
-- Long briefs get rejected — reference authoritative docs, don't inline.
-- **NEW S3:** Pipeline agents burn context fast on broad, multi-layer tasks. Prefer single-concern slices (parser, type-system, spec, tests) chained via PA merges. Saved as durable feedback memory.
-- **NEW S3:** `bun test` at full scope segfaults — run subdirs individually until resolved.
+### Actions dispatched this session
+
+- **T3 deep-dive launched (background, Sonnet)** → `scrml-support/docs/deep-dives/lin-enforcement-ast-wiring-2026-04-11.md`. Three options under evaluation:
+  - **A.** Parser emits `lin-decl`/`lin-ref` (TAB-stage change, downstream consumer audit needed)
+  - **B.** `checkLinear` string-scans `init`/`expr` fields (like `scanNodeExpressions` already does for mustUse; concerns: lexical scope + shadowing correctness)
+  - **C.** Hybrid — parser emits `lin-decl` only; references stay as strings with `checkLinear` doing name tracking
+- Recommendation + migration plan for existing 60 unit tests expected in the deep-dive.
+
+### Housekeeping not yet done
+
+- [ ] Append this discovery to `scrml-support/user-voice.md` as an agent-note (pending)
+- [ ] Pre-existing uncommitted working-tree changes on `pa.md` (Cross-repo messaging dropbox section) — not from this session, belongs to prior unsaved work. **Flag to user: what do you want to do with these?**
+- [ ] Hand-off + master-list commits pending (test hook runs — will verify)
 
 ## Tags
-#session-3 #final #lin-batch-b #language-completeness #linear-types #statusline #batch-size-feedback #bun-segfault
+#session-4 #in-progress
 
 ## Links
-- [master-list.md](./master-list.md) — current inventory
-- [pa.md](./pa.md) — PA directives
-- [handOffs/hand-off-2.md](./handOffs/hand-off-2.md) — S2 final
-- [scrmlFormula.md](./scrmlFormula.md) — the scrml Lagrangian (easter egg)
-- [docs/changes/lin-batch-b/anomaly-report.md](./docs/changes/lin-batch-b/anomaly-report.md) — pipeline final report
-- `compiler/SPEC.md` §35.2 / §35.2.1 — normative lin-param spec
+- [pa.md](./pa.md)
+- [master-list.md](./master-list.md)
+- [handOffs/hand-off-3.md](./handOffs/hand-off-3.md) — S3 final
