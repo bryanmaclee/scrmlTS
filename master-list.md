@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S86)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 5,542 pass, 2 skip, 0 fail (verified in new location)
+**Tests:** 5,606 pass, 2 skip, 0 fail (S2 2026-04-10; was 5,542 at split)
 **Compile time:** ~20ms single file, ~73ms TodoMVC
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -105,7 +105,7 @@
 - [x][x] `compiler/tests/conformance/` — 2 files
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total:** 5,542 pass, 2 skip, 0 fail
+- **Total:** 5,606 pass, 2 skip, 0 fail (S2 2026-04-10)
 
 ---
 
@@ -119,7 +119,8 @@
 - [x][x] `out/extension.js` — built S2 (run `cd editors/vscode && bunx tsc`)
 
 **NeoVim:** `editors/neovim/`
-- [x][x] `scrml.vim`, `scrml.lua`, tree-sitter queries in `queries/scrml/`
+- [x][x] `scrml.vim`, `scrml.lua`, tree-sitter highlights query at `queries/scrml/highlights.scm`
+- [x][x] **User's local kickstart nvim config** wired up S2 2026-04-10: `~/.config/nvim/lua/custom/plugins/scrml.lua` (filetype + LSP autocmd, absolute path to `lsp/server.js`), `~/.config/nvim/after/syntax/scrml.vim` (minimal highlighting), `{ import = 'custom.plugins' }` uncommented in `init.lua`. Smoke-tested headless: `ft=scrml`, `syn=scrml`, 1 LSP client attached.
 
 **LSP:** `lsp/server.js` — 966 lines. Script: `bun run lsp/server.js --stdio`
 
@@ -188,16 +189,17 @@
 ## N. Open work (current truth, prioritized)
 
 ### P1 — Language Completeness
-- [ ][ ] **DQ-12** — `is not`/`is some` on compound expressions (§42.2.4). Parser change needed.
-- [x][ ] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED S2 2026-04-10: native CSS `@scope` (Approach B)**. Implementation pending: update `emit-css.ts` + `emit-html.ts` + SS24.6 spec text. See `scrml-support/design-insights.md` for rationale. Prerequisite: fix `tokenizeCSS` brace-stripping bug first.
+- [x][x] **DQ-12 (Phase A)** — `is not`/`is some` on **parenthesized** compound expressions. **IMPLEMENTED S2 2026-04-10 (dq12-phase-a)** — `_rewriteParenthesizedIsOp` in `rewrite.ts`, temp-var single-evaluation per §42.2.4. Phase B (bare compound form, no parens) deferred as future work.
+- [x][x] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED + IMPLEMENTED S2 2026-04-10 (dq7-css-scope)** — native CSS `@scope` (Approach B). `emit-css.ts` + `emit-html.ts` + SPEC §9.1 + §25.6 rewrite landed. `data-scrml` attribute, donut scope, flat-declaration `#{}` → inline style.
 - [x][x] **DQ-11** — WebSocket / server-push. Spec complete (§38). **CLI implementation complete S2 2026-04-10 (websocket-cli-batch)** — 6 bugs fixed in dev.js/build.js/emit-channel.ts, channel runtime unblocked end-to-end.
-- [ ][ ] **Lin spec gaps** — `read lin`, lin params v2, loop-body carve-out, `~` double-obligation errors.
+- [ ][ ] **Lin spec gaps** — `read lin` (v2 feature), lin params v2, loop-body carve-out, `~` double-obligation errors, E-LIN-002 message. Batch A (loop carve-out + DX messages) dispatched S2; Batch B/C (v2 features) pending.
 
 ### P2 — DX
 - [x][ ] Ghost error mitigation — 10 patterns pending
 - [ ][ ] Async loading stdlib helpers (RemoteData — deferred)
 - [ ][ ] Async loading sugar (Approach E — deferred)
-- [ ][ ] Fix example 12 (example 13 now fixed)
+- [ ][ ] Fix example 12 (E-COMPONENT-020 snippet expansion) — example 13 fixed S2
+- [x][x] **Library mode type declarations** — R18 #2 verified fixed S2 (was already resolved by prior work; regression tests + sample added via library-mode-types batch)
 
 ### P3 — Self-host completion
 - [ ][ ] CE + ME self-host (not yet ported)
