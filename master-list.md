@@ -116,7 +116,7 @@
 - [x][x] `syntaxes/scrml.tmLanguage.json` — 438 lines TextMate grammar
 - [x][x] `src/extension.ts` — LSP client
 - [x][x] `language-configuration.json`
-- [ ][ ] `out/extension.js` — NOT built (needs `tsc`)
+- [x][x] `out/extension.js` — built S2 (run `cd editors/vscode && bunx tsc`)
 
 **NeoVim:** `editors/neovim/`
 - [x][x] `scrml.vim`, `scrml.lua`, tree-sitter queries in `queries/scrml/`
@@ -156,7 +156,15 @@
 
 ## L. Scripts
 
-`scripts/` — 24 utility scripts: `bundle-size-benchmark.js`, `generate-api-reference.js`, `verify-all.js`, `migrate-closers.js`, `update-spec-index.sh`, etc.
+`scripts/` — 8 utility scripts (trimmed S2 from 24; 16 round/session/section-specific patches and broken sample-verifiers archived to `scrml-support/archive/scripts/scrmlTS-2026-04-10/`):
+- `update-spec-index.sh` — regen `compiler/SPEC-INDEX.md`
+- `assemble-spec.sh` — spec assembly
+- `bundle-size-benchmark.js` — bundle-size measurement
+- `generate-api-reference.js` — API doc generation
+- `verify-js.js` — generic `node --check` wrapper
+- `migrate-closers.js` — codemod with `--dry-run`
+- `pull-worktree.sh` — agent worktree workflow helper
+- `rebuild-bs-dist.ts` — rebuild `compiler/dist/self-host/bs.js` from `bs.scrml`
 
 ---
 
@@ -205,10 +213,10 @@
 
 ## O. Pending cleanup (post-split)
 
-- [ ][ ] **Non-compliance audit** — run updated project-mapper to find docs that don't match current spec/code. Deref flagged docs to `scrml-support/archive/`. Must happen before any new feature work.
-- [ ][ ] **Cold project map** — first full map generation post-split (with exclusions for `node_modules`, `dist`, `archive`, `benchmarks/todomvc*/dist`).
-- [ ][ ] **Verify VS Code extension builds** — `cd editors/vscode && tsc` to produce `out/extension.js`.
-- [ ][ ] **Hook pre-commit to this repo** — currently post-commit hook compiles TodoMVC; verify it still points to correct paths.
+- [x][x] **Non-compliance audit** (S2 2026-04-10) — 13 docs reviewed, 3 dereffed to `scrml-support/archive/`, 3 updated in place, 1 deleted (`shared/` fiction), 6 kept. See hand-off-2.
+- [x][x] **Cold project map** (S2 2026-04-10) — re-enabled with scope discipline (`node_modules`, `dist`, framework-comparison benchmarks excluded; master-list as spine). 10 maps + INDEX + non-compliance written to `.claude/maps/`. ~30 file reads, sustainable. Zero non-compliance findings (S2 audit cleared everything).
+- [x][x] **Verify VS Code extension builds** (S2 2026-04-10) — added `@types/node` to devDeps, `bun install` + `bunx tsc` clean, produces `out/extension.js` (83 lines, `node --check` OK). Added `editors/vscode/{out,bun.lock}` to root `.gitignore`.
+- [x][x] **Install git hooks** (S2 2026-04-10) — copied pre-commit, post-commit, pre-push from scrml8 unchanged; all targets (`compiler/src/cli.js`, `compiler/src/index.js`, `benchmarks/todomvc/app.scrml`) exist in this repo. Hooks fire on next compiler commit. **Caveat:** `.git/hooks/` is not versioned — fresh clones won't have them. Consider mirroring into `scripts/git-hooks/` with an install script.
 
 ---
 

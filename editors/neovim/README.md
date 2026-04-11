@@ -88,7 +88,9 @@ vim.api.nvim_create_autocmd("FileType", {
 
 ### 3. Syntax Highlighting
 
-scrml does not yet have a Tree-sitter parser. For syntax highlighting, you have several options:
+scrml does not yet have its own Tree-sitter grammar, but a Tree-sitter highlights query
+(`queries/scrml/highlights.scm`) ships in this directory and can be used with an
+adapter parser. For full setups, you have several options:
 
 #### Option A: Use vim syntax highlighting
 

@@ -4,3 +4,7 @@ dist/
 *.log
 .env
 .env.local
+
+# VS Code extension build artifacts
+editors/vscode/out/
+editors/vscode/bun.lock
