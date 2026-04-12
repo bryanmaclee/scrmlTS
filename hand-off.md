@@ -28,19 +28,28 @@
 - **MustUseTracker ExprNode migration** — `scanNodeExpressions` now walks ExprNode parallel fields via `forEachIdentInExprNode`. String fallback retained for Phase 1 gaps.
 - **tilde-decl initExpr migration** — walks `initExpr` via `forEachIdentInExprNode` when available, string regex fallback otherwise.
 - **Self-host ast.scrml ExprNode resync** — ported `safeParseExprToNode` + all ExprNode parallel fields (`initExpr`, `condExpr`, `iterExpr`, `exprNode`, `valueExpr`, `headerExpr`) to `ast.scrml`. Both parse loops covered. 16 parity failures → 0. Two-stage import fallback for production vs test contexts.
-- **master-list.md** — bugs 6+7 closed, Slice 4 + MustUseTracker marked complete.
+- **Error-effect callee ExprNode migration** — E-ERROR-002/004 now extract callee names from `CallExpr.callee` (IdentExpr). Added `exprNode` to `propagate-expr` nodes in both `ast-builder.js` and `ast.scrml`.
+- **dependency-graph ExprNode migration** — 3 scan sites now walk ExprNode fields for `@var` refs and callees. `collectReactiveRefsFromExprNode`, `collectCalleesFromExprNode`, `walkExprNodeForCalls` helpers added.
+- **meta-checker ExprNode migration** — E-META-001 phase-separation check now walks ExprNode fields. `checkNodeForRuntimeVars` + `checkSingleIdentForRuntime` helpers. Pattern-detection sites (lift, SQL, compile-time APIs) kept as regex.
+- **master-list.md** — bugs 6+7 closed, Slice 4 + MustUseTracker + all Phase 2 passes marked complete.
+- **docs/changes deref** — 31 historical files moved to `scrml-support/archive/changes/`, 8 empty dirs removed. 5 active Phase 2 anomaly reports + escape-hatch catalog retained.
+- **Project maps refreshed** — 7 maps incrementally updated (test counts, ExprNode schema, domain concepts, non-compliance).
+- **pa.md** — user added `scrml` and `master` outbox targets + push coordination protocol.
 
 ### Current baseline
 5,719 pass / 137 fail / 2 skip across 5,858 tests (main post-merge)
 
+### Phase 2 semantic pass migration — COMPLETE
+All semantic passes that did general identifier extraction or callee detection from string fields now have ExprNode-first paths with string fallback. Remaining string sites are pattern-detection (regex for specific syntax) or attribute values — not general identifier scanning.
+
 ### Next up
-1. **Phase 2 remaining passes** — protect-analyzer, extractReactiveDeps, dependency-graph, meta-checker, error-effect callee extraction (each its own slice)
-2. **Phase 3 — codegen migration** — `rewriteExpr(string)` → `emitExpr(ExprNode)` across ~14k LOC
+1. **Phase 3 — codegen migration** — `rewriteExpr(string)` → `emitExpr(ExprNode)` across ~14k LOC codegen. Kills 18 client + 15 server rewrite passes in `rewrite.ts`. 4-6 sessions, biggest phase.
+2. **Phase 4 — drop string fields** from AST shape after Phase 3.
 
 ---
 
 ## Tags
-#session-6 #active #phase-2 #slice-4 #self-host-resync #merge
+#session-6 #complete #phase-2 #phase-2-semantic-passes-done #slice-4 #self-host-resync #merge
 
 ## Links
 - [handOffs/hand-off-5.md](./handOffs/hand-off-5.md) — S5 final
