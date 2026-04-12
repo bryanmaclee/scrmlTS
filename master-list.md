@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-11 (S4 final — Phase 0/1/1.5/2-Slice-1/2-Slice-2 of expression AST migration all merged; §35.2.1 lin works E2E for the first time on main)
+**Last updated:** 2026-04-12 (S7 — Phase 2 complete, Phase 3 Slice 1 in progress)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S86)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 5,606 pass, 2 skip, 0 fail (S2 2026-04-10; was 5,542 at split)
+**Tests:** ~5,710 pass, 2 skip, ~145 fail (S7 2026-04-12; non-deterministic browser/dist tests account for variance)
 **Compile time:** ~20ms single file, ~73ms TodoMVC
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -218,9 +218,10 @@
   - **Phase 2 Slice 3 — `collectExpr` newline-as-statement-boundary fix.** T3 (needs impact analysis). When parsing `lin IDENT = <rhs>` (and symmetrically let/const/tilde), respect newline as statement terminator so `lin x = "hello"\nuse(x)` becomes two AST nodes, not one over-collected `lin-decl`. Unblocks Slice 4.
   - **Phase 2 Slice 4** ✅ S6 — deleted Pass 2 string-scan fallback from `scanNodeExprNodesForLin` (-240 LOC). `extractAllIdentifiersFromString`, `extractIdentifiersExcludingLambdaBodies`, the Pass 2 block, and the `consumedThisNode` dedup set all removed. ExprNode walker is now the sole lin enforcement path.
   - **Phase 2 MustUseTracker migration** ✅ S6 — `scanNodeExpressions` now walks ExprNode parallel fields via `forEachIdentInExprNode`; `tilde-decl` case walks `initExpr` directly. String fallback retained for nodes without ExprNode fields (Phase 1 gaps).
-  - **Phase 2 remaining passes:** protect-analyzer, extractReactiveDeps, dependency-graph, meta-checker, error-effect callee extraction (route-inference deferred). Each its own slice.
-  - **Phase 3 — codegen migration.** `rewriteExpr(string)` → `emitExpr(ExprNode)` across ~14k LOC. Kills 18 client + 15 server rewrite passes in `rewrite.ts` (kill list in design doc §7). 4-6 sessions, biggest phase.
-  - **Phase 4 — drop string fields** from AST shape after Phase 3.
+  - **Phase 2 remaining passes** ✅ S6 — all semantic passes migrated: protect-analyzer, extractReactiveDeps, dependency-graph, meta-checker, error-effect callee extraction. All have ExprNode-first paths with string fallback.
+  - **Phase 3 — codegen migration** 🏗 S7 (in progress). `rewriteExpr(string)` → `emitExpr(ExprNode)` across ~14k LOC codegen. New file: `compiler/src/codegen/emit-expr.ts` (290 LOC, all 19 ExprNode kinds). 45 `emitExpr` call sites wired across 6 consumer files. Fast-path early returns bypass string pipeline entirely when ExprNode present. Upstream AST additions: `LiftTarget.exprNode`, `callbackExpr`, `fnExpr`, `argsExpr`.
+  - **Phase 3.5 — escape hatch elimination** (planned). Drive 20% escape-hatch rate to zero. Required before Phase 4.
+  - **Phase 4 — drop string fields** from AST shape after Phase 3 + 3.5.
   - **Phase 5 — self-host parity** port `compiler/self-host/ast.scrml` (3,551 lines).
   - All other P1/P2 work continues in parallel unless it touches expression fields.
 
