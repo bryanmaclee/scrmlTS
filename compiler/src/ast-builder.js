@@ -1855,6 +1855,24 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       };
     }
 
+    // LIN-DECL: `lin name = expr` → linear type variable declaration (§35.2)
+    // lin is now a KEYWORD. Detect before TILDE-DECL so bare `lin` as KEYWORD doesn't fall through.
+    // A bare `lin` not followed by `IDENT =` falls through to bare-expr (unusual back-compat).
+    if (tok.kind === "KEYWORD" && tok.text === "lin") {
+      const nameTok = peek(1);
+      const eqTok = peek(2);
+      if (nameTok?.kind === "IDENT" &&
+          eqTok?.kind === "PUNCT" && eqTok.text === "=" &&
+          peek(3)?.text !== "=") {
+        const startTok = consume();          // consume "lin"
+        const name = consume().text;         // consume IDENT name
+        consume();                           // consume "="
+        const { expr } = collectExpr();
+        return { id: ++counter.next, kind: "lin-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
+      }
+      // fall through: bare `lin` expression (not a declaration)
+    }
+
     // TILDE-DECL: bare `name = expr` (no keyword) → ~-typed must-use variable
     // Same pattern as let-decl but triggered by IDENT (not a keyword)
     // Exclusions: dotted (obj.prop=), bracket (arr[i]=), augmented (name+=), comparison (name==)
@@ -3838,6 +3856,25 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         span: spanOf(startTok, peek()),
       });
       continue;
+    }
+
+    // LIN-DECL: `lin name = expr` → linear type variable declaration (§35.2)
+    // lin is now a KEYWORD. Detect before TILDE-DECL so bare `lin` as KEYWORD doesn't fall through.
+    // A bare `lin` not followed by `IDENT =` falls through to bare-expr (unusual back-compat).
+    if (tok.kind === "KEYWORD" && tok.text === "lin") {
+      const nameTok = peek(1);
+      const eqTok = peek(2);
+      if (nameTok?.kind === "IDENT" &&
+          eqTok?.kind === "PUNCT" && eqTok.text === "=" &&
+          peek(3)?.text !== "=") {
+        const startTok = consume();          // consume "lin"
+        const name = consume().text;         // consume IDENT name
+        consume();                           // consume "="
+        const { expr } = collectExpr();
+        nodes.push({ id: ++counter.next, kind: "lin-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) });
+        continue;
+      }
+      // fall through: bare `lin` expression (not a declaration)
     }
 
     // TILDE-DECL: bare `name = expr` (no keyword) → ~-typed must-use variable
