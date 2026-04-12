@@ -1,15 +1,15 @@
 # Escape-Hatch Catalog: expr-ast-phase-1 corpus audit
 
-Generated: 2026-04-12T17:45:11.585Z
+Generated: 2026-04-12T18:45:29.740Z
 Branch: `changes/expr-ast-phase-1-audit`
 Phase: Phase 1.5 audit (idempotency invariant)
 
 ## Summary
 
 - Files audited: 14
-- Expression nodes checked: 146
-- Total escape hatches: 29
-- Escape-hatch rate: 19.86%
+- Expression nodes checked: 117
+- Total escape hatches: 0
+- Escape-hatch rate: 0.00%
 
 ### By Category
 
@@ -18,7 +18,7 @@ Phase: Phase 1.5 audit (idempotency invariant)
 | interpolated-template | 0 |
 | block-lambda | 0 |
 | nested-paren-is | 0 |
-| parse-error | 29 |
+| parse-error | 0 |
 | conversion-error | 0 |
 | unclassified | 0 |
 
@@ -28,34 +28,22 @@ Phase: Phase 1.5 audit (idempotency invariant)
 |---|---|---|---|---|
 | 01-hello.scrml | 0 | 0 | PASS |  |
 | 02-counter.scrml | 3 | 0 | PASS |  |
-| 03-contact-book.scrml | 12 | 4 | PASS |  |
-| 04-live-search.scrml | 7 | 2 | PASS |  |
+| 03-contact-book.scrml | 8 | 0 | PASS |  |
+| 04-live-search.scrml | 5 | 0 | PASS |  |
 | 05-multi-step-form.scrml | 10 | 0 | PASS |  |
-| 06-kanban-board.scrml | 13 | 3 | PASS |  |
-| 07-admin-dashboard.scrml | 14 | 5 | PASS |  |
-| 08-chat.scrml | 17 | 3 | PASS |  |
+| 06-kanban-board.scrml | 10 | 0 | PASS |  |
+| 07-admin-dashboard.scrml | 9 | 0 | PASS |  |
+| 08-chat.scrml | 14 | 0 | PASS |  |
 | 09-error-handling.scrml | 9 | 0 | PASS |  |
 | 10-inline-tests.scrml | 4 | 0 | PASS |  |
-| 11-meta-programming.scrml | 4 | 1 | PASS |  |
-| 12-snippets-slots.scrml | 8 | 3 | PASS |  |
-| 13-worker.scrml | 13 | 3 | PASS |  |
-| 14-mario-state-machine.scrml | 32 | 5 | PASS |  |
+| 11-meta-programming.scrml | 3 | 0 | PASS |  |
+| 12-snippets-slots.scrml | 5 | 0 | PASS |  |
+| 13-worker.scrml | 10 | 0 | PASS |  |
+| 14-mario-state-machine.scrml | 27 | 0 | PASS |  |
 
 ## Per-Category Details
 
-### parse-error
-
-Total occurrences: 29
-
-Files: 03-contact-book.scrml, 04-live-search.scrml, 06-kanban-board.scrml, 07-admin-dashboard.scrml, 08-chat.scrml, 11-meta-programming.scrml, 12-snippets-slots.scrml, 13-worker.scrml, 14-mario-state-machine.scrml
-
-Sample source slices (first 3):
-
-- **03-contact-book.scrml** (`bare-expr` -> `expr`): `. all ( )`
-- **03-contact-book.scrml** (`bare-expr` -> `expr`): `< / span >
-< span class = "email" >`
-- **03-contact-book.scrml** (`bare-expr` -> `expr`): `< / span >
-< span class = "phone" >`
+No escape hatches found in any file.
 
 ## Unclassified Escape Hatches
 

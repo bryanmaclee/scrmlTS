@@ -48,6 +48,35 @@ import {
 import { parseExprToNode } from "./expression-parser.ts";
 
 /**
+ * Phase 3.5: detect expressions that should NOT be parsed to ExprNode.
+ * Returns true for:
+ * - HTML tag fragments (tokenizer-spaced: `< / span >`, `< button onclick = ...`)
+ * - Leading-dot method chains (`. all ( )` SQL continuations)
+ * - C-style for-loop headers (`( let i = 0 ; i < 10 ; i + + )`)
+ * - emit() calls with embedded HTML strings
+ *
+ * These patterns produce EscapeHatchExpr nodes that always fall back to the
+ * string pipeline. Skipping them avoids the escape hatch round-trip.
+ */
+function shouldSkipExprParse(expr) {
+  if (!expr || typeof expr !== "string") return true;
+  const t = expr.trim();
+  if (!t) return true;
+  // HTML tag fragments: starts with `<` or `>` (tag content/closers) or contains tag syntax
+  if (/^\s*</.test(t)) return true;
+  if (/^\s*>/.test(t)) return true;
+  // Closing tag fragments in the middle: `</span>`, `< / span >`
+  if (/< \/ [a-z]/i.test(t)) return true;
+  // Multi-line strings with embedded HTML (e.g. emit("<div>...\n...</div>"))
+  if (/\n/.test(t) && /<[a-z]/i.test(t)) return true;
+  // Leading dot: `.method()` chain continuations (not a standalone expression)
+  if (/^\s*\./.test(t)) return true;
+  // C-style for-loop header: `( init ; cond ; update )`
+  if (/^\s*\(/.test(t) && /;\s*/.test(t) && t.trim().endsWith(")")) return true;
+  return false;
+}
+
+/**
  * Module-level safe expression parser — wraps parseExprToNode in try/catch.
  * Returns undefined on failure. Used by parseAttributes (module-level scope)
  * and other module-level helpers that need ExprNode but lack access to the
@@ -55,6 +84,7 @@ import { parseExprToNode } from "./expression-parser.ts";
  */
 function safeParseExprToNodeGlobal(expr, filePath, startOffset) {
   if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
+  if (shouldSkipExprParse(expr)) return undefined;
   try {
     return parseExprToNode(expr, filePath, startOffset ?? 0);
   } catch (_e) {
@@ -794,6 +824,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
    */
   function safeParseExprToNode(expr, startOffset) {
     if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
+    if (shouldSkipExprParse(expr)) return undefined;
     try {
       return parseExprToNode(expr, filePath, startOffset ?? 0);
     } catch (_e) {

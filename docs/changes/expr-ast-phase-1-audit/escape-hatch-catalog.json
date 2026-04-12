@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-04-12T17:45:11.585Z",
+  "generatedAt": "2026-04-12T18:45:29.740Z",
   "branch": "changes/expr-ast-phase-1-audit",
   "phase": "Phase 1.5 audit (idempotency invariant)",
   "summary": {
     "filesAudited": 14,
-    "totalExprNodesChecked": 146,
-    "totalEscapeHatches": 29,
-    "escapeHatchRate": "19.86%",
+    "totalExprNodesChecked": 117,
+    "totalEscapeHatches": 0,
+    "escapeHatchRate": "0.00%",
     "byCategory": {
       "interpolated-template": 0,
       "block-lambda": 0,
       "nested-paren-is": 0,
-      "parse-error": 29,
+      "parse-error": 0,
       "conversion-error": 0,
       "unclassified": 0
     }
@@ -54,79 +54,35 @@
     {
       "file": "03-contact-book.scrml",
       "astError": null,
-      "exprNodesChecked": 12,
+      "exprNodesChecked": 8,
       "idempotencyFailures": 0,
-      "totalEscapes": 4,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 4,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": ". all ( )",
-          "strField": "expr",
-          "strValue": ". all ( )",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / span >\n< span class = \"email\" >",
-          "strField": "expr",
-          "strValue": "< / span >\n< span class = \"email\" >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / span >\n< span class = \"phone\" >",
-          "strField": "expr",
-          "strValue": "< / span >\n< span class = \"phone\" >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / span >\n< button onclick = deleteContact ( contact . id ) > Remove < / button >\n< / li >",
-          "strField": "expr",
-          "strValue": "< / span >\n< button onclick = deleteContact ( contact . id ) > Remove < / button >\n< / li >",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
       "file": "04-live-search.scrml",
       "astError": null,
-      "exprNodesChecked": 7,
+      "exprNodesChecked": 5,
       "idempotencyFailures": 0,
-      "totalEscapes": 2,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 2,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": "< / span >\n< span class = \"person-role\" >",
-          "strField": "expr",
-          "strValue": "< / span >\n< span class = \"person-role\" >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / span >\n< / li >",
-          "strField": "expr",
-          "strValue": "< / span >\n< / li >",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
@@ -149,132 +105,52 @@
     {
       "file": "06-kanban-board.scrml",
       "astError": null,
-      "exprNodesChecked": 13,
+      "exprNodesChecked": 10,
       "idempotencyFailures": 0,
-      "totalEscapes": 3,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 3,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": "< / p >\n< div class = \"card-actions\" >\n< button onclick = moveTo ( card . id , Status . InProgress ) > Start < / button >\n< / div >\n< / div >",
-          "strField": "expr",
-          "strValue": "< / p >\n< div class = \"card-actions\" >\n< button onclick = moveTo ( card . id , Status . InProgress ) > Start < / button ",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / p >\n< div class = \"card-actions\" >\n< button onclick = moveTo ( card . id , Status . Todo ) > Back < / button >\n< button onclick = moveTo ( card . id , Status . Done ) > Done < / button >\n< / div >\n< / div >",
-          "strField": "expr",
-          "strValue": "< / p >\n< div class = \"card-actions\" >\n< button onclick = moveTo ( card . id , Status . Todo ) > Back < / button >\n< but",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / p >\n< div class = \"card-actions\" >\n< button onclick = moveTo ( card . id , Status . InProgress ) > Reopen < / button >\n< / div >\n< / div >",
-          "strField": "expr",
-          "strValue": "< / p >\n< div class = \"card-actions\" >\n< button onclick = moveTo ( card . id , Status . InProgress ) > Reopen < / button",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
       "file": "07-admin-dashboard.scrml",
       "astError": null,
-      "exprNodesChecked": 14,
+      "exprNodesChecked": 9,
       "idempotencyFailures": 0,
-      "totalEscapes": 5,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 5,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": ". all ( )",
-          "strField": "expr",
-          "strValue": ". all ( )",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / td >\n< td >",
-          "strField": "expr",
-          "strValue": "< / td >\n< td >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / td >\n< td > < span class = \"badge badge-${user.role}\" >",
-          "strField": "expr",
-          "strValue": "< / td >\n< td > < span class = \"badge badge-${user.role}\" >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / span > < / td >\n< td >",
-          "strField": "expr",
-          "strValue": "< / span > < / td >\n< td >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / td >\n< td >\n< button class = \"btn-danger\" onclick = deleteUser ( user . id ) > Delete < / button >\n< / td >\n< / tr >",
-          "strField": "expr",
-          "strValue": "< / td >\n< td >\n< button class = \"btn-danger\" onclick = deleteUser ( user . id ) > Delete < / button >\n< / td >\n< / tr >",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
       "file": "08-chat.scrml",
       "astError": null,
-      "exprNodesChecked": 17,
+      "exprNodesChecked": 14,
       "idempotencyFailures": 0,
-      "totalEscapes": 3,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 3,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": ". all ( )",
-          "strField": "expr",
-          "strValue": ". all ( )",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / p >\n< time class = \"ts\" >",
-          "strField": "expr",
-          "strValue": "< / p >\n< time class = \"ts\" >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / time >\n< / div >\n< / div >",
-          "strField": "expr",
-          "strValue": "< / time >\n< / div >\n< / div >",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
@@ -314,157 +190,69 @@
     {
       "file": "11-meta-programming.scrml",
       "astError": null,
-      "exprNodesChecked": 4,
+      "exprNodesChecked": 3,
       "idempotencyFailures": 0,
-      "totalEscapes": 1,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 1,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": "emit ( \"<div class=\\\"swatch\\\">\n                    <div class=\\\"chip\\\" style=\\\"background:${color.hex}\\\"></div>\n                    <span class=\\\"name\\\">${color.name}</span>\n                    <code>${color.hex}</code>\n                </div>\"\n)",
-          "strField": "expr",
-          "strValue": "emit ( \"<div class=\\\"swatch\\\">\n                    <div class=\\\"chip\\\" style=\\\"background:${color.hex}\\\"></div>\n        ",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
       "file": "12-snippets-slots.scrml",
       "astError": null,
-      "exprNodesChecked": 8,
+      "exprNodesChecked": 5,
       "idempotencyFailures": 0,
-      "totalEscapes": 3,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 3,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": "< / span >\n< dl slot = \"body\" >\n< dt > Role < / > < dd >",
-          "strField": "expr",
-          "strValue": "< / span >\n< dl slot = \"body\" >\n< dt > Role < / > < dd >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / >\n< dt > Email < / > < dd > < a href = \"mailto:${u.email}\" >",
-          "strField": "expr",
-          "strValue": "< / >\n< dt > Email < / > < dd > < a href = \"mailto:${u.email}\" >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "< / > < / a > < / >\n< / >\n< / >",
-          "strField": "expr",
-          "strValue": "< / > < / a > < / >\n< / >\n< / >",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
       "file": "13-worker.scrml",
       "astError": null,
-      "exprNodesChecked": 13,
+      "exprNodesChecked": 10,
       "idempotencyFailures": 0,
-      "totalEscapes": 3,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 3,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": "( let i = 2 ; i * i <= limit ; i + + )",
-          "strField": "iterable",
-          "strValue": "( let i = 2 ; i * i <= limit ; i + + )",
-          "astNodeKind": "for-stmt"
-        },
-        {
-          "category": "parse-error",
-          "raw": "( let j = i * i ; j <= limit ; j += i )",
-          "strField": "iterable",
-          "strValue": "( let j = i * i ; j <= limit ; j += i )",
-          "astNodeKind": "for-stmt"
-        },
-        {
-          "category": "parse-error",
-          "raw": "( let i = 2 ; i <= limit ; i + + )",
-          "strField": "iterable",
-          "strValue": "( let i = 2 ; i <= limit ; i + + )",
-          "astNodeKind": "for-stmt"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     },
     {
       "file": "14-mario-state-machine.scrml",
       "astError": null,
-      "exprNodesChecked": 32,
+      "exprNodesChecked": 27,
       "idempotencyFailures": 0,
-      "totalEscapes": 5,
+      "totalEscapes": 0,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
-        "parse-error": 5,
+        "parse-error": 0,
         "conversion-error": 0,
         "unclassified": 0
       },
-      "escapeDetails": [
-        {
-          "category": "parse-error",
-          "raw": "> MUSHROOM < / >\n< button class = \"btn btn-flower\" onclick =",
-          "strField": "expr",
-          "strValue": "> MUSHROOM < / >\n< button class = \"btn btn-flower\" onclick =",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "> FLOWER < / >\n< button class = \"btn btn-feather\" onclick =",
-          "strField": "expr",
-          "strValue": "> FLOWER < / >\n< button class = \"btn btn-feather\" onclick =",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "> FEATHER < / >\n< / >\n< button class = \"btn btn-hurt\" onclick =",
-          "strField": "expr",
-          "strValue": "> FEATHER < / >\n< / >\n< button class = \"btn btn-hurt\" onclick =",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "> GET HURT < / >\n< / >",
-          "strField": "expr",
-          "strValue": "> GET HURT < / >\n< / >",
-          "astNodeKind": "bare-expr"
-        },
-        {
-          "category": "parse-error",
-          "raw": "> CONTINUE < / >",
-          "strField": "expr",
-          "strValue": "> CONTINUE < / >",
-          "astNodeKind": "bare-expr"
-        }
-      ],
+      "escapeDetails": [],
       "idempotencyFailureDetails": []
     }
   ]
