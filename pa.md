@@ -69,7 +69,7 @@ scrmlTS/
 - All compiler changes go through the pipeline (T1/T2/T3 tier system)
 - Never bypass the pre-commit test hook without explicit user authorization
 - Always commit on feature branches, never directly to main
-- Background agents use Sonnet, PA stays Opus
+- **All agents run on Opus 4.6** (PA and subagents alike). Updated S4 2026-04-11 — supersedes the earlier "background agents use Sonnet" rule. Pass `model: "opus"` on every `Agent` dispatch.
 
 ## Link + tag conventions
 
