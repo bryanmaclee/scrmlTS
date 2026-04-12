@@ -3918,8 +3918,32 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
   }
 
   function scanNodeExpressions(node: ASTNodeLike): void {
-    const fields = [node.expr, node.init, node.value, node.condition, node.test];
-    for (const field of fields) {
+    const nodeAny = node as Record<string, unknown>;
+
+    // Walk ExprNode-form fields for must-use variable references.
+    const exprNodeFields: unknown[] = [
+      nodeAny.exprNode,    // bare-expr, return-stmt, throw-stmt
+      nodeAny.initExpr,    // let-decl, const-decl, lin-decl, tilde-decl, reactive-decl, etc.
+      nodeAny.condExpr,    // if-stmt, if-expr, while-loop, for-loop (condition)
+      nodeAny.valueExpr,   // reactive-nested-assign
+      nodeAny.iterExpr,    // for-stmt (iterable expression)
+      nodeAny.headerExpr,  // match-stmt, switch-stmt (header expression)
+    ];
+
+    for (const field of exprNodeFields) {
+      if (!field || typeof field !== "object") continue;
+      const exprField = field as { kind?: string };
+      if (!exprField.kind) continue;
+
+      forEachIdentInExprNode(field as import("./types/ast.ts").ExprNode, (ident) => {
+        mustUseTracker.markUsed(ident.name);
+        if (parentMustUseTracker) parentMustUseTracker.markUsed(ident.name);
+      });
+    }
+
+    // String-field fallback: nodes without ExprNode fields still need scanning.
+    const stringFields = [node.expr, node.init, node.value, node.condition, node.test];
+    for (const field of stringFields) {
       if (typeof field === "string") {
         mustUseTracker.scanExpression(field);
         if (parentMustUseTracker) parentMustUseTracker.scanExpression(field);
