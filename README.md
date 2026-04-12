@@ -15,13 +15,13 @@ no state management library.
 bun install
 
 # Compile a single file
-bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
+scrml compile examples/01-hello.scrml -o dist/
 
 # Or use the CLI directly
-bun run compiler/src/cli.js compile <file|dir>
-bun run compiler/src/cli.js dev <file|dir>      # watch + serve
-bun run compiler/src/cli.js build <dir>         # production build
-bun run compiler/src/cli.js init <dir>          # scaffold a project
+scrml compile <file|dir>
+scrml dev <file|dir>      # watch + serve
+scrml build <dir>         # production build
+scrml init <dir>          # scaffold a project
 
 # Run the test suite
 bun test compiler/tests/
@@ -52,7 +52,7 @@ scrml is a compiled language that replaces your frontend framework, your backend
 No virtual DOM. No JSX. No separate route files. No node_modules.
 
 ```bash
-bun compiler/src/cli.js compile hello.scrml -o dist/
+scrml compile hello.scrml -o dist/
 ```
 
 ## Quick Example
@@ -196,7 +196,7 @@ curl -fsSL https://bun.sh/install | bash
 ### Compile a file
 
 ```bash
-bun compiler/src/cli.js compile hello.scrml -o dist/
+scrml compile hello.scrml -o dist/
 ```
 
 This produces `dist/hello.html`, `dist/hello.client.js`, and `dist/hello.css`. Open the HTML file in a browser.
@@ -204,7 +204,7 @@ This produces `dist/hello.html`, `dist/hello.client.js`, and `dist/hello.css`. O
 ### Development with hot reload
 
 ```bash
-bun compiler/src/cli.js dev
+scrml dev
 ```
 
 `dev` starts a dev server with hot reload. Write `.scrml` files and see results immediately.
@@ -212,7 +212,7 @@ bun compiler/src/cli.js dev
 ### Build for production
 
 ```bash
-bun compiler/src/cli.js build
+scrml build
 ```
 
 The compiler produces optimized HTML, CSS, and JavaScript. No runtime framework ships to the browser.
