@@ -826,7 +826,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
     if (shouldSkipExprParse(expr)) return undefined;
     try {
-      return parseExprToNode(expr, filePath, startOffset ?? 0);
+      // Automatically thread tilde context from the closure-scoped flag
+      return parseExprToNode(expr, filePath, startOffset ?? 0, _tildeActive ? { tildeActive: true } : undefined);
     } catch (_e) {
       return undefined;
     }
@@ -1164,6 +1165,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     return annotation || null;
   }
 
+  // Phase 4: tilde context tracking. Set to true after a value-lift (lift-expr with
+  // expr.kind === "expr"). When active, safeParseExprToNode passes tildeActive to the
+  // expression parser so standalone `~` is parsed as the tilde accumulator, not bitwise NOT.
+  // Cleared after the next statement that contains `~` is parsed.
+  let _tildeActive = false;
+
   /**
    * Parse a braced body `{ ... }` into a structured LogicNode[] tree.
    * Caller should have already consumed the opening `{`.
@@ -1202,6 +1209,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           });
         } else {
           stmts.push(node);
+        }
+        // Phase 4: track tilde context — value-lift activates, ~ consumption deactivates
+        if (node.kind === "lift-expr" && node.expr && node.expr.kind === "expr") {
+          _tildeActive = true;
+        } else if (_tildeActive) {
+          // Any non-lift statement after a value-lift may consume ~; deactivate after one statement
+          _tildeActive = false;
         }
       }
     }
@@ -1361,7 +1375,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         const { expr } = collectExpr();
-        const node = { id: ++counter.next, kind: "reactive-decl", name, init: expr, isServer: true, span: spanOf(startTok, peek()) };
+        const node = { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, span: spanOf(startTok, peek()) };
         if (typeAnnotation) node.typeAnnotation = typeAnnotation;
         return node;
       }
@@ -1378,7 +1392,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const nameTok = consume(); // consume varName
         consume(); // consume `=`
         const { expr } = collectExpr();
-        return { id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: expr, isShared: true, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) };
       }
       // Malformed @shared — emit as bare-expr
       const { expr } = collectExpr();
@@ -1463,7 +1477,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (peek().text === "=" && peek(1)?.text !== "=") {
           consume(); // consume '='
           const { expr } = collectExpr();
-          return { id: ++counter.next, kind: "reactive-decl", name, init: expr, typeAnnotation, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), typeAnnotation, span: spanOf(startTok, peek()) };
         }
         // Malformed — fall through to bare-expr
       }
@@ -2384,6 +2398,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     const tok = peek();
     if (tok.kind === "EOF") break;
 
+    // Phase 4: update tilde context based on last pushed node
+    if (nodes.length > 0) {
+      const lastNode = nodes[nodes.length - 1];
+      if (lastNode.kind === "lift-expr" && lastNode.expr && lastNode.expr.kind === "expr") {
+        _tildeActive = true;
+      } else if (_tildeActive) {
+        _tildeActive = false;
+      }
+    }
+
     // Skip comments
     if (tok.kind === "COMMENT") { consume(); continue; }
 
@@ -2639,7 +2663,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         const { expr } = collectExpr();
-        const node = { id: ++counter.next, kind: "reactive-decl", name, init: expr, isServer: true, span: spanOf(startTok, peek()) };
+        const node = { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, span: spanOf(startTok, peek()) };
         if (typeAnnotation) node.typeAnnotation = typeAnnotation;
         nodes.push(node);
         continue;
@@ -2658,7 +2682,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const nameTok = consume(); // consume varName
         consume(); // consume `=`
         const { expr } = collectExpr();
-        nodes.push({ id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: expr, isShared: true, span: spanOf(startTok, peek()) });
+        nodes.push({ id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) });
         continue;
       }
       // Malformed @shared — emit as bare-expr
@@ -2860,6 +2884,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "let-decl",
             name,
             init: expr,
+            initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
           });
         }
@@ -2954,6 +2979,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "const-decl",
             name,
             init: expr,
+            initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
           });
         }
@@ -3972,7 +3998,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const name = startTok.text;
         consume(); // consume `=`
         const { expr, span } = collectExpr();
-        nodes.push({ id: ++counter.next, kind: "tilde-decl", name, init: expr, span: spanOf(startTok, peek()) });
+        nodes.push({ id: ++counter.next, kind: "tilde-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) });
         continue;
       }
     }

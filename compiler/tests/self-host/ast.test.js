@@ -145,7 +145,7 @@ function stripIds(obj) {
     if (key === "id") continue; // strip node IDs
     if (key === "spans") continue; // spans table uses IDs as keys, skip
     if (key === "machineDecls") continue; // §51.3: self-hosted ast.scrml doesn't collect these yet
-    if (key === "exprNode" || key === "handlerExpr" || key === "fileExpr" || key === "urlExpr" || key === "bodyExpr") continue; // Phase 3: JS ast-builder populates ExprNode fields; self-host doesn't yet
+    if (["exprNode", "initExpr", "condExpr", "iterExpr", "headerExpr", "valueExpr", "argsExpr", "callbackExpr", "fnExpr", "handlerExpr", "fileExpr", "urlExpr", "bodyExpr", "cStyleParts"].includes(key)) continue; // Phase 3/4: JS ast-builder populates ExprNode fields; self-host doesn't yet
     out[key] = stripIds(obj[key]);
   }
   return out;

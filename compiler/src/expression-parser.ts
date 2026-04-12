@@ -527,7 +527,7 @@ function spanFromEstree(node: ESNode, filePath: string, baseOffset: number): Exp
 const SCRML_PLACEHOLDER_PREFIX = "__scrml_";
 
 /** Pre-process scrml-specific operators for Acorn parsing. Returns transformed string. */
-function preprocessForAcorn(raw: string): string {
+function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): string {
   let s = raw.trim();
 
   // Replace `match expr { arms }` with placeholder
@@ -571,10 +571,11 @@ function preprocessForAcorn(raw: string): string {
     '__scrml_is_variant__($1, "$2")');
 
   // §32 tilde accumulator: replace standalone `~` with placeholder identifier.
-  // Must not replace `~` inside bitwise NOT contexts — only standalone `~` used as
-  // the scrml accumulator variable. Standalone means: at word boundary, not preceded
-  // by operator that makes it bitwise NOT.
-  s = s.replace(/(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])/g, "__scrml_tilde__");
+  // Only active inside tilde contexts (after value-lift). Outside tilde context,
+  // `~` is JS bitwise NOT and must not be replaced.
+  if (opts?.tildeActive) {
+    s = s.replace(/(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])/g, "__scrml_tilde__");
+  }
 
   return s;
 }
@@ -1032,7 +1033,7 @@ function convertParams(params: ESNode[], filePath: string, baseOffset: number): 
  * @param offset - Byte offset of the expression start in the preprocessed source file
  * @returns A structured ExprNode. Returns EscapeHatchExpr on parse failure.
  */
-export function parseExprToNode(raw: string, filePath: string, offset: number): ExprNode {
+export function parseExprToNode(raw: string, filePath: string, offset: number, opts?: { tildeActive?: boolean }): ExprNode {
   if (!raw || typeof raw !== "string" || !raw.trim()) {
     // Empty expression — return a null-literal placeholder
     const span: ExprSpan = { file: filePath, start: offset, end: offset, line: 1, col: 1 };
@@ -1045,7 +1046,7 @@ export function parseExprToNode(raw: string, filePath: string, offset: number): 
   let processed = trimmed;
 
   // Preprocessing for scrml-specific operators
-  processed = preprocessForAcorn(processed);
+  processed = preprocessForAcorn(processed, { tildeActive: opts?.tildeActive });
 
   // Standard parseExpression preprocessing (SQL, input-state, worker refs)
   // parseExpression already does this, but we also do it here so we can
