@@ -16,9 +16,8 @@ ${
   @theme     = "light"
   @newsletter = false
 
-  // Linear token: created once, consumed by submit. Compiler enforces
-  // it's not dropped and not used twice.
-  lin submitToken = createSubmitToken()
+  // Submit guard — prevents double-submit.
+  @submitted = false
 
   function next() {
     match (@currentStep) {
@@ -45,8 +44,8 @@ ${
   }
 
   function submit() {
-    // submitToken consumed here — exactly once, compiler enforced.
-    use submitToken
+    if (@submitted) { return }
+    @submitted = true
     persistSignup(@firstName, @lastName, @email, @theme, @newsletter)
     @currentStep = Step.Confirm
   }

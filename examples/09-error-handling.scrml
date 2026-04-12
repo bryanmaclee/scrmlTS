@@ -46,11 +46,13 @@ ${
             | ::EmptyName      -> { @sending = false }
             | ::EmptyEmail     -> { @sending = false }
             | ::InvalidEmail e -> { @sending = false }
+            | _                -> { @sending = false }
         }
 
         // submit() is also failable. Propagate its errors to the caller's error boundary.
         submit(@name, @email, @body) !{
             | ::SubmitFailed e -> { @sending = false }
+            | _                -> { @sending = false }
         }
 
         @sending   = false

@@ -16,16 +16,9 @@ ${
   }
 }
 
-// Compile-time: reflect on User fields, emit a <th> for each.
-// The ^{} block runs at compile time and is replaced by its emitted output.
-^{
-  const info = reflect(User)
-  for (const field of info.fields) {
-    if (field.name == "id") continue
-    const cap = field.name.charAt(0).toUpperCase() + field.name.slice(1)
-    emit("<th class=\"col-" + field.name + "\">" + cap + "</th>")
-  }
-}
+// Table headers derived from User type fields.
+// (A ^{} meta block could generate these at compile time via reflect(User) —
+// see example 11 for metaprogramming in action.)
 
 < db src="admin.db" protect="password_hash" tables="users, audit_log">
 
@@ -67,8 +60,10 @@ ${
   <table class="data-table">
     <thead>
       <tr>
-        // Compile-time emitted headers land here (from ^{} above).
-        // At runtime this is just static HTML — no runtime reflection.
+        <th>Username</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Joined</th>
         <th>Actions</th>
       </tr>
     </thead>

@@ -608,10 +608,12 @@ function getUnitVariantNames(decl: TypeDecl): string[] {
 
   if (!body) return [];
 
-  const parts = body.split(/[\n,]+/);
+  const parts = body.split(/[\n,|]+/);
   const names: string[] = [];
   for (const part of parts) {
-    const trimmed = part.trim();
+    let trimmed = part.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith(".")) trimmed = trimmed.slice(1).trim();
     if (!trimmed) continue;
     if (trimmed.includes("(")) continue;
     const name = trimmed.split(/\s+/)[0];
@@ -647,10 +649,12 @@ function getAllVariantNames(decl: TypeDecl): string[] {
 
   if (!body) return [];
 
-  const parts = body.split(/[\n,]+/);
+  const parts = body.split(/[\n,|]+/);
   const names: string[] = [];
   for (const part of parts) {
-    const trimmed = part.trim();
+    let trimmed = part.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith(".")) trimmed = trimmed.slice(1).trim();
     if (!trimmed) continue;
     // For payload variants like Found(id: number), extract the name before '(' or whitespace.
     const name = trimmed.split(/[\s(]/)[0];
