@@ -780,6 +780,8 @@ export interface WhenEffectNode extends BaseNode {
   dependencies: string[];
   /** Raw body expression string. */
   bodyRaw: string;
+  /** Phase 3: structured ExprNode form of `bodyRaw` (single-expression bodies only). */
+  bodyExpr?: ExprNode;
 }
 
 /**
@@ -792,6 +794,8 @@ export interface WhenMessageNode extends BaseNode {
   binding: string;
   /** Raw body expression string. */
   bodyRaw: string;
+  /** Phase 3: structured ExprNode form of `bodyRaw` (single-expression bodies only). */
+  bodyExpr?: ExprNode;
 }
 
 /** An upload call: `upload(file, url)`. Built-in file upload utility. */

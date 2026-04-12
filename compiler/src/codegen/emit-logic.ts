@@ -814,7 +814,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         if (/^[{}\[\]();]/.test(t)) return true;
         return false;
       });
-      const body = rewriteExpr(codeLines.join("\n"));
+      const body = node.bodyExpr ? emitExpr(node.bodyExpr, _makeExprCtx(opts)) : rewriteExpr(codeLines.join("\n"));
       return `_scrml_effect(function() { ${body}; });`;
     }
 
@@ -822,7 +822,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // §4.12.4: `when message from <#name> (binding) { body }` — parent-side worker message listener
       const workerVar = `_scrml_worker_${node.workerName}`;
       const binding = node.binding ?? "data";
-      const body = rewriteExpr(node.bodyRaw ?? "");
+      const body = node.bodyExpr ? emitExpr(node.bodyExpr, _makeExprCtx(opts)) : rewriteExpr(node.bodyRaw ?? "");
       return `${workerVar}.onmessage = function(event) { const ${binding} = event.data; ${body}; };`;
     }
 
@@ -830,7 +830,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // §4.12.4: `when error from <#name> (binding) { body }` — parent-side worker error listener
       const workerVar = `_scrml_worker_${node.workerName}`;
       const binding = node.binding ?? "e";
-      const body = rewriteExpr(node.bodyRaw ?? "");
+      const body = node.bodyExpr ? emitExpr(node.bodyExpr, _makeExprCtx(opts)) : rewriteExpr(node.bodyRaw ?? "");
       return `${workerVar}.onerror = function(${binding}) { ${body}; };`;
     }
 

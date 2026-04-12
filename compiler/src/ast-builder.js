@@ -3632,13 +3632,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               bodyParts.push(lastTok.text);
             }
           }
+          const _whenWorkerBody = bodyParts.join(" ");
           nodes.push({
             id: ++counter.next,
             kind: workerName ? "when-worker-" + eventType : "when-message",
             eventType,
             workerName,
             binding,
-            bodyRaw: bodyParts.join(" "),
+            bodyRaw: _whenWorkerBody,
+            bodyExpr: safeParseExprToNode(_whenWorkerBody, spanOf(startTok, lastTok)?.start ?? 0),
             span: spanOf(startTok, lastTok),
           });
         }
@@ -3695,11 +3697,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           bodyNodes.push(bodyParts.join(" "));
         }
 
+        const _whenEffectBody = bodyParts.join(" ");
         nodes.push({
           id: ++counter.next,
           kind: "when-effect",
           dependencies,
-          bodyRaw: bodyParts.join(" "),
+          bodyRaw: _whenEffectBody,
+          bodyExpr: safeParseExprToNode(_whenEffectBody, spanOf(startTok, lastTok)?.start ?? 0),
           span: spanOf(startTok, lastTok),
         });
       }
