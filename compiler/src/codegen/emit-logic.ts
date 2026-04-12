@@ -799,7 +799,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
     case "cleanup-registration": {
       const callback: string = node.callback ?? "() => {}";
-      return `_scrml_register_cleanup(${rewriteExpr(callback)});`;
+      const cleanupRhs = node.callbackExpr ? emitExpr(node.callbackExpr, _makeExprCtx(opts)) : rewriteExpr(callback);
+      return `_scrml_register_cleanup(${cleanupRhs});`;
     }
 
     case "when-effect": {
@@ -853,7 +854,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       const encodedTarget = ctx ? ctx.encode(node.target) : node.target;
       const target = JSON.stringify(encodedTarget);
       const method: string = node.method;
-      const args = rewriteExpr(node.args ?? "");
+      const args = node.argsExpr ? emitExpr(node.argsExpr, _makeExprCtx(opts)) : rewriteExpr(node.args ?? "");
 
       // With Proxy-based reactivity, array mutations go through the Proxy traps
       // which automatically notify fine-grained effects. We still call
@@ -881,7 +882,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "reactive-explicit-set": {
-      const args = rewriteExpr(node.args ?? "");
+      const args = node.argsExpr ? emitExpr(node.argsExpr, _makeExprCtx(opts)) : rewriteExpr(node.args ?? "");
       return `_scrml_reactive_explicit_set(${args});`;
     }
 
@@ -895,13 +896,13 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "debounce-call": {
-      const fn = rewriteExpr(node.fn ?? "() => {}");
+      const fn = node.fnExpr ? emitExpr(node.fnExpr, _makeExprCtx(opts)) : rewriteExpr(node.fn ?? "() => {}");
       const delay: number = node.delay ?? 300;
       return `_scrml_debounce(${fn}, ${delay});`;
     }
 
     case "throttle-call": {
-      const fn = rewriteExpr(node.fn ?? "() => {}");
+      const fn = node.fnExpr ? emitExpr(node.fnExpr, _makeExprCtx(opts)) : rewriteExpr(node.fn ?? "() => {}");
       const delay: number = node.delay ?? 100;
       return `_scrml_throttle(${fn}, ${delay});`;
     }

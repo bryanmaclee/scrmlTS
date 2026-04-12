@@ -1378,12 +1378,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             if (t.text === ")") { parenDepth--; if (parenDepth === 0) break; }
             argParts.push(t.text);
           }
+          const _ramArgs = argParts.join(" ").trim();
           return {
             id: ++counter.next,
             kind: "reactive-array-mutation",
             target: name,
             method: lastSeg,
-            args: argParts.join(" ").trim(),
+            args: _ramArgs,
+            argsExpr: safeParseExprToNode(_ramArgs, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
           };
         }
@@ -2645,12 +2647,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             if (t.text === ")") { parenDepth--; if (parenDepth === 0) break; }
             argParts.push(t.text);
           }
+          const _ramArgs2 = argParts.join(" ").trim();
           nodes.push({
             id: ++counter.next,
             kind: "reactive-array-mutation",
             target: name,
             method: lastSeg,
-            args: argParts.join(" ").trim(),
+            args: _ramArgs2,
+            argsExpr: safeParseExprToNode(_ramArgs2, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
           });
           continue;
@@ -3553,6 +3557,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           id: ++counter.next,
           kind: "cleanup-registration",
           callback: callbackParts.join(" "),
+          callbackExpr: safeParseExprToNode(callbackParts.join(" "), spanOf(startTok, lastTok)?.start ?? 0),
           span: spanOf(startTok, lastTok),
         });
       }
@@ -3772,6 +3777,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           id: ++counter.next,
           kind: "debounce-call",
           fn: fnParts.join(" ").trim(),
+          fnExpr: safeParseExprToNode(fnParts.join(" ").trim(), spanOf(startTok, lastTok)?.start ?? 0),
           delay: parseInt(delayParts.join("").trim(), 10) || 300,
           span: spanOf(startTok, lastTok),
         });
@@ -3817,6 +3823,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           id: ++counter.next,
           kind: "throttle-call",
           fn: fnParts.join(" ").trim(),
+          fnExpr: safeParseExprToNode(fnParts.join(" ").trim(), spanOf(startTok, lastTok)?.start ?? 0),
           delay: parseInt(delayParts.join("").trim(), 10) || 100,
           span: spanOf(startTok, lastTok),
         });
