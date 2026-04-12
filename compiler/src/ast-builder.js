@@ -3290,7 +3290,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const { expr: condition } = collectExpr("{");
         let body = [];
         if (peek().text === "{") { consume(); body = parseRecursiveBody(); }
-        loopNode = { id: ++counter.next, kind: "while-stmt", label: labelName, condition: condition.trim(), body, span: spanOf(labelTok, peek()) };
+        loopNode = { id: ++counter.next, kind: "while-stmt", label: labelName, condition: condition.trim(), condExpr: safeParseExprToNode(condition.trim(), 0), body, span: spanOf(labelTok, peek()) };
       } else if (loopTok.text === "do") {
         consume(); // consume `do`
         let body = [];
@@ -3298,7 +3298,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (peek().kind === "KEYWORD" && peek().text === "while") consume();
         const { expr: condition } = collectExpr();
         if (peek().kind === "PUNCT" && peek().text === ";") consume();
-        loopNode = { id: ++counter.next, kind: "do-while-stmt", label: labelName, condition: condition.trim(), body, span: spanOf(labelTok, peek()) };
+        loopNode = { id: ++counter.next, kind: "do-while-stmt", label: labelName, condition: condition.trim(), condExpr: safeParseExprToNode(condition.trim(), 0), body, span: spanOf(labelTok, peek()) };
       } else if (loopTok.text === "for") {
         const forNode = parseOneForStmt();
         if (forNode) { forNode.label = labelName; loopNode = forNode; }
