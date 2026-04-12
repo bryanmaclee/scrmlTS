@@ -1,5 +1,5 @@
-import { extractIdentifiersFromAST } from "./expression-parser.ts";
-import type { Span, FileAST, ASTNode } from "./types/ast.ts";
+import { extractIdentifiersFromAST, forEachIdentInExprNode } from "./expression-parser.ts";
+import type { Span, FileAST, ASTNode, ExprNode } from "./types/ast.ts";
 
 /**
  * Meta Checker — Phase separation and reflect() API for ^{} meta contexts.
@@ -720,12 +720,8 @@ export function checkMetaBlock(
         continue;
       }
 
-      if (node.kind === "bare-expr" && node.expr) {
-        checkExprForRuntimeVars(node.expr, metaLocals, typeRegistry, node.span || metaNode.span, filePath, errors);
-      }
-
-      if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init) {
-        checkExprForRuntimeVars(node.init, metaLocals, typeRegistry, node.span || metaNode.span, filePath, errors);
+      if (node.kind === "bare-expr" || node.kind === "let-decl" || node.kind === "const-decl") {
+        checkNodeForRuntimeVars(node, metaLocals, typeRegistry, metaNode.span, filePath, errors);
       }
 
       if (Array.isArray(node.body)) walkForRuntimeRefs(node.body);
@@ -771,12 +767,8 @@ function checkNestedMetaBlock(
         continue;
       }
 
-      if (node.kind === "bare-expr" && node.expr) {
-        checkExprForRuntimeVars(node.expr, combinedLocals, typeRegistry, node.span || metaNode.span, filePath, errors);
-      }
-
-      if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init) {
-        checkExprForRuntimeVars(node.init, combinedLocals, typeRegistry, node.span || metaNode.span, filePath, errors);
+      if (node.kind === "bare-expr" || node.kind === "let-decl" || node.kind === "const-decl") {
+        checkNodeForRuntimeVars(node, combinedLocals, typeRegistry, metaNode.span, filePath, errors);
       }
 
       if (Array.isArray(node.body)) walkForRuntimeRefs(node.body);
@@ -792,6 +784,69 @@ function checkNestedMetaBlock(
 /**
  * Check an expression string for references to runtime variables.
  */
+/**
+ * Check a node's expression fields for runtime variable references.
+ * Prefers ExprNode walk; falls back to string-based extraction.
+ */
+function checkNodeForRuntimeVars(
+  node: LogicNode,
+  metaLocals: Set<string>,
+  typeRegistry: Map<string, ResolvedType>,
+  parentSpan: Span | undefined,
+  filePath: string,
+  errors: MetaError[],
+): void {
+  const nodeAny = node as Record<string, unknown>;
+  const span = (node.span || parentSpan) as Span | undefined;
+
+  // Try ExprNode fields first.
+  const exprNodeFields: unknown[] = [
+    nodeAny.exprNode, nodeAny.initExpr, nodeAny.condExpr,
+    nodeAny.valueExpr, nodeAny.iterExpr, nodeAny.headerExpr,
+  ];
+  let foundExprNode = false;
+  for (const field of exprNodeFields) {
+    if (!field || typeof field !== "object" || !(field as { kind?: string }).kind) continue;
+    foundExprNode = true;
+    forEachIdentInExprNode(field as ExprNode, (ident) => {
+      checkSingleIdentForRuntime(ident.name, metaLocals, typeRegistry, span, filePath, errors);
+    });
+  }
+
+  // Fall back to string fields if no ExprNode was found.
+  if (!foundExprNode) {
+    const expr = (node.kind === "bare-expr" ? node.expr : node.init) as string | undefined;
+    if (expr) {
+      checkExprForRuntimeVars(expr, metaLocals, typeRegistry, span, filePath, errors);
+    }
+  }
+}
+
+/** Check a single identifier name against runtime-variable rules. */
+function checkSingleIdentForRuntime(
+  id: string,
+  metaLocals: Set<string>,
+  typeRegistry: Map<string, ResolvedType>,
+  span: Span | undefined,
+  filePath: string,
+  errors: MetaError[],
+): void {
+  if (JS_KEYWORDS.has(id)) return;
+  if (META_BUILTINS.has(id)) return;
+  if (metaLocals.has(id)) return;
+  if (typeRegistry && typeRegistry.has(id)) return;
+  if (id.startsWith("@")) return; // reactive vars are runtime, but handled separately
+
+  const errorSpan = span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span;
+  errors.push(new MetaError(
+    "E-META-001",
+    `E-META-001: Runtime variable '${id}' cannot be used inside meta context ^{}. ` +
+    `Meta contexts execute at compile time and cannot access runtime values. ` +
+    `Hint: Read all values at compile time, or move this logic outside ^{}.`,
+    errorSpan,
+  ));
+}
+
 export function checkExprForRuntimeVars(
   expr: string,
   metaLocals: Set<string>,
