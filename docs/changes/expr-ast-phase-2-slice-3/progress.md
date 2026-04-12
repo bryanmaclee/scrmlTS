@@ -12,3 +12,10 @@
 - [step 4] Commit and stop
 
 ## Next agent (Slice 3 implementation): pick up from impact-analysis.md
+
+## Slice 3 implementation dispatch
+
+- [impl-1] Read impact-analysis.md end-to-end
+- [impl-1] Verified branch state at 5ecee0e, confirmed bun v1.3.0 (no 1.3.6 segfault risk locally)
+- [impl-1] Captured pre-snapshot: unit 4902/3/2, integration 96/0/0
+- [impl-1] Discrepancy from brief: integration is 96/0 not 94/2 — self-host-smoke is fully green here
