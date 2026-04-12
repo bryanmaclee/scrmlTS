@@ -213,6 +213,31 @@ When this repo is at a push point (especially if you sent messages to other repo
 2. List which repos are affected (this repo + any repos you dropped messages into)
 3. The master PA will verify all affected repos are clean and push them together
 
+### Agent staging via master
+
+Specialized agents (debate panels, gauntlet devs, deep-dive researchers, etc.) are stored in `~/.claude/agentStore/` and are NOT loaded by default. When a task requires agents not in this repo's `.claude/agents/`:
+
+**Before the task** — send a `needs: action` message to master listing which agents are needed:
+```markdown
+subject: stage agents for <task description>
+needs: action
+---
+Next session needs these agents staged:
+- <agent-filename>.md
+- <agent-filename>.md
+Target: scrmlTS
+```
+The master PA will copy them into this repo's `.claude/agents/` and tell the user to launch a new session.
+
+**After the task** — send a `needs: action` message to master requesting cleanup:
+```markdown
+subject: task complete — clean up staged agents
+needs: action
+---
+<Task> complete. Remove staged agents from scrmlTS.
+Agents to remove: <agent-filename>.md, <agent-filename>.md
+```
+
 ### Scope of the exception
 - **Allowed:** creating new `.md` files inside `<sibling>/handOffs/incoming/`
 - **NOT allowed:** reading, editing, or deleting anything else in a sibling repo. Messages are a one-way write; the sibling's PA reads them in its own session.
