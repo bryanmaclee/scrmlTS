@@ -633,7 +633,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     case "fail-expr": {
       const enumType: string = node.enumType ?? "";
       const variant: string = node.variant ?? "";
-      const args = node.args ? rewriteExpr(node.args) : "undefined";
+      const args = node.argsExpr ? emitExpr(node.argsExpr, _makeExprCtx(opts)) : (node.args ? rewriteExpr(node.args) : "undefined");
       return `return { __scrml_error: true, type: ${JSON.stringify(enumType)}, variant: ${JSON.stringify(variant)}, data: ${args} };`;
     }
 

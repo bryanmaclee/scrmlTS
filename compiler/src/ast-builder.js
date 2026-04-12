@@ -1445,6 +1445,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           id: ++counter.next,
           kind: "reactive-explicit-set",
           args: argsStr,
+          argsExpr: safeParseExprToNode(argsStr, spanOf(startTok, peek())?.start ?? 0),
           span: spanOf(startTok, peek()),
         };
       }
@@ -2732,10 +2733,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           if (t.text === ")") { parenDepth--; if (parenDepth === 0) break; }
           argParts.push(t.text);
         }
+        const _resArgs = argParts.join(" ").trim();
         nodes.push({
           id: ++counter.next,
           kind: "reactive-explicit-set",
-          args: argParts.join(" ").trim(),
+          args: _resArgs,
+          argsExpr: safeParseExprToNode(_resArgs, spanOf(startTok, peek())?.start ?? 0),
           span: spanOf(startTok, peek()),
         });
         continue;
@@ -2992,6 +2995,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         enumType,
         variant,
         args,
+        argsExpr: args ? safeParseExprToNode(args, spanOf(startTok, peek())?.start ?? 0) : undefined,
         span: spanOf(startTok, peek()),
       });
       continue;
