@@ -43,7 +43,9 @@ import type {
   ImportDeclNode,
   LogicNode,
   ReactiveDerivedDeclNode,
+  ExprNode,
 } from "./types/ast.ts";
+import { forEachIdentInExprNode } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // DG-internal types (not in the shared AST, specific to Stage 7 output)
@@ -208,6 +210,67 @@ function makeNodeId(filePath: string, span: Span, prefix: string): NodeId {
 // ---------------------------------------------------------------------------
 // AST walking helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Collect @var reference names from a node's ExprNode parallel fields.
+ * Returns an array of variable names (without the @ prefix).
+ */
+function collectReactiveRefsFromExprNode(node: Record<string, unknown>): string[] {
+  const refs: string[] = [];
+  const exprNodeFields = [
+    node.exprNode, node.initExpr, node.condExpr,
+    node.valueExpr, node.iterExpr, node.headerExpr,
+  ];
+  for (const field of exprNodeFields) {
+    if (!field || typeof field !== "object" || !(field as { kind?: string }).kind) continue;
+    forEachIdentInExprNode(field as ExprNode, (ident) => {
+      if (ident.name.startsWith("@")) refs.push(ident.name.slice(1));
+    });
+  }
+  return refs;
+}
+
+/**
+ * Collect direct callee function names from a node's ExprNode parallel fields.
+ * Finds CallExpr nodes with IdentExpr callees.
+ */
+function collectCalleesFromExprNode(node: Record<string, unknown>): string[] {
+  const names: string[] = [];
+  const exprNodeFields = [
+    node.exprNode, node.initExpr, node.condExpr,
+    node.valueExpr, node.iterExpr, node.headerExpr,
+  ];
+  for (const field of exprNodeFields) {
+    if (!field || typeof field !== "object" || !(field as { kind?: string }).kind) continue;
+    walkExprNodeForCalls(field as ExprNode, names);
+  }
+  return names;
+}
+
+/** Recursively walk an ExprNode tree to find CallExpr nodes with IdentExpr callees. */
+function walkExprNodeForCalls(node: ExprNode, out: string[]): void {
+  if (!node || typeof node !== "object") return;
+  if (node.kind === "call") {
+    const callee = (node as { callee?: ExprNode }).callee;
+    if (callee && callee.kind === "ident" && (callee as { name?: string }).name) {
+      out.push((callee as { name: string }).name);
+    }
+  }
+  // Recurse into child ExprNodes
+  for (const key of Object.keys(node)) {
+    const child = (node as Record<string, unknown>)[key];
+    if (child && typeof child === "object" && (child as { kind?: string }).kind) {
+      walkExprNodeForCalls(child as ExprNode, out);
+    }
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === "object" && (item as { kind?: string }).kind) {
+          walkExprNodeForCalls(item as ExprNode, out);
+        }
+      }
+    }
+  }
+}
 
 /**
  * Extract direct callee names from an expression string.
@@ -687,12 +750,20 @@ export function runDG(input: DGInput): DGOutput {
       nodes.set(nodeId, dgNode);
 
       // Scan init expression for @var references and function calls.
-      // The init is a flat string, so regex works even for match arms.
-      if (dNode.init) {
+      // Prefer ExprNode walk; fall back to string regex.
+      const exprRefs = collectReactiveRefsFromExprNode(dNode as Record<string, unknown>);
+      const exprCallees = collectCalleesFromExprNode(dNode as Record<string, unknown>);
+      if (exprRefs.length > 0) {
+        (dgNode as any)._pendingDerivedReads = exprRefs;
+      } else if (dNode.init) {
         const atRefs = dNode.init.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
         if (atRefs) {
           (dgNode as any)._pendingDerivedReads = atRefs.map((r: string) => r.slice(1));
         }
+      }
+      if (exprCallees.length > 0) {
+        (dgNode as any)._pendingDerivedCallees = exprCallees;
+      } else if (dNode.init) {
         const callees = extractCallees(dNode.init);
         if (callees.length > 0) {
           (dgNode as any)._pendingDerivedCallees = callees;
@@ -892,18 +963,22 @@ export function runDG(input: DGInput): DGOutput {
         for (const bodyNode of nodes) {
           if (!bodyNode || typeof bodyNode !== "object") continue;
 
-          // bare-expr: check for @varName references
-          if (bodyNode.kind === "bare-expr" && bodyNode.expr) {
-            const atRefs = bodyNode.expr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-            if (atRefs) {
-              for (const ref of atRefs) {
-                const varName = ref.slice(1);
-                const reactiveNodeId = reactiveVarNodeIds.get(varName);
-                if (reactiveNodeId) {
-                  edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
-                  const readers = reactiveVarReaders.get(varName);
-                  if (readers) readers.add(fnDGNodeId);
-                }
+          // bare-expr / reactive-derived-decl: check for @varName references
+          // Prefer ExprNode walk; fall back to string regex.
+          if (bodyNode.kind === "bare-expr" || bodyNode.kind === "reactive-derived-decl") {
+            const exprRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
+            const refs = exprRefs.length > 0 ? exprRefs : (() => {
+              const field = bodyNode.expr ?? bodyNode.init;
+              if (typeof field !== "string") return [];
+              const m = field.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              return m ? m.map((r: string) => r.slice(1)) : [];
+            })();
+            for (const varName of refs) {
+              const reactiveNodeId = reactiveVarNodeIds.get(varName);
+              if (reactiveNodeId) {
+                edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
+                const readers = reactiveVarReaders.get(varName);
+                if (readers) readers.add(fnDGNodeId);
               }
             }
           }
@@ -913,22 +988,6 @@ export function runDG(input: DGInput): DGOutput {
             const reactiveNodeId = reactiveVarNodeIds.get(bodyNode.name);
             if (reactiveNodeId) {
               edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "writes" });
-            }
-          }
-
-          // reactive-derived-decl: scan init expression for reads
-          if (bodyNode.kind === "reactive-derived-decl" && bodyNode.init) {
-            const atRefs = bodyNode.init.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-            if (atRefs) {
-              for (const ref of atRefs) {
-                const varName = ref.slice(1);
-                const reactiveNodeId = reactiveVarNodeIds.get(varName);
-                if (reactiveNodeId) {
-                  edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
-                  const readers = reactiveVarReaders.get(varName);
-                  if (readers) readers.add(fnDGNodeId);
-                }
-              }
             }
           }
 
@@ -1007,22 +1066,37 @@ export function runDG(input: DGInput): DGOutput {
       function collectReadsAndCalls(nodes: any[]): void {
         for (const bodyNode of nodes) {
           if (!bodyNode || typeof bodyNode !== "object") continue;
+          // Prefer ExprNode walk for @var refs and callees.
+          const exprRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
+          const exprCallees = collectCalleesFromExprNode(bodyNode as Record<string, unknown>);
+          if (exprRefs.length > 0 || exprCallees.length > 0) {
+            for (const varName of exprRefs) {
+              if (reactiveVarNodeIds.has(varName)) {
+                fnDirectReactiveReads.get(fnNode.name)!.add(varName);
+              }
+            }
+            for (const callee of exprCallees) {
+              fnCallGraphMap.get(fnNode.name)!.add(callee);
+            }
+          }
+          // String fallback for nodes without ExprNode fields.
           for (const field of ["expr", "init", "header"] as const) {
             const val = bodyNode[field];
-            if (typeof val === "string") {
-              const atRefs = val.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-              if (atRefs) {
-                for (const ref of atRefs) {
-                  const varName = ref.slice(1);
-                  if (reactiveVarNodeIds.has(varName)) {
-                    fnDirectReactiveReads.get(fnNode.name)!.add(varName);
-                  }
+            if (typeof val !== "string") continue;
+            // Skip string scan if ExprNode already covered this node.
+            if (exprRefs.length > 0 || exprCallees.length > 0) continue;
+            const atRefs = val.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+            if (atRefs) {
+              for (const ref of atRefs) {
+                const varName = ref.slice(1);
+                if (reactiveVarNodeIds.has(varName)) {
+                  fnDirectReactiveReads.get(fnNode.name)!.add(varName);
                 }
               }
-              const callees = extractCallees(val);
-              for (const callee of callees) {
-                fnCallGraphMap.get(fnNode.name)!.add(callee);
-              }
+            }
+            const callees = extractCallees(val);
+            for (const callee of callees) {
+              fnCallGraphMap.get(fnNode.name)!.add(callee);
             }
           }
           if (bodyNode.kind === "match-stmt" && Array.isArray(bodyNode.body)) {
