@@ -99,7 +99,7 @@ function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string
     const inner = handler.slice(1, -1).trim();
     return inner ? rewriteBlockBody(inner, machineBindings ?? null) : "";
   }
-  const rewritten = rewriteExpr(handler);
+  const rewritten = arm.handlerExpr ? emitExpr(arm.handlerExpr, _makeExprCtx({})) : rewriteExpr(handler);
   return rewritten.trim().endsWith(";") ? rewritten.trim() : rewritten.trim() + ";";
 }
 
@@ -835,8 +835,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "upload-call": {
-      const file = rewriteExpr(node.file ?? "null");
-      const url = rewriteExpr(node.url ?? '""');
+      const file = node.fileExpr ? emitExpr(node.fileExpr, _makeExprCtx(opts)) : rewriteExpr(node.file ?? "null");
+      const url = node.urlExpr ? emitExpr(node.urlExpr, _makeExprCtx(opts)) : rewriteExpr(node.url ?? '""');
       return `_scrml_upload(${file}, ${url});`;
     }
 

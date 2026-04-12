@@ -165,6 +165,8 @@ export interface ErrorArm {
   binding: string;
   /** Raw handler expression string. */
   handler: string;
+  /** Phase 3: structured ExprNode form of `handler` (non-block handlers only). */
+  handlerExpr?: ExprNode;
   span: Span;
 }
 
@@ -797,8 +799,12 @@ export interface UploadCallNode extends BaseNode {
   kind: "upload-call";
   /** File expression (raw string). */
   file: string;
+  /** Phase 3: structured ExprNode form of `file`. */
+  fileExpr?: ExprNode;
   /** URL expression (raw string). */
   url: string;
+  /** Phase 3: structured ExprNode form of `url`. */
+  urlExpr?: ExprNode;
 }
 
 /** A debounce call: `debounce(fn, ms)`. Built-in debounce utility. */

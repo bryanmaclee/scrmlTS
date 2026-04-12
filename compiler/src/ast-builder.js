@@ -3747,11 +3747,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
         // Consume optional trailing semicolon
         if (peek().kind === "PUNCT" && peek().text === ";") consume();
+        const _uploadFile = fileParts.join(" ").trim();
+        const _uploadUrl = urlParts.join(" ").trim();
         nodes.push({
           id: ++counter.next,
           kind: "upload-call",
-          file: fileParts.join(" ").trim(),
-          url: urlParts.join(" ").trim(),
+          file: _uploadFile,
+          fileExpr: safeParseExprToNode(_uploadFile, spanOf(startTok, lastTok)?.start ?? 0),
+          url: _uploadUrl,
+          urlExpr: safeParseExprToNode(_uploadUrl, spanOf(startTok, lastTok)?.start ?? 0),
           span: spanOf(startTok, lastTok),
         });
       }
@@ -4528,10 +4532,12 @@ function parseErrorTokens(tokens, filePath) {
         handlerJoined += sep + handlerParts[pi];
       }
 
+      const _handlerTrimmed = handlerJoined.trim();
       arms.push({
         pattern,
         binding,
-        handler: handlerJoined.trim(),
+        handler: _handlerTrimmed,
+        handlerExpr: (!_handlerTrimmed.startsWith("{")) ? safeParseExprToNodeGlobal(_handlerTrimmed, filePath, tokenSpan(armStart, filePath)?.start ?? 0) : undefined,
         span: tokenSpan(armStart, filePath),
       });
     } else if (
@@ -4577,10 +4583,12 @@ function parseErrorTokens(tokens, filePath) {
         const sep = (handlerPartLines[pi] > handlerPartLines[pi - 1]) ? "\n" : " ";
         handlerJoined += sep + handlerParts[pi];
       }
+      const _handlerTrimmed2 = handlerJoined.trim();
       arms.push({
         pattern,
         binding,
-        handler: handlerJoined.trim(),
+        handler: _handlerTrimmed2,
+        handlerExpr: (!_handlerTrimmed2.startsWith("{")) ? safeParseExprToNodeGlobal(_handlerTrimmed2, filePath, tokenSpan(armStart, filePath)?.start ?? 0) : undefined,
         span: tokenSpan(armStart, filePath),
       });
     } else {
@@ -4904,6 +4912,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
             pattern: typeName,
             binding,
             handler: handlerBody,
+            handlerExpr: safeParseExprToNodeGlobal(handlerBody, filePath, block.span?.start ?? 0),
             span: { file: filePath, start: block.span.start, end: block.span.end, line: block.span.line, col: block.span.col },
           });
           rest = rest.slice(closePos + 1).trim();
