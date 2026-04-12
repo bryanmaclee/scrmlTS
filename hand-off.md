@@ -1,69 +1,58 @@
-# scrmlTS — Session 8 Hand-Off
+# scrmlTS — Session 9 Hand-Off
 
 **Date:** 2026-04-12
-**Previous:** `handOffs/hand-off-7.md`
-**Baseline at start:** 5,703 pass / 155 fail across 5,858 tests (feat/expr-ast-phase-3-emit-expr @ `623aeac`)
+**Previous:** `handOffs/hand-off-8.md`
+**Baseline at start:** 6,000 pass / 145 fail across 6,145 tests (main @ `4a54331`)
 
 ---
 
-## Session 8 — complete
+## Session 9 — in progress
 
-### Commits (15 on main)
+### Commits (2 on feat/phase-4a-html-fragment)
 
-1. Markup attr ExprNode + emit-lift + emit-event-wiring — 6 dual-path sites, `is .Variant` fix (+6 passes)
-2. ErrorArm.handler + UploadCallNode.file/url — 3 dual-path sites
-3. When-effect + when-worker bodies — 3 dual-path sites
-4. **Phase 3.5: escape hatch elimination** — `shouldSkipExprParse()` guard → **19.86% → 0%**
-5. Phase 4: collapse multi-statement splitting — removed 89 lines dead code, 103 → 93 rewriteExpr
-6. Tilde expression parser — context-aware `~` preprocessing (tildeActive option)
-7. Parity test — 286-file corpus, 0 emitExpr errors, 0 compile errors
-8. Merge to main (fast-forward, 18 branch commits)
-9. **Found: 12 main-loop AST creation sites missing ExprNode** — let-decl, const-decl, reactive-decl (×2), reactive-derived-decl, tilde-decl, while-stmt, do-while-stmt, reactive-decl typed, reactive-decl server, reactive-decl shared
-10. C-style for-loop cStyleParts — parse init/cond/update individually
-11. CallRefAttrValue argExprNodes — per-arg ExprNode for event handler args
-12. Cold-start project mapper refresh
+1. **ExprNode wiring + HTML fragment reclassification** — wire exprNode on 12 bare-expr creation sites across all 3 parse loops; add `HtmlFragmentNode` type; reclassify 137 HTML fragments from bare-expr; update emit-logic, emit-lift, type-system. Coverage 86.2% → 98.8%.
+2. **Error-arm block handlers** — strip braces from block handlers before ExprNode parsing via `_parseHandlerExpr` helper. 4 gaps closed. Coverage 98.8% → 99.0%.
 
-### Final state
+### State
 
-| Metric | Start | End |
-|--------|-------|-----|
-| Tests | 5,703 / 155 fail | **6,000 / 145 fail** |
-| Dual-path sites | 39 | **57** |
-| Escape-hatch rate | 19.86% | **0%** |
-| ExprNode coverage | ~28.8% | **86.2%** (1735/2013) |
-| rewriteExpr calls | 103 | **93** |
+| Metric | S8 End | S9 Current |
+|--------|--------|------------|
+| Tests | 6,000 / 145 fail | **6,000 / 145 fail** (0 regressions) |
+| ExprNode coverage | 86.2% (1735/2013) | **99.0% (1858/1876)** |
+| Total expression sites | 2013 | 1876 (137 reclassified to html-fragment) |
+| Remaining gaps | 278 | **18** (all irreducible) |
+
+### Remaining 18 gaps (irreducible)
+
+- **11 C-style for-loop iterables** — `iterExpr` is empty but `cStyleParts` has init/cond/update as ExprNodes. Codegen already uses cStyleParts when present. Fully covered.
+- **3 `.all()` method chains** — SQL chained calls, not standalone JS expressions.
+- **4 `.Variant :> "label"` match arms** — enum/match patterns embedded in bare-expr, not JS.
+
+All 18 are structurally non-expression content. No further coverage improvement possible without fundamentally changing what counts as an "expression site."
 
 ### Key findings
-- **12 AST creation sites in the main parseLogicBody loop were never wired with ExprNode.** Tests passed because the string fallback handled everything. The ExprNode fast-path was dead code for those nodes. This is exactly the class of bug that gauntlets catch — tests validate the legacy path, not the new one.
-- **`~` (tilde) collision with JS bitwise NOT** resolved via context-aware parsing. Only preprocesses `~` as tilde accumulator when `_tildeActive` flag is set (after value-lift). Outside tilde context, `~` is JS bitwise NOT.
+- **119 bare-expr sites in Loop 2 (parseRecursiveBody) were never wired with ExprNode.** Same class of bug as S8's 12 main-loop sites — the second parse loop was cloned without propagating ExprNode wiring to malformed-declaration fallbacks and `@name-as-expression` paths.
+- **MustUseTracker false negative** — reclassifying HTML fragments from bare-expr to html-fragment broke TodoMVC because the type system was accidentally scanning HTML strings (via `node.expr`) to find tilde-decl variable references. Fixed by adding `node.content` to the scanned string fields.
 
-### Phase 4 wall
-Remaining 278 expressions without ExprNode are irreducible for current architecture:
-- 263 bare-expr HTML tag fragments (intentionally skipped by `shouldSkipExprParse`)
-- 11 C-style for-loop iterables (skipped — parts parsed individually via cStyleParts)
-- 4 error-arm block bodies (multi-statement, can't be single ExprNode)
-
-Further reduction requires structural AST changes (parsing HTML fragments as markup nodes, parsing error-arm bodies as statement arrays).
-
-### Non-compliance report
-4 stale docs flagged for deref to scrml-support/archive/ (deferred to cleanup pass):
+### Non-compliance report (carried from S8)
+4 stale docs flagged for deref to scrml-support/archive/:
 - `docs/changes/self-host-ast-exprnode-resync/progress.md`
 - `docs/changes/expr-ast-phase-1/anomaly-report.md`
 - `docs/changes/expr-ast-phase-2-slice-1/anomaly-report.md`
 - `docs/changes/expr-ast-phase-2-slice-2/anomaly-report.md`
 
 ### Next up
-1. **Phase 4 continued** — structural AST changes to reduce the 278 irreducible gaps
-2. **Cleanup pass** — deref 4 stale docs, process uncertain docs
-3. **Gauntlet** — compilation parity gauntlet if structural changes warrant it
+1. **Merge to main** — fast-forward feat/phase-4a-html-fragment
+2. **Phase 4d planning** — drop string fields (the payoff). Requires audit of all consumers.
+3. **Cleanup pass** — deref 4 stale docs
 4. **Other master-list items** — unblock giti/6nz
 
 ---
 
 ## Tags
-#session-8 #complete #phase-3-complete #phase-3.5-complete #phase-4-started #zero-escape-hatches #maps-refreshed
+#session-9 #in-progress #phase-4a-complete #phase-4b-complete #phase-4c-verified #99-percent-exprnode
 
 ## Links
-- [handOffs/hand-off-7.md](./handOffs/hand-off-7.md) — S7 final
+- [handOffs/hand-off-8.md](./handOffs/hand-off-8.md) — S8 final
 - [pa.md](./pa.md)
 - [master-list.md](./master-list.md)

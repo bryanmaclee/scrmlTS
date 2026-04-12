@@ -1,13 +1,13 @@
 # Escape-Hatch Catalog: expr-ast-phase-1 corpus audit
 
-Generated: 2026-04-12T18:55:55.083Z
+Generated: 2026-04-12T20:27:11.466Z
 Branch: `changes/expr-ast-phase-1-audit`
 Phase: Phase 1.5 audit (idempotency invariant)
 
 ## Summary
 
 - Files audited: 14
-- Expression nodes checked: 117
+- Expression nodes checked: 170
 - Total escape hatches: 0
 - Escape-hatch rate: 0.00%
 
@@ -27,19 +27,19 @@ Phase: Phase 1.5 audit (idempotency invariant)
 | File | Checked | Escapes | Idempotency | Error |
 |---|---|---|---|---|
 | 01-hello.scrml | 0 | 0 | PASS |  |
-| 02-counter.scrml | 3 | 0 | PASS |  |
-| 03-contact-book.scrml | 8 | 0 | PASS |  |
-| 04-live-search.scrml | 5 | 0 | PASS |  |
-| 05-multi-step-form.scrml | 10 | 0 | PASS |  |
-| 06-kanban-board.scrml | 10 | 0 | PASS |  |
-| 07-admin-dashboard.scrml | 9 | 0 | PASS |  |
-| 08-chat.scrml | 14 | 0 | PASS |  |
-| 09-error-handling.scrml | 9 | 0 | PASS |  |
-| 10-inline-tests.scrml | 4 | 0 | PASS |  |
-| 11-meta-programming.scrml | 3 | 0 | PASS |  |
-| 12-snippets-slots.scrml | 5 | 0 | PASS |  |
-| 13-worker.scrml | 10 | 0 | PASS |  |
-| 14-mario-state-machine.scrml | 27 | 0 | PASS |  |
+| 02-counter.scrml | 6 | 0 | PASS |  |
+| 03-contact-book.scrml | 11 | 0 | PASS |  |
+| 04-live-search.scrml | 8 | 0 | PASS |  |
+| 05-multi-step-form.scrml | 17 | 0 | PASS |  |
+| 06-kanban-board.scrml | 11 | 0 | PASS |  |
+| 07-admin-dashboard.scrml | 12 | 0 | PASS |  |
+| 08-chat.scrml | 17 | 0 | PASS |  |
+| 09-error-handling.scrml | 15 | 0 | PASS |  |
+| 10-inline-tests.scrml | 7 | 0 | PASS |  |
+| 11-meta-programming.scrml | 4 | 0 | PASS |  |
+| 12-snippets-slots.scrml | 6 | 0 | PASS |  |
+| 13-worker.scrml | 17 | 0 | PASS |  |
+| 14-mario-state-machine.scrml | 39 | 0 | PASS |  |
 
 ## Per-Category Details
 

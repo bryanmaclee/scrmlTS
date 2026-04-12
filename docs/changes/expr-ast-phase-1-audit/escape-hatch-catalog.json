@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-04-12T18:55:55.083Z",
+  "generatedAt": "2026-04-12T20:27:11.466Z",
   "branch": "changes/expr-ast-phase-1-audit",
   "phase": "Phase 1.5 audit (idempotency invariant)",
   "summary": {
     "filesAudited": 14,
-    "totalExprNodesChecked": 117,
+    "totalExprNodesChecked": 170,
     "totalEscapeHatches": 0,
     "escapeHatchRate": "0.00%",
     "byCategory": {
@@ -37,7 +37,7 @@
     {
       "file": "02-counter.scrml",
       "astError": null,
-      "exprNodesChecked": 3,
+      "exprNodesChecked": 6,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -54,7 +54,7 @@
     {
       "file": "03-contact-book.scrml",
       "astError": null,
-      "exprNodesChecked": 8,
+      "exprNodesChecked": 11,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -71,7 +71,7 @@
     {
       "file": "04-live-search.scrml",
       "astError": null,
-      "exprNodesChecked": 5,
+      "exprNodesChecked": 8,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -88,7 +88,7 @@
     {
       "file": "05-multi-step-form.scrml",
       "astError": null,
-      "exprNodesChecked": 10,
+      "exprNodesChecked": 17,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -105,7 +105,7 @@
     {
       "file": "06-kanban-board.scrml",
       "astError": null,
-      "exprNodesChecked": 10,
+      "exprNodesChecked": 11,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -122,7 +122,7 @@
     {
       "file": "07-admin-dashboard.scrml",
       "astError": null,
-      "exprNodesChecked": 9,
+      "exprNodesChecked": 12,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -139,7 +139,7 @@
     {
       "file": "08-chat.scrml",
       "astError": null,
-      "exprNodesChecked": 14,
+      "exprNodesChecked": 17,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -156,7 +156,7 @@
     {
       "file": "09-error-handling.scrml",
       "astError": null,
-      "exprNodesChecked": 9,
+      "exprNodesChecked": 15,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -173,7 +173,7 @@
     {
       "file": "10-inline-tests.scrml",
       "astError": null,
-      "exprNodesChecked": 4,
+      "exprNodesChecked": 7,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -190,7 +190,7 @@
     {
       "file": "11-meta-programming.scrml",
       "astError": null,
-      "exprNodesChecked": 3,
+      "exprNodesChecked": 4,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -207,7 +207,7 @@
     {
       "file": "12-snippets-slots.scrml",
       "astError": null,
-      "exprNodesChecked": 5,
+      "exprNodesChecked": 6,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -224,7 +224,7 @@
     {
       "file": "13-worker.scrml",
       "astError": null,
-      "exprNodesChecked": 10,
+      "exprNodesChecked": 17,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
@@ -241,7 +241,7 @@
     {
       "file": "14-mario-state-machine.scrml",
       "astError": null,
-      "exprNodesChecked": 27,
+      "exprNodesChecked": 39,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {
