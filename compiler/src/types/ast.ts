@@ -377,6 +377,20 @@ export interface TildeDeclNode extends BaseNode {
   initExpr?: ExprNode;
 }
 
+/**
+ * A lin declaration: `lin name = expr` (§35.2).
+ * Declares an immutable linear-type variable that must be consumed exactly once.
+ */
+export interface LinDeclNode extends BaseNode {
+  kind: "lin-decl";
+  /** Variable name. */
+  name: string;
+  /** Initializer expression (raw string). */
+  init: string;
+  /** Phase 2: structured ExprNode form of `init`. Populated by ast-builder. */
+  initExpr?: ExprNode;
+}
+
 // -- Reactive Declarations --
 
 /** A reactive declaration: `@name = expr`. */
@@ -813,6 +827,7 @@ export type LogicStatement =
   | LetDeclNode
   | ConstDeclNode
   | TildeDeclNode
+  | LinDeclNode
   | ReactiveDeclNode
   | ReactiveDerivedDeclNode
   | ReactiveDebouncedDeclNode
