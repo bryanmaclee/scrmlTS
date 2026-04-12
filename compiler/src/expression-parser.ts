@@ -570,6 +570,12 @@ function preprocessForAcorn(raw: string): string {
   s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+([A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*)/g,
     '__scrml_is_variant__($1, "$2")');
 
+  // §32 tilde accumulator: replace standalone `~` with placeholder identifier.
+  // Must not replace `~` inside bitwise NOT contexts — only standalone `~` used as
+  // the scrml accumulator variable. Standalone means: at word boundary, not preceded
+  // by operator that makes it bitwise NOT.
+  s = s.replace(/(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])/g, "__scrml_tilde__");
+
   return s;
 }
 
@@ -694,6 +700,10 @@ export function esTreeToExprNode(
       if (name.startsWith("__scrml_worker_") && name.endsWith("__")) {
         // Worker refs are handled at a higher level; emit as ident for now
         return { kind: "ident", span, name } satisfies IdentExpr;
+      }
+      // §32 tilde accumulator: convert placeholder back to ~ ident
+      if (name === "__scrml_tilde__") {
+        return { kind: "ident", span, name: "~" } satisfies IdentExpr;
       }
       return { kind: "ident", span, name } satisfies IdentExpr;
     }
