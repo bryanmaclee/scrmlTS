@@ -586,17 +586,18 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         // Only apply value-lift if the expression does NOT start with a `<` (markup)
         // and does NOT end with `/` (closing tag form)
         if (!rawExpr.startsWith("<") && !rawExpr.endsWith("/")) {
+          const liftRhs = liftE.exprNode ? emitExpr(liftE.exprNode, _makeExprCtx(opts)) : rewriteExpr(rawExpr);
           if (opts.tildeContext.mode === "array" && opts.tildeContext.var) {
             // Array accumulator mode — push onto existing array variable.
-            return `${opts.tildeContext.var}.push(${rewriteExpr(rawExpr)});`;
+            return `${opts.tildeContext.var}.push(${liftRhs});`;
           }
           if (opts.tildeContext.var) {
             // Tilde var already pre-declared (if-as-expression) — reassign, don't redeclare.
-            return `${opts.tildeContext.var} = ${rewriteExpr(rawExpr)};`;
+            return `${opts.tildeContext.var} = ${liftRhs};`;
           }
           const tVar = genVar("tilde");
           opts.tildeContext.var = tVar;
-          return `let ${tVar} = ${rewriteExpr(rawExpr)};`;
+          return `let ${tVar} = ${liftRhs};`;
         }
       }
       return emitLiftExpr(node);
