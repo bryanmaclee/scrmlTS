@@ -2006,7 +2006,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const startTok = peek();
       const { expr, span } = collectExpr();
       if (expr.trim().length > 0) {
-        return { id: ++counter.next, kind: "bare-expr", expr, span };
+        return { id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span };
       } else {
         const stuckTok = peek();
         if (stuckTok.kind !== "EOF") {
@@ -3959,7 +3959,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             span,
           });
         } else {
-          nodes.push({ id: ++counter.next, kind: "bare-expr", expr, span });
+          nodes.push({ id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span });
         }
       } else {
         // The current token stopped the collector without being consumed —

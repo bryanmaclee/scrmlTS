@@ -1,15 +1,15 @@
 # Escape-Hatch Catalog: expr-ast-phase-1 corpus audit
 
-Generated: 2026-04-11T23:32:45.109Z
+Generated: 2026-04-12T01:54:59.694Z
 Branch: `changes/expr-ast-phase-1-audit`
 Phase: Phase 1.5 audit (idempotency invariant)
 
 ## Summary
 
 - Files audited: 14
-- Expression nodes checked: 82
-- Total escape hatches: 3
-- Escape-hatch rate: 3.66%
+- Expression nodes checked: 145
+- Total escape hatches: 29
+- Escape-hatch rate: 20.00%
 
 ### By Category
 
@@ -18,7 +18,7 @@ Phase: Phase 1.5 audit (idempotency invariant)
 | interpolated-template | 0 |
 | block-lambda | 0 |
 | nested-paren-is | 0 |
-| parse-error | 3 |
+| parse-error | 29 |
 | conversion-error | 0 |
 | unclassified | 0 |
 
@@ -28,32 +28,34 @@ Phase: Phase 1.5 audit (idempotency invariant)
 |---|---|---|---|---|
 | 01-hello.scrml | 0 | 0 | PASS |  |
 | 02-counter.scrml | 3 | 0 | PASS |  |
-| 03-contact-book.scrml | 4 | 0 | PASS |  |
-| 04-live-search.scrml | 3 | 0 | PASS |  |
-| 05-multi-step-form.scrml | 8 | 0 | PASS |  |
-| 06-kanban-board.scrml | 7 | 0 | PASS |  |
-| 07-admin-dashboard.scrml | 4 | 0 | PASS |  |
-| 08-chat.scrml | 9 | 0 | PASS |  |
-| 09-error-handling.scrml | 6 | 0 | PASS |  |
+| 03-contact-book.scrml | 12 | 4 | PASS |  |
+| 04-live-search.scrml | 7 | 2 | PASS |  |
+| 05-multi-step-form.scrml | 10 | 0 | PASS |  |
+| 06-kanban-board.scrml | 13 | 3 | PASS |  |
+| 07-admin-dashboard.scrml | 14 | 5 | PASS |  |
+| 08-chat.scrml | 16 | 3 | PASS |  |
+| 09-error-handling.scrml | 9 | 0 | PASS |  |
 | 10-inline-tests.scrml | 4 | 0 | PASS |  |
-| 11-meta-programming.scrml | 2 | 0 | PASS |  |
-| 12-snippets-slots.scrml | 1 | 0 | PASS |  |
-| 13-worker.scrml | 10 | 3 | PASS |  |
-| 14-mario-state-machine.scrml | 21 | 0 | PASS |  |
+| 11-meta-programming.scrml | 4 | 1 | PASS |  |
+| 12-snippets-slots.scrml | 8 | 3 | PASS |  |
+| 13-worker.scrml | 13 | 3 | PASS |  |
+| 14-mario-state-machine.scrml | 32 | 5 | PASS |  |
 
 ## Per-Category Details
 
 ### parse-error
 
-Total occurrences: 3
+Total occurrences: 29
 
-Files: 13-worker.scrml
+Files: 03-contact-book.scrml, 04-live-search.scrml, 06-kanban-board.scrml, 07-admin-dashboard.scrml, 08-chat.scrml, 11-meta-programming.scrml, 12-snippets-slots.scrml, 13-worker.scrml, 14-mario-state-machine.scrml
 
 Sample source slices (first 3):
 
-- **13-worker.scrml** (`for-stmt` -> `iterable`): `( let i = 2 ; i * i <= limit ; i + + )`
-- **13-worker.scrml** (`for-stmt` -> `iterable`): `( let j = i * i ; j <= limit ; j += i )`
-- **13-worker.scrml** (`for-stmt` -> `iterable`): `( let i = 2 ; i <= limit ; i + + )`
+- **03-contact-book.scrml** (`bare-expr` -> `expr`): `. all ( )`
+- **03-contact-book.scrml** (`bare-expr` -> `expr`): `< / span >
+< span class = "email" >`
+- **03-contact-book.scrml** (`bare-expr` -> `expr`): `< / span >
+< span class = "phone" >`
 
 ## Unclassified Escape Hatches
 

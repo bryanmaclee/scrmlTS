@@ -72,6 +72,7 @@
  */
 
 import { getElementShape, getAllElementNames } from "./html-elements.js";
+import { forEachIdentInExprNode, extractAllIdentifiersFromString, extractIdentifiersExcludingLambdaBodies } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Internal span type (mirrors ast.ts Span)
@@ -3913,6 +3914,7 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
 
     // Scan expression-bearing fields for must-use variable references.
     scanNodeExpressions(node);
+    scanNodeExprNodesForLin(node, lt, loop);
   }
 
   function scanNodeExpressions(node: ASTNodeLike): void {
@@ -3921,6 +3923,118 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
       if (typeof field === "string") {
         mustUseTracker.scanExpression(field);
         if (parentMustUseTracker) parentMustUseTracker.scanExpression(field);
+      }
+    }
+  }
+  /**
+   * Scan ExprNode-form expression fields on an AST node for lin variable references.
+   *
+   * This is the structured counterpart to scanNodeExpressions (which scans string fields
+   * for the mustUseTracker). Both functions run for every node in walkNode.
+   *
+   * For each ExprNode field found on the node (initExpr, exprNode, condExpr, valueExpr,
+   * iterExpr, headerExpr), walk the ExprNode tree with forEachIdentInExprNode to find
+   * all IdentExpr leaves. For each IdentExpr whose name matches a declared lin variable
+   * in `lt` or `parentLinTracker`, call lt.consume().
+   *
+   * Called from walkNode() after the main switch dispatch completes.
+   */
+  function scanNodeExprNodesForLin(node: ASTNodeLike, lt: LinTracker, loop: boolean): void {
+    // Collect all ExprNode-bearing fields. These are the Phase 1 parallel fields.
+    // The ExprNode fields are typed as `ExprNode | undefined` on typed nodes,
+    // but we receive ASTNodeLike (duck-typed). Cast via `any` for field access.
+    const nodeAny = node as Record<string, unknown>;
+
+    // consumedThisNode: tracks which lin variables were consumed during THIS node's scan.
+    // Used to prevent double-consuming from same-node Pass 1 (ExprNode) + Pass 2 (string).
+    // Cross-node consumption (separate bare-expr nodes) is intentionally allowed to fire E-LIN-002.
+    const consumedThisNode = new Set<string>();
+
+    // Helper: consume a lin variable reference if it matches a tracked lin var.
+    function consumeLinRef(name: string, spanObj: unknown): void {
+      // Reactive variable references start with '@' — not lin variables.
+      // Tilde accumulator is '~' — not a lin variable.
+      // Skip both to avoid false positives.
+      if (name.startsWith("@") || name === "~") return;
+
+      // Check if this identifier is a declared lin variable.
+      const tracker = lt.has(name) ? lt : (parentLinTracker && parentLinTracker.has(name) ? parentLinTracker : null);
+      if (!tracker) return;
+
+      // Guard: skip if this lin var was ALREADY consumed during this node's scan.
+      // This prevents double-counting Pass 1 (ExprNode) + Pass 2 (string) for the same logical reference.
+      // But we allow cross-node double-consume (that's exactly E-LIN-002).
+      if (consumedThisNode.has(name)) return;
+      consumedThisNode.add(name);
+
+      // Found a lin variable reference. Consume it.
+      const resolvedSpan = (spanObj ?? mkSpan()) as Span;
+      if (loop) {
+        // Inside a loop: consuming an outer-scope lin variable is E-LIN-002.
+        errors.push(new TSError(
+          "E-LIN-002",
+          `E-LIN-002: Linear variable \`${name}\` consumed inside a loop. ` +
+          `Loop iteration count is unprovable; consume \`${name}\` before or after the loop. ` +
+          `A 'lin' variable can only be used once. Clone it first, or change to 'const'/'let' if reuse is intended.`,
+          resolvedSpan,
+        ));
+      } else {
+        const err = tracker.consume(name, resolvedSpan);
+        if (err) emitLinError(err, resolvedSpan);
+      }
+    }
+
+    // Pass 1: Walk ExprNode-form fields (structured, with precise spans).
+    // All ExprNode parallel fields defined in the Phase 1 convention (ast.ts §4.4).
+    const exprNodeFields: unknown[] = [
+      nodeAny.exprNode,    // bare-expr, return-stmt, throw-stmt
+      nodeAny.initExpr,    // let-decl, const-decl, lin-decl, tilde-decl, reactive-decl, etc.
+      nodeAny.condExpr,    // if-stmt, if-expr, while-loop, for-loop (condition)
+      nodeAny.valueExpr,   // reactive-nested-assign
+      nodeAny.iterExpr,    // for-stmt (iterable expression)
+      nodeAny.headerExpr,  // match-stmt, switch-stmt (header expression)
+    ];
+
+    for (const field of exprNodeFields) {
+      if (!field || typeof field !== "object") continue;
+      const exprField = field as { kind?: string };
+      if (!exprField.kind) continue;
+
+      // Walk the ExprNode tree for IdentExpr nodes.
+      // eslint-disable-next-line no-loop-func
+      forEachIdentInExprNode(field as import("./types/ast.ts").ExprNode, (ident) => {
+        consumeLinRef(ident.name, ident.span);
+      });
+    }
+
+    // Pass 2: String-form scan.
+    //
+    // Always runs on string fields (expr, init, condition, value) in addition to Pass 1.
+    //
+    // This handles two cases:
+    // (a) ExprNode fields are absent entirely (Phase 1 gap — some bare-expr fallback
+    //     paths in ast-builder.js lines 2009/3962 don't call safeParseExprToNode).
+    // (b) ExprNode is PARTIAL — e.g. lin-decl collectExpr over-collection means
+    //     initExpr = LitExpr("hello") but init = '"hello"\nconsole.log(x)'.
+    //     The ExprNode covers only the first sub-expression; the rest of the string
+    //     is scanned here.
+    //
+    // Guard: consumedThisNode prevents double-consuming a var that was already
+    // consumed by Pass 1 on this same node. Cross-node double-consume is intentional
+    // (different bare-expr nodes for the same lin var → E-LIN-002).
+    //
+    // Uses extractAllIdentifiersFromString (parseStatements-based) to handle
+    // multi-statement strings that Acorn's parseExpression would truncate.
+    const stringFields = [nodeAny.expr, nodeAny.init, nodeAny.value, nodeAny.condition];
+    for (const field of stringFields) {
+      if (typeof field !== "string" || !field.trim()) continue;
+      try {
+        const names = extractIdentifiersExcludingLambdaBodies(field as string);
+        for (const name of names) {
+          consumeLinRef(name, undefined);
+        }
+      } catch (_e) {
+        // Extraction failure is non-fatal — skip silently.
       }
     }
   }
@@ -3948,6 +4062,9 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
       // Lin-A3 carve-out: lin-decl at top level of the loop body is registered
       // in loopLocalLin, not the outer tracker.
       if (node.kind === "lin-decl") {
+        // Scan the initExpr for consumption of outer-scope lin variables BEFORE declaring.
+        // Example: `lin y = computeWith(x)` in a loop where x is outer lin → E-LIN-002 for x.
+        scanNodeExprNodesForLin(node, lt, /* loop= */ true);
         loopLocalLin.declare(node.name as string);
         continue;
       }
