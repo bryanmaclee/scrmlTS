@@ -216,7 +216,52 @@ Total: +629 LOC across 3 files (including new test file).
 - After: 0 errors
 
 ## Anomaly Count: 0
-## Status: CLEAR FOR MERGE
+## Status: CLEAR FOR MERGE — Phase 1 gap closed; Pass 2 retained pending Slice 3
+
+## Phase 1 gap closures (post-merge addendum)
+
+Two surgical `exprNode:` additions landed on the same branch after the original Slice 2
+commit, closing the Phase 1 gap documented in "Implementation Notes" above. These are the
+`bare-expr` emission sites in `ast-builder.js` that `collectExpr()` reaches but Phase 1 did
+not update to populate `exprNode`.
+
+### Added lines
+
+- `compiler/src/ast-builder.js:2009` —
+  `        return { id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span };`
+- `compiler/src/ast-builder.js:3962` —
+  `          nodes.push({ id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span });`
+
+Both use `safeParseExprToNode` (the never-throws variant) with the same `(expr, 0)` shape
+used by the sibling on-mount bare-expr emissions at lines 1990 / 3929.
+
+### Pass 2 intentionally NOT removed
+
+The Pass 2 string-scan fallback in `scanNodeExprNodesForLin` (`type-system.ts`) remains in
+place. A previous follow-up attempt to delete Pass 2 alongside these additions regressed 3
+e2e tests because of a deferred `collectExpr` over-collection bug — a single multi-statement
+`collectExpr()` emission fuses several statements into one `bare-expr.expr` string, and Pass 1
+on its `exprNode` only sees the first parseable expression. Pass 2 on the raw string still
+catches the trailing identifiers. Retiring Pass 2 requires fixing `collectExpr` first.
+
+### Path to Pass 2 deletion
+
+1. **Slice 3** fixes `collectExpr` over-collection so each statement becomes its own node.
+2. Once Slice 3 lands, Pass 2 becomes provably unnecessary — Pass 1 sees every identifier.
+3. **Slice 4** deletes Pass 2 and the `extractIdentifiersExcludingLambdaBodies` helper.
+
+### Verification (with additions applied)
+
+- `expr-node-corpus-invariant.test.js` — **15 pass, 0 fail** (Phase 1.5 idempotency holds
+  on the newly-populated `exprNode` fields).
+- `lin-enforcement-e2e.test.js` — **9 pass, 0 fail** (Slice 2 e2e unchanged).
+- `compiler/tests/unit` — **4902 pass, 3 fail, 2 skip** (unchanged baseline).
+- `compiler/tests/integration` — **94 pass, 2 fail** (same pre-existing self-host-smoke
+  failures, no new failures, no regressions).
+
+Zero regressions; zero new anomalies. The additions are strictly improving — every
+newly-populated `exprNode` gives Pass 1 a chance to resolve the identifier directly from
+the AST, reducing (though not yet eliminating) Pass 2's responsibility.
 
 ## Tags
 #scrmlTS #expr-ast #phase-2 #slice-2 #checkLinear #lin-enforcement #ExprNode #type-system #lin-params
