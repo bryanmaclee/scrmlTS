@@ -115,37 +115,16 @@
 ${
     type PowerUp:enum = { Mushroom, Flower, Feather }
 
-    type MarioState:enum = {
-        Small
-        Big
-        Fire
-        Cape
+    type MarioState:enum = { Small, Big, Fire, Cape }
 
-        transitions {
-            .Small => .Big
-            .Small => .Fire
-            .Small => .Cape
-            .Big   => .Fire
-            .Big   => .Cape
-            .Big   => .Small
-            .Fire  => .Small
-            .Cape  => .Small
-        }
-    }
-
-    @marioState = MarioState.Small
+    @marioState: MarioMachine = MarioState.Small
     @coins = 0
     @lives = 3
     @gameOver = false
-    @marioEmoji = "🧍"
-    @marioName = "SMALL MARIO"
-    @isSmall = true
 
-    function updateDisplay() {
-        @marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
-        @marioName = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
-        @isSmall = @marioState == MarioState.Small
-    }
+    ~marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
+    ~marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
+    ~isSmall    = @marioState == MarioState.Small
 
     function eatPowerUp(powerUp) {
         if (@gameOver) { return }
@@ -158,14 +137,12 @@ ${
             .Flower  => MarioState.Fire
             .Feather => MarioState.Cape
         }
-        updateDisplay()
     }
 
     function getHurt() {
         if (@gameOver) { return }
         let wasSmall = @marioState == MarioState.Small
         @marioState = MarioState.Small
-        updateDisplay()
         if (wasSmall) {
             @lives = @lives - 1
             if (@lives == 0) {
@@ -179,7 +156,6 @@ ${
         @coins = 0
         @lives = 3
         @gameOver = false
-        updateDisplay()
     }
 }
 

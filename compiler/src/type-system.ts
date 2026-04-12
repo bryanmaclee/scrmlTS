@@ -2262,7 +2262,9 @@ function validateMarkupAttributes(
  * Used to check E-AUTH-005: server @var requires a server context.
  */
 function hasProgramDbAttr(fileAST: FileAST): boolean {
-  const nodes = (fileAST.nodes as ASTNodeLike[] | undefined) ?? [];
+  const nodes = (fileAST.nodes as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+    ?? [];
   const programNode = nodes.find(
     (node: ASTNodeLike) => node.kind === "markup" && (node as ASTNodeLike).tag === "program"
   );
@@ -2280,6 +2282,7 @@ function annotateNodes(
   generatedTypesByScopeId: Map<string, Map<string, { fullType: ResolvedType; clientType: ResolvedType }>>,
   errors: TSError[],
   stateTypeRegistry: Map<string, ResolvedType>,
+  machineRegistry: Map<string, MachineType>,
 ): Map<string, ResolvedType> {
   const nodeTypes = new Map<string, ResolvedType>();
   const filePath = fileAST.filePath;
@@ -2315,7 +2318,11 @@ function annotateNodes(
       if (Array.isArray(children)) collectFnErrorTypes(children);
     }
   }
-  collectFnErrorTypes((fileAST.nodes as ASTNodeLike[] | undefined) ?? []);
+  collectFnErrorTypes(
+    (fileAST.nodes as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+    ?? []
+  );
 
   function visitNode(node: unknown): ResolvedType {
     if (!node || typeof node !== "object") return tUnknown();
@@ -3014,13 +3021,18 @@ function annotateNodes(
   }
 
   // Walk all top-level nodes.
-  const topNodes = fileAST.nodes ?? [];
+  // CE output shape nests data under fileAST.ast — use dual-shape fallback.
+  const topNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+    ?? [];
   for (const node of topNodes) {
     visitNode(node);
   }
 
   // Also annotate typeDecl nodes that may exist only in fileAST.typeDecls.
-  const typeDeclNodes = fileAST.typeDecls ?? [];
+  const typeDeclNodes = (fileAST.typeDecls as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.typeDecls as ASTNodeLike[] | undefined)
+    ?? [];
   for (const node of typeDeclNodes) {
     const key = nodeKey(node);
     if (!nodeTypes.has(key)) {
@@ -4324,7 +4336,10 @@ function processFile(
   const fileSpan: Span = { file: filePath, start: 0, end: 0, line: 1, col: 1 };
 
   // TS-B Step 1: Build the file-level type registry from type declarations.
-  const typeDecls = (fileAST.typeDecls as ASTNodeLike[] | undefined) ?? [];
+  // CE output shape nests data under fileAST.ast — use dual-shape fallback.
+  const typeDecls = (fileAST.typeDecls as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.typeDecls as ASTNodeLike[] | undefined)
+    ?? [];
   const typeRegistry = buildTypeRegistry(typeDecls, errors, fileSpan);
 
   // TS-B Step 1.2: Seed type registry with imported types from dependency files (§21.3).
@@ -4344,7 +4359,10 @@ function processFile(
   const stateTypeRegistry = buildStateTypeRegistry();
 
   // §51.3: Build the machine registry from machine-decl AST nodes.
-  const machineDecls = (fileAST.machineDecls as ASTNodeLike[] | undefined) ?? [];
+  // CE output shape nests data under fileAST.ast — use dual-shape fallback.
+  const machineDecls = (fileAST.machineDecls as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.machineDecls as ASTNodeLike[] | undefined)
+    ?? [];
   const machineRegistry = buildMachineRegistry(machineDecls, typeRegistry, errors, fileSpan);
 
   // TS-B Step 2: Generate db-schema-derived types from ProtectAnalysis.
@@ -4389,6 +4407,7 @@ function processFile(
     generatedTypesByScopeId,
     errors,
     stateTypeRegistry,
+    machineRegistry,
   );
 
   // TS-G: Linear type enforcement pass.
@@ -4407,7 +4426,9 @@ function processFile(
   }
 
   // TS-H: Loop control flow validation (E-LOOP-001/002/005).
-  const allNodes = (fileAST.nodes as ASTNodeLike[] | undefined) ?? [];
+  const allNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
+    ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+    ?? [];
   if (allNodes.length > 0) {
     checkLoopControl(allNodes, errors, filePath);
   }
