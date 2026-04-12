@@ -561,6 +561,8 @@ export interface ForStmtNode extends BaseNode {
   body: LogicStatement[];
   /** Phase 1: structured ExprNode form of `iterable`. Populated by ast-builder. */
   iterExpr?: ExprNode;
+  /** Phase 4: C-style for-loop parts `(init; cond; update)` parsed individually. */
+  cStyleParts?: { initExpr: ExprNode; condExpr: ExprNode; updateExpr: ExprNode };
 }
 
 /** A while loop: `while condition { body }`. */

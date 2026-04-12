@@ -1593,6 +1593,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume();
         body = parseRecursiveBody();
       }
+      // Phase 4: detect C-style for-loop and parse parts individually
+      const _cStyleMatch = iterable.match(/^\(\s*(.*?)\s*;\s*(.*?)\s*;\s*(.*?)\s*\)$/s);
+      const _cStyleParts = _cStyleMatch ? {
+        initExpr: safeParseExprToNode(_cStyleMatch[1].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"), 0),
+        condExpr: safeParseExprToNode(_cStyleMatch[2].trim(), 0),
+        updateExpr: safeParseExprToNode(_cStyleMatch[3].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"), 0),
+      } : undefined;
       return {
         id: ++counter.next,
         kind: "for-stmt",
@@ -1600,6 +1607,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         iterable,
         body,
         iterExpr: safeParseExprToNode(iterable, 0),
+        ...(_cStyleParts && _cStyleParts.initExpr && _cStyleParts.condExpr && _cStyleParts.updateExpr ? { cStyleParts: _cStyleParts } : {}),
         span: spanOf(startTok, peek()),
       };
     }
@@ -3344,6 +3352,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume();
         body = parseRecursiveBody();
       }
+      // Phase 4: detect C-style for-loop and parse parts individually
+      const _cStyleMatch2 = iterable.match(/^\(\s*(.*?)\s*;\s*(.*?)\s*;\s*(.*?)\s*\)$/s);
+      const _cStyleParts2 = _cStyleMatch2 ? {
+        initExpr: safeParseExprToNode(_cStyleMatch2[1].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"), 0),
+        condExpr: safeParseExprToNode(_cStyleMatch2[2].trim(), 0),
+        updateExpr: safeParseExprToNode(_cStyleMatch2[3].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"), 0),
+      } : undefined;
       nodes.push({
         id: ++counter.next,
         kind: "for-stmt",
@@ -3351,6 +3366,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         iterable,
         body,
         iterExpr: safeParseExprToNode(iterable, 0),
+        ...(_cStyleParts2 && _cStyleParts2.initExpr && _cStyleParts2.condExpr && _cStyleParts2.updateExpr ? { cStyleParts: _cStyleParts2 } : {}),
         span: spanOf(startTok, peek()),
       });
       continue;

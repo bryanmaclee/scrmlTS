@@ -86,9 +86,10 @@ export function emitForStmt(node: any): string {
     // Check for C-style for loop: "( let i = 0 ; i < 10 ; i++ )"
     const cStyleMatch = iterable.match(/^\(\s*(.*?)\s*;\s*(.*?)\s*;\s*(.*?)\s*\)$/s);
     if (cStyleMatch) {
-      const init = rewriteExpr(cStyleMatch[1].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"));
-      const cond = rewriteExpr(cStyleMatch[2].trim());
-      const update = rewriteExpr(cStyleMatch[3].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"));
+      const _cParts = node.cStyleParts;
+      const init = _cParts?.initExpr ? emitExpr(_cParts.initExpr, { mode: "client" }) : rewriteExpr(cStyleMatch[1].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"));
+      const cond = _cParts?.condExpr ? emitExpr(_cParts.condExpr, { mode: "client" }) : rewriteExpr(cStyleMatch[2].trim());
+      const update = _cParts?.updateExpr ? emitExpr(_cParts.updateExpr, { mode: "client" }) : rewriteExpr(cStyleMatch[3].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"));
       lines.push(`for (${init}; ${cond}; ${update}) {`);
 
       const body: any[] = node.body ?? [];
