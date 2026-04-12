@@ -3974,7 +3974,9 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     }
 
     // String-field fallback: nodes without ExprNode fields still need scanning.
-    const stringFields = [node.expr, node.init, node.value, node.condition, node.test];
+    // node.content: html-fragment nodes carry HTML that may reference tilde-decl names
+    // (e.g. `onclick=...` in a fragmented lift body where `onclick` is a misparsed tilde-decl).
+    const stringFields = [node.expr, node.init, node.value, node.condition, node.test, node.content];
     for (const field of stringFields) {
       if (typeof field === "string") {
         mustUseTracker.scanExpression(field);

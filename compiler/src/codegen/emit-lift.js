@@ -763,9 +763,11 @@ function splitChildTagSegments(content) {
 export function hasFragmentedLiftBody(body) {
   if (!body || body.length < 2) return false;
   const hasLift = body.some(n => n && n.kind === "lift-expr");
-  // Pattern 1: bare-expr with HTML chars (< > /) — explicit HTML fragment
-  const hasBareHtmlFragment = body.some(n => n && n.kind === "bare-expr" &&
-    typeof n.expr === "string" && /[<>/]/.test(n.expr));
+  // Pattern 1: html-fragment node (Phase 4) or legacy bare-expr with HTML chars
+  const hasBareHtmlFragment = body.some(n => n && (
+    n.kind === "html-fragment" ||
+    (n.kind === "bare-expr" && typeof n.expr === "string" && /[<>/]/.test(n.expr))
+  ));
   // Pattern 2: tilde-decl with lowercase HTML attribute name — attribute tokens misparsed
   // as variable assignments. e.g. `onclick = toggleTodo(id)` → tilde-decl{name:"onclick"}
   const hasTildeDeclFragment = body.some(n => n && n.kind === "tilde-decl" &&
@@ -1111,6 +1113,40 @@ export function emitConsolidatedLift(body, opts = {}) {
               addContentToCurrentElement(parts);
             }
           }
+        }
+      }
+    } else if (child.kind === "html-fragment" && typeof child.content === "string") {
+      // Phase 4: html-fragment nodes carry the same content that bare-expr.expr had
+      let expr = child.content.trim();
+      if (!expr) continue;
+      if (/^\/\s*$/.test(expr)) continue;
+      if (expr === ">") continue;
+      const isAttrContinuation = !expr.startsWith("<") &&
+        /^[a-z][a-z0-9\-_:]*\s*=/.test(expr);
+      if (isAttrContinuation) {
+        const elEntry = currentElement();
+        if (elEntry) {
+          const firstTagIdx = expr.search(/<\s*[A-Za-z/]/);
+          const attrPart = firstTagIdx === -1 ? expr : expr.slice(0, firstTagIdx);
+          const remainder = firstTagIdx === -1 ? "" : expr.slice(firstTagIdx);
+          const attrs = parseAttrs(attrPart);
+          const attrLines = emitSetAttrs(elEntry.varName, attrs);
+          for (const l of attrLines) lines.push(l);
+          pendingAttrName = null;
+          if (remainder.trim()) {
+            processContentWithTags(remainder);
+          }
+        }
+        continue;
+      }
+      if (hasNestedTag(expr) || isClosingTagFragment(expr) || containsClosingTag(expr)) {
+        processContentWithTags(expr);
+      } else {
+        expr = expr.replace(/\s*\/\s*$/, "").trim();
+        if (expr) {
+          const parts = [];
+          parseLiftContentParts(expr, parts);
+          addContentToCurrentElement(parts);
         }
       }
     } else if (child.kind === "bare-expr" && typeof child.expr === "string") {

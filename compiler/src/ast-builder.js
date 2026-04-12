@@ -77,6 +77,22 @@ function shouldSkipExprParse(expr) {
 }
 
 /**
+ * Phase 4: detect whether an expression string is an HTML fragment rather than a JS expression.
+ * Used at bare-expr creation sites to emit html-fragment nodes instead of bare-expr.
+ * Matches the HTML-specific patterns from shouldSkipExprParse (not method chains or for-loops).
+ */
+function isHtmlFragment(expr) {
+  if (!expr || typeof expr !== "string") return false;
+  const t = expr.trim();
+  if (!t) return false;
+  if (/^\s*</.test(t)) return true;
+  if (/^\s*>/.test(t)) return true;
+  if (/< \/ [a-z]/i.test(t)) return true;
+  if (/\n/.test(t) && /<[a-z]/i.test(t)) return true;
+  return false;
+}
+
+/**
  * Module-level safe expression parser — wraps parseExprToNode in try/catch.
  * Returns undefined on failure. Used by parseAttributes (module-level scope)
  * and other module-level helpers that need ExprNode but lack access to the
@@ -1361,7 +1377,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         return { id: ++counter.next, kind: "reactive-debounced-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), delay, span: spanOf(startTok, peek()) };
       }
       const { expr, span } = collectExpr();
-      return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + " " + name + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) };
+      const _be1 = startTok.text + " " + name + (expr ? " " + expr : "");
+      return { id: ++counter.next, kind: "bare-expr", expr: _be1, exprNode: safeParseExprToNode(_be1, 0), span: spanOf(startTok, peek()) };
     }
 
     // server MODIFIER: `server @varName = expr` → reactive-decl with isServer: true (§52.4)
@@ -1382,7 +1399,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
       // Malformed — emit as bare-expr
       const { expr } = collectExpr();
-      return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + " " + atTok.text + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) };
+      const _be2 = startTok.text + " " + atTok.text + (expr ? " " + expr : "");
+      return { id: ++counter.next, kind: "bare-expr", expr: _be2, exprNode: safeParseExprToNode(_be2, 0), span: spanOf(startTok, peek()) };
     }
 
     // @shared MODIFIER: `@shared varName = expr` → reactive-decl with isShared: true (§37.4)
@@ -1397,7 +1415,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
       // Malformed @shared — emit as bare-expr
       const { expr } = collectExpr();
-      return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) };
+      const _be3 = startTok.text + (expr ? " " + expr : "");
+      return { id: ++counter.next, kind: "bare-expr", expr: _be3, exprNode: safeParseExprToNode(_be3, 0), span: spanOf(startTok, peek()) };
     }
 
     // REACTIVE DECL / NESTED ASSIGN / ARRAY MUTATION: @name...
@@ -1469,7 +1488,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // Not a nested assignment or array mutation — reconstruct as bare-expr
         const pathStr = "." + pathSegments.join(".");
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + pathStr + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) };
+        const _be4 = startTok.text + pathStr + (expr ? " " + expr : "");
+        return { id: ++counter.next, kind: "bare-expr", expr: _be4, exprNode: safeParseExprToNode(_be4, 0), span: spanOf(startTok, peek()) };
       }
 
       // Type annotation: @name: Type(predicate) = expr  (§53)
@@ -1513,7 +1533,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
       // Otherwise: bare-expr starting with @name
       const { expr, span } = collectExpr();
-      return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) };
+      const _be5 = startTok.text + (expr ? " " + expr : "");
+      return { id: ++counter.next, kind: "bare-expr", expr: _be5, exprNode: safeParseExprToNode(_be5, 0), span: spanOf(startTok, peek()) };
     }
 
     // LIFT
@@ -2072,14 +2093,18 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       consume();                  // consume 'dismount'
       consume();                  // consume '{'
       const { body, span: bodySpan } = collectBracedBody();
-      return { id: ++counter.next, kind: "bare-expr", expr: `cleanup(() => { ${body} })`, span: spanOf(startTok, peek()) };
+      const _dm1 = `cleanup(() => { ${body} })`;
+      return { id: ++counter.next, kind: "bare-expr", expr: _dm1, exprNode: safeParseExprToNode(_dm1, 0), span: spanOf(startTok, peek()) };
     }
 
-    // Default: bare-expr
+    // Default: bare-expr (or html-fragment for HTML tokens)
     {
       const startTok = peek();
       const { expr, span } = collectExpr();
       if (expr.trim().length > 0) {
+        if (isHtmlFragment(expr)) {
+          return { id: ++counter.next, kind: "html-fragment", content: expr, span };
+        }
         return { id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span };
       } else {
         const stuckTok = peek();
@@ -2642,10 +2667,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       } else {
         // Malformed — emit as bare-expr
         const { expr, span } = collectExpr();
+        const _be6 = startTok.text + " " + name + (expr ? " " + expr : "");
         nodes.push({
           id: ++counter.next,
           kind: "bare-expr",
-          expr: startTok.text + " " + name + (expr ? " " + expr : ""),
+          expr: _be6,
+          exprNode: safeParseExprToNode(_be6, 0),
           span: spanOf(startTok, peek()),
         });
       }
@@ -2671,7 +2698,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
       // Malformed — emit as bare-expr
       const { expr } = collectExpr();
-      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: startTok.text + " " + atTok.text + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) });
+      const _be7 = startTok.text + " " + atTok.text + (expr ? " " + expr : "");
+      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: _be7, exprNode: safeParseExprToNode(_be7, 0), span: spanOf(startTok, peek()) });
       continue;
     }
 
@@ -2688,7 +2716,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
       // Malformed @shared — emit as bare-expr
       const { expr } = collectExpr();
-      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: startTok.text + (expr ? " " + expr : ""), span: spanOf(startTok, peek()) });
+      const _be8 = startTok.text + (expr ? " " + expr : "");
+      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: _be8, exprNode: safeParseExprToNode(_be8, 0), span: spanOf(startTok, peek()) });
       continue;
     }
 
@@ -2759,10 +2788,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // Not a nested assignment or array mutation — reconstruct as bare-expr
         const pathStr = "." + pathSegments.join(".");
         const { expr, span } = collectExpr();
+        const _be9 = startTok.text + pathStr + (expr ? " " + expr : "");
         nodes.push({
           id: ++counter.next,
           kind: "bare-expr",
-          expr: startTok.text + pathStr + (expr ? " " + expr : ""),
+          expr: _be9,
+          exprNode: safeParseExprToNode(_be9, 0),
           span: spanOf(startTok, peek()),
         });
         continue;
@@ -2827,10 +2858,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
       // @name used as expression (not declaration)
       const { expr, span } = collectExpr();
+      const _be10 = startTok.text + (expr ? " " + expr : "");
       nodes.push({
         id: ++counter.next,
         kind: "bare-expr",
-        expr: startTok.text + (expr ? " " + expr : ""),
+        expr: _be10,
+        exprNode: safeParseExprToNode(_be10, 0),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -4052,11 +4085,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       consume();                  // consume 'dismount'
       consume();                  // consume '{'
       const { body, span: bodySpan } = collectBracedBody();
-      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: `cleanup(() => { ${body} })`, span: spanOf(startTok, peek()) });
+      const _dm2 = `cleanup(() => { ${body} })`;
+      nodes.push({ id: ++counter.next, kind: "bare-expr", expr: _dm2, exprNode: safeParseExprToNode(_dm2, 0), span: spanOf(startTok, peek()) });
       continue;
     }
 
-    // Anything else: BareExpr — collect until statement boundary (with optional `?` propagation)
+    // Anything else: BareExpr or html-fragment — collect until statement boundary
     {
       const startTok = peek();
       const { expr, span } = collectExpr();
@@ -4073,6 +4107,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             exprNode: safeParseExprToNode(innerExpr, 0),
             span,
           });
+        } else if (isHtmlFragment(expr)) {
+          nodes.push({ id: ++counter.next, kind: "html-fragment", content: expr, span });
         } else {
           nodes.push({ id: ++counter.next, kind: "bare-expr", expr, exprNode: safeParseExprToNode(expr, 0), span });
         }

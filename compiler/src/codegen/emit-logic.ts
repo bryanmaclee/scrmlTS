@@ -247,6 +247,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
   const derivedNames: Set<string> | null = opts.derivedNames ?? null;
 
   switch (node.kind) {
+    case "html-fragment":
+      // Phase 4: HTML fragment tokens are not JS — drop them in logic context.
+      // In lift context, emit-lift handles them for tag reconstruction.
+      return "";
     case "bare-expr": {
       // Phase 3 fast path: when exprNode is present, skip all string heuristics
       if (node.exprNode) {

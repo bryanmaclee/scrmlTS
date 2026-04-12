@@ -649,6 +649,18 @@ export interface BareExprNode extends BaseNode {
 }
 
 /**
+ * An HTML fragment token that leaked through the parser into a logic context.
+ * Phase 4: reclassified from bare-expr to avoid conflating markup with JS expressions.
+ * In emit-logic, these are dropped (not valid JS). In emit-lift, they participate
+ * in tag reconstruction for fragmented lift expressions.
+ */
+export interface HtmlFragmentNode extends BaseNode {
+  kind: "html-fragment";
+  /** Raw HTML fragment text (opening tags, closing tags, attribute fragments). */
+  content: string;
+}
+
+/**
  * A lift expression: `lift <markup>` or `lift expr`.
  * Lifts a value from a logic block into the surrounding markup context.
  */
