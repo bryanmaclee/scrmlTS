@@ -10,7 +10,7 @@
  *   §F  E-ATTR-010 (component form) — RHS of bind: on component is not @-prefixed
  *   §G  W-COMPONENT-001 — function-typed prop warning (end-to-end, unblocked)
  *   §H  Valid bind: expansion — produces _bindProps on expanded node, no errors
- *   §I  bind: codegen wiring — DEFERRED to Phase 2 (requires file-based compile API)
+ *   §I  bind: codegen wiring — temp-file compile harness
  *   §J  E-ATTR-011 preserved for DOM elements — bind:nonexistent on <div> still errors
  *   §K  Multiple bind: props on same component
  *   §L  bind: prop with default value — call-site @var overrides default
@@ -21,6 +21,10 @@ import { describe, test, expect } from "bun:test";
 import { splitBlocks } from "../../src/block-splitter.js";
 import { buildAST } from "../../src/ast-builder.js";
 import { runCEFile } from "../../src/component-expander.js";
+import { compileScrml } from "../../src/api.js";
+import { writeFileSync, mkdirSync, rmSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,6 +59,27 @@ function collectNodes(nodes, kind) {
 
 function collectMarkup(nodes) {
   return collectNodes(nodes, "markup");
+}
+
+/** Compile a scrml source string via temp file (mirrors example-js-validity pattern). */
+function compileSource(src) {
+  const tmp = join(tmpdir(), `scrml-cb-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(tmp, { recursive: true });
+  const srcFile = join(tmp, "test.scrml");
+  const outDir = join(tmp, "dist");
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(srcFile, src);
+  try {
+    const result = compileScrml({
+      inputFiles: [srcFile],
+      outputDir: outDir,
+      write: false,
+    });
+    const entry = [...result.outputs.values()][0] ?? {};
+    return { errors: result.errors ?? [], clientJs: entry.clientJs ?? "" };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -427,18 +452,39 @@ describe("§H Valid bind: expansion — _bindProps metadata", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §I bind: codegen wiring — DEFERRED to Phase 2
-// §I deferred to Phase 2 — codegen testing requires file-based compile API
-// (compileScrml from api.js takes file paths; inline-source codegen tests need Phase 2 infra)
+// §I bind: codegen wiring (unblocked via temp-file compile harness)
 // ---------------------------------------------------------------------------
 
-describe("§I bind: codegen wiring — deferred to Phase 2", () => {
-  test.skip("compiled output contains _scrml_reactive_subscribe for bind: props", () => {
-    // Phase 2: use compileScrml with temp file or add inline-source compile API
+describe("§I bind: codegen wiring", () => {
+  const bindSource = `<program>
+\${ @text = "" }
+\${ const TextField = <input type="text" props={ bind value: string }/> }
+<TextField bind:value=@text/>
+</program>`;
+
+  test("compiled output contains _scrml_effect wiring for bind: props", () => {
+    const { errors, clientJs } = compileSource(bindSource);
+    // Filter to only hard errors (ignore warnings and E-COMPONENT-021)
+    const hardErrors = errors.filter(e =>
+      e.severity !== "warning" &&
+      !["E-COMPONENT-021"].includes(e.code ?? e.name ?? "")
+    );
+    expect(hardErrors).toHaveLength(0);
+    // bind: wiring emits _scrml_effect calls with _scrml_reactive_get / _scrml_reactive_set
+    expect(clientJs).toContain("_scrml_effect");
+    expect(clientJs).toContain("_scrml_reactive_get");
+    expect(clientJs).toContain("_scrml_reactive_set");
+    // The wiring section comment is emitted by emit-reactive-wiring
+    expect(clientJs).toContain("bind: prop bidirectional wiring");
   });
 
-  test.skip("bind: codegen uses guard variable to prevent infinite loop", () => {
-    // Phase 2: verify guard variable in codegen output
+  test("bind: codegen uses guard variable to prevent infinite loop", () => {
+    const { clientJs } = compileSource(bindSource);
+    // Guard variable is named _scrml_bind_sync_N (from genVar("bind_sync"))
+    expect(clientJs).toMatch(/_scrml_bind_sync_\d+/);
+    // Guard is declared as `let` and checked with `if (guard) return;`
+    expect(clientJs).toMatch(/let _scrml_bind_sync_\d+ = false/);
+    expect(clientJs).toMatch(/if \(_scrml_bind_sync_\d+\) return/);
   });
 });
 
