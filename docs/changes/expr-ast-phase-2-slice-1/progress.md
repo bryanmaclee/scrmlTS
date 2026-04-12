@@ -9,10 +9,16 @@ Step 4: compiler/tests/integration/lin-decl-emission.test.js — add integration
 
 ## Status
 
-- [ ] Branch created
-- [ ] Pre-snapshot written
-- [ ] Step 1: tokenizer.ts — PENDING
-- [ ] Step 2: ast-builder.js + types/ast.ts — PENDING
-- [ ] Step 3: emit-logic.ts — PENDING
-- [ ] Step 4: integration test — PENDING
-- [ ] Anomaly report — PENDING
+- [x] Branch created (changes/expr-ast-phase-2-slice-1)
+- [x] Pre-snapshot written (pre-snapshot.md)
+- [x] Step 1: tokenizer.ts — DONE (commit e298c7c)
+- [x] Step 2: ast-builder.js + types/ast.ts — DONE (commit 4a49d05)
+- [x] Step 3: emit-logic.ts — DONE (commit 1945ff9)
+- [x] Step 4: integration test (13 tests pass) — DONE (commit 902d265)
+- [x] Anomaly report — DONE (CLEAR FOR MERGE)
+
+## Final test results
+
+Unit:        4902 pass, 3 fail (unchanged), 2 skip
+Integration: 85 pass (72 baseline + 13 new), 2 fail (pre-existing)
+TypeScript:  0 errors
