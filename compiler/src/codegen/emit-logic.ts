@@ -343,42 +343,20 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         }
         return `let ${node.name} = ${rhs};`;
       }
+      // Phase 4 simplified fallback: initExpr is missing (rare — e.g. tilde expressions)
       let letInit: string = node.init ?? "";
-      // §32: If tilde context is active and init contains `~`, substitute the tilde var.
       if (opts.tildeContext?.var && letInit.includes("~")) {
         letInit = rewriteTildeRef(letInit, opts.tildeContext.var);
         opts.tildeContext.var = null;
       }
-      if (typeof letInit === "string" && /@[A-Za-z_$][A-Za-z0-9_$]*\s*=/.test(letInit)) {
-        return splitMergedStatements(node.name, letInit, "let");
-      }
-      if (typeof letInit === "string" && letInit.trim()) {
-        const letSplit = splitBareExprStatements(letInit);
-        if (letSplit.length > 1) {
-          const lines: string[] = [`let ${node.name} = ${rewriteExpr(letSplit[0].trim())};`];
-          for (let i = 1; i < letSplit.length; i++) {
-            const s = letSplit[i].trim();
-            if (s) lines.push(`${rewriteExpr(s)};`);
-          }
-          return lines.filter((l: string) => l !== ";").join("\n");
-        }
-      }
-      // §53.4.5: If TS annotated this node as boundary zone, emit runtime check first.
-      if (node.predicateCheck && node.predicateCheck.zone === "boundary" && letInit) {
+      if (!letInit) return `let ${node.name};`;
+      if (node.predicateCheck && node.predicateCheck.zone === "boundary") {
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
-        const _rewrittenLetInit = rewriteExpr(letInit);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
-        return [
-          `const ${_checkTmpVar} = ${_rewrittenLetInit};`,
-          ..._checkLines,
-          `let ${node.name} = ${_checkTmpVar};`,
-        ].join("\n");
+        return [`const ${_checkTmpVar} = ${rewriteExpr(letInit)};`, ..._checkLines, `let ${node.name} = ${_checkTmpVar};`].join("\n");
       }
-      if (letInit) {
-        return `let ${node.name} = ${rewriteExpr(letInit)};`;
-      }
-      return `let ${node.name};`;
+      return `let ${node.name} = ${rewriteExpr(letInit)};`;
     }
 
     case "const-decl":
@@ -403,38 +381,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (node.initExpr) {
         return `const ${node.name} = ${emitExpr(node.initExpr, _makeExprCtx(opts))};`;
       }
+      // Phase 4 simplified fallback: initExpr is missing (rare — e.g. tilde expressions)
       let constInit: string = node.init ?? "";
-      // §32: If tilde context is active and init contains `~`, substitute the tilde var.
       if (opts.tildeContext?.var && constInit.includes("~")) {
         constInit = rewriteTildeRef(constInit, opts.tildeContext.var);
-        // Consuming ~ resets the tilde context (lin: exactly once).
         opts.tildeContext.var = null;
       }
-      if (typeof constInit === "string" && /@[A-Za-z_$][A-Za-z0-9_$]*\s*=/.test(constInit)) {
-        return splitMergedStatements(node.name, constInit, "const");
-      }
-      // If init references the same name, this is a reassignment (e.g. `cmd = cmd + " " + x`),
-      // not a new declaration. Emit as bare assignment instead of const.
-      const isSelfRef = constInit && new RegExp(`\\b${node.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(constInit);
-      if (isSelfRef) {
-        return `${node.name} = ${rewriteExpr(constInit)};`;
-      }
-      if (typeof constInit === "string" && constInit.trim()) {
-        const constSplit = splitBareExprStatements(constInit);
-        if (constSplit.length > 1) {
-          const lines: string[] = [`const ${node.name} = ${rewriteExpr(constSplit[0].trim())};`];
-          for (let i = 1; i < constSplit.length; i++) {
-            const s = constSplit[i].trim();
-            if (s) lines.push(`${rewriteExpr(s)};`);
-          }
-          return lines.filter((l: string) => l !== ";").join("\n");
-        }
-      }
-      if (constInit) {
-        const rhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(constInit);
-        return `const ${node.name} = ${rhs};`;
-      }
-      return `const ${node.name};`;
+      if (!constInit) return `const ${node.name};`;
+      return `const ${node.name} = ${rewriteExpr(constInit)};`;
     }
 
     case "reactive-decl": {
@@ -457,34 +411,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         }
         return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${wrappedInit});`;
       }
-      if (typeof initStr === "string" && /\s+(?:@[A-Za-z_$]|let\s|const\s)/.test(initStr)) {
-        return splitMergedStatements(node.name, initStr, "reactive");
-      }
-      if (typeof initStr === "string" && initStr !== "undefined") {
-        const initSplit = splitBareExprStatements(initStr);
-        if (initSplit.length > 1) {
-          const firstExpr = rewriteExpr(initSplit[0].trim());
-          const wrappedFirst = _wrapDeepReactive(firstExpr, initSplit[0].trim());
-          const lines: string[] = [`_scrml_reactive_set(${JSON.stringify(encodedName)}, ${wrappedFirst});`];
-          for (let i = 1; i < initSplit.length; i++) {
-            const s = initSplit[i].trim();
-            if (s) lines.push(`${rewriteExpr(s)};`);
-          }
-          return lines.filter((l: string) => l !== ";").join("\n");
-        }
-      }
+      // Phase 4 simplified fallback: initExpr is missing (rare)
       const rewrittenInit = rewriteExpr(initStr);
       const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr);
-      // §53.4.5: If TS annotated this node as boundary zone, emit runtime check first.
       if (node.predicateCheck && node.predicateCheck.zone === "boundary" && initStr !== "undefined") {
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
-        return [
-          `const ${_checkTmpVar} = ${rewrittenInit};`,
-          ..._checkLines,
-          `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${_wrapDeepReactive(_checkTmpVar, initStr)});`,
-        ].join("\n");
+        return [`const ${_checkTmpVar} = ${rewrittenInit};`, ..._checkLines, `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${_wrapDeepReactive(_checkTmpVar, initStr)});`].join("\n");
       }
       return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${wrappedInit});`;
     }
@@ -520,20 +454,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (node.exprNode) {
         return `return ${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
       }
+      // Phase 4 fallback: exprNode is missing (rare — only for unparseable expressions)
       const retExpr: string = (node.expr ?? node.value ?? "").trim();
-      const retSplit = splitBareExprStatements(retExpr);
-      if (retSplit.length > 1) {
-        const firstTrimmed = retSplit[0].trim();
-        const looksLikeStatement = /^[a-zA-Z_$][\w$.]*\s*\.\s*[a-zA-Z_$]/.test(firstTrimmed) ||
-                                    /^[a-zA-Z_$][\w$.]*\s*=\s/.test(firstTrimmed);
-        if (looksLikeStatement) {
-          const stmts = retSplit.map((s: string) => `${rewriteExpr(s.trim())};`).filter((s: string) => s !== ";");
-          return `return;\n${stmts.join("\n")}`;
-        }
-        const remaining = retSplit.slice(1).map((s: string) => `${rewriteExpr(s.trim())};`).filter((s: string) => s !== ";");
-        return `return ${rewriteExpr(retSplit[0].trim())};\n${remaining.join("\n")}`;
-      }
-      return `return ${rewriteExpr(retExpr)};`;
+      return retExpr ? `return ${rewriteExpr(retExpr)};` : "return;";
     }
 
     case "if-stmt":
