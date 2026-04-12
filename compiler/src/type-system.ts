@@ -3009,16 +3009,18 @@ function annotateNodes(
 
     if (value.kind === "variable-ref") {
       const name = value.name as string;
-      const entry = scopeChain.lookup(name);
+      // For dotted access like @todos.length, resolve the base name (@todos)
+      const baseName = name.includes(".") ? name.slice(0, name.indexOf(".")) : name;
+      const entry = scopeChain.lookup(baseName);
       if (!entry) {
         const attrSpan = (value.span ?? attr.span ?? parent?.span ?? {
           file: filePath, start: 0, end: 0, line: 1, col: 1,
         }) as Span;
         errors.push(new TSError(
           "E-SCOPE-001",
-          `E-SCOPE-001: Unquoted identifier \`${name}\` in attribute \`${attr.name as string}\` ` +
+          `E-SCOPE-001: Unquoted identifier \`${baseName}\` in attribute \`${attr.name as string}\` ` +
           `cannot be resolved in the current scope. ` +
-          `Did you mean to quote it as a string (\`"${name}"\`), or use \`@\` for a reactive variable (\`@${name}\`)?`,
+          `Did you mean to quote it as a string (\`"${baseName}"\`), or use \`@\` for a reactive variable (\`@${baseName}\`)?`,
           attrSpan,
         ));
       }
