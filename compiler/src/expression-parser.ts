@@ -1468,3 +1468,190 @@ export function deepEqualExprNode(a: ExprNode, b: ExprNode): boolean {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// forEachIdentInExprNode — walk ExprNode tree and invoke callback on every IdentExpr
+// ---------------------------------------------------------------------------
+//
+// Used by the lin type system (checkLinear) to find identifier references
+// inside structured expression trees, replacing the string-regex approach.
+//
+// Semantics:
+// - Every IdentExpr node encountered triggers the callback with that node.
+// - LambdaExpr: the body is NOT descended into — lambdas create a new lin scope.
+//   Capture tracking (when a lambda closes over a lin var) is handled separately
+//   by the `case "closure"` handler in type-system.ts walkNode.
+//   Phase 2 decision: skip lambda bodies conservatively. Future slice can add
+//   capture-based lin consumption here if needed.
+// - EscapeHatchExpr: skipped — opaque content, no identifier extraction possible.
+// - SqlRefExpr, InputStateRefExpr: no sub-expressions to walk.
+// - MemberExpr: object is walked (the base of `obj.prop`), but `property: string`
+//   is NOT an IdentExpr — it is a static property name, not a binding reference.
+//   IndexExpr: both object and index are walked.
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk an ExprNode tree recursively and invoke `callback` for every IdentExpr found.
+ *
+ * The callback receives the IdentExpr node (including its span).
+ * The walk does NOT descend into LambdaExpr bodies (new lin scope boundary).
+ * The walk does NOT descend into EscapeHatchExpr (opaque).
+ *
+ * @param node - Root ExprNode to walk
+ * @param callback - Called once per IdentExpr encountered
+ */
+export function forEachIdentInExprNode(
+  node: ExprNode,
+  callback: (ident: IdentExpr) => void,
+): void {
+  if (!node) return;
+
+  switch (node.kind) {
+    case "ident": {
+      callback(node as IdentExpr);
+      return;
+    }
+
+    case "lit":
+    case "sql-ref":
+    case "input-state-ref":
+    case "escape-hatch": {
+      // Leaf nodes with no sub-expressions. Nothing to walk.
+      return;
+    }
+
+    case "array": {
+      const n = node as ArrayExpr;
+      for (const el of n.elements) {
+        forEachIdentInExprNode(el as ExprNode, callback);
+      }
+      return;
+    }
+
+    case "object": {
+      const n = node as ObjectExpr;
+      for (const prop of n.props) {
+        if (prop.kind === "prop") {
+          // key may be computed (ExprNode) or static (string)
+          if (typeof prop.key !== "string") {
+            forEachIdentInExprNode(prop.key as ExprNode, callback);
+          }
+          forEachIdentInExprNode(prop.value, callback);
+        } else if (prop.kind === "shorthand") {
+          // shorthand: `{ x }` — x is both key and value reference.
+          // The name is a binding reference, so emit a synthetic IdentExpr call.
+          // We can't call callback with the full prop object, so we skip:
+          // shorthand properties are value reads of the identifier.
+          // Represent as an IdentExpr with the prop's span.
+          callback({ kind: "ident", name: prop.name, span: prop.span } as IdentExpr);
+        } else if (prop.kind === "spread") {
+          forEachIdentInExprNode(prop.argument, callback);
+        }
+      }
+      return;
+    }
+
+    case "spread": {
+      const n = node as SpreadExpr;
+      forEachIdentInExprNode(n.argument, callback);
+      return;
+    }
+
+    case "unary": {
+      const n = node as UnaryExpr;
+      forEachIdentInExprNode(n.argument, callback);
+      return;
+    }
+
+    case "binary": {
+      const n = node as BinaryExpr;
+      forEachIdentInExprNode(n.left, callback);
+      forEachIdentInExprNode(n.right, callback);
+      return;
+    }
+
+    case "assign": {
+      const n = node as AssignExpr;
+      forEachIdentInExprNode(n.target, callback);
+      forEachIdentInExprNode(n.value, callback);
+      return;
+    }
+
+    case "ternary": {
+      const n = node as TernaryExpr;
+      forEachIdentInExprNode(n.condition, callback);
+      forEachIdentInExprNode(n.consequent, callback);
+      forEachIdentInExprNode(n.alternate, callback);
+      return;
+    }
+
+    case "member": {
+      const n = node as MemberExpr;
+      // Walk the object (the base) but NOT property (it is a static name string).
+      forEachIdentInExprNode(n.object, callback);
+      return;
+    }
+
+    case "index": {
+      const n = node as IndexExpr;
+      forEachIdentInExprNode(n.object, callback);
+      forEachIdentInExprNode(n.index, callback);
+      return;
+    }
+
+    case "call": {
+      const n = node as CallExpr;
+      forEachIdentInExprNode(n.callee, callback);
+      for (const arg of n.args) {
+        forEachIdentInExprNode(arg as ExprNode, callback);
+      }
+      return;
+    }
+
+    case "new": {
+      const n = node as NewExpr;
+      forEachIdentInExprNode(n.callee, callback);
+      for (const arg of n.args) {
+        forEachIdentInExprNode(arg as ExprNode, callback);
+      }
+      return;
+    }
+
+    case "lambda": {
+      // Do NOT descend into the lambda body — new lin scope boundary.
+      // Phase 2 decision: capture tracking is handled by the `case "closure"`
+      // handler in checkLinear, which reads the `captures` string array on the
+      // AST-level closure node. The ExprNode lambda body is a new scope.
+      //
+      // LambdaParam.defaultValue is an ExprNode and is in the OUTER scope
+      // (evaluated before entering the lambda). Walk default values.
+      const n = node as LambdaExpr;
+      for (const param of n.params) {
+        if (param.defaultValue) {
+          forEachIdentInExprNode(param.defaultValue, callback);
+        }
+      }
+      return;
+    }
+
+    case "cast": {
+      const n = node as CastExpr;
+      forEachIdentInExprNode(n.expression, callback);
+      return;
+    }
+
+    case "match-expr": {
+      const n = node as MatchExpr;
+      // Walk the subject expression. Arms are raw strings (Phase 1) — cannot walk.
+      forEachIdentInExprNode(n.subject, callback);
+      return;
+    }
+
+    default: {
+      // TypeScript exhaustiveness check. If this fires, a new ExprNode kind was
+      // added without updating this function. Stop-and-report trigger per spec.
+      const _never: never = node;
+      return;
+    }
+  }
+}
