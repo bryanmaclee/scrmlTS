@@ -203,9 +203,19 @@ function emitBinary(node: BinaryExpr, ctx: EmitExprContext): string {
     case "is-not-not":
       return `(${left} !== null && ${left} !== undefined)`;
 
-    // §43 enum membership: x is .Variant
-    case "is":
-      return `(${left} === ${right})`;
+    // §43 enum membership: x is .Variant → x === "Variant"
+    case "is": {
+      // The right operand is an enum variant (.Active, Enum.Variant, null, undefined).
+      // Dot-prefixed variants emit as string literals to match rewriteIsOperator behavior.
+      let rhs = right;
+      if (node.right.kind === "ident" && node.right.name.startsWith(".")) {
+        rhs = `"${node.right.name.slice(1)}"`;
+      } else if (node.right.kind === "member") {
+        // Enum.Variant → "Variant"
+        rhs = `"${node.right.property}"`;
+      }
+      return `(${left} === ${rhs})`;
+    }
 
     default:
       return `${left} ${node.op} ${right}`;

@@ -482,7 +482,8 @@ function emitCreateElementFromMarkup(node, lines) {
       lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(val.value)});`);
     } else if (val.kind === "variable-ref") {
       const varName = (val.name || "").replace(/^@/, "");
-      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewriteExpr(varName)});`);
+      const rewritten = val.exprNode ? emitExpr(val.exprNode, { mode: "client" }) : rewriteExpr(varName);
+      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewritten});`);
     } else if (val.kind === "call-ref") {
       // Event handler — use addEventListener
       const eventName = name.replace(/^on/, "");
@@ -496,10 +497,10 @@ function emitCreateElementFromMarkup(node, lines) {
       const raw = val.raw ?? val.propsDecl ?? "";
       if (/^on[a-z]/.test(name)) {
         const eventName = name.replace(/^on/, "");
-        const rewritten = rewriteExpr(raw);
+        const rewritten = val.exprNode ? emitExpr(val.exprNode, { mode: "client" }) : rewriteExpr(raw);
         lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
       } else {
-        const rewritten = rewriteExpr(raw);
+        const rewritten = val.exprNode ? emitExpr(val.exprNode, { mode: "client" }) : rewriteExpr(raw);
         lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${rewritten} ?? ""));`);
       }
     }

@@ -1,5 +1,7 @@
 import { rewriteExpr, rewriteReactiveRefs } from "./rewrite.js";
 import { rewriteBlockBody } from "./emit-control-flow.ts";
+import { emitExpr } from "./emit-expr.ts";
+import type { ExprNode } from "../types/ast.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
 
@@ -11,6 +13,8 @@ interface EventBinding {
   handlerArgs?: unknown[];
   /** Raw expression handler from ${...} attribute values (e.g. "() => fn(arg)"). */
   handlerExpr?: string;
+  /** Phase 3: structured ExprNode form of `handlerExpr`. */
+  handlerExprNode?: ExprNode;
 }
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
@@ -21,10 +25,14 @@ interface LogicBinding {
   isConditionalDisplay?: boolean;
   varName?: string;
   condExpr?: string;
+  /** Phase 3: structured ExprNode form of `condExpr`. */
+  condExprNode?: ExprNode;
   refs?: string[];
   dotPath?: string;
   transitionEnter?: string;
   transitionExit?: string;
+  /** Phase 3: structured ExprNode form of `expr`. */
+  exprNode?: ExprNode;
 }
 
 /**
@@ -191,7 +199,9 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       } else if (isArrowFunction(binding.handlerExpr)) {
         // Case B: Arrow function — rewrite reactive refs in the expression but
         // do not add an outer wrapper.
-        handlerExpr = rewriteExpr(binding.handlerExpr);
+        handlerExpr = binding.handlerExprNode
+          ? emitExpr(binding.handlerExprNode, { mode: "client" })
+          : rewriteExpr(binding.handlerExpr);
       } else {
         // Case C: Plain expression or statement body. Rewrite and wrap.
         const rewritten = rewriteBlockBody(binding.handlerExpr);
@@ -306,7 +316,9 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         // no @-prefixed reactive refs) to silently fall through, producing no output.
         // condExpr is valid even when refs is empty — emit the condition unconditionally.
         if (binding.condExpr) {
-          const compiled = rewriteExpr(binding.condExpr);
+          const compiled = binding.condExprNode
+            ? emitExpr(binding.condExprNode, { mode: "client" })
+            : rewriteExpr(binding.condExpr);
           conditionCode = `(${compiled})`;
           subscribeVars = binding.refs ?? [];
         } else if (binding.varName) {
@@ -384,7 +396,9 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       }
 
       if (varRefs.length > 0) {
-        let rewrittenExpr = rewriteExpr(expr);
+        let rewrittenExpr = binding.exprNode
+          ? emitExpr(binding.exprNode, { mode: "client" })
+          : rewriteExpr(expr);
 
         // When encoding is active, replace _scrml_reactive_get("name") with encoded names
         if (encodingCtx && encodingCtx.enabled) {

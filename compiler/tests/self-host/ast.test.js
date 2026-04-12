@@ -145,6 +145,7 @@ function stripIds(obj) {
     if (key === "id") continue; // strip node IDs
     if (key === "spans") continue; // spans table uses IDs as keys, skip
     if (key === "machineDecls") continue; // §51.3: self-hosted ast.scrml doesn't collect these yet
+    if (key === "exprNode") continue; // Phase 3: JS ast-builder populates ExprNode on attrs; self-host doesn't yet
     out[key] = stripIds(obj[key]);
   }
   return out;

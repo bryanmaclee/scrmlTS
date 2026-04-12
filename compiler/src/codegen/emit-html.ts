@@ -539,6 +539,7 @@ export function generateHtml(
                 expr: val.raw,
                 isConditionalDisplay: true,
                 condExpr: val.raw,
+                condExprNode: val.exprNode,
                 refs: val.refs,
                 ...(transitionEnter ? { transitionEnter } : {}),
                 ...(transitionExit ? { transitionExit } : {}),
@@ -555,6 +556,7 @@ export function generateHtml(
                 handlerName: "",
                 handlerArgs: [],
                 handlerExpr: val.raw,
+                handlerExprNode: val.exprNode,
               });
             }
           }
@@ -627,7 +629,7 @@ export function generateHtml(
         for (const child of node.body) {
           if (child && child.kind === "bare-expr" && child.expr) {
             const reactiveRefs = extractReactiveDeps(child.expr, reactiveVarNames);
-            registry.addLogicBinding({ placeholderId, expr: child.expr, reactiveRefs });
+            registry.addLogicBinding({ placeholderId, expr: child.expr, exprNode: child.exprNode, reactiveRefs });
           }
         }
       }

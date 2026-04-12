@@ -47,6 +47,21 @@ import {
 
 import { parseExprToNode } from "./expression-parser.ts";
 
+/**
+ * Module-level safe expression parser — wraps parseExprToNode in try/catch.
+ * Returns undefined on failure. Used by parseAttributes (module-level scope)
+ * and other module-level helpers that need ExprNode but lack access to the
+ * closure-scoped safeParseExprToNode inside parseLogicBody.
+ */
+function safeParseExprToNodeGlobal(expr, filePath, startOffset) {
+  if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
+  try {
+    return parseExprToNode(expr, filePath, startOffset ?? 0);
+  } catch (_e) {
+    return undefined;
+  }
+}
+
 // Module-level tokenizer references — overridable by buildAST(bsOutput, tokenizerOverrides)
 let tokenizeAttributes = _defaultTokenizeAttributes;
 let tokenizeLogic = _defaultTokenizeLogic;
@@ -314,7 +329,7 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
               : splitArgs(rawArgs);
             value = { kind: "call-ref", name: parsed.name, args: argList, span: valSpan };
           } else if (valTok.kind === "ATTR_IDENT") {
-            value = { kind: "variable-ref", name: valTok.text, span: valSpan };
+            value = { kind: "variable-ref", name: valTok.text, exprNode: safeParseExprToNodeGlobal(valTok.text, filePath, valSpan?.start ?? 0), span: valSpan };
           } else if (valTok.kind === "ATTR_BLOCK") {
             if (name === "props") {
               // Brace-block attribute value: `props={...}` typed props declaration (§15.10)
@@ -330,7 +345,7 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
               while ((m = refRe.exec(raw)) !== null) {
                 if (!refs.includes(m[1])) refs.push(m[1]);
               }
-              value = { kind: "expr", raw, refs, span: valSpan };
+              value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0), span: valSpan };
             }
           } else if (valTok.kind === "ATTR_EXPR") {
             // Boolean expression for if= attribute (e.g. !@var, @a === 1, @a && @b quoted).
@@ -342,7 +357,7 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
             while ((m = refRe.exec(raw)) !== null) {
               if (!refs.includes(m[1])) refs.push(m[1]);
             }
-            value = { kind: "expr", raw, refs, span: valSpan };
+            value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0), span: valSpan };
           } else {
             // E-ATTR-001: unexpected token type as attribute value
             errors.push(new TABError(
@@ -573,7 +588,7 @@ function parseTypedAttributes(tokens, filePath, errors) {
           if (valTok.kind === "ATTR_STRING") {
             value = { kind: "string-literal", value: valTok.text, span: valSpan };
           } else if (valTok.kind === "ATTR_IDENT") {
-            value = { kind: "variable-ref", name: valTok.text, span: valSpan };
+            value = { kind: "variable-ref", name: valTok.text, exprNode: safeParseExprToNodeGlobal(valTok.text, filePath, valSpan?.start ?? 0), span: valSpan };
           } else {
             value = { kind: "absent" };
           }

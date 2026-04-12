@@ -54,6 +54,8 @@ export interface StringLiteralAttrValue {
 export interface VariableRefAttrValue {
   kind: "variable-ref";
   name: string;
+  /** Phase 3: structured ExprNode form of the variable reference. */
+  exprNode?: ExprNode;
   span: Span;
 }
 
@@ -68,6 +70,8 @@ export interface ExprAttrValue {
   kind: "expr";
   raw: string;
   refs: string[];
+  /** Phase 3: structured ExprNode form of `raw`. Populated by ast-builder. */
+  exprNode?: ExprNode;
   span: Span;
 }
 
