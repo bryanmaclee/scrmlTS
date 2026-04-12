@@ -2790,6 +2790,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "propagate-expr",
             binding: name,
             expr: innerExpr,
+            exprNode: safeParseExprToNode(innerExpr, 0),
             span: spanOf(startTok, peek()),
           });
         } else {
@@ -3958,6 +3959,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "propagate-expr",
             binding: null,
             expr: innerExpr,
+            exprNode: safeParseExprToNode(innerExpr, 0),
             span,
           });
         } else {

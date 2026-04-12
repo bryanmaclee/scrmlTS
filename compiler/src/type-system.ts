@@ -2568,9 +2568,7 @@ function annotateNodes(
             }
             // E-ERROR-004: ? applied to non-failable callee (§19.5.4)
             if (stmt.kind === "propagate-expr" && canFail) {
-              const calleeRaw = (stmt.expr as string | undefined) ?? "";
-              const calleeMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(calleeRaw);
-              const calleeName = calleeMatch ? calleeMatch[1] : null;
+              const calleeName = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
               if (calleeName && fnAllDeclared.has(calleeName) && !fnCanFail.has(calleeName)) {
                 errors.push(new TSError(
                   "E-ERROR-004",
@@ -2584,9 +2582,7 @@ function annotateNodes(
           // E-ERROR-002: bare call to failable function with no error handling (§19.4.3)
           for (const stmt of fnBody) {
             if (!stmt || stmt.kind !== "bare-expr") continue;
-            const exprRaw = (stmt.expr as string | undefined) ?? "";
-            const bareCallMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(exprRaw);
-            const bareCallee = bareCallMatch ? bareCallMatch[1] : null;
+            const bareCallee = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
             if (bareCallee && fnCanFail.has(bareCallee)) {
               errors.push(new TSError(
                 "E-ERROR-002",
@@ -3490,6 +3486,35 @@ class MustUseTracker {
  */
 function escapeForRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Extract the callee function name from a node's ExprNode field.
+ * Returns the name if the ExprNode is a CallExpr with an IdentExpr callee,
+ * or if the ExprNode itself is an IdentExpr (propagate-expr case).
+ */
+function extractCalleeNameFromNode(node: ASTNodeLike): string | null {
+  const exprNode = (node as Record<string, unknown>).exprNode as { kind?: string; callee?: { kind?: string; name?: string }; name?: string } | undefined;
+  if (!exprNode || typeof exprNode !== "object" || !exprNode.kind) return null;
+  // Direct call: exprNode is CallExpr { callee: IdentExpr { name } }
+  if (exprNode.kind === "call" && exprNode.callee?.kind === "ident" && exprNode.callee.name) {
+    return exprNode.callee.name;
+  }
+  // propagate-expr where the inner expression is just an identifier (rare but possible)
+  if (exprNode.kind === "ident" && exprNode.name) {
+    return exprNode.name;
+  }
+  return null;
+}
+
+/**
+ * Extract the leading callee function name from a raw expression string via regex.
+ * Fallback for nodes without ExprNode fields.
+ */
+function extractCalleeNameFromString(expr: string | undefined): string | null {
+  if (!expr) return null;
+  const match = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(expr);
+  return match ? match[1] : null;
 }
 
 /**

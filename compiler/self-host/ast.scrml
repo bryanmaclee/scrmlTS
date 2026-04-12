@@ -1656,6 +1656,7 @@ ${
                             kind: "propagate-expr",
                             binding: name,
                             expr: innerExpr,
+                            exprNode: safeParseExprToNode(innerExpr, 0),
                             span: spanOf(startTok, peek()),
                         })
                     } else {
@@ -2376,6 +2377,7 @@ ${
                             kind: "propagate-expr",
                             binding: null,
                             expr: innerExpr,
+                            exprNode: safeParseExprToNode(innerExpr, 0),
                             span: result.span,
                         })
                     } else {
