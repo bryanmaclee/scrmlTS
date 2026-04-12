@@ -3,7 +3,7 @@
 **Date:** 2026-04-11
 **Next session rotation target:** `handOffs/hand-off-4.md`
 **Tests (unit):** 2,298 (S3 final) → **4,902** (with `bun install` correcting an artificially-low pre-snapshot baseline; the ~2,600 delta is environment, not code)
-**Tests (integration):** 57 (Phase 1.5 baseline) → **94 pass** after Slice 1 + Slice 2 work
+**Tests (integration):** 57 (Phase 1.5 baseline) → **94 pass** (Slice 1 + Slice 2 + ast-builder gap closure all merged to main)
 
 ---
 
@@ -26,30 +26,29 @@ S4 was the session scrml's compiler architecture changed direction. Started with
 | `8832b7d` | docs: README expansion (your work) |
 | `cc85b38` | chore: bun.lock configVersion bump from `bun install` |
 | `9151f1a` | Merge Phase 2 Slice 1 — `lin` keyword promoted to KEYWORDS, `lin-decl` emission in parser, codegen case for lin-decl |
+| `4d02585` | docs: S4 final wrap (mid-session — superseded by this addendum) |
+| `45208c6` | **Merge Phase 2 Slice 2 + Phase 1 gap closure — `checkLinear` ExprNode walk, §35.2.1 lin-params E2E, two `ast-builder.js` `exprNode:` gap closures.** This is the headline merge. |
 
-**Net main delta this session: 9 merge/feature commits + 33 commits ahead of origin.**
+**Net main delta this session: 11 merge/feature commits + 36 commits ahead of origin.**
 
 ---
 
-## NOT merged — sitting on `changes/expr-ast-phase-2-slice-2`
+## Phase 2 Slice 2 — MERGED (`45208c6`)
 
-**Phase 2 Slice 2 — `checkLinear` migrates to ExprNode walks for lin consumption.**
+**`checkLinear` migrates to ExprNode walks for lin consumption.**
 
-**Status:** 9 e2e scenarios pass (including §35.2.1 lin-params E2E for the first time ever), zero regressions, 4902 unit + 94 integration. **Self-classified CLEAR FOR MERGE by the agent.**
+**Headline:** §35.2.1 lin function parameters work end-to-end for the first time. The Lin Batch B (S3) parser support + this slice's structured `ExprNode` walker close the loop.
 
-**Why I didn't merge it:** the implementation has a Pass 1 + Pass 2 walker. Pass 1 is the structured `ExprNode` walk we want; Pass 2 is a parser-assisted string fallback for two cases:
-1. `bare-expr` emission sites in `ast-builder.js` (lines ~2009 and ~3962) that Phase 1 missed when populating parallel `exprNode` fields — these are real Phase 1 gaps.
-2. `lin x = "hello"\nuse(x)` where `collectExpr` greedy-collects across the newline into one `lin-decl` node — Acorn's `parseExpression` then parses only the first expression and silently drops the rest. **This is the deeper deferred issue from the Phase 1.5 audit.** Pass 2 saves us by calling `parseStatements` (not `parseExpression`) on the raw string.
+**What landed:**
+- `forEachIdentInExprNode` in `expression-parser.ts` — recursive ExprNode walker for IdentExpr nodes; lambdas skipped (conservative — capture is not consumption)
+- `scanNodeExprNodesForLin` in `type-system.ts` — calls the walker on every parallel ExprNode field at every checkLinear visit site, fires `lt.consume` on matching declared lin variables. Existing `case "lin-ref"` handler preserved so the 234 hand-crafted unit tests continue to pass
+- 9 e2e scenarios in `lin-enforcement-e2e.test.js`: declare/consume, double-consume → E-LIN-002, never consumed → E-LIN-001, branch asymmetry → E-LIN-003, **§35.2.1 lin-params E2E (HEADLINE)**, lin-param not consumed → E-LIN-001, shadowing across function-decl scopes, lambda capture (conservative)
+- Two `ast-builder.js` `exprNode:` gap closures (lines 2009 and 3962, default `bare-expr` fallthrough paths the Phase 1 walker missed) — independently verified by a follow-up Opus agent that the Phase 1.5 idempotency invariant holds (15/15 corpus cases) with the additions present
 
-I dispatched a follow-up Opus 4.6 agent to delete Pass 2 and close the gap. It tried, regressed 3 e2e tests, and **correctly stopped and reported**: the regressions are the `collectExpr` over-collection, NOT a `forEachIdentInExprNode` bug. The fix needs `collectExpr` corrected first, in its own slice, with its own impact analysis.
+**Pass 2 fallback DELIBERATELY retained:**
+`scanNodeExprNodesForLin` has Pass 1 (structured ExprNode walk via `forEachIdentInExprNode` — primary path) and Pass 2 (parser-assisted string scan via `extractIdentifiersExcludingLambdaBodies`, which uses `parseStatements` not regex, preserving lexical scoping). Pass 2 exists because of a pre-existing `collectExpr` over-collection bug: `lin x = "hello"\nuse(x)` greedy-collects across the newline into one `lin-decl` where `init = '"hello"\nuse(x)'`, and Acorn's `parseExpression` then parses only the first expression. Pass 2's `parseStatements` call sees both expressions and finds the lin reference.
 
-**Conclusion:** Pass 1 + Pass 2 is a staging pattern, not a bandaid. It stays until Slice 3 fixes `collectExpr`, then Slice 4 deletes Pass 2 in one focused commit.
-
-**Two ways to land Slice 2 next session:**
-- **Option A** — merge the Slice 2 branch as-is. Pass 2 present, documented as temporary.
-- **Option B** — extend Slice 2 with the two `ast-builder.js` `exprNode:` gap closures (lines 2009/3962, independently verified by the Opus follow-up agent to pass the Phase 1.5 idempotency invariant) and THEN merge. Better state, ~4 lines of additional code, no Pass 2 deletion (still pending Slice 3).
-
-I lean Option B. The ast-builder edits are strictly improving and don't depend on the collectExpr fix.
+A previous Opus agent attempted to delete Pass 2 and regressed 3 e2e scenarios precisely on this case. The fix is upstream in `collectExpr` (Slice 3, T3), not in `checkLinear`. Pass 2 stays until Slice 3 lands; Slice 4 then deletes Pass 2 cleanly. **This is a staging pattern, not a bandaid** — primary path is structured, fallback is bounded, removal condition is precisely known.
 
 ---
 
@@ -129,7 +128,7 @@ Two messages from 6nz arrived in `handOffs/incoming/`:
 | `compiler/tests/unit` | 4,902 | 3 (pre-existing) | 2 |
 | `compiler/tests/integration` | 94 | 2 (pre-existing self-host-smoke) | — |
 
-If `changes/expr-ast-phase-2-slice-2` is merged at start of S5, integration count rises by 9 (the lin-enforcement-e2e scenarios) → 103.
+Integration baseline already includes the 9 lin-enforcement-e2e scenarios from Slice 2. S5 picks up at 4,902 unit + 94 integration with main on `45208c6`.
 
 ---
 
@@ -146,7 +145,7 @@ If `changes/expr-ast-phase-2-slice-2` is merged at start of S5, integration coun
 - [docs/changes/expr-ast-phase-1/anomaly-report.md](./docs/changes/expr-ast-phase-1/anomaly-report.md) — Phase 1 land
 - [docs/changes/expr-ast-phase-1-audit/anomaly-report.md](./docs/changes/expr-ast-phase-1-audit/anomaly-report.md) — Phase 1.5 idempotency fix
 - [docs/changes/expr-ast-phase-2-slice-1/anomaly-report.md](./docs/changes/expr-ast-phase-2-slice-1/anomaly-report.md) — lin keyword + lin-decl emission
-- [docs/changes/expr-ast-phase-2-slice-2/anomaly-report.md](./docs/changes/expr-ast-phase-2-slice-2/anomaly-report.md) — checkLinear ExprNode walk (NOT yet merged)
+- [docs/changes/expr-ast-phase-2-slice-2/anomaly-report.md](./docs/changes/expr-ast-phase-2-slice-2/anomaly-report.md) — checkLinear ExprNode walk + Phase 1 gap closure (merged `45208c6`)
 - [scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md](../scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md) — Ghost-lint #1 canonical briefing
 - [scripts/git-hooks/README.md](./scripts/git-hooks/README.md) — versioned git hooks install instructions
 - [handOffs/incoming/](./handOffs/incoming/) — 2 unread messages from 6nz re: programmatic compiler API
