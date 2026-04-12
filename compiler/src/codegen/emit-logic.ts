@@ -930,6 +930,15 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       return fnLines.join("\n");
     }
 
+    case "lin-decl": {
+      // §35.2: lin bindings are immutable — emit as `const`.
+      // Phase 2: codegen walks the string form (node.init). Phase 3 will switch to ExprNode emission.
+      if (!node.name) return "";
+      const linInit: string = node.init ?? "";
+      if (!linInit.trim()) return `const ${node.name};`;
+      return `const ${node.name} = ${rewriteExpr(linInit)};`;
+    }
+
     default:
       return "";
   }
