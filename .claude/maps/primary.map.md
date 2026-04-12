@@ -1,67 +1,58 @@
 # primary.map.md
 # project: scrmlTS
-# updated: 2026-04-12  commit: S6 main
+# updated: 2026-04-12T20:00:00Z  commit: 623aeac
 
 ## Project Fingerprint
-
-| Field | Value |
-|---|---|
-| Language | JavaScript / TypeScript (mixed: .js + .ts compiler source) |
-| Runtime | Bun (required; no Node.js compatibility layer) |
-| Framework | None — compiler CLI tool + LSP server |
-| Primary dep | vscode-languageserver (LSP), acorn + astring (meta-eval) |
-| Type | Language compiler — CLI tool + Language Server |
-| Size | ~24,739 LOC compiler src; ~14,135 LOC codegen; ~1,340 lines AST types |
+Language:   JavaScript / TypeScript (mixed — .js and .ts files, Bun runtime)
+Framework:  Custom compiler (scrml language compiler)
+Runtime:    Bun (no Node.js — bun test, bun run)
+Type:       Compiler + CLI tool + LSP server
+Size:       ~270 source files (compiler/src ~27 files + codegen 36 files + tests ~240 files)
 
 ## Map Index
-
-| Map | Status | Contents |
-|---|---|---|
-| structure.map.md | present | directory layout, entry points, 3 top-level entries |
-| dependencies.map.md | present | 5 packages (2 runtime, 3 dev), internal module graph |
-| schema.map.md | present | AST discriminated union (~1,340 lines incl ExprNode), 9 compiler error types, 8 runtime error classes |
-| config.map.md | present | no env vars; bunfig, CLI flags, vscode tsconfig |
-| build.map.md | present | bun scripts, git hooks (not versioned), vscode extension build |
-| error.map.md | present | 9 compiler error types, 8 runtime error classes, collect-not-throw pattern |
-| test.map.md | present | bun:test, 249 test files, 5,719 pass / 137 fail |
-| domain.map.md | present | 11 pipeline stages, 13 domain concepts, output artifact types |
-| api.map.md | absent | no REST/GraphQL endpoints (LSP is JSON-RPC stdio, not HTTP) |
-| state.map.md | absent | no state management library (CLI tool) |
-| events.map.md | absent | no event bus / pub-sub (emit refs are codegen functions, not event system) |
-| auth.map.md | absent | no auth in compiler itself (auth is generated into compiled scrml apps) |
-| style.map.md | absent | no design tokens / theme system (compiler has no UI) |
-| i18n.map.md | absent | no i18n |
-| infra.map.md | absent | no CI/CD, no Docker, no cloud infra |
-| migrations.map.md | absent | no migrations (compiler has no database) |
-| jobs.map.md | absent | no background jobs / queues |
+| Map                      | Status  | Contents                              |
+|--------------------------|---------|---------------------------------------|
+| structure.map.md         | present | directory layout, 6 entry points      |
+| dependencies.map.md      | present | 5 packages, internal module graph     |
+| schema.map.md            | present | 42+ AST node types, 19 ExprNode kinds, 8 codegen types |
+| config.map.md            | present | 0 env vars, CLI flags, bunfig.toml    |
+| build.map.md             | present | 7 npm scripts, 5 CLI subcommands      |
+| error.map.md             | present | 4 error types (CGError, PAError, TSError, TABErrorInfo) |
+| test.map.md              | present | bun test, ~240 test files, 5,709 pass |
+| domain.map.md            | present | compiler pipeline, ExprNode migration, reactivity, lin types |
+| api.map.md               | absent  | not applicable (compiler, not web API) |
+| state.map.md             | absent  | not detected (no frontend state management) |
+| events.map.md            | absent  | EventEmitter in runtime-template only, not architectural |
+| auth.map.md              | absent  | not applicable (compiler tool) |
+| style.map.md             | absent  | not detected |
+| i18n.map.md              | absent  | not detected |
+| infra.map.md             | absent  | no Docker/CI/CD found |
+| migrations.map.md        | absent  | not detected |
+| jobs.map.md              | absent  | not detected |
+| non-compliance.report.md | present | 4 non-compliant, 3 uncertain          |
 
 ## File Routing
-
-| When you need to know... | Go to |
-|---|---|
-| Directory layout, where things live | structure.map.md |
-| Pipeline stage order and contracts | domain.map.md + compiler/PIPELINE.md |
-| AST node shapes / compiler error types | schema.map.md |
-| CLI scripts and build commands | build.map.md |
-| External package purposes | dependencies.map.md |
-| Test organization and assertion style | test.map.md |
-| Error collection pattern | error.map.md |
-| Environment / config keys | config.map.md |
-| Non-compliance findings | non-compliance.md |
+types / interfaces / models           -> schema.map.md
+environment variables / config keys   -> config.map.md
+test patterns / fixtures              -> test.map.md
+build commands / CI stages            -> build.map.md
+directory layout / entry points       -> structure.map.md
+external packages                     -> dependencies.map.md
+business rules / domain models        -> domain.map.md
+error types / handling patterns       -> error.map.md
 
 ## Key Facts
-
-- Entry point is `compiler/src/cli.js` (bin: `scrml`); all pipeline stages run through `compiler/src/index.js`
-- Pipeline has 11 stages: BS → TAB → BPP → PA → RI → TS → DG → ME → MC → CE → CG; all working
-- Tests run with `bun test compiler/tests/`; 5,719 pass, 2 skip, 137 fail (137 are pre-existing DOM/runtime + 1 tokenizer parity)
-- Self-host flag (`--self-host`) loads 11 .scrml bootstrap modules from `compiler/self-host/`; primary copies live in `~/scrmlMaster/scrml/`
-- Most pipeline stages collect errors into a returned array rather than throwing — CLI presents all errors before halting
-- `shared/` directory was deleted S2 (it was a fictional README describing nonexistent files)
-- Git hooks exist in `.git/hooks/` but are not versioned — fresh clones need manual installation
-- The scrml language spec (18,753 lines) lives at `compiler/SPEC.md` and is authoritative
+- Entry point is compiler/src/cli.js (bin: `scrml`); programmatic API is compiler/src/api.js which runs the 10-stage pipeline: BS->TAB->CE->BPP->PA->RI->TS->MC->DG->CG
+- The AST type system lives in a single file: compiler/src/types/ast.ts (1,356 lines, 42+ node kinds + 19 ExprNode kinds)
+- Phase 3 of the ExprNode migration is complete: emit-expr.ts (379 LOC) handles all 19 ExprNode kinds with escape-hatch fallback to rewrite.ts; 51 dual-path call sites across 6 codegen emitters
+- Expression parsing uses acorn with custom @ sigil and :: enum plugins (expression-parser.ts, 1,668 LOC); ESTree ASTs are converted to ExprNode via esTreeToExprNode
+- ast-builder.js (5,645 LOC) is the largest single file — the main TAB stage that parses block trees into typed FileAST; populates ExprNode via safeParseExprToNode at 20+ sites
+- Codegen is 36 modules totaling ~14,777 LOC in compiler/src/codegen/; the three-phase model is: analyze -> plan (HTML gen populates BindingRegistry) -> emit (CSS + server JS + client JS)
+- The authoritative spec is compiler/SPEC.md (18,863 lines, 53 sections); pipeline contracts in compiler/PIPELINE.md (1,569 lines)
+- Current escape-hatch rate: 0% across the example corpus (14 files); 5,709 tests passing, ~149 failing
 
 ## Tags
-#scrmlTS #map #primary #compiler #bun #lsp #cold-run
+#scrmlTS #map #primary #compiler #ExprNode #phase-3
 
 ## Links
 - [structure.map.md](./structure.map.md)
@@ -72,8 +63,6 @@
 - [error.map.md](./error.map.md)
 - [test.map.md](./test.map.md)
 - [domain.map.md](./domain.map.md)
-- [non-compliance.md](./non-compliance.md)
+- [non-compliance.report.md](./non-compliance.report.md)
 - [master-list.md](../../master-list.md)
 - [pa.md](../../pa.md)
-- [compiler/SPEC.md](../../compiler/SPEC.md)
-- [hand-off.md](../../hand-off.md)

@@ -1,91 +1,77 @@
 # schema.map.md
 # project: scrmlTS
-# updated: 2026-04-12  commit: S6 main
+# updated: 2026-04-12T20:00:00Z  commit: 623aeac
 
 ## TypeScript Types & Interfaces
 
-Single source file for AST types: `compiler/src/types/ast.ts` (~1,340 lines)
+### Source Location  [compiler/src/types/ast.ts:18-30]
+Span: { file, start, end, line, col }
+ExprSpan: { file, start, end, line, col }
 
-### Span  [ast.ts:23]
-```
-file: string       — absolute path of source file
-start: number      — byte offset, first character
-end: number        — byte offset, one past last character
-line: number       — 1-based
-col: number        — 1-based
-```
+### Attribute Values  [compiler/src/types/ast.ts:40-86]
+AttrValue = StringLiteralAttrValue | VariableRefAttrValue | CallRefAttrValue | ExprAttrValue | PropsBlockAttrValue | AbsentAttrValue
+VariableRefAttrValue: { kind, name, exprNode?, span } — Phase 3: exprNode populated by ast-builder
+ExprAttrValue: { kind, raw, refs, exprNode?, span } — Phase 3: exprNode populated by ast-builder
+AttrNode: { name, value:AttrValue, span }
+TypedAttrDecl: { name, typeExpr, optional, defaultValue, span }
 
-### AttrValue  [ast.ts:36]
-Discriminated union — `kind` field selects variant:
-- `"string-literal"` — StringLiteralAttrValue { value: string }
-- `"variable-ref"` — VariableRefAttrValue { name: string }
-- `"call-ref"` — CallRefAttrValue { name: string, args: string[] }
-- `"expr"` — ExprAttrValue { raw: string, refs: string[] }
-- `"props-block"` — PropsBlockAttrValue { propsDecl: unknown }
-- `"absent"` — AbsentAttrValue
+### CSS Types  [compiler/src/types/ast.ts:120-154]
+CSSReactiveRef: { name, expr }
+CSSDeclaration: { prop, value, span, reactiveRefs?, isExpression? }
+CSSRule = CSSPropertyRule | CSSSelectorRule
+ErrorArm: { pattern, binding, handler, handlerExpr?, span } — Phase 3: handlerExpr on non-block arms
+LiftTarget = { kind:"markup", node } | { kind:"expr", expr, exprNode? }
 
-All variants carry `span: Span`.
+### AST Nodes (42+ kinds)  [compiler/src/types/ast.ts:200-903]
+Discriminated by `kind` string literal. BaseNode provides { id, span }.
+Key nodes: MarkupNode, TextNode, CommentNode, StateNode, StateConstructorDefNode, LogicNode, SQLNode, CSSInlineNode, StyleNode, ErrorEffectNode, MetaNode
+Declarations: LetDeclNode, ConstDeclNode, TildeDeclNode, LinDeclNode, ReactiveDeclNode, ReactiveDerivedDeclNode, ReactiveDebouncedDeclNode
+Reactive ops: ReactiveNestedAssignNode, ReactiveArrayMutationNode, ReactiveExplicitSetNode
+Functions: FunctionDeclNode { ..., fnKind:"function"|"fn", isServer, canFail, errorType?, route? }
+Control flow: IfStmtNode, IfExprNode, ForStmtNode (cStyleParts?), WhileStmtNode, ReturnStmtNode, ThrowStmtNode, SwitchStmtNode, TryStmtNode, MatchStmtNode
+Expressions: BareExprNode, LiftExprNode, FailExprNode, PropagateExprNode, GuardedExprNode
+Module: ImportDeclNode, UseDeclNode, ExportDeclNode, TypeDeclNode
+Effects: TransactionBlockNode, CleanupRegistrationNode, WhenEffectNode (bodyExpr?), WhenMessageNode (bodyExpr?), UploadCallNode (fileExpr?, urlExpr?), DebounceCallNode, ThrottleCallNode
 
-### AST node base pattern  [ast.ts]
-Every node carries:
-- `kind: string` — discriminant literal
-- `id: number` — unique within compilation unit
-- `span: Span` — source location
+### ExprNode Types (19 kinds)  [compiler/src/types/ast.ts:999-1356]
+ExprNode = IdentExpr | LitExpr | ArrayExpr | ObjectExpr | SpreadExpr | UnaryExpr | BinaryExpr | AssignExpr | TernaryExpr | MemberExpr | IndexExpr | CallExpr | NewExpr | LambdaExpr | CastExpr | MatchExpr | SqlRefExpr | InputStateRefExpr | EscapeHatchExpr
 
-### ExprNode  [ast.ts:994–1340]
-Discriminated union for structured expression AST (Phase 1/2 migration). `kind` field selects variant:
-- `ident` — IdentExpr { name, span }
-- `lit` — LitExpr { value, raw, span }
-- `array`, `object`, `unary`, `binary`, `assign`, `ternary` — compound expressions
-- `member`, `index`, `call`, `new` — access/invocation
-- `lambda`, `cast`, `match`, `spread` — special forms
-- `sql-ref`, `input-state-ref`, `escape-hatch` — scrml-specific
+IdentExpr: { kind:"ident", name, span } — @name for reactive, "~" for pipeline
+LitExpr: { kind:"lit", raw, value, litType, span } — litType includes "not" (section 42 absence)
+BinaryExpr: { kind:"binary", op, left, right, span } — scrml ops: "is","is-not","is-some","is-not-not"
+AssignExpr: { kind:"assign", op, target, value, span } — reactive assign: @var = expr
+LambdaExpr: { kind:"lambda", params, body, isAsync, fnStyle, span } — body is expr|block
+MatchExpr: { kind:"match-expr", subject, rawArms, span } — arms still raw strings (Phase 2 target)
+EscapeHatchExpr: { kind:"escape-hatch", estreeType, raw, span } — fallback for unparseable constructs
 
-ExprNode parallel fields (`initExpr`, `exprNode`, `condExpr`, `valueExpr`, `iterExpr`, `headerExpr`) sit alongside legacy string fields (`init`, `expr`, `condition`, `value`, `iterable`, `header`) on AST nodes. Both populated during Phase 2; string fields will be dropped in Phase 4.
+### Discriminated Unions  [compiler/src/types/ast.ts:842-909]
+LogicStatement: union of 42+ statement node kinds + block-level nodes (MarkupNode, SQLNode, CSSInlineNode, MetaNode, ErrorEffectNode)
+ASTNode: union of all top-level kinds
 
-Note: Full AST node union is ~1,340 lines. Read `compiler/src/types/ast.ts` directly for all node kinds.
+### File-Level Types  [compiler/src/types/ast.ts:949-997]
+FileAST: { filePath, nodes, imports, exports, components, typeDecls, spans, hasProgramRoot, authConfig, middlewareConfig }
+TABOutput: { filePath, ast:FileAST, errors:TABErrorInfo[] }
+AuthConfig: { auth, loginRedirect, csrf, sessionExpiry }
+MiddlewareConfig: { cors, log, csrf, ratelimit, headers }
 
-## Compiler Stage Output Types
+### Codegen Types  [compiler/src/codegen/context.ts, emit-expr.ts, emit-event-wiring.ts, index.ts]
+CompileContext: { filePath, fileAST, routeMap, depGraph, protectedFields, authMiddleware, middlewareConfig, csrfEnabled, encodingCtx, mode, testMode, dbVar, workerNames, errors, registry, derivedNames, analysis, usedRuntimeChunks }
+EmitExprContext: { mode:"client"|"server", derivedNames?, tildeVar?, dbVar?, errors? }
+CgInput: { files, routeMap?, depGraph?, protectAnalysis?, sourceMap?, embedRuntime?, mode?, testMode?, encoding? }
+EventBinding: { placeholderId, eventName, handlerName, handlerArgs?, handlerExpr?, handlerExprNode? }
+LogicBinding: { placeholderId, expr, reactiveRefs?, isConditionalDisplay?, varName?, condExpr?, condExprNode?, exprNode? }
+CGError: { code, message, span, severity }
+RewriteContext: { errors?, derivedNames?, dbVar? }
 
-Key shaped types used across pipeline stages (defined inline in their respective stage files, not in `types/`):
-
-| Type | File | Description |
-|---|---|---|
-| `FileAnalysis` | codegen/analyze.ts | per-file analysis output: nodes, functions, markup, CSS bridges, IR |
-| `BindingRegistry` | codegen/binding-registry.ts | typed contract — event + logic bindings from HTML to client JS gen |
-| `CompileContext` | codegen/context.ts | single object threaded through every emitter (params, options, analysis) |
-| `CGError` | codegen/errors.ts | `{ code: string, message: string, span?: Span }` |
-| `BSError` | block-splitter.js | block-splitter parse error |
-| `TABError` | ast-builder.js | tokenizer/AST builder error |
-| `TSError` | type-system.ts | type system check error |
-| `PAError` | protect-analyzer.ts | protect analyzer error |
-| `DGError` | dependency-graph.ts | dependency graph error |
-| `ModuleError` | module-resolver.js | module resolution error |
-| `MetaError` | meta-checker.ts | meta block check error |
-| `MetaEvalError` | meta-eval.ts | meta block eval error |
-
-## Runtime Error Classes (emitted into compiled output)
-
-Defined in `compiler/src/runtime-template.js` (inlined into generated client JS):
-
-| Class | Base | Purpose |
-|---|---|---|
-| `NetworkError` | `_ScrmlError` | HTTP fetch failures |
-| `ValidationError` | `_ScrmlError` | Input validation failures |
-| `SQLError` | `_ScrmlError` | Database query failures |
-| `AuthError` | `_ScrmlError` | Authorization failures |
-| `TimeoutError` | `_ScrmlError` | Request timeout |
-| `ParseError` | `_ScrmlError` | Response parsing failures |
-| `NotFoundError` | `_ScrmlError` | 404-type failures |
-| `ConflictError` | `_ScrmlError` | Conflict/409-type failures |
-
-All extend `_ScrmlError extends Error` with `.type` and `.cause` fields.
+### Expression Parser Types  [compiler/src/expression-parser.ts:33-49]
+ESNode: { type:string, [key]:unknown } — minimal ESTree node
+ParseResult: { ast:ESNode|null, error:string|null }
+RewriteResult: { result:string, ok:boolean }
 
 ## Tags
-#scrmlTS #map #schema #ast #types #compiler
+#scrmlTS #map #schema #ast #ExprNode #types #codegen
 
 ## Links
 - [primary.map.md](./primary.map.md)
 - [master-list.md](../../master-list.md)
 - [pa.md](../../pa.md)
-- [compiler/src/types/ast.ts](../../compiler/src/types/ast.ts)

@@ -1,66 +1,45 @@
 # error.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12T20:00:00Z  commit: 623aeac
 
-## Custom Error Types — Compiler Pipeline
+## Custom Error Types
 
-| ErrorClass | File | Pattern | When thrown |
-|---|---|---|---|
-| `BSError` | compiler/src/block-splitter.js:51 | extends Error | Block splitter syntax error (bad closer, unexpected structure) |
-| `TABError` | compiler/src/ast-builder.js:146 | extends Error | Tokenizer / AST builder parse error |
-| `TSError` | compiler/src/type-system.ts:342 | class (not extends) | Type system constraint violation |
-| `PAError` | compiler/src/protect-analyzer.ts:126 | class (not extends) | Protected field leaked to client boundary |
-| `DGError` | compiler/src/dependency-graph.ts:180 | class (not extends) | Circular dependency or unresolvable reference |
-| `ModuleError` | compiler/src/module-resolver.js:31 | class (not extends) | Module not found or load failure |
-| `MetaError` | compiler/src/meta-checker.ts:62 | implements MetaErrorShape | Invalid meta block (`^{}`) usage |
-| `MetaEvalError` | compiler/src/meta-eval.ts:46 | implements MetaEvalErrorShape | Meta block runtime eval failure |
-| `CGError` | compiler/src/codegen/errors.ts:11 | class (not extends) | Code generator error; carries `code`, `message`, optional `span` |
+CGError — compiler/src/codegen/errors.ts:11 — codegen errors with code + message + span + severity
+PAError — compiler/src/protect-analyzer.ts:126 — protect analysis errors (field leak detection)
+TSError — compiler/src/type-system.ts:342 — type system errors (type mismatches, lin violations)
+TABErrorInfo — compiler/src/types/ast.ts:987 — AST builder errors (E-ATTR-*, W-PROGRAM-*)
 
-## Error Handling Pattern
+## Error Code Namespaces
+E-TEST-001..005 — Test context errors (nested ~{}, invalid position, unknown type, non-callable, empty block)
+E-LIN-* — Linear type errors (unconsumed lin variable, double consumption)
+E-ATTR-* — Attribute parsing errors
+E-CONTRACT-001-RT — Runtime type predicate check failure
+W-PROGRAM-* — Program-level warnings
 
-Most pipeline stages collect errors into an array rather than throwing:
-- `splitBlocks()` returns `{ blocks, errors }` — caller checks `errors[]`
-- `runTS()`, `runPA()`, `runDG()` follow the same collect-and-return pattern
-- `runCG()` throws `CGError` on fatal codegen failure; caller catches in `index.js`
+## Error Handling Patterns
 
-The CLI (`cli.js`) catches all pipeline errors and formats them to stderr with file + line info.
+### Pipeline stage errors
+Each pipeline stage (BS, TAB, CE, BPP, PA, RI, TS, MC, DG, CG) returns its own errors array.
+api.js aggregates all errors and reports them after compilation.
 
-## Runtime Error Classes (emitted into compiled scrml apps)
+### Codegen dual-path pattern
+emit-logic.ts and other emitters use: `node.exprNode ? emitExpr(node.exprNode, ctx) : rewriteExpr(node.stringField)`
+When emitExpr encounters an escape-hatch node, it falls back to rewriteExpr/rewriteServerExpr.
 
-Defined in `compiler/src/runtime-template.js`. All extend `_ScrmlError extends Error` with `.type` and `.cause`:
+### Expression parser tolerant mode
+expression-parser.ts parseExpression/parseStatements default to `tolerant: true` — returns { ast: null, error: message } on failure instead of throwing.
 
-| Class | HTTP analog | Use case in compiled app |
-|---|---|---|
-| `NetworkError` | 5xx | Fetch failures |
-| `ValidationError` | 422 | Input validation |
-| `SQLError` | 500 | DB query failures |
-| `AuthError` | 401/403 | Authorization failures |
-| `TimeoutError` | 408/504 | Request timeouts |
-| `ParseError` | 500 | Response parsing |
-| `NotFoundError` | 404 | Not found |
-| `ConflictError` | 409 | Conflict |
-
-## Known Error Codes (spec-defined, from master-list.md §M)
-
-| Code | Description | Status |
-|---|---|---|
-| E-COMPONENT-020 | Snippet expansion bug (example 12) | Open — bug |
-| E-ROUTE-001 | Computed array access in worker (example 13) | Open — bug |
-| BUG-R15-005 | `\n` literal in emit() HTML | Open P3 |
-| E-META-001 | False positives on destructuring/rest/default params | Open |
-| E-SYNTAX-043 | Complex expressions partially pass through | Open — partial |
-| E-CONTRACT-001-RT | Runtime boundary check (predicates §53) | Implemented |
+### ast-builder.js safeParseExprToNode
+Module-level wrapper that catches all exceptions from parseExprToNode. Returns null on failure. Never blocks compilation.
 
 ## Global Error Boundaries
-
-No global error middleware or React ErrorBoundary detected (compiler is a CLI tool, not a server).
-LSP server (`lsp/server.js`) wraps all diagnostic calls in try/catch to avoid crashing the language server.
+No global error boundary middleware — this is a compiler, not a web app.
+Compilation errors are accumulated in arrays and reported post-pipeline.
 
 ## Tags
-#scrmlTS #map #error #compiler #pipeline #runtime
+#scrmlTS #map #error #CGError #PAError #TSError #diagnostics
 
 ## Links
 - [primary.map.md](./primary.map.md)
-- [schema.map.md](./schema.map.md)
 - [master-list.md](../../master-list.md)
 - [pa.md](../../pa.md)

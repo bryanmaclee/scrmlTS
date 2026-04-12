@@ -1,71 +1,43 @@
 # test.map.md
 # project: scrmlTS
-# updated: 2026-04-12  commit: S6 main
+# updated: 2026-04-12T20:00:00Z  commit: 623aeac
 
 ## Test Framework
-
-Runner: bun:test (built into Bun runtime)
-Config: `bunfig.toml` — root: `compiler/tests/`, timeout: 10000ms
-Run all: `bun test compiler/tests/`
-Run single: `bun test compiler/tests/unit/<file>.test.js`
-Coverage: `bun test compiler/tests/ --coverage`
+Runner: bun test (built-in)
+Config: bunfig.toml (root: compiler/tests/, timeout: 10000ms)
+Run all: bun test compiler/tests/
+Run single: bun test compiler/tests/unit/some-file.test.js
+Run category: bun test compiler/tests/unit/ or compiler/tests/integration/
 
 ## Test Categories
+Unit: compiler/tests/unit/*.test.js — ~140 files
+Integration: compiler/tests/integration/*.test.js — 6 files (expr-parity, expr-node-corpus-invariant, lin-enforcement-e2e, lin-decl-emission, self-compilation, self-host-smoke)
+Browser E2E: compiler/tests/browser/*.test.js — 11 files (Puppeteer-based)
+Conformance: compiler/tests/conformance/{block-grammar,tab}/*.test.js — ~77 files (block-grammar: 47, tab: 30)
+Commands: compiler/tests/commands/*.test.js — 3 files (build-adapters, init, library-mode-types)
+Self-host: compiler/tests/self-host/*.test.js — 4 files (ast, bs, bpp, tab)
 
-| Category | Path | Count | Focus |
-|---|---|---|---|
-| Unit | `compiler/tests/unit/` | ~149 files | Per-module: block-splitter, AST builder, codegen emitters, individual features |
-| Browser | `compiler/tests/browser/` | 11 files | happy-dom + Puppeteer: reactive arrays, bind, forms, components, TodoMVC |
-| Integration | `compiler/tests/integration/` | ~5 files | self-compilation + self-host smoke + lin E2E + ExprNode corpus invariant |
-| Self-host | `compiler/tests/self-host/` | 4 files | Self-host stage verification: bs.scrml, tab.scrml, bpp.scrml, ast.scrml |
-| Conformance | `compiler/tests/conformance/` | 2 dirs | block-grammar and tab grammar suites |
-| Commands | `compiler/tests/commands/` | 2 files | CLI command tests: init, build-adapters |
-| Helpers | `compiler/tests/helpers/` | 1 file | `expr.ts` — shared ExprNode test utilities |
-| **Total** | | **249 files** | **5,719 pass, 2 skip, 137 fail** |
+## Current Baseline
+~5,709 pass / ~149 fail / 0 skip (S8, 2026-04-12)
+Non-deterministic browser/dist tests account for variance.
 
-## Assertion Style and Structure Pattern
+## Fixtures & Factories
+compiler/tests/unit/__fixtures__/ — test fixture data (empty at scan time)
+compiler/tests/helpers/expr.ts — ExprNode round-trip assertion helper (assertRoundTrip)
+samples/compilation-tests/ — 280 .scrml compilation test entries (used by bench and expr-parity)
 
-Tests use `bun:test` native API: `describe`, `test`, `expect`. Tests import directly from
-compiler source (no intermediate abstraction layer). Example from `block-splitter.test.js`:
+## Key Test Files (Phase 3 related)
+compiler/tests/integration/expr-parity.test.js — 286-file corpus parity test comparing ExprNode emitExpr vs string rewriteExpr
+compiler/tests/integration/expr-node-corpus-invariant.test.js — ExprNode structural invariant checks
+compiler/tests/unit/expression-parser.test.js — expression parser unit tests
+compiler/tests/unit/expr-node-round-trip.test.js — round-trip invariant: emitStringFromTree(parseExprToNode(x)) === x
+compiler/tests/unit/callback-props.test.js — callback prop binding codegen tests
 
-```js
-import { describe, test, expect } from "bun:test";
-import { splitBlocks, BSError } from "../../src/block-splitter.js";
-
-describe("block-splitter", () => {
-  test("splits a simple block", () => {
-    const result = splitBlocks("test.scrml", source);
-    expect(result.blocks).toHaveLength(1);
-    expect(result.errors).toHaveLength(0);
-  });
-});
-```
-
-Error-path tests call the stage function and assert on the returned `errors[]` array (stages
-collect rather than throw). Snapshot testing is not used.
-
-## Fixtures & Mocks
-
-`compiler/tests/helpers/` contains shared ExprNode test utilities.
-`compiler/tests/conformance/` dirs contain grammar conformance inputs.
-`samples/compilation-tests/` (~280 files) serve as integration fixtures for the bench/security scripts.
-
-## Notable Test Files
-
-| File | What it covers |
-|---|---|
-| `unit/block-splitter.test.js` | Full BS grammar — closers, machines, programs, new syntax |
-| `unit/code-generator.test.js` | Top-level CG output for representative .scrml constructs |
-| `unit/channel.test.js` | §35 WebSocket channel codegen |
-| `unit/callback-props.test.js` | Callback prop codegen (2 tests currently skipped) |
-| `unit/collectexpr-newline-boundary.test.js` | Slice 3 regression: newline-as-statement-boundary for 6 decl forms |
-| `browser/browser-todomvc.test.js` | Full TodoMVC app in headless browser |
-| `integration/self-compilation.test.js` | Compiler compiles its own .scrml source |
-| `integration/lin-enforcement-e2e.test.js` | Lin enforcement E2E: declare/consume, E-LIN-001/002/003, lambda capture |
-| `self-host/bs.test.js` | Block-splitter self-host module correctness |
+## Pattern
+Tests use bun:test with describe/test/expect. No mocking framework — tests compile real .scrml source and assert on output strings. Browser tests use Puppeteer to load compiled output and query DOM. Integration tests compile multi-file scenarios end-to-end. Conformance tests verify spec section compliance with named test cases (conf-001 through conf-047 for block grammar).
 
 ## Tags
-#scrmlTS #map #test #bun #compiler #conformance
+#scrmlTS #map #test #bun-test #conformance #expr-parity
 
 ## Links
 - [primary.map.md](./primary.map.md)

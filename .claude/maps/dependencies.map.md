@@ -1,86 +1,38 @@
 # dependencies.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12T20:00:00Z  commit: 623aeac
 
-## Runtime Dependencies (root package.json)
+## Runtime Dependencies
 
-| Package | Version | Purpose |
-|---|---|---|
-| `vscode-languageserver` | ^9.0.1 | LSP protocol server framework (used by lsp/server.js) |
-| `vscode-languageserver-textdocument` | ^1.0.11 | TextDocument utility for LSP text sync |
+### Root package.json
+vscode-languageserver@^9.0.1 — LSP server protocol implementation
+vscode-languageserver-textdocument@^1.0.11 — LSP text document model
 
-## Runtime Dependencies (compiler/package.json)
-
-| Package | Version | Purpose |
-|---|---|---|
-| `acorn` | ^8.16.0 | JS parser — used by meta-eval.ts to parse `^{}` meta blocks |
-| `astring` | ^1.9.0 | JS AST-to-string printer — companion to acorn in meta-eval |
+### compiler/package.json
+acorn@^8.16.0 — JavaScript parser (ESTree AST); powers expression-parser.ts for structured ExprNode parsing
+astring@^1.9.0 — ESTree-to-JavaScript code generator; used for AST-to-source serialization
 
 ## Dev / Build Dependencies
+@happy-dom/global-registrator@^20.8.9 — DOM shim for bun test (browser tests)
+happy-dom@^20.8.9 — Virtual DOM implementation for unit/integration tests
+puppeteer@^24.40.0 — Headless Chrome for browser E2E tests
 
-| Package | Version | Scope | Purpose |
-|---|---|---|---|
-| `@happy-dom/global-registrator` | ^20.8.9 | root + compiler | DOM environment for browser tests |
-| `happy-dom` | ^20.8.9 | root | Headless DOM for runtime behavior tests |
-| `puppeteer` | ^24.40.0 | root | Headless Chrome for benchmarks + browser E2E |
-
-## Workspace Layout
-
-```
-scrmlTS (root, bun workspace)
-└── compiler/     workspace member — has its own package.json with acorn + astring
-```
-
-## Internal Module Graph (major compiler stages)
-
-```
-cli.js
-  → commands/compile.js → index.js
-  → commands/dev.js     → index.js
-  → commands/build.js   → index.js
-  → commands/serve.js   → index.js
-  → commands/init.js    (standalone)
-
-index.js
-  → block-splitter.js
-  → ast-builder.js
-  → body-pre-parser.ts  (runBPP)
-  → protect-analyzer.ts (runPA)
-  → route-inference.ts  (runRI)
-  → type-system.ts      (runTS)
-  → dependency-graph.ts (runDG)
-  → meta-eval.ts        (runME)
-  → meta-checker.ts     (runMC)
-  → component-expander.ts (runCE)
-  → codegen/index.ts    (runCG)
-
-codegen/index.ts
-  → codegen/analyze.ts
-  → codegen/context.ts
-  → codegen/ir.ts
-  → codegen/binding-registry.ts
-  → codegen/emit-html.ts → codegen/emit-bindings.ts, emit-css.ts
-  → codegen/emit-server.ts
-  → codegen/emit-client.ts → emit-functions.ts, emit-bindings.ts,
-                              emit-reactive-wiring.ts, emit-overloads.ts,
-                              emit-event-wiring.ts, emit-machines.ts,
-                              emit-channel.ts, emit-worker.ts,
-                              emit-sync.ts, emit-test.ts
-  → codegen/source-map.ts
-  → codegen/runtime-chunks.ts
-
-lsp/server.js
-  → block-splitter.js
-  → ast-builder.js
-  → body-pre-parser.ts
-  → protect-analyzer.ts
-  → route-inference.ts
-  → type-system.ts
-  → dependency-graph.ts
-```
+## Internal Module Graph
+cli.js -> commands/{compile,dev,build,init,serve}.js
+api.js -> block-splitter.js, ast-builder.js, component-expander.ts, protect-analyzer.ts, route-inference.ts, type-system.ts, meta-checker.ts, dependency-graph.ts, code-generator.js, meta-eval.ts, module-resolver.js, lint-ghost-patterns.js
+ast-builder.js -> tokenizer.ts, expression-parser.ts
+expression-parser.ts -> acorn, astring, types/ast.ts
+codegen/index.ts -> codegen/{analyze,emit-html,emit-css,emit-server,emit-client,emit-library,emit-test,emit-worker,binding-registry,var-counter,utils,errors,source-map,type-encoding,collect,context,runtime-chunks}.ts
+codegen/emit-logic.ts -> codegen/{rewrite,emit-expr,emit-control-flow,emit-lift,reactive-deps,emit-predicates,var-counter,type-encoding}.ts, codegen/compat/parser-workarounds.js
+codegen/emit-expr.ts -> types/ast.ts, codegen/rewrite.ts (escape-hatch fallback)
+codegen/emit-control-flow.ts -> codegen/{var-counter,rewrite,emit-expr,emit-logic,emit-lift,emit-machines}.ts
+codegen/emit-event-wiring.ts -> codegen/{rewrite,emit-expr,emit-control-flow,type-encoding,context}.ts
+codegen/emit-html.ts -> codegen/{var-counter,utils,reactive-deps,rewrite,errors,binding-registry,emit-css,context}.ts
+codegen/emit-lift.js -> codegen/{rewrite,emit-expr,emit-logic,var-counter,utils}.ts
+codegen/rewrite.ts -> expression-parser.ts (rewriteReactiveRefsAST), codegen/var-counter.ts
 
 ## Tags
-#scrmlTS #map #dependencies #compiler #lsp #bun
+#scrmlTS #map #dependencies #acorn #astring #bun
 
 ## Links
 - [primary.map.md](./primary.map.md)

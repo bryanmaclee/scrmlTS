@@ -1,53 +1,37 @@
 # build.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12T20:00:00Z  commit: 623aeac
 
-## Development Commands (package.json scripts)
-
-| Command | What it does |
-|---|---|
-| `bun run compile` | Compile a file: `bun compiler/src/cli.js compile` |
-| `bun run watch` | Watch + recompile on change: `bun --watch compiler/src/cli.js compile` |
-| `bun run lsp` | Start LSP server: `bun lsp/server.js --stdio` |
-| `bun run bench` | Compile all 275 samples with timing output |
-| `bun run security` | Compile all samples + `node --check` on output JS |
+## Development Commands
+bun run compile <file|dir> — compile .scrml to HTML/CSS/JS via compiler/src/cli.js
+bun run test — run all tests (bun test compiler/tests/)
+bun run test:coverage — run tests with coverage reporting
+bun run watch — watch mode recompilation
+bun run bench — compile all 280 compilation-tests with --timing
+bun run security — compile samples + node --check JS validity
+bun run lsp — start language server on stdio
 
 ## Build & Release
+bun run compiler/scripts/build-self-host.js — build self-hosted compiler modules
+bash scripts/assemble-spec.sh — assemble SPEC.md from sources
+bash scripts/update-spec-index.sh — regenerate SPEC-INDEX.md line numbers
+node scripts/generate-api-reference.js — generate API reference docs
+node scripts/verify-js.js — verify JS output validity
+node scripts/bundle-size-benchmark.js — measure bundle size
+bash scripts/pull-worktree.sh — pull scrml worktree for self-host
 
-| Command | What it does |
-|---|---|
-| `bun test compiler/tests/` | Run full test suite (5,542 tests, ~10s) |
-| `bun test compiler/tests/ --coverage` | Test suite with coverage |
-| `cd editors/vscode && bunx tsc` | Build VS Code extension → `out/extension.js` |
-| `bun compiler/scripts/build-self-host.js` | Rebuild self-host .scrml dist artifacts |
-
-## Git Hooks (.git/hooks/ — not versioned, installed manually)
-
-| Hook | Trigger | What it does |
-|---|---|---|
-| `pre-commit` | Any commit with `compiler/` files staged | Runs `bun test compiler/tests/`; blocks on fail |
-| `post-commit` | After `compiler/` commit | Full test suite + TodoMVC compile + browser-quality checks (CSS braces, bare fn calls, dot-path subscriptions) |
-| `pre-push` | Push | Full test suite + TodoMVC gauntlet check; blocks push on fail |
-
-**Caveat:** `.git/hooks/` is not versioned. Fresh clones need manual hook installation. Consider `scripts/git-hooks/` mirror (open TODO in master-list.md).
+## CLI Subcommands  [compiler/src/commands/]
+compile.js — single/batch .scrml compilation
+dev.js — compile + watch + serve (hot reload)
+build.js — production build with adapters
+init.js — scaffold new scrml project
+serve.js — persistent compiler server
 
 ## CI/CD Pipeline
-
-No `.github/workflows/` or other CI config detected. No CD pipeline.
-
-## Docker
-
-No Dockerfile or docker-compose detected.
-
-## VS Code Extension Build
-
-Entry: `editors/vscode/src/extension.ts`
-Config: `editors/vscode/tsconfig.json`
-Command: `cd editors/vscode && bunx tsc`
-Output: `editors/vscode/out/extension.js` (83 lines, LSP client that spawns `lsp/server.js`)
+No CI/CD configuration found (.github/workflows/, Dockerfile, etc. absent).
 
 ## Tags
-#scrmlTS #map #build #cli #bun #git-hooks #vscode
+#scrmlTS #map #build #cli #bun
 
 ## Links
 - [primary.map.md](./primary.map.md)
