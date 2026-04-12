@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-04-12T20:27:11.466Z",
+  "generatedAt": "2026-04-12T20:57:07.048Z",
   "branch": "changes/expr-ast-phase-1-audit",
   "phase": "Phase 1.5 audit (idempotency invariant)",
   "summary": {
     "filesAudited": 14,
-    "totalExprNodesChecked": 170,
+    "totalExprNodesChecked": 166,
     "totalEscapeHatches": 0,
     "escapeHatchRate": "0.00%",
     "byCategory": {
@@ -241,7 +241,7 @@
     {
       "file": "14-mario-state-machine.scrml",
       "astError": null,
-      "exprNodesChecked": 39,
+      "exprNodesChecked": 35,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {

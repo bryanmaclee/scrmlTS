@@ -1,13 +1,13 @@
 # Escape-Hatch Catalog: expr-ast-phase-1 corpus audit
 
-Generated: 2026-04-12T20:27:11.466Z
+Generated: 2026-04-12T20:57:07.048Z
 Branch: `changes/expr-ast-phase-1-audit`
 Phase: Phase 1.5 audit (idempotency invariant)
 
 ## Summary
 
 - Files audited: 14
-- Expression nodes checked: 170
+- Expression nodes checked: 166
 - Total escape hatches: 0
 - Escape-hatch rate: 0.00%
 
@@ -39,7 +39,7 @@ Phase: Phase 1.5 audit (idempotency invariant)
 | 11-meta-programming.scrml | 4 | 0 | PASS |  |
 | 12-snippets-slots.scrml | 6 | 0 | PASS |  |
 | 13-worker.scrml | 17 | 0 | PASS |  |
-| 14-mario-state-machine.scrml | 39 | 0 | PASS |  |
+| 14-mario-state-machine.scrml | 35 | 0 | PASS |  |
 
 ## Per-Category Details
 
