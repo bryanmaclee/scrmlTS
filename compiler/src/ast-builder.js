@@ -872,7 +872,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (
           parts.length > 0 &&
           angleDepth === 0 &&
-          lastTok !== startTok && // we have actually consumed at least one token
+          // (Slice 3) removed redundant identity check `lastTok !== startTok` — it was an
+          // off-by-one (peek/consume return same object, so it meant >=2 tokens, not >=1).
+          // `parts.length > 0` is the authoritative "have we consumed something" signal.
           tok.span.line > lastTok.span.line // current token is on a later line
         ) {
           const lastKind = lastTok.kind;

@@ -568,7 +568,9 @@ ${
                     if (
                         parts.length > 0 &&
                         angleDepth == 0 &&
-                        lastTok != startTok &&
+                        // (Slice 3) removed redundant identity check — parts.length > 0 already
+                        // means "consumed at least one token". The identity check was an
+                        // off-by-one (peek/consume return the same object).
                         tok.span.line > lastTok.span.line
                     ) {
                         const lastKind = lastTok.kind

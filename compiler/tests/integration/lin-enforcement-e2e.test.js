@@ -108,9 +108,12 @@ console.log(x)`);
 
   // --------------------------------------------------------------------------
   // Scenario 2: double consumption → E-LIN-002
+  // Post-Slice-3: the parser now emits three separate nodes (lin-decl + two
+  // bare-expr) for this input, so E-LIN-002 fires via the INTENDED cross-node
+  // double-consume path, not via the Pass-2 string-scan dedup quirk.
   // --------------------------------------------------------------------------
 
-  test("Scenario 2: lin consumed twice — E-LIN-002 fires", () => {
+  test("Scenario 2: lin consumed twice — E-LIN-002 fires (cross-node path post-Slice-3)", () => {
     const { linErrors } = compileLinLogic(`lin x = "hello"
 console.log(x)
 console.log(x)`);
