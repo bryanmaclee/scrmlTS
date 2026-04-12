@@ -63,6 +63,8 @@ export interface CallRefAttrValue {
   kind: "call-ref";
   name: string;
   args: string[];
+  /** Phase 4: structured ExprNode for each arg. */
+  argExprNodes?: ExprNode[];
   span: Span;
 }
 

@@ -575,6 +575,7 @@ export function generateHtml(
                 eventName: name,
                 handlerName: val.name,
                 handlerArgs: val.args ?? [],
+                handlerArgExprNodes: val.argExprNodes,
               });
             }
           }

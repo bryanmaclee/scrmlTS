@@ -15,6 +15,8 @@ interface EventBinding {
   handlerExpr?: string;
   /** Phase 3: structured ExprNode form of `handlerExpr`. */
   handlerExprNode?: ExprNode;
+  /** Phase 4: structured ExprNode for each handler arg. */
+  handlerArgExprNodes?: ExprNode[];
 }
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
@@ -220,8 +222,9 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // Serialize the arguments from the call-ref attribute value.
       // Args from the parser are raw expression strings (e.g. '"apple"', 'userId', '9.99').
       // Object args with .kind need special handling.
-      const argsStr = (handlerArgs ?? []).map((a: unknown) => {
-        if (typeof a === "string") return rewriteExpr(a);
+      const _argNodes = binding.handlerArgExprNodes;
+      const argsStr = (handlerArgs ?? []).map((a: unknown, idx: number) => {
+        if (typeof a === "string") return (_argNodes && _argNodes[idx]) ? emitExpr(_argNodes[idx], { mode: "client" }) : rewriteExpr(a);
         const node = a as Record<string, unknown>;
         if (node && node.kind === "string-literal") return JSON.stringify(node.value);
         if (node && node.kind === "number-literal") return String(node.value);

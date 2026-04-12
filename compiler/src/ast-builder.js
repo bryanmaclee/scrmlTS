@@ -357,7 +357,8 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
             const argList = rawArgs.trim().length === 0
               ? []
               : splitArgs(rawArgs);
-            value = { kind: "call-ref", name: parsed.name, args: argList, span: valSpan };
+            const _argExprNodes = argList.map(a => safeParseExprToNodeGlobal(a, filePath, valSpan?.start ?? 0)).filter(Boolean);
+            value = { kind: "call-ref", name: parsed.name, args: argList, argExprNodes: _argExprNodes.length === argList.length ? _argExprNodes : undefined, span: valSpan };
           } else if (valTok.kind === "ATTR_IDENT") {
             value = { kind: "variable-ref", name: valTok.text, exprNode: safeParseExprToNodeGlobal(valTok.text, filePath, valSpan?.start ?? 0), span: valSpan };
           } else if (valTok.kind === "ATTR_BLOCK") {

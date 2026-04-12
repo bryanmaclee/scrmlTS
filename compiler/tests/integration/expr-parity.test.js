@@ -130,7 +130,11 @@ function checkFile(filePath) {
   const allNodes = walkASTNodes(tabResult.ast?.nodes ?? []);
   const ctx = { mode: "client" };
 
+  // Skip text/comment/css nodes — their value/content fields are literal text, not expressions
+  const SKIP_KINDS = new Set(["text", "comment", "css-inline", "style"]);
+
   for (const node of allNodes) {
+    if (SKIP_KINDS.has(node.kind)) continue;
     for (const { exprField, strField } of FIELD_PAIRS) {
       const strVal = node[strField];
       if (typeof strVal !== "string" || !strVal.trim()) continue;
