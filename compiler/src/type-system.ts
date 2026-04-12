@@ -3661,7 +3661,14 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
 
       case "tilde-decl": {
         mustUseTracker.declare(node.name as string, node.span as Span | undefined);
-        if (node.init) {
+        // Walk initExpr (structured) if available; fall back to string scan.
+        const tildeInitExpr = (node as Record<string, unknown>).initExpr as import("./types/ast.ts").ExprNode | undefined;
+        if (tildeInitExpr && typeof tildeInitExpr === "object" && tildeInitExpr.kind) {
+          forEachIdentInExprNode(tildeInitExpr, (ident) => {
+            mustUseTracker.markUsed(ident.name);
+            if (parentMustUseTracker) parentMustUseTracker.markUsed(ident.name);
+          });
+        } else if (node.init) {
           mustUseTracker.scanExpression(node.init as string);
           if (parentMustUseTracker) parentMustUseTracker.scanExpression(node.init as string);
         }
