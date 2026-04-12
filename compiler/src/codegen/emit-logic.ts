@@ -248,6 +248,15 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
   switch (node.kind) {
     case "bare-expr": {
+      // Phase 3 fast path: when exprNode is present, skip all string heuristics
+      if (node.exprNode) {
+        if (opts.tildeContext) {
+          const tVar = genVar("tilde");
+          opts.tildeContext.var = tVar;
+          return `let ${tVar} = ${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
+        }
+        return `${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
+      }
       let bareExpr: string = node.expr ?? "";
       if (bareExpr.trim() === "/" || bareExpr.trim() === "") return "";
       // Skip slot spread placeholder — CE replaces ${...} slots with children; if any survive
@@ -304,11 +313,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (opts.tildeContext) {
         const tVar = genVar("tilde");
         opts.tildeContext.var = tVar;
-        const bareRhs = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(bareExpr);
-        return `let ${tVar} = ${bareRhs};`;
+        return `let ${tVar} = ${rewriteExpr(bareExpr)};`;
       }
-      const bareRewritten = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(bareExpr);
-      return `${bareRewritten};`;
+      return `${rewriteExpr(bareExpr)};`;
     }
 
     case "let-decl": {
@@ -320,6 +327,21 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // For-as-expression: `let names = for (item of items) { lift item.name }`
       if (node.forExpr) {
         return emitForExprDecl(node.name, node.forExpr, "let", opts);
+      }
+      // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
+      if (node.initExpr) {
+        const rhs = emitExpr(node.initExpr, _makeExprCtx(opts));
+        if (node.predicateCheck && node.predicateCheck.zone === "boundary") {
+          const _pc = node.predicateCheck;
+          const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
+          const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
+          return [
+            `const ${_checkTmpVar} = ${rhs};`,
+            ..._checkLines,
+            `let ${node.name} = ${_checkTmpVar};`,
+          ].join("\n");
+        }
+        return `let ${node.name} = ${rhs};`;
       }
       let letInit: string = node.init ?? "";
       // §32: If tilde context is active and init contains `~`, substitute the tilde var.
@@ -345,7 +367,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (node.predicateCheck && node.predicateCheck.zone === "boundary" && letInit) {
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
-        const _rewrittenLetInit = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(letInit);
+        const _rewrittenLetInit = rewriteExpr(letInit);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
         return [
           `const ${_checkTmpVar} = ${_rewrittenLetInit};`,
@@ -354,8 +376,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         ].join("\n");
       }
       if (letInit) {
-        const rhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(letInit);
-        return `let ${node.name} = ${rhs};`;
+        return `let ${node.name} = ${rewriteExpr(letInit)};`;
       }
       return `let ${node.name};`;
     }
@@ -378,6 +399,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (node.forExpr) {
         return emitForExprDecl(node.name, node.forExpr, "const", opts);
       }
+      // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
+      if (node.initExpr) {
+        return `const ${node.name} = ${emitExpr(node.initExpr, _makeExprCtx(opts))};`;
+      }
       let constInit: string = node.init ?? "";
       // §32: If tilde context is active and init contains `~`, substitute the tilde var.
       if (opts.tildeContext?.var && constInit.includes("~")) {
@@ -392,8 +417,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // not a new declaration. Emit as bare assignment instead of const.
       const isSelfRef = constInit && new RegExp(`\\b${node.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(constInit);
       if (isSelfRef) {
-        const selfRefRhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(constInit);
-        return `${node.name} = ${selfRefRhs};`;
+        return `${node.name} = ${rewriteExpr(constInit)};`;
       }
       if (typeof constInit === "string" && constInit.trim()) {
         const constSplit = splitBareExprStatements(constInit);
@@ -417,6 +441,22 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       const initStr: string = node.init ?? "undefined";
       const ctx = opts.encodingCtx;
       const encodedName = ctx ? ctx.encode(node.name) : node.name;
+      // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
+      if (node.initExpr) {
+        const rewrittenInit = emitExpr(node.initExpr, _makeExprCtx(opts));
+        const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr);
+        if (node.predicateCheck && node.predicateCheck.zone === "boundary" && initStr !== "undefined") {
+          const _pc = node.predicateCheck;
+          const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
+          const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
+          return [
+            `const ${_checkTmpVar} = ${rewrittenInit};`,
+            ..._checkLines,
+            `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${_wrapDeepReactive(_checkTmpVar, initStr)});`,
+          ].join("\n");
+        }
+        return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${wrappedInit});`;
+      }
       if (typeof initStr === "string" && /\s+(?:@[A-Za-z_$]|let\s|const\s)/.test(initStr)) {
         return splitMergedStatements(node.name, initStr, "reactive");
       }
@@ -433,7 +473,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           return lines.filter((l: string) => l !== ";").join("\n");
         }
       }
-      const rewrittenInit = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(initStr);
+      const rewrittenInit = rewriteExpr(initStr);
       const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr);
       // §53.4.5: If TS annotated this node as boundary zone, emit runtime check first.
       if (node.predicateCheck && node.predicateCheck.zone === "boundary" && initStr !== "undefined") {
@@ -460,7 +500,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         return `/* W-DERIVED-001: const @${node.name} has no reactive dependencies — treating as const */ const ${node.name} = ${derivedRhs};`;
       }
 
-      const rewrittenBody = rewriteExprWithDerived(derivedInit, derivedNames);
+      const rewrittenBody = node.initExpr
+        ? emitExpr(node.initExpr, { ..._makeExprCtx(opts), derivedNames })
+        : rewriteExprWithDerived(derivedInit, derivedNames);
       const ctx = opts.encodingCtx;
       const encodedDeclName = ctx ? ctx.encode(node.name) : node.name;
 
@@ -474,6 +516,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "return-stmt": {
+      // Phase 3 fast path: when exprNode is present, skip all string splitting
+      if (node.exprNode) {
+        return `return ${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
+      }
       const retExpr: string = (node.expr ?? node.value ?? "").trim();
       const retSplit = splitBareExprStatements(retExpr);
       if (retSplit.length > 1) {
@@ -487,8 +533,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         const remaining = retSplit.slice(1).map((s: string) => `${rewriteExpr(s.trim())};`).filter((s: string) => s !== ";");
         return `return ${rewriteExpr(retSplit[0].trim())};\n${remaining.join("\n")}`;
       }
-      const retRewritten = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(retExpr);
-      return `return ${retRewritten};`;
+      return `return ${rewriteExpr(retExpr)};`;
     }
 
     case "if-stmt":
