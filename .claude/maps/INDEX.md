@@ -1,6 +1,7 @@
 # INDEX.md — scrmlTS Map Index
 # generated: 2026-04-10T22:00:00Z  commit: 482373c
-# mode: FULL_COLD_START
+# refreshed: 2026-04-12  commit: S6 main (post Slice 4 + self-host resync merge)
+# mode: INCREMENTAL (S6)
 
 Maps generated for scrmlTS (working TypeScript/JavaScript scrml compiler).
 All maps are in `/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/maps/`.
@@ -16,9 +17,9 @@ All maps are in `/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/maps/`.
 | config.map.md | 50 | CLI flags; build config files; no env vars in this project |
 | build.map.md | 55 | bun scripts; git hooks (pre/post-commit, pre-push); VS Code extension build |
 | error.map.md | 66 | 9 compiler error types; collect-not-throw pattern; 8 runtime error classes; known bug codes |
-| test.map.md | 70 | bun:test framework; 168 test files; 5,542 tests; assertion style sample |
-| domain.map.md | 69 | 11 pipeline stages (BS→CG); 13 domain concepts; output artifact types; business invariants |
-| non-compliance.md | 59 | Non-compliance scan: 11 docs scanned, 0 non-compliant, 0 uncertain |
+| test.map.md | 70 | bun:test framework; 249 test files; 5,719 pass / 137 fail; assertion style sample |
+| domain.map.md | 69 | 11 pipeline stages (BS→CG); 14 domain concepts (+ ExprNode); output artifact types; business invariants |
+| non-compliance.md | 59 | Non-compliance scan: 11 docs + docs/changes/ (30 files); `docs/changes/` flagged for deref review |
 
 ## Skipped Maps (not applicable)
 

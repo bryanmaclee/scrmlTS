@@ -1,6 +1,6 @@
 # structure.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12  commit: S6 main
 
 ## Entry Points
 
@@ -17,18 +17,19 @@ scrmlTS/
 │   │   ├── codegen/       34-module code generator (~14,135 LOC); see codegen/README.md
 │   │   │   └── compat/    Parser bug workaround shims (1 file)
 │   │   ├── commands/      CLI subcommand handlers (compile, dev, build, serve, init)
-│   │   └── types/         TypeScript type definitions (ast.ts — 933 lines, discriminated unions)
-│   ├── tests/             5,542 test cases across 6 categories
-│   │   ├── unit/          147 files — per-module unit tests
-│   │   ├── integration/   2 files — self-compilation + self-host smoke
+│   │   └── types/         TypeScript type definitions (ast.ts — ~1,340 lines, incl ExprNode union)
+│   ├── tests/             5,719 pass / 137 fail across 249 files
+│   │   ├── unit/          ~149 files — per-module unit tests
+│   │   ├── integration/   ~5 files — self-compilation, self-host smoke, lin E2E, ExprNode corpus
 │   │   ├── self-host/     4 files — self-host stage tests (bs, tab, bpp, ast)
 │   │   ├── conformance/   2 dirs — block-grammar + tab grammar conformance suites
 │   │   ├── browser/       11 files — happy-dom runtime tests (Puppeteer)
+│   │   ├── helpers/       1 file — shared ExprNode test utilities
 │   │   └── commands/      2 files — CLI command tests (init, build-adapters)
 │   ├── self-host/         11 .scrml + dist/ — reference copy of scrml-to-scrml bootstrap modules
 │   └── scripts/           build-self-host.js
 ├── stdlib/                13 modules: auth, compiler, crypto, data, format, fs, http, path, process, router, store, test, time
-├── examples/              14 single-file .scrml apps (01–14); 12 compile clean, 2 have known bugs
+├── examples/              14 single-file .scrml apps (01–14); all 14 compile clean
 ├── samples/
 │   └── compilation-tests/ 275 .scrml test files (do not enumerate individually)
 ├── benchmarks/
@@ -42,7 +43,7 @@ scrmlTS/
 │   ├── vscode/            VS Code extension: TextMate grammar, LSP client, language config
 │   └── neovim/            NeoVim: syntax highlight (.vim/.lua), tree-sitter queries
 ├── lsp/                   LSP server (966 lines, runs all pipeline stages in-process)
-├── scripts/               24 utility scripts (verify, benchmark, spec tools, migration helpers)
+├── scripts/               8 utility scripts (verify, benchmark, spec tools; 16 stale ones archived S2)
 ├── dist/                  scrml-runtime.js (452 lines, generated; included in compiled output)
 └── handOffs/              Historical hand-off docs (out-of-scope for maps)
 ```

@@ -1,14 +1,15 @@
 # non-compliance.md
 # project: scrmlTS
 # generated: 2026-04-10T22:00:00Z
-# scan mode: FULL_COLD_START
+# refreshed: 2026-04-12 (S6 incremental)
+# scan mode: INCREMENTAL
 
 ## Summary
 
-Total docs scanned: 11
+Total docs scanned: 11 (original) + ~30 in `docs/changes/` (S6 scan)
 Compliant: 11
-Non-compliant: 0
-Uncertain: 0
+Flagged for review: ~30 files in `docs/changes/` (historical, not current truth)
+Non-compliant: 0 (pending user disposition on flagged items)
 
 ## Scope of Scan
 
@@ -31,11 +32,33 @@ Docs evaluated:
 
 ## Non-compliant docs
 
-None found.
+None found (among original 11).
+
+## Flagged for review (S6 scan)
+
+`docs/changes/` contains ~30 markdown files across 14 subdirectories. These are progress logs,
+anomaly reports, impact analyses, pre-snapshots, and design reviews for completed work slices.
+Per pa.md scope principle ("current truth only"), several categories don't belong in this repo:
+
+| Category | Files | Disposition |
+|---|---|---|
+| `pre-snapshot.md` | ~4 files | Historical (describe state before changes). Deref to scrml-support. |
+| `progress.md` | ~14 files | Step-by-step implementation logs. Deref to scrml-support. |
+| `design-review.md` | 1 file | Aspirational/historical. Deref to scrml-support. |
+| `anomaly-report.md` | ~6 files | Analysis of issues found during slices. Keep if findings are still relevant; deref if resolved. |
+| `impact-analysis.md` | ~3 files | Pre-merge analysis. Deref after merge confirms no regressions. |
+| `spec-patch.md` | 1 file | May be superseded by SPEC.md changes. Verify and deref. |
+| `escape-hatch-catalog.*` | 2 files | Audit corpus — keep if actively maintained, deref if snapshot. |
+
+**Actioned S6:** 31 files deref'd to `scrml-support/archive/changes/`. 8 empty dirs removed.
+Remaining in `docs/changes/`: 5 anomaly reports (active Phase 2 context) + escape-hatch catalog
+(auto-regenerated, tracks ExprNode coverage). Two dirs (`dq7-css-scope/`, `lin-batch-a/`) retain
+JS patch scripts — low priority, can deref later.
 
 ## Uncertain docs (needs human review)
 
-None.
+`scrmlFormula.md` — decorative/fun document ("The scrml Lagrangian"). Not a compliance issue
+but not a code doc. Keep or remove at user discretion.
 
 ## Notes
 

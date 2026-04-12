@@ -1,10 +1,10 @@
 # schema.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12  commit: S6 main
 
 ## TypeScript Types & Interfaces
 
-Single source file for AST types: `compiler/src/types/ast.ts` (933 lines)
+Single source file for AST types: `compiler/src/types/ast.ts` (~1,340 lines)
 
 ### Span  [ast.ts:23]
 ```
@@ -32,7 +32,18 @@ Every node carries:
 - `id: number` — unique within compilation unit
 - `span: Span` — source location
 
-Note: Full AST node union is 933 lines. Read `compiler/src/types/ast.ts` directly for all node kinds (markup nodes, logic nodes, declaration nodes, expression nodes, etc.).
+### ExprNode  [ast.ts:994–1340]
+Discriminated union for structured expression AST (Phase 1/2 migration). `kind` field selects variant:
+- `ident` — IdentExpr { name, span }
+- `lit` — LitExpr { value, raw, span }
+- `array`, `object`, `unary`, `binary`, `assign`, `ternary` — compound expressions
+- `member`, `index`, `call`, `new` — access/invocation
+- `lambda`, `cast`, `match`, `spread` — special forms
+- `sql-ref`, `input-state-ref`, `escape-hatch` — scrml-specific
+
+ExprNode parallel fields (`initExpr`, `exprNode`, `condExpr`, `valueExpr`, `iterExpr`, `headerExpr`) sit alongside legacy string fields (`init`, `expr`, `condition`, `value`, `iterable`, `header`) on AST nodes. Both populated during Phase 2; string fields will be dropped in Phase 4.
+
+Note: Full AST node union is ~1,340 lines. Read `compiler/src/types/ast.ts` directly for all node kinds.
 
 ## Compiler Stage Output Types
 

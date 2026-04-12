@@ -1,6 +1,6 @@
 # primary.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12  commit: S6 main
 
 ## Project Fingerprint
 
@@ -11,7 +11,7 @@
 | Framework | None — compiler CLI tool + LSP server |
 | Primary dep | vscode-languageserver (LSP), acorn + astring (meta-eval) |
 | Type | Language compiler — CLI tool + Language Server |
-| Size | ~24,739 LOC compiler src; ~14,135 LOC codegen; 933 lines AST types |
+| Size | ~24,739 LOC compiler src; ~14,135 LOC codegen; ~1,340 lines AST types |
 
 ## Map Index
 
@@ -19,11 +19,11 @@
 |---|---|---|
 | structure.map.md | present | directory layout, entry points, 3 top-level entries |
 | dependencies.map.md | present | 5 packages (2 runtime, 3 dev), internal module graph |
-| schema.map.md | present | AST discriminated union (933 lines), 9 compiler error types, 8 runtime error classes |
+| schema.map.md | present | AST discriminated union (~1,340 lines incl ExprNode), 9 compiler error types, 8 runtime error classes |
 | config.map.md | present | no env vars; bunfig, CLI flags, vscode tsconfig |
 | build.map.md | present | bun scripts, git hooks (not versioned), vscode extension build |
 | error.map.md | present | 9 compiler error types, 8 runtime error classes, collect-not-throw pattern |
-| test.map.md | present | bun:test, 168 test files, 5,542 tests pass |
+| test.map.md | present | bun:test, 249 test files, 5,719 pass / 137 fail |
 | domain.map.md | present | 11 pipeline stages, 13 domain concepts, output artifact types |
 | api.map.md | absent | no REST/GraphQL endpoints (LSP is JSON-RPC stdio, not HTTP) |
 | state.map.md | absent | no state management library (CLI tool) |
@@ -53,7 +53,7 @@
 
 - Entry point is `compiler/src/cli.js` (bin: `scrml`); all pipeline stages run through `compiler/src/index.js`
 - Pipeline has 11 stages: BS → TAB → BPP → PA → RI → TS → DG → ME → MC → CE → CG; all working
-- Tests run with `bun test compiler/tests/`; 5,542 pass, 2 skip, 0 fail
+- Tests run with `bun test compiler/tests/`; 5,719 pass, 2 skip, 137 fail (137 are pre-existing DOM/runtime + 1 tokenizer parity)
 - Self-host flag (`--self-host`) loads 11 .scrml bootstrap modules from `compiler/self-host/`; primary copies live in `~/scrmlMaster/scrml/`
 - Most pipeline stages collect errors into a returned array rather than throwing — CLI presents all errors before halting
 - `shared/` directory was deleted S2 (it was a fictional README describing nonexistent files)

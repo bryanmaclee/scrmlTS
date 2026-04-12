@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12  commit: S6 main
 
 ## Test Framework
 
@@ -14,13 +14,14 @@ Coverage: `bun test compiler/tests/ --coverage`
 
 | Category | Path | Count | Focus |
 |---|---|---|---|
-| Unit | `compiler/tests/unit/` | 147 files | Per-module: block-splitter, AST builder, codegen emitters, individual features |
+| Unit | `compiler/tests/unit/` | ~149 files | Per-module: block-splitter, AST builder, codegen emitters, individual features |
 | Browser | `compiler/tests/browser/` | 11 files | happy-dom + Puppeteer: reactive arrays, bind, forms, components, TodoMVC |
-| Integration | `compiler/tests/integration/` | 2 files | self-compilation + self-host smoke (compiler compiles itself) |
+| Integration | `compiler/tests/integration/` | ~5 files | self-compilation + self-host smoke + lin E2E + ExprNode corpus invariant |
 | Self-host | `compiler/tests/self-host/` | 4 files | Self-host stage verification: bs.scrml, tab.scrml, bpp.scrml, ast.scrml |
 | Conformance | `compiler/tests/conformance/` | 2 dirs | block-grammar and tab grammar suites |
 | Commands | `compiler/tests/commands/` | 2 files | CLI command tests: init, build-adapters |
-| **Total** | | **~168 files** | **5,542 pass, 2 skip, 0 fail** |
+| Helpers | `compiler/tests/helpers/` | 1 file | `expr.ts` — shared ExprNode test utilities |
+| **Total** | | **249 files** | **5,719 pass, 2 skip, 137 fail** |
 
 ## Assertion Style and Structure Pattern
 
@@ -45,9 +46,9 @@ collect rather than throw). Snapshot testing is not used.
 
 ## Fixtures & Mocks
 
-No `__fixtures__/` or `mocks/` directories detected.
+`compiler/tests/helpers/` contains shared ExprNode test utilities.
 `compiler/tests/conformance/` dirs contain grammar conformance inputs.
-`samples/compilation-tests/` (275 files) serve as integration fixtures for the bench/security scripts.
+`samples/compilation-tests/` (~280 files) serve as integration fixtures for the bench/security scripts.
 
 ## Notable Test Files
 
@@ -57,8 +58,10 @@ No `__fixtures__/` or `mocks/` directories detected.
 | `unit/code-generator.test.js` | Top-level CG output for representative .scrml constructs |
 | `unit/channel.test.js` | §35 WebSocket channel codegen |
 | `unit/callback-props.test.js` | Callback prop codegen (2 tests currently skipped) |
+| `unit/collectexpr-newline-boundary.test.js` | Slice 3 regression: newline-as-statement-boundary for 6 decl forms |
 | `browser/browser-todomvc.test.js` | Full TodoMVC app in headless browser |
 | `integration/self-compilation.test.js` | Compiler compiles its own .scrml source |
+| `integration/lin-enforcement-e2e.test.js` | Lin enforcement E2E: declare/consume, E-LIN-001/002/003, lambda capture |
 | `self-host/bs.test.js` | Block-splitter self-host module correctness |
 
 ## Tags

@@ -1,6 +1,6 @@
 # domain.map.md
 # project: scrmlTS
-# updated: 2026-04-10T22:00:00Z  commit: 482373c
+# updated: 2026-04-12  commit: S6 main
 
 ## Core Concepts
 
@@ -20,6 +20,7 @@
 | **Worker** | Self-contained JS bundle for `<program name="...">` — runs in a Web Worker (§4.12.4). |
 | **Self-host** | Pipeline stages rewritten as `.scrml` source; loaded with `--self-host` flag. L2 + L3 bootstrap complete. |
 | **Component expander** | Stage (CE) that inlines component references and resolves slot/snippet contracts. |
+| **ExprNode** | Typed expression AST node tree (Phase 1/2 migration). Built by `safeParseExprToNode` in ast-builder.js, walked by `forEachIdentInExprNode` in expression-parser.ts. Replaces string-form expression fields throughout the compiler. |
 
 ## Pipeline Stages (ordered)
 
@@ -45,6 +46,7 @@
 - All pipeline errors are collected (not thrown); CLI presents them all before halting
 - `~{}` inline test blocks are stripped from production builds entirely
 - `<channel>` generates no HTML markup — client + server wiring only
+- ExprNode parallel fields are the primary expression representation; semantic passes (checkLinear, MustUseTracker) walk ExprNode first, with string-scan fallback for Phase 1 gaps being progressively removed
 
 ## Key Output Artifacts (per compiled file)
 
