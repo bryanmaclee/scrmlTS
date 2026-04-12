@@ -72,7 +72,7 @@
  */
 
 import { getElementShape, getAllElementNames } from "./html-elements.js";
-import { forEachIdentInExprNode } from "./expression-parser.ts";
+import { forEachIdentInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Internal span type (mirrors ast.ts Span)
@@ -2637,7 +2637,7 @@ function annotateNodes(
           if (letAnnoType.kind === "predicated") {
             resolvedType = letAnnoType;
             const letDeclSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-            const letSourceInfo = extractInitLiteral((n as ASTNodeLike).init);
+            const letSourceInfo = (n as any).initExpr ? classifyLiteralFromExprNode((n as any).initExpr) : extractInitLiteral((n as ASTNodeLike).init);
             const letZone = classifyPredicateZone(letAnnoType, letSourceInfo, letDeclSpan, errors);
             if (letZone === "boundary") {
               (n as ASTNodeLike).predicateCheck = { predicate: letAnnoType.predicate, zone: "boundary" };
@@ -2662,7 +2662,7 @@ function annotateNodes(
           if (reactAnnoType.kind === "predicated") {
             resolvedType = reactAnnoType;
             const reactDeclSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-            const reactSourceInfo = extractInitLiteral((n as ASTNodeLike).init);
+            const reactSourceInfo = (n as any).initExpr ? classifyLiteralFromExprNode((n as any).initExpr) : extractInitLiteral((n as ASTNodeLike).init);
             const reactZone = classifyPredicateZone(reactAnnoType, reactSourceInfo, reactDeclSpan, errors);
             if (reactZone === "boundary") {
               (n as ASTNodeLike).predicateCheck = { predicate: reactAnnoType.predicate, zone: "boundary" };
@@ -2701,13 +2701,18 @@ function annotateNodes(
             }
 
             // W-AUTH-001: server @var with no detectable initial load (§52.11)
-            // Heuristic: init has no function call (no '(' in the init string).
-            const initRaw = typeof (n as ASTNodeLike).init === "string"
-              ? ((n as ASTNodeLike).init as string)
-              : (((n as ASTNodeLike).init && typeof ((n as ASTNodeLike).init as ASTNodeLike).raw === "string")
-                  ? ((n as ASTNodeLike).init as ASTNodeLike).raw as string
-                  : "");
-            if (initRaw && !initRaw.includes("(")) {
+            // Phase 4d: ExprNode-first call detection, string fallback.
+            const hasInitCall = (n as any).initExpr
+              ? exprNodeContainsCall((n as any).initExpr)
+              : (() => {
+                  const initRaw = typeof (n as ASTNodeLike).init === "string"
+                    ? ((n as ASTNodeLike).init as string)
+                    : (((n as ASTNodeLike).init && typeof ((n as ASTNodeLike).init as ASTNodeLike).raw === "string")
+                        ? ((n as ASTNodeLike).init as ASTNodeLike).raw as string
+                        : "");
+                  return initRaw ? initRaw.includes("(") : false;
+                })();
+            if (!hasInitCall) {
               errors.push(new TSError(
                 "W-AUTH-001",
                 `W-AUTH-001: 'server @${n.name as string}' has no detected initial load. ` +

@@ -79,7 +79,7 @@ function hasRuntimeMetaBlocks(fileAST: any): boolean {
 //   input         markup tag "keyboard", "mouse", or "gamepad"
 //   deep_reactive reactive-decl (uses _scrml_deep_reactive), when-effect, bind: directives,
 //                 CSS variable bridge with reactive refs, bind-props wiring
-//   equality      match-stmt with enum arms (uses _scrml_structural_eq)
+//   equality      match-stmt with enum arms, == / != binary ops (uses _scrml_structural_eq)
 // ---------------------------------------------------------------------------
 
 /**
@@ -92,12 +92,27 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
   const chunks = ctx.usedRuntimeChunks;
   const allNodes: any[] = fileAST?.ast?.nodes ?? fileAST?.nodes ?? [];
 
+  // Check if an ExprNode tree contains == or != (structural equality)
+  function exprNeedsEquality(expr: any): boolean {
+    if (!expr || typeof expr !== "object") return false;
+    if (expr.kind === "binary" && (expr.op === "==" || expr.op === "!=")) return true;
+    for (const key of Object.keys(expr)) {
+      const v = expr[key];
+      if (v && typeof v === "object") {
+        if (Array.isArray(v)) { for (const el of v) { if (exprNeedsEquality(el)) return true; } }
+        else if (exprNeedsEquality(v)) return true;
+      }
+    }
+    return false;
+  }
+
   // Walk the full AST tree recursively
   function walkNodes(nodes: any[]): void {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
       detectFromNode(node);
       if (Array.isArray(node.children)) walkNodes(node.children);
+      if (Array.isArray(node.body)) walkBody(node.body);
     }
   }
 
@@ -115,6 +130,15 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
 
   function detectFromNode(node: any): void {
     const kind: string = node.kind ?? "";
+
+    // Check all ExprNode-valued fields for structural equality ops (== / !=)
+    for (const key of Object.keys(node)) {
+      const v = node[key];
+      if (v && typeof v === "object" && typeof v.kind === "string" && exprNeedsEquality(v)) {
+        chunks.add("equality");
+        break;
+      }
+    }
 
     switch (kind) {
       // derived — reactive derived values (const @x = expr)

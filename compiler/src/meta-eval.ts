@@ -29,7 +29,8 @@ import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
 import { bodyUsesCompileTimeApis, createReflect, buildFileTypeRegistry, collectMetaLocals, extractParamBindings } from "./meta-checker.ts";
 import { rewriteBunEval } from "./codegen/rewrite.ts";
-import type { Span, FileAST, ASTNode, MetaNode, LogicStatement } from "./types/ast.ts";
+import { exprNodeContainsReactiveRef } from "./expression-parser.ts";
+import type { Span, FileAST, ASTNode, ExprNode, MetaNode, LogicStatement } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -86,9 +87,15 @@ function bodyReferencesReactiveVars(body: LogicStatement[]): boolean {
       // Reactive declarations: @name = expr
       if ((node as ASTNode).kind === "reactive-decl") return true;
 
-      // Check expressions for @var references
-      if ((node as ASTNode).kind === "bare-expr" && (node as { expr?: string }).expr && /@[A-Za-z_$]/.test((node as { expr: string }).expr)) return true;
-      if (((node as ASTNode).kind === "let-decl" || (node as ASTNode).kind === "const-decl") && (node as { init?: string }).init && /@[A-Za-z_$]/.test((node as { init: string }).init)) return true;
+      // Phase 4d: ExprNode-first reactive ref detection, string fallback
+      if ((node as ASTNode).kind === "bare-expr") {
+        const en = (node as any).exprNode as ExprNode | undefined;
+        if (en ? exprNodeContainsReactiveRef(en) : (node as { expr?: string }).expr && /@[A-Za-z_$]/.test((node as { expr: string }).expr)) return true;
+      }
+      if ((node as ASTNode).kind === "let-decl" || (node as ASTNode).kind === "const-decl") {
+        const en = (node as any).initExpr as ExprNode | undefined;
+        if (en ? exprNodeContainsReactiveRef(en) : (node as { init?: string }).init && /@[A-Za-z_$]/.test((node as { init: string }).init)) return true;
+      }
 
       // Walk children (but not nested meta — they are independent)
       if ((node as ASTNode).kind !== "meta") {

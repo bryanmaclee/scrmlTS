@@ -44,6 +44,7 @@
 
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
+import { exprNodeMatchesIdent, exprNodeContainsCall } from "./expression-parser.ts";
 import type {
   Span,
   FileAST,
@@ -55,6 +56,7 @@ import type {
   ComponentDefNode,
   ImportDeclNode,
   TABErrorInfo,
+  ExprNode,
 } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
@@ -968,10 +970,13 @@ function injectChildren(
       const logicChild = child as LogicNode;
 
       // Check each body node for special bare-expr patterns
+      // Phase 4d: ExprNode-first ident matching, string fallback
       const isChildrenSlot = Array.isArray(logicChild.body) && logicChild.body.some(
         (n: unknown) => {
           const node = n as Record<string, unknown>;
-          return node && node.kind === "bare-expr" && node.expr && (node.expr as string).trim() === "children";
+          if (!node || node.kind !== "bare-expr") return false;
+          if (node.exprNode) return exprNodeMatchesIdent(node.exprNode as ExprNode, "children");
+          return node.expr && (node.expr as string).trim() === "children";
         }
       );
 
@@ -979,7 +984,9 @@ function injectChildren(
       const isSpreadSlot = Array.isArray(logicChild.body) && logicChild.body.some(
         (n: unknown) => {
           const node = n as Record<string, unknown>;
-          return node && node.kind === "bare-expr" && node.expr && (node.expr as string).trim() === "...";
+          if (!node || node.kind !== "bare-expr") return false;
+          if (node.exprNode) return exprNodeMatchesIdent(node.exprNode as ExprNode, "...");
+          return node.expr && (node.expr as string).trim() === "...";
         }
       );
 

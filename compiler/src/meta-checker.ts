@@ -1,4 +1,4 @@
-import { extractIdentifiersFromAST, forEachIdentInExprNode } from "./expression-parser.ts";
+import { extractIdentifiersFromAST, forEachIdentInExprNode, exprNodeContainsCall } from "./expression-parser.ts";
 import type { Span, FileAST, ASTNode, ExprNode } from "./types/ast.ts";
 
 /**
@@ -283,8 +283,15 @@ export function bodyContainsLift(body: LogicNode[]): LogicNode | null {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
 
-      if (node.kind === "bare-expr" && node.expr && LIFT_CALL_RE.test(node.expr)) return node;
-      if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init && LIFT_CALL_RE.test(node.init)) return node;
+      // Phase 4d: ExprNode-first lift detection, string fallback
+      if (node.kind === "bare-expr") {
+        if ((node as any).exprNode && exprNodeContainsCall((node as any).exprNode, "lift")) return node;
+        else if (node.expr && LIFT_CALL_RE.test(node.expr)) return node;
+      }
+      if (node.kind === "let-decl" || node.kind === "const-decl") {
+        if ((node as any).initExpr && exprNodeContainsCall((node as any).initExpr, "lift")) return node;
+        else if (node.init && LIFT_CALL_RE.test(node.init)) return node;
+      }
 
       // Walk children (but not nested meta blocks)
       if (node.kind !== "meta") {

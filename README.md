@@ -55,11 +55,21 @@ No virtual DOM. No JSX. No separate route files. No node_modules.
 scrml compile hello.scrml -o dist/
 ```
 
+## Why scrml
+
+**State is first-class.** Reactive variables (`@var`) are language primitives, not library wrappers. The compiler knows every read and write site, enforces mutability contracts statically, and generates minimal DOM updates — no diffing, no proxy overhead, no `useState` ceremony.
+
+**Mutability contracts.** `lin` types enforce exact-once consumption. `server @var` pins state to the server with compile-time enforcement. `protect` excludes fields from client-visible types. The compiler verifies these contracts across all code paths — not at runtime, not by convention, at compile time.
+
+**Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
+
 ## Quick Example
 
 A reactive counter with increment, decrement, and a step picker — in one file:
 
 ```scrml
+<program>
+
 @count = 0
 @step = 1
 
@@ -90,6 +100,8 @@ ${
     .counter { text-align: center; font-family: system-ui; }
     .value { font-size: 4rem; font-weight: 700; }
 }
+
+</>
 ```
 
 Markup, logic, and styles live together. `@count` is reactive — changing it re-renders every element that reads it. `bind:value` keeps the select and `@step` in sync. The compiler generates direct DOM manipulation code with no runtime framework.
@@ -99,7 +111,7 @@ Markup, logic, and styles live together. `@count` is reactive — changing it re
 A contact book with a database, server functions, and a reactive UI — no API layer, no ORM, no route files:
 
 ```scrml
-< db src="contacts.db" protect="password_hash" tables="contacts">
+<program db="contacts.db">
 
     @name = ""
     @email = ""
@@ -125,48 +137,93 @@ A contact book with a database, server functions, and a reactive UI — no API l
             @email = ""
         }
     }
+
 </>
 ```
 
-The `< db>` block declares a state object with database access. (You can also use `<program db="...">` to attach a database to the program root -- see the [tutorial](docs/tutorial.md) for that form.) `protect="password_hash"` excludes that field from client-visible types. The `server` keyword ensures the function runs server-side. The compiler generates the route, the fetch call, and the serialization. You never see any of it.
+`<program db="contacts.db">` declares the app root with a database connection. `protect` on fields excludes them from client-visible types. The `server` keyword ensures the function runs server-side. The compiler generates the route, the fetch call, and the serialization. You never see any of it.
 
 ## Benchmarks
 
-Measured against React 19, Svelte 5, and Vue 3 on an identical TodoMVC implementation:
+Measured against React 19, Svelte 5, and Vue 3 on an identical TodoMVC implementation (2026-04-05).
 
 **Bundle size (gzip):**
 
-| Framework | Total |
-|-----------|------:|
-| **scrml** | **11.4 KB** |
-| Svelte 5  | 16.4 KB |
-| Vue 3     | 27.1 KB |
-| React 19  | 61.6 KB |
+| Framework | JS | Total | Dependencies | node_modules |
+|-----------|---:|------:|---:|---:|
+| **scrml** | **13.4 KB** | **14.5 KB** | **0** | **0 bytes** |
+| Svelte 5  | 15.9 KB | 17.0 KB | 41 | 29 MB |
+| Vue 3     | 26.8 KB | 27.9 KB | ~30 | ~25 MB |
+| React 19  | 62.2 KB | 63.3 KB | 65 | 46 MB |
 
-**Runtime performance (selected operations):**
+**Runtime performance (headless Chrome, medians in ms, lower is better):**
 
 | Operation | scrml | React 19 | Svelte 5 | Vue 3 |
 |-----------|------:|---------:|---------:|------:|
-| Add 1000 items | 57.7ms | 84.8ms | 37.4ms | 69.3ms |
-| Select row | 0.013ms | 5.54ms | 0.065ms | 0.045ms |
-| Replace 1000 | 63.2ms | 88.1ms | 44.3ms | 64.2ms |
-| Create 10,000 | 527ms | 817ms | 396ms | 556ms |
+| Create 1000 | 19.3 | **18.4** | 26.5 | 23.4 |
+| Partial update | **0.4** | 3.3 | 2.9 | 9.4 |
+| Swap rows | **1.3** | 17.7 | 2.2 | 6.1 |
+| Select row | **0.0** | 0.3 | 0.0 | 0.0 |
+| Remove row | **1.1** | 2.7 | 2.1 | 6.6 |
+| Append 1000 | **19.1** | 20.3 | 34.1 | 28.0 |
+| Create 10,000 | 201.6 | **183.6** | 532.1 | 230.8 |
 
-scrml beats React on 8 of 11 benchmarks and is competitive with Svelte and Vue across the board. Full results in [`docs/m1-benchmark-results.md`](docs/m1-benchmark-results.md).
+scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows is 14x faster. Full results in [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
+
+**Build time (TodoMVC, median of 10):**
+
+| Framework | Build Time |
+|-----------|---:|
+| **scrml** | **30.9 ms** |
+| Svelte 5  | 330 ms |
+| Vue 3     | 359 ms |
+| React 19  | 473 ms |
 
 ## Features
 
-- **Reactive state (`@var`)** — prefix any variable with `@` to make it reactive. Changes re-render dependent elements automatically.
-- **Server/client auto-split** — the compiler analyzes your code and decides what runs where. Protected fields force server-side execution.
-- **SQL passthrough (`?{}`)** — query SQLite directly inside logic blocks. The compiler generates parameterized queries and handles serialization.
-- **Components with props and slots** — `const Card = <div>` defines a component. Props are attributes; slots are named placeholders.
+### State and Reactivity
+
+- **Reactive state (`@var`)** — prefix any variable with `@` to make it reactive. Changes re-render dependent elements automatically. No wrappers, no hooks, no signals library.
+- **Derived values (`~var`)** — tilde-prefixed variables recompute when their dependencies change. The compiler tracks the dependency graph.
 - **Two-way binding (`bind:value`)** — keep form inputs and reactive variables in sync without boilerplate.
+- **Mutability contracts** — `server @var` pins state server-side. `protect` hides fields from the client. The compiler enforces these at compile time, not runtime.
+
+### Linear Types
+
+- **Exact-once consumption (`lin`)** — values that must be used exactly once. The compiler verifies this statically across all code paths, including branches and loops.
+- **Site-agnostic** — a `lin` value can be created at one site, passed through function calls, and consumed at a completely different site. No manual threading through intermediate stages. If you need the value more than once, assign it to a `const` at the consumption site.
+
+### Server/Client
+
+- **Auto-split** — the compiler analyzes your code and decides what runs where. Protected fields and `server` functions force server-side execution.
+- **SQL passthrough (`?{}`)** — query SQLite directly inside logic blocks. The compiler generates parameterized queries and handles serialization.
+- **No API boilerplate** — server functions are called like local functions. The compiler generates routes, fetch calls, CSRF tokens, and serialization.
+
+### Components and Patterns
+
+- **Components with props and slots** — `const Card = <div>` defines a component. Props are attributes; slots are named placeholders.
 - **Enums and pattern matching** — Rust-style enums with exhaustive `match`. The compiler enforces that every variant is handled.
-- **Linear types (`lin`)** — values that must be consumed exactly once. The compiler verifies this statically across all code paths.
-- **Metaprogramming (`^{}`)** — compile-time code generation with type reflection. Inspect your types and emit markup at compile time.
+- **State machines** — declare `< machine>` with transition rules. The compiler prevents illegal state transitions.
+
+### Metaprogramming
+
+- **Compile-time meta (`^{}`)** — code that runs at compile time. Use `reflect()` to inspect types, `emit()` to generate markup, `compiler.*` to register macros. Meta blocks execute during compilation and produce source that's spliced into the AST.
+- **Runtime meta** — meta blocks that reference `@var` reactive state run at runtime instead of compile time. The compiler classifies each block automatically based on what it references.
+
+### Styles
+
 - **Scoped CSS (`#{}`)** — styles live next to the markup they apply to. The compiler handles scoping via native `@scope`.
+- **Tailwind utility classes** — first-class support for Tailwind. Use utility classes directly in markup; the compiler passes them through to the output.
+
+### Error Handling and Testing
+
 - **Error handling (`!{}`)** — typed error contexts with pattern-matched arms. Error propagation is inferred automatically.
+- **Inline tests (`~{}`)** — write tests next to the code they verify. Stripped from production builds.
+
+### Tooling
+
 - **No npm — stdlib first** — scrml ships its own standard library. No package manager, no dependency trees, no node_modules.
+- **`<program>` root** — configure database connections, protection rules, HTML spec version, and program-wide settings from a single root element.
 
 ## Language Contexts
 
@@ -174,13 +231,14 @@ scrml uses sigil-delimited contexts to separate concerns within a single file:
 
 | Context | Sigil | Purpose |
 |---------|-------|---------|
+| Program | `<program>` | App root — database, protection, config |
 | Markup  | `<tag>` | HTML elements and components |
 | State   | `< name>` | Server-persisted state blocks (note the space) |
 | Logic   | `${}` | JavaScript expressions and functions |
 | SQL     | `?{}` | Database queries (bun:sqlite passthrough) |
 | CSS     | `#{}` | Scoped styles |
 | Error   | `!{}` | Typed error handling |
-| Meta    | `^{}` | Compile-time code generation |
+| Meta    | `^{}` | Compile-time (or runtime) code generation |
 | Test    | `~{}` | Inline tests (stripped from production) |
 
 ## Getting Started
@@ -236,15 +294,15 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 | [11-meta-programming](examples/11-meta-programming.scrml) | `^{}` meta blocks, `emit()`, `reflect()` |
 | [12-snippets-slots](examples/12-snippets-slots.scrml) | Named content slots in components |
 | [13-worker](examples/13-worker.scrml) | Web workers as nested programs with typed messaging |
-| [14-mario-state-machine](examples/14-mario-state-machine.scrml) | Enum state machine with structs and nested match |
+| [14-mario-state-machine](examples/14-mario-state-machine.scrml) | Enum state machine with machine binding |
 
 ## Documentation
 
-- [Tutorial](docs/tutorial.md) — step-by-step introduction
-- [Language Overview](docs/language-overview.md) — working mental model, no spec-reading required
-- [API Reference](docs/api-reference.md) — quick-reference for syntax and error codes
-- [Language Specification](compiler/SPEC.md) — full formal spec
-- [Design Notes](DESIGN.md) — rationale and philosophy
+- [Tutorial](docs/tutorial.md) — step-by-step introduction, zero to full-stack
+- [Design Notes](DESIGN.md) — rationale and philosophy — why scrml is what it is
+- [Language Specification](compiler/SPEC.md) — full formal spec (~18,000 lines)
+- [Spec Quick-Lookup](compiler/SPEC-INDEX.md) — find any section fast
+- [Pipeline Contracts](compiler/PIPELINE.md) — stage-by-stage compiler pipeline
 
 ## Status
 

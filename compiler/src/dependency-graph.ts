@@ -515,9 +515,10 @@ function hasLiftAfter(
     if (stmt.kind === "lift-expr") return true;
 
     // A server call statement (bare-expr calling a server function) ends the scan
-    if (stmt.kind === "bare-expr" && stmt.expr) {
-      const callees = extractCallees(stmt.expr);
-      if (callees.some(c => serverFunctionNames.has(c))) return false;
+    if (stmt.kind === "bare-expr") {
+      const callees = collectCalleesFromExprNode(stmt as Record<string, unknown>);
+      const finalCallees = callees.length > 0 ? callees : (stmt.expr ? extractCallees(stmt.expr) : []);
+      if (finalCallees.some(c => serverFunctionNames.has(c))) return false;
     }
 
     // A function-decl or sql block also acts as a server-call boundary
@@ -711,8 +712,9 @@ export function runDG(input: DGInput): DGOutput {
       // Build edges for function calls within the body
       if (Array.isArray(fnNode.body)) {
         for (const bodyNode of fnNode.body) {
-          if (bodyNode.kind === "bare-expr" && bodyNode.expr) {
-            const callees = extractCallees(bodyNode.expr);
+          if (bodyNode.kind === "bare-expr") {
+            const exprCallees = collectCalleesFromExprNode(bodyNode as Record<string, unknown>);
+            const callees = exprCallees.length > 0 ? exprCallees : (bodyNode.expr ? extractCallees(bodyNode.expr) : []);
             for (const calleeName of callees) {
               if (!dgNode._pendingCallees) dgNode._pendingCallees = [];
               dgNode._pendingCallees.push(calleeName);
@@ -993,19 +995,19 @@ export function runDG(input: DGInput): DGOutput {
 
           // Recurse into control flow bodies
           if (bodyNode.kind === "match-stmt") {
-            // Match stmt header may contain @var refs
-            if (typeof bodyNode.header === "string") {
-              const headerRefs = bodyNode.header.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-              if (headerRefs) {
-                for (const ref of headerRefs) {
-                  const varName = ref.slice(1);
-                  const reactiveNodeId = reactiveVarNodeIds.get(varName);
-                  if (reactiveNodeId) {
-                    edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
-                    const readers = reactiveVarReaders.get(varName);
-                    if (readers) readers.add(fnDGNodeId);
-                  }
-                }
+            // Match stmt header may contain @var refs — ExprNode-first, string fallback
+            const matchHeaderRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
+            const headerRefNames = matchHeaderRefs.length > 0 ? matchHeaderRefs : (() => {
+              if (typeof bodyNode.header !== "string") return [];
+              const m = bodyNode.header.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              return m ? m.map((r: string) => r.slice(1)) : [];
+            })();
+            for (const varName of headerRefNames) {
+              const reactiveNodeId = reactiveVarNodeIds.get(varName);
+              if (reactiveNodeId) {
+                edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
+                const readers = reactiveVarReaders.get(varName);
+                if (readers) readers.add(fnDGNodeId);
               }
             }
             // Match stmt body contains the arm nodes — recurse into them
@@ -1201,28 +1203,44 @@ export function runDG(input: DGInput): DGOutput {
     if (!fileAST) continue;
 
     function sweepNodeForAtRefs(node: ASTNode): void {
-      // Check expression strings on this node
-      const exprFields = ["expr", "init", "condition", "value", "test", "header", "iterable"] as const;
-      for (const field of exprFields) {
-        const val = (node as Record<string, unknown>)[field];
-        if (typeof val === "string") {
-          const atRefs = val.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-          if (atRefs) {
-            for (const ref of atRefs) {
-              const varName = ref.slice(1);
-              const readers = reactiveVarReaders.get(varName);
-              if (readers) readers.add(MARKUP_READER_SENTINEL);
-            }
+      // Phase 4d: ExprNode-first reactive ref + callee detection, string fallback
+      const exprRefs = collectReactiveRefsFromExprNode(node as Record<string, unknown>);
+      const exprCallees = collectCalleesFromExprNode(node as Record<string, unknown>);
+      for (const varName of exprRefs) {
+        const readers = reactiveVarReaders.get(varName);
+        if (readers) readers.add(MARKUP_READER_SENTINEL);
+      }
+      for (const callee of exprCallees) {
+        const transitiveReads = fnTransitiveReads.get(callee);
+        if (transitiveReads) {
+          for (const varName of transitiveReads) {
+            const readers = reactiveVarReaders.get(varName);
+            if (readers) readers.add(MARKUP_READER_SENTINEL);
           }
-          // Function call tracing: if this expression calls a function that
-          // transitively reads reactive vars, mark those vars as consumed.
-          const callees = extractCallees(val);
-          for (const callee of callees) {
-            const transitiveReads = fnTransitiveReads.get(callee);
-            if (transitiveReads) {
-              for (const varName of transitiveReads) {
+        }
+      }
+      // String fallback for nodes without ExprNode fields
+      if (exprRefs.length === 0 && exprCallees.length === 0) {
+        const exprFields = ["expr", "init", "condition", "value", "test", "header", "iterable"] as const;
+        for (const field of exprFields) {
+          const val = (node as Record<string, unknown>)[field];
+          if (typeof val === "string") {
+            const atRefs = val.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+            if (atRefs) {
+              for (const ref of atRefs) {
+                const varName = ref.slice(1);
                 const readers = reactiveVarReaders.get(varName);
                 if (readers) readers.add(MARKUP_READER_SENTINEL);
+              }
+            }
+            const callees = extractCallees(val);
+            for (const callee of callees) {
+              const transitiveReads = fnTransitiveReads.get(callee);
+              if (transitiveReads) {
+                for (const varName of transitiveReads) {
+                  const readers = reactiveVarReaders.get(varName);
+                  if (readers) readers.add(MARKUP_READER_SENTINEL);
+                }
               }
             }
           }
@@ -1282,17 +1300,24 @@ export function runDG(input: DGInput): DGOutput {
       // plain string, so the exprFields scan above won't reach it.
       if (node.kind === "lift-expr") {
         const target = (node as Record<string, unknown>).expr as
-          | { kind: "expr"; expr: string }
+          | { kind: "expr"; expr: string; exprNode?: ExprNode }
           | { kind: "markup"; node: ASTNode }
           | undefined;
         if (target) {
-          if (target.kind === "expr" && typeof target.expr === "string") {
-            const atRefs = target.expr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-            if (atRefs) {
-              for (const ref of atRefs) {
-                const readers = reactiveVarReaders.get(ref.slice(1));
-                if (readers) readers.add(MARKUP_READER_SENTINEL);
-              }
+          if (target.kind === "expr") {
+            // Phase 4d: ExprNode-first, string fallback
+            const liftRefs: string[] = [];
+            if (target.exprNode) {
+              forEachIdentInExprNode(target.exprNode, (ident) => {
+                if (ident.name.startsWith("@")) liftRefs.push(ident.name.slice(1));
+              });
+            } else if (typeof target.expr === "string") {
+              const atRefs = target.expr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              if (atRefs) for (const ref of atRefs) liftRefs.push(ref.slice(1));
+            }
+            for (const varName of liftRefs) {
+              const readers = reactiveVarReaders.get(varName);
+              if (readers) readers.add(MARKUP_READER_SENTINEL);
             }
           } else if (target.kind === "markup" && target.node) {
             sweepNodeForAtRefs(target.node as ASTNode);

@@ -1666,3 +1666,298 @@ export function forEachIdentInExprNode(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4d Slice 2 — ExprNode walker utilities
+// ---------------------------------------------------------------------------
+//
+// Structured replacements for string-regex analysis. Each helper walks the
+// ExprNode tree and answers a specific question about its contents, replacing
+// ad-hoc string patterns like extractCalleesFromExpr, LIFT_CALL_RE,
+// /@[A-Za-z]/ regex, extractInitLiteral, etc.
+//
+// All helpers skip LambdaExpr bodies (scope boundary) and EscapeHatchExpr
+// (opaque), matching forEachIdentInExprNode semantics.
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk an ExprNode tree and return true if it contains a CallExpr.
+ * If `calleeName` is provided, only matches calls where the callee is an
+ * IdentExpr with that exact name (e.g. "lift", "emit", "navigate").
+ *
+ * Replaces: `extractCalleesFromExpr`, `LIFT_CALL_RE`, `includes("(")` checks.
+ */
+export function exprNodeContainsCall(node: ExprNode, calleeName?: string): boolean {
+  if (!node) return false;
+  switch (node.kind) {
+    case "call": {
+      const n = node as CallExpr;
+      if (!calleeName) return true;
+      if (n.callee.kind === "ident" && (n.callee as IdentExpr).name === calleeName) return true;
+      // Check args and callee recursively for nested calls
+      if (exprNodeContainsCall(n.callee, calleeName)) return true;
+      for (const arg of n.args) {
+        if (exprNodeContainsCall(arg as ExprNode, calleeName)) return true;
+      }
+      return false;
+    }
+    case "new": {
+      const n = node as NewExpr;
+      if (exprNodeContainsCall(n.callee, calleeName)) return true;
+      for (const arg of n.args) {
+        if (exprNodeContainsCall(arg as ExprNode, calleeName)) return true;
+      }
+      return false;
+    }
+    case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch":
+      return false;
+    case "array": {
+      const n = node as ArrayExpr;
+      return n.elements.some(el => exprNodeContainsCall(el as ExprNode, calleeName));
+    }
+    case "object": {
+      const n = node as ObjectExpr;
+      return n.props.some(p =>
+        (p.kind === "prop" && (typeof p.key !== "string" ? exprNodeContainsCall(p.key as ExprNode, calleeName) : false) || (p.kind === "prop" && exprNodeContainsCall(p.value, calleeName))) ||
+        (p.kind === "spread" && exprNodeContainsCall(p.argument, calleeName))
+      );
+    }
+    case "spread": return exprNodeContainsCall((node as SpreadExpr).argument, calleeName);
+    case "unary": return exprNodeContainsCall((node as UnaryExpr).argument, calleeName);
+    case "binary": return exprNodeContainsCall((node as BinaryExpr).left, calleeName) || exprNodeContainsCall((node as BinaryExpr).right, calleeName);
+    case "assign": return exprNodeContainsCall((node as AssignExpr).target, calleeName) || exprNodeContainsCall((node as AssignExpr).value, calleeName);
+    case "ternary": {
+      const n = node as TernaryExpr;
+      return exprNodeContainsCall(n.condition, calleeName) || exprNodeContainsCall(n.consequent, calleeName) || exprNodeContainsCall(n.alternate, calleeName);
+    }
+    case "member": return exprNodeContainsCall((node as MemberExpr).object, calleeName);
+    case "index": return exprNodeContainsCall((node as IndexExpr).object, calleeName) || exprNodeContainsCall((node as IndexExpr).index, calleeName);
+    case "lambda": return false; // scope boundary
+    case "cast": return exprNodeContainsCall((node as CastExpr).expression, calleeName);
+    case "match-expr": return exprNodeContainsCall((node as MatchExpr).subject, calleeName);
+    default: { const _never: never = node; return false; }
+  }
+}
+
+/**
+ * Collect all callee names from CallExpr nodes in the tree.
+ * Only captures direct IdentExpr callees (e.g. `foo(...)` → "foo").
+ * Member-access calls like `obj.method()` are not captured.
+ *
+ * Replaces: `extractCalleesFromExpr` (regex-based callee extraction).
+ */
+export function exprNodeCollectCallees(node: ExprNode): string[] {
+  const names: string[] = [];
+  if (!node) return names;
+  forEachCallInExprNode(node, (call) => {
+    if (call.callee.kind === "ident") {
+      names.push((call.callee as IdentExpr).name);
+    }
+  });
+  return names;
+}
+
+/** Walk an ExprNode tree and invoke callback on every CallExpr. */
+function forEachCallInExprNode(node: ExprNode, cb: (call: CallExpr) => void): void {
+  if (!node) return;
+  switch (node.kind) {
+    case "call": {
+      const n = node as CallExpr;
+      cb(n);
+      forEachCallInExprNode(n.callee, cb);
+      for (const a of n.args) forEachCallInExprNode(a as ExprNode, cb);
+      return;
+    }
+    case "new": {
+      const n = node as NewExpr;
+      forEachCallInExprNode(n.callee, cb);
+      for (const a of n.args) forEachCallInExprNode(a as ExprNode, cb);
+      return;
+    }
+    case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch": return;
+    case "array": { for (const el of (node as ArrayExpr).elements) forEachCallInExprNode(el as ExprNode, cb); return; }
+    case "object": {
+      for (const p of (node as ObjectExpr).props) {
+        if (p.kind === "prop") { if (typeof p.key !== "string") forEachCallInExprNode(p.key as ExprNode, cb); forEachCallInExprNode(p.value, cb); }
+        else if (p.kind === "spread") forEachCallInExprNode(p.argument, cb);
+      }
+      return;
+    }
+    case "spread": forEachCallInExprNode((node as SpreadExpr).argument, cb); return;
+    case "unary": forEachCallInExprNode((node as UnaryExpr).argument, cb); return;
+    case "binary": { const n = node as BinaryExpr; forEachCallInExprNode(n.left, cb); forEachCallInExprNode(n.right, cb); return; }
+    case "assign": { const n = node as AssignExpr; forEachCallInExprNode(n.target, cb); forEachCallInExprNode(n.value, cb); return; }
+    case "ternary": { const n = node as TernaryExpr; forEachCallInExprNode(n.condition, cb); forEachCallInExprNode(n.consequent, cb); forEachCallInExprNode(n.alternate, cb); return; }
+    case "member": forEachCallInExprNode((node as MemberExpr).object, cb); return;
+    case "index": { const n = node as IndexExpr; forEachCallInExprNode(n.object, cb); forEachCallInExprNode(n.index, cb); return; }
+    case "lambda": return;
+    case "cast": forEachCallInExprNode((node as CastExpr).expression, cb); return;
+    case "match-expr": forEachCallInExprNode((node as MatchExpr).subject, cb); return;
+    default: { const _never: never = node; return; }
+  }
+}
+
+/**
+ * Return true if the ExprNode tree contains any IdentExpr whose name
+ * starts with `@` (reactive variable reference).
+ *
+ * Replaces: `/@[A-Za-z_$]/` regex on expression strings.
+ */
+export function exprNodeContainsReactiveRef(node: ExprNode): boolean {
+  if (!node) return false;
+  let found = false;
+  forEachIdentInExprNode(node, (ident) => {
+    if (!found && ident.name.startsWith("@")) found = true;
+  });
+  return found;
+}
+
+/**
+ * Return true if the ExprNode tree contains an AssignExpr.
+ *
+ * Replaces: assignment-in-condition detection via string regex.
+ */
+export function exprNodeContainsAssignment(node: ExprNode): boolean {
+  if (!node) return false;
+  switch (node.kind) {
+    case "assign": return true;
+    case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch": return false;
+    case "array": return (node as ArrayExpr).elements.some(el => exprNodeContainsAssignment(el as ExprNode));
+    case "object": return (node as ObjectExpr).props.some(p =>
+      (p.kind === "prop" && ((typeof p.key !== "string" && exprNodeContainsAssignment(p.key as ExprNode)) || exprNodeContainsAssignment(p.value))) ||
+      (p.kind === "spread" && exprNodeContainsAssignment(p.argument))
+    );
+    case "spread": return exprNodeContainsAssignment((node as SpreadExpr).argument);
+    case "unary": return exprNodeContainsAssignment((node as UnaryExpr).argument);
+    case "binary": return exprNodeContainsAssignment((node as BinaryExpr).left) || exprNodeContainsAssignment((node as BinaryExpr).right);
+    case "ternary": {
+      const n = node as TernaryExpr;
+      return exprNodeContainsAssignment(n.condition) || exprNodeContainsAssignment(n.consequent) || exprNodeContainsAssignment(n.alternate);
+    }
+    case "member": return exprNodeContainsAssignment((node as MemberExpr).object);
+    case "index": return exprNodeContainsAssignment((node as IndexExpr).object) || exprNodeContainsAssignment((node as IndexExpr).index);
+    case "call": {
+      const n = node as CallExpr;
+      return exprNodeContainsAssignment(n.callee) || n.args.some(a => exprNodeContainsAssignment(a as ExprNode));
+    }
+    case "new": {
+      const n = node as NewExpr;
+      return exprNodeContainsAssignment(n.callee) || n.args.some(a => exprNodeContainsAssignment(a as ExprNode));
+    }
+    case "lambda": return false;
+    case "cast": return exprNodeContainsAssignment((node as CastExpr).expression);
+    case "match-expr": return exprNodeContainsAssignment((node as MatchExpr).subject);
+    default: { const _never: never = node; return false; }
+  }
+}
+
+/**
+ * Return true if the ExprNode tree contains a MemberExpr accessing any of
+ * the specified property names on an IdentExpr base.
+ * E.g. `exprNodeContainsMemberAccess(node, ["innerHTML", "textContent"])`.
+ *
+ * Replaces: DOM manipulation detection via string regex.
+ */
+export function exprNodeContainsMemberAccess(node: ExprNode, props: string[]): boolean {
+  if (!node || props.length === 0) return false;
+  switch (node.kind) {
+    case "member": {
+      const n = node as MemberExpr;
+      if (props.includes(n.property)) return true;
+      return exprNodeContainsMemberAccess(n.object, props);
+    }
+    case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch": return false;
+    case "array": return (node as ArrayExpr).elements.some(el => exprNodeContainsMemberAccess(el as ExprNode, props));
+    case "object": return (node as ObjectExpr).props.some(p =>
+      (p.kind === "prop" && ((typeof p.key !== "string" && exprNodeContainsMemberAccess(p.key as ExprNode, props)) || exprNodeContainsMemberAccess(p.value, props))) ||
+      (p.kind === "spread" && exprNodeContainsMemberAccess(p.argument, props))
+    );
+    case "spread": return exprNodeContainsMemberAccess((node as SpreadExpr).argument, props);
+    case "unary": return exprNodeContainsMemberAccess((node as UnaryExpr).argument, props);
+    case "binary": return exprNodeContainsMemberAccess((node as BinaryExpr).left, props) || exprNodeContainsMemberAccess((node as BinaryExpr).right, props);
+    case "assign": return exprNodeContainsMemberAccess((node as AssignExpr).target, props) || exprNodeContainsMemberAccess((node as AssignExpr).value, props);
+    case "ternary": {
+      const n = node as TernaryExpr;
+      return exprNodeContainsMemberAccess(n.condition, props) || exprNodeContainsMemberAccess(n.consequent, props) || exprNodeContainsMemberAccess(n.alternate, props);
+    }
+    case "index": return exprNodeContainsMemberAccess((node as IndexExpr).object, props) || exprNodeContainsMemberAccess((node as IndexExpr).index, props);
+    case "call": {
+      const n = node as CallExpr;
+      return exprNodeContainsMemberAccess(n.callee, props) || n.args.some(a => exprNodeContainsMemberAccess(a as ExprNode, props));
+    }
+    case "new": {
+      const n = node as NewExpr;
+      return exprNodeContainsMemberAccess(n.callee, props) || n.args.some(a => exprNodeContainsMemberAccess(a as ExprNode, props));
+    }
+    case "lambda": return false;
+    case "cast": return exprNodeContainsMemberAccess((node as CastExpr).expression, props);
+    case "match-expr": return exprNodeContainsMemberAccess((node as MatchExpr).subject, props);
+    default: { const _never: never = node; return false; }
+  }
+}
+
+/**
+ * Return true if the ExprNode is a single IdentExpr matching `name`,
+ * or contains a top-level reference to it.
+ * When `exact` is true (default), only matches if the root node is that ident.
+ *
+ * Replaces: `=== "children"`, `=== "..."`, linear var reference checks on strings.
+ */
+export function exprNodeMatchesIdent(node: ExprNode, name: string, exact: boolean = true): boolean {
+  if (!node) return false;
+  if (exact) {
+    return node.kind === "ident" && (node as IdentExpr).name === name;
+  }
+  // Non-exact: search the whole tree for any ident with this name
+  let found = false;
+  forEachIdentInExprNode(node, (ident) => {
+    if (!found && ident.name === name) found = true;
+  });
+  return found;
+}
+
+/**
+ * Classify a literal ExprNode into a SourceInfo-compatible shape.
+ * Returns the kind of literal and its value for type inference.
+ *
+ * Replaces: `extractInitLiteral` (regex parsing of string values).
+ */
+export function classifyLiteralFromExprNode(node: ExprNode): { kind: "literal"; value: string | number } | { kind: "arithmetic" } | { kind: "unconstrained" } {
+  if (!node) return { kind: "unconstrained" };
+
+  switch (node.kind) {
+    case "lit": {
+      const n = node as LitExpr;
+      if (n.litType === "number" && typeof n.value === "number") {
+        return { kind: "literal", value: n.value };
+      }
+      if (n.litType === "string" && typeof n.value === "string") {
+        return { kind: "literal", value: n.value };
+      }
+      return { kind: "unconstrained" };
+    }
+
+    case "unary": {
+      // Negative numeric literal: `-42`
+      const n = node as UnaryExpr;
+      if (n.op === "-" && n.prefix && n.argument.kind === "lit") {
+        const lit = n.argument as LitExpr;
+        if (lit.litType === "number" && typeof lit.value === "number") {
+          return { kind: "literal", value: -lit.value };
+        }
+      }
+      return { kind: "unconstrained" };
+    }
+
+    case "binary": {
+      const n = node as BinaryExpr;
+      if (n.op === "+" || n.op === "-" || n.op === "*" || n.op === "/" || n.op === "%") {
+        return { kind: "arithmetic" };
+      }
+      return { kind: "unconstrained" };
+    }
+
+    default:
+      return { kind: "unconstrained" };
+  }
+}

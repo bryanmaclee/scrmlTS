@@ -191,9 +191,9 @@ function emitBinary(node: BinaryExpr, ctx: EmitExprContext): string {
   switch (node.op) {
     // §45 structural equality — compiles to deep comparison helper
     case "==":
-      return `_scrml_eq(${left}, ${right})`;
+      return `_scrml_structural_eq(${left}, ${right})`;
     case "!=":
-      return `!_scrml_eq(${left}, ${right})`;
+      return `!_scrml_structural_eq(${left}, ${right})`;
 
     // §42 presence/absence checks
     case "is-not":

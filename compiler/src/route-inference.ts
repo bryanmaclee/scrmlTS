@@ -62,6 +62,8 @@ import type {
 } from "./types/ast.ts";
 
 import type { ProtectAnalysis } from "./protect-analyzer.ts";
+import { exprNodeCollectCallees } from "./expression-parser.ts";
+import type { ExprNode } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
 // RI-internal types
@@ -330,6 +332,15 @@ function extractCalleesFromExpr(expr: string): string[] {
   return names;
 }
 
+/** Phase 4d: ExprNode-first callee extraction with string fallback. */
+function extractCalleesFromNode(node: any, stringField: "expr" | "init"): string[] {
+  const exprNodeField = stringField === "expr" ? "exprNode" : "initExpr";
+  const en = node[exprNodeField] as ExprNode | undefined;
+  if (en) return exprNodeCollectCallees(en);
+  const str = node[stringField] ?? "";
+  return str ? extractCalleesFromExpr(str) : [];
+}
+
 // ---------------------------------------------------------------------------
 // AST walker utilities
 // ---------------------------------------------------------------------------
@@ -551,8 +562,7 @@ export function walkBodyForTriggers(
       }
 
       // Callee extraction for transitive escalation.
-      const names = extractCalleesFromExpr(expr);
-      callees.push(...names);
+      callees.push(...extractCalleesFromNode(node, "expr"));
 
       // E-ROUTE-001: computed member access warning.
       // Suppressed inside worker bodies — workers have no protected fields or shared
@@ -602,8 +612,7 @@ export function walkBodyForTriggers(
       }
 
       // Callee extraction from the init expression.
-      const names = extractCalleesFromExpr(init);
-      callees.push(...names);
+      callees.push(...extractCalleesFromNode(node, "init"));
       return;
     }
 
@@ -623,8 +632,7 @@ export function walkBodyForTriggers(
         });
       }
 
-      const names = extractCalleesFromExpr(init);
-      callees.push(...names);
+      callees.push(...extractCalleesFromNode(node, "init"));
       return;
     }
 
@@ -818,9 +826,7 @@ function hasServerCallInInit(
   resolvedServerFnIds: Set<string>,
   importedServerFnNames: Set<string>,
 ): boolean {
-  const init = (node as any).init ?? "";
-  if (!init) return false;
-  const callees = extractCalleesFromExpr(init);
+  const callees = extractCalleesFromNode(node, "init");
   for (const calleeName of callees) {
     const calleeEntries = functionIndex.get(calleeName);
     if (calleeEntries) {
@@ -891,8 +897,7 @@ function isServerTriggerStatement(
     }
 
     // Calls to server-escalated functions or scrml: stdlib imports
-    const callees = extractCalleesFromExpr(expr);
-    for (const calleeName of callees) {
+    for (const calleeName of extractCalleesFromNode(node, "expr")) {
       const calleeEntries = functionIndex.get(calleeName);
       if (calleeEntries) {
         for (const { fnNodeId: calleeId } of calleeEntries) {
@@ -915,7 +920,7 @@ function isServerTriggerStatement(
     if (detectServerOnlyResource(init) !== null) return true;
 
     // Calls to server-escalated functions or scrml: stdlib imports in init
-    const callees = extractCalleesFromExpr(init);
+    const callees = extractCalleesFromNode(node, "init");
     for (const calleeName of callees) {
       const calleeEntries = functionIndex.get(calleeName);
       if (calleeEntries) {
