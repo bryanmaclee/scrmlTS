@@ -1,0 +1,369 @@
+/**
+ * @module codegen/emit-expr
+ *
+ * Phase 3 — ExprNode → JavaScript emitter.
+ *
+ * Replaces the multi-pass string rewriting pipeline (rewrite.ts) with a single
+ * recursive tree-walk that emits JS directly from the structured ExprNode AST.
+ *
+ * Every ExprNode kind maps to one emit case. The emitter is context-aware:
+ * client mode emits _scrml_reactive_get(), server mode emits _scrml_body[""].
+ *
+ * Escape-hatch nodes fall back to rewriteExpr() so the string pipeline stays
+ * alive until all escape hatches are eliminated (Phase 3.5).
+ */
+
+import type {
+  ExprNode,
+  IdentExpr,
+  LitExpr,
+  ArrayExpr,
+  ObjectExpr,
+  ObjectProp,
+  SpreadExpr,
+  UnaryExpr,
+  BinaryExpr,
+  AssignExpr,
+  TernaryExpr,
+  MemberExpr,
+  IndexExpr,
+  CallExpr,
+  NewExpr,
+  LambdaExpr,
+  LambdaParam,
+  CastExpr,
+  MatchExpr,
+  SqlRefExpr,
+  InputStateRefExpr,
+  EscapeHatchExpr,
+} from "../types/ast.ts";
+import { rewriteExpr, rewriteServerExpr } from "./rewrite.js";
+
+// ---------------------------------------------------------------------------
+// EmitExprContext — threaded through every emit call
+// ---------------------------------------------------------------------------
+
+export interface EmitExprContext {
+  /** Client mode emits reactive_get; server mode emits _scrml_body["..."]. */
+  mode: "client" | "server";
+  /** Derived reactive names — emits _scrml_derived_get instead of _scrml_reactive_get. */
+  derivedNames?: Set<string> | null;
+  /** Tilde pipeline accumulator variable name (§32). */
+  tildeVar?: string | null;
+  /** Database variable for server SQL emission. */
+  dbVar?: string;
+  /** Error accumulator for diagnostics. */
+  errors?: any[];
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a JavaScript expression string from an ExprNode tree.
+ *
+ * This is the Phase 3 replacement for rewriteExpr(string). Call sites use:
+ *   node.exprNode ? emitExpr(node.exprNode, ctx) : rewriteExpr(node.stringField)
+ */
+export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
+  switch (node.kind) {
+    case "ident":       return emitIdent(node, ctx);
+    case "lit":         return emitLit(node);
+    case "array":       return emitArray(node, ctx);
+    case "object":      return emitObject(node, ctx);
+    case "spread":      return emitSpread(node, ctx);
+    case "unary":       return emitUnary(node, ctx);
+    case "binary":      return emitBinary(node, ctx);
+    case "assign":      return emitAssign(node, ctx);
+    case "ternary":     return emitTernary(node, ctx);
+    case "member":      return emitMember(node, ctx);
+    case "index":       return emitIndex(node, ctx);
+    case "call":        return emitCall(node, ctx);
+    case "new":         return emitNew(node, ctx);
+    case "lambda":      return emitLambda(node, ctx);
+    case "cast":        return emitCast(node, ctx);
+    case "match-expr":  return emitMatchExpr(node, ctx);
+    case "sql-ref":     return emitSqlRef(node, ctx);
+    case "input-state-ref": return emitInputStateRef(node);
+    case "escape-hatch": return emitEscapeHatch(node, ctx);
+    default: {
+      // Exhaustiveness guard — if a new kind is added and not handled,
+      // TypeScript will flag this at compile time.
+      const _exhaustive: never = node;
+      return (_exhaustive as EscapeHatchExpr).raw ?? "";
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Leaf nodes
+// ---------------------------------------------------------------------------
+
+function emitIdent(node: IdentExpr, ctx: EmitExprContext): string {
+  const name = node.name;
+
+  // Reactive reference: @varName
+  if (name.startsWith("@")) {
+    const bare = name.slice(1);
+    if (ctx.mode === "server") {
+      return `_scrml_body["${bare}"]`;
+    }
+    // Client mode — check derived vs reactive
+    if (ctx.derivedNames && ctx.derivedNames.has(bare)) {
+      return `_scrml_derived_get("${bare}")`;
+    }
+    return `_scrml_reactive_get("${bare}")`;
+  }
+
+  // Tilde accumulator: ~
+  if (name === "~" && ctx.tildeVar) {
+    return ctx.tildeVar;
+  }
+
+  // Plain identifier — pass through
+  return name;
+}
+
+function emitLit(node: LitExpr): string {
+  // The `not` keyword (§42 absence value) compiles to null
+  if (node.litType === "not") {
+    return "null";
+  }
+  // Use raw source text to preserve exact formatting (string quotes, number format, etc.)
+  return node.raw;
+}
+
+// ---------------------------------------------------------------------------
+// Compound primary nodes
+// ---------------------------------------------------------------------------
+
+function emitArray(node: ArrayExpr, ctx: EmitExprContext): string {
+  const elems = node.elements.map(el => emitExpr(el, ctx));
+  return `[${elems.join(", ")}]`;
+}
+
+function emitObject(node: ObjectExpr, ctx: EmitExprContext): string {
+  const props = node.props.map(p => emitProp(p, ctx));
+  return `{${props.join(", ")}}`;
+}
+
+function emitProp(prop: ObjectProp, ctx: EmitExprContext): string {
+  switch (prop.kind) {
+    case "prop": {
+      const key = prop.computed
+        ? `[${typeof prop.key === "string" ? JSON.stringify(prop.key) : emitExpr(prop.key, ctx)}]`
+        : typeof prop.key === "string" ? prop.key : emitExpr(prop.key, ctx);
+      const val = emitExpr(prop.value, ctx);
+      return `${key}: ${val}`;
+    }
+    case "shorthand":
+      return prop.name;
+    case "spread":
+      return `...${emitExpr(prop.argument, ctx)}`;
+  }
+}
+
+function emitSpread(node: SpreadExpr, ctx: EmitExprContext): string {
+  return `...${emitExpr(node.argument, ctx)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+function emitUnary(node: UnaryExpr, ctx: EmitExprContext): string {
+  const arg = emitExpr(node.argument, ctx);
+  if (node.prefix) {
+    // typeof, void, delete, await need a space before the operand
+    const needsSpace = node.op === "typeof" || node.op === "void" ||
+                       node.op === "delete" || node.op === "await";
+    return needsSpace ? `${node.op} ${arg}` : `${node.op}${arg}`;
+  }
+  // Postfix: x++, x--
+  return `${arg}${node.op}`;
+}
+
+function emitBinary(node: BinaryExpr, ctx: EmitExprContext): string {
+  const left = emitExpr(node.left, ctx);
+  const right = emitExpr(node.right, ctx);
+
+  switch (node.op) {
+    // §45 structural equality — compiles to deep comparison helper
+    case "==":
+      return `_scrml_eq(${left}, ${right})`;
+    case "!=":
+      return `!_scrml_eq(${left}, ${right})`;
+
+    // §42 presence/absence checks
+    case "is-not":
+      return `(${left} === null || ${left} === undefined)`;
+    case "is-some":
+      return `(${left} !== null && ${left} !== undefined)`;
+    case "is-not-not":
+      return `(${left} !== null && ${left} !== undefined)`;
+
+    // §43 enum membership: x is .Variant
+    case "is":
+      return `(${left} === ${right})`;
+
+    default:
+      return `${left} ${node.op} ${right}`;
+  }
+}
+
+function emitAssign(node: AssignExpr, ctx: EmitExprContext): string {
+  const target = node.target;
+  const value = emitExpr(node.value, ctx);
+
+  // Reactive assignment: @var = expr → _scrml_reactive_set("var", expr)
+  if (target.kind === "ident" && target.name.startsWith("@")) {
+    const bare = target.name.slice(1);
+    if (ctx.mode === "server") {
+      return `_scrml_body["${bare}"] ${node.op} ${value}`;
+    }
+    if (node.op === "=") {
+      return `_scrml_reactive_set("${bare}", ${value})`;
+    }
+    // Compound assignment: @x += 1 → _scrml_reactive_set("x", _scrml_reactive_get("x") + 1)
+    const baseOp = node.op.slice(0, -1); // "+=" → "+"
+    const getter = ctx.derivedNames?.has(bare)
+      ? `_scrml_derived_get("${bare}")`
+      : `_scrml_reactive_get("${bare}")`;
+    return `_scrml_reactive_set("${bare}", ${getter} ${baseOp} ${value})`;
+  }
+
+  const lhs = emitExpr(target, ctx);
+  return `${lhs} ${node.op} ${value}`;
+}
+
+function emitTernary(node: TernaryExpr, ctx: EmitExprContext): string {
+  const cond = emitExpr(node.condition, ctx);
+  const cons = emitExpr(node.consequent, ctx);
+  const alt = emitExpr(node.alternate, ctx);
+  return `${cond} ? ${cons} : ${alt}`;
+}
+
+// ---------------------------------------------------------------------------
+// Access and call
+// ---------------------------------------------------------------------------
+
+function emitMember(node: MemberExpr, ctx: EmitExprContext): string {
+  const obj = emitExpr(node.object, ctx);
+  const dot = node.optional ? "?." : ".";
+  return `${obj}${dot}${node.property}`;
+}
+
+function emitIndex(node: IndexExpr, ctx: EmitExprContext): string {
+  const obj = emitExpr(node.object, ctx);
+  const idx = emitExpr(node.index, ctx);
+  const bracket = node.optional ? "?.[" : "[";
+  return `${obj}${bracket}${idx}]`;
+}
+
+function emitCall(node: CallExpr, ctx: EmitExprContext): string {
+  const callee = emitExpr(node.callee, ctx);
+  const args = node.args.map(a => emitExpr(a, ctx)).join(", ");
+
+  // navigate() → client-side routing
+  if (node.callee.kind === "ident" && node.callee.name === "navigate") {
+    return `_scrml_navigate(${args})`;
+  }
+
+  // render() → client-side component render
+  if (node.callee.kind === "ident" && node.callee.name === "render") {
+    return `_scrml_render(${args})`;
+  }
+
+  const call = node.optional ? "?.(" : "(";
+  return `${callee}${call}${args})`;
+}
+
+function emitNew(node: NewExpr, ctx: EmitExprContext): string {
+  const callee = emitExpr(node.callee, ctx);
+  const args = node.args.map(a => emitExpr(a, ctx)).join(", ");
+  return `new ${callee}(${args})`;
+}
+
+// ---------------------------------------------------------------------------
+// Lambda / inline function
+// ---------------------------------------------------------------------------
+
+function emitLambda(node: LambdaExpr, ctx: EmitExprContext): string {
+  const params = node.params.map(p => emitLambdaParam(p, ctx)).join(", ");
+  const asyncPrefix = node.isAsync ? "async " : "";
+
+  if (node.fnStyle === "function") {
+    // function(x) { ... }
+    if (node.body.kind === "expr") {
+      return `${asyncPrefix}function(${params}) { return ${emitExpr(node.body.value, ctx)}; }`;
+    }
+    // Block body — stmts are LogicStatement[], not ExprNode, so we can't emit them here.
+    // This path should only be hit once logic-statement emission is integrated (Slice 5).
+    // For now, fall through to escape hatch if we have raw text.
+    return `${asyncPrefix}function(${params}) { /* block body */ }`;
+  }
+
+  // Arrow or fn style
+  if (node.body.kind === "expr") {
+    return `${asyncPrefix}(${params}) => ${emitExpr(node.body.value, ctx)}`;
+  }
+  // Block body arrow — same limitation as above
+  return `${asyncPrefix}(${params}) => { /* block body */ }`;
+}
+
+function emitLambdaParam(param: LambdaParam, ctx: EmitExprContext): string {
+  let result = param.isRest ? `...${param.name}` : param.name;
+  if (param.defaultValue) {
+    result += ` = ${emitExpr(param.defaultValue, ctx)}`;
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Cast
+// ---------------------------------------------------------------------------
+
+function emitCast(node: CastExpr, ctx: EmitExprContext): string {
+  // Type casts are erased at runtime — emit just the expression
+  return emitExpr(node.expression, ctx);
+}
+
+// ---------------------------------------------------------------------------
+// Domain-specific nodes (Slice 4 targets — stubbed with fallback for now)
+// ---------------------------------------------------------------------------
+
+function emitMatchExpr(node: MatchExpr, ctx: EmitExprContext): string {
+  // TODO(Phase 3 Slice 4): structured match-expr emission
+  // For now, reconstruct the string and fall back to rewriteExpr
+  const subject = emitExpr(node.subject, ctx);
+  const arms = node.rawArms.join(" ");
+  const reconstructed = `match ${subject} { ${arms} }`;
+  return ctx.mode === "server"
+    ? rewriteServerExpr(reconstructed, ctx.dbVar)
+    : rewriteExpr(reconstructed, ctx.errors);
+}
+
+function emitSqlRef(node: SqlRefExpr, _ctx: EmitExprContext): string {
+  // TODO(Phase 3 Slice 4): structured SQL ref emission
+  // SqlRefExpr carries a nodeId referencing the SQLNode — codegen resolves this
+  // at the file level. For now, return a placeholder that the outer emitter
+  // can fill in (SQL blocks are handled at the statement level, not expression level).
+  return `/* sql-ref:${node.nodeId} */`;
+}
+
+function emitInputStateRef(node: InputStateRefExpr): string {
+  return `_scrml_input_state_registry.get("${node.name}")`;
+}
+
+// ---------------------------------------------------------------------------
+// Escape hatch — falls back to string rewrite pipeline
+// ---------------------------------------------------------------------------
+
+function emitEscapeHatch(node: EscapeHatchExpr, ctx: EmitExprContext): string {
+  // The string pipeline handles whatever the structured parser couldn't parse.
+  // This path disappears when all escape hatches are eliminated (Phase 3.5).
+  return ctx.mode === "server"
+    ? rewriteServerExpr(node.raw, ctx.dbVar)
+    : rewriteExpr(node.raw, ctx.errors);
+}

@@ -1,5 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { rewriteExpr, rewriteExprWithDerived, extractSqlParams, rewriteTildeRef } from "./rewrite.js";
+import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody } from "./emit-control-flow.ts";
 import { emitLiftExpr } from "./emit-lift.js";
@@ -222,6 +223,19 @@ export function rewriteReflectForRuntime(code: string): string {
 // Main export
 // ---------------------------------------------------------------------------
 
+/**
+ * Build an EmitExprContext from the current EmitLogicOpts.
+ * Used at dual-path call sites: node.initExpr ? emitExpr(node.initExpr, exprCtx) : rewriteExpr(...)
+ */
+function _makeExprCtx(opts: EmitLogicOpts): EmitExprContext {
+  return {
+    mode: "client",
+    derivedNames: opts.derivedNames ?? null,
+    tildeVar: opts.tildeContext?.var ?? null,
+    dbVar: opts.dbVar,
+  };
+}
+
 export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
   if (!node || typeof node !== "object") return "";
 
@@ -290,9 +304,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (opts.tildeContext) {
         const tVar = genVar("tilde");
         opts.tildeContext.var = tVar;
-        return `let ${tVar} = ${rewriteExpr(bareExpr)};`;
+        const bareRhs = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(bareExpr);
+        return `let ${tVar} = ${bareRhs};`;
       }
-      return `${rewriteExpr(bareExpr)};`;
+      const bareRewritten = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(bareExpr);
+      return `${bareRewritten};`;
     }
 
     case "let-decl": {
@@ -329,7 +345,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (node.predicateCheck && node.predicateCheck.zone === "boundary" && letInit) {
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
-        const _rewrittenLetInit = rewriteExpr(letInit);
+        const _rewrittenLetInit = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(letInit);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
         return [
           `const ${_checkTmpVar} = ${_rewrittenLetInit};`,
@@ -337,7 +353,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           `let ${node.name} = ${_checkTmpVar};`,
         ].join("\n");
       }
-      return `let ${node.name}${letInit ? ` = ${rewriteExpr(letInit)}` : ""};`;
+      if (letInit) {
+        const rhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(letInit);
+        return `let ${node.name} = ${rhs};`;
+      }
+      return `let ${node.name};`;
     }
 
     case "const-decl":
@@ -346,7 +366,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // For tilde-decl: if name was already declared by let-decl, emit as reassignment
       if (node.kind === "tilde-decl" && opts.declaredNames?.has(node.name)) {
         const init = node.init ?? "";
-        return `${node.name} = ${rewriteExpr(init)};`;
+        const tildeRhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(init);
+        return `${node.name} = ${tildeRhs};`;
       }
       if (node.kind === "const-decl" && node.name && opts.declaredNames) opts.declaredNames.add(node.name);
       // If-as-expression: `const a = if (cond) { lift val }`
@@ -371,7 +392,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // not a new declaration. Emit as bare assignment instead of const.
       const isSelfRef = constInit && new RegExp(`\\b${node.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(constInit);
       if (isSelfRef) {
-        return `${node.name} = ${rewriteExpr(constInit)};`;
+        const selfRefRhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(constInit);
+        return `${node.name} = ${selfRefRhs};`;
       }
       if (typeof constInit === "string" && constInit.trim()) {
         const constSplit = splitBareExprStatements(constInit);
@@ -384,7 +406,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           return lines.filter((l: string) => l !== ";").join("\n");
         }
       }
-      return `const ${node.name}${constInit ? ` = ${rewriteExpr(constInit)}` : ""};`;
+      if (constInit) {
+        const rhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(constInit);
+        return `const ${node.name} = ${rhs};`;
+      }
+      return `const ${node.name};`;
     }
 
     case "reactive-decl": {
@@ -407,7 +433,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           return lines.filter((l: string) => l !== ";").join("\n");
         }
       }
-      const rewrittenInit = rewriteExpr(initStr);
+      const rewrittenInit = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(initStr);
       const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr);
       // §53.4.5: If TS annotated this node as boundary zone, emit runtime check first.
       if (node.predicateCheck && node.predicateCheck.zone === "boundary" && initStr !== "undefined") {
@@ -430,7 +456,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       const hasReactiveDeps = reactiveDepsFound.size > 0;
 
       if (!hasReactiveDeps) {
-        return `/* W-DERIVED-001: const @${node.name} has no reactive dependencies — treating as const */ const ${node.name} = ${rewriteExpr(derivedInit)};`;
+        const derivedRhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(derivedInit);
+        return `/* W-DERIVED-001: const @${node.name} has no reactive dependencies — treating as const */ const ${node.name} = ${derivedRhs};`;
       }
 
       const rewrittenBody = rewriteExprWithDerived(derivedInit, derivedNames);
@@ -460,7 +487,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         const remaining = retSplit.slice(1).map((s: string) => `${rewriteExpr(s.trim())};`).filter((s: string) => s !== ";");
         return `return ${rewriteExpr(retSplit[0].trim())};\n${remaining.join("\n")}`;
       }
-      return `return ${rewriteExpr(retExpr)};`;
+      const retRewritten = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(retExpr);
+      return `return ${retRewritten};`;
     }
 
     case "if-stmt":
@@ -565,7 +593,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
     case "propagate-expr": {
       const tmpVar = genVar("_scrml_tmp");
-      const expr = rewriteExpr(node.expr ?? "");
+      const expr = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(node.expr ?? "");
       const lines: string[] = [];
       lines.push(`const ${tmpVar} = ${expr};`);
       lines.push(`if (${tmpVar}.__scrml_error) return ${tmpVar};`);
@@ -576,7 +604,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "throw-stmt": {
-      const throwExpr = rewriteExpr(node.expr ?? "");
+      const throwExpr = node.exprNode ? emitExpr(node.exprNode, _makeExprCtx(opts)) : rewriteExpr(node.expr ?? "");
       const cleaned = throwExpr.trim();
       const needsNew = /^[A-Z][A-Za-z0-9_]*\s*\(/.test(cleaned) && !cleaned.startsWith("new ");
       return needsNew ? `throw new ${cleaned};` : `throw ${cleaned};`;
@@ -664,11 +692,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
       if (guardedNode) {
         if (guardedNode.kind === "let-decl" && guardedNode.name) {
-          const initExpr = rewriteExpr(guardedNode.init ?? "undefined");
+          const initExpr = guardedNode.initExpr ? emitExpr(guardedNode.initExpr, _makeExprCtx(opts)) : rewriteExpr(guardedNode.init ?? "undefined");
           lines.push(`  ${resultVar} = ${initExpr};`);
           lines.push(`  var ${guardedNode.name} = ${resultVar};`);
         } else if ((guardedNode.kind === "const-decl" || guardedNode.kind === "tilde-decl") && guardedNode.name) {
-          const initExpr = rewriteExpr(guardedNode.init ?? "undefined");
+          const initExpr = guardedNode.initExpr ? emitExpr(guardedNode.initExpr, _makeExprCtx(opts)) : rewriteExpr(guardedNode.init ?? "undefined");
           lines.push(`  ${resultVar} = ${initExpr};`);
           lines.push(`  var ${guardedNode.name} = ${resultVar};`);
         } else {
@@ -770,7 +798,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       const encodedTarget = ctx ? ctx.encode(node.target) : node.target;
       const target = JSON.stringify(encodedTarget);
       const path = JSON.stringify(node.path ?? []);
-      const value = rewriteExpr(node.value ?? "undefined");
+      const value = node.valueExpr ? emitExpr(node.valueExpr, _makeExprCtx(opts)) : rewriteExpr(node.value ?? "undefined");
       return `_scrml_reactive_set(${target}, _scrml_deep_set(_scrml_reactive_get(${target}), ${path}, ${value}));`;
     }
 
@@ -816,7 +844,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       const init: string = node.init ?? "undefined";
       const ctx = opts.encodingCtx;
       const encodedName = ctx ? ctx.encode(node.name) : node.name;
-      return `_scrml_reactive_debounced(${JSON.stringify(encodedName)}, () => ${rewriteExpr(init)}, ${delay});`;
+      const rewrittenDebouncedInit = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(init);
+      return `_scrml_reactive_debounced(${JSON.stringify(encodedName)}, () => ${rewrittenDebouncedInit}, ${delay});`;
     }
 
     case "debounce-call": {
@@ -932,11 +961,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
     case "lin-decl": {
       // §35.2: lin bindings are immutable — emit as `const`.
-      // Phase 2: codegen walks the string form (node.init). Phase 3 will switch to ExprNode emission.
       if (!node.name) return "";
       const linInit: string = node.init ?? "";
       if (!linInit.trim()) return `const ${node.name};`;
-      return `const ${node.name} = ${rewriteExpr(linInit)};`;
+      const linRhs = node.initExpr ? emitExpr(node.initExpr, _makeExprCtx(opts)) : rewriteExpr(linInit);
+      return `const ${node.name} = ${linRhs};`;
     }
 
     default:
@@ -953,7 +982,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
  */
 function _emitIfStmtWithOpts(node: any, opts: EmitLogicOpts): string {
   const lines: string[] = [];
-  lines.push(`if (${rewriteExpr(node.condition ?? node.test ?? "true")}) {`);
+  const ifCond = node.condExpr ? emitExpr(node.condExpr, _makeExprCtx(opts)) : rewriteExpr(node.condition ?? node.test ?? "true");
+  lines.push(`if (${ifCond}) {`);
   for (const child of (node.consequent ?? node.body ?? [])) {
     const code = emitLogicNode(child, opts);
     if (code) {
@@ -1025,7 +1055,7 @@ function _emitForStmtWithTilde(node: any, opts: EmitLogicOpts): string {
     tildeCtx.mode = "array";
   }
 
-  const rewrittenIterable = rewriteExpr(iterable);
+  const rewrittenIterable = node.iterExpr ? emitExpr(node.iterExpr, _makeExprCtx(opts)) : rewriteExpr(iterable);
   lines.push(`for (const ${varName} of ${rewrittenIterable}) {`);
 
   const body: any[] = node.body ?? [];
@@ -1060,7 +1090,7 @@ function _emitWhileStmtWithTilde(node: any, opts: EmitLogicOpts): string {
     tildeCtx.mode = "array";
   }
 
-  const condition = rewriteExpr(node.condition ?? "true");
+  const condition = node.condExpr ? emitExpr(node.condExpr, _makeExprCtx(opts)) : rewriteExpr(node.condition ?? "true");
   lines.push(`while (${condition}) {`);
 
   const body: any[] = node.body ?? [];
@@ -1096,7 +1126,7 @@ function emitIfExprAltChain(alternate: any[], bodyOpts: EmitLogicOpts, lines: st
   if (alternate.length === 1 && alternate[0]?.kind === "if-stmt") {
     // else if — emit without extra braces (§17.6.8)
     const nestedIf = alternate[0];
-    const nestedCond = rewriteExpr((nestedIf.condition ?? "true").trim());
+    const nestedCond = nestedIf.condExpr ? emitExpr(nestedIf.condExpr, _makeExprCtx({})) : rewriteExpr((nestedIf.condition ?? "true").trim());
     const nestedConsequent: any[] = nestedIf.consequent ?? [];
     // E-LIFT-002: multiple lifts on same path in a value-lift arm
     if (countTopLevelLifts(nestedConsequent) > 1) {
@@ -1151,7 +1181,7 @@ function emitIfExprDecl(name: string, ifExpr: any, keyword: "let" | "const", opt
   const bodyOpts: EmitLogicOpts = { ...opts, tildeContext: tildeCtx };
 
   // Emit the if condition
-  const condition = rewriteExpr((ifExpr.condition ?? "true").trim());
+  const condition = ifExpr.condExpr ? emitExpr(ifExpr.condExpr, _makeExprCtx(opts)) : rewriteExpr((ifExpr.condition ?? "true").trim());
 
   // E-LIFT-002: multiple lifts on same linear path in a value-lift arm
   const consequent: any[] = ifExpr.consequent ?? [];
@@ -1215,7 +1245,7 @@ function emitForExprDecl(name: string, forExpr: any, keyword: "let" | "const", o
     }
   }
 
-  const rewrittenIterable = rewriteExpr(iterable);
+  const rewrittenIterable = forExpr.iterExpr ? emitExpr(forExpr.iterExpr, _makeExprCtx(opts)) : rewriteExpr(iterable);
   lines.push(`for (const ${varName} of ${rewrittenIterable}) {`);
 
   const body: any[] = forExpr.body ?? [];

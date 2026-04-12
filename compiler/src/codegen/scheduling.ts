@@ -1,5 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { rewriteExpr } from "./rewrite.js";
+import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import { isServerOnlyNode } from "./collect.ts";
@@ -113,7 +114,10 @@ export function isServerCallExpr(stmt: ASTNode, routeMap: RouteMap, filePath: st
  * @returns {string}
  */
 export function extractInitExpr(stmt: ASTNode): string {
+  const _exprCtx: EmitExprContext = { mode: "client" };
+  if ((stmt as ASTNode).initExpr) return emitExpr((stmt as ASTNode).initExpr as any, _exprCtx);
   if ((stmt as ASTNode).init) return rewriteExpr(typeof (stmt as ASTNode).init === "string" ? (stmt as ASTNode).init as string : String((stmt as ASTNode).init));
+  if ((stmt as ASTNode).exprNode) return emitExpr((stmt as ASTNode).exprNode as any, _exprCtx);
   if ((stmt as ASTNode).expr) return rewriteExpr(typeof (stmt as ASTNode).expr === "string" ? (stmt as ASTNode).expr as string : String((stmt as ASTNode).expr));
   return "undefined";
 }

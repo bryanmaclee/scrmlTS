@@ -1,5 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { rewriteExpr } from "./rewrite.js";
+import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
 import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr } from "./emit-lift.js";
 import { emitTransitionGuard } from "./emit-machines.ts";
@@ -28,7 +29,9 @@ interface MachineBindingInfo {
  */
 export function emitIfStmt(node: any, opts: IfOpts = {}): string {
   const lines: string[] = [];
-  lines.push(`if (${rewriteExpr(node.condition ?? node.test ?? "true")}) {`);
+  const _ifExprCtx: EmitExprContext = { mode: "client", derivedNames: opts.derivedNames ?? null };
+  const _ifCond = node.condExpr ? emitExpr(node.condExpr, _ifExprCtx) : rewriteExpr(node.condition ?? node.test ?? "true");
+  lines.push(`if (${_ifCond}) {`);
 
   const consequent: any[] = node.consequent ?? node.body ?? [];
 
@@ -118,7 +121,8 @@ export function emitForStmt(node: any): string {
     const renderFn = genVar("render_list");
     const createFnVar = genVar("create_item");
     const tmpContainerVar = genVar("tmp");
-    const rewrittenIterable = rewriteExpr(iterable);
+    const _forExprCtx: EmitExprContext = { mode: "client" };
+    const rewrittenIterable = node.iterExpr ? emitExpr(node.iterExpr, _forExprCtx) : rewriteExpr(iterable);
     const body: any[] = node.body ?? [];
 
     lines.push(`const ${wrapperVar} = document.createElement("div");`);
@@ -169,7 +173,8 @@ export function emitForStmt(node: any): string {
   }
 
   // Non-reactive path — plain for loop
-  iterable = rewriteExpr(iterable);
+  const _plainForCtx: EmitExprContext = { mode: "client" };
+  iterable = node.iterExpr ? emitExpr(node.iterExpr, _plainForCtx) : rewriteExpr(iterable);
   lines.push(`for (const ${varName} of ${iterable}) {`);
 
   const body: any[] = node.body ?? [];
@@ -197,7 +202,8 @@ export function emitForStmt(node: any): string {
  */
 export function emitWhileStmt(node: any): string {
   const lines: string[] = [];
-  const condition = rewriteExpr(node.condition ?? "true");
+  const _whileCtx: EmitExprContext = { mode: "client" };
+  const condition = node.condExpr ? emitExpr(node.condExpr, _whileCtx) : rewriteExpr(node.condition ?? "true");
   const label = node.label ? `${node.label}: ` : "";
   lines.push(`${label}while (${condition}) {`);
   for (const code of emitLogicBody(node.body ?? [])) {
@@ -216,7 +222,8 @@ export function emitWhileStmt(node: any): string {
  */
 export function emitDoWhileStmt(node: any): string {
   const lines: string[] = [];
-  const condition = rewriteExpr(node.condition ?? "true");
+  const _doWhileCtx: EmitExprContext = { mode: "client" };
+  const condition = node.condExpr ? emitExpr(node.condExpr, _doWhileCtx) : rewriteExpr(node.condition ?? "true");
   const label = node.label ? `${node.label}: ` : "";
   lines.push(`${label}do {`);
   for (const code of emitLogicBody(node.body ?? [])) {
@@ -638,7 +645,8 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
  * Emit a match expression compiled to a JS if/else IIFE.
  */
 export function emitMatchExpr(node: any): string {
-  const header = rewriteExpr((node.header ?? "").trim());
+  const _matchCtx: EmitExprContext = { mode: "client" };
+  const header = node.headerExpr ? emitExpr(node.headerExpr, _matchCtx) : rewriteExpr((node.header ?? "").trim());
   const body: any[] = node.body ?? [];
 
   const tmpVar = genVar("match");
@@ -758,7 +766,8 @@ export function emitMatchExpr(node: any): string {
  * Emit a switch statement.
  */
 export function emitSwitchStmt(node: any): string {
-  const header = rewriteExpr((node.header ?? "").trim());
+  const _switchCtx: EmitExprContext = { mode: "client" };
+  const header = node.headerExpr ? emitExpr(node.headerExpr, _switchCtx) : rewriteExpr((node.header ?? "").trim());
   const lines: string[] = [];
   let cleanHeader = header;
   if (cleanHeader.startsWith("(") && cleanHeader.endsWith(")")) {
