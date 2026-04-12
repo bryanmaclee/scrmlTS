@@ -232,6 +232,199 @@ export function extractIdentifiersFromAST(expr: string): string[] {
 }
 
 /**
+ * Extract all referenced identifiers from a multi-statement string.
+ *
+ * Unlike `extractIdentifiersFromAST`, this always uses `parseStatements` (not
+ * `parseExpression`) so it correctly handles multi-statement strings like
+ * `"hello"\nconsole.log(x)` where `parseExpression` would only parse the first
+ * expression and miss the rest.
+ *
+ * This is the fallback used by `checkLinear`'s `scanNodeExprNodesForLin` when
+ * a node's string-form field contains multiple statements (e.g. due to the
+ * collectExpr over-collection issue in ast-builder.js).
+ *
+ * Returns an array of unique identifier names (no duplicates).
+ * Excludes property names in static member access (`obj.prop` → only `obj` included).
+ * Excludes declared variables within the string (inner let/const/for-of vars).
+ */
+export function extractAllIdentifiersFromString(expr: string): string[] {
+  if (!expr || typeof expr !== "string" || !expr.trim()) return [];
+
+  // Try parseStatements (handles multi-statement strings)
+  const stmts = parseStatements(expr);
+  if (stmts.ast) return extractIdentifiersFromNode(stmts.ast);
+
+  // Fallback: try parseExpression
+  const { ast } = parseExpression(expr);
+  if (!ast) return [];
+  return extractIdentifiersFromNode(ast);
+}
+
+/**
+ * Extract all referenced identifiers from a string, EXCLUDING those inside
+ * lambda/arrow-function bodies.
+ *
+ * This is the lin-enforcement version of extractAllIdentifiersFromString. It
+ * respects the lin scope rule: lin variable references inside lambda bodies are
+ * NOT counted as consumption of the outer-scope lin variable. The lambda may be
+ * called zero, one, or many times — the outer scope cannot assume exactly-once
+ * consumption.
+ *
+ * Identifiers in lambda/arrow function PARAMETERS are also excluded (they're
+ * declarations, not references). Default parameter values ARE included (they
+ * are evaluated in the outer scope).
+ *
+ * This is the conservative behavior for Phase 2 Slice 2. Future slice can add
+ * capture-based lin consumption for lambdas that provably close over lin vars.
+ */
+export function extractIdentifiersExcludingLambdaBodies(expr: string): string[] {
+  if (!expr || typeof expr !== "string" || !expr.trim()) return [];
+
+  const ids = new Set<string>();
+  const lambdaDepth = { count: 0 };
+
+  let ast: ESNode | null = null;
+
+  // Try parseStatements first (handles multi-statement strings)
+  const stmts = parseStatements(expr);
+  if (stmts.ast) {
+    ast = stmts.ast;
+  } else {
+    const result = parseExpression(expr);
+    if (result.ast) ast = result.ast;
+  }
+
+  if (!ast) return [];
+
+  walk(ast, (n, parent) => {
+    // When entering an arrow function or function expression, increment depth.
+    // We don't collect identifiers inside lambda bodies.
+    if (n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression") {
+      lambdaDepth.count++;
+      return;
+    }
+
+    // Skip identifier collection inside lambda bodies.
+    if (lambdaDepth.count > 0) {
+      // We need to exit the lambda when we leave it. But the simple walk() doesn't
+      // support enter/exit. Instead, we use a different approach: mark identifiers
+      // as belonging to a lambda by walking separately.
+      return;
+    }
+
+    if (n.type === "Identifier") {
+      // Skip if this is a property access (x.prop — skip prop)
+      if (parent?.type === "MemberExpression" &&
+          (parent as { property?: ESNode; computed?: boolean }).property === n &&
+          !(parent as { computed?: boolean }).computed) return;
+      // Skip if this is an object key
+      if (parent?.type === "Property" &&
+          (parent as { key?: ESNode; computed?: boolean }).key === n &&
+          !(parent as { computed?: boolean }).computed) return;
+      ids.add(n.name as string);
+    }
+  });
+
+  // The lambdaDepth approach above doesn't work well with simple walk().
+  // Use a two-pass approach instead: find all ids, then subtract lambda-interior ids.
+  // Get ALL ids (including lambda-interior ones).
+  const allIds = new Set(extractIdentifiersFromNode(ast));
+  // Get lambda-interior ids.
+  const lambdaInteriorIds = new Set<string>();
+  walk(ast, (n) => {
+    if (n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression" || n.type === "FunctionDeclaration") {
+      // Collect all identifiers INSIDE this lambda/function.
+      walk(n as ESNode, (inner, innerParent) => {
+        if (inner === n) return; // Skip the function itself
+        if (inner.type === "Identifier") {
+          if (innerParent?.type === "MemberExpression" &&
+              (innerParent as { property?: ESNode; computed?: boolean }).property === inner &&
+              !(innerParent as { computed?: boolean }).computed) return;
+          if (innerParent?.type === "Property" &&
+              (innerParent as { key?: ESNode; computed?: boolean }).key === inner &&
+              !(innerParent as { computed?: boolean }).computed) return;
+          lambdaInteriorIds.add(inner.name as string);
+        }
+      });
+    }
+  });
+
+  // Result: all ids MINUS lambda-interior-only ids.
+  // But if an id appears both inside AND outside a lambda, keep it.
+  // For lin enforcement: if x appears in the outer scope, it's consumed there.
+  const result: string[] = [];
+  for (const id of allIds) {
+    // Check if this id appears in the outer scope (not only inside lambda bodies).
+    // We do this by checking if the id is in `ids` (collected from non-lambda walk).
+    // Note: the first walk (lambdaDepth approach) was incomplete, so use allIds for now.
+    // Conservative decision: if id is ONLY in lambdaInteriorIds, exclude it.
+    // If it appears anywhere in allIds (including outer), include it.
+    // Actually we want: exclude if the ONLY occurrences are inside lambdas.
+    // For simplicity and correctness, re-walk and check.
+    result.push(id);
+  }
+
+  // TODO: The two-pass approach above is not yet correct for the case where
+  // an identifier appears ONLY inside a lambda. Use a cleaner implementation:
+  // Walk the AST, skipping arrow function / function expression bodies entirely.
+  const outerIds = new Set<string>();
+  function collectOuter(node: ESNode, inLambda: boolean): void {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression" || node.type === "FunctionDeclaration") {
+      // Walk default parameter values (evaluated in outer scope)
+      for (const param of (node.params as ESNode[] | undefined) ?? []) {
+        const defaultVal = (param as { right?: ESNode }).right ?? (param as { init?: ESNode }).init;
+        if (defaultVal) collectOuter(defaultVal, false);
+      }
+      // Skip the body
+      return;
+    }
+
+    if (node.type === "Identifier" && !inLambda) {
+      outerIds.add(node.name as string);
+    }
+
+    // Recurse into child nodes
+    for (const key of Object.keys(node)) {
+      const child = (node as Record<string, unknown>)[key];
+      if (child && typeof child === "object") {
+        if (Array.isArray(child)) {
+          for (const item of child) {
+            if (item && typeof item === "object" && (item as ESNode).type) {
+              collectOuter(item as ESNode, inLambda);
+            }
+          }
+        } else if ((child as ESNode).type) {
+          collectOuter(child as ESNode, inLambda);
+        }
+      }
+    }
+  }
+
+  collectOuter(ast, false);
+
+  // Filter: exclude property names and object keys (same logic as extractIdentifiersFromNode)
+  const filtered = new Set<string>();
+  walk(ast, (n, parent) => {
+    if (n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression" || n.type === "FunctionDeclaration") {
+      // Mark — don't recurse, handled by collectOuter
+      return;
+    }
+    if (n.type !== "Identifier") return;
+    const name = n.name as string;
+    if (parent?.type === "MemberExpression" &&
+        (parent as { property?: ESNode; computed?: boolean }).property === n &&
+        !(parent as { computed?: boolean }).computed) return;
+    if (parent?.type === "Property" &&
+        (parent as { key?: ESNode; computed?: boolean }).key === n &&
+        !(parent as { computed?: boolean }).computed) return;
+    if (outerIds.has(name)) filtered.add(name);
+  });
+
+  return [...filtered];
+}
+
+/**
  * Recursively collect all binding identifiers from a parameter pattern node.
  * Handles Identifier, ObjectPattern, ArrayPattern, RestElement, and AssignmentPattern.
  */
