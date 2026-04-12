@@ -4654,7 +4654,7 @@ function parseErrorTokens(tokens, filePath) {
         pattern,
         binding,
         handler: _handlerTrimmed,
-        handlerExpr: (!_handlerTrimmed.startsWith("{")) ? safeParseExprToNodeGlobal(_handlerTrimmed, filePath, tokenSpan(armStart, filePath)?.start ?? 0) : undefined,
+        handlerExpr: _parseHandlerExpr(_handlerTrimmed, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
         span: tokenSpan(armStart, filePath),
       });
     } else if (
@@ -4705,7 +4705,7 @@ function parseErrorTokens(tokens, filePath) {
         pattern,
         binding,
         handler: _handlerTrimmed2,
-        handlerExpr: (!_handlerTrimmed2.startsWith("{")) ? safeParseExprToNodeGlobal(_handlerTrimmed2, filePath, tokenSpan(armStart, filePath)?.start ?? 0) : undefined,
+        handlerExpr: _parseHandlerExpr(_handlerTrimmed2, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
         span: tokenSpan(armStart, filePath),
       });
     } else {
@@ -4714,6 +4714,21 @@ function parseErrorTokens(tokens, filePath) {
   }
 
   return arms;
+}
+
+/**
+ * Phase 4: parse error-arm handler expressions. For non-block handlers, parses the
+ * handler string directly. For block handlers `{ body }`, strips the braces and
+ * parses the inner content (supports single-expression block bodies like `{ @x = false }`).
+ */
+function _parseHandlerExpr(handler, filePath, startOffset) {
+  if (!handler) return undefined;
+  if (handler.startsWith("{") && handler.endsWith("}")) {
+    const inner = handler.slice(1, -1).trim();
+    if (!inner) return undefined;
+    return safeParseExprToNodeGlobal(inner, filePath, startOffset);
+  }
+  return safeParseExprToNodeGlobal(handler, filePath, startOffset);
 }
 
 // ---------------------------------------------------------------------------
