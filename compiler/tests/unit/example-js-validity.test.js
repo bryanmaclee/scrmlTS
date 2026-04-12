@@ -63,8 +63,10 @@ describe("Fix 2: braceless if-body — paren-aware condition collection", () => 
     // Must have a valid if statement with braces (if body was correctly parsed as consequent)
     // The correct output should contain `if` and then the push call inside the block
     expect(clientJs).toContain("if (");
-    // primes.push must appear as a statement (with spaces from tokenizer: `primes . push ( i )`)
-    expect(clientJs).toContain("primes . push ( i )");
+    // primes.push must appear as a statement (ExprNode emitter produces clean JS;
+    // string fallback preserves tokenizer spaces as `primes . push ( i )`)
+    const hasPush = clientJs.includes("primes.push(i)") || clientJs.includes("primes . push ( i )");
+    expect(hasPush).toBe(true);
   });
 
   it("if (typeof x != 'object') return — keyword in condition does not break parsing", () => {

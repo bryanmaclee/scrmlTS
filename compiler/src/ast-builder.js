@@ -1464,7 +1464,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
       } else {
         const { expr, span } = collectLiftExpr();
-        return { id: ++counter.next, kind: "lift-expr", expr: { kind: "expr", expr }, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "lift-expr", expr: { kind: "expr", expr, exprNode: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0) }, span: spanOf(startTok, peek()) };
       }
       return null;
     }
@@ -2932,7 +2932,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         nodes.push({
           id: ++counter.next,
           kind: "lift-expr",
-          expr: { kind: "expr", expr },
+          expr: { kind: "expr", expr, exprNode: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0) },
           span: spanOf(startTok, peek()),
         });
       }

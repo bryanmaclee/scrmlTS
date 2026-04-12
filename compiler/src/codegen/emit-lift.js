@@ -1,4 +1,5 @@
 import { rewriteExpr } from "./rewrite.js";
+import { emitExpr } from "./emit-expr.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { genVar } from "./var-counter.ts";
 import { VOID_ELEMENTS } from "./utils.ts";
@@ -521,7 +522,9 @@ function emitCreateElementFromMarkup(node, lines) {
         if (child.body) {
           for (const logicChild of child.body) {
             if (logicChild && logicChild.kind === "bare-expr" && logicChild.expr) {
-              const rewritten = rewriteExpr(rewriteRenderCall(logicChild.expr));
+              const rewritten = logicChild.exprNode
+                ? emitExpr(logicChild.exprNode, { mode: "client" })
+                : rewriteExpr(rewriteRenderCall(logicChild.expr));
               lines.push(`${elVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`);
             }
           }
@@ -809,7 +812,9 @@ function emitForStmtWithContainer(forNode, containerElVar) {
     }
   }
 
-  const rewrittenIterable = rewriteExpr(iterable);
+  const rewrittenIterable = forNode.iterExpr
+    ? emitExpr(forNode.iterExpr, { mode: "client" })
+    : rewriteExpr(iterable);
   lines.push(`for (const ${varName} of ${rewrittenIterable}) {`);
 
   const body = forNode.body ?? [];
@@ -1090,7 +1095,9 @@ export function emitConsolidatedLift(body, opts = {}) {
               if (elVar) {
                 const attrName = pendingAttrName;
                 pendingAttrName = null;
-                const rewritten = rewriteExpr(logicChild.expr);
+                const rewritten = logicChild.exprNode
+                  ? emitExpr(logicChild.exprNode, { mode: "client" })
+                  : rewriteExpr(logicChild.expr);
                 if (/^on[a-z]/.test(attrName)) {
                   const eventName = attrName.replace(/^on/, "");
                   lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
@@ -1297,7 +1304,9 @@ export function emitLiftExpr(node, opts = {}) {
     }
 
     // No tag pattern — emit as text node with the expression value
-    const rewritten = rewriteExpr(expr);
+    const rewritten = liftExpr.exprNode
+      ? emitExpr(liftExpr.exprNode, { mode: "client" })
+      : rewriteExpr(expr);
     if (containerVar) {
       return `${containerVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`;
     }

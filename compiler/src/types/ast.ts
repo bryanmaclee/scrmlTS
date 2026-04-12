@@ -184,7 +184,7 @@ export interface SQLChainedCall {
  */
 export type LiftTarget =
   | { kind: "markup"; node: ASTNode }
-  | { kind: "expr"; expr: string };
+  | { kind: "expr"; expr: string; exprNode?: ExprNode };
 
 // ---------------------------------------------------------------------------
 // AST Node Interfaces
