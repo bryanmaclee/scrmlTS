@@ -23,6 +23,25 @@ ${
     }
 
     // ---------------------------------------------------------------------------
+    // Expression parser import — for ExprNode parallel fields (Phase 1/2)
+    // ---------------------------------------------------------------------------
+
+    // In production (compiled scrml), parseExprToNode is available via ^{} import.
+    // In test context (Blob URL), ^{} blocks are stripped — this fallback handles it.
+    let parseExprToNode = undefined
+    try {
+        const _ep = await import(new URL("../src/expression-parser.ts", import.meta.url).href)
+        parseExprToNode = _ep.parseExprToNode
+    } catch {
+        try {
+            const _ep = await import(process.cwd() + "/compiler/src/expression-parser.ts")
+            parseExprToNode = _ep.parseExprToNode
+        } catch {
+            // expression parser not available — ExprNode fields will be undefined
+        }
+    }
+
+    // ---------------------------------------------------------------------------
     // Error type
     // ---------------------------------------------------------------------------
 
@@ -522,6 +541,18 @@ ${
             return result
         }
 
+
+        // safeParseExprToNode — Phase 1/2 ExprNode parallel fields
+        function safeParseExprToNode(expr, startOffset) {
+            if (!parseExprToNode) return undefined
+            if (!expr || typeof expr !== "string" || !expr.trim()) return undefined
+            try {
+                return parseExprToNode(expr, filePath || "", startOffset || 0)
+            } catch (_e) {
+                return undefined
+            }
+        }
+
         // collectExpr
         function collectExpr(stopAt) {
             if (stopAt == null) stopAt = null
@@ -786,10 +817,10 @@ ${
                 if (peek().text == "=" && peek(1) && peek(1).text != "=") {
                     consume()
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "let-decl", name, init: result.expr, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "let-decl", name, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) }
                 } else {
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "let-decl", name, init: result.expr, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "let-decl", name, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) }
                 }
             }
 
@@ -802,7 +833,7 @@ ${
                     if (peek().text == "=" && peek(1) && peek(1).text != "=") {
                         consume()
                         const result = collectExpr()
-                        return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: result.expr, span: spanOf(startTok, peek()) }
+                        return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) }
                     } else {
                         return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: "", span: spanOf(startTok, peek()) }
                     }
@@ -812,7 +843,7 @@ ${
                 if (peek().text == "=" && peek(1) && peek(1).text != "=") {
                     consume()
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "const-decl", name, init: result.expr, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "const-decl", name, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) }
                 } else {
                     return { id: ++counter.next, kind: "const-decl", name, init: "", span: tokenSpan(startTok, filePath) }
                 }
@@ -836,7 +867,7 @@ ${
                 if (peek().text == "=" && peek(1) && peek(1).text != "=") {
                     consume()
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "reactive-debounced-decl", name, init: result.expr, delay, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "reactive-debounced-decl", name, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), delay, span: spanOf(startTok, peek()) }
                 }
                 const result = collectExpr()
                 return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + " " + name + (result.expr ? " " + result.expr : ""), span: spanOf(startTok, peek()) }
@@ -849,7 +880,7 @@ ${
                     const nameTok = consume()
                     consume()
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: result.expr, isShared: true, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) }
                 }
                 const result = collectExpr()
                 return { id: ++counter.next, kind: "bare-expr", expr: startTok.text + (result.expr ? " " + result.expr : ""), span: spanOf(startTok, peek()) }
@@ -907,6 +938,7 @@ ${
                             target: name,
                             path: pathSegments,
                             value: result.expr,
+                            valueExpr: safeParseExprToNode(result.expr, 0),
                             span: spanOf(startTok, peek()),
                         }
                     }
@@ -920,7 +952,7 @@ ${
                 if (peek().text == "=" && peek(1) && peek(1).text != "=") {
                     consume()
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "reactive-decl", name, init: result.expr, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "reactive-decl", name, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) }
                 }
 
                 // @set
@@ -985,6 +1017,7 @@ ${
                     kind: "for-stmt",
                     variable,
                     iterable: iterResult.expr.trim(),
+                    iterExpr: safeParseExprToNode(iterResult.expr.trim(), 0),
                     body,
                     span: spanOf(startTok, peek()),
                 }
@@ -1008,6 +1041,7 @@ ${
                     id: ++counter.next,
                     kind: "while-stmt",
                     condition: condResult.expr.trim(),
+                    condExpr: safeParseExprToNode(condResult.expr.trim(), 0),
                     body,
                     span: spanOf(startTok, peek()),
                 }
@@ -1021,6 +1055,7 @@ ${
                     id: ++counter.next,
                     kind: "return-stmt",
                     expr: result.expr.trim(),
+                    exprNode: safeParseExprToNode(result.expr.trim(), 0),
                     span: spanOf(startTok, peek()),
                 }
             }
@@ -1033,6 +1068,7 @@ ${
                     id: ++counter.next,
                     kind: "throw-stmt",
                     expr: result.expr.trim(),
+                    exprNode: safeParseExprToNode(result.expr.trim(), 0),
                     span: spanOf(startTok, peek()),
                 }
             }
@@ -1051,6 +1087,7 @@ ${
                     id: ++counter.next,
                     kind: keyword + "-stmt",
                     header: headerResult.expr.trim(),
+                    headerExpr: safeParseExprToNode(headerResult.expr.trim(), 0),
                     body,
                     span: spanOf(startTok, peek()),
                 }
@@ -1131,7 +1168,7 @@ ${
                     const name = startTok.text
                     consume()
                     const result = collectExpr()
-                    return { id: ++counter.next, kind: "tilde-decl", name, init: result.expr, span: spanOf(startTok, peek()) }
+                    return { id: ++counter.next, kind: "tilde-decl", name, init: result.expr, initExpr: safeParseExprToNode(result.expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) }
                 }
             }
 
@@ -1140,7 +1177,7 @@ ${
                 const startTok2 = peek()
                 const result = collectExpr()
                 if (result.expr.trim().length > 0) {
-                    return { id: ++counter.next, kind: "bare-expr", expr: result.expr, span: result.span }
+                    return { id: ++counter.next, kind: "bare-expr", expr: result.expr, exprNode: safeParseExprToNode(result.expr, 0), span: result.span }
                 } else {
                     const stuckTok = peek()
                     if (stuckTok.kind != "EOF") {
@@ -1193,6 +1230,7 @@ ${
                 id: ++counter.next,
                 kind: "if-stmt",
                 condition: condResult.expr.trim(),
+                condExpr: safeParseExprToNode(condResult.expr.trim(), 0),
                 consequent,
                 alternate,
                 span: spanOf(startTok, peek()),
@@ -1539,6 +1577,7 @@ ${
                             target: name,
                             path: pathSegments,
                             value: result.expr,
+                            valueExpr: safeParseExprToNode(result.expr, 0),
                             span: spanOf(startTok, peek()),
                         })
                         continue
@@ -1946,6 +1985,7 @@ ${
                     kind: "for-stmt",
                     variable,
                     iterable: iterResult.expr.trim(),
+                    iterExpr: safeParseExprToNode(iterResult.expr.trim(), 0),
                     body,
                     span: spanOf(startTok, peek()),
                 })
@@ -1972,6 +2012,7 @@ ${
                     id: ++counter.next,
                     kind: "while-stmt",
                     condition: condResult.expr.trim(),
+                    condExpr: safeParseExprToNode(condResult.expr.trim(), 0),
                     body,
                     span: spanOf(startTok, peek()),
                 })
@@ -1986,6 +2027,7 @@ ${
                     id: ++counter.next,
                     kind: "return-stmt",
                     expr: result.expr.trim(),
+                    exprNode: safeParseExprToNode(result.expr.trim(), 0),
                     span: spanOf(startTok, peek()),
                 })
                 continue
@@ -1999,6 +2041,7 @@ ${
                     id: ++counter.next,
                     kind: "throw-stmt",
                     expr: result.expr.trim(),
+                    exprNode: safeParseExprToNode(result.expr.trim(), 0),
                     span: spanOf(startTok, peek()),
                 })
                 continue
@@ -2018,6 +2061,7 @@ ${
                     id: ++counter.next,
                     kind: keyword + "-stmt",
                     header: headerResult.expr.trim(),
+                    headerExpr: safeParseExprToNode(headerResult.expr.trim(), 0),
                     body,
                     span: spanOf(startTok, peek()),
                 }
@@ -2335,7 +2379,7 @@ ${
                             span: result.span,
                         })
                     } else {
-                        nodes.push({ id: ++counter.next, kind: "bare-expr", expr: result.expr, span: result.span })
+                        nodes.push({ id: ++counter.next, kind: "bare-expr", expr: result.expr, exprNode: safeParseExprToNode(result.expr, 0), span: result.span })
                     }
                 } else {
                     const stuckTok = peek()
