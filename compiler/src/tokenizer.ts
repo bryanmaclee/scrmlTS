@@ -79,6 +79,8 @@ const KEYWORDS = new Set([
   "given",
   // §18.18 partial match modifier
   "partial",
+  // §35.2 linear types — lin variable declaration keyword
+  "lin",
 ]);
 
 // ---------------------------------------------------------------------------
