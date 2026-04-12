@@ -694,6 +694,8 @@ export interface PropagateExprNode extends BaseNode {
   binding: string | null;
   /** The expression being propagated (without trailing `?`). */
   expr: string;
+  /** Phase 4: structured ExprNode form of `expr`. Populated by ast-builder. */
+  exprNode?: ExprNode;
 }
 
 /**
@@ -784,6 +786,8 @@ export interface CleanupRegistrationNode extends BaseNode {
   kind: "cleanup-registration";
   /** Raw callback expression string. */
   callback: string;
+  /** Phase 4: structured ExprNode form of `callback`. Populated by ast-builder. */
+  callbackExpr?: ExprNode;
 }
 
 /**
@@ -832,6 +836,8 @@ export interface DebounceCallNode extends BaseNode {
   kind: "debounce-call";
   /** Function expression (raw string). */
   fn: string;
+  /** Phase 4: structured ExprNode form of `fn`. Populated by ast-builder. */
+  fnExpr?: ExprNode;
   /** Delay in milliseconds. */
   delay: number;
 }
@@ -841,6 +847,8 @@ export interface ThrottleCallNode extends BaseNode {
   kind: "throttle-call";
   /** Function expression (raw string). */
   fn: string;
+  /** Phase 4: structured ExprNode form of `fn`. Populated by ast-builder. */
+  fnExpr?: ExprNode;
   /** Delay in milliseconds. */
   delay: number;
 }

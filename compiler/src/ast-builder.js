@@ -2661,6 +2661,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           kind: "reactive-debounced-decl",
           name,
           init: expr,
+          initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
           delay,
           span: spanOf(startTok, peek()),
         });
