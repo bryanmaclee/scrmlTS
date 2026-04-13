@@ -59,7 +59,7 @@ scrml compile hello.scrml -o dist/
 
 **State is first-class.** Reactive variables (`@var`) are language primitives, not library wrappers. The compiler knows every read and write site, enforces mutability contracts statically, and generates minimal DOM updates — no diffing, no proxy overhead, no `useState` ceremony.
 
-**Mutability contracts.** Declare a `<machine>` for an enum type and every legal state transition is explicit: `.Small => .Big`, `.Fire => .Small`. The compiler enforces these at every assignment — illegal transitions are compile errors, not runtime surprises. Because mutation is fully declared, a `fn` can trigger transitions and read before/after state while remaining provably pure. `lin` enforces exact-once consumption. `server @var` pins state server-side. `protect` excludes fields from the client. All verified statically.
+**Mutability contracts.** Declare a `<machine>` for an enum type and every legal state transition is explicit — you define the states and transitions, the compiler enforces them. For example, a door lock with `.Locked => .Unlocked` and `.Unlocked => .Locked` means the compiler rejects any assignment that skips a step. Because mutation is fully declared, a `fn` can trigger transitions and read before/after state while remaining provably pure. `lin` enforces exact-once consumption. `server @var` pins state server-side. `protect` excludes fields from the client. All verified statically.
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 
@@ -284,6 +284,18 @@ scrml uses sigil-delimited contexts to separate concerns within a single file:
 | Error   | `!{}` | Typed error handling |
 | Meta    | `^{}` | Compile-time (or runtime) code generation |
 | Test    | `~{}` | Inline tests (stripped from production) |
+| Foreign | `_{}` | Inline foreign code *(specced, not yet implemented)* |
+
+## Specced but Not Yet Implemented
+
+These features are fully designed in the [language spec](compiler/SPEC.md) but not yet available in the compiler. They are listed here so you know what's coming and don't try to use them yet.
+
+| Feature | Spec Section | Description |
+|---------|-------------|-------------|
+| **Foreign code contexts (`_{}`)**  | S23 | Embed non-JS code inline with level-marked braces (`_{}`/`_={...}=`). Enables inline Rust, Python, SQL extensions, or any language with a registered compiler. The foreign block is opaque to scrml — it passes through to an external toolchain. |
+| **WASM call-char sigils** | S23.3 | Single-character sigils (`r{}`, `c{}`, `z{}`) for invoking compiled WASM functions from Rust, C, Zig, etc. Paired with `extern` declarations for type-safe FFI. |
+| **Sidecar process declarations** | S23.4 | `use foreign:name { fn }` for declaring server-side sidecar processes (HTTP/socket services) that scrml routes to automatically. |
+| **`RemoteData` enum** | S13.5 | Built-in `Loading / Loaded(T) / Failed(Error)` enum for modeling async fetch state. Pattern-matchable with exhaustive checking. |
 
 ## Getting Started
 
@@ -338,7 +350,7 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 | [11-meta-programming](examples/11-meta-programming.scrml) | `^{}` meta blocks, `emit()`, `reflect()` |
 | [12-snippets-slots](examples/12-snippets-slots.scrml) | Named content slots in components |
 | [13-worker](examples/13-worker.scrml) | Web workers as nested programs with typed messaging |
-| [14-mario-state-machine](examples/14-mario-state-machine.scrml) | Enum state machine with machine binding |
+| [14-mario-state-machine](examples/14-mario-state-machine.scrml) | User-defined enum states + `<machine>` transition enforcement |
 
 ## Documentation
 
