@@ -954,8 +954,23 @@ function injectChildren(
   nodeSpan?: Span,
   parametricSnippets?: Map<string, { paramName: string; body: string }>,
 ): ASTNode[] {
-  let slotFound = false;
-  let spreadFound = false;
+  // Shared state across recursive calls — slots found in nested markup still count
+  const state = { slotFound: false, spreadFound: false };
+  return _injectChildrenWalk(expandedChildren, callerChildren, slottedGroups, unslottedChildren, ceErrors, componentName, filePath, nodeSpan, parametricSnippets, state);
+}
+
+function _injectChildrenWalk(
+  expandedChildren: ASTNode[],
+  callerChildren: ASTNode[],
+  slottedGroups?: Map<string, ASTNode[]>,
+  unslottedChildren?: ASTNode[],
+  ceErrors?: CEError[],
+  componentName?: string,
+  filePath?: string,
+  nodeSpan?: Span,
+  parametricSnippets?: Map<string, { paramName: string; body: string }>,
+  state: { slotFound: boolean; spreadFound: boolean } = { slotFound: false, spreadFound: false },
+): ASTNode[] {
   const result: ASTNode[] = [];
 
   // §14.9: regex for render name() pattern (zero-param)
@@ -1020,7 +1035,7 @@ function injectChildren(
 
       if (isChildrenSlot) {
         // Replace the slot with the caller's children (backward compat)
-        if (spreadFound) {
+        if (state.spreadFound) {
           // E-COMPONENT-030: multiple spreads
           if (ceErrors) {
             ceErrors.push(makeCEError(
@@ -1034,14 +1049,14 @@ function injectChildren(
         const childrenToInject = unslottedChildren && unslottedChildren.length > 0
           ? unslottedChildren : callerChildren;
         result.push(...childrenToInject);
-        slotFound = true;
-        spreadFound = true;
+        state.slotFound = true;
+        state.spreadFound = true;
         continue;
       }
 
       if (isSpreadSlot) {
         // §14.9: ${...} spread → unslotted children
-        if (spreadFound) {
+        if (state.spreadFound) {
           if (ceErrors) {
             ceErrors.push(makeCEError(
               "E-COMPONENT-030",
@@ -1054,8 +1069,8 @@ function injectChildren(
         const childrenToInject = unslottedChildren && unslottedChildren.length > 0
           ? unslottedChildren : callerChildren;
         result.push(...childrenToInject);
-        slotFound = true;
-        spreadFound = true;
+        state.slotFound = true;
+        state.spreadFound = true;
         continue;
       }
 
@@ -1065,7 +1080,7 @@ function injectChildren(
         if (slotNodes && slotNodes.length > 0) {
           result.push(...slotNodes);
         }
-        slotFound = true;
+        state.slotFound = true;
         continue;
       }
 
@@ -1083,20 +1098,32 @@ function injectChildren(
             span: child.span,
           } as unknown as ASTNode);
         }
-        slotFound = true;
+        state.slotFound = true;
         continue;
       }
     }
-    result.push(child);
+    // Recurse into markup children to find nested render slots
+    // (e.g. <div class="card__header">${render header()}</>)
+    if (child.kind === "markup" && Array.isArray((child as MarkupNode).children) && (child as MarkupNode).children!.length > 0) {
+      const recursed = _injectChildrenWalk(
+        (child as MarkupNode).children!, callerChildren,
+        slottedGroups, unslottedChildren,
+        ceErrors, componentName, filePath, nodeSpan,
+        parametricSnippets, state,
+      );
+      result.push({ ...child, children: recursed } as ASTNode);
+    } else {
+      result.push(child);
+    }
   }
 
-  if (!slotFound && callerChildren.length > 0) {
+  if (!state.slotFound && callerChildren.length > 0) {
     // No explicit slot found — append caller children at the end
     result.push(...callerChildren);
   }
 
   // §14.9: E-COMPONENT-031 — unslotted children but no spread slot
-  if (unslottedChildren && unslottedChildren.length > 0 && !spreadFound && slottedGroups && slottedGroups.size > 0) {
+  if (unslottedChildren && unslottedChildren.length > 0 && !state.spreadFound && slottedGroups && slottedGroups.size > 0) {
     if (ceErrors) {
       ceErrors.push(makeCEError(
         "E-COMPONENT-031",
