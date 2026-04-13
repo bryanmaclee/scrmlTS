@@ -213,6 +213,11 @@ export function collectTopLevelLogicStatements(fileAST: FileAST): Node[] {
         for (const child of node.body) {
           if (!child) continue;
           if (child.kind === "function-decl") continue;
+          // Propagate the placeholder ID from the logic wrapper so the client JS
+          // emitter can target lift-exprs to the correct DOM position.
+          if ((node as any)._placeholderId && !child._placeholderId) {
+            child._placeholderId = (node as any)._placeholderId;
+          }
           result.push(child);
         }
       }

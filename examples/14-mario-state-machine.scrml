@@ -184,7 +184,7 @@ ${
         </>
         <div class="stat">
             <span class="stat-label">STATE</>
-            <span>${@marioState.variant}</>
+            <span>${@marioState}</>
         </>
     </>
 

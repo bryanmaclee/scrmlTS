@@ -16,6 +16,24 @@ import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Check if an AST statement contains a lift-expr anywhere in its tree. */
+function stmtContainsLift(node: any): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (node.kind === "lift-expr") return true;
+  for (const key of ["body", "consequent", "alternate"]) {
+    if (Array.isArray(node[key])) {
+      for (const child of node[key]) {
+        if (stmtContainsLift(child)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -121,7 +139,10 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
   }
 
   // Step 4b: Generate top-level logic statements
-  const topLevel = ctx.analysis?.topLevelLogic ?? collectTopLevelLogicStatements(fileAST);
+  // Always re-collect (don't use pre-computed analysis.topLevelLogic) because
+  // generateHtml annotates logic nodes with _placeholderId which must be propagated
+  // to children for lift-target routing.
+  const topLevel = collectTopLevelLogicStatements(fileAST);
   for (const stmt of topLevel) {
     if (isServerOnlyNode(stmt)) {
       errors.push(new CGError(
@@ -136,7 +157,19 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     }
 
     const code = emitLogicNode(stmt, emitOpts);
-    if (code) lines.push(code);
+    if (code) {
+      // When a logic statement has a placeholder ID and contains lift-exprs,
+      // set _scrml_lift_target so lifted elements go into the placeholder span
+      // instead of document.body.
+      const pid = stmt._placeholderId;
+      if (pid && stmtContainsLift(stmt)) {
+        lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
+        lines.push(code);
+        lines.push(`_scrml_lift_target = null;`);
+      } else {
+        lines.push(code);
+      }
+    }
   }
 
   // Step 4c: Generate server @var sync infrastructure (§52.6)

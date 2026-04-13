@@ -232,8 +232,9 @@ function flush() {
  * The element is appended to the nearest [data-scrml-lift-target] ancestor, or
  * document.body as a fallback.
  */
+let _scrml_lift_target = null;
 function _scrml_lift(factoryOrElement) {
-  const container = document.querySelector("[data-scrml-lift-target]") || document.body;
+  const container = _scrml_lift_target || document.querySelector("[data-scrml-lift-target]") || document.body;
   const el = typeof factoryOrElement === "function" ? factoryOrElement() : factoryOrElement;
   if (el) container.appendChild(el);
 }

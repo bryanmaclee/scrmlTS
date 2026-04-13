@@ -627,6 +627,9 @@ export function generateHtml(
       }
 
       const placeholderId = genVar("logic");
+      // Annotate the AST node with its placeholder ID so the client JS emitter
+      // can target lift-exprs to the correct DOM position.
+      (node as any)._placeholderId = placeholderId;
       parts.push(`<span data-scrml-logic="${placeholderId}"></span>`);
       if (registry && node.body) {
         for (const child of node.body) {
