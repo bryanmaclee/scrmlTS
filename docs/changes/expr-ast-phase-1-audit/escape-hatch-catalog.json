@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-04-12T22:53:05.366Z",
+  "generatedAt": "2026-04-13T00:02:09.285Z",
   "branch": "changes/expr-ast-phase-1-audit",
   "phase": "Phase 1.5 audit (idempotency invariant)",
   "summary": {
     "filesAudited": 14,
-    "totalExprNodesChecked": 166,
+    "totalExprNodesChecked": 161,
     "totalEscapeHatches": 0,
     "escapeHatchRate": "0.00%",
     "byCategory": {
@@ -122,7 +122,7 @@
     {
       "file": "07-admin-dashboard.scrml",
       "astError": null,
-      "exprNodesChecked": 12,
+      "exprNodesChecked": 7,
       "idempotencyFailures": 0,
       "totalEscapes": 0,
       "escapesByCategory": {

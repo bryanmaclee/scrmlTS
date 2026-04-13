@@ -1,13 +1,13 @@
 # Escape-Hatch Catalog: expr-ast-phase-1 corpus audit
 
-Generated: 2026-04-12T22:53:05.366Z
+Generated: 2026-04-13T00:02:09.285Z
 Branch: `changes/expr-ast-phase-1-audit`
 Phase: Phase 1.5 audit (idempotency invariant)
 
 ## Summary
 
 - Files audited: 14
-- Expression nodes checked: 166
+- Expression nodes checked: 161
 - Total escape hatches: 0
 - Escape-hatch rate: 0.00%
 
@@ -32,7 +32,7 @@ Phase: Phase 1.5 audit (idempotency invariant)
 | 04-live-search.scrml | 8 | 0 | PASS |  |
 | 05-multi-step-form.scrml | 17 | 0 | PASS |  |
 | 06-kanban-board.scrml | 11 | 0 | PASS |  |
-| 07-admin-dashboard.scrml | 12 | 0 | PASS |  |
+| 07-admin-dashboard.scrml | 7 | 0 | PASS |  |
 | 08-chat.scrml | 17 | 0 | PASS |  |
 | 09-error-handling.scrml | 15 | 0 | PASS |  |
 | 10-inline-tests.scrml | 7 | 0 | PASS |  |
