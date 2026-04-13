@@ -121,14 +121,15 @@ ${
     @coins = 0
     @lives = 3
     @gameOver = false
+    @vulnerable = false
 
     ~marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
     ~marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
-    // isSmall check is inlined in the if= attribute below
 
     function eatPowerUp(powerUp) {
         if (@gameOver) { return }
         @coins = @coins + 1
+        @vulnerable = false
         @marioState = match powerUp {
             .Mushroom => match @marioState {
                 .Small => MarioState.Big
@@ -143,10 +144,12 @@ ${
         if (@gameOver) { return }
         let wasSmall = @marioState == MarioState.Small
         @marioState = MarioState.Small
+        @vulnerable = true
         if (wasSmall) {
             @lives = @lives - 1
             if (@lives == 0) {
                 @gameOver = true
+                @vulnerable = false
             }
         }
     }
@@ -156,6 +159,7 @@ ${
         @coins = 0
         @lives = 3
         @gameOver = false
+        @vulnerable = false
     }
 }
 
@@ -193,7 +197,7 @@ ${
         <span class="mario-name">${@marioName}</>
     </>
 
-    <div class="warning-bar" if=(@marioState == MarioState.Small)>ONE HIT AND YOU LOSE A LIFE!</>
+    <div class="warning-bar" if=(@vulnerable)>ONE HIT AND YOU LOSE A LIFE!</>
 
     <p class="game-over-text" if=(@gameOver)>GAME OVER</>
 
