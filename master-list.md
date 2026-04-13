@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-13 (S12 — reactive lift, tilde-decl derived, Tailwind confirmed, puppeteer 14/14)
+**Last updated:** 2026-04-13 (S13 — deep-dive+debate fixes, test triage 147→15, README specced-not-impl section)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S86)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 5,998 pass, 147 fail (S12 2026-04-13) — 2 new from CE bare-ref expansion output change
+**Tests:** 6,130 pass, 15 fail (S13 2026-04-13) — 132 eliminated by pretest compile script + hang fix
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -86,7 +86,7 @@
 - [x][x] 01-hello (Tailwind), 02-counter (Tailwind, reactive), 04-live-search (Tailwind, reactive)
 - [x][x] 10-inline-tests (Tailwind), 14-mario-state-machine (Tailwind, fully interactive — machine, derived, match, if=)
 - [x][ ] 05-multi-step-form — step components expand, onclick wiring fix landed, interactive testing incomplete
-- [x][ ] 06-kanban-board — compiles, renders, onclick `${expr}` args broken (lift attr expression splitting)
+- [x][ ] 06-kanban-board — compiles, renders, call-ref handler fixed (S13), needs interactive verification
 - [x][ ] 03-contact-book, 07-admin-dashboard, 08-chat — need running server
 - [x][ ] 09-error-handling (Tailwind), 11-meta-programming, 12-snippets-slots, 13-worker (Tailwind) — compile clean, partial interactivity
 
@@ -106,7 +106,10 @@
 - [x][x] `compiler/tests/conformance/` — 2 files
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total:** 5,998 pass, 147 fail (S12 2026-04-13). Puppeteer: `examples/test-examples.js` 14/14 pass.
+- **Total:** 6,130 pass, 15 fail (S13 2026-04-13). Puppeteer: `examples/test-examples.js` 14/14 pass.
+- **Pretest:** `scripts/compile-test-samples.sh` compiles 12 browser test samples (run via `bun run pretest`)
+- **Skipped:** `browser-reactive-arrays.test.js` — hangs in happy-dom (Puppeteer passes)
+- **15 remaining:** 8 TodoMVC happy-dom, 2 self-host, 2 type-system, 1 if-as-expr, 1 ex05, 1 reactive-arrays codegen
 
 ---
 
@@ -183,12 +186,12 @@
 9. ~~False E-DG-002 for @vars consumed inside runtime `^{}` blocks~~ — **FIXED** (meta-fix-batch S2)
 10. ~~`reflect(variableName)` inside callback params rewritten to string literal~~ — **FIXED** (meta-fix-batch S2)
 
-**S12 new issues (compiler, not example bugs):**
+**S12→S13 issues (resolved via deep-dives + debates):**
 
-11. **Lift attribute `${expr}` splitting** — BS+TAB re-parse path for lift expressions loses `${...}` inline expressions in attributes. Affects `onclick=${fn(arg1, arg2)}` inside lift blocks. Root cause of kanban broken interactivity. **Deep-dive queued for S13.**
-12. **Parser: statements after match** — `collectLiftExpr` truncates function bodies after match expressions due to closing `}` ambiguity (match arm closer vs function closer). **Deep-dive queued for S13.**
-13. **Tilde-decl DG false warnings** — DG doesn't track `if=(@tildeName)` as a consumption, produces spurious E-DG-002 warnings. Straightforward fix.
-14. **Browser test harness** — ~130 happy-dom test failures. Many may be test infrastructure issues (happy-dom limitations) rather than compiler bugs. Real Puppeteer testing passes 14/14. **Needs systematic triage.**
+11. ~~**Lift attribute `${expr}` splitting**~~ — **FIXED S13** (`a1c4300`). call-ref handler in `emitCreateElementFromMarkup` was discarding function arguments entirely. Fixed handler + added paren-space normalization to re-parse path + exhaustiveness guard. Approach C (structured LiftExpr AST, eliminate re-parse) queued as future refactor.
+12. ~~**Parser: statements after match**~~ — **FIXED S13** (`a1c4300`). Root cause was NOT brace-depth — `lastEndsValue` in ASI check was missing `}`, `true`, `false`, `null`, `undefined`, `this`. Added trailing-content guard to `parseExprToNode`. Structured match-as-expression (Fix 1b) queued.
+13. ~~**Tilde-decl DG false warnings**~~ — **FIXED S13** (`a1c4300`). Added `collectAllTildeDecls`, scan if-stmt conditions in `walkBodyForReactiveRefs` and `collectReadsAndCalls`.
+14. ~~**Browser test harness**~~ — **FIXED S13** (`96a46d5`). 132 of 147 failures were missing compiled samples (added pretest script) or hanging test (reactive-arrays skipped). 15 pre-existing failures remain.
 
 **Fix details + rationale for each:** `scrml-support/docs/` (look up by bug ID or topic).
 
