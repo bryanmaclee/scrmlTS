@@ -7,6 +7,7 @@ import { emitLiftExpr } from "./emit-lift.js";
 import { extractReactiveDeps } from "./reactive-deps.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import { emitRuntimeCheck } from "./emit-predicates.ts";
+import { emitTransitionGuard } from "./emit-machines.ts";
 
 // ---------------------------------------------------------------------------
 // Deep reactive wrapping helper (Reactivity Phase 1)
@@ -235,6 +236,21 @@ function _makeExprCtx(opts: EmitLogicOpts): EmitExprContext {
   };
 }
 
+/**
+ * Emit a reactive_set, or a transition guard if the variable is machine-bound.
+ * @param rawName — the original variable name (for machineBindings lookup)
+ * @param encodedName — the encoded name (for reactive_set key)
+ */
+function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogicOpts, rawName?: string): string {
+  const lookupName = rawName ?? encodedName;
+  const binding = opts.machineBindings?.get(lookupName) ?? null;
+  if (binding) {
+    const guardRules = binding.rules.filter((r: any) => r.guard != null && r.guard !== "");
+    return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, guardRules).join("\n");
+  }
+  return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`;
+}
+
 export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
   if (!node || typeof node !== "object") return "";
 
@@ -409,10 +425,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           return [
             `const ${_checkTmpVar} = ${rewrittenInit};`,
             ..._checkLines,
-            `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${_wrapDeepReactive(_checkTmpVar, initStr)});`,
+            _emitReactiveSet(encodedName, _wrapDeepReactive(_checkTmpVar, initStr), opts, node.name),
           ].join("\n");
         }
-        return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${wrappedInit});`;
+        return _emitReactiveSet(encodedName, wrappedInit, opts, node.name);
       }
       // Phase 4 simplified fallback: initExpr is missing (rare)
       const rewrittenInit = rewriteExpr(initStr);
@@ -421,9 +437,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
-        return [`const ${_checkTmpVar} = ${rewrittenInit};`, ..._checkLines, `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${_wrapDeepReactive(_checkTmpVar, initStr)});`].join("\n");
+        return [`const ${_checkTmpVar} = ${rewrittenInit};`, ..._checkLines, _emitReactiveSet(encodedName, _wrapDeepReactive(_checkTmpVar, initStr), opts, node.name)].join("\n");
       }
-      return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${wrappedInit});`;
+      return _emitReactiveSet(encodedName, wrappedInit, opts, node.name);
     }
 
     case "reactive-derived-decl": {
