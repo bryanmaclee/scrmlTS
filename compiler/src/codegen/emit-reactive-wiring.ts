@@ -158,14 +158,32 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
 
     const code = emitLogicNode(stmt, emitOpts);
     if (code) {
-      // When a logic statement has a placeholder ID and contains lift-exprs,
-      // set _scrml_lift_target so lifted elements go into the placeholder span
-      // instead of document.body.
       const pid = stmt._placeholderId;
-      if (pid && stmtContainsLift(stmt)) {
-        lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
-        lines.push(code);
-        lines.push(`_scrml_lift_target = null;`);
+      const hasLift = stmtContainsLift(stmt);
+
+      if (pid && hasLift) {
+        // Detect reactive dependencies so the block re-runs when state changes.
+        const stmtStr = JSON.stringify(stmt);
+        const reactiveRefs = [...new Set((stmtStr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g) || []).map((r: string) => r.slice(1)))];
+        const hasReactiveDeps = reactiveRefs.length > 0;
+
+        if (hasReactiveDeps) {
+          // Wrap in _scrml_effect: clear the placeholder, re-run the block.
+          // This makes for/lift and if/lift blocks reactive.
+          const targetVar = genVar("lift_tgt");
+          lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
+          lines.push(`_scrml_effect(function() {`);
+          lines.push(`  ${targetVar}.innerHTML = "";`);
+          lines.push(`  _scrml_lift_target = ${targetVar};`);
+          lines.push(`  ${code}`);
+          lines.push(`  _scrml_lift_target = null;`);
+          lines.push(`});`);
+        } else {
+          // No reactive deps — one-shot render with lift target.
+          lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
+          lines.push(code);
+          lines.push(`_scrml_lift_target = null;`);
+        }
       } else {
         lines.push(code);
       }
