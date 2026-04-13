@@ -143,50 +143,71 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
   // generateHtml annotates logic nodes with _placeholderId which must be propagated
   // to children for lift-target routing.
   const topLevel = collectTopLevelLogicStatements(fileAST);
+
+  // Group statements by placeholder ID so sibling statements from the same logic
+  // block are emitted together. This is critical for reactive lift blocks: the
+  // reactive dep (@query) may be in a sibling statement (const q = @query...) while
+  // the lift-expr is in the for-stmt. Both must be inside the same _scrml_effect.
+  const groups: Array<{ pid: string | null; stmts: any[] }> = [];
+  let currentGroup: { pid: string | null; stmts: any[] } | null = null;
+
   for (const stmt of topLevel) {
-    if (isServerOnlyNode(stmt)) {
-      errors.push(new CGError(
-        "W-CG-001",
-        `W-CG-001: Top-level ${stmt.kind} block suppressed from client output. ` +
-        `Server-only constructs (SQL, transactions, server-context meta) must be ` +
-        `inside server-boundary functions. This block will not execute.`,
-        stmt.span ?? { file: fileAST.filePath ?? "", start: 0, end: 0, line: 1, col: 1 },
-        "warning",
-      ));
-      continue;
+    const pid = stmt._placeholderId ?? null;
+    if (currentGroup && currentGroup.pid === pid) {
+      currentGroup.stmts.push(stmt);
+    } else {
+      currentGroup = { pid, stmts: [stmt] };
+      groups.push(currentGroup);
+    }
+  }
+
+  for (const group of groups) {
+    const { pid, stmts } = group;
+    const codes: string[] = [];
+    let groupHasLift = false;
+    let groupHasReactiveDeps = false;
+    let skipGroup = false;
+
+    for (const stmt of stmts) {
+      if (isServerOnlyNode(stmt)) {
+        errors.push(new CGError(
+          "W-CG-001",
+          `W-CG-001: Top-level ${stmt.kind} block suppressed from client output. ` +
+          `Server-only constructs (SQL, transactions, server-context meta) must be ` +
+          `inside server-boundary functions. This block will not execute.`,
+          stmt.span ?? { file: fileAST.filePath ?? "", start: 0, end: 0, line: 1, col: 1 },
+          "warning",
+        ));
+        continue;
+      }
+      const code = emitLogicNode(stmt, emitOpts);
+      if (code) codes.push(code);
+      if (stmtContainsLift(stmt)) groupHasLift = true;
+      // Check for reactive deps in the emitted code (after @var rewriting)
+      if (code && code.includes("_scrml_reactive_get(")) groupHasReactiveDeps = true;
     }
 
-    const code = emitLogicNode(stmt, emitOpts);
-    if (code) {
-      const pid = stmt._placeholderId;
-      const hasLift = stmtContainsLift(stmt);
+    if (codes.length === 0) continue;
+    const combinedCode = codes.join("\n");
 
-      if (pid && hasLift) {
-        // Detect reactive dependencies so the block re-runs when state changes.
-        const stmtStr = JSON.stringify(stmt);
-        const reactiveRefs = [...new Set((stmtStr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g) || []).map((r: string) => r.slice(1)))];
-        const hasReactiveDeps = reactiveRefs.length > 0;
-
-        if (hasReactiveDeps) {
-          // Wrap in _scrml_effect: clear the placeholder, re-run the block.
-          // This makes for/lift and if/lift blocks reactive.
-          const targetVar = genVar("lift_tgt");
-          lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
-          lines.push(`_scrml_effect(function() {`);
-          lines.push(`  ${targetVar}.innerHTML = "";`);
-          lines.push(`  _scrml_lift_target = ${targetVar};`);
-          lines.push(`  ${code}`);
-          lines.push(`  _scrml_lift_target = null;`);
-          lines.push(`});`);
-        } else {
-          // No reactive deps — one-shot render with lift target.
-          lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
-          lines.push(code);
-          lines.push(`_scrml_lift_target = null;`);
-        }
+    if (pid && groupHasLift) {
+      if (groupHasReactiveDeps) {
+        // Wrap in _scrml_effect: clear the placeholder, re-run the block.
+        const targetVar = genVar("lift_tgt");
+        lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
+        lines.push(`_scrml_effect(function() {`);
+        lines.push(`  ${targetVar}.innerHTML = "";`);
+        lines.push(`  _scrml_lift_target = ${targetVar};`);
+        lines.push(`  ${combinedCode}`);
+        lines.push(`  _scrml_lift_target = null;`);
+        lines.push(`});`);
       } else {
-        lines.push(code);
+        lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
+        lines.push(combinedCode);
+        lines.push(`_scrml_lift_target = null;`);
       }
+    } else {
+      lines.push(combinedCode);
     }
   }
 
