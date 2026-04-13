@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-12 (S9 — Phase 4a/b/c complete, 99.0% ExprNode coverage)
+**Last updated:** 2026-04-13 (S11 — Phase 4d 15/17 files, benchmarks refreshed)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,8 +10,8 @@
 ## A. Compiler core (verified working S86)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** ~5,710 pass, 2 skip, ~145 fail (S7 2026-04-12; non-deterministic browser/dist tests account for variance)
-**Compile time:** ~20ms single file, ~73ms TodoMVC
+**Tests:** 6,000 pass, 145 fail (S11 2026-04-13)
+**Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
 ### Pipeline stages (all working)
@@ -215,17 +215,17 @@
   - **Phase 1.5** ✅ S4 (in `e43b7a2`) — swapped round-trip invariant from string-equality (broken: token-joined vs compact JS) to idempotency: `parse(emit(parse(x))) deep-equals parse(x)`. `deepEqualExprNode` helper added. Audit found only 3 escape hatches in 14-file corpus (3.66%, all C-style for loops in `13-worker.scrml`).
   - **Phase 2 Slice 1** ✅ S4 (merge `9151f1a`) — `lin` promoted to KEYWORDS in `tokenizer.ts`, `lin-decl` node emission added to both `ast-builder.js` parse loops, `case "lin-decl"` codegen case added to `emit-logic.ts` (was previously dropped silently). 13 new integration tests.
   - **Phase 2 Slice 2** ✅ S4 (merge `45208c6`) — `checkLinear` migrated to walk `ExprNode` trees via `forEachIdentInExprNode` (in `expression-parser.ts`) and `scanNodeExprNodesForLin` (in `type-system.ts`). **§35.2.1 lin function parameters work E2E for the first time** (the headline win for the entire migration). 9 new e2e scenarios pass (declare/consume, double-consume → E-LIN-002, never-consumed → E-LIN-001, branch asymmetry → E-LIN-003, lin-params, shadowing across function-decl scopes, lambda capture conservative). Two `ast-builder.js` `bare-expr` `exprNode:` gap closures (lines 2009 and 3962) included. Pass 2 string-scan fallback retained as a documented staging pattern until Slice 3 fixes `collectExpr` — primary path is the structured ExprNode walk; fallback is bounded with a precise removal condition.
-  - **Phase 2 Slice 3 — `collectExpr` newline-as-statement-boundary fix.** T3 (needs impact analysis). When parsing `lin IDENT = <rhs>` (and symmetrically let/const/tilde), respect newline as statement terminator so `lin x = "hello"\nuse(x)` becomes two AST nodes, not one over-collected `lin-decl`. Unblocks Slice 4.
+  - **Phase 2 Slice 3** ✅ S5 — `collectExpr` newline-boundary fix. One-line deletion of redundant `lastTok !== startTok` identity guard in `ast-builder.js:875` (+ self-host twin). All six symmetric decl forms (`lin`, `let`, `const`, `const @reactive`, `tilde`, `@debounced`) now respect newline-as-statement-boundary for declaration RHS. +11 regression tests.
   - **Phase 2 Slice 4** ✅ S6 — deleted Pass 2 string-scan fallback from `scanNodeExprNodesForLin` (-240 LOC). `extractAllIdentifiersFromString`, `extractIdentifiersExcludingLambdaBodies`, the Pass 2 block, and the `consumedThisNode` dedup set all removed. ExprNode walker is now the sole lin enforcement path.
   - **Phase 2 MustUseTracker migration** ✅ S6 — `scanNodeExpressions` now walks ExprNode parallel fields via `forEachIdentInExprNode`; `tilde-decl` case walks `initExpr` directly. String fallback retained for nodes without ExprNode fields (Phase 1 gaps).
   - **Phase 2 remaining passes** ✅ S6 — all semantic passes migrated: protect-analyzer, extractReactiveDeps, dependency-graph, meta-checker, error-effect callee extraction. All have ExprNode-first paths with string fallback.
-  - **Phase 3 — codegen migration** 🏗 S7 (in progress). `rewriteExpr(string)` → `emitExpr(ExprNode)` across ~14k LOC codegen. New file: `compiler/src/codegen/emit-expr.ts` (290 LOC, all 19 ExprNode kinds). 45 `emitExpr` call sites wired across 6 consumer files. Fast-path early returns bypass string pipeline entirely when ExprNode present. Upstream AST additions: `LiftTarget.exprNode`, `callbackExpr`, `fnExpr`, `argsExpr`.
+  - **Phase 3 — codegen migration** ✅ S7–S11. `rewriteExpr(string)` → `emitExpr(ExprNode)` across ~14k LOC codegen. `emit-expr.ts` (290 LOC, all 19 ExprNode kinds), 45+ `emitExpr` call sites. S11: `emitExprField` helper consolidates 27 dual-path ternaries across 6 codegen files.
   - **Phase 3.5 — escape hatch elimination** ✅ S8. Drove 19.86% → 0% via `shouldSkipExprParse()` guard.
   - **Phase 4a — ExprNode wiring + HTML fragment reclassification** ✅ S9. Wired exprNode on 12 unwired bare-expr creation sites across all 3 parse loops (+119 gaps). Added `HtmlFragmentNode` type — reclassified 137 bare-expr HTML fragments as `kind:"html-fragment"` with `content` field. Updated emit-logic, emit-lift, type-system. Coverage **86.2% → 98.8%**.
   - **Phase 4b — error-arm block handlers** ✅ S9. `_parseHandlerExpr` strips braces before parsing. 4 gaps closed. Coverage **98.8% → 99.0% (1858/1876)**.
   - **Phase 4c — C-style for-loop verification** ✅ S9. All 11 C-style for-loops confirmed to have `cStyleParts` with ExprNodes. No code changes needed.
   - **Phase 4 remaining gaps:** 18 irreducible (11 C-style iterables covered by cStyleParts, 3 `.all()` SQL chains, 4 `.Variant :>` match patterns). No further coverage improvement possible.
-  - **Phase 4d — drop string fields** from AST shape. Requires consumer audit. Not started.
+  - **Phase 4d — drop string fields** 🏗 S10–S11. Slice 2+3 (S10): 7 ExprNode walker utilities + ~25 semantic pass sites migrated. Slice 4a (S11): `emitExprField` consolidates 27 dual-path ternaries. S11: 15 of 17 consumer files converted to ExprNode-first with string fallback. Remaining: component-expander.ts (needs structural matching), body-pre-parser.ts (inherently string-based). Final step: delete string fields from AST types.
   - **Phase 5 — self-host parity** port `compiler/self-host/ast.scrml` (3,551 lines).
   - All other P1/P2 work continues in parallel unless it touches expression fields.
 
