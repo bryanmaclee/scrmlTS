@@ -66,6 +66,9 @@ const _scrml_derived_downstreams = {};
 function _scrml_reactive_get(name) {
   // Bridge with _scrml_effect auto-tracking: record _scrml_state[name] as a dependency
   if (typeof _scrml_track === "function") _scrml_track(_scrml_state, name);
+  // Derived reactives are stored in _scrml_derived_cache, not _scrml_state.
+  // Delegate to _scrml_derived_get for lazy re-evaluation when dirty.
+  if (_scrml_derived_fns[name]) return _scrml_derived_get(name);
   return _scrml_state[name];
 }
 
