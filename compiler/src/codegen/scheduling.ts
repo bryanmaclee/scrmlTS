@@ -147,11 +147,11 @@ export function extractInitExpr(stmt: ASTNode): string {
  * @param {CGError[]} [errors]
  * @returns {string[]}
  */
-export function scheduleStatements(body: ASTNode[], fnNode: ASTNode, routeMap: RouteMap, depGraph: DepGraph, filePath: string, errors: CGError[] = []): string[] {
+export function scheduleStatements(body: ASTNode[], fnNode: ASTNode, routeMap: RouteMap, depGraph: DepGraph, filePath: string, errors: CGError[] = [], machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[] }> | null): string[] {
   const lines: string[] = [];
   // Track declared names so tilde-decl can detect reassignment vs first declaration
   const declaredNames = new Set<string>();
-  const emitOpts = { declaredNames };
+  const emitOpts = { declaredNames, ...(machineBindings ? { machineBindings } : {}) };
 
   // Only use complex scheduling (Promise.all) for functions with actual server calls.
   // For purely client-side functions, emit sequentially — wrapping non-async statements
@@ -245,7 +245,7 @@ export function scheduleStatements(body: ASTNode[], fnNode: ASTNode, routeMap: R
           ));
           continue;
         }
-        const code = emitLogicNode(stmt);
+        const code = emitLogicNode(stmt, emitOpts);
         if (!code) continue;
 
         if ((stmt as ASTNode).kind === "let-decl" || (stmt as ASTNode).kind === "const-decl") {
@@ -282,7 +282,7 @@ export function scheduleStatements(body: ASTNode[], fnNode: ASTNode, routeMap: R
         i++;
         continue;
       }
-      const code = emitLogicNode(stmt);
+      const code = emitLogicNode(stmt, emitOpts);
       if (code) {
         if (isServerCallExpr(stmt as ASTNode, routeMap, filePath)) {
           if ((stmt as ASTNode).kind === "let-decl" || (stmt as ASTNode).kind === "const-decl") {

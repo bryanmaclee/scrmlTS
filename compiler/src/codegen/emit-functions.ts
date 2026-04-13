@@ -4,6 +4,7 @@ import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import { isServerOnlyNode, collectFunctions } from "./collect.ts";
 import { hasServerCallees, scheduleStatements } from "./scheduling.js";
+import { buildMachineBindingsMap } from "./emit-reactive-wiring.js";
 import type { CompileContext } from "./context.ts";
 
 /** A loosely-typed AST node from the pipeline. */
@@ -42,6 +43,7 @@ type Param = string | { name?: string; [key: string]: unknown };
 export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap: Map<string, string> } {
   const { filePath, routeMap, depGraph, errors, csrfEnabled } = ctx;
   const fnNodes: ASTNode[] = (ctx.analysis?.fnNodes ?? collectFunctions(ctx.fileAST)) as ASTNode[];
+  const machineBindings = buildMachineBindingsMap(ctx.fileAST);
   const lines: string[] = [];
 
   // Map from original function name → generated var name.
@@ -158,7 +160,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     // Emit statements in original order, replacing server-trigger statements
     // with a call to the server stub.
     let serverCallEmitted = false;
-    const cpsOpts = { declaredNames: new Set<string>() };
+    const cpsOpts = { declaredNames: new Set<string>(), ...(machineBindings ? { machineBindings } : {}) };
     for (let i = 0; i < body.length; i++) {
       const stmt = body[i];
       if (!stmt) continue;
@@ -241,7 +243,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     lines.push(`${asyncPrefix}function ${generatedName}(${paramNames.join(", ")}) {`);
 
     const body = (fnNode.body as ASTNode[]) ?? [];
-    const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors);
+    const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings);
     for (const line of scheduled) {
       lines.push(`  ${line}`);
     }

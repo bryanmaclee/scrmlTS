@@ -40,7 +40,7 @@ interface BindPropsWiring {
  * The map is used by rewriteBlockBody to emit emitTransitionGuard instead of
  * plain _scrml_reactive_set for machine-governed reactive variable assignments.
  */
-function buildMachineBindingsMap(fileAST: any): Map<string, { machineName: string; tableName: string; rules: any[] }> | null {
+export function buildMachineBindingsMap(fileAST: any): Map<string, { machineName: string; tableName: string; rules: any[] }> | null {
   const machineRegistry = (fileAST as any).machineRegistry as Map<string, any> | undefined;
   if (!machineRegistry || machineRegistry.size === 0) return null;
 
