@@ -121,6 +121,13 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
       if (n.kind === "reactive-decl" && n.name) {
         names.add(n.name as string);
       }
+      // Tilde-decl with reactive deps compiles to a derived reactive
+      if (n.kind === "tilde-decl" && n.name) {
+        const tildeInit: string = (n.init as string) ?? "";
+        if (/@/.test(tildeInit)) {
+          names.add(n.name as string);
+        }
+      }
       if (n.kind === "logic" && Array.isArray(n.body)) {
         visit(n.body as unknown[]);
       }
