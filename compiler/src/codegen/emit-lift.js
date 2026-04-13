@@ -1329,7 +1329,54 @@ export function emitLiftExpr(node, opts = {}) {
   if (liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
     const expr = liftExpr.expr.trim();
 
-    // Try to parse `< tag attrs > content /` pattern
+    // When the expression starts with a tag, re-parse through BS+TAB to get a
+    // structured markup tree, then use emitCreateElementFromMarkup.
+    // This avoids emitCreateElementFromExprString whose string parser produces
+    // broken textContent assignments that overwrite children.
+    if (expr.startsWith("<") || expr.startsWith("< ")) {
+      try {
+        // Normalize tokenizer-spaced markup back to compact form for BS re-parse.
+        // The tokenizer inserts spaces around < > / = and uses bare / as a closer.
+        let normalized = expr
+          // Bare / closer at end of expression → </>
+          .replace(/\s+\/\s*$/, "</>")
+          // < / > and < / tag > closers
+          .replace(/< \/ >/g, "</>")
+          .replace(/< \/\s*([A-Za-z][A-Za-z0-9]*)\s*>/g, "</$1>")
+          // Bare / closer before next < tag → </> (inside nested content)
+          .replace(/\s+\/\s*\n/g, "</>\n")
+          .replace(/\s+\/\s*</g, "</><")
+          // < tag → <tag
+          .replace(/<\s+([A-Za-z][A-Za-z0-9_]*)/g, "<$1")
+          // attr = "val" > → attr="val">
+          .replace(/\s*=\s*"/g, '="')
+          .replace(/"\s*>/g, '">')
+          // self-closing /> with spaces
+          .replace(/\s*\/\s*>/g, "/>");
+        const { splitBlocks: _splitBlocks } = require("../block-splitter.js");
+        const { buildAST: _buildAST } = require("../ast-builder.js");
+        const bsResult = _splitBlocks("__lift__", normalized);
+        const tabResult = _buildAST(bsResult, null);
+        const reparsedNodes = tabResult?.ast?.nodes ?? [];
+        const markupNode = reparsedNodes.find(
+          (rn) => rn && rn.kind === "markup"
+        );
+        if (markupNode) {
+          const lines = [];
+          const rootVar = emitCreateElementFromMarkup(markupNode, lines);
+          const factoryBody = lines.join("\n  ");
+          if (containerVar) {
+            return `${containerVar}.appendChild((() => {\n  ${factoryBody}\n  return ${rootVar};\n})());`;
+          }
+          return `_scrml_lift(() => {\n  ${factoryBody}\n  return ${rootVar};\n});`;
+        }
+      } catch {
+        // Re-parse failed — fall through to string parser
+      }
+    }
+
+    // Re-parse didn't produce a markup node — try the string-based parser as fallback.
+    // This handles cases like bare `< ComponentName >` with no closer.
     const result = emitCreateElementFromExprString(expr);
     if (result) {
       const { lines, varName } = result;
@@ -1340,7 +1387,7 @@ export function emitLiftExpr(node, opts = {}) {
       return `_scrml_lift(() => {\n  ${factoryBody}\n  return ${varName};\n});`;
     }
 
-    // No tag pattern — emit as text node with the expression value
+    // No tag pattern at all — emit as text node
     const rewritten = liftExpr.exprNode
       ? emitExpr(liftExpr.exprNode, { mode: "client" })
       : rewriteExpr(expr);
