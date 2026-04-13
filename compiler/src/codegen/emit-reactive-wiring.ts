@@ -87,41 +87,10 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     ? { derivedNames, encodingCtx, ...(machineBindings ? { machineBindings } : {}) }
     : { encodingCtx, ...(machineBindings ? { machineBindings } : {}) };
 
-  // Step 4: Generate top-level logic statements
-  const topLevel = ctx.analysis?.topLevelLogic ?? collectTopLevelLogicStatements(fileAST);
-  for (const stmt of topLevel) {
-    if (isServerOnlyNode(stmt)) {
-      errors.push(new CGError(
-        "W-CG-001",
-        `W-CG-001: Top-level ${stmt.kind} block suppressed from client output. ` +
-        `Server-only constructs (SQL, transactions, server-context meta) must be ` +
-        `inside server-boundary functions. This block will not execute.`,
-        stmt.span ?? { file: fileAST.filePath ?? "", start: 0, end: 0, line: 1, col: 1 },
-        "warning",
-      ));
-      continue;
-    }
-
-    const code = emitLogicNode(stmt, emitOpts);
-    if (code) lines.push(code);
-  }
-
-  // Step 4b: Generate server @var sync infrastructure (§52.6)
-  const serverVarDecls = collectServerVarDecls(fileAST);
-  if (serverVarDecls.length > 0) {
-    lines.push("");
-    lines.push("// --- server @var sync infrastructure (§52.6, compiler-generated) ---");
-    for (const decl of serverVarDecls) {
-      const varName: string = decl.name as string;
-      // Phase 4d: ExprNode-first, string fallback
-      const initExpr: string = (decl as any).initExpr ? emitStringFromTree((decl as any).initExpr) : (typeof decl.init === "string" ? decl.init : "");
-      for (const l of emitServerSyncStub(varName)) lines.push(l);
-      for (const l of emitInitialLoad(varName, initExpr)) lines.push(l);
-      for (const l of emitOptimisticUpdate(varName)) lines.push(l);
-    }
-  }
-
-  // Step 4c: Generate transition lookup tables for enums with transitions{} and machines (§51.5)
+  // Step 4a: Generate transition lookup tables for enums with transitions{} and machines (§51.5).
+  // These must be emitted BEFORE top-level logic statements because reactive-decl
+  // initializers with machine bindings emit transition guard IIFEs that reference
+  // the table variables.
   const machineRegistry = (fileAST as any).machineRegistry as Map<string, any> | undefined;
   const typeDecls = (fileAST as any).typeDecls as any[] | undefined;
   if (typeDecls || machineRegistry) {
@@ -148,6 +117,40 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
           lines.push(l);
         }
       }
+    }
+  }
+
+  // Step 4b: Generate top-level logic statements
+  const topLevel = ctx.analysis?.topLevelLogic ?? collectTopLevelLogicStatements(fileAST);
+  for (const stmt of topLevel) {
+    if (isServerOnlyNode(stmt)) {
+      errors.push(new CGError(
+        "W-CG-001",
+        `W-CG-001: Top-level ${stmt.kind} block suppressed from client output. ` +
+        `Server-only constructs (SQL, transactions, server-context meta) must be ` +
+        `inside server-boundary functions. This block will not execute.`,
+        stmt.span ?? { file: fileAST.filePath ?? "", start: 0, end: 0, line: 1, col: 1 },
+        "warning",
+      ));
+      continue;
+    }
+
+    const code = emitLogicNode(stmt, emitOpts);
+    if (code) lines.push(code);
+  }
+
+  // Step 4c: Generate server @var sync infrastructure (§52.6)
+  const serverVarDecls = collectServerVarDecls(fileAST);
+  if (serverVarDecls.length > 0) {
+    lines.push("");
+    lines.push("// --- server @var sync infrastructure (§52.6, compiler-generated) ---");
+    for (const decl of serverVarDecls) {
+      const varName: string = decl.name as string;
+      // Phase 4d: ExprNode-first, string fallback
+      const initExpr: string = (decl as any).initExpr ? emitStringFromTree((decl as any).initExpr) : (typeof decl.init === "string" ? decl.init : "");
+      for (const l of emitServerSyncStub(varName)) lines.push(l);
+      for (const l of emitInitialLoad(varName, initExpr)) lines.push(l);
+      for (const l of emitOptimisticUpdate(varName)) lines.push(l);
     }
   }
 
