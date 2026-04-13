@@ -1342,6 +1342,27 @@ function walkLogicBody(
         const rawExpr = (expr.expr as string).trim();
         const tagMatch = rawExpr.match(/^<\s*([A-Z][A-Za-z0-9_]*)/);
         if (tagMatch && registry.has(tagMatch[1])) {
+          // Check if this is a bare component reference (just `< Name >` with no children).
+          // For bare refs, construct a minimal markup node directly without re-parsing.
+          const isBareRef = /^<\s*[A-Z][A-Za-z0-9_]*\s*>?\s*$/.test(rawExpr);
+          if (isBareRef) {
+            const bareMarkup = {
+              kind: "markup" as const,
+              tag: tagMatch[1],
+              isComponent: true,
+              attributes: [],
+              children: [],
+              id: ++counter.next,
+            } as unknown as MarkupNode;
+            const expandedNodes = expandComponentNode(bareMarkup, registry, filePath, counter, ceErrors);
+            const expanded = expandedNodes[0];
+            if (expanded && expanded !== bareMarkup) {
+              const newNode = { ...n, expr: { kind: "markup", node: expanded } };
+              result.push(newNode);
+              changed = true;
+              continue;
+            }
+          }
           try {
             // Normalize tokenizer-spaced markup back to compact form for re-parse.
             // The tokenizer inserts spaces around < > / = which prevents the BS
