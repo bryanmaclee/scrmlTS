@@ -62,7 +62,7 @@ import type {
 } from "./types/ast.ts";
 
 import type { ProtectAnalysis } from "./protect-analyzer.ts";
-import { exprNodeCollectCallees } from "./expression-parser.ts";
+import { exprNodeCollectCallees, emitStringFromTree } from "./expression-parser.ts";
 import type { ExprNode } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
@@ -538,7 +538,8 @@ export function walkBodyForTriggers(
     }
 
     if (node.kind === "bare-expr") {
-      const expr = (node as any).expr ?? "";
+      // Phase 4d: ExprNode-first, string fallback
+      const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
 
       // Trigger 1: server-only resource access.
       const resourceType = detectServerOnlyResource(expr);
@@ -588,7 +589,8 @@ export function walkBodyForTriggers(
       node.kind === "const-decl" ||
       node.kind === "tilde-decl"
     ) {
-      const init = (node as any).init ?? "";
+      // Phase 4d: ExprNode-first, string fallback
+      const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : ((node as any).init ?? "");
 
       // Trigger 2: protected field access via direct destructuring.
       for (const fieldName of protectedFields) {
@@ -619,7 +621,8 @@ export function walkBodyForTriggers(
     if (node.kind === "reactive-decl") {
       // @name = expr — reactive-decl IS an assignment to an @-prefixed identifier.
       // Also scan the init for server-only resources and callees.
-      const init = (node as any).init ?? "";
+      // Phase 4d: ExprNode-first, string fallback
+      const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : ((node as any).init ?? "");
 
       // Trigger 1: server-only resource in the init expression (e.g. ?{} SQL sigil).
       // Matches the same check applied to let-decl/const-decl/tilde-decl above.
@@ -844,7 +847,8 @@ function hasServerCallInInit(
  * resource: SQL sigil (?{`), Bun.* APIs, process.env, env(), etc.
  */
 function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
-  const init = typeof (node as any).init === "string" ? (node as any).init : "";
+  // Phase 4d: ExprNode-first, string fallback
+  const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : (typeof (node as any).init === "string" ? (node as any).init : "");
   if (!init) return false;
 
   // Check for SQL sigil (?{`)
@@ -862,7 +866,8 @@ function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
 function isReactiveStatement(node: LogicStatement): boolean {
   if (node.kind === "reactive-decl") return true;
   if (node.kind === "bare-expr") {
-    const expr = (node as any).expr ?? "";
+    // Phase 4d: ExprNode-first, string fallback
+    const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
     if (/\B@[A-Za-z_$][A-Za-z0-9_$]*\s*=[^=]/.test(expr)) return true;
   }
   return false;
@@ -886,7 +891,8 @@ function isServerTriggerStatement(
   if (node.kind === "sql") return true;
 
   if (node.kind === "bare-expr") {
-    const expr = (node as any).expr ?? "";
+    // Phase 4d: ExprNode-first, string fallback
+    const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
 
     // Server-only resource access
     if (detectServerOnlyResource(expr) !== null) return true;
@@ -909,7 +915,8 @@ function isServerTriggerStatement(
   }
 
   if (node.kind === "let-decl" || node.kind === "const-decl") {
-    const init = (node as any).init ?? "";
+    // Phase 4d: ExprNode-first, string fallback
+    const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : ((node as any).init ?? "");
 
     // Protected field via destructuring
     for (const fieldName of protectedFields) {

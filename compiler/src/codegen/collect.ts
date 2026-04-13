@@ -1,3 +1,5 @@
+import { emitStringFromTree } from "../expression-parser.ts";
+
 // ---------------------------------------------------------------------------
 // Local AST type — loosely typed to match the plain-object AST produced by
 // the TAB stage. Using `Record<string, unknown>` with a `kind` discriminant
@@ -359,9 +361,14 @@ function collectMetaExprStrings(body: Node[]): string[] {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
       const n = node as Node;
-      if (n.kind === "bare-expr" && n.expr) exprs.push(n.expr as string);
-      if ((n.kind === "let-decl" || n.kind === "const-decl") && n.init) {
-        exprs.push(typeof n.init === "string" ? n.init : String(n.init));
+      // Phase 4d: ExprNode-first, string fallback
+      if (n.kind === "bare-expr") {
+        if ((n as any).exprNode) exprs.push(emitStringFromTree((n as any).exprNode));
+        else if (n.expr) exprs.push(n.expr as string);
+      }
+      if (n.kind === "let-decl" || n.kind === "const-decl") {
+        if ((n as any).initExpr) exprs.push(emitStringFromTree((n as any).initExpr));
+        else if (n.init) exprs.push(typeof n.init === "string" ? n.init : String(n.init));
       }
       if (Array.isArray(n.body)) walk(n.body);
       if (Array.isArray(n.children)) walk(n.children);
@@ -407,15 +414,16 @@ export function isServerOnlyNode(node: unknown): boolean {
   }
 
   // Catch inline ?{} SQL sigil in let-decl / const-decl / reactive-decl init strings.
+  // Phase 4d: ExprNode-first, string fallback
   if (n.kind === "let-decl" || n.kind === "const-decl" || n.kind === "reactive-decl") {
-    const init = typeof n.init === "string" ? n.init : "";
+    const init = (n as any).initExpr ? emitStringFromTree((n as any).initExpr) : (typeof n.init === "string" ? n.init : "");
     if (SQL_SIGIL_PATTERN.test(init)) return true;
     if (ENV_PATTERN.test(init)) return true;
   }
 
   // Catch inline ?{} SQL sigil in bare-expr nodes.
   if (n.kind === "bare-expr") {
-    const expr = typeof n.expr === "string" ? n.expr : "";
+    const expr = (n as any).exprNode ? emitStringFromTree((n as any).exprNode) : (typeof n.expr === "string" ? n.expr : "");
     if (SQL_SIGIL_PATTERN.test(expr)) return true;
     if (ENV_PATTERN.test(expr)) return true;
   }

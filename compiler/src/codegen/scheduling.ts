@@ -1,6 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { rewriteExpr } from "./rewrite.js";
-import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
+import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
+import { exprNodeCollectCallees } from "../expression-parser.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import { isServerOnlyNode } from "./collect.ts";
@@ -55,7 +56,10 @@ export function hasServerCallees(fnNode: ASTNode, routeMap: RouteMap, filePath: 
   for (const stmt of body) {
     if (!stmt) continue;
     if ((stmt as ASTNode).kind === "bare-expr") {
-      const callees = extractCalleeNames(((stmt as ASTNode).expr as string) ?? "");
+      // Phase 4d: ExprNode-first callee extraction, string fallback
+      const callees = (stmt as any).exprNode
+        ? exprNodeCollectCallees((stmt as any).exprNode)
+        : extractCalleeNames(((stmt as ASTNode).expr as string) ?? "");
       for (const callee of callees) {
         if (serverFnNames.has(callee)) return true;
       }
@@ -92,9 +96,12 @@ export function findDGNodeForStmt(stmt: ASTNode, depGraph: DepGraph, filePath: s
  */
 export function isServerCallExpr(stmt: ASTNode, routeMap: RouteMap, filePath: string): boolean {
   if (!stmt) return false;
-  const expr = (stmt as ASTNode).expr ?? (stmt as ASTNode).init ?? "";
-  if (!expr) return false;
-  const callees = extractCalleeNames(typeof expr === "string" ? expr : "");
+  // Phase 4d: ExprNode-first callee extraction, string fallback
+  const exprNodeField = (stmt as any).exprNode ?? (stmt as any).initExpr;
+  const callees = exprNodeField
+    ? exprNodeCollectCallees(exprNodeField)
+    : extractCalleeNames(typeof ((stmt as ASTNode).expr ?? (stmt as ASTNode).init ?? "") === "string" ? ((stmt as ASTNode).expr ?? (stmt as ASTNode).init ?? "") as string : "");
+  if (callees.length === 0) return false;
   // Build a set of server function names from routeMap
   const serverFnNames = new Set<string>();
   for (const [fnNodeId, route] of routeMap.functions) {
@@ -115,10 +122,11 @@ export function isServerCallExpr(stmt: ASTNode, routeMap: RouteMap, filePath: st
  */
 export function extractInitExpr(stmt: ASTNode): string {
   const _exprCtx: EmitExprContext = { mode: "client" };
-  if ((stmt as ASTNode).initExpr) return emitExpr((stmt as ASTNode).initExpr as any, _exprCtx);
-  if ((stmt as ASTNode).init) return rewriteExpr(typeof (stmt as ASTNode).init === "string" ? (stmt as ASTNode).init as string : String((stmt as ASTNode).init));
-  if ((stmt as ASTNode).exprNode) return emitExpr((stmt as ASTNode).exprNode as any, _exprCtx);
-  if ((stmt as ASTNode).expr) return rewriteExpr(typeof (stmt as ASTNode).expr === "string" ? (stmt as ASTNode).expr as string : String((stmt as ASTNode).expr));
+  // Phase 4d: prefer ExprNode fields, fall back to string fields via emitExprField
+  const initStr = typeof (stmt as ASTNode).init === "string" ? (stmt as ASTNode).init as string : "";
+  const exprStr = typeof (stmt as ASTNode).expr === "string" ? (stmt as ASTNode).expr as string : "";
+  if ((stmt as any).initExpr || initStr) return emitExprField((stmt as any).initExpr, initStr || "undefined", _exprCtx);
+  if ((stmt as any).exprNode || exprStr) return emitExprField((stmt as any).exprNode, exprStr || "undefined", _exprCtx);
   return "undefined";
 }
 
