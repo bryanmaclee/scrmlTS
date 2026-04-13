@@ -193,9 +193,27 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     if (pid && groupHasLift) {
       if (groupHasReactiveDeps) {
         // Wrap in _scrml_effect: clear the placeholder, re-run the block.
+        // Branch guard: if the group is a single if-stmt whose condition
+        // evaluates to the same truthy/falsy value as last time, skip the
+        // innerHTML clear to preserve event listeners and input state.
+        const isSingleIf = stmts.length === 1 && stmts[0].kind === "if-stmt";
         const targetVar = genVar("lift_tgt");
+        const branchVar = isSingleIf ? genVar("lift_branch") : null;
         lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
+        if (branchVar) {
+          lines.push(`let ${branchVar} = -1;`);
+        }
         lines.push(`_scrml_effect(function() {`);
+        if (branchVar) {
+          // Extract the condition from the emitted if-statement to check branch identity.
+          // The emitted code starts with `if (condition) {` — extract and test condition.
+          const condMatch = combinedCode.match(/^if\s*\((.+)\)\s*\{/);
+          if (condMatch) {
+            lines.push(`  const _branch = (${condMatch[1]}) ? 1 : 0;`);
+            lines.push(`  if (_branch === ${branchVar}) return;`);
+            lines.push(`  ${branchVar} = _branch;`);
+          }
+        }
         lines.push(`  ${targetVar}.innerHTML = "";`);
         lines.push(`  _scrml_lift_target = ${targetVar};`);
         lines.push(`  ${combinedCode}`);

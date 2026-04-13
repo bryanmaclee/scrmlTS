@@ -40,6 +40,8 @@ export interface ESNode {
 export interface ParseResult {
   ast: ESNode | null;
   error: string | null;
+  /** Non-empty trailing content after the parsed expression (silent data loss detection). */
+  trailingContent?: string;
 }
 
 /** Return type for rewriteReactiveRefsAST / rewriteServerReactiveRefsAST. */
@@ -146,7 +148,10 @@ export function parseExpression(raw: string, opts: { tolerant?: boolean } = {}):
       sourceType: "module",
       allowAwaitOutsideFunction: true,
     }) as ESNode;
-    return { ast, error: null };
+    // Trailing-content detection: if parseExpressionAt didn't consume the full
+    // string, there is content that would be silently dropped.
+    const trailing = processed.slice((ast as any).end).trim();
+    return { ast, error: null, trailingContent: trailing || undefined };
   } catch (err) {
     if (tolerant) return { ast: null, error: (err as Error).message };
     throw err;
@@ -1063,12 +1068,26 @@ export function parseExprToNode(raw: string, filePath: string, offset: number, o
   let estree: ESNode | null = null;
   let parseError: string | null = null;
 
+  let trailingContent: string | undefined;
   try {
     const result = parseExpression(processed);
     estree = result.ast;
     parseError = result.error;
+    trailingContent = result.trailingContent;
   } catch (e) {
     parseError = (e as Error).message;
+  }
+
+  // Trailing-content guard: detect silent data loss from merged statements.
+  // The ASI bug in collectExpr produces init strings like "false\nupdateDisplay()"
+  // where two statements are merged. parseExpressionAt parses the first expression
+  // and the rest is silently dropped. Warn when trailing content contains a newline
+  // followed by code — this is the signature of the ASI merge bug.
+  // Single-line trailing content (e.g., tokenizer-spaced "header ( )") is typically
+  // from the space-separated token stream, not from merged statements.
+  if (estree && trailingContent && trailingContent.includes("\n") && /[a-zA-Z_$@]/.test(trailingContent)) {
+    const preview = trailingContent.length > 60 ? trailingContent.slice(0, 60) + "..." : trailingContent;
+    console.warn(`[scrml] warning: statement boundary not detected — trailing content would be silently dropped: "${preview}" (in ${filePath} near offset ${offset})`);
   }
 
   if (!estree) {

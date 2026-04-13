@@ -380,6 +380,32 @@ function collectAllReactiveDerivedDecls(fileAST: FileAST): ReactiveDerivedDeclNo
 }
 
 /**
+ * Collect all tilde-decl nodes from a file AST.
+ * These are `~var = expr` declarations that may compile to derived reactives.
+ */
+function collectAllTildeDecls(fileAST: FileAST): ASTNode[] {
+  const nodeList = fileAST.nodes;
+  const result: ASTNode[] = [];
+
+  function visit(list: ASTNode[]): void {
+    for (const node of list) {
+      if (node.kind === "logic" && Array.isArray(node.body)) {
+        for (const child of node.body) {
+          if (child.kind === "tilde-decl") result.push(child);
+        }
+      }
+      if (node.kind === "tilde-decl") result.push(node);
+      if ("children" in node && Array.isArray((node as MarkupNode).children)) {
+        visit((node as MarkupNode).children as ASTNode[]);
+      }
+    }
+  }
+
+  visit(nodeList);
+  return result;
+}
+
+/**
  * Collect all sql blocks from a file AST.
  */
 function collectAllSqlBlocks(fileAST: FileAST): SQLNode[] {
@@ -739,7 +765,16 @@ export function runDG(input: DGInput): DGOutput {
     }
 
     // Collect reactive-derived-decl nodes (const @var = expr)
+    // Also collect tilde-decl nodes whose init references @vars — these compile
+    // to _scrml_derived_declare and are semantically equivalent to reactive-derived-decl.
     const derivedDecls = collectAllReactiveDerivedDecls(fileAST);
+    const tildeDecls = collectAllTildeDecls(fileAST);
+    for (const td of tildeDecls) {
+      const initStr = td.init ?? "";
+      if (/@/.test(initStr)) {
+        derivedDecls.push(td as unknown as ReactiveDerivedDeclNode);
+      }
+    }
     for (const dNode of derivedDecls) {
       const nodeId = makeNodeId(filePath, dNode.span, "reactive");
       const dgNode: ReactiveDGNode = {
@@ -1014,6 +1049,21 @@ export function runDG(input: DGInput): DGOutput {
             if (Array.isArray(bodyNode.body)) walkBodyForReactiveRefs(bodyNode.body);
           }
           if (bodyNode.kind === "if-stmt") {
+            // Scan condition for @var refs — ExprNode-first, string fallback
+            const condRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
+            const condRefNames = condRefs.length > 0 ? condRefs : (() => {
+              if (typeof bodyNode.condition !== "string") return [];
+              const m = bodyNode.condition.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              return m ? m.map((r: string) => r.slice(1)) : [];
+            })();
+            for (const varName of condRefNames) {
+              const reactiveNodeId = reactiveVarNodeIds.get(varName);
+              if (reactiveNodeId) {
+                edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
+                const readers = reactiveVarReaders.get(varName);
+                if (readers) readers.add(fnDGNodeId);
+              }
+            }
             if (Array.isArray(bodyNode.consequent)) walkBodyForReactiveRefs(bodyNode.consequent);
             if (Array.isArray(bodyNode.alternate)) walkBodyForReactiveRefs(bodyNode.alternate);
           }
@@ -1082,7 +1132,7 @@ export function runDG(input: DGInput): DGOutput {
             }
           }
           // String fallback for nodes without ExprNode fields.
-          for (const field of ["expr", "init", "header"] as const) {
+          for (const field of ["expr", "init", "header", "condition"] as const) {
             const val = bodyNode[field];
             if (typeof val !== "string") continue;
             // Skip string scan if ExprNode already covered this node.

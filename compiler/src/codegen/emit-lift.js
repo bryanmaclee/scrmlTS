@@ -490,9 +490,18 @@ function emitCreateElementFromMarkup(node, lines) {
         lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewritten});`);
       }
     } else if (val.kind === "call-ref") {
-      // Event handler — use addEventListener
-      const eventName = name.replace(/^on/, "");
-      lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, ${val.name});`);
+      // Function call in attribute — reconstruct full call with arguments
+      const rewrittenArgs = val.argExprNodes
+        ? val.argExprNodes.map(n => emitExprField(n, "", { mode: "client" })).join(", ")
+        : (val.args || []).map(a => rewriteExpr(a.trim())).join(", ");
+      const rewrittenName = rewriteExpr(val.name);
+      const callExpr = `${rewrittenName}(${rewrittenArgs})`;
+      if (/^on[a-z]/.test(name)) {
+        const eventName = name.replace(/^on/, "");
+        lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${callExpr}; });`);
+      } else {
+        lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${callExpr} ?? ""));`);
+      }
     } else if (typeof val === "string") {
       // Raw string value
       lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(val)});`);
@@ -508,6 +517,9 @@ function emitCreateElementFromMarkup(node, lines) {
         const rewritten = emitExprField(val.exprNode, raw, { mode: "client" });
         lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${rewritten} ?? ""));`);
       }
+    } else if (val && val.kind) {
+      // Exhaustiveness guard — surface unhandled attribute value kinds
+      console.warn(`[emit-lift] unhandled attribute value kind: ${val.kind} for attr "${name}"`);
     }
   }
 
@@ -1357,7 +1369,14 @@ export function emitLiftExpr(node, opts = {}) {
           .replace(/\s*=\s*"/g, '="')
           .replace(/"\s*>/g, '">')
           // self-closing /> with spaces
-          .replace(/\s*\/\s*>/g, "/>");
+          .replace(/\s*\/\s*>/g, "/>")
+          // Collapse tokenizer spacing in attribute values:
+          // fn ( arg . prop , arg2 ) → fn(arg.prop, arg2)
+          .replace(/(\w)\s+\(/g, "$1(")
+          .replace(/\(\s+/g, "(")
+          .replace(/\s+\)/g, ")")
+          .replace(/\s+\.\s+/g, ".")
+          .replace(/\s*,\s*/g, ", ");
         const { splitBlocks: _splitBlocks } = require("../block-splitter.js");
         const { buildAST: _buildAST } = require("../ast-builder.js");
         const bsResult = _splitBlocks("__lift__", normalized);

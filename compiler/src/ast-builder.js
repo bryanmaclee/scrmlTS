@@ -944,11 +944,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           const lastKind = lastTok.kind;
           const lastText = lastTok.text;
           // lastTok ends an expression if it's a value-producing token
+          const VALUE_KEYWORDS = new Set(["true", "false", "null", "undefined", "this"]);
           const lastEndsValue = (
             lastKind === "IDENT" ||
             lastKind === "NUMBER" ||
             lastKind === "STRING" ||
-            (lastKind === "PUNCT" && (lastText === ")" || lastText === "]"))
+            lastKind === "AT_IDENT" ||
+            (lastKind === "KEYWORD" && VALUE_KEYWORDS.has(lastText)) ||
+            (lastKind === "PUNCT" && (lastText === ")" || lastText === "]" || lastText === "}"))
           );
           // tok starts a new statement if it's an IDENT (function call) or unhandled KEYWORD
           const tokStartsStmt = (
@@ -1096,6 +1099,21 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // `/` at depth > 0 closes the innermost tag
       if (tok.text === "/" && tok.kind === "PUNCT" && angleDepth > 0) {
         angleDepth--;
+      }
+      // ASI-style newline boundary (same logic as collectExpr BUG-ASI-NEWLINE)
+      if (parts.length > 0 && depth === 0 && angleDepth === 0 && tok.span.line > lastTok.span.line) {
+        const lk = lastTok.kind, lt = lastTok.text;
+        const VALUE_KW = new Set(["true", "false", "null", "undefined", "this"]);
+        const endsValue = (
+          lk === "IDENT" || lk === "NUMBER" || lk === "STRING" || lk === "AT_IDENT" ||
+          (lk === "KEYWORD" && VALUE_KW.has(lt)) ||
+          (lk === "PUNCT" && (lt === ")" || lt === "]" || lt === "}"))
+        );
+        const startsStmt = (
+          tok.kind === "IDENT" || tok.kind === "AT_IDENT" ||
+          (tok.kind === "KEYWORD" && !STMT_KEYWORDS.has(tok.text))
+        );
+        if (endsValue && startsStmt) break;
       }
       // Statement boundary at depth 0
       if (depth === 0) {
