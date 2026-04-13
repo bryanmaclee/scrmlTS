@@ -1,4 +1,5 @@
 import { genVar } from "./var-counter.ts";
+import { emitStringFromTree } from "../expression-parser.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { rewriteExpr } from "./rewrite.js";
 import { CGError } from "./errors.ts";
@@ -112,7 +113,8 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     lines.push("// --- server @var sync infrastructure (§52.6, compiler-generated) ---");
     for (const decl of serverVarDecls) {
       const varName: string = decl.name as string;
-      const initExpr: string = (typeof decl.init === "string" ? decl.init : "");
+      // Phase 4d: ExprNode-first, string fallback
+      const initExpr: string = (decl as any).initExpr ? emitStringFromTree((decl as any).initExpr) : (typeof decl.init === "string" ? decl.init : "");
       for (const l of emitServerSyncStub(varName)) lines.push(l);
       for (const l of emitInitialLoad(varName, initExpr)) lines.push(l);
       for (const l of emitOptimisticUpdate(varName)) lines.push(l);

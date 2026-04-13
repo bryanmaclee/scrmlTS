@@ -1,4 +1,5 @@
 import { genVar } from "./var-counter.ts";
+import { emitStringFromTree } from "../expression-parser.ts";
 import { collectMarkupNodes } from "./collect.ts";
 import { getNodes } from "./collect.ts";
 import { rewriteTemplateAttrValue, rewriteReactiveRefs } from "./rewrite.js";
@@ -94,7 +95,8 @@ function walkForReactiveDecls(
         if (!stmt || typeof stmt !== "object") continue;
         if (stmt.kind === "reactive-decl" || stmt.kind === "reactive-derived-decl") {
           const varName: string = stmt.name ?? "";
-          const init: string = typeof stmt.init === "string" ? stmt.init.trim() : "";
+          // Phase 4d: ExprNode-first, string fallback
+          const init: string = (stmt as any).initExpr ? emitStringFromTree((stmt as any).initExpr).trim() : (typeof stmt.init === "string" ? stmt.init.trim() : "");
           if (!varName || !init) continue;
           // Match init to a known enum variant:
           //   ".Light"    → "Light"

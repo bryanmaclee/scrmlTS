@@ -1,4 +1,5 @@
 import { SCRML_RUNTIME } from "../runtime-template.js";
+import { exprNodeContainsCall } from "../expression-parser.ts";
 import { assembleRuntime } from "./runtime-chunks.ts";
 import { CGError } from "./errors.ts";
 import { escapeRegex } from "./utils.ts";
@@ -241,13 +242,15 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     }
 
     // Check for animationFrame calls in bare-expr nodes
+    // Phase 4d: ExprNode-first, string fallback
     if (kind === "bare-expr") {
-      const expr: string = node.expr ?? "";
-      if (expr.includes("animationFrame(")) {
-        chunks.add("animation");
-      }
-      if (expr.includes("navigate(") || expr.includes("_scrml_navigate(")) {
-        chunks.add("utilities");
+      if ((node as any).exprNode) {
+        if (exprNodeContainsCall((node as any).exprNode, "animationFrame")) chunks.add("animation");
+        if (exprNodeContainsCall((node as any).exprNode, "navigate") || exprNodeContainsCall((node as any).exprNode, "_scrml_navigate")) chunks.add("utilities");
+      } else {
+        const expr: string = node.expr ?? "";
+        if (expr.includes("animationFrame(")) chunks.add("animation");
+        if (expr.includes("navigate(") || expr.includes("_scrml_navigate(")) chunks.add("utilities");
       }
     }
 

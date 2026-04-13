@@ -1,4 +1,5 @@
 import { genVar } from "./var-counter.ts";
+import { emitStringFromTree, exprNodeContainsMemberAccess } from "../expression-parser.ts";
 import { escapeHtmlAttr, VOID_ELEMENTS } from "./utils.ts";
 import { extractReactiveDeps, collectReactiveVarNames } from "./reactive-deps.ts";
 import { hasTemplateInterpolation, rewriteBunEval } from "./rewrite.js";
@@ -605,7 +606,8 @@ export function generateHtml(
     // For logic blocks embedded in markup, emit a placeholder span for client JS
     if (node.kind === "logic") {
       if (node.body?.length === 1 && node.body[0]?.kind === "bare-expr") {
-        const expr: string = node.body[0].expr ?? "";
+        // Phase 4d: ExprNode-first, string fallback
+        const expr: string = node.body[0].exprNode ? emitStringFromTree(node.body[0].exprNode) : (node.body[0].expr ?? "");
         if (/\bbun\s*\.\s*eval\s*\(/.test(expr)) {
           const evalErrors: any[] = [];
           const inlined: string = rewriteBunEval(expr, evalErrors);
@@ -628,9 +630,11 @@ export function generateHtml(
       parts.push(`<span data-scrml-logic="${placeholderId}"></span>`);
       if (registry && node.body) {
         for (const child of node.body) {
-          if (child && child.kind === "bare-expr" && child.expr) {
-            const reactiveRefs = extractReactiveDeps(child.expr, reactiveVarNames);
-            registry.addLogicBinding({ placeholderId, expr: child.expr, exprNode: child.exprNode, reactiveRefs });
+          if (child && child.kind === "bare-expr" && (child.exprNode || child.expr)) {
+            // Phase 4d: ExprNode-first for reactive dep extraction
+            const exprStr = child.exprNode ? emitStringFromTree(child.exprNode) : child.expr;
+            const reactiveRefs = extractReactiveDeps(exprStr, reactiveVarNames);
+            registry.addLogicBinding({ placeholderId, expr: exprStr, exprNode: child.exprNode, reactiveRefs });
           }
         }
       }
