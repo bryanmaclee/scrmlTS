@@ -275,9 +275,14 @@ export function emitBindings(ctx: CompileContext): string[] {
           // compiler-generated lookup table (e.g. Theme_toEnum[event.target.value]).
           // Falls back to the raw string value if no matching variant (defensive).
           const enumTypeName = elementTag === "select" ? enumVarMap.get(rootKey) : undefined;
+          // §5.4: Auto-coerce to number for type="number" and type="range" inputs
+          const inputType = (mkNode.attributes ?? mkNode.attrs ?? []).find(
+            (a: any) => a && a.name === "type" && a.value?.value
+          )?.value?.value ?? "";
+          const isNumericInput = inputType === "number" || inputType === "range";
           const writeValue = enumTypeName
             ? `(${enumTypeName}_toEnum[event.target.value] ?? event.target.value)`
-            : "event.target.value";
+            : isNumericInput ? "Number(event.target.value)" : "event.target.value";
 
           // §53.7.2: Check if bound var has a predicated type — if so, gate the write.
           const _bvTypeAnnotation = reactiveTypeMap.get(rootKey);
