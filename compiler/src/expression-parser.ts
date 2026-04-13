@@ -706,6 +706,10 @@ export function esTreeToExprNode(
       if (name === "__scrml_tilde__") {
         return { kind: "ident", span, name: "~" } satisfies IdentExpr;
       }
+      // §42 absence value: `not` keyword → null literal
+      if (name === "not") {
+        return { kind: "lit", span, raw: "not", value: null, litType: "not" } satisfies LitExpr;
+      }
       return { kind: "ident", span, name } satisfies IdentExpr;
     }
 

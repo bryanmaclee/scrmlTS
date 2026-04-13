@@ -507,6 +507,7 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
   if (oldNodes.size === 0) {
     for (let i = 0; i < newItems.length; i++) {
       const node = createFn(newItems[i], i);
+      if (!node) continue; // createFn returned undefined (filtered item)
       node._scrml_key = keyFn(newItems[i], i);
       container.appendChild(node);
     }
@@ -538,6 +539,7 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
     let node = oldNodes.get(key);
     if (!node) {
       node = createFn(newItems[i], i);
+      if (!node) { oldPositions[i] = -2; newNodes[i] = null; continue; } // filtered item
       node._scrml_key = key;
       oldPositions[i] = -1; // new node, no old position
     } else {
@@ -556,10 +558,11 @@ function _scrml_reconcile_list(container, newItems, keyFn, createFn) {
   let nextSibling = null;
   for (let i = newLen - 1; i >= 0; i--) {
     const node = newNodes[i];
+    if (!node) continue; // filtered item (createFn returned undefined)
     if (!inLIS.has(i)) {
       container.insertBefore(node, nextSibling);
     }
-    nextSibling = newNodes[i];
+    nextSibling = node;
   }
 
   } finally { _scrml_tracking_paused = wasPaused; }

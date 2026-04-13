@@ -40,12 +40,12 @@
 // Parent-side state.
 ${
     @limit   = 1000
-    @result  = not
+    @result  = { count: 0, limit: 0, primes: [] }
     @running = false
 
     function findPrimes() {
         @running = true
-        @result  = not
+        @result  = { count: 0, limit: 0, primes: [] }
         <#primes>.send({ limit: @limit })
     }
 
