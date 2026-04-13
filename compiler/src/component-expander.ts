@@ -909,6 +909,17 @@ function expandComponentNode(
     }
   }
 
+  // Resolve `if=` conditions that reference optional snippet props at compile time.
+  // When an element has `if=(not (propName is not))` and the optional snippet prop
+  // was not provided by the caller, remove the element. When provided, strip the if=.
+  const _propsDecl = def.propsDecl ?? [];
+  const optionalSnippetNames = new Set(
+    (_propsDecl as PropDecl[]).filter((d: PropDecl) => d.isSnippet && d.optional).map((d: PropDecl) => d.name)
+  );
+  if (optionalSnippetNames.size > 0) {
+    resolveSnippetIfConditions(finalChildren, optionalSnippetNames, slottedGroups, parametricSnippets);
+  }
+
   // Assign a new ID to the primary expanded node
   const expandedNode = {
     ...expanded,
@@ -1227,6 +1238,63 @@ function walkAndExpand(
  * Walk a LogicNode[] body and expand any component references found in
  * lift expressions or nested markup nodes.
  */
+/**
+ * Resolve `if=` conditions on component body elements that reference snippet props.
+ *
+ * When a snippet prop was NOT provided by the caller, the `if=` condition is statically
+ * false — remove the element entirely. When provided, strip the `if=` attribute
+ * (the condition is statically true).
+ *
+ * Mutates the children array in place by splicing out elements with unmet conditions.
+ */
+function resolveSnippetIfConditions(
+  children: MarkupNode[],
+  snippetPropNames: Set<string>,
+  slottedGroups: Map<string, MarkupNode[]>,
+  parametricSnippets: Map<string, unknown>,
+): void {
+  for (let i = children.length - 1; i >= 0; i--) {
+    const child = children[i];
+    if (!child || child.kind !== "markup") continue;
+
+    const attrs = child.attributes ?? child.attrs ?? [];
+    const ifAttrIdx = attrs.findIndex((a: any) => a && a.name === "if");
+    if (ifAttrIdx >= 0) {
+      const ifAttr = attrs[ifAttrIdx];
+      const ifVal = ifAttr.value;
+      // Check if the `if=` value references a snippet prop name
+      const raw = typeof ifVal === "string" ? ifVal
+        : ifVal?.raw ?? ifVal?.value ?? "";
+      // Match patterns like `not (actions is not)`, `actions is some`, or just `actions`
+      for (const propName of snippetPropNames) {
+        // Use word boundary check to avoid false matches on substrings
+        const propRegex = new RegExp(`\\b${propName}\\b`);
+        if (propRegex.test(raw)) {
+          const isProvided = slottedGroups.has(propName) || parametricSnippets.has(propName);
+          // Determine if the condition tests for presence or absence
+          const isPresenceCheck = raw.includes("is some") || raw.includes("is given")
+            || raw.includes("not") // `not (x is not)` = presence check
+            || (!raw.includes("is not") && raw.trim() === propName); // bare propName
+          const conditionMet = isPresenceCheck ? isProvided : !isProvided;
+          if (conditionMet) {
+            // Strip the if= attribute — condition is statically true
+            attrs.splice(ifAttrIdx, 1);
+          } else {
+            // Remove the element — condition is statically false
+            children.splice(i, 1);
+          }
+          break;
+        }
+      }
+    }
+
+    // Recurse into child markup
+    if (child.children) {
+      resolveSnippetIfConditions(child.children, snippetPropNames, slottedGroups, parametricSnippets);
+    }
+  }
+}
+
 function walkLogicBody(
   bodyNodes: unknown[],
   registry: Map<string, RegistryEntry>,
