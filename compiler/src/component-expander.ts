@@ -1267,6 +1267,47 @@ function walkLogicBody(
           }
         }
       }
+      // When lift target is a raw string expression (tags inside logic blocks are
+      // not block-separated), check if it starts with a component tag name and
+      // re-parse through BS+TAB to get a structured markup node for expansion.
+      if (expr.kind === "expr" && typeof expr.expr === "string") {
+        const rawExpr = (expr.expr as string).trim();
+        const tagMatch = rawExpr.match(/^<\s*([A-Z][A-Za-z0-9_]*)/);
+        if (tagMatch && registry.has(tagMatch[1])) {
+          try {
+            // Normalize tokenizer-spaced markup back to compact form for re-parse.
+            // The tokenizer inserts spaces around < > / = which prevents the BS
+            // from recognizing tags.
+            const normalized = rawExpr
+              .replace(/< \/ >/g, "</>")
+              .replace(/< \/\s*([A-Za-z][A-Za-z0-9]*)\s*>/g, "</$1>")
+              .replace(/<\s+([A-Za-z][A-Za-z0-9_]*)/g, "<$1")
+              .replace(/\s*=\s*"/g, '="')
+              .replace(/"\s*>/g, '">')
+              .replace(/\s*\/\s*>/g, "/>")
+              .replace(/([^"=])\s*>/g, "$1>");
+            const bsResult = splitBlocks(filePath, normalized);
+            const tabResult = buildAST(bsResult, null);
+            const reparsedNodes = tabResult?.ast?.nodes ?? [];
+            // Find the first markup node with isComponent
+            const markupNode = reparsedNodes.find(
+              (rn: MarkupNode) => rn && rn.kind === "markup" && rn.isComponent === true
+            ) as MarkupNode | undefined;
+            if (markupNode) {
+              const expandedNodes = expandComponentNode(markupNode, registry, filePath, counter, ceErrors);
+              const expanded = expandedNodes[0];
+              if (expanded && expanded !== markupNode) {
+                const newNode = { ...n, expr: { kind: "markup", node: expanded } };
+                result.push(newNode);
+                changed = true;
+                continue;
+              }
+            }
+          } catch {
+            // Re-parse failed — fall through to unmodified node
+          }
+        }
+      }
     }
 
     // Recurse into nested bodies (for-stmt, if-stmt, etc.)

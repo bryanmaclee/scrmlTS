@@ -41,6 +41,10 @@ ${
         { name: "Grace Hopper",  role: "Admiral",     email: "grace@example.com", avatar: "👩‍✈️" },
         { name: "Alan Turing",   role: "Mathematician", email: "alan@example.com", avatar: "🧠" },
     ]
+
+    fn showAll() {
+        console.log("Showing all users")
+    }
 }
 
 <div class="app">

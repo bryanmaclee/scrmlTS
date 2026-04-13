@@ -1080,8 +1080,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const tok = peek();
       if (tok.kind === "EOF") break;
       // BLOCK_REF at depth 0 after we have content is a boundary.
-      // Exception: inside a tag body (tagNesting > 0) the block is part of the expression.
-      if (tok.kind === "BLOCK_REF" && depth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0) break;
+      // Exception: inside a tag body (tagNesting > 0) or inside markup content
+      // (angleDepth > 0), the block is part of the expression.
+      if (tok.kind === "BLOCK_REF" && depth === 0 && angleDepth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0) break;
       // Track markup nesting depth: `< tag` opens, `/` closes.
       // Inside markup content (tagDepth > 0), keywords are text, not code.
       if (tok.text === "<" && (tok.kind === "PUNCT" || tok.kind === "OPERATOR")) {
