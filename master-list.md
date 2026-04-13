@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-13 (S11 — Phase 4d 15/17 files, benchmarks refreshed)
+**Last updated:** 2026-04-13 (S12 — reactive lift, tilde-decl derived, Tailwind confirmed, puppeteer 14/14)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S86)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 6,000 pass, 145 fail (S11 2026-04-13)
+**Tests:** 5,998 pass, 147 fail (S12 2026-04-13) — 2 new from CE bare-ref expansion output change
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -23,7 +23,7 @@
 - [x][x] RI (Route Inference): `compiler/src/route-inference.ts`
 - [x][x] TS (Type System): `compiler/src/type-system.ts`
 - [x][x] DG (Dependency Graph): `compiler/src/dependency-graph.ts`
-- [x][x] CG (Code Generator): `compiler/src/codegen/` (36 files, ~14,135 LOC)
+- [x][x] CG (Code Generator): `compiler/src/codegen/` (37 files, ~14,912 LOC)
 - [x][x] CE (Component Expander): `compiler/src/component-expander.ts`
 - [x][x] ME (Meta Eval): `compiler/src/meta-eval.ts`
 - [x][x] MC (Meta Checker): `compiler/src/meta-checker.ts`
@@ -81,13 +81,14 @@
 
 ## E. Examples (14 files — verified S86)
 
-**14/14 compile clean** (S2 2026-04-10). Locations at `examples/`:
+**14/14 compile clean, 14/14 puppeteer smoke pass** (S12 2026-04-13). 7 examples on Tailwind (01, 02, 04, 09, 10, 13, 14), 7 on `#{}` CSS.
 
-- [x][x] 01-hello, 02-counter, 03-contact-book, 04-live-search, 05-multi-step-form
-- [x][x] 06-kanban-board, 07-admin-dashboard, 08-chat, 09-error-handling, 10-inline-tests
-- [x][x] 11-meta-programming, 14-mario-state-machine
-- [x][x] 13-worker — **FIXED S2** (ex13-route-warning-fix: E-ROUTE-001 severity + worker body suppression)
-- [x][x] 12-snippets-slots — **FIXED S2** (ex12-component-normalize: normalizeTokenizedRaw bare-closer + open-tag whitespace)
+- [x][x] 01-hello (Tailwind), 02-counter (Tailwind, reactive), 04-live-search (Tailwind, reactive)
+- [x][x] 10-inline-tests (Tailwind), 14-mario-state-machine (Tailwind, fully interactive — machine, derived, match, if=)
+- [x][ ] 05-multi-step-form — step components expand, onclick wiring fix landed, interactive testing incomplete
+- [x][ ] 06-kanban-board — compiles, renders, onclick `${expr}` args broken (lift attr expression splitting)
+- [x][ ] 03-contact-book, 07-admin-dashboard, 08-chat — need running server
+- [x][ ] 09-error-handling (Tailwind), 11-meta-programming, 12-snippets-slots, 13-worker (Tailwind) — compile clean, partial interactivity
 
 ---
 
@@ -105,7 +106,7 @@
 - [x][x] `compiler/tests/conformance/` — 2 files
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total:** 5,606 pass, 2 skip, 0 fail (S2 2026-04-10)
+- **Total:** 5,998 pass, 147 fail (S12 2026-04-13). Puppeteer: `examples/test-examples.js` 14/14 pass.
 
 ---
 
@@ -134,7 +135,7 @@
 
 ## J. Runtime
 
-- [x][x] `dist/scrml-runtime.js` — 452 lines
+- [x][x] `compiler/src/runtime-template.js` — source of truth. S12: added `_scrml_lift_target` routing, `_scrml_reactive_get` → derived cache bridging, dirty propagation triggers effects for derived nodes.
 
 ---
 
@@ -181,6 +182,13 @@
 8. ~~Ghost error patterns — 10 remaining~~ — **MITIGATED** (ghost-lint-prepass S2 — new lint pre-pass with 10 W-LINT-* patterns catches React/Vue/Svelte ghost syntax before the main compile)
 9. ~~False E-DG-002 for @vars consumed inside runtime `^{}` blocks~~ — **FIXED** (meta-fix-batch S2)
 10. ~~`reflect(variableName)` inside callback params rewritten to string literal~~ — **FIXED** (meta-fix-batch S2)
+
+**S12 new issues (compiler, not example bugs):**
+
+11. **Lift attribute `${expr}` splitting** — BS+TAB re-parse path for lift expressions loses `${...}` inline expressions in attributes. Affects `onclick=${fn(arg1, arg2)}` inside lift blocks. Root cause of kanban broken interactivity. **Deep-dive queued for S13.**
+12. **Parser: statements after match** — `collectLiftExpr` truncates function bodies after match expressions due to closing `}` ambiguity (match arm closer vs function closer). **Deep-dive queued for S13.**
+13. **Tilde-decl DG false warnings** — DG doesn't track `if=(@tildeName)` as a consumption, produces spurious E-DG-002 warnings. Straightforward fix.
+14. **Browser test harness** — ~130 happy-dom test failures. Many may be test infrastructure issues (happy-dom limitations) rather than compiler bugs. Real Puppeteer testing passes 14/14. **Needs systematic triage.**
 
 **Fix details + rationale for each:** `scrml-support/docs/` (look up by bug ID or topic).
 
