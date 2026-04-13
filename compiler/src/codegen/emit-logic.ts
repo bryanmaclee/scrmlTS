@@ -391,6 +391,25 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         const tildeRhs = emitExprField(node.initExpr, init, _makeExprCtx(opts));
         return `${node.name} = ${tildeRhs};`;
       }
+      // For tilde-decl with reactive deps: emit as derived reactive (auto-updates)
+      if (node.kind === "tilde-decl") {
+        const tildeInit: string = node.init ?? "";
+        const tildeDeps = extractReactiveDeps(tildeInit);
+        if (tildeDeps.size > 0) {
+          const rewrittenBody = node.initExpr
+            ? emitExpr(node.initExpr, { ..._makeExprCtx(opts), derivedNames })
+            : rewriteExprWithDerived(tildeInit, derivedNames);
+          const ctx = opts.encodingCtx;
+          const encodedName = ctx ? ctx.encode(node.name) : node.name;
+          const lines: string[] = [];
+          lines.push(`_scrml_derived_declare(${JSON.stringify(encodedName)}, () => ${rewrittenBody});`);
+          for (const dep of tildeDeps) {
+            const encodedDep = ctx ? ctx.encode(dep) : dep;
+            lines.push(`_scrml_derived_subscribe(${JSON.stringify(encodedName)}, ${JSON.stringify(encodedDep)});`);
+          }
+          return lines.join("\n");
+        }
+      }
       if (node.kind === "const-decl" && node.name && opts.declaredNames) opts.declaredNames.add(node.name);
       // If-as-expression: `const a = if (cond) { lift val }`
       if (node.ifExpr) {
