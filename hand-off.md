@@ -22,12 +22,20 @@
 - Remaining: component-expander.ts (needs structural ExprNode matching), body-pre-parser.ts (inherently string-based)
 - Next: drop string fields from AST types (the final mechanical deletion once CE is converted)
 
+### Investigation: Example 12 render bug
+- Card component IS detected by TAB (1 component-def, name: "Card")
+- CE expands correctly in isolation (no errors, no un-substituted render nodes)
+- But compiled output still has `render;` and `createElement("Card")` 
+- Root cause: pipeline integration — CE output may not be fed correctly to CG, or CG is re-parsing the component raw field
+- The `render slotName()` pattern also can't be captured by ExprNode parser (Acorn only parses `render` as an ident, stops before `slotName()`)
+- Needs dedicated T2 investigation tracing the full pipeline flow in api.js
+
 ### Queued (from S10)
-1. **lin redesign deep-dive** — discontinuous scoping (user's original vision), debate if needed
-2. **Example 11/12 fixes** — meta-eval scope injection, component slot rendering
+1. **lin redesign deep-dive** ✅ — deep-dive written, Approach B recommended
+2. **Example 11/12 fixes** — meta-eval scope injection, component slot rendering (see investigation above)
 3. **Machine transition guards** — wire guard emission (T2)
-4. **Phase 4d Slice 4** — make ExprNode required, drop string fields
-5. **Fresh benchmarks** — re-run now that TodoMVC compiles (E-SCOPE-001 fixed)
+4. **Phase 4d** ✅ — 15/17 files ExprNode-first; CE and BPP inherently need strings
+5. **Fresh benchmarks** ✅ — refreshed 2026-04-13
 
 ---
 
