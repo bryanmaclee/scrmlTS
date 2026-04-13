@@ -545,6 +545,62 @@ export function splitBlocks(filePath, source) {
       const frame = topFrame();
 
       // -----------------------------------------------------------------------
+      // Backtick template literal tracking inside meta (^{}) contexts.
+      //
+      // Without this, `${...}` inside template literals like emit(`<div>${x}</div>`)
+      // are misinterpreted as nested logic block openers. We track backtick state
+      // on the frame and skip all sigil detection while inside a template literal,
+      // only tracking interpolation depth to know when `}` closes an interpolation
+      // vs. the brace context.
+      //
+      // Only applies to meta blocks — in logic/sql/css blocks the tokenizer
+      // handles template literals correctly at a later stage.
+      // -----------------------------------------------------------------------
+      if (frame.type === "meta") {
+        if (c === "`" && !(curPos > 0 && source[curPos - 1] === "\\")) {
+          if (!frame._inBacktick) {
+            frame._inBacktick = true;
+            frame._btInterpDepth = 0;
+            beginText();
+            step();
+            continue;
+          } else if (frame._btInterpDepth === 0) {
+            // Closing backtick — exit template literal
+            frame._inBacktick = false;
+            beginText();
+            step();
+            continue;
+          }
+        }
+        if (frame._inBacktick) {
+          if (c === "$" && ch(1) === "{" && !(curPos > 0 && source[curPos - 1] === "\\")) {
+            // Enter template interpolation
+            frame._btInterpDepth = (frame._btInterpDepth || 0) + 1;
+            beginText();
+            advance(2);
+            continue;
+          }
+          if (c === "{" && frame._btInterpDepth > 0) {
+            // Nested brace inside interpolation
+            frame._btInterpDepth++;
+            beginText();
+            step();
+            continue;
+          }
+          if (c === "}" && frame._btInterpDepth > 0) {
+            frame._btInterpDepth--;
+            beginText();
+            step();
+            continue;
+          }
+          // Any other char inside backtick — just consume
+          beginText();
+          step();
+          continue;
+        }
+      }
+
+      // -----------------------------------------------------------------------
       // Brace-in-string detection for brace-delimited contexts (§4.6).
       //
       // Full string-state tracking is impractical at the BS level because the

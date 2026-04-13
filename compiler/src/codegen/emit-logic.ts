@@ -338,6 +338,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "let-decl": {
+      if (node._compileTimeOnly) return "";
       if (node.name && opts.declaredNames) opts.declaredNames.add(node.name);
       // If-as-expression: `let a = if (cond) { lift val }`
       if (node.ifExpr) {
@@ -381,6 +382,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     case "const-decl":
     case "tilde-decl": {
       if (!node.name) return "";
+      if (node._compileTimeOnly) return "";
       // For tilde-decl: if name was already declared by let-decl, emit as reassignment
       if (node.kind === "tilde-decl" && opts.declaredNames?.has(node.name)) {
         const init = node.init ?? "";

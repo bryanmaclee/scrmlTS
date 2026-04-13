@@ -206,6 +206,26 @@ function rewriteReflectCalls(expr: string, locals: Set<string> = new Set()): str
   });
 }
 
+/**
+ * Restore backtick wrapping for emit() string arguments that contain ${...}
+ * interpolations or newlines. The tokenizer strips backtick delimiters from
+ * template literals, converting them to double-quoted strings. This function
+ * detects emit("...") calls where the argument was originally a template
+ * literal and rewraps with backticks so the JS evaluates correctly.
+ */
+function restoreEmitBackticks(code: string): string {
+  // Match emit("...") or emit('...') where the argument contains ${ or newlines
+  return code.replace(
+    /emit\s*\(\s*"([\s\S]*?)"\s*\)/g,
+    (full, inner) => {
+      if (inner.includes("${") || inner.includes("\n")) {
+        return "emit(`" + inner.replace(/\\"/g, '"') + "`)";
+      }
+      return full;
+    }
+  );
+}
+
 function serializeBody(nodes: LogicStatement[], locals: Set<string> = new Set()): string {
   if (!Array.isArray(nodes)) return "";
   const parts: string[] = [];
@@ -223,7 +243,12 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
   switch (node.kind) {
     case "bare-expr": {
       // Phase 4d: ExprNode-first, string fallback
-      const bareStr = n.exprNode ? emitStringFromTree(n.exprNode as ExprNode) : (n.expr as string);
+      let bareStr = n.exprNode ? emitStringFromTree(n.exprNode as ExprNode) : (n.expr as string);
+      // Restore backtick wrapping for emit() arguments containing ${...} interpolations.
+      // The tokenizer strips backtick delimiters from template literals, converting them
+      // to double-quoted strings. When the string contains ${...}, it was originally a
+      // template literal and needs backtick wrapping for correct JS evaluation.
+      bareStr = restoreEmitBackticks(bareStr);
       return `${rewriteReflectCalls(rewriteBunEval(bareStr), locals)};`;
     }
 
@@ -284,17 +309,10 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
     case "html-fragment": {
       // html-fragment nodes contain raw text that may include emit() calls
       // (e.g. emit(`<div>...`) where the template literal has HTML content).
-      // The tokenizer converts backtick template literals to double-quoted strings
-      // with unescaped newlines. Restore backtick wrapping for any string argument
-      // that contains newlines so the JS evaluates correctly.
+      // The tokenizer converts backtick template literals to double-quoted strings.
+      // Restore backtick wrapping so the JS evaluates correctly.
       let fragContent = (n.content as string) ?? "";
-      if (fragContent.includes("\n")) {
-        // Find the opening ( and extract the string argument, replacing " wrapping with `
-        fragContent = fragContent.replace(
-          /\(\s*"([\s\S]*?)"\s*\)/g,
-          (_, inner) => '(`' + inner.replace(/\\"/g, '"') + '`)'
-        );
-      }
+      fragContent = restoreEmitBackticks(fragContent);
       return fragContent ? `${rewriteReflectCalls(rewriteBunEval(fragContent), locals)};` : "";
     }
 
@@ -448,6 +466,7 @@ function processNodeList(
   typeRegistry: TypeRegistry,
   errors: MetaEvalError[],
   outerScope?: string,
+  outerDeclNodes?: ASTNode[],
 ): boolean {
   if (!Array.isArray(nodes)) return false;
 
@@ -456,6 +475,9 @@ function processNodeList(
 
   // Accumulate declarations from this level to propagate to nested scopes
   const scopeParts: string[] = outerScope ? [outerScope] : [];
+  // Track the actual AST nodes corresponding to scope declarations so we can
+  // mark them _compileTimeOnly when a descendant meta block consumes them.
+  const declNodes: ASTNode[] = outerDeclNodes ? [...outerDeclNodes] : [];
 
   while (i < nodes.length) {
     const node = nodes[i];
@@ -471,6 +493,7 @@ function processNodeList(
       if (initStr && pn.name && !/@/.test(initStr)) {
         const kw = node.kind === "const-decl" ? "const" : "let";
         scopeParts.push(`${kw} ${pn.name} = ${initStr};`);
+        declNodes.push(node);
       }
     }
     if (node.kind === "logic" && Array.isArray((node as Record<string, unknown>).body)) {
@@ -482,6 +505,7 @@ function processNodeList(
           if (initStr && sn.name && !/@/.test(initStr)) {
             const kw = stmt.kind === "const-decl" ? "const" : "let";
             scopeParts.push(`${kw} ${sn.name} = ${initStr};`);
+            declNodes.push(stmt);
           }
         }
       }
@@ -502,6 +526,11 @@ function processNodeList(
         const replacementNodes = evaluateMetaBlock(node as MetaNode, typeRegistry, errors, precedingDecls);
 
         if (replacementNodes !== null) {
+          // Mark preceding declarations consumed by this meta block as compile-time-only
+          // so they are stripped from client JS output.
+          for (const dn of declNodes) {
+            (dn as Record<string, unknown>)._compileTimeOnly = true;
+          }
           // Splice the replacement nodes in place of the meta node
           nodes.splice(i, 1, ...replacementNodes);
           changed = true;
@@ -518,10 +547,10 @@ function processNodeList(
     const n = node as Record<string, unknown>;
     const currentScope = scopeParts.length > 0 ? scopeParts.join("\n") : undefined;
     if (Array.isArray(n.children)) {
-      if (processNodeList(n.children as ASTNode[], typeRegistry, errors, currentScope)) changed = true;
+      if (processNodeList(n.children as ASTNode[], typeRegistry, errors, currentScope, declNodes)) changed = true;
     }
     if (Array.isArray(n.body) && node.kind !== "meta") {
-      if (processNodeList(n.body as ASTNode[], typeRegistry, errors, currentScope)) changed = true;
+      if (processNodeList(n.body as ASTNode[], typeRegistry, errors, currentScope, declNodes)) changed = true;
     }
 
     i++;
