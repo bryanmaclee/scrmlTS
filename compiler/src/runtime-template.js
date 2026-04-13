@@ -76,7 +76,7 @@ function _scrml_reactive_set(name, value) {
   _scrml_state[name] = value;
   // §6.6.3 Phase 2: eagerly propagate dirty flags to all downstream derived nodes
   // before subscribers fire and before this call returns. Synchronous, no re-evaluation.
-  _scrml_propagate_dirty(name);
+  const dirtied = _scrml_propagate_dirty(name);
   if (_scrml_subscribers[name]) {
     for (const fn of _scrml_subscribers[name]) {
       try { fn(value); } catch(e) { console.error("scrml subscriber error:", e); }
@@ -84,6 +84,13 @@ function _scrml_reactive_set(name, value) {
   }
   // Bridge with _scrml_effect auto-tracking: fire effects tracking _scrml_state[name]
   if (typeof _scrml_trigger === "function") _scrml_trigger(_scrml_state, name);
+  // Also trigger effects for derived nodes that were dirtied — they need to
+  // re-evaluate and update any DOM bindings that read them.
+  if (dirtied && dirtied.length > 0 && typeof _scrml_trigger === "function") {
+    for (const derived of dirtied) {
+      _scrml_trigger(_scrml_state, derived);
+    }
+  }
   return value;
 }
 
@@ -96,6 +103,7 @@ function _scrml_reactive_set(name, value) {
 function _scrml_propagate_dirty(name) {
   const queue = [name];
   const visited = new Set();
+  const dirtied = [];
   while (queue.length > 0) {
     const current = queue.shift();
     if (visited.has(current)) continue;
@@ -105,12 +113,14 @@ function _scrml_propagate_dirty(name) {
       for (const derived of downstreams) {
         if (!_scrml_derived_dirty[derived]) {
           _scrml_derived_dirty[derived] = true;
+          dirtied.push(derived);
           // Also propagate from this derived node to its downstreams
           queue.push(derived);
         }
       }
     }
   }
+  return dirtied;
 }
 
 /**
