@@ -59,7 +59,7 @@ scrml compile hello.scrml -o dist/
 
 **State is first-class.** Reactive variables (`@var`) are language primitives, not library wrappers. The compiler knows every read and write site, enforces mutability contracts statically, and generates minimal DOM updates — no diffing, no proxy overhead, no `useState` ceremony.
 
-**Mutability contracts.** `lin` types enforce exact-once consumption. `server @var` pins state to the server with compile-time enforcement. `protect` excludes fields from client-visible types. The compiler verifies these contracts across all code paths — not at runtime, not by convention, at compile time.
+**Mutability contracts.** Declare a `<machine>` for an enum type and every legal state transition is explicit: `.Small => .Big`, `.Fire => .Small`. The compiler enforces these at every assignment — illegal transitions are compile errors, not runtime surprises. Because mutation is fully declared, a `fn` can trigger transitions and read before/after state while remaining provably pure. `lin` enforces exact-once consumption. `server @var` pins state server-side. `protect` excludes fields from the client. All verified statically.
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 
