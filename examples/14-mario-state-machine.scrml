@@ -197,7 +197,7 @@ ${
         <span class="mario-name">${@marioName}</>
     </>
 
-    <div class="warning-bar" if=(@vulnerable)>ONE HIT AND YOU LOSE A LIFE!</>
+    <div class="warning-bar" if=(@vulnerable && @gameOver == false)>ONE HIT AND YOU LOSE A LIFE!</>
 
     <p class="game-over-text" if=(@gameOver)>GAME OVER</>
 
