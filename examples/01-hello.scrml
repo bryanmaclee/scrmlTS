@@ -1,12 +1,13 @@
-// Example 01: Hello — bare markup, no state, no logic.
+// Example 01: Hello — bare markup with Tailwind utility classes.
 // Demonstrates the three closer forms: explicit </tag>, trailing /, and bare /.
+// No #{} CSS block — styling via scrml's built-in Tailwind engine.
 
 <program>
 
-<div>
-  <h1>Hello, scrml</>
-  <p>Three ways to close a tag: explicit, trailing, or bare.</p>
-  <footer>No framework. Just output.
+<div class="flex flex-col items-center justify-center min-h-screen bg-gray-50 gap-4">
+  <h1 class="text-4xl font-bold text-blue-600">Hello, scrml</>
+  <p class="text-lg text-gray-600">Three ways to close a tag: explicit, trailing, or bare.</p>
+  <footer class="text-sm text-gray-400 mt-8">No framework. Just output.
   </>
 </>
 

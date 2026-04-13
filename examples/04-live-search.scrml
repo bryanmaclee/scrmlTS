@@ -1,7 +1,6 @@
-// Example 04: Live Search — reactive filtering with no framework wiring.
+// Example 04: Live Search — reactive filtering with Tailwind utilities.
 // Demonstrates @query bound to input, derived filtering via for/lift,
-// class:highlighted= dynamic class toggle, #{} scoped styles.
-// No useEffect, no computed, no store. Just @query and a for loop.
+// class:highlighted= dynamic class toggle. No #{} CSS — all Tailwind.
 
 <program>
 
@@ -19,17 +18,17 @@ ${
   ]
 }
 
-<div class="search-app">
-  <h1>People</>
+<div class="max-w-lg mx-auto mt-8 px-4">
+  <h1 class="text-2xl font-bold text-gray-800 mb-4">People</>
 
   <input
     type="search"
     bind:value=@query
     placeholder="Filter by name or role…"
-    class="search-input"
+    class="w-full p-3 text-base border border-gray-300 rounded-lg mb-4"
   >
 
-  <ul class="results">
+  <ul class="p-0">
     ${
       const q = @query.toLowerCase()
       for (let p of people) {
@@ -37,51 +36,14 @@ ${
                         p.role.toLowerCase().includes(q)
         if (!matches) continue
 
-        lift <li class="result-item" class:highlighted=(q.length > 0)>
-          <span class="person-name">${p.name}</span>
-          <span class="person-role">${p.role}</span>
+        lift <li class="flex justify-between py-3 px-2 border-b border-gray-200">
+          <span class="font-semibold">${p.name}</span>
+          <span class="text-gray-500 text-sm">${p.role}</span>
         </li>
       }
     }
   </ul>
 
 </div>
-
-#{
-  .search-app {
-    max-width: 500px;
-    margin: 2rem auto;
-    font-family: sans-serif;
-  }
-
-  .search-input {
-    width: 100%;
-    padding: 0.6rem 0.8rem;
-    font-size: 1rem;
-    margin-bottom: 1rem;
-    box-sizing: border-box;
-  }
-
-  .results {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  .result-item {
-    display: flex;
-    justify-content: space-between;
-    padding: 0.65rem 0.5rem;
-    border-bottom: 1px solid #eee;
-    transition: background 0.1s;
-  }
-
-  .result-item.highlighted {
-    background: #f0f7ff;
-  }
-
-  .person-name { font-weight: 600; }
-  .person-role { color: #777; font-size: 0.9rem; }
-}
 
 </program>

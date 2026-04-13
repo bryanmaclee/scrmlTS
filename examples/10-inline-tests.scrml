@@ -1,6 +1,7 @@
 // Example 10: Inline tests — ~{} test sigil stripped from production.
 // A counter with reactive state. Tests verify state transitions directly.
 // ~{} blocks are compile-time artifacts: present in dev, absent in production output.
+// Styled with Tailwind utility classes.
 
 <program>
 
@@ -14,19 +15,19 @@ ${
     function setStep(n)  { @step = n }
 }
 
-<div class="counter">
-    <h2>Counter</>
-    <p class="value">${@count}</>
+<div class="flex flex-col items-center gap-4 p-8">
+    <h2 class="text-2xl font-bold text-gray-800">Counter</>
+    <p class="text-5xl font-bold text-blue-600">${@count}</>
 
-    <div class="controls">
-        <button onclick=decrement()>−</button>
-        <button onclick=reset()>Reset</button>
-        <button onclick=increment()>+</button>
+    <div class="flex gap-2">
+        <button class="px-5 py-2 text-lg cursor-pointer border border-gray-300 rounded bg-white hover:bg-gray-100" onclick=decrement()>−</button>
+        <button class="px-5 py-2 text-lg cursor-pointer border border-gray-300 rounded bg-white hover:bg-gray-100" onclick=reset()>Reset</button>
+        <button class="px-5 py-2 text-lg cursor-pointer border border-gray-300 rounded bg-white hover:bg-gray-100" onclick=increment()>+</button>
     </div>
 
-    <label>
+    <label class="flex items-center gap-2 text-sm">
         Step size:
-        <input type="number" bind:value=@step min="1" max="10">
+        <input type="number" class="w-16 p-1 text-center border border-gray-300 rounded" bind:value=@step min="1" max="10">
     </label>
 </div>
 
@@ -71,50 +72,6 @@ ${
         @step  = 1
         decrement()
         assert @count == -1   // currently allowed; clamping would need a guard in decrement()
-    }
-}
-
-#{
-    .counter {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1rem;
-        padding: 2rem;
-        font-family: sans-serif;
-    }
-
-    .value {
-        font-size: 3rem;
-        font-weight: bold;
-        margin: 0;
-    }
-
-    .controls {
-        display: flex;
-        gap: 0.5rem;
-    }
-
-    button {
-        padding: 0.5rem 1.25rem;
-        font-size: 1.1rem;
-        cursor: pointer;
-        border: 1px solid #ccc;
-        border-radius: 4px;
-        background: white;
-    }
-
-    label {
-        display: flex;
-        gap: 0.5rem;
-        align-items: center;
-        font-size: 0.9rem;
-    }
-
-    input[type="number"] {
-        width: 4rem;
-        padding: 0.25rem;
-        text-align: center;
     }
 }
 
