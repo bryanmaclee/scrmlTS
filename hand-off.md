@@ -12,6 +12,7 @@
 
 1. **Benchmark refresh** (`47ba51e`) — recompiled TodoMVC with current compiler, re-ran all 4 frameworks in headless Chrome. scrml wins 6/10. Build time 30.9→43.7ms, bundle 13.4→14.8 KB gzip.
 2. **Phase 4d Slice 4a** (`121eb42`) — introduced `emitExprField` helper, replaced 27 dual-path ternaries across 6 codegen files. Zero regressions.
+3. **Phase 4d meta-checker** (`bbf3a3a`) — 5 meta-checker functions converted to ExprNode-first with string fallback: bodyUsesCompileTimeApis, bodyContainsSqlContext, bodyMixesPhases, collectMetaLocals, checkReflectCalls.
 
 ### Queued (from S10)
 1. **lin redesign deep-dive** — discontinuous scoping (user's original vision), debate if needed
