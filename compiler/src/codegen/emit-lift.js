@@ -483,7 +483,12 @@ function emitCreateElementFromMarkup(node, lines) {
     } else if (val.kind === "variable-ref") {
       const varName = (val.name || "").replace(/^@/, "");
       const rewritten = emitExprField(val.exprNode, varName, { mode: "client" });
-      lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewritten});`);
+      if (/^on[a-z]/.test(name)) {
+        const eventName = name.replace(/^on/, "");
+        lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}(event); });`);
+      } else {
+        lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewritten});`);
+      }
     } else if (val.kind === "call-ref") {
       // Event handler — use addEventListener
       const eventName = name.replace(/^on/, "");
