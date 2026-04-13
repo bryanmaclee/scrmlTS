@@ -124,7 +124,7 @@ ${
 
     ~marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
     ~marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
-    ~isSmall    = @marioState == MarioState.Small
+    // isSmall check is inlined in the if= attribute below
 
     function eatPowerUp(powerUp) {
         if (@gameOver) { return }
@@ -193,34 +193,18 @@ ${
         <span class="mario-name">${@marioName}</>
     </>
 
-    ${
-        if (@isSmall) {
-            lift <div class="warning-bar">ONE HIT AND YOU LOSE A LIFE!</>
-        }
-    }
+    <div class="warning-bar" if=(@marioState == MarioState.Small)>ONE HIT AND YOU LOSE A LIFE!</>
 
-    ${
-        if (@gameOver) {
-            lift <p class="game-over-text">GAME OVER</>
-        }
-    }
+    <p class="game-over-text" if=(@gameOver)>GAME OVER</>
 
-    ${
-        if (@gameOver == false) {
-            lift <div>
-                <div class="power-ups">
-                    <button class="btn btn-mushroom" onclick=${eatPowerUp(PowerUp.Mushroom)}>MUSHROOM</>
-                    <button class="btn btn-flower" onclick=${eatPowerUp(PowerUp.Flower)}>FLOWER</>
-                    <button class="btn btn-feather" onclick=${eatPowerUp(PowerUp.Feather)}>FEATHER</>
-                </>
-                <button class="btn btn-hurt" onclick=${getHurt()}>GET HURT</>
-            </>
-        }
-    }
+    <div if=(@gameOver == false)>
+        <div class="power-ups">
+            <button class="btn btn-mushroom" onclick=${eatPowerUp(PowerUp.Mushroom)}>MUSHROOM</>
+            <button class="btn btn-flower" onclick=${eatPowerUp(PowerUp.Flower)}>FLOWER</>
+            <button class="btn btn-feather" onclick=${eatPowerUp(PowerUp.Feather)}>FEATHER</>
+        </>
+        <button class="btn btn-hurt" onclick=${getHurt()}>GET HURT</>
+    </>
 
-    ${
-        if (@gameOver) {
-            lift <button class="btn btn-restart" onclick=${restart()}>CONTINUE</>
-        }
-    }
+    <button class="btn btn-restart" if=(@gameOver) onclick=${restart()}>CONTINUE</>
 </>

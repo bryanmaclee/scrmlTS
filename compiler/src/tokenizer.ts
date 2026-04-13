@@ -1046,8 +1046,9 @@ export function tokenizeCSS(content: string, baseOffset: number, baseLine: numbe
     }
 
     // Selector characters: class (.foo), id (#bar), universal (*), attribute ([attr]),
-    // child (>), adjacent (+), sibling (~). These always start a CSS_SELECTOR token.
-    if (/[\.#\*\[>+~]/.test(ch())) {
+    // child (>), adjacent (+), sibling (~), pseudo (:root, :hover, ::before).
+    // These always start a CSS_SELECTOR token.
+    if (/[\.#\*\[>+~:]/.test(ch())) {
       const start = absOff();
       const l = line, c = col;
       let sel = "";
