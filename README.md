@@ -186,6 +186,7 @@ scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows
 - **Reactive state (`@var`)** — prefix any variable with `@` to make it reactive. Changes re-render dependent elements automatically. No wrappers, no hooks, no signals library.
 - **Derived values (`~var`)** — tilde-prefixed variables recompute when their dependencies change. The compiler tracks the dependency graph.
 - **Two-way binding (`bind:value`)** — keep form inputs and reactive variables in sync without boilerplate.
+- **Absence value (`not`)** — a unified null/undefined replacement. `@result = not` means "no value yet." Check presence with `is not not`, absence with `is not`. The compiler catches `== not` misuse at compile time (use `is not` instead).
 - **Mutability contracts** — `server @var` pins state server-side. `protect` hides fields from the client. The compiler enforces these at compile time, not runtime.
 
 ### Linear Types
