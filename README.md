@@ -145,39 +145,39 @@ A contact book with a database, server functions, and a reactive UI — no API l
 
 ## Benchmarks
 
-Measured against React 19, Svelte 5, and Vue 3 on an identical TodoMVC implementation (2026-04-05).
+Measured against React 19, Svelte 5, and Vue 3 on an identical TodoMVC implementation (2026-04-13).
 
 **Bundle size (gzip):**
 
 | Framework | JS | Total | Dependencies | node_modules |
 |-----------|---:|------:|---:|---:|
-| **scrml** | **13.4 KB** | **14.5 KB** | **0** | **0 bytes** |
-| Svelte 5  | 15.9 KB | 17.0 KB | 41 | 29 MB |
-| Vue 3     | 26.8 KB | 27.9 KB | ~30 | ~25 MB |
-| React 19  | 62.2 KB | 63.3 KB | 65 | 46 MB |
+| **scrml** | **14.8 KB** | **15.9 KB** | **0** | **0 bytes** |
+| Svelte 5  | 15.9 KB | 17.0 KB | 33 | 29 MB |
+| Vue 3     | 26.8 KB | 27.9 KB | 22 | 38 MB |
+| React 19  | 62.1 KB | 63.2 KB | 38 | 46 MB |
 
 **Runtime performance (headless Chrome, medians in ms, lower is better):**
 
 | Operation | scrml | React 19 | Svelte 5 | Vue 3 |
 |-----------|------:|---------:|---------:|------:|
-| Create 1000 | 19.3 | **18.4** | 26.5 | 23.4 |
-| Partial update | **0.4** | 3.3 | 2.9 | 9.4 |
-| Swap rows | **1.3** | 17.7 | 2.2 | 6.1 |
-| Select row | **0.0** | 0.3 | 0.0 | 0.0 |
-| Remove row | **1.1** | 2.7 | 2.1 | 6.6 |
-| Append 1000 | **19.1** | 20.3 | 34.1 | 28.0 |
-| Create 10,000 | 201.6 | **183.6** | 532.1 | 230.8 |
+| Create 1000 | 19.8 | **19.2** | 27.2 | 24.6 |
+| Partial update | **0.4** | 3.3 | 2.9 | 9.2 |
+| Swap rows | **1.3** | 17.0 | 2.2 | 5.8 |
+| Select row | **0.0** | 0.3 | 0.0 | 0.1 |
+| Remove row | **1.2** | 2.8 | 2.2 | 6.6 |
+| Append 1000 | **19.3** | 21.1 | 35.2 | 29.7 |
+| Create 10,000 | 209.5 | **181.9** | 534.9 | 244.0 |
 
-scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows is 14x faster. Full results in [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
+scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows is 13x faster. Full results in [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
 
 **Build time (TodoMVC, median of 10):**
 
 | Framework | Build Time |
 |-----------|---:|
-| **scrml** | **30.9 ms** |
-| Svelte 5  | 330 ms |
-| Vue 3     | 359 ms |
-| React 19  | 473 ms |
+| **scrml** | **43.7 ms** |
+| Svelte 5  | 345 ms |
+| Vue 3     | 379 ms |
+| React 19  | 506 ms |
 
 ## Features
 
@@ -197,6 +197,41 @@ scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows
 ### Type Safety
 
 - **`asIs` (not `any`)** — scrml has no `any` type. There is no "turn off the type checker" escape hatch. `asIs` accepts any type but forces you to resolve it to a concrete type before use or return — analogous to TypeScript's `unknown`, not `any`. Component bare props follow `asIs` rules: the compiler infers the concrete type from how you use the prop.
+
+### Runtime Type Validation (replaces Zod)
+
+scrml has built-in runtime type validation. The type annotation IS the validation schema — no separate schema library, no `z.object()` wrappers, no `z.infer<typeof>` indirection.
+
+```scrml
+@price: number(>0 && <10000) = userInput
+@email: string(email) = formValue
+@password: string(.length > 7 && .length < 255) = rawInput
+
+type Invoice:struct = {
+    amount: number(>0 && <10000)
+    recipient: string(email)
+}
+
+fn process(amount: number(>0 && <10000)) {
+    // amount is proven valid here — zero runtime checks inside the function
+    let discounted = amount * 0.9
+    let safe: number(>0 && <10000) = discounted  // boundary check emitted
+}
+```
+
+The compiler uses a **three-zone enforcement model** (derived from SPARK/Ada):
+
+| Zone | When | Cost |
+|------|------|------|
+| **Static** | Compiler can prove the value satisfies the constraint (e.g. literals) | Zero — no runtime code emitted |
+| **Boundary** | Value comes from an unproven source (user input, API response, arithmetic) | One boolean check at assignment site |
+| **Trusted** | Value was already checked in the current scope | Zero — compiler remembers the proof |
+
+Named shapes (`string(email)`, `string(url)`, `string(uuid)`) and composable predicates (`number(>0 && <10000)`, `string(.length > 7)`) cover the same ground as Zod schemas — with zero dependencies, zero bundle cost in proven code paths, and no separate schema language to keep in sync with your types.
+
+### Variable Renaming
+
+The compiler renames reactive variables in the compiled output. `@shoppingCart` becomes `_scrml_reactive_get("a")` in the JavaScript — shorter variable keys, smaller bundles, free obfuscation. Zero configuration, zero runtime cost. Your source code stays readable; the compiled output stays minimal.
 
 ### Server/Client
 
