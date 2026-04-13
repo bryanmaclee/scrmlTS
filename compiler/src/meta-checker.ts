@@ -1,4 +1,4 @@
-import { extractIdentifiersFromAST, forEachIdentInExprNode, exprNodeContainsCall } from "./expression-parser.ts";
+import { extractIdentifiersFromAST, forEachIdentInExprNode, exprNodeContainsCall, exprNodeContainsMemberAccess, emitStringFromTree } from "./expression-parser.ts";
 import type { Span, FileAST, ASTNode, ExprNode } from "./types/ast.ts";
 
 /**
@@ -236,6 +236,14 @@ interface MetaFileAST {
 export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
   if (!Array.isArray(body)) return false;
 
+  function testExprNode(exprNode: ExprNode | undefined): boolean {
+    if (!exprNode) return false;
+    return exprNodeContainsCall(exprNode, "reflect")
+      || exprNodeContainsCall(exprNode, "emit")
+      || exprNodeContainsMemberAccess(exprNode, ["compiler"])
+      || exprNodeContainsMemberAccess(exprNode, ["bun", "eval"]);
+  }
+
   function testExpr(expr: string | undefined): boolean {
     if (!expr || typeof expr !== "string") return false;
     return COMPILE_TIME_API_PATTERNS.some(pattern => pattern.test(expr));
@@ -245,8 +253,15 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
 
-      if (node.kind === "bare-expr" && testExpr(node.expr)) return true;
-      if ((node.kind === "let-decl" || node.kind === "const-decl") && testExpr(node.init)) return true;
+      // Phase 4d: ExprNode-first, string fallback
+      if (node.kind === "bare-expr") {
+        if ((node as any).exprNode && testExprNode((node as any).exprNode)) return true;
+        else if (testExpr(node.expr)) return true;
+      }
+      if (node.kind === "let-decl" || node.kind === "const-decl") {
+        if ((node as any).initExpr && testExprNode((node as any).initExpr)) return true;
+        else if (testExpr(node.init)) return true;
+      }
 
       // Walk children (but not nested meta — they are classified independently)
       if (node.kind !== "meta") {
@@ -323,8 +338,15 @@ export function bodyContainsSqlContext(body: LogicNode[]): LogicNode | null {
       // Check for sql-context nodes in the AST
       if (node.kind === "sql" || node.kind === "sql-context") return node;
 
-      if (node.kind === "bare-expr" && node.expr && SQL_CONTEXT_RE.test(node.expr)) return node;
-      if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init && SQL_CONTEXT_RE.test(node.init)) return node;
+      // Phase 4d: ExprNode-first for SQL detection, string fallback
+      if (node.kind === "bare-expr") {
+        if ((node as any).exprNode) { const s = emitStringFromTree((node as any).exprNode); if (SQL_CONTEXT_RE.test(s)) return node; }
+        else if (node.expr && SQL_CONTEXT_RE.test(node.expr)) return node;
+      }
+      if (node.kind === "let-decl" || node.kind === "const-decl") {
+        if ((node as any).initExpr) { const s = emitStringFromTree((node as any).initExpr); if (SQL_CONTEXT_RE.test(s)) return node; }
+        else if (node.init && SQL_CONTEXT_RE.test(node.init)) return node;
+      }
 
       // Walk children (but not nested meta blocks)
       if (node.kind !== "meta") {
@@ -360,33 +382,47 @@ export function bodyMixesPhases(
   const metaLocals = collectMetaLocals(body);
 
   // Check if any expression references a runtime-only value
+  function isRuntimeIdent(id: string): boolean {
+    if (JS_KEYWORDS.has(id)) return false;
+    if (META_BUILTINS.has(id)) return false;
+    if (metaLocals.has(id)) return false;
+    if (typeRegistry && typeRegistry.has(id)) return false;
+    if (outerCompileTimeConsts.has(id)) return false;
+    return true;
+  }
+
   function hasRuntimeRef(nodes: LogicNode[]): boolean {
     if (!Array.isArray(nodes)) return false;
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
       if (node.kind === "meta") continue;
 
-      const exprs: string[] = [];
-      if (node.kind === "bare-expr" && node.expr) exprs.push(node.expr);
-      if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init) exprs.push(node.init);
+      // Phase 4d: ExprNode-first identifier extraction, string fallback
+      const exprNodeField = node.kind === "bare-expr" ? (node as any).exprNode
+        : (node.kind === "let-decl" || node.kind === "const-decl") ? (node as any).initExpr
+        : null;
 
-      for (const expr of exprs) {
-        let ids: string[];
-        try {
-          ids = extractIdentifiersFromAST(expr);
-        } catch {
-          ids = extractIdentifiers(expr);
-        }
-        // Do NOT fallback on ids.length === 0 — acorn returning empty is correct for
-        // expressions like emit("string-only-content") that have no identifier references.
+      if (exprNodeField) {
+        let foundRuntime = false;
+        forEachIdentInExprNode(exprNodeField, (ident) => {
+          if (isRuntimeIdent(ident.name)) foundRuntime = true;
+        });
+        if (foundRuntime) return true;
+      } else {
+        const exprs: string[] = [];
+        if (node.kind === "bare-expr" && node.expr) exprs.push(node.expr);
+        if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init) exprs.push(node.init);
 
-        for (const id of ids) {
-          if (JS_KEYWORDS.has(id)) continue;
-          if (META_BUILTINS.has(id)) continue;
-          if (metaLocals.has(id)) continue;
-          if (typeRegistry && typeRegistry.has(id)) continue;
-          if (outerCompileTimeConsts.has(id)) continue;
-          return true;
+        for (const expr of exprs) {
+          let ids: string[];
+          try {
+            ids = extractIdentifiersFromAST(expr);
+          } catch {
+            ids = extractIdentifiers(expr);
+          }
+          for (const id of ids) {
+            if (isRuntimeIdent(id)) return true;
+          }
         }
       }
 
@@ -420,9 +456,10 @@ export function collectMetaLocals(body: LogicNode[]): Set<string> {
       if (node.kind === "let-decl" || node.kind === "const-decl") {
         if (node.name) {
           locals.add(node.name);
-        } else if (node.init) {
+        } else if (node.init || (node as any).initExpr) {
           // Destructured declaration: name is empty, init contains `{ a, b } = expr`
-          for (const local of extractDestructuredLocals(node.init)) {
+          const initStr = node.init ?? ((node as any).initExpr ? emitStringFromTree((node as any).initExpr) : "");
+          for (const local of extractDestructuredLocals(initStr)) {
             locals.add(local);
           }
         }
@@ -1093,12 +1130,15 @@ export function checkReflectCalls(
   for (const node of body) {
     if (!node || typeof node !== "object") continue;
 
-    if (node.kind === "bare-expr" && node.expr) {
-      checkExprForReflect(node.expr, typeRegistry, node.span || metaSpan, filePath, errors, locals);
+    // Phase 4d: ExprNode-first — emit string from tree for reflect checking, string fallback
+    if (node.kind === "bare-expr") {
+      const exprStr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : node.expr;
+      if (exprStr) checkExprForReflect(exprStr, typeRegistry, node.span || metaSpan, filePath, errors, locals);
     }
 
-    if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init) {
-      checkExprForReflect(node.init, typeRegistry, node.span || metaSpan, filePath, errors, locals);
+    if (node.kind === "let-decl" || node.kind === "const-decl") {
+      const initStr = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : node.init;
+      if (initStr) checkExprForReflect(initStr, typeRegistry, node.span || metaSpan, filePath, errors, locals);
     }
 
     if (node.kind === "meta") {
