@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-13T00:02:09.285Z",
+  "generatedAt": "2026-04-13T15:49:19.016Z",
   "branch": "changes/expr-ast-phase-1-audit",
   "phase": "Phase 1.5 audit (idempotency invariant)",
   "summary": {
