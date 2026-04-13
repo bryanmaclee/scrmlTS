@@ -281,6 +281,23 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
     case "return-stmt":
       return n.value ? `return ${rewriteBunEval(n.value as string)};` : "return;";
 
+    case "html-fragment": {
+      // html-fragment nodes contain raw text that may include emit() calls
+      // (e.g. emit(`<div>...`) where the template literal has HTML content).
+      // The tokenizer converts backtick template literals to double-quoted strings
+      // with unescaped newlines. Restore backtick wrapping for any string argument
+      // that contains newlines so the JS evaluates correctly.
+      let fragContent = (n.content as string) ?? "";
+      if (fragContent.includes("\n")) {
+        // Find the opening ( and extract the string argument, replacing " wrapping with `
+        fragContent = fragContent.replace(
+          /\(\s*"([\s\S]*?)"\s*\)/g,
+          (_, inner) => '(`' + inner.replace(/\\"/g, '"') + '`)'
+        );
+      }
+      return fragContent ? `${rewriteReflectCalls(rewriteBunEval(fragContent), locals)};` : "";
+    }
+
     default:
       // For unrecognized nodes, try ExprNode then expr field or skip
       if (n.exprNode) return `${emitStringFromTree(n.exprNode as ExprNode)};`;
@@ -362,6 +379,7 @@ function evaluateMetaBlock(
   metaNode: MetaNode,
   typeRegistry: TypeRegistry,
   errors: MetaEvalError[],
+  precedingDecls?: string,
 ): ASTNode[] | null {
   const body = metaNode.body;
   if (!Array.isArray(body) || body.length === 0) return null;
@@ -371,8 +389,9 @@ function evaluateMetaBlock(
   // that will resolve to their string values at eval time.
   const metaLocals = collectMetaLocals(body as LogicStatement[]);
 
-  // Serialize the body to a JS string
-  const bodyCode = serializeBody(body, metaLocals);
+  // Serialize the body to a JS string, prepending any preceding declarations
+  // that are in scope (compile-time constants from sibling nodes).
+  const bodyCode = (precedingDecls ? precedingDecls + "\n" : "") + serializeBody(body, metaLocals);
 
   // Build the emit() and reflect() functions
   const emitted: Array<{ code: string; raw: boolean }> = [];
@@ -428,17 +447,44 @@ function processNodeList(
   nodes: ASTNode[],
   typeRegistry: TypeRegistry,
   errors: MetaEvalError[],
+  outerScope?: string,
 ): boolean {
   if (!Array.isArray(nodes)) return false;
 
   let changed = false;
   let i = 0;
 
+  // Accumulate declarations from this level to propagate to nested scopes
+  const scopeParts: string[] = outerScope ? [outerScope] : [];
+
   while (i < nodes.length) {
     const node = nodes[i];
     if (!node || typeof node !== "object") {
       i++;
       continue;
+    }
+
+    // Collect compile-time-safe declarations as we walk, for scope injection
+    if (node.kind === "const-decl" || node.kind === "let-decl") {
+      const pn = node as Record<string, unknown>;
+      const initStr = typeof pn.init === "string" ? pn.init : null;
+      if (initStr && pn.name && !/@/.test(initStr)) {
+        const kw = node.kind === "const-decl" ? "const" : "let";
+        scopeParts.push(`${kw} ${pn.name} = ${initStr};`);
+      }
+    }
+    if (node.kind === "logic" && Array.isArray((node as Record<string, unknown>).body)) {
+      for (const stmt of (node as Record<string, unknown>).body as ASTNode[]) {
+        if (!stmt || typeof stmt !== "object") continue;
+        if (stmt.kind === "const-decl" || stmt.kind === "let-decl") {
+          const sn = stmt as Record<string, unknown>;
+          const initStr = typeof sn.init === "string" ? sn.init : null;
+          if (initStr && sn.name && !/@/.test(initStr)) {
+            const kw = stmt.kind === "const-decl" ? "const" : "let";
+            scopeParts.push(`${kw} ${sn.name} = ${initStr};`);
+          }
+        }
+      }
     }
 
     if (node.kind === "meta") {
@@ -451,7 +497,9 @@ function processNodeList(
       const hasReactiveVars = bodyReferencesReactiveVars(body || []);
 
       if (isCompileTime && !hasReactiveVars) {
-        const replacementNodes = evaluateMetaBlock(node as MetaNode, typeRegistry, errors);
+        const precedingDecls = scopeParts.length > 0 ? scopeParts.join("\n") : undefined;
+
+        const replacementNodes = evaluateMetaBlock(node as MetaNode, typeRegistry, errors, precedingDecls);
 
         if (replacementNodes !== null) {
           // Splice the replacement nodes in place of the meta node
@@ -466,13 +514,14 @@ function processNodeList(
       // Not compile-time eligible or evaluation failed — leave the node
     }
 
-    // Recurse into children and body arrays
+    // Recurse into children and body arrays, propagating accumulated scope
     const n = node as Record<string, unknown>;
+    const currentScope = scopeParts.length > 0 ? scopeParts.join("\n") : undefined;
     if (Array.isArray(n.children)) {
-      if (processNodeList(n.children as ASTNode[], typeRegistry, errors)) changed = true;
+      if (processNodeList(n.children as ASTNode[], typeRegistry, errors, currentScope)) changed = true;
     }
     if (Array.isArray(n.body) && node.kind !== "meta") {
-      if (processNodeList(n.body as ASTNode[], typeRegistry, errors)) changed = true;
+      if (processNodeList(n.body as ASTNode[], typeRegistry, errors, currentScope)) changed = true;
     }
 
     i++;

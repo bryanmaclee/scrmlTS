@@ -262,6 +262,9 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
         if ((node as any).initExpr && testExprNode((node as any).initExpr)) return true;
         else if (testExpr(node.init)) return true;
       }
+      // html-fragment nodes may contain emit() calls (e.g. emit(`<div>...`))
+      // when the template literal has HTML content that triggers fragment classification.
+      if (node.kind === "html-fragment" && testExpr((node as any).content)) return true;
 
       // Walk children (but not nested meta — they are classified independently)
       if (node.kind !== "meta") {
