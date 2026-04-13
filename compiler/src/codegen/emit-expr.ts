@@ -62,9 +62,6 @@ export interface EmitExprContext {
 
 /**
  * Emit a JavaScript expression string from an ExprNode tree.
- *
- * This is the Phase 3 replacement for rewriteExpr(string). Call sites use:
- *   node.exprNode ? emitExpr(node.exprNode, ctx) : rewriteExpr(node.stringField)
  */
 export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
   switch (node.kind) {
@@ -94,6 +91,19 @@ export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
       return (_exhaustive as EscapeHatchExpr).raw ?? "";
     }
   }
+}
+
+/**
+ * Phase 4d Slice 4a: consolidated dual-path emitter.
+ *
+ * If exprNode is present, emits via emitExpr (the structured tree-walk path).
+ * If exprNode is missing (legacy AST or unparseable expression), falls back to
+ * the string rewrite pipeline. The fallback is expected to be dead code for
+ * well-formed scrml — Slice 4b will remove it entirely.
+ */
+export function emitExprField(exprNode: ExprNode | null | undefined, fallbackStr: string, ctx: EmitExprContext): string {
+  if (exprNode) return emitExpr(exprNode, ctx);
+  return ctx.mode === "server" ? rewriteServerExpr(fallbackStr) : rewriteExpr(fallbackStr);
 }
 
 // ---------------------------------------------------------------------------

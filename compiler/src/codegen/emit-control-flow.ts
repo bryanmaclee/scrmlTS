@@ -1,6 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { rewriteExpr } from "./rewrite.js";
-import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
+import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
 import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr } from "./emit-lift.js";
 import { emitTransitionGuard } from "./emit-machines.ts";
@@ -30,7 +30,7 @@ interface MachineBindingInfo {
 export function emitIfStmt(node: any, opts: IfOpts = {}): string {
   const lines: string[] = [];
   const _ifExprCtx: EmitExprContext = { mode: "client", derivedNames: opts.derivedNames ?? null };
-  const _ifCond = node.condExpr ? emitExpr(node.condExpr, _ifExprCtx) : rewriteExpr(node.condition ?? node.test ?? "true");
+  const _ifCond = emitExprField(node.condExpr, node.condition ?? node.test ?? "true", _ifExprCtx);
   lines.push(`if (${_ifCond}) {`);
 
   const consequent: any[] = node.consequent ?? node.body ?? [];
@@ -87,9 +87,10 @@ export function emitForStmt(node: any): string {
     const cStyleMatch = iterable.match(/^\(\s*(.*?)\s*;\s*(.*?)\s*;\s*(.*?)\s*\)$/s);
     if (cStyleMatch) {
       const _cParts = node.cStyleParts;
-      const init = _cParts?.initExpr ? emitExpr(_cParts.initExpr, { mode: "client" }) : rewriteExpr(cStyleMatch[1].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"));
-      const cond = _cParts?.condExpr ? emitExpr(_cParts.condExpr, { mode: "client" }) : rewriteExpr(cStyleMatch[2].trim());
-      const update = _cParts?.updateExpr ? emitExpr(_cParts.updateExpr, { mode: "client" }) : rewriteExpr(cStyleMatch[3].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"));
+      const _cCtx: EmitExprContext = { mode: "client" };
+      const init = emitExprField(_cParts?.initExpr, cStyleMatch[1].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"), _cCtx);
+      const cond = emitExprField(_cParts?.condExpr, cStyleMatch[2].trim(), _cCtx);
+      const update = emitExprField(_cParts?.updateExpr, cStyleMatch[3].trim().replace(/\s*\+\s*\+/g, "++").replace(/\s*-\s*-/g, "--"), _cCtx);
       lines.push(`for (${init}; ${cond}; ${update}) {`);
 
       const body: any[] = node.body ?? [];
@@ -123,7 +124,7 @@ export function emitForStmt(node: any): string {
     const createFnVar = genVar("create_item");
     const tmpContainerVar = genVar("tmp");
     const _forExprCtx: EmitExprContext = { mode: "client" };
-    const rewrittenIterable = node.iterExpr ? emitExpr(node.iterExpr, _forExprCtx) : rewriteExpr(iterable);
+    const rewrittenIterable = emitExprField(node.iterExpr, iterable, _forExprCtx);
     const body: any[] = node.body ?? [];
 
     lines.push(`const ${wrapperVar} = document.createElement("div");`);
@@ -175,7 +176,7 @@ export function emitForStmt(node: any): string {
 
   // Non-reactive path — plain for loop
   const _plainForCtx: EmitExprContext = { mode: "client" };
-  iterable = node.iterExpr ? emitExpr(node.iterExpr, _plainForCtx) : rewriteExpr(iterable);
+  iterable = emitExprField(node.iterExpr, iterable, _plainForCtx);
   lines.push(`for (const ${varName} of ${iterable}) {`);
 
   const body: any[] = node.body ?? [];
@@ -204,7 +205,7 @@ export function emitForStmt(node: any): string {
 export function emitWhileStmt(node: any): string {
   const lines: string[] = [];
   const _whileCtx: EmitExprContext = { mode: "client" };
-  const condition = node.condExpr ? emitExpr(node.condExpr, _whileCtx) : rewriteExpr(node.condition ?? "true");
+  const condition = emitExprField(node.condExpr, node.condition ?? "true", _whileCtx);
   const label = node.label ? `${node.label}: ` : "";
   lines.push(`${label}while (${condition}) {`);
   for (const code of emitLogicBody(node.body ?? [])) {
@@ -224,7 +225,7 @@ export function emitWhileStmt(node: any): string {
 export function emitDoWhileStmt(node: any): string {
   const lines: string[] = [];
   const _doWhileCtx: EmitExprContext = { mode: "client" };
-  const condition = node.condExpr ? emitExpr(node.condExpr, _doWhileCtx) : rewriteExpr(node.condition ?? "true");
+  const condition = emitExprField(node.condExpr, node.condition ?? "true", _doWhileCtx);
   const label = node.label ? `${node.label}: ` : "";
   lines.push(`${label}do {`);
   for (const code of emitLogicBody(node.body ?? [])) {
@@ -647,7 +648,7 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
  */
 export function emitMatchExpr(node: any): string {
   const _matchCtx: EmitExprContext = { mode: "client" };
-  const header = node.headerExpr ? emitExpr(node.headerExpr, _matchCtx) : rewriteExpr((node.header ?? "").trim());
+  const header = emitExprField(node.headerExpr, (node.header ?? "").trim(), _matchCtx);
   const body: any[] = node.body ?? [];
 
   const tmpVar = genVar("match");
@@ -768,7 +769,7 @@ export function emitMatchExpr(node: any): string {
  */
 export function emitSwitchStmt(node: any): string {
   const _switchCtx: EmitExprContext = { mode: "client" };
-  const header = node.headerExpr ? emitExpr(node.headerExpr, _switchCtx) : rewriteExpr((node.header ?? "").trim());
+  const header = emitExprField(node.headerExpr, (node.header ?? "").trim(), _switchCtx);
   const lines: string[] = [];
   let cleanHeader = header;
   if (cleanHeader.startsWith("(") && cleanHeader.endsWith(")")) {

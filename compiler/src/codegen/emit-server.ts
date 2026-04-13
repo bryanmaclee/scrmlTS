@@ -6,7 +6,7 @@ import { emitLogicNode } from "./emit-logic.ts";
 import { getNodes } from "./collect.ts";
 import { collectChannelNodes, emitChannelServerJs, emitChannelWsHandlers } from "./emit-channel.ts";
 import { rewriteExpr, rewriteServerExpr, serverRewriteEmitted } from "./rewrite.ts";
-import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
+import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import type { CompileContext } from "./context.ts";
 import { emitServerParamCheck, parsePredicateAnnotation } from "./emit-predicates.ts";
 
@@ -524,8 +524,7 @@ export function generateServerJs(
           if (idx < body.length) {
             const stmt = body[idx];
             if (stmt && stmt.kind === "reactive-decl" && cpsSplit.returnVarName === stmt.name) {
-              const _serverExprCtx: EmitExprContext = { mode: "server" };
-              const initExpr = stmt.initExpr ? emitExpr(stmt.initExpr, _serverExprCtx) : rewriteServerExpr(stmt.init ?? "undefined");
+              const initExpr = emitExprField(stmt.initExpr, stmt.init ?? "undefined", { mode: "server" });
               lines.push(`    const _scrml_cps_return = ${initExpr};`);
               continue;
             }
@@ -599,8 +598,7 @@ export function generateServerJs(
           if (idx < body.length) {
             const stmt = body[idx];
             if (stmt && stmt.kind === "reactive-decl" && cpsSplit.returnVarName === stmt.name) {
-              const _serverExprCtx: EmitExprContext = { mode: "server" };
-              const initExpr = stmt.initExpr ? emitExpr(stmt.initExpr, _serverExprCtx) : rewriteServerExpr(stmt.init ?? "undefined");
+              const initExpr = emitExprField(stmt.initExpr, stmt.init ?? "undefined", { mode: "server" });
               lines.push(`  const _scrml_cps_return = ${initExpr};`);
               continue;
             }

@@ -1,6 +1,6 @@
 import { rewriteExpr, rewriteReactiveRefs } from "./rewrite.js";
 import { rewriteBlockBody } from "./emit-control-flow.ts";
-import { emitExpr } from "./emit-expr.ts";
+import { emitExpr, emitExprField } from "./emit-expr.ts";
 import type { ExprNode } from "../types/ast.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
@@ -224,7 +224,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // Object args with .kind need special handling.
       const _argNodes = binding.handlerArgExprNodes;
       const argsStr = (handlerArgs ?? []).map((a: unknown, idx: number) => {
-        if (typeof a === "string") return (_argNodes && _argNodes[idx]) ? emitExpr(_argNodes[idx], { mode: "client" }) : rewriteExpr(a);
+        if (typeof a === "string") return emitExprField(_argNodes?.[idx], a, { mode: "client" });
         const node = a as Record<string, unknown>;
         if (node && node.kind === "string-literal") return JSON.stringify(node.value);
         if (node && node.kind === "number-literal") return String(node.value);

@@ -1,5 +1,5 @@
 import { rewriteExpr } from "./rewrite.js";
-import { emitExpr } from "./emit-expr.ts";
+import { emitExpr, emitExprField } from "./emit-expr.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { genVar } from "./var-counter.ts";
 import { VOID_ELEMENTS } from "./utils.ts";
@@ -482,7 +482,7 @@ function emitCreateElementFromMarkup(node, lines) {
       lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(val.value)});`);
     } else if (val.kind === "variable-ref") {
       const varName = (val.name || "").replace(/^@/, "");
-      const rewritten = val.exprNode ? emitExpr(val.exprNode, { mode: "client" }) : rewriteExpr(varName);
+      const rewritten = emitExprField(val.exprNode, varName, { mode: "client" });
       lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, ${rewritten});`);
     } else if (val.kind === "call-ref") {
       // Event handler — use addEventListener
@@ -497,10 +497,10 @@ function emitCreateElementFromMarkup(node, lines) {
       const raw = val.raw ?? val.propsDecl ?? "";
       if (/^on[a-z]/.test(name)) {
         const eventName = name.replace(/^on/, "");
-        const rewritten = val.exprNode ? emitExpr(val.exprNode, { mode: "client" }) : rewriteExpr(raw);
+        const rewritten = emitExprField(val.exprNode, raw, { mode: "client" });
         lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
       } else {
-        const rewritten = val.exprNode ? emitExpr(val.exprNode, { mode: "client" }) : rewriteExpr(raw);
+        const rewritten = emitExprField(val.exprNode, raw, { mode: "client" });
         lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${rewritten} ?? ""));`);
       }
     }
