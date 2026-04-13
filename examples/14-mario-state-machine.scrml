@@ -123,8 +123,13 @@ ${
     @gameOver = false
     @vulnerable = false
 
-    ~marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
-    ~marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
+    @marioEmoji = "🧍"
+    @marioName  = "SMALL MARIO"
+
+    fn updateDisplay() {
+        @marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
+        @marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
+    }
 
     function eatPowerUp(powerUp) {
         if (@gameOver) { return }
@@ -138,6 +143,7 @@ ${
             .Flower  => MarioState.Fire
             .Feather => MarioState.Cape
         }
+        updateDisplay()
     }
 
     function getHurt() {
@@ -152,6 +158,7 @@ ${
                 @vulnerable = false
             }
         }
+        updateDisplay()
     }
 
     function restart() {
@@ -160,6 +167,7 @@ ${
         @lives = 3
         @gameOver = false
         @vulnerable = false
+        updateDisplay()
     }
 }
 
