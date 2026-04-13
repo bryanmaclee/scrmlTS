@@ -15,6 +15,12 @@
 3. **Phase 4d meta-checker** (`bbf3a3a`) — 5 meta-checker functions converted to ExprNode-first with string fallback.
 4. **Phase 4d scheduling+collect+route-inference** (`d5ed977`) — 8 route-inference sites, 4 scheduling sites, 3 collect sites → ExprNode-first.
 5. **Phase 4d meta-eval** (`8582245`) — serializeNode: bare-expr, let-decl, const-decl, if-stmt, default → ExprNode-first.
+6. **Phase 4d codegen edge files** (`d3eeeff`) — emit-bindings, emit-reactive-wiring, emit-client, emit-html → ExprNode-first.
+
+### Phase 4d coverage
+- **15 of 17 files** now ExprNode-first with string fallback
+- Remaining: component-expander.ts (needs structural ExprNode matching), body-pre-parser.ts (inherently string-based)
+- Next: drop string fields from AST types (the final mechanical deletion once CE is converted)
 
 ### Queued (from S10)
 1. **lin redesign deep-dive** — discontinuous scoping (user's original vision), debate if needed
