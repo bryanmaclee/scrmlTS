@@ -29,7 +29,7 @@ import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
 import { bodyUsesCompileTimeApis, createReflect, buildFileTypeRegistry, collectMetaLocals, extractParamBindings } from "./meta-checker.ts";
 import { rewriteBunEval } from "./codegen/rewrite.ts";
-import { exprNodeContainsReactiveRef } from "./expression-parser.ts";
+import { exprNodeContainsReactiveRef, emitStringFromTree } from "./expression-parser.ts";
 import type { Span, FileAST, ASTNode, ExprNode, MetaNode, LogicStatement } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
@@ -221,14 +221,21 @@ function serializeBody(nodes: LogicStatement[], locals: Set<string> = new Set())
 function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
   const n = node as Record<string, unknown>;
   switch (node.kind) {
-    case "bare-expr":
-      return `${rewriteReflectCalls(rewriteBunEval(n.expr as string), locals)};`;
+    case "bare-expr": {
+      // Phase 4d: ExprNode-first, string fallback
+      const bareStr = n.exprNode ? emitStringFromTree(n.exprNode as ExprNode) : (n.expr as string);
+      return `${rewriteReflectCalls(rewriteBunEval(bareStr), locals)};`;
+    }
 
-    case "let-decl":
-      return n.init != null ? `let ${n.name} = ${rewriteReflectCalls(rewriteBunEval(n.init as string), locals)};` : `let ${n.name};`;
+    case "let-decl": {
+      const letStr = n.initExpr ? emitStringFromTree(n.initExpr as ExprNode) : (n.init as string | null);
+      return letStr != null ? `let ${n.name} = ${rewriteReflectCalls(rewriteBunEval(letStr), locals)};` : `let ${n.name};`;
+    }
 
-    case "const-decl":
-      return n.init != null ? `const ${n.name} = ${rewriteReflectCalls(rewriteBunEval(n.init as string), locals)};` : `const ${n.name};`;
+    case "const-decl": {
+      const constStr = n.initExpr ? emitStringFromTree(n.initExpr as ExprNode) : (n.init as string | null);
+      return constStr != null ? `const ${n.name} = ${rewriteReflectCalls(rewriteBunEval(constStr), locals)};` : `const ${n.name};`;
+    }
 
     case "for-loop": {
       const iter = (n.iterable || n.collection || "") as string;
@@ -255,13 +262,16 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
       if (n.rawInit !== undefined || n.rawTest !== undefined || n.rawUpdate !== undefined) {
         return `for (${n.rawInit || ""}; ${n.rawTest || ""}; ${n.rawUpdate || ""}) {\n${loopBody}\n}`;
       }
-      // Last resort: try expr field
+      // Last resort: try ExprNode then expr field
+      if (n.exprNode) return `${emitStringFromTree(n.exprNode as ExprNode)};`;
       if (n.expr) return `${n.expr};`;
       return "";
     }
 
     case "if-stmt": {
-      let code = `if (${n.condition || n.test || "true"}) {\n${serializeBody((n.consequent || n.body || []) as LogicStatement[], locals)}\n}`;
+      // Phase 4d: ExprNode-first for condition
+      const ifCond = n.condExpr ? emitStringFromTree(n.condExpr as ExprNode) : (n.condition || n.test || "true");
+      let code = `if (${ifCond}) {\n${serializeBody((n.consequent || n.body || []) as LogicStatement[], locals)}\n}`;
       if (n.alternate && (n.alternate as LogicStatement[]).length > 0) {
         code += ` else {\n${serializeBody(n.alternate as LogicStatement[], locals)}\n}`;
       }
@@ -272,7 +282,8 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
       return n.value ? `return ${rewriteBunEval(n.value as string)};` : "return;";
 
     default:
-      // For unrecognized nodes, try expr field or skip
+      // For unrecognized nodes, try ExprNode then expr field or skip
+      if (n.exprNode) return `${emitStringFromTree(n.exprNode as ExprNode)};`;
       if (n.expr) return `${n.expr};`;
       return "";
   }
