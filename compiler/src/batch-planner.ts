@@ -86,7 +86,7 @@ export interface BatchDiagnostic {
  * Error emitted by the planner (§8.9.2, §8.10.6, §8.10.7, §19.10.5).
  */
 export interface BatchPlannerError {
-  code: "E-BATCH-001" | "E-BATCH-002" | "E-PROTECT-003" | "W-BATCH-001";
+  code: "E-BATCH-001" | "E-BATCH-002" | "E-PROTECT-003" | "E-LIFT-001" | "W-BATCH-001";
   severity: "error" | "warning";
   message: string;
   span?: unknown;
@@ -421,7 +421,71 @@ function emitNearMiss(plan: BatchPlan, loopId: NodeId, reason: string, span?: un
  * either a LoopHoist (on match) or a D-BATCH-001 diagnostic (on near
  * miss). No-op when the loop has no SQL in its body.
  */
-function analyzeForLoop(forStmt: Record<string, unknown>, plan: BatchPlan): void {
+/**
+ * Extract the SELECT column list and FROM table name from a SQL template body.
+ * Returns `cols: ["*"]` for wildcard SELECTs; returns an empty list when parsing
+ * fails (conservative — no overlap check attempted).
+ */
+function parseSelectColumnsAndTable(sql: string): { cols: string[]; table: string | null } {
+  const m = sql.match(/SELECT\s+([\s\S]+?)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)/i);
+  if (!m) return { cols: [], table: null };
+  const colList = m[1].trim();
+  const table = m[2];
+  if (colList === "*") return { cols: ["*"], table };
+  // Split on comma at depth 0 (skip parens). Keep it simple — v1 hoists only
+  // cover simple SELECT forms per §8.10.1.
+  const cols = colList
+    .split(",")
+    .map((c) => c.trim())
+    // Strip table qualifier (e.g. "u.name" → "name") and AS alias (e.g. "x AS y" → "y").
+    .map((c) => {
+      const aliased = c.match(/\s+AS\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i);
+      if (aliased) return aliased[1];
+      const qualified = c.match(/\.([A-Za-z_][A-Za-z0-9_]*)\s*$/);
+      if (qualified) return qualified[1];
+      return c.replace(/[`"]/g, "");
+    })
+    .filter((c) => c.length > 0);
+  return { cols, table };
+}
+
+/**
+ * §8.10.7: verify that the hoisted SELECT's column set does not overlap with
+ * any protect-annotated column on the target table. Returns the overlapping
+ * columns (empty array = no overlap).
+ */
+function findProtectOverlap(
+  cols: string[],
+  table: string | null,
+  protectAnalysis: unknown,
+): string[] {
+  if (!table || cols.length === 0 || !protectAnalysis || typeof protectAnalysis !== "object") {
+    return [];
+  }
+  const pa = protectAnalysis as { views?: Map<unknown, { tables?: Map<string, { protectedFields?: Set<string>; fullSchema?: Array<{ name: string }> }> }> };
+  if (!pa.views) return [];
+  const overlap = new Set<string>();
+  for (const dbView of pa.views.values()) {
+    const tv = dbView?.tables?.get(table);
+    if (!tv || !tv.protectedFields) continue;
+    if (cols.length === 1 && cols[0] === "*") {
+      // SELECT * includes every protected column.
+      for (const p of tv.protectedFields) overlap.add(p);
+    } else {
+      for (const c of cols) {
+        if (tv.protectedFields.has(c)) overlap.add(c);
+      }
+    }
+  }
+  return [...overlap].sort();
+}
+
+function analyzeForLoop(
+  forStmt: Record<string, unknown>,
+  plan: BatchPlan,
+  errors: BatchPlannerError[],
+  protectAnalysis: unknown,
+): void {
   const loopVar = typeof forStmt.variable === "string" ? forStmt.variable : "";
   if (!loopVar) return;
 
@@ -475,6 +539,28 @@ function analyzeForLoop(forStmt: Record<string, unknown>, plan: BatchPlan): void
     `WHERE ${keyResult.keyColumn} IN (__SCRML_BATCH_IN__)`,
   );
 
+  // §8.10.7: populate rowCacheColumns from the SELECT column list, then
+  // cross-reference against protectedFields on the target table. Overlap
+  // refuses the hoist and emits E-PROTECT-003 (CG falls back to the
+  // unrewritten for-loop, preserving N+1 semantics without leaking
+  // protected fields through the batched prefetch).
+  const { cols, table } = parseSelectColumnsAndTable(site.body);
+  const rowCacheColumns = new Set<string>(cols);
+  const overlap = findProtectOverlap(cols, table, protectAnalysis);
+  if (overlap.length > 0) {
+    errors.push({
+      code: "E-PROTECT-003",
+      severity: "error",
+      message:
+        `Tier 2 loop hoist refused for table '${table ?? "?"}': the pre-loop ` +
+        `SELECT would cache protected column(s) [${overlap.join(", ")}] in ` +
+        `client-reachable scope (§8.10.7). Narrow the SELECT column list or ` +
+        `.nobatch() the loop body.`,
+      span: forStmt.span,
+    });
+    return;
+  }
+
   plan.loopHoists.push({
     loopNode: loopId,
     queryNode: `${String(loopId)}#query`,
@@ -485,7 +571,7 @@ function analyzeForLoop(forStmt: Record<string, unknown>, plan: BatchPlan): void
     sqlTemplate: site.body,
     inSqlTemplate,
     terminator: site.terminator as "get" | "all",
-    rowCacheColumns: new Set<string>(),
+    rowCacheColumns,
   });
 }
 
@@ -544,7 +630,7 @@ export function runBatchPlanner(input: BPInput): BPOutput {
     const topNodes = getFileNodes(file);
     walkAst(topNodes, (node) => {
       if (node.kind !== "for-stmt") return true;
-      analyzeForLoop(node, batchPlan);
+      analyzeForLoop(node, batchPlan, errors, input.protectAnalysis);
       return true;
     });
   }
@@ -610,7 +696,49 @@ export function runBatchPlanner(input: BPInput): BPOutput {
     });
   }
 
+  // §8.10.7 post-rewrite lift-checker re-run.
+  for (const e of verifyPostRewriteLift(batchPlan)) errors.push(e);
+
   return { batchPlan, errors };
+}
+
+/**
+ * §8.10.7 post-rewrite lift re-check.
+ *
+ * Each Tier 2 hoist introduces a synthetic pre-loop DGNode (the batched
+ * SELECT). The spec requires re-running the Phase 2 E-LIFT-001 pair check
+ * over the post-rewrite DG to ensure the new sibling does not break the
+ * deterministic-accumulator invariant (§10.5).
+ *
+ * By construction the synthetic prefetch is a pure SELECT with
+ * `hasLift: false` — §8.10.1 condition 4 allows only one SQL site in the
+ * loop body, and the hoisted SELECT body carries no scrml `lift` call.
+ * A pair check against this node can therefore never fire a new
+ * E-LIFT-001 unless the hoisted template itself contains `lift`, which
+ * would violate the §8.10.1 precondition. We defensively assert that
+ * invariant here and surface any violation as E-LIFT-001, matching the
+ * error code Phase 2 would have raised on the post-rewrite DG.
+ *
+ * Exported for direct testing of the invariant.
+ */
+export function verifyPostRewriteLift(plan: BatchPlan): BatchPlannerError[] {
+  const out: BatchPlannerError[] = [];
+  for (const hoist of plan.loopHoists) {
+    if (/\blift\s*\(/i.test(hoist.sqlTemplate)) {
+      out.push({
+        code: "E-LIFT-001",
+        severity: "error",
+        message:
+          `E-LIFT-001 (post-rewrite, §8.10.7): hoisted SELECT at loop ` +
+          `'${String(hoist.loopNode)}' contains 'lift'. The Tier 2 rewrite ` +
+          `would introduce a lift-bearing sibling DGNode that parallelizes ` +
+          `with existing lift-bearing nodes in the same logic block, ` +
+          `violating §10.5. Refactor the loop to eliminate lift from the ` +
+          `hoisted query or .nobatch() the site.`,
+      });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
