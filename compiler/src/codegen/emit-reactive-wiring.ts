@@ -195,10 +195,15 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     if (pid && groupHasLift) {
       if (groupHasReactiveDeps) {
         // Wrap in _scrml_effect: clear the placeholder, re-run the block.
-        // Branch guard: if the group is a single if-stmt whose condition
-        // evaluates to the same truthy/falsy value as last time, skip the
-        // innerHTML clear to preserve event listeners and input state.
+        // Guard 1 (branch): if the group is a single if-stmt whose condition
+        //   evaluates to the same truthy/falsy value as last time, skip the
+        //   innerHTML clear to preserve event listeners and input state.
+        // Guard 2 (keyed reconcile): if the emitted code uses
+        //   `_scrml_reconcile_list`, the list wrapper is mounted once and
+        //   reconciled in place. An innerHTML clear would destroy the wrapper
+        //   every time the effect re-runs, breaking keyed diffing.
         const isSingleIf = stmts.length === 1 && stmts[0].kind === "if-stmt";
+        const hasKeyedReconcile = combinedCode.includes("_scrml_reconcile_list(");
         const targetVar = genVar("lift_tgt");
         const branchVar = isSingleIf ? genVar("lift_branch") : null;
         lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
@@ -216,7 +221,9 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
             lines.push(`  ${branchVar} = _branch;`);
           }
         }
-        lines.push(`  ${targetVar}.innerHTML = "";`);
+        if (!hasKeyedReconcile) {
+          lines.push(`  ${targetVar}.innerHTML = "";`);
+        }
         lines.push(`  _scrml_lift_target = ${targetVar};`);
         lines.push(`  ${combinedCode}`);
         lines.push(`  _scrml_lift_target = null;`);

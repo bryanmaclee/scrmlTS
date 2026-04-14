@@ -921,6 +921,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         //   3. lastPart === "=" — collecting RHS of an assignment expression (§50: chained
         //      assignment). `a = b = c = 0` collects RHS `b = c = 0`: seeing `c =` is
         //      part of the chain, not a new statement boundary.
+        //   4. lastPart === ":" — type-kind separator in `type X:enum = {...}` or
+        //      type annotation `const x:number = 5`. `enum`/`struct`/primitive type
+        //      names tokenize as IDENT (not KEYWORD); without this guard, collectExpr
+        //      treats them as a new assignment statement and breaks mid-type-decl.
         if (parts.length > 0 && angleDepth === 0) {
           const lastPart = parts[parts.length - 1];
           if (!DECL_KEYWORDS.has(lastPart)) {
@@ -928,7 +932,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             const isAssign = next1 && next1.kind === "PUNCT" && next1.text === "=" && peek(2)?.text !== "=";
             if (isAssign) {
               if (tok.kind === "AT_IDENT" && lastPart !== "=") break;
-              if (tok.kind === "IDENT" && lastPart !== "." && lastPart !== "=") break;
+              if (tok.kind === "IDENT" && lastPart !== "." && lastPart !== "=" && lastPart !== ":") break;
             }
           }
         }

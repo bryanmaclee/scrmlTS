@@ -73,11 +73,14 @@ describe("if-as-expression", () => {
   });
 
   it("if as statement (not after =) still works as if-stmt", () => {
+    // Test intent: verify if-stmt codegen (not IIFE). `log(x)` is added to satisfy
+    // E-MU-001 — without a read of `x`, MustUse correctly flags the write-only var.
     const src = [
       '<program>',
       '${',
       '  let x = 0',
       '  if (true) { x = 1 }',
+      '  log(x)',
       '}',
       '</program>',
     ].join('\n');
