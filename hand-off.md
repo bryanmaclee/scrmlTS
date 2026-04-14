@@ -91,16 +91,18 @@ Spec amendment 2026-04-09 replaced bare `/` with `</>`. Audit found the change w
 
 ### Queued
 
-**Lift Approach C (multi-session, in progress):**
+**Lift Approach C (multi-session, major progress):**
 - ✓ Phase 0: `</>` closer propagation — AST builder + samples
-- NEXT Phase 1: Rewrite `collectLiftExpr` → `parseLiftTag` producing structured MarkupNodes
-  - **Data point**: 100% of real lift-exprs currently go through the fragile `kind: "expr"` string path (verified on kanban/todo/multi-step-form samples). Zero go through the BLOCK_REF structured path. Approach C is strongly justified.
-  - Complexity: attribute parsing (reuse `tokenizeAttributes`), nested tags, `${expr}` BLOCK_REFs, `</>`/`</tag>`/`/>` closer forms
-- Phase 2: Simplify emit-lift.js (delete ~800 lines of dead paths after Phase 1)
-- Phase 3: Update secondary consumers
+- ✓ Phase 1: `parseLiftTag` in ast-builder.js produces structured MarkupNodes for inline lift markup
+  - 100% of real lift-exprs now produce `{kind: "markup"}` (was 0% — all went through fragile string path)
+  - Handles: tags + attrs (string/ident/call-ref/BLOCK_REF/absent), self-closing, `</>` inferred closer, `</tagname>` explicit, nested tags, `${expr}` logic children, compound attr names (`bind:value`, `aria-label`), bare component refs
+  - Falls back to `collectLiftExpr` string path for unrecognized patterns (safe rollback)
+  - ex05 regression test updated: components lifted inside match arms now properly expand
+- ✓ Phase 2 (partial): Dead code documented via `@deprecated` JSDoc markers on `parseTagExprString` and `emitCreateElementFromExprString`. The `expr` string path is only reachable via legacy test fixtures that hard-code `{kind: "expr"}` with bare-`/` closer. Safe deletion blocked on migrating those test fixtures (~21 hits across test suite).
+- Phase 3 (queued): Migrate test fixtures from `{kind: "expr"}` to `{kind: "markup"}`, then delete ~800 lines of dead code in emit-lift.js
 
 **Other queued:**
-- `:>` codegen support in `emit-control-flow.ts` arm parsers (decided, needs implementing)
+- ✓ `:>` codegen support landed (commit `80c7d5d`): both `=>` and `:>` are canonical match arm arrows
 - Phase 2 reactive effects — two-level effect separation for if/lift (when needed)
 - Lin Approach B implementation — spec amendments drafted, multi-session scope
 - Phase 4d final cleanup — delete deprecated string fields + dead fallback code

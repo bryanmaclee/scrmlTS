@@ -560,6 +560,11 @@ function emitCreateElementFromMarkup(node, lines) {
 // ---------------------------------------------------------------------------
 
 /**
+ * @deprecated S14 Lift Approach C — parseLiftTag in ast-builder.js now produces
+ * structured {kind: "markup"} nodes for inline lift markup. This string parser
+ * is only reached via legacy test fixtures that hard-code {kind: "expr"} with
+ * bare-`/` closer syntax. Can be deleted once all test fixtures are migrated.
+ *
  * Parse a tokenizer-spaced tag expression string into { tag, attrsStr, content }.
  *
  * Input: `< div class = "card" > content /`
@@ -629,6 +634,9 @@ function parseTagExprString(expr) {
  *
  * Only handles simple content (text + interpolations).
  * Content containing nested tags (tokenizer-spaced `< tag`) is left to the caller.
+ *
+ * @deprecated S14 Lift Approach C — real code uses emitCreateElementFromMarkup
+ * via the structured {kind: "markup"} path. Only legacy test fixtures reach here.
  *
  * @param {string} expr — raw tokenizer string like `< li > ${item} /`
  * @returns {{ lines: string[], varName: string } | null}
@@ -1353,6 +1361,12 @@ export function emitLiftExpr(node, opts = {}) {
 
   if (liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
     const expr = liftExpr.expr.trim();
+
+    // LIFT APPROACH C: as of S14, parseLiftTag in ast-builder.js produces
+    // {kind: "markup"} for all inline lift markup. This `expr` path with
+    // markup-looking text is only reachable via test fixtures that hard-code
+    // legacy-shaped lift-expr nodes. Kept as-is for backward compat during
+    // migration; can be deleted once all test fixtures use {kind: "markup"}.
 
     // When the expression starts with a tag, re-parse through BS+TAB to get a
     // structured markup tree, then use emitCreateElementFromMarkup.
