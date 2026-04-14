@@ -2,15 +2,15 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-13 (S13 — deep-dive+debate fixes, test triage 147→15, README specced-not-impl section)
+**Last updated:** 2026-04-14 (S14 — match-as-expr, Phase 4d complete, `</>` closer fix, `:>` canonical, Lift Approach C Phase 1)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
 
-## A. Compiler core (verified working S86)
+## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 6,130 pass, 15 fail (S13 2026-04-13) — 132 eliminated by pretest compile script + hang fix
+**Tests:** 6,153 pass, 14 fail (S14 2026-04-14) — 100% of lift-exprs now structured, match-as-expr live, all string-field consumers ExprNode-first
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
