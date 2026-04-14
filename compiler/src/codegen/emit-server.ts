@@ -1,7 +1,7 @@
 import { CGError } from "./errors.ts";
 import { genVar } from "./var-counter.ts";
 import { routePath } from "./utils.ts";
-import { collectFunctions } from "./collect.ts";
+import { collectFunctions, collectServerVarDecls, callableServerVarDecls } from "./collect.ts";
 import { emitLogicNode } from "./emit-logic.ts";
 import { getNodes } from "./collect.ts";
 import { collectChannelNodes, emitChannelServerJs, emitChannelWsHandlers } from "./emit-channel.ts";
@@ -87,7 +87,21 @@ export function generateServerJs(
   const _scrml_handleNodeEarly: any | null = fnNodes.find((fn: any) => fn.isHandleEscapeHatch) ?? null;
 
   const channelNodes: any[] = ctxForCache?.analysis?.channelNodes ?? collectChannelNodes(getNodes(fileAST));
-  if (serverFns.length === 0 && !authMiddlewareEntry && channelNodes.length === 0 && !middlewareConfig && !_scrml_handleNodeEarly) return "";
+
+  // §8.11: detect if this file needs a synthetic __mountHydrate route
+  // (≥2 `server @var` decls with callable initExprs → coalesce initial loads).
+  const _mhAllServerVars = collectServerVarDecls(fileAST);
+  const _mhCallableDecls = callableServerVarDecls(_mhAllServerVars);
+  const _needsMountHydrate = _mhCallableDecls.length >= 2;
+
+  if (
+    serverFns.length === 0 &&
+    !authMiddlewareEntry &&
+    channelNodes.length === 0 &&
+    !middlewareConfig &&
+    !_scrml_handleNodeEarly &&
+    !_needsMountHydrate
+  ) return "";
 
   const lines: string[] = [];
   lines.push("// Generated server route handlers");
@@ -680,6 +694,47 @@ export function generateServerJs(
     lines.push(`  path: ${JSON.stringify(path)},`);
     lines.push(`  method: ${JSON.stringify(httpMethod)},`);
     lines.push(`  handler: ${(_scrml_hasMW || _scrml_handleNode != null) ? `_scrml_mw_wrap(${handlerName})` : handlerName},`);
+    lines.push(`};`);
+    lines.push("");
+  }
+
+  // §8.11 Mount-Hydration Coalescing — synthetic __mountHydrate route.
+  // Emitted iff ≥2 `server @var` decls carry callable initExprs. Body awaits
+  // all loaders in parallel (Promise.all) and returns a keyed JSON object.
+  // Tier 1 coalescing (§8.9.2) applies automatically when the loaders share
+  // this handler (sibling DGNodes) — see §8.11.2.
+  if (_needsMountHydrate) {
+    const mhHandlerName = "_scrml_mountHydrate_handler";
+    const mhRouteName = "_scrml_route___mountHydrate";
+    lines.push("// --- §8.11 synthetic __mountHydrate route (compiler-generated) ---");
+    lines.push(`async function ${mhHandlerName}(_scrml_req) {`);
+    // Build the list of (name, server-rewritten initExpr) pairs.
+    const mhEntries: Array<{ name: string; expr: string }> = [];
+    for (const decl of _mhCallableDecls) {
+      const name = decl.name as string;
+      const expr = emitExprField((decl as any).initExpr, (decl as any).init ?? "undefined", { mode: "server" });
+      mhEntries.push({ name, expr });
+    }
+    // Parallel await via Promise.all — matches §8.11.2 intent.
+    lines.push(`  const [${mhEntries.map((_, i) => `_scrml_mh_v${i}`).join(", ")}] = await Promise.all([`);
+    for (const e of mhEntries) {
+      lines.push(`    Promise.resolve(${e.expr}),`);
+    }
+    lines.push(`  ]);`);
+    lines.push(`  return new Response(JSON.stringify({`);
+    mhEntries.forEach((e, i) => {
+      lines.push(`    ${JSON.stringify(e.name)}: _scrml_mh_v${i},`);
+    });
+    lines.push(`  }), {`);
+    lines.push(`    status: 200,`);
+    lines.push(`    headers: { "Content-Type": "application/json" },`);
+    lines.push(`  });`);
+    lines.push(`}`);
+    lines.push("");
+    lines.push(`export const ${mhRouteName} = {`);
+    lines.push(`  path: "/__mountHydrate",`);
+    lines.push(`  method: "POST",`);
+    lines.push(`  handler: ${mhHandlerName},`);
     lines.push(`};`);
     lines.push("");
   }

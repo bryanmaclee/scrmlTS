@@ -435,3 +435,47 @@ export function isServerOnlyNode(node: unknown): boolean {
 
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// §8.11 / §52.6 server @var declaration collector
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk the file AST and return all `server @var` reactive-decl nodes found inside
+ * logic-block bodies. Shared by emit-reactive-wiring (client) and emit-server
+ * (synthetic __mountHydrate route emission).
+ */
+export function collectServerVarDecls(fileAST: FileAST): Node[] {
+  const nodes = getNodes(fileAST);
+  const result: Node[] = [];
+  function visit(list: Node[]): void {
+    for (const node of list) {
+      if (!node || typeof node !== "object") continue;
+      if (node.kind === "logic" && Array.isArray(node.body)) {
+        for (const child of node.body) {
+          if (child && child.kind === "reactive-decl" && (child as any).isServer === true) {
+            result.push(child);
+          }
+        }
+      }
+      if (Array.isArray(node.children)) visit(node.children);
+    }
+  }
+  visit(nodes);
+  return result;
+}
+
+/**
+ * Return the subset of server @var decls whose initExpr is a callable (contains
+ * a function-call `(` — the loader pattern). Non-callable placeholders (literal
+ * initializers) are excluded per §52.6.1 / W-AUTH-001 and are not eligible for
+ * mount-hydrate coalescing (§8.11.1).
+ */
+export function callableServerVarDecls(decls: Node[]): Node[] {
+  return decls.filter((decl) => {
+    const initExpr: string = (decl as any).initExpr
+      ? emitStringFromTree((decl as any).initExpr)
+      : (typeof (decl as any).init === "string" ? ((decl as any).init as string) : "");
+    return !!initExpr && initExpr.includes("(");
+  });
+}

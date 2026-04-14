@@ -154,3 +154,44 @@ export function emitServerSyncStub(varName: string): string[] {
     `}`,
   ];
 }
+
+// ---------------------------------------------------------------------------
+// §8.11 Mount-Hydration Coalescing (client side)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit one unified client-side IIFE that fetches /__mountHydrate once on mount
+ * and demultiplexes the keyed response into per-var `_scrml_reactive_set` calls.
+ *
+ * Paired with the synthetic server handler emitted by generateServerJs (§8.11.2).
+ * Only fires when ≥2 `server @var` decls with callable initExprs share a page
+ * (§8.11.1). Writes remain 1:1 per §8.11.3.
+ *
+ * Pattern:
+ * ```javascript
+ * // server @var initial loads — coalesced via /__mountHydrate (§8.11)
+ * (async () => {
+ *   const _r = await fetch("/__mountHydrate", { method: "POST", ... });
+ *   const _j = await _r.json();
+ *   _scrml_reactive_set("a", _j["a"]);
+ *   _scrml_reactive_set("b", _j["b"]);
+ * })();
+ * ```
+ */
+export function emitUnifiedMountHydrate(varNames: string[]): string[] {
+  if (varNames.length === 0) return [];
+  const lines: string[] = [];
+  lines.push(`// server @var initial loads — coalesced via /__mountHydrate (§8.11)`);
+  lines.push(`(async () => {`);
+  lines.push(`  const _scrml_mh_res = await fetch("/__mountHydrate", {`);
+  lines.push(`    method: "POST",`);
+  lines.push(`    headers: { "Content-Type": "application/json" },`);
+  lines.push(`    body: "{}",`);
+  lines.push(`  });`);
+  lines.push(`  const _scrml_mh_json = await _scrml_mh_res.json();`);
+  for (const name of varNames) {
+    lines.push(`  _scrml_reactive_set(${JSON.stringify(name)}, _scrml_mh_json[${JSON.stringify(name)}]);`);
+  }
+  lines.push(`})();`);
+  return lines;
+}

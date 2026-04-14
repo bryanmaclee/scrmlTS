@@ -8,10 +8,12 @@ import {
   collectCssVariableBridges,
   getNodes,
   isServerOnlyNode,
+  collectServerVarDecls,
+  callableServerVarDecls,
 } from "./collect.ts";
 import { collectDerivedVarNames } from "./reactive-deps.ts";
 import { collectChannelNodes, emitChannelClientJs } from "./emit-channel.ts";
-import { emitInitialLoad, emitOptimisticUpdate, emitServerSyncStub } from "./emit-sync.ts";
+import { emitInitialLoad, emitOptimisticUpdate, emitServerSyncStub, emitUnifiedMountHydrate } from "./emit-sync.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
 
@@ -234,13 +236,27 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
   if (serverVarDecls.length > 0) {
     lines.push("");
     lines.push("// --- server @var sync infrastructure (§52.6, compiler-generated) ---");
+    // §8.11: if ≥2 callable initExprs share this page, coalesce their initial
+    // loads into one /__mountHydrate fetch instead of N per-var async IIFEs.
+    // Writes (optimistic update + sync stub) remain 1:1 per §8.11.3.
+    const callableDecls = callableServerVarDecls(serverVarDecls);
+    const coalesceMount = callableDecls.length >= 2;
     for (const decl of serverVarDecls) {
       const varName: string = decl.name as string;
       // Phase 4d: ExprNode-first, string fallback
       const initExpr: string = (decl as any).initExpr ? emitStringFromTree((decl as any).initExpr) : (typeof decl.init === "string" ? decl.init : "");
       for (const l of emitServerSyncStub(varName)) lines.push(l);
-      for (const l of emitInitialLoad(varName, initExpr)) lines.push(l);
+      // Emit per-var IIFE only when NOT coalescing OR when this var is not
+      // callable (callable subset is handled by the unified fetch below).
+      const isCallable = !!initExpr && initExpr.includes("(");
+      if (!coalesceMount || !isCallable) {
+        for (const l of emitInitialLoad(varName, initExpr)) lines.push(l);
+      }
       for (const l of emitOptimisticUpdate(varName)) lines.push(l);
+    }
+    if (coalesceMount) {
+      const coalescedNames = callableDecls.map((d) => d.name as string);
+      for (const l of emitUnifiedMountHydrate(coalescedNames)) lines.push(l);
     }
   }
 
@@ -761,34 +777,4 @@ function emitTimeoutNode(node: any, errors: CGError[], filePath: string): string
   return lines;
 }
 
-// ---------------------------------------------------------------------------
-// §52.6 Server var declaration collector
-// ---------------------------------------------------------------------------
-
-/**
- * Walk the AST and collect all `server @var` reactive-decl nodes.
- * These are reactive-decl nodes with `isServer === true`, found inside logic block bodies.
- *
- * @param fileAST - the file AST (may have .nodes or .ast.nodes shape)
- */
-function collectServerVarDecls(fileAST: any): any[] {
-  const nodes: any[] = getNodes(fileAST);
-  const result: any[] = [];
-
-  function visit(nodeList: any[]): void {
-    for (const node of nodeList) {
-      if (!node || typeof node !== "object") continue;
-      if (node.kind === "logic" && Array.isArray(node.body)) {
-        for (const child of node.body) {
-          if (child && child.kind === "reactive-decl" && child.isServer === true) {
-            result.push(child);
-          }
-        }
-      }
-      if (Array.isArray(node.children)) visit(node.children);
-    }
-  }
-
-  visit(nodes);
-  return result;
-}
+// (§52.6 collectServerVarDecls moved to collect.ts for cross-module sharing)
