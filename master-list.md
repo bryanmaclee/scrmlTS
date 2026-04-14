@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-14 (S14 — match-as-expr, Phase 4d complete, `</>` closer fix, `:>` canonical, Lift Approach C Phase 1)
+**Last updated:** 2026-04-14 (S16 — SQL batching spec-drafted: deep-dive + debate + reviewer + §8.9/8.10/8.11 + §19.10.5 draft awaiting sign-off)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -215,6 +215,25 @@
 ### P3 — Self-host completion
 - [ ][ ] CE + ME self-host (not yet ported)
 - [ ][ ] Idiomification: ts.scrml (2,570), ast.scrml (3,539) — ~6,109 lines
+
+### P4 — SQL Batching (spec-drafted S16 2026-04-14, awaiting user sign-off)
+
+Compiler-level SQL batching in two tiers. Pipeline addition + §8 extensions + §19.10 amendment.
+
+- [x][ ] **Deep-dive** — `scrml-support/docs/deep-dives/sql-batching-2026-04-14.md` (10 design forks, 3 clusters, prior-art table for DataLoader/Prisma/Drizzle/Hibernate/Ecto/EdgeDB/Hasura/ActiveRecord)
+- [x][ ] **Debate** — `debate-sql-batching-2026-04-14.md` + `design-insight-sql-batching-2026-04-14.md`. Winning positions: F1.A (Stage 7.5) · F2.A (syntactic + D-BATCH-001) · F3.A (Map lookup) · F4.A (implicit per-handler tx, `!`-only) · F5.C (mode-split errors) · F6.A (Map preserves iteration order) · F7.A (read-only v1) · F8.A+C (`.nobatch()` single opt-out — pragma dropped per reviewer) · F9.C (coalesce mount reads, writes 1:1) · F10.B (re-run E-LIFT-001 post-rewrite)
+- [x][ ] **Reviewer + boundary-analyst reports** — reviewer BLOCK on F4.A resolved by bounding implicit tx to `!` handlers + new §19.10.5 + E-BATCH-001 composition error. Boundary analyst confirmed no classification changes, flagged `__mountHydrate` synthetic route aggregator requirement for F9.C.
+- [x][ ] **Spec draft** — `scrml-support/archive/spec-drafts/spec-draft-sql-batching-2026-04-14.md`. Contains new §8.9 (per-handler coalescing), §8.10 (N+1 loop hoist), §8.11 (mount hydration), §19.10.5 amendment, new PIPELINE Stage 7.5 Batch Planner, new errors E-BATCH-001/002 + E-PROTECT-003 + D-BATCH-001. Prerequisite: resolve `.first()` vs `.get()` naming in §8.3.
+- [x][x] **User sign-off on spec draft** — S16 2026-04-14.
+- [x][x] **§8.3 `.first()` / `.get()` reconciliation** — `.get()` wins. 17 occurrences replaced across SPEC. S16 2026-04-14.
+- [x][x] **Spec land** — §8.9/8.10/8.11, §19.10.5, new errors E-BATCH-001/002 + E-PROTECT-003 + D-BATCH-001 + W-BATCH-001 added to `compiler/SPEC.md`. SPEC-INDEX regenerated. S16 2026-04-14. Tests clean (6153/14, no regression).
+- [x][x] **PIPELINE edit** — Stage 7.5 Batch Planner with `BatchPlan` / `CoalescingGroup` / `LoopHoist` contract + determinism/idempotency/boundary invariants. S16 2026-04-14.
+- [ ][ ] **Tier 1 impl** — per-handler coalescing, `.nobatch()` chain method, E-BATCH-001 composition check, isolated benchmark.
+- [ ][ ] **Tier 2 impl** — loop hoisting (`.get()`/`.all()` only), D-BATCH-001 diagnostic, `rowCacheColumns` × `protect` verification.
+- [ ][ ] **F9.C mount-hydration** — `__mountHydrate` synthetic route aggregator in boundary pass + fetch-stub demux.
+- [ ][ ] **README changelog entry** — after both tiers land + benchmarked.
+
+**Deferred-complexity log (post-v1):** Tier-2 writes × `<machine>` transitions (§51); Tier-2 writes × `server @var` optimistic rollback (§52.4.2); tuple-WHERE key inference; F9 revisit inside explicit `transaction { }`; `--show-batch-plan` runtime observability.
 
 ### P5 — Architectural refactors
 - [x][x] rewrite.ts visitor pattern (done S80)

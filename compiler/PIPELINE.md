@@ -1364,6 +1364,67 @@ lift checker is linear in the number of nodes with `hasLift: true` per logic blo
 
 ---
 
+## Stage 7.5: Batch Planner (BP)
+
+**Added:** 2026-04-14. Implements §8.9 / §8.10 / §8.11 SQL batching.
+
+**Input contract:**
+- `TypedFileAST` (from Stage 6)
+- `DependencyGraph` (from Stage 7, finalized and lift-checked)
+- `RouteSpecs` (from RI) with `handlerDGNodeIds` populated
+- `ProtectAnalysis` (from PA) for §8.10.7 verification
+
+**Output contract:**
+```typescript
+interface BatchPlan {
+  coalescedHandlers: Map<RouteId, CoalescingGroup[]>;  // §8.9
+  loopHoists: LoopHoist[];                             // §8.10
+  mountHydrate: RouteId | null;                        // §8.11
+  nobatchSites: Set<DGNodeId>;
+  diagnostics: BatchDiagnostic[];                      // D-BATCH-001 near-misses
+}
+
+interface CoalescingGroup {
+  nodes: DGNodeId[];
+  envelopeKind: "implicit-handler-tx" | "prepare-lock-only";
+}
+
+interface LoopHoist {
+  loopNode: DGNodeId;
+  queryNode: DGNodeId;
+  keyColumn: string;
+  keyExpr: ExprNode;
+  terminator: "get" | "all";
+  rowCacheColumns: Set<string>;  // for E-PROTECT-003 check
+}
+```
+
+**Preconditions:**
+- DG is finalized and lift-checked.
+- Lin-check (§35) has completed; E-LIN errors already flagged. Batch rewrite MUST NOT affect lin counts (§8.9.6).
+- Route inference has assigned every DGNode to a route; `RouteSpec.handlerDGNodeIds` populated.
+
+**Responsibilities:**
+1. Compute coalescing candidate sets per handler (§8.9.1). Attach `envelopeKind` based on whether the handler is `!`.
+2. Scan for Tier 2 candidates (§8.10.1). For matched loops, emit `LoopHoist`. For near-misses, emit D-BATCH-001.
+3. If any `server @var` initial-reads exist, synthesize the `__mountHydrate` RouteSpec (§8.11.2).
+4. Re-run E-LIFT-001 on the post-rewrite DG (§8.10.7).
+5. Verify `rowCacheColumns` against `ProtectAnalysis` — any overlap between a `LoopHoist.rowCacheColumns` and a protected column appearing in the handler's client-visible return type is E-PROTECT-003.
+6. Emit E-BATCH-001 when a handler contains both an implicit coalescing envelope and an explicit `transaction { }` block.
+
+**Invariants:**
+- **Determinism:** same input produces identical `BatchPlan`.
+- **Idempotency:** re-running BP on a `BatchPlan`-annotated DG is a no-op.
+- **No new boundary crossings:** `postBatchVerify()` asserts every node's route assignment is unchanged under the rewrite. Divergence is BOUNDARY_INVALID_CROSS (internal compiler invariant).
+
+**CLI exposure:** `scrml compile --emit-batch-plan` emits the `BatchPlan` as JSON for debugging and test visibility.
+
+**Complexity:** Linear in DGNode count for coalescing; linear in loop-body AST size for Tier 2 detection.
+
+**Dependencies:** Stage 7 (DG), RI, PA must all complete.
+
+---
+
 ## Stage 8: Code Generator (CG)
 
 **Input contract:**

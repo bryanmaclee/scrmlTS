@@ -691,7 +691,7 @@ applications with clear scope boundaries.
 </>
 
 ${ server function getUser(id) {
-    return ?{`SELECT * FROM users WHERE id = ${id}`}.first()
+    return ?{`SELECT * FROM users WHERE id = ${id}`}.get()
 } }
 
 </>
@@ -4357,7 +4357,7 @@ of that `db=` attribute determines the driver.
 | `mongo://...` or `mongodb://...` | MongoDB driver | Connection string forwarded |
 
 The compiler generates driver-appropriate calls. All scrml `?{}` query semantics (bound
-parameters, `.all()`, `.first()`, `.run()`, `.prepare()`) are preserved across drivers. The
+parameters, `.all()`, `.get()`, `.run()`, `.prepare()`) are preserved across drivers. The
 generated code uses the driver's equivalent API.
 
 **Normative statements:**
@@ -4431,7 +4431,7 @@ When a SQL template contains one or more `${}` expressions, the compiler SHALL:
 ```scrml
 < db src="auth.sql" tables="users">
     ${ server function findUser(email) {
-        let user = ?{`SELECT id, name FROM users WHERE email = ${email}`}.first();
+        let user = ?{`SELECT id, name FROM users WHERE email = ${email}`}.get();
         return user;
     } }
 </>
@@ -4460,7 +4460,7 @@ db.prepare("SELECT * FROM posts WHERE user_id = ?1 AND category = ?2").all(userI
 **Worked example — valid (parameter deduplication):**
 ```scrml
 ${ server function userActivity(userId) {
-    let row = ?{`SELECT * FROM activity WHERE created_by = ${userId} OR updated_by = ${userId}`}.first();
+    let row = ?{`SELECT * FROM activity WHERE created_by = ${userId} OR updated_by = ${userId}`}.get();
     return row;
 } }
 ```
@@ -4488,7 +4488,7 @@ The result of a `?{ }` context is a query result object. The following methods a
 | Method | Return type | Description |
 |---|---|---|
 | `.all()` | `Row[]` | All matching rows as an array |
-| `.first()` | `Row \| not` | First matching row, or `not` if no rows |
+| `.get()` | `Row \| not` | First matching row, or `not` if no rows (matches bun:sqlite convention) |
 | `.run()` | `RunResult` | Execute without returning rows (INSERT/UPDATE/DELETE) |
 | `.prepare()` | `PreparedStatement` | Return a reusable prepared statement |
 
@@ -4696,6 +4696,11 @@ read/write distinction.
 | E-SQL-003 | SQL template content is a runtime expression, not a literal string template | Error |
 | E-SQL-004 | `?{}` block has no `db=` declaration in any ancestor `<program>` | Error |
 | E-SQL-005 | Unrecognized database connection string prefix in `db=` attribute | Error |
+| E-BATCH-001 | Explicit `transaction { }` composed with an implicit per-handler transaction (§8.9.3 / §19.10.5) | Error |
+| E-BATCH-002 | Batched `IN (...)` parameter count exceeds `SQLITE_MAX_VARIABLE_NUMBER` and chunking is not applicable | Error |
+| E-PROTECT-003 | A `BatchPlan.rowCacheColumns` entry includes a `protect` column that appears in the handler's client-visible return type (§8.10.7) | Error |
+| D-BATCH-001 | For-loop nearly matches the Tier 2 syntactic template but was not rewritten; diagnostic lists the near-miss reason | Info |
+| W-BATCH-001 | Explicit `?{BEGIN}` suppresses implicit per-handler transaction; use `transaction { }` or `.nobatch()` for clarity | Warning |
 
 ### 8.7 Runtime Errors
 
@@ -4716,6 +4721,146 @@ See §19.8 for the full `SqlError` type definition and propagation rules.
   a new database driver scope. All `?{}` blocks inside the nested `<program>` resolve to
   the nested program's driver. `?{}` blocks in the parent `<program>` are unaffected by the
   child's `db=`.
+
+### 8.9 Per-Handler Query Coalescing (Tier 1)
+
+**Added:** 2026-04-14. Resolves SQL batching design insight (S16) Alpha/Gamma clusters F4.A + F1.A.
+
+Independent `?{}` queries within a single server handler SHALL share a prepare/lock cycle and, in `!` handlers, execute under a single implicit transactional envelope.
+
+#### 8.9.1 Coalescing Candidate Set
+
+Two `?{}` DGNodes are *coalescing candidates* iff all of the following hold:
+
+1. Both belong to the same `RouteSpec.handlerDGNodeIds` set (same server handler).
+2. Neither is transitively reachable from the other via an `'awaits'` edge in the DG.
+3. Neither carries the `.nobatch()` chain modifier (§8.9.5).
+4. Neither lies inside an explicit `transaction { }` block (§19.10.2).
+
+The Batch Planner (PIPELINE.md Stage 7.5) computes this set from the finalized DG output.
+
+#### 8.9.2 Coalescing Envelope
+
+When two or more `?{}` calls in a server handler are coalescing candidates, the compiler SHALL coalesce their prepare/lock cycle. In `!` handlers ONLY, the compiler SHALL additionally wrap the handler body in `?{BEGIN DEFERRED}` / `?{COMMIT}` (`?{ROLLBACK}` on exception).
+
+**Normative statements:**
+
+- An implicit handler transaction SHALL apply only to server handlers whose signature declares `!`. A non-`!` handler SHALL NOT be implicitly wrapped; coalescing in a non-`!` handler shares only the prepare/lock cycle. *(Preserves §19.10.4 — transactions remain `!`-gated.)*
+- An implicit handler transaction SHALL NOT compose with an explicit `transaction { }` block (§19.10.2). A handler containing both SHALL produce **E-BATCH-001**. Resolution: either `.nobatch()` the outer calls, or wrap the whole handler in the explicit `transaction { }`.
+- An explicit `?{BEGIN}` inside the handler suppresses the implicit envelope and emits **W-BATCH-001**.
+- Compiler diagnostics SHALL name the implicit envelope "implicit per-handler transaction (§8.9.2)" so users faced with E-BATCH-001 understand the source.
+
+#### 8.9.3 Semantics Preserved
+
+- Bound-parameter invariants (§8.2) are preserved per-`?{}`. Coalescing merges only the prepare/lock cycle and the transactional envelope; each logical query retains its own template and parameters.
+- Parameter deduplication (§8.2) remains per-query. Coalescing does not dedupe across queries.
+- Runtime error attribution follows §8.9.4.
+
+#### 8.9.4 Error Model
+
+Outside `!`: coalescing is never applied with a transactional envelope (§8.9.2). Each `?{}` retains §8.7 semantics — failed `.get()` → `not`, failed `.all()` → `[]`.
+
+Inside `!`:
+- **Prepare-phase errors** (a SQL syntax error detected while preparing the batched statements) surface as a single variant `SqlError::BatchPrepareFailed { sites: [<?{} source locations>] }`. The variant lists source locations of all coalesced `?{}` blocks so that `!{}` arms can attribute the failure.
+- **Per-iteration runtime errors** (constraint violations, missing rows, etc.) are attributed to the original site per §8.7.
+
+This mode-split preserves §8.7 pointwise for misses while accepting bundled attribution for prepare-phase defects where per-site attribution is not implementable.
+
+#### 8.9.5 Opt-Out — `.nobatch()`
+
+A `?{}` chain may include `.nobatch()` to exclude that query from any coalescing candidate set:
+
+```scrml
+let stale = ?{`SELECT snapshot FROM cache WHERE k = ${k}`}.nobatch().get()
+```
+
+**Normative statements:**
+
+- `.nobatch()` SHALL be valid at any chain position; it is a compile-time marker with no runtime effect on the individual query.
+- A query marked `.nobatch()` SHALL be excluded from §8.9.1 candidate sets and from §8.10 loop hoisting.
+- The SQL-comment form `?{`--@no-batch\nSELECT ...`}` SHALL NOT be recognized as an opt-out. `.nobatch()` is the sole opt-out vector.
+
+#### 8.9.6 Interaction with Lin
+
+Batch rewriting SHALL run *after* lin-check (§35). E-LIN consumption counts use the pre-rewrite DG, so a coalesced statement does not collapse N consumptions into 1.
+
+### 8.10 N+1 Loop Hoisting (Tier 2)
+
+**Added:** 2026-04-14. Resolves SQL batching design insight (S16) Beta cluster F2.A + F3.A + F6.A + F7.A + F10.B.
+
+A for-loop whose body contains a single keyed `?{}` read SHALL be rewritten to a single `WHERE IN (...)` pre-fetch plus per-iteration `Map` lookup.
+
+#### 8.10.1 Detection (Syntactic)
+
+A for-loop is a *Tier 2 candidate* iff all of the following hold, matched syntactically:
+
+1. Loop header is `for (let x of xs)` or `for (const x of xs)` (iteration binding is a single identifier).
+2. Loop body contains exactly one `?{}` block whose template matches `... WHERE <column> = ${x.<field>} ...` (single equality predicate on the loop binding).
+3. The `?{}` block is terminated with `.get()` or `.all()`. `.run()` is excluded (see §8.10.5). `.prepare()` is excluded (no round trip to hoist).
+4. No other `?{}` blocks appear in the loop body.
+5. The query is not marked `.nobatch()` (§8.9.5).
+
+A for-loop that *almost* matches (e.g., two equality predicates, or a `.run()` terminator, or `.forEach`) but fails one condition SHALL produce **D-BATCH-001** with the specific near-miss reason. This diagnostic closes the coverage gap of pure-syntactic detection without the opacity of dataflow-based detection.
+
+#### 8.10.2 Rewrite (Map Lookup)
+
+The compiler SHALL rewrite a Tier 2 candidate as follows (schematic):
+
+```scrml
+// source
+for (let x of xs) {
+    let row = ?{`SELECT ... FROM t WHERE id = ${x.id}`}.get()
+    ...
+}
+
+// rewritten (conceptual; actual emit uses encoded names)
+let _keys = xs.map(x => x.id)
+let _rows = ?{`SELECT ... FROM t WHERE id IN (${_keys})`}.all()
+let _byKey = new Map(_rows.map(r => [r.id, r]))
+for (let x of xs) {
+    let row = _byKey.get(x.id) ?? not
+    ...
+}
+```
+
+- `.all()` in the loop becomes `Map<key, Row[]>` with per-key grouping; per-iteration lookup yields a possibly-empty array.
+- `.get()` in the loop becomes `Map<key, Row>`; missing keys yield `not`, preserving §8.7.
+
+#### 8.10.3 Ordering
+
+Per-iteration `Map` lookup preserves loop-iteration order for all body side effects — `lift`, reactive writes (`@x = ...`), nested server calls, `fail`, `break`, early `return`. The rewritten loop is observationally equivalent to the un-rewritten loop on all side-effect orderings.
+
+#### 8.10.4 Key-Column Inference
+
+The key column is the column referenced by the single equality predicate in the `?{}` template. Tuple-WHERE (`col1 = ${x.a} AND col2 = ${x.b}`) is OUT OF SCOPE for v1; such a loop does not match §8.10.1 condition 2 and SHALL instead produce D-BATCH-001.
+
+#### 8.10.5 Writes Out of Scope for v1
+
+`.run()` inside a loop (UPDATE/DELETE/INSERT) is NOT rewritten in v1. Write batching collides with `<machine>` transition enforcement (§51) and `server @var` optimistic-rollback granularity (§52.4.2). Tier 2 writes queued for post-v1 spec extension.
+
+#### 8.10.6 Parameter Count Bound
+
+If `xs.length` at runtime exceeds `SQLITE_MAX_VARIABLE_NUMBER`, the Tier 2 rewrite SHALL chunk the IN-list into segments of at most `SQLITE_MAX_VARIABLE_NUMBER` keys. If chunking is statically provable as impossible, **E-BATCH-002** fires at compile time; at runtime, an over-limit execution throws `SqlError::BatchTooLarge`.
+
+#### 8.10.7 Lift-Checker Re-Run + Protect Verification
+
+Tier 2 introduces a new sibling DGNode (the hoisted pre-loop query). The lift-checker (§10.5) SHALL be re-run on the post-rewrite DG to verify no new E-LIFT-001. The Batch Planner SHALL also verify that the hoisted SELECT's `rowCacheColumns` do not include any `protect` column that appears in the handler's client-visible return type — overlap is **E-PROTECT-003**.
+
+### 8.11 Mount-Hydration Coalescing
+
+**Added:** 2026-04-14. Resolves SQL batching design insight (S16) Gamma cluster F9.C.
+
+#### 8.11.1 Scope
+
+On-mount initial-load fetches for `server @var` declarations (§52.4.2) SHALL be coalesced into a single synthetic server handler named `__mountHydrate` per page/component. Individual `server @var` *assignments* (which carry optimistic-update + rollback semantics) SHALL remain 1:1 with their own routes.
+
+#### 8.11.2 Synthetic Handler
+
+The boundary pass SHALL emit a `__mountHydrate` RouteSpec whose handler body contains all `server @var` initial-read queries as sibling DGNodes. Because they share a handler, §8.9 Tier 1 coalescing applies automatically.
+
+#### 8.11.3 Write Isolation
+
+`server @var` assignments continue to generate per-var routes. Coalescing writes would collapse per-assignment rollback scopes (§52.4.2 (3)) and is forbidden.
 
 ---
 
@@ -5210,7 +5355,7 @@ A function that is server-escalated (either by compiler inference per Section 12
         // This function touches passwordHash — compiler escalates to server route.
         // Inside this server-escalated function, the FULL type is in scope,
         // including users.passwordHash.
-        let user = ?{`SELECT passwordHash FROM users WHERE email = ${email}`}.first();
+        let user = ?{`SELECT passwordHash FROM users WHERE email = ${email}`}.get();
         if (!verifyHash(password, user.passwordHash)) {
             throw AuthError("Invalid credentials");
         }
@@ -5226,7 +5371,7 @@ A function that is server-escalated (either by compiler inference per Section 12
         // This function does NOT touch any server resource other than a plain SELECT.
         // Compiler determines it can run client-side.
         // Client type does NOT include passwordHash.
-        let user = ?{`SELECT passwordHash FROM users WHERE id = ${userId}`}.first();
+        let user = ?{`SELECT passwordHash FROM users WHERE id = ${userId}`}.get();
         // ^ Error E-PROTECT-001: field 'passwordHash' does not exist on the client type.
         // The compiler will NOT silently escalate this — it is a type error.
         // To access passwordHash, this function must be server-escalated.
@@ -5354,7 +5499,7 @@ The compiler-generated fetch wrapper deserializes the JSON response and returns 
 
 ```scrml
 ${ server function getUser(id) {
-    return ?{`SELECT id, name, email FROM users WHERE id = ${id}`}.first()
+    return ?{`SELECT id, name, email FROM users WHERE id = ${id}`}.get()
 } }
 
 ${ let user = getUser(userId) }   // `user` is the struct | not, deserialized
@@ -5442,7 +5587,7 @@ inlined into the caller's server handler.
 
 ```scrml
 ${ server function validateUser(id) {
-    let user = ?{`SELECT * FROM users WHERE id = ${id}`}.first()
+    let user = ?{`SELECT * FROM users WHERE id = ${id}`}.get()
     if (not user) { throw "User not found" }
     return user
 } }
@@ -6074,14 +6219,14 @@ warning message.
     ${ function displayName(userId) {
         // This function is client-boundary (no protected field access).
         // In scope: Users (client schema) — id, email, createdAt only.
-        let user = ?{`SELECT id, email FROM users WHERE id = ${userId}`}.first();
+        let user = ?{`SELECT id, email FROM users WHERE id = ${userId}`}.get();
         // user has type: Users (client) = { id: number, email: string, createdAt: string }
         return user.email;
     } }
     ${ server function authenticate(email, password) {
         // This function is server-escalated (explicit annotation).
         // In scope: Users (full schema) — id, email, passwordHash, createdAt.
-        let user = ?{`SELECT passwordHash FROM users WHERE email = ${email}`}.first();
+        let user = ?{`SELECT passwordHash FROM users WHERE email = ${email}`}.get();
         // user has type: Users (full) = { id: number, email: string, passwordHash: string, createdAt: string }
         return verifyHash(password, user.passwordHash);
     } }
@@ -6110,7 +6255,7 @@ view selection):**
 < db src="auth.sql" protect="passwordHash" tables="users">
     ${ function leakPassword(userId) {
         // Client-boundary function. Users resolves to client schema.
-        let row = ?{`SELECT id FROM users WHERE id = ${userId}`}.first();
+        let row = ?{`SELECT id FROM users WHERE id = ${userId}`}.get();
         return row.passwordHash;  // E-PROTECT-001: field does not exist on client type Users
     } }
 </>
@@ -9443,6 +9588,21 @@ function transferFunds(from, to, amount)! -> TransferError {
 - `transaction` blocks SHALL NOT nest. A `transaction` inside another `transaction` SHALL be a compile error: **E-ERROR-007** -- `Nested 'transaction' blocks are not supported. Use savepoints via '?{SAVEPOINT name}' for nested transaction semantics.`
 - Explicit `?{BEGIN}` / `?{COMMIT}` / `?{ROLLBACK}` SHALL remain valid for developers who need manual transaction control (e.g., savepoints, deferred transactions).
 
+#### 19.10.5 Implicit Per-Handler Transactions
+
+**Added:** 2026-04-14. Cross-reference: §8.9.2.
+
+The compiler MAY synthesize an implicit transactional envelope around the body of a server handler that declares `!`, as specified in §8.9.2. This implicit envelope is distinct from the explicit `transaction { }` block (§19.10.2) and the explicit `?{BEGIN}/?{COMMIT}/?{ROLLBACK}` pattern (§19.10.1).
+
+**Normative statements:**
+
+- An implicit per-handler transaction SHALL apply only when two or more `?{}` queries in the handler form a coalescing candidate set (§8.9.1).
+- An implicit per-handler transaction SHALL apply only inside `!` handlers. This preserves §19.10.4 (transactions require `!`).
+- An implicit per-handler transaction SHALL NOT compose with an explicit `transaction { }` block in the same handler. The compiler SHALL emit **E-BATCH-001** when both are present.
+- An explicit `?{BEGIN}` inside the handler suppresses the implicit envelope and emits **W-BATCH-001** advising the developer to use `transaction { }` or `.nobatch()` for clarity.
+- Users MAY suppress the implicit envelope at a single query site with `.nobatch()` (§8.9.5).
+- Nesting rules of §19.10.4 (E-ERROR-007) SHALL treat the implicit envelope as a transaction block for the purpose of detecting illegal nesting.
+
 ---
 
 ### 19.11 Interaction with @reactive
@@ -9999,7 +10159,7 @@ parsing numeric IDs (e.g., `let id = parseInt(route.params.id)`).
 ${ let userId = route.params.id }
 < db src="db.sql" tables="users">
     ${ server function loadProfile() {
-        let user = ?{`SELECT name, avatar FROM users WHERE id = ${userId}`}.first()
+        let user = ?{`SELECT name, avatar FROM users WHERE id = ${userId}`}.get()
         lift <div>
             <img src=user.avatar>
             <h1>${user.name}</>
@@ -13355,7 +13515,7 @@ A `< schema>` block appears at the top level of a file, alongside (not inside) `
 
 < db src="./app.db" protect="password_hash" tables="users, posts">
     ${ server function getUser(id) {
-        return ?{`SELECT id, email, name FROM users WHERE id = ${id}`}.first()
+        return ?{`SELECT id, email, name FROM users WHERE id = ${id}`}.get()
     } }
 </>
 
@@ -14196,7 +14356,7 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 - The old `(x) =>` presence guard form SHALL NOT be valid. Any occurrence SHALL be compile error E-SYNTAX-043.
 - `given` SHALL accept only simple identifiers for v1. Property paths SHALL be compile error E-SYNTAX-044.
 - A `match` on `T | not` without a `not` arm or `else` arm SHALL be compile error E-MATCH-012.
-- `.first()` on `?{}` results SHALL return `T | not`, not `T | null`.
+- `.get()` on `?{}` results SHALL return `T | not`, not `T | null`.
 
 ### 42.8 Runtime Representation
 
@@ -14352,7 +14512,7 @@ A nested `<program db="...">` creates its own database driver scope. `?{}` block
 | Method | Return type (scrml) |
 |---|---|
 | `.all()` (or bare `?{}`) | `Row[]` |
-| `.first()` | `Row | not` |
+| `.get()` | `Row | not` |
 | `.run()` | `void` |
 
 `.prepare()` is removed — Bun.SQL manages caching internally. Using `.prepare()` SHALL be compile error E-SQL-006.
