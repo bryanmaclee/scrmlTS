@@ -100,11 +100,13 @@ function isHtmlFragment(expr) {
  */
 function safeParseExprToNodeGlobal(expr, filePath, startOffset) {
   if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
-  if (shouldSkipExprParse(expr)) return undefined;
+  if (shouldSkipExprParse(expr)) {
+    return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "SkippedExpr", raw: expr };
+  }
   try {
     return parseExprToNode(expr, filePath, startOffset ?? 0);
   } catch (_e) {
-    return undefined;
+    return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "ParseError", raw: expr };
   }
 }
 
@@ -841,12 +843,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
    */
   function safeParseExprToNode(expr, startOffset) {
     if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
-    if (shouldSkipExprParse(expr)) return undefined;
+    // Phase 4d: when shouldSkipExprParse is true, produce an escape-hatch node
+    // so ExprNode fields are always populated when a string expression exists.
+    if (shouldSkipExprParse(expr)) {
+      return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "SkippedExpr", raw: expr };
+    }
     try {
       // Automatically thread tilde context from the closure-scoped flag
       return parseExprToNode(expr, filePath, startOffset ?? 0, _tildeActive ? { tildeActive: true } : undefined);
     } catch (_e) {
-      return undefined;
+      // Phase 4d: produce escape-hatch on parse failure instead of undefined
+      return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "ParseError", raw: expr };
     }
   }
 
@@ -2311,8 +2318,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().kind === 'KEYWORD' && peek().text === 'in') {
         consume();
       }
-      const { expr: iterExpr } = collectExpr('{');
-      iterable = iterExpr.trim();
+      const { expr: iterRaw } = collectExpr('{');
+      iterable = iterRaw.trim();
     }
     let body = [];
     if (peek().text === '{') {
@@ -2324,6 +2331,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       kind: 'for-stmt',
       variable,
       iterable,
+      iterExpr: safeParseExprToNode(iterable, 0),
       body,
       span: spanOf(startTok, peek()),
     };
@@ -3000,6 +3008,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           kind: "let-decl",
           name,
           init: expr,
+          initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
           span: spanOf(startTok, peek()),
         });
       }

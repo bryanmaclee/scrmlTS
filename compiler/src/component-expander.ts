@@ -1001,7 +1001,8 @@ function _injectChildrenWalk(
         (n: unknown) => {
           const node = n as Record<string, unknown>;
           if (!node || node.kind !== "bare-expr") return false;
-          if (node.exprNode) return exprNodeMatchesIdent(node.exprNode as ExprNode, "children");
+          // Phase 4d: ExprNode-first, but skip escape-hatch (fall through to string)
+          if (node.exprNode && (node.exprNode as any).kind !== "escape-hatch") return exprNodeMatchesIdent(node.exprNode as ExprNode, "children");
           return node.expr && (node.expr as string).trim() === "children";
         }
       );
@@ -1011,7 +1012,8 @@ function _injectChildrenWalk(
         (n: unknown) => {
           const node = n as Record<string, unknown>;
           if (!node || node.kind !== "bare-expr") return false;
-          if (node.exprNode) return exprNodeMatchesIdent(node.exprNode as ExprNode, "...");
+          // Phase 4d: ExprNode-first, but skip escape-hatch (fall through to string)
+          if (node.exprNode && (node.exprNode as any).kind !== "escape-hatch") return exprNodeMatchesIdent(node.exprNode as ExprNode, "...");
           return node.expr && (node.expr as string).trim() === "...";
         }
       );

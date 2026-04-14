@@ -53,6 +53,14 @@
 - `emit-logic.ts:1358` — match-as-expr arm text same pattern
 - `emit-control-flow.ts:274` — try-catch header: documented as needing AST builder change (no ExprNode on catchNode)
 
+**Batch 4 — AST builder: always populate ExprNode fields:**
+- Fixed `let-decl` in `parseRecursiveBody` no-`=` branch: was missing `initExpr`
+- Fixed `parseOneForStmt()`: was missing `iterExpr`
+- `safeParseExprToNode` now returns `EscapeHatchExpr` instead of `undefined` for skipped/failed parses
+- `safeParseExprToNodeGlobal` same treatment
+- `component-expander.ts`: skip escape-hatch nodes in ExprNode ident matching (fall through to string)
+- **Result: ExprNode fields are now ALWAYS populated** — string fallback paths are dead code
+
 ### Queued
 
 **Still queued (from S12):**
