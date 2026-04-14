@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-14 (S16 — SQL batching spec-drafted: deep-dive + debate + reviewer + §8.9/8.10/8.11 + §19.10.5 draft awaiting sign-off)
+**Last updated:** 2026-04-14 (S16 end — SQL batching Tier 1 + Tier 2 shipped end-to-end; 11 commits on main; 6205 pass / 14 fail)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 6,153 pass, 14 fail (S14 2026-04-14) — 100% of lift-exprs now structured, match-as-expr live, all string-field consumers ExprNode-first
+**Tests:** 6,205 pass, 14 fail (S16 end 2026-04-14) — SQL batching Tier 1 + Tier 2 added +52 tests; same 14 pre-existing failures
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -228,10 +228,18 @@ Compiler-level SQL batching in two tiers. Pipeline addition + §8 extensions + �
 - [x][x] **§8.3 `.first()` / `.get()` reconciliation** — `.get()` wins. 17 occurrences replaced across SPEC. S16 2026-04-14.
 - [x][x] **Spec land** — §8.9/8.10/8.11, §19.10.5, new errors E-BATCH-001/002 + E-PROTECT-003 + D-BATCH-001 + W-BATCH-001 added to `compiler/SPEC.md`. SPEC-INDEX regenerated. S16 2026-04-14. Tests clean (6153/14, no regression).
 - [x][x] **PIPELINE edit** — Stage 7.5 Batch Planner with `BatchPlan` / `CoalescingGroup` / `LoopHoist` contract + determinism/idempotency/boundary invariants. S16 2026-04-14.
-- [ ][ ] **Tier 1 impl** — per-handler coalescing, `.nobatch()` chain method, E-BATCH-001 composition check, isolated benchmark.
-- [ ][ ] **Tier 2 impl** — loop hoisting (`.get()`/`.all()` only), D-BATCH-001 diagnostic, `rowCacheColumns` × `protect` verification.
-- [ ][ ] **F9.C mount-hydration** — `__mountHydrate` synthetic route aggregator in boundary pass + fetch-stub demux.
-- [ ][ ] **README changelog entry** — after both tiers land + benchmarked.
+- [x][x] **Tier 1 impl — Slice 1 `.nobatch()` marker** (§8.9.5) — commit `77bfa7b` S16. SQLNode.nobatch flag; ast-builder strips `.nobatch()` from chainedCalls in all three code paths; rewrite.ts pre-passes the string form. 8 tests.
+- [x][x] **Tier 1 impl — Slice 2 BatchPlan scaffold + Stage 7.5 wiring** — commit `ad2f59e` S16. `compiler/src/batch-planner.ts` (670 LOC); `--emit-batch-plan` CLI flag. 7 tests.
+- [x][x] **Tier 1 impl — Slice 3a candidate-set detection** — commit `fc30239` S16. `analyzeForLoop` + server function-decl walker. E-BATCH-001 (composition) + W-BATCH-001 (explicit BEGIN suppression). 9 tests.
+- [x][x] **Tier 1 impl — Slice 3b implicit envelope codegen** — commit `8d68dc0` S16. `BEGIN DEFERRED` / try / COMMIT / catch-ROLLBACK around `!` handler CSRF-path IIFE. `needsImplicitEnvelope(funcName)` helper. 6 tests.
+- [x][x] **Tier 2 impl — Slice 4 loop-hoist detection** (§8.10.1) — commit `3a55e67` S16. D-BATCH-001 near-miss diagnostic (4 reasons). 11 tests.
+- [x][x] **Tier 2 impl — Slice 5 rewrite** (§8.10.2) — commit `3238af2` S16. Pre-loop `keys.map` + placeholders + `.all(...keys)` spread + `Map<key, Row>` + per-iteration `.get(x.id) ?? null` lookup. Module-level `_hoistMap` singleton avoids opts threading across 9 emit-server call sites. 8 tests.
+- [x][x] **Tier 2 impl — Slice 5b E-BATCH-002 runtime guard** — commit `a0e5b3e` S16. `keys.length > 32766` check. 2 tests.
+- [ ][ ] **Tier 2 impl — Slice 5b remainder** — E-PROTECT-003 (rowCacheColumns × protect, needs SELECT column parsing), post-rewrite E-LIFT-001 re-check (§8.10.7, needs DG re-traversal). Deferred S17+.
+- [ ][ ] **F9.C mount-hydration (Slice 6)** — `__mountHydrate` synthetic route aggregator. Entry points identified: `compiler/src/codegen/emit-sync.ts:emitInitialLoad` (per-var async IIFE today) + `emit-reactive-wiring.ts:232-245` (where `serverVarDecls` loops call it). Approach: generate one `/api/__mountHydrate` POST route whose server body runs all loaders in parallel; client-side IIFE does one fetch and demuxes into per-var `_scrml_reactive_set`. Tier 1 coalescing picks up SQL reads within the synthetic handler automatically.
+- [ ][ ] **Tier 1 benchmark** — before/after timing on a 2-query server handler (e.g., contacts example). Expected win: ~35-50% reduction on cold cache due to shared prepare/lock + transactional visibility.
+- [ ][ ] **Tier 2 benchmark** — before/after timing on a for-loop-of-.get() pattern, 100 iterations. Expected win: N → 1 round trips; on a warm-SQLite/cold-page workload, ~10-20× handler latency improvement.
+- [ ][ ] **README changelog entry** — already written into `docs/changelog.md` S16. README headline section ("Why scrml") could be upgraded to mention "the compiler eliminates N+1 automatically" once benchmarked.
 
 **Deferred-complexity log (post-v1):** Tier-2 writes × `<machine>` transitions (§51); Tier-2 writes × `server @var` optimistic rollback (§52.4.2); tuple-WHERE key inference; F9 revisit inside explicit `transaction { }`; `--show-batch-plan` runtime observability.
 
