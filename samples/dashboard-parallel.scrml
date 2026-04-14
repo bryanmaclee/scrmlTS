@@ -32,15 +32,15 @@
 
         // Loading skeleton — shown while data is in-flight
         <div class="dashboard-loading" if=@loading>
-            <div class="skeleton skeleton-user"/
-            <div class="skeleton skeleton-stats"/
-            <div class="skeleton skeleton-orders"/
+            <div class="skeleton skeleton-user"</>
+            <div class="skeleton skeleton-stats"</>
+            <div class="skeleton skeleton-orders"</>
         </div>
 
         // Error state
         <div class="dashboard-error" if=@error>
-            <p>${@error}/
-            <button onclick=loadDashboard(userId)>Retry/
+            <p>${@error}</>
+            <button onclick=loadDashboard(userId)>Retry</>
         </div>
 
         // Dashboard content — shown once loaded
@@ -58,9 +58,9 @@
                     ${@currentUser.display_name[0].toUpperCase()}
                 </div>
                 <div class="user-info">
-                    <h2>${@currentUser.display_name}/
-                    <p>${@currentUser.email}/
-                    <p class="user-plan">Plan: ${@currentUser.plan}/
+                    <h2>${@currentUser.display_name}</>
+                    <p>${@currentUser.email}</>
+                    <p class="user-plan">Plan: ${@currentUser.plan}</>
                 </div>
             </section>
 
@@ -68,27 +68,27 @@
             // Stats section
             // ---------------------------------------------------------------
             <section class="stats-panel" if=@stats>
-                <h3>Summary/
+                <h3>Summary</>
                 <div class="stats-grid">
                     <div class="stat-card">
-                        <span class="stat-value">${@stats.total_orders}/
-                        <span class="stat-label">Total Orders/
+                        <span class="stat-value">${@stats.total_orders}</>
+                        <span class="stat-label">Total Orders</>
                     </div>
                     <div class="stat-card">
                         // OPEN: Currency formatting. Using toLocaleString() —
                         // standard JS inside ${}. Fine.
                         <span class="stat-value">
                             $${(@stats.total_spent / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        /
-                        <span class="stat-label">Total Spent/
+                        </>
+                        <span class="stat-label">Total Spent</>
                     </div>
                     <div class="stat-card">
-                        <span class="stat-value">${@stats.pending_orders}/
-                        <span class="stat-label">Pending/
+                        <span class="stat-value">${@stats.pending_orders}</>
+                        <span class="stat-label">Pending</>
                     </div>
                     <div class="stat-card">
-                        <span class="stat-value">${@stats.active_products}/
-                        <span class="stat-label">Active Products/
+                        <span class="stat-value">${@stats.active_products}</>
+                        <span class="stat-label">Active Products</>
                     </div>
                 </div>
             </section>
@@ -98,8 +98,8 @@
             // ---------------------------------------------------------------
             <section class="orders-panel">
                 <div class="panel-header">
-                    <h3>Recent Orders/
-                    <a href="/orders">View all/
+                    <h3>Recent Orders</>
+                    <a href="/orders">View all</>
                 </div>
 
                 // Orders list using lift. Following §10.4: lift in direct body
@@ -107,19 +107,19 @@
                 <div class="orders-list" if=@recentOrders.length> ${
                     for (order of @recentOrders) {
                         lift <div class=orderRowClass(order)>
-                            <span class="order-id">#${order.id}/
-                            <span class="order-date">${formatDate(order.created_at)}/
+                            <span class="order-id">#${order.id}</>
+                            <span class="order-date">${formatDate(order.created_at)}</>
                             <span class="order-total">
                                 $${(order.total_cents / 100).toFixed(2)}
-                            /
+                            </>
                             <span class=statusBadge(order.status)>
                                 ${order.status}
-                            /
+                            </>
                         </div>
                     }
                 }
 
-                <p class="no-orders" if=!@recentOrders.length>No orders yet./
+                <p class="no-orders" if=!@recentOrders.length>No orders yet.</>
 
             </section>
 
@@ -246,7 +246,7 @@
 // Styles
 // =========================================================================
 
-<style>/
+<style></>
     .dashboard {
         display: grid;
         min-height: 100vh;

@@ -1,19 +1,19 @@
 {
-  "generatedAt": "2026-04-13T21:23:41.192Z",
+  "generatedAt": "2026-04-14T14:34:13.773Z",
   "branch": "changes/expr-ast-phase-1-audit",
   "phase": "Phase 1.5 audit (idempotency invariant)",
   "summary": {
     "filesAudited": 14,
-    "totalExprNodesChecked": 143,
-    "totalEscapeHatches": 0,
-    "escapeHatchRate": "0.00%",
+    "totalExprNodesChecked": 149,
+    "totalEscapeHatches": 6,
+    "escapeHatchRate": "4.03%",
     "byCategory": {
       "interpolated-template": 0,
       "block-lambda": 0,
       "nested-paren-is": 0,
       "parse-error": 0,
       "conversion-error": 0,
-      "unclassified": 0
+      "unclassified": 6
     }
   },
   "files": [
@@ -54,18 +54,26 @@
     {
       "file": "03-contact-book.scrml",
       "astError": null,
-      "exprNodesChecked": 8,
+      "exprNodesChecked": 9,
       "idempotencyFailures": 0,
-      "totalEscapes": 0,
+      "totalEscapes": 1,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
         "parse-error": 0,
         "conversion-error": 0,
-        "unclassified": 0
+        "unclassified": 1
       },
-      "escapeDetails": [],
+      "escapeDetails": [
+        {
+          "category": "unclassified",
+          "raw": ". all ( )",
+          "strField": "expr",
+          "strValue": ". all ( )",
+          "astNodeKind": "bare-expr"
+        }
+      ],
       "idempotencyFailureDetails": []
     },
     {
@@ -122,35 +130,51 @@
     {
       "file": "07-admin-dashboard.scrml",
       "astError": null,
-      "exprNodesChecked": 3,
+      "exprNodesChecked": 4,
       "idempotencyFailures": 0,
-      "totalEscapes": 0,
+      "totalEscapes": 1,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
         "parse-error": 0,
         "conversion-error": 0,
-        "unclassified": 0
+        "unclassified": 1
       },
-      "escapeDetails": [],
+      "escapeDetails": [
+        {
+          "category": "unclassified",
+          "raw": ". all ( )",
+          "strField": "expr",
+          "strValue": ". all ( )",
+          "astNodeKind": "bare-expr"
+        }
+      ],
       "idempotencyFailureDetails": []
     },
     {
       "file": "08-chat.scrml",
       "astError": null,
-      "exprNodesChecked": 15,
+      "exprNodesChecked": 16,
       "idempotencyFailures": 0,
-      "totalEscapes": 0,
+      "totalEscapes": 1,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
         "parse-error": 0,
         "conversion-error": 0,
-        "unclassified": 0
+        "unclassified": 1
       },
-      "escapeDetails": [],
+      "escapeDetails": [
+        {
+          "category": "unclassified",
+          "raw": ". all ( )",
+          "strField": "expr",
+          "strValue": ". all ( )",
+          "astNodeKind": "bare-expr"
+        }
+      ],
       "idempotencyFailureDetails": []
     },
     {
@@ -224,18 +248,40 @@
     {
       "file": "13-worker.scrml",
       "astError": null,
-      "exprNodesChecked": 19,
+      "exprNodesChecked": 22,
       "idempotencyFailures": 0,
-      "totalEscapes": 0,
+      "totalEscapes": 3,
       "escapesByCategory": {
         "interpolated-template": 0,
         "block-lambda": 0,
         "nested-paren-is": 0,
         "parse-error": 0,
         "conversion-error": 0,
-        "unclassified": 0
+        "unclassified": 3
       },
-      "escapeDetails": [],
+      "escapeDetails": [
+        {
+          "category": "unclassified",
+          "raw": "( let i = 2 ; i * i <= limit ; i + + )",
+          "strField": "iterable",
+          "strValue": "( let i = 2 ; i * i <= limit ; i + + )",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "category": "unclassified",
+          "raw": "( let j = i * i ; j <= limit ; j += i )",
+          "strField": "iterable",
+          "strValue": "( let j = i * i ; j <= limit ; j += i )",
+          "astNodeKind": "for-stmt"
+        },
+        {
+          "category": "unclassified",
+          "raw": "( let i = 2 ; i <= limit ; i + + )",
+          "strField": "iterable",
+          "strValue": "( let i = 2 ; i <= limit ; i + + )",
+          "astNodeKind": "for-stmt"
+        }
+      ],
       "idempotencyFailureDetails": []
     },
     {

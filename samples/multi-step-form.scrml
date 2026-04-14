@@ -102,51 +102,51 @@ ${
         match (@currentStep) {
             .PersonalInfo :> {
                 lift <section class="form-step">
-                    <h2>Personal Information/
+                    <h2>Personal Information</>
                     <label>First name <input type="text" bind:value=@firstName required>/</label>
                     <label>Last name  <input type="text" bind:value=@lastName required>/</label>
                     <label>Email      <input type="email" bind:value=@email required>/</label>
                     <label>Phone      <input type="tel" bind:value=@phone>/</label>
                     <div class="step-actions">
-                        <button onclick=personalDone()>Next: Address/
+                        <button onclick=personalDone()>Next: Address</>
                     </div>
                 </section>
             }
             .Address :> {
                 lift <section class="form-step">
-                    <h2>Address/
+                    <h2>Address</>
                     <label>Street  <input type="text" bind:value=@street required>/</label>
                     <label>City    <input type="text" bind:value=@city required>/</label>
                     <label>State   <input type="text" bind:value=@stateVal required>/</label>
                     <label>ZIP     <input type="text" bind:value=@zip required>/</label>
                     <label>Country <input type="text" bind:value=@country required>/</label>
                     <div class="step-actions">
-                        <button onclick=goBack()>Back/
-                        <button onclick=addressDone()>Next: Confirm/
+                        <button onclick=goBack()>Back</>
+                        <button onclick=addressDone()>Next: Confirm</>
                     </div>
                 </section>
             }
             .Confirm :> {
                 lift <section class="form-step">
-                    <h2>Confirm Details/
+                    <h2>Confirm Details</>
                     <dl>
-                        <dt>Name/<dd>${@firstName} ${@lastName}/
-                        <dt>Email/<dd>${@email}/
-                        <dt>Street/<dd>${@street}/
-                        <dt>City/<dd>${@city}, ${@stateVal} ${@zip}/
+                        <dt>Name/<dd>${@firstName} ${@lastName}</>
+                        <dt>Email/<dd>${@email}</>
+                        <dt>Street/<dd>${@street}</>
+                        <dt>City/<dd>${@city}, ${@stateVal} ${@zip}</>
                     </dl>
                     <div class="step-actions">
-                        <button onclick=goBack()>Back/
+                        <button onclick=goBack()>Back</>
                         <button onclick=submitForm() disabled=@submitting>
                             ${@submitting ? "Submitting…" : "Submit"}
-                        /
+                        </>
                     </div>
                 </section>
             }
             .Submitted :> {
                 lift <section class="form-step success">
-                    <h2>Welcome aboard!/
-                    <p>Your account is being set up./
+                    <h2>Welcome aboard!</>
+                    <p>Your account is being set up.</>
                 </section>
             }
         }

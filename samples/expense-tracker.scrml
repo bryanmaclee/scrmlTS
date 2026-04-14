@@ -135,94 +135,94 @@ ${ onLoad() }
 // --- Markup ---
 <div class="expense-tracker">
 
-    <h1>Expense Tracker/
+    <h1>Expense Tracker</>
 
     // Monthly total (const @monthlyTotal is a derived reactive value)
     <div class="summary">
-        <span class="label">Monthly Total:/
-        <span class="total-amount">${@monthlyTotal}/
-    /
+        <span class="label">Monthly Total:</>
+        <span class="total-amount">${@monthlyTotal}</>
+    </>
 
     // Filter by category
     <div class="filter-bar">
-        <label>Category:/
+        <label>Category:</>
         <select oninput=updateFilterCategory()>
-            <option value="All">All/
-            <option value="Food">Food/
-            <option value="Transport">Transport/
-            <option value="Housing">Housing/
-            <option value="Entertainment">Entertainment/
-            <option value="Health">Health/
-            <option value="Other">Other/
-        /
-    /
+            <option value="All">All</>
+            <option value="Food">Food</>
+            <option value="Transport">Transport</>
+            <option value="Housing">Housing</>
+            <option value="Entertainment">Entertainment</>
+            <option value="Health">Health</>
+            <option value="Other">Other</>
+        </>
+    </>
 
     // Expense list with category color badges and inline delete confirm
     <div class="expense-list">
         ${
             let visible = getVisible()
             if (visible.length == 0) {
-                lift <p class="empty-state">No expenses found./
+                lift <p class="empty-state">No expenses found.</>
             } else {
                 for (let expense of visible) {
                     lift <div class="expense-row" key=${expense.id}>
                         <div class="expense-meta">
-                            <span class="expense-date">${expense.date}/
-                            <span class="badge badge-${expense.category}">${expense.category}/
-                        /
+                            <span class="expense-date">${expense.date}</>
+                            <span class="badge badge-${expense.category}">${expense.category}</>
+                        </>
                         <div class="expense-body">
-                            <span class="expense-desc">${expense.description}/
-                            <span class="expense-amount">${expense.amount}/
-                        /
+                            <span class="expense-desc">${expense.description}</>
+                            <span class="expense-amount">${expense.amount}</>
+                        </>
                         <div class="expense-actions">
                             <div if=isConfirming(expense.id)>
-                                <span>Delete this expense?/
-                                <button onclick=confirmDelete()>Yes/
-                                <button onclick=cancelDelete()>No/
-                            /
+                                <span>Delete this expense?</>
+                                <button onclick=confirmDelete()>Yes</>
+                                <button onclick=cancelDelete()>No</>
+                            </>
                             <div else>
-                                <button onclick=requestDelete(expense.id)>Delete/
-                            /
-                        /
+                                <button onclick=requestDelete(expense.id)>Delete</>
+                            </>
+                        </>
                     </div>
                 }
             }
         }
-    /
+    </>
 
     // Add expense form
     <form class="add-expense-form" onsubmit=submitExpense()>
-        <h2>Add Expense/
+        <h2>Add Expense</>
 
-        <p class="form-error" if=@formError>${@formError}/
+        <p class="form-error" if=@formError>${@formError}</>
 
         <label>Amount
             <input type="number" step="0.01" placeholder="0.00" value=@formAmount oninput=updateFormAmount()/>
-        /
+        </>
 
         <label>Category
             <select value=@formCategory oninput=updateFormCategory()>
-                <option value="Food">Food/
-                <option value="Transport">Transport/
-                <option value="Housing">Housing/
-                <option value="Entertainment">Entertainment/
-                <option value="Health">Health/
-                <option value="Other">Other/
-            /
-        /
+                <option value="Food">Food</>
+                <option value="Transport">Transport</>
+                <option value="Housing">Housing</>
+                <option value="Entertainment">Entertainment</>
+                <option value="Health">Health</>
+                <option value="Other">Other</>
+            </>
+        </>
 
         <label>Date
             <input type="date" value=@formDate oninput=updateFormDate()/>
-        /
+        </>
 
         <label>Description
             <input type="text" placeholder="What was this for?" value=@formDescription oninput=updateFormDescription()/>
-        /
+        </>
 
-        <button type="submit" disabled=@isSubmitting>Add Expense/
+        <button type="submit" disabled=@isSubmitting>Add Expense</>
     </form>
 
-/
+</>
 
 <style>
 .expense-tracker {
@@ -312,6 +312,6 @@ ${ onLoad() }
     text-align: center;
     padding: 24px;
 }
-/
+</>
 
-/
+</>

@@ -73,20 +73,20 @@ ${
     <div class="blog-cms">
 
         <header class="cms-header">
-            <h1>Blog CMS/
-            <span class="stat">${@publishedCount} published/
+            <h1>Blog CMS</>
+            <span class="stat">${@publishedCount} published</>
         </header>
 
         // Error banner — rendered when @saveError is truthy
         // Rails equivalent: flash[:error] in the layout
         <div class="error-banner" if=@saveError>
-            <p>${@saveError}/
-            <button onclick=clearError()>Dismiss/
+            <p>${@saveError}</>
+            <button onclick=clearError()>Dismiss</>
         </div>
 
         // Success message
         <div class="success-banner" if=@saveSuccess>
-            <p>Post saved./
+            <p>Post saved.</>
         </div>
 
         // ---------------------------------------------------------------
@@ -98,16 +98,16 @@ ${
         <nav class="filter-bar">
             <button class=filterBtnClass("All") onclick=setFilter("All")>
                 All (${@posts.length})
-            /
+            </>
             <button class=filterBtnClass("Draft") onclick=setFilter("Draft")>
                 Draft
-            /
+            </>
             <button class=filterBtnClass("Published") onclick=setFilter("Published")>
                 Published (${@publishedCount})
-            /
+            </>
             <button class=filterBtnClass("Archived") onclick=setFilter("Archived")>
                 Archived
-            /
+            </>
         </nav>
 
         // ---------------------------------------------------------------
@@ -118,8 +118,8 @@ ${
         <section class="post-list">
 
             <div class="post-list-header">
-                <h2>Posts/
-                <button class="btn-primary" onclick=newPost()>New Post/
+                <h2>Posts</>
+                <button class="btn-primary" onclick=newPost()>New Post</>
             </div>
 
             // Show table when posts exist
@@ -127,24 +127,24 @@ ${
                 <table class="posts-table">
                     <thead>
                         <tr>
-                            <th>Title/
-                            <th>Status/
-                            <th>Actions/
+                            <th>Title</>
+                            <th>Status</>
+                            <th>Actions</>
                         </tr>
                     </thead>
                     <tbody>${
                         for (post of filteredPosts()) {
                             lift <tr key=${post.id}>
-                                <td class="post-title">${post.title}/
+                                <td class="post-title">${post.title}</>
                                 <td>
                                     <span class=statusBadgeClass(post.status)>
                                         ${post.status}
-                                    /
-                                /
+                                    </>
+                                </>
                                 <td class="post-actions">
-                                    <button onclick=editPost(post.id)>Edit/
-                                    <button onclick=previewPost(post.id)>Preview/
-                                    <button class="btn-danger" onclick=deletePost(post.id)>Delete/
+                                    <button onclick=editPost(post.id)>Edit</>
+                                    <button onclick=previewPost(post.id)>Preview</>
+                                    <button class="btn-danger" onclick=deletePost(post.id)>Delete</>
                                 </td>
                             </tr>
                         }
@@ -154,7 +154,7 @@ ${
 
             // else: empty state — sibling immediately follows if= element
             <div class="empty-state" else>
-                <p>No posts yet. Create your first post above./
+                <p>No posts yet. Create your first post above.</>
             </div>
 
         </section>
@@ -167,12 +167,12 @@ ${
 
         <section class="post-editor" if=@isEditing>
 
-            <h2>${@selectedPost ? "Edit Post" : "New Post"}/
+            <h2>${@selectedPost ? "Edit Post" : "New Post"}</>
 
             <form class="post-form" onsubmit=savePost()>
 
                 <div class="field">
-                    <label>Title/
+                    <label>Title</>
                     <input
                         type="text"
                         name="title"
@@ -182,29 +182,29 @@ ${
                 </div>
 
                 <div class="field">
-                    <label>Body/
+                    <label>Body</>
                     <textarea
                         name="body"
                         bind:value=@formBody
                         placeholder="Write your post here..."
                         rows="10"
-                    >/
+                    ></>
                 </div>
 
                 <div class="field">
-                    <label>Status/
+                    <label>Status</>
                     <select name="status" bind:value=@formStatus>
-                        <option value="Draft">Draft/
-                        <option value="Published">Published/
-                        <option value="Archived">Archived/
+                        <option value="Draft">Draft</>
+                        <option value="Published">Published</>
+                        <option value="Archived">Archived</>
                     </select>
                 </div>
 
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">
                         ${@selectedPost ? "Update Post" : "Create Post"}
-                    /
-                    <button type="button" onclick=cancelEdit()>Cancel/
+                    </>
+                    <button type="button" onclick=cancelEdit()>Cancel</>
                 </div>
 
             </form>
@@ -218,20 +218,20 @@ ${
 
         <section class="post-preview" if=@selectedPost>
             <div class="preview-header">
-                <h2>Preview/
-                <button onclick=closePreview()>Close/
+                <h2>Preview</>
+                <button onclick=closePreview()>Close</>
             </div>
 
             <article class="preview-content">
-                <h1>${@selectedPost ? @selectedPost.title : ""}/
+                <h1>${@selectedPost ? @selectedPost.title : ""}</>
                 <div class=statusBadgeClass(@selectedPost ? @selectedPost.status : "")>
                     ${@selectedPost ? @selectedPost.status : ""}
-                /
+                </>
                 // Rich text preview: body as preformatted text
                 // Rails: simple_format(@post.body)
                 <div class="preview-body">
                     ${@selectedPost ? @selectedPost.body : ""}
-                /
+                </>
             </article>
         </section>
 

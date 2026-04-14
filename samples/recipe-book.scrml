@@ -123,8 +123,8 @@ const @filteredRecipes = @recipes.filter(r => {
                 <ul>${
                     for (let ingredient of @formIngredients) {
                         lift <li class="ingredient-item">
-                            <span>${ingredient}/
-                            <button type="button" onclick=removeIngredient(ingredient)>x/
+                            <span>${ingredient}</>
+                            <button type="button" onclick=removeIngredient(ingredient)>x</>
                         </li>
                     }
                 }</>
@@ -162,7 +162,7 @@ const @filteredRecipes = @recipes.filter(r => {
             // Svelte equivalent: class:favorite={recipe.isFaved}
             lift <li class="recipe-card" class:favorite=(recipe.isFaved)>
                 <div class="recipe-header">
-                    <h3 class="recipe-title">${recipe.title}/
+                    <h3 class="recipe-title">${recipe.title}</>
                     <span class="recipe-category">
                         ${
                             match recipe.category {
@@ -173,14 +173,14 @@ const @filteredRecipes = @recipes.filter(r => {
                                 else :> recipe.category
                             }
                         }
-                    /
-                /
+                    </>
+                </>
 
                 <ul class="recipe-ingredients">${
                     for (let ing of recipe.ingredients) {
-                        lift <li>${ing}/
+                        lift <li>${ing}</>
                     }
-                }/
+                }</>
 
                 <div class="recipe-actions">
                     <button
@@ -189,10 +189,10 @@ const @filteredRecipes = @recipes.filter(r => {
                         onclick=toggleFavorite(recipe.id)
                     >
                         ${recipe.isFaved ? "Unfavorite" : "Favorite"}
-                    /
-                    <button onclick=editRecipe(recipe.id)>Edit/
-                    <button class="delete-btn" onclick=deleteRecipe(recipe.id)>Delete/
-                /
+                    </>
+                    <button onclick=editRecipe(recipe.id)>Edit</>
+                    <button class="delete-btn" onclick=deleteRecipe(recipe.id)>Delete</>
+                </>
             </li>
         }
     }</>

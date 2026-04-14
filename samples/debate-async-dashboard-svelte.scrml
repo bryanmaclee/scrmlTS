@@ -229,15 +229,15 @@
     <div class="dashboard">
 
         <header class="dashboard-header">
-            <h1>Dashboard/
-            <button onclick=loadDashboard()>Refresh/
+            <h1>Dashboard</>
+            <button onclick=loadDashboard()>Refresh</>
         </header>
 
         // ---------------------------------------------------------------
         // METRICS SECTION — top of the page, summary numbers
         // ---------------------------------------------------------------
         <section class="metrics-section">
-            <h2>Summary/
+            <h2>Summary</>
 
             // This match is exhaustive. The compiler knows MetricsState has
             // exactly .Loading, .Ready, .Failed — no fallthrough possible.
@@ -250,27 +250,27 @@
                     }
                     .Failed(msg) => {
                         lift <div class="metrics-error">
-                            <p>Could not load metrics: ${msg}/
-                            <button onclick=loadDashboard()>Retry/
+                            <p>Could not load metrics: ${msg}</>
+                            <button onclick=loadDashboard()>Retry</>
                         </>
                     }
                     .Ready(metrics) => {
                         lift <div class="metrics-grid">
                             <div class="metric-card">
-                                <span class="metric-value">${metrics.total_orders}/
-                                <span class="metric-label">Total Orders/
+                                <span class="metric-value">${metrics.total_orders}</>
+                                <span class="metric-label">Total Orders</>
                             </>
                             <div class="metric-card">
-                                <span class="metric-value">${formatCents(metrics.total_revenue_cents)}/
-                                <span class="metric-label">Revenue/
+                                <span class="metric-value">${formatCents(metrics.total_revenue_cents)}</>
+                                <span class="metric-label">Revenue</>
                             </>
                             <div class="metric-card">
-                                <span class="metric-value">${metrics.pending_count}/
-                                <span class="metric-label">Pending/
+                                <span class="metric-value">${metrics.pending_count}</>
+                                <span class="metric-label">Pending</>
                             </>
                             <div class="metric-card">
-                                <span class="metric-value">${metrics.complete_count}/
-                                <span class="metric-label">Complete/
+                                <span class="metric-value">${metrics.complete_count}</>
+                                <span class="metric-label">Complete</>
                             </>
                         </>
                     }
@@ -284,7 +284,7 @@
             // USERS SECTION
             // ---------------------------------------------------------------
             <section class="users-section">
-                <h2>Users/
+                <h2>Users</>
                 ${
                     match @usersState {
                         .Loading => {
@@ -292,8 +292,8 @@
                         }
                         .Failed(msg) => {
                             lift <div class="error-state">
-                                <p>Error: ${msg}/
-                                <button onclick=loadDashboard()>Retry/
+                                <p>Error: ${msg}</>
+                                <button onclick=loadDashboard()>Retry</>
                             </>
                         }
                         .Ready(users) => {
@@ -301,9 +301,9 @@
                                 ${
                                     for (let u of users) {
                                         lift <li class="user-item">
-                                            <span class="user-name">${u.name}/
-                                            <span class="user-email">${u.email}/
-                                            <span class="user-role">${u.role}/
+                                            <span class="user-name">${u.name}</>
+                                            <span class="user-email">${u.email}</>
+                                            <span class="user-role">${u.role}</>
                                         </>
                                     }
                                 }
@@ -317,7 +317,7 @@
             // ORDERS SECTION + NEW ORDER FORM
             // ---------------------------------------------------------------
             <section class="orders-section">
-                <h2>Orders/
+                <h2>Orders</>
 
                 // New order form — optimistic submit
                 // The Submitting variant disables inputs while in flight.
@@ -348,7 +348,7 @@
                                 else => { lift "Add Order" }
                             }
                         }
-                    /
+                    </>
                 </form>
 
                 // Submit feedback — inline below the form
@@ -356,13 +356,13 @@
                     match @submitState {
                         .Succeeded(order) => {
                             lift <div class="submit-success">
-                                Order confirmed: ${order.product} (${formatCents(order.amount_cents)})/
+                                Order confirmed: ${order.product} (${formatCents(order.amount_cents)})</>
                             </>
                         }
                         .Failed(optimistic, msg) => {
                             lift <div class="submit-error">
-                                <p>Failed to save ${optimistic.product}: ${msg}/
-                                <button onclick=dismissError()>Dismiss/
+                                <p>Failed to save ${optimistic.product}: ${msg}</>
+                                <button onclick=dismissError()>Dismiss</>
                             </>
                         }
                         else => {}
@@ -385,9 +385,9 @@
                                     match @submitState {
                                         .Submitting(optimistic) => {
                                             lift <li class="order-item order-item--optimistic">
-                                                <span>${optimistic.product}/
-                                                <span>${formatCents(optimistic.amount_cents)}/
-                                                <span class="status-pending">saving.../
+                                                <span>${optimistic.product}</>
+                                                <span>${formatCents(optimistic.amount_cents)}</>
+                                                <span class="status-pending">saving...</>
                                             </>
                                         }
                                         else => {}
@@ -396,11 +396,11 @@
                                 ${
                                     for (let o of orders) {
                                         lift <li class="order-item">
-                                            <span>${o.product}/
-                                            <span>${formatCents(o.amount_cents)}/
-                                            <span class="order-user">${o.user_name}/
-                                            <span class="order-status">${o.status}/
-                                            <span class="order-date">${formatDate(o.created_at)}/
+                                            <span>${o.product}</>
+                                            <span>${formatCents(o.amount_cents)}</>
+                                            <span class="order-user">${o.user_name}</>
+                                            <span class="order-status">${o.status}</>
+                                            <span class="order-date">${formatDate(o.created_at)}</>
                                         </>
                                     }
                                 }

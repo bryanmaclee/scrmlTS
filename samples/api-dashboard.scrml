@@ -66,30 +66,30 @@ ${ loadEndpoints() }
 <div class="api-dashboard">
 
     <header class="dashboard-header">
-        <h1>API Endpoint Dashboard/
-        <p class="subtitle">Manage and test your API endpoints/
+        <h1>API Endpoint Dashboard</>
+        <p class="subtitle">Manage and test your API endpoints</>
     </header>
 
     // --------------------------------------------------------
     // Add Endpoint Form
     // --------------------------------------------------------
     <section class="add-form">
-        <h2>Add Endpoint/
+        <h2>Add Endpoint</>
 
-        <div class="error-msg" if=@submitError>${@submitError}/
+        <div class="error-msg" if=@submitError>${@submitError}</>
 
         <form onsubmit=submitAddEndpoint()>
             <div class="form-row">
-                <label>Method/
+                <label>Method</>
                 <select oninput=setMethod()>
-                    <option value="GET">GET/
-                    <option value="POST">POST/
-                    <option value="PUT">PUT/
-                    <option value="DELETE">DELETE/
+                    <option value="GET">GET</>
+                    <option value="POST">POST</>
+                    <option value="PUT">PUT</>
+                    <option value="DELETE">DELETE</>
                 </select>
             </div>
             <div class="form-row">
-                <label>URL/
+                <label>URL</>
                 <input
                     type="text"
                     oninput=setUrl()
@@ -97,14 +97,14 @@ ${ loadEndpoints() }
                 />
             </div>
             <div class="form-row">
-                <label>Description/
+                <label>Description</>
                 <input
                     type="text"
                     oninput=setDescription()
                     placeholder="What does this endpoint do?"
                 />
             </div>
-            <button type="submit">Add Endpoint/
+            <button type="submit">Add Endpoint</>
         </form>
     </section>
 
@@ -112,9 +112,9 @@ ${ loadEndpoints() }
     // Endpoint List
     // --------------------------------------------------------
     <section class="endpoint-list">
-        <h2>Endpoints (${@endpoints.length})/
+        <h2>Endpoints (${@endpoints.length})</>
 
-        <div class="loading-msg" if=@loading>Loading endpoints…/
+        <div class="loading-msg" if=@loading>Loading endpoints…</>
 
         <table class="endpoint-table" if=@loading>
         </table>
@@ -122,24 +122,24 @@ ${ loadEndpoints() }
         <table class="endpoint-table">
             <thead>
                 <tr>
-                    <th>Method/
-                    <th>URL/
-                    <th>Description/
-                    <th>Actions/
+                    <th>Method</>
+                    <th>URL</>
+                    <th>Description</>
+                    <th>Actions</>
                 </tr>
             </thead>
             <tbody>${
                 for (ep of @endpoints) {
                     lift <tr>
                         <td>
-                            <span class="method-badge">${ep.method}/
-                        /
-                        <td>${ep.url}/
-                        <td>${ep.description}/
+                            <span class="method-badge">${ep.method}</>
+                        </>
+                        <td>${ep.url}</>
+                        <td>${ep.description}</>
                         <td>
-                            <button onclick=testEndpoint(ep.id, ep.url, ep.method)>Test/
-                            <button class="btn-danger" onclick=deleteEndpoint(ep.id)>Delete/
-                        /
+                            <button onclick=testEndpoint(ep.id, ep.url, ep.method)>Test</>
+                            <button class="btn-danger" onclick=deleteEndpoint(ep.id)>Delete</>
+                        </>
                     </tr>
                 }
             }
@@ -150,23 +150,23 @@ ${ loadEndpoints() }
     // Test Response Panel
     // --------------------------------------------------------
     <section class="response-panel" if=@testingId>
-        <h2>Test Result/
+        <h2>Test Result</>
 
         // Loading state
         <div class="response-loading" if=@responseState>
             ${
                 if (@responseState == "Loading") {
-                    lift <p>Testing endpoint…/
+                    lift <p>Testing endpoint…</>
                 } else {
-                    lift <p>/
+                    lift <p></>
                 }
             }
         </div>
 
         // Network error — !{} handled and placed in @networkError
         <div class="response-error" if=@networkError>
-            <p class="error-label">Network Error/
-            <p>${@networkError}/
+            <p class="error-label">Network Error</>
+            <p>${@networkError}</>
         </div>
 
         // Response status display — if=/else-if=/else chain
@@ -174,43 +174,43 @@ ${ loadEndpoints() }
 
             // 2xx success
             <div class="status-success" if=isSuccess(@testStatus)>
-                <span class="status-code">${@testStatus}/
-                <span class="status-label">Success/
+                <span class="status-code">${@testStatus}</>
+                <span class="status-label">Success</>
             </div>
 
             // 3xx redirect — immediately after the 2xx block
             <div class="status-redirect" else-if=isRedirect(@testStatus)>
-                <span class="status-code">${@testStatus}/
-                <span class="status-label">Redirect/
+                <span class="status-code">${@testStatus}</>
+                <span class="status-label">Redirect</>
             </div>
 
             // 4xx client error
             <div class="status-client-err" else-if=isClientError(@testStatus)>
-                <span class="status-code">${@testStatus}/
-                <span class="status-label">Client Error/
+                <span class="status-code">${@testStatus}</>
+                <span class="status-label">Client Error</>
             </div>
 
             // 5xx server error
             <div class="status-server-err" else-if=isServerError(@testStatus)>
-                <span class="status-code">${@testStatus}/
-                <span class="status-label">Server Error/
+                <span class="status-code">${@testStatus}</>
+                <span class="status-label">Server Error</>
             </div>
 
             // Unknown / unexpected
             <div class="status-unknown" else>
-                <span class="status-code">${@testStatus}/
-                <span class="status-label">Unknown/
+                <span class="status-code">${@testStatus}</>
+                <span class="status-label">Unknown</>
             </div>
 
         </div>
 
         // Response body
         <div class="response-body" if=@testBody>
-            <h3>Response Body/
-            <pre>${@testBody}/
+            <h3>Response Body</>
+            <pre>${@testBody}</>
         </div>
 
-        <button onclick=clearTest()>Close/
+        <button onclick=clearTest()>Close</>
     </section>
 
 </div>

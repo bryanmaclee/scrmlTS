@@ -168,15 +168,15 @@ ${
                 ${
                     for (let user of @users) {
                         lift <tr>
-                            <td>${user.id}/
-                            <td>${user.display_name}/
-                            <td>${user.email}/
-                            <td>${user.plan}/
-                            <td>${formatDate(user.created_at)}/
+                            <td>${user.id}</>
+                            <td>${user.display_name}</>
+                            <td>${user.email}</>
+                            <td>${user.plan}</>
+                            <td>${formatDate(user.created_at)}</>
                             <td>
-                                <button class="btn-danger" onclick=requestConfirm(AdminAction.ResetPassword(user.id))>Reset PW/
-                                <button class="btn-danger" onclick=requestConfirm(AdminAction.DeleteUser(user.id))>Delete/
-                            /
+                                <button class="btn-danger" onclick=requestConfirm(AdminAction.ResetPassword(user.id))>Reset PW</>
+                                <button class="btn-danger" onclick=requestConfirm(AdminAction.DeleteUser(user.id))>Delete</>
+                            </>
                         </tr>
                     }
                 }
@@ -199,22 +199,22 @@ ${
                 ${
                     for (let key of @apiKeys) {
                         lift <tr>
-                            <td>${key.id}/
-                            <td>${key.name}/
-                            <td>${key.created_by_email}/
-                            <td>${key.last_used_at ? formatDate(key.last_used_at) : "Never"}/
+                            <td>${key.id}</>
+                            <td>${key.name}</>
+                            <td>${key.created_by_email}</>
+                            <td>${key.last_used_at ? formatDate(key.last_used_at) : "Never"}</>
                             <td>
                                 <span class="badge" class:active=key.is_active>
                                     ${key.is_active ? "Active" : "Revoked"}
-                                /
-                            /
+                                </>
+                            </>
                             <td>
                                 <button
                                     if=key.is_active
                                     class="btn-danger"
                                     onclick=requestConfirm(AdminAction.RevokeKey(key.id))
-                                >Revoke/
-                            /
+                                >Revoke</>
+                            </>
                         </tr>
                     }
                 }
@@ -233,10 +233,10 @@ ${
                 ${
                     for (let entry of @adminLog) {
                         lift <tr>
-                            <td>${formatDate(entry.created_at)}/
-                            <td>${entry.admin_email}/
-                            <td>${entry.action}/
-                            <td>${entry.target_type} #${entry.target_id}/
+                            <td>${formatDate(entry.created_at)}</>
+                            <td>${entry.admin_email}</>
+                            <td>${entry.action}</>
+                            <td>${entry.target_type} #${entry.target_id}</>
                         </tr>
                     }
                 }

@@ -1093,19 +1093,18 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // Exception: inside a tag body (tagNesting > 0) or inside markup content
       // (angleDepth > 0), the block is part of the expression.
       if (tok.kind === "BLOCK_REF" && depth === 0 && angleDepth === 0 && parts.length > 0 && (tok.block?.tagNesting ?? 0) === 0) break;
-      // Track markup nesting depth: `< tag` opens, `/` closes.
-      // Inside markup content (tagDepth > 0), keywords are text, not code.
+      // Track markup nesting depth: `< tag` opens, `</>` or `</tag>` closes.
+      // Inside markup content (angleDepth > 0), keywords are text, not code.
       if (tok.text === "<" && (tok.kind === "PUNCT" || tok.kind === "OPERATOR")) {
         const next = peek(1);
-        // `< ident` or `< keyword` = tag open. `< /` = closing tag (also increments,
-        // but the `/` that follows will decrement).
-        if (next && (next.kind === "IDENT" || next.kind === "KEYWORD")) {
+        // `< /` or `< / >` = closing tag → decrement angleDepth
+        if (next && next.text === "/" && next.kind === "PUNCT" && angleDepth > 0) {
+          angleDepth--;
+        }
+        // `< ident` or `< keyword` = tag open → increment angleDepth
+        else if (next && (next.kind === "IDENT" || next.kind === "KEYWORD")) {
           angleDepth++;
         }
-      }
-      // `/` at depth > 0 closes the innermost tag
-      if (tok.text === "/" && tok.kind === "PUNCT" && angleDepth > 0) {
-        angleDepth--;
       }
       // ASI-style newline boundary (same logic as collectExpr BUG-ASI-NEWLINE)
       if (parts.length > 0 && depth === 0 && angleDepth === 0 && tok.span.line > lastTok.span.line) {

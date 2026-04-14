@@ -31,11 +31,11 @@ const ItemCard = <article class="item-card">
     itemId
 
     <header class="item-card__header">
-        <h3>${title}/
+        <h3>${title}</>
         // OPEN: Conditional class based on prop value. I want to add a CSS class
         // "status--inactive" when status != "active". No conditional class
         // syntax in the spec. Using a logic context to build the class string.
-        <span class=${statusClass(status)}>${status}/
+        <span class=${statusClass(status)}>${status}</>
     </header>
 
     // Named slot for body content — empty = required slot (caller must fill or it's empty)
@@ -44,12 +44,12 @@ const ItemCard = <article class="item-card">
         // How do I name a slot? Is the element name the slot name, or is there
         // a slot= attribute? Using a slot= attribute pattern — most familiar
         // from Web Components, but the spec doesn't confirm this syntax.
-        <slot name="body"/
+        <slot name="body"</>
     </section>
 
     // Named slot for actions
     <footer class="item-card__actions">
-        <slot name="actions"/
+        <slot name="actions"</>
     </footer>
 
     ${
@@ -101,27 +101,27 @@ const ItemCard = <article class="item-card">
 
         // -- Counter section --------------------------------------------------
         <section class="dashboard__counter">
-            <h2>Session Counter/
-            <p class="counter-value">${@counter}/
+            <h2>Session Counter</>
+            <p class="counter-value">${@counter}</>
             <div class="counter-controls">
-                <button onclick=decrement()>−/
+                <button onclick=decrement()>−</>
                 // OPEN: Can I inline a ${ } expression as an attribute value?
                 // I want aria-label="counter: 3" dynamically. Using a logic
                 // context inline in the attribute — unsure if that's valid.
                 // OPEN: Attribute expressions. Spec says attr=name for variable
                 // reference but doesn't cover attr=${expr} for computed values.
                 // Using attr=expr notation without curlies, hoping it resolves.
-                <span aria-live="polite" aria-label=counterLabel()>${@counter}/
-                <button onclick=increment()>+/
+                <span aria-live="polite" aria-label=counterLabel()>${@counter}</>
+                <button onclick=increment()>+</>
             </div>
         </section>
 
         // -- Items list section -----------------------------------------------
         <section class="dashboard__items">
             <div class="section-header">
-                <h2>Items/
+                <h2>Items</>
                 // reload button — triggers loadItems() again
-                <button class="btn-reload" onclick=loadItems()>Reload/
+                <button class="btn-reload" onclick=loadItems()>Reload</>
             </div>
 
             // OPEN: Loading state. While the fetch is in-flight, I want to show
@@ -129,7 +129,7 @@ const ItemCard = <article class="item-card">
             // @loading flag set inside loadItems.
             ${
                 if (@loading) {
-                    lift <div class="spinner" aria-label="Loading items…"/
+                    lift <div class="spinner" aria-label="Loading items…"</>
                 }
             }
 
@@ -148,12 +148,12 @@ const ItemCard = <article class="item-card">
                         // the same pattern here since the spec doesn't specify
                         // an alternative. This is a significant unknown.
                         <ItemCard title=item.title status=item.status itemId=item.id>
-                            <p slot="body">${item.description}/
-                            <a slot="actions" href=itemDetailUrl(item.id)>View details/
+                            <p slot="body">${item.description}</>
+                            <a slot="actions" href=itemDetailUrl(item.id)>View details</>
                         </ItemCard>
                     </li>
                 }
-            /
+            </>
 
         </section>
 
@@ -216,7 +216,7 @@ const ItemCard = <article class="item-card">
 
 /   // closes < db>
 
-<style>/
+<style></>
     .dashboard {
         display: grid;
         grid-template-columns: 1fr 3fr;

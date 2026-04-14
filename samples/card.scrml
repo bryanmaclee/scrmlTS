@@ -9,9 +9,9 @@ ${
         actions?:  snippet,
     }>
         <header class="card__header">
-            <h2 class="card__title">${title}/
+            <h2 class="card__title">${title}</>
             // Render subtitle only when provided — presence check with not.
-            <p class="card__subtitle" if=(not (subtitle is not))>${subtitle}/
+            <p class="card__subtitle" if=(not (subtitle is not))>${subtitle}</>
         </header>
 
         <section class="card__body">
@@ -21,8 +21,8 @@ ${
         // Render actions footer only when actions slot was provided.
         <footer class="card__actions" if=(not (actions is not))>
             ${render actions()}
-        /
-    /
+        </>
+    </>
 }
 
 #{
