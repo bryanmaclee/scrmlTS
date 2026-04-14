@@ -302,7 +302,7 @@ export function emitTryStmt(node: any): string {
 // match
 // ---------------------------------------------------------------------------
 
-interface MatchArm {
+export interface MatchArm {
   kind: "variant" | "string" | "wildcard" | "not";
   test: string | null;
   binding: string | null;
@@ -330,7 +330,7 @@ interface MatchArm {
  *   9. 'string' -> expr           — old string literal (single-quoted)
  *  10. _ -> expr                  — old wildcard syntax
  */
-function parseMatchArm(trimmed: string): MatchArm | null {
+export function parseMatchArm(trimmed: string): MatchArm | null {
   // NEW Form 1 & 2: .Variant => result or .Variant(binding) => result
   const newVariantMatch = trimmed.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*(\w+)\s*\))?\s*=>\s*([\s\S]+)$/);
   if (newVariantMatch) {
@@ -415,7 +415,7 @@ function parseMatchArm(trimmed: string): MatchArm | null {
  *
  * Returns [s] when only zero or one arm boundary is found.
  */
-function splitMultiArmString(s: string): string[] {
+export function splitMultiArmString(s: string): string[] {
   const armStartPositions: number[] = [];
   let inString: string | null = null;
   let braceDepth = 0; // skip arm detection inside nested { } blocks

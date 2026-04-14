@@ -2,7 +2,7 @@ import { genVar } from "./var-counter.ts";
 import { rewriteExpr, rewriteExprWithDerived, extractSqlParams, rewriteTildeRef } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
-import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody } from "./emit-control-flow.ts";
+import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, type MatchArm } from "./emit-control-flow.ts";
 import { emitLiftExpr } from "./emit-lift.js";
 import { extractReactiveDeps } from "./reactive-deps.ts";
 import type { EncodingContext } from "./type-encoding.ts";
@@ -350,6 +350,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (node.forExpr) {
         return emitForExprDecl(node.name, node.forExpr, "let", opts);
       }
+      // Match-as-expression: `let result = match expr { .A => { lift val } }`
+      if (node.matchExpr) {
+        return emitMatchExprDecl(node.name, node.matchExpr, "let", opts);
+      }
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
         const rhs = emitExpr(node.initExpr, _makeExprCtx(opts));
@@ -418,6 +422,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // For-as-expression: `const names = for (item of items) { lift item.name }`
       if (node.forExpr) {
         return emitForExprDecl(node.name, node.forExpr, "const", opts);
+      }
+      // Match-as-expression: `const result = match expr { .A => { lift val } }`
+      if (node.matchExpr) {
+        return emitMatchExprDecl(node.name, node.matchExpr, "const", opts);
       }
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
@@ -908,6 +916,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       return emitTryStmt(node);
 
     case "match-stmt":
+    case "match-expr":
       return emitMatchExpr(node);
 
     case "switch-stmt":
@@ -1271,6 +1280,119 @@ function emitForExprDecl(name: string, forExpr: any, keyword: "let" | "const", o
     }
   }
   lines.push("}");
+
+  lines.push(`${keyword} ${name} = ${tildeVar};`);
+
+  // Propagate tilde var to parent context so `~` after this decl resolves correctly
+  if (opts.tildeContext) {
+    opts.tildeContext.var = tildeVar;
+  }
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// emitMatchExprDecl — match-as-expression: `const result = match expr { arms }`
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit a match-as-expression declaration. Pre-declares a tilde variable,
+ * emits the match arms as if/else-if blocks with lift assigning to that
+ * variable, then assigns the result to the declared name.
+ *
+ * §18.3: match is an expression — may appear on the RHS of let/const.
+ */
+function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const", opts: EmitLogicOpts): string {
+  const tildeVar = genVar("tilde");
+  const tmpVar = genVar("match");
+  const lines: string[] = [];
+  lines.push(`let ${tildeVar} = null;`);
+
+  // Emit the match header into a temporary variable
+  const header = emitExprField(matchExpr.headerExpr, (matchExpr.header ?? "").trim(), _makeExprCtx(opts));
+  lines.push(`const ${tmpVar} = ${header};`);
+
+  // Create a tilde context so lift-expr inside match arms assigns to tildeVar
+  const tildeCtx = { var: tildeVar, mode: "single" as "single" | "array" };
+  const bodyOpts: EmitLogicOpts = { ...opts, tildeContext: tildeCtx };
+
+  // Collect all arms — same two-path logic as emitMatchExpr in emit-control-flow.ts
+  const arms: MatchArm[] = [];
+  const body: any[] = matchExpr.body ?? [];
+  for (const child of body) {
+    if (!child) continue;
+    // Structured match-arm-block nodes (from `. Variant => { ... }` arms)
+    if (child.kind === "match-arm-block") {
+      arms.push({
+        kind: child.isWildcard ? "wildcard" : child.isNotArm ? "not" : "variant",
+        test: child.variant ?? null,
+        binding: null,
+        result: "",
+        structuredBody: Array.isArray(child.body) ? child.body : null,
+      });
+      continue;
+    }
+    // Raw expression arms — parse via shared arm splitter/parser
+    const armExpr: unknown = child.expr ?? child.header ?? "";
+    if (typeof armExpr !== "string") continue;
+    const trimmed = armExpr.trim();
+    if (!trimmed) continue;
+    const armStrings = splitMultiArmString(trimmed);
+    for (const armStr of armStrings) {
+      const arm = parseMatchArm(armStr);
+      if (arm) arms.push(arm);
+    }
+  }
+
+  // Emit arms as if/else-if chain with tilde assignment
+  let conditionIndex = 0;
+  for (const arm of arms) {
+    // Structured body: emit each statement via emitLogicNode (handles lift via tildeContext)
+    if (arm.structuredBody) {
+      const bodyCode: string[] = [];
+      for (const stmt of arm.structuredBody) {
+        const code = emitLogicNode(stmt, bodyOpts);
+        if (code) {
+          for (const line of code.split("\n")) bodyCode.push(`  ${line}`);
+        }
+      }
+      if (arm.kind === "wildcard") {
+        lines.push(`else {`);
+      } else if (arm.kind === "not") {
+        const prefix = conditionIndex === 0 ? "if" : "else if";
+        lines.push(`${prefix} (${tmpVar} === null || ${tmpVar} === undefined) {`);
+        conditionIndex++;
+      } else {
+        const prefix = conditionIndex === 0 ? "if" : "else if";
+        lines.push(`${prefix} (${tmpVar} === "${arm.test}") {`);
+        conditionIndex++;
+      }
+      for (const line of bodyCode) lines.push(line);
+      lines.push(`}`);
+      continue;
+    }
+
+    // Raw result: assign rewritten expression to tilde var
+    if (arm.kind === "wildcard") {
+      lines.push(`else {`);
+      if (arm.binding) lines.push(`  const ${arm.binding} = ${tmpVar};`);
+      lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
+      lines.push(`}`);
+    } else if (arm.kind === "not") {
+      const prefix = conditionIndex === 0 ? "if" : "else if";
+      lines.push(`${prefix} (${tmpVar} === null || ${tmpVar} === undefined) {`);
+      lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
+      lines.push(`}`);
+      conditionIndex++;
+    } else {
+      const prefix = conditionIndex === 0 ? "if" : "else if";
+      lines.push(`${prefix} (${tmpVar} === "${arm.test}") {`);
+      if (arm.binding) lines.push(`  const ${arm.binding} = ${tmpVar};`);
+      lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
+      lines.push(`}`);
+      conditionIndex++;
+    }
+  }
 
   lines.push(`${keyword} ${name} = ${tildeVar};`);
 

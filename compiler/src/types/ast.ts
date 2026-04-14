@@ -354,6 +354,10 @@ export interface LetDeclNode extends BaseNode {
   init: string;
   /** If-as-expression: `let a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
+  /** For-as-expression: `let names = for (item of items) { lift item.name }`. */
+  forExpr?: ForExprNode;
+  /** Match-as-expression: `let result = match expr { .A => { lift val } }`. */
+  matchExpr?: MatchExprNode;
   /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
   initExpr?: ExprNode;
 }
@@ -367,6 +371,10 @@ export interface ConstDeclNode extends BaseNode {
   init: string;
   /** If-as-expression: `const a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
+  /** For-as-expression: `const names = for (item of items) { lift item.name }`. */
+  forExpr?: ForExprNode;
+  /** Match-as-expression: `const result = match expr { .A => { lift val } }`. */
+  matchExpr?: MatchExprNode;
   /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
   initExpr?: ExprNode;
 }
@@ -550,6 +558,30 @@ export interface IfExprNode extends BaseNode {
   alternate: LogicStatement[] | null;
   /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
   condExpr?: ExprNode;
+}
+
+/** A for-as-expression: `const names = for (item of items) { lift item.name }`. */
+export interface ForExprNode extends BaseNode {
+  kind: "for-expr";
+  /** Loop variable name. */
+  variable: string;
+  /** Iterable expression (raw string). */
+  iterable: string;
+  /** Loop body statements. */
+  body: LogicStatement[];
+  /** Phase 1: structured ExprNode form of `iterable`. Populated by ast-builder. */
+  iterExpr?: ExprNode;
+}
+
+/** A match-as-expression: `const result = match expr { .A => { lift val } }`. */
+export interface MatchExprNode extends BaseNode {
+  kind: "match-expr";
+  /** Match header expression (raw string). */
+  header: string;
+  /** Body statements (match arms). */
+  body: LogicStatement[];
+  /** Phase 1: structured ExprNode form of `header`. Populated by ast-builder. */
+  headerExpr?: ExprNode;
 }
 
 /** A for loop: `for variable in iterable { body }`. */
@@ -876,6 +908,8 @@ export type LogicStatement =
   | ComponentDefNode
   | IfStmtNode
   | IfExprNode
+  | ForExprNode
+  | MatchExprNode
   | ForStmtNode
   | WhileStmtNode
   | ReturnStmtNode

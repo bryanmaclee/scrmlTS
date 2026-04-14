@@ -1,0 +1,20 @@
+<page route="/">
+  ^{
+    let status = "Active"
+
+    const label = match status {
+      .Active => "Currently active"
+      .Inactive => "Not active"
+      else => "Unknown status"
+    }
+
+    let message = match status {
+      .Active => "Welcome back!"
+      .Inactive => "You've been away"
+      not => "No status set"
+      else => "Something else"
+    }
+  }
+  <h1>{ label }</h1>
+  <p>{ message }</p>
+</page>

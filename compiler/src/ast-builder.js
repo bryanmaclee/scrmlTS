@@ -1331,6 +1331,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           const forNode = parseOneForStmt();
           return { id: ++counter.next, kind: "let-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, span: spanOf(startTok, peek()) };
         }
+        // Match-as-expression: `let result = match expr { .A => { lift val } }`
+        if (peek().kind === "KEYWORD" && (peek().text === "match" || (peek().text === "partial" && peek(1)?.text === "match"))) {
+          const matchNode = parseOneMatchAsExpr(startTok);
+          return { id: ++counter.next, kind: "let-decl", name, init: "", matchExpr: matchNode, span: spanOf(startTok, peek()) };
+        }
         const { expr, span } = collectExpr();
         return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       } else {
@@ -1367,6 +1372,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (peek().kind === "KEYWORD" && peek().text === "for") {
           const forNode = parseOneForStmt();
           return { id: ++counter.next, kind: "const-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, span: spanOf(startTok, peek()) };
+        }
+        // Match-as-expression: `const result = match expr { .A => { lift val } }`
+        if (peek().kind === "KEYWORD" && (peek().text === "match" || (peek().text === "partial" && peek(1)?.text === "match"))) {
+          const matchNode = parseOneMatchAsExpr(startTok);
+          return { id: ++counter.next, kind: "const-decl", name, init: "", matchExpr: matchNode, span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
         return { id: ++counter.next, kind: "const-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
@@ -2320,6 +2330,33 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * Parse a match-as-expression inline — used by match-as-expression:
+   *   `const result = match expr { .A => { lift val } else => { lift default } }`
+   * Assumes the `match` (or `partial match`) keyword token is next (not yet consumed).
+   * Returns a match-expr node.
+   */
+  function parseOneMatchAsExpr(declStartTok) {
+    const isPartial = peek().text === "partial";
+    if (isPartial) consume(); // consume 'partial'
+    const startTok = consume(); // consume 'match'
+    const { expr: header } = collectExpr("{");
+    let body = [];
+    if (peek().text === "{") {
+      consume();
+      body = parseRecursiveBody();
+    }
+    return {
+      id: ++counter.next,
+      kind: "match-expr",
+      header: header.trim(),
+      body,
+      partial: isPartial || undefined,
+      headerExpr: safeParseExprToNode(header.trim(), 0),
+      span: spanOf(declStartTok, peek()),
+    };
+  }
+
+  /**
    * Parse a function parameter list `( param, param, ... )` into string[].
    * Assumes next token is `(`.
    */
@@ -2920,6 +2957,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             forExpr: { ...forNode, kind: "for-expr" },
             span: spanOf(startTok, peek()),
           });
+        // Match-as-expression: `let result = match expr { .A => { lift val } }`
+        } else if (peek().kind === "KEYWORD" && (peek().text === "match" || (peek().text === "partial" && peek(1)?.text === "match"))) {
+          const matchNode = parseOneMatchAsExpr(startTok);
+          nodes.push({
+            id: ++counter.next,
+            kind: "let-decl",
+            name,
+            init: "",
+            matchExpr: matchNode,
+            span: spanOf(startTok, peek()),
+          });
         } else {
         const { expr, span } = collectExpr();
         // Check for `?` propagation suffix
@@ -3016,6 +3064,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             name,
             init: "",
             forExpr: { ...forNode, kind: "for-expr" },
+            span: spanOf(startTok, peek()),
+          });
+        // Match-as-expression: `const result = match expr { .A => { lift val } }`
+        } else if (peek().kind === "KEYWORD" && (peek().text === "match" || (peek().text === "partial" && peek(1)?.text === "match"))) {
+          const matchNode = parseOneMatchAsExpr(startTok);
+          nodes.push({
+            id: ++counter.next,
+            kind: "const-decl",
+            name,
+            init: "",
+            matchExpr: matchNode,
             span: spanOf(startTok, peek()),
           });
         } else {
