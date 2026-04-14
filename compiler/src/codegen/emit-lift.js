@@ -1362,67 +1362,17 @@ export function emitLiftExpr(node, opts = {}) {
   if (liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
     const expr = liftExpr.expr.trim();
 
-    // LIFT APPROACH C: as of S14, parseLiftTag in ast-builder.js produces
-    // {kind: "markup"} for all inline lift markup. This `expr` path with
-    // markup-looking text is only reachable via test fixtures that hard-code
-    // legacy-shaped lift-expr nodes. Kept as-is for backward compat during
-    // migration; can be deleted once all test fixtures use {kind: "markup"}.
+    // LIFT APPROACH C (S18 cleanup): the BS+TAB re-parse fork that lived here
+    // was confirmed dead by S14 instrumentation (0 hits across 14 examples +
+    // 275 samples + compilation-tests). Real inline-markup lifts take the
+    // `{kind: "markup"}` branch above. Remaining `{kind: "expr"}` inputs are
+    // either:
+    //   - Bare tags like `< ComponentName >` → handled by emitCreateElementFromExprString below
+    //   - Non-markup text (identifier, @var, expression) → createTextNode fallback
+    // The BS+TAB re-parse was redundant with emitCreateElementFromMarkup for
+    // the first group and never reached for the second. Deleted.
 
-    // When the expression starts with a tag, re-parse through BS+TAB to get a
-    // structured markup tree, then use emitCreateElementFromMarkup.
-    // This avoids emitCreateElementFromExprString whose string parser produces
-    // broken textContent assignments that overwrite children.
-    if (expr.startsWith("<") || expr.startsWith("< ")) {
-      try {
-        // Normalize tokenizer-spaced markup back to compact form for BS re-parse.
-        // The tokenizer inserts spaces around < > / = and uses bare / as a closer.
-        let normalized = expr
-          // Bare / closer at end of expression → </>
-          .replace(/\s+\/\s*$/, "</>")
-          // < / > and < / tag > closers
-          .replace(/< \/ >/g, "</>")
-          .replace(/< \/\s*([A-Za-z][A-Za-z0-9]*)\s*>/g, "</$1>")
-          // Bare / closer before next < tag → </> (inside nested content)
-          .replace(/\s+\/\s*\n/g, "</>\n")
-          .replace(/\s+\/\s*</g, "</><")
-          // < tag → <tag
-          .replace(/<\s+([A-Za-z][A-Za-z0-9_]*)/g, "<$1")
-          // attr = "val" > → attr="val">
-          .replace(/\s*=\s*"/g, '="')
-          .replace(/"\s*>/g, '">')
-          // self-closing /> with spaces
-          .replace(/\s*\/\s*>/g, "/>")
-          // Collapse tokenizer spacing in attribute values:
-          // fn ( arg . prop , arg2 ) → fn(arg.prop, arg2)
-          .replace(/(\w)\s+\(/g, "$1(")
-          .replace(/\(\s+/g, "(")
-          .replace(/\s+\)/g, ")")
-          .replace(/\s+\.\s+/g, ".")
-          .replace(/\s*,\s*/g, ", ");
-        const { splitBlocks: _splitBlocks } = require("../block-splitter.js");
-        const { buildAST: _buildAST } = require("../ast-builder.js");
-        const bsResult = _splitBlocks("__lift__", normalized);
-        const tabResult = _buildAST(bsResult, null);
-        const reparsedNodes = tabResult?.ast?.nodes ?? [];
-        const markupNode = reparsedNodes.find(
-          (rn) => rn && rn.kind === "markup"
-        );
-        if (markupNode) {
-          const lines = [];
-          const rootVar = emitCreateElementFromMarkup(markupNode, lines);
-          const factoryBody = lines.join("\n  ");
-          if (containerVar) {
-            return `${containerVar}.appendChild((() => {\n  ${factoryBody}\n  return ${rootVar};\n})());`;
-          }
-          return `_scrml_lift(() => {\n  ${factoryBody}\n  return ${rootVar};\n});`;
-        }
-      } catch {
-        // Re-parse failed — fall through to string parser
-      }
-    }
-
-    // Re-parse didn't produce a markup node — try the string-based parser as fallback.
-    // This handles cases like bare `< ComponentName >` with no closer.
+    // Bare/short-form tag (e.g. `< ComponentName >` without closer) — string parser.
     const result = emitCreateElementFromExprString(expr);
     if (result) {
       const { lines, varName } = result;
