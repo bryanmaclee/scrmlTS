@@ -204,7 +204,50 @@ describe("§7 regression: non-hoisted for-loop unchanged", () => {
 // §8
 // ---------------------------------------------------------------------------
 
-describe("§8 key column flows into the IN-list SELECT", () => {
+// ---------------------------------------------------------------------------
+// §9 E-BATCH-002 runtime guard
+// ---------------------------------------------------------------------------
+
+describe("§9 E-BATCH-002: runtime guard on SQLITE_MAX_VARIABLE_NUMBER (§8.10.6)", () => {
+  test("emitted JS includes a keys.length > 32766 check that throws E-BATCH-002", () => {
+    const src = [
+      '<program db="test.db">',
+      "${ server function recent(ids) {",
+      "    for (let x of ids) {",
+      "        let row = ?{`SELECT id FROM users WHERE id = ${x.id}`}.get()",
+      "    }",
+      "} }",
+      "</>",
+    ].join("\n");
+    const js = serverJsOf(compile(src));
+    expect(js).toMatch(/_scrml_batch_keys_\d+\.length > 32766/);
+    expect(js).toContain("E-BATCH-002");
+    expect(js).toContain("SQLITE_MAX_VARIABLE_NUMBER");
+  });
+
+  test("guard is placed before the .all() spread call", () => {
+    const src = [
+      '<program db="test.db">',
+      "${ server function recent(ids) {",
+      "    for (let x of ids) {",
+      "        let row = ?{`SELECT id FROM users WHERE id = ${x.id}`}.get()",
+      "    }",
+      "} }",
+      "</>",
+    ].join("\n");
+    const js = serverJsOf(compile(src));
+    const guardIdx = js.indexOf("E-BATCH-002");
+    const spreadIdx = js.search(/\.all\(\.\.\._scrml_batch_keys_\d+\)/);
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(spreadIdx).toBeGreaterThan(guardIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §10 key column flows into IN-list SELECT (renumbered from §8)
+// ---------------------------------------------------------------------------
+
+describe("§10 key column flows into the IN-list SELECT", () => {
   test("WHERE user_id IN (...) appears when key column is user_id", () => {
     const src = [
       '<program db="test.db">',

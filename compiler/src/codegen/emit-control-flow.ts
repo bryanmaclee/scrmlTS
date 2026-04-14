@@ -313,6 +313,13 @@ function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
   const lines: string[] = [];
   lines.push(`// §8.10 Tier 2 loop hoist (key: ${keyColumn})`);
   lines.push(`const ${keysVar} = (${iterable}).map(${loopVar} => ${loopVar}.${keyField});`);
+  // §8.10.6: reject key counts above SQLITE_MAX_VARIABLE_NUMBER at runtime.
+  // SQLite 3.32+ defaults to 32766; older builds default to 999. Using 32766
+  // matches the bun:sqlite bundled version. Users can .nobatch() the site to
+  // opt out if they hit this ceiling.
+  lines.push(
+    `if (${keysVar}.length > 32766) { const _e = new Error("E-BATCH-002: batched IN-list exceeds SQLITE_MAX_VARIABLE_NUMBER (32766) for hoisted loop"); _e.code = "E-BATCH-002"; throw _e; }`,
+  );
   // Build placeholder list `?1, ?2, ...` so bun:sqlite gets positional bound params.
   lines.push(
     `const ${placeholdersVar} = ${keysVar}.map((_, _i) => "?" + (_i + 1)).join(", ");`,
