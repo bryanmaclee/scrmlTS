@@ -62,7 +62,7 @@ scrml compile hello.scrml -o dist/
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 
-**The compiler eliminates N+1 automatically.** Because scrml owns both the query context and the loop context, it detects `for (let x of xs) { ?{... WHERE id = ${x.id}}.get() }` and rewrites it to one pre-loop `WHERE IN (...)` fetch plus a keyed `Map` lookup — no DataLoader, no manual batching, no architectural pressure. Independent reads in a `!` handler share one `BEGIN DEFERRED..COMMIT` envelope for snapshot consistency. On-mount `server @var` loads across a page coalesce into a single `__mountHydrate` round-trip. [Measured Tier 2 wins](benchmarks/sql-batching/RESULTS.md): ~2× at N=10, ~3× at N=100, ~4× at N=1000 on on-disk WAL `bun:sqlite`.
+**The compiler eliminates N+1 automatically.** Because scrml owns both the query context and the loop context, a `for (let x of xs) { ?{... WHERE id = ${x.id}}.get() }` pattern is rewritten to one pre-loop `WHERE id IN (...)` fetch plus a keyed `Map` lookup — no DataLoader, no manual batching, no architectural pressure. Independent reads in a `!` handler share one `BEGIN DEFERRED`..`COMMIT` envelope for snapshot consistency. On-mount `server @var` loads across a page coalesce into a single `__mountHydrate` round-trip. Near-miss loops surface as `D-BATCH-001` diagnostics with the exact disqualifier; `?{...}.nobatch()` is the per-site escape hatch. [Measured Tier 2 wins](benchmarks/sql-batching/RESULTS.md): ~2× at N=10, ~3× at N=100, ~4× at N=1000 on on-disk WAL `bun:sqlite`.
 
 ## Quick Example
 
@@ -246,6 +246,11 @@ This isn't bundler-style single-letter renaming — the names are longer than `a
 
 - **Auto-split** — the compiler analyzes your code and decides what runs where. Protected fields and `server` functions force server-side execution.
 - **SQL passthrough (`?{}`)** — query SQLite directly inside logic blocks. The compiler generates parameterized queries and handles serialization.
+- **Automatic N+1 elimination (Tier 2).** A `for` loop whose body does `?{...WHERE id = ${x.id}}.get()` is rewritten to one pre-loop `WHERE id IN (?,?,?,...)` fetch plus a keyed `Map` lookup. No DataLoader, no manual batching. Measured ~2×/3×/4× at N=10/100/1000 on on-disk WAL `bun:sqlite` — see [benchmarks/sql-batching/RESULTS.md](benchmarks/sql-batching/RESULTS.md).
+- **Implicit transaction envelopes (Tier 1).** Independent reads in a `!` handler share one `BEGIN DEFERRED`..`COMMIT` for snapshot consistency under concurrent writers. Explicit `transaction { }` blocks are left alone; a `W-BATCH-001` warning fires if the two would conflict.
+- **Mount-hydration coalescing.** Multiple on-mount `server @var` loads on the same page are folded into a single `__mountHydrate` round-trip (§8.11) instead of one request per variable.
+- **Opt-out per call site.** `?{...}.nobatch()` disables rewriting when you need an exact query shape — useful for `EXPLAIN`, stored-procedure calls, or measured hot paths.
+- **Diagnostics, not silent magic.** `D-BATCH-001` flags near-miss loops that *almost* batch but don't (mutation in body, non-`.get()` chain, etc.), with the exact disqualifier. `E-BATCH-001` rejects `.nobatch()` composition with batched siblings; `E-BATCH-002` guards against the 32 766 `SQLITE_MAX_VARIABLE_NUMBER` ceiling at runtime.
 - **No API boilerplate** — server functions are called like local functions. The compiler generates routes, fetch calls, CSRF tokens, and serialization.
 
 ### Components and Patterns
@@ -288,7 +293,7 @@ scrml uses sigil-delimited contexts to separate concerns within a single file:
 | Markup  | `<tag>` | HTML elements and components |
 | State   | `< name>` | Server-persisted state blocks (note the space) |
 | Logic   | `${}` | JavaScript expressions and functions |
-| SQL     | `?{}` | Database queries (bun:sqlite passthrough) |
+| SQL     | `?{}` | Database queries (bun:sqlite passthrough); auto-batched N+1 + envelope |
 | CSS     | `#{}` | Scoped styles |
 | Error   | `!{}` | Typed error handling |
 | Meta    | `^{}` | Compile-time (or runtime) code generation |
