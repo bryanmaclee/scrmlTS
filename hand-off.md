@@ -1,40 +1,72 @@
-# scrmlTS — Session 18 Hand-Off (in progress)
+# scrmlTS — Session 18 Hand-Off (end-of-session)
 
 **Date:** 2026-04-14
 **Previous:** `handOffs/hand-off-17.md` (rotated post-outage, reconstructed)
-**Baseline at start:** 6,205 pass / 14 fail (S16 end; S17 additions were spec/codegen + tests green per commits, exact count to verify)
+**Baseline at start:** 6,205 pass / 14 fail (S17 end)
+**Baseline at end:** **6,228 pass / 8 skip / 2 fail** (+4 tests fixed this session; 8 harness-only tests skipped with documented root cause)
+**Commits on main:** 4 (README polish, lift dead-code cleanup, housekeeping, bug-fix batch)
 
 ---
 
-## Session start
+## What shipped this session
 
-- Read `pa.md`, `hand-off.md` (S17 stub), last contentful user-voice entries (through S16).
-- Inbox `handOffs/incoming/`: empty (only `read/` subdir).
-- Power-outage recovery: S17 stub rotated → `handOffs/hand-off-17.md` with addendum reconstructing what shipped from git log (Slice 6, Slice 5b remainder, benches, S17 docs — all on main).
-- 4 staged agents still present (debate-curator, debate-judge, scrml-language-design-reviewer, scrml-server-boundary-analyst) — leave until asked.
-- Uncommitted stragglers noted: `docs/changes/expr-ast-phase-1-audit/escape-hatch-catalog.{json,md}` — 2-line diff each (timestamp drift, pre-dates S17). Untracked `handOffs/hand-off-16.md` from S17 start-of-session rotation (needs to be committed or included in next docs commit).
+### Commit trail
+| Commit | What landed |
+|--------|-------------|
+| `d20ffa4` | README SQL-batching expansion — 5 new Server/Client bullets + "Why scrml" sharpening + `?{}` contexts-table row |
+| `f5d78df` | Lift Approach C Phase 2c-lite — drop confirmed-dead BS+TAB re-parse block in `emitLiftExpr` (~50 LOC) |
+| `a55ac8e` | Rotate S16/S17 hand-offs + S18 priority log |
+| `b123ed1` | 3 real-bug fixes + skip 8 TodoMVC happy-dom harness tests |
 
-## S18 priorities — re-scoped mid-session ("we just went public")
+### Real compiler bugs fixed (user-facing wins post-public-launch)
 
-User redirected from internal cleanup → public-facing compiler functionality.
+1. **`export type X:enum = {...}` misparsed** — `compiler/src/ast-builder.js` `collectExpr` treated `:` + IDENT + `=` as a new assignment boundary. `enum`/`struct` tokenize as IDENT (not KEYWORD), so `type X:enum` broke mid-decl after `export`. Fix: added `:` to the lastPart skip-list alongside `.` and `=`. Regression test: `cross-file-import-export.test.js §E1/§E2`.
+2. **Reactive-for stray `innerHTML = ""` destroys keyed reconcile wrapper** — `compiler/src/codegen/emit-reactive-wiring.ts` unconditionally emitted the clear inside `_scrml_effect`, destroying the `_scrml_reconcile_list(` wrapper on every re-run. Fix: skip the clear when combinedCode contains `_scrml_reconcile_list(` (mirrors the existing single-if branch guard). Regression test: `reactive-arrays.test.js §11`.
+3. **`if-as-expr` test fixture triggered valid E-MU-001** — fixture declared `let x = 0` and only wrote to it; MustUse was correct. Test intent is if-stmt codegen, not MustUse semantics. Fixture now adds `log(x)` after the if-stmt.
 
-### Complete
-- **P1 — README SQL-batching expansion** — commit `d20ffa4`. Five new Server/Client bullets (Tier 1 envelope, Tier 2 N+1 rewrite, mount coalescing, `.nobatch()`, batch diagnostics) + tightened "Why scrml" paragraph + `?{}` contexts-table row.
-- **P2 — Lift Approach C Phase 2c-lite** — commit `f5d78df`. Dropped the confirmed-dead BS+TAB re-parse block inside `emitLiftExpr` (−50 LOC). Full Phase 2 (delete `parseTagExprString` + refactor `emitConsolidatedLift` + self-host mirror) deferred — requires instrumentation + corpus run to prove the helpers are dead in consolidated-lift path.
+### Harness-only skips (not compiler bugs)
 
-### Active (re-scoped)
-- **Kill the 12 non-self-host test failures** — 14 pre-existing fails, minus 2 self-host (user deprioritized). Targets: 2 `type-system.test.js`, 1 `if-as-expr.test.js`, 1 `reactive-arrays.test.js` codegen, 1 ex05, 8 TodoMVC happy-dom (likely harness vs compiler).
-- **Finish 6–9 partial-interactivity examples** (§E 03/05/06/07/08/09/11/12/13) — public demos, smoke-pass complete, interactive verification partial.
+8 TodoMVC tests in `compiler/tests/browser/browser-todomvc.test.js` marked `test.skip` with annotation. Root cause: harness wraps runtime in IIFE, scoping `let _scrml_lift_target = null;` to the IIFE; client-JS IIFE can't see it. Real browsers share global lexical env between classic `<script>` tags — works there. **Puppeteer e2e (`examples/test-examples.js` 14/14 pass) covers this ground.** Unskip when the harness is refactored to not IIFE-wrap the runtime.
 
-### Deferred per user
-- P3 self-host (CE+ME port, idiomification)
+### Other work
+- README polish with SQL-batching bullets shipped S17 (`f265036`) + expanded S18 (`d20ffa4`)
+- Dropped needs:push msg to master, then user gave one-time auth → pushed directly
+- `escape-hatch-catalog.{json,md}` timestamp drift reverted (was pre-session stale)
+
+---
+
+## State of the repo
+
+- **Branch:** `main`, ahead of origin by 1 commit (`b123ed1`) at wrap — confirm push status at S19 start
+- **Staged agents (still present):** debate-curator, debate-judge, scrml-language-design-reviewer, scrml-server-boundary-analyst
+- **Uncommitted:** none
+- **Test suite:** 6,228 pass / 8 skip / 2 fail (self-host deferred)
+
+## Next priority → S19
+
+**Bug-hunt gauntlet.** User authorized a 12-phase language-coverage gauntlet in S18 close. Full plan at:
+
+`handOffs/incoming/2026-04-14-2330-scrmlTS-to-next-pa-language-gauntlet-plan.md`
+
+The plan is not a summary — it's the exhaustive spec for S19+ execution. Includes:
+- 12 phases (decls, control-flow, operators, markup, meta, SQL, error/test, styles, validation/encoding, channels, integration apps, error UX)
+- 3 tracks (fixture-driven, gauntlet-dev personas, property-based probing)
+- 31-agent staging list with wave recommendation
+- Ghost-pattern anti-brief reference (`scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md`)
+- Expected outputs per phase (fixture corpus, bug list, non-regression tests)
+
+S19 PA: read the plan end-to-end before dispatching. Send agent-staging message to master per the wave recommendation (Wave 1 = ~15 agents for phases 1–3).
+
+## Other open (deferred per user this session)
+
+- P3 self-host completion + idiomification
 - P5 TS migrations (ast-builder, block-splitter)
-- P5 ExprNode Phase 4d/5 (architectural)
-- Lift Phase 2 full (internal cleanup)
-
-### Misc open threads
-- S17 user-voice never written (power outage) — reconstruct or skip
-- `lin` redesign (queued per auto-memory)
+- P5 ExprNode Phase 4d (component-expander, body-pre-parser) + Phase 5 (self-host parity)
+- Full Lift Approach C Phase 2 (delete `parseTagExprString` + `emitCreateElementFromExprString` + `emitConsolidatedLift` refactor + self-host mirror)
+- `lin` redesign (queued per auto-memory — discontinuous scoping deep-dive + debate)
+- Async loading stdlib helpers (RemoteData, Approach E)
+- DQ-12 Phase B (bare compound `is not`/`is some` without parens)
+- 2 remaining self-host test failures
 
 ## Tags
-#session-18 #start #power-outage-recovery
+#session-18 #end-of-session #bug-fixes #public-launch-pivot #gauntlet-planned
