@@ -7,6 +7,22 @@ import { emitTransitionGuard } from "./emit-machines.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 
 // ---------------------------------------------------------------------------
+// Module-level Tier 2 hoist registry (§8.10)
+//
+// The Batch Planner registers a loop-id → LoopHoist map for each compile
+// before CG emission begins. emitForStmt consults this map; if the
+// current for-stmt's id is present, the rewritten IN-list path runs in
+// place of the plain emission. Cleared after every compile.
+// ---------------------------------------------------------------------------
+
+let _hoistMap: Map<string | number, any> | null = null;
+
+/** Called by runCG before emission. Pass null to reset. */
+export function setBatchLoopHoists(m: Map<string | number, any> | null): void {
+  _hoistMap = m;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -78,10 +94,21 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
  *
  * Non-reactive iterables use the plain for-loop path.
  */
-export function emitForStmt(node: any): string {
+export function emitForStmt(
+  node: any,
+  opts?: { dbVar?: string },
+): string {
   const lines: string[] = [];
   let varName: string = node.variable ?? node.name ?? "item";
   let iterable: string = node.iterable ?? node.collection ?? "[]";
+
+  // §8.10 Tier 2 loop-hoist: if the Batch Planner recorded a LoopHoist
+  // for this for-stmt, delegate to the rewriter before falling through
+  // to the standard emission path.
+  const _hoist = (_hoistMap && node.id != null) ? _hoistMap.get(node.id) : null;
+  if (_hoist) {
+    return emitHoistedForStmt(node, _hoist, opts?.dbVar ?? "_scrml_db");
+  }
 
   if (typeof iterable === "string") {
     // Check for C-style for loop: "( let i = 0 ; i < 10 ; i++ )"
@@ -193,6 +220,140 @@ export function emitForStmt(node: any): string {
     }
   }
   lines.push(`}`);
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// §8.10 Tier 2 — N+1 loop-hoist rewrite
+// ---------------------------------------------------------------------------
+
+/**
+ * Deep-clone a for-stmt body and substitute the single hoisted `?{...}`
+ * site with a Map.get(...) lookup expression. Walks every string field
+ * that might carry the original SQL (`init`, `expr`, `value`, etc.) and
+ * performs a targeted replace. The first match per statement is enough
+ * because §8.10.1 requires exactly one SQL site in the body.
+ *
+ * The structured ExprNode siblings (`initExpr`, `exprNode`, …) are
+ * dropped on the cloned node so emit-logic falls back to the string form
+ * we just rewrote. Other AST fields pass through by reference — safe
+ * because emit-logic treats them as read-only.
+ */
+function substituteHoistedSqlInBody(
+  body: any[],
+  sqlSourcePattern: RegExp,
+  replacement: string,
+): any[] {
+  const out: any[] = [];
+  for (const stmt of body) {
+    if (!stmt || typeof stmt !== "object") {
+      out.push(stmt);
+      continue;
+    }
+    const clone: any = { ...stmt };
+    let replaced = false;
+    for (const k of Object.keys(clone)) {
+      if (k === "span" || k === "id" || k === "kind") continue;
+      if (k === "exprNode" || k.endsWith("Expr")) {
+        // Drop stale ExprNode siblings so emit-logic reads the updated string.
+        delete clone[k];
+        continue;
+      }
+      const v = clone[k];
+      if (typeof v === "string" && sqlSourcePattern.test(v)) {
+        clone[k] = v.replace(sqlSourcePattern, replacement);
+        replaced = true;
+      }
+    }
+    // Recurse into nested body arrays (e.g., if-stmt.consequent, etc.) so
+    // the SQL site in a nested block is also rewritten.
+    if (!replaced && Array.isArray(clone.body)) {
+      clone.body = substituteHoistedSqlInBody(clone.body, sqlSourcePattern, replacement);
+    }
+    out.push(clone);
+  }
+  return out;
+}
+
+/**
+ * Emit the §8.10 rewritten form of a for-stmt. Produces:
+ *   const _keys = <iterable>.map(<loopVar> => <loopVar>.<keyField>);
+ *   const _placeholders = _keys.map((_, i) => `?${i+1}`).join(", ");
+ *   const _rows = _db.query(<in-sql with placeholders>).all(..._keys);
+ *   const _byKey = new Map();
+ *   for (const _r of _rows) _byKey.set(_r.<keyColumn>, _r);   // or push for .all()
+ *   for (const <loopVar> of <iterable>) {
+ *     <body with original ?{...}.get()/.all() replaced by Map lookup>
+ *   }
+ *
+ * The IN placeholder list is built at runtime from the key array (no
+ * string interpolation of user data — preserves §8.2 parameter invariant
+ * via spread binding).
+ */
+function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
+  const loopVar: string = node.variable ?? hoist.loopVar ?? "item";
+  let iterable: string = node.iterable ?? "[]";
+  if (typeof iterable === "string") {
+    const forOfMatch = iterable.match(/^\(\s*(?:(?:let|const|var)\s+)?(\w+)\s+of\s+(.*)\s*\)$/s);
+    if (forOfMatch) iterable = forOfMatch[2].trim();
+  }
+  const _ctx: EmitExprContext = { mode: "client" };
+  iterable = emitExprField(node.iterExpr, iterable, _ctx);
+
+  const keysVar = genVar("batch_keys");
+  const placeholdersVar = genVar("batch_placeholders");
+  const rowsVar = genVar("batch_rows");
+  const mapVar = genVar("batch_byKey");
+
+  const keyField: string = hoist.keyField;
+  const keyColumn: string = hoist.keyColumn;
+  const terminator: "get" | "all" = hoist.terminator;
+  const inSqlTemplate: string = hoist.inSqlTemplate;
+
+  const lines: string[] = [];
+  lines.push(`// §8.10 Tier 2 loop hoist (key: ${keyColumn})`);
+  lines.push(`const ${keysVar} = (${iterable}).map(${loopVar} => ${loopVar}.${keyField});`);
+  // Build placeholder list `?1, ?2, ...` so bun:sqlite gets positional bound params.
+  lines.push(
+    `const ${placeholdersVar} = ${keysVar}.map((_, _i) => "?" + (_i + 1)).join(", ");`,
+  );
+  // Substitute `__SCRML_BATCH_IN__` placeholder in the template with the
+  // generated positional placeholder list. The rest of the SQL template
+  // (column list, table, other predicates) is preserved verbatim.
+  lines.push(
+    `const ${rowsVar} = ${keysVar}.length === 0 ? [] : ${dbVar}.query(${JSON.stringify(inSqlTemplate)}.replace("__SCRML_BATCH_IN__", ${placeholdersVar})).all(...${keysVar});`,
+  );
+  lines.push(`const ${mapVar} = new Map();`);
+  if (terminator === "get") {
+    lines.push(
+      `for (const _r of ${rowsVar}) ${mapVar}.set(_r[${JSON.stringify(keyColumn)}], _r);`,
+    );
+  } else {
+    lines.push(
+      `for (const _r of ${rowsVar}) { const _k = _r[${JSON.stringify(keyColumn)}]; const _a = ${mapVar}.get(_k) ?? []; _a.push(_r); ${mapVar}.set(_k, _a); }`,
+    );
+  }
+
+  // Body rewrite — replace the original `?{`<template>`}.get()/.all()`
+  // call with the Map lookup. We match the raw template (with
+  // backticks) rather than post-emit strings so the rewrite happens at
+  // AST level, before emit-logic / rewrite.ts transform the string.
+  const bodyTemplate = hoist.sqlTemplate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sourceRe = new RegExp(
+    `\\?\\{\`${bodyTemplate}\`\\}\\s*\\.\\s*${terminator}\\s*\\(\\s*\\)`,
+    "g",
+  );
+  const replacement = terminator === "get"
+    ? `(${mapVar}.get(${loopVar}.${keyField}) ?? null)`
+    : `(${mapVar}.get(${loopVar}.${keyField}) ?? [])`;
+  const rewrittenBody = substituteHoistedSqlInBody(node.body ?? [], sourceRe, replacement);
+
+  lines.push(`for (const ${loopVar} of ${iterable}) {`);
+  for (const code of emitLogicBody(rewrittenBody)) {
+    lines.push(`  ${code}`);
+  }
+  lines.push(`}`);
+
   return lines.join("\n");
 }
 

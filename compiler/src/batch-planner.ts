@@ -55,6 +55,18 @@ export interface LoopHoist {
   keyColumn: string;
   /** Key-expression source text (to be upgraded to ExprNode in a later slice). */
   keyExpr: string;
+  /** The `loopVar` name (e.g. "x" in `for (let x of xs)`). */
+  loopVar: string;
+  /** The field of loopVar accessed as the key (e.g. "id" in `${x.id}`). */
+  keyField: string;
+  /** Original SQL template body, e.g. "SELECT * FROM users WHERE id = ${x.id}". */
+  sqlTemplate: string;
+  /**
+   * Rewritten SQL with `WHERE <keyColumn> IN (${keysVar})` in place of the
+   * single equality. The `${keysVar}` slot is kept parameter-bound via
+   * bun:sqlite spread args at emit time (`.all(...keys)`).
+   */
+  inSqlTemplate: string;
   terminator: "get" | "all";
   rowCacheColumns: Set<string>;
 }
@@ -449,11 +461,29 @@ function analyzeForLoop(forStmt: Record<string, unknown>, plan: BatchPlan): void
     return;
   }
 
+  // Build the IN-form SQL template by substituting the single equality
+  // predicate with `WHERE <keyColumn> IN (${__KEYS__})`. We use a distinct
+  // placeholder token rather than a real `${}` so the SQL rewriter at CG
+  // time won't try to turn it into a bound param — the emit step replaces
+  // the placeholder with a spread-rendered IN-list.
+  const keyEqPattern = new RegExp(
+    `WHERE\\s+${keyResult.keyColumn}\\s*=\\s*\\$\\{\\s*${loopVar}\\.${keyResult.keyField}\\s*\\}`,
+    "i",
+  );
+  const inSqlTemplate = site.body.replace(
+    keyEqPattern,
+    `WHERE ${keyResult.keyColumn} IN (__SCRML_BATCH_IN__)`,
+  );
+
   plan.loopHoists.push({
     loopNode: loopId,
     queryNode: `${String(loopId)}#query`,
     keyColumn: keyResult.keyColumn,
     keyExpr: `${loopVar}.${keyResult.keyField}`,
+    loopVar,
+    keyField: keyResult.keyField,
+    sqlTemplate: site.body,
+    inSqlTemplate,
     terminator: site.terminator as "get" | "all",
     rowCacheColumns: new Set<string>(),
   });

@@ -26,6 +26,7 @@ import { escapeHtmlAttr } from "./utils.ts";
 import { generateHtml } from "./emit-html.ts";
 import { generateCss } from "./emit-css.ts";
 import { generateServerJs } from "./emit-server.ts";
+import { setBatchLoopHoists } from "./emit-control-flow.ts";
 import { generateClientJs } from "./emit-client.js";
 import { generateLibraryJs } from "./emit-library.ts";
 import { BindingRegistry } from "./binding-registry.ts";
@@ -141,6 +142,18 @@ export function runCG(input: CgInput): CgOutput {
 
   const safeRouteMap: CgRouteMap = routeMap ?? { functions: new Map() };
   const safeDepGraph: CgDepGraph = depGraph ?? { nodes: new Map(), edges: [] };
+
+  // §8.10 Tier 2 — register LoopHoist map keyed by for-stmt node id so
+  // emit-control-flow can rewrite matched loops at emission time.
+  if (batchPlan && Array.isArray((batchPlan as any).loopHoists) && (batchPlan as any).loopHoists.length > 0) {
+    const map = new Map<string | number, any>();
+    for (const h of (batchPlan as any).loopHoists) {
+      if (h && h.loopNode != null) map.set(h.loopNode, h);
+    }
+    setBatchLoopHoists(map);
+  } else {
+    setBatchLoopHoists(null);
+  }
 
   // Analysis pass: collect all data from AST before emission begins.
   const { fileAnalyses, protectedFields } = analyzeAll({
@@ -556,6 +569,10 @@ export function runCG(input: CgInput): CgOutput {
   }
 
   const runtimeJs = embedRuntime ? null : SCRML_RUNTIME;
+
+  // Reset the Tier 2 hoist singleton so a subsequent compile in the same
+  // process (persistent server, test harness) starts clean.
+  setBatchLoopHoists(null);
 
   return { outputs, errors, runtimeJs, runtimeFilename: RUNTIME_FILENAME };
 }

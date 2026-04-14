@@ -549,7 +549,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (opts.tildeContext) {
         return _emitForStmtWithTilde(node, opts);
       }
-      return emitForStmt(node);
+      return emitForStmt(node, { dbVar: opts.dbVar });
 
     case "while-stmt":
       // §32 array accumulator: same pattern as for-stmt above.
