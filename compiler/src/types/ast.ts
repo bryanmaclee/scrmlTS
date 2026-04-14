@@ -301,6 +301,14 @@ export interface SQLNode extends BaseNode {
   query: string;
   /** Chained method calls (`.run()`, `.all()`, `.get()`). */
   chainedCalls: SQLChainedCall[];
+  /**
+   * Compile-time marker (§8.9.5). When true, the Batch Planner (§PIPELINE
+   * Stage 7.5) excludes this SQL node from all coalescing candidate sets
+   * (§8.9.1) and from §8.10 loop hoisting. Set by ast-builder when the
+   * user writes `.nobatch()` in the chain; the method itself is dropped
+   * from `chainedCalls` since it has no runtime effect.
+   */
+  nobatch?: boolean;
 }
 
 // -- CSS Inline --

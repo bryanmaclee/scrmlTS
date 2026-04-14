@@ -164,7 +164,13 @@ export function extractSqlParams(sqlContent: string): SqlParams {
 export function rewriteSqlRefs(expr: string, dbVar: string = "_scrml_db"): string {
   if (!expr || typeof expr !== "string") return expr;
 
-  let result = expr.replace(/\?\{`([^`]*)`\}\.(\w+)\(\)/g, (_, sqlContent: string, method: string) => {
+  // §8.9.5: `.nobatch()` is a compile-time marker with no runtime effect.
+  // Strip it from the chain before the main rewrite. Both positions handled:
+  //   ?{...}.nobatch().get()  →  ?{...}.get()
+  //   ?{...}.get().nobatch()  →  ?{...}.get()
+  let result = expr.replace(/\.nobatch\(\)/g, "");
+
+  result = result.replace(/\?\{`([^`]*)`\}\.(\w+)\(\)/g, (_, sqlContent: string, method: string) => {
     const { sql, params } = extractSqlParams(sqlContent);
     // .prepare() returns a reusable PreparedStatement — params are bound at
     // execution time, not at prepare time. Emit db.prepare(sql) without params.

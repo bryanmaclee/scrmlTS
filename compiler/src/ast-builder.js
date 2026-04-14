@@ -1566,7 +1566,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
                   }
                   if (peek().kind === "PUNCT" && peek().text === ")") consume(); // close paren
                 }
-                childNode.chainedCalls.push({ method: methodTok.text, args });
+                // §8.9.5: `.nobatch()` is a compile-time marker with no
+                // runtime effect. Flag the node and drop the call.
+                if (methodTok.text === "nobatch") {
+                  childNode.nobatch = true;
+                } else {
+                  childNode.chainedCalls.push({ method: methodTok.text, args });
+                }
               }
             }
           }
@@ -2826,7 +2832,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
                   }
                   if (peek().kind === "PUNCT" && peek().text === ")") consume(); // close paren
                 }
-                childNode.chainedCalls.push({ method: methodTok.text, args });
+                // §8.9.5: `.nobatch()` is a compile-time marker with no
+                // runtime effect. Flag the node and drop the call.
+                if (methodTok.text === "nobatch") {
+                  childNode.nobatch = true;
+                } else {
+                  childNode.chainedCalls.push({ method: methodTok.text, args });
+                }
               }
             }
           }
@@ -5344,13 +5356,25 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
       const tokens = tokenizeSQL(bodyRaw, bodyOffset, bodyLine, bodyCol);
       const { query, chainedCalls } = parseSQLTokens(tokens, filePath);
 
-      return {
+      // §8.9.5: `.nobatch()` is a compile-time marker. Strip it from the
+      // chain and flag the node so the Batch Planner excludes it from
+      // coalescing candidate sets.
+      let nobatch = false;
+      const filteredCalls = [];
+      for (const c of chainedCalls) {
+        if (c.method === "nobatch") nobatch = true;
+        else filteredCalls.push(c);
+      }
+
+      const sqlNode = {
         id: ++counter.next,
         kind: "sql",
         query,
-        chainedCalls,
+        chainedCalls: filteredCalls,
         span,
       };
+      if (nobatch) sqlNode.nobatch = true;
+      return sqlNode;
     }
 
     // --------------------------------------------------------------- css (inline)
