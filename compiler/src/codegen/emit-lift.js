@@ -1,5 +1,6 @@
 import { rewriteExpr } from "./rewrite.js";
 import { emitExpr, emitExprField } from "./emit-expr.ts";
+import { emitStringFromTree } from "../expression-parser.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { genVar } from "./var-counter.ts";
 import { VOID_ELEMENTS } from "./utils.ts";
@@ -783,7 +784,10 @@ export function hasFragmentedLiftBody(body) {
   // Pattern 1: html-fragment node (Phase 4) or legacy bare-expr with HTML chars
   const hasBareHtmlFragment = body.some(n => n && (
     n.kind === "html-fragment" ||
-    (n.kind === "bare-expr" && typeof n.expr === "string" && /[<>/]/.test(n.expr))
+    (n.kind === "bare-expr" && (
+      (typeof n.expr === "string" && /[<>/]/.test(n.expr)) ||
+      (n.exprNode && n.exprNode.kind === "escape-hatch")
+    ))
   ));
   // Pattern 2: tilde-decl with lowercase HTML attribute name — attribute tokens misparsed
   // as variable assignments. e.g. `onclick = toggleTodo(id)` → tilde-decl{name:"onclick"}
@@ -1126,7 +1130,9 @@ export function emitConsolidatedLift(body, opts = {}) {
                 }
               }
             } else {
-              const parts = [{ type: "expr", value: logicChild.expr }];
+              // Phase 4d: ExprNode-first, string fallback
+              const _exprStr = logicChild.exprNode ? emitStringFromTree(logicChild.exprNode) : logicChild.expr;
+              const parts = [{ type: "expr", value: _exprStr }];
               addContentToCurrentElement(parts);
             }
           }
@@ -1166,8 +1172,9 @@ export function emitConsolidatedLift(body, opts = {}) {
           addContentToCurrentElement(parts);
         }
       }
-    } else if (child.kind === "bare-expr" && typeof child.expr === "string") {
-      let expr = child.expr.trim();
+    } else if (child.kind === "bare-expr" && (child.expr || child.exprNode)) {
+      // Phase 4d: ExprNode-first, string fallback
+      let expr = (child.exprNode ? emitStringFromTree(child.exprNode) : (child.expr || "")).trim();
       if (!expr) continue;
       // Skip bare / (lift closer)
       if (/^\/\s*$/.test(expr)) continue;
@@ -1221,7 +1228,8 @@ export function emitConsolidatedLift(body, opts = {}) {
       const elEntry = currentElement();
       if (elEntry) {
         const attrName = child.name;
-        const rawInit = (child.init || "").trim();
+        // Phase 4d: ExprNode-first, string fallback
+        const rawInit = (child.initExpr ? emitStringFromTree(child.initExpr) : (child.init || "")).trim();
 
         // Split the init at the first ` / >` self-closer, respecting paren depth.
         // Example: `toggleTodo ( todo . id ) / > < label ondblclick = startEdit ( ... ) >`

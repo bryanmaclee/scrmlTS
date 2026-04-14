@@ -5,6 +5,7 @@ import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMer
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, type MatchArm } from "./emit-control-flow.ts";
 import { emitLiftExpr } from "./emit-lift.js";
 import { extractReactiveDeps, extractReactiveDepsFromExprNode } from "./reactive-deps.ts";
+import { emitStringFromTree } from "../expression-parser.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import { emitRuntimeCheck } from "./emit-predicates.ts";
 import { emitTransitionGuard } from "./emit-machines.ts";
@@ -1355,7 +1356,13 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
       continue;
     }
     // Raw expression arms — parse via shared arm splitter/parser
-    const armExpr: unknown = child.expr ?? child.header ?? "";
+    // Phase 4d: ExprNode-first — reconstruct arm text from exprNode, string fallback
+    let armExpr: string;
+    if (child.exprNode) {
+      try { armExpr = emitStringFromTree(child.exprNode); } catch { armExpr = child.expr ?? child.header ?? ""; }
+    } else {
+      armExpr = child.expr ?? child.header ?? "";
+    }
     if (typeof armExpr !== "string") continue;
     const trimmed = armExpr.trim();
     if (!trimmed) continue;

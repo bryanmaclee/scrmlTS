@@ -4,6 +4,7 @@ import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
 import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr } from "./emit-lift.js";
 import { emitTransitionGuard } from "./emit-machines.ts";
+import { emitStringFromTree } from "../expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -271,6 +272,9 @@ export function emitTryStmt(node: any): string {
   lines.push(`}`);
 
   if (node.catchNode) {
+    // Phase 4d note: catchNode.header has no ExprNode equivalent — it's a structural
+    // param like "(e)" that the AST builder stores as a raw string. Future: add a
+    // catchParam field to TryStmtNode to avoid string parsing here.
     let catchParam: string = node.catchNode.header ? node.catchNode.header.trim() : "";
     if (catchParam.startsWith("(") && catchParam.endsWith(")")) {
       catchParam = catchParam.slice(1, -1).trim();
@@ -669,7 +673,13 @@ export function emitMatchExpr(node: any): string {
       arms.push(arm);
       continue;
     }
-    const armExpr: unknown = child.expr ?? child.header ?? "";
+    // Phase 4d: ExprNode-first — reconstruct arm text from exprNode, string fallback
+    let armExpr: string;
+    if (child.exprNode) {
+      try { armExpr = emitStringFromTree(child.exprNode); } catch { armExpr = child.expr ?? child.header ?? ""; }
+    } else {
+      armExpr = child.expr ?? child.header ?? "";
+    }
     if (typeof armExpr !== "string") continue;
     const trimmed = armExpr.trim();
     if (!trimmed) continue;
@@ -784,8 +794,9 @@ export function emitSwitchStmt(node: any): string {
     const child = body[i];
     if (!child) { i++; continue; }
 
-    if (child.kind === "bare-expr" && typeof child.expr === "string") {
-      const exprTrimmed: string = child.expr.trim();
+    if (child.kind === "bare-expr" && (child.expr || child.exprNode)) {
+      // Phase 4d: ExprNode-first, string fallback
+      const exprTrimmed: string = (child.exprNode ? emitStringFromTree(child.exprNode) : (child.expr ?? "")).trim();
 
       const breakCaseMatch = exprTrimmed.match(/^break\s+(case\s+.*|default\s*:.*)$/s);
       if (breakCaseMatch) {

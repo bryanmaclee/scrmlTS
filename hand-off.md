@@ -44,6 +44,15 @@
 - `meta-eval.ts:308` — return-stmt serialization uses ExprNode first
 - `meta-eval.ts:497, 510` — compile-time scope injection uses `emitStringFromTree(initExpr)` first
 
+**Batch 3 — emit-lift, match arms, switch cases:**
+- `emit-lift.js:1224` — tilde-decl attr init uses `emitStringFromTree(initExpr)` first
+- `emit-lift.js:1129, 1169` — bare-expr content parts use `emitStringFromTree(exprNode)` first
+- `emit-lift.js:786` — fragment detection adds `exprNode.kind === "escape-hatch"` check
+- `emit-control-flow.ts:672` — match arm text uses `emitStringFromTree(exprNode)` first
+- `emit-control-flow.ts:787` — switch case parsing uses `emitStringFromTree(exprNode)` first
+- `emit-logic.ts:1358` — match-as-expr arm text same pattern
+- `emit-control-flow.ts:274` — try-catch header: documented as needing AST builder change (no ExprNode on catchNode)
+
 ### Queued
 
 **Still queued (from S12):**
