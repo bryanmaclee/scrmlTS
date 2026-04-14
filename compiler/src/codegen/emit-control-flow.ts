@@ -320,12 +320,14 @@ export interface MatchArm {
  *
  * Recognized arm forms (tried in order — new scrml-native syntax first, then legacy fallback):
  *
- * NEW (scrml-native):
- *   1. .Variant => expr          — enum variant (dot-prefix, capital letter required)
- *   2. .Variant(binding) => expr — enum variant with payload binding
- *   3. "string" => expr          — string literal (double-quoted)
- *   4. 'string' => expr          — string literal (single-quoted)
- *   5. else => expr              — wildcard/catch-all arm
+ * NEW (scrml-native): `=>` and `:>` are equivalent canonical arrows.
+ * `:>` reads as "narrows to" (the match subject narrows from full type to variant),
+ * distinguishing match arms from JS arrow functions `=>`.
+ *   1. .Variant => expr  /  .Variant :> expr          — enum variant (dot-prefix, capital letter required)
+ *   2. .Variant(binding) => expr  /  :> expr          — enum variant with payload binding
+ *   3. "string" => expr  /  :> expr                   — string literal (double-quoted)
+ *   4. 'string' => expr  /  :> expr                   — string literal (single-quoted)
+ *   5. else => expr  /  :> expr                       — wildcard/catch-all arm
  *
  * LEGACY (Rust-style fallback — recognized but not canonical):
  *   6. ::Variant -> expr          — old enum variant syntax
@@ -335,32 +337,33 @@ export interface MatchArm {
  *  10. _ -> expr                  — old wildcard syntax
  */
 export function parseMatchArm(trimmed: string): MatchArm | null {
-  // NEW Form 1 & 2: .Variant => result or .Variant(binding) => result
-  const newVariantMatch = trimmed.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*(\w+)\s*\))?\s*=>\s*([\s\S]+)$/);
+  // NEW Form 1 & 2: .Variant => result or .Variant :> result (also with (binding))
+  // `:>` reads as "narrows to" — distinguishes from JS arrow function `=>`
+  const newVariantMatch = trimmed.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*(\w+)\s*\))?\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (newVariantMatch) {
     return { kind: "variant", test: newVariantMatch[1], binding: newVariantMatch[2] ?? null, result: newVariantMatch[3].trim() };
   }
 
-  // NEW Form 3: "string" => expr (double-quoted)
-  const newDqStringMatch = trimmed.match(/^"((?:[^"\\]|\\.)*)"\s*=>\s*([\s\S]+)$/);
+  // NEW Form 3: "string" => expr (or :>)
+  const newDqStringMatch = trimmed.match(/^"((?:[^"\\]|\\.)*)"\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (newDqStringMatch) {
     return { kind: "string", test: `"${newDqStringMatch[1]}"`, binding: null, result: newDqStringMatch[2].trim() };
   }
 
-  // NEW Form 4: 'string' => expr (single-quoted)
-  const newSqStringMatch = trimmed.match(/^'((?:[^'\\]|\\.)*)'\s*=>\s*([\s\S]+)$/);
+  // NEW Form 4: 'string' => expr (or :>)
+  const newSqStringMatch = trimmed.match(/^'((?:[^'\\]|\\.)*)'\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (newSqStringMatch) {
     return { kind: "string", test: `'${newSqStringMatch[1]}'`, binding: null, result: newSqStringMatch[2].trim() };
   }
 
-  // NEW Form 5a: not => expr — absence arm (§42: `not` in match arms)
-  const notArmMatch = trimmed.match(/^not\s*=>\s*([\s\S]+)$/);
+  // NEW Form 5a: not => expr (or :>) — absence arm (§42: `not` in match arms)
+  const notArmMatch = trimmed.match(/^not\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (notArmMatch) {
     return { kind: "not", test: null, binding: null, result: notArmMatch[1].trim() };
   }
 
-  // NEW Form 5b: else => expr (or bare: else expr) — wildcard arm
-  const newWildcardMatch = trimmed.match(/^else\s*(?:=>\s*)?([\s\S]+)$/);
+  // NEW Form 5b: else => expr (or :>, or bare: else expr) — wildcard arm
+  const newWildcardMatch = trimmed.match(/^else\s*(?:(?:=>|:>)\s*)?([\s\S]+)$/);
   if (newWildcardMatch) {
     return { kind: "wildcard", test: null, binding: null, result: newWildcardMatch[1].trim() };
   }
@@ -389,9 +392,9 @@ export function parseMatchArm(trimmed: string): MatchArm | null {
     return { kind: "wildcard", test: null, binding: null, result: legacyWildcardMatch[1].trim() };
   }
 
-  // §42 presence arm: (identifier) => expr — counterpart to `not => expr` in match
+  // §42 presence arm: (identifier) => expr (or :>) — counterpart to `not => expr` in match
   // Acts as a wildcard/else arm with the variable bound to the matched value.
-  const presenceArmMatch = trimmed.match(/^\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*=>\s*([\s\S]+)$/);
+  const presenceArmMatch = trimmed.match(/^\(\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*\)\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (presenceArmMatch) {
     return { kind: "wildcard", test: null, binding: presenceArmMatch[1], result: presenceArmMatch[2].trim() };
   }
@@ -477,7 +480,8 @@ export function splitMultiArmString(s: string): string[] {
           }
           while (afterName < s.length && s[afterName] === " ") afterName++;
         }
-        const isFollowedByArrow = s.slice(afterName, afterName + 2) === "=>" || s.slice(afterName, afterName + 2) === "->";
+        const arrow2 = s.slice(afterName, afterName + 2);
+        const isFollowedByArrow = arrow2 === "=>" || arrow2 === ":>" || arrow2 === "->";
         if (isFollowedByArrow) {
           // Definitive arm start — check original prevCh rule to avoid mid-result property accesses
           const prevCh = i > 0 ? s[i - 1] : null;
@@ -502,7 +506,8 @@ export function splitMultiArmString(s: string): string[] {
       if (j < s.length) {
         let k = j + 1;
         while (k < s.length && /\s/.test(s[k])) k++;
-        if (s.slice(k, k + 2) === "=>" || s.slice(k, k + 2) === "->") {
+        const strArrow2 = s.slice(k, k + 2);
+        if (strArrow2 === "=>" || strArrow2 === ":>" || strArrow2 === "->") {
           armStartPositions.push(i);
           inString = q;
           i++;
@@ -515,16 +520,17 @@ export function splitMultiArmString(s: string): string[] {
       continue;
     }
 
-    // §42 absence arm: not => expr
+    // §42 absence arm: not => expr (or :> or ->)
     // Only counts as an arm boundary when preceded by whitespace or at start-of-string,
-    // and followed by whitespace or =>.
-    if (s.slice(i, i + 3) === "not" && (i + 3 >= s.length || /[\s=]/.test(s[i + 3]))) {
+    // and followed by whitespace and an arrow.
+    if (s.slice(i, i + 3) === "not" && (i + 3 >= s.length || /[\s=:\->]/.test(s[i + 3]))) {
       const prevCh = i > 0 ? s[i - 1] : null;
       if (prevCh === null || /\s/.test(prevCh)) {
-        // Verify it's followed by => (skip whitespace)
+        // Verify it's followed by an arrow (skip whitespace)
         let k = i + 3;
         while (k < s.length && /\s/.test(s[k])) k++;
-        if (s.slice(k, k + 2) === "=>") {
+        const notArrow2 = s.slice(k, k + 2);
+        if (notArrow2 === "=>" || notArrow2 === ":>" || notArrow2 === "->") {
           armStartPositions.push(i);
           i += 3;
           continue;
@@ -534,8 +540,8 @@ export function splitMultiArmString(s: string): string[] {
 
     // Wildcard arm: else
     // Only counts as an arm boundary when preceded by whitespace or at start-of-string,
-    // and followed by whitespace, =, >, or end-of-string.
-    if (s.slice(i, i + 4) === "else" && (i + 4 >= s.length || /[\s=>]/.test(s[i + 4]))) {
+    // and followed by whitespace, =, :, >, -, or end-of-string (arrow or binding).
+    if (s.slice(i, i + 4) === "else" && (i + 4 >= s.length || /[\s=:\->(]/.test(s[i + 4]))) {
       const prevCh = i > 0 ? s[i - 1] : null;
       if (prevCh === null || /\s/.test(prevCh)) {
         armStartPositions.push(i);
@@ -564,8 +570,8 @@ export function splitMultiArmString(s: string): string[] {
     if (ch === "(") {
       const prevCh = i > 0 ? s[i - 1] : null;
       if (prevCh === null || /\s/.test(prevCh)) {
-        // Check pattern: ( identifier ) =>
-        const presenceRe = /^\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)\s*=>/;
+        // Check pattern: ( identifier ) => / :> / ->
+        const presenceRe = /^\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)\s*(?:=>|:>|->)/;
         if (presenceRe.test(s.slice(i))) {
           armStartPositions.push(i);
         }
@@ -673,12 +679,12 @@ export function emitMatchExpr(node: any): string {
       arms.push(arm);
       continue;
     }
-    // Phase 4d: ExprNode-first — reconstruct arm text from exprNode, string fallback
-    let armExpr: string;
-    if (child.exprNode) {
-      try { armExpr = emitStringFromTree(child.exprNode); } catch { armExpr = child.expr ?? child.header ?? ""; }
-    } else {
-      armExpr = child.expr ?? child.header ?? "";
+    // Prefer string `expr`: match arm text (e.g. `.Variant :> result`) is inherently
+    // a multi-part pattern the expression parser can only partially represent.
+    // exprNode captures only the first parseable chunk, losing the arrow + result.
+    let armExpr: string = child.expr ?? child.header ?? "";
+    if (!armExpr && child.exprNode) {
+      try { armExpr = emitStringFromTree(child.exprNode); } catch { armExpr = ""; }
     }
     if (typeof armExpr !== "string") continue;
     const trimmed = armExpr.trim();

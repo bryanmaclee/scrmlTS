@@ -1,0 +1,27 @@
+<page route="/">
+  ^{
+    let status = "Active"
+
+    const label = match status {
+      .Active :> "Currently active"
+      .Inactive :> "Not active"
+      else :> "Unknown status"
+    }
+
+    let message = match status {
+      .Active :> "Welcome back!"
+      not :> "No status set"
+      else :> "Something else"
+    }
+
+    // Mix => and :> in same match block (both should work)
+    let mixed = match status {
+      .Active => "via ="
+      .Inactive :> "via :"
+      else :> "fallback"
+    }
+  }
+  <h1>{ label }</h1>
+  <p>{ message }</p>
+  <p>{ mixed }</p>
+</page>

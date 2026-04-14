@@ -155,7 +155,7 @@ export function splitBareExprStatements(expr) {
                     !prevSegment.endsWith("{") && !prevSegment.endsWith(".") &&
                     !prevSegment.endsWith("?") && !prevSegment.endsWith(":") &&
                     !prevSegment.endsWith("&&") && !prevSegment.endsWith("||") &&
-                    !prevSegment.endsWith("=>")) {
+                    !prevSegment.endsWith("=>") && !prevSegment.endsWith(":>")) {
                   // This is a statement boundary
                   statements.push(prevSegment);
                   stmtStart = j;

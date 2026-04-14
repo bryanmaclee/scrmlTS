@@ -1356,12 +1356,12 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
       continue;
     }
     // Raw expression arms — parse via shared arm splitter/parser
-    // Phase 4d: ExprNode-first — reconstruct arm text from exprNode, string fallback
-    let armExpr: string;
-    if (child.exprNode) {
-      try { armExpr = emitStringFromTree(child.exprNode); } catch { armExpr = child.expr ?? child.header ?? ""; }
-    } else {
-      armExpr = child.expr ?? child.header ?? "";
+    // Prefer string `expr`: match arm text (e.g. `.Variant :> result`) is inherently
+    // a multi-part pattern the expression parser can only partially represent.
+    // exprNode captures only the first parseable chunk, losing the arrow + result.
+    let armExpr: string = child.expr ?? child.header ?? "";
+    if (!armExpr && child.exprNode) {
+      try { armExpr = emitStringFromTree(child.exprNode); } catch { armExpr = ""; }
     }
     if (typeof armExpr !== "string") continue;
     const trimmed = armExpr.trim();

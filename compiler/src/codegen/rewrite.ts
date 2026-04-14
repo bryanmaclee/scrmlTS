@@ -651,7 +651,8 @@ function _splitMultiArmString(s: string): string[] {
           }
           while (afterName < s.length && s[afterName] === " ") afterName++;
         }
-        const isFollowedByArrow = s.slice(afterName, afterName + 2) === "=>" || s.slice(afterName, afterName + 2) === "->";
+        const arrow2 = s.slice(afterName, afterName + 2);
+        const isFollowedByArrow = arrow2 === "=>" || arrow2 === ":>" || arrow2 === "->";
         if (isFollowedByArrow) {
           // Definitive arm start — check original prevCh rule to avoid mid-result property accesses
           const prevCh = i > 0 ? s[i - 1] : null;
@@ -675,7 +676,8 @@ function _splitMultiArmString(s: string): string[] {
       if (j < s.length) {
         let k = j + 1;
         while (k < s.length && /\s/.test(s[k])) k++;
-        if (s.slice(k, k + 2) === "=>" || s.slice(k, k + 2) === "->") {
+        const strArrow2 = s.slice(k, k + 2);
+        if (strArrow2 === "=>" || strArrow2 === ":>" || strArrow2 === "->") {
           armStartPositions.push(i);
           inString = q;
           i++;
@@ -687,13 +689,14 @@ function _splitMultiArmString(s: string): string[] {
       continue;
     }
 
-    // §42 absence arm: not => — only when preceded by whitespace or start
-    if (s.slice(i, i + 3) === "not" && (i + 3 >= s.length || /[\s=]/.test(s[i + 3]))) {
+    // §42 absence arm: not => (or :> or ->) — only when preceded by whitespace or start
+    if (s.slice(i, i + 3) === "not" && (i + 3 >= s.length || /[\s=:\->]/.test(s[i + 3]))) {
       const prevCh = i > 0 ? s[i - 1] : null;
       if (prevCh === null || /\s/.test(prevCh)) {
         let k = i + 3;
         while (k < s.length && /\s/.test(s[k])) k++;
-        if (s.slice(k, k + 2) === "=>") {
+        const notArrow2 = s.slice(k, k + 2);
+        if (notArrow2 === "=>" || notArrow2 === ":>" || notArrow2 === "->") {
           armStartPositions.push(i);
           i += 3;
           continue;
@@ -702,7 +705,7 @@ function _splitMultiArmString(s: string): string[] {
     }
 
     // Wildcard arm: else — only when preceded by whitespace or start-of-string
-    if (s.slice(i, i + 4) === "else" && (i + 4 >= s.length || /[\s=>]/.test(s[i + 4]))) {
+    if (s.slice(i, i + 4) === "else" && (i + 4 >= s.length || /[\s=:\->(]/.test(s[i + 4]))) {
       const prevCh = i > 0 ? s[i - 1] : null;
       if (prevCh === null || /\s/.test(prevCh)) {
         armStartPositions.push(i);
