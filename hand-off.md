@@ -61,6 +61,17 @@
 - `component-expander.ts`: skip escape-hatch nodes in ExprNode ident matching (fall through to string)
 - **Result: ExprNode fields are now ALWAYS populated** — string fallback paths are dead code
 
+**Batch 5 — Type deprecation:**
+- All string fields (`init`, `condition`, `header`, `iterable`, `expr`, `value`) marked `@deprecated` and made optional (`?`) on:
+  - LetDeclNode, ConstDeclNode, TildeDeclNode, LinDeclNode
+  - ReactiveDeclNode, ReactiveDerivedDeclNode, ReactiveDebouncedDeclNode
+  - IfStmtNode, IfExprNode, WhileStmtNode
+  - ForStmtNode, ForExprNode, MatchStmtNode, MatchExprNode, SwitchStmtNode
+  - ReturnStmtNode, ThrowStmtNode, BareExprNode, PropagateExprNode
+  - ReactiveNestedAssignNode (value field)
+- ExprNode fields documented as "Always populated by ast-builder"
+- TryStmtNode.header and catchNode.header retained (no ExprNode equivalent yet)
+
 ### Queued
 
 **Still queued (from S12):**

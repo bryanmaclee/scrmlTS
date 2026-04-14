@@ -350,15 +350,15 @@ export interface LetDeclNode extends BaseNode {
   kind: "let-decl";
   /** Variable name. */
   name: string;
-  /** Initializer expression (raw string). */
-  init: string;
+  /** @deprecated Phase 4d: use initExpr. Retained for backward compat during migration. */
+  init?: string;
   /** If-as-expression: `let a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
   /** For-as-expression: `let names = for (item of items) { lift item.name }`. */
   forExpr?: ForExprNode;
   /** Match-as-expression: `let result = match expr { .A => { lift val } }`. */
   matchExpr?: MatchExprNode;
-  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -367,15 +367,15 @@ export interface ConstDeclNode extends BaseNode {
   kind: "const-decl";
   /** Variable name. */
   name: string;
-  /** Initializer expression (raw string). */
-  init: string;
+  /** @deprecated Phase 4d: use initExpr. Retained for backward compat during migration. */
+  init?: string;
   /** If-as-expression: `const a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
   /** For-as-expression: `const names = for (item of items) { lift item.name }`. */
   forExpr?: ForExprNode;
   /** Match-as-expression: `const result = match expr { .A => { lift val } }`. */
   matchExpr?: MatchExprNode;
-  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -387,9 +387,9 @@ export interface TildeDeclNode extends BaseNode {
   kind: "tilde-decl";
   /** Variable name. */
   name: string;
-  /** Initializer expression (raw string). */
-  init: string;
-  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use initExpr. Retained for backward compat during migration. */
+  init?: string;
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -401,9 +401,9 @@ export interface LinDeclNode extends BaseNode {
   kind: "lin-decl";
   /** Variable name. */
   name: string;
-  /** Initializer expression (raw string). */
-  init: string;
-  /** Phase 2: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use initExpr. */
+  init?: string;
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -414,11 +414,11 @@ export interface ReactiveDeclNode extends BaseNode {
   kind: "reactive-decl";
   /** Reactive variable name (without `@`). */
   name: string;
-  /** Initializer expression (raw string). */
-  init: string;
+  /** @deprecated Phase 4d: use initExpr. */
+  init?: string;
   /** True if declared with `@shared` modifier (section 37.4). */
   isShared?: boolean;
-  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -427,9 +427,9 @@ export interface ReactiveDerivedDeclNode extends BaseNode {
   kind: "reactive-derived-decl";
   /** Derived variable name (without `@`). */
   name: string;
-  /** Derivation expression (raw string). */
-  init: string;
-  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use initExpr. */
+  init?: string;
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -438,11 +438,11 @@ export interface ReactiveDebouncedDeclNode extends BaseNode {
   kind: "reactive-debounced-decl";
   /** Variable name. */
   name: string;
-  /** Initializer expression (raw string). */
-  init: string;
+  /** @deprecated Phase 4d: use initExpr. */
+  init?: string;
   /** Debounce delay in milliseconds (default 300). */
   delay: number;
-  /** Phase 1: structured ExprNode form of `init`. Populated by ast-builder. */
+  /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
 }
 
@@ -456,9 +456,9 @@ export interface ReactiveNestedAssignNode extends BaseNode {
   target: string;
   /** Dot-separated path segments (e.g. ["path", "to", "prop"]). */
   path: string[];
-  /** Value expression (raw string). */
-  value: string;
-  /** Phase 1: structured ExprNode form of `value`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use valueExpr. */
+  value?: string;
+  /** Structured ExprNode form of the value. Always populated by ast-builder. */
   valueExpr?: ExprNode;
 }
 
@@ -537,26 +537,26 @@ export interface ComponentDefNode extends BaseNode {
 /** An if/else-if/else chain: `if condition { consequent } else { alternate }`. */
 export interface IfStmtNode extends BaseNode {
   kind: "if-stmt";
-  /** Condition expression (raw string). */
-  condition: string;
+  /** @deprecated Phase 4d: use condExpr. */
+  condition?: string;
   /** Consequent branch statements. */
   consequent: LogicStatement[];
   /** Alternate branch (else/else-if chain), or null. */
   alternate: LogicStatement[] | null;
-  /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
+  /** Structured ExprNode form of the condition. Always populated by ast-builder. */
   condExpr?: ExprNode;
 }
 
 /** An if-as-expression: `const a = if (cond) { lift val }`. */
 export interface IfExprNode extends BaseNode {
   kind: "if-expr";
-  /** Condition expression (raw string). */
-  condition: string;
+  /** @deprecated Phase 4d: use condExpr. */
+  condition?: string;
   /** Consequent branch statements. */
   consequent: LogicStatement[];
   /** Alternate branch (else chain), or null. */
   alternate: LogicStatement[] | null;
-  /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
+  /** Structured ExprNode form of the condition. Always populated by ast-builder. */
   condExpr?: ExprNode;
 }
 
@@ -565,22 +565,22 @@ export interface ForExprNode extends BaseNode {
   kind: "for-expr";
   /** Loop variable name. */
   variable: string;
-  /** Iterable expression (raw string). */
-  iterable: string;
+  /** @deprecated Phase 4d: use iterExpr. */
+  iterable?: string;
   /** Loop body statements. */
   body: LogicStatement[];
-  /** Phase 1: structured ExprNode form of `iterable`. Populated by ast-builder. */
+  /** Structured ExprNode form of the iterable. Always populated by ast-builder. */
   iterExpr?: ExprNode;
 }
 
 /** A match-as-expression: `const result = match expr { .A => { lift val } }`. */
 export interface MatchExprNode extends BaseNode {
   kind: "match-expr";
-  /** Match header expression (raw string). */
-  header: string;
+  /** @deprecated Phase 4d: use headerExpr. */
+  header?: string;
   /** Body statements (match arms). */
   body: LogicStatement[];
-  /** Phase 1: structured ExprNode form of `header`. Populated by ast-builder. */
+  /** Structured ExprNode form of the header. Always populated by ast-builder. */
   headerExpr?: ExprNode;
 }
 
@@ -589,11 +589,11 @@ export interface ForStmtNode extends BaseNode {
   kind: "for-stmt";
   /** Loop variable name. */
   variable: string;
-  /** Iterable expression (raw string). */
-  iterable: string;
+  /** @deprecated Phase 4d: use iterExpr. */
+  iterable?: string;
   /** Loop body statements. */
   body: LogicStatement[];
-  /** Phase 1: structured ExprNode form of `iterable`. Populated by ast-builder. */
+  /** Structured ExprNode form of the iterable. Always populated by ast-builder. */
   iterExpr?: ExprNode;
   /** Phase 4: C-style for-loop parts `(init; cond; update)` parsed individually. */
   cStyleParts?: { initExpr: ExprNode; condExpr: ExprNode; updateExpr: ExprNode };
@@ -602,40 +602,40 @@ export interface ForStmtNode extends BaseNode {
 /** A while loop: `while condition { body }`. */
 export interface WhileStmtNode extends BaseNode {
   kind: "while-stmt";
-  /** Condition expression (raw string). */
-  condition: string;
+  /** @deprecated Phase 4d: use condExpr. */
+  condition?: string;
   /** Loop body statements. */
   body: LogicStatement[];
-  /** Phase 1: structured ExprNode form of `condition`. Populated by ast-builder. */
+  /** Structured ExprNode form of the condition. Always populated by ast-builder. */
   condExpr?: ExprNode;
 }
 
 /** A return statement: `return expr`. */
 export interface ReturnStmtNode extends BaseNode {
   kind: "return-stmt";
-  /** Return expression (raw string). */
-  expr: string;
-  /** Phase 1: structured ExprNode form of `expr`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use exprNode. */
+  expr?: string;
+  /** Structured ExprNode form of the return expression. Always populated by ast-builder. */
   exprNode?: ExprNode;
 }
 
 /** A throw statement: `throw ErrorType("message")`. */
 export interface ThrowStmtNode extends BaseNode {
   kind: "throw-stmt";
-  /** Throw expression (raw string). */
-  expr: string;
-  /** Phase 1: structured ExprNode form of `expr`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use exprNode. */
+  expr?: string;
+  /** Structured ExprNode form of the throw expression. Always populated by ast-builder. */
   exprNode?: ExprNode;
 }
 
 /** A switch statement: `switch header { body }`. */
 export interface SwitchStmtNode extends BaseNode {
   kind: "switch-stmt";
-  /** Switch header expression (raw string). */
-  header: string;
+  /** @deprecated Phase 4d: use headerExpr. */
+  header?: string;
   /** Body statements. */
   body: LogicStatement[];
-  /** Phase 1: structured ExprNode form of `header`. Populated by ast-builder. */
+  /** Structured ExprNode form of the header. Always populated by ast-builder. */
   headerExpr?: ExprNode;
 }
 
@@ -661,11 +661,11 @@ export interface TryStmtNode extends BaseNode {
 /** A match statement (pattern matching): `match header { body }`. */
 export interface MatchStmtNode extends BaseNode {
   kind: "match-stmt";
-  /** Match header expression (raw string). */
-  header: string;
+  /** @deprecated Phase 4d: use headerExpr. */
+  header?: string;
   /** Body statements (match arms). */
   body: LogicStatement[];
-  /** Phase 1: structured ExprNode form of `header`. Populated by ast-builder. */
+  /** Structured ExprNode form of the header. Always populated by ast-builder. */
   headerExpr?: ExprNode;
 }
 
@@ -674,9 +674,9 @@ export interface MatchStmtNode extends BaseNode {
 /** A bare expression (fallback when no declaration keyword matches). */
 export interface BareExprNode extends BaseNode {
   kind: "bare-expr";
-  /** Raw expression string. */
-  expr: string;
-  /** Phase 1: structured ExprNode form of `expr`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use exprNode. Retained for component-expander render pattern. */
+  expr?: string;
+  /** Structured ExprNode form of the expression. Always populated by ast-builder. */
   exprNode?: ExprNode;
 }
 
@@ -724,9 +724,9 @@ export interface PropagateExprNode extends BaseNode {
   kind: "propagate-expr";
   /** Binding name for `let name = expr?`, or null for bare `expr?`. */
   binding: string | null;
-  /** The expression being propagated (without trailing `?`). */
-  expr: string;
-  /** Phase 4: structured ExprNode form of `expr`. Populated by ast-builder. */
+  /** @deprecated Phase 4d: use exprNode. */
+  expr?: string;
+  /** Structured ExprNode form of the expression. Always populated by ast-builder. */
   exprNode?: ExprNode;
 }
 
