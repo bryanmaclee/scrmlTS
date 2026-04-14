@@ -2,11 +2,18 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Baseline (2026-04-14 end of S16): **6,205 tests passing / 14 failing** (all 14 are pre-existing, non-blocking — environment issues, self-host build step, edge cases).
+Baseline (2026-04-14 end of S17): **6,224 tests passing / 14 failing** (all 14 are pre-existing, non-blocking — environment issues, self-host build step, edge cases).
 
 ---
 
 ## Recently Landed
+
+### 2026-04-14 (S17)
+
+- **SQL batching Slice 6 — §8.11 mount-hydration coalescing.** When ≥2 `server @var` declarations on a page have callable initializers (loader functions), the compiler emits one synthetic `POST /__mountHydrate` route whose handler runs every loader via `Promise.all` and returns a keyed JSON object. The client replaces per-var `(async () => { ... })()` IIFEs with one unified fetch that demuxes results via `_scrml_reactive_set`. Non-callable placeholders (literal inits, `W-AUTH-001`) are excluded; writes stay 1:1 per §8.11.3. Route export follows the existing `_scrml_route_*` convention. Tier 1 coalescing (§8.9) applies automatically inside the synthetic handler because loaders are sibling DGNodes.
+- **SQL batching Slice 5b remainder — §8.10.7 guards.** `E-PROTECT-003` fires when a Tier 2 hoist's `SELECT` column list overlaps any `protect`-annotated column on the target table — the hoist is refused and CG falls back to the unrewritten for-loop. `SELECT *` expands to every protected column on the table. New exported `verifyPostRewriteLift` runs after Stage 7.5 and emits `E-LIFT-001` if any hoist's `sqlTemplate` contains a `lift(` call (defensive — §8.10.1 construction makes this unreachable today, but the pass is the spec's required re-check gate).
+- **SQL batching microbenchmark.** New `benchmarks/sql-batching/bench.js` measures the exact JS shapes the compiler emits before/after the batching passes on on-disk WAL `bun:sqlite` (synchronous=NORMAL). Results in `benchmarks/sql-batching/RESULTS.md`. Headline: Tier 2 loop-hoist speedup is **1.91× at N=10, 2.60× at N=100, 3.10× at N=500, 4.00× at N=1000**. Tier 1 shows ~5% on read-only handlers — the envelope's real value is snapshot consistency and contention amplification under concurrent writers.
+- **README promotion.** "Why scrml" now states "the compiler eliminates N+1 automatically" with a link to the measured results.
 
 ### 2026-04-14 (S16)
 
@@ -32,8 +39,6 @@ Baseline (2026-04-14 end of S16): **6,205 tests passing / 14 failing** (all 14 a
 - **Phase 3 — Legacy test fixture migration.** ~21 fixtures still use the old `{kind: "expr", expr: "..."}` shape. Rewriting them unlocks deletion of ~250–300 LOC of dead string-parsing fallback code in `emit-lift.js`.
 - **Lin Approach B (discontinuous scoping).** Design complete, spec amendments drafted. Multi-session work to land an enriched `lin` model beyond Rust-style exact-once consumption.
 - **SPEC sync.** Formalizing the `:>` match arm, match-as-expression, and Lift Approach C changes in `compiler/SPEC.md`.
-- **SQL batching Slice 5b remainder.** `E-PROTECT-003` (rowCacheColumns × protect leak — needs SELECT column-list parsing) and post-rewrite `E-LIFT-001` re-check (§8.10.7) are deferred; Tier 2 ships without them.
-- **SQL batching Slice 6 — F9.C `__mountHydrate`.** Aggregate `server @var` on-mount reads into a synthetic RouteSpec (§8.11). Entry points: `compiler/src/codegen/emit-sync.ts:emitInitialLoad` + `emit-reactive-wiring.ts:232-245`.
 
 ---
 

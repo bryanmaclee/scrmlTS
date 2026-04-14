@@ -62,6 +62,8 @@ scrml compile hello.scrml -o dist/
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 
+**The compiler eliminates N+1 automatically.** Because scrml owns both the query context and the loop context, it detects `for (let x of xs) { ?{... WHERE id = ${x.id}}.get() }` and rewrites it to one pre-loop `WHERE IN (...)` fetch plus a keyed `Map` lookup — no DataLoader, no manual batching, no architectural pressure. Independent reads in a `!` handler share one `BEGIN DEFERRED..COMMIT` envelope for snapshot consistency. On-mount `server @var` loads across a page coalesce into a single `__mountHydrate` round-trip. [Measured Tier 2 wins](benchmarks/sql-batching/RESULTS.md): ~2× at N=10, ~3× at N=100, ~4× at N=1000 on on-disk WAL `bun:sqlite`.
+
 ## Quick Example
 
 A reactive counter with increment, decrement, and a step picker — in one file:

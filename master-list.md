@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-14 (S16 end — SQL batching Tier 1 + Tier 2 shipped end-to-end; 11 commits on main; 6205 pass / 14 fail)
+**Last updated:** 2026-04-14 (S17 — SQL batching Slice 6 (`__mountHydrate`) + Slice 5b remainder (§8.10.7 guards) + microbench landed; 3 commits on main beyond S16; 6224 pass / 14 fail)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** 6,205 pass, 14 fail (S16 end 2026-04-14) — SQL batching Tier 1 + Tier 2 added +52 tests; same 14 pre-existing failures
+**Tests:** 6,224 pass, 14 fail (S17 2026-04-14) — SQL batching Slice 6 + Slice 5b remainder added +19 tests beyond S16 baseline; same 14 pre-existing failures
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -235,11 +235,10 @@ Compiler-level SQL batching in two tiers. Pipeline addition + §8 extensions + �
 - [x][x] **Tier 2 impl — Slice 4 loop-hoist detection** (§8.10.1) — commit `3a55e67` S16. D-BATCH-001 near-miss diagnostic (4 reasons). 11 tests.
 - [x][x] **Tier 2 impl — Slice 5 rewrite** (§8.10.2) — commit `3238af2` S16. Pre-loop `keys.map` + placeholders + `.all(...keys)` spread + `Map<key, Row>` + per-iteration `.get(x.id) ?? null` lookup. Module-level `_hoistMap` singleton avoids opts threading across 9 emit-server call sites. 8 tests.
 - [x][x] **Tier 2 impl — Slice 5b E-BATCH-002 runtime guard** — commit `a0e5b3e` S16. `keys.length > 32766` check. 2 tests.
-- [ ][ ] **Tier 2 impl — Slice 5b remainder** — E-PROTECT-003 (rowCacheColumns × protect, needs SELECT column parsing), post-rewrite E-LIFT-001 re-check (§8.10.7, needs DG re-traversal). Deferred S17+.
-- [ ][ ] **F9.C mount-hydration (Slice 6)** — `__mountHydrate` synthetic route aggregator. Entry points identified: `compiler/src/codegen/emit-sync.ts:emitInitialLoad` (per-var async IIFE today) + `emit-reactive-wiring.ts:232-245` (where `serverVarDecls` loops call it). Approach: generate one `/api/__mountHydrate` POST route whose server body runs all loaders in parallel; client-side IIFE does one fetch and demuxes into per-var `_scrml_reactive_set`. Tier 1 coalescing picks up SQL reads within the synthetic handler automatically.
-- [ ][ ] **Tier 1 benchmark** — before/after timing on a 2-query server handler (e.g., contacts example). Expected win: ~35-50% reduction on cold cache due to shared prepare/lock + transactional visibility.
-- [ ][ ] **Tier 2 benchmark** — before/after timing on a for-loop-of-.get() pattern, 100 iterations. Expected win: N → 1 round trips; on a warm-SQLite/cold-page workload, ~10-20× handler latency improvement.
-- [ ][ ] **README changelog entry** — already written into `docs/changelog.md` S16. README headline section ("Why scrml") could be upgraded to mention "the compiler eliminates N+1 automatically" once benchmarked.
+- [x][x] **Tier 2 impl — Slice 5b remainder** — E-PROTECT-003 (SELECT column-list parser + overlap check against `protectedFields`; `SELECT *` expands to every protected column; hoist is refused on overlap) and `verifyPostRewriteLift` (defensive §8.10.7 re-check — emits E-LIFT-001 if a hoist's `sqlTemplate` contains `lift(`). `BatchPlannerError.code` widened. Commit `f951064` S17. 6 tests.
+- [x][x] **F9.C mount-hydration (Slice 6)** — `__mountHydrate` synthetic route aggregator. `collectServerVarDecls` + new `callableServerVarDecls` lifted to `collect.ts`. Client emits one unified `/__mountHydrate` fetch + demux when ≥2 callable `server @var`; fallback to per-var IIFE otherwise. Server emits `_scrml_route___mountHydrate` (POST) with `Promise.all` parallel loader dispatch. Writes stay 1:1 per §8.11.3. Commit `40a76c4` S17. 13 tests across 8 groups.
+- [x][x] **Tier 1 + Tier 2 microbench** — `benchmarks/sql-batching/bench.js` + `RESULTS.md`, on-disk WAL `bun:sqlite`, 50 iters after 5 warmups. Tier 1 (read-only, 4 reads): 1.05× — snapshot consistency is the main win. Tier 2 scaling: **1.91× @ N=10, 2.60× @ N=100, 3.10× @ N=500, 4.00× @ N=1000**. Commit `42988ab` S17.
+- [x][x] **README promotion** — "Why scrml" updated S17 to state "the compiler eliminates N+1 automatically" with link to `benchmarks/sql-batching/RESULTS.md`.
 
 **Deferred-complexity log (post-v1):** Tier-2 writes × `<machine>` transitions (§51); Tier-2 writes × `server @var` optimistic rollback (§52.4.2); tuple-WHERE key inference; F9 revisit inside explicit `transaction { }`; `--show-batch-plan` runtime observability.
 
