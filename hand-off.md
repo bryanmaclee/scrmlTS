@@ -72,18 +72,39 @@
 - ExprNode fields documented as "Always populated by ast-builder"
 - TryStmtNode.header and catchNode.header retained (no ExprNode equivalent yet)
 
+### `</>` closer propagation fix (Phase 0 of Lift Approach C)
+
+Spec amendment 2026-04-09 replaced bare `/` with `</>`. Audit found the change wasn't fully propagated.
+
+- **AST builder** `collectLiftExpr` line 1107: was `angleDepth--` on bare `/`. Fixed to detect `<` + `/` sequence (`</>` or `</tag>`)
+- **11 sample files** migrated: 45+ bare `/` closers → `</>`
+- **emit-lift.js**: bare `/` handling is now dead code (tokenizer emits `<`, `/`, `>` separately; existing normalization already converts to `</>`). Cleanup deferred to Lift Approach C Phase 2.
+- kanban interactive test confirmed working
+
+### Match arm `:>` debate
+
+- User confirmed `:>` was intentional (represents narrowing, avoids JS `=>` overload); rationale never captured to user-voice or deep-dive
+- Debate run 2026-04-14 (single-author synthesized, not per-agent dispatched) at `scrml-support/docs/deep-dives/debate-match-arm-syntax-2026-04-14.md`
+- Verdict: `:>` recommended (TS 29/35, Svelte 29/35, Rust `=>` 21/35, Elixir `->` 17/35)
+- **User decision: `:>` is decided.** Codegen still needs `:>` support added (`parseMatchArm`, `splitMultiArmString` in emit-control-flow.ts only recognize `=>` and `->`)
+- User-voice Session 14 entry appended
+
 ### Queued
 
-**Still queued (from S12):**
-- Lift Approach C — structured LiftExpr AST nodes, eliminate re-parse path (multi-session)
+**Lift Approach C (multi-session, in progress):**
+- ✓ Phase 0: `</>` closer propagation — AST builder + samples
+- NEXT Phase 1: Rewrite `collectLiftExpr` → `parseLiftTag` producing structured MarkupNodes
+  - **Data point**: 100% of real lift-exprs currently go through the fragile `kind: "expr"` string path (verified on kanban/todo/multi-step-form samples). Zero go through the BLOCK_REF structured path. Approach C is strongly justified.
+  - Complexity: attribute parsing (reuse `tokenizeAttributes`), nested tags, `${expr}` BLOCK_REFs, `</>`/`</tag>`/`/>` closer forms
+- Phase 2: Simplify emit-lift.js (delete ~800 lines of dead paths after Phase 1)
+- Phase 3: Update secondary consumers
+
+**Other queued:**
+- `:>` codegen support in `emit-control-flow.ts` arm parsers (decided, needs implementing)
 - Phase 2 reactive effects — two-level effect separation for if/lift (when needed)
 - Lin Approach B implementation — spec amendments drafted, multi-session scope
-- Phase 4d completion — drop string fields from AST types (15/17 files done)
-
-**Beta readiness work:**
-- Verify example 06 kanban onclick works after call-ref fix
-- Triage remaining 15 test failures (low priority — all pre-existing)
-- Ensure `scrml dev` serves examples with hot reload
+- Phase 4d final cleanup — delete deprecated string fields + dead fallback code
+- Triage remaining 15 test failures (all pre-existing)
 
 ---
 
