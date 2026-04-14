@@ -293,6 +293,173 @@ function scanHandler(funcDecl: Record<string, unknown>, funcName: string): Handl
 }
 
 // ---------------------------------------------------------------------------
+// Tier 2 — §8.10 N+1 loop-hoist detection
+// ---------------------------------------------------------------------------
+
+interface LoopSqlSite {
+  /** Original string form of the `?{...}.method()` site from the body. */
+  raw: string;
+  /** Template body (between the backticks). */
+  body: string;
+  /** Terminator method, e.g. "get" / "all" / "run" / "prepare". */
+  terminator: string;
+  /** Chain contained `.nobatch()`. */
+  nobatch: boolean;
+}
+
+/** Extract `?{` SQL sites from a string; returns at most `limit` sites. */
+function collectStringSqlSites(s: string, limit = 16): LoopSqlSite[] {
+  if (!s || typeof s !== "string") return [];
+  const out: LoopSqlSite[] = [];
+  const re = /\?\{`([^`]*)`\}((?:\s*\.\s*\w+\s*\([^)]*\))*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    const body = m[1] ?? "";
+    const chain = m[2] ?? "";
+    // Find the first non-nobatch terminator method in the chain.
+    let terminator = "";
+    let nobatch = false;
+    const callRe = /\.\s*(\w+)\s*\(/g;
+    let c: RegExpExecArray | null;
+    while ((c = callRe.exec(chain)) !== null) {
+      const method = c[1];
+      if (method === "nobatch") { nobatch = true; continue; }
+      if (!terminator) terminator = method;
+    }
+    out.push({ raw: m[0], body, terminator, nobatch });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * For a given loop body, collect SQL sites (both structured SQLNodes and
+ * string-embedded `?{...}`) with their terminator methods. Does not
+ * descend into transaction-block children (those are out of Tier 2 scope).
+ */
+function collectLoopSqlSites(body: unknown): LoopSqlSite[] {
+  const sites: LoopSqlSite[] = [];
+  walkAst(body, (node) => {
+    if (node.kind === "transaction-block") return false;
+    if (node.kind === "sql") {
+      const chainCalls = Array.isArray(node.chainedCalls) ? node.chainedCalls : [];
+      const terminator = chainCalls.length > 0 ? String((chainCalls[0] as any).method ?? "") : "";
+      sites.push({
+        raw: "",
+        body: typeof node.query === "string" ? node.query : "",
+        terminator,
+        nobatch: node.nobatch === true,
+      });
+      return true;
+    }
+    for (const k of Object.keys(node)) {
+      if (k === "span" || k === "id" || k === "kind") continue;
+      if (k === "exprNode" || k.endsWith("Expr")) continue;
+      const v = node[k];
+      if (typeof v !== "string") continue;
+      if (v.indexOf("?{") < 0) continue;
+      for (const s of collectStringSqlSites(v)) sites.push(s);
+    }
+    return true;
+  });
+  return sites;
+}
+
+/** Extract `WHERE <col> = ${<loopVar>.<field>}` and check tuple-form rejection. */
+function extractKeyColumn(
+  sqlBody: string,
+  loopVar: string,
+): { keyColumn: string; keyField: string } | { reason: string } {
+  const trimmed = sqlBody.trim();
+  // Reject tuple WHERE (`col1 = ${x.a} AND col2 = ${x.b}`) — out of v1 scope.
+  const tupleRe = new RegExp(
+    `WHERE\\s+[\\w.]+\\s*=\\s*\\$\\{\\s*${loopVar}\\.\\w+\\s*\\}\\s+AND\\s+`,
+    "i",
+  );
+  if (tupleRe.test(trimmed)) {
+    return { reason: "tuple WHERE not supported in Tier 2 v1 (§8.10.4)" };
+  }
+  const re = new RegExp(
+    `WHERE\\s+([\\w.]+)\\s*=\\s*\\$\\{\\s*${loopVar}\\.(\\w+)\\s*\\}`,
+    "i",
+  );
+  const m = re.exec(trimmed);
+  if (!m) {
+    return { reason: `no \`WHERE <col> = \${${loopVar}.field}\` in query template` };
+  }
+  return { keyColumn: m[1], keyField: m[2] };
+}
+
+/** Push D-BATCH-001 diagnostic with a near-miss reason. */
+function emitNearMiss(plan: BatchPlan, loopId: NodeId, reason: string, span?: unknown): void {
+  plan.diagnostics.push({
+    code: "D-BATCH-001",
+    severity: "info",
+    message: `Near-miss for Tier 2 loop hoisting (§8.10): ${reason}.`,
+    loopNode: loopId,
+    reason,
+  });
+  // Keep `span` out of the stable serialized form; diagnostics consumers
+  // pull span directly from the plan structure if needed.
+  void span;
+}
+
+/**
+ * Analyze a single for-stmt against the §8.10.1 template. Populates
+ * either a LoopHoist (on match) or a D-BATCH-001 diagnostic (on near
+ * miss). No-op when the loop has no SQL in its body.
+ */
+function analyzeForLoop(forStmt: Record<string, unknown>, plan: BatchPlan): void {
+  const loopVar = typeof forStmt.variable === "string" ? forStmt.variable : "";
+  if (!loopVar) return;
+
+  const loopId: NodeId = typeof forStmt.id === "number" || typeof forStmt.id === "string"
+    ? (forStmt.id as NodeId)
+    : `for#${plan.loopHoists.length + plan.diagnostics.length}`;
+
+  const sites = collectLoopSqlSites(forStmt.body);
+  if (sites.length === 0) return;
+
+  // Condition 4: exactly one SQL site in body
+  if (sites.length > 1) {
+    emitNearMiss(plan, loopId, `loop body contains ${sites.length} SQL queries (expected exactly 1)`, forStmt.span);
+    return;
+  }
+  const site = sites[0];
+
+  // Condition 5: not marked .nobatch()
+  if (site.nobatch) return; // Silent exclusion — user asked to opt out
+
+  // Condition 3: terminator must be .get() or .all()
+  if (site.terminator !== "get" && site.terminator !== "all") {
+    if (site.terminator === "run") {
+      emitNearMiss(plan, loopId, `loop body uses .run() — write batching is out of v1 scope (§8.10.5)`, forStmt.span);
+    } else if (site.terminator === "prepare") {
+      // Silent — .prepare() has no round trip to hoist.
+    } else {
+      emitNearMiss(plan, loopId, `loop body uses .${site.terminator || "??"}() — only .get() and .all() are hoistable in v1`, forStmt.span);
+    }
+    return;
+  }
+
+  // Condition 2: extract key column from WHERE <col> = ${<loopVar>.<field>}
+  const keyResult = extractKeyColumn(site.body, loopVar);
+  if ("reason" in keyResult) {
+    emitNearMiss(plan, loopId, keyResult.reason, forStmt.span);
+    return;
+  }
+
+  plan.loopHoists.push({
+    loopNode: loopId,
+    queryNode: `${String(loopId)}#query`,
+    keyColumn: keyResult.keyColumn,
+    keyExpr: `${loopVar}.${keyResult.keyField}`,
+    terminator: site.terminator as "get" | "all",
+    rowCacheColumns: new Set<string>(),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // runBatchPlanner — entry point
 // ---------------------------------------------------------------------------
 
@@ -337,6 +504,19 @@ export function runBatchPlanner(input: BPInput): BPOutput {
         batchPlan.nobatchSites.add(nodeId);
       }
     }
+  }
+
+  // Tier 2 loop-hoist detection (§8.10). Walks every for-stmt in every
+  // file, regardless of enclosing handler — `?{}` is server-only by
+  // route inference (§12.2 Trigger 1), so any for-stmt containing SQL
+  // is inherently server-bound. Near-miss shapes emit D-BATCH-001.
+  for (const file of input.files ?? []) {
+    const topNodes = getFileNodes(file);
+    walkAst(topNodes, (node) => {
+      if (node.kind !== "for-stmt") return true;
+      analyzeForLoop(node, batchPlan);
+      return true;
+    });
   }
 
   // Candidate-set detection per file per server function-decl
@@ -411,15 +591,18 @@ export function serializeBatchPlan(plan: BatchPlan): string {
   const sortedHandlers = Array.from(plan.coalescedHandlers.entries()).sort(
     ([a], [b]) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0),
   );
+  const sortedHoists = [...plan.loopHoists]
+    .map((h) => ({ ...h, rowCacheColumns: Array.from(h.rowCacheColumns).sort() }))
+    .sort((a, b) => String(a.loopNode).localeCompare(String(b.loopNode)));
+  const sortedDiagnostics = [...plan.diagnostics].sort((a, b) =>
+    String(a.loopNode).localeCompare(String(b.loopNode)),
+  );
   const obj = {
     coalescedHandlers: Object.fromEntries(sortedHandlers),
-    loopHoists: plan.loopHoists.map((h) => ({
-      ...h,
-      rowCacheColumns: Array.from(h.rowCacheColumns).sort(),
-    })),
+    loopHoists: sortedHoists,
     mountHydrate: plan.mountHydrate,
     nobatchSites: Array.from(plan.nobatchSites).sort(),
-    diagnostics: plan.diagnostics,
+    diagnostics: sortedDiagnostics,
   };
   return JSON.stringify(obj, null, 2);
 }
