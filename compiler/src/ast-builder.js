@@ -1157,6 +1157,279 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * Lift Approach C — parse inline lift markup directly into a MarkupNode.
+   * Precondition: peek() is `<`, peek(1) is IDENT/KEYWORD (tag name).
+   * Returns a MarkupNode, or null if the markup is malformed (caller falls
+   * back to collectLiftExpr string path).
+   *
+   * Handles:
+   *   - Opening tag: `<tag ...>` with attributes
+   *   - Self-closing: `<tag .../>`
+   *   - Closers: `</>` (inferred) and `</tagname>` (explicit)
+   *   - Children: text, nested tags, BLOCK_REF (${expr}) logic children
+   *   - Attribute forms: name="string", name=ident, name=fn(args), name=BLOCK_REF
+   *   - Boolean attrs: name (no `=`)
+   */
+  function parseLiftTag() {
+    const startTok = peek();
+    if (startTok.text !== "<" || startTok.kind !== "PUNCT") return null;
+    const nameTok = peek(1);
+    if (!nameTok || (nameTok.kind !== "IDENT" && nameTok.kind !== "KEYWORD")) return null;
+
+    consume(); // <
+    consume(); // tag name
+    const tag = nameTok.text;
+    const isComponent = /^[A-Z]/.test(tag);
+
+    // Parse attributes until > or /> or </> (malformed)
+    const attrs = [];
+    let selfClosing = false;
+    while (true) {
+      const t = peek();
+      if (t.kind === "EOF") return null;
+      // Self-close: />
+      if (t.kind === "PUNCT" && t.text === "/" && peek(1)?.text === ">") {
+        consume(); consume();
+        selfClosing = true;
+        break;
+      }
+      // Opening tag closer: >
+      if (t.kind === "PUNCT" && t.text === ">") {
+        consume();
+        break;
+      }
+      // Attribute
+      if (t.kind === "IDENT" || t.kind === "KEYWORD") {
+        const attrName = _parseLiftAttrName();
+        if (attrName === null) return null;
+        const attrSpan = tokenSpan(t, filePath);
+        // Check for =
+        if (peek().kind === "PUNCT" && peek().text === "=") {
+          consume(); // =
+          const value = _parseLiftAttrValue(attrSpan);
+          if (value === null) return null;
+          attrs.push({ name: attrName, value, span: attrSpan });
+        } else {
+          // Boolean attribute (no =)
+          attrs.push({ name: attrName, value: { kind: "absent", span: attrSpan }, span: attrSpan });
+        }
+        continue;
+      }
+      // Unknown token — bail to string fallback
+      return null;
+    }
+
+    // Self-closing or void element: no children
+    if (selfClosing) {
+      return {
+        id: ++counter.next,
+        kind: "markup",
+        tag,
+        attrs,
+        children: [],
+        selfClosing: true,
+        closerForm: "self-closing",
+        isComponent,
+        span: spanOf(startTok, peek()),
+      };
+    }
+
+    // Parse children until </> or </tagname> or EOF
+    const children = [];
+    while (true) {
+      const t = peek();
+      if (t.kind === "EOF") break;
+      // Closer: </> or </tagname>
+      if (t.kind === "PUNCT" && t.text === "<" && peek(1)?.text === "/" && peek(1)?.kind === "PUNCT") {
+        consume(); // <
+        consume(); // /
+        // Accept </> inferred
+        if (peek().kind === "PUNCT" && peek().text === ">") {
+          consume();
+          return {
+            id: ++counter.next, kind: "markup", tag, attrs, children,
+            selfClosing: false, closerForm: "inferred", isComponent,
+            span: spanOf(startTok, peek()),
+          };
+        }
+        // Accept </tagname> explicit
+        if ((peek().kind === "IDENT" || peek().kind === "KEYWORD") && peek().text === tag) {
+          consume(); // tagname
+          if (peek().kind === "PUNCT" && peek().text === ">") consume();
+          return {
+            id: ++counter.next, kind: "markup", tag, attrs, children,
+            selfClosing: false, closerForm: "explicit", isComponent,
+            span: spanOf(startTok, peek()),
+          };
+        }
+        // Mismatched closing tag — bail
+        return null;
+      }
+      // Nested tag: <IDENT or <KEYWORD
+      if (t.kind === "PUNCT" && t.text === "<" && peek(1) && (peek(1).kind === "IDENT" || peek(1).kind === "KEYWORD")) {
+        const childTag = parseLiftTag();
+        if (!childTag) return null;
+        children.push(childTag);
+        continue;
+      }
+      // BLOCK_REF = ${expr} inline logic child
+      if (t.kind === "BLOCK_REF") {
+        const refTok = consume();
+        if (refTok.block) {
+          const logicChild = buildBlock(refTok.block, filePath, "logic", counter, errors);
+          if (logicChild) children.push(logicChild);
+        }
+        continue;
+      }
+      // Statement boundary: } or ; ends the lift (no closer — bare component ref)
+      // Only valid for components (PascalCase tags) with no children collected
+      if ((t.kind === "PUNCT" && (t.text === "}" || t.text === ";")) && isComponent && children.length === 0) {
+        return {
+          id: ++counter.next, kind: "markup", tag, attrs, children: [],
+          selfClosing: true, closerForm: "bare-ref", isComponent,
+          span: spanOf(startTok, peek()),
+        };
+      }
+      // Text content — consume and accumulate
+      consume();
+      children.push({
+        id: ++counter.next,
+        kind: "text",
+        value: t.text,
+        span: tokenSpan(t, filePath),
+      });
+    }
+    // EOF without closer — if component with no children, treat as bare-ref
+    if (isComponent && children.length === 0) {
+      return {
+        id: ++counter.next, kind: "markup", tag, attrs, children: [],
+        selfClosing: true, closerForm: "bare-ref", isComponent,
+        span: spanOf(startTok, peek()),
+      };
+    }
+    // EOF without closer on non-component — malformed
+    return null;
+  }
+
+  /** Collect one attribute name token (possibly compound like `bind:value`, `class:active`, `aria-label`, `data-id`). */
+  function _parseLiftAttrName() {
+    const t = peek();
+    if (t.kind !== "IDENT" && t.kind !== "KEYWORD") return null;
+    consume();
+    let name = t.text;
+    // Compound names: bind:value, class:active, on:click (colon separator)
+    //                 aria-label, data-id, aria-hidden (hyphen separator)
+    while (
+      (peek().kind === "PUNCT" && (peek().text === ":" || peek().text === "-")) &&
+      (peek(1)?.kind === "IDENT" || peek(1)?.kind === "KEYWORD")
+    ) {
+      const sep = consume();
+      const suffix = consume();
+      name += sep.text + suffix.text;
+    }
+    return name;
+  }
+
+  /** Parse one attribute value after `=` into a structured value object. */
+  function _parseLiftAttrValue(attrSpan) {
+    const t = peek();
+    // String literal: "foo" or 'foo'
+    if (t.kind === "STRING") {
+      const valTok = consume();
+      return { kind: "string-literal", value: valTok.text, span: tokenSpan(valTok, filePath) };
+    }
+    // BLOCK_REF = ${expr}
+    if (t.kind === "BLOCK_REF") {
+      const refTok = consume();
+      const raw = refTok.block?.raw ?? "";
+      // Strip ${ and }
+      const inner = raw.replace(/^\$\{\s*/, "").replace(/\s*\}$/, "");
+      return {
+        kind: "expr",
+        raw: inner,
+        refs: [],
+        exprNode: safeParseExprToNode(inner, tokenSpan(refTok, filePath)?.start ?? 0),
+        span: tokenSpan(refTok, filePath),
+      };
+    }
+    // Identifier or call: ident / ident.prop / ident(args)
+    if (t.kind === "IDENT" || t.kind === "KEYWORD" || t.kind === "AT_IDENT" || t.kind === "NUMBER") {
+      const parts = [];
+      const startValTok = t;
+      // Collect value tokens until whitespace-delimited boundary (next attr or `>`)
+      // Track paren depth for function calls
+      let depth = 0;
+      while (true) {
+        const ct = peek();
+        if (ct.kind === "EOF") break;
+        if (depth === 0) {
+          if (ct.kind === "PUNCT" && (ct.text === ">" || ct.text === "/")) break;
+          // End of value when next token is attribute name (IDENT/KEYWORD) not preceded by a continuation operator
+          // Simplest heuristic: end when we see IDENT/KEYWORD after we already consumed value content
+          // For now: stop at > or /; track () and [] depth for calls
+        }
+        if (ct.kind === "PUNCT" && (ct.text === "(" || ct.text === "[")) depth++;
+        if (ct.kind === "PUNCT" && (ct.text === ")" || ct.text === "]")) {
+          if (depth === 0) break;
+          depth--;
+        }
+        // Next attribute boundary: if at depth 0 and current token was not `(`, `.`, `=`, or operator,
+        // and next is IDENT/KEYWORD followed by `=` or whitespace-then-`>`, stop.
+        // Simpler: rely on the whitespace heuristic via token line numbers isn't reliable here.
+        // Safe approximation: IDENT/KEYWORD at depth 0 after a value-ending token is new attr
+        if (depth === 0 && parts.length > 0) {
+          const lastPart = parts[parts.length - 1];
+          const endsValue = /[\w)\]"']$/.test(lastPart);
+          const startsAttr = (ct.kind === "IDENT" || ct.kind === "KEYWORD") && peek(1)?.text === "=";
+          if (endsValue && startsAttr) break;
+          // Also break when IDENT/KEYWORD at depth 0 follows a value-ending token and next is > or /
+          if (endsValue && (ct.kind === "IDENT" || ct.kind === "KEYWORD")) {
+            // Heuristic: this is the start of a new attribute (since it's not a . property access)
+            // Check if previous token was `.` — then it IS a property access, continue
+            if (lastPart !== ".") break;
+          }
+        }
+        parts.push(ct.text);
+        consume();
+      }
+      const raw = parts.join("");
+      const valSpan = tokenSpan(startValTok, filePath);
+      // Detect call-ref shape: identifier ( ... )
+      const callMatch = raw.match(/^([A-Za-z_$][A-Za-z0-9_$.]*)\s*\((.*)\)$/s);
+      if (callMatch) {
+        const rawArgs = callMatch[2];
+        const argList = rawArgs.trim().length === 0 ? [] : splitArgs(rawArgs);
+        const _argExprNodes = argList.map(a => safeParseExprToNode(a, valSpan?.start ?? 0)).filter(Boolean);
+        return {
+          kind: "call-ref",
+          name: callMatch[1],
+          args: argList,
+          argExprNodes: _argExprNodes.length === argList.length ? _argExprNodes : undefined,
+          span: valSpan,
+        };
+      }
+      // Simple variable-ref (single identifier, possibly with dots)
+      if (/^[@A-Za-z_$][A-Za-z0-9_$.]*$/.test(raw)) {
+        return {
+          kind: "variable-ref",
+          name: raw,
+          exprNode: safeParseExprToNode(raw, valSpan?.start ?? 0),
+          span: valSpan,
+        };
+      }
+      // Fallback: treat as expr
+      return {
+        kind: "expr",
+        raw,
+        refs: [],
+        exprNode: safeParseExprToNode(raw, valSpan?.start ?? 0),
+        span: valSpan,
+      };
+    }
+    return null;
+  }
+
+  /**
    * §53 Inline Type Predicates — type annotation collector (parseLogicBody closure).
    * Called after consuming `@name` when peek() is `:`.
    * Consumes `:` and collects the type expression (including balanced parens and
@@ -1582,11 +1855,18 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           const childNode = buildBlock(child, filePath, "logic", counter, errors);
           return { id: ++counter.next, kind: "lift-expr", expr: { kind: "markup", node: childNode }, span: spanOf(startTok, refTok) };
         }
-      } else {
-        const { expr, span } = collectLiftExpr();
-        return { id: ++counter.next, kind: "lift-expr", expr: { kind: "expr", expr, exprNode: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0) }, span: spanOf(startTok, peek()) };
       }
-      return null;
+      // Lift Approach C: inline markup → structured MarkupNode
+      if (peek().text === "<" && peek().kind === "PUNCT" && peek(1) && (peek(1).kind === "IDENT" || peek(1).kind === "KEYWORD")) {
+        const markupNode = parseLiftTag();
+        if (markupNode) {
+          return { id: ++counter.next, kind: "lift-expr", expr: { kind: "markup", node: markupNode }, span: spanOf(startTok, peek()) };
+        }
+        // parseLiftTag returned null — fall through to string path
+      }
+      // Non-markup lift (identifier, call, etc.) or malformed markup
+      const { expr, span } = collectLiftExpr();
+      return { id: ++counter.next, kind: "lift-expr", expr: { kind: "expr", expr, exprNode: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0) }, span: spanOf(startTok, peek()) };
     }
 
     // FOR: `for variable in iterable { body }`
@@ -3137,8 +3417,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             span: spanOf(startTok, refTok),
           });
         }
+      } else if (peek().text === "<" && peek().kind === "PUNCT" && peek(1) && (peek(1).kind === "IDENT" || peek(1).kind === "KEYWORD")) {
+        // Lift Approach C: inline markup → structured MarkupNode
+        const markupNode = parseLiftTag();
+        if (markupNode) {
+          nodes.push({
+            id: ++counter.next,
+            kind: "lift-expr",
+            expr: { kind: "markup", node: markupNode },
+            span: spanOf(startTok, peek()),
+          });
+        } else {
+          // parseLiftTag failed — fall back to string path
+          const { expr, span } = collectLiftExpr();
+          nodes.push({
+            id: ++counter.next,
+            kind: "lift-expr",
+            expr: { kind: "expr", expr, exprNode: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0) },
+            span: spanOf(startTok, peek()),
+          });
+        }
       } else {
-        // lift with expression or identifier — use collectLiftExpr to include / closers
+        // lift with expression or identifier — use collectLiftExpr
         const { expr, span } = collectLiftExpr();
         nodes.push({
           id: ++counter.next,

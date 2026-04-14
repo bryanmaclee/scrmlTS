@@ -143,15 +143,11 @@ const TopLevelStep = <div class="step"/>
     expect(e020[0].message).toContain("TopLevelStep");
   });
 
-  test("lift <InfoStep> inside ${} match arm produces lift-expr with raw expr (current compiler limitation)", () => {
-    // Documents the current behavior: `lift <InfoStep>` inside a match arm body
-    // produces a lift-expr with {kind: "expr"} rather than {kind: "markup"}.
-    // This is because the block splitter does NOT create BLOCK_REFs for `<Tag>`
-    // inside brace contexts — it stays as raw text in the logic tokenizer stream.
-    // CE's walkLogicBody() only handles lift-expr{kind:"markup"}, so the component
-    // is NOT expanded when lifted inside a match arm.
-    //
-    // TODO: Fix the CE stage to handle lift-expr{kind:"expr"} for component names.
+  test("lift <InfoStep> inside ${} match arm produces lift-expr with structured markup (Lift Approach C)", () => {
+    // S14: Lift Approach C landed. `lift <ComponentName>` inside a match arm body
+    // now produces a lift-expr with {kind: "markup"} containing a structured MarkupNode
+    // with `isComponent: true`. The previous limitation (raw expr string) is resolved
+    // by the parseLiftTag function in the AST builder.
     const source = `<program>
 \${ const InfoStep = <div class="info-step"/> }
 \${ match (@step) {
@@ -160,14 +156,15 @@ const TopLevelStep = <div class="step"/>
 </program>`;
     const { ast, errors } = runCEOn(source);
 
-    // CE doesn't produce component errors for this pattern (it doesn't see the ref)
-    // but the lift-expr is NOT expanded to the component's markup
     const liftExprs = collectNodes(ast.nodes, "lift-expr");
     expect(liftExprs.length).toBeGreaterThanOrEqual(1);
 
-    // The lift-expr inside the match arm has kind "expr" (raw) not kind "markup" (expanded)
-    // This is the documented limitation
-    const matchBodyLift = liftExprs.find(le => le.expr && le.expr.kind === "expr");
+    // The lift-expr inside the match arm now has kind "markup". The component
+    // expander then resolves the InfoStep reference to the component's markup body
+    // (a div), so the final tag is "div" (the expanded form).
+    const matchBodyLift = liftExprs.find(le => le.expr && le.expr.kind === "markup");
     expect(matchBodyLift).toBeDefined();
+    // Component got expanded: InfoStep → <div class="info-step"/>
+    expect(matchBodyLift.expr.node.tag).toBe("div");
   });
 });
