@@ -44,6 +44,7 @@ Options:
   --output-dir, -o <dir>  Output directory (default: dist/ next to input)
   --verbose, -v           Show per-stage timing and counts
   --embed-runtime         Embed runtime inline instead of writing a separate file
+  --emit-batch-plan       Print the Stage 7.5 BatchPlan as JSON (§PIPELINE)
   --watch, -w             Watch for changes and recompile
   --convert-legacy-css    Convert <style> blocks to #{...}
   --mode <mode>           Output mode: browser (default) or library
@@ -78,6 +79,7 @@ function parseArgs(args) {
   let watchMode = false;
   let mode = 'browser';
   let selfHost = false;
+  let emitBatchPlan = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -108,6 +110,8 @@ function parseArgs(args) {
       mode = modeVal;
     } else if (arg === "--self-host") {
       selfHost = true;
+    } else if (arg === "--emit-batch-plan") {
+      emitBatchPlan = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -143,7 +147,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan };
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +253,7 @@ function formatWarning(warn, cwd) {
  * @returns {{ success: boolean }}
  */
 function runOnce(opts, selfHostModules = null) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode } = opts;
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan } = opts;
   const cwd = process.cwd();
 
   if (verbose) {
@@ -329,6 +333,11 @@ function runOnce(opts, selfHostModules = null) {
 
   if (result.warnings.length > 0) {
     console.log(c.yellow(`  ${result.warnings.length} warning${result.warnings.length !== 1 ? "s" : ""}`));
+  }
+
+  if (emitBatchPlan && typeof result.batchPlanJson === "function") {
+    console.log("\n" + c.dim("// --- BatchPlan (§PIPELINE Stage 7.5) ---"));
+    console.log(result.batchPlanJson());
   }
 
   return { success: true };

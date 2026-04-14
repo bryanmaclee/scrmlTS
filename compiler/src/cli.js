@@ -45,6 +45,7 @@ Options (compile / dev):
   --verbose, -v           Per-stage timing and counts
   --convert-legacy-css    Convert <style> blocks to #{...}
   --embed-runtime         Embed runtime inline instead of writing a separate file
+  --emit-batch-plan       Print the Stage 7.5 BatchPlan as JSON
   --watch, -w             Watch for changes and recompile (compile command only)
 
 Options (dev):

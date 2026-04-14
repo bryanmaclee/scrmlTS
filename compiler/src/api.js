@@ -18,6 +18,7 @@ import { runRI } from "./route-inference.ts";
 import { runTS, buildTypeRegistry } from "./type-system.ts";
 import { runMetaChecker } from "./meta-checker.ts";
 import { runDG } from "./dependency-graph.ts";
+import { runBatchPlanner, serializeBatchPlan } from "./batch-planner.ts";
 import { runCG } from "./code-generator.js";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules } from "./module-resolver.js";
@@ -374,6 +375,16 @@ export function compileScrml(options = {}) {
   }));
   collectErrors("DG", dgResult.errors);
 
+  // Stage 7.5: Batch Planner (§8.9 / §8.10 / §8.11) — consumes the
+  // finalized, lift-checked DG and produces a BatchPlan for CG.
+  const bpResult = stage("BP", () => runBatchPlanner({
+    files: metaFiles,
+    depGraph: dgResult.depGraph,
+    routeMap: riResult.routeMap,
+    protectAnalysis: paResult.protectAnalysis,
+  }));
+  collectErrors("BP", bpResult.errors);
+
   // When selfHostModules.bpp is provided, override BPP functions in parser-workarounds.
   if (selfHostModules?.bpp) setBPPOverrides(selfHostModules.bpp);
 
@@ -469,5 +480,7 @@ export function compileScrml(options = {}) {
     outputDir: outputDir || "",
     durationMs,
     outputs: cgResult.outputs || new Map(),
+    batchPlan: bpResult.batchPlan,
+    batchPlanJson: () => serializeBatchPlan(bpResult.batchPlan),
   };
 }
