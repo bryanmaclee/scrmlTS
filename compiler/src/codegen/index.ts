@@ -75,6 +75,13 @@ export interface CgInput {
   testMode?: boolean;
   /** Enable output name encoding (§47). Default: false. */
   encoding?: boolean | { enabled: boolean; debug?: boolean };
+  /** Stage 7.5 BatchPlan — consumed by emit-server for Tier 1 envelopes. */
+  batchPlan?: any;
+  /**
+   * Batch-planner errors (E-BATCH-001 / W-BATCH-001). CG uses these to
+   * suppress envelope emission for handlers with composition errors.
+   */
+  batchPlannerErrors?: Array<{ code: string; message: string; span?: any }>;
 }
 
 export interface CgFileOutput {
@@ -113,6 +120,8 @@ export function runCG(input: CgInput): CgOutput {
     mode = "browser",
     testMode = false,
     encoding: encodingInput = false,
+    batchPlan = null,
+    batchPlannerErrors = [],
   } = input;
 
   // Resolve encoding configuration (§47)
@@ -298,7 +307,7 @@ export function runCG(input: CgInput): CgOutput {
     // ---------------------------------------------------------------------------
     // Generate server JS — emitted in both browser and library mode.
     // ---------------------------------------------------------------------------
-    let serverJs: string | null = generateServerJs(fileAST, safeRouteMap, errors, authMW, middlewareCfg) || null;
+    let serverJs: string | null = generateServerJs(fileAST, safeRouteMap, errors, authMW, middlewareCfg, batchPlan, batchPlannerErrors) || null;
 
     // ---------------------------------------------------------------------------
     // Generate CSS — emitted in both modes.

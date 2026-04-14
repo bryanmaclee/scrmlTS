@@ -396,6 +396,8 @@ export function compileScrml(options = {}) {
     routeMap: riResult.routeMap,
     depGraph: dgResult.depGraph,
     protectAnalysis: paResult.protectAnalysis,
+    batchPlan: bpResult.batchPlan,
+    batchPlannerErrors: bpResult.errors,
     embedRuntime,
     sourceMap,
     mode,

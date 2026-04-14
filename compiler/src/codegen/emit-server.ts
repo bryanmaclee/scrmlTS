@@ -20,6 +20,8 @@ export function generateServerJs(
   errorsLegacy?: CGError[],
   authMiddlewareLegacy?: any | null,
   middlewareConfigLegacy?: any | null,
+  batchPlan?: any,
+  batchPlannerErrors?: Array<{ code: string; message: string; span?: any }>,
 ): string {
   // Support both new (ctx) and legacy (fileAST, routeMap, errors, authMW, mwConfig) signatures
   let fileAST: any;
@@ -45,6 +47,23 @@ export function generateServerJs(
   }
   const filePath: string = fileAST.filePath;
   const fnNodes: any[] = ctxForCache?.analysis?.fnNodes ?? collectFunctions(fileAST);
+
+  // §8.9.2 / §19.10.5: determine whether a handler receives an implicit
+  // per-handler transaction envelope. Applies iff:
+  //   - the Batch Planner (Stage 7.5) recorded ≥ 1 CoalescingGroup with
+  //     envelopeKind === "implicit-handler-tx" for this handler, AND
+  //   - no E-BATCH-001 composition error fired for this handler.
+  function needsImplicitEnvelope(funcName: string): boolean {
+    if (!batchPlan || !(batchPlan as any).coalescedHandlers) return false;
+    const groups = (batchPlan as any).coalescedHandlers.get(funcName);
+    if (!groups || groups.length === 0) return false;
+    const hasImplicit = groups.some((g: any) => g.envelopeKind === "implicit-handler-tx");
+    if (!hasImplicit) return false;
+    const suppressed = (batchPlannerErrors ?? []).some(
+      (e) => e.code === "E-BATCH-001" && typeof e.message === "string" && e.message.includes(`'${funcName}'`),
+    );
+    return !suppressed;
+  }
   const serverFns: Array<{ fnNode: any; route: any }> = [];
 
   for (const fnNode of fnNodes) {
@@ -495,6 +514,14 @@ export function generateServerJs(
     }
 
     if (useBaselineCsrf) {
+      // §8.9.2: implicit per-handler transaction envelope (Tier 1 coalescing).
+      const _envelope = needsImplicitEnvelope(name);
+      if (_envelope) {
+        lines.push(`  // §8.9.2 implicit per-handler transaction`);
+        lines.push(`  _scrml_db.exec("BEGIN DEFERRED");`);
+        lines.push(`  try {`);
+      }
+
       lines.push(`  const _scrml_result = await (async () => {`);
 
       lines.push(`    const _scrml_body = await _scrml_req.json();`);
@@ -563,6 +590,9 @@ export function generateServerJs(
       }
 
       lines.push(`  })();`);
+      if (_envelope) {
+        lines.push(`  _scrml_db.exec("COMMIT");`);
+      }
       lines.push(`  return new Response(JSON.stringify(_scrml_result ?? null), {`);
       lines.push(`    status: 200,`);
       lines.push(`    headers: {`);
@@ -570,6 +600,12 @@ export function generateServerJs(
       lines.push(`      "Set-Cookie": \`scrml_csrf=\${_scrml_csrf_token}; Path=/; SameSite=Strict\`,`);
       lines.push(`    },`);
       lines.push(`  });`);
+      if (_envelope) {
+        lines.push(`  } catch (_scrml_batch_err) {`);
+        lines.push(`    _scrml_db.exec("ROLLBACK");`);
+        lines.push(`    throw _scrml_batch_err;`);
+        lines.push(`  }`);
+      }
     } else {
       lines.push(`  const _scrml_body = await _scrml_req.json();`);
 
