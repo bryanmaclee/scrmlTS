@@ -16,7 +16,7 @@
  */
 
 import { getNodes } from "./collect.ts";
-import { extractReactiveDepsFromAST } from "../expression-parser.ts";
+import { extractReactiveDepsFromAST, forEachIdentInExprNode } from "../expression-parser.ts";
 
 /** A loosely-typed AST node. */
 type ASTNode = Record<string, unknown>;
@@ -122,9 +122,13 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
         names.add(n.name as string);
       }
       // Tilde-decl with reactive deps compiles to a derived reactive
+      // Phase 4d: ExprNode-first — check initExpr for @-prefixed idents, string fallback
       if (n.kind === "tilde-decl" && n.name) {
-        const tildeInit: string = (n.init as string) ?? "";
-        if (/@/.test(tildeInit)) {
+        const initExpr = n.initExpr;
+        const hasReactiveDep = initExpr
+          ? _exprNodeHasReactiveRef(initExpr)
+          : /@/.test((n.init as string) ?? "");
+        if (hasReactiveDep) {
           names.add(n.name as string);
         }
       }
@@ -214,4 +218,48 @@ export function collectDerivedVarNames(fileAST: Record<string, unknown>): Set<st
 
   visit(nodes as unknown[]);
   return names;
+}
+
+// ---------------------------------------------------------------------------
+// ExprNode-aware reactive ref detection (Phase 4d)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether an ExprNode tree contains any @-prefixed ident (reactive ref).
+ * Used as a fast boolean check — no need to collect all names.
+ */
+function _exprNodeHasReactiveRef(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
+  let found = false;
+  forEachIdentInExprNode(node as any, (ident) => {
+    if (!found && typeof ident.name === "string" && ident.name.startsWith("@")) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+/**
+ * Extract all reactive variable names (@var) from an ExprNode tree.
+ * ExprNode-first counterpart to extractReactiveDeps (string-based).
+ *
+ * @param node - An ExprNode tree (e.g. initExpr, condExpr)
+ * @param knownReactiveVars - Optional filter set (without @ prefix)
+ * @returns Set of reactive variable names (without @ prefix)
+ */
+export function extractReactiveDepsFromExprNode(
+  node: unknown,
+  knownReactiveVars: Set<string> | null = null,
+): Set<string> {
+  const found = new Set<string>();
+  if (!node || typeof node !== "object") return found;
+  forEachIdentInExprNode(node as any, (ident) => {
+    if (typeof ident.name === "string" && ident.name.startsWith("@")) {
+      const varName = ident.name.slice(1); // strip @
+      if (knownReactiveVars === null || knownReactiveVars.has(varName)) {
+        found.add(varName);
+      }
+    }
+  });
+  return found;
 }

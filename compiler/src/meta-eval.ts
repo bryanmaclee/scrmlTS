@@ -263,7 +263,8 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
     }
 
     case "for-loop": {
-      const iter = (n.iterable || n.collection || "") as string;
+      // Phase 4d: ExprNode-first, string fallback for iterable
+      const iter = n.iterExpr ? emitStringFromTree(n.iterExpr as ExprNode) : ((n.iterable || n.collection || "") as string);
       const body = serializeBody((n.body || []) as LogicStatement[], locals);
       if (n.indexVariable) {
         // for (let idx = 0; ...) style — use the raw expr if available
@@ -277,7 +278,8 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
     // (not "for-loop" which is the markup-template loop). Add explicit handling so
     // that `for (const x of items)` inside ^{} meta blocks is serialized correctly.
     case "for-stmt": {
-      const iter = (n.iterable || n.collection || n.iter || "") as string;
+      // Phase 4d: ExprNode-first, string fallback for iterable
+      const iter = n.iterExpr ? emitStringFromTree(n.iterExpr as ExprNode) : ((n.iterable || n.collection || n.iter || "") as string);
       const loopBody = serializeBody((n.body || []) as LogicStatement[], locals);
       if (n.variable && iter) {
         // for-of style: for (const variable of iterable)

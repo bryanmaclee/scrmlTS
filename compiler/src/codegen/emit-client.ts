@@ -180,8 +180,12 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
 
       // for-stmt — reactive for-loops use _scrml_reconcile_list + _scrml_effect_static + _scrml_lift
       case "for-stmt": {
-        const iterable: string = (node.iterable ?? node.collection ?? "").trim();
-        if (/^@[A-Za-z_$][A-Za-z0-9_$]*$/.test(iterable)) {
+        // Phase 4d: ExprNode-first — check iterExpr for reactive @var, string fallback
+        const _iterExpr = node.iterExpr;
+        const iterIsReactive = _iterExpr
+          ? (_iterExpr.kind === "ident" && typeof _iterExpr.name === "string" && _iterExpr.name.startsWith("@"))
+          : /^@[A-Za-z_$][A-Za-z0-9_$]*$/.test((node.iterable ?? node.collection ?? "").trim());
+        if (iterIsReactive) {
           chunks.add("reconciliation");
           chunks.add("lift");
           chunks.add("deep_reactive"); // _scrml_effect_static

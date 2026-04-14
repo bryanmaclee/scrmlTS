@@ -17,6 +17,25 @@
 - Handles: variant arms, string arms, `not` arm, `else` wildcard, `partial match`, structured `match-arm-block` bodies with `lift`
 - Tests: 6,131 pass / 15 fail (net +1 pass, zero regressions)
 
+### Phase 4d progress — ExprNode-first migration
+
+**A. `node.condition`** (2 string-only sites → 0):
+- `type-system.ts:2928` — W-ASSIGN-001: now checks `condExpr` for `AssignExpr` at root, falls back to string regex
+- `type-system.ts:3998` — must-use scanner: now skips string fields when ExprNode equivalents present
+
+**B. `node.iterable`** (6 sites — 4 already migrated, 2 converted):
+- `emit-control-flow.ts`, `emit-logic.ts` (3 sites) — already used `emitExprField(node.iterExpr, ...)` for emit
+- `emit-client.ts:183` — reactive @var detection now checks `iterExpr.kind === "ident"` first, string fallback
+- `meta-eval.ts:266, 280` — for-loop/for-stmt serialization now uses `emitStringFromTree(iterExpr)` first
+
+**C. `node.init` easy sites** (4 migrated):
+- `emit-logic.ts:401` — tilde-decl `extractReactiveDeps` now uses `extractReactiveDepsFromExprNode(initExpr)` first
+- `emit-logic.ts:485` — reactive-derived-decl same pattern
+- `emit-logic.ts:457` — `_wrapDeepReactive` now accepts `initExpr` param, checks ExprNode kind (object/array/new) structurally
+- `reactive-deps.ts:126` — `collectReactiveVarNames` tilde-decl check uses `_exprNodeHasReactiveRef(initExpr)` first
+
+**New exports added:** `extractReactiveDepsFromExprNode` in `reactive-deps.ts`
+
 ### Queued
 
 **Still queued (from S12):**

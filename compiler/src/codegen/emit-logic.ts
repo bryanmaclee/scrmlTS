@@ -4,7 +4,7 @@ import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, type MatchArm } from "./emit-control-flow.ts";
 import { emitLiftExpr } from "./emit-lift.js";
-import { extractReactiveDeps } from "./reactive-deps.ts";
+import { extractReactiveDeps, extractReactiveDepsFromExprNode } from "./reactive-deps.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import { emitRuntimeCheck } from "./emit-predicates.ts";
 import { emitTransitionGuard } from "./emit-machines.ts";
@@ -22,7 +22,23 @@ import { emitTransitionGuard } from "./emit-machines.ts";
  * runtime _scrml_deep_reactive is a no-op on primitives, so wrapping is safe
  * but we avoid it for readability.
  */
-function _wrapDeepReactive(rewrittenExpr: string, rawExpr: string): string {
+function _wrapDeepReactive(rewrittenExpr: string, rawExpr: string, initExpr?: any): string {
+  // Phase 4d: ExprNode-first — structural detection of deep-reactive-worthy values
+  if (initExpr) {
+    const k = initExpr.kind;
+    if (k === "object" || k === "array" || k === "new") {
+      return `_scrml_deep_reactive(${rewrittenExpr})`;
+    }
+    if (k === "ident" && (initExpr.name === "Array" || initExpr.name === "Object")) {
+      return `_scrml_deep_reactive(${rewrittenExpr})`;
+    }
+    if (k === "call" && initExpr.callee?.kind === "ident" &&
+        (initExpr.callee.name === "Array" || initExpr.callee.name === "Object")) {
+      return `_scrml_deep_reactive(${rewrittenExpr})`;
+    }
+    return rewrittenExpr;
+  }
+  // String fallback
   const trimmed = rawExpr.trim();
   if (
     trimmed.startsWith("{") ||
@@ -396,9 +412,12 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
         return `${node.name} = ${tildeRhs};`;
       }
       // For tilde-decl with reactive deps: emit as derived reactive (auto-updates)
+      // Phase 4d: ExprNode-first reactive dep extraction, string fallback
       if (node.kind === "tilde-decl") {
         const tildeInit: string = node.init ?? "";
-        const tildeDeps = extractReactiveDeps(tildeInit);
+        const tildeDeps = node.initExpr
+          ? extractReactiveDepsFromExprNode(node.initExpr)
+          : extractReactiveDeps(tildeInit);
         if (tildeDeps.size > 0) {
           const rewrittenBody = node.initExpr
             ? emitExpr(node.initExpr, { ..._makeExprCtx(opts), derivedNames })
@@ -451,7 +470,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
         const rewrittenInit = emitExpr(node.initExpr, _makeExprCtx(opts));
-        const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr);
+        const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr, node.initExpr);
         if (node.predicateCheck && node.predicateCheck.zone === "boundary" && initStr !== "undefined") {
           const _pc = node.predicateCheck;
           const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
@@ -459,7 +478,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           return [
             `const ${_checkTmpVar} = ${rewrittenInit};`,
             ..._checkLines,
-            _emitReactiveSet(encodedName, _wrapDeepReactive(_checkTmpVar, initStr), opts, node.name, isInit),
+            _emitReactiveSet(encodedName, _wrapDeepReactive(_checkTmpVar, initStr, node.initExpr), opts, node.name, isInit),
           ].join("\n");
         }
         return _emitReactiveSet(encodedName, wrappedInit, opts, node.name, isInit);
@@ -478,8 +497,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
     case "reactive-derived-decl": {
       // const @name = expr → derived reactive value (§6.6)
+      // Phase 4d: ExprNode-first reactive dep extraction, string fallback
       const derivedInit: string = node.init ?? "";
-      const reactiveDepsFound = extractReactiveDeps(derivedInit);
+      const reactiveDepsFound = node.initExpr
+        ? extractReactiveDepsFromExprNode(node.initExpr)
+        : extractReactiveDeps(derivedInit);
       const hasReactiveDeps = reactiveDepsFound.size > 0;
 
       if (!hasReactiveDeps) {

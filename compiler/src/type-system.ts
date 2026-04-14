@@ -72,7 +72,7 @@
  */
 
 import { getElementShape, getAllElementNames } from "./html-elements.js";
-import { forEachIdentInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall } from "./expression-parser.ts";
+import { forEachIdentInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall, emitStringFromTree } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Internal span type (mirrors ast.ts Span)
@@ -2925,13 +2925,21 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "while-stmt":
       case "if-stmt": {
-        const condStr = ((n.condition as string | undefined) ?? "").trim();
+        // Phase 4d: ExprNode-first — check condExpr for AssignExpr at root
+        const condExprNode = (n as Record<string, unknown>).condExpr as import("./types/ast.ts").ExprNode | undefined;
+        const condStr = condExprNode
+          ? emitStringFromTree(condExprNode)
+          : ((n.condition as string | undefined) ?? "").trim();
         if (condStr.length > 0) {
+          // ExprNode path: direct structural check for assignment at root
+          const hasAssignAtRoot = condExprNode
+            ? condExprNode.kind === "assign" && (condExprNode as any).op === "="
+            : false;
           const inner = (condStr.startsWith("(") && condStr.endsWith(")"))
             ? condStr.slice(1, -1).trim()
             : condStr;
           const ASSIGN_ROOT_RE = /^[@A-Za-z_$][A-Za-z0-9_$@.]*\s*=[^=]/;
-          if (ASSIGN_ROOT_RE.test(inner)) {
+          if (hasAssignAtRoot || ASSIGN_ROOT_RE.test(inner)) {
             const stmtKind = n.kind === "while-stmt" ? "while" : "if";
             const condLine = (n.span as Span | undefined)?.line ?? 1;
             errors.push(new TSError(
@@ -3993,9 +4001,16 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     }
 
     // String-field fallback: nodes without ExprNode fields still need scanning.
-    // node.content: html-fragment nodes carry HTML that may reference tilde-decl names
-    // (e.g. `onclick=...` in a fragmented lift body where `onclick` is a misparsed tilde-decl).
-    const stringFields = [node.expr, node.init, node.value, node.condition, node.test, node.content];
+    // Phase 4d: skip string fields when corresponding ExprNode is present (avoid double-counting).
+    // node.content: html-fragment nodes carry HTML that may reference tilde-decl names.
+    const stringFields: (string | unknown)[] = [
+      !nodeAny.exprNode ? node.expr : undefined,
+      !nodeAny.initExpr ? node.init : undefined,
+      node.value,
+      !nodeAny.condExpr ? node.condition : undefined,
+      node.test,
+      node.content,
+    ];
     for (const field of stringFields) {
       if (typeof field === "string") {
         mustUseTracker.scanExpression(field);
