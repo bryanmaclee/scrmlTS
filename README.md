@@ -38,8 +38,7 @@ bun test compiler/tests/
 - `lsp/server.js` — language server
 - `dist/scrml-runtime.js` — shared reactive runtime
 
-For a full inventory of what exists, what works, and what's open, see [`master-list.md`](./master-list.md).
-For agent / contributor directives, see [`pa.md`](./pa.md).
+For recent fixes and work currently in flight, see [`docs/changelog.md`](./docs/changelog.md).
 
 
 
@@ -227,11 +226,19 @@ The compiler uses a **three-zone enforcement model** (derived from SPARK/Ada):
 | **Boundary** | Value comes from an unproven source (user input, API response, arithmetic) | One boolean check at assignment site |
 | **Trusted** | Value was already checked in the current scope | Zero — compiler remembers the proof |
 
-Named shapes (`string(email)`, `string(url)`, `string(uuid)`) and composable predicates (`number(>0 && <10000)`, `string(.length > 7)`) cover the same ground as Zod schemas — with zero dependencies, zero bundle cost in proven code paths, and no separate schema language to keep in sync with your types.
+Boundary checks emit a single synchronous predicate test; on failure the compiler throws `E-CONTRACT-001-RT` labeled with the assignment site. Named shapes available today: `email`, `url`, `uuid`, `phone`, `date`, `time`, `color`. Composable predicates (`number(>0 && <10000)`, `string(.length > 7)`) cover the same ground as Zod schemas — with zero dependencies, zero bundle cost in proven code paths, and no separate schema language to keep in sync with your types.
+
+### Free HTML Validation
+
+The same predicate powers browser-native form validation. On `bind:value` inputs, the compiler derives the matching HTML attributes — `string(email)` emits `type="email"`, `number(>0 && <100)` emits `min="0" max="100"`, `string(uuid)` emits `pattern=...`, `string(.length > 7 && .length < 255)` emits `minlength="8" maxlength="254"`. One predicate, three enforcement points: server-side boundary check, client-side boundary check, browser-native pre-submit validation. You never write the HTML attrs by hand, and they never drift from the type.
 
 ### Variable Renaming
 
-The compiler renames reactive variables in the compiled output. `@shoppingCart` becomes `_scrml_reactive_get("a")` in the JavaScript — shorter variable keys, smaller bundles, free obfuscation. Zero configuration, zero runtime cost. Your source code stays readable; the compiled output stays minimal.
+The compiler renames JavaScript bindings in the compiled output using a deterministic, type-derived encoding. `@shoppingCart` of type `Cart` becomes `_s7km3f2x00` — underscore prefix, kind character (`s` = struct, `p` = primitive, `e` = enum, and so on), an 8-character base36 FNV-1a hash of the canonical type string, and a per-scope sequence char. Two bindings of the same type share the hash; the sequence char disambiguates.
+
+Because the name carries the type, runtime `reflect()` can recover the full type descriptor from a variable alone — without shipping any unused type metadata. The decode table is tree-shaken entirely when no `^{}` meta blocks reference runtime state, so most apps ship zero reflection bytes. Debug builds append `$originalName` so stack traces and DevTools stay readable; production builds reject that flag as a hard error.
+
+This isn't bundler-style single-letter renaming — the names are longer than `a`, `b`, `c`. The wins are different: collision-free across scopes, type-introspectable at runtime, and protected fields can never leak into a client-side encoded name (the client schema view excludes them by construction, verified again at emit).
 
 ### Server/Client
 
