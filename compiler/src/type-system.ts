@@ -2809,24 +2809,31 @@ function annotateNodes(
         // --- Exhaustiveness check (§19.7) ---
 
         // Step 1: extract the callee expression string from the guarded node.
-        let calleeExpr: string | null = null;
-        if (guardedNode) {
-          if (guardedNode.kind === "bare-expr" && typeof guardedNode.expr === "string") {
-            calleeExpr = (guardedNode.expr as string).trim();
-          } else if (
-            (guardedNode.kind === "let-decl" || guardedNode.kind === "const-decl") &&
-            typeof guardedNode.init === "string"
-          ) {
-            calleeExpr = (guardedNode.init as string).trim();
-          }
-        }
-
-        // Step 2: extract the function name from the callee expression.
-        // calleeExpr is like "processPayment(100)" — take the identifier before "(".
+        // Phase 4d: ExprNode-first callee extraction, string fallback
         let calleeName: string | null = null;
-        if (calleeExpr) {
-          const calleeMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(calleeExpr);
-          if (calleeMatch) calleeName = calleeMatch[1];
+        if (guardedNode) {
+          // ExprNode path: look for CallExpr with ident callee
+          const _gExprNode = (guardedNode as Record<string, unknown>).exprNode ?? (guardedNode as Record<string, unknown>).initExpr;
+          if (_gExprNode && typeof _gExprNode === "object" && (_gExprNode as any).kind === "call") {
+            const _callee = (_gExprNode as any).callee;
+            if (_callee && _callee.kind === "ident") calleeName = _callee.name;
+          }
+          // String fallback
+          if (!calleeName) {
+            let calleeExpr: string | null = null;
+            if (guardedNode.kind === "bare-expr" && typeof guardedNode.expr === "string") {
+              calleeExpr = (guardedNode.expr as string).trim();
+            } else if (
+              (guardedNode.kind === "let-decl" || guardedNode.kind === "const-decl") &&
+              typeof guardedNode.init === "string"
+            ) {
+              calleeExpr = (guardedNode.init as string).trim();
+            }
+            if (calleeExpr) {
+              const calleeMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(calleeExpr);
+              if (calleeMatch) calleeName = calleeMatch[1];
+            }
+          }
         }
 
         // Step 3: look up the function's errorType from our pre-built map.
@@ -4591,6 +4598,12 @@ function checkFnBodyProhibitions(
    * BPP may have parsed raw expression text into `value`, `expr`, `text`, or `raw` fields.
    */
   function nodeText(node: ASTNodeLike): string {
+    // Phase 4d: ExprNode-first — reconstruct text from ExprNode if available
+    const nodeAny = node as Record<string, unknown>;
+    const exprNodeField = nodeAny.exprNode ?? nodeAny.initExpr;
+    if (exprNodeField && typeof exprNodeField === "object" && (exprNodeField as any).kind) {
+      try { return emitStringFromTree(exprNodeField as import("./types/ast.ts").ExprNode); } catch { /* fall through */ }
+    }
     const parts: string[] = [];
     if (typeof node.value === "string") parts.push(node.value);
     if (typeof node.expr === "string") parts.push(node.expr);
@@ -4775,8 +4788,11 @@ function checkFnBodyProhibitions(
       if (stmt.kind === "function-decl") continue;
 
       if (stmt.kind === "return-stmt") {
-        // Determine what type is being returned
-        const returnValue = (stmt.value ?? stmt.expr ?? stmt.expression) as string | undefined;
+        // Phase 4d: ExprNode-first — extract return value from exprNode, string fallback
+        const _retExprNode = (stmt as Record<string, unknown>).exprNode;
+        const returnValue: string | undefined = _retExprNode
+          ? (() => { try { return emitStringFromTree(_retExprNode as import("./types/ast.ts").ExprNode); } catch { return undefined; } })()
+          : (stmt.value ?? stmt.expr ?? stmt.expression) as string | undefined;
         if (returnValue && typeof returnValue === "string") {
           const instance = stateInstances.get(returnValue.trim());
           if (instance && isBranch) {
@@ -4884,8 +4900,12 @@ function checkFnBodyProhibitions(
       }
 
       // E-FN-006: return statement — check completeness of state instances
+      // Phase 4d: ExprNode-first, string fallback
       if (stmt.kind === "return-stmt" && stateTypeRegistry) {
-        const returnValue = (stmt.value ?? stmt.expr ?? stmt.expression) as unknown;
+        const _retExprNode2 = (stmt as Record<string, unknown>).exprNode;
+        const returnValue = _retExprNode2
+          ? (() => { try { return emitStringFromTree(_retExprNode2 as import("./types/ast.ts").ExprNode); } catch { return undefined; } })()
+          : (stmt.value ?? stmt.expr ?? stmt.expression) as unknown;
         const returnVarName = typeof returnValue === "string" ? returnValue.trim() : undefined;
         if (returnVarName) {
           const typeName = stateInstances.get(returnVarName);

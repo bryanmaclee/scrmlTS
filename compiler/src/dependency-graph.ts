@@ -215,6 +215,16 @@ function makeNodeId(filePath: string, span: Span, prefix: string): NodeId {
  * Collect @var reference names from a node's ExprNode parallel fields.
  * Returns an array of variable names (without the @ prefix).
  */
+/** Phase 4d: quick boolean check — does an ExprNode tree contain any @-prefixed ident? */
+function _exprNodeHasAtIdent(exprNode: unknown): boolean {
+  if (!exprNode || typeof exprNode !== "object") return false;
+  let found = false;
+  forEachIdentInExprNode(exprNode as ExprNode, (ident) => {
+    if (!found && ident.name.startsWith("@")) found = true;
+  });
+  return found;
+}
+
 function collectReactiveRefsFromExprNode(node: Record<string, unknown>): string[] {
   const refs: string[] = [];
   const exprNodeFields = [
@@ -770,8 +780,11 @@ export function runDG(input: DGInput): DGOutput {
     const derivedDecls = collectAllReactiveDerivedDecls(fileAST);
     const tildeDecls = collectAllTildeDecls(fileAST);
     for (const td of tildeDecls) {
-      const initStr = td.init ?? "";
-      if (/@/.test(initStr)) {
+      // Phase 4d: ExprNode-first — check initExpr for @-prefixed idents, string fallback
+      const hasReactiveRef = (td as any).initExpr
+        ? _exprNodeHasAtIdent((td as any).initExpr)
+        : /@/.test(td.init ?? "");
+      if (hasReactiveRef) {
         derivedDecls.push(td as unknown as ReactiveDerivedDeclNode);
       }
     }

@@ -305,8 +305,11 @@ function serializeNode(node: ASTNode, locals: Set<string> = new Set()): string {
       return code;
     }
 
-    case "return-stmt":
-      return n.value ? `return ${rewriteBunEval(n.value as string)};` : "return;";
+    case "return-stmt": {
+      // Phase 4d: ExprNode-first, string fallback
+      const retStr = n.exprNode ? emitStringFromTree(n.exprNode as ExprNode) : (n.value ?? n.expr ?? null) as string | null;
+      return retStr ? `return ${rewriteBunEval(retStr)};` : "return;";
+    }
 
     case "html-fragment": {
       // html-fragment nodes contain raw text that may include emit() calls
@@ -489,9 +492,12 @@ function processNodeList(
     }
 
     // Collect compile-time-safe declarations as we walk, for scope injection
+    // Phase 4d: ExprNode-first — reconstruct init from initExpr, string fallback
     if (node.kind === "const-decl" || node.kind === "let-decl") {
       const pn = node as Record<string, unknown>;
-      const initStr = typeof pn.init === "string" ? pn.init : null;
+      const initStr = pn.initExpr
+        ? (() => { try { return emitStringFromTree(pn.initExpr as ExprNode); } catch { return null; } })()
+        : (typeof pn.init === "string" ? pn.init : null);
       if (initStr && pn.name && !/@/.test(initStr)) {
         const kw = node.kind === "const-decl" ? "const" : "let";
         scopeParts.push(`${kw} ${pn.name} = ${initStr};`);
@@ -503,7 +509,9 @@ function processNodeList(
         if (!stmt || typeof stmt !== "object") continue;
         if (stmt.kind === "const-decl" || stmt.kind === "let-decl") {
           const sn = stmt as Record<string, unknown>;
-          const initStr = typeof sn.init === "string" ? sn.init : null;
+          const initStr = sn.initExpr
+            ? (() => { try { return emitStringFromTree(sn.initExpr as ExprNode); } catch { return null; } })()
+            : (typeof sn.init === "string" ? sn.init : null);
           if (initStr && sn.name && !/@/.test(initStr)) {
             const kw = stmt.kind === "const-decl" ? "const" : "let";
             scopeParts.push(`${kw} ${sn.name} = ${initStr};`);

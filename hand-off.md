@@ -36,6 +36,14 @@
 
 **New exports added:** `extractReactiveDepsFromExprNode` in `reactive-deps.ts`
 
+**Batch 2 — deeper init/expr/condition migrations:**
+- `dependency-graph.ts:773` — tilde-decl @var detection uses `_exprNodeHasAtIdent(initExpr)` first
+- `type-system.ts:2814-2820` — callee extraction uses ExprNode CallExpr check first
+- `type-system.ts:4600` — `nodeText()` reconstructs from ExprNode first
+- `type-system.ts:4792, 4904` — return-stmt value extraction uses `emitStringFromTree(exprNode)` first
+- `meta-eval.ts:308` — return-stmt serialization uses ExprNode first
+- `meta-eval.ts:497, 510` — compile-time scope injection uses `emitStringFromTree(initExpr)` first
+
 ### Queued
 
 **Still queued (from S12):**
