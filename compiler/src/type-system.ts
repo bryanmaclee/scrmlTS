@@ -3236,6 +3236,9 @@ function annotateNodes(
   function visitAttr(attr: ASTNodeLike, parent: ASTNodeLike): void {
     if (!attr || !attr.value) return;
 
+    // `ref=@var` declares the variable (§6.7.2) — don't flag it as unresolved.
+    if (attr.name === "ref") return;
+
     const value = attr.value as ASTNodeLike;
 
     if (value.kind === "variable-ref") {
@@ -5101,6 +5104,104 @@ function buildOverloadRegistry(fileAST: FileAST): Map<string, Map<string, ASTNod
  * E-LOOP-002: continue outside any loop
  * E-LOOP-005: break/continue inside fn/function/arrow targeting a loop outside
  */
+/**
+ * §6.7.9 animationFrame() diagnostics.
+ *
+ * - E-LIFECYCLE-015: called with zero args, or with a non-function-typed arg
+ *   (literal, call-expr, etc.).
+ * - E-LIFECYCLE-017: called outside any element scope.
+ *
+ * An "element scope" here is the logic body of a markup tag (§6.7.2). In the
+ * AST this is any logic/block/bare-expr that appears inside a `markup` node's
+ * children, transitively — top-level logic blocks are NOT element scopes.
+ */
+function checkAnimationFrame(nodes: ASTNodeLike[], errors: TSError[], filePath: string): void {
+  const mkSpan = (node: ASTNodeLike): Span =>
+    (node.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+
+  const isAnimationFrameCall = (node: ASTNodeLike): { callExpr?: ASTNodeLike; argSource: string } | null => {
+    // ExprNode path — node.exprNode of kind "call" with callee ident "animationFrame"
+    const exprNode = (node as Record<string, unknown>).exprNode as ASTNodeLike | undefined;
+    if (exprNode && (exprNode as any).kind === "call") {
+      const callee = (exprNode as any).callee;
+      if (callee && callee.kind === "ident" && callee.name === "animationFrame") {
+        return { callExpr: exprNode, argSource: (node.expr as string | undefined) ?? "" };
+      }
+    }
+    // String path
+    const expr = (node.expr as string | undefined) ?? "";
+    const m = expr.match(/^\s*animationFrame\s*\(/);
+    if (m) return { argSource: expr };
+    return null;
+  };
+
+  const argIsNonFunction = (hit: { callExpr?: ASTNodeLike; argSource: string }): "zero" | "nonfn" | "ok" => {
+    // ExprNode-first: inspect callExpr.args[0]
+    const ce = hit.callExpr as any;
+    if (ce && Array.isArray(ce.args)) {
+      if (ce.args.length === 0) return "zero";
+      const a0 = ce.args[0];
+      if (!a0) return "zero";
+      // Literals, call-exprs, member access of primitives — all non-function.
+      if (a0.kind === "lit") return "nonfn";
+      // ident / member / call — could be a function; accept conservatively.
+      return "ok";
+    }
+    // Fallback on source string
+    const src = hit.argSource;
+    const inner = src.replace(/^\s*animationFrame\s*\(/, "").replace(/\)\s*$/, "").trim();
+    if (inner === "") return "zero";
+    // Numeric / string literal → nonfn
+    if (/^-?\d/.test(inner) || /^['"]/.test(inner)) return "nonfn";
+    return "ok";
+  };
+
+  const walk = (body: ASTNodeLike[] | undefined, inElementScope: boolean): void => {
+    if (!Array.isArray(body)) return;
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      const k = node.kind;
+      if (k === "markup") {
+        // Children of a markup tag ARE an element scope.
+        const children = node.children as ASTNodeLike[] | undefined;
+        walk(children, true);
+        continue;
+      }
+      if (k === "bare-expr") {
+        const hit = isAnimationFrameCall(node);
+        if (hit) {
+          const badArg = argIsNonFunction(hit);
+          if (badArg === "zero" || badArg === "nonfn") {
+            errors.push(new TSError(
+              "E-LIFECYCLE-015",
+              `E-LIFECYCLE-015: \`animationFrame()\` requires exactly one function argument (§6.7.9). ` +
+              (badArg === "zero"
+                ? "Called with zero arguments. Pass the callback function: `animationFrame(draw)`."
+                : "Called with a non-function argument. Pass a function reference, not a literal: `animationFrame(draw)`."),
+              mkSpan(node),
+            ));
+          } else if (!inElementScope) {
+            errors.push(new TSError(
+              "E-LIFECYCLE-017",
+              `E-LIFECYCLE-017: \`animationFrame()\` is only valid inside an element scope (§6.7.9). ` +
+              `Move the call into the logic body of a markup tag so the compiler can cancel pending callbacks ` +
+              `when the element unmounts.`,
+              mkSpan(node),
+            ));
+          }
+        }
+      }
+      // Recurse into child containers, preserving inElementScope.
+      for (const key of ["body", "children", "consequent", "alternate", "thenBody", "elseBody", "cases"]) {
+        const v = (node as Record<string, unknown>)[key];
+        if (Array.isArray(v)) walk(v as ASTNodeLike[], inElementScope);
+      }
+    }
+  };
+
+  walk(nodes, false);
+}
+
 function checkLoopControl(nodes: ASTNodeLike[], errors: TSError[], filePath: string): void {
   const LOOP_KINDS = new Set(["for-stmt", "while-stmt", "do-while-stmt", "for-loop", "while-loop"]);
   const FN_KINDS = new Set(["function-decl", "fn-decl", "fn", "function", "closure"]);
@@ -5308,6 +5409,11 @@ function processFile(
     ?? [];
   if (allNodes.length > 0) {
     checkLoopControl(allNodes, errors, filePath);
+  }
+
+  // TS-I: §6.7.9 animationFrame diagnostics (E-LIFECYCLE-015 / E-LIFECYCLE-017).
+  if (allNodes.length > 0) {
+    checkAnimationFrame(allNodes, errors, filePath);
   }
 
   // TS-B Step 3: Build the state-type overload registry.
