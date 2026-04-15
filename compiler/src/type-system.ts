@@ -2583,10 +2583,25 @@ function annotateNodes(
         if (n.kind === "function-decl" && Array.isArray(fnBody)) {
           const canFail = n.canFail === true;
           const fnName = (n.name as string) ?? "<anonymous>";
-          for (const stmt of fnBody) {
-            if (!stmt) continue;
+          // Recursive walk: visit every descendant statement but stop descending
+          // into nested function bodies (they have their own canFail signature).
+          const visitStmt = (stmt: ASTNodeLike | undefined | null): void => {
+            if (!stmt || typeof stmt !== "object") return;
+            const k = stmt.kind;
+            if (k === "function-decl" || k === "fn-decl") return; // nested fn — different scope
             // E-ERROR-001: fail used in non-! function (§19.3.3)
-            if (stmt.kind === "fail-expr" && !canFail) {
+            if (k === "fail-expr" && !canFail) {
+              errors.push(new TSError(
+                "E-ERROR-001",
+                `E-ERROR-001: 'fail' used in function '${fnName}' which is not declared as failable. ` +
+                `Add '!' to the function signature: 'function ${fnName}(...)! -> {ErrorType}'.`,
+                (stmt.span ?? n.span) as Span,
+              ));
+            }
+            // Also detect `fail` that survives as a bare-expr string (e.g.
+            // single-line if body where the if-body wasn't re-parsed through the
+            // statement loop).
+            if (k === "bare-expr" && !canFail && typeof stmt.expr === "string" && /^\s*fail\s+[A-Za-z_]/.test(stmt.expr)) {
               errors.push(new TSError(
                 "E-ERROR-001",
                 `E-ERROR-001: 'fail' used in function '${fnName}' which is not declared as failable. ` +
@@ -2595,7 +2610,7 @@ function annotateNodes(
               ));
             }
             // E-ERROR-003: ? propagation in non-! function (§19.5.4)
-            if (stmt.kind === "propagate-expr" && !canFail) {
+            if (k === "propagate-expr" && !canFail) {
               errors.push(new TSError(
                 "E-ERROR-003",
                 `E-ERROR-003: '?' propagation operator used in function '${fnName}' which is not declared as failable. ` +
@@ -2604,7 +2619,7 @@ function annotateNodes(
               ));
             }
             // E-ERROR-004: ? applied to non-failable callee (§19.5.4)
-            if (stmt.kind === "propagate-expr" && canFail) {
+            if (k === "propagate-expr" && canFail) {
               const calleeName = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
               if (calleeName && fnAllDeclared.has(calleeName) && !fnCanFail.has(calleeName)) {
                 errors.push(new TSError(
@@ -2615,20 +2630,26 @@ function annotateNodes(
                 ));
               }
             }
-          }
-          // E-ERROR-002: bare call to failable function with no error handling (§19.4.3)
-          for (const stmt of fnBody) {
-            if (!stmt || stmt.kind !== "bare-expr") continue;
-            const bareCallee = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
-            if (bareCallee && fnCanFail.has(bareCallee)) {
-              errors.push(new TSError(
-                "E-ERROR-002",
-                `E-ERROR-002: Result of failable function '${bareCallee}' is not handled. ` +
-                `Either match the result, propagate with '?', catch with '!{}', or wrap in '<errorBoundary>'.`,
-                (stmt.span ?? n.span) as Span,
-              ));
+            // E-ERROR-002: bare call to failable function with no error handling (§19.4.3)
+            if (k === "bare-expr") {
+              const bareCallee = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
+              if (bareCallee && fnCanFail.has(bareCallee)) {
+                errors.push(new TSError(
+                  "E-ERROR-002",
+                  `E-ERROR-002: Result of failable function '${bareCallee}' is not handled. ` +
+                  `Either match the result, propagate with '?', catch with '!{}', or wrap in '<errorBoundary>'.`,
+                  (stmt.span ?? n.span) as Span,
+                ));
+              }
             }
-          }
+            // Recurse over known child containers.
+            for (const key of ["children", "body", "thenBody", "elseBody", "arms", "armBody", "consequent", "alternate", "cases"]) {
+              const v = (stmt as Record<string, unknown>)[key];
+              if (Array.isArray(v)) v.forEach((c) => visitStmt(c as ASTNodeLike));
+              else if (v && typeof v === "object") visitStmt(v as ASTNodeLike);
+            }
+          };
+          for (const stmt of fnBody) visitStmt(stmt);
         }
 
         // §48 fn body prohibition checks (E-FN-001 through E-FN-008)
@@ -2865,6 +2886,21 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "bare-expr": {
         resolvedType = tAsIs();
+        // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level
+        // (outside any function body) is also unhandled. The in-function check
+        // runs in the function-decl branch; this catches the outer case.
+        // Skip when this node is the guardedNode of a parent guarded-expr — the
+        // !{} arms already handle the error.
+        const bareCallee = extractCalleeNameFromNode(n) ?? extractCalleeNameFromString(n.expr as string | undefined);
+        const inGuarded = (n as Record<string, unknown>).__inGuardedContext === true;
+        if (bareCallee && fnCanFail.has(bareCallee) && !inGuarded) {
+          errors.push(new TSError(
+            "E-ERROR-002",
+            `E-ERROR-002: Result of failable function '${bareCallee}' is not handled. ` +
+            `Either match the result, propagate with '?', catch with '!{}', or wrap in '<errorBoundary>'.`,
+            n.span as Span,
+          ));
+        }
         break;
       }
 
@@ -2936,8 +2972,12 @@ function annotateNodes(
         const guardedNode = n.guardedNode as ASTNodeLike | undefined;
         const errorArms = (n.arms as Array<{pattern?: string; binding?: string; handler?: string}> | undefined) ?? [];
 
-        // Visit the guarded node itself for its type checks.
-        if (guardedNode) visitNode(guardedNode);
+        // Visit the guarded node itself for its type checks. Mark it so the
+        // bare-expr branch's E-ERROR-002 check skips — the !{} arms handle it.
+        if (guardedNode) {
+          (guardedNode as Record<string, unknown>).__inGuardedContext = true;
+          visitNode(guardedNode);
+        }
 
         // --- Exhaustiveness check (§19.7) ---
 

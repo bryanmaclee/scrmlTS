@@ -5090,8 +5090,15 @@ function parseErrorTokens(tokens, filePath) {
         i++;
       }
 
-      // Binding variable
-      if (i < tokens.length && (tokens[i].kind === "IDENT")) {
+      // Binding variable: bare ident, or `(ident)` tuple-style (§19.4.3 canonical)
+      if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "(") {
+        i++; // consume `(`
+        if (i < tokens.length && tokens[i].kind === "IDENT") {
+          binding = tokens[i].text;
+          i++;
+        }
+        if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === ")") i++;
+      } else if (i < tokens.length && (tokens[i].kind === "IDENT")) {
         binding = tokens[i].text;
         i++;
       }
@@ -5144,6 +5151,68 @@ function parseErrorTokens(tokens, filePath) {
         binding,
         handler: _handlerTrimmed,
         handlerExpr: _parseHandlerExpr(_handlerTrimmed, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
+        span: tokenSpan(armStart, filePath),
+      });
+    } else if (tok.kind === "OPERATOR" && tok.text === "::") {
+      // Canonical arm syntax (§19.4.3): ::TypeName(binding) -> handler
+      // No leading pipe. Binding may be bare ident or paren-wrapped `(ident)`.
+      const armStart = tok;
+      i++; // consume `::`
+      let pattern = "_";
+      let binding = "";
+      if (i < tokens.length && (tokens[i].kind === "IDENT" || tokens[i].kind === "KEYWORD")) {
+        pattern = "::" + tokens[i].text;
+        i++;
+      }
+      if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "(") {
+        i++;
+        if (i < tokens.length && tokens[i].kind === "IDENT") {
+          binding = tokens[i].text;
+          i++;
+        }
+        if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === ")") i++;
+      } else if (i < tokens.length && tokens[i].kind === "IDENT") {
+        binding = tokens[i].text;
+        i++;
+      }
+      // Arrow `->`, `=>`, or `:>`
+      if (i < tokens.length && tokens[i].kind === "OPERATOR" && (tokens[i].text === "=>" || tokens[i].text === ":>")) {
+        i++;
+      } else if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "-") {
+        i++;
+        if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === ">") i++;
+      }
+      const handlerParts = [];
+      const handlerPartLines = [];
+      while (i < tokens.length && tokens[i].kind !== "EOF") {
+        if (tokens[i].kind === "PUNCT" && tokens[i].text === "|") break;
+        if (tokens[i].kind === "OPERATOR" && tokens[i].text === "::") break;
+        if (
+          i + 1 < tokens.length &&
+          (tokens[i].kind === "IDENT" || tokens[i].kind === "KEYWORD") &&
+          tokens[i + 1].kind === "OPERATOR" &&
+          (tokens[i + 1].text === "=>" || tokens[i + 1].text === ":>") &&
+          (tokens[i].text === "_" || /^[A-Z]/.test(tokens[i].text))
+        ) break;
+        if (tokens[i].kind === "STRING") {
+          handlerParts.push('"' + tokens[i].text.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"');
+        } else {
+          handlerParts.push(tokens[i].text);
+        }
+        handlerPartLines.push(tokens[i].span?.line ?? 0);
+        i++;
+      }
+      let handlerJoined = handlerParts.length === 0 ? "" : handlerParts[0];
+      for (let pi = 1; pi < handlerParts.length; pi++) {
+        const sep = (handlerPartLines[pi] > handlerPartLines[pi - 1]) ? "\n" : " ";
+        handlerJoined += sep + handlerParts[pi];
+      }
+      const _handlerTrimmed3 = handlerJoined.trim();
+      arms.push({
+        pattern,
+        binding,
+        handler: _handlerTrimmed3,
+        handlerExpr: _parseHandlerExpr(_handlerTrimmed3, filePath, tokenSpan(armStart, filePath)?.start ?? 0),
         span: tokenSpan(armStart, filePath),
       });
     } else if (
