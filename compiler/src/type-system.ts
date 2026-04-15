@@ -5030,10 +5030,21 @@ function checkFnBodyProhibitions(
   let hasLiftInBody = false;
   let liftSpan: Span | null = null;
 
-  // Scan the fn body top-level for tilde-decl (~ initializations)
+  // Scan the fn body top-level for tilde-decl (~ initializations).
+  // Also treat `return ~` (or any ~-reference in a return) as an implicit
+  // fn-local accumulator: §48.5 says lift inside fn is fine when the fn
+  // closes the accumulator itself (`return ~`), even without an explicit
+  // `~acc = []` declaration.
+  function textMentionsTilde(stmt: ASTNodeLike): boolean {
+    const t = nodeText(stmt);
+    return typeof t === "string" && /(^|[\s(=,{\[])~($|[\s);,}\]])/.test(t);
+  }
   for (const stmt of body) {
     if (!stmt || typeof stmt !== "object") continue;
     if (stmt.kind === "tilde-decl" || stmt.kind === "tilde-stmt") {
+      hasFnLocalTilde = true;
+    }
+    if (stmt.kind === "return-stmt" && textMentionsTilde(stmt)) {
       hasFnLocalTilde = true;
     }
   }

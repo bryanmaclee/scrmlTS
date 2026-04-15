@@ -68,6 +68,20 @@ Status legend: **OPEN** (unconfirmed) · **CONFIRMED** (PA reproduced, root caus
 
 ---
 
+## Fix log — batch 3 (Cat C triage)
+
+Only 1 of 8 Cat C fixtures was a compiler-logic false-positive. The rest split into two deferred issues + a fixture-author error.
+
+| # | Fixture | Status |
+|---|---|---|
+| C2 phase1-fn-multiline-011 E-FN-008 extra | **FIXED** | `return ~` now marks `hasFnLocalTilde = true` so the legitimate "fn accumulates into implicit local tilde" pattern doesn't fire E-FN-008 anymore. |
+| C1/C2/C3 E-CTX-001 on `<li for X / lift Y />body</>` | **DEFERRED (markup bug)** | `/>` self-closer detection misinterprets the `for/lift` shorthand as self-close, orphaning body + `</>`. Real compiler bug, owned by markup/block-splitter specialist. |
+| C5 phase1-reactive-file-level-003 E-SYNTAX-050 | **DEFERRED (parser edge case)** | File-top-level `// comment` immediately before bare `@var` decls trips the subsequent markup's `/` tokenization. Isolated repro: without the comment, clean; with the comment, `/` between `${a}` and `${b}` is read as bare closer. Owned by block-splitter. |
+| C4 phase1-fn-inside-meta-016 E-PARSE-002 | **FIXTURE ERROR** | `fn` inside `^{}` meta block is explicitly rejected per ast-builder.js:3654 — fixture's expected-clean is wrong; E-PARSE-002 is the documented behavior. Expected.json updated. |
+| C6/C7/C8 phase1-use-bare/named/vendor E-COMPONENT-020 | **FEATURE GAP** | `use scrml:ui { Button }` doesn't yet auto-bind component names into scope. Separate implementation (use-capability expander). Deferred. |
+
+---
+
 ## Fix log — batch 1
 
 **Status:** 12 bugs FIXED, test baseline **6,228 → 6,364 pass** (+136), 2 pre-existing fails preserved. Not yet committed.
