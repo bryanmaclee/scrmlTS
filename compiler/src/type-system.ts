@@ -2380,6 +2380,31 @@ function annotateNodes(
           }
         }
 
+        // S19 Phase 2: E-TYPE-026 — detect bare `match` / `partial match` appearing
+        // directly as markup content (block-splitter keeps it as text because it's
+        // not inside `${...}`). A text child whose trimmed value begins with
+        // `match ` or `partial match ` indicates the author wrote control flow
+        // outside any logic context.
+        const markupChildrenForMatch = n.children as ASTNodeLike[] | undefined;
+        if (Array.isArray(markupChildrenForMatch)) {
+          for (const child of markupChildrenForMatch) {
+            if (child && typeof child === "object" && child.kind === "text") {
+              const textVal = (child as { value?: unknown }).value;
+              if (typeof textVal === "string" && /(?:^|\n)\s*(?:partial\s+)?match\s+/.test(textVal)) {
+                const mSpan = (child.span as Span | undefined) ?? (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+                errors.push(new TSError(
+                  "E-TYPE-026",
+                  "E-TYPE-026: `match` is not valid directly in markup (§18.9). " +
+                  "Wrap the match in a logic interpolation — e.g. `${ match subject { .A => <p>a</> else => <p>b</> } }` — " +
+                  "so the parser recognises it as a statement rather than text content.",
+                  mSpan,
+                ));
+                break;
+              }
+            }
+          }
+        }
+
         // Visit children.
         // §18.18 E-TYPE-081: Check for `partial match` in logic children (markup interpolation context).
         // A ${ partial match ... } block inside markup silently drops unmatched variants.
@@ -2710,6 +2735,11 @@ function annotateNodes(
         if (n.name) {
           scopeChain.bind(n.name as string, { kind: "variable", resolvedType });
         }
+        // S19 Phase 2: visit embedded match-expr so exhaustiveness/arm checks fire.
+        const mxn = (n as { matchExpr?: ASTNodeLike }).matchExpr;
+        if (mxn && typeof mxn === "object") {
+          visitNode(mxn);
+        }
         break;
       }
 
@@ -2741,6 +2771,16 @@ function annotateNodes(
             if (boundMachine.governedType) {
               resolvedType = boundMachine.governedType;
             }
+          }
+        }
+
+        // S19 Phase 2: if the annotation resolved to an enum or union (non-predicated,
+        // non-machine), surface that type so downstream checks (match exhaustiveness)
+        // can see the real type instead of the default asIs placeholder.
+        if (reactAnnot && resolvedType.kind === "asIs") {
+          const reactAnnoType2 = resolveTypeExpr(reactAnnot, typeRegistry);
+          if (reactAnnoType2 && (reactAnnoType2.kind === "enum" || reactAnnoType2.kind === "union" || reactAnnoType2.kind === "struct")) {
+            resolvedType = reactAnnoType2;
           }
         }
 
@@ -3091,6 +3131,22 @@ function annotateNodes(
         const stmtAlternate = n.alternate as ASTNodeLike[] | undefined;
         if (Array.isArray(stmtAlternate)) {
           for (const child of stmtAlternate) visitNode(child);
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // match-stmt / match-expr — TS-C exhaustiveness + arm-position/guard checks.
+      // S19 Phase 2: wires checkExhaustiveness (previously orphaned) and emits
+      // E-SYNTAX-010/011, E-TYPE-024/025, E-TYPE-020/023, W-MATCH-001/003.
+      // ------------------------------------------------------------------
+      case "match-stmt":
+      case "match-expr": {
+        checkMatchDiagnostics(n, scopeChain, errors, filePath);
+        const mBody = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(mBody)) {
+          for (const c of mBody) visitNode(c);
         }
         resolvedType = tAsIs();
         break;
@@ -3486,6 +3542,265 @@ function checkUnionExhaustiveness(
 }
 
 /**
+ * Split the concatenated bare-expr "arm body" string into individual match arms.
+ * The ast-builder currently collapses single-line arms into one bare-expr whose
+ * `expr` holds text like ". Active => 1\n. Banned => 2\n. Active => 3".
+ * Block arms (`.X => { ... }`) also land in this string with embedded braces.
+ *
+ * This splitter does brace-aware splitting. An arm starts at a line whose first
+ * non-whitespace token is `.` (variant), `else`, or `not`. It ends at the
+ * next arm header or at end-of-string, with embedded `{...}` blocks kept intact.
+ */
+function splitMatchArms(raw: string): string[] {
+  if (!raw) return [];
+  const arms: string[] = [];
+  const lines = raw.split(/\r?\n/);
+  let cur: string[] = [];
+  let depth = 0;
+  const isArmHeader = (line: string): boolean => {
+    const t = line.trimStart();
+    return /^\.\s*[A-Za-z_]/.test(t) ||
+           /^else\b/.test(t) ||
+           /^not\b/.test(t);
+  };
+  for (const line of lines) {
+    if (depth === 0 && isArmHeader(line) && cur.length > 0) {
+      arms.push(cur.join("\n"));
+      cur = [];
+    }
+    cur.push(line);
+    for (const ch of line) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth = Math.max(0, depth - 1);
+    }
+  }
+  if (cur.length > 0 && cur.some(l => l.trim().length > 0)) arms.push(cur.join("\n"));
+  return arms;
+}
+
+type ParsedArmPattern =
+  | { kind: "variant"; variantName: string; hasGuard: boolean; armText: string }
+  | { kind: "wildcard"; isElse: boolean; isNot: boolean; hasGuard: boolean; armText: string }
+  | { kind: "unknown"; armText: string };
+
+/**
+ * Parse one arm string into its pattern descriptor. Looks at text BEFORE the
+ * first top-level `=>`, `:>`, or `->` arrow.
+ */
+function parseArmPattern(armText: string): ParsedArmPattern {
+  const arrowMatch = armText.match(/^([\s\S]*?)(?:=>|:>|->)/);
+  const head = (arrowMatch ? arrowMatch[1] : armText).trim();
+  if (!head) return { kind: "unknown", armText };
+
+  let hasGuard = false;
+  {
+    let depth = 0;
+    for (let i = 0; i < head.length; i++) {
+      const c = head[i];
+      if (c === "(" || c === "[" || c === "{") depth++;
+      else if (c === ")" || c === "]" || c === "}") depth = Math.max(0, depth - 1);
+      else if (depth === 0 && c === "|") { hasGuard = true; break; }
+    }
+    if (!hasGuard) {
+      let d = 0;
+      const h = " " + head + " ";
+      for (let i = 0; i < h.length - 3; i++) {
+        const c = h[i];
+        if (c === "(" || c === "[" || c === "{") d++;
+        else if (c === ")" || c === "]" || c === "}") d = Math.max(0, d - 1);
+        else if (d === 0 && /\s/.test(c) && h.slice(i + 1, i + 4) === "if " && i > 0) {
+          const tail = h.slice(i + 4).trim();
+          if (tail.length > 0) { hasGuard = true; break; }
+        }
+      }
+    }
+  }
+
+  const patOnly = head
+    .replace(/\s*\|\s*[\s\S]*$/, "")
+    .replace(/\s+if\s+[\s\S]*$/, "")
+    .trim();
+
+  if (/^else\b/.test(patOnly)) {
+    return { kind: "wildcard", isElse: true, isNot: false, hasGuard, armText };
+  }
+  if (/^not\b/.test(patOnly)) {
+    return { kind: "wildcard", isElse: false, isNot: true, hasGuard, armText };
+  }
+  const varMatch = patOnly.match(/^\.\s*([A-Za-z_][A-Za-z0-9_]*)/);
+  if (varMatch) {
+    return { kind: "variant", variantName: varMatch[1], hasGuard, armText };
+  }
+  return { kind: "unknown", armText };
+}
+
+interface ExtractedArms {
+  armPatterns: ArmPattern[];
+  elseIndex: number;
+  total: number;
+  guardArms: ParsedArmPattern[];
+  hasNotArm: boolean;
+}
+
+function extractArmsFromMatchNode(node: ASTNodeLike): ExtractedArms {
+  const body = (node.body as ASTNodeLike[] | undefined) ?? [];
+  const armPatterns: ArmPattern[] = [];
+  const guardArms: ParsedArmPattern[] = [];
+  let elseIndex = -1;
+  let hasNotArm = false;
+
+  const pushVariant = (name: string): void => {
+    armPatterns.push({ kind: "variant", variantName: name });
+  };
+  const pushWildcard = (isNot: boolean): void => {
+    if (isNot) { armPatterns.push({ kind: "variant", variantName: "not" }); hasNotArm = true; }
+    else {
+      if (elseIndex < 0) elseIndex = armPatterns.length;
+      armPatterns.push({ kind: "wildcard" });
+    }
+  };
+
+  for (let i = 0; i < body.length; i++) {
+    const arm = body[i];
+    if (!arm || typeof arm !== "object") continue;
+    if (arm.kind === "match-arm-block") {
+      if (arm.isWildcard) pushWildcard(false);
+      else if (arm.isNotArm) pushWildcard(true);
+      else if (arm.variant) pushVariant(arm.variant as string);
+      continue;
+    }
+    if (arm.kind === "bare-expr" && typeof (arm as { expr?: unknown }).expr === "string") {
+      const raw = (arm as { expr: string }).expr;
+      const pieces = splitMatchArms(raw);
+      for (const piece of pieces) {
+        const parsed = parseArmPattern(piece);
+        // S19 Phase 2: Pattern text with no `=>`/`:>`/`->` arrow and a
+        // following if-stmt sibling indicates the ast-builder split a guard
+        // arm (`.X if cond => body`) into [bare-expr ".X"] + [if-stmt].
+        // Flag as a guard clause (E-SYNTAX-011).
+        const hasArrow = /=>|:>|->/.test(piece);
+        const nextSibling = body[i + 1];
+        const nextIsIfStmt = nextSibling && typeof nextSibling === "object" &&
+          (nextSibling as ASTNodeLike).kind === "if-stmt";
+        if (!hasArrow && nextIsIfStmt && (parsed.kind === "variant" || parsed.kind === "wildcard")) {
+          guardArms.push({ kind: "unknown", armText: piece.trim() + " if …" } as ParsedArmPattern);
+        } else if (parsed.hasGuard) {
+          guardArms.push(parsed);
+        }
+        if (parsed.kind === "variant") pushVariant(parsed.variantName);
+        else if (parsed.kind === "wildcard") pushWildcard(parsed.isNot);
+      }
+    }
+  }
+
+  return { armPatterns, elseIndex, total: armPatterns.length, guardArms, hasNotArm };
+}
+
+function resolveMatchSubjectType(
+  header: string | undefined,
+  headerExpr: unknown,
+  scopeChain: ScopeChain,
+): ResolvedType | null {
+  if (headerExpr && typeof headerExpr === "object") {
+    const e = headerExpr as { kind?: string; name?: string };
+    if (e.kind === "ident" && typeof e.name === "string") {
+      const entry = scopeChain.lookup(e.name);
+      if (entry && entry.resolvedType) return entry.resolvedType as ResolvedType;
+      const rEntry = scopeChain.lookup("@" + e.name.replace(/^@/, ""));
+      if (rEntry && rEntry.resolvedType) return rEntry.resolvedType as ResolvedType;
+    }
+  }
+  if (typeof header === "string") {
+    const trimmed = header.trim();
+    if (/^[@A-Za-z_][\w]*$/.test(trimmed)) {
+      const entry = scopeChain.lookup(trimmed);
+      if (entry && entry.resolvedType) return entry.resolvedType as ResolvedType;
+      if (trimmed.startsWith("@")) {
+        const bare = trimmed.slice(1);
+        const e2 = scopeChain.lookup(bare);
+        if (e2 && e2.resolvedType) return e2.resolvedType as ResolvedType;
+      } else {
+        const e2 = scopeChain.lookup("@" + trimmed);
+        if (e2 && e2.resolvedType) return e2.resolvedType as ResolvedType;
+      }
+    }
+  }
+  return null;
+}
+
+function checkMatchDiagnostics(
+  node: ASTNodeLike,
+  scopeChain: ScopeChain,
+  errors: TSError[],
+  filePath: string,
+): void {
+  const span = (node.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+  const extracted = extractArmsFromMatchNode(node);
+
+
+  for (const guard of extracted.guardArms) {
+    const trimmed = guard.armText.trim().slice(0, 60).replace(/\s+/g, " ");
+    errors.push(new TSError(
+      "E-SYNTAX-011",
+      "E-SYNTAX-011: Match arm guard clauses (`| cond` or `if cond`) are not supported in v1 (§18.10). " +
+      "Arm: `" + trimmed + "...`. Use a plain pattern and move the condition into an `if` inside the arm body.",
+      span,
+    ));
+  }
+
+  if (extracted.elseIndex >= 0 && extracted.elseIndex < extracted.total - 1) {
+    errors.push(new TSError(
+      "E-SYNTAX-010",
+      "E-SYNTAX-010: `else` arm must be the last arm in a `match` block (§18.6). " +
+      "Found " + (extracted.total - 1 - extracted.elseIndex) + " arm(s) after `else`. " +
+      "Move the `else` arm to the bottom of the match, or remove arms that appear after it.",
+      span,
+    ));
+  }
+
+  const subjectType = resolveMatchSubjectType(
+    (node as { header?: string }).header,
+    (node as { headerExpr?: unknown }).headerExpr,
+    scopeChain,
+  );
+
+  if (!subjectType) return;
+
+  const isPartial = (node as { partial?: boolean }).partial === true;
+
+  if (subjectType.kind === "struct") {
+    errors.push(new TSError(
+      "E-TYPE-024",
+      "E-TYPE-024: Cannot match on struct-typed subject `" + (subjectType as StructType).name + "`. " +
+      "`match` supports enums, unions, and primitive literals (§18.8.2). " +
+      "Use field access (`obj.field`) or destructuring in a normal expression instead.",
+      span,
+    ));
+    return;
+  }
+
+  if (subjectType.kind === "asIs") {
+    errors.push(new TSError(
+      "E-TYPE-025",
+      "E-TYPE-025: Cannot match on `asIs`-typed subject. `match` requires a typed subject (enum, union, or primitive). " +
+      "Narrow the type first via a type annotation (`let x: SomeType = ...`) before matching.",
+      span,
+    ));
+    return;
+  }
+
+  if (subjectType.kind === "enum" || subjectType.kind === "union") {
+    checkExhaustiveness(
+      { arms: extracted.armPatterns } as unknown as ASTNodeLike,
+      subjectType,
+      span,
+      errors,
+      isPartial,
+    );
+  }
+}
+
+/**
  * TS-C entry point: check exhaustiveness for a match node and emit TSErrors.
  */
 function checkExhaustiveness(
@@ -3496,7 +3811,13 @@ function checkExhaustiveness(
   isPartial: boolean = false,
 ): void {
   const arms = (matchNode.arms as ASTNodeLike[] | undefined) ?? [];
-  const armPatterns: ArmPattern[] = arms.map(arm => (arm.pattern as ArmPattern | undefined) ?? { kind: "wildcard" });
+  const armPatterns: ArmPattern[] = arms.map(arm => {
+    if (arm && typeof arm === "object") {
+      if ((arm as ASTNodeLike).pattern) return (arm as ASTNodeLike).pattern as ArmPattern;
+      if (typeof (arm as ArmPattern).kind === "string") return arm as unknown as ArmPattern;
+    }
+    return { kind: "wildcard" } as ArmPattern;
+  });
 
   if (subjectType.kind === "enum") {
     const { missing, unreachableWildcard, duplicateArms } =
