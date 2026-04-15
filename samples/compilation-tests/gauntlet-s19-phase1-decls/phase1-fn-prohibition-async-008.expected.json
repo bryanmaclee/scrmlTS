@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"prohibition-async","expectedOutcome":"error","expectedCodes":["E-FN-005"],"notes":"§48.3.5: async fn or await inside fn."}

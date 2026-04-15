@@ -1,0 +1,1 @@
+{"feature":"type (no-kind)","shape":"union-via-pipe","expectedOutcome":"clean","expectedCodes":[],"notes":"`type Name = T | U` without a `:kind` tag — spec is silent on whether this is legal at the type-decl level (vs only as an annotation). §14 mostly shows :enum / :struct kinds; the no-kind form may or may not parse."}

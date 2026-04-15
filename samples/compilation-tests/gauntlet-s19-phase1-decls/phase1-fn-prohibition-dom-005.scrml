@@ -1,0 +1,8 @@
+// E-FN-002: DOM mutation inside fn body
+${
+    fn buildWidget() {
+        let el = document.createElement("div")
+        return el
+    }
+}
+<p>x</>

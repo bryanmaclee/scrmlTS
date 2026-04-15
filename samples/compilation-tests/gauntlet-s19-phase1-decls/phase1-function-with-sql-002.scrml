@@ -1,0 +1,9 @@
+// function may contain ?{} (no fn purity check) — auto-escalates to server
+<program db="./test.db">
+    ${
+        function loadUsers() {
+            return ?{`SELECT id, name FROM users`}.all()
+        }
+    }
+    <p>${loadUsers().length}</>
+</>

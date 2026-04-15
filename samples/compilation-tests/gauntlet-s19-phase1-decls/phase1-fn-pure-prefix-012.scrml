@@ -1,0 +1,7 @@
+// pure fn — §48.2 lists 'pure fn' as a valid prefix
+${
+    pure fn cube(x) {
+        return x * x * x
+    }
+}
+<p>${cube(3)}</>

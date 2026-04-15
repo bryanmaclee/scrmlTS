@@ -1,0 +1,5 @@
+// Circular import — E-IMPORT-002. This file imports from itself.
+${
+    import { Status } from './phase1-import-circular-020.scrml'
+    export const X = 1
+}

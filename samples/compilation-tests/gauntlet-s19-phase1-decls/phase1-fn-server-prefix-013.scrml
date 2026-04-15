@@ -1,0 +1,9 @@
+// server fn — §48.2 lists 'server fn' as a valid prefix
+<program db="./test.db">
+    ${
+        server fn computeKey(id, salt) {
+            return id + ":" + salt
+        }
+    }
+    <p>${computeKey(1, "x")}</>
+</>

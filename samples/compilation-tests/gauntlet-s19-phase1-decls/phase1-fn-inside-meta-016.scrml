@@ -1,0 +1,11 @@
+// fn declared inside a ^{} meta block
+${
+    type User:struct = { name: string, age: number }
+}
+^{
+    fn buildSchema() {
+        let s = reflect(User)
+        return s
+    }
+}
+<p>x</>

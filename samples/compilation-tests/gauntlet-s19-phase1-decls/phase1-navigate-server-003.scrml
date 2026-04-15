@@ -1,0 +1,12 @@
+// navigate inside server function — should compile to 302 redirect
+<program db="./test.db">
+    ${
+        server function checkAuth() {
+            if (!session.isAuth) {
+                navigate("/login")
+            }
+        }
+        checkAuth()
+    }
+    <p>protected</>
+</>

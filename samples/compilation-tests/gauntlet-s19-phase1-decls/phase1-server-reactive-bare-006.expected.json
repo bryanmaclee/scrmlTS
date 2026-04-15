@@ -1,0 +1,1 @@
+{"feature":"server @var","shape":"initial-load","expectedOutcome":"clean","expectedCodes":[],"notes":"§52.4 server @var with placeholder. Compiler synthesizes initial-load fetch."}

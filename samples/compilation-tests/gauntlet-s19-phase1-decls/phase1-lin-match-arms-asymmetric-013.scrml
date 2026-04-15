@@ -1,0 +1,17 @@
+// lin not consumed in one arm — E-LIN-003
+${
+    type Role:enum = { Admin, User, Guest }
+    function fetchToken() { return "tok" }
+    function adminAuth(t) { return t }
+    function userAuth(t) { return t }
+
+    function run(role) {
+        lin token = fetchToken()
+        return match role {
+            .Admin => adminAuth(token)
+            .User  => userAuth(token)
+            .Guest => "no-op"
+        }
+    }
+}
+<p>${run(.Guest)}</>

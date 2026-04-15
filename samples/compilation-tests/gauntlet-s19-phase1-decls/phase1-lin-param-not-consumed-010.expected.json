@@ -1,0 +1,1 @@
+{"feature":"lin","shape":"param-not-consumed","expectedOutcome":"error","expectedCodes":["E-LIN-001"],"notes":"§35.2.1 normative: lin param must be consumed exactly once."}

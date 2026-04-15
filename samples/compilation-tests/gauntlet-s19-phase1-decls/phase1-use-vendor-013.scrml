@@ -1,0 +1,9 @@
+// use vendor: prefix — §41.2 / §41.4
+use vendor:my-date-picker { DatePicker }
+
+<program>
+    <DatePicker value=@d/>
+</>
+${
+    @d = "2026-01-01"
+}

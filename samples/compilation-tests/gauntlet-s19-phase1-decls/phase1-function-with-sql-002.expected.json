@@ -1,0 +1,1 @@
+{"feature":"function","shape":"with-sql","expectedOutcome":"clean","expectedCodes":[],"notes":"function may use ?{}; route inference §12 escalates to server. (DB file may not exist; if compilation requires it, this becomes a runtime/IO concern.)"}

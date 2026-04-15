@@ -1,0 +1,9 @@
+// use with named imports
+use scrml:chart { LineChart, BarChart }
+
+<program>
+    <LineChart data=@chartData/>
+</>
+${
+    @chartData = []
+}

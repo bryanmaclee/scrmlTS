@@ -1,0 +1,1 @@
+{"feature":"let","shape":"inside-function","expectedOutcome":"clean","expectedCodes":[],"notes":"let mutated inside function body — unconstrained per §7.3."}

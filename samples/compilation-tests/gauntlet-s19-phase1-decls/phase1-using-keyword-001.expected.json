@@ -1,0 +1,1 @@
+{"feature":"using","shape":"shape-check-operator","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"AMBIGUITY: gauntlet plan + agent prompt mention `a using s` and `shape s = ...` but SPEC.md grep finds no normative section. May be unimplemented or covered in §53 (predicates) under a different name. Flag for spec author."}

@@ -1,0 +1,5 @@
+// export type X:enum — S18 regression: must stay clean
+${
+    export type UserRole:enum = { Admin, Moderator, User, Banned }
+}
+<p>x</>

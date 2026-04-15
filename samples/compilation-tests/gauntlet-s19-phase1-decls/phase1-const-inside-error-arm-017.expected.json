@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-error-arm",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "const inside !{} arm body block. Spec §19 is silent on the precise grammar of arm bodies; assuming normal stmt sequence with const allowed."
+}

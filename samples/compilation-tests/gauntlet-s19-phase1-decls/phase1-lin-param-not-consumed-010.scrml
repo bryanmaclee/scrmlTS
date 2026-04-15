@@ -1,0 +1,7 @@
+// lin parameter, never consumed in body — E-LIN-001
+${
+    function processToken(lin token: string) {
+        return "ignored"
+    }
+}
+<p>${processToken("tok")}</>

@@ -1,0 +1,1 @@
+{"feature":"@debounced","shape":"bare","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"AMBIGUITY: Phase 1 plan lists @debounced as a feature, but a grep of SPEC.md finds no occurrence of debounce/throttle/@debounced/@throttled. Either the spec is silent (likely E-SYNTAX-* or unknown attribute) or the keyword exists in some unindexed section. Flag for spec author."}

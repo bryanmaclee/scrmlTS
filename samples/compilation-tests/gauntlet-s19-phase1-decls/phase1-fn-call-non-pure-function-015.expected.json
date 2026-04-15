@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"calls-non-pure-function","expectedOutcome":"error","expectedCodes":["E-FN-003"],"notes":"§48.6.2: fn cannot call function (only fn or pure function)."}

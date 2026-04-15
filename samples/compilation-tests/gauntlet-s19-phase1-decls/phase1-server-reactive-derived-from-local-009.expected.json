@@ -1,0 +1,1 @@
+{"feature":"server @var","shape":"derived-from-local","expectedOutcome":"error","expectedCodes":["E-AUTH-002"],"notes":"§52.4.4 normative: server @var derived from local without explicit server-fn crossing."}

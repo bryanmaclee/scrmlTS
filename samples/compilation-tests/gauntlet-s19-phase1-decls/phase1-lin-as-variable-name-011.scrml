@@ -1,0 +1,8 @@
+// `lin` used as plain identifier (variable name) — known trap from gauntlet plan.
+// Spec lists `lin` as a declaration keyword (§35.2). It is unclear whether `let lin = 5`
+// is rejected at the tokenizer or accepted as a JS identifier.
+${
+    let lin = 5
+    let next = lin + 1
+}
+<p>${next}</>

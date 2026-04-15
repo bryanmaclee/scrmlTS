@@ -1,0 +1,9 @@
+// const inside ^{} meta block
+${
+    type User:struct = { name: string, age: number }
+}
+^{
+    const t = reflect(User)
+    emit("<!-- generated -->")
+}
+<p>x</>

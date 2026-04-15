@@ -1,0 +1,7 @@
+// fn with -> return type annotation
+${
+    fn add(a: number, b: number) -> number {
+        return a + b
+    }
+}
+<p>${add(1, 2)}</>

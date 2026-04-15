@@ -1,0 +1,1 @@
+{"feature":"@reactive","shape":"file-level-bare","expectedOutcome":"clean","expectedCodes":[],"notes":"§7.6 says reactive vars at file level (outside any ${}) are in scope for the whole file. Spec is a bit ambiguous about whether the bare `@x = expr` is allowed without a wrapping ${} — most samples wrap it. Worth verifying."}

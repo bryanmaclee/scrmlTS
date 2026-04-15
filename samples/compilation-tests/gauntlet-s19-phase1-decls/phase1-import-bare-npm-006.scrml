@@ -1,0 +1,5 @@
+// Bare npm-style specifier — E-IMPORT-005
+${
+    import { x } from 'lodash'
+}
+<p>x</>

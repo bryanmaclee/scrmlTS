@@ -1,0 +1,3 @@
+// use with unknown prefix — E-USE-005
+use foo:bar
+<p>x</>

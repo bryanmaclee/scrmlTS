@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "no-init",
+  "expectedOutcome": "error",
+  "expectedCodes": ["UNKNOWN"],
+  "notes": "const without initializer; JS-level SyntaxError or scrml E-SYNTAX-* expected. Spec §7.3 doesn't address this directly — Bun/JS host rejects."
+}

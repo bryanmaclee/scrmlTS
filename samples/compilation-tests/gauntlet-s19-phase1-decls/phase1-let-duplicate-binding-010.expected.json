@@ -1,0 +1,1 @@
+{"feature":"let","shape":"duplicate-file-scope","expectedOutcome":"error","expectedCodes":["E-SCOPE-010"],"notes":"§7.6 normative: re-declaring a name in a later file-level ${} is E-SCOPE-010. (Note: spec also uses E-SCOPE-010 for reserved names like 'route'/'session' — code overload to flag.)"}

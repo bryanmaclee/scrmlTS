@@ -1,0 +1,5 @@
+// import from scrml: stdlib (§41.3)
+${
+    import { formatCurrency } from 'scrml:utils'
+}
+<p>${formatCurrency(99.5)}</>

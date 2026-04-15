@@ -1,0 +1,4 @@
+// export const Component (markup form) — §21.2
+${
+    export const Badge = <span class="badge">${...}</>
+}

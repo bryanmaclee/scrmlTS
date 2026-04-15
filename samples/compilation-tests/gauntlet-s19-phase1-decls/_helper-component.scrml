@@ -1,0 +1,6 @@
+// Helper file exporting a component, used as an import target.
+${
+    export const Card = <div class="card">
+        ${...}
+    </>
+}

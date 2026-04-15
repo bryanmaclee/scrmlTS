@@ -1,0 +1,1 @@
+{"feature":"type :enum","shape":"bare-pipe","expectedOutcome":"clean","expectedCodes":[],"notes":"Pipe-separated enum variants — used in library-mode-types.scrml regression."}

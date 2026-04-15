@@ -1,0 +1,8 @@
+// export type X:struct — analogous regression check to enum
+${
+    export type Config:struct = {
+        timeout: number,
+        retries: number
+    }
+}
+<p>x</>

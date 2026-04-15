@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "chained-ops",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Chained .toUpperCase().trim() and .split().map() — tests parser handling of dotted call chains in init expressions."
+}

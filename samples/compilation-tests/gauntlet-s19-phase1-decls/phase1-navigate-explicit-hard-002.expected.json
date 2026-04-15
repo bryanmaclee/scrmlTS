@@ -1,0 +1,1 @@
+{"feature":"navigate","shape":"explicit-hard","expectedOutcome":"clean","expectedCodes":[],"notes":"§20.2 .Hard override. May trigger W-NAV-001 if escalation can't happen."}

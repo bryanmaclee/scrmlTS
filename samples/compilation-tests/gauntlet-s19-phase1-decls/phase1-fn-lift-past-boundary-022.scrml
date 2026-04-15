@@ -1,0 +1,10 @@
+// E-FN-008: fn body lifts to outer accumulator (initialized in enclosing ${})
+${
+    lift "outer-init"
+    fn helper() {
+        lift "from-fn"
+        return 1
+    }
+    helper()
+}
+<p>x</>

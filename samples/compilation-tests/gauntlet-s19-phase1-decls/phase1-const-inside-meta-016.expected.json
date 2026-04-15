@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-meta",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "const inside ^{} meta block. Spec §22 doesn't enumerate which decl forms are legal inside meta — assuming standard ${} statement grammar applies."
+}

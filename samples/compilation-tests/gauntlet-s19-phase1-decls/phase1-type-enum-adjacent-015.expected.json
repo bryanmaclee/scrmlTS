@@ -1,0 +1,1 @@
+{"feature":"type :enum","shape":"adjacent-decls","expectedOutcome":"clean","expectedCodes":[],"notes":"Adjacent enum/enum/struct decls — boundary scanner stress, related to S18 fix."}

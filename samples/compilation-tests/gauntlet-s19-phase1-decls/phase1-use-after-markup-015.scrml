@@ -1,0 +1,3 @@
+// use after first markup — E-USE-002
+<p>hi</>
+use scrml:ui

@@ -1,0 +1,12 @@
+// const inside ~{} test block
+${
+    function add(a, b) { return a + b }
+}
+
+~{ "addition tests"
+    test "1 + 2 = 3" {
+        const expected = 3
+        assert add(1, 2) == expected
+    }
+}
+<p>x</>

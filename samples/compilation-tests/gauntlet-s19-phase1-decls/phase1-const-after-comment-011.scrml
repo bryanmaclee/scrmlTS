@@ -1,0 +1,6 @@
+// const after a // comment line
+${
+    // this is a leading comment
+    const greeting = "hi"
+}
+<p>${greeting}</>

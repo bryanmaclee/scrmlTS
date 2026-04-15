@@ -1,0 +1,6 @@
+// const with union type T | not (T? sugar)
+${
+    const maybeName: string? = not
+    const explicit: string | not = "x"
+}
+<p>${explicit}</>

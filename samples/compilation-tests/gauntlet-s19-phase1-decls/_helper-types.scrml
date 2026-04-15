@@ -1,0 +1,12 @@
+// Helper file used as an import target by phase1-import-* fixtures.
+${
+    export type Status:enum = { Active, Inactive, Banned }
+    export function formatStatus(s) {
+        return match s {
+            .Active => "active"
+            .Inactive => "inactive"
+            .Banned => "banned"
+        }
+    }
+    export const DEFAULT_STATUS = "Active"
+}

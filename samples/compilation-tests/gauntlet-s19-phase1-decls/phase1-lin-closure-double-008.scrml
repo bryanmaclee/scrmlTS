@@ -1,0 +1,13 @@
+// Capturing in two closures — E-LIN-002
+${
+    function fetchToken() { return "tok" }
+    function useToken(t) { return t }
+
+    function run() {
+        lin token = fetchToken()
+        let a = () => { useToken(token) }
+        let b = () => { useToken(token) }
+        return a
+    }
+}
+<p>x</>

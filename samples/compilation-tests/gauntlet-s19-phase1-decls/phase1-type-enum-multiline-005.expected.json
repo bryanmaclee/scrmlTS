@@ -1,0 +1,1 @@
+{"feature":"type :enum","shape":"multi-line","expectedOutcome":"clean","expectedCodes":[],"notes":"Multi-line enum without explicit separators — newline as separator."}

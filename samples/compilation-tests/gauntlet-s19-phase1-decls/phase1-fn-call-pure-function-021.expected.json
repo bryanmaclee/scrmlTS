@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"calls-pure-function","expectedOutcome":"clean","expectedCodes":[],"notes":"§48.6.2 exception: fn may call pure function."}

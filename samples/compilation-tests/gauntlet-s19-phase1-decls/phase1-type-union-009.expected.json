@@ -1,0 +1,1 @@
+{"feature":"type :union","shape":"kind-keyword","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"AMBIGUITY: Phase 1 plan lists 'type X:union'. SPEC.md §14 documents `A | B` union TYPE EXPRESSIONS but does NOT define `:union` as a type-decl kind tag (only :enum and :struct are documented kinds). Likely E-SYNTAX-* / unknown kind. Flag for spec author."}

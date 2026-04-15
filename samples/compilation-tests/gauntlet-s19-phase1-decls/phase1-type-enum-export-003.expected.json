@@ -1,0 +1,1 @@
+{"feature":"type :enum","shape":"after-export","expectedOutcome":"clean","expectedCodes":[],"notes":"S18 KNOWN TRAP: collectExpr :/IDENT/= boundary regression — must stay green."}

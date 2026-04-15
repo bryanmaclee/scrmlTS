@@ -1,0 +1,1 @@
+{"feature":"export","shape":"outside-logic-context","expectedOutcome":"error","expectedCodes":["E-IMPORT-001"],"notes":"§21.6 E-IMPORT-001."}

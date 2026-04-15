@@ -1,0 +1,1 @@
+{"feature":"type :struct","shape":"after-export","expectedOutcome":"clean","expectedCodes":[],"notes":"Same boundary class as the S18 enum bug — different kind keyword."}

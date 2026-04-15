@@ -1,0 +1,1 @@
+{"feature":"import","shape":"self-circular","expectedOutcome":"error","expectedCodes":["E-IMPORT-002"],"notes":"§21.6 E-IMPORT-002. Self-import is the simplest cycle."}

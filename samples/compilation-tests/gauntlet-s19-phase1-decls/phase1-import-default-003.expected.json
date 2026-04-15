@@ -1,0 +1,1 @@
+{"feature":"import","shape":"default","expectedOutcome":"error","expectedCodes":["E-IMPORT-004"],"notes":"§21.3 mentions default imports as supported, but _helper-types.scrml has no `export default`. Should fail with E-IMPORT-004 'Helper not exported'."}

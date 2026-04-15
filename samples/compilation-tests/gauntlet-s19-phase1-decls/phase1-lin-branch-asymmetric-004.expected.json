@@ -1,0 +1,1 @@
+{"feature":"lin","shape":"branch-asymmetric","expectedOutcome":"error","expectedCodes":["E-LIN-003"],"notes":"§35.5 E-LIN-003 — implicit else path doesn't consume."}

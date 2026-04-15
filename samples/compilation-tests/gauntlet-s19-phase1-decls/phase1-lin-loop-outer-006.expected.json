@@ -1,0 +1,1 @@
+{"feature":"lin","shape":"loop-outer-consume","expectedOutcome":"error","expectedCodes":["E-LIN-002"],"notes":"§35.4.4 outer lin in loop body."}

@@ -1,0 +1,1 @@
+{"feature":"lin","shape":"declare-and-consume","expectedOutcome":"clean","expectedCodes":[],"notes":"§35.4.1 sequential single-use is valid."}

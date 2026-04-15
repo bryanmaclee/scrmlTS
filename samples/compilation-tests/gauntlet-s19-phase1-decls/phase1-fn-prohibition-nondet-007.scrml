@@ -1,0 +1,7 @@
+// E-FN-004: non-deterministic call
+${
+    fn newId() {
+        return crypto.randomUUID()
+    }
+}
+<p>${newId()}</>

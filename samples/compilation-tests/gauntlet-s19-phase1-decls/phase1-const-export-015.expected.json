@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "after-export",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Per §21.2 normative: export valid before let/const value declarations."
+}

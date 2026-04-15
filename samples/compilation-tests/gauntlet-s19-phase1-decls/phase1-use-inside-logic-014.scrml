@@ -1,0 +1,5 @@
+// use inside ${} — E-USE-001
+${
+    use scrml:ui
+}
+<p>x</>

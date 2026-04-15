@@ -1,0 +1,5 @@
+// const with type annotation that doesn't match RHS — E-TYPE-031
+${
+    const n: number = "not a number"
+}
+<p>x</>

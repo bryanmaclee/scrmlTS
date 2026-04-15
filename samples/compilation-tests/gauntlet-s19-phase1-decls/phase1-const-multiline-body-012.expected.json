@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "multi-line-body",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Multi-line object literal RHS. Tests collectExpr line-boundary handling."
+}

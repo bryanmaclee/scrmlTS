@@ -1,0 +1,1 @@
+{"feature":"let","shape":"multi-line","expectedOutcome":"clean","expectedCodes":[],"notes":"Multi-line array literal RHS. Iterating a non-reactive let in markup — assumes for/lift accepts non-@vars per spec examples."}

@@ -1,0 +1,9 @@
+// E-FN-003: outer-scope variable mutation
+${
+    let counter = 0
+    fn bump() {
+        counter = counter + 1
+        return counter
+    }
+}
+<p>${bump()}</>

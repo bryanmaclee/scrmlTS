@@ -1,0 +1,6 @@
+// let without initializer
+${
+    let placeholder
+    placeholder = "later"
+}
+<p>${placeholder}</>

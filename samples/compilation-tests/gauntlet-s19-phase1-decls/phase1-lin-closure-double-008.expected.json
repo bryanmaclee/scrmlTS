@@ -1,0 +1,1 @@
+{"feature":"lin","shape":"closure-double-capture","expectedOutcome":"error","expectedCodes":["E-LIN-002"],"notes":"§35.6 closure capture × 2 = E-LIN-002."}

@@ -1,0 +1,1 @@
+{"feature":"type vs const annotation","shape":"distinguishing-trap","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Known trap from gauntlet plan line 106. `type x:number = 5` should fail (number isn't a kind); `const x:number = 5` is fine. Verifies the parser distinguishes annotation colon from kind colon."}

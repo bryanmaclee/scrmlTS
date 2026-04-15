@@ -1,0 +1,1 @@
+{"feature":"type :enum","shape":"after-comment","expectedOutcome":"clean","expectedCodes":[],"notes":"Comment-then-enum decl."}

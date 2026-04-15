@@ -1,0 +1,1 @@
+{"feature":"import","shape":"bare-npm-specifier","expectedOutcome":"error","expectedCodes":["E-IMPORT-005"],"notes":"§41.4 normative — bare npm specifiers always invalid."}

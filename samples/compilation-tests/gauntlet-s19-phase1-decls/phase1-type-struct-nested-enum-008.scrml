@@ -1,0 +1,10 @@
+// struct field whose type is a previously declared enum (§14.3.2)
+${
+    type Role:enum = { Admin, User, Guest }
+    type Account:struct = {
+        id: number,
+        role: Role,
+        active: boolean
+    }
+}
+<p>x</>

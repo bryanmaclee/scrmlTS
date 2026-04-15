@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"prohibition-sql","expectedOutcome":"error","expectedCodes":["E-FN-001"],"notes":"§48.3.1: SQL ?{} inside fn body."}

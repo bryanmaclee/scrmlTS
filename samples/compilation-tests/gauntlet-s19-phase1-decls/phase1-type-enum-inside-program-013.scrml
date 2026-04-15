@@ -1,0 +1,8 @@
+// type :enum inside <program> file-level ${}
+<program>
+    ${
+        type Theme:enum = { Light, Dark, System }
+        @theme = .Light
+    }
+    <p>${@theme}</>
+</>

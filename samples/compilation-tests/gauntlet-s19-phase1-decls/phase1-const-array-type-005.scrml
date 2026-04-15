@@ -1,0 +1,12 @@
+// const with array type annotation
+${
+    const items: string[] = ["a", "b", "c"]
+}
+<ul>
+    <li for @items / lift item />
+        ${item}
+    </>
+</ul>
+${
+    @items = items
+}

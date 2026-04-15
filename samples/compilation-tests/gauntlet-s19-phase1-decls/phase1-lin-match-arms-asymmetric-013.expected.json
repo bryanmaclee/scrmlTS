@@ -1,0 +1,1 @@
+{"feature":"lin","shape":"match-asymmetric","expectedOutcome":"error","expectedCodes":["E-LIN-003"],"notes":"§35.4.3 — .Guest arm doesn't consume."}

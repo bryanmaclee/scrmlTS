@@ -1,0 +1,9 @@
+// E-LIN-001: lin declared but never consumed
+${
+    function fetchToken() { return "tok" }
+    function run() {
+        lin token = fetchToken()
+        return "noop"
+    }
+}
+<p>${run()}</>

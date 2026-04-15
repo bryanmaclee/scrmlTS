@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-program",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "const at file-level ${} inside <program>."
+}

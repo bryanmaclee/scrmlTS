@@ -1,0 +1,10 @@
+// fn calls non-pure function — E-FN-003 per §48.6.2
+${
+    function effectful() { @count = @count + 1 }
+    @count = 0
+    fn wrapper() {
+        effectful()
+        return @count
+    }
+}
+<p>${wrapper()}</>

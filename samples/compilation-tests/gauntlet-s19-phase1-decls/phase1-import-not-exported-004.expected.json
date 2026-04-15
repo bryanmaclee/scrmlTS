@@ -1,0 +1,1 @@
+{"feature":"import","shape":"name-not-exported","expectedOutcome":"error","expectedCodes":["E-IMPORT-004"],"notes":"§21.6 E-IMPORT-004."}

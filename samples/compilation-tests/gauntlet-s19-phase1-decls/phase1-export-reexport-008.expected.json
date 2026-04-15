@@ -1,0 +1,1 @@
+{"feature":"export","shape":"re-export","expectedOutcome":"clean","expectedCodes":[],"notes":"§21.4. Pure-type file — no markup. Should compile to a JS module only."}

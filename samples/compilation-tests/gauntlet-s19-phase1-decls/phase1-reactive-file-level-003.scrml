@@ -1,0 +1,5 @@
+// @reactive declared at file top level (outside any ${}) — §6.1 / §7.6
+@count = 0
+@theme = "light"
+
+<p>${@theme} / ${@count}</>

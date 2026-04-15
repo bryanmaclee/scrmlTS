@@ -1,0 +1,13 @@
+// fn with multi-line body and local lift accumulation
+${
+    fn buildItems(names) {
+        for (const name of names) {
+            let item = { label: name, length: name.length }
+            lift item
+        }
+        return ~
+    }
+}
+<ul>
+    <li for buildItems(["a","bb","ccc"]) / lift it />${it.label}-${it.length}</>
+</ul>

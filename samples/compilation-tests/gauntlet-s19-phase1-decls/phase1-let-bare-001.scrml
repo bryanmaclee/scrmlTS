@@ -1,0 +1,6 @@
+// let with init
+${
+    let counter = 0
+    counter = counter + 1
+}
+<p>${counter}</>

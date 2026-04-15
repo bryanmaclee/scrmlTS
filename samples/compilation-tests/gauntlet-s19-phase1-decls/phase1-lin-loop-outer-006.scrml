@@ -1,0 +1,14 @@
+// E-LIN-002: outer lin consumed inside loop
+${
+    function fetchToken() { return "tok" }
+    function submit(t) { return t }
+
+    function run(items) {
+        lin token = fetchToken()
+        for (const item of items) {
+            submit(token)
+        }
+        return "done"
+    }
+}
+<p>${run([1,2])}</>

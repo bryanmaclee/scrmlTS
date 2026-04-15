@@ -1,0 +1,7 @@
+// type X:union — gauntlet plan lists this kind, but a grep of SPEC.md does NOT
+// turn up `:union` as a kind keyword. §14 mentions `A | B` union syntax,
+// not `:union` as a type-decl tag. Probing whether the parser accepts it.
+${
+    type StringOrNumber:union = { string, number }
+}
+<p>x</>

@@ -1,0 +1,8 @@
+// Union expressed via the documented `T | U` syntax — likely the canonical form
+${
+    type StringOrNot = string | not
+    function describe(x: StringOrNot) {
+        return x is not ? "absent" : "present"
+    }
+}
+<p>${describe("x")}</>

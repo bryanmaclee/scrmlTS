@@ -1,0 +1,1 @@
+{"feature":"let","shape":"inside-error-arm","expectedOutcome":"clean","expectedCodes":[],"notes":"§19 — let inside !{} arm body."}

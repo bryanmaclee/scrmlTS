@@ -1,0 +1,5 @@
+// Importing a name that doesn't exist — E-IMPORT-004
+${
+    import { DoesNotExist } from './_helper-types.scrml'
+}
+<p>x</>

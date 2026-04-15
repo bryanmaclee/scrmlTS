@@ -1,0 +1,1 @@
+{"feature":"import","shape":"aliased","expectedOutcome":"clean","expectedCodes":[],"notes":"§21.3 says ES module syntax — assumed `as`-aliasing supported by inheritance, but not explicitly normative. Flag if rejected."}

@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-function-body",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Adjacent const decls inside function — ASI boundary stress."
+}

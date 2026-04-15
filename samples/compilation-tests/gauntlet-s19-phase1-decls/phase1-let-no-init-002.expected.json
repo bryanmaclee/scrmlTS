@@ -1,0 +1,1 @@
+{"feature":"let","shape":"no-init","expectedOutcome":"clean","expectedCodes":[],"notes":"JS allows uninitialized let. Spec §7.5 doesn't forbid it. Assumed clean."}

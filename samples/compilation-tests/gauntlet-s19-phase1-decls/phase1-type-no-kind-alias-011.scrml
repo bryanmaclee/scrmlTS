@@ -1,0 +1,7 @@
+// type X = ... (no kind) — gauntlet plan asks: is that legal?
+${
+    type UserId = number
+    type Email = string
+    function tag(id: UserId): string { return "user:" + id }
+}
+<p>${tag(42)}</>

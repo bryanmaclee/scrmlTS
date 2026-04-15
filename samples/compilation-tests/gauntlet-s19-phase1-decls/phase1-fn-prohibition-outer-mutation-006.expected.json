@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"prohibition-outer-mutation","expectedOutcome":"error","expectedCodes":["E-FN-003"],"notes":"§48.3.3: writing to outer-scope variable."}

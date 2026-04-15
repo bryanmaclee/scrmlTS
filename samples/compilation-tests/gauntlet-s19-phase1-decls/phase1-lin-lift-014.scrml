@@ -1,0 +1,11 @@
+// lift consumes lin (§35.3 rule 4)
+${
+    function fetchToken() { return "tok" }
+
+    function run() {
+        lin token = fetchToken()
+        lift token
+        return ~
+    }
+}
+<p>${run().length}</>

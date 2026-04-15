@@ -1,0 +1,7 @@
+// navigate(path, .Hard) — §20.2
+${
+    function logout() {
+        navigate("/login", .Hard)
+    }
+}
+<button onclick=logout()>Logout</>

@@ -1,0 +1,7 @@
+// anonymous fn expression bound to const
+${
+    const square = fn(x) {
+        return x * x
+    }
+}
+<p>${square(4)}</>

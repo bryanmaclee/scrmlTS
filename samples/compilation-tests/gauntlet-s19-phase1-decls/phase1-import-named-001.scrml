@@ -1,0 +1,6 @@
+// Named import from a sibling .scrml
+${
+    import { Status, formatStatus } from './_helper-types.scrml'
+    let s = .Active
+}
+<p>${formatStatus(.Active)}</>

@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "type-annotation",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Type annotations on const per §7.5 type-expr grammar."
+}

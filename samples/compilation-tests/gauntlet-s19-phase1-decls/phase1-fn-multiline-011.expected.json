@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"multi-line-body","expectedOutcome":"clean","expectedCodes":[],"notes":"§48.5.1: lift inside fn accumulates into ~ local to fn body, returned explicitly."}

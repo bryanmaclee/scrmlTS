@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-test",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "const inside ~{} test body. Spec §19.12 sketches tests but doesn't formally specify the test-block stmt grammar."
+}

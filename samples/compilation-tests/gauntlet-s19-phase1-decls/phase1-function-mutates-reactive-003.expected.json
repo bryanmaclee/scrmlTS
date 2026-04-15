@@ -1,0 +1,1 @@
+{"feature":"function","shape":"mutates-reactive","expectedOutcome":"clean","expectedCodes":[],"notes":"function (vs fn) is unconstrained per §7.3 / §48.11."}

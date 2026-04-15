@@ -1,0 +1,5 @@
+// let with init that violates annotated type — E-TYPE-031
+${
+    let n: number = "string-not-number"
+}
+<p>${n}</>

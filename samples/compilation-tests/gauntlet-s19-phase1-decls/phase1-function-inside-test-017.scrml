@@ -1,0 +1,11 @@
+// function declared inside ~{} test block (uncommon — usually tests CALL fns)
+${
+    function add(a, b) { return a + b }
+}
+~{ "add tests"
+    test "1+1" {
+        function double(x) { return x + x }
+        assert double(2) == add(2, 2)
+    }
+}
+<p>x</>

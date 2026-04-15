@@ -1,0 +1,1 @@
+{"feature":"let","shape":"after-export","expectedOutcome":"clean","expectedCodes":[],"notes":"§21.2 normative explicitly lists let/const after export. Note: ES modules permit export let; mutability across modules is unusual."}

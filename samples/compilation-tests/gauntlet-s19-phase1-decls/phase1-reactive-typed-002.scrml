@@ -1,0 +1,7 @@
+// @reactive with type annotation per §7.5 reactive-decl grammar
+${
+    @count: number = 0
+    @label: string = "items"
+    @items: string[] = []
+}
+<p>${@label}: ${@count}</>

@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "adjacent-decls-ASI",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Three adjacent const decls with no semicolons — ASI/line-boundary stress."
+}

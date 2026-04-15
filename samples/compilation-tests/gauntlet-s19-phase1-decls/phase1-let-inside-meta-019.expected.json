@@ -1,0 +1,1 @@
+{"feature":"let","shape":"inside-meta","expectedOutcome":"clean","expectedCodes":["UNKNOWN"],"notes":"let inside ^{} compile-time meta. Spec §22 silent on permitted statements inside ^{}."}

@@ -1,0 +1,14 @@
+// E-LIN-003: branch consumes in some, not all
+${
+    function fetchToken() { return "tok" }
+    function authenticate(t) { return t }
+
+    function run(needsAuth) {
+        lin token = fetchToken()
+        if (needsAuth) {
+            return authenticate(token)
+        }
+        return "skipped"
+    }
+}
+<p>${run(true)}</>

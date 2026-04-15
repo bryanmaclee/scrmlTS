@@ -2300,10 +2300,14 @@ function annotateNodes(
   const fnErrorTypes = new Map<string, string>();
   const fnCanFail = new Set<string>();     // all functions with canFail === true
   const fnAllDeclared = new Set<string>(); // all function-decl names in this file
+  const nonPureFnNames = new Set<string>(); // names declared with `function` (not `fn`) — callable-but-not-pure (§48.6.2)
   function collectFnErrorTypes(nodes: ASTNodeLike[]): void {
     for (const n of nodes) {
       if (n.kind === "function-decl" && n.name) {
         fnAllDeclared.add(n.name as string);
+        if ((n as ASTNodeLike).fnKind !== "fn") {
+          nonPureFnNames.add(n.name as string);
+        }
         if (n.canFail === true) {
           fnCanFail.add(n.name as string);
           if (n.errorType) {
@@ -2601,9 +2605,9 @@ function annotateNodes(
           }
         }
 
-        // §48 fn body prohibition checks (E-FN-001 through E-FN-005)
+        // §48 fn body prohibition checks (E-FN-001 through E-FN-008)
         if (n.fnKind === "fn" && Array.isArray(fnBody)) {
-          checkFnBodyProhibitions(n, fnBody, errors, filePath, stateTypeRegistry);
+          checkFnBodyProhibitions(n, fnBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain);
         }
 
         resolvedType = fnType;
@@ -2641,6 +2645,30 @@ function annotateNodes(
             const letZone = classifyPredicateZone(letAnnoType, letSourceInfo, letDeclSpan, errors);
             if (letZone === "boundary") {
               (n as ASTNodeLike).predicateCheck = { predicate: letAnnoType.predicate, zone: "boundary" };
+            }
+          } else {
+            // §14: E-TYPE-031 literal-mismatch for unpredicated primitive annotations
+            // (number/string/boolean). More elaborate type inference can come later; this
+            // catches the common case of `const n: number = "x"`.
+            const annotBase = letAnnot.trim();
+            const primitives = new Set(["number", "string", "boolean"]);
+            if (primitives.has(annotBase)) {
+              const srcInfo = (n as any).initExpr
+                ? classifyLiteralFromExprNode((n as any).initExpr)
+                : extractInitLiteral((n as ASTNodeLike).init);
+              if (srcInfo.kind === "literal") {
+                const actualKind = typeof srcInfo.value;
+                if (actualKind !== annotBase) {
+                  const letSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+                  errors.push(new TSError(
+                    "E-TYPE-031",
+                    `E-TYPE-031: type annotation \`${annotBase}\` does not match initializer of type \`${actualKind}\` ` +
+                    `(\`${(n as ASTNodeLike).name ?? "<anonymous>"}\` at line ${letSpan.line}). ` +
+                    `Either change the annotation to \`${actualKind}\`, or change the initializer to a \`${annotBase}\` value.`,
+                    letSpan,
+                  ));
+                }
+              }
             }
           }
         }
@@ -3660,8 +3688,62 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
   const tildeTracker = parentTildeTracker ?? new TildeTracker();
   const mustUseTracker = new MustUseTracker();
 
+  // Lin-A3: Per-iteration loop-local lin tracker. When non-null,
+  // scanNodeExprNodesForLin first tries consuming against this tracker so
+  // references to loop-local lin vars inside arbitrary expressions (not just
+  // bare lin-ref nodes) are consumed before outer lt is checked.
+  let currentLoopLocalLin: LinTracker | null = null;
+
   function mkSpan(): Span {
     return { file, start: 0, end: 0, line: 1, col: 1 };
+  }
+
+  function trackedLinNamesForTracker(lt: LinTracker): string[] {
+    const names = new Set<string>();
+    for (const n of lt.names()) names.add(n);
+    if (parentLinTracker) for (const n of parentLinTracker.names()) names.add(n);
+    if (currentLoopLocalLin) for (const n of currentLoopLocalLin.names()) names.add(n);
+    return [...names];
+  }
+
+  // Helper shared between walkNode's match-stmt case and scanNodeExprNodesForLin's
+  // scanLambdasInExpr — text-scan an expression string for references to any
+  // currently-tracked lin variable, calling back with matches.
+  function consumeLinRefByTextScan(lt: LinTracker, raw: string, spanObj: unknown, loopFlag: boolean): void {
+    const names = trackedLinNamesForTracker(lt);
+    for (const name of names) {
+      const re = new RegExp(`\\b${escapeForRegex(name)}\\b`);
+      if (re.test(raw)) {
+        consumeLinRefExternal(lt, name, spanObj, loopFlag);
+      }
+    }
+  }
+
+  // External version of consumeLinRef (mirrors the inner version in
+  // scanNodeExprNodesForLin) — usable from other helpers.
+  function consumeLinRefExternal(lt: LinTracker, name: string, spanObj: unknown, loop: boolean): void {
+    if (name.startsWith("@") || name === "~") return;
+    const resolvedSpan = (spanObj ?? { file, start: 0, end: 0, line: 1, col: 1 }) as Span;
+    if (currentLoopLocalLin && currentLoopLocalLin.has(name)) {
+      const err = currentLoopLocalLin.consume(name, resolvedSpan);
+      if (err) emitLinError(err, resolvedSpan);
+      return;
+    }
+    const tracker = lt.has(name) ? lt : (parentLinTracker && parentLinTracker.has(name) ? parentLinTracker : null);
+    if (!tracker) return;
+    if (loop) {
+      errors.push(new TSError(
+        "E-LIN-002",
+        `E-LIN-002: Linear variable \`${name}\` consumed inside a loop. ` +
+        `Loop iteration count is unprovable; consume \`${name}\` before or after the loop. ` +
+        `A 'lin' variable can only be used once. Clone it first, or change to 'const'/'let' if reuse is intended.`,
+        resolvedSpan,
+      ));
+      tracker.forceConsume(name, resolvedSpan);
+    } else {
+      const err = tracker.consume(name, resolvedSpan);
+      if (err) emitLinError(err, resolvedSpan);
+    }
   }
 
   function emitLinError(desc: LinErrorDescriptor, contextSpan?: Span): void {
@@ -3848,25 +3930,64 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
             }
           }
         } else {
+          // Lin-B3: asymmetric branches already emitted E-LIN-003 above.
+          // Force-consume variables that were consumed in EITHER branch so they
+          // don't cascade into a spurious E-LIN-001 at scope exit.
           lt.restore(linSnap);
+          for (const varName of allVars) {
+            const inCons = afterConsequent.get(varName) === "consumed";
+            const inAlt = hasAlternate
+              ? afterAlternate.get(varName) === "consumed"
+              : linSnap.get(varName) === "consumed";
+            if (inCons !== inAlt) {
+              lt.forceConsume(varName, node.span as Span | undefined);
+            }
+          }
         }
 
         tt.restore(afterConsequentTilde);
         break;
       }
 
-      case "match-stmt": {
-        const arms = (node.arms as ASTNodeLike[] | undefined) ?? [];
-        if (arms.length === 0) break;
+      case "match-stmt":
+      case "match-expr": {
+        // Match-arm branch-parallel linear analysis. The parser stores arms
+        // under node.body (not node.arms). Arm forms:
+        //   - match-arm-block  — `.Variant => { stmt... }` with structured body
+        //   - bare-expr        — `.Variant => expr` (single-line arm, body raw)
+        const armNodes = (node.body as ASTNodeLike[] | undefined) ?? [];
+        const realArms = armNodes.filter(a =>
+          !!a && typeof a === "object" &&
+          (a.kind === "match-arm-block" ||
+           (a.kind === "bare-expr" && typeof (a as { expr?: unknown }).expr === "string" &&
+            /^\s*(?:\.[A-Z_]|else\b|not\b|"|')/.test((a as { expr: string }).expr)))
+        );
+        if (realArms.length === 0) {
+          for (const n of armNodes) walkNode(n, lt, tt, loop);
+          break;
+        }
 
         const preMatchSnap = lt.snapshot();
         const preMatchTilde = tt.snapshot();
         const armSnapshots: Map<string, LinState>[] = [];
 
-        for (const arm of arms) {
+        for (const arm of realArms) {
           lt.restore(preMatchSnap);
           tt.restore(preMatchTilde);
-          for (const n of ((arm.body as ASTNodeLike[] | undefined) ?? [])) walkNode(n, lt, tt, loop);
+          if (arm.kind === "match-arm-block") {
+            for (const n of ((arm.body as ASTNodeLike[] | undefined) ?? [])) {
+              walkNode(n, lt, tt, loop);
+            }
+          } else {
+            // Single-expression arm: extract RHS of `=>` / `:>` / `->` and
+            // text-scan for any declared lin variable name.
+            const raw = typeof (arm as { expr?: unknown }).expr === "string"
+              ? ((arm as { expr: string }).expr)
+              : "";
+            const m = raw.match(/(?:=>|:>|->)([\s\S]+)$/);
+            const result = m ? m[1] : raw;
+            consumeLinRefByTextScan(lt, result, arm.span, loop);
+          }
           armSnapshots.push(lt.snapshot());
         }
 
@@ -3874,6 +3995,7 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
           const refSnap = armSnapshots[0];
           const allVars = new Set(preMatchSnap.keys());
 
+          const asymmetricVars = new Set<string>();
           for (const varName of allVars) {
             const refConsumed = refSnap.get(varName) === "consumed";
             let symmetric = true;
@@ -3884,6 +4006,7 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
               }
             }
             if (!symmetric) {
+              asymmetricVars.add(varName);
               errors.push(new TSError(
                 "E-LIN-003",
                 `E-LIN-003: Linear variable \`${varName}\` is consumed in some match arms but not others. ` +
@@ -3895,6 +4018,10 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
           }
 
           lt.restore(refSnap);
+          // Lin-B3: force-consume asymmetric vars to suppress E-LIN-001 cascade.
+          for (const varName of asymmetricVars) {
+            lt.forceConsume(varName, node.span as Span | undefined);
+          }
         }
 
         tt.restore(preMatchTilde);
@@ -3902,7 +4029,14 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
       }
 
       case "for-loop":
-      case "while-loop": {
+      case "while-loop":
+      case "for-stmt":
+      case "while-stmt":
+      case "do-while-stmt": {
+        // Consuming an outer-scope lin variable inside a loop body is E-LIN-002.
+        // Lin-A3 permits lin-decl + consume in the same iteration (tracked via
+        // walkLoopBody's loopLocalLin). Accept real parser kinds (for-stmt,
+        // while-stmt, do-while-stmt) alongside legacy *-loop kinds.
         const loopBody = (node.body as ASTNodeLike[] | undefined) ?? [];
         const elide = !hasNonLiftTildeConsumer(loopBody);
         walkLoopBody(loopBody, lt, tt, elide);
@@ -4048,17 +4182,25 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     function consumeLinRef(name: string, spanObj: unknown): void {
       // Reactive variable references start with '@' — not lin variables.
       // Tilde accumulator is '~' — not a lin variable.
-      // Skip both to avoid false positives.
       if (name.startsWith("@") || name === "~") return;
+
+      const resolvedSpan = (spanObj ?? mkSpan()) as Span;
+
+      // Lin-A3: Loop-local lin variables consume against the per-iteration
+      // tracker, NOT outer lt. Prevents false-positive E-LIN-002 on e.g.
+      // `submitOne(token)` where token was declared via `lin token = …` in
+      // the same loop body.
+      if (currentLoopLocalLin && currentLoopLocalLin.has(name)) {
+        const err = currentLoopLocalLin.consume(name, resolvedSpan);
+        if (err) emitLinError(err, resolvedSpan);
+        return;
+      }
 
       // Check if this identifier is a declared lin variable.
       const tracker = lt.has(name) ? lt : (parentLinTracker && parentLinTracker.has(name) ? parentLinTracker : null);
       if (!tracker) return;
 
-      // Found a lin variable reference. Consume it.
-      const resolvedSpan = (spanObj ?? mkSpan()) as Span;
       if (loop) {
-        // Inside a loop: consuming an outer-scope lin variable is E-LIN-002.
         errors.push(new TSError(
           "E-LIN-002",
           `E-LIN-002: Linear variable \`${name}\` consumed inside a loop. ` +
@@ -4066,9 +4208,137 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
           `A 'lin' variable can only be used once. Clone it first, or change to 'const'/'let' if reuse is intended.`,
           resolvedSpan,
         ));
+        // Force-consume so scope-exit doesn't cascade a spurious E-LIN-001.
+        tracker.forceConsume(name, resolvedSpan);
       } else {
         const err = tracker.consume(name, resolvedSpan);
         if (err) emitLinError(err, resolvedSpan);
+      }
+    }
+
+    // Lin-B1: A lambda that captures a lin variable counts as ONE consumption
+    // (scope-agnostic: existence of the reference IS the consumption). Two
+    // lambdas referencing the same lin var → E-LIN-002. forEachIdentInExprNode
+    // deliberately stops at lambda bodies; we must scan them here.
+    function trackedLinNamesWith(lt: LinTracker): string[] {
+      const names = new Set<string>();
+      for (const n of lt.names()) names.add(n);
+      if (parentLinTracker) for (const n of parentLinTracker.names()) names.add(n);
+      if (currentLoopLocalLin) for (const n of currentLoopLocalLin.names()) names.add(n);
+      return [...names];
+    }
+    const trackedLinNames = () => trackedLinNamesWith(lt);
+
+    function scanLambdasInExpr(field: unknown): void {
+      if (!field || typeof field !== "object") return;
+      const f = field as { kind?: string; [k: string]: unknown };
+      if (!f.kind) return;
+
+      if (f.kind === "lambda") {
+        const body = f.body as { kind?: string; value?: unknown; raw?: string } | undefined;
+        if (!body) return;
+
+        const referenced = new Set<string>();
+        const linNames = trackedLinNames();
+        if (linNames.length === 0) return;
+
+        if (body.kind === "expr" && body.value) {
+          forEachIdentInExprNode(body.value as import("./types/ast.ts").ExprNode, (ident) => {
+            if (linNames.includes(ident.name)) referenced.add(ident.name);
+          });
+          scanLambdasInExpr(body.value);
+        } else {
+          const rawSource = typeof body.raw === "string"
+            ? body.raw
+            : (typeof (f.raw as unknown) === "string" ? (f.raw as string) : "");
+          if (rawSource) {
+            for (const n of linNames) {
+              const re = new RegExp(`\\b${escapeForRegex(n)}\\b`);
+              if (re.test(rawSource)) referenced.add(n);
+            }
+          }
+        }
+
+        for (const name of referenced) {
+          consumeLinRef(name, f.span);
+        }
+        return;
+      }
+
+      if (f.kind === "escape-hatch") {
+        const raw = typeof f.raw === "string" ? (f.raw as string) : "";
+        if (raw && raw.includes("=>")) {
+          const linNames = trackedLinNames();
+          for (const name of linNames) {
+            const re = new RegExp(`\\b${escapeForRegex(name)}\\b`);
+            if (re.test(raw)) consumeLinRef(name, f.span);
+          }
+        }
+        return;
+      }
+
+      if (f.kind === "match-expr") {
+        // Expression-form match (e.g. `return match role { ... }`): the ExprNode
+        // stores arms as rawArms: string[]. Apply branch-parallel lin analysis.
+        const rawArms = Array.isArray(f.rawArms) ? (f.rawArms as string[]) : [];
+        // Walk the subject first (normal identifiers/captures).
+        if (f.subject) scanLambdasInExpr(f.subject);
+
+        if (rawArms.length === 0) return;
+        const linNames = trackedLinNames();
+        if (linNames.length === 0) return;
+
+        const preSnap = lt.snapshot();
+        const armSnaps: Map<string, LinState>[] = [];
+        for (const armRaw of rawArms) {
+          lt.restore(preSnap);
+          const m = armRaw.match(/(?:=>|:>|->)([\s\S]+)$/);
+          const result = m ? m[1] : armRaw;
+          for (const name of linNames) {
+            const re = new RegExp(`\\b${escapeForRegex(name)}\\b`);
+            if (re.test(result)) {
+              consumeLinRef(name, f.span);
+            }
+          }
+          armSnaps.push(lt.snapshot());
+        }
+
+        const refSnap = armSnaps[0];
+        const asymmetricVars = new Set<string>();
+        for (const varName of new Set(preSnap.keys())) {
+          const refConsumed = refSnap.get(varName) === "consumed";
+          let symmetric = true;
+          for (let i = 1; i < armSnaps.length; i++) {
+            if ((armSnaps[i].get(varName) === "consumed") !== refConsumed) {
+              symmetric = false;
+              break;
+            }
+          }
+          if (!symmetric) {
+            asymmetricVars.add(varName);
+            errors.push(new TSError(
+              "E-LIN-003",
+              `E-LIN-003: Linear variable \`${varName}\` is consumed in some match arms but not others. ` +
+              `All arms must consume the same set of lin variables. ` +
+              `Every branch of the if/match must either consume or explicitly discard it.`,
+              (f.span as Span | undefined) ?? mkSpan(),
+            ));
+          }
+        }
+        lt.restore(refSnap);
+        for (const varName of asymmetricVars) {
+          lt.forceConsume(varName, f.span as Span | undefined);
+        }
+        return;
+      }
+
+      for (const k of Object.keys(f)) {
+        const v = (f as Record<string, unknown>)[k];
+        if (Array.isArray(v)) {
+          for (const el of v) scanLambdasInExpr(el);
+        } else if (v && typeof v === "object") {
+          scanLambdasInExpr(v);
+        }
       }
     }
 
@@ -4093,6 +4363,9 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
       forEachIdentInExprNode(field as import("./types/ast.ts").ExprNode, (ident) => {
         consumeLinRef(ident.name, ident.span);
       });
+
+      // Lin-B1: scan lambdas/closures inside this ExprNode for lin captures.
+      scanLambdasInExpr(field);
     }
   }
 
@@ -4101,8 +4374,14 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
 
     // Lin-A3: Lin variables declared AND consumed within the same loop iteration
     // are permitted. Track them in a per-iteration local tracker (loopLocalLin).
-    // Variables from outer scope (in `lt`) are still rejected with E-LIN-002.
+    // Variables from outer scope (in lt) are still rejected with E-LIN-002.
     const loopLocalLin = new LinTracker();
+
+    // Expose to scanNodeExprNodesForLin so loop-local consumption inside
+    // arbitrary expressions is routed to loopLocalLin instead of falsely
+    // emitting E-LIN-002 against the outer lt.
+    const prevLoopLocal = currentLoopLocalLin;
+    currentLoopLocalLin = loopLocalLin;
 
     for (const node of loopBody) {
       if (!node || typeof node !== "object") continue;
@@ -4139,6 +4418,9 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
 
       walkNode(node, lt, tt, /* inLoop= */ true);
     }
+
+    // Restore loop-local tracker pointer before checking for unconsumed locals.
+    currentLoopLocalLin = prevLoopLocal;
 
     // Lin-A3: Unconsumed loop-local lin vars → E-LIN-001.
     for (const varName of loopLocalLin.unconsumedNames()) {
@@ -4551,6 +4833,8 @@ function checkFnBodyProhibitions(
   errors: TSError[],
   filePath: string,
   stateTypeRegistry?: Map<string, ResolvedType>,
+  nonPureFnNames?: Set<string>,
+  scopeChain?: ScopeChain,
 ): void {
   const fnName = (fnNode.name as string) ?? "<anonymous>";
   const fnSpan = (fnNode.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 }) as Span;
@@ -4643,9 +4927,10 @@ function checkFnBodyProhibitions(
         (stmt.kind === "let-decl" ||
          stmt.kind === "const-decl" ||
          stmt.kind === "lin-decl" ||
-         stmt.kind === "variable-decl" ||
-         stmt.kind === "tilde-decl")
+         stmt.kind === "variable-decl")
       ) {
+        // §48.3.3: tilde-decl represents reassignment (e.g. `x = 5`), NOT a fresh declaration.
+        // Excluded from localNames so outer-scope mutation via `x = x + 1` is caught.
         localNames.add(declName);
       }
       // Recurse into branches so names declared in branches are also tracked
@@ -4665,7 +4950,7 @@ function checkFnBodyProhibitions(
   function checkOuterScopeMutation(stmt: ASTNodeLike, txt: string): void {
     const stmtSpan = (stmt.span ?? fnSpan) as Span;
     // Check for assignment node kind first
-    if (stmt.kind === "assignment") {
+    if (stmt.kind === "assignment" || stmt.kind === "tilde-decl") {
       const targetName = (stmt.target as string | undefined) ?? (stmt.name as string | undefined);
       if (targetName && !localNames.has(targetName)) {
         errors.push(new TSError(
@@ -4857,14 +5142,45 @@ function checkFnBodyProhibitions(
       }
 
       // E-FN-008: lift statement targeting outer scope
-      if (stmt.kind === "lift" || stmt.kind === "lift-stmt") {
+      if (stmt.kind === "lift" || stmt.kind === "lift-stmt" || stmt.kind === "lift-expr") {
         hasLiftInBody = true;
         if (!liftSpan) liftSpan = stmtSpan;
       }
 
-      // Heuristic text checks for E-FN-002, E-FN-003, E-FN-004 and field tracking
+      // Heuristic text checks for E-FN-001, E-FN-002, E-FN-003, E-FN-004 and field tracking
       const txt = nodeText(stmt);
       if (txt) {
+        // E-FN-001: ?{} SQL access (text-heuristic — catches ?{} embedded in let-decl init or return-stmt)
+        if (stmt.kind !== "sql" && /\?\s*\{/.test(txt)) {
+          errors.push(new TSError(
+            "E-FN-001",
+            `E-FN-001: \`fn ${fnName}\` body contains a \`?{}\` SQL access. ` +
+            `\`fn\` is a pure function and may not perform database operations. ` +
+            `Move the \`?{}\` query outside \`fn\` and pass the result as a parameter.`,
+            stmtSpan,
+          ));
+        }
+
+        // E-FN-003: fn body calls a non-pure function (§48.6.2)
+        if (nonPureFnNames && nonPureFnNames.size > 0) {
+          // Extract all identifier-followed-by-`(` occurrences
+          const CALL_RE = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+          let m: RegExpExecArray | null;
+          while ((m = CALL_RE.exec(txt)) !== null) {
+            const callee = m[1];
+            if (nonPureFnNames.has(callee)) {
+              errors.push(new TSError(
+                "E-FN-003",
+                `E-FN-003: \`fn ${fnName}\` body calls \`${callee}()\`, which is declared with \`function\` (not \`fn\`) and may perform side effects. ` +
+                `\`fn\` may only call other \`fn\` declarations. ` +
+                `Either redeclare \`${callee}\` as \`fn\`, or pass its result into \`fn ${fnName}\` as a parameter.`,
+                stmtSpan,
+              ));
+              break; // one E-FN-003 per statement
+            }
+          }
+        }
+
         // E-FN-004: non-deterministic calls
         for (const nd of NON_DET_CALLS) {
           if (txt.includes(nd)) {

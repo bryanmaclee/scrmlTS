@@ -1,0 +1,1 @@
+{"feature":"type :enum","shape":"variants-with-payload","expectedOutcome":"clean","expectedCodes":[],"notes":"§14 enum variants with typed payload."}

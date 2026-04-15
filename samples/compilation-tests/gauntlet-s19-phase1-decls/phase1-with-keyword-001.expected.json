@@ -1,0 +1,1 @@
+{"feature":"with","shape":"scoping-block","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"AMBIGUITY: gauntlet plan lists `with` as a Phase 1 keyword. SPEC.md has no normative `with` keyword (and JS strict mode forbids it). Likely unimplemented / parse error. Flag for spec author."}

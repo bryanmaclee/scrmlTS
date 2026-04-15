@@ -3171,7 +3171,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             name,
             init: expr,
             initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
-            typeAnnotation,
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             span: spanOf(startTok, peek()),
           });
           continue;
@@ -3236,6 +3236,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().kind === "IDENT") name = consume().text;
       else if (peek().kind === "KEYWORD") name = consume().text; // e.g. `let in`
 
+      // Optional type annotation: `let name: Type = expr`
+      const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
+
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         // If-as-expression: `let a = if (cond) { lift val }`
@@ -3246,6 +3249,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "let-decl",
             name,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             ifExpr: { ...ifNode, kind: "if-expr" },
             span: spanOf(startTok, peek()),
           });
@@ -3257,6 +3261,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "let-decl",
             name,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             forExpr: { ...forNode, kind: "for-expr" },
             span: spanOf(startTok, peek()),
           });
@@ -3268,6 +3273,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "let-decl",
             name,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             matchExpr: matchNode,
             span: spanOf(startTok, peek()),
           });
@@ -3291,6 +3297,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "let-decl",
             name,
             init: expr,
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
           });
@@ -3303,6 +3310,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           kind: "let-decl",
           name,
           init: expr,
+          ...(typeAnnotation ? { typeAnnotation } : {}),
           initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
           span: spanOf(startTok, peek()),
         });
@@ -3346,6 +3354,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       let name = "";
       if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
 
+      // Optional type annotation: `const name: Type = expr`
+      const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
+
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         // If-as-expression: `const a = if (cond) { lift val }`
@@ -3356,6 +3367,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "const-decl",
             name,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             ifExpr: { ...ifNode, kind: "if-expr" },
             span: spanOf(startTok, peek()),
           });
@@ -3367,6 +3379,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "const-decl",
             name,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             forExpr: { ...forNode, kind: "for-expr" },
             span: spanOf(startTok, peek()),
           });
@@ -3378,6 +3391,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "const-decl",
             name,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             matchExpr: matchNode,
             span: spanOf(startTok, peek()),
           });
@@ -3399,6 +3413,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "const-decl",
             name,
             init: expr,
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
             span: spanOf(startTok, peek()),
           });
@@ -3410,6 +3425,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           kind: "const-decl",
           name,
           init: "",
+          ...(typeAnnotation ? { typeAnnotation } : {}),
           span: tokenSpan(startTok, filePath),
         });
       }
@@ -3629,10 +3645,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // FN SHORTHAND: `[server] fn name { body }` (no parens)
+    // FN SHORTHAND: `[async] [server] fn name { body }` (no parens)
+    // `async` tokenizes as IDENT — detect it via text + lookahead.
+    const _asyncFnLookahead = tok.text === "async" && (
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "fn") ||
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "server" &&
+       peek(2)?.kind === "KEYWORD" && peek(2)?.text === "fn")
+    );
     if (
       tok.kind === "KEYWORD" && tok.text === "fn" ||
-      (tok.kind === "KEYWORD" && tok.text === "server" && peek(1).kind === "KEYWORD" && peek(1).text === "fn")
+      (tok.kind === "KEYWORD" && tok.text === "server" && peek(1).kind === "KEYWORD" && peek(1).text === "fn") ||
+      _asyncFnLookahead
     ) {
       // E-PARSE-002: `fn` shorthand is only valid in a logic context, not meta or other blocks
       if (blockContext !== "logic") {
@@ -3646,9 +3669,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
 
       let isServer = false;
+      let isAsync = false;
       let startTok = tok;
 
-      if (tok.text === "server") {
+      if (tok.text === "async") {
+        isAsync = true;
+        startTok = consume(); // consume `async`
+        if (peek().kind === "KEYWORD" && peek().text === "server") {
+          isServer = true;
+          consume(); // consume `server`
+        }
+      } else if (tok.text === "server") {
         isServer = true;
         startTok = consume(); // consume `server`
       }
@@ -3705,6 +3736,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         body,
         fnKind: "fn",
         isServer,
+        ...(isAsync ? { isAsync: true } : {}),
         canFail,
         errorType,
         span: spanOf(startTok, peek()),

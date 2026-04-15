@@ -1,0 +1,14 @@
+// E-LIN-002: lin consumed twice on same path
+${
+    function fetchToken() { return "tok" }
+    function authenticate(t) { return t }
+    function log(t) { return t }
+
+    function run() {
+        lin token = fetchToken()
+        authenticate(token)
+        log(token)
+        return "done"
+    }
+}
+<p>${run()}</>

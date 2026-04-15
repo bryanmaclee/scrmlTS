@@ -1,0 +1,1 @@
+{"feature":"type (no-kind)","shape":"plain-alias","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"AMBIGUITY: §14 grammar shows `type Name:kind = ...`. Whether `type Name = expr` (no kind) is permitted is unclear — likely a syntax error. Worth confirming with the type-system engineer."}

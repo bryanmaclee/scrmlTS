@@ -1,0 +1,9 @@
+// server function — escalates to server route
+<program db="./test.db">
+    ${
+        server function deleteUser(id) {
+            ?{`DELETE FROM users WHERE id = ${id}`}.run()
+        }
+    }
+    <button onclick=deleteUser(1)>delete</>
+</>

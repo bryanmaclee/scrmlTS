@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "union-type",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "T? sugar desugars to T | not per §7.5 + §42."
+}

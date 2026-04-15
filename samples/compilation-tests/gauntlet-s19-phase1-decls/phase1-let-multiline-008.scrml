@@ -1,0 +1,11 @@
+// let with multi-line array literal init
+${
+    let names = [
+        "alice",
+        "bob",
+        "carol"
+    ]
+}
+<ul>
+    <li for names / lift name />${name}</>
+</ul>

@@ -1,0 +1,1 @@
+{"feature":"import","shape":"inside-function-body","expectedOutcome":"error","expectedCodes":["E-IMPORT-003"],"notes":"§21.3 normative — imports must be at file top level."}

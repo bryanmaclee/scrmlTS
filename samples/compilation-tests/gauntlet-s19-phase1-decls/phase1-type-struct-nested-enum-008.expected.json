@@ -1,0 +1,1 @@
+{"feature":"type :struct","shape":"struct-with-enum-field","expectedOutcome":"clean","expectedCodes":[],"notes":"§14.3.2 enum types as struct fields."}

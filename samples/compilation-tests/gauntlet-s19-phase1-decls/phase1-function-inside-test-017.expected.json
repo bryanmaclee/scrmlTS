@@ -1,0 +1,1 @@
+{"feature":"function","shape":"inside-test-block","expectedOutcome":"clean","expectedCodes":["UNKNOWN"],"notes":"Test-block grammar isn't fully normative in §19.12. Function inside test arm body is plausible but unverified."}

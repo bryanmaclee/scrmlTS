@@ -1,0 +1,5 @@
+// @throttled — same caveat as @debounced; not in current SPEC.md
+${
+    @throttled scrollY = 0
+}
+<p>${@scrollY}</>

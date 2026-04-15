@@ -1,0 +1,7 @@
+// import inside function body — E-IMPORT-003
+${
+    function load() {
+        import { Status } from './_helper-types.scrml'
+    }
+}
+<p>x</>

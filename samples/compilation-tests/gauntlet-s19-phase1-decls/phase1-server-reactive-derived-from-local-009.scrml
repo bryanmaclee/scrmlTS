@@ -1,0 +1,8 @@
+// E-AUTH-002: server @var derived from client-local @var without crossing
+<program db="./test.db">
+    ${
+        @localCount = 5
+        server @synced = @localCount * 2
+    }
+    <p>${@synced}</>
+</>

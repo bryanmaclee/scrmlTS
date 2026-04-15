@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"inside-meta","expectedOutcome":"clean","expectedCodes":["UNKNOWN"],"notes":"Spec §22 doesn't enumerate which decl forms are legal inside ^{}; assuming standard ${} grammar applies. May require runtime classification."}

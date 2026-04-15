@@ -1,0 +1,7 @@
+// `const x:number = 5` (annotation on value) vs `type x:number = 5` (probably illegal kind)
+${
+    const limit: number = 5
+    // `:number` isn't a defined type-decl kind; only :enum / :struct documented.
+    type bound:number = 5
+}
+<p>${limit}</>

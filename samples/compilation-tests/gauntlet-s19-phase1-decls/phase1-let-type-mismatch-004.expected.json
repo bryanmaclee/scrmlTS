@@ -1,0 +1,1 @@
+{"feature":"let","shape":"type-mismatch","expectedOutcome":"error","expectedCodes":["E-TYPE-031"],"notes":"§7.5 normative: E-TYPE-031 on annotated mismatch."}

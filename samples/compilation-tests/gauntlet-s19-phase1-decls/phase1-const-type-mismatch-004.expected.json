@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "type-mismatch",
+  "expectedOutcome": "error",
+  "expectedCodes": ["E-TYPE-031"],
+  "notes": "Per §7.5 normative: E-TYPE-031 fires when annotated type does not match assigned value."
+}

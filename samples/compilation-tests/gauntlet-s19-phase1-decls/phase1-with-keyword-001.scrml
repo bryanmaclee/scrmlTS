@@ -1,0 +1,9 @@
+// `with` keyword — gauntlet plan lists this. SPEC.md has no normative coverage
+// of `with` as a declaration / scoping construct. Probing whether anything parses.
+${
+    let user = { name: "x", age: 30 }
+    with (user) {
+        let summary = name + ":" + age
+    }
+}
+<p>x</>

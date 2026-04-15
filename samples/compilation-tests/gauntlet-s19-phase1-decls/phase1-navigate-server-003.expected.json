@@ -1,0 +1,1 @@
+{"feature":"navigate","shape":"server-context","expectedOutcome":"clean","expectedCodes":[],"notes":"§20.1 navigation inside server-escalated function => 302."}

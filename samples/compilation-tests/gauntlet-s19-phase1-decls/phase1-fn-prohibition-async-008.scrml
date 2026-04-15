@@ -1,0 +1,7 @@
+// E-FN-005: async on fn declaration
+${
+    async fn loadProfile(id) {
+        return await fetch("/api/" + id)
+    }
+}
+<p>x</>

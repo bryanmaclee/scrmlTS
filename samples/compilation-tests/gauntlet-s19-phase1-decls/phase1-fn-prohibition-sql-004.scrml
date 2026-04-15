@@ -1,0 +1,10 @@
+// E-FN-001: ?{} SQL inside fn body
+<program db="./test.db">
+    ${
+        fn loadName(id) {
+            let row = ?{`SELECT name FROM users WHERE id = ${id}`}.get()
+            return row.name
+        }
+    }
+    <p>${loadName(1)}</>
+</>

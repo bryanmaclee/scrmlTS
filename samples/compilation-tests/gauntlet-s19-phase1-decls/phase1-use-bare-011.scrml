@@ -1,0 +1,6 @@
+// `use` capability import at file preamble (§41.2)
+use scrml:ui
+
+<program>
+    <Button>click</>
+</>

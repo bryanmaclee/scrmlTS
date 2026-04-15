@@ -1,0 +1,1 @@
+{"feature":"import","shape":"scrml-stdlib","expectedOutcome":"clean","expectedCodes":["UNKNOWN"],"notes":"§41.3 stdlib import. May fail with E-IMPORT-006 if `scrml:utils` doesn't ship in the bundled stdlib for this build. Flag if so — but the syntax should at least parse."}

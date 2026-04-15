@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"prohibition-nondeterministic","expectedOutcome":"error","expectedCodes":["E-FN-004"],"notes":"§48.3.4: crypto.randomUUID() in fn."}

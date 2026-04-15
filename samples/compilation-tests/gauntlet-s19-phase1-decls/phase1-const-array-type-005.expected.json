@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "array-type",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "string[] postfix array type per §7.5. Note: bridging const to a reactive array via @items = items is an assumption — spec is silent on whether this is the canonical pattern."
+}

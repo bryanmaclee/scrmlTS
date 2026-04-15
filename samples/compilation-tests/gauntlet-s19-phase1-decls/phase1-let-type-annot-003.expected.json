@@ -1,0 +1,1 @@
+{"feature":"let","shape":"type-annotation","expectedOutcome":"clean","expectedCodes":[],"notes":"Type annotations on let per §7.5."}

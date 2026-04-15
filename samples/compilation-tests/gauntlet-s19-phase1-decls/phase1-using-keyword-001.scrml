@@ -1,0 +1,9 @@
+// `using` keyword — gauntlet plan lists this. Spec mentions a `using s` shape
+// operator informally in the agent prompt ("a using s") but no normative section
+// in SPEC.md defines it. This fixture probes whether the parser knows the keyword.
+${
+    shape positive = (>0)
+    let x = 5
+    let ok = x using positive
+}
+<p>${ok}</>

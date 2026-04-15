@@ -1,0 +1,7 @@
+// function declaration, bare
+${
+    function greet() {
+        return "hi"
+    }
+}
+<p>${greet()}</>

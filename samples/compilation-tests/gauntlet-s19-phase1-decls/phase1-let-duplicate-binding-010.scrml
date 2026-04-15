@@ -1,0 +1,8 @@
+// Duplicate let in file scope — E-SCOPE-010 per §7.6
+${
+    let label = "first"
+}
+${
+    let label = "second"
+}
+<p>${label}</>

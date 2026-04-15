@@ -1,0 +1,1 @@
+{"feature":"server @var","shape":"not-placeholder","expectedOutcome":"clean","expectedCodes":[],"notes":"§52.4.3: server @var = not means render nothing until server responds."}

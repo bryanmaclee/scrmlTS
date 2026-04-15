@@ -1,0 +1,7 @@
+// const in ${} that lives inside markup body
+<div>
+    ${
+        const inner = "from-inside-markup"
+    }
+    <p>${inner}</>
+</div>

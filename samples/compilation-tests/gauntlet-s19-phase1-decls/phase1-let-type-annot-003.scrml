@@ -1,0 +1,6 @@
+// let with type annotation
+${
+    let count: number = 0
+    let name: string = "anon"
+}
+<p>${name}: ${count}</>

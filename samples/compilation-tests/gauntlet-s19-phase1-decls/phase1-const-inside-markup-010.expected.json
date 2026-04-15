@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-markup-body",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "${} logic block inside <div> markup body, with const inside it."
+}

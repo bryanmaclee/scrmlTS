@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "after-comment",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Comment-then-decl shape per §27 universal // comment."
+}

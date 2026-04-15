@@ -1,0 +1,1 @@
+{"feature":"let","shape":"bare","expectedOutcome":"clean","expectedCodes":[],"notes":"let with init and reassign."}

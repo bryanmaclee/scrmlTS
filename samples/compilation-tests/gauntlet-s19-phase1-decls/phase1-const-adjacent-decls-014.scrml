@@ -1,0 +1,7 @@
+// Two adjacent const decls — ASI boundary stress (no explicit semicolons)
+${
+    const a = 1
+    const b = 2
+    const c = a + b
+}
+<p>${c}</>

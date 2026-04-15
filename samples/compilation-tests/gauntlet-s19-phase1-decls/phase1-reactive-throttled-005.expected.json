@@ -1,0 +1,1 @@
+{"feature":"@throttled","shape":"bare","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Same as @debounced — not in spec, may produce parse error. Flag spec ambiguity."}

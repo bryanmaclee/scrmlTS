@@ -1,0 +1,9 @@
+// lin parameter — §35.2.1
+${
+    function useToken(t) { return t }
+
+    function processToken(lin token: string) {
+        return useToken(token)
+    }
+}
+<p>${processToken("tok")}</>

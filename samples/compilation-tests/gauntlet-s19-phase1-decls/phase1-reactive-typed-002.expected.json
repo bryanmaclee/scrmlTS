@@ -1,0 +1,1 @@
+{"feature":"@reactive","shape":"with-type-annotation","expectedOutcome":"clean","expectedCodes":[],"notes":"§7.5 reactive-decl ::= '@' identifier [':' type-expr] '=' expr."}

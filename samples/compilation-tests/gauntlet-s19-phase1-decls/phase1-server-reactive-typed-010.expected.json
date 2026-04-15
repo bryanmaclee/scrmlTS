@@ -1,0 +1,1 @@
+{"feature":"server @var","shape":"with-type-annotation","expectedOutcome":"clean","expectedCodes":[],"notes":"§52.4.1 grammar + §7.5 reactive-decl."}

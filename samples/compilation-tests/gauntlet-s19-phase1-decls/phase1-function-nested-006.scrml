@@ -1,0 +1,13 @@
+// nested function declaration — §7.3.1
+${
+    function tokenize(input) {
+        let pos = 0
+        function advance() { pos = pos + 1 }
+        function peek() { return input[pos] }
+        while (pos < input.length) {
+            advance()
+        }
+        return pos
+    }
+}
+<p>${tokenize("hello")}</>

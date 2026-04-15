@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "inside-fn-body",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "const inside fn body — allowed per §48.2 fn-statement grammar (const-decl)."
+}

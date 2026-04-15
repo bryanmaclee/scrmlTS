@@ -234,30 +234,23 @@ console.log(x)`);
   // --------------------------------------------------------------------------
   // Scenario 7: lambda capture of lin variable
   //
-  // A lambda that captures a lin variable should consume it at capture time
-  // (analogous to the `case "closure"` handler). This is an edge case — if
-  // the ExprNode lambda is a `LambdaExpr`, forEachIdentInExprNode skips its body.
-  //
-  // Design decision: LambdaExpr bodies are skipped by forEachIdentInExprNode.
-  // So lin vars referenced INSIDE a lambda body are NOT consumed at the outer scope.
-  // This means scenario 7 will produce E-LIN-001 (outer x not consumed).
-  //
-  // This is the CONSERVATIVE behavior: we don't track that the lambda captured x.
-  // The ast-level `case "closure"` handler tracks captures via node.captures array,
-  // but ExprNode lambdas don't have that field yet. Future slice adds capture tracking.
-  //
-  // For now: document that lambdas in expression position don't consume lin vars.
+  // S19 Phase 1 gauntlet (Lin-B1): a lambda that captures a lin variable DOES
+  // consume it at capture time — scope-agnostic linearity. The existence of the
+  // reference IS the consumption. Previously the checker was conservative and
+  // skipped lambda bodies (firing a spurious E-LIN-001); scanLambdasInExpr now
+  // walks lambda bodies for lin references.
   // --------------------------------------------------------------------------
 
-  test("Scenario 7: lin var referenced inside lambda body — conservative: E-LIN-001 fires (lambda body skipped)", () => {
+  test("Scenario 7: lin var referenced inside lambda body — consumed by capture (scope-agnostic)", () => {
     const { linErrors } = compileLinLogic(`lin x = "hello"
 let fn = () => console.log(x)`);
 
-    // Conservative behavior: x inside the lambda body is NOT tracked as consumed.
-    // E-LIN-001 fires because x is declared but never consumed at the outer scope.
-    // Future slice: add capture detection to forEachIdentInExprNode's lambda case.
+    // Capture counts as consumption — no E-LIN-001 (was consumed) and no
+    // E-LIN-002 (consumed exactly once).
     const eLin001 = linErrors.filter(e => e.code === "E-LIN-001");
-    expect(eLin001.length).toBeGreaterThanOrEqual(1);
+    const eLin002 = linErrors.filter(e => e.code === "E-LIN-002");
+    expect(eLin001).toHaveLength(0);
+    expect(eLin002).toHaveLength(0);
   });
 
   // --------------------------------------------------------------------------

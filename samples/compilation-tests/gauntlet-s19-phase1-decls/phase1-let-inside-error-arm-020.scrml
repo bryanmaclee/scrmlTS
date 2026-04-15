@@ -1,0 +1,26 @@
+// let inside !{} error arm body
+${
+    type ApiError:enum = {
+        Network(code: number)
+        Parse(reason: string)
+    }
+
+    function call() ! ApiError {
+        fail .Network(500)
+    }
+
+    function safeCall() {
+        let result = call() !{
+            | .Network(c) => {
+                let display = "net-" + c
+                return display
+            }
+            | .Parse(r) => {
+                let display = "parse-" + r
+                return display
+            }
+        }
+        return result
+    }
+}
+<p>${safeCall()}</>

@@ -1,0 +1,5 @@
+// Default import — §21.3 normative mentions default imports
+${
+    import Helper from './_helper-types.scrml'
+}
+<p>x</>

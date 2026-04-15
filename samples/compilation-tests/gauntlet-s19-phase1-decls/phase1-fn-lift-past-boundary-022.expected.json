@@ -1,0 +1,1 @@
+{"feature":"fn","shape":"lift-past-boundary","expectedOutcome":"error","expectedCodes":["E-FN-008"],"notes":"§48.5.2 — lift inside fn that targets outer ~ accumulator."}

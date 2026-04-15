@@ -1,0 +1,8 @@
+// @debounced — gauntlet plan lists this but spec has NO normative coverage
+// of @debounced/@throttled as language features. This fixture probes whether
+// they exist in the grammar at all.
+${
+    @debounced query = ""
+}
+<input bind:value=@query/>
+<p>${@query}</>

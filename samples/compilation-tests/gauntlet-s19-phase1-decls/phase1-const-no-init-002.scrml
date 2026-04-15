@@ -1,0 +1,5 @@
+// const without initializer — JS would reject this. Spec doesn't carve out an exception.
+${
+    const greeting
+}
+<p>x</>

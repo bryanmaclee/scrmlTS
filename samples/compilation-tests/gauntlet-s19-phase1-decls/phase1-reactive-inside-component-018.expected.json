@@ -1,0 +1,1 @@
+{"feature":"@reactive","shape":"inside-component-body","expectedOutcome":"clean","expectedCodes":[],"notes":"§15.13 reactive scope — each <Counter/> instance gets its own @localCount."}

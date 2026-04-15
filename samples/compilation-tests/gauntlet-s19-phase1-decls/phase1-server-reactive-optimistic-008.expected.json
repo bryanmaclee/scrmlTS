@@ -1,0 +1,1 @@
+{"feature":"server @var","shape":"optimistic-write","expectedOutcome":"clean","expectedCodes":[],"notes":"§52.4.2: assignment generates optimistic update + server write + rollback."}

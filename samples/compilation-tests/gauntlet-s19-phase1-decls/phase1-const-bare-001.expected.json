@@ -1,0 +1,7 @@
+{
+  "feature": "const",
+  "shape": "bare",
+  "expectedOutcome": "clean",
+  "expectedCodes": [],
+  "notes": "Minimal const declaration with init, file-level ${} block."
+}

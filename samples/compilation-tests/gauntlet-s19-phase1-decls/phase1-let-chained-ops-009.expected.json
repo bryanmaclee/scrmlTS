@@ -1,0 +1,1 @@
+{"feature":"let","shape":"chained-ops","expectedOutcome":"clean","expectedCodes":[],"notes":"Chained .filter().map().join() init."}
