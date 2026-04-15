@@ -1,0 +1,25 @@
+// 02c — Multi-line enum type. Variants on separate lines inside { ... } braces.
+
+<program>
+
+${
+  type Status:enum = {
+    .Todo
+    .InProgress
+    .Done
+  }
+
+  @status = Status.Todo
+}
+
+<p>
+  ${
+    match (@status) {
+      .Todo       :> { lift "Not started" }
+      .InProgress :> { lift "Working on it" }
+      .Done       :> { lift "Complete" }
+    }
+  }
+</p>
+
+</program>

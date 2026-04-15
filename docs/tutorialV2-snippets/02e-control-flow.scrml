@@ -1,0 +1,17 @@
+// 02e — Control flow: if= (mount/unmount), show= (toggle visibility),
+// and a ternary inside interpolation.
+
+<program>
+
+${
+  @loggedIn = true
+  @verbose  = false
+}
+
+<div>
+  <p if=@loggedIn>Welcome back.</p>
+  <p show=@verbose>Extra diagnostic info.</p>
+  <p>Status: ${@loggedIn ? "online" : "offline"}</p>
+</div>
+
+</program>

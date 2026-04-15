@@ -1,0 +1,14 @@
+// 01c — Reactive state + a function + button. The classic counter.
+
+<program>
+
+${
+  @count = 0
+
+  function inc() { @count = @count + 1 }
+}
+
+<p>Count: ${@count}</p>
+<button onclick=inc()>+</button>
+
+</program>
