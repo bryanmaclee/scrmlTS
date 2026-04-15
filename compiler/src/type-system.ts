@@ -5210,6 +5210,203 @@ function checkLoopControl(nodes: ASTNodeLike[], errors: TSError[], filePath: str
     return (node.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
   }
 
+  // E-LOOP-006: duplicate label identifiers across sibling loops in a body (§49.2.2).
+  function checkDuplicateLabels(body: ASTNodeLike[]): void {
+    const seen = new Map<string, ASTNodeLike>();
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      const label = (node as { label?: unknown }).label;
+      if (typeof label === "string" && label.length > 0 && LOOP_KINDS.has(node.kind as string)) {
+        if (seen.has(label)) {
+          errors.push(new TSError(
+            "E-LOOP-006",
+            `E-LOOP-006: Label \`${label}:\` is defined more than once in the same scope (§49.2.2). ` +
+            "Each loop label must be unique within its enclosing block. Rename one of the labels.",
+            mkSpan(node),
+          ));
+        } else {
+          seen.set(label, node);
+        }
+      }
+      // Recurse into bodies for nested label checking.
+      const inner = (node as { body?: ASTNodeLike[] }).body;
+      if (Array.isArray(inner)) checkDuplicateLabels(inner);
+    }
+  }
+  checkDuplicateLabels(nodes);
+
+  // E-LOOP-005 (string-scan): a let-decl init that contains an arrow-body with
+  // `break`/`continue` inside a loop. The arrow body parses as an escape-hatch
+  // ParseError, so we detect this structurally via the init source string.
+  function checkArrowBreakInLoop(body: ASTNodeLike[], inLoop: boolean): void {
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      const kind = node.kind as string;
+      if (inLoop && (kind === "let-decl" || kind === "const-decl")) {
+        const init = (node as { init?: string }).init;
+        if (typeof init === "string" && /=>\s*\{[^}]*\b(break|continue)\b/.test(init)) {
+          const kw = /\bbreak\b/.test(init) ? "break" : "continue";
+          errors.push(new TSError(
+            "E-LOOP-005",
+            `E-LOOP-005: \`${kw}\` inside an arrow function cannot target an outer loop (§49.4.3). ` +
+            "Arrow functions are function boundaries; `break`/`continue` may only target loops declared in the same function scope. " +
+            "Move the control-flow out of the arrow body, or refactor the arrow into an inline loop.",
+            mkSpan(node),
+          ));
+        }
+      }
+      const inner = (node as { body?: ASTNodeLike[] }).body;
+      if (Array.isArray(inner)) {
+        const nowInLoop = inLoop || LOOP_KINDS.has(kind);
+        const nowFnBoundary = FN_KINDS.has(kind);
+        checkArrowBreakInLoop(inner, nowFnBoundary ? false : nowInLoop);
+      }
+      for (const key of ["consequent", "alternate", "thenBody", "elseBody", "children"]) {
+        const v = (node as Record<string, unknown>)[key];
+        if (Array.isArray(v)) checkArrowBreakInLoop(v as ASTNodeLike[], inLoop);
+      }
+    }
+  }
+  checkArrowBreakInLoop(nodes, false);
+
+  // E-LOOP-003: labeled break/continue that references an unknown label.
+  // Track labels in the stack at each point.
+  function checkLabelRefs(body: ASTNodeLike[], activeLabels: Set<string>): void {
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      const kind = node.kind as string;
+      if (kind === "break-stmt" || kind === "continue-stmt") {
+        const label = (node as { label?: unknown }).label;
+        if (typeof label === "string" && label.length > 0 && !activeLabels.has(label)) {
+          errors.push(new TSError(
+            "E-LOOP-003",
+            `E-LOOP-003: \`${kind === "break-stmt" ? "break" : "continue"} ${label}\` references label \`${label}:\` ` +
+            "which is not in scope (§49.9). " +
+            "Labels must be defined on an enclosing loop: `" + label + ": while (...) { ... }`.",
+            mkSpan(node),
+          ));
+        }
+        continue;
+      }
+      const ownLabel = (node as { label?: unknown }).label;
+      const nextLabels = (typeof ownLabel === "string" && ownLabel.length > 0 && LOOP_KINDS.has(kind))
+        ? new Set([...activeLabels, ownLabel])
+        : activeLabels;
+      const inner = (node as { body?: ASTNodeLike[] }).body;
+      // Crossing a function boundary clears labels.
+      const boundaryLabels = FN_KINDS.has(kind) ? new Set<string>() : nextLabels;
+      if (Array.isArray(inner)) checkLabelRefs(inner, boundaryLabels);
+      for (const key of ["consequent", "alternate", "thenBody", "elseBody", "children"]) {
+        const v = (node as Record<string, unknown>)[key];
+        if (Array.isArray(v)) checkLabelRefs(v as ASTNodeLike[], boundaryLabels);
+      }
+    }
+  }
+  checkLabelRefs(nodes, new Set());
+
+  // E-LOOP-007: while used as an expression (e.g. `let x = while (…) {…}`).
+  // When the parser couldn't parse the init, it stores an escape-hatch ParseError
+  // whose `raw` starts with `while `.
+  function checkWhileAsExpr(body: ASTNodeLike[]): void {
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      if (node.kind === "let-decl" || node.kind === "const-decl" || node.kind === "tilde-decl") {
+        const initExpr = (node as { initExpr?: { kind?: string; raw?: string } }).initExpr;
+        const raw = initExpr?.raw ?? ((node as { init?: string }).init ?? "");
+        const declName = (node as { name?: string }).name;
+        // Only fire when the body uses `lift` — the only reason a user would
+        // write `let x = while(...) { ... }` is to extract a value via lift.
+        // The ast-builder sometimes absorbs an unrelated while-stmt into a
+        // preceding let-decl's init; that misparse doesn't use lift.
+        const rawStr = String(raw).trim();
+        const looksLikeWhileAsExpr = /^while\s*\([\s\S]*?\)\s*\{[\s\S]*?\blift\b[\s\S]*\}\s*$/.test(rawStr);
+        if (declName && initExpr?.kind === "escape-hatch" && looksLikeWhileAsExpr) {
+          errors.push(new TSError(
+            "E-LOOP-007",
+            `E-LOOP-007: \`while\` is a statement, not an expression (§49.4.4). ` +
+            "Use the `~` accumulator pattern to collect a value across iterations, " +
+            "or refactor to a `for/lift` expression.",
+            mkSpan(node),
+          ));
+        }
+      }
+      const inner = (node as { body?: ASTNodeLike[] }).body;
+      if (Array.isArray(inner)) checkWhileAsExpr(inner);
+      for (const key of ["consequent", "alternate", "thenBody", "elseBody", "children"]) {
+        const v = (node as Record<string, unknown>)[key];
+        if (Array.isArray(v)) checkWhileAsExpr(v as ASTNodeLike[]);
+      }
+    }
+  }
+  checkWhileAsExpr(nodes);
+
+  // E-SYNTAX-002 / §49.6.2: `lift` inside a named function body (even via a loop)
+  // is not valid. `lift` must be in logic/component context, not inside a standard
+  // function declaration. Scan the bodies of named function-decls for lift-expr.
+  function checkLiftInFn(body: ASTNodeLike[], insideNamedFn: boolean): void {
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      const kind = node.kind as string;
+      if (insideNamedFn && kind === "lift-expr") {
+        errors.push(new TSError(
+          "E-SYNTAX-002",
+          "E-SYNTAX-002: `lift` is not valid inside a standard `function` body (§49.6.2). " +
+          "`lift` may only appear in logic blocks or component bodies. " +
+          "Return the value with `return` and have the caller lift it, or refactor the function into a component.",
+          mkSpan(node),
+        ));
+      }
+      // §10.4 targets plain `function name() {...}` only. `server function`
+      // allows lift-as-return; `fn` shorthand is covered by E-FN-008 (§48).
+      const isServer = (node as { isServer?: boolean }).isServer === true;
+      const fnKind = (node as { fnKind?: string }).fnKind;
+      const enterFn = kind === "function-decl" && (node as { name?: string }).name && !isServer && fnKind !== "fn";
+      const innerNamed = enterFn ? true : insideNamedFn;
+      const inner = (node as { body?: ASTNodeLike[] }).body;
+      if (Array.isArray(inner)) checkLiftInFn(inner, innerNamed);
+      for (const key of ["consequent", "alternate", "thenBody", "elseBody", "children"]) {
+        const v = (node as Record<string, unknown>)[key];
+        if (Array.isArray(v)) checkLiftInFn(v as ASTNodeLike[], insideNamedFn);
+      }
+    }
+  }
+  checkLiftInFn(nodes, false);
+
+  // W-ASSIGN-001: single-paren assignment in while/if condition (§50.2.3).
+  // Trigger when the condition is `( x = ... )` — exactly one level of parens
+  // around a top-level assignment. Double parens `(( x = ... ))` suppress.
+  function checkSingleParenAssign(body: ASTNodeLike[]): void {
+    for (const node of body) {
+      if (!node || typeof node !== "object") continue;
+      const kind = node.kind as string;
+      if (kind === "while-stmt" || kind === "if-stmt" || kind === "do-while-stmt") {
+        const cond = ((node as { condition?: string }).condition ?? "").trim();
+        // Strip one layer of parens and inspect.
+        const m = cond.match(/^\(\s*([\s\S]*?)\s*\)$/);
+        if (m) {
+          const inner = m[1].trim();
+          // Already double-paren? Then the inner still starts with `(`.
+          if (!inner.startsWith("(") && /^[A-Za-z_$][\w$]*\s*=\s*[^=]/.test(inner)) {
+            errors.push(new TSError(
+              "W-ASSIGN-001",
+              "W-ASSIGN-001: Assignment used as a condition (§50.2.3). " +
+              "If this is intentional, wrap in double parens to suppress: `((x = next()))`. " +
+              "If you meant equality, use `==` or `is`.",
+              mkSpan(node),
+            ));
+          }
+        }
+      }
+      const inner = (node as { body?: ASTNodeLike[] }).body;
+      if (Array.isArray(inner)) checkSingleParenAssign(inner);
+      for (const key of ["consequent", "alternate", "thenBody", "elseBody", "children"]) {
+        const v = (node as Record<string, unknown>)[key];
+        if (Array.isArray(v)) checkSingleParenAssign(v as ASTNodeLike[]);
+      }
+    }
+  }
+  checkSingleParenAssign(nodes);
+
   /**
    * Walk a body of nodes.
    * loopDepth: number of enclosing loops (at current function scope boundary)
