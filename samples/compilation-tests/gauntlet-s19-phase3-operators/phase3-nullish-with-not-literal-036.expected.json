@@ -1,0 +1,1 @@
+{"feature":"nullish","shape":"rhs-is-not-literal","expectedOutcome":"clean","expectedCodes":[],"notes":"`x ?? not` is a redundant coalesce but spec doesn't forbid it. y: string | not."}

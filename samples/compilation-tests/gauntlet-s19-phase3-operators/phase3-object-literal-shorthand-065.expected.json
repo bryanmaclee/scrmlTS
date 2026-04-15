@@ -1,0 +1,1 @@
+{"feature":"object-literal","shape":"shorthand","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"JS `{ x, y }` shorthand — spec silent. UNKNOWN whether scrml accepts it."}

@@ -1,0 +1,1 @@
+{"feature":"eq-undefined","shape":"x-eq-undefined","expectedOutcome":"error","expectedCodes":["E-SYNTAX-042"],"notes":"`undefined` forbidden in value position."}

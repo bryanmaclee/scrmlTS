@@ -1,0 +1,1 @@
+{"feature":"not","shape":"as-array-element","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Array type `(string | not)[]` with not element. Spec doesn't explicitly cover array-of-optional — UNKNOWN whether type annotation parses this way."}

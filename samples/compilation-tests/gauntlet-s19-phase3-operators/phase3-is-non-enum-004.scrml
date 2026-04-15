@@ -1,0 +1,10 @@
+// `is` on a string-typed operand — should be E-TYPE-062
+${
+    let name = "Alice"
+    if (name is .Admin) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"struct-with-function-field","expectedOutcome":"error","expectedCodes":["E-EQ-003"],"notes":"§45.7 == rejected on types containing function fields."}

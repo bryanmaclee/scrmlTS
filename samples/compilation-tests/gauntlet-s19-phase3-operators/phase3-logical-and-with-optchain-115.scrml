@@ -1,0 +1,9 @@
+// && used with optional chain (common JS idiom; should probably use is some)
+${
+    type U:struct = { name: string }
+    let u: U | not = not
+    const r = u && u.name
+}
+<program>
+    <p>trap</>
+</>

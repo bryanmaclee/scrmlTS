@@ -1,0 +1,1 @@
+{"feature":"is-none","shape":"bare-identifier","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Phase 3 brief mentions `is none` but §42 only defines `is not` / `is some`. Expected to error — `none` has no keyword status. Could surface as unknown-identifier or a parser syntax error."}

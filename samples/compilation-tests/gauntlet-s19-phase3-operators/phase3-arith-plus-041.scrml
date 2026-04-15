@@ -1,0 +1,7 @@
+// `+` on numbers
+${
+    const sum = 1 + 2
+}
+<program>
+    <p>${sum}</>
+</>

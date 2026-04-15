@@ -1,0 +1,1 @@
+{"feature":"not","shape":"prefix-negation","expectedOutcome":"error","expectedCodes":["E-TYPE-045"],"notes":"`not (expr)` as boolean negation is forbidden — use `!` instead."}

@@ -1,0 +1,1 @@
+{"feature":"is-not","shape":"on-fn-return-optional","expectedOutcome":"clean","expectedCodes":[],"notes":"fn returning T | not, caller uses is not on the result."}

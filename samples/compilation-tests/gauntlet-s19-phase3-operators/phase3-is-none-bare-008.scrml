@@ -1,0 +1,10 @@
+// `is none` — NOT a spec keyword. Only `is not` / `is some` exist. Expect parse/type error.
+${
+    let name: string | not = not
+    if (name is none) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

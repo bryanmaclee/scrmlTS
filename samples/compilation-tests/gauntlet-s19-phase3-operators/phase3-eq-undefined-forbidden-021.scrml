@@ -1,0 +1,10 @@
+// `== undefined` — E-SYNTAX-042
+${
+    let x: string | not = not
+    if (x == undefined) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

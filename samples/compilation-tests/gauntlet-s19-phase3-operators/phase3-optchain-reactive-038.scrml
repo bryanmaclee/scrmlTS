@@ -1,0 +1,8 @@
+// optional chaining on a reactive variable, in markup interp
+${
+    type Result:struct = { value: number }
+    @result: Result | not = not
+}
+<program>
+    <p>${@result?.value ?? 0}</>
+</>

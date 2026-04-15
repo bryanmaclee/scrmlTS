@@ -1,0 +1,1 @@
+{"feature":"match-literal","shape":"number-arms","expectedOutcome":"clean","expectedCodes":[],"notes":"Literal number arms with wildcard."}

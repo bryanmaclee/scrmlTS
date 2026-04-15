@@ -1,0 +1,1 @@
+{"feature":"method-call","shape":"multiline-chain","expectedOutcome":"clean","expectedCodes":[],"notes":"Multiline filter.map.reduce with arrows, arithmetic, comparison."}

@@ -1,0 +1,9 @@
+// using && with is some to gate a property access
+${
+    type User:struct = { name: string }
+    let u: User | not = not
+    const out = u is some && u.name
+}
+<program>
+    <p>out</>
+</>

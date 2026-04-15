@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"in-array-literal","expectedOutcome":"clean","expectedCodes":[],"notes":"§50.4.2 explicitly lists array element as a typed position for assign-expr."}

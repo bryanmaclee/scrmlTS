@@ -1,0 +1,1 @@
+{"feature":"array-literal","shape":"empty","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Empty array — element type unresolvable. May require annotation or may be inferred `never[]`/`asIs[]`."}

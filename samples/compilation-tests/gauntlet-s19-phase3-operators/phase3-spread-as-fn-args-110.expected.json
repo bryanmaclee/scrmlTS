@@ -1,0 +1,1 @@
+{"feature":"spread","shape":"as-call-args","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Spread in call-site. Spec shows ${...children} in components and `[...@items, x]` in arrays, but `f(...args)` isn't explicit. UNKNOWN."}

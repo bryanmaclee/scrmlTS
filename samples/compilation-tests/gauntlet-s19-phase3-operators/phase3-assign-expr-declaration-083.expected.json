@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"decl-in-expr-position","expectedOutcome":"error","expectedCodes":["E-ASSIGN-001"],"notes":"§50.2.1 declaration forms cannot appear in expression position."}

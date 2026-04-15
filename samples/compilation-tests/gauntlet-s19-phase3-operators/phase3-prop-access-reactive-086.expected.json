@@ -1,0 +1,1 @@
+{"feature":"prop-access","shape":"on-reactive","expectedOutcome":"clean","expectedCodes":[],"notes":"Dotted access on @reactive struct in markup interp."}

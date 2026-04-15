@@ -1,0 +1,1 @@
+{"feature":"arith","shape":"inside-sql-bound-param","expectedOutcome":"clean","expectedCodes":[],"notes":"Arithmetic expression in a ?{} bound parameter."}

@@ -1,0 +1,1 @@
+{"feature":"cmp","shape":"strings","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Spec §45.2 defines == over primitives (includes string) but <, <=, >, >= on strings is not explicitly spelled out. JS permits lexical compare; scrml may allow or restrict. UNKNOWN."}

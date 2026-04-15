@@ -1,0 +1,1 @@
+{"feature":"optchain","shape":"method-call","expectedOutcome":"warning","expectedCodes":["UNKNOWN","E-EQ-003"],"notes":"Struct with a function field — §45.2 says == on function-field types is E-EQ-003 but we don't compare here. The `?.()` method-call form on optional may not be in spec; UNKNOWN. Also Handler contains a function so comparability rules may warn."}

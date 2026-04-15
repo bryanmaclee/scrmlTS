@@ -1,0 +1,1 @@
+{"feature":"is","shape":"unknown-variant","expectedOutcome":"error","expectedCodes":["E-TYPE-063"],"notes":"`.Unknown` is not a declared variant of Status."}

@@ -1,0 +1,8 @@
+// ternary where condition is `is not`
+${
+    let name: string | not = not
+    const label = name is not ? "nobody" : "someone"
+}
+<program>
+    <p>${label}</>
+</>

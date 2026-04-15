@@ -1,0 +1,1 @@
+{"feature":"is-some","shape":"bare-identifier","expectedOutcome":"clean","expectedCodes":[],"notes":"`x is some` presence check on simple identifier."}

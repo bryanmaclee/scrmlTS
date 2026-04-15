@@ -1,0 +1,10 @@
+// using a `let` decl in expression position — E-ASSIGN-001
+${
+    let a = 1
+    if ((let b = 2)) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

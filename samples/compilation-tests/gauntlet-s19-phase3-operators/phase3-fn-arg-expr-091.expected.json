@@ -1,0 +1,1 @@
+{"feature":"arith","shape":"as-fn-args","expectedOutcome":"clean","expectedCodes":[],"notes":"Arithmetic expressions as fn args."}

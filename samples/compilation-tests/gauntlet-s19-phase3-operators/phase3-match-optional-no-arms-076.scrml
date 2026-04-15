@@ -1,0 +1,11 @@
+// match on T | not without `not` arm — E-MATCH-012
+${
+    let name: string | not = "alice"
+    match name {
+        given n -> handlePresence(n)
+    }
+    function handlePresence(s: string) { let _ = 1 }
+}
+<program>
+    <p>bad</>
+</>

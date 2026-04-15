@@ -1,0 +1,10 @@
+// `is some` — presence check on optional var
+${
+    let name: string | not = "alice"
+    if (name is some) {
+        let _present = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

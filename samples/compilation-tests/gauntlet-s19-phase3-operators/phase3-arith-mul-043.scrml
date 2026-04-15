@@ -1,0 +1,6 @@
+${
+    const prod = 4 * 5
+}
+<program>
+    <p>${prod}</>
+</>

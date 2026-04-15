@@ -1043,13 +1043,31 @@ export function splitBlocks(filePath, source) {
       }
 
       // Bare '/' was a closer in Phase 1-2 but is no longer valid.
+      // Per spec, '/' only carries closer-meaning inside tag-angle-bracket
+      // contexts (<...>, </>). In markup *text content*, '/' is a literal
+      // character (division operator, path separators, literal slashes between
+      // ${} interpolations, etc.) and must NOT emit E-SYNTAX-050.
+      //
+      // We still flag the legacy closer pattern: a '/' in text whose next
+      // non-whitespace character is '<' (an attempted followup close tag) or
+      // EOF (trailing '/' at end of markup body — the pre-Phase-3 close form).
+      // This preserves the diagnostic for mistakes like `<p>hello/</p>` or
+      // `<div>content/` while allowing literal slashes in interpolation text.
       const frame = topFrame();
       if (frame && (frame.type === "markup" || frame.type === "state")) {
-        errors.push(new BSError(
-          "E-SYNTAX-050",
-          `Bare '/' is no longer a valid closer. Use '</>' to close '<${frame.name}>', or use the explicit form '</${frame.name}>'.`,
-          { start: curPos, end: curPos + 1, line: curLine, col: curCol }
-        ));
+        // Scan ahead past whitespace to determine whether this '/' looks like
+        // a legacy tag-closer attempt.
+        let look = pos + 1;
+        while (look < len && /\s/.test(source[look])) look++;
+        const nextNonWs = look < len ? source[look] : "";
+        const looksLikeCloser = nextNonWs === "" || nextNonWs === "<";
+        if (looksLikeCloser) {
+          errors.push(new BSError(
+            "E-SYNTAX-050",
+            `Bare '/' is no longer a valid closer. Use '</>' to close '<${frame.name}>', or use the explicit form '</${frame.name}>'.`,
+            { start: curPos, end: curPos + 1, line: curLine, col: curCol }
+          ));
+        }
       }
 
       // Treat '/' as raw content

@@ -1,0 +1,1 @@
+{"feature":"eq-null","shape":"x-eq-null","expectedOutcome":"error","expectedCodes":["E-SYNTAX-042"],"notes":"`null` forbidden in value position (§42.6). E-TYPE-042 may also fire (checking absence via ==)."}

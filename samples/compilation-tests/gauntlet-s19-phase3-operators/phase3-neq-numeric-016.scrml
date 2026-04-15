@@ -1,0 +1,11 @@
+// `!=` on numbers
+${
+    let a = 1
+    let b = 2
+    if (a != b) {
+        let _diff = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

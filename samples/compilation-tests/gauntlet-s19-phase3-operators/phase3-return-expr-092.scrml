@@ -1,0 +1,10 @@
+// return a ternary expression
+${
+    function classify(n: number) -> string {
+        return n > 0 ? "pos" : n < 0 ? "neg" : "zero"
+    }
+    const c = classify(5)
+}
+<program>
+    <p>${c}</>
+</>

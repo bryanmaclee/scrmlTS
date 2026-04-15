@@ -1,0 +1,9 @@
+// optional chaining on a struct field
+${
+    type User:struct = { name: string, email: string | not }
+    let u: User | not = not
+    const email = u?.email
+}
+<program>
+    <p>${email ?? "no email"}</>
+</>

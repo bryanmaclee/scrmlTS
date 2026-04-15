@@ -1,0 +1,1 @@
+{"feature":"arrow","shape":"multi-params","expectedOutcome":"clean","expectedCodes":[],"notes":"(a, b) => expr, also nested index access."}

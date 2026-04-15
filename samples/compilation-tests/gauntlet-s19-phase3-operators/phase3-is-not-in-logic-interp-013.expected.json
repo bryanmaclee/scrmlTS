@@ -1,0 +1,1 @@
+{"feature":"is-not","shape":"in-ternary-in-interp","expectedOutcome":"clean","expectedCodes":[],"notes":"`is not` used as ternary condition inside ${} markup interpolation."}

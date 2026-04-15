@@ -1,0 +1,12 @@
+// == on struct with function field — E-EQ-003
+${
+    type Handler:struct = { name: string, onFire: () => void }
+    let h1:Handler = { name: "a", onFire: () => {} }
+    let h2:Handler = { name: "a", onFire: () => {} }
+    if (h1 == h2) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

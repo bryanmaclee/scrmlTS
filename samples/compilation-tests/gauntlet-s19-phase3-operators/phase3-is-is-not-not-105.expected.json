@@ -1,0 +1,1 @@
+{"feature":"is-not-not","shape":"paren-double-neg","expectedOutcome":"clean","expectedCodes":[],"notes":"§42.8 `is not not` -> presence check; DQ-12 Phase A parenthesized form."}

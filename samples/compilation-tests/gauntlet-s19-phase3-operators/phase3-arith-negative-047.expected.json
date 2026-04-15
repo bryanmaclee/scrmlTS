@@ -1,0 +1,1 @@
+{"feature":"arith","shape":"unary-negate","expectedOutcome":"clean","expectedCodes":[],"notes":"Unary minus, including on parenthesized expr."}

@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"enum-vs-enum","expectedOutcome":"clean","expectedCodes":[],"notes":"§45.5 enum==enum compares tag+payload."}

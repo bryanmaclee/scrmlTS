@@ -1,0 +1,1 @@
+{"feature":"spread","shape":"in-object","expectedOutcome":"clean","expectedCodes":[],"notes":"Object spread with field override."}

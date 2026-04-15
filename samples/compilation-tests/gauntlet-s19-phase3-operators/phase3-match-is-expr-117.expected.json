@@ -1,0 +1,1 @@
+{"feature":"is","shape":"in-match-arm-body","expectedOutcome":"clean","expectedCodes":[],"notes":"`is` inside a match arm body."}

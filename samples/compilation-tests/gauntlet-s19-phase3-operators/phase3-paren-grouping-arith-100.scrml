@@ -1,0 +1,8 @@
+// paren grouping changes precedence
+${
+    const a = 2 + 3 * 4
+    const b = (2 + 3) * 4
+}
+<program>
+    <p>a=${a} b=${b}</>
+</>

@@ -1,0 +1,7 @@
+// assigning to undeclared identifier — E-ASSIGN-003
+${
+    y = 5
+}
+<program>
+    <p>bad</>
+</>

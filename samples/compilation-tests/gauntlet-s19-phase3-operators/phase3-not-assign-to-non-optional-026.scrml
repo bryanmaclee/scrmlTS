@@ -1,0 +1,7 @@
+// `not` assigned to non-optional type — E-TYPE-041
+${
+    let x: string = not
+}
+<program>
+    <p>bad</>
+</>

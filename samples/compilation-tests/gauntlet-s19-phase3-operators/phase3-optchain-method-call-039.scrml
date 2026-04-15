@@ -1,0 +1,9 @@
+// optional chain with method call `?.()`
+${
+    type Handler:struct = { onFire: () => void }
+    let h: Handler | not = not
+    h?.onFire()
+}
+<program>
+    <p>ok</>
+</>

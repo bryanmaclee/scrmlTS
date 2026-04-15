@@ -1,0 +1,8 @@
+// JS template literal
+${
+    let name = "world"
+    const greet = `hello, ${name}!`
+}
+<program>
+    <p>${greet}</>
+</>

@@ -1,0 +1,1 @@
+{"feature":"ternary","shape":"in-markup-interp","expectedOutcome":"clean","expectedCodes":[],"notes":"Ternary in ${} markup interp."}

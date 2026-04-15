@@ -1,0 +1,1 @@
+{"feature":"is","shape":"in-class-dynamic-attr","expectedOutcome":"clean","expectedCodes":[],"notes":"Dynamic class attr driven by is .Variant predicate."}

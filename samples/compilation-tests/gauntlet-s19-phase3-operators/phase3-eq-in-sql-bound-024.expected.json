@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"inside-sql-where","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Whether `==` is valid SQL syntax inside ?{} is unclear — SQL uses `=`. Spec §8 shows SQL `WHERE id = ${uid}`. A scrml-authored `==` in SQL context may be passed through or rejected. UNKNOWN pending PA sweep."}

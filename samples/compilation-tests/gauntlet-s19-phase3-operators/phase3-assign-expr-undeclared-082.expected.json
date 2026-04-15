@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"undeclared-lvalue","expectedOutcome":"error","expectedCodes":["E-ASSIGN-003"],"notes":"§50.3.5 undeclared lvalue."}

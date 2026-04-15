@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"chained-rhs","expectedOutcome":"clean","expectedCodes":[],"notes":"§50.3.2 right-assoc chain."}

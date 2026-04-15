@@ -1,0 +1,1 @@
+{"feature":"given","shape":"property-path","expectedOutcome":"error","expectedCodes":["E-SYNTAX-044"],"notes":"§42.6 property path in given reserved for future."}

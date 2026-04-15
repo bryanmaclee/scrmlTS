@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"cross-type-number-bool","expectedOutcome":"error","expectedCodes":["E-EQ-001"],"notes":"Cross-type ==: number vs boolean."}

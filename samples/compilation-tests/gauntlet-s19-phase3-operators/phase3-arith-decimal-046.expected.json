@@ -1,0 +1,1 @@
+{"feature":"arith","shape":"decimal","expectedOutcome":"clean","expectedCodes":[],"notes":"Decimal literals in arithmetic."}

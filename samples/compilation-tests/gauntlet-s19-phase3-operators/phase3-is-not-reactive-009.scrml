@@ -1,0 +1,8 @@
+// `is not` on a reactive variable
+${
+    @user: string | not = not
+}
+<program>
+    <p if=(@user is not)>no user</>
+    <p if=(@user is some)>have user</>
+</>

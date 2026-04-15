@@ -1,0 +1,1 @@
+{"feature":"optchain","shape":"property-on-optional","expectedOutcome":"clean","expectedCodes":[],"notes":"`u?.email` on User | not. Result type: string | not."}

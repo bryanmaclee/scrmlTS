@@ -1,0 +1,1 @@
+{"feature":"is","shape":"in-when-guard","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Spec says `is` may appear in `when` guards. But the exact `<#tick when …>` shape usage is inferred. UNKNOWN on whether the #id + when form is accepted here without a backing timer/etc."}

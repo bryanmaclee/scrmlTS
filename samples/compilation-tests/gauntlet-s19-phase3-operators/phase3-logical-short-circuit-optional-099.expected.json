@@ -1,0 +1,1 @@
+{"feature":"logical","shape":"is-some-narrowing-via-and","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Spec §42.2.2a says `is some` does NOT narrow the type. So `u.name` after `u is some && …` may still be a type error (u is T | not). UNKNOWN — in practice may flag E-TYPE on u.name access."}

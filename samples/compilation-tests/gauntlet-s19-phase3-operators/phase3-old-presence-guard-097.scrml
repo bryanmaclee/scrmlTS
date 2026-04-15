@@ -1,0 +1,10 @@
+// old (x) => presence guard — E-SYNTAX-043
+${
+    let name: string | not = "alice"
+    (name) => {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

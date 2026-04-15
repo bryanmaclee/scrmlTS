@@ -1,0 +1,1 @@
+{"feature":"ternary","shape":"const-rhs","expectedOutcome":"clean","expectedCodes":[],"notes":"Basic ternary on const binding."}

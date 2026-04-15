@@ -1,0 +1,1 @@
+{"feature":"eq-strict","shape":"js-triple-eq","expectedOutcome":"error","expectedCodes":["E-EQ-004"],"notes":"JS `===` must be rejected by E-EQ-004 rewriter."}

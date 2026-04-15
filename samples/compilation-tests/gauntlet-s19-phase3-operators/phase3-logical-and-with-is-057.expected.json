@@ -1,0 +1,1 @@
+{"feature":"logical","shape":"and-mixed-is-issome","expectedOutcome":"clean","expectedCodes":[],"notes":"Compound boolean mixing is .Variant and is some."}

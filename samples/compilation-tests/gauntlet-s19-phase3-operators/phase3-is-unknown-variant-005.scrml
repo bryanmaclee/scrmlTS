@@ -1,0 +1,11 @@
+// `is` with a variant name not in the enum — should be E-TYPE-063
+${
+    type Status:enum = { Active, Banned }
+    let s:Status = .Active
+    if (s is .Unknown) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

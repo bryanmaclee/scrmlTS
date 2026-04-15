@@ -1,0 +1,10 @@
+// `is` in a `when` guard — spec says valid (§18.17.2)
+${
+    type Status:enum = { Active, Banned }
+    @s:Status = .Active
+}
+<program>
+    <#tick when @s is .Active />
+        <p>ticking</>
+    </>
+</>

@@ -1,0 +1,1 @@
+{"feature":"logical","shape":"bang-negation","expectedOutcome":"clean","expectedCodes":[],"notes":"`!` is the only boolean negation in scrml (§42.10)."}

@@ -1,0 +1,9 @@
+${
+    let a = true
+    if (!a) {
+        let _neg = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

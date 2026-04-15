@@ -1,0 +1,10 @@
+// .get() returns T | not (§44). Using is not on the result.
+${
+    let row = ?{ SELECT id, name FROM users WHERE id = ${1} }.get()
+    if ((row) is not) {
+        let _missing = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

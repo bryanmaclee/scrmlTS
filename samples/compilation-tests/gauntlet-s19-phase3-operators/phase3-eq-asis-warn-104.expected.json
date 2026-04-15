@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"asis-values","expectedOutcome":"warning","expectedCodes":["W-EQ-001"],"notes":"§45.7 asIs == asIs warns and emits ===."}

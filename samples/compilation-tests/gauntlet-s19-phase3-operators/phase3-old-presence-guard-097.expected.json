@@ -1,0 +1,1 @@
+{"feature":"given","shape":"legacy-paren-arrow","expectedOutcome":"error","expectedCodes":["E-SYNTAX-043"],"notes":"Legacy `(x) =>` presence guard, removed. Note — this may lex as an arrow function expression statement instead of a guard, in which case a different error (possibly parse or unused-expression) fires. UNKNOWN which path the compiler takes."}

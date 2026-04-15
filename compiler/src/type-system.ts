@@ -2648,6 +2648,11 @@ function annotateNodes(
               (n as ASTNodeLike).predicateCheck = { predicate: letAnnoType.predicate, zone: "boundary" };
             }
           } else {
+            // Non-predicated annotation — bind the resolved type for downstream lookups
+            // (e.g. enum-typed variables used in `is .Variant` checks). §S19.
+            if (letAnnoType && letAnnoType.kind !== "asIs") {
+              resolvedType = letAnnoType;
+            }
             // §14: E-TYPE-031 literal-mismatch for unpredicated primitive annotations
             // (number/string/boolean). More elaborate type inference can come later; this
             // catches the common case of `const n: number = "x"`.
@@ -2670,6 +2675,35 @@ function annotateNodes(
                   ));
                 }
               }
+            }
+          }
+          // §42 E-TYPE-041 — `not` assigned to a non-optional type (S19).
+          // Detect bare `not` as initializer (after trimming surrounding parens/whitespace).
+          {
+            const rawInit = ((n as ASTNodeLike).init as string | undefined) ?? "";
+            const trimmedInit = rawInit.trim().replace(/^\(+|\)+$/g, "").trim();
+            if (trimmedInit === "not" && !isOptionalType(resolvedType)) {
+              const notSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+              const varName = ((n as ASTNodeLike).name as string | undefined) ?? "<anonymous>";
+              const typeName = letAnnot.trim();
+              errors.push(new TSError(
+                "E-TYPE-041",
+                `E-TYPE-041: Cannot assign \`not\` to variable \`${varName}\` of type \`${typeName}\`. ` +
+                `Declare the type as \`${typeName} | not\` to allow absence values (§42).`,
+                notSpan,
+              ));
+            }
+          }
+        } else {
+          // No annotation — infer primitive type from literal initializer so that
+          // downstream `is .Variant` checks can report E-TYPE-062 for string/number.
+          const srcInfo = (n as any).initExpr
+            ? classifyLiteralFromExprNode((n as any).initExpr)
+            : extractInitLiteral((n as ASTNodeLike).init);
+          if (srcInfo.kind === "literal") {
+            const actualKind = typeof srcInfo.value;
+            if (actualKind === "string" || actualKind === "number" || actualKind === "boolean") {
+              resolvedType = tPrimitive(actualKind);
             }
           }
         }
@@ -2991,6 +3025,14 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "while-stmt":
       case "if-stmt": {
+        // §S19 — run `is` / `not`-prefix checks on the RAW condition string
+        // (pre-rewrite), so that `not (flag)` and `x is .V` are visible.
+        const rawCondition = ((n as ASTNodeLike).condition as string | undefined) ?? "";
+        if (rawCondition) {
+          const condSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          checkNotPrefixNegation(rawCondition, condSpan, errors);
+          checkIsExpressions(rawCondition, scopeChain, typeRegistry, condSpan, errors);
+        }
         // Phase 4d: ExprNode-first — check condExpr for AssignExpr at root
         const condExprNode = (n as Record<string, unknown>).condExpr as import("./types/ast.ts").ExprNode | undefined;
         const condStr = condExprNode
@@ -3206,6 +3248,119 @@ function checkStructFieldAccess(
         "E-TYPE-004",
         `E-TYPE-004: Struct type \`${type.name}\` does not have a field named \`${fieldName}\`. ` +
         `Available fields: ${type.fields ? [...type.fields.keys()].join(", ") : "(none)"}.`,
+        span,
+      ));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// §42 / §S19 — `is` / `not` prefix checks on raw condition strings (E-TYPE-045,
+// E-TYPE-062, E-TYPE-063). These run on the raw source text of if/while
+// conditions because the ExprNode rewrites `not (expr)` → `!(expr)` and
+// `x is .V` → `__scrml_is_variant__(x, ".V")` before reaching the type checker.
+// ---------------------------------------------------------------------------
+
+/**
+ * Check a raw condition string for `not (expr)` prefix negation — forbidden (§42).
+ * `not` is the absence value only; boolean negation must use `!`.
+ */
+function checkNotPrefixNegation(
+  rawExpr: string,
+  span: Span,
+  errors: TSError[],
+): void {
+  if (!rawExpr || typeof rawExpr !== "string") return;
+  // Walk the string, skipping string-literal content, looking for `not` keyword
+  // followed by `(`. Must not be part of `is not` / `is not not` / `== not` / etc.
+  const NOT_PAREN_RE = /(?<![A-Za-z0-9_$@])not\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = NOT_PAREN_RE.exec(rawExpr)) !== null) {
+    const idx = m.index;
+    // Look backwards for `is ` immediately preceding — that is `is not (…)`, a
+    // parenthesized presence/absence check, which is handled elsewhere.
+    const before = rawExpr.slice(0, idx).trimEnd();
+    if (/\bis$/.test(before)) continue;
+    // Also skip when the preceding token is `==`/`!=`/`===`/`!==` (E-EQ-002 fires).
+    if (/(?:===?|!==?)\s*$/.test(before)) continue;
+    errors.push(new TSError(
+      "E-TYPE-045",
+      "E-TYPE-045: `not (expr)` is not valid as boolean negation — `not` is the unified absence " +
+      "value, not a logical-negation operator. Use `!(expr)` for boolean negation, or " +
+      "`expr is not` to check for absence (§42).",
+      span,
+    ));
+    // Report once per condition to avoid duplicate noise.
+    return;
+  }
+}
+
+/**
+ * Check a raw expression string for `<operand> is .<Variant>` patterns and
+ * verify the operand is enum-typed (E-TYPE-062) and the variant exists on the
+ * enum (E-TYPE-063). Runs only on identifier / reactive-ref operands; complex
+ * expressions (calls, member access) are skipped conservatively.
+ */
+function checkIsExpressions(
+  rawExpr: string,
+  scopeChain: ScopeChain,
+  typeRegistry: Map<string, ResolvedType>,
+  span: Span,
+  errors: TSError[],
+): void {
+  if (!rawExpr || typeof rawExpr !== "string") return;
+  if (!rawExpr.includes(" is ")) return;
+
+  // Match `<ident> is .<Variant>` or `<ident> is <TypeName>.<Variant>`.
+  // Dotted operands (a.b) are allowed in the capture but we only resolve the head.
+  const IS_DOT_RE = /(@?[A-Za-z_$][A-Za-z0-9_$]*)\s+is\s+\.\s*([A-Z][A-Za-z0-9_]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = IS_DOT_RE.exec(rawExpr)) !== null) {
+    const operandName = m[1];
+    const variantName = m[2];
+
+    // Resolve operand type via scopeChain.
+    const entry = scopeChain.lookup(operandName);
+    if (!entry) continue; // Unresolved — E-SCOPE-001 handles it elsewhere.
+
+    let operandType = entry.resolvedType;
+    // Peel union members — if any member is enum, treat as that enum.
+    if (operandType && operandType.kind === "union") {
+      const enumMember = (operandType as UnionType).members.find(
+        (mem: ResolvedType) => mem.kind === "enum",
+      );
+      if (enumMember) operandType = enumMember;
+    }
+
+    if (!operandType || operandType.kind === "asIs" || operandType.kind === "unknown") {
+      // Cannot determine — skip (dumb-type-system: no inference).
+      continue;
+    }
+
+    if (operandType.kind !== "enum") {
+      const typeLabel = operandType.kind === "primitive"
+        ? (operandType as PrimitiveType).name
+        : operandType.kind;
+      errors.push(new TSError(
+        "E-TYPE-062",
+        `E-TYPE-062: Left-hand operand of \`is\` must be an enum-typed value, but ` +
+        `\`${operandName}\` has type \`${typeLabel}\`. ` +
+        `Use \`${operandName} == ${operandName === variantName ? "\"" + variantName + "\"" : "someEnum." + variantName}\` for non-enum comparisons, ` +
+        `or annotate \`${operandName}\` with an enum type (§42).`,
+        span,
+      ));
+      continue;
+    }
+
+    const enumType = operandType as EnumType;
+    const has = (enumType.variants ?? []).some(v => v.name === variantName);
+    if (!has) {
+      const known = (enumType.variants ?? []).map(v => "." + v.name).join(", ");
+      errors.push(new TSError(
+        "E-TYPE-063",
+        `E-TYPE-063: \`.${variantName}\` is not a declared variant of enum \`${enumType.name}\`. ` +
+        `Known variants: ${known || "(none)"}. ` +
+        `Check for a typo or add the variant to the enum declaration (§42).`,
         span,
       ));
     }

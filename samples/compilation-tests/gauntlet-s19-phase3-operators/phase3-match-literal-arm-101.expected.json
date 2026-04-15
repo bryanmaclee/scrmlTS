@@ -1,0 +1,1 @@
+{"feature":"match-literal","shape":"string-arms-with-wildcard","expectedOutcome":"clean","expectedCodes":[],"notes":"§18.16.3 literal string arms + `_` wildcard = no W-MATCH-002."}

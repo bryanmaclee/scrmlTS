@@ -1,0 +1,1 @@
+{"feature":"is-not","shape":"paren-compound-method","expectedOutcome":"clean","expectedCodes":[],"notes":"DQ-12 Phase A: parenthesized method-call compound with is not. Should compile with single-eval temp-var codegen."}

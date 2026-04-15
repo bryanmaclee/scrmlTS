@@ -1,0 +1,1 @@
+{"feature":"given","shape":"multi-var-narrow","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"§42.2.3 multi-var given. Note string + number concat is itself spec-silent (see 059). UNKNOWN on mixed-type concat."}

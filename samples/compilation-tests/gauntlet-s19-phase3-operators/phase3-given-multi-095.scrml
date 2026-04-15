@@ -1,0 +1,11 @@
+// given x, y => multi-var narrowing
+${
+    let a: string | not = "x"
+    let b: number | not = 2
+    given a, b => {
+        let _both = a + " " + b
+    }
+}
+<program>
+    <p>ok</>
+</>

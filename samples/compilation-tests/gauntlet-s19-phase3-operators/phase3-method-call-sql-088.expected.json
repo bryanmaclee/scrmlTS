@@ -1,0 +1,1 @@
+{"feature":"method-call","shape":"sql-chain","expectedOutcome":"clean","expectedCodes":[],"notes":"SQL ?{} chain methods .all/.get/.run."}

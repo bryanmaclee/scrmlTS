@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"single-paren-warning","expectedOutcome":"warning","expectedCodes":["W-ASSIGN-001"],"notes":"Likely `if (x = 5)` accidental-assignment warning."}

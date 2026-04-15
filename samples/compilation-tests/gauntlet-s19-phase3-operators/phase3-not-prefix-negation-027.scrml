@@ -1,0 +1,10 @@
+// `not` used as boolean negation — E-TYPE-045
+${
+    let flag = true
+    if (not (flag)) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

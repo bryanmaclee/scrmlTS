@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"reassign-const","expectedOutcome":"error","expectedCodes":["E-ASSIGN-004"],"notes":"§50.3.5 const immutability."}

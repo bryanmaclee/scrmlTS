@@ -1,0 +1,1 @@
+{"feature":"assign-expr","shape":"in-while-with-is-some","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Spec §50 motivating example used `!== null`, which violates §42. Rewritten here as `is some`. Also — regex literal /.../g syntax: JS standard. Spec doesn't cover regex explicitly. UNKNOWN on regex literal support."}

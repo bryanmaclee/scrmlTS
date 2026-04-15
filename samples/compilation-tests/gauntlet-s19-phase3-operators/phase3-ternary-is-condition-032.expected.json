@@ -1,0 +1,1 @@
+{"feature":"ternary","shape":"is-as-condition","expectedOutcome":"clean","expectedCodes":[],"notes":"§18.17.2: `is` may be used as ternary condition."}

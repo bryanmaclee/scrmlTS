@@ -1,0 +1,1 @@
+{"feature":"nullish","shape":"vs-is-some-ternary","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"In the ternary branch, spec §42.2.2a says `is some` does NOT narrow, so `x` in the true branch may still be `string | not`. Type compatibility of `b` may warn or error. UNKNOWN."}

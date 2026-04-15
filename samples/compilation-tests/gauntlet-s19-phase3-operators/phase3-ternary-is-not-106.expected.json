@@ -1,0 +1,1 @@
+{"feature":"ternary","shape":"is-not-as-condition","expectedOutcome":"clean","expectedCodes":[],"notes":"`is not` as ternary condition."}

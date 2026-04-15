@@ -1,0 +1,8 @@
+${
+    let first = "hello"
+    let last = "world"
+    const both = first + " " + last
+}
+<program>
+    <p>${both}</>
+</>

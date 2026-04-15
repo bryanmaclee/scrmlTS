@@ -1,0 +1,1 @@
+{"feature":"is","shape":"enum-variant-if-cond","expectedOutcome":"clean","expectedCodes":[],"notes":"Basic is .Variant in an if condition over a local enum-typed let."}

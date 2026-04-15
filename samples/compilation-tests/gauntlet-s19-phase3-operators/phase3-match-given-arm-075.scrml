@@ -1,0 +1,13 @@
+// match with given arm (presence) and not arm (absence)
+${
+    let name: string | not = "alice"
+    match name {
+        not      -> handleAbsence()
+        given n  -> handlePresence(n)
+    }
+    function handleAbsence() { let _ = 1 }
+    function handlePresence(s: string) { let _ = 1 }
+}
+<program>
+    <p>ok</>
+</>

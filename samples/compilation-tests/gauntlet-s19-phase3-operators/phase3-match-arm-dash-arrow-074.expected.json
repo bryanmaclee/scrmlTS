@@ -1,0 +1,1 @@
+{"feature":"match-arrow","shape":"dash-arrow-in-arm","expectedOutcome":"clean","expectedCodes":[],"notes":"Canonical match arm syntax: `.Variant -> body`."}

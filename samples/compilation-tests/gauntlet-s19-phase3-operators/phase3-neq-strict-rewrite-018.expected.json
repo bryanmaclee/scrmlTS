@@ -1,0 +1,1 @@
+{"feature":"neq-strict","shape":"js-bang-eq-eq","expectedOutcome":"error","expectedCodes":["E-EQ-004"],"notes":"JS `!==` must be rejected. Spec §45 only defines E-EQ-004 for `===`; `!==` likely shares the code. Document the pair."}

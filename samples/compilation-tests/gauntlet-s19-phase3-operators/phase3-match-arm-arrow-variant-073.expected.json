@@ -1,0 +1,1 @@
+{"feature":"match-arrow","shape":"fat-arrow-in-arm","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Spec §18 grammar uses `->` in match arms. Using `=>` is a common JS reflex. Spec doesn't have a specific code for 'wrong arm arrow'; may be a general syntax error. UNKNOWN code."}

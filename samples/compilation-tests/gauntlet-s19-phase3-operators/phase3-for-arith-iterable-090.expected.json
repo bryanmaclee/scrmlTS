@@ -1,0 +1,1 @@
+{"feature":"arith","shape":"in-for-body-interp","expectedOutcome":"clean","expectedCodes":[],"notes":"Arithmetic inside for-loop markup body."}

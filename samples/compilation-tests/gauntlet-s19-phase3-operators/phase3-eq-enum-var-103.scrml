@@ -1,0 +1,12 @@
+// enum == enum (vs `is .Variant`)
+${
+    type Status:enum = { Active, Banned }
+    let s1:Status = .Active
+    let s2:Status = .Active
+    if (s1 == s2) {
+        let _same = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

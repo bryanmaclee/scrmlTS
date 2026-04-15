@@ -1,0 +1,11 @@
+// `!==` — rewriter should reject. E-EQ-004 (or its pair).
+${
+    let a = 1
+    let b = 2
+    if (a !== b) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

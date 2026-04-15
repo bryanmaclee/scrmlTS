@@ -1,0 +1,1 @@
+{"feature":"is-not","shape":"on-sql-get-result","expectedOutcome":"clean","expectedCodes":[],"notes":"§42.7 `.get()` returns T | not. Canonical absence check on SQL single-row."}

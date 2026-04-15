@@ -1,0 +1,10 @@
+// given x => narrows T | not to T
+${
+    let name: string | not = "alice"
+    given name => {
+        let _upper = name.toUpperCase()
+    }
+}
+<program>
+    <p>ok</>
+</>

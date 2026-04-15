@@ -1,0 +1,10 @@
+${
+    let a = true
+    let b = false
+    if (a && b) {
+        let _ok = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

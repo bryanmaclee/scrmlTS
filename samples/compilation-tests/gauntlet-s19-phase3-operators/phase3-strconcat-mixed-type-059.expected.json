@@ -1,0 +1,1 @@
+{"feature":"strconcat","shape":"string-plus-number","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"JS allows string + number via coercion. Scrml's §45 is about equality, not arithmetic coercion. Whether `+` coerces string+number is spec-silent. Likely error or warning."}

@@ -1,0 +1,1 @@
+{"feature":"logical","shape":"truthy-short-circuit-optional","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Classic JS `u && u.name` truthy-guard. Spec's `is some` does not narrow, so `u.name` may still type-error. Also whether scrml's && accepts T | not as boolean-coercible operand is spec-silent. UNKNOWN."}

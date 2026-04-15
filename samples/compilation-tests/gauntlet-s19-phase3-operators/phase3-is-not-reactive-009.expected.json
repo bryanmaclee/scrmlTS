@@ -1,0 +1,1 @@
+{"feature":"is-not","shape":"reactive-in-if-attr","expectedOutcome":"clean","expectedCodes":[],"notes":"`@x is not` and `@x is some` inside if= markup attribute."}

@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"numeric","expectedOutcome":"clean","expectedCodes":[],"notes":"Primitive number == comparison."}

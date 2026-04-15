@@ -1,0 +1,1 @@
+{"feature":"ternary","shape":"as-return-value","expectedOutcome":"clean","expectedCodes":[],"notes":"Ternary as return expression."}

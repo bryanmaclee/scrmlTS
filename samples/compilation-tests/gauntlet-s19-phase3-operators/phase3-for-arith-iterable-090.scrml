@@ -1,0 +1,11 @@
+// arithmetic producing iterable for `for` loop in markup
+${
+    @items: number[] = [1, 2, 3]
+}
+<program>
+    <ul>
+        <li for @items / lift item />
+            ${item * 2}
+        </>
+    </>
+</>

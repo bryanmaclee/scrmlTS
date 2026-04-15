@@ -1,0 +1,1 @@
+{"feature":"not","shape":"assign-to-optional","expectedOutcome":"clean","expectedCodes":[],"notes":"`let x: T | not = not` — canonical absence assignment."}

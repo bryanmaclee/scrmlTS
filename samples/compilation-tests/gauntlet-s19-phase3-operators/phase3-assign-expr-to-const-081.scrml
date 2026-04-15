@@ -1,0 +1,8 @@
+// assigning to a const — E-ASSIGN-004
+${
+    const x = 1
+    x = 2
+}
+<program>
+    <p>bad</>
+</>

@@ -1,0 +1,1 @@
+{"feature":"optchain","shape":"method-after-optional-prop","expectedOutcome":"clean","expectedCodes":[],"notes":"`u?.name.toUpperCase()` — once the chain's first `?` guards, subsequent access is standard."}

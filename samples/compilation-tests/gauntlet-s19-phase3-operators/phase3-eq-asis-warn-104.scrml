@@ -1,0 +1,11 @@
+// == on asIs — W-EQ-001
+${
+    let x:asIs = 1
+    let y:asIs = 1
+    if (x == y) {
+        let _same = 1
+    }
+}
+<program>
+    <p>warn</>
+</>

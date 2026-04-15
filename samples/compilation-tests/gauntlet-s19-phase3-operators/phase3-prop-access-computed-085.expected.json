@@ -1,0 +1,1 @@
+{"feature":"prop-access","shape":"computed-index","expectedOutcome":"clean","expectedCodes":[],"notes":"Array index access arr[i]."}

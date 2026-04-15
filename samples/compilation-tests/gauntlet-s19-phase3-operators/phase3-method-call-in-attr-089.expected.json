@@ -1,0 +1,1 @@
+{"feature":"method-call","shape":"event-handler-attr","expectedOutcome":"clean","expectedCodes":[],"notes":"Event handler call as attribute."}

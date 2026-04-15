@@ -1,0 +1,1 @@
+{"feature":"spread","shape":"reactive-array-append","expectedOutcome":"clean","expectedCodes":[],"notes":"Canonical reactive array append via spread."}

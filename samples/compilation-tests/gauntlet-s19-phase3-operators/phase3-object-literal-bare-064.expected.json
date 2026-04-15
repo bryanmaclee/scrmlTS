@@ -1,0 +1,1 @@
+{"feature":"object-literal","shape":"typed","expectedOutcome":"clean","expectedCodes":[],"notes":"Struct-typed object literal."}

@@ -1,0 +1,1 @@
+{"feature":"spread","shape":"in-array","expectedOutcome":"clean","expectedCodes":[],"notes":"Array spread. Spec §6.5 uses `[...@items, newItem]` pattern."}

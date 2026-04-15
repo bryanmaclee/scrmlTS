@@ -25,6 +25,7 @@ import { resolveModules } from "./module-resolver.js";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
 import { lintGhostPatterns } from "./lint-ghost-patterns.js";
 import { runGauntletPhase1Checks } from "./gauntlet-phase1-checks.js";
+import { runGauntletPhase3EqChecks } from "./gauntlet-phase3-eq-checks.js";
 
 // ---------------------------------------------------------------------------
 // Directory scanner
@@ -243,6 +244,17 @@ export function compileScrml(options = {}) {
     const bsResult = bsByTab.get(tabResult);
     const checkErrors = stage("GCP1", () => runGauntletPhase1Checks(bsResult, tabResult));
     collectErrors("GCP1", checkErrors);
+  }
+
+  // Stage 3.06: Gauntlet Phase 3 equality checks (§45).
+  // Post-TAB checks that catch equality-operator misuses silently accepted by
+  // the main pipeline. Emits E-EQ-001, E-EQ-002, E-EQ-003, E-EQ-004,
+  // E-SYNTAX-042, W-EQ-001. Repros live under
+  //   samples/compilation-tests/gauntlet-s19-phase3-operators/
+  // (triage: docs/changes/gauntlet-s19/phase3-bugs.md Cat A1–A8).
+  for (const tabResult of tabResults) {
+    const checkErrors = stage("GCP3", () => runGauntletPhase3EqChecks(tabResult));
+    collectErrors("GCP3", checkErrors);
   }
 
   // Stage 3.1: Module Resolution

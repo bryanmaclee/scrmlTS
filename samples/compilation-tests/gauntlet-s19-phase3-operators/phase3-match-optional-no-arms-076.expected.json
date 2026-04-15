@@ -1,0 +1,1 @@
+{"feature":"match-given","shape":"missing-not-arm","expectedOutcome":"error","expectedCodes":["E-MATCH-012"],"notes":"Match on T | not lacking a `not` arm and an `else` arm."}

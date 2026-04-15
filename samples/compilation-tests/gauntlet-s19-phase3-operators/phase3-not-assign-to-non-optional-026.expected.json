@@ -1,0 +1,1 @@
+{"feature":"not","shape":"assign-to-non-optional","expectedOutcome":"error","expectedCodes":["E-TYPE-041"],"notes":"`not` rejected when target type has no `| not` union."}

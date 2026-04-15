@@ -1,0 +1,10 @@
+// reactive array mutation via spread (§6.5)
+${
+    @items: string[] = ["a", "b"]
+    function addItem() {
+        @items = [...@items, "c"]
+    }
+}
+<program>
+    <button onclick=addItem()>add</>
+</>

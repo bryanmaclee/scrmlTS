@@ -1,0 +1,9 @@
+${
+    let x = 5
+    if (x <= 5) {
+        let _ok = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

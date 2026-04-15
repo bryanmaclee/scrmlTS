@@ -1,0 +1,8 @@
+// arrow with no params
+${
+    const getFive = () => 5
+    const n = getFive()
+}
+<program>
+    <p>${n}</>
+</>

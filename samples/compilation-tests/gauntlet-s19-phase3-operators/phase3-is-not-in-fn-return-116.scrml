@@ -1,0 +1,14 @@
+// using is not inside a `fn` pure function
+${
+    fn safeDiv(a: number, b: number) -> number | not {
+        if (b == 0) {
+            return not
+        }
+        return a / b
+    }
+    const r = safeDiv(10, 0)
+    const label = r is not ? "nope" : "ok"
+}
+<program>
+    <p>${label}</>
+</>

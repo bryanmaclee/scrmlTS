@@ -1,0 +1,1 @@
+{"feature":"is-not","shape":"in-sql-context","expectedOutcome":"clean","expectedCodes":[],"notes":"Inside ?{}, SQL's native IS NULL is used, not scrml's `is not`. Both should round-trip to the DB intact. Verifying the sigil boundary doesn't mis-transform."}

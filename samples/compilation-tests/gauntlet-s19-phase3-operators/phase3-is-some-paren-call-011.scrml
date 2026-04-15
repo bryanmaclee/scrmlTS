@@ -1,0 +1,12 @@
+// Parenthesized compound: function call then `is some`
+${
+    function getUser(id: number) -> string | not {
+        return "alice"
+    }
+    if ((getUser(1)) is some) {
+        let _ok = 1
+    }
+}
+<program>
+    <p>ok</>
+</>

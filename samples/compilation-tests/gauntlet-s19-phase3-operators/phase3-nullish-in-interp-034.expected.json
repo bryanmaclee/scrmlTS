@@ -1,0 +1,1 @@
+{"feature":"nullish","shape":"in-markup-interp","expectedOutcome":"clean","expectedCodes":[],"notes":"§6: example of @currentPrice ?? 'Loading...' in markup."}

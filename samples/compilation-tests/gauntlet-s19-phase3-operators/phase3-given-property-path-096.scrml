@@ -1,0 +1,11 @@
+// given with property path — E-SYNTAX-044 reserved
+${
+    type User:struct = { name: string | not }
+    let u:User = { name: "alice" }
+    given u.name => {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

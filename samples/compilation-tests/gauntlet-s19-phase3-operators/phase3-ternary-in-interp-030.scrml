@@ -1,0 +1,7 @@
+// ternary inside markup interpolation
+${
+    @count = 0
+}
+<program>
+    <p>${@count == 0 ? "empty" : "has items"}</>
+</>

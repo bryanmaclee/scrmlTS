@@ -1,0 +1,1 @@
+{"feature":"is","shape":"non-enum-operand","expectedOutcome":"error","expectedCodes":["E-TYPE-062"],"notes":"Left-hand operand of `is` is a string, must be enum-typed."}

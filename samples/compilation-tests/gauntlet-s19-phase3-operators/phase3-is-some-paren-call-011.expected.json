@@ -1,0 +1,1 @@
+{"feature":"is-some","shape":"paren-compound-call","expectedOutcome":"clean","expectedCodes":[],"notes":"DQ-12 Phase A: parenthesized function-call compound with is some."}

@@ -1,0 +1,1 @@
+{"feature":"is","shape":"inside-quoted-string-attr","expectedOutcome":"clean","expectedCodes":[],"notes":"Inside quoted attr value, `is` is just text, not an operator. Sanity test for quoting boundary."}

@@ -1,0 +1,1 @@
+{"feature":"ternary","shape":"nested","expectedOutcome":"clean","expectedCodes":[],"notes":"Right-associative chained ternary."}

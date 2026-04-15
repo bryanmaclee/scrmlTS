@@ -1,0 +1,7 @@
+// `not` assignment to optional var
+${
+    let x: string | not = not
+}
+<program>
+    <p>ok</>
+</>

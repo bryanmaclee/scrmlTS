@@ -1,0 +1,1 @@
+{"feature":"eq","shape":"struct-deep","expectedOutcome":"clean","expectedCodes":[],"notes":"Deep structural equality on structs — §45.2."}

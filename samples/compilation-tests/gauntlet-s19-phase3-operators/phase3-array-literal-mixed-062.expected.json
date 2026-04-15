@@ -1,0 +1,1 @@
+{"feature":"array-literal","shape":"of-structs","expectedOutcome":"clean","expectedCodes":[],"notes":"Array of struct literals, multiline."}

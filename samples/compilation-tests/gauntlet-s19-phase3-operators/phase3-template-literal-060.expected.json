@@ -1,0 +1,1 @@
+{"feature":"strconcat","shape":"template-literal","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"Backtick template literals from JS. Spec doesn't mention them explicitly — scrml uses ${} interp in markup, which looks like template literal but isn't. UNKNOWN whether JS template literals are valid in logic contexts."}

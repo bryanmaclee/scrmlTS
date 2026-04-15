@@ -1,0 +1,11 @@
+// `0 == false` — E-EQ-001 cross-type
+${
+    let n = 0
+    let b = false
+    if (n == b) {
+        let _bad = 1
+    }
+}
+<program>
+    <p>bad</>
+</>

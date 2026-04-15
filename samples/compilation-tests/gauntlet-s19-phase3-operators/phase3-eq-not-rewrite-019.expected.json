@@ -1,0 +1,1 @@
+{"feature":"eq-not","shape":"x-eq-not","expectedOutcome":"error","expectedCodes":["E-EQ-002"],"notes":"`x == not` must be rewritten to E-EQ-002. Spec §42.3.2 and §45.7."}
