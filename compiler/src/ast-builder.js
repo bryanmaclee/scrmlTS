@@ -1926,8 +1926,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
             variable = consume().text;
           }
-          // skip `of` or `in`
-          if (peek().kind === "KEYWORD" && (peek().text === "of" || peek().text === "in")) {
+          // Accept `of` (scrml canonical); reject `in` (JS-reflex).
+          if (peek().kind === "KEYWORD" && peek().text === "in") {
+            const inTok = peek();
+            errors.push(new TABError(
+              "E-CTRL-011",
+              "E-CTRL-011: `for (... in ...)` is not supported — scrml uses `for (" + (variable || "item") + " of <iterable>)`. " +
+              "`in` iterates object keys in JavaScript; scrml iterates values via `of`.",
+              tokenSpan(inTok, filePath),
+            ));
+            consume();
+          } else if (peek().kind === "KEYWORD" && peek().text === "of") {
             consume();
           }
           // collect iterable expression up to `)`
@@ -2090,10 +2099,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       };
     }
 
-    // THROW: `throw ErrorType("message")` or `throw ErrorType("msg", cause: e)`
+    // THROW: scrml §19 Appendix B replaces `throw` with `fail`. Reject at parse time.
     if (tok.kind === "KEYWORD" && tok.text === "throw") {
       const startTok = consume();
-      const { expr, span } = collectExpr();
+      const { expr } = collectExpr();
+      errors.push(new TABError(
+        "E-ERROR-006",
+        "E-ERROR-006: `throw` is not a scrml keyword — §19 replaces it with `fail`. " +
+        "Declare the enclosing function as failable (`function name(...)! -> ErrorType`) " +
+        "and use `fail ErrorType::Variant(...)` to surface the error.",
+        tokenSpan(startTok, filePath),
+      ));
       return {
         id: ++counter.next,
         kind: "throw-stmt",
@@ -2178,6 +2194,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (tok.kind === "KEYWORD" && (tok.text === "switch" || tok.text === "try" || tok.text === "match")) {
       const startTok = consume();
       const keyword = startTok.text;
+      // §19 explicitly: "There is NO try/catch." Use `!{}` instead.
+      if (keyword === "try") {
+        errors.push(new TABError(
+          "E-ERROR-007",
+          "E-ERROR-007: `try` is not a scrml keyword — §19 has no try/catch/finally. " +
+          "Handle failable calls with `!{ ::Variant(e) -> ... }`, the `?` propagation " +
+          "operator, or by matching the result enum.",
+          tokenSpan(startTok, filePath),
+        ));
+      }
       const { expr: header } = collectExpr("{");
       let body = [];
       if (peek().text === "{") {
@@ -3861,8 +3887,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
             variable = consume().text;
           }
-          // skip `of` or `in`
-          if (peek().kind === "KEYWORD" && (peek().text === "of" || peek().text === "in")) {
+          // Accept `of` (scrml canonical); reject `in` (JS-reflex).
+          if (peek().kind === "KEYWORD" && peek().text === "in") {
+            const inTok = peek();
+            errors.push(new TABError(
+              "E-CTRL-011",
+              "E-CTRL-011: `for (... in ...)` is not supported — scrml uses `for (" + (variable || "item") + " of <iterable>)`. " +
+              "`in` iterates object keys in JavaScript; scrml iterates values via `of`.",
+              tokenSpan(inTok, filePath),
+            ));
+            consume();
+          } else if (peek().kind === "KEYWORD" && peek().text === "of") {
             consume();
           }
           // collect iterable expression up to `)`
@@ -4023,10 +4058,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // THROW STATEMENT: `throw ErrorType("message")`
+    // THROW STATEMENT: §19 Appendix B replaces `throw` with `fail`.
     if (tok.kind === "KEYWORD" && tok.text === "throw") {
       const startTok = consume();
       const { expr } = collectExpr();
+      errors.push(new TABError(
+        "E-ERROR-006",
+        "E-ERROR-006: `throw` is not a scrml keyword — §19 replaces it with `fail`. " +
+        "Declare the enclosing function as failable (`function name(...)! -> ErrorType`) " +
+        "and use `fail ErrorType::Variant(...)` to surface the error.",
+        tokenSpan(startTok, filePath),
+      ));
       nodes.push({
         id: ++counter.next,
         kind: "throw-stmt",
@@ -4063,6 +4105,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (tok.kind === "KEYWORD" && (tok.text === "switch" || tok.text === "try" || tok.text === "match")) {
       const startTok = consume();
       const keyword = startTok.text;
+      if (keyword === "try") {
+        errors.push(new TABError(
+          "E-ERROR-007",
+          "E-ERROR-007: `try` is not a scrml keyword — §19 has no try/catch/finally. " +
+          "Handle failable calls with `!{ ::Variant(e) -> ... }`, the `?` propagation " +
+          "operator, or by matching the result enum.",
+          tokenSpan(startTok, filePath),
+        ));
+      }
       const { expr: header } = collectExpr("{");
       let body = [];
       if (peek().text === "{") {
