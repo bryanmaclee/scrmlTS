@@ -1,0 +1,1 @@
+{"feature":"match","shape":"duplicate-variant-arm","expectedOutcome":"error","expectedCodes":["E-TYPE-023"],"notes":"§18.8.1."}

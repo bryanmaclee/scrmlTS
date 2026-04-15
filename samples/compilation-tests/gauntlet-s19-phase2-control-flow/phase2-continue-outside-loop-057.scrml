@@ -1,0 +1,7 @@
+// continue outside any loop — E-LOOP-002
+${
+    continue
+}
+<program>
+    <p>ok</>
+</>

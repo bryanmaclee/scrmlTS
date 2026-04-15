@@ -1,0 +1,8 @@
+// when with empty body — W-LIFECYCLE-010
+<program>
+    ${
+        @q: string = ""
+        when @q changes {}
+    }
+    <p>ok</>
+</>

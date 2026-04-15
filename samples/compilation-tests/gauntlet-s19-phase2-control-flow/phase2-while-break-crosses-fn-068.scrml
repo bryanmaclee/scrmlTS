@@ -1,0 +1,12 @@
+// break crosses function boundary — E-LOOP-005
+${
+    let i = 0
+    while (i < 3) {
+        let fn = () => { break }
+        fn()
+        i = i + 1
+    }
+}
+<program>
+    <p>ok</>
+</>

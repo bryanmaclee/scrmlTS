@@ -1,0 +1,12 @@
+// given x, y => { body } — presence guard, multi var
+${
+    let first: string | not = "a"
+    let last: string | not = "b"
+    given first, last => {
+        log(first + " " + last)
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

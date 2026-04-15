@@ -1,0 +1,13 @@
+// match directly in markup (outside ${}) — E-TYPE-026
+${
+    type Status:enum = { On, Off }
+    @s: Status = .On
+}
+<program>
+    <div>
+        match @s {
+            .On  => <p>on</>
+            .Off => <p>off</>
+        }
+    </>
+</>

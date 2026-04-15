@@ -1,0 +1,9 @@
+// extending chain past terminal else — E-CTRL-003
+${ @flag: bool = true }
+<program>
+    <div>
+        <span if=@flag>a</>
+        <span else>b</>
+        <span else>c</>
+    </>
+</>

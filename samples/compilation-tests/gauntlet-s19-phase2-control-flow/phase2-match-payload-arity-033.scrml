@@ -1,0 +1,13 @@
+// Payload arity mismatch — E-TYPE-021
+${
+    type Shape:enum = { Rect(w: number, h: number) }
+    let s:Shape = .Rect(3, 4)
+    let x = match s {
+        .Rect(w) => w
+    }
+    log(x)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

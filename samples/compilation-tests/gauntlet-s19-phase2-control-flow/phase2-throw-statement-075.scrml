@@ -1,0 +1,10 @@
+// throw — §19 says `throw` replaced by `fail` (§19 appendix B / SPEC-ISSUE-011)
+${
+    function risky() {
+        if (true) { throw "bad" }
+    }
+    risky()
+}
+<program>
+    <p>ok</>
+</>

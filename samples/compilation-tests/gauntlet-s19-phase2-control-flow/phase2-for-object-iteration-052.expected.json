@@ -1,0 +1,1 @@
+{"feature":"for-lift","shape":"object-collection-no-key","expectedOutcome":"warning","expectedCodes":["W-KEY-001"],"notes":"§17.4b MAY emit W-KEY-001 for object collections without key."}

@@ -1,0 +1,11 @@
+// Partial if-as-expr followed by ~ read — E-TILDE-001 (§17.6.5/6)
+${
+    let cond = true
+    if (cond) lift 5
+    let dbl = ~ * 2
+    log(dbl)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

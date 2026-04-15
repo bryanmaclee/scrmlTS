@@ -1,0 +1,1 @@
+{"feature":"match","shape":"canonical-fat-arrow","expectedOutcome":"clean","expectedCodes":[],"notes":"§18.2 canonical arrow is =>. Both => and -> accepted."}

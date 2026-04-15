@@ -1,0 +1,1 @@
+{"feature":"partial-match","shape":"unnecessary-partial","expectedOutcome":"warning","expectedCodes":["W-MATCH-003"],"notes":"§18.18."}

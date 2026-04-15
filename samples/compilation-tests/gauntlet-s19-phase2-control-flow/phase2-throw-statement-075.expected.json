@@ -1,0 +1,1 @@
+{"feature":"throw","shape":"bare-throw-string","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"§19 Appendix B: 'throw is replaced by fail'. UNKNOWN code but expect syntax/semantic rejection."}

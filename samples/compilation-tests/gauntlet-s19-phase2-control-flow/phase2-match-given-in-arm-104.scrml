@@ -1,0 +1,13 @@
+// match arm with given identifier pattern for T | not (§42.2.3)
+${
+    let name: string | not = "alice"
+    let out = match name {
+        not      => "absent"
+        given n  => "hi " + n
+    }
+    log(out)
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

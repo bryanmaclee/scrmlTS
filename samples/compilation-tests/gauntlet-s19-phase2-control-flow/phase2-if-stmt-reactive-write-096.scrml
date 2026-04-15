@@ -1,0 +1,13 @@
+// if body writes to reactive @var (outside component — just logic scope)
+<program>
+    ${
+        @count: number = 0
+        function bump() {
+            if (@count < 10) {
+                @count = @count + 1
+            }
+        }
+        bump()
+    }
+    <p>${@count}</>
+</>

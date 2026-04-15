@@ -1,0 +1,13 @@
+// match on struct — E-TYPE-024
+${
+    type Point:struct = { x: number, y: number }
+    let p:Point = { x: 1, y: 2 }
+    let v = match p {
+        else => 0
+    }
+    log(v)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

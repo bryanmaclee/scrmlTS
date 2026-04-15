@@ -1,0 +1,16 @@
+// match with canonical => arrow (§18.2)
+${
+    type Dir:enum = { North, South, East, West }
+    let d:Dir = .North
+    let s = match d {
+        .North => "up"
+        .South => "down"
+        .East  => "right"
+        .West  => "left"
+    }
+    log(s)
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

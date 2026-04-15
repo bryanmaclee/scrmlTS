@@ -1,0 +1,15 @@
+// Duplicate label identifiers — E-LOOP-006
+${
+    let i = 0
+    L: while (i < 3) {
+        i = i + 1
+    }
+    L: while (i < 5) {
+        i = i + 1
+    }
+    log(i)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

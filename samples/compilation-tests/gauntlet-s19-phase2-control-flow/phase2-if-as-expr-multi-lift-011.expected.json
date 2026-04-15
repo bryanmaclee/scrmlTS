@@ -1,0 +1,1 @@
+{"feature":"if-as-expression","shape":"multiple-lifts-same-path","expectedOutcome":"error","expectedCodes":["E-LIFT-002"],"notes":"§17.6.9 example 6."}

@@ -1,0 +1,11 @@
+// Calling ! fn without handling — E-ERROR-002
+${
+    type E:enum = { Bad }
+    function risky()! -> E {
+        return 1
+    }
+    risky()
+}
+<program>
+    <p>ok</>
+</>

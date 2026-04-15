@@ -1,0 +1,1 @@
+{"feature":"match","shape":"guard-clause-excluded","expectedOutcome":"error","expectedCodes":["E-SYNTAX-011"],"notes":"§18.10 — guard clauses excluded in v1."}

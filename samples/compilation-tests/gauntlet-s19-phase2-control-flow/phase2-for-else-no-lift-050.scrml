@@ -1,0 +1,13 @@
+// for with else but no lift — E-CTRL-010 (§17.4a)
+${
+    @items: string[] = []
+    for (let item of @items) {
+        log(item)
+    } else {
+        log("empty")
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

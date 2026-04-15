@@ -1,0 +1,1 @@
+{"feature":"while","shape":"lift-accumulate-to-tilde","expectedOutcome":"clean","expectedCodes":["UNKNOWN"],"notes":"§49.6.1 shows this pattern but places the while directly in enclosing ${}. I wrapped with a nested ${} to get ~ to accumulate here since outer is already logic context. Unclear whether outer or inner ${} is canonical."}

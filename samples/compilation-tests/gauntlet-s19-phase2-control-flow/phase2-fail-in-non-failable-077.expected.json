@@ -1,0 +1,1 @@
+{"feature":"fail","shape":"in-non-failable-fn","expectedOutcome":"error","expectedCodes":["E-ERROR-001"],"notes":"§19.3.3."}

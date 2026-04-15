@@ -1,0 +1,1 @@
+{"feature":"while","shape":"assign-expr-single-paren","expectedOutcome":"warning","expectedCodes":["W-ASSIGN-001"],"notes":"§50.2.3 — single-paren assign-as-condition warns."}

@@ -1,0 +1,1 @@
+{"feature":"match","shape":"bare-in-markup","expectedOutcome":"error","expectedCodes":["E-TYPE-026"],"notes":"§18.9 — match not valid as direct markup child."}

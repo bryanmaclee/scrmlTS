@@ -1,0 +1,14 @@
+// Guard clause — §18.10 EXPLICITLY EXCLUDED in v1, E-SYNTAX-011
+${
+    type Shape:enum = { Circle(r: number), Point }
+    let s:Shape = .Circle(2)
+    let v = match s {
+        .Circle(r) if r > 0 => r
+        else                => 0
+    }
+    log(v)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

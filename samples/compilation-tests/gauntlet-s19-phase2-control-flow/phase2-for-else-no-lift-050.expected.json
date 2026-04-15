@@ -1,0 +1,1 @@
+{"feature":"for-else","shape":"no-lift-with-else","expectedOutcome":"error","expectedCodes":["E-CTRL-010"],"notes":"§17.4a normative."}

@@ -1,0 +1,9 @@
+// break references undefined label — E-LOOP-003
+${
+    outer: while (true) {
+        break inner
+    }
+}
+<program>
+    <p>ok</>
+</>

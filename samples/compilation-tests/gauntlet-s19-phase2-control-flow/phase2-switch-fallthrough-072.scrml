@@ -1,0 +1,15 @@
+// switch with fallthrough — another JS reflex
+${
+    let n = 1
+    switch (n) {
+        case 1:
+        case 2:
+            log("low"); break
+        case 3:
+            log("three"); break
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

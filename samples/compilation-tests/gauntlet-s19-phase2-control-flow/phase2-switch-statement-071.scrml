@@ -1,0 +1,13 @@
+// switch — not a scrml construct. Ghost from JS. Expect rejection.
+${
+    let n = 2
+    switch (n) {
+        case 1: log("one"); break
+        case 2: log("two"); break
+        default: log("other")
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

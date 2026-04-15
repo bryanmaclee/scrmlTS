@@ -1,0 +1,9 @@
+// Bare while used in expr position — E-LOOP-007
+${
+    let x = while (false) { lift 1 }
+    log(x)
+    function log(n: asIs) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

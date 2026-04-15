@@ -1,0 +1,12 @@
+// while (x = 1) — assignment as condition, single paren → W-ASSIGN-001
+${
+    let x = 0
+    while (x = readNext()) {
+        log(x)
+    }
+    function readNext(): number { return 0 }
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

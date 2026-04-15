@@ -1,0 +1,1 @@
+{"feature":"when","shape":"nested","expectedOutcome":"error","expectedCodes":["E-LIFECYCLE-016"],"notes":"§6.7.4."}

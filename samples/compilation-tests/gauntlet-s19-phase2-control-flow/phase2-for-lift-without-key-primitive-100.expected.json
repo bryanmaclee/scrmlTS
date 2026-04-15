@@ -1,0 +1,1 @@
+{"feature":"for-lift","shape":"primitive-no-key","expectedOutcome":"clean","expectedCodes":[],"notes":"§17.4b: W-KEY-001 MAY fire for object collections; primitives should pass clean."}

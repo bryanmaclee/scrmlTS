@@ -1,0 +1,12 @@
+// given with property path — E-SYNTAX-044 reserved (§42.2.3)
+${
+    type User:struct = { name: string | not }
+    let u: User = { name: "alice" }
+    given u.name => {
+        log(u.name)
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

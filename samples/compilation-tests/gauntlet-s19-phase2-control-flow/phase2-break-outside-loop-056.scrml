@@ -1,0 +1,9 @@
+// break outside any loop — E-LOOP-001
+${
+    let x = compute()
+    break
+    function compute(): number { return 1 }
+}
+<program>
+    <p>ok</>
+</>

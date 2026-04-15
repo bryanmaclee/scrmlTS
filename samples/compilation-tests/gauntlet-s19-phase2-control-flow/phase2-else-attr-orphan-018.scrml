@@ -1,0 +1,7 @@
+// else with no preceding if= — E-CTRL-001
+<program>
+    <div>
+        <p>static</>
+        <span else>orphan</>
+    </>
+</>

@@ -1,0 +1,1 @@
+{"feature":"try-catch","shape":"js-try-catch","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"§19 explicitly: 'There is NO try/catch.' Error values flow through type system. UNKNOWN specific code."}

@@ -1,0 +1,1 @@
+{"feature":"else-attr","shape":"orphan-no-preceding-if","expectedOutcome":"error","expectedCodes":["E-CTRL-001"],"notes":"§17.1.1 example 2."}

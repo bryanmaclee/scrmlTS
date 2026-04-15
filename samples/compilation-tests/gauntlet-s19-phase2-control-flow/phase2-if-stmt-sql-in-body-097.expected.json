@@ -1,0 +1,1 @@
+{"feature":"if-stmt","shape":"sql-in-body-server-escalation","expectedOutcome":"clean","expectedCodes":[],"notes":"protect= forces server route per §11; if body just gates the call."}

@@ -1,0 +1,1 @@
+{"feature":"if-as-expression","shape":"arms-produce-union","expectedOutcome":"clean","expectedCodes":[],"notes":"§17.6.2: 'arms lift different types, the result type is their union'."}

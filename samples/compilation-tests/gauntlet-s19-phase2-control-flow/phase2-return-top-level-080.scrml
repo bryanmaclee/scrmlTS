@@ -1,0 +1,8 @@
+// Top-level return in ${} — outside any function. Spec silent; expect rejection.
+${
+    let x = 5
+    return x
+}
+<program>
+    <p>ok</>
+</>

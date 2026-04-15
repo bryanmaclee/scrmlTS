@@ -1,0 +1,1 @@
+{"feature":"switch","shape":"fallthrough","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Same as 071 — switch absent from language."}

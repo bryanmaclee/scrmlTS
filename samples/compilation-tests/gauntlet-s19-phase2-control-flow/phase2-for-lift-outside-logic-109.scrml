@@ -1,0 +1,8 @@
+// for/lift directly in markup (no surrounding ${}). Per §17.4 iteration is always via ${}.
+<program>
+    <ul>
+        for (let x of [1,2,3]) {
+            lift <li>${x}/
+        }
+    </>
+</>

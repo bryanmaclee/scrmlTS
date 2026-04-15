@@ -1,0 +1,1 @@
+{"feature":"break","shape":"crosses-arrow-fn-boundary","expectedOutcome":"error","expectedCodes":["E-LOOP-005"],"notes":"§49.4.3."}

@@ -1,0 +1,12 @@
+// given x => { body } — presence guard, single var
+${
+    let name: string | not = "alice"
+    given name => {
+        let upper = name.toUpperCase()
+        log(upper)
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

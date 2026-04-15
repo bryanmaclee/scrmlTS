@@ -1,0 +1,12 @@
+// animationFrame inside element scope (§6.7.9) — canonical draw loop
+<program>
+    <canvas ref=@canvasEl width="800" height="600">
+        ${
+            function draw() {
+                let _ = @canvasEl
+                animationFrame(draw)
+            }
+            animationFrame(draw)
+        }
+    </>
+</>

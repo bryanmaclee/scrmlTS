@@ -1,0 +1,13 @@
+// for (x of xs) — untyped binding (no let/const), per §17.4 and samples pattern
+${
+    let xs = [1, 2, 3]
+    let total = 0
+    for (x of xs) {
+        total = total + x
+    }
+    log(total)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

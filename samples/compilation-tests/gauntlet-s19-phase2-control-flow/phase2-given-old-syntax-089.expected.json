@@ -1,0 +1,1 @@
+{"feature":"given","shape":"old-paren-syntax","expectedOutcome":"error","expectedCodes":["E-SYNTAX-043"],"notes":"§42.2.3 — old (x) => form removed."}

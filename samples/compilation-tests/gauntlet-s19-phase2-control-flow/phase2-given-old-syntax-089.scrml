@@ -1,0 +1,11 @@
+// Old (x) => form — E-SYNTAX-043 (§42.2.3)
+${
+    let name: string | not = "alice"
+    (name) => {
+        log(name)
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

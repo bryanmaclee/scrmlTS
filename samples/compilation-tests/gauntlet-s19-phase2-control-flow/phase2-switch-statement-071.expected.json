@@ -1,0 +1,1 @@
+{"feature":"switch","shape":"js-switch-case","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Spec defines no `switch`. scrml uses `match`. JS reflex — expect syntax error. UNKNOWN code."}

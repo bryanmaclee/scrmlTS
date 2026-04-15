@@ -1,0 +1,1 @@
+{"feature":"match","shape":"colon-gt-arrow","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Spec §18.2 grammar lists => and -> only. :> is not defined. Likely syntax error but no specific code."}

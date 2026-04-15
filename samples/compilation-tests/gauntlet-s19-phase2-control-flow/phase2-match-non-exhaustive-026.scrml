@@ -1,0 +1,14 @@
+// Missing variant — E-TYPE-020
+${
+    type Status:enum = { Active, Banned, Pending }
+    let s:Status = .Active
+    let x = match s {
+        .Active => 1
+        .Banned => 2
+    }
+    log(x)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

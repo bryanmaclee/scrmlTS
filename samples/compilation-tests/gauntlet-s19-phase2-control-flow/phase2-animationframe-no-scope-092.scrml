@@ -1,0 +1,10 @@
+// animationFrame outside element scope — E-LIFECYCLE-017
+${
+    function draw() {
+        animationFrame(draw)
+    }
+    animationFrame(draw)
+}
+<program>
+    <p>ok</>
+</>

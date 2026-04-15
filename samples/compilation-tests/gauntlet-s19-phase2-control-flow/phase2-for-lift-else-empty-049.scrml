@@ -1,0 +1,13 @@
+// for/lift with else block for empty state (§17.4a)
+${
+    @items: string[] = []
+}
+<program>
+    <ul>
+        ${ for (let item of @items) {
+            lift <li>${item}/
+        } else {
+            lift <li class="empty">No items./
+        } }
+    </>
+</>

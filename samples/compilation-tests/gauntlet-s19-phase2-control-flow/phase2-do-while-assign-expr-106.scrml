@@ -1,0 +1,15 @@
+// do-while with (double-parenthesized) assign-expr condition
+${
+    let s = "abc"
+    let idx = -1
+    let c = ""
+    do {
+        idx = idx + 1
+        c = s[idx] ?? ""
+    } while ((c != "" && idx < s.length))
+    log(idx)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

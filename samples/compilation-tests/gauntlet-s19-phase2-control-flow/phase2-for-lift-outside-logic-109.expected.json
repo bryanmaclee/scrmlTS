@@ -1,0 +1,1 @@
+{"feature":"for-lift","shape":"in-markup-without-sigil","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"§17.4 example always wraps `for` in ${}. Writing bare `for` as markup content is not documented — expect parse error or treated as text."}

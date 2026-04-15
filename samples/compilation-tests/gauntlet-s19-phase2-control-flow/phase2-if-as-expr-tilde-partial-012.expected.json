@@ -1,0 +1,1 @@
+{"feature":"if-as-expression","shape":"tilde-after-no-else","expectedOutcome":"error","expectedCodes":["E-TILDE-001"],"notes":"§17.6.6 static analysis rule."}

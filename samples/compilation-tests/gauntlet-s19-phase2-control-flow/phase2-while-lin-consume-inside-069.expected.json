@@ -1,0 +1,1 @@
+{"feature":"while","shape":"lin-consumed-in-body","expectedOutcome":"error","expectedCodes":["E-LIN-002"],"notes":"§49.5.3 — lin outside loop, consumed inside → multi-execution."}

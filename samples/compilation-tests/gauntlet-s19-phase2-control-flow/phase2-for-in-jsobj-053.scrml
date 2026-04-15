@@ -1,0 +1,11 @@
+// for (k in obj) — JS for-in. Spec is silent; not documented in scrml.
+${
+    let obj = { a: 1, b: 2 }
+    for (let k in obj) {
+        log(k)
+    }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

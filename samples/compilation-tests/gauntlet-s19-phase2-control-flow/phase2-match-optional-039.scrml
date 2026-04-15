@@ -1,0 +1,13 @@
+// match over T | not with .Some / .None
+${
+    let val: string | not = "hi"
+    let out = match val {
+        .Some(s) => "got: ${s}"
+        .None    => "nothing"
+    }
+    log(out)
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

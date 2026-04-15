@@ -1,0 +1,1 @@
+{"feature":"if-as-expression","shape":"no-else-T-or-not","expectedOutcome":"clean","expectedCodes":[],"notes":"§17.6.9 example 2."}

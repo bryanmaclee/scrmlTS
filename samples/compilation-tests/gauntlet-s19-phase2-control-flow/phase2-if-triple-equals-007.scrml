@@ -1,0 +1,10 @@
+// Triple-equals — per §45 scrml has only == (rewritten from ===). Used inside if condition.
+${
+    let x = 1
+    if (x === 1) { x = 2 }
+    log(x)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

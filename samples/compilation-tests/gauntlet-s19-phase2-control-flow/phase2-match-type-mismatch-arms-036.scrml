@@ -1,0 +1,14 @@
+// Arms produce incompatible types — E-TYPE-001
+${
+    type Flag:enum = { On, Off }
+    let f:Flag = .On
+    let x = match f {
+        .On  => "yes"
+        .Off => 42
+    }
+    log(x)
+    function log(v: asIs) { let _ = v }
+}
+<program>
+    <p>ok</>
+</>

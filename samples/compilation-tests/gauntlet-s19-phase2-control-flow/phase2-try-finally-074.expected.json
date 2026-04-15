@@ -1,0 +1,1 @@
+{"feature":"try-finally","shape":"try-finally-no-catch","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"§19 — no try-anything."}

@@ -1,0 +1,14 @@
+// lin variable consumed inside while body — E-LIN-002 (§49.5.3)
+${
+    lin token = acquireToken()
+    let i = 0
+    while (i < 3) {
+        use(token)
+        i = i + 1
+    }
+    function acquireToken(): lin string { return "tok" }
+    function use(t: lin string) { let _ = t }
+}
+<program>
+    <p>ok</>
+</>

@@ -1,0 +1,19 @@
+// if body calls SQL — triggers server escalation
+<program>
+    < users protect="password" {
+        name: string,
+        password: string
+    } />
+    ${
+        @q: string = ""
+        function lookup() {
+            if (@q.length > 0) {
+                let rows = ?{`SELECT name FROM users WHERE name = ${@q}`}.all()
+                log(rows.length)
+            }
+        }
+        function log(n: number) { let _ = n }
+        lookup()
+    }
+    <p>ok</>
+</>

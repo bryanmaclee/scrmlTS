@@ -1,0 +1,1 @@
+{"feature":"if-stmt","shape":"triple-equals-condition","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"§45 mandates single ==. Phase 3 fixtures 017/018 covered strict-rewrite. Here the trap is strict-eq inside an if condition — expect same rewrite/warning behavior."}

@@ -1,0 +1,1 @@
+{"feature":"if-attr","shape":"chain-broken-by-unrelated-sibling","expectedOutcome":"error","expectedCodes":["E-CTRL-001"],"notes":"§17.1.1 'immediately following' rule."}

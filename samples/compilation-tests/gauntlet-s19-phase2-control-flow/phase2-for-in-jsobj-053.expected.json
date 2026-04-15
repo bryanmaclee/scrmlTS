@@ -1,0 +1,1 @@
+{"feature":"for-in","shape":"js-for-in","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Spec shows only `for-of`. `for-in` is a JS reflex; likely rejected or produces unexpected behavior. UNKNOWN code."}

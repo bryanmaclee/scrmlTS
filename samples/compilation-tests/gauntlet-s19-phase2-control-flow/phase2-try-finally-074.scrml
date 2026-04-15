@@ -1,0 +1,13 @@
+// try/finally without catch — also not in scrml
+${
+    try {
+        risky()
+    } finally {
+        cleanup()
+    }
+    function risky() { let _ = 1 }
+    function cleanup() { let _ = 1 }
+}
+<program>
+    <p>ok</>
+</>

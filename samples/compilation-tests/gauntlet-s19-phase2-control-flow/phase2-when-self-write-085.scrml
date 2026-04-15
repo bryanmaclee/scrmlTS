@@ -1,0 +1,10 @@
+// when body writes to its own dependency — E-LIFECYCLE-006
+<program>
+    ${
+        @page: number = 1
+        when @page changes {
+            @page = 1
+        }
+    }
+    <p>ok</>
+</>

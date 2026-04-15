@@ -1,0 +1,1 @@
+{"feature":"when","shape":"body-writes-dep","expectedOutcome":"error","expectedCodes":["E-LIFECYCLE-006"],"notes":"§6.7.4."}

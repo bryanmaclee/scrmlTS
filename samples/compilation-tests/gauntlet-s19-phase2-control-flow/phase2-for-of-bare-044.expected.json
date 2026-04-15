@@ -1,0 +1,1 @@
+{"feature":"for-of","shape":"no-let-binding","expectedOutcome":"clean","expectedCodes":[],"notes":"§17.4 sample uses `for (item of items)` without let. §8.10.1 (Tier 2) mandates `let`/`const` for rewrite eligibility but does not forbid the bare form."}

@@ -1,0 +1,1 @@
+{"feature":"while","shape":"duplicate-label","expectedOutcome":"error","expectedCodes":["E-LOOP-006"],"notes":"§49.2.2."}

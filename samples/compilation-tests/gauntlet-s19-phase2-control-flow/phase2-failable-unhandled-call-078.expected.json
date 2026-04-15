@@ -1,0 +1,1 @@
+{"feature":"failable","shape":"unhandled-result","expectedOutcome":"error","expectedCodes":["E-ERROR-002"],"notes":"§19.4.3."}

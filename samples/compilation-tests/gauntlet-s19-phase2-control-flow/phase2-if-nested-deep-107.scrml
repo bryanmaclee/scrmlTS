@@ -1,0 +1,21 @@
+// Deep if nesting
+${
+    let a = 1
+    let b = 2
+    let c = 3
+    let out = 0
+    if (a > 0) {
+        if (b > 0) {
+            if (c > 0) {
+                out = 1
+            } else {
+                out = 2
+            }
+        }
+    }
+    log(out)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

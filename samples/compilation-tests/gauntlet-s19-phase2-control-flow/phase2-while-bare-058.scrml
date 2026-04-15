@@ -1,0 +1,14 @@
+// while loop — basic countdown (§49.2)
+${
+    let i = 3
+    let s = 0
+    while (i > 0) {
+        s = s + i
+        i = i - 1
+    }
+    log(s)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

@@ -1,0 +1,14 @@
+// lift inside while inside a named function — E-SYNTAX-002 (§49.6.2)
+${
+    function collect() {
+        let i = 0
+        while (i < 3) {
+            lift i
+            i = i + 1
+        }
+    }
+    collect()
+}
+<program>
+    <p>ok</>
+</>

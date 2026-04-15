@@ -1,0 +1,10 @@
+// if-as-expression without else, binding annotated T (not T | not) — E-TYPE-031
+${
+    let x = 5
+    let label: string = if (x > 0) { lift "pos" }
+    log(label)
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

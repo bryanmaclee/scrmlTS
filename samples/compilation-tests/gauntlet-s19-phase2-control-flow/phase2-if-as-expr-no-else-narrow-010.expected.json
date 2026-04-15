@@ -1,0 +1,1 @@
+{"feature":"if-as-expression","shape":"no-else-incompatible-annot","expectedOutcome":"error","expectedCodes":["E-TYPE-031"],"notes":"§17.6.4 normative: annotation T when result may produce not → E-TYPE-031."}

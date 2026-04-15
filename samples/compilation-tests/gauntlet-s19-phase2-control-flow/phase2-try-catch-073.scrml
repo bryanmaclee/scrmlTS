@@ -1,0 +1,13 @@
+// try/catch — §19 preamble says "There is NO try/catch." Use !{} instead.
+${
+    try {
+        risky()
+    } catch (e) {
+        log("caught")
+    }
+    function risky() { let _ = 1 }
+    function log(s: string) { let _ = s }
+}
+<program>
+    <p>ok</>
+</>

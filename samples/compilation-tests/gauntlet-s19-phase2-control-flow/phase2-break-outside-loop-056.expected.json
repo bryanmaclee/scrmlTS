@@ -1,0 +1,1 @@
+{"feature":"break","shape":"no-enclosing-loop","expectedOutcome":"error","expectedCodes":["E-LOOP-001"],"notes":"§49.9."}

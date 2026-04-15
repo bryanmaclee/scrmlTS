@@ -1,0 +1,1 @@
+{"feature":"animationFrame","shape":"outside-element-scope","expectedOutcome":"error","expectedCodes":["E-LIFECYCLE-017"],"notes":"§6.7.9."}

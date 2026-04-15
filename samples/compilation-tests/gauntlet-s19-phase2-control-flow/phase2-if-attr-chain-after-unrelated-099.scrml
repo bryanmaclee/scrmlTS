@@ -1,0 +1,9 @@
+// if=/else with unrelated element in between — breaks chain, else becomes orphan (E-CTRL-001)
+${ @flag: bool = true }
+<program>
+    <div>
+        <span if=@flag>a</>
+        <p>interrupt</>
+        <span else>b</>
+    </>
+</>

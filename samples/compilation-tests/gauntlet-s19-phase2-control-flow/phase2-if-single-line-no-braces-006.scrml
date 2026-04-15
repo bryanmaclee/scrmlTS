@@ -1,0 +1,11 @@
+// if with single-stmt body (no braces). Spec §17 shows braced form; braceless is JS idiom.
+// Flagged UNKNOWN — spec doesn't explicitly ban braceless if bodies.
+${
+    let x = 0
+    if (x == 0) x = 1
+    log(x)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

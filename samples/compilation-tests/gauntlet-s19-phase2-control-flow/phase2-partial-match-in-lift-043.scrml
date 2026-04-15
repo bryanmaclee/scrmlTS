@@ -1,0 +1,14 @@
+// partial match in lift context — E-TYPE-081
+${
+    type Status:enum = { Active, Inactive }
+    @status: Status = .Active
+}
+<program>
+    <div>
+        ${
+            lift partial match @status {
+                .Active => <p>active</>
+            }
+        }
+    </>
+</>

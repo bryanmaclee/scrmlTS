@@ -1,0 +1,14 @@
+// else before other arms — E-SYNTAX-010
+${
+    type Status:enum = { Active, Banned }
+    let s:Status = .Active
+    let x = match s {
+        else    => 0
+        .Active => 1
+    }
+    log(x)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

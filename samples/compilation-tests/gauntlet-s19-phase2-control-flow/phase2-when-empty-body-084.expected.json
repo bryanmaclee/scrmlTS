@@ -1,0 +1,1 @@
+{"feature":"when","shape":"empty-body","expectedOutcome":"warning","expectedCodes":["W-LIFECYCLE-010"],"notes":"§6.7.4."}

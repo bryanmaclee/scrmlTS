@@ -1,0 +1,15 @@
+// explicit arm after else — E-SYNTAX-010 per §18.6
+${
+    type Status:enum = { Active, Banned }
+    let s:Status = .Active
+    let x = match s {
+        .Active => 1
+        else    => 0
+        .Banned => 2
+    }
+    log(x)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>

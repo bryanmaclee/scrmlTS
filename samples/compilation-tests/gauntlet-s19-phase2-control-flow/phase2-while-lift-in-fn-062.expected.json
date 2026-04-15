@@ -1,0 +1,1 @@
+{"feature":"while","shape":"lift-in-named-fn","expectedOutcome":"error","expectedCodes":["E-SYNTAX-002"],"notes":"§49.6.2."}

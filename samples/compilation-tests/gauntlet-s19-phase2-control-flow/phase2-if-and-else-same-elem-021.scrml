@@ -1,0 +1,7 @@
+// if= and else on same element — E-CTRL-005
+${ @flag: bool = true }
+<program>
+    <div>
+        <span if=@flag else>bad</>
+    </>
+</>

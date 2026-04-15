@@ -1,0 +1,1 @@
+{"feature":"match","shape":"mixed-arrow-styles","expectedOutcome":"warning","expectedCodes":["UNKNOWN"],"notes":"§18.2 says both forms accepted; a formatter preference controls normalization. Mixing within a single match is legal per grammar but arguably style-worthy. UNKNOWN whether compiler warns."}

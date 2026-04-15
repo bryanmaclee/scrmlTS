@@ -1,0 +1,1 @@
+{"feature":"partial-match","shape":"in-lift-context","expectedOutcome":"error","expectedCodes":["E-TYPE-081"],"notes":"§18.18 worked example 2."}

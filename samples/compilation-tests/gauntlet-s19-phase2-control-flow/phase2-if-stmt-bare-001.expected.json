@@ -1,0 +1,1 @@
+{"feature":"if-stmt","shape":"bare-single-stmt","expectedOutcome":"clean","expectedCodes":[],"notes":"Minimal if with read-after to keep E-MU-001 off the if itself."}

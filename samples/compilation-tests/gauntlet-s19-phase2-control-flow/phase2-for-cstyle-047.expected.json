@@ -1,0 +1,1 @@
+{"feature":"for-cstyle","shape":"init-cond-update","expectedOutcome":"clean","expectedCodes":["UNKNOWN"],"notes":"SPEC.md lines 620, 4209 use `for (let i = 0; i < n; i++)` in examples. Not a dedicated section. Assumed valid as JS passthrough. UNKNOWN because no formal grammar."}

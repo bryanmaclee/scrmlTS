@@ -1,0 +1,1 @@
+{"feature":"while","shape":"as-expression-direct","expectedOutcome":"error","expectedCodes":["E-LOOP-007"],"notes":"§49.4.4 — while is not an expression; only the ~ accumulator pattern is allowed."}

@@ -1,0 +1,1 @@
+{"feature":"match","shape":"arm-type-mismatch","expectedOutcome":"error","expectedCodes":["E-TYPE-001"],"notes":"§18.4 example."}

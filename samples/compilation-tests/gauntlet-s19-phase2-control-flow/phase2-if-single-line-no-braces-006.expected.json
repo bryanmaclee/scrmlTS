@@ -1,0 +1,1 @@
+{"feature":"if-stmt","shape":"braceless-body","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Spec §17.6.1 and §17.6.2 reference braced arm-body; braceless if body per JS idiom is not in the grammar shown. Likely rejected, but no specific code documented."}

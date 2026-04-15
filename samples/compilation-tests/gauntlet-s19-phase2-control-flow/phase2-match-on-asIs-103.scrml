@@ -1,0 +1,12 @@
+// match on asIs — E-TYPE-025
+${
+    let x: asIs = 5
+    let r = match x {
+        else => 0
+    }
+    log(r)
+    function log(n: number) { let _ = n }
+}
+<program>
+    <p>ok</>
+</>
