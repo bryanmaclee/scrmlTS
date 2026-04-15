@@ -24,6 +24,7 @@ import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules } from "./module-resolver.js";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
 import { lintGhostPatterns } from "./lint-ghost-patterns.js";
+import { runGauntletPhase1Checks } from "./gauntlet-phase1-checks.js";
 
 // ---------------------------------------------------------------------------
 // Directory scanner
@@ -216,7 +217,12 @@ export function compileScrml(options = {}) {
     ? (bsResult) => selfHostModules.buildAST(bsResult)
     : (bsResult) => buildAST(bsResult, selfHostModules?.tokenizer ?? null);
   const tabResults = [];
-  for (const bsResult of bsResults) {
+  // Keep bsResult alongside tabResult for the Gauntlet Phase 1 check pass
+  // (some diagnostics need to inspect the raw block tree before TAB drops
+  // stray top-level text blocks — e.g. `use` / `export` at file preamble).
+  const bsByTab = new Map();
+  for (let i = 0; i < bsResults.length; i++) {
+    const bsResult = bsResults[i];
     const result = stage("TAB", () => _buildAST(bsResult));
     collectErrors("TAB", result.errors);
     // Attach source text for library-mode codegen (export-decl span extraction)
@@ -224,7 +230,19 @@ export function compileScrml(options = {}) {
       result._sourceText = sourceByFile.get(result.filePath);
     }
     tabResults.push(result);
+    bsByTab.set(result, bsResult);
     if (verbose) log(`  [TAB] ${result.filePath}: ${result.ast?.nodes?.length ?? 0} nodes`);
+  }
+
+  // Stage 3.05: Gauntlet Phase 1 checks (§21, §41, §7.6).
+  // Post-TAB checks that catch spec-violating declarations silently accepted
+  // by the main pipeline. Emits E-IMPORT-001, E-IMPORT-003, E-SCOPE-010,
+  // E-USE-001, E-USE-002, E-USE-005. Cross-file / npm-style E-IMPORT-005 is
+  // enforced in module-resolver.js instead (it needs the resolved graph).
+  for (const tabResult of tabResults) {
+    const bsResult = bsByTab.get(tabResult);
+    const checkErrors = stage("GCP1", () => runGauntletPhase1Checks(bsResult, tabResult));
+    collectErrors("GCP1", checkErrors);
   }
 
   // Stage 3.1: Module Resolution

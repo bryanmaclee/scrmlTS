@@ -28,7 +28,14 @@ for (const f of files) {
     catch (e) { expected = { _parseError: e.message }; }
   }
 
-  const r = spawnSync("bun", [CLI, full], {
+  // Auto-include same-dir helper files as co-inputs when fixture references them by relative path
+  const srcText = readFileSync(full, "utf8");
+  const helperRefs = [...new Set((srcText.match(/['"]\.\/_[^'"]+\.scrml['"]/g) || []).map(s => s.slice(1, -1)))];
+  const helperPaths = helperRefs
+    .map(ref => join(phaseDir, ref.replace(/^\.\//, "")))
+    .filter(p => existsSync(p));
+
+  const r = spawnSync("bun", [CLI, full, ...helperPaths], {
     encoding: "utf8",
     timeout: 30000,
   });

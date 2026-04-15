@@ -2305,7 +2305,8 @@ function annotateNodes(
     for (const n of nodes) {
       if (n.kind === "function-decl" && n.name) {
         fnAllDeclared.add(n.name as string);
-        if ((n as ASTNodeLike).fnKind !== "fn") {
+        // Non-pure = declared with `function` AND not marked `pure` (§48.6.2 opt-in).
+        if ((n as ASTNodeLike).fnKind !== "fn" && (n as ASTNodeLike).isPure !== true) {
           nonPureFnNames.add(n.name as string);
         }
         if (n.canFail === true) {
@@ -2748,6 +2749,36 @@ function annotateNodes(
                 `Add an 'on mount' block or assign from a server function.`,
                 declSpan,
                 "warning",
+              ));
+            }
+
+            // E-AUTH-002: server @var init must not reference a client-local
+            // reactive var (§39 / §52.11). Derivation from local state would
+            // require implicit client->server data flow that the compiler will
+            // not synthesize. The user must fetch the value server-side or
+            // promote the dependency to a server path.
+            const initExprNode = (n as any).initExpr;
+            const serverVarName = n.name as string;
+            const leakedLocals = new Set<string>();
+            if (initExprNode) {
+              forEachIdentInExprNode(initExprNode as any, (ident) => {
+                if (typeof ident.name !== "string" || !ident.name.startsWith("@")) return;
+                const refName = ident.name; // includes '@'
+                const bareName = refName.slice(1);
+                if (bareName === serverVarName) return; // self-ref; ignore here
+                const refEntry = scopeChain.lookup(refName) as { kind?: string; isServer?: boolean } | undefined;
+                if (refEntry && refEntry.kind === "reactive" && !refEntry.isServer) {
+                  leakedLocals.add(refName);
+                }
+              });
+            }
+            for (const leaked of leakedLocals) {
+              errors.push(new TSError(
+                "E-AUTH-002",
+                `E-AUTH-002: 'server @${serverVarName}' is derived from client-local reactive variable '${leaked}'. ` +
+                `Server-authoritative variables cannot read client-local state without crossing the server boundary. ` +
+                `Fetch \`@${serverVarName}\` from the server via \`server function\` or move the dependency into a server path.`,
+                declSpan,
               ));
             }
           }

@@ -2864,7 +2864,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // Match: { names } from 'source' or "source"
       const namedMatch = expr.match(/^\s*\{\s*([^}]*)\}\s*from\s+["']([^"']+)["']/);
       if (namedMatch) {
-        importNode.names = namedMatch[1].split(",").map(s => s.trim()).filter(Boolean);
+        // ES `as` aliasing: `{ foo as bar }` — resolve against the original export name `foo`;
+        // the local alias `bar` is remembered for scope binding.
+        importNode.names = namedMatch[1]
+          .split(",")
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(entry => {
+            const asMatch = entry.match(/^(\S+)\s+as\s+(\S+)$/);
+            return asMatch ? asMatch[1] : entry;
+          });
         importNode.source = namedMatch[2];
       } else {
         // Match: defaultName from 'source'
@@ -3537,15 +3546,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // FUNCTION DECLARATION: `[server] function name(params) [route="path"] [method="METHOD"] { body }`
+    // FUNCTION DECLARATION: `[pure] [server] function name(params) [route="path"] [method="METHOD"] { body }`
+    // `pure` tokenizes as IDENT; accepted only immediately before `function` or `server function`.
+    const _pureFnLookahead = tok.text === "pure" && (
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "function") ||
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "server" &&
+       peek(2)?.kind === "KEYWORD" && peek(2)?.text === "function")
+    );
     if (
       tok.kind === "KEYWORD" && tok.text === "function" ||
-      (tok.kind === "KEYWORD" && tok.text === "server" && peek(1).kind === "KEYWORD" && peek(1).text === "function")
+      (tok.kind === "KEYWORD" && tok.text === "server" && peek(1).kind === "KEYWORD" && peek(1).text === "function") ||
+      _pureFnLookahead
     ) {
       let isServer = false;
+      let isPure = false;
       let startTok = tok;
 
-      if (tok.text === "server") {
+      if (tok.text === "pure") {
+        isPure = true;
+        startTok = consume(); // consume `pure`
+        if (peek().kind === "KEYWORD" && peek().text === "server") {
+          isServer = true;
+          consume(); // consume `server`
+        }
+      } else if (tok.text === "server") {
         isServer = true;
         startTok = consume(); // consume `server`
       }
@@ -3631,6 +3655,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         body,
         fnKind: "function",
         isServer,
+        ...(isPure ? { isPure: true } : {}),
         isGenerator,
         canFail,
         errorType,

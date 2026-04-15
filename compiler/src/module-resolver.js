@@ -10,12 +10,14 @@
  *   3. Topological sort for compilation order
  *   4. Export registry building from FileAST export declarations
  *   5. Import validation (E-IMPORT-004: name not found in exports)
+ *   6. Import specifier validation (E-IMPORT-005: bare specifier — npm without vendor:)
  *
  * Error codes:
  *   E-IMPORT-001  export used outside a ${ } context (detected at AST builder level)
  *   E-IMPORT-002  Circular import detected
  *   E-IMPORT-003  import inside a function body (detected at AST builder level)
  *   E-IMPORT-004  Imported name not found in target file's exports
+ *   E-IMPORT-005  Import specifier is a bare (npm-style) name — must use vendor: prefix
  *
  * Design: v1 — named exports only, no default exports, no re-exports resolution,
  * relative paths only.
@@ -44,6 +46,31 @@ export class ModuleError {
 }
 
 // ---------------------------------------------------------------------------
+// Import specifier classification
+// ---------------------------------------------------------------------------
+
+/**
+ * Legal import specifier shapes (§21.6, §40.4):
+ *   - relative:  './foo.scrml', '../bar.scrml'
+ *   - stdlib:    'scrml:crypto', 'scrml:ui'
+ *   - vendor:    'vendor:lodash', 'vendor:stripe/client'
+ *   - .js:       legacy ES-module interop (e.g. './glue.js')
+ *
+ * Any other shape — in particular a bare npm-style specifier like 'lodash'
+ * or '@scope/pkg' — is rejected with E-IMPORT-005.
+ *
+ * @param {string} source
+ * @returns {boolean}
+ */
+function isLegalImportSpecifier(source) {
+  if (typeof source !== "string" || source.length === 0) return false;
+  if (source.startsWith("./") || source.startsWith("../")) return true;
+  if (source.startsWith("scrml:")) return true;
+  if (source.startsWith("vendor:")) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Import graph construction
 // ---------------------------------------------------------------------------
 
@@ -53,6 +80,9 @@ export class ModuleError {
  * Returns a Map where:
  *   key = absolute file path
  *   value = { imports: [{ names: string[], source: string, absSource: string, span }], exports: [{ name, kind, span }] }
+ *
+ * Also returns E-IMPORT-005 errors for any import with a bare npm-style
+ * specifier (non-relative, non-scrml:, non-vendor:).
  *
  * @param {object[]} fileASTs — array of { filePath, ast } objects from TAB stage
  * @returns {{ graph: Map<string, object>, errors: ModuleError[] }}
@@ -72,6 +102,21 @@ export function buildImportGraph(fileASTs) {
     const astImports = file.ast?.imports || [];
     for (const imp of astImports) {
       if (!imp.source) continue;
+
+      // E-IMPORT-005: bare npm-style specifier — only vendor: imports may reach
+      // third-party code. §40.4 requires the `vendor:` prefix so the compiler
+      // can enforce project-scoped vendor directories.
+      if (!isLegalImportSpecifier(imp.source)) {
+        errors.push(new ModuleError(
+          "E-IMPORT-005",
+          `E-IMPORT-005: Import specifier \`${imp.source}\` is a bare npm-style name. ` +
+          `scrml imports must be relative (\`./foo.scrml\`), stdlib (\`scrml:name\`), or vendor (\`vendor:name\`). ` +
+          `To import from an npm package, add it to your project's \`vendor/\` directory and write \`import { ... } from 'vendor:${imp.source}'\`.`,
+          imp.span ? { ...imp.span, file: filePath } : null,
+        ));
+        // Skip graph entry — the specifier cannot be resolved anyway.
+        continue;
+      }
 
       // Resolve relative path to absolute
       const absSource = resolveModulePath(imp.source, filePath);
