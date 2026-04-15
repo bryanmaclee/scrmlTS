@@ -64,6 +64,18 @@ All from dev's `expectedCodes: ["UNKNOWN"]` markers. Same pattern as Phase 1 Cat
 
 ---
 
+## Fix log — batch 4 (partial)
+
+| # | Status | Note |
+|---|---|---|
+| C1 W-ASSIGN-001 double-paren | **FIXED** | Depth-scan verifies outer `(...)` wraps the whole expression (not `(a) \|\| (b = 5)`). Suppresses W-ASSIGN-001 when double-paren detected. |
+| A14 E-SYNTAX-044 given dotted | **FIXED** | `given u.name` now rejects at parse time in both given parsers. Skip-past-`.ident` keeps parsing going without cascade. |
+| A13 E-SYNTAX-043 legacy `(x) =>` | **DEFERRED** | The isOldPresenceGuardPattern check exists at `ast-builder.js:2393` and `:4534` but the block-splitter's statement-boundary detector rejects the pattern earlier with a bare warning — never reaches parseLogicBody. Needs block-splitter work. |
+| A17 E-ASSIGN-001 decl-in-expr | **DEFERRED** | Same root cause — `let b = 2` in expression position isn't tokenized into a valid statement shape. Block-splitter concern. |
+| A15 E-MATCH-012 / A16 W-MATCH-002 | **DEFERRED** | `checkExhaustiveness` exists at `type-system.ts:3490` but is never called. Wiring requires subject-type inference on the match-stmt case and arm-pattern extraction from `node.body` entries. Non-trivial; own batch. |
+| B1 E-ASSIGN-004 (to const) | **DEFERRED** | Needs tilde-decl semantic ruling (`x = 5` where x is const — is this reassignment or auto-decl?). Language-design-reviewer. |
+| B2 E-ASSIGN-003 (undeclared) | **DEFERRED** | Same tilde-decl ruling. |
+
 ## Priority fix order
 
 1. **User-reflex gap** — E-EQ-004 (`===`/`!==`), E-SYNTAX-042 (`== null`/`undefined`), E-EQ-002 (`== not`). Tier 1: users hit these first.

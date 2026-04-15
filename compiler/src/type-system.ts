@@ -3047,7 +3047,26 @@ function annotateNodes(
             ? condStr.slice(1, -1).trim()
             : condStr;
           const ASSIGN_ROOT_RE = /^[@A-Za-z_$][A-Za-z0-9_$@.]*\s*=[^=]/;
-          if (hasAssignAtRoot || ASSIGN_ROOT_RE.test(inner)) {
+          // §50.2.3: double-paren form (`while ((x = 5))`) signals author intent and suppresses W-ASSIGN-001.
+          // collectIfCondition strips the outer `(...)`, so the raw condition text still begins with `(`
+          // whenever the user typed two paren layers. Depth-scan ensures the inner `(...)` wraps the
+          // whole expression (not e.g. `(a) || (b = 5)` which would false-positive).
+          const rawCondTrim = ((n as ASTNodeLike).condition as string | undefined)?.trim() ?? "";
+          let doubleParen = false;
+          if (rawCondTrim.startsWith("(") && rawCondTrim.endsWith(")")) {
+            let depth = 0;
+            let wrapsWhole = true;
+            for (let i = 0; i < rawCondTrim.length; i++) {
+              const c = rawCondTrim[i];
+              if (c === "(") depth++;
+              else if (c === ")") {
+                depth--;
+                if (depth === 0 && i !== rawCondTrim.length - 1) { wrapsWhole = false; break; }
+              }
+            }
+            doubleParen = wrapsWhole && depth === 0;
+          }
+          if (!doubleParen && (hasAssignAtRoot || ASSIGN_ROOT_RE.test(inner))) {
             const stmtKind = n.kind === "while-stmt" ? "while" : "if";
             const condLine = (n.span as Span | undefined)?.line ?? 1;
             errors.push(new TSError(

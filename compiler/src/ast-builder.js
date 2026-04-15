@@ -2111,8 +2111,22 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const variables = [];
       // Collect comma-separated plain identifiers (§42.2.3 v1: no property paths)
       while (peek().kind === "IDENT" || peek().kind === "AT_IDENT") {
-        let name = consume().text;
+        const identTok = consume();
+        let name = identTok.text;
         if (name.startsWith("@")) name = name.slice(1); // strip @ if user wrote @x
+        // §42.2.3: `given` takes plain identifiers, NOT property paths. Reject `given u.name`.
+        if (peek().kind === "PUNCT" && peek().text === ".") {
+          errors.push(new TABError(
+            "E-SYNTAX-044",
+            `E-SYNTAX-044: \`given\` takes bare identifiers, not property paths (§42.2.3). ` +
+            `Bind the property to a local variable first: \`let n = ${name}.<field>\`, then \`given n { ... }\`.`,
+            tokenSpan(identTok, filePath),
+          ));
+          while (peek().kind === "PUNCT" && peek().text === ".") {
+            consume();
+            if (peek().kind === "IDENT" || peek().kind === "KEYWORD") consume();
+          }
+        }
         variables.push(name);
         if (peek().kind === "PUNCT" && peek().text === ",") {
           consume(); // consume ','
@@ -4436,8 +4450,23 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const variables = [];
       // Collect comma-separated plain identifiers (§42.2.3 v1: no property paths)
       while (peek().kind === "IDENT" || peek().kind === "AT_IDENT") {
-        let name = consume().text;
+        const identTok = consume();
+        let name = identTok.text;
         if (name.startsWith("@")) name = name.slice(1); // strip @ if user wrote @x
+        // §42.2.3: `given` takes plain identifiers, NOT property paths. Reject `given u.name`.
+        if (peek().kind === "PUNCT" && peek().text === ".") {
+          errors.push(new TABError(
+            "E-SYNTAX-044",
+            `E-SYNTAX-044: \`given\` takes bare identifiers, not property paths (§42.2.3). ` +
+            `Bind the property to a local variable first: \`let n = ${name}.<field>\`, then \`given n { ... }\`.`,
+            tokenSpan(identTok, filePath),
+          ));
+          // Skip past `.ident(.ident)*` to keep parsing going
+          while (peek().kind === "PUNCT" && peek().text === ".") {
+            consume(); // consume '.'
+            if (peek().kind === "IDENT" || peek().kind === "KEYWORD") consume();
+          }
+        }
         variables.push(name);
         if (peek().kind === "PUNCT" && peek().text === ",") {
           consume(); // consume ','
