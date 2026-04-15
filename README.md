@@ -62,6 +62,8 @@ scrml compile hello.scrml -o dist/
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 
+**Realtime and workers are first-class.** A `<channel>` element declares a WebSocket endpoint — the compiler generates the upgrade route, the client connection manager, auto-reconnect, and pub/sub topic routing. `@shared` variables inside a channel sync across every connected client automatically. Heavy work goes in a nested `<program>` that compiles to a Web Worker, WASM module, or foreign-language sidecar — with typed RPC, supervised restarts, and `when message from <#name>` event hooks on the parent side. No `new WebSocket()`, no `postMessage` plumbing, no worker-loader config.
+
 **The compiler eliminates N+1 automatically.** Because scrml owns both the query context and the loop context, a `for (let x of xs) { ?{... WHERE id = ${x.id}}.get() }` pattern is rewritten to one pre-loop `WHERE id IN (...)` fetch plus a keyed `Map` lookup — no DataLoader, no manual batching, no architectural pressure. Independent reads in a `!` handler share one `BEGIN DEFERRED`..`COMMIT` envelope for snapshot consistency. On-mount `server @var` loads across a page coalesce into a single `__mountHydrate` round-trip. Near-miss loops surface as `D-BATCH-001` diagnostics with the exact disqualifier; `?{...}.nobatch()` is the per-site escape hatch. [Measured Tier 2 wins](benchmarks/sql-batching/RESULTS.md): ~2× at N=10, ~3× at N=100, ~4× at N=1000 on on-disk WAL `bun:sqlite`.
 
 ## Quick Example
@@ -252,6 +254,16 @@ This isn't bundler-style single-letter renaming — the names are longer than `a
 - **Opt-out per call site.** `?{...}.nobatch()` disables rewriting when you need an exact query shape — useful for `EXPLAIN`, stored-procedure calls, or measured hot paths.
 - **Diagnostics, not silent magic.** `D-BATCH-001` flags near-miss loops that *almost* batch but don't (mutation in body, non-`.get()` chain, etc.), with the exact disqualifier. `E-BATCH-001` rejects `.nobatch()` composition with batched siblings; `E-BATCH-002` guards against the 32 766 `SQLITE_MAX_VARIABLE_NUMBER` ceiling at runtime.
 - **No API boilerplate** — server functions are called like local functions. The compiler generates routes, fetch calls, CSRF tokens, and serialization.
+
+### Realtime and Workers
+
+- **WebSocket channels (`<channel>`)** — a lifecycle element that declares a WebSocket endpoint. The compiler emits the Bun upgrade route, a client-side connection manager with exponential-backoff reconnect, and pub/sub topic routing. `onserver:open`, `onserver:message`, `onserver:close` run server-side; `onclient:open`, `onclient:close`, `onclient:error` run in the browser. `protect=` gates the upgrade with a session cookie check. No WebSocket or Bun-specific API appears in your source.
+- **Shared reactive state (`@shared`)** — variables marked `@shared` inside a `<channel>` synchronize across every connected client automatically. Writing to `@shared count` in one browser tab updates it in every other tab subscribed to the same topic. The sync wire format is generated; you just write assignments.
+- **`broadcast()` and `disconnect()`** — available inside any server handler declared in a channel's lexical scope. `broadcast(data)` fans out to every client on the active topic; `disconnect()` closes the connection. Dynamic topics via `topic=@room` — when `@room` changes, the channel re-subscribes; when `@room` is `not`, the connection stays open but subscribes to nothing.
+- **Nested `<program>` = Web Worker.** Put a `<program name="compute">` inside your main program and the compiler spawns a Web Worker. Shared-nothing by construction — no accidental scope leaks. Call worker exports as typed RPC: `const result = await <#compute>.add(1, 2)`. The compiler enforces that cross-program calls are awaited.
+- **Message passing with `when`.** `<#worker>.send(data)` posts to the worker; inside, `when message(data) { ... }` handles it and `send(data)` replies. The parent observes lifecycle with `when message from <#worker> (data)`, `when error from <#worker> (e)`, and `when terminate from <#worker>`. No manual `addEventListener('message', ...)` scaffolding.
+- **Supervised restarts.** Declare `restart="on-error"`, `max-restarts=3`, `within=60` as attributes on the nested `<program>` and the compiler synthesizes crash detection and restart bookkeeping. `autostart="false"` defers launch until `<#name>.start()`.
+- **WASM modules and foreign sidecars.** The same `<program>` syntax spawns a WASM module (`lang="rust" mode="wasm"`) or a subprocess sidecar (`lang="python"`) with HTTP/socket routing — one execution-context primitive covers workers, WASM, and language FFI.
 
 ### Components and Patterns
 
