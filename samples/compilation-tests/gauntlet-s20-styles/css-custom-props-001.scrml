@@ -1,0 +1,23 @@
+// Phase 8: CSS custom properties in #{} block
+// Should compile clean.
+
+<div>
+  #{
+    :root {
+      --primary: #3b82f6;
+      --secondary: #10b981;
+      --spacing: 1rem;
+    }
+    .btn {
+      background: var(--primary);
+      padding: var(--spacing);
+      border-radius: 4px;
+      color: white;
+    }
+    .btn-secondary {
+      background: var(--secondary);
+    }
+  }
+  <button class="btn">Primary</>
+  <button class="btn btn-secondary">Secondary</>
+</div>

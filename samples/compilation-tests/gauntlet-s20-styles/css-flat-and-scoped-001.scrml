@@ -1,0 +1,28 @@
+// Phase 8: mixing flat declaration #{} (→ inline style) with selector #{} (→ @scope)
+// Should compile clean.
+
+<program>
+
+${
+  const Card = <div class="card" props={ title: string }>
+    #{
+      .card {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+      }
+    }
+    #{
+      color: #333;
+      font-family: sans-serif;
+    }
+    <h2>${title}</>
+    ${...}
+  </>
+}
+
+<Card title="Test">
+  <p>Content</>
+</>
+
+</program>

@@ -1,0 +1,20 @@
+// Phase 8: @media inside #{} (§8 styles)
+// Should compile clean.
+
+<div>
+  #{
+    .container {
+      padding: 1rem;
+    }
+    @media (min-width: 768px) {
+      .container {
+        padding: 2rem;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+    }
+  }
+  <div class="container">
+    <p>Responsive content</>
+  </div>
+</div>

@@ -1,0 +1,18 @@
+// Phase 8: program-level #{} — global CSS (no @scope wrapper)
+// Should compile as global CSS.
+
+<program>
+
+#{
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background-color: #f9fafb;
+  }
+  * { box-sizing: border-box; }
+}
+
+<h1>Hello World</>
+
+</program>

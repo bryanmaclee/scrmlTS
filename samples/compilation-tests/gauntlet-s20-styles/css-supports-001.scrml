@@ -1,0 +1,23 @@
+// Phase 8: @supports inside #{} block
+// Should compile clean.
+
+<div>
+  #{
+    .grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    @supports (display: grid) {
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      }
+    }
+  }
+  <div class="grid">
+    <div>Item 1</>
+    <div>Item 2</>
+    <div>Item 3</>
+  </div>
+</div>

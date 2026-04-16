@@ -1,0 +1,12 @@
+// Phase 8: Tailwind utility classes alongside #{} blocks
+// Should compile clean — Tailwind classes handled by engine.
+
+<div>
+  #{
+    .custom { border: 2px solid #e5e7eb; }
+  }
+  <div class="p-4 bg-white rounded-lg shadow custom">
+    <h2 class="text-lg font-bold mb-2">Card</>
+    <p class="text-gray-600">Content</>
+  </div>
+</div>

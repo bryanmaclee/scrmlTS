@@ -1,0 +1,7 @@
+// Phase 8: empty #{} block — edge case
+// Should compile clean (no-op).
+
+<div>
+  #{}
+  <p>After empty style block</>
+</div>

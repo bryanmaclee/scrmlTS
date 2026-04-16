@@ -1,0 +1,14 @@
+// Phase 8: multiple #{} blocks in same element
+// Should compile clean — CSS merged.
+
+<div>
+  #{
+    .header { font-size: 2rem; font-weight: bold; }
+  }
+  #{
+    .footer { font-size: 0.875rem; color: #666; }
+  }
+  <div class="header">Title</>
+  <p>Content</>
+  <div class="footer">Footer</>
+</div>
