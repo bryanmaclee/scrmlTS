@@ -6003,6 +6003,58 @@ function checkFnBodyProhibitions(
         if (!liftSpan) liftSpan = stmtSpan;
       }
 
+      // E-FN-003: Reactive variable writes inside fn body (§48.3.3)
+      // @var is always declared in outer scope (reactive-decl is program-level).
+      // Writing to @var inside fn is an outer-scope mutation.
+      // Catches both forms:
+      //   - kind=reactive-decl (parsed as `@x = value` — declaration form)
+      //   - kind=bare-expr with assign ExprNode (parsed as `@x += value` — compound assignment)
+      {
+        // reactive-decl inside fn body = writing to an @var (always outer-scope)
+        if (stmt.kind === "reactive-decl") {
+          const varName = "@" + ((stmt.name as string) || "unknown");
+          errors.push(new TSError(
+            "E-FN-003",
+            `E-FN-003: \`fn ${fnName}\` body writes to reactive variable \`${varName}\` at line ${stmtSpan.line}. ` +
+            `\`fn\` is a pure function and may not mutate reactive state. ` +
+            `Move the write outside \`fn\`, or use \`function\` instead of \`fn\` if side effects are intentional.`,
+            stmtSpan,
+          ));
+        }
+
+        // ExprNode-first: check for assign with @-prefixed target
+        const exprNode = (stmt as Record<string, unknown>).exprNode as
+          import("./types/ast.ts").ExprNode | undefined;
+        if (exprNode && (exprNode as any).kind === "assign") {
+          const target = (exprNode as any).target;
+          if (target && target.kind === "ident" && typeof target.name === "string" && target.name.startsWith("@")) {
+            const varName = target.name;
+            errors.push(new TSError(
+              "E-FN-003",
+              `E-FN-003: \`fn ${fnName}\` body writes to reactive variable \`${varName}\` at line ${stmtSpan.line}. ` +
+              `\`fn\` is a pure function and may not mutate reactive state. ` +
+              `Move the write outside \`fn\`, or use \`function\` instead of \`fn\` if side effects are intentional.`,
+              stmtSpan,
+            ));
+          }
+        }
+        // Text heuristic fallback: @identifier followed by assignment operator
+        if (!exprNode && stmt.kind !== "reactive-decl") {
+          const exprText = typeof stmt.expr === "string" ? stmt.expr : "";
+          const reactiveAssignMatch = /^@([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\+|-|\*|\/|%|\?\?)?=/.exec(exprText);
+          if (reactiveAssignMatch) {
+            const varName = "@" + reactiveAssignMatch[1];
+            errors.push(new TSError(
+              "E-FN-003",
+              `E-FN-003: \`fn ${fnName}\` body writes to reactive variable \`${varName}\` at line ${stmtSpan.line}. ` +
+              `\`fn\` is a pure function and may not mutate reactive state. ` +
+              `Move the write outside \`fn\`, or use \`function\` instead of \`fn\` if side effects are intentional.`,
+              stmtSpan,
+            ));
+          }
+        }
+      }
+
       // Heuristic text checks for E-FN-001, E-FN-002, E-FN-003, E-FN-004 and field tracking
       const txt = nodeText(stmt);
       if (txt) {
