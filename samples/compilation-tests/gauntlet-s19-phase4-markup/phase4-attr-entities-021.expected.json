@@ -1,0 +1,1 @@
+{"feature":"attribute","shape":"html-entities-in-value","expectedOutcome":"clean","expectedCodes":[],"notes":"§5 — HTML entities are preserved in attribute values."}

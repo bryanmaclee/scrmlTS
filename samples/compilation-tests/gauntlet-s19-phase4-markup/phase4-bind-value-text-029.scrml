@@ -1,0 +1,5 @@
+// bind:value text input.
+<program>
+    ${ @name = "" }
+    <input type="text" bind:value=@name/>
+</program>

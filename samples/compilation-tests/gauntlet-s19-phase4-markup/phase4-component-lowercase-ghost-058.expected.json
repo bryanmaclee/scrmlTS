@@ -1,0 +1,1 @@
+{"feature":"component","shape":"lowercase-component-name-disambiguation","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"§15.6 — component naming; lowercase `<card>` is parsed as unknown HTML tag. Likely E-MARKUP-001."}

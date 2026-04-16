@@ -1,0 +1,1 @@
+{"feature":"plain-tag","shape":"inferred-closer-inside-logic","expectedOutcome":"error","expectedCodes":["E-CTX-002"],"notes":"§4.4.2 — `</>` cannot cross logic context boundary."}

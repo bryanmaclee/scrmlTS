@@ -1,0 +1,5 @@
+// `//` comment inside markup content.
+<div>
+    // this line is a comment
+    <p>body</p>
+</div>

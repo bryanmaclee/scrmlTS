@@ -1,0 +1,1 @@
+{"feature":"class-directive","shape":"multiple-plus-static","expectedOutcome":"clean","expectedCodes":[],"notes":"§5.5 — multiple class: directives coexist with static class."}

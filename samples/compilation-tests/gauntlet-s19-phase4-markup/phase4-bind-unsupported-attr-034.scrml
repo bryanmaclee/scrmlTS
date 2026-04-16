@@ -1,0 +1,5 @@
+// `bind:` prefix on an unsupported attr name → E-ATTR-011.
+<program>
+    ${ @x = "" }
+    <div bind:title=@x>hi</div>
+</program>

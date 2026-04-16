@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"markup-then-lift-same-parent","expectedOutcome":"clean","expectedCodes":[],"notes":"§10.6 — lifts append to enclosing <div> after static <p>."}

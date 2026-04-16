@@ -1,0 +1,1 @@
+{"feature":"plain-tag","shape":"inferred-closer-midline-then-sibling","expectedOutcome":"clean","expectedCodes":[],"notes":"§4.4.2 — `</>` closes innermost open tag regardless of line position."}

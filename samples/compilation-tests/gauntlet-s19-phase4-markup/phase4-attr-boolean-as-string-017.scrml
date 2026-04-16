@@ -1,0 +1,2 @@
+// `disabled="true"` — boolean attr with string literal → E-ATTR-002.
+<input type="text" disabled="true"/>

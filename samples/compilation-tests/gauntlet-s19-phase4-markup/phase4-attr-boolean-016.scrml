@@ -1,0 +1,2 @@
+// Bare boolean attr.
+<input type="checkbox" disabled/>

@@ -1,0 +1,1 @@
+{"feature":"slot","shape":"unslotted-children-without-spread","expectedOutcome":"error","expectedCodes":["E-COMPONENT-021"],"notes":"§16 — unslotted children require `${children}` spread in body."}

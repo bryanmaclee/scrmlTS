@@ -1,0 +1,1 @@
+{"feature":"comment","shape":"line-comment-between-siblings","expectedOutcome":"clean","expectedCodes":[],"notes":"§4.7 — `//` block-splitter comment suppression."}

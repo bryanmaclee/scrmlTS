@@ -1,0 +1,10 @@
+// Markup then lift — §10.6 target-parent clarity.
+<div>
+    <p>static</p>
+    ${
+        let items = ["x"]
+        for (let it of items) {
+            lift <p>${it}</>
+        }
+    }
+</div>

@@ -1,0 +1,5 @@
+// bind:value pointed at non-reactive local var → E-ATTR-010.
+<program>
+    ${ let name = "" }
+    <input type="text" bind:value=name/>
+</program>

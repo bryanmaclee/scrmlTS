@@ -1,0 +1,1 @@
+{"feature":"class-directive","shape":"bare-identifier-rhs","expectedOutcome":"error","expectedCodes":["E-ATTR-013"],"notes":"§5.5 — class: RHS bare identifier not allowed."}

@@ -1,0 +1,2 @@
+// HTML entities inside attribute value.
+<a href="/q?a=1&amp;b=2" title="Tom &amp; Jerry">link</a>

@@ -1,0 +1,1 @@
+{"feature":"if-attr","shape":"jsx-logical-and-ghost","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Ghost-pattern — scrml uses `<span if=@cond>`, not JSX logical-and."}

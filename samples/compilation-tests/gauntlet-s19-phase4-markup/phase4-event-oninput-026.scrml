@@ -1,0 +1,5 @@
+// oninput handler.
+<program>
+    ${ function track() { let _ = 1 } }
+    <input type="text" oninput=track()/>
+</program>

@@ -1,0 +1,9 @@
+// Markup-attribute form: `for @items / lift item /`.
+<program>
+    ${ @items = ["a", "b", "c"] }
+    <ul>
+        <li for @items / lift item />
+            @item
+        </li>
+    </ul>
+</program>

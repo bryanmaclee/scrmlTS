@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"lift-expression-as-text-in-li","expectedOutcome":"clean","expectedCodes":[],"notes":"§10 — lift body containing string interpolation."}

@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"inline-markup-accumulation","expectedOutcome":"clean","expectedCodes":[],"notes":"§10 — lift inline markup in for-of accumulates into parent."}

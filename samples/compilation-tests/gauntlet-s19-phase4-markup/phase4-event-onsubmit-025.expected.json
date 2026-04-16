@@ -1,0 +1,1 @@
+{"feature":"event-handler","shape":"onsubmit-with-args","expectedOutcome":"clean","expectedCodes":[],"notes":"§5 — onsubmit forwards args to handler."}

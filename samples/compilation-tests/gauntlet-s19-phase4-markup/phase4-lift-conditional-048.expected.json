@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"conditional-branch-only-taken-emits","expectedOutcome":"clean","expectedCodes":[],"notes":"§10.8.2."}

@@ -1,0 +1,5 @@
+// Fragmented attribute value spanning multiple lines (BPP stress).
+<a
+    href="/long/path"
+    title="multi
+line">link</a>

@@ -1,0 +1,1 @@
+{"feature":"component","shape":"missing-required-prop","expectedOutcome":"error","expectedCodes":["E-COMPONENT-010"],"notes":"§15.10 — required prop missing at call site."}

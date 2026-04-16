@@ -1,0 +1,1 @@
+{"feature":"class-directive","shape":"string-literal-rhs","expectedOutcome":"error","expectedCodes":["E-ATTR-013"],"notes":"§5.5 — class: RHS must be reactive, not string literal."}

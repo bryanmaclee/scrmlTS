@@ -1,0 +1,1 @@
+{"feature":"attribute","shape":"template-literal-with-reactive","expectedOutcome":"clean","expectedCodes":[],"notes":"§5 — template-literal attribute with embedded @var."}

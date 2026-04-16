@@ -1,0 +1,1 @@
+{"feature":"bind","shape":"bind-to-non-reactive","expectedOutcome":"error","expectedCodes":["E-ATTR-010"],"notes":"§5.4 — bind: target must be an @reactive var."}

@@ -1,0 +1,2 @@
+// class: directive RHS is a string literal → E-ATTR-013.
+<div class:active="true">bad</div>

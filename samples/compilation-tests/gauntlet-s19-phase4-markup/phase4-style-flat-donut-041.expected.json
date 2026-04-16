@@ -1,0 +1,1 @@
+{"feature":"style","shape":"flat-style-inline-donut","expectedOutcome":"clean","expectedCodes":[],"notes":"§8.10.6-adjacent; flat #{} → inline style on containing element."}

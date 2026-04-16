@@ -1,0 +1,5 @@
+// Ghost-pattern: JSX-style `{expr}` in attribute — not valid scrml.
+<program>
+    ${ @x = 5 }
+    <p title={@x}>hello</p>
+</program>

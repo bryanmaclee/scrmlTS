@@ -1,0 +1,11 @@
+// Nested lift — §10.6. Inner lift targets inner <li>, outer lift targets <ul>.
+<ul>${
+    let groups = [{items:["x","y"]},{items:["z"]}]
+    for (let g of groups) {
+        lift <li>${
+            for (let it of g.items) {
+                lift <span>${it}</>
+            }
+        }</>
+    }
+}</ul>

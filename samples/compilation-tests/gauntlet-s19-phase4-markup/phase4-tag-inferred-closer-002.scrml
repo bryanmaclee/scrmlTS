@@ -1,0 +1,2 @@
+// Inferred close tag `</>` closes innermost tag.
+<div>hello</>

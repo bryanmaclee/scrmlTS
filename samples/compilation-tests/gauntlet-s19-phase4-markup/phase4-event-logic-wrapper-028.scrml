@@ -1,0 +1,5 @@
+// Access event object via logic-context wrapper per §5.
+<program>
+    ${ function handle(e: any, tag: string) { let _ = tag } }
+    <button onclick=${(event) => handle(event, "btn")}>tap</button>
+</program>

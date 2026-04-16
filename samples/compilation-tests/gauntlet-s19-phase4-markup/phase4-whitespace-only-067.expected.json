@@ -1,0 +1,1 @@
+{"feature":"text-content","shape":"whitespace-only-body","expectedOutcome":"clean","expectedCodes":[],"notes":"Empty-but-whitespace body is valid markup."}

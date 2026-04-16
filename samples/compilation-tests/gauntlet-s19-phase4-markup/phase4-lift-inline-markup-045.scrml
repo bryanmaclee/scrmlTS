@@ -1,0 +1,7 @@
+// Lift inline markup inside ${} with for-of.
+<ul>${
+    let items = ["a","b","c"]
+    for (let item of items) {
+        lift <li>${item}</>
+    }
+}</ul>

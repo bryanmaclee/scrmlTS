@@ -1,0 +1,8 @@
+// Flat #{...} inside constructor scope compiles to inline style (donut).
+<div>
+    #{
+        padding: 1rem;
+        background: #222;
+    }
+    content
+</div>

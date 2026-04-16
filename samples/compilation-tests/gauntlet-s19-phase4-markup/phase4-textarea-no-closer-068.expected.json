@@ -1,0 +1,1 @@
+{"feature":"plain-tag","shape":"non-void-without-explicit-closer","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Ghost-pattern — textarea is non-void, requires closer. Exact code not in spec."}

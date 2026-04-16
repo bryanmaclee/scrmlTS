@@ -1,0 +1,3 @@
+// Whitespace after `<` makes this a state opener, not an HTML element.
+// `div` is not a declared state type → E-STATE-001 with hint.
+< div>content</div>

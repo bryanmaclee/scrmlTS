@@ -1,0 +1,11 @@
+// Inline component definition + invocation.
+<program>
+    ${
+        const Card = <div class="card" props={
+            title: string,
+        }>
+            <h2>${title}</>
+        </>
+    }
+    <Card title="Hello"/>
+</program>

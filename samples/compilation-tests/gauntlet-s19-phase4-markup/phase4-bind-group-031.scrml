@@ -1,0 +1,7 @@
+// bind:group radio group.
+<program>
+    ${ @size = "medium" }
+    <input type="radio" name="s" value="small" bind:group=@size/>
+    <input type="radio" name="s" value="medium" bind:group=@size/>
+    <input type="radio" name="s" value="large" bind:group=@size/>
+</program>

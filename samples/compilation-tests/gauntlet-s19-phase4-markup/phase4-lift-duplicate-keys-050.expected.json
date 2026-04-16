@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"duplicate-keys-within-block","expectedOutcome":"warning","expectedCodes":["W-KEY-001"],"notes":"§17.4 — duplicate keys in a single for/lift."}

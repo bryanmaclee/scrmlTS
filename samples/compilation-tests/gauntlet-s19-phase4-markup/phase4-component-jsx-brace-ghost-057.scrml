@@ -1,0 +1,12 @@
+// Ghost-pattern: JSX `<Card prop={value}>`.
+<program>
+    ${
+        @title = "Hi"
+        const Card = <div props={
+            label: string,
+        }>
+            <h2>${label}</>
+        </>
+    }
+    <Card label={@title}/>
+</program>

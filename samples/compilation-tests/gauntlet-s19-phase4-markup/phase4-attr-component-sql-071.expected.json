@@ -1,0 +1,1 @@
+{"feature":"component","shape":"sql-query-as-prop-value","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"SQL inside component prop value — spec silent. Triage needed."}

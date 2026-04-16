@@ -1,0 +1,1 @@
+{"feature":"event-handler","shape":"onclick-adjacent-to-tilde-test-block","expectedOutcome":"clean","expectedCodes":[],"notes":"Trap — verify `onclick` tokenization vs `~{}` context sigil."}

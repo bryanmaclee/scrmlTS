@@ -1,0 +1,7 @@
+// Ghost-pattern: `{cond && <El>}` conditional rendering inside markup.
+<program>
+    ${ @loggedIn = false }
+    <div>
+        {@loggedIn && <span>welcome</span>}
+    </div>
+</program>

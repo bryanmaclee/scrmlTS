@@ -1,0 +1,5 @@
+// class: RHS is a bare non-reactive identifier → E-ATTR-013.
+<program>
+    ${ let flag = false }
+    <div class:active=flag>bad</div>
+</program>

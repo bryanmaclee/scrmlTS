@@ -1,0 +1,1 @@
+{"feature":"event-handler","shape":"jsx-camelcase-arrow-wrapper-ghost","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Ghost-pattern — scrml uses lowercase event names + `onclick=fn()` without braces or arrow."}

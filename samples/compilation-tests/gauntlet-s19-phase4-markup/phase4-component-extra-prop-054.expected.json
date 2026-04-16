@@ -1,0 +1,1 @@
+{"feature":"component","shape":"extra-undeclared-prop","expectedOutcome":"error","expectedCodes":["E-COMPONENT-011"],"notes":"§15.10 — undeclared prop at call site."}

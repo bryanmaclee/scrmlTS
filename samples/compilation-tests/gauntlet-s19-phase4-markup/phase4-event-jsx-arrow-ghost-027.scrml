@@ -1,0 +1,5 @@
+// Ghost-pattern: JSX `onClick={() => fn()}` — wrong casing and arrow wrapper.
+<program>
+    ${ function fn() { let _ = 1 } }
+    <button onClick={() => fn()}>click</button>
+</program>

@@ -1,0 +1,1 @@
+{"feature":"plain-tag","shape":"unknown-element-name","expectedOutcome":"error","expectedCodes":["E-MARKUP-001"],"notes":"§4.1 — unknown element names must be compile errors."}

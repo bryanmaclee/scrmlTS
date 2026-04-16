@@ -1,0 +1,12 @@
+// Deep nesting stress test — 6 levels.
+<section>
+    <article>
+        <header>
+            <nav>
+                <ul>
+                    <li><a href="/">home</a></li>
+                </ul>
+            </nav>
+        </header>
+    </article>
+</section>

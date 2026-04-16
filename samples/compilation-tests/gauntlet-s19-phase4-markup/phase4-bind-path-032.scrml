@@ -1,0 +1,5 @@
+// bind:value on nested path.
+<program>
+    ${ @profile = { city: "" } }
+    <input type="text" bind:value=@profile.city/>
+</program>

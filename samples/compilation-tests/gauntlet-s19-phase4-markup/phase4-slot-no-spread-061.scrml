@@ -1,0 +1,13 @@
+// Caller provides unslotted children but component has no spread → E-COMPONENT-021.
+<program>
+    ${
+        const Box = <div class="box" props={
+            title: string,
+        }>
+            <h3>${title}</>
+        </>
+    }
+    <Box title="t">
+        <p>unslotted body</p>
+    </Box>
+</program>

@@ -1,0 +1,7 @@
+// `extract` keyword used where `lift` is expected → E-SYNTAX-003.
+<ul>${
+    let items = ["a","b"]
+    for (let it of items) {
+        extract <li>${it}</>
+    }
+}</ul>

@@ -1,0 +1,1 @@
+{"feature":"attribute","shape":"jsx-brace-expression-ghost","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Ghost-pattern test — JSX `{expr}` attr value is not scrml syntax. Exact code not specified; likely E-SYNTAX-* or E-ATTR-*."}

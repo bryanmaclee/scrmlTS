@@ -1,0 +1,11 @@
+// else/else-if as attr — the conditional chain.
+<program>
+    ${
+        @n = 0
+    }
+    <div>
+        <span if=@n == 0>zero</span>
+        <span else if=@n == 1>one</span>
+        <span else>many</span>
+    </div>
+</program>

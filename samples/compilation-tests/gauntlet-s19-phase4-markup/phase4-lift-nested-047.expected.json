@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"nested-lift-targets-immediate-parent","expectedOutcome":"clean","expectedCodes":[],"notes":"§10.6 — nested lift appends to nearest enclosing lifted element."}

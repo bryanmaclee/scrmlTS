@@ -1,0 +1,1 @@
+{"feature":"event-handler","shape":"logic-wrapper-arrow","expectedOutcome":"clean","expectedCodes":[],"notes":"§5 — `onclick=${(event)=>...}` exposes native event object."}

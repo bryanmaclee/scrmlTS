@@ -1,0 +1,1 @@
+{"feature":"slot","shape":"slot-attr-inside-lift","expectedOutcome":"error","expectedCodes":["E-COMPONENT-022"],"notes":"§16.9 — slot= inside lift is a phase violation."}

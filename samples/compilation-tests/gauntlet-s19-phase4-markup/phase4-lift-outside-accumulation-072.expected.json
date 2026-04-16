@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"lift-in-non-accumulating-top-logic","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"§10.4 — `lift` valid sites are restricted; top-level anonymous logic with no enclosing markup parent."}

@@ -1,0 +1,1 @@
+{"feature":"slot","shape":"default-children-spread","expectedOutcome":"clean","expectedCodes":[],"notes":"§16 — `${children}` default-slot spread."}

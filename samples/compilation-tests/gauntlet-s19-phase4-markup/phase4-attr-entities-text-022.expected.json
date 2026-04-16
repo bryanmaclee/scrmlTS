@@ -1,0 +1,1 @@
+{"feature":"text-content","shape":"html-entities","expectedOutcome":"clean","expectedCodes":[],"notes":"§5 — HTML entities preserved in text content."}

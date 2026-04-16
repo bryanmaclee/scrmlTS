@@ -1,0 +1,10 @@
+// Lowercase-named element that is not in HTML registry → E-MARKUP-001.
+// Component names must be capitalised for disambiguation.
+<program>
+    ${
+        const card = <div props={title:string}>
+            <h2>${title}</>
+        </>
+    }
+    <card title="x"/>
+</program>

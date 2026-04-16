@@ -1,0 +1,1 @@
+{"feature":"component","shape":"reactive-prop-passthrough","expectedOutcome":"clean","expectedCodes":[],"notes":"§15.8 — component props accept bare or @reactive."}

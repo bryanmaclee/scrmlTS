@@ -1,0 +1,1 @@
+{"feature":"for-markup","shape":"bare-for-lift-slash-form","expectedOutcome":"clean","expectedCodes":[],"notes":"anti-pattern briefing table — for @items / lift item / is the canonical markup iteration."}

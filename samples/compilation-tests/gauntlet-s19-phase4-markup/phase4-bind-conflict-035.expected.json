@@ -1,0 +1,1 @@
+{"feature":"bind","shape":"bind-plus-explicit-handler-conflict","expectedOutcome":"error","expectedCodes":["E-ATTR-012"],"notes":"§5.4 — bind: and same-event handler conflict."}

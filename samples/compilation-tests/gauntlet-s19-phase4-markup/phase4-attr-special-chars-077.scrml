@@ -1,0 +1,2 @@
+// Attribute values with special chars.
+<a data-info='{"k":"v"}' aria-label="Quote &quot;x&quot; here">link</a>

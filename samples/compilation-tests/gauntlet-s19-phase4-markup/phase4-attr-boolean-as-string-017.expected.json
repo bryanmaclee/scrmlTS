@@ -1,0 +1,1 @@
+{"feature":"attribute","shape":"boolean-attr-string-literal","expectedOutcome":"error","expectedCodes":["E-ATTR-002"],"notes":"§5 — quoted string on boolean attribute is E-ATTR-002."}

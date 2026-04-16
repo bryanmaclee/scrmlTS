@@ -1,0 +1,5 @@
+// `attr=fn()` on a non-event attr with incompatible return → E-ATTR-001.
+<program>
+    ${ function makeClass(): number { return 42 } }
+    <div class=makeClass()>x</div>
+</program>

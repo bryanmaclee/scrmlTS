@@ -1,0 +1,18 @@
+// slot= inside lift block → E-COMPONENT-022 (§16.9).
+<program>
+    ${
+        const Panel = <div class="p" props={
+            header: snippet,
+        }>
+            <div>${render header()}</>
+        </>
+    }
+    <Panel>
+        ${
+            let labels = ["A"]
+            for (let l of labels) {
+                lift <h2 slot="header">${l}</h2>
+            }
+        }
+    </Panel>
+</program>

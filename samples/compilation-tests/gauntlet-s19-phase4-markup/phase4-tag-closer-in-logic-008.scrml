@@ -1,0 +1,6 @@
+// `</>` inside ${} logic context — E-CTX-002.
+<div>${
+    if (true) {
+        </>
+    }
+}</div>

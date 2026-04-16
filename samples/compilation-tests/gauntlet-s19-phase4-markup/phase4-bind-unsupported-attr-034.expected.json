@@ -1,0 +1,1 @@
+{"feature":"bind","shape":"bind-on-unsupported-attr","expectedOutcome":"error","expectedCodes":["E-ATTR-011"],"notes":"§5.4 — bind: only valid on value/checked/selected/group."}

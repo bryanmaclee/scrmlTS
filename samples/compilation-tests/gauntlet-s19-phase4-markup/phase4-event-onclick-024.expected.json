@@ -1,0 +1,1 @@
+{"feature":"event-handler","shape":"onclick-call","expectedOutcome":"clean","expectedCodes":[],"notes":"§5 — onclick wires closure around the call."}

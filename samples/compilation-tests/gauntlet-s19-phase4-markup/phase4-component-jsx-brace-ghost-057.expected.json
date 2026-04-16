@@ -1,0 +1,1 @@
+{"feature":"component","shape":"jsx-brace-prop-ghost","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Ghost-pattern — component props never use JSX `{}`."}

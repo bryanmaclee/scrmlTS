@@ -1,0 +1,1 @@
+{"feature":"plain-tag","shape":"space-after-lt-reclassifies-as-state","expectedOutcome":"error","expectedCodes":["E-STATE-001"],"notes":"§4.10 — newline/space between `<` and identifier → state opener; hint recommends removing space."}

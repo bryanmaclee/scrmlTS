@@ -1,0 +1,1 @@
+{"feature":"component","shape":"dup-prop-in-block-and-root-attr","expectedOutcome":"error","expectedCodes":["E-COMPONENT-012"],"notes":"§15.10."}

@@ -1,0 +1,5 @@
+// Void element <br> containing body content — should error or be ignored.
+// Spec is ambiguous on code; authoring as UNKNOWN for triage.
+<div>
+    <br>unexpected</br>
+</div>

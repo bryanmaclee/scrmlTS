@@ -1,0 +1,11 @@
+// Component invocation with undeclared prop → E-COMPONENT-011.
+<program>
+    ${
+        const Badge = <span props={
+            color: string,
+        }>
+            <span>${color}</>
+        </>
+    }
+    <Badge color="red" icon="star"/>
+</program>

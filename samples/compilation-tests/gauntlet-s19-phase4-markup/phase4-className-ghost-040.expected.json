@@ -1,0 +1,1 @@
+{"feature":"class-directive","shape":"react-className-ghost","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Ghost-pattern — `className={...}` is React. Use `class=` or `class:`."}

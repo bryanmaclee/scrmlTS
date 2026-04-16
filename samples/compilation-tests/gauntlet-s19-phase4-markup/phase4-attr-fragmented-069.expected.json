@@ -1,0 +1,1 @@
+{"feature":"attribute","shape":"attribute-list-spans-multiple-lines","expectedOutcome":"clean","expectedCodes":[],"notes":"§4.10 — attrs may span lines; `<` + identifier must be adjacent."}

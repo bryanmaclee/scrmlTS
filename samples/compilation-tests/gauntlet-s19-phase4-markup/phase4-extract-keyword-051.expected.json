@@ -1,0 +1,1 @@
+{"feature":"lift","shape":"extract-keyword-rejected","expectedOutcome":"error","expectedCodes":["E-SYNTAX-003"],"notes":"§4.11.1 — `extract` is not valid; use `lift`."}

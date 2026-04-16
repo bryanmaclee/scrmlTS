@@ -1,0 +1,1 @@
+{"feature":"slot","shape":"slot-targets-non-snippet-prop","expectedOutcome":"error","expectedCodes":["E-COMPONENT-023"],"notes":"§16.5 — slot name must match a snippet-typed prop."}

@@ -1,0 +1,184 @@
+// nested-comments.scrml
+// A threaded comments widget with reply forms. Exercises Phase 4 feature surface:
+// component def/invocation, named + default slots, event handlers, bind:value,
+// class:active, for/lift keyed reconciliation, nested lift (§10.6), recursion,
+// self-closer </>, and if= conditional on the reply form.
+
+${
+    // Seed thread. In real code this would come from ?{SELECT ...}.all() on mount.
+    @comments = [
+        { id: 1, author: "alice",   body: "Top-level comment.",      replies: [
+            { id: 2, author: "bob", body: "Reply to alice.",         replies: [
+                { id: 3, author: "carol", body: "Nested deeper.",    replies: [] }
+            ] }
+        ] },
+        { id: 4, author: "dave",    body: "Another root thread.",    replies: [] }
+    ]
+
+    // Which comment currently has its reply form open. One at a time is fine.
+    @activeReplyId = 0
+    // Draft text per-comment — keyed by id so each form has its own buffer.
+    @drafts = {}
+
+    function toggleReply(id) {
+        @activeReplyId = @activeReplyId == id ? 0 : id
+        // Ensure a draft slot exists for the newly-opened form.
+        if (@activeReplyId == id && @drafts[id] == not) {
+            @drafts = { ...@drafts, [id]: "" }
+        }
+    }
+
+    function submitReply(parentId) {
+        let text = @drafts[parentId]
+        if (text == not || text.length == 0) { return }
+        // Mutate the tree. Recursive walk — nothing clever, just find-and-append.
+        function insert(list) {
+            for (let c of list) {
+                if (c.id == parentId) {
+                    c.replies = [...c.replies, {
+                        id: Date.now(),
+                        author: "me",
+                        body: text,
+                        replies: []
+                    }]
+                    return true
+                }
+                if (insert(c.replies)) { return true }
+            }
+            return false
+        }
+        insert(@comments)
+        @comments = [...@comments]  // trigger reactive re-render of the root array
+        @drafts = { ...@drafts, [parentId]: "" }
+        @activeReplyId = 0
+    }
+}
+
+// --- Avatar: tiny presentational component, single required prop -----------
+const Avatar = <span class="avatar" props={ name: string }>
+    ${name.slice(0, 1).toUpperCase()}
+</>
+
+// --- ReplyForm: its own component so the parent doesn't care about the form --
+// `if=` on the wrapping element hides it unless this is the active comment.
+const ReplyForm = <form class="reply-form" props={
+    commentId: number,
+    visible: boolean
+} if=visible onsubmit=submitReply(commentId)>
+    <textarea
+        placeholder="Write a reply..."
+        bind:value=@drafts[commentId]
+    ></textarea>
+    <div class="reply-form__actions">
+        <button type="button" onclick=toggleReply(commentId)>Cancel</>
+        <button type="submit">Post</>
+    </div>
+</>
+
+// --- Comment: recursive. Renders its own replies as <Comment> children. -----
+// Named slots: `header` (author row) and `footer` (action bar).
+// Default slot / spread (${...}) receives the comment body content.
+const Comment = <article class="comment" props={
+    comment: asIs,
+    depth: number = 0,
+    header: snippet,
+    footer?: snippet
+} class:active = @activeReplyId == comment.id>
+    <div class="comment__header">${render header()}</>
+    <div class="comment__body">${...}</>
+    <div class="comment__footer">
+        ${render footer() ?? <span class="muted">no actions/}
+    </>
+
+    // Recursive self-call over replies. Keyed by id for stable DOM identity
+    // across inserts (new replies append without re-mounting siblings).
+    <div class="comment__replies">
+        ${ for (let child of comment.replies key child.id) {
+            lift <Comment comment=child depth=(depth + 1)>
+                <span slot="header">
+                    <Avatar name=child.author />
+                    <strong>${child.author}</>
+                </>
+                <span slot="footer">
+                    <button onclick=toggleReply(child.id)>Reply</>
+                </>
+                ${child.body}
+            </>
+        } else {
+            lift <p class="muted" if=(depth == 0)>No replies yet./
+        } }
+    </>
+
+    // ReplyForm is a sibling of the replies list so it sits under the current
+    // comment, not under the last child.
+    <ReplyForm commentId=comment.id visible=(@activeReplyId == comment.id) />
+</>
+
+// --- Page root --------------------------------------------------------------
+<main class="thread">
+    <h1>Discussion</>
+
+    // Outer for/lift over the top-level @comments array. The inner Comment
+    // component itself contains another for/lift — this is the §10.6 nested-lift
+    // case: the inner lift targets the inner <div class="comment__replies">,
+    // NOT this outer <section>.
+    <section class="thread__list">
+        ${ for (let c of @comments key c.id) {
+            lift <Comment comment=c>
+                <span slot="header">
+                    <Avatar name=c.author />
+                    <strong>${c.author}</>
+                </>
+                <span slot="footer">
+                    <button
+                        class="btn-reply"
+                        class:active = @activeReplyId == c.id
+                        onclick=toggleReply(c.id)
+                    >Reply</>
+                </>
+                // Default-slot content — becomes the body.
+                ${c.body}
+            </>
+        } else {
+            lift <p class="empty">Be the first to comment./
+        } }
+    </>
+</main>
+
+#{
+    .thread {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 1rem;
+    }
+    .comment {
+        border-left: 2px solid #ddd;
+        padding: 0.5rem 0.75rem;
+        margin: 0.5rem 0;
+    }
+    .comment.active {
+        border-left-color: steelblue;
+    }
+    .comment__replies {
+        margin-left: 1rem;
+    }
+    .avatar {
+        display: inline-block;
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 50%;
+        background: #eef;
+        text-align: center;
+        font-weight: bold;
+    }
+    .reply-form textarea {
+        width: 100%;
+        min-height: 3rem;
+    }
+    .btn-reply.active {
+        background: steelblue;
+        color: white;
+    }
+    .muted { color: #888; font-style: italic; }
+    .empty { text-align: center; padding: 2rem; color: #888; }
+}

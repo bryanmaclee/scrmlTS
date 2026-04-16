@@ -1,0 +1,1 @@
+{"feature":"plain-tag","shape":"closer-name-mismatch","expectedOutcome":"error","expectedCodes":["E-MARKUP-002"],"notes":"§4.4.1 — closer name must match innermost open tag."}

@@ -1,0 +1,6 @@
+// `lift` in a top-level non-accumulating context — shape-invalid.
+<program>
+    ${
+        lift <p>orphan</>
+    }
+</program>

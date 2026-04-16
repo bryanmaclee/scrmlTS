@@ -1,0 +1,5 @@
+// Single class: directive.
+<program>
+    ${ @isActive = false }
+    <div class:active=@isActive>toggle</div>
+</program>

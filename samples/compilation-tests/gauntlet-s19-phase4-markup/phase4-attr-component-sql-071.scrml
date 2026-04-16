@@ -1,0 +1,10 @@
+// SQL context inside component invocation attr — should reject (SQL doesn't
+// belong in component props). Code not specified.
+<program>
+    ${
+        const Card = <div props={label:string}>
+            <p>${label}</>
+        </>
+    }
+    <Card label=?{SELECT name FROM users}.get()/>
+</program>

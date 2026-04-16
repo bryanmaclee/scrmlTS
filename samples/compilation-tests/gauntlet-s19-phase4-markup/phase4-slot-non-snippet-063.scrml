@@ -1,0 +1,13 @@
+// slot="name" targeting a prop not declared as snippet → E-COMPONENT-023.
+<program>
+    ${
+        const Card = <div class="card" props={
+            title: string,
+        }>
+            <h2>${title}</>
+        </>
+    }
+    <Card title="t">
+        <h2 slot="title">fill</h2>
+    </Card>
+</program>
