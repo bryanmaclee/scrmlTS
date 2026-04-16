@@ -3667,6 +3667,10 @@ function parseArmPattern(armText: string): ParsedArmPattern {
   if (/^else\b/.test(patOnly)) {
     return { kind: "wildcard", isElse: true, isNot: false, hasGuard, armText };
   }
+  // §18.6: `_` is a valid alias for `else`.
+  if (/^_(?!\w)/.test(patOnly)) {
+    return { kind: "wildcard", isElse: true, isNot: false, hasGuard, armText };
+  }
   if (/^not\b/.test(patOnly)) {
     return { kind: "wildcard", isElse: false, isNot: true, hasGuard, armText };
   }
@@ -5270,39 +5274,11 @@ function checkLoopControl(nodes: ASTNodeLike[], errors: TSError[], filePath: str
   checkArrowBreakInLoop(nodes, false);
 
   // E-LOOP-003: labeled break/continue that references an unknown label.
-  // Track labels in the stack at each point.
-  function checkLabelRefs(body: ASTNodeLike[], activeLabels: Set<string>): void {
-    for (const node of body) {
-      if (!node || typeof node !== "object") continue;
-      const kind = node.kind as string;
-      if (kind === "break-stmt" || kind === "continue-stmt") {
-        const label = (node as { label?: unknown }).label;
-        if (typeof label === "string" && label.length > 0 && !activeLabels.has(label)) {
-          errors.push(new TSError(
-            "E-LOOP-003",
-            `E-LOOP-003: \`${kind === "break-stmt" ? "break" : "continue"} ${label}\` references label \`${label}:\` ` +
-            "which is not in scope (§49.9). " +
-            "Labels must be defined on an enclosing loop: `" + label + ": while (...) { ... }`.",
-            mkSpan(node),
-          ));
-        }
-        continue;
-      }
-      const ownLabel = (node as { label?: unknown }).label;
-      const nextLabels = (typeof ownLabel === "string" && ownLabel.length > 0 && LOOP_KINDS.has(kind))
-        ? new Set([...activeLabels, ownLabel])
-        : activeLabels;
-      const inner = (node as { body?: ASTNodeLike[] }).body;
-      // Crossing a function boundary clears labels.
-      const boundaryLabels = FN_KINDS.has(kind) ? new Set<string>() : nextLabels;
-      if (Array.isArray(inner)) checkLabelRefs(inner, boundaryLabels);
-      for (const key of ["consequent", "alternate", "thenBody", "elseBody", "children"]) {
-        const v = (node as Record<string, unknown>)[key];
-        if (Array.isArray(v)) checkLabelRefs(v as ASTNodeLike[], boundaryLabels);
-      }
-    }
-  }
-  checkLabelRefs(nodes, new Set());
+  // DISABLED: braceless if-bodies cause the ast-builder to absorb the next
+  // token as a label (e.g. `if (x == 2) continue\nsum = sum + x` becomes
+  // continue-stmt{label:"sum"}). Re-enable when braceless-if parsing is fixed.
+  // The fixture `phase2-while-break-missing-label-066` will revert to
+  // OUTCOME_MISMATCH; accepted trade-off vs false-positive on valid code.
 
   // E-LOOP-007: while used as an expression (e.g. `let x = while (…) {…}`).
   // When the parser couldn't parse the init, it stores an escape-hatch ParseError
