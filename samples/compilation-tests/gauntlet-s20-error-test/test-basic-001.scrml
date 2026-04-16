@@ -1,0 +1,20 @@
+// Phase 7: ~{} test block — basic assertions (§19.12)
+// Should compile clean; test blocks stripped from production.
+
+${
+  let counter = 0
+  function increment() {
+    counter += 1
+    return counter
+  }
+}
+
+<p>App content</>
+
+~{ "counter tests"
+  test "starts at zero" { assert counter == 0 }
+  test "increments" {
+    increment()
+    assert counter == 1
+  }
+}

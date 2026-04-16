@@ -1,0 +1,13 @@
+// Phase 7: fail in non-failable function — E-ERROR-001 (§19.3.3)
+// EXPECTED: E-ERROR-001
+
+${
+  function normalFunction(x) {
+    if (x < 0) {
+      fail "should not work"
+    }
+    return x
+  }
+}
+
+<p>Test</>

@@ -1,0 +1,11 @@
+// Phase 7: !{} error effect block with typed error arms
+// Should compile clean.
+
+<div>
+  !{
+    | ::NetworkError e -> <p class="error">Network: ${e.message}</>
+    | ::TimeoutError e -> <p class="error">Timeout</>
+    | _ e -> <p class="error">Unknown error</>
+  }
+  <p>Content with error boundary</>
+</div>

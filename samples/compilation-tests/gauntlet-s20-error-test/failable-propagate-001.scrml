@@ -1,0 +1,20 @@
+// Phase 7: ? propagation operator (§19.5)
+// Should compile clean.
+
+${
+  type ApiError:enum = { BadRequest, NotFound }
+
+  function getUser(id)! -> ApiError {
+    if (id <= 0) {
+      fail ApiError.BadRequest("invalid id")
+    }
+    return "user"
+  }
+
+  function loadProfile(id)! -> ApiError {
+    let user = getUser(id)?
+    return user
+  }
+}
+
+<p>Profile page</>

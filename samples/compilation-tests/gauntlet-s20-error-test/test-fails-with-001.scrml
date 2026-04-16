@@ -1,0 +1,27 @@
+// Phase 7: assert.fails.with in ~{} test block (§19.12.3)
+// Should compile clean.
+
+${
+  type AuthError:enum = { InvalidCredentials, AccountLocked, SessionExpired }
+
+  function authenticate(user, pass)! -> AuthError {
+    if (user == "") {
+      fail AuthError.InvalidCredentials
+    }
+    if (pass == "locked") {
+      fail AuthError.AccountLocked
+    }
+    return "token"
+  }
+}
+
+<p>Auth system</>
+
+~{ "auth error tests"
+  test "rejects empty user with InvalidCredentials" {
+    assert.fails.with authenticate("", "pass") ::InvalidCredentials
+  }
+  test "rejects locked account" {
+    assert.fails.with authenticate("user", "locked") ::AccountLocked
+  }
+}

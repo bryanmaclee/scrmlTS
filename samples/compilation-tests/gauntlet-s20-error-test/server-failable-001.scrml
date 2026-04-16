@@ -1,0 +1,19 @@
+// Phase 7: server + ! modifiers coexist (§19.4.4)
+// Should compile clean.
+
+< db src="./test.db" tables="users">
+${
+  type UserError:enum = { NotFound, Forbidden }
+
+  server function getUser(id)! -> UserError {
+    let user = ?{`SELECT id, name FROM users WHERE id = ${id}`}.get()
+    if user is not {
+      fail UserError.NotFound
+    }
+    return user
+  }
+}
+<div>
+  <button onclick=getUser(1)>Load</>
+</div>
+</>

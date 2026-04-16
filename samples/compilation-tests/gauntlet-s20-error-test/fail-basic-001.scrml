@@ -1,0 +1,15 @@
+// Phase 7: fail keyword in failable function (§19.3)
+// Should compile clean.
+
+${
+  type PaymentError:enum = { InvalidAmount, CustomerNotFound, ExpiredCard }
+
+  function processPayment(amount, customerId)! -> PaymentError {
+    if (amount <= 0) {
+      fail PaymentError.InvalidAmount("Amount must be positive")
+    }
+    return "success"
+  }
+}
+
+<p>Payment form</>

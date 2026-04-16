@@ -1,0 +1,21 @@
+// Phase 7: fail inside control flow constructs (§19.3.3)
+// Should compile clean — fail is valid inside if/for/match in ! functions.
+
+${
+  type ValidationError:enum = { Empty, TooShort, TooLong }
+
+  function validateName(name)! -> ValidationError {
+    if (name == "") {
+      fail ValidationError.Empty
+    }
+    if (name.length < 2) {
+      fail ValidationError.TooShort
+    }
+    if (name.length > 100) {
+      fail ValidationError.TooLong
+    }
+    return name
+  }
+}
+
+<p>Validation form</>

@@ -1,0 +1,18 @@
+// Phase 7: try/catch/finally — REJECTED in scrml (§19)
+// EXPECTED: E-ERROR-007 — try is not a scrml keyword
+// scrml uses fail/!{}/?/match instead of try/catch.
+
+${
+  function riskyOp() {
+    try {
+      let result = JSON.parse("invalid")
+      return result
+    } catch (e) {
+      return "parse error"
+    } finally {
+      console.log("done")
+    }
+  }
+}
+
+<p>Try/catch test</>
