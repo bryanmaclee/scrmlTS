@@ -1,0 +1,11 @@
+// Phase 9: inline type predicate — email shape (§53)
+// Should compile clean with validation wiring.
+
+${
+  @email: string(email) = ""
+}
+
+<div>
+  <input type="email" bind:value=@email />
+  <p>Email: ${@email}</>
+</div>

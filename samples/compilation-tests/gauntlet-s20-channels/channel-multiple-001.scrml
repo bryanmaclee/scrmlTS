@@ -1,0 +1,39 @@
+// Phase 10: multiple channels in one app (§38)
+// Should compile clean — each channel gets its own route.
+
+<program>
+${
+  @chatMessages = []
+  @notifications = []
+}
+
+<div>
+  <channel name="chat"
+           topic="general"
+           onserver:message=handleChat(msg)>
+  </>
+
+  <channel name="alerts"
+           topic="system"
+           onserver:message=handleAlert(msg)>
+  </>
+
+  <div>
+    <h2>Chat</>
+    <ul>
+      for (msg of @chatMessages) {
+        <li>${msg}</>
+      }
+    </ul>
+  </div>
+
+  <div>
+    <h2>Alerts</>
+    <ul>
+      for (n of @notifications) {
+        <li>${n}</>
+      }
+    </ul>
+  </div>
+</div>
+</program>

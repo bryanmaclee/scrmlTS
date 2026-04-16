@@ -1,0 +1,8 @@
+// Phase 12: E-LIN-001 — linear variable declared but never consumed
+// EXPECTED: E-LIN-001 with guidance
+
+${
+  lin token = "secret"
+}
+
+<p>Test</>

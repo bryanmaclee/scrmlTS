@@ -1,0 +1,14 @@
+// Phase 12: E-ERROR-007 — try/catch rejected with guidance
+// EXPECTED: E-ERROR-007 with suggestion to use !{} or fail
+
+${
+  function test() {
+    try {
+      return 1
+    } catch (e) {
+      return 0
+    }
+  }
+}
+
+<p>Test</>

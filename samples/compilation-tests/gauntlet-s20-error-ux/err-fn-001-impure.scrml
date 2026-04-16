@@ -1,0 +1,13 @@
+// Phase 12: E-FN-001..005 — fn prohibitions (pure function)
+// EXPECTED: E-FN-* errors with helpful messages
+
+${
+  @counter = 0
+
+  fn pureAdd(a, b) {
+    @counter += 1
+    return a + b
+  }
+}
+
+<p>Test</>

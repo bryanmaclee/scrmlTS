@@ -1,0 +1,6 @@
+// Phase 12: E-IMPORT-001 — module not found
+// EXPECTED: E-IMPORT-001 with the module path
+
+import { helper } from "./nonexistent-module.scrml"
+
+<p>Test</>

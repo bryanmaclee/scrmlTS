@@ -1,0 +1,11 @@
+// Phase 9: inline type predicate — number range (§53)
+// Should compile clean with validation wiring.
+
+${
+  @age: number(>0 && <150) = 25
+}
+
+<div>
+  <input type="number" bind:value=@age />
+  <p>Age: ${@age}</>
+</div>

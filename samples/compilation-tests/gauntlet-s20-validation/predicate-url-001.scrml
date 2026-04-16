@@ -1,0 +1,11 @@
+// Phase 9: inline type predicate — url shape (§53)
+// Should compile clean.
+
+${
+  @website: string(url) = ""
+}
+
+<div>
+  <input type="url" bind:value=@website />
+  <p>Site: ${@website}</>
+</div>

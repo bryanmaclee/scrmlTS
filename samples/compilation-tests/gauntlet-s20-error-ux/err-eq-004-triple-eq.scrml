@@ -1,0 +1,11 @@
+// Phase 12: E-EQ-004 — reject === (scrml uses ==)
+// EXPECTED: E-EQ-004 with fix suggestion
+
+${
+  let x = 5
+  if (x === 5) {
+    let y = "match"
+  }
+}
+
+<p>Test</>

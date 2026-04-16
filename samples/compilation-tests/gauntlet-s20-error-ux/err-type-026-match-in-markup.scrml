@@ -1,0 +1,9 @@
+// Phase 12: E-TYPE-026 — match keyword in markup text
+// EXPECTED: E-TYPE-026 with hint to wrap in ${}
+
+<div>
+  match @value {
+    "a" => <p>A</>
+    "b" => <p>B</>
+  }
+</div>

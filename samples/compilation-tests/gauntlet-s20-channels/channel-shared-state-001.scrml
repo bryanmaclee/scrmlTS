@@ -1,0 +1,20 @@
+// Phase 10: channel with @shared state (§38)
+// Should compile clean.
+
+<program>
+${
+  @messages = []
+}
+
+<div>
+  <channel name="counter"
+           topic="counts"
+           onserver:message=handleCount(msg)>
+    ${
+      @shared total = 0
+    }
+  </>
+
+  <p>Total: ${@total}</>
+</div>
+</program>

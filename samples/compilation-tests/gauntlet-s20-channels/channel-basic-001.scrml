@@ -1,0 +1,25 @@
+// Phase 10: basic channel declaration (§38)
+// Should compile clean with client IIFE + server route.
+
+<program>
+${
+  @messages = []
+  @status = "disconnected"
+}
+
+<div>
+  <channel name="updates"
+           topic="main"
+           onclient:open=onOpen()
+           onclient:close=onClose()
+           onserver:message=handleMsg(msg)>
+  </>
+
+  <p>Status: ${@status}</>
+  <ul>
+    for (msg of @messages) {
+      <li>${msg}</>
+    }
+  </ul>
+</div>
+</program>
