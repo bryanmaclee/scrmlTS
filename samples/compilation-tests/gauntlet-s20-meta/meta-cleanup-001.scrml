@@ -1,0 +1,20 @@
+// Phase 5 gauntlet: meta.cleanup() registration (§22.5.1)
+// Runtime meta with cleanup callback. Should compile clean.
+
+<program>
+${
+  @interval = 1000
+}
+
+<div>
+  ^{
+    let id = setInterval(() => {
+      meta.emit(`<p>tick</p>`)
+    }, meta.get("interval"))
+
+    meta.cleanup(() => {
+      clearInterval(id)
+    })
+  }
+</div>
+</program>

@@ -1,5 +1,5 @@
 import { extractIdentifiersFromAST, forEachIdentInExprNode, exprNodeContainsCall, exprNodeContainsMemberAccess, emitStringFromTree } from "./expression-parser.ts";
-import type { Span, FileAST, ASTNode, ExprNode } from "./types/ast.ts";
+import type { Span, FileAST, ASTNode, ExprNode, CallExpr, IdentExpr } from "./types/ast.ts";
 
 /**
  * Meta Checker — Phase separation and reflect() API for ^{} meta contexts.
@@ -233,12 +233,73 @@ interface MetaFileAST {
  * Walks all expression strings in the body (bare-expr, let/const initializers)
  * and tests them against COMPILE_TIME_API_PATTERNS.
  */
+/**
+ * Check whether a reflect() call's first argument is a compile-time type name
+ * (PascalCase literal or string literal), as opposed to a runtime variable
+ * reference (camelCase, @var, _prefixed). Per §22.4.2, reflect(@var) and
+ * reflect(variable) take the runtime path and should NOT classify the block
+ * as compile-time.
+ */
+function reflectCallIsCompileTime(callNode: CallExpr): boolean {
+  if (!callNode.args || callNode.args.length === 0) return true; // bare reflect() — treat as compile-time
+  const firstArg = callNode.args[0] as ExprNode;
+  if (!firstArg) return true;
+
+  // String literal: reflect("User") — compile-time
+  if (firstArg.kind === "lit") return true;
+
+  // Identifier: check if it looks like a type name (PascalCase) vs variable (camelCase/@var)
+  if (firstArg.kind === "ident") {
+    const name = (firstArg as IdentExpr).name;
+    return !isVariableIdent(name);
+  }
+
+  // Any other expression (property access, ternary, etc.) → runtime path
+  return false;
+}
+
+/**
+ * Check whether an ExprNode tree contains a compile-time reflect() call.
+ * Returns true only if reflect() is called with a compile-time-style argument
+ * (PascalCase type name or string literal). reflect(@var) returns false.
+ */
+function exprNodeContainsCompileTimeReflect(node: ExprNode): boolean {
+  if (!node) return false;
+  if (node.kind === "call") {
+    const callNode = node as CallExpr;
+    if (callNode.callee.kind === "ident" && (callNode.callee as IdentExpr).name === "reflect") {
+      return reflectCallIsCompileTime(callNode);
+    }
+    // Check nested calls
+    if (exprNodeContainsCompileTimeReflect(callNode.callee)) return true;
+    for (const arg of callNode.args) {
+      if (exprNodeContainsCompileTimeReflect(arg as ExprNode)) return true;
+    }
+  }
+  // Recurse into sub-expressions
+  switch (node.kind) {
+    case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch":
+      return false;
+    case "member": return exprNodeContainsCompileTimeReflect((node as any).object);
+    case "index": return exprNodeContainsCompileTimeReflect((node as any).object) || exprNodeContainsCompileTimeReflect((node as any).index);
+    case "unary": return exprNodeContainsCompileTimeReflect((node as any).operand);
+    case "binary": return exprNodeContainsCompileTimeReflect((node as any).left) || exprNodeContainsCompileTimeReflect((node as any).right);
+    case "ternary": return exprNodeContainsCompileTimeReflect((node as any).test) || exprNodeContainsCompileTimeReflect((node as any).consequent) || exprNodeContainsCompileTimeReflect((node as any).alternate);
+    case "array": return ((node as any).elements || []).some((el: ExprNode) => exprNodeContainsCompileTimeReflect(el));
+    case "template": return ((node as any).parts || []).some((p: ExprNode) => exprNodeContainsCompileTimeReflect(p));
+    default: return false;
+  }
+}
+
+/** Regex to check if a bare reflect() call (not meta.types.reflect()) has a compile-time argument (PascalCase or string literal). */
+const REFLECT_COMPILE_TIME_RE = /(?<!\.\s{0,10})\breflect\s*\(\s*(?:"[^"]*"|'[^']*'|[A-Z][A-Za-z0-9_$]*)\s*\)/;
+
 export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
   if (!Array.isArray(body)) return false;
 
   function testExprNode(exprNode: ExprNode | undefined): boolean {
     if (!exprNode) return false;
-    return exprNodeContainsCall(exprNode, "reflect")
+    return exprNodeContainsCompileTimeReflect(exprNode)
       || exprNodeContainsCall(exprNode, "emit")
       || exprNodeContainsMemberAccess(exprNode, ["compiler"])
       || exprNodeContainsMemberAccess(exprNode, ["bun", "eval"]);
@@ -246,7 +307,11 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
 
   function testExpr(expr: string | undefined): boolean {
     if (!expr || typeof expr !== "string") return false;
-    return COMPILE_TIME_API_PATTERNS.some(pattern => pattern.test(expr));
+    // Check non-reflect patterns first
+    if (COMPILE_TIME_API_PATTERNS.slice(1).some(pattern => pattern.test(expr))) return true;
+    // For reflect, check that the argument is compile-time (PascalCase/string literal)
+    if (REFLECT_COMPILE_TIME_RE.test(expr)) return true;
+    return false;
   }
 
   function walk(nodes: LogicNode[]): boolean {
@@ -300,6 +365,10 @@ export function bodyContainsLift(body: LogicNode[]): LogicNode | null {
   function walk(nodes: LogicNode[]): LogicNode | null {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
+
+      // AST-level lift detection: the ast-builder produces "lift-expr" nodes
+      // for both `lift <tag>` (markup lift) and `lift expr` (value lift).
+      if (node.kind === "lift-expr") return node;
 
       // Phase 4d: ExprNode-first lift detection, string fallback
       if (node.kind === "bare-expr") {
@@ -371,6 +440,49 @@ export function bodyContainsSqlContext(body: LogicNode[]): LogicNode | null {
  * §22.8: Check whether a meta block body contains BOTH compile-time API patterns
  * AND runtime-only variable references. This constitutes a phase separation violation.
  */
+/**
+ * Collect all PascalCase identifiers that appear as direct arguments to
+ * reflect() calls in the body. These are type name references (even if the
+ * type doesn't exist), not runtime variables.
+ */
+function collectReflectArgIdents(body: LogicNode[]): Set<string> {
+  const reflectArgs = new Set<string>();
+  const reflectArgRe = /\breflect\s*\(\s*([A-Z][A-Za-z0-9_$]*)\s*\)/g;
+
+  function walkForReflectArgs(nodes: LogicNode[]): void {
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      if (node.kind === "meta") continue;
+
+      const exprs: string[] = [];
+      if (node.kind === "bare-expr") {
+        const s = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : node.expr;
+        if (s) exprs.push(s);
+      }
+      if (node.kind === "let-decl" || node.kind === "const-decl") {
+        const s = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : node.init;
+        if (s) exprs.push(s);
+      }
+      for (const expr of exprs) {
+        let m: RegExpExecArray | null;
+        const re = new RegExp(reflectArgRe.source, "g");
+        while ((m = re.exec(expr)) !== null) {
+          reflectArgs.add(m[1]);
+        }
+      }
+
+      if (Array.isArray(node.body)) walkForReflectArgs(node.body);
+      if (Array.isArray(node.children)) walkForReflectArgs(node.children);
+      if (Array.isArray(node.consequent)) walkForReflectArgs(node.consequent);
+      if (Array.isArray(node.alternate)) walkForReflectArgs(node.alternate);
+    }
+  }
+
+  walkForReflectArgs(body);
+  return reflectArgs;
+}
+
 export function bodyMixesPhases(
   body: LogicNode[],
   typeRegistry: Map<string, ResolvedType>,
@@ -384,6 +496,10 @@ export function bodyMixesPhases(
   // Collect meta-local declarations
   const metaLocals = collectMetaLocals(body);
 
+  // Collect identifiers used as reflect() arguments — they're type references,
+  // not runtime variables, even if the type doesn't exist in the registry.
+  const reflectArgIdents = collectReflectArgIdents(body);
+
   // Check if any expression references a runtime-only value
   function isRuntimeIdent(id: string): boolean {
     if (JS_KEYWORDS.has(id)) return false;
@@ -391,6 +507,7 @@ export function bodyMixesPhases(
     if (metaLocals.has(id)) return false;
     if (typeRegistry && typeRegistry.has(id)) return false;
     if (outerCompileTimeConsts.has(id)) return false;
+    if (reflectArgIdents.has(id)) return false;
     return true;
   }
 
@@ -755,7 +872,10 @@ export function checkMetaBlock(
   const metaLocalsRaw = collectMetaLocals(body);
   // Merge program-scope compile-time consts into the allowed set so that outer
   // `const` declarations (e.g. `const palette = [...]`) are not flagged E-META-001.
-  const metaLocals = new Set([...metaLocalsRaw, ...outerCompileTimeConsts]);
+  // Also merge reflect() argument identifiers — they're type name references
+  // (even if the type doesn't exist), not runtime variables.
+  const reflectArgIdents = collectReflectArgIdents(body);
+  const metaLocals = new Set([...metaLocalsRaw, ...outerCompileTimeConsts, ...reflectArgIdents]);
 
   function walkForRuntimeRefs(nodes: LogicNode[]): void {
     if (!Array.isArray(nodes)) return;
@@ -1323,6 +1443,9 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
       }
     });
 
+    // §22.4.2: E-META-008 — reflect() calls outside any ^{} meta block.
+    checkReflectOutsideMeta(nodes, filePath, allErrors);
+
     fileAST._metaReflectRegistry = typeRegistry;
   }
 
@@ -1330,6 +1453,66 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
     files,
     errors: allErrors,
   };
+}
+
+// ---------------------------------------------------------------------------
+// §22.4.2: E-META-008 — reflect() outside ^{} meta blocks
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk the AST and fire E-META-008 for reflect() calls that appear outside
+ * any ^{} meta block. Uses ExprNode-first detection to avoid false positives
+ * from reflect() inside string literals, regex patterns, or function definitions.
+ */
+function checkReflectOutsideMeta(
+  nodes: LogicNode[],
+  filePath: string,
+  errors: MetaError[],
+): void {
+  if (!Array.isArray(nodes)) return;
+
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+
+    // Skip meta blocks — reflect inside ^{} is valid
+    if (node.kind === "meta") continue;
+
+    // Skip function declarations — defining a function named "reflect" is fine
+    if (node.kind === "function-decl") {
+      // Still recurse into the body to check for reflect() calls inside non-meta functions
+      if (Array.isArray(node.body)) checkReflectOutsideMeta(node.body, filePath, errors);
+      continue;
+    }
+
+    // Check expressions for reflect() calls via ExprNode (precise, no false positives)
+    if (node.kind === "bare-expr" && (node as any).exprNode) {
+      if (exprNodeContainsCall((node as any).exprNode, "reflect")) {
+        errors.push(new MetaError(
+          "E-META-008",
+          `E-META-008: reflect() is only valid inside a ^{} meta block. ` +
+          `Wrap the reflect() call in a ^{} block.`,
+          node.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
+        ));
+      }
+    }
+
+    if ((node.kind === "let-decl" || node.kind === "const-decl") && (node as any).initExpr) {
+      if (exprNodeContainsCall((node as any).initExpr, "reflect")) {
+        errors.push(new MetaError(
+          "E-META-008",
+          `E-META-008: reflect() is only valid inside a ^{} meta block. ` +
+          `Wrap the reflect() call in a ^{} block.`,
+          node.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
+        ));
+      }
+    }
+
+    // Recurse into non-meta children
+    if (Array.isArray(node.body)) checkReflectOutsideMeta(node.body, filePath, errors);
+    if (Array.isArray(node.children)) checkReflectOutsideMeta(node.children, filePath, errors);
+    if (Array.isArray(node.consequent)) checkReflectOutsideMeta(node.consequent, filePath, errors);
+    if (Array.isArray(node.alternate)) checkReflectOutsideMeta(node.alternate, filePath, errors);
+  }
 }
 
 

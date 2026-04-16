@@ -1,0 +1,29 @@
+// Phase 5 gauntlet: hybrid reflect() resolution — runtime variable arg (§22.4.2)
+// reflect(@selectedType) with @var → runtime path. Should compile as runtime meta.
+
+<program>
+type User:struct = {
+  name: string
+  age: number
+}
+
+type Admin:struct = {
+  name: string
+  level: number
+}
+
+${
+  @selectedType = "User"
+}
+
+<div>
+  ^{
+    const info = reflect(@selectedType)
+    if info is not {
+      meta.emit("<p>Unknown type</p>")
+    } else {
+      meta.emit(`<p>${info.fields.length} fields</p>`)
+    }
+  }
+</div>
+</program>

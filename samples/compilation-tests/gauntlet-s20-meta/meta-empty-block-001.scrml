@@ -1,0 +1,11 @@
+// Phase 5 gauntlet: empty ^{} block — edge case
+// Should compile clean (no-op).
+
+<program>
+
+<div>
+  ^{}
+  <p>After empty meta</>
+</div>
+
+</program>

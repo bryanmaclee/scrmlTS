@@ -1,0 +1,17 @@
+// Phase 5 gauntlet: ^{} placement — inside component markup tree
+// Should compile clean.
+
+<program>
+
+type Status:enum = { Active, Inactive, Pending }
+
+<div>
+  ^{
+    const info = reflect(Status)
+    for (const v of info.variants) {
+      emit(`<span class="badge">${v.name}</span>`)
+    }
+  }
+</div>
+
+</program>

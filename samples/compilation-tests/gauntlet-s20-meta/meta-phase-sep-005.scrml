@@ -1,0 +1,15 @@
+// Phase 5 gauntlet: E-META-005 — mixing compile-time and runtime (§22.8)
+// Uses emit() (compile-time pattern) + @var reference (runtime) in same block.
+// EXPECTED: E-META-005
+
+<program>
+${
+  @counter = 0
+}
+<div>
+  ^{
+    emit("<p>Hello</p>")
+    @counter += 1
+  }
+</div>
+</program>

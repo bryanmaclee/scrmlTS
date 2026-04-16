@@ -1,0 +1,28 @@
+// Phase 5 gauntlet: runtime type registry — multiple types in scope (§22.5.4)
+// All types at breakout point should appear in emitted typeRegistry.
+
+<program>
+type User:struct = {
+  name: string
+  email: string
+}
+
+type Role:enum = { Admin, Editor, Viewer }
+
+type Permission:union = Admin | Editor | Viewer
+
+${
+  @selectedType = "User"
+}
+
+<div>
+  ^{
+    const info = reflect(@selectedType)
+    if info is not {
+      meta.emit("<p>Unknown type</p>")
+    } else {
+      meta.emit(`<p>${info.kind}: ${info.name || @selectedType}</p>`)
+    }
+  }
+</div>
+</program>

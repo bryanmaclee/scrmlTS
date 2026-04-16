@@ -1,0 +1,14 @@
+// Phase 5 gauntlet: E-META-007 — SQL context inside runtime ^{} (§22.9)
+// EXPECTED: E-META-007
+
+<program>
+${
+  @userId = 1
+}
+<div>
+  ^{
+    let user = ?{ SELECT * FROM users WHERE id = @userId }.get()
+    meta.emit(`<p>${user.name}</p>`)
+  }
+</div>
+</program>

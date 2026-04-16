@@ -1,0 +1,14 @@
+// Phase 5 gauntlet: lin variable captured by ^{} — counts as one consumption (§22.5.3)
+// Should compile clean — lin consumed exactly once by meta capture.
+
+<program>
+${
+  lin token = "secret-123"
+}
+
+<div>
+  ^{
+    meta.emit(`<p>Token: ${meta.bindings.token}</p>`)
+  }
+</div>
+</program>

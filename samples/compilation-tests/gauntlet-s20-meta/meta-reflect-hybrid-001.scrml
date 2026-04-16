@@ -1,0 +1,14 @@
+// Phase 5 gauntlet: hybrid reflect() resolution — literal arg (§22.4.2)
+// reflect(User) with literal type name → compile-time path. Should compile clean.
+
+<program>
+type User:struct = {
+  name: string
+  age: number
+}
+
+^{
+  const info = reflect(User)
+  emit(`<p>Type has ${info.fields.length} fields</p>`)
+}
+</program>

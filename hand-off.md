@@ -1,72 +1,81 @@
-# scrmlTS — Session 18 Hand-Off (end-of-session)
+# scrmlTS — Session 20 Hand-Off
 
-**Date:** 2026-04-14
-**Previous:** `handOffs/hand-off-17.md` (rotated post-outage, reconstructed)
-**Baseline at start:** 6,205 pass / 14 fail (S17 end)
-**Baseline at end:** **6,228 pass / 8 skip / 2 fail** (+4 tests fixed this session; 8 harness-only tests skipped with documented root cause)
-**Commits on main:** 4 (README polish, lift dead-code cleanup, housekeeping, bug-fix batch)
-
----
-
-## What shipped this session
-
-### Commit trail
-| Commit | What landed |
-|--------|-------------|
-| `d20ffa4` | README SQL-batching expansion — 5 new Server/Client bullets + "Why scrml" sharpening + `?{}` contexts-table row |
-| `f5d78df` | Lift Approach C Phase 2c-lite — drop confirmed-dead BS+TAB re-parse block in `emitLiftExpr` (~50 LOC) |
-| `a55ac8e` | Rotate S16/S17 hand-offs + S18 priority log |
-| `b123ed1` | 3 real-bug fixes + skip 8 TodoMVC happy-dom harness tests |
-
-### Real compiler bugs fixed (user-facing wins post-public-launch)
-
-1. **`export type X:enum = {...}` misparsed** — `compiler/src/ast-builder.js` `collectExpr` treated `:` + IDENT + `=` as a new assignment boundary. `enum`/`struct` tokenize as IDENT (not KEYWORD), so `type X:enum` broke mid-decl after `export`. Fix: added `:` to the lastPart skip-list alongside `.` and `=`. Regression test: `cross-file-import-export.test.js §E1/§E2`.
-2. **Reactive-for stray `innerHTML = ""` destroys keyed reconcile wrapper** — `compiler/src/codegen/emit-reactive-wiring.ts` unconditionally emitted the clear inside `_scrml_effect`, destroying the `_scrml_reconcile_list(` wrapper on every re-run. Fix: skip the clear when combinedCode contains `_scrml_reconcile_list(` (mirrors the existing single-if branch guard). Regression test: `reactive-arrays.test.js §11`.
-3. **`if-as-expr` test fixture triggered valid E-MU-001** — fixture declared `let x = 0` and only wrote to it; MustUse was correct. Test intent is if-stmt codegen, not MustUse semantics. Fixture now adds `log(x)` after the if-stmt.
-
-### Harness-only skips (not compiler bugs)
-
-8 TodoMVC tests in `compiler/tests/browser/browser-todomvc.test.js` marked `test.skip` with annotation. Root cause: harness wraps runtime in IIFE, scoping `let _scrml_lift_target = null;` to the IIFE; client-JS IIFE can't see it. Real browsers share global lexical env between classic `<script>` tags — works there. **Puppeteer e2e (`examples/test-examples.js` 14/14 pass) covers this ground.** Unskip when the harness is refactored to not IIFE-wrap the runtime.
-
-### Other work
-- README polish with SQL-batching bullets shipped S17 (`f265036`) + expanded S18 (`d20ffa4`)
-- Dropped needs:push msg to master, then user gave one-time auth → pushed directly
-- `escape-hatch-catalog.{json,md}` timestamp drift reverted (was pre-session stale)
+**Date:** 2026-04-16
+**Previous:** `handOffs/hand-off-19.md`
+**Baseline at start:** 6,706 pass / 10 skip / 2 fail (25,214 expects across 268 files)
+**Current:** 6,743 pass / 10 skip / 2 fail (25,258 expects across 269 files)
+**Status:** Phase 5 (Meta) in progress
 
 ---
 
-## State of the repo
+## S20 work — Phase 5 Meta Gauntlet
 
-- **Branch:** `main`, ahead of origin by 1 commit (`b123ed1`) at wrap — confirm push status at S19 start
-- **Staged agents (still present):** debate-curator, debate-judge, scrml-language-design-reviewer, scrml-server-boundary-analyst
-- **Uncommitted:** none
-- **Test suite:** 6,228 pass / 8 skip / 2 fail (self-host deferred)
+### Bugs found and fixed (4)
 
-## Next priority → S19
+| Bug | Description | Fix |
+|-----|-------------|-----|
+| BUG-META-P5-003 | `reflect(@var)` misclassified as compile-time — caused E-META-001 + E-META-005 on valid runtime reflect | `bodyUsesCompileTimeApis` now checks reflect() argument type; variable args → runtime path per §22.4.2 |
+| BUG-META-P5-004 | `reflect()` outside `^{}` — no E-META-008 fired | Added `checkReflectOutsideMeta` in `runMetaChecker`; uses ExprNode-first detection to avoid false positives on string/regex literals |
+| BUG-META-P5-005 | `lift` inside `^{}` — no E-META-006 fired | `bodyContainsLift` now checks `kind === "lift-expr"` AST nodes (markup lift), not just `lift()` function call pattern |
+| BUG-META-P5-007 | `reflect(NonExistentType)` treated as runtime variable → spurious E-META-001 + E-META-005 alongside correct E-META-003 | Both `bodyMixesPhases` and `checkMetaBlock` now exclude PascalCase identifiers that are reflect() arguments from runtime-ident checks |
 
-**Bug-hunt gauntlet.** User authorized a 12-phase language-coverage gauntlet in S18 close. Full plan at:
+### Bugs found but NOT yet fixed (5)
 
-`handOffs/incoming/2026-04-14-2330-scrmlTS-to-next-pa-language-gauntlet-plan.md`
+| Bug | Description | Category |
+|-----|-------------|----------|
+| BUG-META-P5-001 | `^{}` block does not count as lin consumption (§22.5.3) — false E-LIN-001 | lin checker gap |
+| BUG-META-P5-002 | lin used in `^{}` + markup — neither counted, no E-LIN-001 | lin checker gap |
+| BUG-META-P5-006 | Phase separation detected at eval-time (E-META-EVAL-001 crash on `@`) instead of checker-time (E-META-005) | meta-checker + meta-eval pipeline gap — `bodyReferencesReactiveVars` misses reactive assignment nodes |
+| BUG-META-P5-008 | DG pass false-positive E-DG-002 for `@var` consumed via `meta.get()`/`meta.bindings` | DG pass gap |
+| BUG-META-P5-009 | Nested `^{}` in compile-time meta crashes eval | meta-eval gap |
 
-The plan is not a summary — it's the exhaustive spec for S19+ execution. Includes:
-- 12 phases (decls, control-flow, operators, markup, meta, SQL, error/test, styles, validation/encoding, channels, integration apps, error UX)
-- 3 tracks (fixture-driven, gauntlet-dev personas, property-based probing)
-- 31-agent staging list with wave recommendation
-- Ghost-pattern anti-brief reference (`scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md`)
-- Expected outputs per phase (fixture corpus, bug list, non-regression tests)
+### Files changed
 
-S19 PA: read the plan end-to-end before dispatching. Send agent-staging message to master per the wave recommendation (Wave 1 = ~15 agents for phases 1–3).
+- `compiler/src/meta-checker.ts` — 4 bug fixes (reflect hybrid resolution, E-META-008, lift-expr detection, reflect-arg exclusion)
+- `compiler/tests/unit/gauntlet-s20/meta-gauntlet.test.js` — 12 new regression tests
+- `samples/compilation-tests/gauntlet-s20-meta/` — 25 new fixture files
 
-## Other open (deferred per user this session)
+### Fixture corpus (25 files)
 
+All in `samples/compilation-tests/gauntlet-s20-meta/`:
+- emit.raw() contrast (2 fixtures)
+- Phase separation / error codes: E-META-005, E-META-006, E-META-007, E-META-008 (4 fixtures)
+- Runtime meta: reactive, hybrid reflect, bindings capture, type registry, cleanup, scopeId, multiple blocks (9 fixtures)
+- Placement: in-function, in-component, after-markup (3 fixtures)
+- Edge cases: empty block, nested deep, match-in-meta (3 fixtures)
+- lin interaction: capture, double-consume (2 fixtures)
+- Compile-time: pure, bun.eval (2 fixtures)
+
+---
+
+## Gauntlet progress
+
+| Phase | Status | Tests added |
+|-------|--------|-------------|
+| 1 — Declarations | Done (S19) | S19 fixtures |
+| 2 — Control flow | Done (S19) | S19 fixtures |
+| 3 — Operators | Done (S19) | S19 fixtures |
+| 4 — Markup | Done (S19) | S19 fixtures |
+| **5 — Meta** | **In progress** | **25 fixtures + 12 regression tests** |
+| 6 — SQL | Not started | |
+| 7 — Error/Test | Not started | |
+| 8 — Styles | Not started | |
+| 9 — Validation/Encoding | Not started | |
+| 10 — Channels | Not started | |
+| 11 — Integration apps | Not started | |
+| 12 — Error messages UX | Not started | |
+
+## Open work (carried from S19)
+
+### Backlog (deprioritized per user direction S18)
 - P3 self-host completion + idiomification
 - P5 TS migrations (ast-builder, block-splitter)
 - P5 ExprNode Phase 4d (component-expander, body-pre-parser) + Phase 5 (self-host parity)
-- Full Lift Approach C Phase 2 (delete `parseTagExprString` + `emitCreateElementFromExprString` + `emitConsolidatedLift` refactor + self-host mirror)
-- `lin` redesign (queued per auto-memory — discontinuous scoping deep-dive + debate)
+- Full Lift Approach C Phase 2
+- `lin` redesign (queued — discontinuous scoping deep-dive + debate)
 - Async loading stdlib helpers (RemoteData, Approach E)
 - DQ-12 Phase B (bare compound `is not`/`is some` without parens)
 - 2 remaining self-host test failures
 
 ## Tags
-#session-18 #end-of-session #bug-fixes #public-launch-pivot #gauntlet-planned
+#session-20 #gauntlet #phase-5-meta #bug-fixes

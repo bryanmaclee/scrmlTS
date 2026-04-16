@@ -1,0 +1,9 @@
+// Phase 5 gauntlet: E-META-003 — reflect() on unknown type literal (§22.4.2)
+// EXPECTED: E-META-003
+
+<program>
+^{
+  const info = reflect(NonExistentType)
+  emit(`<p>${info.fields.length} fields</p>`)
+}
+</program>

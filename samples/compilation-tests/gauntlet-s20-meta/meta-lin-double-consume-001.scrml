@@ -1,0 +1,15 @@
+// Phase 5 gauntlet: lin consumed by ^{} capture AND later — double consume (§22.5.3)
+// EXPECTED: E-LIN-001 (double consumption)
+
+<program>
+${
+  lin token = "secret-123"
+}
+
+<div>
+  ^{
+    meta.emit(`<p>Token: ${meta.bindings.token}</p>`)
+  }
+  <p>${token}</>
+</div>
+</program>

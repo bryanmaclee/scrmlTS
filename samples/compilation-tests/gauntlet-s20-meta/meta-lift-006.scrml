@@ -1,0 +1,10 @@
+// Phase 5 gauntlet: E-META-006 — lift inside ^{} (§22.9)
+// EXPECTED: E-META-006
+
+<program>
+<div>
+  ^{
+    lift <p>This should be illegal</>
+  }
+</div>
+</program>

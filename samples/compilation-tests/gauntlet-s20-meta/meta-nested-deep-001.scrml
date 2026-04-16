@@ -1,0 +1,12 @@
+// Phase 5 gauntlet: deeply nested ^{} blocks
+// Outer is compile-time (emit), inner is also compile-time. Should compile clean.
+
+<program>
+^{
+  emit("<div>")
+  ^{
+    emit("<p>Inner meta</p>")
+  }
+  emit("</div>")
+}
+</program>

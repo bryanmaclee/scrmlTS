@@ -1,0 +1,21 @@
+// Phase 5 gauntlet: ^{} placement — inside function body
+// Should compile clean.
+
+<program>
+
+type Color:enum = { Red, Green, Blue }
+
+function renderColorInfo() {
+  ^{
+    const info = reflect(Color)
+    for (const v of info.variants) {
+      emit(`<option>${v.name}</option>`)
+    }
+  }
+}
+
+<div>
+  ${renderColorInfo()}
+</div>
+
+</program>

@@ -1,0 +1,8 @@
+// Phase 5 gauntlet: emit.raw() — verbatim, no escape normalization (§22.4.1)
+// Should compile clean. emit.raw() bypasses \n expansion.
+
+<program>
+^{
+  emit.raw("<pre>literal\\nbackslash-n</pre>")
+}
+</program>

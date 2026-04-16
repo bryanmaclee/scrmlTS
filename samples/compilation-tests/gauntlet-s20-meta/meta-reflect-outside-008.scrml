@@ -1,0 +1,15 @@
+// Phase 5 gauntlet: E-META-008 — reflect() outside ^{} (§22.4.2)
+// EXPECTED: E-META-008
+
+<program>
+type User:struct = {
+  name: string
+  age: number
+}
+
+${
+  const info = reflect(User)
+}
+
+<p>Should error</>
+</program>

@@ -1,0 +1,16 @@
+// Phase 5 gauntlet: meta.scopeId access (§22.5.1)
+// Runtime meta reading its own scope ID. Should compile clean.
+
+<program>
+${
+  @debug = true
+}
+
+<div>
+  ^{
+    if (meta.get("debug")) {
+      meta.emit(`<p data-scope="${meta.scopeId}">Debug info</p>`)
+    }
+  }
+</div>
+</program>

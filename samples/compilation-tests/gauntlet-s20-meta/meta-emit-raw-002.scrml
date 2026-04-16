@@ -1,0 +1,9 @@
+// Phase 5 gauntlet: emit() vs emit.raw() contrast (§22.4.1)
+// Both in same compile-time meta block. Should compile clean.
+
+<program>
+^{
+  emit("<p>Line 1\\nLine 2</p>")
+  emit.raw("<pre>regex: \\n+</pre>")
+}
+</program>

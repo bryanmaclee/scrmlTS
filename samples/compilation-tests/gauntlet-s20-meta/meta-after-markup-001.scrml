@@ -1,0 +1,14 @@
+// Phase 5 gauntlet: ^{} placement — after markup siblings
+// Should compile clean.
+
+<program>
+
+<h1>Title</>
+
+^{
+  emit("<p>Generated subtitle</p>")
+}
+
+<footer>End</>
+
+</program>

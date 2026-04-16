@@ -1,0 +1,19 @@
+// Phase 5 gauntlet: match expression inside ^{} (§22.9)
+// Spec says ^{} MAY contain match expressions. Should compile clean.
+
+<program>
+
+type Shape:enum = { Circle, Square, Triangle }
+
+^{
+  const info = reflect(Shape)
+  for (const v of info.variants) {
+    match v.name {
+      "Circle" => emit("<div>Round shape</div>")
+      "Square" => emit("<div>Four sides</div>")
+      "Triangle" => emit("<div>Three sides</div>")
+    }
+  }
+}
+
+</program>

@@ -1,0 +1,19 @@
+// Phase 5 gauntlet: multiple ^{} blocks in same file — scope IDs must be distinct
+// Should compile clean with _scrml_meta_1, _scrml_meta_2, etc.
+
+<program>
+${
+  @count = 0
+  @label = "Hello"
+}
+
+<div>
+  ^{
+    meta.emit(`<p>Count: ${meta.get("count")}</p>`)
+  }
+
+  ^{
+    meta.emit(`<p>Label: ${meta.get("label")}</p>`)
+  }
+</div>
+</program>

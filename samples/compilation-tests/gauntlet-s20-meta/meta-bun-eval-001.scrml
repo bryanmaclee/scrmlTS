@@ -1,0 +1,11 @@
+// Phase 5 gauntlet: bun.eval() in compile-time meta (§22.4)
+// Should compile clean as compile-time meta.
+
+<program>
+^{
+  let buildTime = bun.eval(`return new Date().toISOString()`)
+  emit(`<meta name="build-time" content="${buildTime}">`)
+}
+
+<p>App content</>
+</program>

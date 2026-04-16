@@ -1,0 +1,17 @@
+// Phase 5 gauntlet: captured bindings — const/let/@var in scope at breakout (§22.5.2)
+// Runtime meta with bindings. Should compile clean with capturedBindings arg.
+
+<program>
+${
+  const appName = "MyApp"
+  let version = "2.0"
+  @userCount = 42
+}
+
+<div>
+  ^{
+    meta.emit(`<p>${meta.bindings.appName} v${meta.bindings.version}</p>`)
+    meta.emit(`<p>Users: ${meta.bindings.userCount}</p>`)
+  }
+</div>
+</program>

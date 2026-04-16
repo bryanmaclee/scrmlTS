@@ -1,0 +1,15 @@
+// Phase 5 gauntlet: pure compile-time meta — no runtime refs, uses emit + reflect
+// Should produce inlined output, no _scrml_meta_effect.
+
+<program>
+type Theme:enum = { Light, Dark, System }
+
+^{
+  const info = reflect(Theme)
+  emit("<select>")
+  for (const v of info.variants) {
+    emit(`<option value="${v.name.toLowerCase()}">${v.name}</option>`)
+  }
+  emit("</select>")
+}
+</program>
