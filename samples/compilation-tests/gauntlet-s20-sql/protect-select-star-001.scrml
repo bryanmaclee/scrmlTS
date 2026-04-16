@@ -1,0 +1,13 @@
+// Phase 6: SELECT * with protect= — should expand and check (§8.10)
+// Protected field overlap with SELECT * should be caught.
+
+< db src="./test.db" protect="password_hash" tables="users">
+${
+  server function getAllUsers() {
+    return ?{`SELECT * FROM users`}.all()
+  }
+}
+<div>
+  <button onclick=getAllUsers()>Load All</>
+</div>
+</>

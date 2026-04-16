@@ -1,0 +1,17 @@
+// Phase 6: UPDATE and DELETE with .run() (§8.5.1)
+// Should compile clean.
+
+< db src="./test.db" tables="users">
+${
+  server function updateEmail(id, newEmail) {
+    return ?{`UPDATE users SET email = ${newEmail} WHERE id = ${id}`}.run()
+  }
+  server function removeUser(id) {
+    return ?{`DELETE FROM users WHERE id = ${id}`}.run()
+  }
+}
+<div>
+  <button onclick=updateEmail(1, "new@test.com")>Update</>
+  <button onclick=removeUser(2)>Delete</>
+</div>
+</>

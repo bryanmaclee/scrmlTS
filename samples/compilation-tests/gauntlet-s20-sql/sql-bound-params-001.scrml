@@ -1,0 +1,11 @@
+// Phase 6: bound parameters with ${expr} (§8.2)
+// Each ${} becomes a ?N slot. Should compile clean.
+
+< db src="./test.db" tables="posts">
+${
+  let userId = 42
+  let category = "tech"
+  let posts = ?{`SELECT * FROM posts WHERE user_id = ${userId} AND category = ${category}`}.all()
+}
+<p>Posts loaded</>
+</>

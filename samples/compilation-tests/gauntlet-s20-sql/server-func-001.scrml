@@ -1,0 +1,13 @@
+// Phase 6: server function — explicit server-side code (§9)
+// Should compile to a route handler.
+
+< db src="./test.db" tables="users">
+${
+  server function getUsers() {
+    return ?{`SELECT id, name FROM users`}.all()
+  }
+}
+<div>
+  <button onclick=getUsers()>Load</>
+</div>
+</>

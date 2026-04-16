@@ -1,0 +1,9 @@
+// Phase 6: .nobatch() opt-out (§8.9.5)
+// Should compile clean — .nobatch() is a compile-time marker.
+
+< db src="./test.db" tables="sessions">
+${
+  let stale = ?{`SELECT * FROM sessions WHERE id = 'main'`}.nobatch().get()
+}
+<p>Session checked</>
+</>

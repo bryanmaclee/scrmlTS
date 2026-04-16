@@ -1,0 +1,16 @@
+// Phase 6: multi-line SQL formatting (§8.1)
+// Should compile clean.
+
+< db src="./test.db" tables="users, posts">
+${
+  let results = ?{`
+    SELECT u.name, p.title, p.created_at
+    FROM users u
+    JOIN posts p ON p.user_id = u.id
+    WHERE u.active = true
+    ORDER BY p.created_at DESC
+    LIMIT 10
+  `}.all()
+}
+<p>Results loaded</>
+</>

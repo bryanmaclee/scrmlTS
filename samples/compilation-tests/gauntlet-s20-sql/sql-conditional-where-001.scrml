@@ -1,0 +1,14 @@
+// Phase 6: conditional WHERE — null-coalescing pattern (§8.4)
+// Should compile clean.
+
+< db src="./test.db" tables="posts">
+${
+  server function getPosts(category) {
+    return ?{`SELECT * FROM posts WHERE (${category} IS NULL OR category = ${category})`}.all()
+  }
+}
+<div>
+  <button onclick=getPosts("tech")>Tech Posts</>
+  <button onclick=getPosts(null)>All Posts</>
+</div>
+</>

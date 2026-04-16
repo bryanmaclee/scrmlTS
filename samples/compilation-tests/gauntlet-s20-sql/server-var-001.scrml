@@ -1,0 +1,9 @@
+// Phase 6: server @var — server reactive (§52, §6.1.2)
+// Should compile with mount-hydration.
+
+<program db="./test.db">
+${
+  server @userCount = ?{`SELECT COUNT(*) as count FROM users`}.get()
+}
+<p>Users: ${@userCount.count}</>
+</>

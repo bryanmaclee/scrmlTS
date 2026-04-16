@@ -1,0 +1,16 @@
+// Phase 6: explicit transaction block (§8.5.2)
+// Should compile clean.
+
+< db src="./test.db" tables="orders">
+${
+  server function bulkInsert(name1, name2) {
+    transaction {
+      ?{`INSERT INTO orders (name) VALUES (${name1})`}.run()
+      ?{`INSERT INTO orders (name) VALUES (${name2})`}.run()
+    }
+  }
+}
+<form onsubmit=bulkInsert("A", "B")>
+  <button type="submit">Bulk Insert</>
+</form>
+</>

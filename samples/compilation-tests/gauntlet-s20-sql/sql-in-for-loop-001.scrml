@@ -1,0 +1,16 @@
+// Phase 6: ?{} inside for loop — Tier 2 hoist candidate (§8.10)
+// Should compile clean; the batch planner may rewrite.
+
+< db src="./test.db" tables="users, posts">
+${
+  let users = ?{`SELECT id, name FROM users`}.all()
+}
+<ul>
+  for (user of users) {
+    ${
+      let posts = ?{`SELECT title FROM posts WHERE user_id = ${user.id}`}.all()
+    }
+    <li>${user.name} — ${posts.length} posts</>
+  }
+</ul>
+</>

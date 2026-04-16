@@ -1,0 +1,13 @@
+// Phase 6: ?{} inside event handler — Tier 1 envelope (§8.9)
+// Should wrap in implicit transaction.
+
+< db src="./test.db" tables="items">
+${
+  server function deleteItem(id) {
+    ?{`DELETE FROM items WHERE id = ${id}`}.run()
+  }
+}
+<div>
+  <button onclick=deleteItem(5)>Delete</>
+</div>
+</>

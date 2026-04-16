@@ -1,0 +1,13 @@
+// Phase 6: ?{}.all() — multiple rows SELECT (§8.3)
+// Should compile clean.
+
+< db src="./test.db" tables="users">
+${
+  let users = ?{`SELECT id, name FROM users`}.all()
+}
+<ul>
+  for (user of users) {
+    <li>${user.name}</>
+  }
+</ul>
+</>
