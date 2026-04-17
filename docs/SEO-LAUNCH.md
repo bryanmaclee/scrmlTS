@@ -6,7 +6,7 @@ Working doc for ranking `scrml` on Google above the old "scrml math markdown" Gi
 
 ## What's already in place
 
-- [x] **MIT LICENSE** at repo root (`6d9a5ab`)
+- [x] **MIT LICENSE** at repo root (`3e8f545`)
 - [x] **GitHub Pages landing page** — `docs/index.html` with full SEO (title, meta description, keywords, canonical URL, Open Graph, Twitter Card, schema.org `SoftwareSourceCode`)
 - [x] **`docs/.nojekyll`** — disables Jekyll so HTML is served as-is without processing
 - [x] **`package.json`** keywords, description, homepage, repository, bugs fields

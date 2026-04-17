@@ -2,7 +2,7 @@
 
 **Date opens:** 2026-04-18 (or whenever S23 starts)
 **Previous:** `handOffs/hand-off-22.md`
-**Baseline at last wrap:** **6,875 pass / 10 skip / 2 fail** (25,520 expects across 277 files) at commit `6d9a5ab`.
+**Baseline at last wrap:** **6,875 pass / 10 skip / 2 fail** (25,520 expects across 277 files) at commit `3e8f545`.
 
 ---
 
@@ -10,12 +10,12 @@
 
 ### Recent pushes (all on origin/main)
 
-- `6d9a5ab` **license: MIT** — LICENSE file, package.json license/author fields, README Status section flipped from "closed beta under proprietary license" to "open source under MIT". Repo is now public on GitHub.
-- `50677df` **feat(§51.9): derived machines slice 2 — runtime codegen + E-MACHINE-017** — emitProjectionFunction, emitDerivedDeclaration, rejectWritesToDerivedVars. +10 regression tests.
-- `8e56177` **feat(§51.9): derived/projection machines slice 1 — parser + validator** — `derived from @SourceVar` parsing, MachineType.isDerived/sourceVar/projectedVarName, validateDerivedMachines (E-MACHINE-004 for source resolution + transitive rejection, E-MACHINE-018 for exhaustiveness). +9 regression tests.
-- `a771282` **feat(§1b): payload bindings in machine transition rules** — parseMachineRules + resolveRuleBindings (E-MACHINE-015 three flavors), expandAlternation binding-parity check (E-MACHINE-016), buildBindingPreludeStmts in emit-machines. +15 regression tests.
-- `1d84ab3` **feat(§1a): match destructures tagged-object payload variants** — parseBindingList, __tag normalization, destructuring prelude in emitMatchExpr + emitMatchExprDecl, splitMultiArmString presence-arm detector fix. +10 tests, flipped "binding ignored" assertion.
-- `a25d812` **feat(§1a): enum payload variant construction via generated constructors** — per-payload-variant constructor functions inside the frozen enum object, dropped the inline `{variant, value}` string rewrite. +6 tests.
+- `3e8f545` **license: MIT** — LICENSE file, package.json license/author fields, README Status section flipped from "closed beta under proprietary license" to "open source under MIT". Repo is now public on GitHub.
+- `ebd4a8b` **feat(§51.9): derived machines slice 2 — runtime codegen + E-MACHINE-017** — emitProjectionFunction, emitDerivedDeclaration, rejectWritesToDerivedVars. +10 regression tests.
+- `9d90450` **feat(§51.9): derived/projection machines slice 1 — parser + validator** — `derived from @SourceVar` parsing, MachineType.isDerived/sourceVar/projectedVarName, validateDerivedMachines (E-MACHINE-004 for source resolution + transitive rejection, E-MACHINE-018 for exhaustiveness). +9 regression tests.
+- `a1f0c76` **feat(§1b): payload bindings in machine transition rules** — parseMachineRules + resolveRuleBindings (E-MACHINE-015 three flavors), expandAlternation binding-parity check (E-MACHINE-016), buildBindingPreludeStmts in emit-machines. +15 regression tests.
+- `d8ebfb3` **feat(§1a): match destructures tagged-object payload variants** — parseBindingList, __tag normalization, destructuring prelude in emitMatchExpr + emitMatchExprDecl, splitMultiArmString presence-arm detector fix. +10 tests, flipped "binding ignored" assertion.
+- `2fbc332` **feat(§1a): enum payload variant construction via generated constructors** — per-payload-variant constructor functions inside the frozen enum object, dropped the inline `{variant, value}` string rewrite. +6 tests.
 
 All on origin/main. No unpushed commits.
 
@@ -338,18 +338,18 @@ No new staging required for any queued item.
 All on origin/main, all tests green at 6,875 pass / 10 skip / 2 fail.
 
 **§1a — enum payload variants (2 commits):**
-- `a25d812` — generated constructors, `Shape.Circle(10) === { variant: "Circle", data: { r: 10 } }`. Unit variants stay as strings. Spec-aligned with §19.3.2 `fail`.
-- `1d84ab3` — match destructures the tagged-object shape. `__tag` normalization, per-file variant-fields registry, positional + named bindings, `_` discards. splitMultiArmString presence-arm fix (was splitting `.Circle(r) =>` at the `(`).
+- `2fbc332` — generated constructors, `Shape.Circle(10) === { variant: "Circle", data: { r: 10 } }`. Unit variants stay as strings. Spec-aligned with §19.3.2 `fail`.
+- `d8ebfb3` — match destructures the tagged-object shape. `__tag` normalization, per-file variant-fields registry, positional + named bindings, `_` discards. splitMultiArmString presence-arm fix (was splitting `.Circle(r) =>` at the `(`).
 
 **§1b — payload bindings in machine rules (1 commit):**
-- `a771282` — `.Charging(n) => .Firing given (n > 50)` now works. `resolveRuleBindings` (E-MACHINE-015 for unit variants / unknown fields / overflow), `expandAlternation` parity check (E-MACHINE-016), `buildBindingPreludeStmts` emits destructuring inside the keyed `if (__key === "From:To")` block.
+- `a1f0c76` — `.Charging(n) => .Firing given (n > 50)` now works. `resolveRuleBindings` (E-MACHINE-015 for unit variants / unknown fields / overflow), `expandAlternation` parity check (E-MACHINE-016), `buildBindingPreludeStmts` emits destructuring inside the keyed `if (__key === "From:To")` block.
 
 **§51.9 — derived/projection machines (2 commits):**
-- `8e56177` — parser + validator. `< machine UI for UIMode derived from @order>` parsed, exhaustiveness check (E-MACHINE-018), source-var resolution (E-MACHINE-004), transitive rejection (E-MACHINE-004).
-- `50677df` — runtime codegen + E-MACHINE-017 write rejection. `_scrml_project_<M>` function + `_scrml_derived_fns` registration + dirty-propagation via existing §6.6 infra. `rejectWritesToDerivedVars` flags reactive-decl and `@ui =` / `@ui +=` etc.
+- `9d90450` — parser + validator. `< machine UI for UIMode derived from @order>` parsed, exhaustiveness check (E-MACHINE-018), source-var resolution (E-MACHINE-004), transitive rejection (E-MACHINE-004).
+- `ebd4a8b` — runtime codegen + E-MACHINE-017 write rejection. `_scrml_project_<M>` function + `_scrml_derived_fns` registration + dirty-propagation via existing §6.6 infra. `rejectWritesToDerivedVars` flags reactive-decl and `@ui =` / `@ui +=` etc.
 
 **MIT license (1 commit):**
-- `6d9a5ab` — LICENSE, package.json, README flipped from closed-beta-proprietary to open-source-MIT.
+- `3e8f545` — LICENSE, package.json, README flipped from closed-beta-proprietary to open-source-MIT.
 
 **Tests added:** 43 net (6,875 − 6,832 pre-wrap count deltas). Broken down:
 - gauntlet-s22/payload-variants.test.js — 6 tests (construction).
