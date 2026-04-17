@@ -1,165 +1,79 @@
-# scrmlTS — Session 23 Hand-Off
+# scrmlTS — Session 24 Hand-Off
 
-**Date opens:** 2026-04-18 (or whenever S23 starts)
-**Previous:** `handOffs/hand-off-22.md`
-**Baseline at last wrap:** **6,875 pass / 10 skip / 2 fail** (25,520 expects across 277 files) at commit `3e8f545`.
+**Date opens:** 2026-04-18 (or whenever S24 starts)
+**Previous:** `handOffs/hand-off-23.md`
+**Baseline at last wrap:** **6,889 pass / 10 skip / 2 fail** (25,548 expects across 278 files) at commit `e0455b6`.
 
 ---
 
 ## 0. Cold-start state
 
-### Recent pushes (all on origin/main)
+### Recent pushes (all on origin/main, in order)
 
-- `3e8f545` **license: MIT** — LICENSE file, package.json license/author fields, README Status section flipped from "closed beta under proprietary license" to "open source under MIT". Repo is now public on GitHub.
-- `ebd4a8b` **feat(§51.9): derived machines slice 2 — runtime codegen + E-MACHINE-017** — emitProjectionFunction, emitDerivedDeclaration, rejectWritesToDerivedVars. +10 regression tests.
-- `9d90450` **feat(§51.9): derived/projection machines slice 1 — parser + validator** — `derived from @SourceVar` parsing, MachineType.isDerived/sourceVar/projectedVarName, validateDerivedMachines (E-MACHINE-004 for source resolution + transitive rejection, E-MACHINE-018 for exhaustiveness). +9 regression tests.
-- `a1f0c76` **feat(§1b): payload bindings in machine transition rules** — parseMachineRules + resolveRuleBindings (E-MACHINE-015 three flavors), expandAlternation binding-parity check (E-MACHINE-016), buildBindingPreludeStmts in emit-machines. +15 regression tests.
-- `d8ebfb3` **feat(§1a): match destructures tagged-object payload variants** — parseBindingList, __tag normalization, destructuring prelude in emitMatchExpr + emitMatchExprDecl, splitMultiArmString presence-arm detector fix. +10 tests, flipped "binding ignored" assertion.
-- `2fbc332` **feat(§1a): enum payload variant construction via generated constructors** — per-payload-variant constructor functions inside the frozen enum object, dropped the inline `{variant, value}` string rewrite. +6 tests.
+- `e0455b6` **docs(tutorial): update §2.3/§2.4 to canonical syntax + add §2.10 state machines** — bare variant names + `=>` arm separator + typed-reactive annotation rule for match narrowing; ~70-line new section on `< machine>` + payload bindings + derived machines; 3 new snippets 02j/02k/02l.
+- `2ba4ccd` **samples,examples: bring non-gauntlet files up to current idiomatic scrml** — 19 stale fixtures rewritten. Full triage at `/tmp/s23-audit/triage.md` (may be gone on next shell).
+- `7045adf` **examples: rewrite 14-mario** — showcase §1a payload variants + §1a match destructuring + §51.9 derived machines. Compiles zero-warning.
+- `9f2a247` **fix(meta): 2b + 2d** — phase separation and nested `^{}` at checker-time. html-fragment content scanning added to meta-checker + meta-eval.
+- `8711056` **fix(meta): 2c + 2a** — DG credits meta.get/bindings reads; lin consumed at ^{} capture per §22.5.3.
+- `5b5d636` **feat(§51.9): DOM read-wiring for projected vars (${@ui})** — two minimal compile-time patches; runtime was already correct.
+- `0801d98` **docs(post-scrub):** commit-SHA refresh (pre-S23 baseline).
 
 All on origin/main. No unpushed commits.
 
 ### Cross-repo state
 
-- **Stale needs-push message in master inbox:** `/home/bryan/scrmlMaster/handOffs/incoming/2026-04-17-1430-scrmlTS-to-master-push-s22-1a.md` — sent before user gave one-time push auth. Master PA can move it to `read/` next session; no action needed here.
-- **scrml-support:** uncommitted S21 archive files (`archive/gauntlet-s19/`, `archive/expr-ast-phase-1-audit/`, `archive/expr-ast-phase-2-slice-3/`) — the older `handOffs/incoming/2026-04-17-1100-scrmlTS-to-scrml-support-archive-s21.md` message should have been processed by scrml-support's PA by now. Verify `git status` in that repo at S23 start.
+- **scrml-support**: uncommitted S21 archive files still pending there. The S23 session didn't drop any new messages. Check `git status` in scrml-support at S24 start.
+- **No new handOffs/incoming messages** for scrmlTS as of S23 wrap.
 
 ### Incoming messages
 
-None unread in `handOffs/incoming/` as of S22 wrap.
+- `handOffs/incoming/`: empty (only `read/` archive).
 
 ### Repo publicity
 
-GitHub repo is public with MIT license. No restricted-distribution concerns for S23+.
+Still public with MIT license. No distribution concerns.
 
 ---
 
-## 1. Immediate §51.9 follow-up — DOM read-wiring for `@ui`
+## 1. S23 session summary (for context)
 
-**Status:** blocking full §51.9 usefulness in real apps. The runtime works (`_scrml_reactive_get("ui")` returns the projected value), but `${@ui}` in markup doesn't trigger DOM updates because the dependency graph doesn't treat `@ui` as a reactive read.
+### What shipped (6 commits, all pushed)
 
-**Symptom:** compile this (works today without errors):
+**§51.9 DOM read-wiring (`5b5d636`):** `${@ui}` in markup now emits an `_scrml_effect` wrapper so writes to `@order` flow to the DOM. Two minimal compile-time patches — **no AST synthesis, no runtime changes**:
+- `compiler/src/codegen/reactive-deps.ts:112` — `collectReactiveVarNames` now includes projected-var names from `fileAST.machineRegistry`. Projected vars have no `reactive-decl` node (they live in `_scrml_derived_fns` at runtime), which is why the old code filtered `@ui` out of the logic binding's `reactiveRefs` set and `emit-event-wiring.ts:417-424` skipped effect emission.
+- `compiler/src/dependency-graph.ts:1264-1296` — `sweepNodeForAtRefs` now routes `@projectedVar` reads through to the source var via a per-file `projectedToSource` map. Suppresses false-positive E-DG-002 on `@order`. machineRegistry is accessed via the outer `rawFile` wrapper because `resolveFileAST` returns the inner `.ast` which doesn't carry it.
+- Tests: `compiler/tests/unit/gauntlet-s22/derived-machines.test.js` — compile-time guard + happy-dom E2E driving `@order` through transitions, asserting DOM text flips through `Editable → ReadOnly → Terminal → Editable`.
 
-```scrml
-${
-  type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }
-  type UIMode:enum = { Editable, ReadOnly, Terminal }
-  @order: OrderMachine = OrderState.Draft
-}
+**S20 meta bugs — all 4 landed (`8711056` + `9f2a247`):**
 
-< machine OrderMachine for OrderState>
-  .Draft => .Submitted
-</>
+- **2c** — DG E-DG-002 false-positive for `@var` via `meta.get("name")` / `meta.bindings.name`. Fix: `collectMetaVarRefsFromExprNode` helper in `dependency-graph.ts` + string-regex fallback, wired into `sweepNodeForAtRefs`. Both patterns now credit the referenced var as read.
+- **2a** — lin consumed-at-capture not detected for hidden refs (§22.5.3). Fix: dedicated `case "meta"` branch in `walkNode` (`type-system.ts:5176`) that unions ExprNode ident walks with a raw-string fallback collecting escape-hatch raws + `c.expr/init/condition/value/test/content`. Consumes each matched lin name once against the outer tracker.
+- **2b** — phase-mixing crashed at ME ("Invalid character: '@'") instead of firing E-META-005 at MC. Fix: scan html-fragment content for `@varName` in `bodyMixesPhases` + `bodyReferencesReactiveVars`; treat `reactive-decl`/`sql` in meta body as runtime shapes. Result: E-META-005 fires at MC; ME skips the block.
+- **2d** — nested `^{}` crashed at ME. Fix: exported `bodyContainsNestedMeta` helper used at MC (fire clean E-META-009) and ME (skip eval). Full nested-meta support is out of scope for this revision.
+- Tests: 3 in `compiler/tests/unit/dependency-graph.test.js` (2c) + 9 in new `compiler/tests/unit/gauntlet-s23/meta-bugs.test.js` (2a/2b/2d).
 
-< machine UI for UIMode derived from @order>
-  .Draft => .Editable
-  .Submitted | .Paid | .Shipping => .ReadOnly
-  .Delivered | .Cancelled | .Refunded => .Terminal
-</>
+**Mario rewrite (`7045adf`):** `examples/14-mario-state-machine.scrml` now uses `PowerUp.Mushroom(coins: number)` payload variants + match destructuring + a `HealthMachine` derived machine projecting `@marioState` to `HealthRisk`. Banner reads `@healthMachine == HealthRisk.AtRisk` directly — runtime dirty-propagates the projection on each write to `@marioState`. Cleaned up pre-existing E-MU-001 + W-PROGRAM-001 + compound-if-attr E-DG-002 noise while there. Zero warnings now.
 
-<program>
-  <p>Mode: ${@ui}</>
-</>
-```
+**Samples + examples audit (`2ba4ccd`):** 796 .scrml files compiled; 19 files outside gauntlet dirs had real errors. All fixed. Most were stale JS-isms or pre-S22 syntax. Full triage at `docs/` was not persisted — the trail is in the commit message.
 
-The emitted HTML has `<span data-scrml-logic="_scrml_logic_N"></span>` (placeholder) but no `_scrml_effect(() => ...)` binding to fill it. Writing `@order` won't update the DOM.
+**Tutorial update (`e0455b6`):** §2.3 (enum) flipped to bare variant names; §2.4 (match) flipped to canonical `=>` + canonical `.Success(data)` payload-destructure parens form. Added `§2.10 State machines` — ~70-line new section covering `< machine>` with payload bindings in rules (§1b) and derived machines (§51.9). Three new snippets 02j/02k/02l, all compile clean.
 
-**Fix strategy (recommended):**
+### Suite trajectory
 
-During `annotateNodes` in `type-system.ts`, after `validateDerivedMachines` runs and the projected-var map is known, SYNTHESIZE a lightweight reactive-decl AST node for each projected var. Something like:
-
-```ts
-for (const m of machineRegistry.values()) {
-  if (!m.isDerived || !m.projectedVarName) continue;
-  const synthDecl = {
-    id: ++counter,
-    kind: "reactive-decl",
-    name: m.projectedVarName,
-    isDerivedProjection: true,       // new flag for downstream consumers
-    derivedFromSourceVar: m.sourceVar,
-    derivedMachineName: m.name,
-    init: null,                      // codegen is already emitted by emit-machines
-    span: <machine decl span>,
-  };
-  fileAST.nodes.unshift(synthDecl);
-}
-```
-
-Then update:
-
-- **Dependency graph** (`compiler/src/dependency-graph.ts`): treat reads of a projected var as reads of its source var. Specifically, when an expression references `@ui`, emit a graph edge from the consumer to `@order` (not `@ui`). Look for where `reactive-decl` nodes are added to the graph — add the synthesized ones with a "derived" marker so they don't double-count.
-- **Reactive wiring** (`compiler/src/codegen/emit-reactive-wiring.ts`): the existing effect emitter already wraps DOM bindings with `_scrml_effect(() => { el.textContent = _scrml_reactive_get("ui"); })`. The effect's dependency tracking (via `_scrml_track` in the reactive-get path) SHOULD auto-register `@ui` as a tracked dependency. Verify that when `_scrml_derived_get` is called inside an effect, the effect subscribes to dirty changes on the downstream name (`@ui`), which is what `_scrml_derived_downstreams` already drives.
-
-**Risk:** the dep-graph has MANY places that check `kind === "reactive-decl"`. The synthesized node must be ignored by passes that analyze INITIALIZERS (it has no init), and must be acknowledged by passes that enumerate reactive variables. Expect 3–5 surprising spots to patch.
-
-**Estimated scope:** medium. Start by adding the synthesized node + `isDerivedProjection` flag. Compile the example above and walk through what breaks; each broken path is a place to add an `if (node.isDerivedProjection) continue;` guard or a synonym behavior.
-
-**Test target:** extend `compiler/tests/unit/gauntlet-s22/derived-machines.test.js` with a compile-then-execute test that (1) installs a happy-dom DOM, (2) compiles a file with `${@ui}` in markup, (3) loads the client JS, (4) writes `@order`, (5) asserts the DOM text updated.
+- Session start: 6,875 pass (S22 baseline).
+- After §51.9: 6,877 (+2 DOM-wiring tests).
+- After S20 meta bugs: 6,889 (+3 DG regression + 9 meta-bugs).
+- After Mario/audit/tutorial: 6,889 (source-only changes, no new tests).
 
 ---
 
-## 2. S20 deferred meta bugs (still open)
+## 2. Queued for S24 — pick priority
 
-Four bugs from `handOffs/hand-off-20.md` "Bugs documented (11 — for future batch)" that didn't land in S21 or S22. Order recommendation: 2c → 2a → 2b → 2d (smallest scope → largest).
+### 2a. E-SCOPE-001 in logic blocks (deferred from S20, carried through S23)
 
-### 2a. `lin + ^{}` capture not counted as consumption (§22.5.3)
+**Still the same as the S22/S23 brief §3 description.** Currently E-SCOPE-001 only fires for unquoted markup attribute identifiers (`type-system.ts:3254`). It does NOT fire for undeclared identifiers inside `${}` logic expressions.
 
-**Location:** `compiler/src/meta-checker.ts` — meta-capture scope analysis. The current checker detects linear variables captured by `^{}` but doesn't consume them. Per §22.5.3 a `lin` captured into a compile-time meta is consumed at capture time.
-
-**Repro:**
-```scrml
-${
-  lin x = 42
-  ^{ use(x) }      // should consume x
-  ^{ use(x) }      // should fail E-LIN-002 (double use)
-}
-```
-Currently no error fires; should fire E-LIN-002 on the second reference.
-
-**Fix sketch:** find where meta-checker identifies captured-scope vars, cross-reference to the linear-type tracker, mark them consumed.
-
-### 2b. Phase separation detected at eval-time, not checker-time
-
-**Location:** `compiler/src/meta-eval.ts` — the eval loop throws when it hits runtime-only operations. Should be a checker-time error before eval runs.
-
-**Repro:**
-```scrml
-@count = 0
-^{ use(@count) }  // reactive read inside compile-time meta
-```
-Currently errors at meta-eval; should error at meta-checker stage (E-META-00? — need to pick a code).
-
-**Fix sketch:** add a pre-eval pass in `meta-checker.ts` that walks compile-time meta blocks and flags any reactive / SQL / server-only operation. Emit a checker-time error with the spec-anchored message.
-
-### 2c. DG false-positive for `@var` via `meta.get()` / `meta.bindings` (recommended starting point — smallest)
-
-**Location:** `compiler/src/dependency-graph.ts`. The DG treats `meta.get("@x")` as a reactive read of `@x`, creating a false edge. Meta-scoped accesses shouldn't create runtime reactive dependencies.
-
-**Repro:** S20 meta fixture — check `samples/compilation-tests/gauntlet-s20-meta/` for the specific case (one fixture documented this).
-
-**Fix sketch:** when the DG visits an expression, skip `@var` refs that appear inside a `meta.get(...)` or `meta.bindings.x` access chain. String-level rewrite guards — look for the `meta.` prefix to the outer call.
-
-### 2d. Nested `^{}` in compile-time meta crashes eval
-
-**Location:** `compiler/src/meta-eval.ts` — recursive meta-block eval.
-
-**Repro:**
-```scrml
-^{ ^{ use("x") } }   // crashes the eval loop
-```
-Should either work (recursive eval) or emit a spec-anchored error.
-
-**Fix sketch:** add a nesting guard + either a real recursion implementation or an explicit "nested meta not supported in this revision" error. Probably blocked on 2b (checker-time phase separation) so 2d is most naturally done after.
-
-**Test target:** new file `compiler/tests/unit/gauntlet-s23/meta-bugs.test.js` or append to a shared gauntlet-s23 tree.
-
----
-
-## 3. E-SCOPE-001 in logic blocks (still deferred from S20)
-
-**Current state:** E-SCOPE-001 only fires for unquoted markup attribute identifiers (`type-system.ts:3254`). It does NOT fire for undeclared identifiers in logic expressions.
-
-**Repro (existing S20 fixture):** `samples/compilation-tests/gauntlet-s20-error-ux/err-scope-001-undeclared.scrml`:
+**Existing fixture:** `samples/compilation-tests/gauntlet-s20-error-ux/err-scope-001-undeclared.scrml`:
 ```scrml
 ${
   let x = undeclaredVar + 1
@@ -167,202 +81,202 @@ ${
 ```
 Current: compiles clean. Expected: E-SCOPE-001 on `undeclaredVar`.
 
-**Implementation scope:** medium-large. Requires walking every expression AST in logic context and resolving each identifier reference against the scope chain.
-
-**Existing infrastructure:**
-- `type-system.ts:1567 Scope` / `:1596 ScopeChain` (may have shifted in line number after S22 edits — grep `class ScopeChain`).
-- Builders at ~`type-system.ts:2278 checkNodesInScope` traverse nodes for binding but don't validate every ident reference.
+**Implementation scope:** medium-large. Walk every expression AST in logic context, resolve each identifier reference against the scope chain. Infrastructure pieces:
+- `type-system.ts:1567 Scope` / `:1596 ScopeChain` (may have shifted — grep `class ScopeChain`).
+- Builders at `~type-system.ts:2278 checkNodesInScope` already traverse nodes for binding but don't validate every ident reference.
 
 **The walker needs to:**
 1. For each `ident` node in an expression, look up against the scope chain.
-2. Skip DOM globals (`document`, `window`, etc.), runtime helpers (`_scrml_*`), standard JS globals (`Math`, `JSON`, `Array`, `Object`, `console`, etc.), and imported names.
+2. Skip DOM globals (`document`, `window`, etc.), runtime helpers (`_scrml_*`), JS builtins (`Math`, `JSON`, `Array`, `Object`, `Number`, `String`, `Boolean`, `Date`, `Promise`, `Set`, `Map`, `parseInt`, `parseFloat`, `isNaN`, `console`), and imported names.
 3. Emit E-SCOPE-001 with a helpful message — variable name, and a suggestion if there's a close lexical match via Levenshtein/edit-distance.
 
-**Known seed lists:**
-- `compiler/src/html-elements.js` for HTML tag names
-- Runtime helpers all match `_scrml_*`
-- JS built-ins: keep a small allow-list (`Math`, `JSON`, `Array`, `Object`, `Number`, `String`, `Boolean`, `Date`, `Promise`, `Set`, `Map`, `parseInt`, `parseFloat`, `isNaN`, `console`) or detect via `typeof` probe at emit time.
-
-**Watch out for:**
-- Server-side code that references server-only globals
-- Template string interpolations
-- SQL identifier placeholders inside `?{}`
-- Function parameters (should already be in scope from the param decls)
-- `lin` variables, `~` tilde, `self` inside machines
+**Seed lists to use:**
+- `compiler/src/html-elements.js` for HTML tag names.
+- Runtime helpers all match `_scrml_*`.
+- JS built-ins: hardcoded allow-list.
 
 **Start narrow:** only client-side logic-block expressions. Grow coverage from there.
 
 **Test target:** extend existing `samples/compilation-tests/gauntlet-s20-error-ux/err-scope-001-undeclared.scrml` to actually fail + a unit test that uses the fixture.
 
----
-
-## 4. Deep-dive followups (unblocked now that A + I landed)
+### 2b. Deep-dive followups C / F / G (unblocked since S22)
 
 From `scrml-support/docs/deep-dives/machine-cluster-expressiveness-2026-04-17.md`:
 
-### 4a. C — Temporal transitions (`.Loading after 30s => .TimedOut`)
+**C — Temporal transitions (`.Loading after 30s => .TimedOut`).** Prior art: XState `after:`, SCXML `<send delay>`, Erlang `gen_statem` state timeouts. Small grammar addition; runtime layers on §6.7.8 `<timeout>`. Open question to resolve before the spec amendment: on re-entry to `From` during the timer window, does the clock reset or is it cumulative? Default recommendation: **reset** (matches XState).
 
-Scoped as "queue independently after A+I land." A is done, I is done — **this is unblocked.**
+**F — Auto-generated property tests from machine declarations.** Given a machine decl, emit a `~{}` suite that asserts (a) only declared transitions succeed, (b) terminals reject all transitions, (c) each labeled guard has both passing and failing coverage somewhere in the corpus. No grammar change — compile-time test-gen pass behind a `--emit-machine-tests` flag.
 
-**Prior art:** XState `after:`, SCXML `<send delay>`, Erlang `gen_statem` state timeouts. All canonical.
+**G — Free audit/replay/time-travel.** Grammar: one new optional clause at the end of `< machine>` body: `audit @varName`. Emits one additional reactive-set per transition into the audit var. Opt-in (memory cost).
 
-**Grammar addition:** small. Runtime layers on §6.7.8 `<timeout>`.
+### 2c. Type system bug: match subject loses parameter/local type annotation
 
-**Open question (flag before spec):** on re-entry to `From` during the timer window, does the clock reset or is it cumulative? Pick one before writing the amendment. Default recommendation: **reset** — matches XState default, and cumulative would require an explicit state-persistence story for the timer itself.
+**Discovered while rewriting Mario + example 05 + tutorial snippets.** A `match` subject inside a function body doesn't see the function parameter's type annotation OR a `let p: SomeType = ...` annotation on a local binding. E-TYPE-025 fires even when the annotation should clearly narrow.
 
-**Spec work:** add a `temporal-transition-rule` production to §51.3 grammar, amend §51.5 to describe the runtime timer lifecycle, register E-MACHINE-019 (invalid duration) and E-MACHINE-020 (duration on wildcard rule — ambiguous which state's timer fires).
-
-**Codegen work:** `emitTemporalTimer(rule)` in `emit-machines.ts`. Emits a `setTimeout(() => attemptTransition(from, to), ms)` on state entry, cleared on state exit. The transition runs through the same guard pipeline as a regular transition (so `given` guards still apply).
-
-### 4b. F — Auto-generated property tests from machine declarations
-
-**Scoped as "orthogonal correctness multiplier."** Given a machine declaration, emit a `~{}` test suite that:
-- For every reachable state, asserts only declared transitions succeed.
-- For terminals, asserts all transitions reject.
-- For every labeled guard, ensures both passing and failing coverage exist somewhere in the corpus.
-
-**Prior art:** Haskell `hedgehog-state`, `quickcheck-state-machine`, TLA+/Apalache, `@xstate/test`.
-
-**No grammar change.** This is purely a compile-time test-generation pass behind a flag like `scrml compile --emit-machine-tests`.
-
-### 4c. G — Free audit/replay/time-travel
-
-**Scoped as "small compiler add, huge debuggability payoff."** Machine bindings already mediate every write; adding `audit @auditLog` clause in machine body emits `(from, to, event, effects, ts)` tuples into a reactive `@auditLog` array. Time-travel is a consequence, not a feature.
-
-**Opt-in** because of memory cost. Default off.
-
-**Prior art:** Redux DevTools, Elm Debugger, XState Inspector.
-
-**Grammar:** one new optional clause at the end of `< machine>` body: `audit @varName`.
-
-**Codegen:** inside `emitTransitionGuard`, after the `_scrml_reactive_set` of the target var, emit one additional reactive-set to the audit var pushing the tuple.
-
-### 4d. Future work noted in §51.9.7 (keep DEFERRED unless explicitly re-prioritized)
-
-- Transitive projection (derived-of-derived).
-- Projection binding (payload-binding in projection LHS — now POSSIBLE since §1b landed; a small grammar extension would admit it).
-- Cross-machine projection (parallel regions — hardest of the three, classical parallel-state problem).
-
----
-
-## 5. Older backlog (deprioritized by user S18, still valid)
-
-From `handOffs/hand-off-22.md` §6 (unchanged):
-
-- **P3 self-host completion + idiomification** — 11 scrml modules in `compiler/self-host/`; 2 of them still fail the bootstrap parity test. Self-hosting is the parity target with `~/scrmlMaster/scrml/`.
-- **P5 TS migrations** — `ast-builder.js` and `block-splitter.js` are still `.js` not `.ts`. Migration work tracked in prior session plans.
-- **P5 ExprNode Phase 4d + Phase 5** — the ExprNode idempotency invariant work from S13-S14; Phase 4d is additional coverage, Phase 5 retires the legacy string-form expression fields entirely.
-- **Full Lift Approach C Phase 2** — Phase 2c-lite landed S18 (the dead BS+TAB reparse block removed); full Phase 2 involves `emitConsolidatedLift` refactor for fragmented bodies.
-- **`lin` redesign** (queued) — user's original vision is discontinuous scoping, not Rust-style linear types. See memory entry `project_lin_redesign.md`. Deep-dive + debate queued.
-- **Async loading stdlib helpers.**
-- **DQ-12 Phase B** — diagnostic quality work.
-- **2 remaining self-host test failures** — deferred.
-
----
-
-## 6. Pre-existing parser bug exposed in S22 (NOT caused, but surfaced)
-
-**Location:** body-pre-parser (BPP), statement-boundary detection between two consecutive `@name: SomeMachine = X` reactive-decls.
-
-**Symptom:**
+**Repro:**
 ```scrml
 ${
-  @foo: MachineA = A.Value
-  @bar: MachineB = B.Value   // silently dropped; warning "statement boundary not detected — trailing content would be silently dropped"
+  type PowerUp:enum = { Mushroom(n: number), Flower(n: number) }
+  function eat(powerUp) {
+    let p: PowerUp = powerUp  // Should narrow — doesn't.
+    match p {                 // E-TYPE-025 fires here.
+      .Mushroom(n) => ...
+      .Flower(n) => ...
+    }
+  }
 }
 ```
 
-Adding a blank line between the two decls doesn't always fix it. Putting the decls in two separate `${}` blocks does fix it.
+A **file-scope** `let` DOES work:
+```scrml
+let sample: PowerUp = PowerUp.Mushroom(1)
+function probe() { match sample { ... } }   // works
+```
 
-**Impact:** user-visible in any file with two machine-typed reactives on adjacent lines. The E-MACHINE-017 end-to-end test in `compiler/tests/unit/gauntlet-s22/derived-machines.test.js` sidesteps this by splitting decls across blocks — see "write-rejected.scrml" fixture.
+And a **typed reactive** DOES work:
+```scrml
+@current: PowerUp = PowerUp.Mushroom(1)
+function dispatch() { match @current { ... } }   // works
+```
 
-**Fix location:** `compiler/src/codegen/compat/parser-workarounds.js` (BPP). The boundary heuristic needs to treat `@name: TypeName = expr` as a self-terminating statement when the NEXT line begins with `@` or `type` or a markup tag.
+**Current workaround used in Mario and tutorial:** route through a typed reactive + a wrapper function that assigns before dispatching:
+```scrml
+@currentPowerUp: PowerUp = PowerUp.Mushroom(0)
+function applyPowerUp() { match @currentPowerUp { ... } }
+function eatPowerUp(powerUp) { @currentPowerUp = powerUp; applyPowerUp() }
+```
 
-**Not a priority blocker** — affects only machine-typed decls on adjacent lines, which is a narrow subset of real files. But it's surprising when it happens and is worth a proper fix when someone is already in BPP code.
+**Fix location:** `compiler/src/type-system.ts` — scope-visit function parameters and local `let`/`const` type annotations such that subsequent match subjects see the narrowed type. The `nodeTypes` map should carry the annotation into the param binding.
+
+**Priority:** medium. The workaround is documented in Mario and the tutorial's §2.4, so it's not blocking users — but the ergonomics are bad and new scrml writers hit it within the first hour.
+
+### 2d. DG false-positive on compound `if=(...)` attribute expressions
+
+**Discovered during the audit.** When an attribute value is a compound expression like `if=(@vulnerable && @gameOver == false)`, the DG's attribute-value scan only picks up the FIRST `@var` reference, OR fails entirely on more complex shapes. Reactive vars that appear only inside compound `if=` conditions get a false-positive E-DG-002 "never consumed."
+
+**Locations affected (observed during audit):**
+- Original Mario had this on `@vulnerable`.
+- 02h-presence-checks had it on `@email` / `@loggedIn`.
+- Worked around by adding an extra `${@var}` read in text somewhere.
+
+**Fix location:** `compiler/src/dependency-graph.ts:1313-1338` — the attribute-value scan branch. Currently matches `@\w+` via regex. Needs a proper scanner that handles compound expressions (`&&`, `||`, `==`, parens, function calls) and credits every `@var` reference.
+
+**Priority:** low (cosmetic — warnings don't block compile, and users can work around). But it's annoying to hit.
+
+### 2e. DG false-positive on `@var` inside runtime html-fragment meta bodies
+
+**Flagged in S23 §2b notes.** A runtime `^{}` meta block whose body is parsed as html-fragment with raw `.content` containing `@counter += 1` will trigger E-DG-002 on `@counter` — the DG sweep doesn't see the `@var` reference inside html-fragment content at runtime context (the S23 fix was only for compile-time meta at MC stage).
+
+**Fix:** extend `dependency-graph.ts:sweepNodeForAtRefs` meta branch — when scanning a meta body, also regex-scan each child's `.content` string for `@varName` patterns. Similar to the S23 fix for the html-fragment case.
+
+**Priority:** low.
+
+### 2f. Machine + in-enum `transitions {}` combo parser bug
+
+**Discovered during audit (fixed at source, not in compiler).** When an enum declares its OWN `transitions {}` AND an external `< machine>` references it, the external machine's rule parser includes a leading space in variant names ("unknown variant '. Pending'"). Affects `machine-basic.scrml` and `machine-002-traffic-light.scrml` — worked around by removing the in-enum transitions block.
+
+**Fix location:** `compiler/src/type-system.ts:parseMachineRules`. Probably a string-split issue where the pre-machine pass leaves leading whitespace on RHS variants.
+
+**Priority:** low. The co-existence of both forms is redundant anyway; the audit already dropped the redundant form from both files. Worth a proper fix if anyone legitimately needs both.
+
+### 2g. Import resolver requires explicit `.scrml` extension
+
+**UX issue discovered during audit.** `import { x } from './helpers/foo'` (no extension) emits E-IMPORT-006 "no file found at .../foo". The file IS at `.../foo.scrml`. Users expect extension-optional imports like Node/Bun/Deno.
+
+**Fix location:** `compiler/src/module-resolver.js` — add extension-less resolution (try `.scrml` fallback before failing).
+
+**Priority:** medium-low. Current fixtures `modern-006/007-with-helpers.scrml` were updated to use explicit `.scrml`. But it's friction for new users.
+
+### 2h. `lin` redesign (still queued from S18)
+
+User's original vision for `lin` is discontinuous scoping, not Rust-style linear types. Deep-dive + debate still queued per memory entry `project_lin_redesign.md`. Out of scope until the user re-prioritizes; the current lin implementation works within its (narrower) semantics.
+
+### 2i. Self-host completion + 2 known-fail tests (deferred since S18)
+
+Same 2 pre-existing self-host bootstrap parity failures still red:
+- `Bootstrap L3: self-hosted API compiles compiler > self-hosted api.js exports compileScrml`
+- `Self-host: tokenizer parity > compiled tab.js exists`
+
+Deferred per user direction S18; part of the §5-era backlog. Self-hosting as a whole is the parity target with `~/scrmlMaster/scrml/`.
+
+### 2j. Older §5-era backlog (carried from S22)
+
+From `handOffs/hand-off-22.md` §6:
+- P3 self-host completion + idiomification.
+- P5 TS migrations — `ast-builder.js`, `block-splitter.js` still `.js`.
+- P5 ExprNode Phase 4d + Phase 5 — additional coverage, then retire legacy string-form fields.
+- Full Lift Approach C Phase 2 — `emitConsolidatedLift` refactor for fragmented bodies.
+- Async loading stdlib helpers.
+- DQ-12 Phase B — diagnostic quality work.
 
 ---
 
-## 7. 2 pre-existing test failures (still red as of S22 wrap)
-
-Unchanged from S21:
-
-- `Bootstrap L3: self-hosted API compiles compiler > self-hosted api.js exports compileScrml` — self-host bootstrap parity.
-- `Self-host: tokenizer parity > compiled tab.js exists` — same family.
-
-Both deferred per user direction S18. They'll keep failing until the self-host work in §5 backlog is taken up.
-
----
-
-## 8. Test infrastructure notes
+## 3. Test infrastructure notes
 
 - Test suite entry: `bun test compiler/tests/`.
 - Pretest hook: `scripts/compile-test-samples.sh` compiles 12 browser test samples.
 - Gauntlet regression trees:
-  - `compiler/tests/unit/gauntlet-s20/` — 5 files (error-handling, fn-purity, import-resolution, machine-or-alternation + __fixtures__).
-  - `compiler/tests/unit/gauntlet-s22/` — 4 files (payload-variants, payload-variants-match, machine-payload-binding, derived-machines), 43 tests total.
-- Full test run: ~4.6s at S22 scale (6,875 tests across 277 files).
-- Side-effect regeneration: `docs/changes/expr-ast-phase-1-audit/escape-hatch-catalog.{json,md}` regenerates on every run (files were archived in S21 but a test keeps writing them back). Untracked in git; safe to leave, but a future cleanup could gitignore or relocate the regeneration target.
+  - `compiler/tests/unit/gauntlet-s20/` — 5 files, S20 bugs.
+  - `compiler/tests/unit/gauntlet-s22/` — 4 files, 45 tests. Includes the 2 new S23 DOM-wiring tests in `derived-machines.test.js`.
+  - `compiler/tests/unit/gauntlet-s23/meta-bugs.test.js` — new, 9 tests covering S20 meta bugs 2a/2b/2d.
+- Full test run: ~4.5s at S23 scale (6,889 tests across 278 files).
+- Side-effect regeneration: `docs/changes/expr-ast-phase-1-audit/escape-hatch-catalog.{json,md}` still regenerates on every run (untracked in git; safe to leave).
 
 ---
 
-## 9. Agents available (no staging needed)
+## 4. Agents available (no staging needed)
 
-Primary + already-staged in `.claude/agents/` (same as S22):
+Same primary roster as S22/S23 — see `/.claude/agents/`:
 
-- PA (this), Explore, Plan, general-purpose
-- scrml-project-manager, scrml-language-design-reviewer, scrml-integration-pipeline-reviewer, scrml-diagnostics-quality-reviewer, scrml-compiler-diagnostics-engineer, scrml-token-and-ast-engineer, scrml-type-system-engineer, scrml-type-system-reviewer, scrml-type-system-tester, scrml-end-to-end-compiler-tester, scrml-language-conformance-tester, scrml-linear-type-specialist, scrml-linear-type-tester, scrml-html-codegen-{engineer,reviewer}, scrml-html-output-tester, scrml-js-codegen-{engineer,reviewer}, scrml-js-output-tester, scrml-css-compilation-{engineer,reviewer}, scrml-css-output-tester, scrml-server-boundary-{analyst,tester}, scrml-state-inference-engineer, scrml-block-split-parser-engineer, scrml-parser-architecture-reviewer, scrml-macro-system-{engineer,reviewer,tester}, scrml-exhaustiveness-{checker-engineer,tester}, scrml-pipeline-correctness-tester, scrml-ast-correctness-tester, scrml-deep-dive, debate-curator, debate-judge, scrml-developer, scrml-scribe, project-mapper, resource-mapper, gauntlet-overseer, agent-forge, agent-registry, claude-code-guide.
+PA (this), Explore, Plan, general-purpose, scrml-project-manager, scrml-language-design-reviewer, scrml-integration-pipeline-reviewer, scrml-diagnostics-quality-reviewer, scrml-compiler-diagnostics-engineer, scrml-token-and-ast-engineer, scrml-type-system-{engineer,reviewer,tester}, scrml-end-to-end-compiler-tester, scrml-language-conformance-tester, scrml-linear-type-{specialist,tester}, scrml-html-codegen-{engineer,reviewer}, scrml-html-output-tester, scrml-js-codegen-{engineer,reviewer}, scrml-js-output-tester, scrml-css-compilation-{engineer,reviewer}, scrml-css-output-tester, scrml-server-boundary-{analyst,tester}, scrml-state-inference-engineer, scrml-block-split-parser-engineer, scrml-parser-architecture-reviewer, scrml-macro-system-{engineer,reviewer,tester}, scrml-exhaustiveness-{checker-engineer,tester}, scrml-pipeline-correctness-tester, scrml-ast-correctness-tester, scrml-deep-dive, debate-curator, debate-judge, scrml-developer, scrml-scribe, project-mapper, resource-mapper, gauntlet-overseer, agent-forge, agent-registry, claude-code-guide.
 
-No new staging required for any queued item.
+No staging required for any queued item.
 
 ---
 
-## 10. Recommended S23 opening sequence
+## 5. Recommended S24 opening sequence
 
 1. Check `handOffs/incoming/` for new messages.
-2. Prompt user priority: **DOM read-wiring for derived machines** (§1 here) vs **S20 meta bugs** (§2) vs **E-SCOPE-001 in logic blocks** (§3) vs **deep-dive followups C/F/G** (§4).
-3. My recommendation: **§1 DOM read-wiring** first. It unlocks the real user-visible value of §51.9 (which has been the session's centerpiece) and keeps the compiler's story coherent. The other items are all net-new features or bug cleanups that don't depend on each other.
-4. If the user picks §1: start with the synthesized reactive-decl approach outlined in §1. Walk through what breaks in the dep-graph; patch each surprising call site.
-5. If the user picks §2: go 2c → 2a → 2b → 2d in that order.
-6. If the user picks §3: start with a narrow scope-walker MVP on the simplest fixture, grow from there.
+2. Prompt user priority across queued items:
+   - **§2a E-SCOPE-001 in logic blocks** (medium-large, improves diagnostics — touches the whole type system).
+   - **§2c Match type narrowing for function params + local lets** (medium, ergonomics fix affecting every enum workflow).
+   - **§2b Deep-dive followups C/F/G** — temporal transitions / property tests / audit-replay (each small-to-medium, different flavors).
+   - **§2d/2e/2f/2g low-priority cleanups** (each trivial, 10-30 min).
+3. If the user picks §2c (type-narrowing): my recommendation for sequencing is to start with the simplest case (file-scope `let` with annotation — already works) and trace what TS pass sees the annotation; then extend to function-param types; then to local `let`/`const` inside functions. Add a test for each pattern.
+4. If the user picks §2a (E-SCOPE-001): start with a minimal scope-walker MVP on the existing `err-scope-001-undeclared.scrml` fixture. Grow coverage incrementally.
+5. If the user picks §2b (deep-dive followups): recommend starting with **G (audit/replay)** — smallest grammar change, biggest debuggability win.
 
-### Explicit non-goals for S23 opening
+### Explicit non-goals for S24 opening
 
-- **Do not** rewrite examples/14-mario-state-machine.scrml to showcase payload variants until the DOM read-wiring (§1) lands — the demo needs that to actually render.
-- **Do not** batch two queued items in a single commit. They are all independent features / bug fixes.
-- **Do not** ignore the cross-repo state in §0 — a quick `git status` in scrml-support at S23 start confirms whether the old S21 archive commit landed.
+- **Do not** rewrite more examples to showcase features until there's a concrete user request or a gauntlet run produces one. Mario already serves as the flagship.
+- **Do not** batch two queued items in one commit. They are independent.
+- **Do not** push on landing — the S23 one-time auth was per-push; each S24 push needs its own auth or a master-PA needs:push message.
 
 ---
 
-## 11. What shipped this session (S22 summary, for future reference)
+## 6. Audit state (persistent)
 
-All on origin/main, all tests green at 6,875 pass / 10 skip / 2 fail.
+S23 ran a compile audit across all 796 .scrml files under `samples/compilation-tests/` and `examples/`. Final state:
+- **256 clean**
+- **406 warns** (most are W-PROGRAM-001 noise on minimal snippets — intentional for test fixtures that don't need a root program)
+- **134 errors** — **all of them intentional-error fixtures** in `gauntlet-*-error-*`, `phase1-fn-prohibition-*`, `*-type-mismatch-*`, `*-bad-*` directories. Plus `samples/compilation-tests/lin-002-double-use.scrml` which its own header flags as "should reject with E-LIN-002".
 
-**§1a — enum payload variants (2 commits):**
-- `2fbc332` — generated constructors, `Shape.Circle(10) === { variant: "Circle", data: { r: 10 } }`. Unit variants stay as strings. Spec-aligned with §19.3.2 `fail`.
-- `d8ebfb3` — match destructures the tagged-object shape. `__tag` normalization, per-file variant-fields registry, positional + named bindings, `_` discards. splitMultiArmString presence-arm fix (was splitting `.Circle(r) =>` at the `(`).
+**If S24 introduces a feature that would break a fixture, re-run the audit script:** `/tmp/s23-audit/compile-all.sh` (may need recreating — it was a tmp-dir script). The logic is simple: `find samples examples -name '*.scrml' | while read f; do scrml compile ...`. The audit should stay at ~256 clean / ~134 intentional-error.
 
-**§1b — payload bindings in machine rules (1 commit):**
-- `a1f0c76` — `.Charging(n) => .Firing given (n > 50)` now works. `resolveRuleBindings` (E-MACHINE-015 for unit variants / unknown fields / overflow), `expandAlternation` parity check (E-MACHINE-016), `buildBindingPreludeStmts` emits destructuring inside the keyed `if (__key === "From:To")` block.
+---
 
-**§51.9 — derived/projection machines (2 commits):**
-- `9d90450` — parser + validator. `< machine UI for UIMode derived from @order>` parsed, exhaustiveness check (E-MACHINE-018), source-var resolution (E-MACHINE-004), transitive rejection (E-MACHINE-004).
-- `ebd4a8b` — runtime codegen + E-MACHINE-017 write rejection. `_scrml_project_<M>` function + `_scrml_derived_fns` registration + dirty-propagation via existing §6.6 infra. `rejectWritesToDerivedVars` flags reactive-decl and `@ui =` / `@ui +=` etc.
+## 7. Known compiler bugs (documented, NOT fixed)
 
-**MIT license (1 commit):**
-- `3e8f545` — LICENSE, package.json, README flipped from closed-beta-proprietary to open-source-MIT.
+Catalogued explicitly so S24 can decide whether to address them:
 
-**Tests added:** 43 net (6,875 − 6,832 pre-wrap count deltas). Broken down:
-- gauntlet-s22/payload-variants.test.js — 6 tests (construction).
-- gauntlet-s22/payload-variants-match.test.js — 7 tests (destructuring, end-to-end).
-- gauntlet-s22/machine-payload-binding.test.js — 15 tests (parser + emitter + errors).
-- gauntlet-s22/derived-machines.test.js — 19 tests (parser + validator + codegen + E-MACHINE-017).
-- Existing tests updated (not counted as new): enum-variants.test.js, emit-match.test.js, codegen-struct-rewrite.test.js (all aligned with the constructor-function model).
-
-**Spec amendments:** §51.3.2 (payload bindings) and §51.9 (derived machines) both flipped from "(pending implementation)" to "(landed S22)". §51.9.6 projected-var-naming rule tightened to "machine name with leading uppercase run lowercased." §51.3.2 prereq text flipped.
-
-**Repo went public** with MIT mid-session.
+1. **Match subject loses param/local type annotation** → §2c above. Workaround in Mario + tutorial.
+2. **Compound `if=(...)` attribute expressions → false-positive E-DG-002** → §2d above.
+3. **`@var` in runtime html-fragment meta body → false-positive E-DG-002** → §2e above.
+4. **Machine + in-enum `transitions {}` combo → variant-name whitespace leak** → §2f above.
+5. **Import resolver requires explicit `.scrml` extension** → §2g above.
+6. **Pre-existing parser bug (S22 §6): body-pre-parser statement-boundary between two consecutive `@name: SomeMachine = X` reactive-decls** — still open from S22. Workaround: separate `${ }` blocks.
 
 ---
 
 ## Tags
-#session-23 #open #queue-51.9-dom-wiring #queue-meta-bugs #queue-scope-001 #queue-deep-dive-followups
+#session-24 #open #queue-scope-001 #queue-type-narrowing #queue-deep-dive-followups #s23-complete

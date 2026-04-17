@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-17 (S22 — §1a enum payload variant construction + match destructuring, §1b payload binding in machine rules (E-MACHINE-015/016), §51.9 derived/projection machines (E-MACHINE-017/018), MIT license, repo public; **6,875 pass / 10 skip / 2 fail** across 277 files)
+**Last updated:** 2026-04-17 (S23 — §51.9 DOM read-wiring for `${@ui}` (commit `5b5d636`), all four S20 meta bugs landed (2c/2a/2b/2d — `8711056` + `9f2a247`), Mario example rewritten to showcase S22 features (`7045adf`), non-gauntlet samples audit (`2ba4ccd` — 19 stale fixtures updated to idiomatic scrml), tutorial updated with canonical `=>` / bare variant names + new §2.10 state machines section + 3 new snippets (`e0455b6`); **6,889 pass / 10 skip / 2 fail** across 278 files)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** **6,875 pass, 10 skip, 2 fail** (S22 2026-04-17) across 277 files with 25,520 expects — includes S20 gauntlet regression tree (`compiler/tests/unit/gauntlet-s20/` — 4 files, 38 tests), S22 tree (`compiler/tests/unit/gauntlet-s22/` — 4 files, 43 tests: payload-variants + payload-variants-match + machine-payload-binding + derived-machines) and S19-S22 fixture corpus. 2 remaining self-host fails deferred per user.
+**Tests:** **6,889 pass, 10 skip, 2 fail** (S23 2026-04-17) across 278 files with 25,548 expects — includes S20 gauntlet regression tree (`compiler/tests/unit/gauntlet-s20/` — 4 files, 38 tests), S22 tree (`compiler/tests/unit/gauntlet-s22/` — 4 files, 45 tests: payload-variants + payload-variants-match + machine-payload-binding + derived-machines + 2 S23 DOM-wiring tests), new S23 tree (`compiler/tests/unit/gauntlet-s23/meta-bugs.test.js` — 9 tests for 2a/2b/2d meta fixes), and S19-S22 fixture corpus. 2 remaining self-host fails deferred per user.
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
