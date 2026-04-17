@@ -622,26 +622,24 @@ describe("emitMatchExpr — nested match in arm result", () => {
 // rewriteEnumVariantAccess — named args in payload construction
 // ---------------------------------------------------------------------------
 
-describe("rewriteEnumVariantAccess — named args in payload construction", () => {
-  it("compiles payload with named arg syntax (field: value)", () => {
-    // HurtResult.Downgrade(to: MarioState.Small)
-    // The to: label in (to: MarioState.Small) is a JS labeled expression — valid JS.
-    // The value of the expression (to: MarioState.Small) is MarioState.Small.
+describe("rewriteEnumVariantAccess — payload construction is call-preserving", () => {
+  // S22 §1a: payload construction is now a call to the emitted constructor
+  // function (see emit-client.ts:emitEnumVariantObjects). rewriteEnumVariantAccess
+  // leaves `EnumType.Variant(args)` alone; at runtime the constructor returns
+  // `{ variant: "X", data: { field: value } }` (spec §19.3.2 aligned).
+  it("leaves labeled-expression payload construction intact", () => {
     const result = rewriteEnumVariantAccess("HurtResult.Downgrade(to: MarioState.Small)");
-    expect(result).toContain('variant: "Downgrade"');
-    expect(result).toContain("value: (to: MarioState.Small)");
+    expect(result).toBe("HurtResult.Downgrade(to: MarioState.Small)");
   });
 
-  it("compiles payload with positional arg (no colon) still works", () => {
+  it("leaves positional payload construction intact", () => {
     const result = rewriteEnumVariantAccess("HurtResult.Downgrade(MarioState.Small)");
-    expect(result).toBe('{ variant: "Downgrade", value: (MarioState.Small) }');
+    expect(result).toBe("HurtResult.Downgrade(MarioState.Small)");
   });
 
-  it("named arg colon does not break the payload regex extraction", () => {
-    // field: value — the : after field name must not confuse the balanced-paren extractor
+  it("leaves call-expression payloads intact regardless of inner colon", () => {
     const result = rewriteEnumVariantAccess("Foo.Bar(x: someValue)");
-    expect(result).toContain('variant: "Bar"');
-    expect(result).toContain("value: (x: someValue)");
+    expect(result).toBe("Foo.Bar(x: someValue)");
   });
 });
 

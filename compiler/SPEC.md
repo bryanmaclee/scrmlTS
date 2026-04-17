@@ -17139,13 +17139,14 @@ no bindings at all — mixed shapes in a single list are a compile error:
 payload bindings. Either every alternative binds the same names, or none bind. Got:
 {list}.`
 
-**Prerequisite:** this amendment is specified but blocked on enum payload variant
-construction. The runtime representation of a payload-carrying variant (e.g., `Shape.Circle(10)`)
-is currently unspecified in codegen; today the `Object.freeze` enum table only emits unit
-variants as strings, so `Shape.Circle(10)` throws at runtime. Payload bindings in machine
-rules require the runtime shape to be `{ variant: "Circle", data: { radius: 10 } }` (the
-same shape `fail` already uses in §19.3.2). Implementation SHALL address enum payload
-construction first, then layer payload-binding in machine rules on top.
+**Prerequisite (landed S22):** enum payload variant construction emits a compiler-
+generated constructor function per payload variant inside the frozen enum object.
+`Shape.Circle(10)` calls `Shape.Circle` and returns `{ variant: "Circle", data: { r: 10 } }`
+(the field-name keys are the declared payload field names). Unit variants stay as
+string literals (`Shape.Square === "Square"`). The object shape matches §19.3.2 `fail`
+(minus the `__scrml_error` sentinel) so one runtime dispatches both error and regular
+variants by inspecting `.variant`. Payload-binding in machine rules (§51.3.2) layers
+on top of this construction contract.
 
 When governing a **struct type**, a machine's rules use `* => *` wildcard syntax with
 `given` guards that reference fields via `self.*`:

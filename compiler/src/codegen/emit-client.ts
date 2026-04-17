@@ -673,15 +673,139 @@ function getAllVariantNames(decl: TypeDecl): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// getAllVariantInfo — name + field ordering per variant (unit vs payload)
+// ---------------------------------------------------------------------------
+
+interface VariantInfo {
+  name: string;
+  fieldNames: string[] | null; // null → unit variant; [] → payload with no fields
+}
+
+/**
+ * Returns ALL variants for an enum type declaration with their payload field
+ * ordering when present. Prefers the structured `decl.variants` array (populated
+ * by the type system's parseEnumBody) and falls back to parsing `decl.raw`
+ * directly — the type system may not always populate `decl.variants` back onto
+ * the AST node (the registry is the canonical store).
+ */
+function getAllVariantInfo(decl: TypeDecl): VariantInfo[] {
+  const out: VariantInfo[] = [];
+
+  if (Array.isArray(decl.variants) && decl.variants.length > 0) {
+    for (const v of decl.variants) {
+      const name = v.name ?? "";
+      if (!/^[A-Z][A-Za-z0-9_]*$/.test(name)) continue;
+      if (v.payload == null) {
+        out.push({ name, fieldNames: null });
+      } else if (v.payload instanceof Map) {
+        out.push({ name, fieldNames: Array.from(v.payload.keys()) });
+      } else if (typeof v.payload === "object") {
+        // Some paths may leave payload as a plain object — keep insertion order.
+        out.push({ name, fieldNames: Object.keys(v.payload) });
+      } else {
+        out.push({ name, fieldNames: null });
+      }
+    }
+    if (out.length > 0) return out;
+  }
+
+  // Fallback: parse from decl.raw. Mirrors type-system.ts parseEnumBody:
+  //   Name                  → unit variant
+  //   Name(f1:T1, f2:T2)    → payload variant with ordered field names
+  const raw: string = decl.raw ?? "";
+  let body = raw.trim();
+  if (body.startsWith("{")) body = body.slice(1);
+  if (body.endsWith("}")) body = body.slice(0, -1);
+  body = stripTransitionsBlock(body);
+  body = body.trim();
+  if (!body) return out;
+
+  // Top-level split on newline AND comma AND `|` at depth 0 — matches the
+  // looser style accepted by the existing getAllVariantNames helper.
+  // Walking char-by-char avoids splitting inside `(... , ...)`.
+  const parts: string[] = [];
+  let depth = 0;
+  let buf = "";
+  for (const ch of body) {
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth--;
+    if (depth === 0 && (ch === "\n" || ch === "," || ch === "|")) {
+      if (buf.trim()) parts.push(buf);
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.trim()) parts.push(buf);
+
+  for (const part of parts) {
+    let trimmed = part.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith(".")) trimmed = trimmed.slice(1).trim();
+    if (!trimmed) continue;
+
+    const parenIdx = trimmed.indexOf("(");
+    if (parenIdx === -1) {
+      // Unit variant. Strip any trailing `renders ...` so we only keep the name.
+      const name = trimmed.split(/\s+/)[0];
+      if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) {
+        out.push({ name, fieldNames: null });
+      }
+      continue;
+    }
+
+    // Payload variant
+    const name = trimmed.slice(0, parenIdx).trim();
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(name)) continue;
+    const closeParenIdx = trimmed.lastIndexOf(")");
+    if (closeParenIdx <= parenIdx) continue;
+    const payloadStr = trimmed.slice(parenIdx + 1, closeParenIdx).trim();
+    const fieldNames: string[] = [];
+    if (payloadStr) {
+      // Split on commas at depth 0 (payload types can contain generics/parens).
+      let d = 0;
+      let fb = "";
+      const pieces: string[] = [];
+      for (const ch of payloadStr) {
+        if (ch === "(" || ch === "[" || ch === "{" || ch === "<") d++;
+        else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") d--;
+        if (d === 0 && ch === ",") {
+          if (fb.trim()) pieces.push(fb);
+          fb = "";
+        } else {
+          fb += ch;
+        }
+      }
+      if (fb.trim()) pieces.push(fb);
+      for (const p of pieces) {
+        const colonIdx = p.indexOf(":");
+        if (colonIdx === -1) continue;
+        const fname = p.slice(0, colonIdx).trim();
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(fname)) fieldNames.push(fname);
+      }
+    }
+    out.push({ name, fieldNames });
+  }
+
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // emitEnumVariantObjects (§14.4)
 // ---------------------------------------------------------------------------
 
 /**
- * Generate frozen enum objects so developers can write `@status = Status.Loading`.
- * Each enum type declaration becomes:
- *   const TypeName = Object.freeze({ Variant: "Variant", ..., variants: ["Variant", ...] })
- * The `variants` property (§14.4.2) provides an ordered array of all variant names,
- * enabling iteration: for (v of UserRole.variants) { ... }.
+ * Generate frozen enum objects so developers can write `@status = Status.Loading`
+ * for unit variants or `Shape.Circle(10)` for payload variants (§51.3.2).
+ *
+ * Unit variant   → `Square: "Square"`
+ * Payload variant → `Circle: function(radius) { return { variant: "Circle", data: { radius } }; }`
+ *
+ * The tagged-object shape `{ variant, data }` aligns with §19.3.2 `fail` objects
+ * (which add a `__scrml_error` sentinel) so one runtime can dispatch both.
+ *
+ * The `variants` property (§14.4.2) provides an ordered array of all variant
+ * names, enabling iteration: `for (v of Status.variants) { ... }`.
  */
 export function emitEnumVariantObjects(fileAST: any): string[] {
   const lines: string[] = [];
@@ -690,13 +814,21 @@ export function emitEnumVariantObjects(fileAST: any): string[] {
   for (const decl of typeDecls) {
     if (decl.kind !== "type-decl" || decl.typeKind !== "enum") continue;
 
-    const unitVariants = getUnitVariantNames(decl);
-    if (unitVariants.length === 0) continue;
+    const info = getAllVariantInfo(decl);
+    if (info.length === 0) continue;
 
-    const allVariants = getAllVariantNames(decl);
-    const entries = unitVariants.map((name: string) => `${name}: "${name}"`).join(", ");
-    const variantsArray = allVariants.map((name: string) => `"${name}"`).join(", ");
-    lines.push(`const ${decl.name} = Object.freeze({ ${entries}, variants: [${variantsArray}] });`);
+    const entries: string[] = [];
+    for (const v of info) {
+      if (v.fieldNames === null) {
+        entries.push(`${v.name}: "${v.name}"`);
+      } else {
+        const params = v.fieldNames.join(", ");
+        const dataInit = v.fieldNames.length === 0 ? "{}" : `{ ${params} }`;
+        entries.push(`${v.name}: function(${params}) { return { variant: "${v.name}", data: ${dataInit} }; }`);
+      }
+    }
+    const variantsArray = info.map(v => `"${v.name}"`).join(", ");
+    lines.push(`const ${decl.name} = Object.freeze({ ${entries.join(", ")}, variants: [${variantsArray}] });`);
   }
 
   return lines;

@@ -1088,40 +1088,13 @@ export function rewriteEnumVariantAccess(expr: string): string {
   // §14.4.2 — EnumType.variants → EnumType_variants (PascalCase identifiers only)
   expr = expr.replace(/\b([A-Z][A-Za-z0-9_]*)\s*\.\s*variants\b/g, "$1_variants");
 
-  // §14.5 — Payload variant construction: EnumType.Variant(expr) → { variant: "Variant", value: (expr) }
-  // Bug fix: use balanced-paren extraction to handle nested calls like eatPowerUp(m, p).
-  // Old regex `([^)]*)` failed on nested parens.
-  const variantPayloadRe = /\b([A-Z][A-Za-z0-9_]*)\.([A-Z][A-Za-z0-9_]*)\s*\(/g;
-  let vpMatch: RegExpExecArray | null;
-  let lastIndex = 0;
-  const vpParts: string[] = [];
-
-  while ((vpMatch = variantPayloadRe.exec(expr)) !== null) {
-    const matchStart = vpMatch.index;
-    const openParen = variantPayloadRe.lastIndex - 1; // position of '('
-    // Walk forward to find balanced close paren
-    let depth = 1;
-    let k = openParen + 1;
-    while (k < expr.length && depth > 0) {
-      if (expr[k] === '(') depth++;
-      else if (expr[k] === ')') depth--;
-      k++;
-    }
-    if (depth !== 0) {
-      // Unbalanced parens — skip this match and continue
-      variantPayloadRe.lastIndex = matchStart + 1;
-      continue;
-    }
-    const closeParen = k - 1;
-    const arg = expr.slice(openParen + 1, closeParen).trim();
-    const variantName = vpMatch[2];
-    vpParts.push(expr.slice(lastIndex, matchStart));
-    vpParts.push(`{ variant: "${variantName}", value: (${arg}) }`);
-    lastIndex = k;
-    variantPayloadRe.lastIndex = k;
-  }
-  vpParts.push(expr.slice(lastIndex));
-  expr = vpParts.join("");
+  // §14.5 — Payload variant construction is now handled by the emitted enum
+  // constructor function (see emit-client.ts:emitEnumVariantObjects).
+  // `Shape.Circle(10)` stays as a function call and produces the tagged-object
+  // shape `{ variant: "Circle", data: { r: 10 } }` at runtime, aligned with
+  // §19.3.2 `fail` so one runtime dispatches both. No inline string rewrite is
+  // applied here — the previous `{variant, value: (arg)}` rewrite mis-named the
+  // payload property and couldn't carry multi-field / named-field payloads.
 
   // Standalone .VariantName (compact form, not preceded by identifier) → "VariantName"
   expr = expr.replace(/(?<![A-Za-z0-9_$.])\.\s*([A-Z][A-Za-z0-9_]*)\b/g, '"$1"');

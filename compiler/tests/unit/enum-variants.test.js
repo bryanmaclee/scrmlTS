@@ -5,11 +5,16 @@
  *   Feature 1: EnumType.variants runtime API (§14.4.2)
  *     - rewrite Color.variants → Color_variants
  *     - emitEnumLookupTables generates _variants arrays
- *   Feature 2: Enum variant construction as expression (§14.5)
- *     - rewrite Shape.Circle(5) → { variant: "Circle", value: (5) }
+ *   Feature 2: Enum variant construction as expression (§14.5, §51.3.2 S22)
+ *     - `Shape.Circle(5)` is a CALL to the compiler-emitted constructor function,
+ *       NOT a string rewrite. rewriteEnumVariantAccess leaves the call intact;
+ *       the emitted `const Shape = Object.freeze({ Circle: function(r) {...} })`
+ *       produces `{ variant: "Circle", data: { r: 5 } }` at runtime.
  *     - unit variant regression (Direction.North stays as-is)
- *   Feature 3: Nested-paren payload fix (Bug 3, P0-CODEGEN-ADVANCED-FEATURES)
- *     - rewrite GameStatus.Playing(mario: eatPowerUp(m, p)) correctly
+ *   Feature 3: Construction through rewrite pipeline preserves call expressions
+ *     (was "nested-paren payload fix" — nested parens were only a concern for the
+ *      removed inline string rewrite; the constructor-function model handles them
+ *      trivially since JS parses the call naturally).
  */
 
 import { describe, test, expect } from "bun:test";
@@ -17,7 +22,7 @@ import {
   rewriteEnumVariantAccess,
   rewriteExpr,
 } from "../../src/codegen/rewrite.ts";
-import { emitEnumLookupTables } from "../../src/codegen/emit-client.ts";
+import { emitEnumLookupTables, emitEnumVariantObjects } from "../../src/codegen/emit-client.ts";
 
 // ---------------------------------------------------------------------------
 // §1–5  EnumType.variants rewrite
@@ -103,30 +108,59 @@ describe("Enum variant construction", () => {
     expect(rewriteEnumVariantAccess("Direction.North")).toBe("Direction.North");
   });
 
-  test("§7 payload variant Shape.Circle(5) rewrites to tagged object", () => {
-    const result = rewriteEnumVariantAccess("Shape.Circle(5)");
-    expect(result).toBe('{ variant: "Circle", value: (5) }');
+  test("§7 payload variant Shape.Circle(5) is left as a call to the constructor", () => {
+    // Construction is via the emitted constructor function, not a string rewrite.
+    // `Shape.Circle(5)` → calls `Shape.Circle(5)` → returns `{ variant, data }`.
+    expect(rewriteEnumVariantAccess("Shape.Circle(5)")).toBe("Shape.Circle(5)");
   });
 
-  test("§7b payload variant with complex expression", () => {
-    const result = rewriteEnumVariantAccess("Result.Found(user.id)");
-    expect(result).toBe('{ variant: "Found", value: (user.id) }');
+  test("§7b payload variant with complex expression is preserved verbatim", () => {
+    expect(rewriteEnumVariantAccess("Result.Found(user.id)")).toBe("Result.Found(user.id)");
   });
 
-  test("§7c payload variant through rewriteExpr pipeline", () => {
-    const result = rewriteExpr("Shape.Circle(radius)");
-    expect(result).toBe('{ variant: "Circle", value: (radius) }');
+  test("§7c payload variant through rewriteExpr pipeline is left unchanged", () => {
+    expect(rewriteExpr("Shape.Circle(radius)")).toBe("Shape.Circle(radius)");
   });
 
-  test("§8 match/construction compatibility — match destructures by string tag", () => {
-    // match compiles variant arms to: tmpVar === "VariantName"
-    // Unit variants at runtime are strings: "North"
-    // Payload variants at runtime are: { variant: "Circle", value: 5 }
-    // So match arms for unit variants check string equality.
-    // For payload variants, match would need to check .variant property.
-    // This test just verifies the construction produces the right shape.
-    const constructed = eval("(" + rewriteEnumVariantAccess("Shape.Circle(42)") + ")");
-    expect(constructed).toEqual({ variant: "Circle", value: 42 });
+  test("§8 emitted constructor produces the spec-aligned tagged-object shape at runtime", () => {
+    // Replicates what emitEnumVariantObjects writes for the `Shape` enum.
+    const fileAST = {
+      typeDecls: [
+        {
+          kind: "type-decl",
+          typeKind: "enum",
+          name: "Shape",
+          variants: [
+            { name: "Circle", payload: new Map([["r", { kind: "number" }]]) },
+            { name: "Unit", payload: null },
+          ],
+        },
+      ],
+    };
+    const lines = emitEnumVariantObjects(fileAST);
+    // Build a sandbox scope by eval'ing the emitted `const Shape = ...` line.
+    const code = lines[0] + "; (Shape.Circle(42))";
+    const constructed = new Function(code.replace("const Shape", "var Shape") + "; return Shape.Circle(42);")();
+    expect(constructed).toEqual({ variant: "Circle", data: { r: 42 } });
+  });
+
+  test("§8b emitted constructor preserves unit variants as strings", () => {
+    const fileAST = {
+      typeDecls: [
+        {
+          kind: "type-decl",
+          typeKind: "enum",
+          name: "Status",
+          variants: [
+            { name: "Loading", payload: null },
+            { name: "Ready", payload: null },
+          ],
+        },
+      ],
+    };
+    const lines = emitEnumVariantObjects(fileAST);
+    const getUnit = new Function(lines[0].replace("const Status", "var Status") + "; return Status.Loading;");
+    expect(getUnit()).toBe("Loading");
   });
 });
 
@@ -136,37 +170,38 @@ describe("Enum variant construction", () => {
 // The fix uses balanced-paren extraction.
 // ---------------------------------------------------------------------------
 
-describe("Enum variant construction with nested parens (Bug 3 fix)", () => {
-  test("§9 payload with nested function call argument", () => {
-    // GameStatus.Playing(eatPowerUp(m, p)) — inner call has its own parens
+describe("Enum variant construction preserves call expressions (nested parens, chains)", () => {
+  // Under the constructor-function model, rewriteEnumVariantAccess must NOT
+  // touch `EnumType.Variant(...)` — the JS parser handles nested parens,
+  // method chains, and labeled-expression payloads naturally at runtime.
+
+  test("§9 payload with nested function call argument is preserved verbatim", () => {
     const result = rewriteEnumVariantAccess("GameStatus.Playing(eatPowerUp(m, p))");
-    expect(result).toBe('{ variant: "Playing", value: (eatPowerUp(m, p)) }');
+    expect(result).toBe("GameStatus.Playing(eatPowerUp(m, p))");
   });
 
-  test("§10 payload with two levels of nesting", () => {
+  test("§10 payload with two levels of nesting is preserved verbatim", () => {
     const result = rewriteEnumVariantAccess("State.Active(compute(a, add(b, c)))");
-    expect(result).toBe('{ variant: "Active", value: (compute(a, add(b, c))) }');
+    expect(result).toBe("State.Active(compute(a, add(b, c)))");
   });
 
-  test("§11 payload with method chain in argument", () => {
+  test("§11 payload with method chain in argument is preserved verbatim", () => {
     const result = rewriteEnumVariantAccess("Result.Ok(items.map(x => x.id))");
-    expect(result).toBe('{ variant: "Ok", value: (items.map(x => x.id)) }');
+    expect(result).toBe("Result.Ok(items.map(x => x.id))");
   });
 
-  test("§12 payload with named parameter (colon syntax in arg)", () => {
+  test("§12 payload with named parameter (colon syntax in arg) is preserved verbatim", () => {
     const result = rewriteEnumVariantAccess("GameStatus.Playing(mario: eatPowerUp(m, p))");
-    expect(result).toBe('{ variant: "Playing", value: (mario: eatPowerUp(m, p)) }');
+    expect(result).toBe("GameStatus.Playing(mario: eatPowerUp(m, p))");
   });
 
-  test("§13 simple payload still works after fix", () => {
-    // Regression: the simple case must still work
-    const result = rewriteEnumVariantAccess("Shape.Circle(5)");
-    expect(result).toBe('{ variant: "Circle", value: (5) }');
+  test("§13 simple payload call is preserved verbatim", () => {
+    expect(rewriteEnumVariantAccess("Shape.Circle(5)")).toBe("Shape.Circle(5)");
   });
 
-  test("§13b multiple payload constructions in one expression", () => {
+  test("§13b multiple payload constructions in one expression are all preserved", () => {
     const result = rewriteEnumVariantAccess("let a = X.Foo(f(1, 2)); let b = X.Bar(g(3))");
-    expect(result).toContain('{ variant: "Foo", value: (f(1, 2)) }');
-    expect(result).toContain('{ variant: "Bar", value: (g(3)) }');
+    expect(result).toContain("X.Foo(f(1, 2))");
+    expect(result).toContain("X.Bar(g(3))");
   });
 });

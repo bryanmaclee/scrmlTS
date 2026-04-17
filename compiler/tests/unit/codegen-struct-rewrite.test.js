@@ -96,13 +96,12 @@ describe("rewriteExpr includes struct construction rewrite", () => {
     expect(result).not.toContain("Mario {");
   });
 
-  it("rewrites struct after enum variant access in chain", () => {
-    // Enum variant access runs BEFORE struct construction in chain
-    // So GameStatus.Playing(x) → { variant: "Playing", value: (x) }
-    // Then no PascalCase{ remains from that
+  it("struct rewrite does not confuse enum payload call expressions", () => {
+    // S22 §1a: payload construction is a call to the constructor function,
+    // e.g. `GameStatus.Playing(42)` — the struct pass (which looks for
+    // `PascalCase {`) must not misinterpret it.
     const result = rewriteExpr("let s = GameStatus.Playing(42)");
-    expect(result).toContain('variant: "Playing"');
-    // Make sure struct rewrite didn't accidentally strip anything
+    expect(result).toContain("GameStatus.Playing(42)");
     expect(result).not.toContain("GameStatus {");
   });
 
