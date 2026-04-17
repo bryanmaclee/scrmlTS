@@ -1,6 +1,6 @@
 # config.map.md
 # project: scrmlTS
-# updated: 2026-04-12T20:00:00Z  commit: 623aeac
+# updated: 2026-04-17T17:00:00Z  commit: 41e4401
 
 ## Environment Variables
 No .env.example or .env.template found.
@@ -20,6 +20,7 @@ Ignores: node_modules/, dist/, .DS_Store, *.log, .env, .env.local, editors/vscod
 
 ### package.json scripts
 compile: bun run compiler/src/cli.js compile
+pretest: bash scripts/compile-test-samples.sh — recompile the shared sample corpus before bun test
 test: bun test compiler/tests/
 test:coverage: bun test compiler/tests/ --coverage
 watch: bun --watch compiler/src/cli.js compile

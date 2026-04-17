@@ -17056,11 +17056,19 @@ guard-clause   ::= 'given' '(' expr ')' clause-label?
 
 clause-label   ::= '[' identifier ']'
 
-variant-ref    ::= '.' VariantName
-                 | '::' VariantName
+variant-ref    ::= ('.' | '::') VariantName binding-group?
+binding-group  ::= '(' binding-list ')'
+binding-list   ::= binding (',' binding)*
+binding        ::= Identifier
+                 | FieldName ':' Identifier
 
 effect-block   ::= '{' logic-stmt* '}'
 ```
+
+Note: `binding-list` is the same form §18.7 uses for `match` variant destructuring.
+Positional bindings match variant payload fields by declaration order; named bindings
+(`FieldName: local`) match by field name. Both forms MAY mix within a single
+`binding-list`. A `_` identifier in any binding position discards that field.
 
 A machine declaration uses the `< machine` opener (space after `<` marks it as a state
 type, per §4). The machine name is a plain identifier (PascalCase by convention). The
@@ -17090,6 +17098,54 @@ Expands to 8 single-pair rules (`Small=>Big`, `Small=>Fire`, ..., `Cape=>Small`)
 across lines — SHALL be a compile error: **E-MACHINE-014** — `Machine '{name}' has a
 duplicate transition rule '{rule}'. A rule cannot repeat the same from→to pair. Remove the
 duplicate.`
+
+**Amended (pending implementation):** §51.3.2 payload binding in machine rules. The
+`variant-ref` grammar accepts an optional `binding-group` mirroring §18.7's match variant
+destructuring. Bindings on the `From` side of `=>` expose the previous variant's payload
+fields as local names inside `given` guards and `effect-block`s. Bindings on the `To` side
+expose the incoming variant's payload fields.
+
+```scrml
+type CannonState:enum = {
+    Idle
+    Charging(level: number)
+    Firing(shot: Shot)
+    Reloading(reason: string)
+}
+
+< machine CannonMachine for CannonState>
+    .Idle               => .Charging(level: l) given (l >= 0)
+    .Charging(n)        => .Firing(shot: s)    given (n >= 50)
+    .Charging(n)        => .Idle               given (n < 10)
+    .Firing(s)          => .Reloading(reason: r) { log("fired " + s.id + " → reloading: " + r) }
+    .Reloading          => .Idle
+</>
+```
+
+In the third rule, `n` binds to the pre-transition `Charging.level` value; the guard reads
+it directly. In the fourth rule, `s` binds to the pre-transition `Firing.shot`, and `r`
+binds to the post-transition `Reloading.reason`. The effect block may reference both.
+
+**Relationship to `event.from` / `event.to`:** Bindings are syntactic sugar over
+`event.from.data` and `event.to.data` field access, but they enable static type resolution
+(guard and effect see typed locals) and catch typos at compile time — an invalid field
+name in a binding is **E-MACHINE-015**: `Machine '{name}' rule for '.{Variant}' binds
+field '{name}' which is not a field of the variant. Declared fields: {list}.`
+
+**Relationship to `|` alternation.** When `binding-group`s appear on an alternated
+`variant-ref-list`, every alternative SHALL declare an identically-named binding set, or
+no bindings at all — mixed shapes in a single list are a compile error:
+**E-MACHINE-016** — `Machine '{name}' rule uses '|' alternation with mismatched variant
+payload bindings. Either every alternative binds the same names, or none bind. Got:
+{list}.`
+
+**Prerequisite:** this amendment is specified but blocked on enum payload variant
+construction. The runtime representation of a payload-carrying variant (e.g., `Shape.Circle(10)`)
+is currently unspecified in codegen; today the `Object.freeze` enum table only emits unit
+variants as strings, so `Shape.Circle(10)` throws at runtime. Payload bindings in machine
+rules require the runtime shape to be `{ variant: "Circle", data: { radius: 10 } }` (the
+same shape `fail` already uses in §19.3.2). Implementation SHALL address enum payload
+construction first, then layer payload-binding in machine rules on top.
 
 When governing a **struct type**, a machine's rules use `* => *` wildcard syntax with
 `given` guards that reference fields via `self.*`:
@@ -17132,6 +17188,14 @@ loop, or conditional. It MAY be declared inside a `${}` logic block at file scop
 - `given` guards in machine rules SHALL be permitted to reference reactive `@variables`,
   server-derived values, and other runtime state. This is the distinguishing capability of
   machines over type-level transitions.
+- A `variant-ref` MAY include a `binding-group` (pending implementation). Bindings SHALL
+  expose the variant's payload fields as typed local names. `From`-side bindings expose
+  pre-transition payload; `To`-side bindings expose post-transition payload. Guards and
+  effect blocks SHALL see the bindings in scope. An invalid field name SHALL be
+  E-MACHINE-015. Mismatched bindings across an alternated list SHALL be E-MACHINE-016.
+- A `binding-group` on a unit variant (no payload) SHALL be a compile error: reuse
+  E-MACHINE-015 with the message form `Variant '.{Variant}' is a unit variant and has
+  no fields to bind`.
 
 #### 51.3.3 Machine Binding — `@var: MachineName`
 
@@ -17532,6 +17596,10 @@ binding on struct fields; bind the enclosing `@var` to a machine instead).
 | E-MACHINE-012 | Machine binding on a struct field (not yet supported; bind the enclosing `@var` instead) | Compile |
 | E-MACHINE-013 | `self.fieldName` in a struct-governing machine guard references an undefined field | Compile |
 | E-MACHINE-014 | Duplicate `(from, to)` transition pair in a machine body (including pairs produced by `\|` alternation) | Compile |
+| E-MACHINE-015 | Machine rule binds a variant field that doesn't exist (or binds a field on a unit variant) | Compile |
+| E-MACHINE-016 | Machine rule uses `\|` alternation with mismatched variant payload bindings | Compile |
+| E-MACHINE-017 | Assignment to a derived-machine projected variable (§51.9 — projections are read-only) | Compile |
+| E-MACHINE-018 | Derived machine's projection rules are not exhaustive over the source enum's variants | Compile |
 
 **Error message format — E-MACHINE-001:**
 
@@ -17549,7 +17617,184 @@ knowledge to decode.
 
 ---
 
-### 51.9 Open Questions (Tracked as Spec Issues)
+### 51.9 Derived / Projection Machines
+
+**Added (pending implementation):** 2026-04-17. Resolves the debate outcome in
+`scrml-support/docs/deep-dives/machine-cluster-expressiveness-2026-04-17.md` Candidate (I).
+Eliminates the "shadow-boolean drift" pattern observed across gauntlet rounds R11/R13/R14,
+where developers hand-maintained `@isLoading`/`@isSuccess`/`@isError` alongside the source
+enum and had to re-derive them on every transition.
+
+#### 51.9.1 Motivation
+
+A common pattern in real scrml code is deriving a simplified state from a richer one:
+
+```scrml
+// Source machine: the real thing
+type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }
+
+// Projection: just "what should the UI look like?"
+type UIMode:enum = { Editable, ReadOnly, Terminal }
+```
+
+Today, the projection has to be hand-maintained: either as a `~derived` scalar computed in
+a `match`, or as a `server @var` that's re-assigned after every `@order` write. Both forms
+drift. Hand-maintenance is the bug: the projection's transition graph is **implicit in the
+source machine's transition graph**, and the compiler should derive it.
+
+#### 51.9.2 Syntax
+
+```
+derived-machine-decl ::= '< machine' MachineName 'for' TypeName 'derived' 'from' '@' SourceVar '>'
+                         projection-body
+                         '/'
+
+projection-body      ::= projection-rule*
+projection-rule      ::= variant-ref-list '=>' variant-ref                -- map source variants → projection variant
+                       | variant-ref-list 'given' '(' expr ')' '=>' variant-ref   -- conditional projection
+```
+
+**Example:**
+
+```scrml
+< machine UI for UIMode derived from @order>
+    .Draft                                  => .Editable
+    .Submitted | .Paid | .Shipping          => .ReadOnly
+    .Delivered | .Cancelled | .Refunded     => .Terminal
+</>
+
+@order: OrderMachine = OrderState.Draft
+// No @ui declaration required — the compiler synthesizes it from the derived machine.
+// Reading @ui: resolves via the projection. Writing @ui: compile error (E-MACHINE-017).
+```
+
+The arrow direction matches §51.3: `.From => .To` reads as "when source is `From`,
+projection becomes `To`." Unlike a regular machine, the `To` side is always a single
+variant-ref (no alternation): a projection maps many source variants to one destination,
+never the reverse.
+
+#### 51.9.3 Semantics
+
+- The declared `SourceVar` SHALL be a machine-bound reactive variable (`@order:
+  OrderMachine`) declared in the same file or imported.
+- The projected variable (`@ui` in the example) is **synthesized by the compiler** — the
+  developer does NOT declare it explicitly. It appears as a normal reactive variable to
+  readers: `${@ui}` in markup, `match @ui { ... }` in logic.
+- Writes to the projected variable SHALL be a compile error: **E-MACHINE-017** — `Cannot
+  assign to '@{name}' — it is a derived projection of '@{source}' (see < machine
+  {MachineName}>). Assign to the source instead.`
+- The projection SHALL be total: every variant of the source type MUST be covered by the
+  projection rules (directly or via alternation). Non-exhaustive projections SHALL be
+  **E-MACHINE-018** — `Derived machine '{name}' does not project variant '.{Variant}' of
+  '{SourceType}'. Every source variant must be mapped, or use 'else => .Variant' for a
+  catch-all.`
+- The projection MAY use `given` guards that reference runtime state beyond the source
+  variant (e.g. `@currentUser.role`). Guarded rules are evaluated top-to-bottom at read
+  time; the first matching rule wins. Unguarded rules always match and SHALL appear last
+  in their alternation group.
+- When the source variable transitions, the compiler emits a reactive dependency so that
+  every element bound to `@ui` re-reads the projection. The projection is a **pure
+  derivation**, not a persisted store — there is no separate reactive cell for `@ui`.
+
+#### 51.9.4 Why Not `~derived` (§6.6)?
+
+Derived scalars (`~var = match @source { ... }`) already solve the simple case. The
+difference:
+
+| | `~derived` match | `< machine derived>` |
+|---|---|---|
+| Enforces exhaustiveness? | Yes (§18) | Yes (E-MACHINE-018) |
+| Integrates with machine runtime guards? | No | Yes (shares machine event wiring) |
+| Appears in type system as a machine? | No | Yes — `@ui: UI` is machine-governed |
+| Supports `given` on runtime state? | Via `if` inside match body | First-class `given` clause |
+| Supports `@ui: UI = ...` external bindings? | N/A | Yes, for introspection / tooling |
+| Reserves the binding name against writes? | No | Yes (E-MACHINE-017) |
+
+A `~derived` variable can be reassigned by a later `~` reassignment; a derived machine
+guarantees the projection is the only source of truth. For trivial string-to-string
+projections prefer `~derived`; for enum-to-enum projections with compile-time
+exhaustiveness and write-blocking, prefer a derived machine.
+
+#### 51.9.5 Worked Example — Shadow Booleans Eliminated
+
+Before (observed in `samples/gauntlet-r11/rust-state-machine.scrml`):
+
+```scrml
+${
+  @state: FetchState = FetchState.Idle
+  @isIdle = true
+  @isLoading = false
+  @isSuccess = false
+  @isError = false
+
+  function setState(next) {
+    @state = next
+    @isIdle    = next == FetchState.Idle
+    @isLoading = next == FetchState.Loading
+    @isSuccess = next == FetchState.Success
+    @isError   = next == FetchState.Error
+  }
+}
+```
+
+After (with derived machine):
+
+```scrml
+${
+  @state: FetchMachine = FetchState.Idle
+}
+
+< machine FetchMachine for FetchState>
+    .Idle    => .Loading
+    .Loading => .Success | .Error
+    .Success | .Error => .Idle
+</>
+
+type UIFlag:enum = { Idle, Busy, Done, Failed }
+
+< machine UI for UIFlag derived from @state>
+    .Idle              => .Idle
+    .Loading           => .Busy
+    .Success           => .Done
+    .Error             => .Failed
+</>
+```
+
+The four shadow booleans collapse to one projection. Never-drift by construction.
+
+#### 51.9.6 Normative Statements
+
+- A derived-machine declaration SHALL use the form `< machine Name for TypeName derived
+  from @SourceVar>`. The `derived from @SourceVar` clause SHALL name a machine-bound
+  reactive variable in the current file's scope.
+- The projected variable — named by the machine's governed `TypeName` — SHALL be
+  synthesized by the compiler. The developer SHALL NOT write an explicit `@var: Name = ...`
+  declaration for a projected variable.
+- Writes to a projected variable SHALL be a compile error: E-MACHINE-017.
+- The projection rules SHALL be exhaustive over the source enum's variants: E-MACHINE-018.
+- A `projection-rule` RHS SHALL be a single `variant-ref` (no alternation, no binding
+  group in this revision).
+- Projection rules MAY include `given` guards evaluated at read time. The first matching
+  rule (top-to-bottom) wins; an unguarded rule terminates its alternation group.
+- The projected variable SHALL be observable by `match`, `${...}` interpolation,
+  `when @var changes`, and all other reactive-read sites as if it were a normal reactive
+  variable. The only distinction is write-rejection.
+
+#### 51.9.7 Future Work
+
+- **Transitive projection.** A derived machine could derive from another derived machine.
+  The initial revision requires `SourceVar` to be a non-projected machine-bound var;
+  transitive projections deferred.
+- **Projection binding.** Payload-binding (§51.3.2 A amendment) on projection LHS could
+  let a projection extract information from source variant payloads (e.g. `.Charging(n)
+  given (n > 50) => .Charged`). Deferred until A lands; then a small grammar extension
+  admits it.
+- **Cross-machine projection.** Projecting from two independent sources simultaneously is
+  the classical "parallel region" problem; out of scope for this revision.
+
+---
+
+### 51.10 Open Questions (Tracked as Spec Issues)
 
 The following questions are not resolved by this section. They SHALL become tracked spec
 issues before §51 is considered fully ratified.

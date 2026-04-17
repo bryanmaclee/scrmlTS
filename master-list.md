@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-14 (S18 — README SQL-batching expansion + Lift Approach C Phase 2c-lite + 3 real-bug fixes (`export type X:enum` parse, reactive-for innerHTML clear, if-as-expr fixture) + 8 TodoMVC happy-dom harness-only skips with documented root cause; 4 commits on main beyond S17; **6,228 pass / 8 skip / 2 fail**)
+**Last updated:** 2026-04-17 (S21 — §19 error handling codegen rewrite (`fail`/`?`/`!{}`), E-IMPORT-006 on missing relative imports, §51 `|` alternation in machine rules + E-MACHINE-014 duplicate detection, README "Why scrml" rewrites (state-first-class + mutability contracts), tutorial v2 promoted; **6,824 pass / 10 skip / 2 fail** across 273 files)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** **6,228 pass, 8 skip, 2 fail** (S18 2026-04-14) — 3 real compiler bugs fixed (+4 tests), 8 TodoMVC happy-dom tests skipped as harness-only (Puppeteer covers), 2 remaining self-host fails (deferred per user)
+**Tests:** **6,824 pass, 10 skip, 2 fail** (S21 2026-04-17) across 273 files with 25,375 expects — includes S20 gauntlet regression tree (`compiler/tests/unit/gauntlet-s20/` — 4 files, 38 tests) and S19-S21 fixture corpus. 2 remaining self-host fails deferred per user.
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
@@ -94,22 +94,24 @@
 
 ## F. Samples
 
-- [x][x] `samples/compilation-tests/` — 275 .scrml test files
+- [x][x] `samples/compilation-tests/` — 275+ .scrml test files. S20 gauntlet fixtures added in 7 subdirs:
+  - `gauntlet-s20-channels/`, `gauntlet-s20-error-test/`, `gauntlet-s20-error-ux/`, `gauntlet-s20-meta/`, `gauntlet-s20-sql/`, `gauntlet-s20-styles/`, `gauntlet-s20-validation/` (80 fixture files, S20/S21 regression corpus).
 
 ---
 
 ## G. Test infrastructure
 
-- [x][x] `compiler/tests/unit/` — 147 files
+- [x][x] `compiler/tests/unit/` — 148+ files
+  - `compiler/tests/unit/gauntlet-s20/` (new S20/S21): `meta-gauntlet.test.js`, `fn-purity-reactive.test.js`, `error-handling-codegen.test.js`, `import-resolution.test.js`, `machine-or-alternation.test.js` (+ `__fixtures__/` per-test scratch dirs). 38 tests across the 5 files.
 - [x][x] `compiler/tests/integration/` — 2 files
 - [x][x] `compiler/tests/self-host/` — 4 files
 - [x][x] `compiler/tests/conformance/` — 2 files
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total:** 6,130 pass, 15 fail (S13 2026-04-13). Puppeteer: `examples/test-examples.js` 14/14 pass.
+- **Total (S21 2026-04-17):** 6,824 pass, 10 skip, 2 fail (25,375 expects across 273 test files). Puppeteer: `examples/test-examples.js` 14/14 pass.
 - **Pretest:** `scripts/compile-test-samples.sh` compiles 12 browser test samples (run via `bun run pretest`)
-- **Skipped:** `browser-reactive-arrays.test.js` — hangs in happy-dom (Puppeteer passes)
-- **S18 update:** 8 TodoMVC happy-dom **skipped with notes** (harness IIFE-scope bug — Puppeteer e2e covers, unskip when harness refactored). 2 cross-file-import-export + 1 if-as-expr + 1 reactive-arrays codegen **fixed S18** (commit b123ed1). 2 self-host remain (deferred).
+- **Skipped:** `browser-reactive-arrays.test.js` — hangs in happy-dom (Puppeteer passes); 8 TodoMVC happy-dom tests with harness-IIFE-scope root cause documented (Puppeteer covers).
+- **Still failing (2):** self-host tokenizer parity + Bootstrap L3 — deferred per user.
 
 ---
 

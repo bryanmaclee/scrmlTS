@@ -1,35 +1,35 @@
 # primary.map.md
 # project: scrmlTS
-# updated: 2026-04-12T20:00:00Z  commit: 623aeac
+# updated: 2026-04-17T17:00:00Z  commit: 41e4401
 
 ## Project Fingerprint
 Language:   JavaScript / TypeScript (mixed — .js and .ts files, Bun runtime)
 Framework:  Custom compiler (scrml language compiler)
 Runtime:    Bun (no Node.js — bun test, bun run)
 Type:       Compiler + CLI tool + LSP server
-Size:       ~270 source files (compiler/src ~27 files + codegen 36 files + tests ~240 files)
+Size:       ~270 source files (compiler/src ~27 top-level + codegen 36 files; ast.ts 1,420 LOC; ast-builder.js 6,360 LOC; SPEC.md 19,045 lines)
 
 ## Map Index
-| Map                      | Status  | Contents                              |
-|--------------------------|---------|---------------------------------------|
-| structure.map.md         | present | directory layout, 6 entry points      |
-| dependencies.map.md      | present | 5 packages, internal module graph     |
-| schema.map.md            | present | 42+ AST node types, 19 ExprNode kinds, 8 codegen types |
-| config.map.md            | present | 0 env vars, CLI flags, bunfig.toml    |
-| build.map.md             | present | 7 npm scripts, 5 CLI subcommands      |
-| error.map.md             | present | 4 error types (CGError, PAError, TSError, TABErrorInfo) |
-| test.map.md              | present | bun test, ~240 test files, 5,709 pass |
-| domain.map.md            | present | compiler pipeline, ExprNode migration, reactivity, lin types |
-| api.map.md               | absent  | not applicable (compiler, not web API) |
-| state.map.md             | absent  | not detected (no frontend state management) |
-| events.map.md            | absent  | EventEmitter in runtime-template only, not architectural |
-| auth.map.md              | absent  | not applicable (compiler tool) |
-| style.map.md             | absent  | not detected |
-| i18n.map.md              | absent  | not detected |
-| infra.map.md             | absent  | no Docker/CI/CD found |
-| migrations.map.md        | absent  | not detected |
-| jobs.map.md              | absent  | not detected |
-| non-compliance.report.md | present | 4 non-compliant, 3 uncertain          |
+| Map                      | Status  | Contents                                       |
+|--------------------------|---------|------------------------------------------------|
+| structure.map.md         | present | directory layout, 6 entry points, S20 dirs     |
+| dependencies.map.md      | present | 5 packages + §19/§51/E-IMPORT-006 graph edges  |
+| schema.map.md            | present | ~55 AST node kinds, 19 ExprNode kinds, §19 nodes |
+| config.map.md            | present | 0 env vars, CLI flags, bunfig.toml, pretest hook |
+| build.map.md             | present | 8 npm scripts, 5 CLI subcommands, migration scripts |
+| error.map.md             | present | ~200 codes; E-MACHINE-014, E-IMPORT-006, E-ERROR-001 enforced |
+| test.map.md              | present | bun test, 273 files, 6,824 pass / 10 skip / 2 fail |
+| domain.map.md            | present | pipeline, §19 rewrite, §51 alternation, E-IMPORT-006 |
+| api.map.md               | absent  | not applicable (compiler, not web API)         |
+| state.map.md             | absent  | not detected (no frontend state management)    |
+| events.map.md            | absent  | EventEmitter in runtime-template only          |
+| auth.map.md              | absent  | not applicable (compiler tool)                 |
+| style.map.md             | absent  | not detected                                   |
+| i18n.map.md              | absent  | not detected                                   |
+| infra.map.md             | absent  | no Docker/CI/CD found                          |
+| migrations.map.md        | absent  | not detected                                   |
+| jobs.map.md              | absent  | not detected                                   |
+| non-compliance.report.md | present | refreshed S21 — see report for items           |
 
 ## File Routing
 types / interfaces / models           -> schema.map.md
@@ -39,20 +39,19 @@ build commands / CI stages            -> build.map.md
 directory layout / entry points       -> structure.map.md
 external packages                     -> dependencies.map.md
 business rules / domain models        -> domain.map.md
-error types / handling patterns       -> error.map.md
+error types / codes / handling        -> error.map.md
 
 ## Key Facts
-- Entry point is compiler/src/cli.js (bin: `scrml`); programmatic API is compiler/src/api.js which runs the 10-stage pipeline: BS->TAB->CE->BPP->PA->RI->TS->MC->DG->CG
-- The AST type system lives in a single file: compiler/src/types/ast.ts (1,356 lines, 42+ node kinds + 19 ExprNode kinds)
-- Phase 3 of the ExprNode migration is complete: emit-expr.ts (379 LOC) handles all 19 ExprNode kinds with escape-hatch fallback to rewrite.ts; 51 dual-path call sites across 6 codegen emitters
-- Expression parsing uses acorn with custom @ sigil and :: enum plugins (expression-parser.ts, 1,668 LOC); ESTree ASTs are converted to ExprNode via esTreeToExprNode
-- ast-builder.js (5,645 LOC) is the largest single file — the main TAB stage that parses block trees into typed FileAST; populates ExprNode via safeParseExprToNode at 20+ sites
-- Codegen is 36 modules totaling ~14,777 LOC in compiler/src/codegen/; the three-phase model is: analyze -> plan (HTML gen populates BindingRegistry) -> emit (CSS + server JS + client JS)
-- The authoritative spec is compiler/SPEC.md (18,863 lines, 53 sections); pipeline contracts in compiler/PIPELINE.md (1,569 lines)
-- Current escape-hatch rate: 0% across the example corpus (14 files); 5,709 tests passing, ~149 failing
+- Entry point is compiler/src/cli.js (bin: `scrml`); programmatic API is compiler/src/api.js running BS->TAB->CE->BPP->PA->RI->TS->MC->DG->CG
+- §19 error handling was rewritten in S21 (commit 37049be): `fail` emits a tagged return object, `?` propagation emits a value check + return, `!{}` inline catch uses `result.__scrml_error` (NOT try/catch). Codegen lives in emit-logic.ts:632-756. E-ERROR-001 is now reachable and enforced.
+- §51 machines gained `|` alternation in S21 (commit eef7b5e): `variant-ref-list ::= variant-ref ('|' variant-ref)*`. `expandAlternation` at type-system.ts:1902 produces the cross-product; E-MACHINE-014 fires on duplicate `(from, to)` pairs. Example: `examples/14-mario-state-machine.scrml`.
+- E-IMPORT-006 was added in S21 (commit 86b5553): module-resolver.js checks `existsSync` for relative imports outside the compile set (module-resolver.js:146).
+- The AST type system lives in compiler/src/types/ast.ts (1,420 lines, ~55 node kinds + 19 ExprNode kinds). The largest single file is ast-builder.js (6,360 LOC).
+- Test baseline is 6,824 pass / 10 skip / 2 fail across 273 files (S21). Two persistent self-host failures are deferred per user.
+- docs/tutorial.md now holds the former V2 content (V1 retired 2026-04-17); snippets at docs/tutorial-snippets/ (renamed from tutorialV2-snippets).
 
 ## Tags
-#scrmlTS #map #primary #compiler #ExprNode #phase-3
+#scrmlTS #map #primary #compiler #ExprNode #s21 #error-handling #machine-alternation
 
 ## Links
 - [structure.map.md](./structure.map.md)

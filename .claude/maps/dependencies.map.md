@@ -1,6 +1,6 @@
 # dependencies.map.md
 # project: scrmlTS
-# updated: 2026-04-12T20:00:00Z  commit: 623aeac
+# updated: 2026-04-17T17:00:00Z  commit: 41e4401
 
 ## Runtime Dependencies
 
@@ -19,11 +19,14 @@ puppeteer@^24.40.0 — Headless Chrome for browser E2E tests
 
 ## Internal Module Graph
 cli.js -> commands/{compile,dev,build,init,serve}.js
-api.js -> block-splitter.js, ast-builder.js, component-expander.ts, protect-analyzer.ts, route-inference.ts, type-system.ts, meta-checker.ts, dependency-graph.ts, code-generator.js, meta-eval.ts, module-resolver.js, lint-ghost-patterns.js
+api.js -> block-splitter.js, ast-builder.js, component-expander.ts, protect-analyzer.ts, route-inference.ts, type-system.ts, meta-checker.ts, dependency-graph.ts, code-generator.js, meta-eval.ts, module-resolver.js, lint-ghost-patterns.js, gauntlet-phase1-checks.js, gauntlet-phase3-eq-checks.js
 ast-builder.js -> tokenizer.ts, expression-parser.ts
+module-resolver.js -> fs (existsSync gate for E-IMPORT-006 on relative imports outside compile set)
 expression-parser.ts -> acorn, astring, types/ast.ts
-codegen/index.ts -> codegen/{analyze,emit-html,emit-css,emit-server,emit-client,emit-library,emit-test,emit-worker,binding-registry,var-counter,utils,errors,source-map,type-encoding,collect,context,runtime-chunks}.ts
-codegen/emit-logic.ts -> codegen/{rewrite,emit-expr,emit-control-flow,emit-lift,reactive-deps,emit-predicates,var-counter,type-encoding}.ts, codegen/compat/parser-workarounds.js
+type-system.ts -> types/ast.ts; owns §51 machine `expandAlternation()` + E-MACHINE-014 duplicate-transition check
+codegen/index.ts -> codegen/{analyze,emit-html,emit-css,emit-server,emit-client,emit-library,emit-test,emit-worker,binding-registry,var-counter,utils,errors,source-map,type-encoding,collect,context,runtime-chunks,scheduling,ir}.ts
+codegen/emit-logic.ts -> codegen/{rewrite,emit-expr,emit-control-flow,emit-lift,reactive-deps,emit-predicates,emit-machines,var-counter,type-encoding}.ts, codegen/compat/parser-workarounds.js
+  owns §19 codegen: fail-expr (tagged-object return), propagate-expr (? check+return), guarded-expr (!{} inline catch via return-value check), error-effect (standalone !{} try/catch)
 codegen/emit-expr.ts -> types/ast.ts, codegen/rewrite.ts (escape-hatch fallback)
 codegen/emit-control-flow.ts -> codegen/{var-counter,rewrite,emit-expr,emit-logic,emit-lift,emit-machines}.ts
 codegen/emit-event-wiring.ts -> codegen/{rewrite,emit-expr,emit-control-flow,type-encoding,context}.ts
