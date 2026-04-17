@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-17 (S21 — §19 error handling codegen rewrite (`fail`/`?`/`!{}`), E-IMPORT-006 on missing relative imports, §51 `|` alternation in machine rules + E-MACHINE-014 duplicate detection, README "Why scrml" rewrites (state-first-class + mutability contracts), tutorial v2 promoted; **6,824 pass / 10 skip / 2 fail** across 273 files)
+**Last updated:** 2026-04-17 (S22 — §1a enum payload variant construction + match destructuring, §1b payload binding in machine rules (E-MACHINE-015/016), §51.9 derived/projection machines (E-MACHINE-017/018), MIT license, repo public; **6,875 pass / 10 skip / 2 fail** across 277 files)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 ---
@@ -10,7 +10,7 @@
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** **6,824 pass, 10 skip, 2 fail** (S21 2026-04-17) across 273 files with 25,375 expects — includes S20 gauntlet regression tree (`compiler/tests/unit/gauntlet-s20/` — 4 files, 38 tests) and S19-S21 fixture corpus. 2 remaining self-host fails deferred per user.
+**Tests:** **6,875 pass, 10 skip, 2 fail** (S22 2026-04-17) across 277 files with 25,520 expects — includes S20 gauntlet regression tree (`compiler/tests/unit/gauntlet-s20/` — 4 files, 38 tests), S22 tree (`compiler/tests/unit/gauntlet-s22/` — 4 files, 43 tests: payload-variants + payload-variants-match + machine-payload-binding + derived-machines) and S19-S22 fixture corpus. 2 remaining self-host fails deferred per user.
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
 
