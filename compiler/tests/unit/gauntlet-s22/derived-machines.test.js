@@ -11,6 +11,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
   buildMachineRegistry,
   buildTypeRegistry,
@@ -22,6 +23,7 @@ import {
   emitDerivedDeclaration,
 } from "../../../src/codegen/emit-machines.ts";
 import { compileScrml } from "../../../src/api.js";
+import { SCRML_RUNTIME } from "../../../src/runtime-template.js";
 
 const FIXTURE_DIR = join(import.meta.dir, "__fixtures__/derived-machines");
 const FIXTURE_OUTPUT = join(FIXTURE_DIR, "dist");
@@ -418,5 +420,140 @@ describe("§51.9 slice 2 — end-to-end compilation", () => {
     const { errors } = compileSource(source, "write-rejected.scrml");
     const e = errors.find(e => e.code === "E-MACHINE-017");
     expect(e).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §51.9 follow-up — DOM read-wiring for ${@ui} in markup
+// ---------------------------------------------------------------------------
+//
+// Regression guard for the S23 fix: before this fix, ${@ui} in markup compiled
+// to a placeholder <span> but no _scrml_effect wrapper, so writing @order did
+// not update the DOM. The cause was that collectReactiveVarNames didn't
+// include projected var names, which filtered @ui out of the logic binding's
+// reactiveRefs set, which made emit-event-wiring skip effect emission.
+//
+// This test loads the compiled file into happy-dom, drives @order transitions,
+// and asserts the DOM text reflects the projected value after each write.
+describe("§51.9 follow-up — DOM read-wiring for projected vars", () => {
+  test("compile emits _scrml_effect for ${@ui} and suppresses E-DG-002 on @order", () => {
+    const source = [
+      "${",
+      "  type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }",
+      "  type UIMode:enum = { Editable, ReadOnly, Terminal }",
+      "  @order: OrderMachine = OrderState.Draft",
+      "}",
+      "",
+      "< machine OrderMachine for OrderState>",
+      "  .Draft => .Submitted",
+      "  .Submitted => .Paid",
+      "  .Paid => .Shipping",
+      "  .Shipping => .Delivered",
+      "  .Draft => .Cancelled",
+      "  .Paid => .Refunded",
+      "</>",
+      "",
+      "< machine UI for UIMode derived from @order>",
+      "  .Draft => .Editable",
+      "  .Submitted | .Paid | .Shipping => .ReadOnly",
+      "  .Delivered | .Cancelled | .Refunded => .Terminal",
+      "</>",
+      "",
+      "<program>",
+      "  <p>Mode: ${@ui}</>",
+      "</>",
+      "",
+    ].join("\n");
+    const { fatalErrors, errors, clientJs } = compileSource(source, "dom-wiring.scrml");
+    expect(fatalErrors).toEqual([]);
+    // The derived-fn wiring is present (regression guard from slice 2).
+    expect(clientJs).toContain('_scrml_derived_fns["ui"]');
+    // The reactive display effect for ${@ui} MUST be emitted — the whole fix.
+    expect(clientJs).toContain("el.textContent = _scrml_reactive_get(\"ui\")");
+    expect(clientJs).toMatch(/_scrml_effect\(function\(\)\s*\{\s*el\.textContent\s*=\s*_scrml_reactive_get\("ui"\)/);
+    // No false-positive E-DG-002 on @order.
+    const falseDg = errors.find(e => e.code === "E-DG-002" && /@order/.test(e.message));
+    expect(falseDg).toBeUndefined();
+  });
+
+  test("happy-dom: writing @order updates ${@ui} text content", () => {
+    if (!globalThis.document) GlobalRegistrator.register();
+
+    const source = [
+      "${",
+      "  type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }",
+      "  type UIMode:enum = { Editable, ReadOnly, Terminal }",
+      "  @order: OrderMachine = OrderState.Draft",
+      "}",
+      "",
+      "< machine OrderMachine for OrderState>",
+      "  .Draft => .Submitted",
+      "  .Submitted => .Paid",
+      "  .Paid => .Shipping",
+      "  .Shipping => .Delivered",
+      "  .Draft => .Cancelled",
+      "  .Paid => .Refunded",
+      "</>",
+      "",
+      "< machine UI for UIMode derived from @order>",
+      "  .Draft => .Editable",
+      "  .Submitted | .Paid | .Shipping => .ReadOnly",
+      "  .Delivered | .Cancelled | .Refunded => .Terminal",
+      "</>",
+      "",
+      "<program>",
+      "  <p id=\"mode\">Mode: ${@ui}</>",
+      "</>",
+      "",
+    ].join("\n");
+
+    const filename = "dom-wiring-runtime.scrml";
+    const filePath = resolve(join(FIXTURE_DIR, filename));
+    writeFileSync(filePath, source);
+    const result = compileScrml({ inputFiles: [filePath], outputDir: FIXTURE_OUTPUT, write: true });
+    const fatal = (result.errors || []).filter(e => e.severity !== "warning");
+    expect(fatal).toEqual([]);
+
+    const htmlPath = join(FIXTURE_OUTPUT, filename.replace(/\.scrml$/, ".html"));
+    const jsPath = join(FIXTURE_OUTPUT, filename.replace(/\.scrml$/, ".client.js"));
+    expect(existsSync(htmlPath)).toBe(true);
+    expect(existsSync(jsPath)).toBe(true);
+
+    const htmlContent = readFileSync(htmlPath, "utf-8");
+    const clientJs = readFileSync(jsPath, "utf-8");
+    const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+    const bodyHtml = bodyMatch ? bodyMatch[1] : htmlContent;
+    const cleanHtml = bodyHtml.replace(/<script[^>]*>[\s\S]*?<\/script>/g, "").trim();
+
+    document.body.innerHTML = cleanHtml;
+
+    const code = `(function() {\n${SCRML_RUNTIME}\n${clientJs}\n` +
+      `window._scrml_reactive_get = _scrml_reactive_get;\n` +
+      `window._scrml_reactive_set = _scrml_reactive_set;\n` +
+      `})();`;
+    eval(code);
+    document.dispatchEvent(new Event("DOMContentLoaded", { bubbles: true }));
+
+    const p = document.getElementById("mode");
+    expect(p).not.toBeNull();
+    // Initial: @order=Draft → @ui=Editable
+    expect(p.textContent).toContain("Editable");
+
+    // Drive the source machine through transitions. The write goes through
+    // the runtime's machine-guarded _scrml_reactive_set path; _scrml_propagate_dirty
+    // marks @ui dirty; _scrml_trigger fires the effect tracking @order, which
+    // re-evaluates _scrml_reactive_get("ui") → _scrml_derived_get("ui") → fresh
+    // projection → DOM text update.
+    window._scrml_reactive_set("order", "Submitted");
+    expect(p.textContent).toContain("ReadOnly");
+
+    window._scrml_reactive_set("order", "Paid");
+    expect(p.textContent).toContain("ReadOnly");
+
+    window._scrml_reactive_set("order", "Refunded");
+    expect(p.textContent).toContain("Terminal");
+
+    window._scrml_reactive_set("order", "Draft");
+    expect(p.textContent).toContain("Editable");
   });
 });

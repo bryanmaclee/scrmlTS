@@ -113,6 +113,22 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
   const names = new Set<string>();
   const nodes = getNodes(fileAST);
 
+  // §51.9 — projected vars from derived machines are not declared via
+  // reactive-decl; they're synthesized at runtime in _scrml_derived_fns.
+  // Without them in this set, extractReactiveDeps filters out @ui references
+  // in markup interpolations, and emit-event-wiring never wraps the DOM
+  // binding in _scrml_effect — so writes to the source @order don't flow to
+  // the DOM. Include projected var names so downstream effect emission sees
+  // them as reactive.
+  const machineRegistry = fileAST.machineRegistry as Map<string, unknown> | undefined;
+  if (machineRegistry && typeof (machineRegistry as any).values === "function") {
+    for (const m of (machineRegistry as Map<string, { isDerived?: boolean; projectedVarName?: string | null }>).values()) {
+      if (m && m.isDerived && m.projectedVarName) {
+        names.add(m.projectedVarName);
+      }
+    }
+  }
+
   function visit(nodeList: unknown[]): void {
     if (!Array.isArray(nodeList)) return;
     for (const node of nodeList) {

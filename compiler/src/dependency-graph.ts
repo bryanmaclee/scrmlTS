@@ -1265,20 +1265,42 @@ export function runDG(input: DGInput): DGOutput {
     const fileAST = resolveFileAST(rawFile);
     if (!fileAST) continue;
 
+    // §51.9 — projected vars (e.g. @ui) read their source var (e.g. @order)
+    // at runtime via the derived-fn chain. A reference to @ui therefore also
+    // counts as a read of @order for the purposes of E-DG-002 ("has readers").
+    // Build the projected→source map from this file's machineRegistry.
+    // machineRegistry is attached by runTS on the OUTER TypedFileAST (the
+    // rawFile wrapper), not on the resolved inner FileAST — so read it from
+    // rawFile, with a fallback to fileAST for shapes where it's hoisted.
+    const projectedToSource = new Map<string, string>();
+    const registryHolder =
+      ((rawFile as { machineRegistry?: unknown }).machineRegistry as Map<string, unknown> | undefined) ??
+      ((fileAST as unknown as { machineRegistry?: Map<string, unknown> }).machineRegistry);
+    if (registryHolder && typeof registryHolder.values === "function") {
+      for (const m of registryHolder.values() as Iterable<{ isDerived?: boolean; projectedVarName?: string | null; sourceVar?: string | null }>) {
+        if (m && m.isDerived && m.projectedVarName && m.sourceVar) {
+          projectedToSource.set(m.projectedVarName, m.sourceVar);
+        }
+      }
+    }
+    const creditReader = (rawName: string): void => {
+      const effective = projectedToSource.get(rawName) ?? rawName;
+      const readers = reactiveVarReaders.get(effective);
+      if (readers) readers.add(MARKUP_READER_SENTINEL);
+    };
+
     function sweepNodeForAtRefs(node: ASTNode): void {
       // Phase 4d: ExprNode-first reactive ref + callee detection, string fallback
       const exprRefs = collectReactiveRefsFromExprNode(node as Record<string, unknown>);
       const exprCallees = collectCalleesFromExprNode(node as Record<string, unknown>);
       for (const varName of exprRefs) {
-        const readers = reactiveVarReaders.get(varName);
-        if (readers) readers.add(MARKUP_READER_SENTINEL);
+        creditReader(varName);
       }
       for (const callee of exprCallees) {
         const transitiveReads = fnTransitiveReads.get(callee);
         if (transitiveReads) {
           for (const varName of transitiveReads) {
-            const readers = reactiveVarReaders.get(varName);
-            if (readers) readers.add(MARKUP_READER_SENTINEL);
+            creditReader(varName);
           }
         }
       }
@@ -1291,9 +1313,7 @@ export function runDG(input: DGInput): DGOutput {
             const atRefs = val.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
             if (atRefs) {
               for (const ref of atRefs) {
-                const varName = ref.slice(1);
-                const readers = reactiveVarReaders.get(varName);
-                if (readers) readers.add(MARKUP_READER_SENTINEL);
+                creditReader(ref.slice(1));
               }
             }
             const callees = extractCallees(val);
@@ -1301,8 +1321,7 @@ export function runDG(input: DGInput): DGOutput {
               const transitiveReads = fnTransitiveReads.get(callee);
               if (transitiveReads) {
                 for (const varName of transitiveReads) {
-                  const readers = reactiveVarReaders.get(varName);
-                  if (readers) readers.add(MARKUP_READER_SENTINEL);
+                  creditReader(varName);
                 }
               }
             }
@@ -1320,16 +1339,14 @@ export function runDG(input: DGInput): DGOutput {
                 const atRefs = attrVal.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
                 if (atRefs) {
                   for (const ref of atRefs) {
-                    const readers = reactiveVarReaders.get(ref.slice(1));
-                    if (readers) readers.add(MARKUP_READER_SENTINEL);
+                    creditReader(ref.slice(1));
                   }
                 }
               } else if (attrVal && typeof attrVal === "object") {
                 // e.g. bind:value={ kind: "variable-ref", name: "@country" }
                 const varRefName = (attrVal as Record<string, unknown>).name;
                 if (typeof varRefName === "string" && varRefName.startsWith("@")) {
-                  const readers = reactiveVarReaders.get(varRefName.slice(1));
-                  if (readers) readers.add(MARKUP_READER_SENTINEL);
+                  creditReader(varRefName.slice(1));
                 }
               }
             }
@@ -1350,9 +1367,7 @@ export function runDG(input: DGInput): DGOutput {
               (child as Record<string, unknown>).kind === "reactive-decl" &&
               typeof (child as Record<string, unknown>).name === "string"
             ) {
-              const varName = (child as Record<string, unknown>).name as string;
-              const readers = reactiveVarReaders.get(varName);
-              if (readers) readers.add(MARKUP_READER_SENTINEL);
+              creditReader((child as Record<string, unknown>).name as string);
             }
             sweepNodeForAtRefs(child);
           }
@@ -1379,8 +1394,7 @@ export function runDG(input: DGInput): DGOutput {
               if (atRefs) for (const ref of atRefs) liftRefs.push(ref.slice(1));
             }
             for (const varName of liftRefs) {
-              const readers = reactiveVarReaders.get(varName);
-              if (readers) readers.add(MARKUP_READER_SENTINEL);
+              creditReader(varName);
             }
           } else if (target.kind === "markup" && target.node) {
             sweepNodeForAtRefs(target.node as ASTNode);
