@@ -1349,4 +1349,130 @@ describe("T15 — derived value (const @var = expr) dependency tracking", () => 
     // @counter is consumed in the runtime meta block — no E-DG-002
     expect(dg002.length).toBe(0);
   });
+
+  test("S20 bug 2c: meta.get(\"name\") in meta body counts as a read of @name", () => {
+    // A runtime ^{} meta block reads @theme via meta.get("theme"). Before the
+    // S23 fix, the DG's @var scan couldn't find "@theme" in the AST (the
+    // argument is just a string literal), so E-DG-002 fired falsely.
+    // The fix: collectMetaVarRefsFromExprNode recognizes meta.get("name")
+    // and credits @name as having a reader.
+    const theme = makeReactiveDecl("theme", '"dark"', 0);
+    const logic = makeLogicBlock([theme]);
+
+    // ExprNode shape for meta.get("theme"): call(member(ident("meta"), "get"), [lit("theme")])
+    const metaGetCall = {
+      kind: "call",
+      callee: {
+        kind: "member",
+        object: { kind: "ident", name: "meta", span: span(30) },
+        property: "get",
+        span: span(30),
+      },
+      args: [{ kind: "lit", value: "theme", span: span(35) }],
+      span: span(30),
+    };
+    // Wrap in a bare-expr with exprNode set so the DG's ExprNode-first path sees it.
+    const bareMetaGet = { kind: "bare-expr", expr: 'meta.get("theme")', exprNode: metaGetCall, span: span(30) };
+
+    const metaNode = {
+      kind: "meta",
+      body: [bareMetaGet],
+      span: span(25),
+    };
+
+    const programNode = {
+      kind: "markup",
+      tag: "program",
+      attrs: [],
+      children: [logic, metaNode],
+      span: span(0),
+    };
+
+    const fileAST = makeFileAST([programNode]);
+    const routeMap = makeRouteMap([]);
+
+    const { errors } = runDG({ files: [fileAST], routeMap });
+    const dg002 = errors.filter(e => e.code === "E-DG-002" && /@theme/.test(e.message));
+    expect(dg002.length).toBe(0);
+  });
+
+  test("S20 bug 2c: meta.bindings.name in meta body counts as a read of @name", () => {
+    // `meta.bindings.userCount` is a lexical capture lookup — syntactically
+    // it has no "@userCount" ident. Before the S23 fix, the DG's @var scan
+    // didn't see it, so E-DG-002 fired falsely on @userCount.
+    const userCount = makeReactiveDecl("userCount", "42", 0);
+    const logic = makeLogicBlock([userCount]);
+
+    // ExprNode for meta.bindings.userCount: member(member(ident("meta"), "bindings"), "userCount")
+    const metaBindingsAccess = {
+      kind: "member",
+      object: {
+        kind: "member",
+        object: { kind: "ident", name: "meta", span: span(30) },
+        property: "bindings",
+        span: span(30),
+      },
+      property: "userCount",
+      span: span(30),
+    };
+    const bareAccess = {
+      kind: "bare-expr",
+      expr: "meta.bindings.userCount",
+      exprNode: metaBindingsAccess,
+      span: span(30),
+    };
+
+    const metaNode = {
+      kind: "meta",
+      body: [bareAccess],
+      span: span(25),
+    };
+
+    const programNode = {
+      kind: "markup",
+      tag: "program",
+      attrs: [],
+      children: [logic, metaNode],
+      span: span(0),
+    };
+
+    const fileAST = makeFileAST([programNode]);
+    const routeMap = makeRouteMap([]);
+
+    const { errors } = runDG({ files: [fileAST], routeMap });
+    const dg002 = errors.filter(e => e.code === "E-DG-002" && /@userCount/.test(e.message));
+    expect(dg002.length).toBe(0);
+  });
+
+  test("S20 bug 2c: string-fallback also credits meta.get(\"name\") when no exprNode", () => {
+    // Regression guard for the string-fallback path: if a node has only `expr`
+    // set (no exprNode), the regex-based scanner should still recognize
+    // meta.get("theme").
+    const theme = makeReactiveDecl("theme", '"dark"', 0);
+    const logic = makeLogicBlock([theme]);
+
+    // NO exprNode — only string expr. Forces the string-fallback branch.
+    const bareMetaGet = { kind: "bare-expr", expr: 'meta.get("theme")', span: span(30) };
+
+    const metaNode = {
+      kind: "meta",
+      body: [bareMetaGet],
+      span: span(25),
+    };
+
+    const programNode = {
+      kind: "markup",
+      tag: "program",
+      attrs: [],
+      children: [logic, metaNode],
+      span: span(0),
+    };
+
+    const fileAST = makeFileAST([programNode]);
+    const routeMap = makeRouteMap([]);
+
+    const { errors } = runDG({ files: [fileAST], routeMap });
+    const dg002 = errors.filter(e => e.code === "E-DG-002" && /@theme/.test(e.message));
+    expect(dg002.length).toBe(0);
+  });
 });

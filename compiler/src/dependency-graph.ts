@@ -283,6 +283,105 @@ function walkExprNodeForCalls(node: ExprNode, out: string[]): void {
 }
 
 /**
+ * Collect reactive var names referenced via meta.get("name") and
+ * meta.bindings.name patterns inside a node's ExprNode fields.
+ *
+ * Runtime semantics (§22 meta):
+ *   - `meta.get("theme")` is the tracking reactive getter (trackingGet in
+ *     runtime-template.js) — it subscribes the surrounding meta-effect to
+ *     @theme, so this IS a reactive read of @theme.
+ *   - `meta.bindings.userCount` is a lexical snapshot captured at breakout.
+ *     Not reactive at runtime, but it IS a read of @userCount at the call
+ *     site for purposes of "has readers" accounting (E-DG-002).
+ *
+ * Without this helper, both patterns are invisible to the DG's @var scan
+ * (no `@theme` ident appears — just strings / property names), so E-DG-002
+ * false-positives on vars that are consumed through meta.
+ */
+function collectMetaVarRefsFromExprNode(node: Record<string, unknown>): string[] {
+  const refs: string[] = [];
+  const fields = [
+    node.exprNode, node.initExpr, node.condExpr,
+    node.valueExpr, node.iterExpr, node.headerExpr,
+  ];
+  for (const field of fields) {
+    if (!field || typeof field !== "object" || !(field as { kind?: string }).kind) continue;
+    walkExprNodeForMetaVars(field as ExprNode, refs);
+  }
+  return refs;
+}
+
+/** Walk an ExprNode tree for meta.get("name") and meta.bindings.name patterns. */
+function walkExprNodeForMetaVars(node: ExprNode, out: string[]): void {
+  if (!node || typeof node !== "object") return;
+
+  // Pattern 1: meta.get("name") — CallExpr with callee member(ident("meta"), "get")
+  if (node.kind === "call") {
+    const call = node as Record<string, unknown>;
+    const callee = call.callee as Record<string, unknown> | undefined;
+    if (callee && callee.kind === "member") {
+      const obj = callee.object as Record<string, unknown> | undefined;
+      const prop = callee.property;
+      if (obj && obj.kind === "ident" && (obj as { name?: string }).name === "meta" && prop === "get") {
+        const args = call.args as unknown[] | undefined;
+        const first = Array.isArray(args) ? args[0] : undefined;
+        if (first && typeof first === "object" && (first as { kind?: string }).kind === "lit") {
+          const v = (first as { value?: unknown }).value;
+          if (typeof v === "string") out.push(v);
+        }
+      }
+    }
+  }
+
+  // Pattern 2: meta.bindings.name — MemberExpr whose object is member(ident("meta"), "bindings")
+  if (node.kind === "member") {
+    const m = node as Record<string, unknown>;
+    const inner = m.object as Record<string, unknown> | undefined;
+    if (inner && inner.kind === "member") {
+      const innerObj = inner.object as Record<string, unknown> | undefined;
+      const innerProp = inner.property;
+      if (innerObj && innerObj.kind === "ident" && (innerObj as { name?: string }).name === "meta" && innerProp === "bindings") {
+        const prop = m.property;
+        if (typeof prop === "string") out.push(prop);
+      }
+    }
+  }
+
+  // Recurse through all ExprNode children.
+  for (const key of Object.keys(node)) {
+    const child = (node as Record<string, unknown>)[key];
+    if (child && typeof child === "object" && (child as { kind?: string }).kind) {
+      walkExprNodeForMetaVars(child as ExprNode, out);
+    }
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === "object" && (item as { kind?: string }).kind) {
+          walkExprNodeForMetaVars(item as ExprNode, out);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * String-fallback for collectMetaVarRefsFromExprNode — scans an expression
+ * string for meta.get("name") and meta.bindings.name patterns. String literal
+ * boundaries are NOT respected (simple regex), but this is a best-effort path
+ * that only matters when ExprNode annotation is missing.
+ */
+function collectMetaVarRefsFromString(expr: string): string[] {
+  const refs: string[] = [];
+  // meta.get("name") or meta.get('name') — quoted string arg
+  const getRe = /meta\s*\.\s*get\s*\(\s*(["'])([A-Za-z_$][A-Za-z0-9_$]*)\1\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = getRe.exec(expr)) !== null) refs.push(m[2]);
+  // meta.bindings.name — member chain
+  const bRe = /meta\s*\.\s*bindings\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  while ((m = bRe.exec(expr)) !== null) refs.push(m[1]);
+  return refs;
+}
+
+/**
  * Extract direct callee names from an expression string.
  * Matches `identifier(` patterns.
  */
@@ -1304,6 +1403,13 @@ export function runDG(input: DGInput): DGOutput {
           }
         }
       }
+      // §22 meta: meta.get("name") and meta.bindings.name count as reads of
+      // @name. Walks the node's ExprNode fields for these patterns — the
+      // normal @var scan misses them because the AST has no "@name" ident.
+      const metaExprRefs = collectMetaVarRefsFromExprNode(node as Record<string, unknown>);
+      for (const varName of metaExprRefs) {
+        creditReader(varName);
+      }
       // String fallback for nodes without ExprNode fields
       if (exprRefs.length === 0 && exprCallees.length === 0) {
         const exprFields = ["expr", "init", "condition", "value", "test", "header", "iterable"] as const;
@@ -1324,6 +1430,10 @@ export function runDG(input: DGInput): DGOutput {
                   creditReader(varName);
                 }
               }
+            }
+            // String-level fallback for meta.get/bindings patterns.
+            for (const ref of collectMetaVarRefsFromString(val)) {
+              creditReader(ref);
             }
           }
         }

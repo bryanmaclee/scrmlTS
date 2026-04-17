@@ -4625,6 +4625,34 @@ function escapeForRegex(s: string): string {
 }
 
 /**
+ * Walk an ExprNode tree collecting raw strings from any escape-hatch nodes
+ * encountered. Used by the meta-block lin scanner to recover ident references
+ * that the ExprNode ident walker can't see — template-literal interpolations
+ * like `${x}` degrade to escape-hatch raws, hiding the `x` reference.
+ */
+function walkExprForEscapeHatchStrings(node: unknown, out: string[]): void {
+  if (!node || typeof node !== "object") return;
+  const n = node as Record<string, unknown>;
+  if (n.kind === "escape-hatch") {
+    if (typeof n.raw === "string") out.push(n.raw);
+    return;
+  }
+  // Recurse through all child ExprNodes (objects with a kind field) and arrays.
+  for (const key of Object.keys(n)) {
+    const child = n[key];
+    if (child && typeof child === "object" && (child as { kind?: string }).kind) {
+      walkExprForEscapeHatchStrings(child, out);
+    } else if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === "object" && (item as { kind?: string }).kind) {
+          walkExprForEscapeHatchStrings(item, out);
+        }
+      }
+    }
+  }
+}
+
+/**
  * Extract the callee function name from a node's ExprNode field.
  * Returns the name if the ExprNode is a CallExpr with an IdentExpr callee,
  * or if the ExprNode itself is an IdentExpr (propagate-expr case).
@@ -5170,6 +5198,87 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
         }
         // Closure body has its own tilde scope (§31.5).
         checkLinear((node.body as ASTNodeLike[] | undefined) ?? [], errors, { linTracker: lt, mustUseTracker, inLoop: false, file });
+        break;
+      }
+
+      case "meta": {
+        // §22.5.3: A `^{}` meta block captures the lexical scope at breakout.
+        // Any lin variable in scope that is referenced in the body — directly
+        // (`consume(x)`), via `meta.bindings.x`, inside a template-literal
+        // interpolation `${x}`, or elsewhere — is consumed once at capture
+        // time. Two meta blocks each referencing the same lin var is a
+        // double-consume (E-LIN-002).
+        //
+        // The normal ExprNode walk in scanNodeExprNodesForLin doesn't catch
+        // hidden refs: property names of member chains (meta.bindings.x) are
+        // skipped by forEachIdentInExprNode, and template-literal
+        // interpolations degrade to escape-hatch raws. Override the default
+        // recursion here: (1) scan for every tracked lin name that appears
+        // anywhere in the body, (2) consume each unique name ONCE against
+        // the outer tracker, (3) do not recurse into the body as if it were
+        // regular code — the body is the captured snapshot, not a second
+        // use site.
+        const metaBody = (node.body as ASTNodeLike[] | undefined) ?? [];
+        const trackedNames = trackedLinNamesForTracker(lt);
+        if (trackedNames.length > 0 && metaBody.length > 0) {
+          const seenNames = new Set<string>();
+          const collectStrings: string[] = [];
+
+          function collectFromNode(child: ASTNodeLike): void {
+            if (!child || typeof child !== "object") return;
+            const c = child as Record<string, unknown>;
+
+            // ExprNode idents.
+            const exprNodeFields = [
+              c.exprNode, c.initExpr, c.condExpr,
+              c.valueExpr, c.iterExpr, c.headerExpr,
+            ];
+            for (const f of exprNodeFields) {
+              if (!f || typeof f !== "object" || !(f as { kind?: string }).kind) continue;
+              forEachIdentInExprNode(f as import("./types/ast.ts").ExprNode, (ident) => {
+                if (trackedNames.includes(ident.name)) seenNames.add(ident.name);
+              });
+              // Escape-hatch in the ExprNode (e.g. template literal with
+              // interpolations) — walk its raw string for tracked names.
+              walkExprForEscapeHatchStrings(f as import("./types/ast.ts").ExprNode, collectStrings);
+            }
+
+            // Raw string fields that may contain hidden references.
+            for (const key of ["expr", "init", "condition", "value", "test", "content"] as const) {
+              const v = c[key];
+              if (typeof v === "string") collectStrings.push(v);
+            }
+
+            // Recurse — nested structures inside meta can also reference lin vars.
+            if (Array.isArray(c.body)) {
+              for (const n of c.body as ASTNodeLike[]) collectFromNode(n);
+            }
+            if (Array.isArray(c.children)) {
+              for (const n of c.children as ASTNodeLike[]) collectFromNode(n);
+            }
+          }
+
+          for (const child of metaBody) collectFromNode(child);
+
+          // Text-scan the collected raw strings for tracked lin names. Uses
+          // word-boundary match so `token` matches `meta.bindings.token`,
+          // `${token}`, and `consume(token)`, but not `tokens` or `xtoken`.
+          for (const raw of collectStrings) {
+            for (const name of trackedNames) {
+              if (seenNames.has(name)) continue;
+              const re = new RegExp(`\\b${escapeForRegex(name)}\\b`);
+              if (re.test(raw)) seenNames.add(name);
+            }
+          }
+
+          for (const name of seenNames) {
+            consumeLinRefExternal(lt, name, node.span, loop);
+          }
+        }
+
+        // Do NOT recurse via the default path — the body has already been
+        // scanned for outer lin consumption above, and the body itself is
+        // the captured snapshot, not a regular statement list.
         break;
       }
 
