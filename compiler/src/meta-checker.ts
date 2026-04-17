@@ -359,6 +359,35 @@ const SQL_CONTEXT_RE = /\?\s*\{/;
  * Check whether any expression in a meta block body contains a lift() call.
  * Returns the first node that contains lift(), or null.
  */
+/**
+ * Check whether a meta body contains a nested ^{} meta block — either as a
+ * structured meta node (rare, when the inner body was pre-parsed) or as raw
+ * `^{` syntax inside html-fragment content (common, since meta bodies are
+ * typically passed through as a single html-fragment at this stage).
+ */
+export function bodyContainsNestedMeta(body: LogicNode[]): boolean {
+  if (!Array.isArray(body)) return false;
+
+  function walk(nodes: LogicNode[]): boolean {
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      if (node.kind === "meta") return true;
+      if (node.kind === "html-fragment") {
+        const content = (node as { content?: unknown }).content;
+        if (typeof content === "string" && /\^\s*\{/.test(content)) return true;
+      }
+      const n = node as Record<string, unknown>;
+      if (Array.isArray(n.body) && walk(n.body as LogicNode[])) return true;
+      if (Array.isArray(n.children) && walk(n.children as LogicNode[])) return true;
+      if (Array.isArray(n.consequent) && walk(n.consequent as LogicNode[])) return true;
+      if (Array.isArray(n.alternate) && walk(n.alternate as LogicNode[])) return true;
+    }
+    return false;
+  }
+
+  return walk(body);
+}
+
 export function bodyContainsLift(body: LogicNode[]): LogicNode | null {
   if (!Array.isArray(body)) return null;
 
@@ -516,6 +545,26 @@ export function bodyMixesPhases(
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
       if (node.kind === "meta") continue;
+
+      // S23 bug 2b: reactive-decl nodes inside a meta body represent `@var =
+      // value` runtime writes (see BUG-META-6 comment in dependency-graph.ts).
+      // sql nodes and similar runtime-only constructs are unambiguously runtime.
+      // These were previously invisible to the phase-mixing check because the
+      // switch below only handled bare-expr / let-decl / const-decl, so a
+      // compile-time block with `@counter += 1` would fall through to
+      // meta-eval and crash with "Invalid character: '@'" instead of firing
+      // E-META-005 at checker time.
+      if (node.kind === "reactive-decl" || node.kind === "sql") return true;
+
+      // S23 bug 2b: meta bodies are sometimes pre-parsed as a single
+      // html-fragment node with .content holding the raw source (including
+      // pattern like `@counter += 1`). The structured identifier scan below
+      // never sees the `@counter` ref because html-fragment has no
+      // exprNode / expr / init. Scan the raw content for `@varName` — a
+      // single reactive ref in a compile-time meta is a phase violation.
+      if (node.kind === "html-fragment" && typeof (node as any).content === "string") {
+        if (/@[A-Za-z_$][A-Za-z0-9_$]*/.test((node as any).content)) return true;
+      }
 
       // Phase 4d: ExprNode-first identifier extraction, string fallback
       const exprNodeField = node.kind === "bare-expr" ? (node as any).exprNode
@@ -1407,6 +1456,23 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
           `E-META-005: Phase separation violation — this ^{} block references both ` +
           `compile-time APIs (reflect, compiler.*, emit, bun.eval) and runtime-only values. ` +
           `Split into separate compile-time and runtime ^{} blocks.`,
+          metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
+        ));
+      }
+
+      // S23 bug 2d: nested ^{} inside a compile-time meta — the outer meta's
+      // eval pass feeds the inner ^{...} to new Function() as a string arg,
+      // which crashes the parser ("Unexpected string literal... Expected a
+      // parameter pattern or a ')'"). Real nested-meta support is a larger
+      // feature; for this revision, surface a clean E-META-009 at checker
+      // time instead of letting it crash at meta-eval.
+      if (isCompileTime && bodyContainsNestedMeta(body)) {
+        allErrors.push(new MetaError(
+          "E-META-009",
+          `E-META-009: Nested ^{} inside a compile-time meta block is not supported ` +
+          `in this revision. The outer meta-eval pass cannot recursively evaluate the ` +
+          `inner ^{} before serialization. Either flatten the logic into a single ` +
+          `compile-time block, or split into sibling ^{} blocks.`,
           metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
         ));
       }

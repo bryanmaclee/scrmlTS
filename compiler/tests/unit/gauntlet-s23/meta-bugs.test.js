@@ -126,3 +126,78 @@ describe("S23 gauntlet 2a — lin + ^{} capture consumes (§22.5.3)", () => {
     expect(linErrors).toEqual([]);
   });
 });
+
+describe("S23 gauntlet 2b — phase separation at checker-time, not eval-time", () => {
+  test("compile-time meta referencing @var fires E-META-005 at MC, not E-META-EVAL-001 at ME", () => {
+    const src = `<program>
+\${
+  @counter = 0
+}
+<div>
+  ^{
+    emit("<p>Hello</p>")
+    @counter += 1
+  }
+</div>
+</program>
+`;
+    const { errors } = compileSrc(src);
+    // Must fire E-META-005 at MC.
+    const mc = errors.find(e => e.code === "E-META-005");
+    expect(mc).toBeDefined();
+    // Must NOT fire E-META-EVAL-001 at ME (the eval pass was previously
+    // crashing with "Invalid character: '@'" — that's the bug).
+    const evalCrash = errors.find(e => e.code === "E-META-EVAL-001");
+    expect(evalCrash).toBeUndefined();
+  });
+
+  test("pure compile-time meta still compiles clean", () => {
+    const src = `<program>
+\${ const title = "Test" }
+<div>
+  ^{
+    emit(\`<p>\${title}</p>\`)
+  }
+</div>
+</program>
+`;
+    const { errors } = compileSrc(src);
+    const fatal = errors.filter(e => e.severity !== "warning");
+    expect(fatal).toEqual([]);
+  });
+});
+
+describe("S23 gauntlet 2d — nested ^{} flagged at checker-time, not crash at eval", () => {
+  test("nested compile-time ^{} inside compile-time ^{} fires E-META-009 at MC only", () => {
+    const src = `<program>
+^{
+  emit("<div>")
+  ^{
+    emit("<p>Inner meta</p>")
+  }
+  emit("</div>")
+}
+</program>
+`;
+    const { errors } = compileSrc(src);
+    const nested = errors.find(e => e.code === "E-META-009");
+    expect(nested).toBeDefined();
+    // The eval-stage crash must not fire.
+    const evalCrash = errors.find(e => e.code === "E-META-EVAL-001");
+    expect(evalCrash).toBeUndefined();
+  });
+
+  test("non-nested sibling ^{} blocks compile fine", () => {
+    // Guard: two adjacent ^{} blocks are not "nested" — they're siblings.
+    const src = `<program>
+<div>
+  ^{ emit("<p>a</p>") }
+  ^{ emit("<p>b</p>") }
+</div>
+</program>
+`;
+    const { errors } = compileSrc(src);
+    const nested = errors.find(e => e.code === "E-META-009");
+    expect(nested).toBeUndefined();
+  });
+});

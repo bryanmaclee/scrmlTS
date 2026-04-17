@@ -27,7 +27,7 @@
 
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
-import { bodyUsesCompileTimeApis, createReflect, buildFileTypeRegistry, collectMetaLocals, extractParamBindings } from "./meta-checker.ts";
+import { bodyUsesCompileTimeApis, bodyContainsNestedMeta, createReflect, buildFileTypeRegistry, collectMetaLocals, extractParamBindings } from "./meta-checker.ts";
 import { rewriteBunEval } from "./codegen/rewrite.ts";
 import { exprNodeContainsReactiveRef, emitStringFromTree } from "./expression-parser.ts";
 import type { Span, FileAST, ASTNode, ExprNode, MetaNode, LogicStatement } from "./types/ast.ts";
@@ -95,6 +95,13 @@ function bodyReferencesReactiveVars(body: LogicStatement[]): boolean {
       if ((node as ASTNode).kind === "let-decl" || (node as ASTNode).kind === "const-decl") {
         const en = (node as any).initExpr as ExprNode | undefined;
         if (en ? exprNodeContainsReactiveRef(en) : (node as { init?: string }).init && /@[A-Za-z_$]/.test((node as { init: string }).init)) return true;
+      }
+
+      // S23 bug 2b: meta bodies are sometimes pre-parsed as one html-fragment
+      // with raw `.content` (including `@var` reactive refs). Scan the content.
+      if ((node as ASTNode).kind === "html-fragment") {
+        const content = (node as { content?: unknown }).content;
+        if (typeof content === "string" && /@[A-Za-z_$]/.test(content)) return true;
       }
 
       // Walk children (but not nested meta — they are independent)
@@ -529,8 +536,12 @@ function processNodeList(
       // 2. Must NOT reference reactive @vars
       const isCompileTime = bodyUsesCompileTimeApis(body || []);
       const hasReactiveVars = bodyReferencesReactiveVars(body || []);
+      // S23 bug 2d: if the body contains a nested ^{} block, meta-checker has
+      // already emitted E-META-009. Skip eval to avoid a confusing follow-on
+      // E-META-EVAL-001 "Unexpected string literal…" crash.
+      const hasNestedMeta = bodyContainsNestedMeta((body || []) as any);
 
-      if (isCompileTime && !hasReactiveVars) {
+      if (isCompileTime && !hasReactiveVars && !hasNestedMeta) {
         const precedingDecls = scopeParts.length > 0 ? scopeParts.join("\n") : undefined;
 
         const replacementNodes = evaluateMetaBlock(node as MetaNode, typeRegistry, errors, precedingDecls);
