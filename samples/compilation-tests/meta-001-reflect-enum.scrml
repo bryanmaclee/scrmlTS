@@ -1,18 +1,23 @@
-<div>
-  ${
-    type PostStatus = enum { Draft | Published | Archived }
+// meta-001-reflect-enum.scrml
+// reflect(EnumType) inside ^{} — compile-time introspection of an enum's variants.
+// Emits one <li> per variant at compile time; zero runtime cost.
 
-    ^{
-      let variants = reflect(PostStatus).variants
-      let count = variants.length
-    }
-  }
-  <h1>Post Status Variants</>
-  <ul>
-    ${
-      for (let v of variants) {
-        lift <li>${v}</>
-      }
-    }
-  </ul>
+<program>
+
+${
+    type PostStatus:enum = { Draft, Published, Archived }
+}
+
+<div>
+    <h1>Post Status Variants</>
+    <ul>
+        ^{
+            const info = reflect(PostStatus)
+            for (const v of info.variants) {
+                emit(`<li>${v}</li>`)
+            }
+        }
+    </ul>
 </div>
+
+</program>

@@ -1,21 +1,10 @@
+// machine-basic — a reactive machine-governed enum, declared via external
+// `< machine>` form (§51.5). Writes to the machine-bound reactive are
+// gated by the declared transitions at runtime.
 ${
-    type OrderStatus:enum = {
-        Pending
-        Processing
-        Shipped
-        Delivered
-        Cancelled
+    type OrderStatus:enum = { Pending, Processing, Shipped, Delivered, Cancelled }
 
-        transitions {
-            .Pending    => .Processing
-            .Pending    => .Cancelled
-            .Processing => .Shipped
-            .Processing => .Cancelled
-            .Shipped    => .Delivered
-        }
-    }
-
-    @status = OrderStatus.Pending
+    @status: AdminFlow = OrderStatus.Pending
 
     function advance() {
         @status = OrderStatus.Processing
@@ -27,15 +16,17 @@ ${
 }
 
 < machine AdminFlow for OrderStatus>
-    .Pending    => .Processing
-    .Processing => .Shipped
+    .Pending    => .Processing | .Cancelled
+    .Processing => .Shipped | .Cancelled
     .Shipped    => .Delivered
     .Delivered  => .Pending
     .Cancelled  => .Pending
 </>
 
+<program>
 <div>
-    <h1>Order Status: ${@status.variant}</>
+    <h1>Order Status: ${@status}</>
     <button onclick=${advance()}>Advance</>
     <button onclick=${ship()}>Ship</>
 </>
+</program>

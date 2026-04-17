@@ -1,18 +1,27 @@
-<div
-  ${
-    type UserProfile = struct { username: string, email: string, age: number }
+// meta-002-reflect-struct.scrml
+// reflect(StructType) inside ^{} — compile-time introspection of a struct's
+// field list. Emits one <li> per field at compile time.
 
-    ^{
-      let fields = reflect(UserProfile).fields
-      let fieldNames = fields.map(f => f.name)
+<program>
+
+${
+    type UserProfile:struct = {
+        username: string,
+        email:    string,
+        age:      number,
     }
-  }
-  <h1>User Profile Fields</>
-  <ul>
-    ${
-      for (let f of fields) {
-        lift <li>${f.name}: ${f.type}</>
-      }
-    }
-  </ul>
+}
+
+<div>
+    <h1>User Profile Fields</>
+    <ul>
+        ^{
+            const info = reflect(UserProfile)
+            for (const f of info.fields) {
+                emit(`<li>${f.name}: <code>${f.type}</code></li>`)
+            }
+        }
+    </ul>
 </div>
+
+</program>

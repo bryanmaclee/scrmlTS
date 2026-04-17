@@ -4,11 +4,15 @@
 
 <program>
 
-const navItems = [
-    { href: "/",        label: "Home"    },
-    { href: "/about",   label: "About"   },
-    { href: "/contact", label: "Contact" },
-]
+// Compile-time constants live inside a ${ } logic block so the meta block
+// below can capture them.
+${
+    const navItems = [
+        { href: "/",        label: "Home"    },
+        { href: "/about",   label: "About"   },
+        { href: "/contact", label: "Contact" },
+    ]
+}
 
 <nav class="main-nav">
     ^{

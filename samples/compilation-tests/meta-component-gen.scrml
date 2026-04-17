@@ -9,9 +9,11 @@
         { title: "Dashboard", icon: "home", desc: "View your overview" },
         { title: "Settings", icon: "gear", desc: "Configure your account" },
         { title: "Profile", icon: "user", desc: "Edit your profile" }
-    ];
+    ]
 
-    cards.forEach(function(card) { emit("<div class=card-" + card.icon + ">\n  <h2>" + card.title + "/\n  <p>" + card.desc + "/\n</div>\n"); });
+    for (const card of cards) {
+        emit("<div class=card-" + card.icon + ">\n  <h2>" + card.title + "</h2>\n  <p>" + card.desc + "</p>\n</div>\n")
+    }
 }
 
-</>
+</program>

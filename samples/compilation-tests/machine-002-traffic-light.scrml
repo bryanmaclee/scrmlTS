@@ -10,19 +10,9 @@
 // machine-basic.scrml is the reference for machine-in-program behavior.
 
 ${
-    type TrafficLight:enum = {
-        Red
-        Yellow
-        Green
+    type TrafficLight:enum = { Red, Yellow, Green }
 
-        transitions {
-            .Red    => .Green
-            .Green  => .Yellow
-            .Yellow => .Red
-        }
-    }
-
-    @light = TrafficLight.Red
+    @light: TrafficController = TrafficLight.Red
 
     // cycle() advances through Red → Green → Yellow → Red
     // match arms use => (canonical per §51, not :>)

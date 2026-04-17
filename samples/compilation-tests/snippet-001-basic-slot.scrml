@@ -9,6 +9,7 @@ ${
         title:    snippet,
         content:  snippet,
     }>
+        ${children}
         <div class="panel__title">${render title()}</>
         <div class="panel__content">${render content()}</>
     </>

@@ -5,9 +5,11 @@
 <program>
 
 ${
-  type Step:enum = .Info | .Preferences | .Confirm
+  type Step:enum = { Info, Preferences, Confirm }
 
-  @currentStep = Step.Info
+  // Explicit type annotation on the reactive — the type system currently
+  // needs the annotation to carry into match-subject narrowing.
+  @currentStep: Step = Step.Info
 
   // Form data — accumulated across steps.
   @firstName = ""
@@ -20,18 +22,18 @@ ${
   @submitted = false
 
   function next() {
-    match (@currentStep) {
-      .Info        :> { @currentStep = Step.Preferences }
-      .Preferences :> { @currentStep = Step.Confirm }
-      .Confirm     :> {}   // handled by submit
+    match @currentStep {
+      .Info        => { @currentStep = Step.Preferences }
+      .Preferences => { @currentStep = Step.Confirm }
+      .Confirm     => { }   // handled by submit
     }
   }
 
   function back() {
-    match (@currentStep) {
-      .Info        :> {}   // already first step
-      .Preferences :> { @currentStep = Step.Info }
-      .Confirm     :> { @currentStep = Step.Preferences }
+    match @currentStep {
+      .Info        => { }   // already first step
+      .Preferences => { @currentStep = Step.Info }
+      .Confirm     => { @currentStep = Step.Preferences }
     }
   }
 
@@ -110,10 +112,10 @@ ${
   </div>
 
   ${
-    match (@currentStep) {
-      .Info        :> { lift <InfoStep> }
-      .Preferences :> { lift <PreferencesStep> }
-      .Confirm     :> { lift <ConfirmStep> }
+    match @currentStep {
+      .Info        => { lift <InfoStep> }
+      .Preferences => { lift <PreferencesStep> }
+      .Confirm     => { lift <ConfirmStep> }
     }
   }
 

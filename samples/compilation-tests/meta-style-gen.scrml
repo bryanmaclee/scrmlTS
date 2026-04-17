@@ -10,12 +10,13 @@
         { name: "secondary", hex: "#10b981" },
         { name: "accent", hex: "#f59e0b" },
         { name: "danger", hex: "#ef4444" }
-    ];
-    const pad = "16px";
+    ]
 
-    emit("<div class=color-palette>\n  <h2>Design Tokens/\n");
-    colors.forEach(function(c) { emit("  <div class=swatch-" + c.name + ">\n    <span>" + c.name + " " + c.hex + "/\n  </div>\n"); });
-    emit("</div>\n");
+    emit("<div class=color-palette>\n  <h2>Design Tokens</h2>\n")
+    for (const c of colors) {
+        emit("  <div class=swatch-" + c.name + ">\n    <span>" + c.name + " " + c.hex + "</span>\n  </div>\n")
+    }
+    emit("</div>\n")
 }
 
-</>
+</program>

@@ -6,7 +6,7 @@
 <program>
 
 ${
-  import { useCanvas, useKeyboard, useResize } from './helpers/canvas-setup'
+  import { useCanvas, useKeyboard, useResize } from './helpers/canvas-setup.scrml'
 
   @color = "black"
   @lineWidth = 3

@@ -5,22 +5,30 @@
 <program>
 
 ^{
-    const columns = ["Name", "Role", "Status"];
+    const columns = ["Name", "Role", "Status"]
     const rows = [
         ["Alice", "Engineer", "Active"],
         ["Bob", "Designer", "Active"],
         ["Carol", "PM", "On Leave"],
         ["Dave", "QA", "Active"]
-    ];
+    ]
 
-    emit("<table class=data-table>\n");
-    emit("  <thead>\n    <tr>\n");
-    columns.forEach(function(col) { emit("      <th>" + col + "/\n"); });
-    emit("    </tr>\n  </thead>\n");
-    emit("  <tbody>\n");
-    rows.forEach(function(row) { emit("    <tr>\n"); row.forEach(function(cell) { emit("      <td>" + cell + "/\n"); }); emit("    </tr>\n"); });
-    emit("  </tbody>\n");
-    emit("</table>\n");
+    emit("<table class=data-table>\n")
+    emit("  <thead>\n    <tr>\n")
+    for (const col of columns) {
+        emit("      <th>" + col + "</th>\n")
+    }
+    emit("    </tr>\n  </thead>\n")
+    emit("  <tbody>\n")
+    for (const row of rows) {
+        emit("    <tr>\n")
+        for (const cell of row) {
+            emit("      <td>" + cell + "</td>\n")
+        }
+        emit("    </tr>\n")
+    }
+    emit("  </tbody>\n")
+    emit("</table>\n")
 }
 
-</>
+</program>

@@ -1,6 +1,6 @@
 // meta-loop-gen.scrml
 // Use ^{} with emit() to generate a nav menu from a compile-time list.
-// Tests: emit() inside a loop producing a series of similar elements.
+// Tests: emit() inside a for-of loop producing a series of similar elements.
 
 <program>
 
@@ -11,9 +11,11 @@
         { label: "Blog", href: "blog" },
         { label: "Contact", href: "contact" },
         { label: "Docs", href: "docs" }
-    ];
+    ]
 
-    navItems.forEach(function(item) { emit("<p class=nav-" + item.href + ">" + item.label + "/\n"); });
+    for (const item of navItems) {
+        emit("<p class=nav-" + item.href + ">" + item.label + "</p>\n")
+    }
 }
 
-</>
+</program>

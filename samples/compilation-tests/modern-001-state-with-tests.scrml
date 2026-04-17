@@ -15,7 +15,7 @@
     </>
 </>
 
-<counter label="Score" initial=10></>
+<counter label="Score" initial="10"></>
 
 ~{ "counter tests"
     test "initial value" { assert true }

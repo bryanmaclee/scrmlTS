@@ -1,14 +1,15 @@
 // control-013-switch.scrml
-// Switch statement. Tests: switch/case in logic.
+// Multi-way dispatch via `match` — scrml does not use JS-style `switch` /
+// `case` / `break`. Each arm returns an expression; no fall-through.
 
 <div>
     ${
         let day = "Monday"
-        switch (day) {
-            case "Monday": let type = "start"; break
-            case "Friday": let type = "end"; break
-            default: let type = "mid"
+        let kind = match day {
+            "Monday" => "start"
+            "Friday" => "end"
+            else     => "mid"
         }
     }
-    <p>Day categorized</>
+    <p>Day categorized: ${kind}</>
 </div>

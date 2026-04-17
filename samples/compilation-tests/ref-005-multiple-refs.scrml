@@ -1,18 +1,20 @@
 // ref-005-multiple-refs.scrml
-// Several references in one file. Tests: multiple <#ref> elements.
+// Several references in one file. Tests: multiple user state types instantiated
+// side-by-side. State type names must not collide with built-in HTML element
+// names (E-STATE-005), so we use `siteHeader` / `siteFooter`.
 
-< header title(string)>
+< siteHeader title(string)>
     <h1>${title}</>
 </>
 
-< footer year(number)>
+< siteFooter year(number)>
     <p>Copyright ${year}</>
 </>
 
 <div class="page">
-    <header></>
+    <siteHeader title="My Page"></>
     <main>
         <p>Content</>
     </>
-    <footer></>
+    <siteFooter year="2026"></>
 </>

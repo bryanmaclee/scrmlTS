@@ -1,14 +1,17 @@
 // control-015-try-catch.scrml
-// Try/catch block. Tests: error handling in logic.
+// Error handling via `!{}` (§19). scrml has no try/catch/finally — a failable
+// call is followed by `!{ ::Variant(e) -> ... }` or propagated with `?`.
 
 <div>
     ${
-        let result = not
-        try {
-            result = JSON.parse('{"key": "value"}')
-        } catch (e) {
-            result = not
+        function parseJson(src: string) {
+            return JSON.parse(src)
+        }
+
+        let result = parseJson('{"key": "value"}')!{
+            ::SyntaxError(e) -> "invalid"
+            ::TypeError(e)   -> "bad type"
         }
     }
-    <p>Parse attempted</>
+    <p>Parse attempted: ${result}</>
 </div>

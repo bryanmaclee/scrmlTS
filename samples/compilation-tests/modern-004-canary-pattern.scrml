@@ -1,14 +1,15 @@
 // modern-004-canary-pattern.scrml
-// Test context inside meta context canary. Tests: ~{} inside ^{}.
+// Compile-time emit() + ~{} test context canary. `lift` is markup-only (§22.9);
+// meta blocks may not use lift — use emit() to splice markup at compile time.
 
+<program>
 <div class="app">
     ^{
-        let el = document.createElement("div")
-        el.textContent = "Dynamic content"
-        lift el
+        emit("<div>Dynamic content</div>")
     }
     <p>Static content</>
 </>
+</program>
 
 ~{ "canary"
     test "page loads" { assert true }
