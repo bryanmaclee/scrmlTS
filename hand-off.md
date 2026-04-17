@@ -7,6 +7,10 @@
 
 ---
 
+## Cross-repo messages sent this session
+
+- `2026-04-17-1430-scrmlTS-to-master-push-s22-1a.md` — `needs: push` for S22 §1a landing (3 commits: `a25d812`, `1d84ab3`, `874a45d`). Dropped in `/home/bryan/scrmlMaster/handOffs/incoming/`.
+
 ## Session log
 
 ### S22 opener — scope of §1a complete
