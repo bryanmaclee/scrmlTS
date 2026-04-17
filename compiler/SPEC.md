@@ -17045,8 +17045,10 @@ machine-decl   ::= '< machine' MachineName 'for' TypeName '>'
 
 machine-body   ::= '{' machine-rule* '}'
 
-machine-rule   ::= variant-ref '=>' variant-ref guard-clause? effect-block?
+machine-rule   ::= variant-ref-list '=>' variant-ref-list guard-clause? effect-block?
                  | wildcard-rule
+
+variant-ref-list ::= variant-ref ('|' variant-ref)*
 
 wildcard-rule  ::= '*' '=>' '*' guard-clause effect-block?
 
@@ -17069,6 +17071,25 @@ to `for TypeName`. Machines may now govern struct types (for cross-field invaria
 addition to enum types (for transitions). `guard-clause` updated to require parentheses
 and support optional `[label]` for named error reporting. Wildcard rule `* => *` added for
 struct-governing machines.
+
+**Amended:** 2026-04-17 — `|` alternation added to `variant-ref-list`. Either side of the
+`=>` arrow may list multiple variants separated by `|`. A rule with alternation on either
+side desugars to the cross-product of single-pair rules before type checking. Any
+`guard-clause` and `effect-block` attached to the rule applies to every expanded pair.
+
+```scrml
+< machine MarioMachine for MarioState>
+    .Small        => .Big | .Fire | .Cape
+    .Big          => .Fire | .Cape | .Small
+    .Fire | .Cape => .Small
+</>
+```
+
+Expands to 8 single-pair rules (`Small=>Big`, `Small=>Fire`, ..., `Cape=>Small`). Duplicate
+`(from, to)` pairs — whether produced by alternation within one line or by repetition
+across lines — SHALL be a compile error: **E-MACHINE-014** — `Machine '{name}' has a
+duplicate transition rule '{rule}'. A rule cannot repeat the same from→to pair. Remove the
+duplicate.`
 
 When governing a **struct type**, a machine's rules use `* => *` wildcard syntax with
 `given` guards that reference fields via `self.*`:
@@ -17510,6 +17531,7 @@ binding on struct fields; bind the enclosing `@var` to a machine instead).
 | E-MACHINE-011 | Type-level effect block references a reactive variable outside the enum's file scope | Compile |
 | E-MACHINE-012 | Machine binding on a struct field (not yet supported; bind the enclosing `@var` instead) | Compile |
 | E-MACHINE-013 | `self.fieldName` in a struct-governing machine guard references an undefined field | Compile |
+| E-MACHINE-014 | Duplicate `(from, to)` transition pair in a machine body (including pairs produced by `\|` alternation) | Compile |
 
 **Error message format — E-MACHINE-001:**
 

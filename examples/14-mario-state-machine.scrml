@@ -58,14 +58,9 @@ ${
 }
 
 < machine MarioMachine for MarioState>
-    .Small => .Big
-    .Small => .Fire
-    .Small => .Cape
-    .Big   => .Fire
-    .Big   => .Cape
-    .Big   => .Small
-    .Fire  => .Small
-    .Cape  => .Small
+    .Small        => .Big | .Fire | .Cape
+    .Big          => .Fire | .Cape | .Small
+    .Fire | .Cape => .Small
 </>
 
 <div class="flex justify-center items-center min-h-screen text-white">

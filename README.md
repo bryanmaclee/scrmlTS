@@ -56,9 +56,9 @@ scrml compile hello.scrml -o dist/
 
 ## Why scrml
 
-**State is first-class.** Reactive variables (`@var`) are language primitives, not library wrappers. The compiler knows every read and write site, enforces mutability contracts statically, and generates minimal DOM updates — no diffing, no proxy overhead, no `useState` ceremony.
+**State is first-class.** State in scrml is named, typed, and instantiable. A `< Card>` declares a state type; `<Card>` instantiates one. HTML elements like `<input>` and `<program>` are pre-defined state types — the language has no conceptual gap between user-defined state and built-in state. Because state lives in the type system, it flows through `match`, `fn` signatures, the server/client boundary, and the database schema — all statically checked.
 
-**Mutability contracts.** Declare a `<machine>` for an enum type and every legal state transition is explicit — you define the states and transitions, the compiler enforces them. For example, a door lock with `.Locked => .Unlocked` and `.Unlocked => .Locked` means the compiler rejects any assignment that skips a step. Because mutation is fully declared, a `fn` can trigger transitions and read before/after state while remaining provably pure. `lin` enforces exact-once consumption. `server @var` pins state server-side. `protect` excludes fields from the client. All verified statically.
+**Mutability contracts.** A `<machine>` declares an enum type's legal transitions — `.Locked => .Unlocked`, `.Unlocked => .Locked` — and the compiler rejects any assignment that skips a step. Because the full lifecycle is declared, a `fn` can trigger a transition and read before/after state while remaining provably pure: the machine's transition set fully constrains the effect. Mutation becomes a closed, inspectable contract instead of an open bag of assignments.
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 

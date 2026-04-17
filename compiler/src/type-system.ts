@@ -1899,6 +1899,53 @@ function buildMachineRegistry(
 }
 
 /**
+ * Expand `|` alternation in a single machine rule line into N single-pair lines.
+ *
+ * `.A | .B => .C | .D given (g) [lbl] { eff }`
+ *   → `.A => .C given (g) [lbl] { eff }`
+ *   → `.A => .D given (g) [lbl] { eff }`
+ *   → `.B => .C given (g) [lbl] { eff }`
+ *   → `.B => .D given (g) [lbl] { eff }`
+ *
+ * Lines without `|` (including `* => *` and plain `.A => .B`) pass through unchanged.
+ */
+function expandAlternation(line: string): string[] {
+  const arrowIdx = line.indexOf("=>");
+  if (arrowIdx < 0) return [line];
+
+  const lhsRaw = line.slice(0, arrowIdx).trim();
+  const rhsRest = line.slice(arrowIdx + 2);
+
+  // Find the end of the RHS variant portion — stops at `given`, `[`, `{`, or end.
+  // We want: ".C | .D" as the variant list; "given (...) [...] {...}" as the suffix.
+  const suffixMatch = rhsRest.match(/\s*(given\s*\(|\[|\{)/);
+  const rhsVariants = suffixMatch
+    ? rhsRest.slice(0, suffixMatch.index).trim()
+    : rhsRest.trim();
+  const suffix = suffixMatch
+    ? rhsRest.slice(suffixMatch.index).trimStart()
+    : "";
+
+  if (!lhsRaw.includes("|") && !rhsVariants.includes("|")) {
+    return [line];
+  }
+
+  const lhsParts = lhsRaw.split("|").map(s => s.trim()).filter(Boolean);
+  const rhsParts = rhsVariants.split("|").map(s => s.trim()).filter(Boolean);
+
+  if (lhsParts.length === 0 || rhsParts.length === 0) return [line];
+
+  const expanded: string[] = [];
+  for (const lhs of lhsParts) {
+    for (const rhs of rhsParts) {
+      const body = suffix ? `${lhs} => ${rhs} ${suffix}` : `${lhs} => ${rhs}`;
+      expanded.push(body);
+    }
+  }
+  return expanded;
+}
+
+/**
  * Parse machine rules from raw text.
  * Format: `.From => .To`, `.From => .To given (guard)`, `* => *` wildcards.
  * Guards ARE permitted in machine rules (unlike type-level transitions).
@@ -1914,7 +1961,31 @@ function parseMachineRules(
   if (!raw.trim()) return rules;
 
   // Split on newlines and semicolons
-  const lines = raw.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
+  const rawLines = raw.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
+
+  // Expand `|` alternation on either side of `=>` into single-pair rules.
+  // `.A | .B => .C | .D` becomes four lines: .A=>.C, .A=>.D, .B=>.C, .B=>.D.
+  // Preserves any guard / label / effect block on each expanded line.
+  // The `* => *` struct-wildcard form contains no `|` and is passed through.
+  const lines: string[] = [];
+  const dedupeSet = new Set<string>();
+  for (const line of rawLines) {
+    if (line.startsWith("//")) { lines.push(line); continue; }
+    for (const expanded of expandAlternation(line)) {
+      const key = expanded.replace(/\s+/g, " ").trim();
+      if (dedupeSet.has(key)) {
+        errors.push(new TSError(
+          "E-MACHINE-014",
+          `E-MACHINE-014: Machine '${machineName}' has a duplicate transition rule '${key}'. ` +
+          `A rule cannot repeat the same from→to pair. Remove the duplicate.`,
+          span,
+        ));
+        continue;
+      }
+      dedupeSet.add(key);
+      lines.push(expanded);
+    }
+  }
 
   for (const line of lines) {
     // Skip comment lines
