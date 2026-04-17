@@ -1,10 +1,37 @@
 {
   "name": "scrmlts",
   "version": "0.2.0",
+  "description": "scrml — a single-file, full-stack reactive web language. The compiler splits server from client, wires reactivity, routes HTTP, and emits plain HTML/CSS/JS.",
   "type": "module",
   "private": true,
   "license": "MIT",
   "author": "Bryan Maclee",
+  "homepage": "https://bryanmaclee.github.io/scrmlTS/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bryanmaclee/scrmlTS.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bryanmaclee/scrmlTS/issues"
+  },
+  "keywords": [
+    "scrml",
+    "scrml-lang",
+    "compiler",
+    "language",
+    "full-stack",
+    "reactive",
+    "single-file",
+    "web-framework",
+    "typescript",
+    "bun",
+    "dsl",
+    "server-client",
+    "sql",
+    "websocket",
+    "state-machine",
+    "no-build"
+  ],
   "workspaces": ["compiler"],
   "bin": {
     "scrml": "compiler/src/cli.js"

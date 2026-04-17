@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Primary SEO -->
+  <title>scrml — a single-file, full-stack reactive web language</title>
+  <meta name="description" content="scrml is a compiled language that replaces your frontend framework, backend glue, and build toolchain with a single file type. Markup, logic, styles, SQL, server functions, realtime, and tests in one .scrml file. Open source, MIT.">
+  <meta name="keywords" content="scrml, scrml language, scrml compiler, full-stack compiler, reactive web language, single-file app, scrml-lang, reactive dsl, server-client unified">
+  <meta name="author" content="Bryan Maclee">
+  <link rel="canonical" href="https://bryanmaclee.github.io/scrmlTS/">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="scrml — a single-file, full-stack reactive web language">
+  <meta property="og:description" content="A compiled language that replaces your frontend framework, backend glue, and build toolchain with one file type. Markup, logic, styles, SQL, server functions, realtime, and tests together — the compiler handles the rest.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://bryanmaclee.github.io/scrmlTS/">
+  <meta property="og:site_name" content="scrml">
+
+  <!-- Twitter / X -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="scrml — a single-file, full-stack reactive web language">
+  <meta name="twitter:description" content="Compiled language. Markup, logic, styles, SQL, server, realtime, and tests in one file. No build config, no state management library, no route files to sync.">
+
+  <!-- Schema.org SoftwareApplication -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "scrml",
+    "alternateName": ["scrml language", "scrml-lang", "scrmlTS"],
+    "description": "A compiled single-file, full-stack reactive web language. Markup, logic, styles, SQL, server functions, realtime, and tests in one .scrml file.",
+    "codeRepository": "https://github.com/bryanmaclee/scrmlTS",
+    "programmingLanguage": ["TypeScript", "JavaScript", "scrml"],
+    "license": "https://opensource.org/licenses/MIT",
+    "runtimePlatform": "Bun",
+    "author": {
+      "@type": "Person",
+      "name": "Bryan Maclee"
+    }
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0d1117;
+      --fg: #c9d1d9;
+      --fg-dim: #8b949e;
+      --accent: #58a6ff;
+      --accent-hover: #79b8ff;
+      --code-bg: #161b22;
+      --border: #30363d;
+      --kbd-bg: #21262d;
+    }
+    * { box-sizing: border-box; }
+    html { font-size: 16px; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    main {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 5rem;
+    }
+    h1 {
+      font-size: 2.5rem;
+      margin: 0 0 0.25em;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+    h2 {
+      font-size: 1.5rem;
+      margin: 2.5em 0 0.5em;
+      letter-spacing: -0.01em;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.3em;
+    }
+    h3 { font-size: 1.15rem; margin: 2em 0 0.5em; }
+    p { margin: 0 0 1em; }
+    .tagline {
+      font-size: 1.35rem;
+      color: var(--fg-dim);
+      margin: 0 0 2rem;
+      font-weight: 400;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); text-decoration: underline; }
+    code {
+      background: var(--code-bg);
+      padding: 0.15em 0.35em;
+      border-radius: 4px;
+      font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+      font-size: 0.9em;
+    }
+    pre {
+      background: var(--code-bg);
+      padding: 1em 1.2em;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    pre code { background: transparent; padding: 0; }
+    .cta-row {
+      margin: 2rem 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .cta {
+      display: inline-block;
+      padding: 0.6em 1.2em;
+      border-radius: 6px;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid var(--border);
+    }
+    .cta-primary {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+    .cta-primary:hover { background: var(--accent-hover); text-decoration: none; }
+    .cta-secondary:hover { background: var(--code-bg); text-decoration: none; }
+    ul { padding-left: 1.5em; }
+    li { margin-bottom: 0.4em; }
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      font-size: 0.9rem;
+      color: var(--fg-dim);
+      margin-bottom: 2rem;
+    }
+    .meta-row span { display: inline-flex; align-items: center; gap: 0.4em; }
+    .badge {
+      display: inline-block;
+      padding: 0.15em 0.55em;
+      border-radius: 10px;
+      background: var(--kbd-bg);
+      font-size: 0.78rem;
+      color: var(--fg-dim);
+    }
+    footer {
+      margin-top: 4rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--fg-dim);
+      font-size: 0.88rem;
+    }
+    footer a { color: var(--fg-dim); }
+    footer a:hover { color: var(--accent); }
+    @media (max-width: 600px) {
+      h1 { font-size: 2rem; }
+      .tagline { font-size: 1.1rem; }
+      main { padding: 2rem 1rem 3rem; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>scrml</h1>
+  <p class="tagline">A single-file, full-stack reactive web language. Stop wiring. Start building.</p>
+
+  <div class="meta-row">
+    <span><span class="badge">MIT</span> open source</span>
+    <span><span class="badge">pre-1.0</span> active development</span>
+    <span><a href="https://github.com/bryanmaclee/scrmlTS">GitHub repo</a></span>
+  </div>
+
+  <div class="cta-row">
+    <a class="cta cta-primary" href="https://github.com/bryanmaclee/scrmlTS">View on GitHub</a>
+    <a class="cta cta-secondary" href="https://github.com/bryanmaclee/scrmlTS/blob/main/docs/tutorial.md">Read the tutorial</a>
+    <a class="cta cta-secondary" href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md">Language spec</a>
+  </div>
+
+  <h2>What is scrml?</h2>
+  <p>
+    scrml is a compiled language that replaces your frontend framework, backend glue, and most of your build toolchain with one file type. Write markup, reactive state, scoped CSS, SQL, server functions, realtime channels, and inline tests together in a <code>.scrml</code> file. The compiler splits server from client, wires reactivity, routes HTTP, types the database schema, and emits plain HTML, CSS, and JavaScript.
+  </p>
+  <p>
+    No virtual DOM. No JSX. No separate route files. No state management library. No <code>node_modules</code>.
+  </p>
+
+  <h2>A reactive counter, the whole file</h2>
+  <pre><code>&lt;program&gt;
+
+@count = 0
+@step = 1
+
+&lt;div class="counter"&gt;
+    &lt;span class="value"&gt;${@count}&lt;/&gt;
+    &lt;button onclick=${@count = @count + @step}&gt;+&lt;/&gt;
+    &lt;button onclick=${@count = @count - @step}&gt;-&lt;/&gt;
+    &lt;select onchange=${@step = event.target.value}&gt;
+        &lt;option value="1"&gt;step 1&lt;/&gt;
+        &lt;option value="5"&gt;step 5&lt;/&gt;
+    &lt;/&gt;
+&lt;/&gt;</code></pre>
+
+  <h2>Why scrml</h2>
+
+  <h3>State is first-class</h3>
+  <p>
+    State is named, typed, and instantiable. A <code>&lt; Card&gt;</code> declares a state type; <code>&lt;Card&gt;</code> instantiates one. HTML elements like <code>&lt;input&gt;</code> and <code>&lt;program&gt;</code> are pre-defined state types — the language has no conceptual gap between user-defined state and built-in state. Because state lives in the type system, it flows through <code>match</code>, <code>fn</code> signatures, the server/client boundary, and the database schema — all statically checked.
+  </p>
+
+  <h3>Mutability contracts</h3>
+  <p>
+    Any mutable variable can carry a compile-time contract about what it's allowed to be. Value predicates (<code>@price: number(&gt;0 &amp;&amp; &lt;10000)</code>) constrain every write. Presence lifecycle (<code>not</code>, <code>is some</code>, <code>is not</code>, <code>lin</code>) gates reads until a value exists and ensures exact-once consumption. State transitions (<code>&lt; machine&gt;</code>) declare an enum's legal moves — <code>.Locked =&gt; .Unlocked</code> — and reject assignments that skip a step. Layer these as you need them; leave them off where you don't.
+  </p>
+
+  <h3>Full-stack in one file</h3>
+  <p>
+    Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in <code>.scrml</code>. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
+  </p>
+
+  <h3>Realtime and workers are first-class</h3>
+  <p>
+    A <code>&lt;channel&gt;</code> element declares a WebSocket endpoint — the compiler generates the upgrade route, the client connection manager, auto-reconnect, and pub/sub topic routing. <code>@shared</code> variables inside a channel sync across every connected client automatically. Heavy work goes in a nested <code>&lt;program&gt;</code> that compiles to a Web Worker or WASM module — with typed RPC, supervised restarts, and <code>when message from &lt;#name&gt;</code> event hooks.
+  </p>
+
+  <h3>The compiler eliminates N+1 automatically</h3>
+  <p>
+    Because scrml owns both the query context and the loop context, a <code>for (let x of xs) { ?{... WHERE id = ${x.id}}.get() }</code> pattern is rewritten to one pre-loop <code>WHERE id IN (...)</code> fetch plus a keyed <code>Map</code> lookup. Independent reads in a <code>!</code> handler share one <code>BEGIN DEFERRED</code>..<code>COMMIT</code> envelope. On-mount <code>server @var</code> loads coalesce into a single <code>__mountHydrate</code> round-trip. <a href="https://github.com/bryanmaclee/scrmlTS/tree/main/benchmarks/sql-batching">Measured wins</a>: ~2× at N=10, ~3× at N=100, ~4× at N=1000 on on-disk WAL SQLite.
+  </p>
+
+  <h2>Quick start</h2>
+  <pre><code># Install (Bun required)
+bun install
+
+# Compile a single file
+scrml compile examples/01-hello.scrml -o dist/
+
+# Or run the watcher
+scrml dev examples/</code></pre>
+
+  <h2>Status</h2>
+  <p>
+    scrml is in active pre-1.0 development. The language spec evolves as we find friction and the compiler catches up. The <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/docs/changelog.md">changelog</a> tracks what just landed and what's in flight. The compiler runs on <a href="https://bun.sh">Bun</a>; compiled output is plain JavaScript and runs in any browser or JavaScript runtime.
+  </p>
+
+  <h2>Learn more</h2>
+  <ul>
+    <li><a href="https://github.com/bryanmaclee/scrmlTS/blob/main/docs/tutorial.md">Tutorial</a> — step-by-step, zero to full-stack</li>
+    <li><a href="https://github.com/bryanmaclee/scrmlTS/blob/main/DESIGN.md">Design notes</a> — rationale and philosophy</li>
+    <li><a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md">Language specification</a> — the full formal spec</li>
+    <li><a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC-INDEX.md">Spec quick-lookup</a> — find any section fast</li>
+    <li><a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/PIPELINE.md">Pipeline contracts</a> — stage-by-stage compiler pipeline</li>
+    <li><a href="https://github.com/bryanmaclee/scrmlTS/tree/main/examples">14 runnable examples</a> — single-file apps covering state, realtime, SQL, and more</li>
+  </ul>
+
+  <footer>
+    <p>
+      scrml is MIT-licensed. The compiler, language spec, and runtime live at <a href="https://github.com/bryanmaclee/scrmlTS">github.com/bryanmaclee/scrmlTS</a>.
+    </p>
+  </footer>
+</main>
+</body>
+</html>
