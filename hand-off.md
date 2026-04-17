@@ -3,7 +3,8 @@
 **Date:** 2026-04-16
 **Previous:** `handOffs/hand-off-20.md`
 **Baseline at start:** 6,802 pass / 10 skip / 2 fail (25,319 expects across 270 files)
-**Status:** Open
+**Current:** 6,813 pass / 10 skip / 2 fail (25,344 expects across 271 files)
+**Status:** Open — §19 codegen batch complete
 
 ---
 
@@ -43,7 +44,27 @@ No unread messages.
 
 ## Session log
 
-(to be appended)
+### §19 error handling codegen — DONE (commit 37049be)
+
+Fixed the four deferred §19 bugs from S20:
+
+- `fail` inside nested bodies (if/for/function) was parsed as bare-expr and
+  emitted literal `fail;`. Added `fail` dispatch to parseOneStatement.
+- Canonical `.` separator was not accepted — only `::` alias worked.
+  parseFailStmt now accepts both.
+- `fail E.V` (no args) emitted `data: ` (JS syntax error) — fixed to emit
+  `data: undefined`.
+- `?` propagation inside nested bodies emitted literal `?;`. Added `?` suffix
+  detection to parseOneStatement's let-decl and bare-expr paths.
+- `!{}` inline catch used try/catch, but `fail` returns a tagged object
+  (§19.3.2). Rewrote guarded-expr codegen to check `result.__scrml_error`,
+  match on `.variant`, bind `.data`, and return unhandled variants up to the
+  enclosing failable function.
+- E-ERROR-001 now fires (was unreachable while `fail` never parsed in bodies).
+
+Updated emit-logic-s19-error-handling.test.js (14 tests) to the new model.
+Added gauntlet-s20/error-handling-codegen.test.js (11 tests).
+
 
 ## Tags
 #session-21 #open

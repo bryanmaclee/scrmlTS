@@ -91,6 +91,15 @@ export function buildImportGraph(fileASTs) {
   const graph = new Map();
   const errors = [];
 
+  // Collect the set of files being compiled so we can distinguish "this import
+  // points to a file that's in the compile set" (present by definition) from
+  // "this import points to a file that must exist on disk but doesn't" (E-IMPORT-006).
+  const compileSet = new Set();
+  for (const file of fileASTs) {
+    const fp = file.filePath || file.ast?.filePath;
+    if (fp) compileSet.add(fp);
+  }
+
   for (const file of fileASTs) {
     const filePath = file.filePath || file.ast?.filePath;
     if (!filePath) continue;
@@ -120,6 +129,27 @@ export function buildImportGraph(fileASTs) {
 
       // Resolve relative path to absolute
       const absSource = resolveModulePath(imp.source, filePath);
+
+      // E-IMPORT-006: target file does not exist.
+      //
+      // Skip the check when:
+      //   - the target is a .js import (standard ES module semantics — the bundler resolves),
+      //   - the target is already in the compile set (will be compiled; presence is implicit),
+      //   - the importer isn't a real on-disk file (synthetic paths used by unit tests).
+      if (
+        !imp.source.endsWith(".js") &&
+        !compileSet.has(absSource) &&
+        existsSync(filePath) &&
+        !existsSync(absSource)
+      ) {
+        errors.push(new ModuleError(
+          "E-IMPORT-006",
+          `E-IMPORT-006: Cannot resolve import \`${imp.source}\` — no file found at \`${absSource}\`. ` +
+          `Check the path and file name. Relative imports are resolved against the importing file's directory.`,
+          imp.span ? { ...imp.span, file: filePath } : null,
+        ));
+        continue;
+      }
 
       imports.push({
         names: imp.names || [],

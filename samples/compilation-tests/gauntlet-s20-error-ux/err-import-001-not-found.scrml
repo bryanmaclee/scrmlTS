@@ -1,6 +1,9 @@
-// Phase 12: E-IMPORT-001 — module not found
-// EXPECTED: E-IMPORT-001 with the module path
+// Phase 12: E-IMPORT-006 — module not found
+// EXPECTED: E-IMPORT-006 with the module path
+// Per §21.3, `import` must appear inside a `${ }` logic context.
 
-import { helper } from "./nonexistent-module.scrml"
+${
+  import { helper } from "./nonexistent-module.scrml"
+}
 
 <p>Test</>
