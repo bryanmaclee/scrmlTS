@@ -129,9 +129,18 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
         }
       }
     }
-    // Emit tables for machines
+    // Emit tables for machines. Derived/projection machines (§51.9) skip
+    // the transition-table emission — they don't enforce transitions; they
+    // project a source enum into a different enum at read time.
     if (machineRegistry && machineRegistry.size > 0) {
+      const { emitProjectionFunction, emitDerivedDeclaration } = require("./emit-machines.ts");
       for (const [name, machine] of machineRegistry) {
+        if (machine.isDerived) {
+          lines.push("");
+          for (const l of emitProjectionFunction(machine)) lines.push(l);
+          for (const l of emitDerivedDeclaration(machine)) lines.push(l);
+          continue;
+        }
         lines.push("");
         for (const l of emitTransitionTable(`__scrml_transitions_${name}`, machine.rules)) {
           lines.push(l);

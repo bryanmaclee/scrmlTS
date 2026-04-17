@@ -97,6 +97,84 @@ export function emitTransitionTable(tableName: string, rules: TransitionRule[]):
  * @param guardRules — rules that have guards (for runtime guard evaluation)
  * @returns lines of JS code
  */
+// ---------------------------------------------------------------------------
+// §51.9 (S22) — Derived / Projection Machine Codegen
+// ---------------------------------------------------------------------------
+
+interface DerivedMachineLike {
+  name: string;
+  governedTypeName: string;
+  sourceVar?: string | null;
+  projectedVarName?: string | null;
+  rules: TransitionRule[];
+}
+
+/**
+ * §51.9 — Emit the projection function for a derived machine.
+ *
+ * Shape:
+ *   function _scrml_project_UI(src) {
+ *     var tag = (src != null && typeof src === "object") ? src.variant : src;
+ *     if (tag === "Draft") return "Editable";
+ *     if (tag === "Submitted") return "ReadOnly";
+ *     ...
+ *     // Exhaustiveness was checked at compile time; this fallthrough
+ *     // should be unreachable for well-typed source values.
+ *     return undefined;
+ *   }
+ *
+ * Projection rules with a `given` guard are evaluated top-to-bottom; the
+ * first matching rule wins. Unguarded rules terminate their group per
+ * §51.9.3. Destination is emitted as a plain string when unit; if the
+ * projection enum declares the RHS variant with a payload, we still emit
+ * a string (projection RHSs are single-variant-no-binding per §51.9.2 —
+ * the spec reserves payload projections for future work, §51.9.7).
+ */
+export function emitProjectionFunction(machine: DerivedMachineLike): string[] {
+  const fnName = `_scrml_project_${machine.name}`;
+  const lines: string[] = [];
+  lines.push(`function ${fnName}(src) {`);
+  lines.push(`  var tag = (src != null && typeof src === "object") ? src.variant : src;`);
+  for (const rule of machine.rules) {
+    const toLiteral = `"${rule.to}"`;
+    if (rule.guard) {
+      lines.push(`  if (tag === "${rule.from}" && (${rule.guard})) return ${toLiteral};`);
+    } else {
+      lines.push(`  if (tag === "${rule.from}") return ${toLiteral};`);
+    }
+  }
+  lines.push(`  return undefined;`);
+  lines.push(`}`);
+  return lines;
+}
+
+/**
+ * §51.9 — Emit the runtime registration of the projected reactive.
+ *
+ * Registers the projected var in `_scrml_derived_fns` so `_scrml_reactive_get`
+ * will delegate to `_scrml_derived_get` (see `runtime-template.js:71`). Also
+ * subscribes the derived var to its source's dirty propagation edge so
+ * writes to the source trigger DOM re-reads on the projection.
+ *
+ * Shape:
+ *   _scrml_derived_fns["ui"] = function() {
+ *     return _scrml_project_UI(_scrml_reactive_get("order"));
+ *   };
+ *   _scrml_derived_dirty["ui"] = true;
+ *   (_scrml_derived_downstreams["order"] = _scrml_derived_downstreams["order"] || new Set()).add("ui");
+ */
+export function emitDerivedDeclaration(machine: DerivedMachineLike): string[] {
+  const lines: string[] = [];
+  const projected = machine.projectedVarName ?? machine.name.toLowerCase();
+  const source = machine.sourceVar ?? "";
+  const fnName = `_scrml_project_${machine.name}`;
+  lines.push(`// §51.9 derived machine: @${projected} projects @${source} through ${machine.name}`);
+  lines.push(`_scrml_derived_fns[${JSON.stringify(projected)}] = function() { return ${fnName}(_scrml_reactive_get(${JSON.stringify(source)})); };`);
+  lines.push(`_scrml_derived_dirty[${JSON.stringify(projected)}] = true;`);
+  lines.push(`(_scrml_derived_downstreams[${JSON.stringify(source)}] = _scrml_derived_downstreams[${JSON.stringify(source)}] || new Set()).add(${JSON.stringify(projected)});`);
+  return lines;
+}
+
 /**
  * §51.3.2 (S22) — Build the destructuring statements for a rule's from-/to-
  * bindings. Emits `var <local> = __prev.data.<field>;` for from-bindings and

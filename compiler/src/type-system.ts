@@ -1977,6 +1977,63 @@ function machineNameToProjectedVar(name: string): string {
 }
 
 /**
+ * §51.9 — E-MACHINE-017: detect writes to a projected (derived) variable.
+ * The user must not declare `@ui: UI = ...` or assign `@ui = ...` when `ui`
+ * is the synthesized projection of a derived machine. Walks the AST looking
+ * for reactive-decls whose name matches a projected var AND for bare-expr
+ * nodes whose text starts with `@name = ...` where name matches.
+ */
+export function rejectWritesToDerivedVars(
+  nodes: ASTNodeLike[],
+  projectedVars: Map<string, MachineType>,
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  if (projectedVars.size === 0) return;
+
+  const assignRe = /^\s*@([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\+|-|\*|\/|%|\?\?)?=/;
+
+  function report(varName: string, span: Span): void {
+    const machine = projectedVars.get(varName)!;
+    errors.push(new TSError(
+      "E-MACHINE-017",
+      `E-MACHINE-017: Cannot assign to '@${varName}' — it is a derived projection of ` +
+      `'@${machine.sourceVar}' (see < machine ${machine.name}>). Assign to the source instead.`,
+      span,
+    ));
+  }
+
+  function walk(ns: ASTNodeLike[]): void {
+    for (const n of ns) {
+      if (!n || typeof n !== "object") continue;
+      const span = (n.span as Span | undefined) ?? fileSpan;
+
+      // Reactive declaration of a projected var.
+      if (n.kind === "reactive-decl" && typeof n.name === "string" && projectedVars.has(n.name)) {
+        report(n.name, span);
+      }
+
+      // Reactive assignment surfaced as a bare-expr — `@ui = X`, `@ui += Y`, etc.
+      if (n.kind === "bare-expr") {
+        const exprText = typeof (n as ASTNodeLike).expr === "string"
+          ? ((n as ASTNodeLike).expr as string)
+          : "";
+        const m = assignRe.exec(exprText);
+        if (m && projectedVars.has(m[1])) {
+          report(m[1], span);
+        }
+      }
+
+      const body = n.body as ASTNodeLike[] | undefined;
+      if (Array.isArray(body)) walk(body);
+      const children = n.children as ASTNodeLike[] | undefined;
+      if (Array.isArray(children)) walk(children);
+    }
+  }
+  walk(nodes);
+}
+
+/**
  * §51.9 — Validate derived machines once reactive-decl annotations are known.
  *
  * This runs after the main TS walk has annotated reactive-decl nodes. It:
@@ -6024,12 +6081,20 @@ function processFile(
         if (Array.isArray(children)) collectReactiveBindings(children);
       }
     };
-    collectReactiveBindings(
-      (fileAST.nodes as ASTNodeLike[] | undefined)
+    const topNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
       ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
-      ?? []
-    );
+      ?? [];
+    collectReactiveBindings(topNodes);
     validateDerivedMachines(machineRegistry, reactiveBindings, errors, fileSpan);
+
+    // §51.9 — E-MACHINE-017: reject writes to projected vars. Build a lookup
+    // from projected-var-name → derived-machine so error messages can name
+    // the source var + machine in the message.
+    const projectedVars = new Map<string, MachineType>();
+    for (const m of machineRegistry.values()) {
+      if (m.isDerived && m.projectedVarName) projectedVars.set(m.projectedVarName, m);
+    }
+    rejectWritesToDerivedVars(topNodes, projectedVars, errors, fileSpan);
   }
 
   // TS-G: Linear type enforcement pass.

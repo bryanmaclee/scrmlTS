@@ -2,11 +2,23 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Baseline (2026-04-17 after S22 §1a + §1b + §51.9 slice 1): **6,865 tests passing / 10 skipped / 2 failing** (25,488 expects across 277 files). 2 remaining self-host fails deferred per user.
+Baseline (2026-04-17 after S22 §1a + §1b + §51.9 slices 1 + 2): **6,875 tests passing / 10 skipped / 2 failing** (25,520 expects across 277 files). 2 remaining self-host fails deferred per user.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-17 (S22 — §51.9 slice 2: derived machines runtime + write rejection)
+
+- **Projection function codegen.** `emit-machines.ts` now exports `emitProjectionFunction(machine)` producing `function _scrml_project_<M>(src) { ... }` that walks the projection rules top-to-bottom, dispatches on `src.variant ?? src`, and emits the destination variant as a plain string. Guarded rules emit `if (tag === X && (guard)) return Y;` so `given` clauses run at read time. Rules after an unguarded match are unreachable per §51.9.3 (unguarded terminates the alternation group).
+- **Derived reactive registration.** `emitDerivedDeclaration(machine)` emits `_scrml_derived_fns["ui"] = () => _scrml_project_UI(_scrml_reactive_get("order"));` + dirty flag + downstream subscription. Reuses the existing §6.6 infrastructure: `_scrml_reactive_get("ui")` already delegates to `_scrml_derived_get` when the name is in `_scrml_derived_fns`, and writes to `@order` propagate a dirty flag via `_scrml_propagate_dirty` so DOM bindings on `@ui` re-read the projection.
+- **emit-reactive-wiring.ts** routes derived machines past the transition-table emit (they have no runtime transitions to enforce) and into the new projection + declaration path. Transition tables are only emitted for non-derived machines.
+- **E-MACHINE-017 write rejection** (type-system.ts `rejectWritesToDerivedVars`). Walks the AST once after `validateDerivedMachines`, flagging two kinds of writes: (a) a `reactive-decl` whose name is a projected var (someone wrote `@ui: UI = X`) and (b) a `bare-expr` starting with `@ui = X` or any compound assignment (`@ui += X`). Messages name both the source var and the machine so the user knows where to assign instead.
+- **SPEC §51.9** flipped from `(parser + validator landed S22, runtime codegen pending)` to `(landed S22)`, with implementation notes on the runtime wiring added.
+- **Regression tests (+10)**. Slice 2 additions to `compiler/tests/unit/gauntlet-s22/derived-machines.test.js`: projection-function shape + runtime round-trip (guarded + unguarded dispatch), derived-declaration shape + dirty-propagation end-to-end, E-MACHINE-017 on reactive-decl + `=` + `+=` + non-projected-vars-untouched, full-file compile + shadow-boolean-collapse example.
+- **Known blockers (tracked for follow-up):**
+  - Pre-existing BPP statement-boundary bug: two consecutive `@foo: SomeMachine = ...` reactive-decls on adjacent lines can silently drop the second one. Not new in this slice — exposed while writing the end-to-end write-rejection test. The test now sidesteps by splitting the two decls into separate `${}` blocks; a proper fix belongs in the body-pre-parser.
+  - Reading `@ui` in markup (`${@ui}`) inserts a `<span data-scrml-logic>` placeholder but the reactive display wiring is not yet emitted because the dep-graph doesn't know `@ui` is reactive. Fix: synthesize a reactive-decl-like AST node for the projected var during annotation so the dep-graph treats it as a consumer of `@order`. Deferred to a follow-up slice.
 
 ### 2026-04-17 (S22 — §51.9 slice 1: derived/projection machines — parser + validator)
 

@@ -81,27 +81,42 @@ E-MACHINE-017 write-rejection are slice 2.
   leading uppercase run lowercased — matches the `UI` → `@ui` example.
 - Baseline: **6,865 pass / 10 skip / 2 fail** (+9 over §1b).
 
-### Slice 2 queue (not yet landed)
+### §51.9 slice 2 — runtime codegen + write rejection (LANDED)
 
-1. **Codegen.** `emit-machines.ts` new `emitProjection(machineName, rules)`
-   producing `function _scrml_project_<M>(src) { ... }`. Walk rules
-   top-to-bottom, match `src.variant ?? src` against each rule's `from`,
-   apply `given` guards (evaluated at read time via the closure capture of
-   file-scope reactives), return the destination variant.
-2. **Runtime registration.** At client-JS init (alongside enum emission),
-   emit `_scrml_derived_declare("ui", () => _scrml_project_UI(_scrml_reactive_get("order")));`
-   and `_scrml_derived_subscribe("ui", "order");` so dirty propagation
-   triggers downstream DOM updates.
-3. **Dep-graph rewriting.** Reads of `@ui` in expressions should already
-   work via `_scrml_reactive_get` delegating to `_scrml_derived_get` (see
-   runtime-template.js:71) — verify end-to-end with an example.
-4. **E-MACHINE-017 write rejection.** During annotation / reactive-set
-   emission, check if the target name is a projected var (look up in the
-   same map that drives projected-var synthesis); reject with message
-   naming the machine and source.
-5. **E2E example or sample.** A small demo (`@state: FetchMachine` +
-   `< machine UI for UIFlag derived from @state>`) that compiles + runs
-   in a browser — the shadow-boolean collapse from §51.9.5.
+- `emit-machines.ts` — `emitProjectionFunction(machine)` + `emitDerivedDeclaration(machine)`
+  exports. Projection function dispatches on `src.variant ?? src` with top-to-bottom
+  match; guarded rules emit `&& (guardExpr)` so `given` runs at read time. Declaration
+  reuses the existing `_scrml_derived_fns` / `_scrml_derived_downstreams` infrastructure
+  from §6.6, so `_scrml_reactive_get("ui")` auto-delegates and source writes propagate
+  dirty flags.
+- `emit-reactive-wiring.ts` — derived machines route past the transition-table
+  emit (nothing to enforce at runtime) and into the projection + declaration path.
+- `type-system.ts` `rejectWritesToDerivedVars` — walk the AST after
+  `validateDerivedMachines`, emit E-MACHINE-017 for reactive-decl and bare-expr
+  `@ui = ...` / `@ui += ...` assignments whose target is a projected var. Error
+  message names both source and machine so the user knows where to assign.
+- SPEC §51.9 flipped to `(landed S22)` with implementation notes on the runtime
+  wiring (projection function shape + derived-reactive registration).
+- +10 regression tests: projection function shape + runtime round-trip (incl.
+  guarded), derived-declaration dirty-propagation chain, E-MACHINE-017 on
+  reactive-decl / `=` / `+=` / non-projected-unaffected, end-to-end compile.
+- Baseline: **6,875 pass / 10 skip / 2 fail** (+10 from slice 2, +51 over S21).
+
+### §51.9 known follow-ups (NOT in this slice)
+
+- **DOM read-wiring for projected vars.** `${@ui}` in markup renders a
+  `<span data-scrml-logic>` placeholder but no reactive effect is emitted to
+  fill it, because the dep-graph doesn't treat `@ui` as a reactive read. Fix:
+  synthesize a reactive-decl AST node for the projected var during annotation
+  so downstream passes see it. Deferred to a follow-up slice.
+- **Pre-existing BPP statement-boundary bug.** Two consecutive
+  `@foo: SomeMachine = X` reactive-decls on adjacent lines can drop the
+  second one. Exposed (not caused) by the end-to-end write-rejection test;
+  the test sidesteps by splitting the decls across two `${}` blocks. Fix
+  belongs in body-pre-parser, not in §51.9.
+- **Example rewrite.** Mario + new shadow-boolean-collapse example
+  (§51.9.5 worked case) still owed — their machine wiring requires the
+  DOM read-wiring fix above to be fully demonstrable.
 
 ## Cross-repo messages sent this session
 

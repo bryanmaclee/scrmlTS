@@ -8,12 +8,37 @@
  * exercise the parser + validator directly.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "fs";
+import { join, resolve } from "path";
 import {
   buildMachineRegistry,
   buildTypeRegistry,
   validateDerivedMachines,
+  rejectWritesToDerivedVars,
 } from "../../../src/type-system.js";
+import {
+  emitProjectionFunction,
+  emitDerivedDeclaration,
+} from "../../../src/codegen/emit-machines.ts";
+import { compileScrml } from "../../../src/api.js";
+
+const FIXTURE_DIR = join(import.meta.dir, "__fixtures__/derived-machines");
+const FIXTURE_OUTPUT = join(FIXTURE_DIR, "dist");
+
+beforeAll(() => { mkdirSync(FIXTURE_DIR, { recursive: true }); });
+afterAll(() => { rmSync(FIXTURE_DIR, { recursive: true, force: true }); });
+
+function compileSource(source, filename = "test.scrml") {
+  const filePath = resolve(join(FIXTURE_DIR, filename));
+  writeFileSync(filePath, source);
+  const result = compileScrml({ inputFiles: [filePath], outputDir: FIXTURE_OUTPUT, write: true });
+  const allErrors = result.errors || [];
+  const fatalErrors = allErrors.filter((e) => e.severity !== "warning");
+  const outPath = join(FIXTURE_OUTPUT, filename.replace(/\.scrml$/, ".client.js"));
+  const clientJs = existsSync(outPath) ? readFileSync(outPath, "utf8") : "";
+  return { errors: allErrors, fatalErrors, clientJs };
+}
 
 function span() {
   return { file: "test.scrml", start: 0, end: 0, line: 1, col: 1 };
@@ -190,7 +215,7 @@ describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source re
     expect(e).toBeDefined();
   });
 
-  test("guarded projection rules are NOT counted for exhaustiveness; unguarded sibling needed", () => {
+  test("guarded projection rules are NOT counted for exhaustiveness (needs unguarded sibling)", () => {
     // .Paid can be either .ReadOnly (if isAdmin) or .Editable (else).
     // Without a final unguarded rule for .Paid, coverage is incomplete.
     const typeRegistry = buildTypeRegistry([ORDER_ENUM, UIMODE_ENUM], [], span());
@@ -211,6 +236,187 @@ describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source re
     // (implementation may later prove a guard is exhaustive; for now require
     // the unguarded sibling).
     const e = errors.find(e => e.code === "E-MACHINE-018" && e.message.includes("Paid"));
+    expect(e).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §51.9 slice 2 — codegen (projection function + derived registration)
+// ---------------------------------------------------------------------------
+
+function makeDerivedMachine(overrides = {}) {
+  return {
+    name: "UI",
+    governedTypeName: "UIMode",
+    sourceVar: "order",
+    projectedVarName: "ui",
+    rules: [
+      { from: "Draft", to: "Editable", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      { from: "Submitted", to: "ReadOnly", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      { from: "Paid", to: "ReadOnly", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      { from: "Shipping", to: "ReadOnly", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      { from: "Delivered", to: "Terminal", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      { from: "Cancelled", to: "Terminal", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      { from: "Refunded", to: "Terminal", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+    ],
+    ...overrides,
+  };
+}
+
+describe("§51.9 slice 2 — emitProjectionFunction", () => {
+  test("emits a function that dispatches on src.variant and returns destination strings", () => {
+    const lines = emitProjectionFunction(makeDerivedMachine());
+    const code = lines.join("\n");
+    expect(code).toContain("function _scrml_project_UI(src) {");
+    expect(code).toContain('var tag = (src != null && typeof src === "object") ? src.variant : src;');
+    expect(code).toContain('if (tag === "Draft") return "Editable";');
+    expect(code).toContain('if (tag === "Refunded") return "Terminal";');
+    expect(code).toContain("return undefined;");
+    // Execute the function and check runtime behavior.
+    const project = new Function(code + "\nreturn _scrml_project_UI;")();
+    expect(project("Draft")).toBe("Editable");
+    expect(project("Paid")).toBe("ReadOnly");
+    expect(project("Refunded")).toBe("Terminal");
+    expect(project({ variant: "Delivered", data: {} })).toBe("Terminal");
+    expect(project("Unknown")).toBeUndefined();
+  });
+
+  test("guarded rules become `if (tag === X && (guard)) return Y;`", () => {
+    const machine = makeDerivedMachine({
+      rules: [
+        { from: "Paid", to: "Editable", guard: "isAdmin", label: null, effectBody: null, fromBindings: null, toBindings: null },
+        { from: "Paid", to: "ReadOnly", guard: null, label: null, effectBody: null, fromBindings: null, toBindings: null },
+      ],
+    });
+    const code = emitProjectionFunction(machine).join("\n");
+    expect(code).toContain('if (tag === "Paid" && (isAdmin)) return "Editable";');
+    expect(code).toContain('if (tag === "Paid") return "ReadOnly";');
+    // The guarded rule must appear BEFORE the unguarded one (top-to-bottom).
+    expect(code.indexOf("Editable")).toBeLessThan(code.indexOf("ReadOnly"));
+  });
+});
+
+describe("§51.9 slice 2 — emitDerivedDeclaration", () => {
+  test("registers the projected var in _scrml_derived_fns and subscribes to source dirty-propagation", () => {
+    const lines = emitDerivedDeclaration(makeDerivedMachine());
+    const code = lines.join("\n");
+    expect(code).toContain('_scrml_derived_fns["ui"] = function() { return _scrml_project_UI(_scrml_reactive_get("order")); };');
+    expect(code).toContain('_scrml_derived_dirty["ui"] = true;');
+    expect(code).toContain('_scrml_derived_downstreams["order"]');
+    expect(code).toContain('.add("ui")');
+  });
+
+  test("runtime round-trip: writing @order updates @ui through the dirty-propagation chain", () => {
+    const projFn = emitProjectionFunction(makeDerivedMachine()).join("\n");
+    const decl = emitDerivedDeclaration(makeDerivedMachine()).join("\n");
+    // Minimal runtime stubs, matching the real ones' shape.
+    const stubs = `
+      var _scrml_state = {};
+      var _scrml_derived_fns = {};
+      var _scrml_derived_cache = {};
+      var _scrml_derived_dirty = {};
+      var _scrml_derived_downstreams = {};
+      function _scrml_reactive_get(name) {
+        if (_scrml_derived_fns[name]) return _scrml_derived_get(name);
+        return _scrml_state[name];
+      }
+      function _scrml_derived_get(name) {
+        if (_scrml_derived_dirty[name] || !(name in _scrml_derived_cache)) {
+          _scrml_derived_cache[name] = _scrml_derived_fns[name]();
+          _scrml_derived_dirty[name] = false;
+        }
+        return _scrml_derived_cache[name];
+      }
+      function _scrml_reactive_set(name, value) {
+        _scrml_state[name] = value;
+        var ds = _scrml_derived_downstreams[name];
+        if (ds) for (var d of ds) _scrml_derived_dirty[d] = true;
+      }
+    `;
+    const harness = stubs + projFn + "\n" + decl + `
+      _scrml_reactive_set("order", "Draft");
+      var a = _scrml_reactive_get("ui");
+      _scrml_reactive_set("order", "Paid");
+      var b = _scrml_reactive_get("ui");
+      _scrml_reactive_set("order", "Refunded");
+      var c = _scrml_reactive_get("ui");
+      return [a, b, c];
+    `;
+    const result = new Function(harness)();
+    expect(result).toEqual(["Editable", "ReadOnly", "Terminal"]);
+  });
+});
+
+describe("§51.9 slice 2 — E-MACHINE-017 reject writes to projected vars", () => {
+  test("reactive-decl of a projected var name fires E-MACHINE-017", () => {
+    const projectedVars = new Map([["ui", makeDerivedMachine()]]);
+    const errors = [];
+    const nodes = [{ kind: "reactive-decl", name: "ui", span: span() }];
+    rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
+    expect(errors).toHaveLength(1);
+    expect(errors[0].code).toBe("E-MACHINE-017");
+    expect(errors[0].message).toContain("'@ui'");
+    expect(errors[0].message).toContain("'@order'");
+    expect(errors[0].message).toContain("< machine UI>");
+  });
+
+  test("bare-expr `@ui = X` inside a function body fires E-MACHINE-017", () => {
+    const projectedVars = new Map([["ui", makeDerivedMachine()]]);
+    const errors = [];
+    const nodes = [
+      {
+        kind: "function-decl",
+        name: "setMode",
+        body: [{ kind: "bare-expr", expr: "@ui = 1", span: span() }],
+        span: span(),
+      },
+    ];
+    rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
+    const e = errors.find(e => e.code === "E-MACHINE-017");
+    expect(e).toBeDefined();
+  });
+
+  test("bare-expr `@ui += X` fires E-MACHINE-017 (compound assignment)", () => {
+    const projectedVars = new Map([["ui", makeDerivedMachine()]]);
+    const errors = [];
+    const nodes = [{ kind: "bare-expr", expr: "@ui += 1", span: span() }];
+    rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
+    expect(errors.find(e => e.code === "E-MACHINE-017")).toBeDefined();
+  });
+
+  test("writes to non-projected reactives are unaffected", () => {
+    const projectedVars = new Map([["ui", makeDerivedMachine()]]);
+    const errors = [];
+    const nodes = [
+      { kind: "reactive-decl", name: "order", span: span() },
+      { kind: "bare-expr", expr: "@order = 1", span: span() },
+    ];
+    rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
+    expect(errors).toEqual([]);
+  });
+});
+
+describe("§51.9 slice 2 — end-to-end compilation", () => {
+  test("full file compiles and emits projection function + derived registration", () => {
+    const source = `\${\n  type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }\n  type UIMode:enum = { Editable, ReadOnly, Terminal }\n\n  @order: OrderMachine = OrderState.Draft\n}\n\n< machine OrderMachine for OrderState>\n    .Draft => .Submitted\n</>\n\n< machine UI for UIMode derived from @order>\n    .Draft => .Editable\n    .Submitted | .Paid | .Shipping => .ReadOnly\n    .Delivered | .Cancelled | .Refunded => .Terminal\n</>\n\n<program>\n    <p>ok</>\n</>\n`;
+    const { fatalErrors, clientJs } = compileSource(source, "end-to-end.scrml");
+    expect(fatalErrors).toEqual([]);
+    expect(clientJs).toContain("function _scrml_project_UI(src)");
+    expect(clientJs).toContain('_scrml_derived_fns["ui"]');
+    expect(clientJs).toContain('_scrml_derived_downstreams["order"]');
+    // Transition table should NOT be emitted for derived machines.
+    expect(clientJs).not.toContain("__scrml_transitions_UI");
+  });
+
+  test("E-MACHINE-017: assigning `@ui = X` inside a function is rejected end-to-end", () => {
+    // Two ${ } blocks so the pre-existing BPP statement-boundary quirk on
+    // consecutive machine-typed reactive-decls doesn't drop nodes before our
+    // checker sees them. The function-body assignment to @ui is the case we
+    // actually care about — the user attempting to write through the
+    // projected var from user code.
+    const source = `\${\n  type OrderState:enum = { Draft, Submitted }\n  type UIMode:enum = { Editable, ReadOnly }\n  @order: OrderMachine = OrderState.Draft\n}\n\n\${\n  function badWrite() { @ui = "Editable" }\n}\n\n< machine OrderMachine for OrderState>\n    .Draft => .Submitted\n</>\n\n< machine UI for UIMode derived from @order>\n    .Draft => .Editable\n    .Submitted => .ReadOnly\n</>\n\n<program><p>ok</></>\n`;
+    const { errors } = compileSource(source, "write-rejected.scrml");
+    const e = errors.find(e => e.code === "E-MACHINE-017");
     expect(e).toBeDefined();
   });
 });

@@ -17630,12 +17630,34 @@ knowledge to decode.
 
 ### 51.9 Derived / Projection Machines
 
-**Added (parser + validator landed S22, runtime codegen pending):** 2026-04-17. Resolves
+**Added (landed S22):** 2026-04-17. Resolves
 the debate outcome in
 `scrml-support/docs/deep-dives/machine-cluster-expressiveness-2026-04-17.md` Candidate (I).
 Eliminates the "shadow-boolean drift" pattern observed across gauntlet rounds R11/R13/R14,
 where developers hand-maintained `@isLoading`/`@isSuccess`/`@isError` alongside the source
 enum and had to re-derive them on every transition.
+
+**Implementation notes (S22 slice 2):** The projected variable's read path is wired
+via the existing `_scrml_derived_fns` / `_scrml_derived_downstreams` infrastructure
+(see §6.6's derived scalars). `generateClientJs` emits, per derived machine:
+
+```js
+function _scrml_project_UI(src) {
+  var tag = (src != null && typeof src === "object") ? src.variant : src;
+  if (tag === "Draft") return "Editable";
+  if (tag === "Submitted") return "ReadOnly";
+  // ... top-to-bottom, first match wins; guards emit `&& (guardExpr)`
+  return undefined;
+}
+_scrml_derived_fns["ui"] = function() { return _scrml_project_UI(_scrml_reactive_get("order")); };
+_scrml_derived_dirty["ui"] = true;
+(_scrml_derived_downstreams["order"] = _scrml_derived_downstreams["order"] || new Set()).add("ui");
+```
+
+`_scrml_reactive_get("ui")` already delegates to `_scrml_derived_get` for names
+registered in `_scrml_derived_fns`. Writes to `@order` propagate a dirty flag to
+`@ui` through `_scrml_propagate_dirty`, so DOM bindings re-read the projection on
+the next microtask.
 
 #### 51.9.1 Motivation
 
