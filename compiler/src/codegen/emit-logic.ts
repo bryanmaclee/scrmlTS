@@ -2,7 +2,7 @@ import { genVar } from "./var-counter.ts";
 import { rewriteExpr, rewriteExprWithDerived, extractSqlParams, rewriteTildeRef } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
-import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, type MatchArm } from "./emit-control-flow.ts";
+import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
 import { emitLiftExpr } from "./emit-lift.js";
 import { extractReactiveDeps, extractReactiveDepsFromExprNode } from "./reactive-deps.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
@@ -1387,9 +1387,19 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
     }
   }
 
+  // S22 §1a slice 2: normalize tagged-object variants the same way as emitMatchExpr.
+  const needsTagNormalization = hasPayloadBindingOrTaggedVariant(arms);
+  const tagVar = needsTagNormalization ? genVar("tag") : tmpVar;
+  if (needsTagNormalization) {
+    lines.push(
+      `const ${tagVar} = (${tmpVar} != null && typeof ${tmpVar} === "object") ? ${tmpVar}.variant : ${tmpVar};`,
+    );
+  }
+
   // Emit arms as if/else-if chain with tilde assignment
   let conditionIndex = 0;
   for (const arm of arms) {
+    const bindingPrelude = arm.kind === "variant" ? emitVariantBindingPrelude(arm, tmpVar) : "";
     // Structured body: emit each statement via emitLogicNode (handles lift via tildeContext)
     if (arm.structuredBody) {
       const bodyCode: string[] = [];
@@ -1407,9 +1417,15 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
         conditionIndex++;
       } else {
         const prefix = conditionIndex === 0 ? "if" : "else if";
-        lines.push(`${prefix} (${tmpVar} === "${arm.test}") {`);
+        // arm.test for variant arms is a bare name; for string arms it already
+        // includes the surrounding quotes. Compare against the appropriate var.
+        const cmp = arm.kind === "variant"
+          ? `${tagVar} === "${arm.test}"`
+          : `${tmpVar} === ${arm.test}`;
+        lines.push(`${prefix} (${cmp}) {`);
         conditionIndex++;
       }
+      if (bindingPrelude) lines.push(`  ${bindingPrelude.trimEnd()}`);
       for (const line of bodyCode) lines.push(line);
       lines.push(`}`);
       continue;
@@ -1429,8 +1445,11 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
       conditionIndex++;
     } else {
       const prefix = conditionIndex === 0 ? "if" : "else if";
-      lines.push(`${prefix} (${tmpVar} === "${arm.test}") {`);
-      if (arm.binding) lines.push(`  const ${arm.binding} = ${tmpVar};`);
+      const cmp = arm.kind === "variant"
+        ? `${tagVar} === "${arm.test}"`
+        : `${tmpVar} === ${arm.test}`;
+      lines.push(`${prefix} (${cmp}) {`);
+      if (bindingPrelude) lines.push(`  ${bindingPrelude.trimEnd()}`);
       lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
       lines.push(`}`);
       conditionIndex++;

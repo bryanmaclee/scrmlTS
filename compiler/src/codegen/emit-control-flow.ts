@@ -23,6 +23,33 @@ export function setBatchLoopHoists(m: Map<string | number, any> | null): void {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level variant payload fields registry (S22 §1a slice 2)
+//
+// Maps enum variant name → ordered list of declared payload field names. Used
+// by emitMatchExpr to resolve positional bindings (e.g. `.Circle(r)` → the
+// first declared field of `Circle`). Populated once per file from fileAST's
+// typeDecls by setVariantFieldsForFile at the top of generateClientJs /
+// generateServerJs, cleared after compile so nothing leaks between files.
+//
+// Collision policy: if two enums in the same file declare a variant with the
+// same name, the first-seen field list wins and the collision is recorded in
+// _variantFieldCollisions so the emitter can refuse to destructure positionally
+// (since the type would be ambiguous). Named bindings (`.V(field: local)`) are
+// always safe — they name the field directly.
+// ---------------------------------------------------------------------------
+
+let _variantFields: Map<string, string[]> | null = null;
+let _variantFieldCollisions: Set<string> | null = null;
+
+export function setVariantFieldsForFile(
+  variantFields: Map<string, string[]> | null,
+  collisions?: Set<string> | null,
+): void {
+  _variantFields = variantFields;
+  _variantFieldCollisions = collisions ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -477,10 +504,65 @@ export function emitTryStmt(node: any): string {
 export interface MatchArm {
   kind: "variant" | "string" | "wildcard" | "not";
   test: string | null;
+  /**
+   * Raw paren contents of a variant-arm binding (if any), e.g. "w, h", "radius: r",
+   * "_, h". Parsed into `PayloadBinding[]` at emit time via parseBindingList.
+   * For presence arms ((x) => ...) this is the presence var name (single ident).
+   */
   binding: string | null;
   result: string;
   /** Structured AST body for match-arm-block nodes — bypasses rewriteBlockBody */
   structuredBody?: any[] | null;
+}
+
+/**
+ * One element of a match-arm variant binding list.
+ *
+ *   .Circle(r)           → [{ sourceField: null, localName: "r", discard: false }]
+ *   .Rect(w, h)          → [{ null, "w", false }, { null, "h", false }]
+ *   .Reloading(reason: r)→ [{ "reason", "r", false }]
+ *   .Rect(_, h)          → [{ null, "", true }, { null, "h", false }]
+ *
+ * `sourceField` is non-null for named bindings. When null, positional resolution
+ * applies: the element at index i binds the i-th declared payload field.
+ */
+export interface PayloadBinding {
+  sourceField: string | null;
+  localName: string;
+  discard: boolean;
+}
+
+/**
+ * Parse the raw contents of a variant-arm binding-list.
+ * Returns [] for an empty/whitespace-only string.
+ * Each element is one comma-separated item. Leading/trailing whitespace is trimmed.
+ */
+export function parseBindingList(raw: string): PayloadBinding[] {
+  if (!raw) return [];
+  const result: PayloadBinding[] = [];
+  // Variant bindings do not contain nested parens; a simple comma split is safe.
+  const parts = raw.split(",").map(s => s.trim()).filter(s => s.length > 0);
+  for (const part of parts) {
+    const colonIdx = part.indexOf(":");
+    if (colonIdx !== -1) {
+      // Named: `field: local`
+      const sourceField = part.slice(0, colonIdx).trim();
+      const localName = part.slice(colonIdx + 1).trim();
+      if (localName === "_") {
+        result.push({ sourceField, localName: "", discard: true });
+      } else {
+        result.push({ sourceField, localName, discard: false });
+      }
+    } else {
+      // Positional: bare ident, or `_` discard
+      if (part === "_") {
+        result.push({ sourceField: null, localName: "", discard: true });
+      } else {
+        result.push({ sourceField: null, localName: part, discard: false });
+      }
+    }
+  }
+  return result;
 }
 
 /**
@@ -505,9 +587,11 @@ export interface MatchArm {
  *  10. _ -> expr                  — old wildcard syntax
  */
 export function parseMatchArm(trimmed: string): MatchArm | null {
-  // NEW Form 1 & 2: .Variant => result or .Variant :> result (also with (binding))
+  // NEW Form 1 & 2: .Variant => result or .Variant :> result (also with (binding-list))
   // `:>` reads as "narrows to" — distinguishes from JS arrow function `=>`
-  const newVariantMatch = trimmed.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*(\w+)\s*\))?\s*(?:=>|:>)\s*([\s\S]+)$/);
+  // binding-list: zero or more comma-separated bindings, optionally `field: local`
+  // or `_` discard. No nested parens (variant bindings are identifier-level).
+  const newVariantMatch = trimmed.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*([^)]*?)\s*\))?\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (newVariantMatch) {
     return { kind: "variant", test: newVariantMatch[1], binding: newVariantMatch[2] ?? null, result: newVariantMatch[3].trim() };
   }
@@ -536,8 +620,8 @@ export function parseMatchArm(trimmed: string): MatchArm | null {
     return { kind: "wildcard", test: null, binding: null, result: newWildcardMatch[1].trim() };
   }
 
-  // LEGACY Form 1 & 2: ::Variant -> result or ::Variant(binding) -> result
-  const legacyVariantMatch = trimmed.match(/^::\s*(\w+)(?:\s*\(\s*(\w+)\s*\))?\s*->\s*([\s\S]+)$/);
+  // LEGACY Form 1 & 2: ::Variant -> result or ::Variant(binding-list) -> result
+  const legacyVariantMatch = trimmed.match(/^::\s*(\w+)(?:\s*\(\s*([^)]*?)\s*\))?\s*->\s*([\s\S]+)$/);
   if (legacyVariantMatch) {
     return { kind: "variant", test: legacyVariantMatch[1], binding: legacyVariantMatch[2] ?? null, result: legacyVariantMatch[3].trim() };
   }
@@ -735,13 +819,23 @@ export function splitMultiArmString(s: string): string[] {
     }
 
     // §42 presence arm: (identifier) => — only when preceded by whitespace or start
+    // AND not immediately following a variant-arm name (e.g. `.Circle (r) =>` must
+    // NOT be split — the `(r)` is a payload binding, not a presence arm). We look
+    // past the preceding whitespace; if the prior non-space char is an identifier
+    // character, this `(` belongs to a variant binding and we skip.
     if (ch === "(") {
       const prevCh = i > 0 ? s[i - 1] : null;
       if (prevCh === null || /\s/.test(prevCh)) {
-        // Check pattern: ( identifier ) => / :> / ->
-        const presenceRe = /^\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)\s*(?:=>|:>|->)/;
-        if (presenceRe.test(s.slice(i))) {
-          armStartPositions.push(i);
+        let back = i - 1;
+        while (back >= 0 && /\s/.test(s[back])) back--;
+        const priorNonSpace = back >= 0 ? s[back] : null;
+        const looksLikeVariantBinding = priorNonSpace !== null && /[A-Za-z0-9_$]/.test(priorNonSpace);
+        if (!looksLikeVariantBinding) {
+          // Check pattern: ( identifier ) => / :> / ->
+          const presenceRe = /^\(\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\)\s*(?:=>|:>|->)/;
+          if (presenceRe.test(s.slice(i))) {
+            armStartPositions.push(i);
+          }
         }
       }
     }
@@ -871,17 +965,34 @@ export function emitMatchExpr(node: any): string {
     return `/* match expression could not be compiled */ ${rewriteExpr(header)};`;
   }
 
+  // S22 §1a slice 2: decide whether this match needs the tagged-object normalization.
+  const needsTagNormalization = hasPayloadBindingOrTaggedVariant(arms);
+  const tagVar = needsTagNormalization ? genVar("tag") : tmpVar;
+
   const iifeLines: string[] = [];
   iifeLines.push(`(function() {`);
   iifeLines.push(`  const ${tmpVar} = ${header};`);
+  if (needsTagNormalization) {
+    iifeLines.push(
+      `  const ${tagVar} = (${tmpVar} != null && typeof ${tmpVar} === "object") ? ${tmpVar}.variant : ${tmpVar};`,
+    );
+  }
 
   let conditionIndex = 0;
   for (const arm of arms) {
+    // Pre-compute payload binding statements (applies to variant arms only).
+    const bindingPrelude = arm.kind === "variant"
+      ? emitVariantBindingPrelude(arm, tmpVar)
+      : "";
+
     // Structured body: emit each statement via emitLogicNode (handles lift-expr, etc.)
     // This path is taken for match-arm-block nodes parsed by the AST builder.
     if (arm.structuredBody) {
       const bodyLines = emitLogicBody(arm.structuredBody).filter(Boolean);
-      const structuredEmit = bodyLines.length > 0 ? `{ ${bodyLines.join("; ")} }` : `{}`;
+      const structuredInner = bodyLines.join("; ");
+      const structuredEmit = structuredInner
+        ? `{ ${bindingPrelude}${structuredInner} }`
+        : (bindingPrelude ? `{ ${bindingPrelude.trimEnd()} }` : `{}`);
       if (arm.kind === "wildcard") {
         if (arm.binding) {
           iifeLines.push(`  else { const ${arm.binding} = ${tmpVar}; ${structuredEmit} }`);
@@ -890,12 +1001,7 @@ export function emitMatchExpr(node: any): string {
         }
       } else {
         const prefix = conditionIndex === 0 ? "if" : "else if";
-        let condition: string;
-        if (arm.kind === "not") {
-          condition = `${tmpVar} === null || ${tmpVar} === undefined`;
-        } else {
-          condition = `${tmpVar} === "${arm.test}"`;
-        }
+        const condition = armCondition(arm, tmpVar, tagVar);
         iifeLines.push(`  ${prefix} (${condition}) ${structuredEmit}`);
         conditionIndex++;
       }
@@ -909,9 +1015,11 @@ export function emitMatchExpr(node: any): string {
     const emitResult = isBlockBody
       ? (() => {
           const inner = arm.result.trim().slice(1, -1).trim();
-          return inner ? `{ ${rewriteBlockBody(inner)} }` : `{}`;
+          return inner ? `{ ${bindingPrelude}${rewriteBlockBody(inner)} }` : (bindingPrelude ? `{ ${bindingPrelude.trimEnd()} }` : `{}`);
         })()
-      : `return ${rewriteExpr(arm.result)};`;
+      : (bindingPrelude
+          ? `{ ${bindingPrelude}return ${rewriteExpr(arm.result)}; }`
+          : `return ${rewriteExpr(arm.result)};`);
 
     if (arm.kind === "wildcard") {
       if (arm.binding) {
@@ -926,15 +1034,7 @@ export function emitMatchExpr(node: any): string {
       }
     } else {
       const prefix = conditionIndex === 0 ? "if" : "else if";
-      let condition: string;
-      if (arm.kind === "not") {
-        // §42: `not` match arm checks for absence (null or undefined)
-        condition = `${tmpVar} === null || ${tmpVar} === undefined`;
-      } else if (arm.kind === "variant") {
-        condition = `${tmpVar} === "${arm.test}"`;
-      } else {
-        condition = `${tmpVar} === ${arm.test}`;
-      }
+      const condition = armCondition(arm, tmpVar, tagVar);
       iifeLines.push(`  ${prefix} (${condition}) ${emitResult}`);
       conditionIndex++;
     }
@@ -942,6 +1042,76 @@ export function emitMatchExpr(node: any): string {
 
   iifeLines.push(`})()`);
   return iifeLines.join("\n");
+}
+
+/**
+ * Build the if-condition for a variant / string / not arm, respecting whether
+ * the match emitter decided to extract a normalized `.variant` tag (tagVar) or
+ * is still comparing the raw subject (tmpVar).
+ */
+function armCondition(arm: MatchArm, tmpVar: string, tagVar: string): string {
+  if (arm.kind === "not") {
+    return `${tmpVar} === null || ${tmpVar} === undefined`;
+  }
+  if (arm.kind === "variant") {
+    return `${tagVar} === "${arm.test}"`;
+  }
+  return `${tmpVar} === ${arm.test}`;
+}
+
+/**
+ * Emit `const <local> = <tmpVar>.data.<field>;` statements (one per binding) for
+ * a variant arm's payload binding-list. Returns a string ending with `"; "` so
+ * callers can concatenate the arm body directly. Returns `""` when the arm has
+ * no binding.
+ *
+ * Field-name resolution:
+ *   - Named binding (`field: local`) uses `sourceField` directly — always safe.
+ *   - Positional binding uses the module-level variant registry
+ *     (_variantFields). If the variant name is not known or is in the
+ *     collision set, the emitter skips positional bindings and inserts a
+ *     comment so the generated code is still valid JS.
+ */
+/**
+ * Whether the arm set includes at least one variant that will be matched via
+ * the tagged-object shape (either because the variant has a known payload field
+ * list OR the arm has a binding). When true, callers emit the __tag
+ * normalization. When false, unit-only / scalar arms can keep plain equality.
+ */
+export function hasPayloadBindingOrTaggedVariant(arms: MatchArm[]): boolean {
+  return arms.some(
+    a => a.kind === "variant" && (_variantFields?.has(a.test ?? "") || !!a.binding),
+  );
+}
+
+export function emitVariantBindingPrelude(arm: MatchArm, tmpVar: string): string {
+  if (!arm.binding) return "";
+  const bindings = parseBindingList(arm.binding);
+  if (bindings.length === 0) return "";
+
+  const variantName = arm.test ?? "";
+  const fieldSchema = _variantFields?.get(variantName) ?? null;
+  const ambiguous = _variantFieldCollisions?.has(variantName) ?? false;
+
+  const statements: string[] = [];
+  for (let i = 0; i < bindings.length; i++) {
+    const b = bindings[i];
+    if (b.discard) continue;
+    let fieldName: string | null = b.sourceField;
+    if (!fieldName) {
+      // Positional — resolve against the declared field order.
+      if (fieldSchema && !ambiguous && i < fieldSchema.length) {
+        fieldName = fieldSchema[i];
+      } else {
+        statements.push(
+          `/* §1a: cannot positionally bind '${b.localName}' — variant '${variantName}' field order unknown${ambiguous ? " (ambiguous across enums)" : ""} */`,
+        );
+        continue;
+      }
+    }
+    statements.push(`const ${b.localName} = ${tmpVar}.data.${fieldName};`);
+  }
+  return statements.length > 0 ? statements.join(" ") + " " : "";
 }
 
 // ---------------------------------------------------------------------------

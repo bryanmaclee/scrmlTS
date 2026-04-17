@@ -8,6 +8,7 @@ import { emitBindings } from "./emit-bindings.ts";
 import { emitReactiveWiring } from "./emit-reactive-wiring.ts";
 import { emitOverloads } from "./emit-overloads.ts";
 import { emitEventWiring } from "./emit-event-wiring.ts";
+import { setVariantFieldsForFile } from "./emit-control-flow.ts";
 import { EncodingContext, emitDecodeTable, emitRuntimeReflect } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
 export type { EncodingContext } from "./type-encoding.ts";
@@ -355,6 +356,12 @@ export function generateClientJs(ctx: CompileContext): string {
   const filePath: string = fileAST.filePath;
   const lines: string[] = [];
 
+  // S22 §1a slice 2: publish the file's variant→payload-field lookup so that
+  // emitMatchExpr can resolve positional bindings `.Circle(r)` to field names.
+  // Cleared at end of this function so state does not leak between files.
+  const { fields, collisions } = buildVariantFieldsRegistry(fileAST);
+  setVariantFieldsForFile(fields, collisions);
+
   lines.push("// Generated client-side JS for scrml");
   lines.push("// This file is executable browser JavaScript.");
   lines.push("");
@@ -543,7 +550,45 @@ export function generateClientJs(ctx: CompileContext): string {
     }
   }
 
+  // S22 §1a slice 2: release the per-file variant registry.
+  setVariantFieldsForFile(null, null);
+
   return clientCode;
+}
+
+// ---------------------------------------------------------------------------
+// buildVariantFieldsRegistry (S22 §1a slice 2)
+//
+// Scan fileAST.typeDecls once and produce:
+//   - fields: Map<variantName, declaredFieldNames[]>
+//   - collisions: Set<variantName> — names that appear in more than one enum,
+//     flagging positional-binding ambiguity for emitMatchExpr.
+// Uses the same decl.variants / decl.raw fallback logic as emitEnumVariantObjects
+// (the type system may not attach .variants back onto the AST node).
+// ---------------------------------------------------------------------------
+
+export function buildVariantFieldsRegistry(fileAST: any): {
+  fields: Map<string, string[]>;
+  collisions: Set<string>;
+} {
+  const fields = new Map<string, string[]>();
+  const collisions = new Set<string>();
+  const typeDecls: TypeDecl[] = fileAST?.typeDecls ?? fileAST?.ast?.typeDecls ?? [];
+
+  for (const decl of typeDecls) {
+    if (decl.kind !== "type-decl" || decl.typeKind !== "enum") continue;
+    const info = getAllVariantInfo(decl);
+    for (const v of info) {
+      if (v.fieldNames === null) continue; // unit variants have no bindings
+      if (fields.has(v.name)) {
+        // Same variant name used in a second enum → positional ambiguity.
+        collisions.add(v.name);
+      } else {
+        fields.set(v.name, v.fieldNames);
+      }
+    }
+  }
+  return { fields, collisions };
 }
 
 // ---------------------------------------------------------------------------

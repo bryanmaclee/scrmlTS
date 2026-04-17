@@ -42,17 +42,72 @@ describe("emitMatchExpr — .Variant => arms (new scrml-native syntax)", () => {
     expect(result).toContain('else if (_scrml_match_1 === "East") return 90');
   });
 
-  it("emits .Variant(binding) => arm (binding ignored in JS output)", () => {
+  it("emits .Variant(binding) => arm — with no variant registry, binding resolves positionally via a warning comment", () => {
+    // S22 §1a slice 2: when the match emitter lacks a file-scoped variant
+    // registry (unit-test callers here don't populate it), positional bindings
+    // cannot resolve their field names. The emitter inserts a comment so the
+    // output is still valid JS and unit variants like `.Point` keep working.
     const node = {
       header: "shape",
       body: [
-        { kind: "bare-expr", expr: ".Circle(r) => r * 3.14" },
+        { kind: "bare-expr", expr: ".Circle(r) => 3.14" },
         { kind: "bare-expr", expr: ".Point => 0" },
       ],
     };
     const result = emitMatchExpr(node);
-    expect(result).toContain('if (_scrml_match_1 === "Circle") return r * 3.14');
-    expect(result).toContain('else if (_scrml_match_1 === "Point") return 0');
+    // __tag var is introduced because the first arm has a binding.
+    expect(result).toContain("const _scrml_tag_");
+    // Variant comparison uses the __tag var.
+    expect(result).toMatch(/_scrml_tag_\d+ === "Circle"/);
+    expect(result).toMatch(/_scrml_tag_\d+ === "Point"/);
+    // Positional binding without a registry falls back to a diagnostic comment.
+    expect(result).toContain("cannot positionally bind 'r'");
+  });
+
+  it("emits .Variant(binding) => arm — with a registry, positional binding destructures from .data.<field>", () => {
+    const { buildVariantFieldsRegistry } = require("../../src/codegen/emit-client.ts");
+    const { setVariantFieldsForFile } = require("../../src/codegen/emit-control-flow.ts");
+    const fileAST = {
+      typeDecls: [{
+        kind: "type-decl",
+        typeKind: "enum",
+        name: "Shape",
+        variants: [
+          { name: "Circle", payload: new Map([["radius", { kind: "number" }]]) },
+          { name: "Point", payload: null },
+        ],
+      }],
+    };
+    const { fields, collisions } = buildVariantFieldsRegistry(fileAST);
+    setVariantFieldsForFile(fields, collisions);
+    try {
+      const node = {
+        header: "shape",
+        body: [
+          { kind: "bare-expr", expr: ".Circle(r) => r * 3.14" },
+          { kind: "bare-expr", expr: ".Point => 0" },
+        ],
+      };
+      const result = emitMatchExpr(node);
+      expect(result).toMatch(/const r = _scrml_match_\d+\.data\.radius;\s*return r \* 3\.14;/);
+      expect(result).toMatch(/_scrml_tag_\d+ === "Point"\) return 0/);
+    } finally {
+      setVariantFieldsForFile(null, null);
+    }
+  });
+
+  it("emits .Variant(field: local) => arm — named binding destructures from .data.<field> regardless of registry", () => {
+    // Named bindings resolve unambiguously from the binding itself, so they work
+    // without a registry lookup.
+    const node = {
+      header: "shape",
+      body: [
+        { kind: "bare-expr", expr: ".Reloading(reason: r) => r" },
+        { kind: "bare-expr", expr: ".Idle => 0" },
+      ],
+    };
+    const result = emitMatchExpr(node);
+    expect(result).toMatch(/const r = _scrml_match_\d+\.data\.reason;\s*return r;/);
   });
 });
 

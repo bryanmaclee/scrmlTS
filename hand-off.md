@@ -57,16 +57,49 @@
   Existing test at `emit-match.test.js:45` ("binding ignored in JS output") stays
   green; slice 2 will flip that assertion.
 
-**Slice 2: A2 — Match destructuring against tagged-object shape**
-- Extend parseMatchArm regex to capture raw binding-list (multi-arg, named form `field: local`, `_` discard).
-- Add binding-list parser returning `Array<{ sourceField: string | null, localName: string }>`.
-- At match emit time:
-  - Emit `const __tag = (v && typeof v === "object") ? v.variant : v;` once per match.
-  - Compare arm to `__tag`.
-  - For variant arm with binding, emit destructuring from `tmp.data.<fieldName>`; resolve field names by scanning fileAST typeDecls for the variant name (single-enum lookup; collision → diagnostic).
-- Update existing `emit-match.test.js:45` expectation — `r` will now be declared via destructuring.
-- Update `samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-match-payload-positional-031.scrml` expected output in any existing JS golden files (none found; safe).
-- Add round-trip test to gauntlet-s22/payload-variants.test.js (construct + match + destructure).
+**Slice 2: A2 — Match destructuring against tagged-object shape (LANDED)**
+- `emit-control-flow.ts:parseMatchArm` regex loosened from `(\w+)` to `([^)]*?)`
+  so `.Rect(w, h)` and `.Reloading(reason: r)` parse into a raw binding string.
+- `emit-control-flow.ts:parseBindingList` added — splits a raw binding string
+  into `PayloadBinding[]` with `{ sourceField, localName, discard }`.
+- Module-level variant field registry (`_variantFields`, `_variantFieldCollisions`)
+  populated at top of `generateClientJs` via new `buildVariantFieldsRegistry(fileAST)`
+  in emit-client.ts, cleared after. Prevents per-file leakage.
+- `emit-control-flow.ts:emitMatchExpr` + `emit-logic.ts:emitMatchExprDecl`:
+  - `const __tag = (v && typeof v === "object") ? v.variant : v;` is emitted
+    only when at least one variant arm carries a binding OR the variant name
+    is in the registry. Unit-only and scalar matches stay on the plain
+    `tmpVar === "X"` path (no extra var).
+  - Variant arms compare against the `__tag` var; string arms still use
+    `arm.test` raw (carries its own quotes — the prior single-branch emit
+    double-wrapped strings into `""a""`; now the branch distinguishes kind).
+  - Variant arms with bindings emit `const loc = tmp.data.<field>;` destructuring.
+    Positional bindings resolve via the registry; named bindings use
+    `sourceField` directly. Collisions / unknown variants emit a diagnostic
+    comment and skip positional binding.
+- `emit-control-flow.ts:splitMultiArmString` §42 presence-arm detector was
+  splitting `.Circle(r) =>` at the `(` because it didn't consider that the
+  paren belonged to a variant binding. Fixed: the detector now looks past
+  leading whitespace to check whether the prior non-space char is an
+  identifier char (in which case the `(` is part of a variant binding, not
+  a presence arm).
+- Tests:
+  - `emit-match.test.js:45` — flipped from "binding ignored" to "positional
+    binding without registry emits a diagnostic comment"; +2 new tests asserting
+    registry-driven positional destructuring and named-binding destructuring.
+  - `compiler/tests/unit/gauntlet-s22/payload-variants-match.test.js` — 7
+    end-to-end tests that compile + execute the emitted client JS. Covers:
+    positional, multi-field, named, mixed unit/payload, `_` discards, pure
+    scalar matches, and pure unit-enum matches.
+- Baseline: **6,841 pass / 10 skip / 2 fail** (25,426 expects, 275 files) — +17
+  over S21. The 2 fails remain the pre-existing self-host parity ones.
+- Known limitation (intentional, deferred): short-form `.Circle(10)` in a
+  typed-annotation context (e.g. `let s:Shape = .Circle(10)`) is still
+  rewritten to `"Circle"(10)` by the standalone-dot pass — a type-inference
+  concern, not a codegen one. File-qualified form `Shape.Circle(10)` works.
+  See `samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-match-payload-positional-031.scrml`
+  for a live repro of the leftover (match now destructures correctly, only
+  the construction line is still broken).
 
 **Slice 3: §1b — Machine rule binding** (not started this slice chain).
 **Slice 4: §51 I — Derived machines** (parallel).
