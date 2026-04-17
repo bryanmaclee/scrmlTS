@@ -3,6 +3,8 @@
   "version": "0.2.0",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "author": "Bryan Maclee",
   "workspaces": ["compiler"],
   "bin": {
     "scrml": "compiler/src/cli.js"

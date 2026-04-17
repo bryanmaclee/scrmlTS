@@ -386,14 +386,16 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 - [Spec Quick-Lookup](compiler/SPEC-INDEX.md) — find any section fast
 - [Pipeline Contracts](compiler/PIPELINE.md) — stage-by-stage compiler pipeline
 
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
 ## Related projects
 
 - **[6nz](../6NZ)** — a purpose-built code editor for the scrml ecosystem. An "Interactive Development Experience" written entirely in scrml, with a focus-centered viewport, NeoVim-superset keybindings plus mouse, CodeMirror 6 + canvas overlay, and offline-first PWA delivery. Currently in design phase, awaiting compiler API exposure in scrmlTS. The companion [Z-motion input spec](../6NZ/z-motion-spec) is released under CC0 so NeoVim and others can adopt it.
 
 ## Status
 
-scrml is in closed beta under a proprietary license. We are sharing it with a small group of developers to refine the language before a broader release.
-
-**The plan:** scrml will be released as MIT open source after the beta period. We want to get the language right first.
+scrml is open source under the [MIT License](./LICENSE). The language is still pre-1.0 — the spec evolves as we find friction and the compiler catches up. See [`docs/changelog.md`](./docs/changelog.md) for what just landed and what's in flight.
 
 The compiler runs on [Bun](https://bun.sh). Compiled output is plain JavaScript that runs in any browser or JavaScript runtime.
