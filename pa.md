@@ -104,9 +104,9 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 - All source code and docs under this repo's tree
 - Repo-scoped maps at `.claude/maps/` (via `project-mapper`)
 
-### What this PA reads + writes locally (user-voice)
-- `user-voice.md` (at repo root) — verbatim user log scoped to this repo (read + append only; never truncate)
-- Historical shared log archived at `../scrml-support/user-voice-archive.md` (read-only reference)
+### What this PA reads + writes (user-voice — NOT local since 2026-04-17)
+- `../scrml-support/user-voice-scrmlTS.md` — verbatim user log for scrmlTS. Moved out of this repo when it went public with the MIT license. PA reads + appends there. Never truncate.
+- Historical shared log archived at `../scrml-support/user-voice-archive.md` (read-only reference).
 
 ### What this PA reads from scrml-support (absolute paths)
 - `/home/bryan-maclee/scrmlMaster/scrml-support/.claude/resource-maps/` — cross-repo resource graph (via `resource-mapper`, PA-driven)
@@ -126,7 +126,7 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 ### Session-start checklist (this repo only)
 1. Read `pa.md` (this file)
 2. Read `hand-off.md`
-3. Read the last ~10 **contentful** entries from `user-voice.md` (this repo's root) — skip non-contentful messages (acks, "keep going", "continue", "yes", "ok"); if any of the last 10 are non-contentful, read that many more so you end up with ~10 substantive entries
+3. Read the last ~10 **contentful** entries from `../scrml-support/user-voice-scrmlTS.md` — skip non-contentful messages (acks, "keep going", "continue", "yes", "ok"); if any of the last 10 are non-contentful, read that many more so you end up with ~10 substantive entries
 4. Rotate `hand-off.md` → `handOffs/hand-off-<N>.md`
 5. Create fresh `hand-off.md`
 6. **FIRST SESSION ONLY:** run `project-mapper` cold to produce `.claude/maps/` + non-compliance report
@@ -141,9 +141,9 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 - Process non-compliance reports from project-mapper — propose dispositions to user, deref approved items to scrml-support/archive/
 - **Every gauntlet dev dispatch MUST include `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` in the briefing** — this is the Ghost-Pattern mitigation (Solution #1 of `scrml-support/docs/ghost-error-mitigation-plan.md`). Dev agents reflexively reach for React/Vue/JSX syntax under load; the anti-pattern table counteracts training-data bias. The brief must say: "Read `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` before writing any code, and reread it before each feature." Skipping this costs overseer time and pollutes bug reports.
 
-### Writing to user-voice.md
+### Writing to user-voice
 - Append-only, verbatim
-- Path: `user-voice.md` at this repo's root (per-repo as of 2026-04-14)
+- Path: `../scrml-support/user-voice-scrmlTS.md` (moved out of this repo 2026-04-17 when scrmlTS went public — MIT license)
 - Never summarize, never paraphrase, never truncate
 - Session header: `## Session N — YYYY-MM-DD` (N is this repo's session count)
 - Only append user statements relevant to **this repo**; if a statement concerns a sibling repo, drop a message into their `handOffs/incoming/` instead
