@@ -176,85 +176,85 @@ describe("emit-logic §19 §4: throw-stmt reactive ref", () => {
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §5: guarded-expr null guardedNode", () => {
-  test("null guardedNode still emits try/catch structure", () => {
+  test("null guardedNode emits empty output", () => {
+    // With the __scrml_error return-value model, a guarded-expr with no
+    // guarded node has nothing to check, so codegen emits empty string.
     const node = makeGuardedExpr(null, [makeArm("_", "e", "null")]);
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain("try {");
-    expect(result).toContain("} catch (");
+    expect(result).toBe("");
   });
 });
 
 // ---------------------------------------------------------------------------
-// §6: guarded-expr — bare-expr guardedNode
+// §6: guarded-expr — bare-expr guardedNode (new __scrml_error model)
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §6: guarded-expr bare-expr guardedNode", () => {
-  test("bare-expr is emitted inside the try block", () => {
+  test("bare-expr initializer is captured to result var", () => {
     const node = makeGuardedExpr(
       makeBareExpr("fetch(url)"),
       [makeArm("_", "e", "console.error(e)")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain("try {");
-    expect(result).toContain("fetch(url)");
+    expect(result).toMatch(/let _scrml_\w+ = fetch\(url\)/);
   });
 
-  test("catch block follows try block", () => {
+  test("__scrml_error check follows the initializer", () => {
     const node = makeGuardedExpr(
       makeBareExpr("doSomethingRisky()"),
       [makeArm("_", "e", "handleError(e)")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    const tryIdx = result.indexOf("try {");
-    const catchIdx = result.indexOf("} catch (");
-    expect(tryIdx).toBeGreaterThanOrEqual(0);
-    expect(catchIdx).toBeGreaterThan(tryIdx);
+    const initIdx = result.indexOf("doSomethingRisky");
+    const checkIdx = result.indexOf("__scrml_error");
+    expect(initIdx).toBeGreaterThanOrEqual(0);
+    expect(checkIdx).toBeGreaterThan(initIdx);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §7: guarded-expr — let-decl guardedNode
+// §7: guarded-expr — let-decl guardedNode (new model)
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §7: guarded-expr let-decl guardedNode", () => {
-  test("let-decl initializer captured inside try block", () => {
+  test("let-decl initializer captured to result var", () => {
     const node = makeGuardedExpr(
       makeLetDecl("data", "fetchData()"),
       [makeArm("_", "e", "null")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain("try {");
     expect(result).toContain("fetchData()");
+    expect(result).toMatch(/let _scrml_\w+ = fetchData\(\)/);
   });
 
-  test("let-decl variable hoisted outside try with var", () => {
+  test("let-decl variable exposed via var after check", () => {
     const node = makeGuardedExpr(
       makeLetDecl("data", "fetchData()"),
       [makeArm("_", "e", "null")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    // var is used (not let/const) so the binding is visible outside the try block
     expect(result).toContain("var data =");
   });
 
-  test("result var is declared before the try block", () => {
+  test("result var is declared first (as initializer)", () => {
     const node = makeGuardedExpr(
       makeLetDecl("data", "fetchData()"),
       [makeArm("_", "e", "null")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    const letResultIdx = result.indexOf("let _scrml_result_");
-    const tryIdx = result.indexOf("try {");
-    expect(letResultIdx).toBeLessThan(tryIdx);
+    const letResultIdx = result.indexOf("let _scrml_");
+    const ifIdx = result.indexOf("if (");
+    expect(letResultIdx).toBeGreaterThanOrEqual(0);
+    expect(letResultIdx).toBeLessThan(ifIdx);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §8: guarded-expr — const-decl guardedNode
+// §8: guarded-expr — const-decl guardedNode (new model)
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §8: guarded-expr const-decl guardedNode", () => {
-  test("const-decl initializer captured inside try block", () => {
+  test("const-decl initializer captured to result var", () => {
     const node = makeGuardedExpr(
       makeConstDecl("resp", "http.get(url)"),
       [makeArm("_", "e", "null")]
@@ -263,7 +263,7 @@ describe("emit-logic §19 §8: guarded-expr const-decl guardedNode", () => {
     expect(result).toContain("http.get(url)");
   });
 
-  test("const-decl variable hoisted outside try with var", () => {
+  test("const-decl variable exposed via var", () => {
     const node = makeGuardedExpr(
       makeConstDecl("resp", "http.get(url)"),
       [makeArm("_", "e", "null")]
@@ -311,14 +311,14 @@ describe("emit-logic §19 §9: guarded-expr wildcard arm", () => {
 // §10-§11: guarded-expr — named type arm
 // ---------------------------------------------------------------------------
 
-describe("emit-logic §19 §10: guarded-expr named type arm instanceof check", () => {
-  test("named arm emits instanceof check for the error type", () => {
+describe("emit-logic §19 §10: guarded-expr named type arm variant check", () => {
+  test("named arm emits .variant === 'VariantName' check", () => {
     const node = makeGuardedExpr(
       makeBareExpr("fetchUser(id)"),
       [makeArm("::NetworkError", "e", "retry()")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain("instanceof NetworkError");
+    expect(result).toContain('.variant === "NetworkError"');
   });
 
   test("named arm uses if keyword", () => {
@@ -331,14 +331,14 @@ describe("emit-logic §19 §10: guarded-expr named type arm instanceof check", (
   });
 });
 
-describe("emit-logic §19 §11: guarded-expr named type arm .type check", () => {
-  test("named arm also checks .type === 'TypeName' for serialization safety", () => {
+describe("emit-logic §19 §11: guarded-expr named type arm binds .data", () => {
+  test("named arm binding reads .data from the error object", () => {
     const node = makeGuardedExpr(
       makeBareExpr("callServer()"),
-      [makeArm("::NetworkError", "e", "retry()")]
+      [makeArm("::NetworkError", "err", "retry()")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain('.type === "NetworkError"');
+    expect(result).toMatch(/const err = _scrml_\w+\.data;/);
   });
 });
 
@@ -346,26 +346,24 @@ describe("emit-logic §19 §11: guarded-expr named type arm .type check", () => 
 // §12: guarded-expr — no wildcard arm re-throws
 // ---------------------------------------------------------------------------
 
-describe("emit-logic §19 §12: guarded-expr no wildcard re-throw", () => {
-  test("when no wildcard arm, unmatched errors are re-thrown", () => {
+describe("emit-logic §19 §12: guarded-expr no wildcard propagates", () => {
+  test("when no wildcard arm, unmatched errors return up to the enclosing !", () => {
     const node = makeGuardedExpr(
       makeBareExpr("parse(text)"),
       [makeArm("::ParseError", "e", "handleParse(e)")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain("else { throw ");
+    expect(result).toMatch(/else \{ return _scrml_\w+; \}/);
   });
 
-  test("re-throw uses the caught error variable", () => {
+  test("propagate uses the result variable holding the error", () => {
     const node = makeGuardedExpr(
       makeBareExpr("parse(text)"),
       [makeArm("::ParseError", "e", "handleParse(e)")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    // The caught error variable name (_scrml_*err*_N) appears in the re-throw
-    // genVar("_scrml_err") → "_scrml__scrml_err_N" (double underscore is correct)
-    const throwMatch = result.match(/else \{ throw (_scrml_\w+); \}/);
-    expect(throwMatch).not.toBeNull();
+    const m = result.match(/else \{ return (_scrml_\w+); \}/);
+    expect(m).not.toBeNull();
   });
 });
 
@@ -374,7 +372,7 @@ describe("emit-logic §19 §12: guarded-expr no wildcard re-throw", () => {
 // ---------------------------------------------------------------------------
 
 describe("emit-logic §19 §13: guarded-expr multiple arms", () => {
-  test("two named arms use if/else if", () => {
+  test("two named arms use if/else if with variant checks", () => {
     const node = makeGuardedExpr(
       makeBareExpr("apiCall()"),
       [
@@ -384,8 +382,8 @@ describe("emit-logic §19 §13: guarded-expr multiple arms", () => {
     );
     const result = resetAndRun(() => emitLogicNode(node));
     expect(result).toContain("else if (");
-    expect(result).toContain("instanceof NetworkError");
-    expect(result).toContain("instanceof AuthError");
+    expect(result).toContain('.variant === "NetworkError"');
+    expect(result).toContain('.variant === "AuthError"');
   });
 
   test("named arm followed by wildcard arm uses else block", () => {
@@ -399,8 +397,8 @@ describe("emit-logic §19 §13: guarded-expr multiple arms", () => {
     const result = resetAndRun(() => emitLogicNode(node));
     expect(result).toContain("if (");
     expect(result).toContain("else {");
-    // No re-throw since wildcard handles all remaining errors
-    expect(result).not.toContain("else { throw ");
+    // No propagate since wildcard handles all remaining variants
+    expect(result).not.toMatch(/else \{ return _scrml_\w+; \}/);
   });
 });
 
@@ -408,16 +406,14 @@ describe("emit-logic §19 §13: guarded-expr multiple arms", () => {
 // §14: guarded-expr — arm binding
 // ---------------------------------------------------------------------------
 
-describe("emit-logic §19 §14: guarded-expr arm binding declared as const", () => {
-  test("named arm binding is declared as const inside the handler", () => {
+describe("emit-logic §19 §14: guarded-expr arm binding reads .data", () => {
+  test("named arm binding is declared as const = resultVar.data", () => {
     const node = makeGuardedExpr(
       makeBareExpr("getResource()"),
       [makeArm("::NotFoundError", "err", "handle404(err)")]
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    // Should have: const err = _scrml_*err*_N;
-    // genVar("_scrml_err") → "_scrml__scrml_err_N" (double underscore is expected)
-    expect(result).toMatch(/const err = _scrml_\w+;/);
+    expect(result).toMatch(/const err = _scrml_\w+\.data;/);
   });
 });
 
@@ -425,15 +421,15 @@ describe("emit-logic §19 §14: guarded-expr arm binding declared as const", () 
 // §15: guarded-expr — empty arms
 // ---------------------------------------------------------------------------
 
-describe("emit-logic §19 §15: guarded-expr empty arms re-throw", () => {
-  test("empty arms array emits catch that re-throws", () => {
+describe("emit-logic §19 §15: guarded-expr empty arms propagate", () => {
+  test("empty arms array emits a bare propagate (return resultVar) inside the check", () => {
     const node = makeGuardedExpr(
       makeBareExpr("risky()"),
       []
     );
     const result = resetAndRun(() => emitLogicNode(node));
-    expect(result).toContain("} catch (");
-    expect(result).toContain("throw ");
+    expect(result).toContain("__scrml_error");
+    expect(result).toMatch(/return _scrml_\w+;/);
   });
 });
 

@@ -632,7 +632,10 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     case "fail-expr": {
       const enumType: string = node.enumType ?? "";
       const variant: string = node.variant ?? "";
-      const args = emitExprField(node.argsExpr, node.args ?? "undefined", _makeExprCtx(opts));
+      const rawArgs: string = (node.args ?? "").trim();
+      const args = rawArgs.length > 0
+        ? emitExprField(node.argsExpr, rawArgs, _makeExprCtx(opts))
+        : "undefined";
       return `return { __scrml_error: true, type: ${JSON.stringify(enumType)}, variant: ${JSON.stringify(variant)}, data: ${args} };`;
     }
 
@@ -726,73 +729,84 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
     }
 
     case "guarded-expr": {
+      // §19.4.3 `!{}` inline catch. `fail` produces a tagged object (not a throw),
+      // so we test the guarded expression's result for __scrml_error rather than
+      // using try/catch.
       const guardedNode = node.guardedNode;
       const arms: LogicArm[] = node.arms ?? [];
       const lines: string[] = [];
-      const errVar = genVar("_scrml_err");
       const resultVar = genVar("_scrml_result");
 
-      lines.push(`let ${resultVar};`);
-      lines.push(`try {`);
-
+      let bindingName: string | null = null;
+      let initExpr: string | null = null;
       if (guardedNode) {
         if (guardedNode.kind === "let-decl" && guardedNode.name) {
-          const initExpr = emitExprField(guardedNode.initExpr, guardedNode.init ?? "undefined", _makeExprCtx(opts));
-          lines.push(`  ${resultVar} = ${initExpr};`);
-          lines.push(`  var ${guardedNode.name} = ${resultVar};`);
+          bindingName = guardedNode.name;
+          initExpr = emitExprField(guardedNode.initExpr, guardedNode.init ?? "undefined", _makeExprCtx(opts));
         } else if ((guardedNode.kind === "const-decl" || guardedNode.kind === "tilde-decl") && guardedNode.name) {
-          const initExpr = emitExprField(guardedNode.initExpr, guardedNode.init ?? "undefined", _makeExprCtx(opts));
-          lines.push(`  ${resultVar} = ${initExpr};`);
-          lines.push(`  var ${guardedNode.name} = ${resultVar};`);
+          bindingName = guardedNode.name;
+          initExpr = emitExprField(guardedNode.initExpr, guardedNode.init ?? "undefined", _makeExprCtx(opts));
         } else {
           const bodyCode = emitLogicNode(guardedNode);
           if (bodyCode) {
-            for (const line of bodyCode.split("\n")) {
-              lines.push(`  ${line}`);
-            }
+            initExpr = bodyCode.replace(/;\s*$/, "").replace(/^\s*return\s+/, "");
           }
         }
       }
 
-      lines.push(`} catch (${errVar}) {`);
+      if (initExpr == null) return "";
+
+      lines.push(`let ${resultVar} = ${initExpr};`);
+      lines.push(`if (${resultVar} && ${resultVar}.__scrml_error) {`);
+
+      const emitArmAssign = (armBody: string): string[] => {
+        const trimmed = armBody.trim();
+        if (!trimmed) return [`    ${resultVar} = undefined;`];
+        if (trimmed.includes("\n")) {
+          // Multi-statement handler: emit body as-is (authors should assign to
+          // resultVar themselves for non-trivial bodies).
+          return trimmed.split("\n").map((l) => `    ${l}`);
+        }
+        const bare = trimmed.replace(/;\s*$/, "");
+        return [`    ${resultVar} = ${bare};`];
+      };
 
       if (arms.length > 0) {
         const hasWildcard = arms.some((a: LogicArm) => a.pattern === "_");
         let isFirst = true;
         for (const arm of arms) {
+          const armCode = emitArmBody(arm, resultVar, opts.machineBindings ?? null);
           if (arm.pattern === "_") {
-            const armCode = emitArmBody(arm, errVar, opts.machineBindings ?? null);
             lines.push(`  ${isFirst ? "" : "else "}{`);
             if (arm.binding && arm.binding !== "_") {
-              lines.push(`    const ${arm.binding} = ${errVar};`);
+              lines.push(`    const ${arm.binding} = ${resultVar}.data;`);
             }
-            for (const line of armCode.split("\n")) {
-              lines.push(`    ${line}`);
-            }
+            for (const l of emitArmAssign(armCode)) lines.push(l);
             lines.push(`  }`);
           } else {
-            const typeName = (arm.pattern ?? "").replace(/^::/, "");
-            const cond = `${errVar} instanceof ${typeName} || (${errVar} && ${errVar}.type === ${JSON.stringify(typeName)})`;
+            const variantName = (arm.pattern ?? "").replace(/^::/, "").replace(/^\./, "");
+            const cond = `${resultVar}.variant === ${JSON.stringify(variantName)}`;
             lines.push(`  ${isFirst ? "if" : "else if"} (${cond}) {`);
             if (arm.binding && arm.binding !== "_") {
-              lines.push(`    const ${arm.binding} = ${errVar};`);
+              lines.push(`    const ${arm.binding} = ${resultVar}.data;`);
             }
-            const armCode = emitArmBody(arm, errVar, opts.machineBindings ?? null);
-            for (const line of armCode.split("\n")) {
-              lines.push(`    ${line}`);
-            }
+            for (const l of emitArmAssign(armCode)) lines.push(l);
             lines.push(`  }`);
           }
           isFirst = false;
         }
         if (!hasWildcard) {
-          lines.push(`  else { throw ${errVar}; }`);
+          // No wildcard — propagate the unhandled error variant up.
+          lines.push(`  else { return ${resultVar}; }`);
         }
       } else {
-        lines.push(`  throw ${errVar};`);
+        lines.push(`  return ${resultVar};`);
       }
 
       lines.push(`}`);
+      if (bindingName) {
+        lines.push(`var ${bindingName} = ${resultVar};`);
+      }
       return lines.join("\n");
     }
 

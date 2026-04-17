@@ -1542,6 +1542,64 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * Parse a `fail` statement — `fail EnumType.Variant(args)` or `fail EnumType::Variant(args)`.
+   * Called from both parseLogicBody's top-level loop and parseOneStatement (nested bodies).
+   * Assumes peek() is the `fail` keyword.
+   */
+  function parseFailStmt() {
+    const startTok = consume(); // consume `fail`
+    let enumType = "";
+    let variant = "";
+    let args = "";
+
+    // Parse EnumType
+    if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+      enumType = consume().text;
+    }
+
+    // Parse separator: `.` (canonical) or `::` (alias)
+    if (peek().text === "::" || peek().text === ".") {
+      consume();
+      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+        variant = consume().text;
+      }
+    }
+
+    // Parse optional args in parens, preserving string literal quotes
+    if (peek().text === "(") {
+      consume();
+      const argParts = [];
+      let depth = 1;
+      while (depth > 0) {
+        const t = peek();
+        if (t.kind === "EOF") break;
+        if (t.text === "(") depth++;
+        if (t.text === ")") {
+          depth--;
+          if (depth === 0) { consume(); break; }
+        }
+        const ct = consume();
+        if (ct.kind === "STRING") {
+          argParts.push(`"${ct.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+        } else {
+          argParts.push(ct.text);
+        }
+      }
+      args = argParts.join(" ");
+    }
+
+    return {
+      id: ++counter.next,
+      kind: "fail-expr",
+      enumType,
+      variant,
+      args,
+      argsExpr: args ? safeParseExprToNode(args, spanOf(startTok, peek())?.start ?? 0) : undefined,
+      span: spanOf(startTok, peek()),
+    };
+  }
+
+  /**
    * Parse a single statement and return an AST node.
    * Handles: let, const, @reactive, lift, for, if, while, return, bare-expr.
    */
@@ -1602,6 +1660,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       return loopNode;
     }
 
+    // FAIL: `fail EnumType.Variant(args)` (§19.3)
+    if (tok.kind === "KEYWORD" && tok.text === "fail") {
+      return parseFailStmt();
+    }
+
     // LET
     if (tok.kind === "KEYWORD" && tok.text === "let") {
       const startTok = consume();
@@ -1626,6 +1689,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           return { id: ++counter.next, kind: "let-decl", name, init: "", matchExpr: matchNode, span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
+        // §19.5: `let x = fallible()?` — propagate-expr binding
+        const strippedLet = expr.trimEnd();
+        if (strippedLet.endsWith("?")) {
+          const innerLet = strippedLet.slice(0, -1).trimEnd();
+          return {
+            id: ++counter.next,
+            kind: "propagate-expr",
+            binding: name,
+            expr: innerLet,
+            exprNode: safeParseExprToNode(innerLet, spanOf(startTok, peek())?.start ?? 0),
+            span: spanOf(startTok, peek()),
+          };
+        }
         return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       } else {
         const { expr, span } = collectExpr();
@@ -2467,6 +2543,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const startTok = peek();
       const { expr, span } = collectExpr();
       if (expr.trim().length > 0) {
+        // §19.5: `fallible()?` as a statement — propagate-expr with no binding
+        const strippedBare = expr.trimEnd();
+        if (strippedBare.endsWith("?")) {
+          const innerBare = strippedBare.slice(0, -1).trimEnd();
+          return {
+            id: ++counter.next,
+            kind: "propagate-expr",
+            binding: null,
+            expr: innerBare,
+            exprNode: safeParseExprToNode(innerBare, 0),
+            span,
+          };
+        }
         if (isHtmlFragment(expr)) {
           return { id: ++counter.next, kind: "html-fragment", content: expr, span };
         }
@@ -3531,58 +3620,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // FAIL EXPRESSION: `fail EnumType::Variant(args)` or `fail EnumType::Variant`
+    // FAIL EXPRESSION: `fail EnumType.Variant(args)` or `fail EnumType::Variant(args)`
+    // (§19.3 — `.` is canonical, `::` is alias)
     if (tok.kind === "KEYWORD" && tok.text === "fail") {
-      const startTok = consume(); // consume `fail`
-
-      // Collect the fail target expression as raw text.
-      // Expected forms: `EnumType::Variant(args)` or `EnumType::Variant`
-      let enumType = "";
-      let variant = "";
-      let args = "";
-
-      // Parse EnumType
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
-        enumType = consume().text;
-      }
-
-      // Parse :: separator (tokenized as a single OPERATOR token "::")
-      if (peek().text === "::") {
-        consume(); // consume `::`
-
-        // Parse Variant name
-        if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
-          variant = consume().text;
-        }
-      }
-
-      // Parse optional args in parens
-      if (peek().text === "(") {
-        consume(); // consume `(`
-        const argParts = [];
-        let depth = 1;
-        while (depth > 0) {
-          const t = peek();
-          if (t.kind === "EOF") break;
-          if (t.text === "(") depth++;
-          if (t.text === ")") {
-            depth--;
-            if (depth === 0) { consume(); break; }
-          }
-          argParts.push(consume().text);
-        }
-        args = argParts.join(" ");
-      }
-
-      nodes.push({
-        id: ++counter.next,
-        kind: "fail-expr",
-        enumType,
-        variant,
-        args,
-        argsExpr: args ? safeParseExprToNode(args, spanOf(startTok, peek())?.start ?? 0) : undefined,
-        span: spanOf(startTok, peek()),
-      });
+      nodes.push(parseFailStmt());
       continue;
     }
 
