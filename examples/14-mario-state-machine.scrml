@@ -1,49 +1,92 @@
-// Example 14: Mario State Machine — enums, machine-governed state, pattern matching,
-// derived reactives (~tilde), reactive if= conditionals, and Tailwind utility classes.
-// Minimal #{} for theme accents; layout and spacing via built-in Tailwind engine.
+// Example 14: Mario State Machine
+//
+// Showcases S22 language features:
+//   §1a  — enum payload variants + match destructuring
+//          `type PowerUp:enum = { Mushroom(coins: number), ... }`
+//          `match powerUp { .Mushroom(n) => ... }`
+//   §51.9 — derived / projection machines
+//          `< machine HealthMachine for HealthRisk derived from @marioState>`
+//          The projected @healthMachine auto-updates when @marioState changes.
+//
+// Plus the usual: enums, machine-governed state, reactive if= conditionals,
+// ~tilde derived reactives, and Tailwind utility classes (with a sprinkle of #{}
+// for the body font).
 
 #{
     body { background: #1a1a2e; font-family: 'Press Start 2P', 'Courier New', monospace; }
 }
 
 ${
-    type PowerUp:enum = { Mushroom, Flower, Feather }
+    // §1a — payload variants. Each power-up carries a coin reward.
+    type PowerUp:enum = {
+        Mushroom(coins: number)
+        Flower(coins: number)
+        Feather(coins: number)
+    }
 
     type MarioState:enum = { Small, Big, Fire, Cape }
+
+    // §51.9 — health-risk projection. When Mario is Small one more hit
+    // loses a life; when he's bigger he can absorb a hit by regressing
+    // to Small. The derived @healthMachine reflects that risk tier and
+    // updates automatically whenever @marioState changes — no tilde, no
+    // manual wiring.
+    type HealthRisk:enum = { AtRisk, Safe }
 
     @marioState: MarioMachine = MarioState.Small
     @coins = 0
     @lives = 3
     @gameOver = false
-    @vulnerable = false
 
-    ~marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
-    ~marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
+    // The dispatcher matches on this typed reactive. The eatPowerUp function
+    // just assigns to it, then calls applyPowerUp — the type system currently
+    // drops a function-parameter's type annotation before `match` sees it, so
+    // a typed reactive is the narrowest reliable way to keep match happy while
+    // still letting each button pass its own payload value.
+    @currentPowerUp: PowerUp = PowerUp.Mushroom(0)
+
+    // §6.6 derived reactives. Using `const @name = expr` (reactive-derived-decl)
+    // so the names are visible to the markup's ${@marioEmoji} reads.
+    const @marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
+    const @marioName  = match @marioState { .Small => "SMALL MARIO" .Big => "SUPER MARIO" .Fire => "FIRE MARIO" .Cape => "CAPE MARIO" }
+
+    // §1a — match destructures the payload. `n` is bound to the coins field
+    // of the matched variant. Each arm is a block so @coins and @marioState
+    // can both update in one step.
+    function applyPowerUp() {
+        if (@gameOver) { return }
+        match @currentPowerUp {
+            .Mushroom(n) => {
+                @coins = @coins + n
+                @marioState = match @marioState {
+                    .Small => MarioState.Big
+                    else   => @marioState
+                }
+            }
+            .Flower(n) => {
+                @coins = @coins + n
+                @marioState = MarioState.Fire
+            }
+            .Feather(n) => {
+                @coins = @coins + n
+                @marioState = MarioState.Cape
+            }
+        }
+    }
 
     function eatPowerUp(powerUp) {
-        if (@gameOver) { return }
-        @coins = @coins + 1
-        @vulnerable = false
-        @marioState = match powerUp {
-            .Mushroom => match @marioState {
-                .Small => MarioState.Big
-                else   => @marioState
-            }
-            .Flower  => MarioState.Fire
-            .Feather => MarioState.Cape
-        }
+        @currentPowerUp = powerUp
+        applyPowerUp()
     }
 
     function getHurt() {
         if (@gameOver) { return }
         let wasSmall = @marioState == MarioState.Small
         @marioState = MarioState.Small
-        @vulnerable = true
         if (wasSmall) {
             @lives = @lives - 1
             if (@lives == 0) {
                 @gameOver = true
-                @vulnerable = false
             }
         }
     }
@@ -53,7 +96,6 @@ ${
         @coins = 0
         @lives = 3
         @gameOver = false
-        @vulnerable = false
     }
 }
 
@@ -63,6 +105,17 @@ ${
     .Fire | .Cape => .Small
 </>
 
+// §51.9 — derived machine. LHS variants are MarioState; RHS variants are
+// HealthRisk. `@healthMachine` (projected var name — machine name with
+// leading uppercase run lowercased) is read-only; writing to it is rejected
+// at compile time (E-MACHINE-017). Writing to `@marioState` dirty-propagates
+// to `@healthMachine` automatically.
+< machine HealthMachine for HealthRisk derived from @marioState>
+    .Small               => .AtRisk
+    .Big | .Fire | .Cape => .Safe
+</>
+
+<program>
 <div class="flex justify-center items-center min-h-screen text-white">
     <div class="bg-gray-800 rounded-2xl p-8 w-96 border border-gray-700 shadow-2xl">
         <h1 class="text-center text-lg text-yellow-400 mb-6">SUPER MARIO STATE MACHINE</>
@@ -87,15 +140,15 @@ ${
             <span class="text-sm mt-3 text-yellow-400">${@marioName}</>
         </>
 
-        <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" if=(@vulnerable && @gameOver == false)>ONE HIT AND YOU LOSE A LIFE!</>
+        <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" if=(@healthMachine == HealthRisk.AtRisk && @gameOver == false)>ONE HIT AND YOU LOSE A LIFE!</>
 
         <p class="text-xl text-red-500 my-6 text-center font-bold" if=(@gameOver)>GAME OVER</>
 
         <div if=(@gameOver == false)>
             <div class="grid grid-cols-3 gap-2 mb-3">
-                <button class="py-3 px-2 bg-green-600 text-white text-xs rounded-lg cursor-pointer border-0" onclick=${eatPowerUp(PowerUp.Mushroom)}>MUSHROOM</>
-                <button class="py-3 px-2 bg-yellow-500 text-gray-800 text-xs rounded-lg cursor-pointer border-0" onclick=${eatPowerUp(PowerUp.Flower)}>FLOWER</>
-                <button class="py-3 px-2 bg-blue-500 text-white text-xs rounded-lg cursor-pointer border-0" onclick=${eatPowerUp(PowerUp.Feather)}>FEATHER</>
+                <button class="py-3 px-2 bg-green-600 text-white text-xs rounded-lg cursor-pointer border-0" onclick=${eatPowerUp(PowerUp.Mushroom(1))}>MUSHROOM +1</>
+                <button class="py-3 px-2 bg-yellow-500 text-gray-800 text-xs rounded-lg cursor-pointer border-0" onclick=${eatPowerUp(PowerUp.Flower(3))}>FLOWER +3</>
+                <button class="py-3 px-2 bg-blue-500 text-white text-xs rounded-lg cursor-pointer border-0" onclick=${eatPowerUp(PowerUp.Feather(5))}>FEATHER +5</>
             </>
             <button class="w-full mt-2 py-3 bg-red-600 text-white text-sm rounded-lg cursor-pointer border-0" onclick=${getHurt()}>GET HURT</>
         </>
@@ -103,3 +156,4 @@ ${
         <button class="w-full mt-3 py-3 bg-green-600 text-white text-sm rounded-lg cursor-pointer border-0" if=(@gameOver) onclick=${restart()}>CONTINUE</>
     </>
 </>
+</program>
