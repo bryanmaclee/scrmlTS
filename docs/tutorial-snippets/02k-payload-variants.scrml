@@ -1,0 +1,42 @@
+// 02k — Enum payload variants and match destructuring. A PowerUp variant
+// carries a coin reward; match binds the payload field so the handler can
+// read it.
+
+<program>
+
+${
+  type PowerUp:enum = {
+    Mushroom(coins: number)
+    Flower(coins: number)
+    Feather(coins: number)
+  }
+
+  @coins = 0
+
+  // Type system note: match inside a function body can't yet see a parameter's
+  // type annotation (E-TYPE-025). Route through a typed reactive so the match
+  // subject stays narrowed.
+  @currentPowerUp: PowerUp = PowerUp.Mushroom(0)
+
+  function apply() {
+    match @currentPowerUp {
+      .Mushroom(n) => { @coins = @coins + n }
+      .Flower(n)   => { @coins = @coins + (n * 2) }
+      .Feather(n)  => { @coins = @coins + (n * 5) }
+    }
+  }
+
+  function eat(powerUp) {
+    @currentPowerUp = powerUp
+    apply()
+  }
+}
+
+<div>
+  <p>Coins: ${@coins}</p>
+  <button onclick=${eat(PowerUp.Mushroom(1))}>Mushroom +1</button>
+  <button onclick=${eat(PowerUp.Flower(1))}>Flower +2</button>
+  <button onclick=${eat(PowerUp.Feather(1))}>Feather +5</button>
+</div>
+
+</program>

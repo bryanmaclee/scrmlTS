@@ -515,7 +515,7 @@ Optional fields can be missing from a value — the type checker will force you 
 
 ### 2.3 Enum types
 
-An enum is a sum type: a value is exactly one of the listed variants. Variants are written one per line inside `{ ... }`, each prefixed with `.`. A variant can carry payload fields, which makes an enum a *tagged union* rather than just a set of constants.
+An enum is a sum type: a value is exactly one of the listed variants. Variants are written one per line inside `{ ... }` as bare names — no leading `.`. A variant can carry payload fields, which makes an enum a *tagged union* rather than just a set of constants.
 
 ```scrml
 // 02c — Multi-line enum type. Variants on separate lines inside { ... } braces.
@@ -524,20 +524,23 @@ An enum is a sum type: a value is exactly one of the listed variants. Variants a
 
 ${
   type Status:enum = {
-    .Todo
-    .InProgress
-    .Done
+    Todo
+    InProgress
+    Done
   }
 
-  @status = Status.Todo
+  // The type annotation on the reactive lets `match` downstream see it as
+  // a Status-typed subject (otherwise the type system widens to asIs and
+  // match rejects with E-TYPE-025).
+  @status: Status = Status.Todo
 }
 
 <p>
   ${
-    match (@status) {
-      .Todo       :> { lift "Not started" }
-      .InProgress :> { lift "Working on it" }
-      .Done       :> { lift "Complete" }
+    match @status {
+      .Todo       => { lift "Not started" }
+      .InProgress => { lift "Working on it" }
+      .Done       => { lift "Complete" }
     }
   }
 </p>
@@ -545,24 +548,26 @@ ${
 </program>
 ```
 
-To *read* an enum value you use `match` (next section). Variants without payload are constructed as `Status.Todo`; variants with payload are constructed as `Status.TooShort(3)` — the payload shape follows the variant name in parentheses (we will see payload variants in 3.5).
+The leading `.` appears only on the *reference* side (inside `match` arms, `is .Variant` checks). In the declaration body the names are bare.
 
-> **Note:** newline separation of variants is the canonical style. Commas between variants are also accepted, but one-per-line reads better and matches the rest of the community.
+To *read* an enum value you use `match` (next section). Variants without payload are constructed as `Status.Todo`; variants with payload are constructed as `Shape.Circle(10)` — the payload shape follows the variant name in parentheses. We return to payload variants in the next section.
 
-Enums shine for UI state. A loading-then-success-or-error request is a three-variant enum:
+> **Note:** newline separation of variants is the canonical style. Commas between variants are also accepted (`{ Todo, InProgress, Done }` fits on one line when the set is small), but one-per-line reads better for anything more than a handful.
+
+Enums shine for UI state. A loading-then-success-or-error request is a four-variant enum:
 
 ```
 type Request:enum = {
-  .Idle
-  .Loading
-  .Success(data: Row[])
-  .Failure(msg: string)
+  Idle
+  Loading
+  Success(data: Row[])
+  Failure(msg: string)
 }
 ```
 
-Now every place in your code that reads the request has to handle all four variants — including the data payload that `Success` carries and the message that `Failure` carries. You cannot accidentally render `data.length` when the request is still `Loading`, because the `Loading` variant has no `data` field and the type checker knows that. This is the main reason scrml treats enums as first-class: they are the right shape for "one of several possible states" and the compiler will not let you forget a state.
+Every place in your code that reads the request has to handle all four variants — including the data payload that `Success` carries and the message that `Failure` carries. You cannot accidentally render `data.length` when the request is still `Loading`, because the `Loading` variant has no `data` field and the type checker knows that. This is the main reason scrml treats enums as first-class: they are the right shape for "one of several possible states" and the compiler will not let you forget a state.
 
-### 2.4 `match` — exhaustive, uses `:>`
+### 2.4 `match` — exhaustive, uses `=>`
 
 `match` is how you destructure an enum. Each arm matches one variant and runs its block; the compiler checks at build time that every variant has an arm, and fails the build if you forget one.
 
@@ -573,18 +578,18 @@ Now every place in your code that reads the request has to handle all four varia
 
 ${
   type Status:enum = {
-    .Todo
-    .InProgress
-    .Done
+    Todo
+    InProgress
+    Done
   }
 
-  @status = Status.InProgress
+  @status: Status = Status.InProgress
 
   function advance() {
-    match (@status) {
-      .Todo       :> { @status = Status.InProgress }
-      .InProgress :> { @status = Status.Done }
-      .Done       :> { @status = Status.Todo }
+    match @status {
+      .Todo       => { @status = Status.InProgress }
+      .InProgress => { @status = Status.Done }
+      .Done       => { @status = Status.Todo }
     }
   }
 }
@@ -592,10 +597,10 @@ ${
 <div>
   <p>
     ${
-      match (@status) {
-        .Todo       :> { lift "[ ] Todo" }
-        .InProgress :> { lift "[~] In progress" }
-        .Done       :> { lift "[x] Done" }
+      match @status {
+        .Todo       => { lift "[ ] Todo" }
+        .InProgress => { lift "[~] In progress" }
+        .Done       => { lift "[x] Done" }
       }
     }
   </p>
@@ -605,24 +610,33 @@ ${
 </program>
 ```
 
-The arm separator is `:>`. You can read it aloud as "matches-to": the variant on the left matches to the block on the right. Blocks use ordinary `{ ... }`. A match used in markup context — inside an interpolation slot — uses `lift` inside each arm to emit that arm's output.
-
-> **Note:** the current spec document (§18.2) lists `=>` as the canonical arm separator. `=>` and `->` also compile correctly, but the style this tutorial teaches is `:>`, because it reads distinctly at a glance and avoids confusion with arrow functions. See the appendix note under 4.1 for more.
+The arm separator is `=>` — canonical per the spec (§18.2). `->` is accepted as an alias and `:>` compiles for now but is not the style to teach. Blocks use ordinary `{ ... }`. A match used in markup context — inside an interpolation slot — uses `lift` inside each arm to emit that arm's output.
 
 `match` is exhaustive. If you add a fourth variant to `Status` later, every `match` in your program that branched on `Status` becomes a compile error until you add a handling arm for the new variant. This is the main benefit of enums-plus-match over "string constants and if/else": the compiler forces you to update call sites. A migration that would be a bug-hunt in weakly-typed code is a guided list of compile errors in scrml.
 
-A match can bind a variant's payload to a name. For the `Success(data: Row[])` variant above:
+**Payload variants and destructuring.** A variant declared with a parenthesized field list carries that payload when constructed, and a `match` arm can bind those fields to local names.
 
 ```
-match (@req) {
-  .Idle               :> { lift "Click to load" }
-  .Loading            :> { lift "Loading..." }
-  .Success data       :> { for (let r of data) { lift <li>${r.name}</li> } }
-  .Failure msg        :> { lift <p class="err">${msg}</p> }
+type Request:enum = {
+  Idle
+  Loading
+  Success(data: Row[])
+  Failure(msg: string)
+}
+
+match @req {
+  .Idle          => { lift "Click to load" }
+  .Loading       => { lift "Loading..." }
+  .Success(data) => { for (let r of data) { lift <li>${r.name}</li> } }
+  .Failure(msg)  => { lift <p class="err">${msg}</p> }
 }
 ```
 
-The `data` and `msg` bindings are visible only inside their arm's block. This is a concise way to destructure a tagged union without a cascade of nested `if`s.
+Positional bindings (`.Success(data)`) bind against the declared field order. Named bindings (`.Success(data: rows)`) destructure by field name and let you rename locally. A `_` in any position is an explicit discard. Arity mismatch — `.Rectangle(w)` for a `Rectangle(width, height)` variant — is `E-TYPE-021`; use either the full positional list or the named form with a subset.
+
+Construction mirrors this: `Shape.Circle(10)` returns a tagged object you can compare, pass around, or match on. Unit variants (no payload) are still plain strings under the hood: `Status.Todo === "Todo"`. The runtime normalizes both shapes so `match` arms dispatch uniformly.
+
+**Match subject typing.** The subject of `match` must be a typed value — enum, union, or primitive. If the compiler can only infer `asIs`, it rejects with `E-TYPE-025`. The safest way to keep a reactive's type visible is to annotate it at declaration: `@status: Status = Status.Todo`. A function parameter's type annotation does not yet carry into the body for match-narrowing (a known limitation); until that is fixed, route through a typed reactive or use a file-scope `let`.
 
 Match also works on non-enum values — you can match on numbers, strings, or booleans — but the exhaustiveness check is most useful on enums, because only enums have a finite known set of cases.
 
@@ -832,6 +846,99 @@ A pure `fn` declared at program scope is automatically available on both sides o
 The `fn` declaration also participates in the type system. The return type after `->` is checked against every `return` in the body. Parameter types are checked at every call site. This catches the full set of small typos (passing a string where a number is expected, returning nothing from a function that should return a value) at compile time. For quick experiments you can omit the return type and scrml will infer it, but explicit is usually clearer at code-review time.
 
 Finally, a `fn` can be marked failable with `!` (see Section 3.5). A failable `fn` returns either its normal value or fails with a typed error variant. The caller either pattern-matches the error with `!{ ... }` or propagates the failure up to an `<errorBoundary>`. Because this is all at the type level, there is no hidden "might throw" to worry about: if a function can fail, its signature says so.
+
+### 2.10 State machines
+
+An enum plus a match takes you most of the way to "one of several possible states." A state *machine* goes one step further: it declares which transitions between those states are legal, so the compiler and runtime will reject illegal ones instead of silently accepting them. scrml spells this as a top-level `< machine>` block bound to an enum type.
+
+```scrml
+// 02j — State machine. `< machine Name for EnumType>` declares the legal
+// transitions for a reactive bound to that machine. Writes that are not
+// in the rule set are rejected at runtime.
+
+<program>
+
+${
+  type OrderState:enum = { Draft, Submitted, Paid, Shipped, Delivered, Cancelled }
+
+  // The machine annotation on the reactive is what wires runtime guarding.
+  // Assignments to @order are validated against OrderMachine's rule set.
+  @order: OrderMachine = OrderState.Draft
+
+  function submit()  { @order = OrderState.Submitted }
+  function pay()     { @order = OrderState.Paid }
+  function ship()    { @order = OrderState.Shipped }
+  function deliver() { @order = OrderState.Delivered }
+  function cancel()  { @order = OrderState.Cancelled }
+}
+
+< machine OrderMachine for OrderState>
+  .Draft     => .Submitted | .Cancelled
+  .Submitted => .Paid | .Cancelled
+  .Paid      => .Shipped | .Cancelled
+  .Shipped   => .Delivered
+</>
+
+<div>
+  <p>Order: <b>${@order}</b></p>
+  <button onclick=submit()>Submit</button>
+  <button onclick=pay()>Pay</button>
+  <button onclick=ship()>Ship</button>
+  <button onclick=deliver()>Deliver</button>
+  <button onclick=cancel()>Cancel</button>
+</div>
+
+</program>
+```
+
+Two pieces wire the machine to a reactive. The enum (`OrderState`) lists the states. The `< machine OrderMachine for OrderState>` block lists the legal transitions — each rule has a *from* variant on the left and one or more *to* variants on the right, separated by `=>`. The `|` alternation on the right lets a single from-state fan out to several legal destinations. Finally, the reactive's type annotation (`@order: OrderMachine`) is what binds the two together: writes to `@order` go through the machine guard instead of the default setter.
+
+Try the example. `.Draft → .Paid` will be rejected at runtime — it is not in the rule set. `.Draft → .Submitted` succeeds. The rules themselves are also enforced by the type system: misspelling a variant (`.Draftt => .Submitted`) is a compile-time E-MACHINE-004, not a silent wrong-path at runtime.
+
+**Why machines over plain enum state?** Three wins over raw `@state = Status.X` writes. First, the compiler tells you exactly what the legal transitions are, in one block, where you'd otherwise have to hunt through every write site to reason about state flow. Second, the runtime guards against a whole class of sequencing bugs (the cancelled order that somehow gets shipped, the draft post that appears published without going through review). Third, once the machine exists, it is the single source of truth for "what are the next legal actions?", which is often exactly what the UI wants to ask ("which buttons should be enabled right now?").
+
+**Payload variants in transitions (§1b).** If the enum has payload variants, machine rules can bind the payload with a guard. A `.Charging(n) => .Firing given (n > 50)` rule reads as "from Charging(n) to Firing, provided n > 50." The `given` clause is a boolean expression over the bound payload fields. Unguarded siblings after a guarded rule act as the fallback. This is how you write "you can only fire if the power bank is more than half full, otherwise you fall back to discharged."
+
+**Derived machines — one enum projected onto another (§51.9).** Sometimes the natural thing is not a new machine but a *read-only view* of an existing one. A pipeline state might drive a UI mode (editable / read-only / terminal); an auth state might drive a permissions enum. Write this as a `derived from` machine:
+
+```scrml
+// 02l — Derived (projection) machine. A derived machine projects one enum
+// onto another at read time. Writes to the projected reactive are rejected
+// at compile time (E-MACHINE-017) — the projection is read-only and
+// auto-updates whenever the source changes.
+
+<program>
+
+${
+  type OrderState:enum = { Draft, Submitted, Paid, Shipped, Delivered, Cancelled }
+  type UIMode:enum     = { Editable, ReadOnly, Terminal }
+
+  @order: OrderMachine = OrderState.Draft
+}
+
+< machine OrderMachine for OrderState>
+  .Draft     => .Submitted | .Cancelled
+  .Submitted => .Paid | .Cancelled
+  .Paid      => .Shipped | .Cancelled
+  .Shipped   => .Delivered
+</>
+
+< machine UI for UIMode derived from @order>
+  .Draft                             => .Editable
+  .Submitted | .Paid | .Shipped      => .ReadOnly
+  .Delivered | .Cancelled            => .Terminal
+</>
+
+<p>Mode: <b>${@ui}</b></p>
+
+</program>
+```
+
+The derived machine `UI` projects the source `@order` into `UIMode` variants. The projected reactive's name is derived from the machine name with the leading uppercase run lowercased — `UI` → `@ui`, `OrderStatus` → `@orderStatus`. You never declare `@ui` directly; the compiler materializes it for you, and writes to it are rejected at compile time (`E-MACHINE-017` — "projected variables are read-only"). Whenever `@order` changes, the runtime marks `@ui` dirty and re-evaluates on the next read; the markup interpolation `${@ui}` re-renders automatically.
+
+**When to reach for each.** A plain enum plus match is enough when the state is small and every write site is obviously in the same few functions. Add a `< machine>` once the transition story matters — to document legal paths, to gate invalid ones, or to ask "what's next from here?" programmatically. Add a `derived` machine once the UI (or any other downstream reactive) has a derivable view of a state machine's output: it is cheaper than a manual `const @` derivation, and it gives you a single named enum type to match on in the UI instead of a chain of conditions over the source.
+
+The snippets `02j-machine.scrml`, `02k-payload-variants.scrml`, and `02l-derived-machine.scrml` in `docs/tutorial-snippets/` are the working programs for this section. Compile them and flip states through the buttons to see the runtime guarding and the derived projection in action.
 
 ### Checkpoint
 
@@ -1212,7 +1319,7 @@ Use cases for `^{ ... }`: generating a color palette from a design token file; b
 
 The data you iterate over inside `^{ ... }` has to be available at compile time. A literal array as in the example works. Reading a JSON file at compile time through `import` works. Reading a runtime value (a `@var`, or a server function's return) does *not* work — those do not exist yet when the compiler runs. If you need runtime iteration, reach for `for`/`lift` inside `${ ... }` (Section 2.1), which runs in the browser.
 
-> **Note on match syntax:** this is the appendix note flagged back in 2.4. The current `SPEC.md` §18.2 lists `=>` as the canonical match arm separator; this tutorial uses `:>` because it reads distinctly from arrow functions. The compiler accepts `:>`, `=>`, and `->` — any of the three compiles to the same thing. Pick one and stick with it inside a single program.
+> **Note on match syntax:** `=>` is canonical per `SPEC.md` §18.2, `->` is an accepted alias, and `:>` still compiles today but is not the style to teach. This tutorial and the in-repo examples use `=>`.
 
 ### 4.2 Reflecting types at compile time
 
@@ -1501,8 +1608,10 @@ A fast reference for the keywords and sigils you met in this tutorial. Each line
 - `#{ ... }` — scoped CSS, rewritten per-program. Section 1.6.
 - `for (...) { lift <li>...</li> }` — iteration in markup via `for` + `lift`. Section 2.1.
 - `type Name:struct = { ... }` — structural record type. Section 2.2.
-- `type Name:enum = { .A .B(n: number) ... }` — tagged sum type. Section 2.3.
-- `match (expr) { .A :> {...} .B n :> {...} }` — exhaustive destructuring. Section 2.4.
+- `type Name:enum = { A, B(n: number), ... }` — tagged sum type. Section 2.3.
+- `match expr { .A => {...} .B(n) => {...} }` — exhaustive destructuring with positional payload binding. Section 2.4.
+- `< machine Name for EnumType>` / `@var: Name = EnumType.First` — machine-governed reactive state. Section 2.10.
+- `< machine P for ProjEnum derived from @source>` — projected read-only reactive. Section 2.10.
 - `if=expr` / `show=expr` — mount vs. toggle-visibility. Section 2.5.
 - `const Name = <...>` — component declaration as a const expression. Section 2.6.
 - `${children}` — the caller's positional children inside a component body. Section 2.6.
@@ -1531,7 +1640,7 @@ If you spot a sigil in someone else's scrml code that is not in this list, the a
 ## Footnotes and hazards
 
 - `lin` (linear type) was sketched in early drafts of scrml as a Rust-style affine type. The concept is **queued for redesign**; the current implementation does not match the intended semantics. Do not teach, use, or rely on `lin` until the redesign lands.
-- This tutorial teaches `:>` as the match arm separator. `SPEC.md` §18.2 currently lists `=>` as canonical; `=>` and `->` also compile. Expect the spec and the tutorial to converge on a single form in a near-term revision.
+- Match arm separator is `=>` (canonical per `SPEC.md` §18.2). `->` is an accepted alias; `:>` still compiles but is deprecated and should not appear in new code.
 - Derived values use `const @name = expression`. The form `~name = expression` is **not supported** — if you see it in older material, treat it as an early sketch and translate to `const @`.
 - Database access uses a **nested `<db src="...">` block**, not a `db=` attribute on `<program>`. The attribute form does not compile.
 

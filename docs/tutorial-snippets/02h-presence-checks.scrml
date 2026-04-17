@@ -9,9 +9,9 @@ ${
 }
 
 <div>
-  <p if=(@user is not not)>User is present.</p>
-  <p if=(@email is some)>Email is provided.</p>
-  <p if=(not @loggedIn)>Please sign in.</p>
+  <p if=(@user is not not)>User is present: ${@user.name}</p>
+  <p if=(@email is some)>Email: ${@email}</p>
+  <p if=(not @loggedIn)>Please sign in. (@loggedIn = ${@loggedIn})</p>
 </div>
 
 </program>

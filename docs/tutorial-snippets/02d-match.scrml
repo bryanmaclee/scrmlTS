@@ -4,18 +4,18 @@
 
 ${
   type Status:enum = {
-    .Todo
-    .InProgress
-    .Done
+    Todo
+    InProgress
+    Done
   }
 
-  @status = Status.InProgress
+  @status: Status = Status.InProgress
 
   function advance() {
-    match (@status) {
-      .Todo       :> { @status = Status.InProgress }
-      .InProgress :> { @status = Status.Done }
-      .Done       :> { @status = Status.Todo }
+    match @status {
+      .Todo       => { @status = Status.InProgress }
+      .InProgress => { @status = Status.Done }
+      .Done       => { @status = Status.Todo }
     }
   }
 }
@@ -23,10 +23,10 @@ ${
 <div>
   <p>
     ${
-      match (@status) {
-        .Todo       :> { lift "[ ] Todo" }
-        .InProgress :> { lift "[~] In progress" }
-        .Done       :> { lift "[x] Done" }
+      match @status {
+        .Todo       => { lift "[ ] Todo" }
+        .InProgress => { lift "[~] In progress" }
+        .Done       => { lift "[x] Done" }
       }
     }
   </p>
