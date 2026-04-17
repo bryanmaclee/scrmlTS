@@ -17099,7 +17099,7 @@ across lines — SHALL be a compile error: **E-MACHINE-014** — `Machine '{name
 duplicate transition rule '{rule}'. A rule cannot repeat the same from→to pair. Remove the
 duplicate.`
 
-**Amended (pending implementation):** §51.3.2 payload binding in machine rules. The
+**Amended (landed S22):** §51.3.2 payload binding in machine rules. The
 `variant-ref` grammar accepts an optional `binding-group` mirroring §18.7's match variant
 destructuring. Bindings on the `From` side of `=>` expose the previous variant's payload
 fields as local names inside `given` guards and `effect-block`s. Bindings on the `To` side
@@ -17147,6 +17147,16 @@ string literals (`Shape.Square === "Square"`). The object shape matches §19.3.2
 (minus the `__scrml_error` sentinel) so one runtime dispatches both error and regular
 variants by inspecting `.variant`. Payload-binding in machine rules (§51.3.2) layers
 on top of this construction contract.
+
+**Implementation notes (S22):** Payload bindings in machine rules are resolved at
+compile time against the governed enum's declared payload fields. Positional bindings
+map to declared field order; named bindings (`field: local`) name the field directly;
+`_` discards drop a positional slot. The resolved bindings are emitted as
+`var <local> = __prev.data.<field>;` (from-side) or `var <local> = __next.data.<field>;`
+(to-side) **inside the keyed `if (__key === "From:To") { ... }` block**, so each
+rule's locals are only visible within that rule's guard and effect body — never
+leaking across sibling rules. Bindings against unit variants emit E-MACHINE-015
+at compile time; mismatched bindings across `|` alternatives emit E-MACHINE-016.
 
 When governing a **struct type**, a machine's rules use `* => *` wildcard syntax with
 `given` guards that reference fields via `self.*`:

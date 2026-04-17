@@ -19,12 +19,21 @@
 // §51.5.2 — Transition Lookup Table
 // ---------------------------------------------------------------------------
 
+interface RuleBinding {
+  localName: string;
+  fieldName: string;
+}
+
 interface TransitionRule {
   from: string;
   to: string;
   guard: string | null;
   label: string | null;
   effectBody: string | null;
+  // §51.3.2 (S22) — payload bindings resolved against the governed enum.
+  // null when the rule had no binding-group on that side.
+  fromBindings?: RuleBinding[] | null;
+  toBindings?: RuleBinding[] | null;
 }
 
 /**
@@ -88,6 +97,26 @@ export function emitTransitionTable(tableName: string, rules: TransitionRule[]):
  * @param guardRules — rules that have guards (for runtime guard evaluation)
  * @returns lines of JS code
  */
+/**
+ * §51.3.2 (S22) — Build the destructuring statements for a rule's from-/to-
+ * bindings. Emits `var <local> = __prev.data.<field>;` for from-bindings and
+ * `var <local> = __next.data.<field>;` for to-bindings. Uses `var` rather
+ * than `let` so the declarations function-hoist within the IIFE and stay
+ * visible to the guard and effect bodies that follow.
+ *
+ * Exported for the gauntlet-s22 tests that assert on the emitted shape.
+ */
+export function buildBindingPreludeStmts(rule: TransitionRule): string[] {
+  const out: string[] = [];
+  for (const b of rule.fromBindings ?? []) {
+    out.push(`var ${b.localName} = __prev != null && __prev.data != null ? __prev.data.${b.fieldName} : undefined;`);
+  }
+  for (const b of rule.toBindings ?? []) {
+    out.push(`var ${b.localName} = __next != null && __next.data != null ? __next.data.${b.fieldName} : undefined;`);
+  }
+  return out;
+}
+
 export function emitTransitionGuard(
   encodedVarName: string,
   newValueExpr: string,
@@ -110,16 +139,36 @@ export function emitTransitionGuard(
   lines.push(`    throw new Error("E-MACHINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${machineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
   lines.push(`  }`);
 
-  // Guard evaluation
+  // §51.3.2 (S22) — payload-binding prelude. Before guard and effect bodies,
+  // destructure `.data.<field>` for each from-/to-binding into a locally scoped
+  // block. Each rule with bindings gets its own keyed guard so the vars are
+  // only exposed when the (from → to) transition matches.
+  const rulesWithBindings = guardRules.filter(r =>
+    (r.fromBindings && r.fromBindings.length > 0) ||
+    (r.toBindings && r.toBindings.length > 0)
+  );
+
+  // Guard evaluation (+ binding prelude when applicable)
   if (guardRules.length > 0) {
     lines.push(`  // Guard evaluation`);
     for (const rule of guardRules) {
       if (!rule.guard) continue;
       const guardKey = `${rule.from}:${rule.to}`;
       const label = rule.label ? ` [${rule.label}]` : "";
-      lines.push(`  if (__key === "${guardKey}" && !(${rule.guard})) {`);
-      lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${rule.guard.replace(/"/g, '\\"')}");`);
-      lines.push(`  }`);
+      const prelude = buildBindingPreludeStmts(rule);
+      if (prelude.length > 0) {
+        // Open a keyed block, declare bindings, then evaluate the guard.
+        lines.push(`  if (__key === "${guardKey}") {`);
+        for (const p of prelude) lines.push(`    ${p}`);
+        lines.push(`    if (!(${rule.guard})) {`);
+        lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${rule.guard.replace(/"/g, '\\"')}");`);
+        lines.push(`    }`);
+        lines.push(`  }`);
+      } else {
+        lines.push(`  if (__key === "${guardKey}" && !(${rule.guard})) {`);
+        lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${rule.guard.replace(/"/g, '\\"')}");`);
+        lines.push(`  }`);
+      }
     }
   }
 
@@ -132,12 +181,25 @@ export function emitTransitionGuard(
     for (const rule of effectRules) {
       if (!rule.effectBody) continue;
       const effectKey = `${rule.from}:${rule.to}`;
+      const prelude = buildBindingPreludeStmts(rule);
       lines.push(`  if (__key === "${effectKey}") {`);
       lines.push(`    var event = { from: __prev, to: __next };`);
+      for (const p of prelude) lines.push(`    ${p}`);
       lines.push(`    ${rule.effectBody}`);
       lines.push(`  }`);
     }
   }
+
+  // Rules with bindings but no guard or effect (e.g. reserved for future inline
+  // assertions) still need the bindings compile-time-visible, so we emit a
+  // keyed block that only contains the destructuring. This is intentional
+  // dead code at runtime but keeps the declarative surface consistent — the
+  // spec says "bindings expose ... locals inside guard and effect-block",
+  // which implies they are scoped to those constructs. When neither exists,
+  // there is nothing for the bindings to be visible inside, so we skip the
+  // emission entirely.
+  // (No emission needed — left as a comment for future reviewers.)
+  void rulesWithBindings;
 
   lines.push(`})();`);
 

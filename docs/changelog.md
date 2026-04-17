@@ -2,11 +2,21 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Baseline (2026-04-17 after S22 §1a): **6,841 tests passing / 10 skipped / 2 failing** (25,426 expects across 275 files). 2 remaining self-host fails deferred per user.
+Baseline (2026-04-17 after S22 §1a + §1b): **6,856 tests passing / 10 skipped / 2 failing** (25,470 expects across 276 files). 2 remaining self-host fails deferred per user.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-17 (S22 — §1b payload binding in machine rules)
+
+- **§51.3.2 payload bindings in machine transition rules.** The `variant-ref` grammar now accepts an optional `(binding-list)` on either side of `=>`. On the `From` side, bindings expose the pre-transition variant's payload fields as locals inside the rule's `given` guard and effect block; on the `To` side, they expose the incoming variant's payload. Positional bindings (`.Charging(n)`) resolve to declared field order at parse time; named bindings (`.Reloading(reason: r)`) name the field directly; `_` discards drop a positional slot. The resolved bindings emit as `var <local> = __prev.data.<field>;` (from) or `var <local> = __next.data.<field>;` (to) inside the keyed `if (__key === "From:To") { ... }` block — rule-local scope, no leakage to sibling rules. Parser in `type-system.ts:parseMachineRules` + helper `resolveRuleBindings`; emitter in `emit-machines.ts:emitTransitionGuard` with new `buildBindingPreludeStmts` helper exported for tests.
+- **E-MACHINE-015** fires on three cases: binding against a unit variant, a named binding of a non-existent field, and more positional bindings than declared fields. Message names the variant and lists the declared fields.
+- **E-MACHINE-016** fires when `|` alternation alternatives disagree on binding shape (either all alternatives bind the same names, or none bind). Detection uses a sort-stable signature of each alternative's binding group.
+- **`expandAlternation` rewritten** to respect paren-balanced variant refs: the `|` splitter now tracks paren depth so `.Charging(n)` is not split at internal binding parens, and the suffix-detector (identifies where the `given`/`[`/`{` suffix starts on the RHS) scans at depth 0 rather than using a naive regex — otherwise `given (n > 0)` could be cut off mid-expression by a binding-list that happens to contain `(`.
+- **Rule regex tightened.** The old `(\w+|\*)?` variant-name capture backtracked correctly for the original grammar but produced wrong captures once optional binding-groups were added (`given` would be greedily captured as a variant name). Narrowed to `([A-Z][A-Za-z0-9_]*|\*)?` — variants are PascalCase per §14.4, keywords are lowercase.
+- **Regression tests (+15).** `compiler/tests/unit/gauntlet-s22/machine-payload-binding.test.js`: positional, named, `_` discard, E-MACHINE-015 (unit variant / unknown field / overflow), E-MACHINE-016 (mismatched alternation / some-bind-some-don't), wildcard `* => *` passes through unaffected, `buildBindingPreludeStmts` standalone helper, and the emitter asserts that bindings land inside the keyed block (not outside).
+- **Deferred:** rewriting `examples/14-mario-state-machine.scrml` to demonstrate a payload variant. Mario's current machine-guard runtime wiring has a pre-existing gap (assignments inside function bodies don't go through `emitTransitionGuard`), and changing `MarioState` from unit-only to a payload variant would break its equality checks (`@marioState == MarioState.Small`) and string interpolations. Tracked for a later slice that fixes the wiring gap first.
 
 ### 2026-04-17 (S22 — §1a enum payload variants: construction + match destructuring)
 

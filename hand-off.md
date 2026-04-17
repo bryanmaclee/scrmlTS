@@ -7,6 +7,43 @@
 
 ---
 
+## §1b — payload binding in machine rules (LANDED)
+
+- `type-system.ts` — extended `TransitionRule` with `fromBindings` / `toBindings`, both
+  `RuleBinding[] | null`. Added `resolveRuleBindings` which validates against the governed
+  enum's payload fields and raises E-MACHINE-015 on three cases (unit variant, unknown
+  field, positional overflow).
+- `type-system.ts:expandAlternation` rewritten to track paren depth when splitting `|` and
+  detecting the suffix start (so `given (n > 0)` in a binding-free line isn't cut off by a
+  binding-bearing sibling alternative). Parity check across alternatives emits E-MACHINE-016.
+- `type-system.ts` rule regex tightened from `(\w+|\*)?` to `([A-Z][A-Za-z0-9_]*|\*)?`. The
+  old shape backtracked correctly without bindings but greedily captured keywords (`given`)
+  as variant names once the optional `(binding-list)` group was added. PascalCase constraint
+  matches §14.4 and excludes lowercase keywords from the variant-name slot.
+- `emit-machines.ts` — added `buildBindingPreludeStmts(rule)` (exported for testing). The
+  `emitTransitionGuard` function now emits `var <local> = __prev.data.<field>;` /
+  `var <local> = __next.data.<field>;` inside the keyed `if (__key === "From:To") { ... }`
+  block for both the guard and effect paths. When a rule has no bindings, the legacy
+  single-line guard form is preserved (no binding prelude needed).
+- 15 new unit tests in `compiler/tests/unit/gauntlet-s22/machine-payload-binding.test.js`
+  covering the parser (positional, named, discard), error codes (E-MACHINE-015 three
+  flavors, E-MACHINE-016 two flavors), wildcard passthrough, the emitter prelude shape +
+  keyed-block scoping, and the standalone helper.
+- SPEC §51.3.2 flipped from `pending implementation` → `landed S22`; added implementation
+  notes about per-rule scoping of bindings and error-code coverage.
+- Baseline: **6,856 pass / 10 skip / 2 fail** (25,470 expects, 276 files) — +15 from §1b
+  tests, no regressions. The 2 fails are still the pre-existing self-host parity ones.
+- **Deferred, NOT in this slice:** rewriting `examples/14-mario-state-machine.scrml` to
+  showcase a payload variant. The current machine-guard runtime wiring has a pre-existing
+  gap — `@var = X` inside function bodies does not go through `emitTransitionGuard`, so
+  guards don't fire from function assignments even in today's Mario. Switching `MarioState`
+  from unit-only to a payload variant would break its equality checks (`@marioState ==
+  MarioState.Small`) and string interpolations (`${@marioState}`). Tracked for a later
+  slice that fixes the assignment-guard wiring first, then updates Mario as part of that
+  change.
+
+---
+
 ## Cross-repo messages sent this session
 
 - `2026-04-17-1430-scrmlTS-to-master-push-s22-1a.md` — `needs: push` for S22 §1a landing (3 commits: `a25d812`, `1d84ab3`, `874a45d`). Dropped in `/home/bryan/scrmlMaster/handOffs/incoming/`.

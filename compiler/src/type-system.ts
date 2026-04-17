@@ -251,6 +251,17 @@ interface MachineType {
   rules: TransitionRule[];       // machine-level rules (guards permitted)
 }
 
+// §51.3.2 (S22) — Resolved payload binding in a machine rule.
+// Each entry binds a local name `localName` to the `fieldName` of the variant's
+// payload object. Discard (`_`) bindings are dropped at parse time and do not
+// appear here. Positional bindings in the source are resolved to the declared
+// field name before reaching this struct, so codegen can emit straight
+// `var <localName> = __prev.data.<fieldName>` statements.
+interface RuleBinding {
+  localName: string;
+  fieldName: string;
+}
+
 // §51.2 — Transition rule (from a type-level transitions {} block inside an enum)
 interface TransitionRule {
   from: string;         // variant name (without leading dot/::), or "*" for wildcard
@@ -258,6 +269,11 @@ interface TransitionRule {
   guard: string | null; // type-level: always null (guards → E-MACHINE-010)
   label: string | null; // optional [label] suffix
   effectBody: string | null; // raw effect block body (Phase 3B+)
+  // §51.3.2 (S22) — payload bindings resolved against the governed enum type.
+  // null when the rule had no binding-group on that side. For unit-variant
+  // wildcard rules (`* => *`), always null.
+  fromBindings: RuleBinding[] | null;
+  toBindings: RuleBinding[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,6 +1186,8 @@ function parseEnumBody(
       guard: null,   // type-level guards are not permitted (E-MACHINE-010)
       label: null,
       effectBody,
+      fromBindings: null,
+      toBindings: null,
     });
   }
 
@@ -1907,33 +1925,106 @@ function buildMachineRegistry(
  *   → `.B => .C given (g) [lbl] { eff }`
  *   → `.B => .D given (g) [lbl] { eff }`
  *
+ * §51.3.2 (S22) — payload-binding support:
+ *   `.Charging(n) | .Firing(n) => .Idle given (n > 0)` is valid (both alternatives
+ *   bind `n`). Mixed bindings (`.A(x) | .B(y)` or `.A(x) | .B`) emit E-MACHINE-016.
+ *   Alternatives with bindings against unit variants are caught by
+ *   resolveRuleBindings later with E-MACHINE-015.
+ *
  * Lines without `|` (including `* => *` and plain `.A => .B`) pass through unchanged.
  */
-function expandAlternation(line: string): string[] {
+function expandAlternation(
+  line: string,
+  machineName: string,
+  errors: TSError[],
+  span: Span,
+): string[] {
   const arrowIdx = line.indexOf("=>");
   if (arrowIdx < 0) return [line];
 
   const lhsRaw = line.slice(0, arrowIdx).trim();
   const rhsRest = line.slice(arrowIdx + 2);
 
-  // Find the end of the RHS variant portion — stops at `given`, `[`, `{`, or end.
-  // We want: ".C | .D" as the variant list; "given (...) [...] {...}" as the suffix.
-  const suffixMatch = rhsRest.match(/\s*(given\s*\(|\[|\{)/);
-  const rhsVariants = suffixMatch
-    ? rhsRest.slice(0, suffixMatch.index).trim()
-    : rhsRest.trim();
-  const suffix = suffixMatch
-    ? rhsRest.slice(suffixMatch.index).trimStart()
-    : "";
-
-  if (!lhsRaw.includes("|") && !rhsVariants.includes("|")) {
-    return [line];
+  // Find the end of the RHS variant portion — stops at `given`, `[`, or an
+  // effect-`{`. Parens from binding lists are NOT `{`; we stop at the OUTER
+  // `{` (at depth 0 w.r.t. parens).
+  //
+  // Detecting `given` is tricky when bindings contain spaces; scan rhsRest
+  // character-by-character tracking paren depth and looking for the earliest
+  // suffix start at depth 0.
+  let suffixStart = rhsRest.length;
+  {
+    let pd = 0;
+    for (let i = 0; i < rhsRest.length; i++) {
+      const ch = rhsRest[i];
+      if (ch === "(") pd++;
+      else if (ch === ")") pd--;
+      else if (pd === 0) {
+        if (ch === "[" || ch === "{") { suffixStart = i; break; }
+        if (rhsRest.slice(i, i + 5) === "given" && (i + 5 >= rhsRest.length || /\s|\(/.test(rhsRest[i + 5]))) {
+          suffixStart = i;
+          break;
+        }
+      }
+    }
   }
+  const rhsVariants = rhsRest.slice(0, suffixStart).trim();
+  const suffix = rhsRest.slice(suffixStart).trimStart();
 
-  const lhsParts = lhsRaw.split("|").map(s => s.trim()).filter(Boolean);
-  const rhsParts = rhsVariants.split("|").map(s => s.trim()).filter(Boolean);
+  // Split LHS / RHS on `|` at paren depth 0 (so `.A(x, y)` doesn't split at its
+  // internal comma — but `|` is what we care about here, and binding lists
+  // don't contain `|`, so a simpler top-level split is fine).
+  const splitTopLevelPipe = (s: string): string[] => {
+    const out: string[] = [];
+    let buf = "";
+    let pd = 0;
+    for (const ch of s) {
+      if (ch === "(") { pd++; buf += ch; continue; }
+      if (ch === ")") { pd--; buf += ch; continue; }
+      if (ch === "|" && pd === 0) {
+        if (buf.trim()) out.push(buf.trim());
+        buf = "";
+        continue;
+      }
+      buf += ch;
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out;
+  };
 
+  const lhsHasPipe = splitTopLevelPipe(lhsRaw).length > 1;
+  const rhsHasPipe = splitTopLevelPipe(rhsVariants).length > 1;
+  if (!lhsHasPipe && !rhsHasPipe) return [line];
+
+  const lhsParts = splitTopLevelPipe(lhsRaw);
+  const rhsParts = splitTopLevelPipe(rhsVariants);
   if (lhsParts.length === 0 || rhsParts.length === 0) return [line];
+
+  // §51.3.2 (S22) — E-MACHINE-016: when a side has multiple alternatives and at
+  // least one carries a binding, ALL alternatives on that side must declare an
+  // identically-named binding set. We check the raw binding text here — name
+  // resolution is tolerant of order, but the spec requires identical-name sets.
+  const checkBindingParity = (parts: string[], sideLabel: "from" | "to") => {
+    if (parts.length < 2) return;
+    const bindingSignatures = parts.map(extractBindingSignature);
+    // signatures are a sorted, comma-joined string of `local` or `field:local`
+    // tokens — empty string when no binding group. Mismatch → E-MACHINE-016.
+    const first = bindingSignatures[0];
+    for (let i = 1; i < bindingSignatures.length; i++) {
+      if (bindingSignatures[i] !== first) {
+        errors.push(new TSError(
+          "E-MACHINE-016",
+          `E-MACHINE-016: Machine '${machineName}' rule uses '|' alternation with mismatched variant ` +
+          `payload bindings on the ${sideLabel} side. Either every alternative binds the same names, or ` +
+          `none bind. Got: ${parts.join(" | ")}.`,
+          span,
+        ));
+        return;
+      }
+    }
+  };
+  checkBindingParity(lhsParts, "from");
+  checkBindingParity(rhsParts, "to");
 
   const expanded: string[] = [];
   for (const lhs of lhsParts) {
@@ -1943,6 +2034,25 @@ function expandAlternation(line: string): string[] {
     }
   }
   return expanded;
+}
+
+/**
+ * §51.3.2 (S22) helper — Extract a canonical, sort-stable signature of a
+ * binding group from a single variant-ref fragment like ".Charging(n)" or
+ * ".Firing(shot: s)". Returns `""` when no binding group is present.
+ *
+ * The signature is used only to compare two alternatives' binding shapes for
+ * E-MACHINE-016 — it does not need to match runtime semantics.
+ */
+function extractBindingSignature(variantRef: string): string {
+  const parenIdx = variantRef.indexOf("(");
+  if (parenIdx === -1) return "";
+  const closeIdx = variantRef.lastIndexOf(")");
+  if (closeIdx <= parenIdx) return "";
+  const raw = variantRef.slice(parenIdx + 1, closeIdx).trim();
+  if (!raw) return "";
+  const tokens = raw.split(",").map(s => s.replace(/\s+/g, "").trim()).filter(Boolean).sort();
+  return tokens.join(",");
 }
 
 /**
@@ -1971,7 +2081,7 @@ function parseMachineRules(
   const dedupeSet = new Set<string>();
   for (const line of rawLines) {
     if (line.startsWith("//")) { lines.push(line); continue; }
-    for (const expanded of expandAlternation(line)) {
+    for (const expanded of expandAlternation(line, machineName, errors, span)) {
       const key = expanded.replace(/\s+/g, " ").trim();
       if (dedupeSet.has(key)) {
         errors.push(new TSError(
@@ -1991,9 +2101,13 @@ function parseMachineRules(
     // Skip comment lines
     if (line.startsWith("//")) continue;
 
-    // Match: .From => .To [given (guard)] [{effect}]
+    // Match: .From[(binding-list)] => .To[(binding-list)] [given (guard)] [{effect}]
+    // Variant names must be PascalCase (per §14.4); constraining them excludes
+    // keywords like `given` so the regex doesn't greedily capture the wrong
+    // token. Binding-list is any non-paren content and must be adjacent to
+    // the variant name (no intervening whitespace).
     const ruleMatch = line.match(
-      /^(?:\.|\:\:|\*)\s*(\w+|\*)?\s*=>\s*(?:\.|\:\:|\*)\s*(\w+|\*)?\s*(?:given\s*\(([^)]*)\))?\s*(?:\[(\w+)\])?\s*(\{[\s\S]*\})?\s*$/
+      /^(?:\.|\:\:|\*)\s*([A-Z][A-Za-z0-9_]*|\*)?(?:\(([^)]*)\))?\s*=>\s*(?:\.|\:\:|\*)\s*([A-Z][A-Za-z0-9_]*|\*)?(?:\(([^)]*)\))?\s*(?:given\s*\(([^)]*)\))?\s*(?:\[(\w+)\])?\s*(\{[\s\S]*\})?\s*$/
     );
     if (!ruleMatch) {
       // Try simpler: just .X => .Y or * => .Y
@@ -2010,6 +2124,8 @@ function parseMachineRules(
           guard: null,
           label: null,
           effectBody: null,
+          fromBindings: null,
+          toBindings: null,
         });
         continue;
       }
@@ -2020,6 +2136,8 @@ function parseMachineRules(
           guard: null,
           label: null,
           effectBody: null,
+          fromBindings: null,
+          toBindings: null,
         });
         continue;
       }
@@ -2034,6 +2152,8 @@ function parseMachineRules(
           guard: structWildcard[1].trim(),
           label: structWildcard[2] || null,
           effectBody: null,
+          fromBindings: null,
+          toBindings: null,
         });
         continue;
       }
@@ -2041,10 +2161,12 @@ function parseMachineRules(
     }
 
     const from = ruleMatch[1] || "*";
-    const to = ruleMatch[2] || "*";
-    const guard = ruleMatch[3] ? ruleMatch[3].trim() : null;
-    const label = ruleMatch[4] || null;
-    const effectBody = ruleMatch[5] ? ruleMatch[5].slice(1, -1).trim() : null;
+    const fromBindingsRaw = ruleMatch[2] ?? null;
+    const to = ruleMatch[3] || "*";
+    const toBindingsRaw = ruleMatch[4] ?? null;
+    const guard = ruleMatch[5] ? ruleMatch[5].trim() : null;
+    const label = ruleMatch[6] || null;
+    const effectBody = ruleMatch[7] ? ruleMatch[7].slice(1, -1).trim() : null;
 
     // Validate variant names against governed type (for enums)
     if (govType.kind === "enum") {
@@ -2068,6 +2190,18 @@ function parseMachineRules(
       }
     }
 
+    // §51.3.2 (S22) — resolve payload bindings on either side.
+    // Validation (E-MACHINE-015: invalid field name / binding on unit variant)
+    // happens inside resolveRuleBindings. If the variant isn't a known enum
+    // variant (either `*` wildcard or already flagged E-MACHINE-004 above),
+    // bindings are treated as absent to avoid cascading errors.
+    const fromBindings = fromBindingsRaw !== null
+      ? resolveRuleBindings(fromBindingsRaw, govType, from, machineName, "from", errors, span)
+      : null;
+    const toBindings = toBindingsRaw !== null
+      ? resolveRuleBindings(toBindingsRaw, govType, to, machineName, "to", errors, span)
+      : null;
+
     // Validate self.* references for struct-governing machines
     if (govType.kind === "struct" && guard) {
       const structType = govType as StructType;
@@ -2085,10 +2219,96 @@ function parseMachineRules(
       }
     }
 
-    rules.push({ from, to, guard, label, effectBody });
+    rules.push({ from, to, guard, label, effectBody, fromBindings, toBindings });
   }
 
   return rules;
+}
+
+/**
+ * §51.3.2 (S22) — Parse the raw contents of a machine-rule binding-list and
+ * resolve it against the declared payload fields of the target variant.
+ *
+ *   raw="l"          variantName="Charging"  — positional, binds .data.level
+ *   raw="level: l"   variantName="Charging"  — named, binds .data.level
+ *   raw="_, h"       variantName="Rect"      — discard first, bind second
+ *
+ * Emits E-MACHINE-015 if:
+ *   - the target variant is a unit variant (has no payload at all)
+ *   - a named field doesn't exist on the variant
+ *   - a positional binding runs past the variant's field list
+ *
+ * Returns `[]` for a binding-list with only discards (valid, but nothing to emit).
+ * Returns `null` only when the variant is unknown (wildcard or cascade-error).
+ */
+function resolveRuleBindings(
+  raw: string,
+  govType: ResolvedType,
+  variantName: string,
+  machineName: string,
+  side: "from" | "to",
+  errors: TSError[],
+  span: Span,
+): RuleBinding[] | null {
+  // Wildcard rules (`* => *`) carry no binding info. Bindings on struct-
+  // governing machines are not part of the §51.3.2 amendment.
+  if (variantName === "*") return null;
+  if (govType.kind !== "enum") return null;
+
+  const enumType = govType as EnumType;
+  const variant = enumType.variants.find(v => v.name === variantName);
+  if (!variant) return null;
+
+  // Binding on a unit variant — the variant has no payload to destructure.
+  if (variant.payload == null) {
+    errors.push(new TSError(
+      "E-MACHINE-015",
+      `E-MACHINE-015: Machine '${machineName}' rule binds payload on '.${variantName}' ` +
+      `(${side}), but '.${variantName}' is a unit variant with no payload. Remove the binding-group, ` +
+      `or declare payload fields on '.${variantName}'.`,
+      span,
+    ));
+    return null;
+  }
+
+  const declaredFields = Array.from(variant.payload.keys());
+  const out: RuleBinding[] = [];
+  const parts = raw.split(",").map(s => s.trim()).filter(s => s.length > 0);
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const colonIdx = part.indexOf(":");
+    if (colonIdx !== -1) {
+      // Named: `field: local`
+      const fieldName = part.slice(0, colonIdx).trim();
+      const localName = part.slice(colonIdx + 1).trim();
+      if (!variant.payload.has(fieldName)) {
+        errors.push(new TSError(
+          "E-MACHINE-015",
+          `E-MACHINE-015: Machine '${machineName}' rule for '.${variantName}' binds field ` +
+          `'${fieldName}' which is not a field of the variant. Declared fields: ${declaredFields.join(", ")}.`,
+          span,
+        ));
+        continue;
+      }
+      if (localName === "_") continue; // discard — valid, but no runtime binding needed
+      out.push({ localName, fieldName });
+    } else {
+      // Positional: bare ident, or `_` discard
+      if (part === "_") continue;
+      if (i >= declaredFields.length) {
+        errors.push(new TSError(
+          "E-MACHINE-015",
+          `E-MACHINE-015: Machine '${machineName}' rule for '.${variantName}' has more positional ` +
+          `bindings (${parts.length}) than the variant has fields (${declaredFields.length}: ${declaredFields.join(", ")}).`,
+          span,
+        ));
+        continue;
+      }
+      out.push({ localName: part, fieldName: declaredFields[i] });
+    }
+  }
+  return out;
 }
 
 /**
