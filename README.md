@@ -58,7 +58,7 @@ scrml compile hello.scrml -o dist/
 
 **State is first-class.** State in scrml is named, typed, and instantiable. A `< Card>` declares a state type; `<Card>` instantiates one. HTML elements like `<input>` and `<program>` are pre-defined state types — the language has no conceptual gap between user-defined state and built-in state. Because state lives in the type system, it flows through `match`, `fn` signatures, the server/client boundary, and the database schema — all statically checked.
 
-**Mutability contracts.** A `<machine>` declares an enum type's legal transitions — `.Locked => .Unlocked`, `.Unlocked => .Locked` — and the compiler rejects any assignment that skips a step. Because the full lifecycle is declared, a `fn` can trigger a transition and read before/after state while remaining provably pure: the machine's transition set fully constrains the effect. Mutation becomes a closed, inspectable contract instead of an open bag of assignments.
+**Mutability contracts.** Any mutable variable can carry a compile-time contract about what it's allowed to be. Value predicates (`@price: number(>0 && <10000)`) constrain every write. Presence lifecycle (`not`, `is some`, `is not`, `lin`) gates reads until a value exists and ensures exact-once consumption. State transitions (`< machine>`) declare an enum's legal moves — `.Locked => .Unlocked` — and reject assignments that skip a step. Layer these as you need them; leave them off where you don't. When you do declare a contract, a `fn` can mutate through it while remaining provably pure.
 
 **Full-stack in one file.** Markup, logic, styles, SQL, server functions, error handling, tests — everything lives in `.scrml`. The compiler analyzes your code and splits it across server and client automatically. No API layer to maintain, no route files to keep in sync.
 
@@ -190,7 +190,7 @@ scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows
 - **Derived values (`~var`)** — tilde-prefixed variables recompute when their dependencies change. The compiler tracks the dependency graph.
 - **Two-way binding (`bind:value`)** — keep form inputs and reactive variables in sync without boilerplate.
 - **Absence value (`not`)** — a unified null/undefined replacement. `@result = not` means "no value yet." Check presence with `is some`, absence with `is not`. The compiler catches `== not` misuse at compile time (use `is not` instead).
-- **Mutability contracts** — `server @var` pins state server-side. `protect` hides fields from the client. The compiler enforces these at compile time, not runtime.
+- **Server/client state** — `server @var` pins state server-side so it never reaches the browser. `protect` hides fields from the client on struct types. Both are enforced at compile time.
 
 ### Linear Types
 
