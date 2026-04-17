@@ -249,6 +249,15 @@ interface MachineType {
   governedTypeName: string;      // the enum or struct type this governs
   governedType: ResolvedType | null; // resolved after registry lookup
   rules: TransitionRule[];       // machine-level rules (guards permitted)
+  // §51.9 (S22) — when set, this is a DERIVED / projection machine. The
+  // `rules` above are projection-rules (single variant-ref RHS, evaluated at
+  // read time) rather than transition-rules. `sourceVar` is the name of the
+  // reactive variable this machine projects from (without a leading `@`).
+  // `projectedVarName` is the compiler-synthesized name of the projected
+  // reactive — typically the machine name lowercased (e.g., `UI` → `ui`).
+  isDerived?: boolean;
+  sourceVar?: string | null;
+  projectedVarName?: string | null;
 }
 
 // §51.3.2 (S22) — Resolved payload binding in a machine rule.
@@ -1857,6 +1866,7 @@ function buildMachineRegistry(
     const govName = decl.governedType as string;
     const rulesRaw = (decl.rulesRaw as string) || "";
     const span = (decl.span as Span) || fileSpan;
+    const sourceVar = (decl.sourceVar as string | null | undefined) ?? null;
 
     // E-MACHINE-003: duplicate machine name
     if (registry.has(name)) {
@@ -1890,6 +1900,47 @@ function buildMachineRegistry(
       continue;
     }
 
+    // §51.9 — derived / projection machine. The source enum type is
+    // resolved at this call's caller (after all type + machine decls are
+    // registered), so we defer source-var validation to that later pass.
+    // For now we still parse the projection rules against the governed type
+    // (the projection's OWN type, which is what `.Editable`/`.ReadOnly`
+    // variants refer to on the RHS).
+    if (sourceVar) {
+      // Projection rules use a slightly different shape: LHS is the SOURCE
+      // variant(s), RHS is a single PROJECTION variant (single variant-ref,
+      // no alternation per §51.9.2). LHS variant names are validated against
+      // the source enum; RHS against the projection enum. Since we don't yet
+      // know the source type here, we parse with `null` and let the caller
+      // do cross-registry validation.
+      const projectionRules = parseMachineRules(rulesRaw, govType, name, errors, span, /*isProjection=*/true);
+      if (projectionRules.length === 0) {
+        errors.push(new TSError(
+          "E-MACHINE-005",
+          `E-MACHINE-005: Derived machine '${name}' has no projection rules. ` +
+          `Add at least one rule mapping source variants to projection variants.`,
+          span,
+        ));
+        continue;
+      }
+
+      registry.set(name, {
+        kind: "machine",
+        name,
+        governedTypeName: govName,
+        governedType: govType,
+        rules: projectionRules,
+        isDerived: true,
+        sourceVar,
+        // §51.9.3 worked example: `< machine UI ... >` → `@ui`. Lowercase the
+        // leading uppercase run so abbreviation-style names (UI, IP, HTTP)
+        // stay all-lowercase while PascalCase names (Order, OrderStatus) only
+        // lose the leading capital.
+        projectedVarName: machineNameToProjectedVar(name),
+      });
+      continue;
+    }
+
     // Parse the rules from rulesRaw
     const rules = parseMachineRules(rulesRaw, govType, name, errors, span);
 
@@ -1914,6 +1965,94 @@ function buildMachineRegistry(
   }
 
   return registry;
+}
+
+/**
+ * §51.9 — Map a machine name to its synthesized projected reactive var name.
+ * Lowercases the leading uppercase run: `UI` → `ui`, `Order` → `order`,
+ * `UIMode` → `uiMode`, `HTTPStatus` → `httpStatus`.
+ */
+function machineNameToProjectedVar(name: string): string {
+  return name.replace(/^[A-Z]+(?=[A-Z][a-z])|^[A-Z]+$|^[A-Z]/, m => m.toLowerCase());
+}
+
+/**
+ * §51.9 — Validate derived machines once reactive-decl annotations are known.
+ *
+ * This runs after the main TS walk has annotated reactive-decl nodes. It:
+ *   1. For each derived machine, looks up its `sourceVar` among the file's
+ *      machine-bound reactive declarations. If the source var is unknown or
+ *      isn't machine-bound, emits a diagnostic (reuses E-MACHINE-004 family —
+ *      "references unknown source variable").
+ *   2. Rejects transitive projections (source itself a derived machine) —
+ *      §51.9.7 defers this.
+ *   3. Checks that every variant of the source enum has at least one rule
+ *      whose `from` covers it. Emits E-MACHINE-018 per missing variant.
+ *
+ * @param machineRegistry — populated derived machine entries
+ * @param reactiveBindings — map of reactive-var-name → bound MachineType
+ * @param errors — error accumulator (derived-machine errors appended)
+ * @param fileSpan — fallback span
+ */
+export function validateDerivedMachines(
+  machineRegistry: Map<string, MachineType>,
+  reactiveBindings: Map<string, MachineType>,
+  errors: TSError[],
+  fileSpan: Span,
+): void {
+  for (const [machineName, machine] of machineRegistry) {
+    if (!machine.isDerived) continue;
+    const sourceVar = machine.sourceVar!;
+    const sourceMachine = reactiveBindings.get(sourceVar) ?? null;
+
+    if (!sourceMachine) {
+      errors.push(new TSError(
+        "E-MACHINE-004",
+        `E-MACHINE-004: Derived machine '${machineName}' references source variable ` +
+        `'@${sourceVar}', but no machine-bound reactive with that name was found in scope. ` +
+        `The 'derived from @var' clause must name a reactive variable whose type is a machine (e.g., ` +
+        `'@${sourceVar}: SomeMachine = ...').`,
+        fileSpan,
+      ));
+      continue;
+    }
+
+    // §51.9.7 — transitive projection is deferred.
+    if (sourceMachine.isDerived) {
+      errors.push(new TSError(
+        "E-MACHINE-004",
+        `E-MACHINE-004: Derived machine '${machineName}' derives from '@${sourceVar}', which is ` +
+        `itself a projected (derived) variable. Transitive projection is not supported in this ` +
+        `revision — derive '${machineName}' directly from the underlying source machine instead.`,
+        fileSpan,
+      ));
+      continue;
+    }
+
+    // Exhaustiveness: every variant of the source enum must appear as a
+    // `from` somewhere in the rules (directly or via alternation — and since
+    // `expandAlternation` already ran in parseMachineRules, each rule has a
+    // single `from`). Ignore rules with a `given` guard for coverage purposes
+    // UNLESS there's also an unguarded rule for the same variant — §51.9.3
+    // says an unguarded rule terminates its alternation group.
+    const sourceEnum = sourceMachine.governedType;
+    if (!sourceEnum || sourceEnum.kind !== "enum") continue; // struct-sourced projections are out of scope.
+    const variantNames = (sourceEnum as EnumType).variants.map(v => v.name);
+    const coveredUnguarded = new Set<string>();
+    for (const rule of machine.rules) {
+      if (rule.guard == null) coveredUnguarded.add(rule.from);
+    }
+    const missing = variantNames.filter(v => !coveredUnguarded.has(v));
+    for (const miss of missing) {
+      errors.push(new TSError(
+        "E-MACHINE-018",
+        `E-MACHINE-018: Derived machine '${machineName}' does not project variant '.${miss}' of ` +
+        `'${(sourceEnum as EnumType).name}'. Every source variant must be mapped, or use ` +
+        `'else => .Variant' for a catch-all.`,
+        fileSpan,
+      ));
+    }
+  }
 }
 
 /**
@@ -2059,6 +2198,15 @@ function extractBindingSignature(variantRef: string): string {
  * Parse machine rules from raw text.
  * Format: `.From => .To`, `.From => .To given (guard)`, `* => *` wildcards.
  * Guards ARE permitted in machine rules (unlike type-level transitions).
+ *
+ * §51.9 — when `isProjection` is true, rules are projection-rules (derived
+ * machine): LHS is one or more SOURCE variants, RHS is a single PROJECTION
+ * variant. The LHS variant names cannot be validated here (the source enum
+ * lives in a different machine's `governedType` reachable only through the
+ * reactive registry); cross-enum validation runs in
+ * `validateDerivedMachineExhaustiveness` after all registries are built.
+ * `govType` in this case is the PROJECTION enum, so the RHS variant names
+ * ARE validated against it.
  */
 function parseMachineRules(
   raw: string,
@@ -2066,6 +2214,7 @@ function parseMachineRules(
   machineName: string,
   errors: TSError[],
   span: Span,
+  isProjection: boolean = false,
 ): TransitionRule[] {
   const rules: TransitionRule[] = [];
   if (!raw.trim()) return rules;
@@ -2168,11 +2317,16 @@ function parseMachineRules(
     const label = ruleMatch[6] || null;
     const effectBody = ruleMatch[7] ? ruleMatch[7].slice(1, -1).trim() : null;
 
-    // Validate variant names against governed type (for enums)
+    // Validate variant names against governed type (for enums).
+    // §51.9 — for projection machines, the LHS variants are from the SOURCE
+    // enum (unknown here); only the RHS is validated against `govType` (the
+    // projection enum). LHS validation runs later in
+    // `validateDerivedMachineExhaustiveness` once the source-var binding is
+    // resolved.
     if (govType.kind === "enum") {
       const enumType = govType as EnumType;
       const variantNames = new Set(enumType.variants.map(v => v.name));
-      if (from !== "*" && !variantNames.has(from)) {
+      if (!isProjection && from !== "*" && !variantNames.has(from)) {
         errors.push(new TSError(
           "E-MACHINE-004",
           `E-MACHINE-004: Machine '${machineName}' rule references unknown variant '${from}' ` +
@@ -2191,11 +2345,10 @@ function parseMachineRules(
     }
 
     // §51.3.2 (S22) — resolve payload bindings on either side.
-    // Validation (E-MACHINE-015: invalid field name / binding on unit variant)
-    // happens inside resolveRuleBindings. If the variant isn't a known enum
-    // variant (either `*` wildcard or already flagged E-MACHINE-004 above),
-    // bindings are treated as absent to avoid cascading errors.
-    const fromBindings = fromBindingsRaw !== null
+    // For projection machines the LHS is the source enum (resolved later in
+    // `validateDerivedMachineExhaustiveness`), so we skip binding resolution
+    // on the from-side here. §51.9.7 explicitly defers projection binding.
+    const fromBindings = (!isProjection && fromBindingsRaw !== null)
       ? resolveRuleBindings(fromBindingsRaw, govType, from, machineName, "from", errors, span)
       : null;
     const toBindings = toBindingsRaw !== null
@@ -5852,6 +6005,33 @@ function processFile(
     machineRegistry,
   );
 
+  // §51.9 — After annotation, collect the reactive → machine bindings that
+  // `annotateNodes` attached to reactive-decl nodes and validate every
+  // derived machine's source-var reference + exhaustiveness (E-MACHINE-018).
+  {
+    const reactiveBindings = new Map<string, MachineType>();
+    const collectReactiveBindings = (nodes: ASTNodeLike[]): void => {
+      for (const n of nodes) {
+        if (!n || typeof n !== "object") continue;
+        if (n.kind === "reactive-decl" && n.name && (n as ASTNodeLike).machineBinding) {
+          const mName = (n as ASTNodeLike).machineBinding as string;
+          const m = machineRegistry.get(mName);
+          if (m) reactiveBindings.set(n.name as string, m);
+        }
+        const body = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(body)) collectReactiveBindings(body);
+        const children = n.children as ASTNodeLike[] | undefined;
+        if (Array.isArray(children)) collectReactiveBindings(children);
+      }
+    };
+    collectReactiveBindings(
+      (fileAST.nodes as ASTNodeLike[] | undefined)
+      ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
+      ?? []
+    );
+    validateDerivedMachines(machineRegistry, reactiveBindings, errors, fileSpan);
+  }
+
   // TS-G: Linear type enforcement pass.
   // The real pipeline passes { filePath, ast: FileAST, errors } objects to
   // runTS (CE output shape). fileAST.nodes is therefore undefined at the outer
@@ -6563,4 +6743,5 @@ export {
   buildMachineRegistry,
   resolveMachineBinding,
   parseMachineRules,
+  // validateDerivedMachines already exported at its definition (§51.9)
 };

@@ -5480,6 +5480,17 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
         // Strip trailing > or / from governedType
         governedType = governedType.replace(/[>/\s]+$/, "").trim();
 
+        // §51.9 — `< machine Name for Type derived from @SourceVar>`. The
+        // `derived from @Source` clause marks a projection machine. The source
+        // variable name is captured without the leading `@`; downstream type-
+        // system logic synthesizes the projected reactive var in scope.
+        let sourceVar = null;
+        const derivedMatch = governedType.match(/^(.*?)\s+derived\s+from\s+@([A-Za-z_$][A-Za-z0-9_$]*)\s*$/);
+        if (derivedMatch) {
+          governedType = derivedMatch[1].trim();
+          sourceVar = derivedMatch[2];
+        }
+
         // Extract rules from children (text nodes containing the rule lines)
         let rulesRaw = "";
         if (block.children && block.children.length > 0) {
@@ -5501,6 +5512,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
           machineName,
           governedType,
           rulesRaw,
+          sourceVar, // §51.9: name of the source reactive var (no `@` prefix), or null
           span,
         };
       }

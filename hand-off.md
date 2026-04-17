@@ -44,6 +44,65 @@
 
 ---
 
+## §51.9 — derived/projection machines slice 1 (parser + validator LANDED)
+
+**Scope:** parsing + type-system validation only. Runtime codegen and
+E-MACHINE-017 write-rejection are slice 2.
+
+- `ast-builder.js` buildBlock machine case — detect `derived from @SourceVar`
+  in the header (regex splits the governedType off the derived clause), add
+  `sourceVar` field to the machine-decl node (null for non-derived).
+- `type-system.ts` — extend `MachineType` with optional `isDerived`,
+  `sourceVar`, `projectedVarName`. `buildMachineRegistry` routes derived
+  decls through `parseMachineRules` with a new `isProjection=true` flag that:
+  - skips `from` variant validation (LHS is source-enum, unknown here)
+  - skips binding resolution on the from-side
+  - still validates `to` against the projection enum
+- `machineNameToProjectedVar` lowercases the leading uppercase run so `UI`
+  collapses to `ui` while `Order` keeps its casing past the first letter.
+- `validateDerivedMachines` (new, exported) runs after the annotation walk
+  once reactive-decl → machine bindings are known. It:
+  - Looks up `sourceVar` in the reactive-binding map; missing or
+    non-machine-bound → E-MACHINE-004 with a source-specific message.
+  - Rejects transitive projections (source itself derived) —
+    E-MACHINE-004, §51.9.7 defers these.
+  - Checks every source-enum variant has an UNGUARDED projection rule
+    covering it → E-MACHINE-018 per missing variant. Guarded rules alone
+    do not count as coverage (§51.9.3 says unguarded terminates the
+    alternation group, so guarded-only variants would leave undefined
+    behavior at read time).
+- `compiler/tests/unit/gauntlet-s22/derived-machines.test.js` — 9 tests
+  covering registration, LHS-not-validated-as-projection, RHS validated,
+  E-MACHINE-018, exhaustive pass, missing-source-var, transitive rejection,
+  guarded-without-unguarded-sibling.
+- SPEC §51.9 flipped from `(pending implementation)` to
+  `(parser + validator landed S22, runtime codegen pending)`. §51.9.6
+  naming rule tightened: projected var name is the machine name with
+  leading uppercase run lowercased — matches the `UI` → `@ui` example.
+- Baseline: **6,865 pass / 10 skip / 2 fail** (+9 over §1b).
+
+### Slice 2 queue (not yet landed)
+
+1. **Codegen.** `emit-machines.ts` new `emitProjection(machineName, rules)`
+   producing `function _scrml_project_<M>(src) { ... }`. Walk rules
+   top-to-bottom, match `src.variant ?? src` against each rule's `from`,
+   apply `given` guards (evaluated at read time via the closure capture of
+   file-scope reactives), return the destination variant.
+2. **Runtime registration.** At client-JS init (alongside enum emission),
+   emit `_scrml_derived_declare("ui", () => _scrml_project_UI(_scrml_reactive_get("order")));`
+   and `_scrml_derived_subscribe("ui", "order");` so dirty propagation
+   triggers downstream DOM updates.
+3. **Dep-graph rewriting.** Reads of `@ui` in expressions should already
+   work via `_scrml_reactive_get` delegating to `_scrml_derived_get` (see
+   runtime-template.js:71) — verify end-to-end with an example.
+4. **E-MACHINE-017 write rejection.** During annotation / reactive-set
+   emission, check if the target name is a projected var (look up in the
+   same map that drives projected-var synthesis); reject with message
+   naming the machine and source.
+5. **E2E example or sample.** A small demo (`@state: FetchMachine` +
+   `< machine UI for UIFlag derived from @state>`) that compiles + runs
+   in a browser — the shadow-boolean collapse from §51.9.5.
+
 ## Cross-repo messages sent this session
 
 - `2026-04-17-1430-scrmlTS-to-master-push-s22-1a.md` — `needs: push` for S22 §1a landing (3 commits: `a25d812`, `1d84ab3`, `874a45d`). Dropped in `/home/bryan/scrmlMaster/handOffs/incoming/`.

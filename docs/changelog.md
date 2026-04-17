@@ -2,11 +2,24 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Baseline (2026-04-17 after S22 §1a + §1b): **6,856 tests passing / 10 skipped / 2 failing** (25,470 expects across 276 files). 2 remaining self-host fails deferred per user.
+Baseline (2026-04-17 after S22 §1a + §1b + §51.9 slice 1): **6,865 tests passing / 10 skipped / 2 failing** (25,488 expects across 277 files). 2 remaining self-host fails deferred per user.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-17 (S22 — §51.9 slice 1: derived/projection machines — parser + validator)
+
+- **§51.9 derived machine syntax parsed.** `< machine UI for UIMode derived from @order>` — the `derived from @SourceVar` clause is now recognized by the ast-builder, captured into the machine-decl node's new `sourceVar` field, and registered as a derived machine in the type system with `{ isDerived: true, sourceVar, projectedVarName }`. The projected variable name is the machine name with its leading uppercase run lowercased (`UI` → `ui`, `OrderStatus` → `orderStatus`, `HTTPStatus` → `httpStatus`).
+- **E-MACHINE-018 exhaustiveness** validated after type annotation finishes: for every derived machine, the compiler looks up the source reactive's governed enum and confirms every variant has at least one unguarded projection rule covering it. Missing variants produce one error each, naming the variant and the source enum.
+- **Source-var resolution.** `E-MACHINE-004` fires when `derived from @order` names a reactive that doesn't exist or isn't machine-bound, and a second form of `E-MACHINE-004` rejects transitive projections (source is itself a derived machine — deferred to §51.9.7 future work).
+- **Projection RHS still validated** against the projection enum (`E-MACHINE-004` on unknown projection variants); LHS (source variants) intentionally skipped in `parseMachineRules` since the source enum isn't known at that point.
+- **SPEC §51.9.6** naming rule tightened: "named by the machine's governed TypeName" → "named by the machine name with its leading uppercase run lowercased" (matches the worked example `< machine UI ... > → @ui`).
+- **Deferred to slice 2** (this commit NOT runtime-ready):
+  - Runtime codegen — projection function (`_scrml_project_<M>`), `_scrml_derived_declare` wiring, dep-graph edges from derived vars to source. Reading `@ui` at runtime today will see `undefined` from the reactive store; compile-time exhaustiveness catches the design error but doesn't yet produce running code.
+  - **E-MACHINE-017** on writes to the projected var — user code that writes `@ui = X` is not yet rejected. Will land with codegen.
+  - Projection `given` guards at read time (rules table still records the guard expression, codegen for evaluating it at read time lives in slice 2).
+- **Regression tests (+9).** `compiler/tests/unit/gauntlet-s22/derived-machines.test.js`: registration of derived machines with correct projected var naming, LHS-not-validated-as-projection-enum, RHS validated, E-MACHINE-018 on missing variants, exhaustive passes, source-var-not-bound, transitive-projection rejected, guarded-without-unguarded-sibling.
 
 ### 2026-04-17 (S22 — §1b payload binding in machine rules)
 

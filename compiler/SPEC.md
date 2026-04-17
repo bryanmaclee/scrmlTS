@@ -17630,7 +17630,8 @@ knowledge to decode.
 
 ### 51.9 Derived / Projection Machines
 
-**Added (pending implementation):** 2026-04-17. Resolves the debate outcome in
+**Added (parser + validator landed S22, runtime codegen pending):** 2026-04-17. Resolves
+the debate outcome in
 `scrml-support/docs/deep-dives/machine-cluster-expressiveness-2026-04-17.md` Candidate (I).
 Eliminates the "shadow-boolean drift" pattern observed across gauntlet rounds R11/R13/R14,
 where developers hand-maintained `@isLoading`/`@isSuccess`/`@isError` alongside the source
@@ -17778,9 +17779,10 @@ The four shadow booleans collapse to one projection. Never-drift by construction
 - A derived-machine declaration SHALL use the form `< machine Name for TypeName derived
   from @SourceVar>`. The `derived from @SourceVar` clause SHALL name a machine-bound
   reactive variable in the current file's scope.
-- The projected variable — named by the machine's governed `TypeName` — SHALL be
-  synthesized by the compiler. The developer SHALL NOT write an explicit `@var: Name = ...`
-  declaration for a projected variable.
+- The projected variable — named by the **machine name** with its leading uppercase
+  run lowercased (`UI` → `@ui`, `OrderStatus` → `@orderStatus`, `HTTPStatus` →
+  `@httpStatus`) — SHALL be synthesized by the compiler. The developer SHALL NOT
+  write an explicit `@var: Name = ...` declaration for a projected variable.
 - Writes to a projected variable SHALL be a compile error: E-MACHINE-017.
 - The projection rules SHALL be exhaustive over the source enum's variants: E-MACHINE-018.
 - A `projection-rule` RHS SHALL be a single `variant-ref` (no alternation, no binding
