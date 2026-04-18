@@ -934,6 +934,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               if (tok.kind === "AT_IDENT" && lastPart !== "=") break;
               if (tok.kind === "IDENT" && lastPart !== "." && lastPart !== "=" && lastPart !== ":") break;
             }
+            // S25 — S22 §6 bug fix: `@name :` at depth 0 always begins a
+            // typed reactive-decl (§53). Without this guard, an untyped
+            // `@x = 1` followed by `@y: Type = expr` in the same logic
+            // block silently swallows the typed decl — collectExpr kept
+            // consuming because `@y` wasn't followed by `=`. The `:`
+            // after `@` cannot appear mid-expression at depth 0
+            // (ternary uses `?`, object keys are inside `{}` which is
+            // depth > 0).
+            const isTypedReactive = next1 && next1.kind === "PUNCT" && next1.text === ":";
+            if (isTypedReactive && tok.kind === "AT_IDENT" && lastPart !== "=") break;
           }
         }
         // BUG-ASI-NEWLINE: When at depth 0 and the current token is on a new line
