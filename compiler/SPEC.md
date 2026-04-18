@@ -18269,9 +18269,12 @@ require user `~{}` blocks to exist and does not trigger `~{}` emission.
 
 For each non-derived `< machine>` declaration with a non-empty transition
 table, the generator SHALL emit tests for the following properties. Phased
-implementation: **phase 1 covers property (a) for machines whose rules are
-all unguarded, payload-free, non-wildcard, and non-temporal.** Later phases
-extend to guards, payloads, wildcards, temporal rules, and derived machines.
+implementation: **phase 1** covers property (a) for machines whose rules
+are all unguarded, payload-free, non-wildcard, and non-temporal.
+**Phase 2** extends coverage to property (c) for every LABELED `given`
+guard and relaxes the filter to allow guarded rules in property (a).
+Remaining phases extend to payloads, wildcards, temporal rules, and
+derived machines.
 
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write
@@ -18283,6 +18286,21 @@ extend to guards, payloads, wildcards, temporal rules, and derived machines.
 - **(c) Guard coverage.** Each labeled `given` guard SHALL receive one
   passing test (guard evaluates truthy → transition succeeds) and one
   failing test (guard evaluates falsy → `E-MACHINE-001-RT` thrown).
+  Unlabeled guards SHALL cause the enclosing machine to be skipped so
+  that every guarded rule in a generated suite has a human-readable
+  identifier in its test title.
+
+  **Phase 2 harness model.** The generated tests parametrize the guard
+  result rather than evaluating the real guard expression. The passing
+  test invokes the harness with `{"From:To": true}`; the failing test
+  invokes it with `{"From:To": false}`. The harness's failure path
+  throws `E-MACHINE-001-RT: Transition guard failed`, matching the
+  message shape emitted by `emitTransitionGuard` (§51.5). This tests
+  the enforcement wiring described by property (c) — "guard falsy
+  implies rejection" — without coupling the generated test to the
+  guard expression's inputs. A later phase MAY replace the parametrized
+  model with real-expression evaluation once input synthesis for
+  arbitrary guard expressions is implemented.
 
 #### 51.13.2 Normative Statements
 

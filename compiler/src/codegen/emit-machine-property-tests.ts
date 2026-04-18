@@ -5,23 +5,31 @@
  * compiled transition guard enforces exactly what the machine's transition
  * table declares. Slogan: machine = enforced spec.
  *
- * Phase 1 (S26) covers property (a) Exclusivity for machines whose rules
- * are all:
- *   - unguarded (no `given` clause)
- *   - payload-free (no from- or to-bindings)
- *   - non-wildcard (neither `from` nor `to` is `*`)
- *   - non-temporal (no `after Ns` clause)
- *   - non-derived (not a projection machine)
+ * Phase 1 (S26) — property (a) Exclusivity.
+ *   From any reachable variant V and any variant W: declared pair succeeds,
+ *   undeclared pair throws E-MACHINE-001-RT.
  *
- * Machines whose rules use features outside phase 1 are skipped with an
- * explanatory comment so users know why.
+ * Phase 2 (S26) — property (c) Guard coverage.
+ *   Each LABELED `given` guard receives one passing test (guard truthy →
+ *   transition succeeds) and one failing test (guard falsy → throws
+ *   E-MACHINE-001-RT: Transition guard failed).
  *
- * Tests exercise the guard through the runtime helper
- * `_scrml_machine_try(varName, newValue)` — attempts the transition,
- * returns `null` on success or the thrown `Error` on failure. This lets
- * each test be an isolated expression without polluting the shared
- * reactive store between cases (the helper rolls the reactive back to
- * its pre-attempt value).
+ * Phase 2 harness model: tests don't evaluate the real guard expression.
+ * Instead, the harness takes a per-rule guardResults map and treats the
+ * supplied boolean as the guard's evaluated value. This tests the WIRING
+ * of guard enforcement (§51.13.1(c)'s normative statement) without
+ * coupling the test to the guard expression's inputs. Real-expression
+ * evaluation with automatic input synthesis is a future phase.
+ *
+ * Skipped machines (phase 2):
+ *   - unlabeled `given` guards (we can't name them stably in test titles)
+ *   - payload bindings (phase 3)
+ *   - wildcard rules (phase 4)
+ *   - temporal rules (phase 5)
+ *   - derived / projection machines (phase 6)
+ *
+ * Skipped machines are recorded as comments at the top of the generated
+ * file so users know why.
  */
 
 import { basename } from "path";
@@ -47,9 +55,11 @@ interface MachineLike {
   auditTarget?: string | null;
 }
 
-function rulesAreSimple(rules: TransitionRule[]): { ok: boolean; reason?: string } {
+// Phase 2 filter: payload/wildcard/temporal are still blocking; guards are
+// now OK, but only if every guarded rule is labeled. An unlabeled guarded
+// rule breaks the phase-2 contract (we cannot title its coverage test).
+function rulesAreInScope(rules: TransitionRule[]): { ok: boolean; reason?: string } {
   for (const r of rules) {
-    if (r.guard) return { ok: false, reason: "contains `given` guards" };
     if ((r.fromBindings && r.fromBindings.length > 0) ||
         (r.toBindings && r.toBindings.length > 0))
       return { ok: false, reason: "contains payload bindings" };
@@ -57,6 +67,8 @@ function rulesAreSimple(rules: TransitionRule[]): { ok: boolean; reason?: string
       return { ok: false, reason: "contains wildcard rules" };
     if (r.afterMs != null)
       return { ok: false, reason: "contains temporal rules (`after`)" };
+    if (r.guard && !r.label)
+      return { ok: false, reason: "contains unlabeled `given` guards (phase 2 requires a `[label]`)" };
   }
   return { ok: true };
 }
@@ -85,22 +97,33 @@ function reachableVariants(rules: TransitionRule[], initial: string): Set<string
   return reached;
 }
 
-function declaredSet(rules: TransitionRule[]): Set<string> {
-  const s = new Set<string>();
-  for (const r of rules) s.add(`${r.from}:${r.to}`);
-  return s;
+// Map each (from,to) pair to its rule. A pair may appear only once in a
+// valid machine (duplicates caught by E-MACHINE-014 upstream).
+function ruleMap(rules: TransitionRule[]): Map<string, TransitionRule> {
+  const m = new Map<string, TransitionRule>();
+  for (const r of rules) m.set(`${r.from}:${r.to}`, r);
+  return m;
 }
 
 function variantLiteral(variant: string): string {
   return `{ variant: ${JSON.stringify(variant)} }`;
 }
 
+// Harness: tryTransition(from, to, guardResults = {}).
+//   - Looks the pair up in the inlined transition table.
+//   - If no rule matches: returns Error("E-MACHINE-001-RT: Illegal transition").
+//   - If the matched rule is a guard rule (table value is `{ guard: true }`):
+//     reads guardResults[key]; if explicitly false → returns
+//     Error("E-MACHINE-001-RT: Transition guard failed").
+//     If true or omitted → succeeds.
+//   - If the matched rule is unguarded (table value is `true`): succeeds.
 function emitHarnessPrelude(machineName: string, tableName: string): string[] {
   const varName = `__autoTest_${machineName}`;
   return [
     `  // Fresh reactive var per describe — isolated from any user code.`,
     `  const VAR = ${JSON.stringify(varName)};`,
-    `  function tryTransition(from, to) {`,
+    `  function tryTransition(from, to, guardResults) {`,
+    `    guardResults = guardResults || {};`,
     `    globalThis._scrml_reactive_store = globalThis._scrml_reactive_store || {};`,
     `    globalThis._scrml_reactive_store[VAR] = from;`,
     `    try {`,
@@ -112,7 +135,13 @@ function emitHarnessPrelude(machineName: string, tableName: string): string[] {
     `        || ${tableName}[(__prev != null && __prev.variant != null ? __prev.variant : "*") + ":*"]`,
     `        || ${tableName}["*:*"];`,
     `      if (!__rule) {`,
-    `        return new Error("E-MACHINE-001-RT");`,
+    `        return new Error("E-MACHINE-001-RT: Illegal transition");`,
+    `      }`,
+    `      if (__rule && typeof __rule === "object" && __rule.guard) {`,
+    `        var __guardPass = guardResults.hasOwnProperty(__key) ? guardResults[__key] : true;`,
+    `        if (!__guardPass) {`,
+    `          return new Error("E-MACHINE-001-RT: Transition guard failed");`,
+    `        }`,
     `      }`,
     `      return null;`,
     `    } catch (e) { return e; }`,
@@ -124,16 +153,18 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
   const lines: string[] = [];
   const variants = collectVariants(m.rules);
   const reachable = initial ? reachableVariants(m.rules, initial) : new Set(variants);
-  const declared = declaredSet(m.rules);
+  const rules = ruleMap(m.rules);
 
   const tableName = `__scrml_transitions_${m.name}`;
 
-  // Inline the transition table so the generated test is self-contained.
-  // Matches the shape emitted by emit-machines.ts emitTransitionTable.
+  // Inline the transition table — match the shape emit-machines.ts uses:
+  // guarded rules get { guard: true }, unguarded get a bare true. The
+  // harness relies on this shape to know when to consult guardResults.
   lines.push(`  const ${tableName} = {`);
   const entries: string[] = [];
   for (const r of m.rules) {
-    entries.push(`    ${JSON.stringify(`${r.from}:${r.to}`)}: true`);
+    const v = r.guard ? "{ guard: true }" : "true";
+    entries.push(`    ${JSON.stringify(`${r.from}:${r.to}`)}: ${v}`);
   }
   lines.push(entries.join(",\n"));
   lines.push(`  };`);
@@ -142,27 +173,53 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
   for (const l of emitHarnessPrelude(m.name, tableName)) lines.push(l);
   lines.push(``);
 
-  // Property (a) Exclusivity — one test per (V, W) pair among reachable
-  // variants. Declared pairs must succeed (tryTransition returns null);
-  // undeclared pairs must fail (returns an Error).
+  // Property (a) Exclusivity. For every reachable V and every variant W,
+  // declared pairs (guarded or not) should succeed with guard=true;
+  // undeclared pairs should throw. Guard-rule declared pairs pass
+  // guardResults: { "V:W": true } to make the guard succeed.
   for (const v of variants) {
     if (!reachable.has(v)) continue;
     for (const w of variants) {
       const pair = `${v}:${w}`;
-      const declared_ = declared.has(pair);
-      const label = declared_
-        ? `declared .${v} => .${w} succeeds`
-        : `undeclared .${v} => .${w} rejected`;
-      lines.push(`  test(${JSON.stringify(label)}, () => {`);
-      lines.push(`    const result = tryTransition(${variantLiteral(v)}, ${variantLiteral(w)});`);
+      const rule = rules.get(pair);
+      const declared_ = rule != null;
       if (declared_) {
+        const title = rule!.guard
+          ? `declared .${v} => .${w} (guarded) succeeds when guard truthy`
+          : `declared .${v} => .${w} succeeds`;
+        lines.push(`  test(${JSON.stringify(title)}, () => {`);
+        const guardArg = rule!.guard
+          ? `, { ${JSON.stringify(pair)}: true }`
+          : "";
+        lines.push(`    const result = tryTransition(${variantLiteral(v)}, ${variantLiteral(w)}${guardArg});`);
         lines.push(`    expect(result).toBeNull();`);
+        lines.push(`  });`);
       } else {
+        const title = `undeclared .${v} => .${w} rejected`;
+        lines.push(`  test(${JSON.stringify(title)}, () => {`);
+        lines.push(`    const result = tryTransition(${variantLiteral(v)}, ${variantLiteral(w)});`);
         lines.push(`    expect(result).toBeInstanceOf(Error);`);
         lines.push(`    expect(result.message).toMatch(/E-MACHINE-001-RT/);`);
+        lines.push(`  });`);
       }
-      lines.push(`  });`);
     }
+  }
+
+  // Property (c) Guard coverage — labeled `given` guards get a passing +
+  // failing test pair. The passing test is already asserted above by the
+  // exclusivity pass (declared + guard=true → null); this block adds the
+  // failing case (declared + guard=false → Error matching "Transition
+  // guard failed") so both sides of the property are named in the output.
+  const labeledGuardRules = m.rules.filter(r => r.guard && r.label);
+  for (const r of labeledGuardRules) {
+    const pair = `${r.from}:${r.to}`;
+    const label = r.label!;
+    const failTitle = `guard [${label}] on .${r.from} => .${r.to}: rejected when guard falsy`;
+    lines.push(`  test(${JSON.stringify(failTitle)}, () => {`);
+    lines.push(`    const result = tryTransition(${variantLiteral(r.from)}, ${variantLiteral(r.to)}, { ${JSON.stringify(pair)}: false });`);
+    lines.push(`    expect(result).toBeInstanceOf(Error);`);
+    lines.push(`    expect(result.message).toMatch(/Transition guard failed/);`);
+    lines.push(`  });`);
   }
 
   return lines;
@@ -170,11 +227,6 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
 
 /**
  * Generate the machine property-test JS for a file.
- *
- * @param filePath — source .scrml path (used for describe label)
- * @param machineRegistry — Map<name, MachineLike> from fileAST
- * @param initialVariants — Map<machineName, initialVariantName> inferred from reactive-decl initializers. Machines without an initial are tested as if every variant is reachable.
- * @returns bun:test JS string or null if no machines qualify.
  */
 export function generateMachineTestJs(
   filePath: string,
@@ -197,9 +249,9 @@ export function generateMachineTestJs(
       skipNotes.push(`// Skipped ${name}: empty transition table.`);
       continue;
     }
-    const simpleCheck = rulesAreSimple(machine.rules);
-    if (!simpleCheck.ok) {
-      skipNotes.push(`// Skipped ${name}: ${simpleCheck.reason} — phase 1 only covers unguarded/payload-free/non-wildcard/non-temporal machines.`);
+    const scopeCheck = rulesAreInScope(machine.rules);
+    if (!scopeCheck.ok) {
+      skipNotes.push(`// Skipped ${name}: ${scopeCheck.reason} — see §51.13 phased implementation.`);
       continue;
     }
 
@@ -224,8 +276,6 @@ export function generateMachineTestJs(
     lines.push(``);
   }
   if (emittedBlocks.length === 0) {
-    // Only skips, no emitted blocks — surface that via an empty describe so
-    // the test runner doesn't complain about an empty suite.
     lines.push(`describe(${JSON.stringify(`[generated] ${fileName}`)}, () => {`);
     lines.push(`  test("no qualifying machines", () => { expect(true).toBe(true); });`);
     lines.push(`});`);

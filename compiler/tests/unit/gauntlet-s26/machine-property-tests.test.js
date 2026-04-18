@@ -137,7 +137,10 @@ describe("S26 §51.13 — auto-generated machine property tests", () => {
     }
   });
 
-  test("guarded machine is skipped with explanatory comment (phase 1)", () => {
+  test("unlabeled `given` guard: skipped (phase 2 requires a label)", () => {
+    // An unlabeled guard can't be named stably in a test title, so phase 2
+    // requires every guard rule to carry `[label]`. Unlabeled guards are
+    // skipped with a pointer to §51.13.
     const src = `<program>
 \${
   type Flow:enum = { Open, Closed }
@@ -154,8 +157,8 @@ describe("S26 §51.13 — auto-generated machine property tests", () => {
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     expect(machineTestJs).not.toBeNull();
     expect(machineTestJs).toContain("Skipped FlowMachine");
-    expect(machineTestJs).toContain("contains `given` guards");
-    // No declared/undeclared rows for this machine
+    expect(machineTestJs).toContain("contains unlabeled `given` guards");
+    // No describe block for this machine
     expect(machineTestJs).not.toContain("[generated] machine FlowMachine");
   });
 
