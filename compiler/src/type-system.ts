@@ -3948,7 +3948,14 @@ function annotateNodes(
         }
         const stmtBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(stmtBody)) {
+          // while-stmt body is a block scope. if-stmt is not touched here
+          // (consequent/alternate handled below) — changing if-stmt scoping
+          // is a separate concern. do-while-stmt has its own scope-pushing
+          // case further down.
+          const pushScope = n.kind === "while-stmt";
+          if (pushScope) scopeChain.push(`while:${nodeKey(n)}`);
           for (const child of stmtBody) visitNode(child);
+          if (pushScope) scopeChain.pop();
         }
         const stmtConsequent = n.consequent as ASTNodeLike[] | undefined;
         if (Array.isArray(stmtConsequent)) {
@@ -4176,10 +4183,11 @@ function annotateNodes(
         break;
       }
 
-      case "while-stmt":
       case "while-loop":
       case "do-while-stmt": {
-        if (process.env.DBG_LIN005) console.error("WHILE-STMT entered, body len:", (n.body as unknown[] | undefined)?.length, "kinds:", (n.body as ASTNodeLike[] | undefined ?? []).map(c => c.kind));
+        // `while-stmt` is handled in the combined case above with if-stmt.
+        // `do-while-stmt` has its own scope-push here; `while-loop` is a
+        // legacy kind kept for compatibility.
         scopeChain.push(`while:${nodeKey(n)}`);
         const whileBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(whileBody)) {

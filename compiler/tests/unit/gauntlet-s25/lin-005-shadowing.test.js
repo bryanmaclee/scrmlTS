@@ -193,6 +193,31 @@ describe("S25 §35 — E-LIN-005 lin shadowing", () => {
     expect(lin005).toEqual([]);
   });
 
+  test("nested while-loop let shadows outer lin → E-LIN-005", () => {
+    // S25 follow-up: while-stmt now pushes its own scope in visitNode (merged
+    // from the two duplicate cases), so E-LIN-005 fires on inner let-decls
+    // that shadow an outer lin. Before the fix, while-stmt never pushed a
+    // scope and this case went undetected.
+    const src = `<program>
+\${
+  function run() {
+    lin hkey = 1
+    let i = 0
+    while (i < 2) {
+      let hkey = i
+      console.log(hkey)
+      i = i + 1
+    }
+    console.log(hkey)
+  }
+}
+<p>ok</>
+</program>
+`;
+    const { lin005 } = compileSrc(src);
+    expect(lin005.some(e => /\bhkey\b/.test(e.message))).toBe(true);
+  });
+
   test("nested function body shadows outer lin (closure capture case) → E-LIN-005", () => {
     // The outer lin binding is marked isLin; the nested function pushes a
     // new scope at binding time. A let-decl inside the nested function with
