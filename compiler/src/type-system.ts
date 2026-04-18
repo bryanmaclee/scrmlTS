@@ -1154,11 +1154,15 @@ function parseEnumBody(
 
     let toStr = rest.trim();
 
-    // Normalize variant refs: strip leading '.' or '::'
+    // Normalize variant refs: strip leading '.' or '::', then trim any
+    // whitespace between the prefix and the variant name (e.g. `. Pending` →
+    // `Pending`). Without the trim, a user-authored space after the dot
+    // leaks into the variant-name lookup and fires E-MACHINE-004 against
+    // a valid variant.
     const normalizeRef = (ref: string): string => {
-      if (ref.startsWith("::")) return ref.slice(2);
-      if (ref.startsWith(".")) return ref.slice(1);
-      return ref;
+      if (ref.startsWith("::")) return ref.slice(2).trim();
+      if (ref.startsWith(".")) return ref.slice(1).trim();
+      return ref.trim();
     };
 
     const fromName = normalizeRef(fromStr);
