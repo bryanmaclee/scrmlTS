@@ -38,13 +38,6 @@ ${
     @lives = 3
     @gameOver = false
 
-    // The dispatcher matches on this typed reactive. The eatPowerUp function
-    // just assigns to it, then calls applyPowerUp — the type system currently
-    // drops a function-parameter's type annotation before `match` sees it, so
-    // a typed reactive is the narrowest reliable way to keep match happy while
-    // still letting each button pass its own payload value.
-    @currentPowerUp: PowerUp = PowerUp.Mushroom(0)
-
     // §6.6 derived reactives. Using `const @name = expr` (reactive-derived-decl)
     // so the names are visible to the markup's ${@marioEmoji} reads.
     const @marioEmoji = match @marioState { .Small => "🧍" .Big => "🦸" .Fire => "🔥" .Cape => "🦅" }
@@ -52,10 +45,11 @@ ${
 
     // §1a — match destructures the payload. `n` is bound to the coins field
     // of the matched variant. Each arm is a block so @coins and @marioState
-    // can both update in one step.
-    function applyPowerUp() {
+    // can both update in one step. The `powerUp: PowerUp` parameter annotation
+    // is what lets `match` see the variant set (§2c S24 fix).
+    function eatPowerUp(powerUp: PowerUp) {
         if (@gameOver) { return }
-        match @currentPowerUp {
+        match powerUp {
             .Mushroom(n) => {
                 @coins = @coins + n
                 @marioState = match @marioState {
@@ -72,11 +66,6 @@ ${
                 @marioState = MarioState.Cape
             }
         }
-    }
-
-    function eatPowerUp(powerUp) {
-        @currentPowerUp = powerUp
-        applyPowerUp()
     }
 
     function getHurt() {
@@ -96,6 +85,18 @@ ${
         @coins = 0
         @lives = 3
         @gameOver = false
+    }
+
+    // §48 — `fn` is the pure-function form. It cannot read or write reactive
+    // variables, call non-pure functions, or have observable side effects; the
+    // compiler enforces this statically. Perfect for small data transforms
+    // like turning a HealthRisk variant into its banner label. The
+    // `risk: HealthRisk` annotation narrows the match subject (see §2.4).
+    fn riskBanner(risk: HealthRisk) -> string {
+        match risk {
+            .AtRisk => "ONE HIT AND YOU LOSE A LIFE!"
+            .Safe   => "POWERED UP — YOU CAN ABSORB A HIT"
+        }
     }
 }
 
@@ -140,7 +141,7 @@ ${
             <span class="text-sm mt-3 text-yellow-400">${@marioName}</>
         </>
 
-        <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" if=(@healthMachine == HealthRisk.AtRisk && @gameOver == false)>ONE HIT AND YOU LOSE A LIFE!</>
+        <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" if=(@healthMachine == HealthRisk.AtRisk && @gameOver == false)>${riskBanner(@healthMachine)}</>
 
         <p class="text-xl text-red-500 my-6 text-center font-bold" if=(@gameOver)>GAME OVER</>
 

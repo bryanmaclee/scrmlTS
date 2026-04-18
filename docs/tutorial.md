@@ -636,7 +636,7 @@ Positional bindings (`.Success(data)`) bind against the declared field order. Na
 
 Construction mirrors this: `Shape.Circle(10)` returns a tagged object you can compare, pass around, or match on. Unit variants (no payload) are still plain strings under the hood: `Status.Todo === "Todo"`. The runtime normalizes both shapes so `match` arms dispatch uniformly.
 
-**Match subject typing.** The subject of `match` must be a typed value — enum, union, or primitive. If the compiler can only infer `asIs`, it rejects with `E-TYPE-025`. The safest way to keep a reactive's type visible is to annotate it at declaration: `@status: Status = Status.Todo`. A function parameter's type annotation does not yet carry into the body for match-narrowing (a known limitation); until that is fixed, route through a typed reactive or use a file-scope `let`.
+**Match subject typing.** The subject of `match` must be a typed value — enum, union, or primitive. If the compiler can only infer `asIs`, it rejects with `E-TYPE-025`. Three ways to keep a subject's type visible: annotate a reactive at declaration (`@status: Status = Status.Todo`), annotate a function parameter (`function handle(s: Status) { match s { ... } }`), or annotate a local binding (`let s: Status = raw`). Any of the three carries the narrowed type through to `match`.
 
 Match also works on non-enum values — you can match on numbers, strings, or booleans — but the exhaustiveness check is most useful on enums, because only enums have a finite known set of cases.
 

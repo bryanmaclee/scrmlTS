@@ -13,22 +13,15 @@ ${
 
   @coins = 0
 
-  // Type system note: match inside a function body can't yet see a parameter's
-  // type annotation (E-TYPE-025). Route through a typed reactive so the match
-  // subject stays narrowed.
-  @currentPowerUp: PowerUp = PowerUp.Mushroom(0)
-
-  function apply() {
-    match @currentPowerUp {
+  // The `powerUp: PowerUp` parameter annotation is what keeps the match
+  // subject narrowed to the enum — without it the compiler only sees `asIs`
+  // and refuses to match.
+  function eat(powerUp: PowerUp) {
+    match powerUp {
       .Mushroom(n) => { @coins = @coins + n }
       .Flower(n)   => { @coins = @coins + (n * 2) }
       .Feather(n)  => { @coins = @coins + (n * 5) }
     }
-  }
-
-  function eat(powerUp) {
-    @currentPowerUp = powerUp
-    apply()
   }
 }
 
