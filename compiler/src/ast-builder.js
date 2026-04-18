@@ -3075,54 +3075,68 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     }
 
     // TYPE DECLARATION: `type name:kind = { ... }`
+    // Also accepts the alternate `type:kind Name { ... }` form used by
+    // self-host files (kind and name swapped, no `=`, body contains `;`-
+    // delimited fields). Both forms produce the same AST shape.
     if (tok.kind === "KEYWORD" && tok.text === "type") {
       const startTok = consume();
       const nameTok = peek();
       let typeName = "";
       let typeKind = "";
 
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
-        typeName = consume().text;
-      }
-
-      // :kind
+      // Alternate form: `type:kind Name { ... }` — colon comes first.
       if (peek().text === ":") {
         consume(); // consume `:`
-        typeKind = peek().kind === "IDENT" || peek().kind === "KEYWORD"
-          ? consume().text
-          : "";
+        if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          typeKind = consume().text;
+        }
+        if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          typeName = consume().text;
+        }
+      } else {
+        // Standard form: `type Name:kind = { ... }`.
+        if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          typeName = consume().text;
+        }
+        if (peek().text === ":") {
+          consume(); // consume `:`
+          typeKind = peek().kind === "IDENT" || peek().kind === "KEYWORD"
+            ? consume().text
+            : "";
+        }
       }
 
-      // = { ... }
+      // = { ... } (standard form)  OR  { ... } (alternate form)
       let raw = "";
       if (peek().text === "=") {
         consume(); // consume `=`
-        if (peek().text === "{") {
-          consume(); // consume `{`
-          const { body, span: bodySpan } = collectBracedBody();
-          raw = "{ " + body + " }";
-          nodes.push({
-            id: ++counter.next,
-            kind: "type-decl",
-            name: typeName,
-            typeKind,
-            raw,
-            span: spanOf(startTok, peek()),
-          });
-        } else {
-          const { expr, span: exprSpan } = collectExpr();
-          raw = expr;
-          nodes.push({
-            id: ++counter.next,
-            kind: "type-decl",
-            name: typeName,
-            typeKind,
-            raw,
-            span: spanOf(startTok, peek()),
-          });
-        }
+      }
+      if (peek().text === "{") {
+        consume(); // consume `{`
+        const { body, span: bodySpan } = collectBracedBody();
+        raw = "{ " + body + " }";
+        nodes.push({
+          id: ++counter.next,
+          kind: "type-decl",
+          name: typeName,
+          typeKind,
+          raw,
+          span: spanOf(startTok, peek()),
+        });
+      } else if (peek().text !== "}" && peek().kind !== "EOF") {
+        // Inline type expression after `=` (union, alias, etc.).
+        const { expr, span: exprSpan } = collectExpr();
+        raw = expr;
+        nodes.push({
+          id: ++counter.next,
+          kind: "type-decl",
+          name: typeName,
+          typeKind,
+          raw,
+          span: spanOf(startTok, peek()),
+        });
       } else {
-        // Type decl without body
+        // Type decl without body.
         nodes.push({
           id: ++counter.next,
           kind: "type-decl",

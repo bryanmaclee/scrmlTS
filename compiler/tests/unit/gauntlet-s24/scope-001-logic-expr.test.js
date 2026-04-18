@@ -381,6 +381,69 @@ describe("S24 §2a slice 2 — if / return / match-subject coverage", () => {
     expect(scope001.some(e => /undeclaredPushArg/.test(e.message))).toBe(true);
   });
 
+  test("undeclared bare-expr call → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function ok() {
+    undeclaredBareCall()
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredBareCall/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared bare-expr binary → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function ok(x) {
+    x + undeclaredBareBinary
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredBareBinary/.test(e.message))).toBe(true);
+  });
+
+  test("declared function callee resolves in bare-expr", () => {
+    const src = `<program>
+\${
+  function helper(n) { return n + 1 }
+  function caller() {
+    helper(5)
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
+  test("alternate type-decl form (type:enum Name {}) populates typeRegistry", () => {
+    const src = `<program>
+\${
+  type:enum Color {
+    Red;
+    Green;
+    Blue;
+  }
+  function pickColor() {
+    let c = Color.Red
+    return c
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /\bColor\b/.test(e.message))).toBe(false);
+  });
+
   test("undeclared ident in throw-stmt → E-SCOPE-001", () => {
     const src = `<program>
 \${

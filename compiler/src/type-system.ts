@@ -3522,12 +3522,17 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "bare-expr": {
         resolvedType = tAsIs();
-        // §2a NOTE: extending the scope walker to bare-expr was attempted in
-        // S24 and reverted. Bare-exprs appear in too many shapes (test stubs
-        // like `log(x)`, type-annotated struct bodies that the AST serializes
-        // as bare-exprs, etc.) to cover safely without a broader allowlist
-        // revision or a body-pre-parser refactor. Reactive-decl / if / match /
-        // return coverage lands first; bare-expr is deferred.
+        // §2a — E-SCOPE-001 on bare-expr statements (mid-block function calls,
+        // assignments parsed as raw expressions, etc.). Tightest-coverage slice;
+        // everything else in §2a came first so the bare-expr extension sits on
+        // top of a settled scope chain.
+        {
+          const beSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const beExprNode = (n as Record<string, unknown>).exprNode;
+          if (beExprNode) {
+            checkLogicExprIdents(beExprNode, beSpan, scopeChain, typeRegistry, errors);
+          }
+        }
         // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level
         // (outside any function body) is also unhandled. The in-function check
         // runs in the function-decl branch; this catches the outer case.
@@ -4127,19 +4132,15 @@ function annotateNodes(
 
   function visitLogicNode(node: ASTNodeLike, boundary: "client" | "server"): void {
     if (!node || typeof node !== "object") return;
-
-    const key = nodeKey(node);
-
-    if (node.kind === "bare-expr") {
-      nodeTypes.set(key, tAsIs());
-      return;
-    }
-
+    // S24 §2a: bare-expr was previously short-circuited here to asIs without
+    // being visited. Delegating to visitNode lets the bare-expr case run its
+    // E-SCOPE-001 walker (and E-ERROR-002 failable-call check) as usual.
+    // visitNode sets nodeTypes itself via the case handler, so no typing
+    // information is lost relative to the prior short-circuit.
     if (node.kind === "function-decl") {
       visitNode(node);
       return;
     }
-
     visitNode(node);
   }
 

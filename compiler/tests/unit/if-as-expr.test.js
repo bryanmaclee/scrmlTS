@@ -73,14 +73,17 @@ describe("if-as-expression", () => {
   });
 
   it("if as statement (not after =) still works as if-stmt", () => {
-    // Test intent: verify if-stmt codegen (not IIFE). `log(x)` is added to satisfy
-    // E-MU-001 — without a read of `x`, MustUse correctly flags the write-only var.
+    // Test intent: verify if-stmt codegen (not IIFE). `console.log(x)` is
+    // added to satisfy E-MU-001 — without a read of `x`, MustUse correctly
+    // flags the write-only var. Updated S24 to use console.log so the
+    // E-SCOPE-001 walker (§2a bare-expr slice) doesn't flag an undeclared
+    // `log` identifier.
     const src = [
       '<program>',
       '${',
       '  let x = 0',
       '  if (true) { x = 1 }',
-      '  log(x)',
+      '  console.log(x)',
       '}',
       '</program>',
     ].join('\n');
