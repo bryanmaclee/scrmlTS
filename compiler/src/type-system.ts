@@ -3997,6 +3997,29 @@ function annotateNodes(
       }
 
       // ------------------------------------------------------------------
+      // §2a — match-arm-block body scope.
+      //
+      // `.Variant => { ... }` arms are parsed as `match-arm-block` nodes
+      // with a structured `body` of statements. Before this case existed,
+      // the default-handler recursion walked that body but in the parent
+      // scope — a `let x = ...` inside the arm shared scope with its
+      // siblings and the match's parent scope. Pushing a fresh scope here
+      // lets scope-sensitive checks (E-SCOPE-001 collision semantics,
+      // E-LIN-005 shadowing) fire correctly inside arm bodies.
+      // ------------------------------------------------------------------
+      case "match-arm-block": {
+        const armBody = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(armBody)) {
+          const label = (n as { variant?: string }).variant ?? "arm";
+          scopeChain.push(`match-arm:${label}:${nodeKey(n)}`);
+          for (const child of armBody) visitNode(child);
+          scopeChain.pop();
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
       // §2a — return-stmt scope walker. Returns appear inside function
       // bodies where params + locals are in scope; loop-scope plumbing
       // above ensures counters used in `return i` inside a for-body also
