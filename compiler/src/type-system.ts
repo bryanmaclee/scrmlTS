@@ -3052,12 +3052,25 @@ function annotateNodes(
 
         scopeChain.push(`fn:${(n.name as string) ?? "anon"}:${boundary}`);
 
-        // Bind parameters into the function scope.
+        // Bind parameters into the function scope. §14: respect type annotations
+        // on parameters (`function foo(x: Type)`) so downstream match / is .Variant
+        // checks see the narrowed type. Without this the param resolves to `asIs`
+        // and E-TYPE-025 fires on an otherwise-valid match.
         if (Array.isArray(n.params)) {
           for (const param of (n.params as unknown[])) {
             const paramName = typeof param === "string" ? param : (param as ASTNodeLike).name as string;
+            const paramAnnot = (typeof param === "object" && param !== null)
+              ? ((param as ASTNodeLike).typeAnnotation as string | undefined)
+              : undefined;
             if (paramName) {
-              scopeChain.bind(paramName, { kind: "variable", resolvedType: tAsIs() });
+              let paramResolvedType: ResolvedType = tAsIs();
+              if (paramAnnot) {
+                const resolved = resolveTypeExpr(paramAnnot, typeRegistry);
+                if (resolved && resolved.kind !== "asIs") {
+                  paramResolvedType = resolved;
+                }
+              }
+              scopeChain.bind(paramName, { kind: "variable", resolvedType: paramResolvedType });
             }
           }
         }

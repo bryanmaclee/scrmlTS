@@ -73,7 +73,45 @@ See `scrml-support/design-insights.md` line 498+ for the full insight.
 3. Rule bodies untouched. `given` untouched. `[label]` untouched.
 4. Run full suite + S23-style compile audit. Single commit.
 
-### In progress: nothing (debate paused execution)
+### S24 landed: §2c match subject type narrowing
+
+**Problem.** Two related paths lost the type annotation on the match subject:
+1. Local `let p: Type = ...` / `const p: Type = ...` inside a function body →
+   AST builder at `ast-builder.js:1669` (let) and `:1713` (const) did not call
+   `collectTypeAnnotation` between the name and `=`. The init field received the
+   raw string `": Type = ..."`; `initExpr` became a ParseError escape-hatch.
+2. Function parameters with type annotations (`function eat(p: PowerUp)`) →
+   `type-system.ts` `case "function-decl"` bound every param as `tAsIs()` even
+   though the AST builder had already parsed the annotation at `:2814` into
+   `{name, typeAnnotation}`.
+
+Both paths caused the subsequent `match` to fire **E-TYPE-025** on an otherwise-
+valid match — the subject type resolved to `asIs`. File-scope let and typed
+reactives were unaffected and worked correctly.
+
+**Fix.**
+- `compiler/src/ast-builder.js` let-decl + const-decl parsers: call
+  `collectTypeAnnotation()` after name consume, thread the annotation through
+  every return path (`if`-expr, `for`-expr, `match`-expr, propagate-expr, plain
+  initializer, no-initializer).
+- `compiler/src/type-system.ts` function-decl case: resolve each param's
+  `typeAnnotation` via `resolveTypeExpr(paramAnnot, typeRegistry)` before
+  binding into the pushed function scope. Fall back to `tAsIs()` when no
+  annotation.
+
+**Tests.** New `compiler/tests/unit/gauntlet-s24/match-type-narrowing.test.js`
+covering 6 cases: local `let` + enum annotation, local `const` + enum annotation,
+function param + enum annotation, combined param+let, negative case (no
+annotation still fires E-TYPE-025), negative case (let without annotation still
+fires).
+
+**Suite impact.** 6,889 → 6,895 pass (+6). No regressions. 2 same known self-
+host failures.
+
+**Follow-up (not in this commit).** Mario (`examples/14-mario-state-machine.scrml`)
+and tutorial §2.4 currently route through a typed reactive + wrapper function
+as a workaround. With this fix that workaround is no longer required — both can
+be simplified to match directly on the param. Queue as a polish task.
 
 ### Load-bearing roadmap question (already recorded, user decision captured)
 

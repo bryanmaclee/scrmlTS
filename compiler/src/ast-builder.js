@@ -1671,22 +1671,23 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       let name = "";
       if (peek().kind === "IDENT") name = consume().text;
       else if (peek().kind === "KEYWORD") name = consume().text;
+      const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
         // If-as-expression: `let a = if (cond) { lift val }`
         if (peek().kind === "KEYWORD" && peek().text === "if") {
           const ifNode = parseOneIfStmt();
-          return { id: ++counter.next, kind: "let-decl", name, init: "", ifExpr: { ...ifNode, kind: "if-expr" }, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "let-decl", name, init: "", ifExpr: { ...ifNode, kind: "if-expr" }, ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
         // For-as-expression: `let names = for (item of items) { lift item.name }`
         if (peek().kind === "KEYWORD" && peek().text === "for") {
           const forNode = parseOneForStmt();
-          return { id: ++counter.next, kind: "let-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "let-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
         // Match-as-expression: `let result = match expr { .A => { lift val } }`
         if (peek().kind === "KEYWORD" && (peek().text === "match" || (peek().text === "partial" && peek(1)?.text === "match"))) {
           const matchNode = parseOneMatchAsExpr(startTok);
-          return { id: ++counter.next, kind: "let-decl", name, init: "", matchExpr: matchNode, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "let-decl", name, init: "", matchExpr: matchNode, ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
         // §19.5: `let x = fallible()?` — propagate-expr binding
@@ -1699,13 +1700,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             binding: name,
             expr: innerLet,
             exprNode: safeParseExprToNode(innerLet, spanOf(startTok, peek())?.start ?? 0),
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             span: spanOf(startTok, peek()),
           };
         }
-        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
       } else {
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "let-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
       }
     }
 
@@ -1726,27 +1728,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
       let name = "";
       if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
+      const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
         // If-as-expression: `const a = if (cond) { lift val }`
         if (peek().kind === "KEYWORD" && peek().text === "if") {
           const ifNode = parseOneIfStmt();
-          return { id: ++counter.next, kind: "const-decl", name, init: "", ifExpr: { ...ifNode, kind: "if-expr" }, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "const-decl", name, init: "", ifExpr: { ...ifNode, kind: "if-expr" }, ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
         // For-as-expression: `const names = for (item of items) { lift item.name }`
         if (peek().kind === "KEYWORD" && peek().text === "for") {
           const forNode = parseOneForStmt();
-          return { id: ++counter.next, kind: "const-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "const-decl", name, init: "", forExpr: { ...forNode, kind: "for-expr" }, ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
         // Match-as-expression: `const result = match expr { .A => { lift val } }`
         if (peek().kind === "KEYWORD" && (peek().text === "match" || (peek().text === "partial" && peek(1)?.text === "match"))) {
           const matchNode = parseOneMatchAsExpr(startTok);
-          return { id: ++counter.next, kind: "const-decl", name, init: "", matchExpr: matchNode, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "const-decl", name, init: "", matchExpr: matchNode, ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "const-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "const-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
       } else {
-        return { id: ++counter.next, kind: "const-decl", name, init: "", span: tokenSpan(startTok, filePath) };
+        return { id: ++counter.next, kind: "const-decl", name, init: "", ...(typeAnnotation ? { typeAnnotation } : {}), span: tokenSpan(startTok, filePath) };
       }
     }
 
