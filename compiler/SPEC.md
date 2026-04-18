@@ -18295,7 +18295,16 @@ fake-timer control, which the self-contained harness deliberately does
 not provide. When a machine includes any temporal rule, the generated
 file emits a header comment surfacing this scope boundary so users
 know to cover timer lifecycle with hand-written integration tests.
-The remaining phase extends to derived / projection machines (§51.9).
+**Phase 6** admits §51.9 derived / projection machines via a distinct
+emit path. Projections have no transition table — `@projected`
+delegates through `_scrml_project_<Name>(source)` — so the property
+under test is **(d) Projection correctness** (above). Phase 6 covers
+unguarded projections; guarded projections are deferred. Projection
+machines emit under a `[generated] projection machine <Name>`
+describe label; transition machines keep their `[generated] machine
+<Name>` label. The two describe-block families coexist cleanly in the
+same generated file when a source declares both a governing machine
+and a derived projection.
 
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write
@@ -18322,6 +18331,20 @@ The remaining phase extends to derived / projection machines (§51.9).
   guard expression's inputs. A later phase MAY replace the parametrized
   model with real-expression evaluation once input synthesis for
   arbitrary guard expressions is implemented.
+
+- **(d) Projection correctness** (derived machines, §51.9). For every
+  variant V declared on the source enum, the projection function
+  `_scrml_project_<Name>(src)` SHALL return the target variant
+  declared by the first matching rule. The generated suite inlines a
+  minimal copy of the projection function (mirroring
+  `emitProjectionFunction`) and emits one test per source variant.
+  Source variants are enumerated from `rules.map(r => r.from)` —
+  §51.9's compile-time exhaustiveness guarantee (E-MACHINE-018) ensures
+  every source variant appears. Projection guards (`given`-qualified
+  projection rules) require first-match-wins evaluation against a
+  simulated reactive-store state and are out of scope for the current
+  phase; a derived machine with any guarded rule is skipped with an
+  explanatory comment.
 
 #### 51.13.2 Normative Statements
 

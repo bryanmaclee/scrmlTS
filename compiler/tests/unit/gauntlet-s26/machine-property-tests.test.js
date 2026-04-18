@@ -227,7 +227,10 @@ describe("S26 §51.13 — generateMachineTestJs unit contract", () => {
     expect(generateMachineTestJs("/x/y.scrml", new Map(), new Map())).toBeNull();
   });
 
-  test("derived machine skipped with comment, not a test block", () => {
+  test("derived machine in-scope (phase 6) — emits a projection block", () => {
+    // Phase 6 routes derived machines to a distinct emit path that tests
+    // projection correctness rather than exclusivity. The unguarded
+    // derived machine below gets one test per source variant.
     const registry = new Map();
     registry.set("Proj", {
       name: "Proj",
@@ -235,9 +238,9 @@ describe("S26 §51.13 — generateMachineTestJs unit contract", () => {
       rules: [{ from: "Src", to: "Dest", guard: null, label: null, effectBody: null }],
     });
     const out = generateMachineTestJs("/x/y.scrml", registry, new Map());
-    expect(out).toContain("Skipped Proj");
-    expect(out).toContain("derived/projection");
-    expect(out).not.toContain("[generated] machine Proj");
+    expect(out).not.toContain("Skipped Proj");
+    expect(out).toContain("[generated] projection machine Proj");
+    expect(out).toContain('"projects .Src => .Dest"');
   });
 
   test("payload-bound rule in-scope (phase 3) — emits exclusivity tests", () => {

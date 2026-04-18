@@ -56,9 +56,28 @@
  *   generated suite notes this in its header comment so users aren't
  *   surprised when timer bugs slip past it.
  *
- * Skipped machines (phase 5):
- *   - unlabeled `given` guards (we can't name them stably in test titles)
- *   - derived / projection machines (phase 6)
+ * Phase 6 (S26) — derived / projection machines (§51.9).
+ *   Derived machines emit a projection function rather than a
+ *   transition table; reading `@projected` delegates through
+ *   `_scrml_project_<Name>(source)`. The property under test is not
+ *   exclusivity (there is no write) but **(d) Projection correctness**:
+ *   for every variant V declared on the source enum, the projection
+ *   function SHALL return the target variant declared by the first
+ *   matching rule. Exhaustiveness is already enforced at compile time
+ *   (E-MACHINE-018), so every source variant appears as some rule's
+ *   `from` — we enumerate from `rules.map(r => r.from)`. The generated
+ *   suite inlines a minimal copy of the projection function (mirroring
+ *   emitProjectionFunction) and calls it per variant.
+ *
+ *   Phase 6 scope: unguarded projections only. Projections whose rules
+ *   carry `given` guards require modeling first-match-wins semantics
+ *   against a simulated reactive-store state, which is more involved
+ *   than the parametrization used for transition-machine guards.
+ *   Guarded projections are a future phase.
+ *
+ * Skipped machines (phase 6):
+ *   - unlabeled `given` guards on transition rules (still phase-2 rule)
+ *   - derived machines with projection guards (future phase)
  *
  * Skipped machines are recorded as comments at the top of the generated
  * file so users know why.
@@ -111,6 +130,43 @@ function rulesAreInScope(rules: TransitionRule[]): { ok: boolean; reason?: strin
 function hasTemporalRule(rules: TransitionRule[]): boolean {
   for (const r of rules) if (r.afterMs != null) return true;
   return false;
+}
+
+// Phase 6: scope check for derived / projection machines. The transition-
+// machine filter (unlabeled guards, etc.) doesn't apply — projections have
+// a distinct shape. Phase 6 accepts projections whose rules are all
+// unguarded; guarded projections require modeling first-match-wins
+// semantics against guard results, which is a later phase.
+function projectionIsInScope(rules: TransitionRule[]): { ok: boolean; reason?: string } {
+  for (const r of rules) {
+    if (r.guard) {
+      return {
+        ok: false,
+        reason: "derived machine has projection guards — phase 6 covers unguarded projections only",
+      };
+    }
+  }
+  return { ok: true };
+}
+
+// Phase 6: for a source variant V, the expected projected target is the
+// `to` side of the first rule whose `from` matches V. Phase 6 only runs
+// when every rule is unguarded, so "first match" reduces to "first rule
+// with matching from".
+function projectedTargetFor(variant: string, rules: TransitionRule[]): string | null {
+  for (const r of rules) {
+    if (r.from === variant) return r.to;
+  }
+  return null;
+}
+
+// Phase 6: every source variant appears as some rule's `from` (§51.9
+// exhaustiveness enforced by E-MACHINE-018 at compile time). Enumerate
+// from the rules rather than threading a separate source-type handle.
+function collectSourceVariants(rules: TransitionRule[]): string[] {
+  const s = new Set<string>();
+  for (const r of rules) s.add(r.from);
+  return [...s].sort();
 }
 
 // Phase 5: format an afterMs annotation for test titles so users can see
@@ -319,6 +375,41 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
   return lines;
 }
 
+// Phase 6: emit the projection-test block for a derived machine. Inlines
+// a minimal copy of the projection function that emitProjectionFunction
+// would emit, then one test per source variant asserting the projection
+// returns the declared target.
+function emitProjectionDescribe(m: MachineLike): string[] {
+  const lines: string[] = [];
+  const fnName = `__project_${m.name}`;
+  const sourceVariants = collectSourceVariants(m.rules);
+
+  // Inline the projection function — same shape as
+  // emitProjectionFunction (emit-machines.ts §51.9).
+  lines.push(`  function ${fnName}(src) {`);
+  lines.push(`    var tag = (src != null && typeof src === "object") ? src.variant : src;`);
+  for (const rule of m.rules) {
+    // Phase 6 asserts `!rule.guard` via projectionIsInScope; still
+    // pattern-match the shape emitProjectionFunction produces so future
+    // guarded-projection phases can drop in here.
+    lines.push(`    if (tag === ${JSON.stringify(rule.from)}) return ${JSON.stringify(rule.to)};`);
+  }
+  lines.push(`    return undefined;`);
+  lines.push(`  }`);
+  lines.push(``);
+
+  for (const src of sourceVariants) {
+    const target = projectedTargetFor(src, m.rules);
+    // target is guaranteed non-null since src was drawn from rules[].from.
+    const title = `projects .${src} => .${target}`;
+    lines.push(`  test(${JSON.stringify(title)}, () => {`);
+    lines.push(`    expect(${fnName}({ variant: ${JSON.stringify(src)} })).toBe(${JSON.stringify(target)});`);
+    lines.push(`  });`);
+  }
+
+  return lines;
+}
+
 /**
  * Generate the machine property-test JS for a file.
  */
@@ -335,14 +426,27 @@ export function generateMachineTestJs(
   const emittedBlocks: string[][] = [];
 
   for (const [name, machine] of machineRegistry) {
-    if (machine.isDerived) {
-      skipNotes.push(`// Skipped ${name}: derived/projection machine has no transition table (§51.9).`);
-      continue;
-    }
     if (!machine.rules || machine.rules.length === 0) {
-      skipNotes.push(`// Skipped ${name}: empty transition table.`);
+      skipNotes.push(`// Skipped ${name}: empty rule set.`);
       continue;
     }
+
+    // Phase 6: derived / projection machines take a distinct path.
+    if (machine.isDerived) {
+      const projCheck = projectionIsInScope(machine.rules);
+      if (!projCheck.ok) {
+        skipNotes.push(`// Skipped ${name}: ${projCheck.reason}.`);
+        continue;
+      }
+      const block: string[] = [];
+      const label = `[generated] projection machine ${name}`;
+      block.push(`describe(${JSON.stringify(label)}, () => {`);
+      for (const l of emitProjectionDescribe(machine)) block.push(l);
+      block.push(`});`);
+      emittedBlocks.push(block);
+      continue;
+    }
+
     const scopeCheck = rulesAreInScope(machine.rules);
     if (!scopeCheck.ok) {
       skipNotes.push(`// Skipped ${name}: ${scopeCheck.reason} — see §51.13 phased implementation.`);
