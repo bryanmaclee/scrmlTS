@@ -1484,15 +1484,25 @@ export function runDG(input: DGInput): DGOutput {
         const metaBody = (node as Record<string, unknown>).body;
         if (Array.isArray(metaBody)) {
           for (const child of metaBody as ASTNode[]) {
+            const c = child as Record<string, unknown>;
             // BUG-META-6 fix: reactive-decl nodes inside runtime ^{} meta blocks
             // represent @var assignments (e.g. `@message = "changed"` is parsed as
             // reactive-decl with name="message"). The name field is not in exprFields
             // so sweepNodeForAtRefs misses it. Treat the name as an @var consumption.
-            if (
-              (child as Record<string, unknown>).kind === "reactive-decl" &&
-              typeof (child as Record<string, unknown>).name === "string"
-            ) {
-              creditReader((child as Record<string, unknown>).name as string);
+            if (c.kind === "reactive-decl" && typeof c.name === "string") {
+              creditReader(c.name as string);
+            }
+            // §2e: html-fragment children of a runtime ^{} meta body carry their
+            // body text in `.content` as a single raw string (e.g.
+            // `< p > @counter += 1 < / p >`). sweepNodeForAtRefs's exprFields
+            // list does not include `content`, so @var references inside the
+            // fragment's raw text get silently dropped. Regex-scan `content`
+            // for @var patterns and credit each one.
+            if (c.kind === "html-fragment" && typeof c.content === "string") {
+              const contentRefs = (c.content as string).match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              if (contentRefs) {
+                for (const ref of contentRefs) creditReader(ref.slice(1));
+              }
             }
             sweepNodeForAtRefs(child);
           }
