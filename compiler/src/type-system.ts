@@ -3721,7 +3721,7 @@ function annotateNodes(
       // lift-expr: `lift partial match ...` in rendering context (E-TYPE-081)
       // ------------------------------------------------------------------
       case "lift-expr": {
-        const liftExpr = n.expr as { kind: string; expr?: string } | undefined;
+        const liftExpr = n.expr as { kind: string; expr?: string; exprNode?: unknown } | undefined;
         // Check if the lift target is a raw expression string that starts with "partial match"
         if (liftExpr && liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
           if (/^\s*partial\s+match/.test(liftExpr.expr)) {
@@ -3735,9 +3735,56 @@ function annotateNodes(
             ));
           }
         }
+        // §2a — E-SCOPE-001 on undeclared idents in a value-lift expression.
+        // `lift expr` where expr is an ExprNode payload (not a markup subtree).
+        if (liftExpr && liftExpr.kind === "expr" && liftExpr.exprNode) {
+          const liftSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          checkLogicExprIdents(liftExpr.exprNode, liftSpan, scopeChain, typeRegistry, errors);
+        }
         // For lift with embedded markup (lift-expr with kind === "markup"), the markup
         // node is visited via the default recursion below; partial match inside markup
         // is caught by the markup case above.
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // §2a — throw-stmt / fail-expr / reactive-debounced-decl.
+      // All three carry a single ExprNode payload (exprNode / argsExpr /
+      // initExpr respectively). Walk it and — for the debounced decl —
+      // bind the reactive name into scope after the init check.
+      // ------------------------------------------------------------------
+      case "throw-stmt": {
+        const thrSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const thrExprNode = (n as Record<string, unknown>).exprNode;
+        if (thrExprNode) {
+          checkLogicExprIdents(thrExprNode, thrSpan, scopeChain, typeRegistry, errors);
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      case "fail-expr": {
+        const failSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const failArgsExpr = (n as Record<string, unknown>).argsExpr;
+        if (failArgsExpr) {
+          checkLogicExprIdents(failArgsExpr, failSpan, scopeChain, typeRegistry, errors);
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      case "reactive-debounced-decl": {
+        const dbSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const dbInitExpr = (n as Record<string, unknown>).initExpr;
+        if (dbInitExpr) {
+          checkLogicExprIdents(dbInitExpr, dbSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+        }
+        if (n.name) {
+          // Same double-bind as reactive-decl / reactive-derived-decl.
+          scopeChain.bind(`@${n.name as string}`, { kind: "reactive", resolvedType: tAsIs() });
+          scopeChain.bind(n.name as string, { kind: "reactive", resolvedType: tAsIs() });
+        }
         resolvedType = tAsIs();
         break;
       }

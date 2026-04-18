@@ -381,6 +381,63 @@ describe("S24 §2a slice 2 — if / return / match-subject coverage", () => {
     expect(scope001.some(e => /undeclaredPushArg/.test(e.message))).toBe(true);
   });
 
+  test("undeclared ident in throw-stmt → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function throwIt() {
+    throw undeclaredThrowTarget
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredThrowTarget/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in fail-expr args → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  type E:enum = { Bad(msg: string) }
+  function failIt()! -> E {
+    fail E.Bad(undeclaredFailArg)
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredFailArg/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in reactive-debounced-decl init → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  @debounced(300) searchQuery = undeclaredDebouncedInit
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredDebouncedInit/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in value-lift expression → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function gen() {
+    for x of [1, 2, 3] {
+      lift undeclaredLiftValue
+    }
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredLiftValue/.test(e.message))).toBe(true);
+  });
+
   test("declared arg to array mutation resolves clean", () => {
     const src = `<program>
 \${
