@@ -12289,6 +12289,44 @@ parameter ::= ['lin'] identifier [':' type-annotation]
 - The compiler SHALL emit E-LIN-003 if a `lin` parameter is consumed in some branches but not all.
 - A `lin` parameter annotation SHALL have no effect on the emitted JS output. The constraint is compile-time only.
 
+### 35.2.2 Cross-`${}` Block Lin
+
+A `lin` variable declared in one `${}` logic block may be consumed in a subsequent `${}` logic block, or in an intervening markup interpolation, provided both the declaration and the consumption occur within the same parent scope. The compiler hoists the storage to a single binding at the common ancestor scope in the JS output — there is one `const` for the `lin` variable regardless of how many blocks straddle it.
+
+```scrml
+<program>
+  ${
+      lin token = fetchToken()
+  }
+  <p>Value is ${token}</>   <!-- counts as the consumption -->
+</program>
+```
+
+The markup interpolation `${token}` is the one consumption event; it satisfies §35.3 rule 1 (reading in an expression). Equivalently:
+
+```scrml
+<program>
+  ${
+      lin token = fetchToken()
+  }
+  <p>middle</>
+  ${
+      authenticate(token)   // consumption in a later block — valid
+  }
+</program>
+```
+
+Both forms compile. The generated JS hoists `const token = fetchToken();` to the enclosing scope once.
+
+The intermediate-visibility rule from §35.2 still applies across block boundaries: any reference to the `lin` variable that is not the single consumption event is E-LIN-002. An interleaving of declaration → read in block A → read in block B → … counts as multiple references and fires E-LIN-002 on the second.
+
+**Normative statements:**
+
+- A `lin` variable declared in a `${}` logic block MAY be consumed in a later `${}` logic block or in an intervening markup interpolation within the same parent scope.
+- The compiler SHALL hoist the JS storage for such a `lin` variable to a single binding at the common ancestor scope of the declaration and the consumption.
+- Any reference to the `lin` variable in an intermediate `${}` logic block, intermediate markup interpolation, or any other intermediate position between the declaration and the single consumption SHALL be E-LIN-002 per §35.2.
+- Scope-exit enforcement applies at the parent scope boundary: a `lin` variable declared in a nested `${}` block but never consumed before the parent scope closes SHALL be E-LIN-001 per §35.5.
+
 ### 35.3 Consumption Events
 
 The following operations consume a `lin` variable. Each counts as exactly one use:

@@ -51,7 +51,7 @@ Total lines: 19,023 | Total sections: 53 + appendices
 | 32 | The `~` Keyword | 11728-11939 | 212 | Pipeline accumulator, lin variable, context boundary |
 | 33 | The `pure` Keyword | 11940-11982 | 43 | Purity constraints |
 | 34 | Error Codes | 11983-12177 | 195 | All error code definitions |
-| 35 | Linear Types — `lin` | 12217-12619 | 403 | Declaration (exactly-once + restricted intermediate visibility), consumption, control flow, closures, lin function params (§35.2.1), E-LIN-005 shadowing (§35.5) |
+| 35 | Linear Types — `lin` | 12217-12657 | 441 | Declaration (exactly-once + restricted intermediate visibility), consumption, control flow, closures, lin function params (§35.2.1), cross-`${}` block lin (§35.2.2), E-LIN-005 shadowing (§35.5) |
 | 36 | Input State Types | 12561-12918 | 358 | `<keyboard>`, `<mouse>`, `<gamepad>` |
 | 37 | Server-Sent Events | 12919-13160 | 242 | `server function*` SSE generators |
 | 38 | WebSocket Channels | 13161-13466 | 306 | `<channel>`, @shared, broadcast/disconnect |
