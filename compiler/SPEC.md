@@ -17663,6 +17663,7 @@ binding on struct fields; bind the enclosing `@var` to a machine instead).
 | E-MACHINE-016 | Machine rule uses `\|` alternation with mismatched variant payload bindings | Compile |
 | E-MACHINE-017 | Assignment to a derived-machine projected variable (§51.9 — projections are read-only) | Compile |
 | E-MACHINE-018 | Derived machine's projection rules are not exhaustive over the source enum's variants | Compile |
+| E-MACHINE-019 | Machine `audit @varName` clause references an undeclared reactive, or the clause appears more than once per machine (§51.11) | Compile |
 
 **Error message format — E-MACHINE-001:**
 
@@ -17878,6 +17879,138 @@ The four shadow booleans collapse to one projection. Never-drift by construction
   admits it.
 - **Cross-machine projection.** Projecting from two independent sources simultaneously is
   the classical "parallel region" problem; out of scope for this revision.
+
+---
+
+### 51.11 Audit Clause — `audit @varName`
+
+**Added:** 2026-04-18 — implementation of §2b G (machine-cluster-expressiveness
+deep-dive). Opt-in audit/replay/time-travel support for `< machine>`-governed
+reactive variables. Prior art: Redux DevTools, Elm Debugger, XState Inspector.
+
+#### 51.11.1 Motivation
+
+Every transition through a machine-bound variable passes the transition-table
+lookup (§51.3) and any declared guards (§51.3.2) before state commits. The
+compiler therefore knows, at the moment of every successful transition, the
+full tuple `(from, to, at)`. Capturing that tuple into a user-supplied reactive
+array at zero additional cost gives applications replay-from-bug-report,
+time-travel debugging, and server-side audit logs (§52) "for free" — features
+that otherwise require bespoke transition logging, a state-management library,
+or both.
+
+The feature is opt-in because the memory cost is linear in transition count
+and most production machines don't want the overhead.
+
+#### 51.11.2 Syntax
+
+```
+audit-clause   ::= 'audit' '@' identifier
+
+machine-body   ::= '{' machine-rule* audit-clause? '}'
+```
+
+The audit clause is optional and SHALL appear at most once per machine body.
+It MAY appear at any position in the body (convention: last, after all
+transition rules).
+
+**Worked example:**
+
+```scrml
+${
+    @auditLog = []
+    @order: OrderFlow = OrderStatus.Pending
+    function advance() { @order = OrderStatus.Processing }
+}
+
+< machine OrderFlow for OrderStatus>
+    .Pending    => .Processing
+    .Processing => .Shipped
+    .Shipped    => .Delivered
+    audit @auditLog
+</>
+
+// After `advance()` runs, @auditLog contains:
+//   [{ from: "Pending", to: "Processing", at: 1713456789012 }]
+```
+
+#### 51.11.3 Semantics
+
+- The referenced `@varName` SHALL be a declared reactive variable (§6.1).
+  Referencing an undeclared name SHALL be a compile error **E-MACHINE-019**:
+  `Machine '{name}' audit clause references '@{target}', but no reactive
+  variable with that name is declared in scope.`
+- The audit target SHALL NOT be a derived (projected) variable (§51.9) — those
+  are read-only (E-MACHINE-017). Pointing an audit clause at one is a compile
+  error under the same rule.
+- Multiple audit clauses in a single machine body SHALL be a compile error
+  (same **E-MACHINE-019** — message form: `Machine '{name}' has more than one
+  'audit' clause.`).
+- After a successful transition (guard passed, state committed, effect block
+  executed), the compiler SHALL append a fresh entry to the audit target
+  using an immutable update pattern (`concat` on a new array). Mutation via
+  `push` is NOT used — the audit var is reactive, so subscribers must see a
+  fresh array identity each transition.
+- **Rejected transitions are NOT audited.** A guard that fails fires
+  E-MACHINE-001-RT before any state commit or audit push. Applications that
+  want rejected-transition logging may wire a separate `!{}` error boundary.
+- The audit target's type is the user's declaration. For best ergonomics
+  declare it as an array (`@auditLog = []` or `@auditLog: Array<...> = []`).
+  The entry shape below is the compiler's contract.
+
+#### 51.11.4 Entry Shape
+
+Each audit entry is a frozen object with three fields:
+
+```
+{
+  from: <previous value>,
+  to:   <new value>,
+  at:   <timestamp, Number — Date.now() at transition site>
+}
+```
+
+Both `from` and `to` are the raw reactive values: variant identifiers for
+enum-governed machines, struct objects for struct-governing machines. For
+derived machines (§51.9), the audit entry records the transition on the
+SOURCE variable — the projection is computed on read, not on transition.
+
+Future revisions MAY extend the entry shape (e.g. adding a `label` field for
+labeled guards or `cause` for event-sourced transitions). Extensions SHALL be
+additive only; existing fields SHALL NOT be renamed or retyped.
+
+#### 51.11.5 Interaction with Other Features
+
+- **Effect blocks (§51.3.2):** audit push happens AFTER the effect body
+  runs, so an effect that further mutates state is visible in the audit
+  entry's `to` field only if the mutation targets the machine-bound var
+  (which would itself fire a nested transition and audit).
+- **Derived machines (§51.9):** audit attaches to the source machine. A
+  derived projection cannot itself be audited directly — audit its source.
+- **Server-authoritative machines (§52):** the audit target may be a
+  `server @var` declared with `db=`. In that case audit entries persist
+  to the server; the client sees only the projection. This is the
+  intended shape of "server-side audit log" support. Full spec for the
+  server-side audit machinery is deferred to a §52 amendment.
+- **Reactive subscribers:** since the audit target is a reactive array,
+  any markup, derived reactive, or logic block that reads `@varName`
+  observes transitions in real time. `<p>${@auditLog.length}</>` updates
+  on every transition for free.
+
+#### 51.11.6 Normative Statements
+
+- `< machine>` bodies MAY contain an `audit @varName` clause.
+- `@varName` SHALL be a declared non-derived reactive variable (E-MACHINE-019
+  for violations).
+- The clause SHALL appear at most once per machine (E-MACHINE-019 for
+  duplicates).
+- On every successful transition (table lookup + guards both pass + state
+  commits + effects run), the compiler SHALL append a new entry
+  `{from, to, at}` to the audit target using an immutable-update pattern.
+- Rejected transitions SHALL NOT produce audit entries.
+- The audit entry shape SHALL be `{from, to, at}` with the semantics above.
+  Future additions to the shape SHALL be additive and SHALL NOT break
+  consumers of existing fields.
 
 ---
 

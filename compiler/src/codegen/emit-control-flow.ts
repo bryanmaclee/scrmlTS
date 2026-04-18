@@ -903,6 +903,7 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
           binding.tableName,
           binding.machineName,
           guardRules,
+          binding.auditTarget ?? null,
         );
         results.push(guardLines.join("\n"));
       } else {

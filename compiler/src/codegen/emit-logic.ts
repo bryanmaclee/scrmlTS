@@ -80,7 +80,7 @@ interface EmitLogicOpts {
   /** Track names declared by let-decl/const-decl so tilde-decl can detect reassignment. */
   declaredNames?: Set<string>;
   /** §51.5: Machine binding map for transition guard emission. Keyed by reactive var name. */
-  machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[] }> | null;
+  machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null;
 }
 
 /** An entry in the captured scope for a runtime ^{} meta block (from meta-checker.ts). */
@@ -106,7 +106,7 @@ interface LogicArm {
 // Helper: emit a guarded-expr arm body
 // ---------------------------------------------------------------------------
 
-function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[] }> | null): string {
+function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null): string {
   const handler = (arm.handler ?? "").trim();
   if (!handler) return "";
   // Block bodies `{ @var = expr; ... }` must go through rewriteBlockBody so that
@@ -264,7 +264,7 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
     const binding = opts.machineBindings?.get(lookupName) ?? null;
     if (binding) {
       const guardRules = binding.rules.filter((r: any) => r.guard != null && r.guard !== "");
-      return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, guardRules).join("\n");
+      return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, guardRules, (binding as any).auditTarget ?? null).join("\n");
     }
   }
   return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`;
@@ -292,6 +292,23 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
           const tVar = genVar("tilde");
           opts.tildeContext.var = tVar;
           return `let ${tVar} = ${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
+        }
+        // §51.5 machine-binding interception: if this bare-expr is a
+        // reactive `@var = expr` assignment AND the var is machine-bound,
+        // route through _emitReactiveSet so the transition guard + audit
+        // clause (§51.11) fire. Without this, emitAssign would emit a
+        // plain _scrml_reactive_set and the machine contract is silently
+        // bypassed inside function bodies.
+        if (opts.machineBindings && node.exprNode.kind === "assign") {
+          const assignNode = node.exprNode as { kind: "assign"; op: string; target?: { kind?: string; name?: string }; value: unknown };
+          const target = assignNode.target;
+          if (target && target.kind === "ident" && typeof target.name === "string" && target.name.startsWith("@") && assignNode.op === "=") {
+            const bareName = target.name.slice(1);
+            if (opts.machineBindings.get(bareName)) {
+              const rhsStr = emitExpr(assignNode.value as any, _makeExprCtx(opts));
+              return _emitReactiveSet(bareName, rhsStr, opts, bareName) + ";";
+            }
+          }
         }
         return `${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
       }
@@ -465,9 +482,18 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       const initStr: string = node.init ?? "undefined";
       const ctx = opts.encodingCtx;
       const encodedName = ctx ? ctx.encode(node.name) : node.name;
-      // reactive-decl is the initial declaration — skip machine transition guards.
-      // Transitions only apply to mutations (assignments after initialization).
-      const isInit = true;
+      // Historically reactive-decl was treated as the initial declaration
+      // site and the machine transition guard was skipped. But the AST
+      // builder emits reactive-decl for EVERY `@name = expr` it parses,
+      // including re-assignments inside function bodies. Discriminate:
+      // a genuine declaration site carries a `typeAnnotation` (and sets
+      // `machineBinding`), while a bare reassignment has neither. When
+      // the var is machine-bound AND this node is not a declaration,
+      // treat as a mutation so _emitReactiveSet fires the transition
+      // guard and §51.11 audit clause.
+      const hasTypeAnnotation = !!(node as any).typeAnnotation;
+      const hasMachineBinding = !!(node as any).machineBinding;
+      const isInit = hasTypeAnnotation || hasMachineBinding || !(opts.machineBindings?.has(node.name));
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
         const rewrittenInit = emitExpr(node.initExpr, _makeExprCtx(opts));

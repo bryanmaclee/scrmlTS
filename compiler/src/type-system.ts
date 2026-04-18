@@ -258,6 +258,14 @@ interface MachineType {
   isDerived?: boolean;
   sourceVar?: string | null;
   projectedVarName?: string | null;
+  // §51.11 (S24) — Optional `audit @name` clause at the end of the machine
+  // body. When set, every successful transition appends an audit entry
+  // (shape: {from, to, at}) to the named reactive variable. The name is
+  // stored WITHOUT the leading `@` to match how other @-refs are keyed.
+  // Validated at registration time (E-MACHINE-019) against the set of
+  // declared reactives — resolution happens in the caller's post-pass
+  // since @-decl registration isn't complete at buildMachineRegistry time.
+  auditTarget?: string | null;
 }
 
 // §51.3.2 (S22) — Resolved payload binding in a machine rule.
@@ -1868,9 +1876,31 @@ function buildMachineRegistry(
   for (const decl of machineDecls) {
     const name = decl.machineName as string;
     const govName = decl.governedType as string;
-    const rulesRaw = (decl.rulesRaw as string) || "";
+    let rulesRaw = (decl.rulesRaw as string) || "";
     const span = (decl.span as Span) || fileSpan;
     const sourceVar = (decl.sourceVar as string | null | undefined) ?? null;
+
+    // §51.11 (S24) — extract optional `audit @name` clause from the rules
+    // body. Matches a top-level line of exactly `audit @Identifier`. Strip
+    // it from rulesRaw before the rule parser runs so the parser doesn't
+    // see an unparseable "rule". The audit clause may appear anywhere in
+    // the body (usually last) and at most once.
+    let auditTarget: string | null = null;
+    const auditClauseRe = /(^|\n)\s*audit\s+@([A-Za-z_$][A-Za-z0-9_$]*)\s*(?=\n|$)/;
+    const auditMatch = rulesRaw.match(auditClauseRe);
+    if (auditMatch) {
+      auditTarget = auditMatch[2];
+      rulesRaw = rulesRaw.replace(auditClauseRe, "$1").trim();
+      // Guard against multiple audit clauses — catch the second and error.
+      if (auditClauseRe.test(rulesRaw)) {
+        errors.push(new TSError(
+          "E-MACHINE-019",
+          `E-MACHINE-019: Machine '${name}' has more than one 'audit' clause. ` +
+          `Only one audit target is permitted per machine.`,
+          span,
+        ));
+      }
+    }
 
     // E-MACHINE-003: duplicate machine name
     if (registry.has(name)) {
@@ -1941,6 +1971,7 @@ function buildMachineRegistry(
         // stay all-lowercase while PascalCase names (Order, OrderStatus) only
         // lose the leading capital.
         projectedVarName: machineNameToProjectedVar(name),
+        auditTarget,
       });
       continue;
     }
@@ -1965,6 +1996,7 @@ function buildMachineRegistry(
       governedTypeName: govName,
       governedType: govType,
       rules,
+      auditTarget,
     });
   }
 
@@ -6635,6 +6667,43 @@ function processFile(
       ?? [];
     collectReactiveBindings(topNodes);
     validateDerivedMachines(machineRegistry, reactiveBindings, errors, fileSpan);
+
+    // §51.11 — E-MACHINE-019: validate every machine's audit target against
+    // the set of declared reactive variables. Collect every reactive name
+    // (machine-bound or plain) by walking top-level reactive-decl / derived-
+    // decl / debounced-decl nodes. An audit clause referencing an unknown
+    // @var fires E-MACHINE-019; pointing at a derived (projected) var also
+    // errors since those are read-only (§51.9, E-MACHINE-017 family).
+    const declaredReactives = new Set<string>();
+    const collectReactives = (nodes: ASTNodeLike[]): void => {
+      for (const n of nodes) {
+        if (!n || typeof n !== "object") continue;
+        if (
+          (n.kind === "reactive-decl" || n.kind === "reactive-derived-decl" || n.kind === "reactive-debounced-decl") &&
+          typeof n.name === "string"
+        ) {
+          declaredReactives.add(n.name);
+        }
+        const body = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(body)) collectReactives(body);
+        const children = n.children as ASTNodeLike[] | undefined;
+        if (Array.isArray(children)) collectReactives(children);
+      }
+    };
+    collectReactives(topNodes);
+    for (const [machineName, machine] of machineRegistry) {
+      const audit = machine.auditTarget;
+      if (!audit) continue;
+      if (!declaredReactives.has(audit)) {
+        errors.push(new TSError(
+          "E-MACHINE-019",
+          `E-MACHINE-019: Machine '${machineName}' audit clause references '@${audit}', ` +
+          `but no reactive variable with that name is declared in scope. ` +
+          `Declare '@${audit} = []' before the machine, or correct the audit target name.`,
+          fileSpan,
+        ));
+      }
+    }
 
     // §51.9 — E-MACHINE-017: reject writes to projected vars. Build a lookup
     // from projected-var-name → derived-machine so error messages can name

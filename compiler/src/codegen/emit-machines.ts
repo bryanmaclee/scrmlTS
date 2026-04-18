@@ -201,6 +201,7 @@ export function emitTransitionGuard(
   tableName: string,
   machineName: string,
   guardRules: TransitionRule[],
+  auditTarget: string | null = null,
 ): string[] {
   const lines: string[] = [];
 
@@ -278,6 +279,16 @@ export function emitTransitionGuard(
   // emission entirely.
   // (No emission needed — left as a comment for future reviewers.)
   void rulesWithBindings;
+
+  // §51.11 (S24) — audit clause emission. After state commit and effect
+  // blocks, append an audit entry to the target reactive. Shape:
+  //   { from: __prev, to: __next, at: Date.now() }
+  // The concat-then-set pattern produces a fresh array each transition so
+  // the reactive fires its subscribers (mutating push would not).
+  if (auditTarget) {
+    lines.push(`  // §51.11 audit log push`);
+    lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([{ from: __prev, to: __next, at: Date.now() }]));`);
+  }
 
   lines.push(`})();`);
 
