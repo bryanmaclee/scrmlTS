@@ -529,6 +529,45 @@ In all other contexts, `is` is a valid identifier.
 - The parser SHALL disambiguate `is` by context: after an expression that has an enum type,
   `is` begins a variant check. Elsewhere, it is an identifier.
 
+#### 4.11.4 `given` Keyword — Static-Predicate Guard
+
+**Added:** 2026-04-17 — ratified by radical-doubt debate (see
+`scrml-support/design-insights.md`, "Machine cohesion: opener + guard keyword").
+
+`given` is the guard keyword used inside `< machine>` rule bodies (§51.3.2). It is
+**semantically distinct** from the runtime-Boolean `if` keyword used in markup `if=`
+attributes (§17.1), logic `if (cond) { ... }` control flow, and `else-if=`. The
+distinction is intentional and load-bearing:
+
+- `if` denotes a **runtime branch**. The compiler does not, and is not expected to,
+  statically reason about the satisfiability, reachability, or exhaustiveness of `if`
+  conditions.
+- `given` denotes a **rule predicate** on a machine transition. The compiler reserves
+  the right to statically analyze `given` clauses for: reachability of machine states,
+  unsatisfiability of guards, totality-with-guards over the source enum, and transition
+  safety proofs. This preserves the scrml commitment (ratified 2026-04-08, see
+  design-insights.md §machine/contract unification) to static analysis in the
+  `E-MACHINE-*` family, which is what separates machines from the runtime-`if`
+  vocabulary.
+
+`given` SHALL NOT be used outside machine rule bodies. `if` SHALL NOT be used as a rule
+predicate inside a machine body.
+
+**Normative statements:**
+
+- `given` SHALL be recognized as the keyword introducing a guard clause on a machine
+  transition rule (§51.3.2). It SHALL take the form `given (expression)` with required
+  parentheses.
+- `given` SHALL NOT be recognized as a keyword in any other syntactic position. In all
+  other contexts, `given` SHALL be a valid identifier.
+- `if` SHALL NOT be recognized as a guard-clause keyword inside a machine rule body.
+  Using `if` in machine rule guard position SHALL be a compile error (E-SYNTAX-004:
+  `Use 'given (...)' for machine rule guards, not 'if'. See §4.11.4.`).
+- The semantic distinction between `given` (static-predicate) and `if` (runtime branch)
+  reserves the compile-time-analysis lane for machine guards. Future work on
+  machine-level static analysis (reachability, unsatisfiability, totality) operates on
+  `given` clauses.
+
 ### 4.12 Nested `<program>` Elements
 
 A `<program>` element MAY appear as a direct child of another `<program>` element. Each
@@ -17084,6 +17123,19 @@ struct-governing machines.
 `=>` arrow may list multiple variants separated by `|`. A rule with alternation on either
 side desugars to the cross-product of single-pair rules before type checking. Any
 `guard-clause` and `effect-block` attached to the rule applies to every expanded pair.
+
+**Amendment queued:** 2026-04-17 — ratified by radical-doubt debate (see
+`scrml-support/design-insights.md`, "Machine cohesion: opener + guard keyword"). The
+machine opener will migrate from the current sentence form `< machine Name for Type>`
+to the attribute form `< machine name=Name for=Type>`, matching §5.1 attribute grammar
+shared by all other state types (`< db>`, `< timer>`, `< poll>`, `< request>`,
+`< timeout>`, `< errorBoundary>`). `name=` and `for=` SHALL be bareword-identifier
+attribute values (§5.1 unquoted-identifier form); quoted-string values SHALL be a
+compile error. Rule-body grammar, `given` guards (§4.11.4), and `[label]` suffix
+remain unchanged. Execution of the migration is deferred to coincide with the next
+§51 feature amendment (e.g., §51.9 audit clause, temporal transitions) so the parser
+and fixtures change in a single coordinated commit. Until migration executes, the
+current sentence form remains authoritative for parser input and fixture content.
 
 ```scrml
 < machine MarioMachine for MarioState>
