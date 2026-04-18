@@ -37,6 +37,7 @@
 import { describe, test, expect } from "bun:test";
 import { readdirSync, statSync, writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
 import { resolve, join, basename, dirname } from "path";
+import { tmpdir } from "os";
 import { splitBlocks } from "../../src/block-splitter.js";
 import { buildAST } from "../../src/ast-builder.js";
 import {
@@ -52,7 +53,14 @@ import {
 const testDir = dirname(new URL(import.meta.url).pathname);
 const projectRoot = resolve(testDir, "..", "..", "..");
 const examplesDir = resolve(projectRoot, "examples");
-const artifactDir = resolve(projectRoot, "docs", "changes", "expr-ast-phase-1-audit");
+// S25: artifacts land in os.tmpdir() rather than inside the repo tree.
+// S21 dereffed the live-artifact copy of `docs/changes/expr-ast-phase-1-audit/`
+// to scrml-support/archive/ (frozen historical snapshot), but this test
+// continued to regenerate the catalog into the repo on every run — showing
+// up as untracked noise. The frozen archive stays put in scrml-support; the
+// current-run catalog is debug output and lives in /tmp alongside other
+// transient test artifacts.
+const artifactDir = resolve(tmpdir(), "scrml-expr-audit-phase-1");
 
 // ---------------------------------------------------------------------------
 // Discover examples files
