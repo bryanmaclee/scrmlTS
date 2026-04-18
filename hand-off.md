@@ -2,27 +2,26 @@
 
 **Date opens:** TBD (whenever S26 starts)
 **Previous:** `handOffs/hand-off-25.md` (the S25 starting brief)
-**Baseline at S25 wrap:** **6,969 pass / 10 skip / 2 fail** (25,651 expects across 287 files) at commit `5ab63ac`.
+**Baseline at S25 wrap:** **6,981 pass / 10 skip / 2 fail** (25,667 expects across 289 files) at commit `4b1e8b2`.
 
 ---
 
 ## 0. Cold-start state
 
-### Unpushed at S25 wrap (6 commits)
+### Pushed to origin/main during S25
 
-- `c5e41b3` — `feat(§51.11)`: audit @varName clause on `< machine>` for replay/time-travel (S24 carryover).
-- `6f5b90c` — `feat(§35.5)`: E-LIN-005 — reject let/const/lin shadowing an enclosing lin.
-- `b6c4f5d` — `fix(§35.5)`: push scope for while-stmt so E-LIN-005 fires in while bodies.
-- `3556b22` — `fix(§51)`: emit effect blocks for rules without a `given` guard.
-- `0e52306` — `docs(§35.1/§35.2)`: Approach-B wording — restricted intermediate visibility.
-- `5ab63ac` — `feat(§2a)`: push scope for match-arm-block body.
+- First 8 commits (through `7dd6fe6`) were pushed mid-session via one-time auth (covers E-LIN-005 + while-stmt + effect emission + §35 wording + match-arm-block + s25 wrap brief + s25 archive + tmp-artifactDir cleanup).
+
+### Unpushed at S25 wrap (2 commits)
+
+- `83101c7` — `docs(§35.2.2)`: ratify cross-`${}` block lin — tests + spec.
+- `4b1e8b2` — `feat(§2a)`: push scope for if-stmt consequent and alternate branches.
 
 S26 needs either one-time push auth or a `needs: push` message to master.
 
 ### Untracked at S25 wrap
 
-- `docs/changes/expr-ast-phase-1-audit/` — `escape-hatch-catalog.{json,md}` dated 2026-04-18. Pre-existing artifact, not touched this session. Decide keep-and-commit vs. gitignore vs. delete.
-- `docs/dfas` — empty file. Likely accidental; delete on confirmation.
+- None. The `docs/dfas` stray and the `docs/changes/expr-ast-phase-1-audit/` artifact issue were resolved in `7dd6fe6` (test now writes to `os.tmpdir()` instead of the repo tree).
 
 ### Incoming messages
 
@@ -36,31 +35,40 @@ Retirement message sent to master 2026-04-17-1804. Still pending at S25 wrap; pr
 
 ## 1. S25 session summary
 
-### Work done (5 slices, 6 commits including S24 carryover)
+### Work done (8 slices, 10 commits including the S24 carryover and 2 housekeeping)
 
-- **§2h lin redesign, slice 1.** E-LIN-005 reject let/const/lin shadowing. `ScopeEntry.isLin` carries through to let/const/lin-decl binding sites; `checkLinShadowing` fires when a new binding resolves via the scope chain to an isLin entry in a strictly enclosing scope. Same-scope rebinding explicitly out of scope — not hierarchical shadowing. 10 new gauntlet tests. SPEC §35.5 amended.
+- **E-LIN-005 reject let/const/lin shadowing** (`6f5b90c`). `ScopeEntry.isLin` carries through to let/const/lin-decl binding sites; `checkLinShadowing` fires when a new binding resolves via the scope chain to an isLin entry in a strictly enclosing scope. Same-scope rebinding explicitly out of scope. 11 gauntlet tests. SPEC §35.5 amended.
 
-- **§2h lin redesign, slice 1b (while-stmt scope).** Pre-existing gap surfaced: visitNode had a combined `while-stmt / if-stmt` case (for the W-ASSIGN-001 check) that walked the body without scope push, shadowing a later scope-pushing case for while-stmt. Merged the cases; `while-stmt` body now pushes a scope (if-stmt untouched — that's a separate concern). Re-added the nested-while-shadow case to lin-005 tests.
+- **while-stmt scope push** (`b6c4f5d`). Pre-existing gap surfaced by E-LIN-005: the combined `while-stmt / if-stmt` case walked the body without scope push, shadowing a later scope-pushing case. Merged; while-stmt body now pushes a scope.
 
-- **Effect-block emission fix.** Pre-existing bug from S24. `emitTransitionGuard` took pre-filtered `guardRules` from both callers and filtered that subset again for effect emission — effect-only rules lost their effect body. Fix: pass full `binding.rules`; compute guard-filter and effect-filter independently inside. 4 new gauntlet tests.
+- **Effect-block emission for non-guarded rules** (`3556b22`). Pre-existing bug from S24. `emitTransitionGuard` took pre-filtered `guardRules` from both callers and re-filtered internally for effect emission, dropping effect-only rules. Fix: pass full `binding.rules`, compute guard-filter and effect-filter independently. 4 tests.
 
-- **§2h lin redesign, slice 4 (spec wording).** Pure docs. §35.1 now explicitly names "restricted intermediate visibility"; §35.2 adds a normative statement that any reference is a consumption and a second reference — even read-only — is E-LIN-002. Aligns the spec with existing compiler behavior.
+- **§35.1/§35.2 Approach-B wording** (`0e52306`). Pure docs. §35.1 explicitly names "restricted intermediate visibility"; §35.2 gains a normative statement that any reference is a consumption and a second reference — even read-only — is E-LIN-002. Spec now matches existing compiler behavior.
 
-- **§2a, match-arm-block scope push.** `.Variant => { ... }` arm bodies were walked by the default-case recursion in visitNode without scope push, so arm-local `let`/`const` leaked to sibling arms and the enclosing scope, and E-LIN-005 didn't fire inside arms. Added a dedicated `match-arm-block` case that pushes a scope around the body walk. 5 new gauntlet tests.
+- **match-arm-block body scope push** (`5ab63ac`). `.Variant => { ... }` arm bodies walked by the default-case recursion without scope push, so arm-local bindings leaked and E-LIN-005 didn't fire inside arms. New dedicated case pushes a scope around the body walk. 5 tests.
+
+- **Test-artifact dir moved to `os.tmpdir()`** (`7dd6fe6`). `expr-node-corpus-invariant.test.js` was regenerating `docs/changes/expr-ast-phase-1-audit/escape-hatch-catalog.{json,md}` inside the repo on every run — showing up as untracked noise ever since S21 dereffed the live copy. Redirected to `/tmp/scrml-expr-audit-phase-1/`. Also dropped the empty stray `docs/dfas`.
+
+- **§35.2.2 cross-`${}` block lin — tests + spec** (`83101c7`). Diagnosis showed the feature already works: program-level `checkLinear` enforces lin across top-level `${}` blocks, and the JS emitter hoists the `const` to a single binding at the common ancestor scope. Added 6 tests formalizing the contract (cross-block consume, markup-interpolation consume, unconsumed, intermediate reference, double-consume, multiple lins) and a new §35.2.2 SPEC section. Previously mischaracterized as "blocked by program-level enforcement gap" — corrected.
+
+- **if-stmt branch scope push** (`4b1e8b2`). Parallel fix to the while-stmt slice. if-stmt walked consequent and alternate in the enclosing scope, so `let`/`const` leaked between branches and to the parent scope, and E-LIN-005 did not fire inside if bodies. Separate scope push for each branch. 6 tests. Zero regressions in existing suite — nothing in the corpus relied on the leak.
 
 ### Blocked slices (recorded, not executed)
 
-- **E-LIN-006** (lin in deferred-execution context). Deep-dive text conflicts with §35.6 "capture-as-consumption" — every closure capture is already a synchronous consumption event, so E-LIN-006 as written is either vacuous (closure body references aren't consumption) or overrides §35.6 (tightening semantics). Needs user resolution on which interpretation is intended.
-
-- **§35.2.2 cross-`${}` block hoisting.** Blocked on a broader gap: program-level `${}` blocks do NOT run `checkLinear` today. A `lin x = 1` at program level is never flagged unconsumed. Fixing the program-level enforcement is a prerequisite; both together are multi-session scope.
+- **E-LIN-006** (lin in deferred-execution context). Deep-dive text conflicts with §35.6 "capture-as-consumption" — every closure capture is already a synchronous consumption event, so E-LIN-006 as written is either vacuous (closure body references aren't consumption) or overrides §35.6 (tightening semantics). Needs user resolution on which interpretation is intended:
+  - **(A) narrow** — E-LIN-006 applies only to `<request>`/`<poll>` markup bodies, closures unchanged under §35.6.
+  - **(B) override** — deferred closures (setTimeout, Promise, events) do not consume at capture time; consumption happens inside body and E-LIN-006 fires if declaration was outside.
+  - **(C) additional** — even with §35.6 capture-as-consumption, also fire E-LIN-006 when the capture is into a deferred closure.
 
 ### Suite trajectory
 
-6,949 → 6,969 pass (+20), 25,619 → 25,651 expects (+32), 284 → 287 files (+3). Same 2 pre-existing self-host fails. Zero regressions.
+6,949 → 6,981 pass (+32), 25,619 → 25,667 expects (+48), 284 → 289 files (+5). Same 2 pre-existing self-host fails. Zero regressions across all eight slices.
 
 ### Incidental discoveries (not fixed)
 
 - **match-arm expression-only form (`.Variant => singleExpr` without `{ }`).** S24 hand-off estimated this at 30–60 min, but on inspection it requires `collectExpr` stop-condition changes in the AST builder to delimit arms without braces. Larger than expected — queued for S26 with a more realistic scope estimate.
+- **switch-stmt body walk.** Probe showed an outer lin referenced inside a switch body is NOT counted as consumption — `lin x = …` followed by `switch (…) { case 1: { console.log(x) } }` still fires E-LIN-001 (unconsumed). switch-stmt body walking is likely not integrated with checkLinear. Queued.
+- **error-arm `!{}` binding scope.** Not audited this session. The caught-error binding probably needs its own scope-push case.
 
 ---
 
@@ -68,13 +76,12 @@ Retirement message sent to master 2026-04-17-1804. Still pending at S25 wrap; pr
 
 ### §2h lin redesign — remaining work
 
-- **E-LIN-006 — needs user resolution.** Either (a) narrow E-LIN-006 to `<request>`/`<poll>` markup bodies only (skip closure case since §35.6 already handles it), or (b) override §35.6 for the deferred-closure case. Once resolved, implementation is straightforward.
-- **§35.2.2 cross-`${}` block hoisting.** Requires program-level checkLinear enforcement first. Both together: ~2 slices.
+- **E-LIN-006 — needs user resolution.** Pick (A) narrow, (B) override, or (C) additional per the section above; implementation is straightforward once semantics are chosen.
 
 ### §2a remaining coverage
 
 - **match-arm expression-only form** (`.Variant => singleExpr`). AST builder change. `collectExpr` stop-condition extension to recognize next-arm-pattern (`.IDENT =>`, `else =>`, `not =>`) as a boundary. Touches many tests; do it standalone.
-- **switch-stmt body.** Similar shape. Probably shares the same AST-builder plumbing.
+- **switch-stmt body.** Not walked by checkLinear today (confirmed by probe this session — outer lin referenced in a switch case body doesn't count as consumption). Investigate whether switch is used in real code before prioritizing; match-stmt is the idiomatic form.
 - **error-arm `!{}` bindings.** Haven't audited. Caught-error binding needs scope-push before arm body walks.
 
 ### §2b followups (machine-cluster-expressiveness deep-dive)
@@ -88,6 +95,7 @@ Retirement message sent to master 2026-04-17-1804. Still pending at S25 wrap; pr
 2. **Machine opener attribute-form migration** — ratified S24, deferred. "Natural carrier" is the next §51 slice (temporal transitions / property tests).
 3. **while-stmt scope-push gap** — FIXED this session (`b6c4f5d`). Left here for reference.
 4. **Effect-block emission for non-guarded rules** — FIXED this session (`3556b22`). Left here for reference.
+5. **if-stmt branch-body scope leak** — FIXED this session (`4b1e8b2`). Left here for reference.
 
 ### §2i — 2 known self-host fails (deferred since S18)
 
@@ -115,7 +123,9 @@ Part of the §5-era self-host backlog.
   - `lin-005-shadowing.test.js` (§35.5, 11 tests)
   - `machine-effect-without-guard.test.js` (§51, 4 tests)
   - `match-arm-block-scope.test.js` (§2a, 5 tests)
-- Suite at tip: 6,969 pass / 10 skip / 2 fail / 25,651 expects / 287 files / ~4.8s.
+  - `lin-cross-block.test.js` (§35.2.2, 6 tests)
+  - `if-stmt-scope.test.js` (§2a, 6 tests)
+- Suite at tip: 6,981 pass / 10 skip / 2 fail / 25,667 expects / 289 files / ~4.8s.
 
 ---
 
@@ -128,16 +138,15 @@ Same primary roster as S22/S23/S24/S25. No staging needed for follow-up slices.
 ## 5. Recommended S26 opening sequence
 
 1. Check `handOffs/incoming/` for messages. Master may have acted on the scrmlTSPub retirement; if so, archive the read message.
-2. Resolve the two untracked items on disk (`docs/changes/expr-ast-phase-1-audit/`, `docs/dfas`).
-3. Push the 6 unpushed commits via one-time auth or master-PA batch.
-4. Decide next priority. Options, roughly by user-vision impact:
-   - **E-LIN-006 resolution + implementation** — user decides §35.6-vs-E-LIN-006 interpretation; then ship.
-   - **Program-level checkLinear enforcement** — prerequisite to §35.2.2 cross-block hoisting.
+2. Push the 2 unpushed commits via one-time auth or master-PA batch.
+3. Decide next priority. Options, roughly by user-vision impact:
+   - **E-LIN-006 resolution + implementation** — user picks (A), (B), or (C) interpretation from S25 summary; then ship.
    - **match-arm expression-only scope coverage** — AST-builder change; standalone slice.
+   - **switch-stmt integration with checkLinear** — likely small, depends on whether switch is actually used in real code.
    - **§2b C temporal transitions** — natural carrier for the deferred machine-opener migration.
    - **§2b F auto-property-tests** — "machine = enforced spec" unlock.
 
 ---
 
 ## Tags
-#session-26 #open #unpushed-6-commits #blocked-lin-006 #blocked-cross-block-lin #queue-match-arm-expr-form #queue-temporal-transitions #queue-property-tests #s25-complete
+#session-26 #open #unpushed-2-commits #blocked-lin-006 #queue-match-arm-expr-form #queue-switch-stmt-lin #queue-temporal-transitions #queue-property-tests #s25-complete
