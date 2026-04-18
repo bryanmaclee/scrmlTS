@@ -15,6 +15,8 @@
  *   _scrml_reactive_set("varName", newValue);
  */
 
+import { rewriteExpr } from "./rewrite.ts";
+
 // ---------------------------------------------------------------------------
 // §51.5.2 — Transition Lookup Table
 // ---------------------------------------------------------------------------
@@ -138,7 +140,12 @@ export function emitProjectionFunction(machine: DerivedMachineLike): string[] {
   for (const rule of machine.rules) {
     const toLiteral = `"${rule.to}"`;
     if (rule.guard) {
-      lines.push(`  if (tag === "${rule.from}" && (${rule.guard})) return ${toLiteral};`);
+      // §51.5 (S26) — rewrite @reactive refs to _scrml_reactive_get(...)
+      // before emitting the guard as a JS expression. rule.guard captures
+      // raw scrml text from the machine body; without this rewrite, guards
+      // referencing reactive vars emit invalid JS (raw `@name` token).
+      const guardJs = rewriteExpr(rule.guard);
+      lines.push(`  if (tag === "${rule.from}" && (${guardJs})) return ${toLiteral};`);
     } else {
       lines.push(`  if (tag === "${rule.from}") return ${toLiteral};`);
     }
@@ -236,17 +243,22 @@ export function emitTransitionGuard(
       const guardKey = `${rule.from}:${rule.to}`;
       const label = rule.label ? ` [${rule.label}]` : "";
       const prelude = buildBindingPreludeStmts(rule);
+      // §51.5 (S26) — rewrite @reactive refs to _scrml_reactive_get(...) for
+      // the JS evaluation. Diagnostic "Guard:" text keeps the raw scrml form
+      // so the user sees the source they wrote.
+      const guardJs = rewriteExpr(rule.guard);
+      const guardDiag = rule.guard.replace(/"/g, '\\"');
       if (prelude.length > 0) {
         // Open a keyed block, declare bindings, then evaluate the guard.
         lines.push(`  if (__key === "${guardKey}") {`);
         for (const p of prelude) lines.push(`    ${p}`);
-        lines.push(`    if (!(${rule.guard})) {`);
-        lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${rule.guard.replace(/"/g, '\\"')}");`);
+        lines.push(`    if (!(${guardJs})) {`);
+        lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`    }`);
         lines.push(`  }`);
       } else {
-        lines.push(`  if (__key === "${guardKey}" && !(${rule.guard})) {`);
-        lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${rule.guard.replace(/"/g, '\\"')}");`);
+        lines.push(`  if (__key === "${guardKey}" && !(${guardJs})) {`);
+        lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`  }`);
       }
     }
