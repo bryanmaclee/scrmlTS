@@ -315,6 +315,69 @@ describe("S24 §2a slice 2 — if / return / match-subject coverage", () => {
     expect(scope001).toEqual([]);
   });
 
+  test("undeclared ident in lin-decl init → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  lin token = undeclaredLinInit
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredLinInit/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in tilde-decl init → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  ~accum = undeclaredTildeInit
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredTildeInit/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in reactive-derived-decl init → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  const @derived = undeclaredDerivedInit + 1
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredDerivedInit/.test(e.message))).toBe(true);
+  });
+
+  test("lin name is scope-visible after decl", () => {
+    const src = `<program>
+\${
+  lin token = "secret"
+  let x = token
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
+  test("derived reactive visible to later @-refs", () => {
+    const src = `<program>
+\${
+  @base = 5
+  const @doubled = @base * 2
+  let x = @doubled
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
   test("propagate-expr binding is scope-visible to later statements", () => {
     const src = `<program>
 \${

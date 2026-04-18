@@ -3894,6 +3894,56 @@ function annotateNodes(
       }
 
       // ------------------------------------------------------------------
+      // §2a — single-init declaration forms not yet covered by a dedicated
+      // case. Each walks the initExpr for undeclared idents and binds the
+      // declared name into the current scope so subsequent statements see
+      // it. These cases intentionally DO NOT duplicate any other type
+      // system work (lin tracking, must-use tracking, derived-reactive
+      // codegen wiring) — those run elsewhere under their own visitors.
+      // ------------------------------------------------------------------
+      case "lin-decl": {
+        const linSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const linInitExpr = (n as Record<string, unknown>).initExpr;
+        if (linInitExpr) {
+          checkLogicExprIdents(linInitExpr, linSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+        }
+        if (n.name) {
+          scopeChain.bind(n.name as string, { kind: "variable", resolvedType: tAsIs() });
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      case "tilde-decl": {
+        const tildSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const tildInitExpr = (n as Record<string, unknown>).initExpr;
+        if (tildInitExpr) {
+          checkLogicExprIdents(tildInitExpr, tildSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+        }
+        if (n.name) {
+          scopeChain.bind(n.name as string, { kind: "variable", resolvedType: tAsIs() });
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      case "reactive-derived-decl": {
+        const drvSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const drvInitExpr = (n as Record<string, unknown>).initExpr;
+        if (drvInitExpr) {
+          checkLogicExprIdents(drvInitExpr, drvSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+        }
+        if (n.name) {
+          // `const @x = expr` creates both a @-form reference (`@x`) and
+          // a bare-name reference (`x`), same as reactive-decl above.
+          scopeChain.bind(`@${n.name as string}`, { kind: "reactive", resolvedType: tAsIs() });
+          scopeChain.bind(n.name as string, { kind: "reactive", resolvedType: tAsIs() });
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
       // §2a — for-stmt / while-stmt scope plumbing.
       //
       // Before this case existed, for-stmt nodes fell through to the default
