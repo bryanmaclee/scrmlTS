@@ -15,7 +15,7 @@ ${
     }
 }
 
-< machine AdminFlow for OrderStatus>
+< machine name=AdminFlow for=OrderStatus>
     .Pending    => .Processing | .Cancelled
     .Processing => .Shipped | .Cancelled
     .Shipped    => .Delivered

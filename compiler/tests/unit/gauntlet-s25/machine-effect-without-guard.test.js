@@ -53,7 +53,7 @@ describe("S25 §51 — effect block emission for non-guarded rules", () => {
   @trace = []
   function step() { @order = S.B }
 }
-< machine M for S>
+< machine name=M for=S>
   .A => .B { @trace = @trace.concat(["A-to-B"]) }
 </>
 <p>x</>
@@ -75,7 +75,7 @@ describe("S25 §51 — effect block emission for non-guarded rules", () => {
   @trace = []
   function step() { @order = S.B }
 }
-< machine M for S>
+< machine name=M for=S>
   .A => .B given (true) { @trace = @trace.concat(["guarded-effect"]) }
 </>
 <p>x</>
@@ -95,7 +95,7 @@ describe("S25 §51 — effect block emission for non-guarded rules", () => {
   function toB() { @order = S.B }
   function toC() { @order = S.C }
 }
-< machine M for S>
+< machine name=M for=S>
   .A => .B { @trace = @trace.concat(["on-B"]) }
   .A => .C given (true)
 </>
@@ -117,7 +117,7 @@ describe("S25 §51 — effect block emission for non-guarded rules", () => {
   @order: M = S.A
   function step() { @order = S.B }
 }
-< machine M for S>
+< machine name=M for=S>
   .A => .B
 </>
 <p>x</>

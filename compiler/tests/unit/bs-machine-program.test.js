@@ -18,7 +18,7 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
   test("< machine> inside <program> produces correct block structure", () => {
     const result = splitBlocks("test.scrml", [
       "<program>",
-      "< machine AdminFlow for OrderStatus>",
+      "< machine name=AdminFlow for=OrderStatus>",
       "    .Pending    => .Processing",
       "    .Processing => .Shipped",
       "</>",
@@ -41,7 +41,7 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
     // After the machine closes, </program> must still match the open <program>.
     const result = splitBlocks("test.scrml", [
       "<program>",
-      "< machine Flow for Status>",
+      "< machine name=Flow for=Status>",
       "    .A => .B",
       "</>",
       "<div>content</>",
@@ -61,10 +61,10 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
   test("multiple < machine> blocks inside <program> all close correctly", () => {
     const result = splitBlocks("test.scrml", [
       "<program>",
-      "< machine UserFlow for Status>",
+      "< machine name=UserFlow for=Status>",
       "    .A => .B",
       "</>",
-      "< machine AdminFlow for Status>",
+      "< machine name=AdminFlow for=Status>",
       "    .A => .B",
       "    .B => .A",
       "</>",
@@ -84,7 +84,7 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
     // treated as raw text, not a tag closer.
     const result = splitBlocks("test.scrml", [
       "<program>",
-      "< machine TrafficController for TrafficLight>",
+      "< machine name=TrafficController for=TrafficLight>",
       "    .Red    => .Green",
       "    .Green  => .Yellow",
       "    .Yellow => .Red",
@@ -108,7 +108,7 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
       "${",
       "    @status = Status.Pending",
       "}",
-      "< machine AdminFlow for Status>",
+      "< machine name=AdminFlow for=Status>",
       "    .Pending    => .Processing",
       "    .Processing => .Done",
       "</>",
@@ -134,7 +134,7 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
     // The machine's actual name (AdminFlow) and type (OrderStatus) are in the raw text,
     // parsed by the TAB/AST-builder stage, not the block splitter.
     const result = splitBlocks("test.scrml", [
-      "< machine AdminFlow for OrderStatus>",
+      "< machine name=AdminFlow for=OrderStatus>",
       "    .Pending => .Processing",
       "</>",
     ].join("\n"));
@@ -144,7 +144,7 @@ describe("< machine> state block inside <program> (fix-bs-machine-closer)", () =
     expect(machine.type).toBe("state");
     expect(machine.name).toBe("machine");
     expect(machine.raw).toContain("AdminFlow");
-    expect(machine.raw).toContain("for OrderStatus");
+    expect(machine.raw).toContain("for=OrderStatus");
     expect(machine.closerForm).toBe("inferred");
   });
 });

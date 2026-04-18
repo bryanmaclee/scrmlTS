@@ -1,7 +1,7 @@
 /**
  * derived-machines.test.js — S22 §51.9 (I): derived / projection machines.
  *
- * Slice 1 (type-system): parses `< machine UI for UIMode derived from @order>`,
+ * Slice 1 (type-system): parses `< machine name=UI for=UIMode derived=@order>`,
  * registers the derived machine with isDerived/sourceVar/projectedVarName,
  * and validates exhaustiveness over the source enum's variants
  * (E-MACHINE-018). Runtime codegen lands in a follow-up slice — these tests
@@ -400,7 +400,7 @@ describe("§51.9 slice 2 — E-MACHINE-017 reject writes to projected vars", () 
 
 describe("§51.9 slice 2 — end-to-end compilation", () => {
   test("full file compiles and emits projection function + derived registration", () => {
-    const source = `\${\n  type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }\n  type UIMode:enum = { Editable, ReadOnly, Terminal }\n\n  @order: OrderMachine = OrderState.Draft\n}\n\n< machine OrderMachine for OrderState>\n    .Draft => .Submitted\n</>\n\n< machine UI for UIMode derived from @order>\n    .Draft => .Editable\n    .Submitted | .Paid | .Shipping => .ReadOnly\n    .Delivered | .Cancelled | .Refunded => .Terminal\n</>\n\n<program>\n    <p>ok</>\n</>\n`;
+    const source = `\${\n  type OrderState:enum = { Draft, Submitted, Paid, Shipping, Delivered, Cancelled, Refunded }\n  type UIMode:enum = { Editable, ReadOnly, Terminal }\n\n  @order: OrderMachine = OrderState.Draft\n}\n\n< machine name=OrderMachine for=OrderState>\n    .Draft => .Submitted\n</>\n\n< machine name=UI for=UIMode derived=@order>\n    .Draft => .Editable\n    .Submitted | .Paid | .Shipping => .ReadOnly\n    .Delivered | .Cancelled | .Refunded => .Terminal\n</>\n\n<program>\n    <p>ok</>\n</>\n`;
     const { fatalErrors, clientJs } = compileSource(source, "end-to-end.scrml");
     expect(fatalErrors).toEqual([]);
     expect(clientJs).toContain("function _scrml_project_UI(src)");
@@ -416,7 +416,7 @@ describe("§51.9 slice 2 — end-to-end compilation", () => {
     // checker sees them. The function-body assignment to @ui is the case we
     // actually care about — the user attempting to write through the
     // projected var from user code.
-    const source = `\${\n  type OrderState:enum = { Draft, Submitted }\n  type UIMode:enum = { Editable, ReadOnly }\n  @order: OrderMachine = OrderState.Draft\n}\n\n\${\n  function badWrite() { @ui = "Editable" }\n}\n\n< machine OrderMachine for OrderState>\n    .Draft => .Submitted\n</>\n\n< machine UI for UIMode derived from @order>\n    .Draft => .Editable\n    .Submitted => .ReadOnly\n</>\n\n<program><p>ok</></>\n`;
+    const source = `\${\n  type OrderState:enum = { Draft, Submitted }\n  type UIMode:enum = { Editable, ReadOnly }\n  @order: OrderMachine = OrderState.Draft\n}\n\n\${\n  function badWrite() { @ui = "Editable" }\n}\n\n< machine name=OrderMachine for=OrderState>\n    .Draft => .Submitted\n</>\n\n< machine name=UI for=UIMode derived=@order>\n    .Draft => .Editable\n    .Submitted => .ReadOnly\n</>\n\n<program><p>ok</></>\n`;
     const { errors } = compileSource(source, "write-rejected.scrml");
     const e = errors.find(e => e.code === "E-MACHINE-017");
     expect(e).toBeDefined();
@@ -444,7 +444,7 @@ describe("§51.9 follow-up — DOM read-wiring for projected vars", () => {
       "  @order: OrderMachine = OrderState.Draft",
       "}",
       "",
-      "< machine OrderMachine for OrderState>",
+      "< machine name=OrderMachine for=OrderState>",
       "  .Draft => .Submitted",
       "  .Submitted => .Paid",
       "  .Paid => .Shipping",
@@ -453,7 +453,7 @@ describe("§51.9 follow-up — DOM read-wiring for projected vars", () => {
       "  .Paid => .Refunded",
       "</>",
       "",
-      "< machine UI for UIMode derived from @order>",
+      "< machine name=UI for=UIMode derived=@order>",
       "  .Draft => .Editable",
       "  .Submitted | .Paid | .Shipping => .ReadOnly",
       "  .Delivered | .Cancelled | .Refunded => .Terminal",
@@ -486,7 +486,7 @@ describe("§51.9 follow-up — DOM read-wiring for projected vars", () => {
       "  @order: OrderMachine = OrderState.Draft",
       "}",
       "",
-      "< machine OrderMachine for OrderState>",
+      "< machine name=OrderMachine for=OrderState>",
       "  .Draft => .Submitted",
       "  .Submitted => .Paid",
       "  .Paid => .Shipping",
@@ -495,7 +495,7 @@ describe("§51.9 follow-up — DOM read-wiring for projected vars", () => {
       "  .Paid => .Refunded",
       "</>",
       "",
-      "< machine UI for UIMode derived from @order>",
+      "< machine name=UI for=UIMode derived=@order>",
       "  .Draft => .Editable",
       "  .Submitted | .Paid | .Shipping => .ReadOnly",
       "  .Delivered | .Cancelled | .Refunded => .Terminal",

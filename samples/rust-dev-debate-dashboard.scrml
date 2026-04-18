@@ -167,7 +167,7 @@ on mount {
 // Rust instinct: the state machine IS the type. Transitions that
 // aren't listed here are compile errors, not runtime surprises.
 
-< machine UsersController for UsersRemote>
+< machine name=UsersController for=UsersRemote>
     .NotAsked => .Loading
     .Loading  => .Ready
     .Loading  => .Failed
@@ -175,7 +175,7 @@ on mount {
     .Failed   => .Loading
 </>
 
-< machine OrdersController for OrdersRemote>
+< machine name=OrdersController for=OrdersRemote>
     .NotAsked => .Loading
     .Loading  => .Ready
     .Loading  => .Failed
@@ -183,7 +183,7 @@ on mount {
     .Failed   => .Loading
 </>
 
-< machine MetricsController for MetricsRemote>
+< machine name=MetricsController for=MetricsRemote>
     .NotAsked => .Loading
     .Loading  => .Ready
     .Loading  => .Failed
@@ -191,7 +191,7 @@ on mount {
     .Failed   => .Loading
 </>
 
-< machine SubmitController for OrderSubmit>
+< machine name=SubmitController for=OrderSubmit>
     .Idle      => .Saving
     .Saving    => .Committed
     .Saving    => .Failed

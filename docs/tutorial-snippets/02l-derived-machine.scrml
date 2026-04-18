@@ -18,7 +18,7 @@ ${
   function cancel()  { @order = OrderState.Cancelled }
 }
 
-< machine OrderMachine for OrderState>
+< machine name=OrderMachine for=OrderState>
   .Draft     => .Submitted | .Cancelled
   .Submitted => .Paid | .Cancelled
   .Paid      => .Shipped | .Cancelled
@@ -28,7 +28,7 @@ ${
 // Derived machine: projected var name is the machine name with the leading
 // uppercase run lowercased, so `UI` → `@ui`. Writes to @order auto-update
 // @ui via the runtime dirty-propagation graph.
-< machine UI for UIMode derived from @order>
+< machine name=UI for=UIMode derived=@order>
   .Draft                             => .Editable
   .Submitted | .Paid | .Shipped      => .ReadOnly
   .Delivered | .Cancelled            => .Terminal

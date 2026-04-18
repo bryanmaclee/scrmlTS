@@ -3,7 +3,7 @@
  * Consolidated test file for impl-machine-declarations.
  *
  * Covers:
- *   - < machine M for MyEnum> produces machine-decl AST node
+ *   - < machine name=M for=MyEnum> produces machine-decl AST node
  *   - AST node has correct machineName, governedType, rulesRaw fields
  *   - Multiple rules all parsed correctly
  *   - Machine governing a struct type (§51.3.2 Amendment 1)
@@ -69,13 +69,13 @@ function makeMachineDecl(machineName, governedType, rulesRaw) {
 }
 
 // ---------------------------------------------------------------------------
-// §51.3-AST-1: < machine M for MyEnum> produces machine-decl AST node
+// §51.3-AST-1: < machine name=M for=MyEnum> produces machine-decl AST node
 // ---------------------------------------------------------------------------
 
 describe("§51.3 — machine-decl AST node production", () => {
-  test("< machine M for MyEnum> produces kind: machine-decl", () => {
+  test("< machine name=M for=MyEnum> produces kind: machine-decl", () => {
     const src = `<program>
-< machine M for MyEnum>
+< machine name=M for=MyEnum>
   .A => .B
 </>
 </program>`;
@@ -87,7 +87,7 @@ describe("§51.3 — machine-decl AST node production", () => {
 
   test("machine-decl node has correct machineName", () => {
     const src = `<program>
-< machine TrafficLight for LightColor>
+< machine name=TrafficLight for=LightColor>
   .Red => .Green
 </>
 </program>`;
@@ -98,7 +98,7 @@ describe("§51.3 — machine-decl AST node production", () => {
 
   test("machine-decl node has correct governedType (forType)", () => {
     const src = `<program>
-< machine TrafficLight for LightColor>
+< machine name=TrafficLight for=LightColor>
   .Red => .Green
 </>
 </program>`;
@@ -109,7 +109,7 @@ describe("§51.3 — machine-decl AST node production", () => {
 
   test("machine-decl rulesRaw contains all rule text", () => {
     const src = `<program>
-< machine Flow for Status>
+< machine name=Flow for=Status>
   .Pending => .Active
   .Active => .Done
   .Active => .Cancelled
@@ -124,7 +124,7 @@ describe("§51.3 — machine-decl AST node production", () => {
 
   test("machine with multiple rules: all rules present in rulesRaw", () => {
     const src = `<program>
-< machine OrderFlow for OrderStatus>
+< machine name=OrderFlow for=OrderStatus>
   .Pending    => .Processing
   .Processing => .Shipped
   .Shipped    => .Delivered
@@ -148,10 +148,10 @@ describe("§51.3 — machine-decl AST node production", () => {
 // ---------------------------------------------------------------------------
 
 describe("§51.3 — machine governing a struct type", () => {
-  test("< machine DateRange for Booking> produces machine-decl node", () => {
+  test("< machine name=DateRange for=Booking> produces machine-decl node", () => {
     // Guard uses >= to avoid ambiguity: BS treats bare < as a tag opener
     const src = `<program>
-< machine DateRange for Booking>
+< machine name=DateRange for=Booking>
   * => * given (self.nights >= 1)
 </>
 </program>`;
@@ -164,7 +164,7 @@ describe("§51.3 — machine governing a struct type", () => {
 
   test("struct-governing machine rulesRaw contains wildcard rule", () => {
     const src = `<program>
-< machine InvRange for Inventory>
+< machine name=InvRange for=Inventory>
   * => * given (self.qty >= 0)
 </>
 </program>`;

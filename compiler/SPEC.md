@@ -16984,7 +16984,7 @@ The design is two-tiered:
   with no reference to runtime state or identity. They are the tightest constraint a caller
   can assume unless overridden.
 
-- **Machine-level transitions** (`< machine Name for EnumType>`) define a named override
+- **Machine-level transitions** (`< machine name=Name for=EnumType>`) define a named override
   graph for a specific context. Machines are bound to reactive variables at declaration time.
   They may include `given` guards that reference runtime state. Multiple machines may govern
   the same enum type.
@@ -17203,21 +17203,19 @@ struct-governing machines.
 side desugars to the cross-product of single-pair rules before type checking. Any
 `guard-clause` and `effect-block` attached to the rule applies to every expanded pair.
 
-**Amendment queued:** 2026-04-17 — ratified by radical-doubt debate (see
-`scrml-support/design-insights.md`, "Machine cohesion: opener + guard keyword"). The
-machine opener will migrate from the current sentence form `< machine Name for Type>`
-to the attribute form `< machine name=Name for=Type>`, matching §5.1 attribute grammar
-shared by all other state types (`< db>`, `< timer>`, `< poll>`, `< request>`,
-`< timeout>`, `< errorBoundary>`). `name=` and `for=` SHALL be bareword-identifier
-attribute values (§5.1 unquoted-identifier form); quoted-string values SHALL be a
-compile error. Rule-body grammar, `given` guards (§4.11.4), and `[label]` suffix
-remain unchanged. Execution of the migration is deferred to coincide with the next
-§51 feature amendment (e.g., §51.9 audit clause, temporal transitions) so the parser
-and fixtures change in a single coordinated commit. Until migration executes, the
-current sentence form remains authoritative for parser input and fixture content.
+**Amended (landed S25):** 2026-04-18 — attribute-form opener migration (ratified by
+radical-doubt debate 2026-04-17, see `scrml-support/design-insights.md`, "Machine
+cohesion: opener + guard keyword"). The machine opener uses the attribute form
+`< machine name=Name for=Type>`, matching §5.1 attribute grammar shared by all other
+state types (`< db>`, `< timer>`, `< poll>`, `< request>`, `< timeout>`,
+`< errorBoundary>`). `name=` and `for=` SHALL be bareword-identifier attribute values
+(§5.1 unquoted-identifier form); quoted-string values SHALL be a compile error.
+Rule-body grammar, `given` guards (§4.11.4), and `[label]` suffix are unchanged. The
+pre-S25 sentence form `< machine Name for Type>` is rejected with E-MACHINE-020 —
+the error message names the required attribute form for straightforward rewriting.
 
 ```scrml
-< machine MarioMachine for MarioState>
+< machine name=MarioMachine for=MarioState>
     .Small        => .Big | .Fire | .Cape
     .Big          => .Fire | .Cape | .Small
     .Fire | .Cape => .Small
@@ -17244,7 +17242,7 @@ type CannonState:enum = {
     Reloading(reason: string)
 }
 
-< machine CannonMachine for CannonState>
+< machine name=CannonMachine for=CannonState>
     .Idle               => .Charging(level: l) given (l >= 0)
     .Charging(n)        => .Firing(shot: s)    given (n >= 50)
     .Charging(n)        => .Idle               given (n < 10)
@@ -17293,7 +17291,7 @@ When governing a **struct type**, a machine's rules use `* => *` wildcard syntax
 `given` guards that reference fields via `self.*`:
 
 ```scrml
-< machine DateRange for Booking {
+< machine name=DateRange for=Booking> {
     * => * given (self.start < self.end) [valid_date_range]
     * => * given (self.nights > 0 && self.nights < 365) [valid_nights]
 }
@@ -17310,7 +17308,7 @@ loop, or conditional. It MAY be declared inside a `${}` logic block at file scop
 
 **Normative statements:**
 
-- `< machine Name for TypeName>` SHALL declare a named machine governing variables of type
+- `< machine name=Name for=TypeName>` SHALL declare a named machine governing variables of type
   `TypeName`. `TypeName` may be an enum type or a struct type.
 - The machine name SHALL be unique within the file scope. Duplicate machine names in the
   same file SHALL be a compile error (E-MACHINE-003).
@@ -17406,14 +17404,14 @@ type Column:enum = {
 }
 
 // Default machine: forward-only, no reopening
-< machine UserFlow for Column {
+< machine name=UserFlow for=Column> {
     .Todo       => .InProgress
     .InProgress => .Done
 }
 </>
 
 // Admin machine: full flexibility
-< machine AdminFlow for Column {
+< machine name=AdminFlow for=Column> {
     .Todo       => .InProgress
     .InProgress => .Done
     .InProgress => .Todo
@@ -17520,7 +17518,7 @@ E-MACHINE-001: Illegal transition.
   AuthState has no transition rule from .Locked.
   .Locked is a terminal variant — no outgoing transitions are declared.
   Hint: to permit unlocking, add `.Locked => .Anonymous` to AuthState.transitions,
-        or create a < machine AdminUnlock for AuthState> with this rule.
+        or create a < machine name=AdminUnlock for=AuthState> with this rule.
 ```
 
 ---
@@ -17539,7 +17537,7 @@ type TaskStatus:enum = {
     Rejected
 }
 
-< machine DeveloperFlow for TaskStatus {
+< machine name=DeveloperFlow for=TaskStatus> {
     .Backlog  => .Active
     .Active   => .InReview
     .InReview => .Active    // reviewer requests changes
@@ -17548,14 +17546,14 @@ type TaskStatus:enum = {
 }
 </>
 
-< machine QAFlow for TaskStatus {
+< machine name=QAFlow for=TaskStatus> {
     .InReview => .Done
     .InReview => .Rejected
     .Done     => .InReview  given @currentUser.role === "qa"  // QA can reopen Done
 }
 </>
 
-< machine PMFlow for TaskStatus {
+< machine name=PMFlow for=TaskStatus> {
     .Backlog  => .Active
     .Active   => .Backlog    // PM deprioritizes
     .Done     => .Active     // PM reopens
@@ -17823,7 +17821,7 @@ projection-rule      ::= variant-ref-list '=>' variant-ref                -- map
 **Example:**
 
 ```scrml
-< machine UI for UIMode derived from @order>
+< machine name=UI for=UIMode derived=@order>
     .Draft                                  => .Editable
     .Submitted | .Paid | .Shipping          => .ReadOnly
     .Delivered | .Cancelled | .Refunded     => .Terminal
@@ -17910,7 +17908,7 @@ ${
   @state: FetchMachine = FetchState.Idle
 }
 
-< machine FetchMachine for FetchState>
+< machine name=FetchMachine for=FetchState>
     .Idle    => .Loading
     .Loading => .Success | .Error
     .Success | .Error => .Idle
@@ -17918,7 +17916,7 @@ ${
 
 type UIFlag:enum = { Idle, Busy, Done, Failed }
 
-< machine UI for UIFlag derived from @state>
+< machine name=UI for=UIFlag derived=@state>
     .Idle              => .Idle
     .Loading           => .Busy
     .Success           => .Done
@@ -17930,8 +17928,8 @@ The four shadow booleans collapse to one projection. Never-drift by construction
 
 #### 51.9.6 Normative Statements
 
-- A derived-machine declaration SHALL use the form `< machine Name for TypeName derived
-  from @SourceVar>`. The `derived from @SourceVar` clause SHALL name a machine-bound
+- A derived-machine declaration SHALL use the form `< machine name=Name for=TypeName
+  derived=@SourceVar>`. The `derived=@SourceVar` attribute SHALL name a machine-bound
   reactive variable in the current file's scope.
 - The projected variable — named by the **machine name** with its leading uppercase
   run lowercased (`UI` → `@ui`, `OrderStatus` → `@orderStatus`, `HTTPStatus` →
@@ -18002,7 +18000,7 @@ ${
     function advance() { @order = OrderStatus.Processing }
 }
 
-< machine OrderFlow for OrderStatus>
+< machine name=OrderFlow for=OrderStatus>
     .Pending    => .Processing
     .Processing => .Shipped
     .Shipped    => .Delivered
@@ -19098,7 +19096,7 @@ type Booking:struct = {
     nights: number(>0 && <365)     // inline predicate on the field
 }
 
-< machine ValidBooking for Booking {
+< machine name=ValidBooking for=Booking> {
     * => * given (self.start < self.end)   // machine governing the struct
 }
 </>
@@ -19133,7 +19131,7 @@ use `< machine>` instead.
 // Inline predicates must be stateless.
 // For constraints that reference reactive state, use < machine>.
 // Example:
-//   < machine HpRange for number {
+//   < machine name=HpRange for=number> {
 //       * => * given (value >= 0 && value <= @maxMana)
 //   }
 //   /
@@ -19313,7 +19311,7 @@ E-CONTRACT-003: Inline predicate references external reactive variable '@maxMana
 
   For constraints that depend on external state, use < machine>:
 
-    < machine HpRange for number {
+    < machine name=HpRange for=number> {
         * => * given (value >= 0 && value <= @maxMana)
     }
     /
@@ -19473,7 +19471,7 @@ E-CONTRACT-003: Inline predicate references external reactive variable '@maxScor
 
   For constraints that depend on external state, use < machine>:
 
-    < machine ScoreRange for number {
+    < machine name=ScoreRange for=number> {
         * => * given (value >= 0 && value <= @maxScore)
     }
     /

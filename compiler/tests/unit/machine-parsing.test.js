@@ -37,7 +37,7 @@ function findMachineDecls(result) {
 describe("§51.3 machine-decl parsing", () => {
   test("< machine> produces machine-decl AST node", () => {
     const source = `<program>
-< machine UserFlow for Column>
+< machine name=UserFlow for=Column>
     .Todo => .InProgress
     .InProgress => .Done
 </>
@@ -52,7 +52,7 @@ describe("§51.3 machine-decl parsing", () => {
 
   test("rulesRaw contains the transition rules text", () => {
     const source = `<program>
-< machine Flow for Status>
+< machine name=Flow for=Status>
     .A => .B
     .B => .C
 </>
@@ -66,7 +66,7 @@ describe("§51.3 machine-decl parsing", () => {
 
   test("machine with guards in rules", () => {
     const source = `<program>
-< machine AdminFlow for Column>
+< machine name=AdminFlow for=Column>
     .Done => .Todo given @isAdmin
 </>
 </program>`;
@@ -78,10 +78,10 @@ describe("§51.3 machine-decl parsing", () => {
 
   test("multiple machines produce multiple machine-decl nodes", () => {
     const source = `<program>
-< machine UserFlow for Status>
+< machine name=UserFlow for=Status>
     .A => .B
 </>
-< machine AdminFlow for Status>
+< machine name=AdminFlow for=Status>
     .A => .B
     .B => .A
 </>

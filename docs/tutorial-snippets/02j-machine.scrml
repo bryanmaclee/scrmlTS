@@ -1,4 +1,4 @@
-// 02j — State machine. `< machine Name for EnumType>` declares the legal
+// 02j — State machine. `< machine name=Name for=EnumType>` declares the legal
 // transitions for a reactive bound to that machine. Writes that are not
 // in the rule set are rejected at runtime.
 
@@ -18,7 +18,7 @@ ${
   function cancel()  { @order = OrderState.Cancelled }
 }
 
-< machine OrderMachine for OrderState>
+< machine name=OrderMachine for=OrderState>
   .Draft     => .Submitted | .Cancelled
   .Submitted => .Paid | .Cancelled
   .Paid      => .Shipped | .Cancelled

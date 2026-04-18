@@ -25,7 +25,7 @@ ${
     }
 }
 
-< machine TrafficController for TrafficLight>
+< machine name=TrafficController for=TrafficLight>
     .Red    => .Green
     .Green  => .Yellow
     .Yellow => .Red

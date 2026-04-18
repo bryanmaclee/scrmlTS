@@ -852,7 +852,7 @@ Finally, a `fn` can be marked failable with `!` (see Section 3.5). A failable `f
 An enum plus a match takes you most of the way to "one of several possible states." A state *machine* goes one step further: it declares which transitions between those states are legal, so the compiler and runtime will reject illegal ones instead of silently accepting them. scrml spells this as a top-level `< machine>` block bound to an enum type.
 
 ```scrml
-// 02j — State machine. `< machine Name for EnumType>` declares the legal
+// 02j — State machine. `< machine name=Name for=EnumType>` declares the legal
 // transitions for a reactive bound to that machine. Writes that are not
 // in the rule set are rejected at runtime.
 
@@ -872,7 +872,7 @@ ${
   function cancel()  { @order = OrderState.Cancelled }
 }
 
-< machine OrderMachine for OrderState>
+< machine name=OrderMachine for=OrderState>
   .Draft     => .Submitted | .Cancelled
   .Submitted => .Paid | .Cancelled
   .Paid      => .Shipped | .Cancelled
@@ -891,7 +891,7 @@ ${
 </program>
 ```
 
-Two pieces wire the machine to a reactive. The enum (`OrderState`) lists the states. The `< machine OrderMachine for OrderState>` block lists the legal transitions — each rule has a *from* variant on the left and one or more *to* variants on the right, separated by `=>`. The `|` alternation on the right lets a single from-state fan out to several legal destinations. Finally, the reactive's type annotation (`@order: OrderMachine`) is what binds the two together: writes to `@order` go through the machine guard instead of the default setter.
+Two pieces wire the machine to a reactive. The enum (`OrderState`) lists the states. The `< machine name=OrderMachine for=OrderState>` block lists the legal transitions — each rule has a *from* variant on the left and one or more *to* variants on the right, separated by `=>`. The `|` alternation on the right lets a single from-state fan out to several legal destinations. Finally, the reactive's type annotation (`@order: OrderMachine`) is what binds the two together: writes to `@order` go through the machine guard instead of the default setter.
 
 Try the example. `.Draft → .Paid` will be rejected at runtime — it is not in the rule set. `.Draft → .Submitted` succeeds. The rules themselves are also enforced by the type system: misspelling a variant (`.Draftt => .Submitted`) is a compile-time E-MACHINE-004, not a silent wrong-path at runtime.
 
@@ -916,14 +916,14 @@ ${
   @order: OrderMachine = OrderState.Draft
 }
 
-< machine OrderMachine for OrderState>
+< machine name=OrderMachine for=OrderState>
   .Draft     => .Submitted | .Cancelled
   .Submitted => .Paid | .Cancelled
   .Paid      => .Shipped | .Cancelled
   .Shipped   => .Delivered
 </>
 
-< machine UI for UIMode derived from @order>
+< machine name=UI for=UIMode derived=@order>
   .Draft                             => .Editable
   .Submitted | .Paid | .Shipped      => .ReadOnly
   .Delivered | .Cancelled            => .Terminal
@@ -1610,8 +1610,8 @@ A fast reference for the keywords and sigils you met in this tutorial. Each line
 - `type Name:struct = { ... }` — structural record type. Section 2.2.
 - `type Name:enum = { A, B(n: number), ... }` — tagged sum type. Section 2.3.
 - `match expr { .A => {...} .B(n) => {...} }` — exhaustive destructuring with positional payload binding. Section 2.4.
-- `< machine Name for EnumType>` / `@var: Name = EnumType.First` — machine-governed reactive state. Section 2.10.
-- `< machine P for ProjEnum derived from @source>` — projected read-only reactive. Section 2.10.
+- `< machine name=Name for=EnumType>` / `@var: Name = EnumType.First` — machine-governed reactive state. Section 2.10.
+- `< machine name=P for=ProjEnum derived=@source>` — projected read-only reactive. Section 2.10.
 - `if=expr` / `show=expr` — mount vs. toggle-visibility. Section 2.5.
 - `const Name = <...>` — component declaration as a const expression. Section 2.6.
 - `${children}` — the caller's positional children inside a component body. Section 2.6.

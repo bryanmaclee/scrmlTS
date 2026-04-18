@@ -5468,14 +5468,19 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
 
     // --------------------------------------------------------------- state
     case "state": {
-      // §51.3: `< machine MachineName for TypeName>` — machine declaration
+      // §51.3: `< machine name=MachineName for=TypeName>` — machine declaration
       // BS creates: block.name = "machine", block.raw = full tag content
       // including the opener line and body text up to the `/` closer.
       // Children contain text nodes with the rule content.
+      //
+      // S25 — attribute-form migration per S24 ratification (SPEC §51.3.2):
+      // the opener uses bareword-ident attribute values, matching the
+      // declarative syntactic form used everywhere else (@x: Type, as Type,
+      // type Foo, < state for=X>). The pre-S25 sentence form
+      // `< machine Name for Type>` is rejected with E-MACHINE-020.
       if (block.name === "machine") {
         const machineRaw = (block.raw || "").trim();
-        // Extract header: "< machine MachineName for TypeName>"
-        // The first line (up to `>` or newline) contains the declaration.
+        // Extract header: "< machine name=X for=Y [derived=@Z]>"
         const firstLineEnd = machineRaw.indexOf(">");
         const headerLine = firstLineEnd >= 0
           ? machineRaw.slice(0, firstLineEnd)
@@ -5484,28 +5489,46 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
         let header = headerLine;
         const machineIdx = header.indexOf("machine");
         if (machineIdx >= 0) header = header.slice(machineIdx + "machine".length).trim();
+        // Strip trailing `/` (self-closing) or `>` fragments from the header.
+        header = header.replace(/[/>]+\s*$/, "").trim();
 
-        const forIdx = header.indexOf(" for ");
+        // Bareword-ident regex — reused across the three attributes.
+        const IDENT = /[A-Za-z_$][A-Za-z0-9_$]*/;
+        const nameMatch = header.match(new RegExp(`\\bname\\s*=\\s*(${IDENT.source})\\b`));
+        const forMatch = header.match(new RegExp(`\\bfor\\s*=\\s*(${IDENT.source})\\b`));
+        const derivedMatch = header.match(new RegExp(`\\bderived\\s*=\\s*@(${IDENT.source})\\b`));
+
         let machineName = "";
         let governedType = "";
-        if (forIdx >= 0) {
-          machineName = header.slice(0, forIdx).trim();
-          governedType = header.slice(forIdx + 5).trim();
-        } else {
-          machineName = header.trim();
-        }
-        // Strip trailing > or / from governedType
-        governedType = governedType.replace(/[>/\s]+$/, "").trim();
-
-        // §51.9 — `< machine Name for Type derived from @SourceVar>`. The
-        // `derived from @Source` clause marks a projection machine. The source
-        // variable name is captured without the leading `@`; downstream type-
-        // system logic synthesizes the projected reactive var in scope.
         let sourceVar = null;
-        const derivedMatch = governedType.match(/^(.*?)\s+derived\s+from\s+@([A-Za-z_$][A-Za-z0-9_$]*)\s*$/);
-        if (derivedMatch) {
-          governedType = derivedMatch[1].trim();
-          sourceVar = derivedMatch[2];
+
+        if (nameMatch) {
+          machineName = nameMatch[1];
+          if (forMatch) governedType = forMatch[1];
+          if (derivedMatch) sourceVar = derivedMatch[1];
+        } else {
+          // Pre-S25 sentence form — detect and report. Accept a best-effort
+          // extraction so downstream passes don't crash on garbage, but push
+          // a hard error so the file fails to compile.
+          const forIdx = header.indexOf(" for ");
+          if (forIdx >= 0) {
+            machineName = header.slice(0, forIdx).trim();
+            governedType = header.slice(forIdx + 5).trim();
+          } else {
+            machineName = header.trim();
+          }
+          const legacyDerived = governedType.match(/^(.*?)\s+derived\s+from\s+@([A-Za-z_$][A-Za-z0-9_$]*)\s*$/);
+          if (legacyDerived) {
+            governedType = legacyDerived[1].trim();
+            sourceVar = legacyDerived[2];
+          }
+          errors.push(new TABError(
+            "E-MACHINE-020",
+            `E-MACHINE-020: \`< machine>\` opener uses the pre-S25 sentence form. ` +
+            `Use the attribute form: \`< machine name=${machineName || "MachineName"} for=${governedType || "TypeName"}${sourceVar ? ` derived=@${sourceVar}` : ""}>\`. ` +
+            `The attribute form aligns with the rest of scrml's declarative syntax (@x: Type, as Type, type Foo).`,
+            span,
+          ));
         }
 
         // Extract rules from children (text nodes containing the rule lines)

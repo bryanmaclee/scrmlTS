@@ -5,7 +5,7 @@
 //          `type PowerUp:enum = { Mushroom(coins: number), ... }`
 //          `match powerUp { .Mushroom(n) => ... }`
 //   §51.9 — derived / projection machines
-//          `< machine HealthMachine for HealthRisk derived from @marioState>`
+//          `< machine name=HealthMachine for=HealthRisk derived=@marioState>`
 //          The projected @healthMachine auto-updates when @marioState changes.
 //
 // Plus the usual: enums, machine-governed state, reactive if= conditionals,
@@ -100,7 +100,7 @@ ${
     }
 }
 
-< machine MarioMachine for MarioState>
+< machine name=MarioMachine for=MarioState>
     .Small        => .Big | .Fire | .Cape
     .Big          => .Fire | .Cape | .Small
     .Fire | .Cape => .Small
@@ -111,7 +111,7 @@ ${
 // leading uppercase run lowercased) is read-only; writing to it is rejected
 // at compile time (E-MACHINE-017). Writing to `@marioState` dirty-propagates
 // to `@healthMachine` automatically.
-< machine HealthMachine for HealthRisk derived from @marioState>
+< machine name=HealthMachine for=HealthRisk derived=@marioState>
     .Small               => .AtRisk
     .Big | .Fire | .Cape => .Safe
 </>
