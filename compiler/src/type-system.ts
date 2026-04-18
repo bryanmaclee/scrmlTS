@@ -3944,6 +3944,35 @@ function annotateNodes(
       }
 
       // ------------------------------------------------------------------
+      // §2a — assignment RHS coverage. Two structured assignment kinds
+      // produce dedicated AST nodes with walkable expression fields:
+      //   - reactive-nested-assign (`@obj.path = value`) → valueExpr
+      //   - reactive-array-mutation (`@arr.push(x)` etc.) → argsExpr
+      // Plain `x = expr` / `@x = expr` statements inside function bodies
+      // currently parse as bare-expr; they remain deferred alongside other
+      // bare-expr coverage.
+      // ------------------------------------------------------------------
+      case "reactive-nested-assign": {
+        const rnaSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const rnaValueExpr = (n as Record<string, unknown>).valueExpr;
+        if (rnaValueExpr) {
+          checkLogicExprIdents(rnaValueExpr, rnaSpan, scopeChain, typeRegistry, errors);
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      case "reactive-array-mutation": {
+        const ramSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const ramArgsExpr = (n as Record<string, unknown>).argsExpr;
+        if (ramArgsExpr) {
+          checkLogicExprIdents(ramArgsExpr, ramSpan, scopeChain, typeRegistry, errors);
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
       // §2a — for-stmt / while-stmt scope plumbing.
       //
       // Before this case existed, for-stmt nodes fell through to the default

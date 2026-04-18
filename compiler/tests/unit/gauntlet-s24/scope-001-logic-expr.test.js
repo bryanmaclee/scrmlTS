@@ -351,6 +351,51 @@ describe("S24 §2a slice 2 — if / return / match-subject coverage", () => {
     expect(scope001.some(e => /undeclaredDerivedInit/.test(e.message))).toBe(true);
   });
 
+  test("undeclared ident in reactive-nested-assign RHS → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  @obj = { nested: { value: 0 } }
+  function setIt() {
+    @obj.nested.value = undeclaredNestedAssign
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredNestedAssign/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in reactive-array-mutation arg → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  @items = [1, 2, 3]
+  function addIt() {
+    @items.push(undeclaredPushArg)
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredPushArg/.test(e.message))).toBe(true);
+  });
+
+  test("declared arg to array mutation resolves clean", () => {
+    const src = `<program>
+\${
+  @items = []
+  function addIt(x) {
+    @items.push(x)
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
   test("lin name is scope-visible after decl", () => {
     const src = `<program>
 \${
