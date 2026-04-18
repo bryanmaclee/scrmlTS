@@ -415,7 +415,19 @@ const STDLIB_ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../s
  */
 function resolveModulePath(source, importerPath) {
   if (source.startsWith("./") || source.startsWith("../")) {
-    return resolve(dirname(importerPath), source);
+    const resolved = resolve(dirname(importerPath), source);
+    // Exact path exists — return it (covers explicit `.scrml`, `.js`, etc.).
+    if (existsSync(resolved)) return resolved;
+    // Extension-less fallback: `./foo` → `./foo.scrml`, then `./foo/index.scrml`.
+    // Skip when the specifier already has a recognized extension so we don't
+    // double-append or silently redirect `.js` specifiers.
+    if (!resolved.endsWith(".scrml") && !resolved.endsWith(".js")) {
+      const withExt = resolved + ".scrml";
+      if (existsSync(withExt)) return withExt;
+      const asDir = join(resolved, "index.scrml");
+      if (existsSync(asDir)) return asDir;
+    }
+    return resolved;
   }
   if (source.startsWith("scrml:")) {
     const moduleName = source.slice("scrml:".length);

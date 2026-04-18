@@ -72,3 +72,46 @@ describe("E-IMPORT-006: module not found (§21.3)", () => {
     expect(e006.length).toBe(0);
   });
 });
+
+describe("S24 §2g — extension-less relative imports resolve to .scrml", () => {
+  test("import from './name' (no extension) resolves to './name.scrml'", () => {
+    const target = `\${
+  export const greet = "hi"
+}`;
+    const source = `\${
+  import { greet } from "./present-noext"
+}
+<p>\${greet}</>`;
+    const { fatalErrors } = compileSource(source, "e6-noext-importer.scrml", {
+      "present-noext.scrml": target,
+    });
+    const e006 = fatalErrors.filter((e) => e.code === "E-IMPORT-006");
+    expect(e006.length).toBe(0);
+  });
+
+  test("import from './dir' resolves to './dir/index.scrml'", () => {
+    const indexTarget = `\${
+  export const label = "dir"
+}`;
+    const dirPath = join(FIXTURE_DIR, "mod-dir");
+    mkdirSync(dirPath, { recursive: true });
+    writeFileSync(join(dirPath, "index.scrml"), indexTarget);
+    const source = `\${
+  import { label } from "./mod-dir"
+}
+<p>\${label}</>`;
+    const { fatalErrors } = compileSource(source, "e6-dir-importer.scrml");
+    const e006 = fatalErrors.filter((e) => e.code === "E-IMPORT-006");
+    expect(e006.length).toBe(0);
+  });
+
+  test("missing extension-less target still fires E-IMPORT-006", () => {
+    const source = `\${
+  import { x } from "./still-missing-noext"
+}
+<p>x</>`;
+    const { fatalErrors } = compileSource(source, "e6-noext-missing.scrml");
+    const e006 = fatalErrors.filter((e) => e.code === "E-IMPORT-006");
+    expect(e006.length).toBeGreaterThanOrEqual(1);
+  });
+});
