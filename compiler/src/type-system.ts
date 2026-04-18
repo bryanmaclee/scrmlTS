@@ -3431,6 +3431,16 @@ function annotateNodes(
           }
         }
 
+        // §2a — E-SCOPE-001 on undeclared idents in the reactive-decl init.
+        // Same shape as the let/const handling above. Runs before the @name
+        // bind so a self-reference (`@x = x`) is treated as a forward ref.
+        {
+          const reactSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const reactInitExprNode = (n as any).initExpr;
+          if (reactInitExprNode) {
+            checkLogicExprIdents(reactInitExprNode, reactSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+          }
+        }
         if (n.name) {
           const isServer = !!(n as ASTNodeLike).isServer;
           scopeChain.bind(`@${n.name as string}`, { kind: "reactive", resolvedType, isServer });
@@ -3512,6 +3522,12 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "bare-expr": {
         resolvedType = tAsIs();
+        // §2a NOTE: extending the scope walker to bare-expr was attempted in
+        // S24 and reverted. Bare-exprs appear in too many shapes (test stubs
+        // like `log(x)`, type-annotated struct bodies that the AST serializes
+        // as bare-exprs, etc.) to cover safely without a broader allowlist
+        // revision or a body-pre-parser refactor. Reactive-decl / if / match /
+        // return coverage lands first; bare-expr is deferred.
         // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level
         // (outside any function body) is also unhandled. The in-function check
         // runs in the function-decl branch; this catches the outer case.

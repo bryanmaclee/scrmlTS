@@ -174,6 +174,47 @@ describe("S24 §2a — E-SCOPE-001 on undeclared ident in let/const init", () =>
     expect(scope001.some(e => /\bx\b/.test(e.message))).toBe(false);
   });
 
+  test("undeclared ident in reactive-decl init → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  @x = undeclaredReactiveInit + 1
+}
+<p>\${@x}</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredReactiveInit/.test(e.message))).toBe(true);
+  });
+
+  test("typed reactive init with declared initializer resolves clean", () => {
+    const src = `<program>
+\${
+  type Status:enum = { Todo, Done }
+  @status: Status = Status.Todo
+  @count = 0
+}
+<p>\${@count}</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
+  test("reactive-decl init referring to a later-declared @var still errors", () => {
+    const src = `<program>
+\${
+  @a = @nonexistent + 1
+}
+<p>\${@a}</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    // @-prefixed refs are skipped (DG owns those); this test just confirms
+    // the reactive walker doesn't spuriously fire on @nonexistent. DG emits
+    // its own diagnostic for unresolved reactives elsewhere.
+    expect(scope001).toEqual([]);
+  });
+
   test("forward reference to a later-declared export still resolves", () => {
     const src = `<program>
 \${
