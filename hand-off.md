@@ -212,7 +212,45 @@ they all have to land together to keep the test suite green. Message form:
 
 ## 2. Queued for S25
 
-(Carried from S24 brief §2 — updated as S24 lands items.)
+### §2a — E-SCOPE-001 extension (partially landed, more slices available)
+
+**Landed S24:**
+- `9e06884` — let-decl / const-decl init + global-allowlist + export-decl pre-bind infrastructure.
+- `234f116` — reactive-decl init.
+- `e1e21a5` — loop-scope plumbing (for-stmt, while-stmt, do-while-stmt)
+  + if-stmt condition + return-stmt expr + match-subject + propagate-expr.
+
+**Deferred to S25:**
+- **bare-expr** — `${ undeclaredFn() }` and similar. Blocked by two false-
+  positive patterns: (a) test stubs like `log(x)` where `log` was a
+  placeholder callable; (b) self-host's `type:enum Name {}` syntax which
+  serializes certain struct bodies as bare-exprs that reference types.
+  Either the allowlist expands to cover `log`/similar, or bare-expr
+  coverage requires first auditing what AST shapes actually land in
+  bare-expr nodes. Attempt made in S24 (~7 test fails surfaced); reverted
+  with an inline comment at the bare-expr case documenting the deferral.
+- **match-arm binding scope** — `match x { .Variant(n) => body }` — the
+  `n` binding in the arm pattern isn't scope-pushed before visiting the
+  arm body, so arm bodies using `n` would fire false-positive E-SCOPE-001
+  if we extended coverage to arm bodies. Needs its own scope-push slice
+  similar to the for-stmt one.
+- **switch-stmt / case bodies** — same shape as match but separate node kind.
+- **try/catch error arms** (`!{}`) — the caught error binding isn't scope-
+  pushed either.
+- **else-if / else bodies** — the alternate body walking inherits the
+  outer scope correctly, so this mostly works, but hasn't been exhaustively
+  tested.
+
+### Other queued items (from S24 opening brief, not yet touched)
+
+- §2b — machine-cluster deep-dive followups:
+  - **C**: Temporal transitions (`.Loading after 30s => .TimedOut`).
+  - **F**: Auto-generated property tests from machine decls (`--emit-machine-tests`).
+  - **G**: Free audit/replay/time-travel (`audit @varName`).
+- §2h — lin redesign (queued since S18, discontinuous-scoping vision).
+- §2i — 2 known-fail self-host tests.
+- §2j — §5-era backlog (P3/P5/Lift-Approach-C-Phase-2/DQ-12 Phase B/async stdlib).
+- Machine opener attribute-form migration (ratified, deferred until next §51 amendment).
 
 ---
 
