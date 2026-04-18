@@ -293,6 +293,26 @@ export function emitTransitionGuard(
     lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([{ from: __prev, to: __next, at: Date.now() }]));`);
   }
 
+  // §51.12 (S25) — temporal transitions. After state commit, clear any
+  // previously-armed timer for this machine-bound var and, if the new
+  // variant has outgoing temporal rules, arm a fresh one. Re-entering the
+  // same variant clears and re-arms (reset-on-reentry default per the
+  // deep-dive).
+  const temporalRules = rules.filter(r => r.afterMs != null);
+  if (temporalRules.length > 0) {
+    lines.push(`  // §51.12 temporal transitions`);
+    lines.push(`  _scrml_machine_clear_timer("${encodedVarName}");`);
+    lines.push(`  var __nextVariant = (__next != null && __next.variant != null) ? __next.variant : __next;`);
+    for (const rule of temporalRules) {
+      // Wildcard `from` was rejected at parse time; only specific variants
+      // reach here. Each temporal rule fires from exactly its declared
+      // `from` variant.
+      lines.push(`  if (__nextVariant === "${rule.from}") {`);
+      lines.push(`    _scrml_machine_arm_timer("${encodedVarName}", ${rule.afterMs}, "${rule.to}");`);
+      lines.push(`  }`);
+    }
+  }
+
   lines.push(`})();`);
 
   return lines;

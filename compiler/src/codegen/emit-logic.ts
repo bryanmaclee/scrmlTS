@@ -266,6 +266,24 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
       return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, binding.rules, (binding as any).auditTarget ?? null).join("\n");
     }
   }
+  // §51.12 — on init of a machine-bound var whose machine has temporal
+  // rules, arm the initial-state timer after the reactive is set. The
+  // runtime helper resolves the current variant against the rule list.
+  // Non-temporal inits fall through to a plain reactive_set.
+  if (isInit) {
+    const lookupName = rawName ?? encodedName;
+    const binding = opts.machineBindings?.get(lookupName) ?? null;
+    const temporalRules = binding?.rules?.filter((r: any) => r.afterMs != null) ?? [];
+    if (temporalRules.length > 0) {
+      const rulesPayload = JSON.stringify(
+        temporalRules.map((r: any) => ({ from: r.from, afterMs: r.afterMs, to: r.to }))
+      );
+      return [
+        `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`,
+        `_scrml_machine_arm_initial(${JSON.stringify(encodedName)}, ${JSON.stringify(rulesPayload)});`,
+      ].join("\n");
+    }
+  }
   return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`;
 }
 

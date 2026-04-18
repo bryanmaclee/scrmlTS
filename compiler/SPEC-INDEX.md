@@ -67,7 +67,7 @@ Total lines: 19,023 | Total sections: 53 + appendices
 | 48 | The `fn` Keyword — Pure Functions | 14992-15683 | 692 | Body prohibitions, return-site completeness, lift in fn, calling conventions |
 | 49 | `while` and `do...while` Loops | 15684-16386 | 703 | Grammar, break/continue, labels, lift in loops, E-LOOP errors (heading uses H1, not H2) |
 | 50 | Assignment as Expression | 16387-16853 | 467 | Assign-expr syntax, semantics, type rules, fn interaction |
-| 51 | State Transition Rules / `< machine>` | 16972-18122 | 1151 | Type-level transitions, machine declarations, runtime guards, event object, `\|` alternation, payload binding, derived/projection machines, §51.11 audit clause, §51.3.2 attribute-form opener (S25 migration) |
+| 51 | State Transition Rules / `< machine>` | 16972-18254 | 1283 | Type-level transitions, machine declarations, runtime guards, event object, `\|` alternation, payload binding, derived/projection machines, §51.11 audit clause, §51.3.2 attribute-form opener, §51.12 temporal transitions (`after Ns =>`) |
 | 52 | State Authority Declarations | 17559-18087 | 529 | Two-tier authority, server @var, sync infrastructure |
 | 53 | Inline Type Predicates | 18088-19023 | 936 | Value constraints, SPARK zones, named shapes, bind:value HTML attrs |
 

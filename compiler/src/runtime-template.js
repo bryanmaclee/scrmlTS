@@ -63,6 +63,42 @@ const _scrml_derived_cache = {};
 const _scrml_derived_dirty = {};
 const _scrml_derived_downstreams = {};
 
+// --- machine temporal transitions (§51.12) ---
+// _scrml_machine_timers: encodedVarName → timeout id for the currently-armed
+// temporal transition. Transition-guard codegen clears any existing timer on
+// state commit and arms a new one if the destination variant has outgoing
+// temporal rules. Re-entering the same variant clears and re-arms (reset
+// semantics per the deep-dive default).
+const _scrml_machine_timers = {};
+function _scrml_machine_clear_timer(name) {
+  const id = _scrml_machine_timers[name];
+  if (id !== undefined) {
+    clearTimeout(id);
+    delete _scrml_machine_timers[name];
+  }
+}
+function _scrml_machine_arm_timer(name, ms, target) {
+  _scrml_machine_clear_timer(name);
+  _scrml_machine_timers[name] = setTimeout(function () {
+    delete _scrml_machine_timers[name];
+    _scrml_reactive_set(name, target);
+  }, ms);
+}
+function _scrml_machine_arm_initial(name, rulesJson) {
+  // Called once per machine-bound reactive after its initial _scrml_reactive_set.
+  // Inspects the current variant and arms the first matching temporal rule, if any.
+  // Later transitions re-run the timer logic inside the transition guard.
+  const val = _scrml_reactive_get(name);
+  const variant = (val != null && typeof val === "object" && val.variant != null) ? val.variant : val;
+  const rules = JSON.parse(rulesJson);
+  for (const r of rules) {
+    if (r.from === variant) {
+      _scrml_machine_arm_timer(name, r.afterMs, r.to);
+      return;
+    }
+  }
+}
+
 function _scrml_reactive_get(name) {
   // Bridge with _scrml_effect auto-tracking: record _scrml_state[name] as a dependency
   if (typeof _scrml_track === "function") _scrml_track(_scrml_state, name);

@@ -291,6 +291,12 @@ interface TransitionRule {
   // wildcard rules (`* => *`), always null.
   fromBindings: RuleBinding[] | null;
   toBindings: RuleBinding[] | null;
+  // §51.12 (S25) — temporal transition. When non-null, the rule fires
+  // automatically via setTimeout `afterMs` milliseconds after the machine-
+  // bound variable enters `from`. Re-entering `from` during the window
+  // resets the timer (XState parity, per deep-dive default). Cancelled
+  // when the variable leaves `from` via any other transition.
+  afterMs: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1214,6 +1220,7 @@ function parseEnumBody(
       effectBody,
       fromBindings: null,
       toBindings: null,
+      afterMs: null, // type-level: temporal transitions are machine-only (E-MACHINE-021)
     });
   }
 
@@ -2344,9 +2351,36 @@ function parseMachineRules(
     }
   }
 
-  for (const line of lines) {
+  for (const rawLine of lines) {
     // Skip comment lines
-    if (line.startsWith("//")) continue;
+    if (rawLine.startsWith("//")) continue;
+
+    // §51.12 (S25) — Temporal transitions.
+    // Extract `after <duration>` between the from-spec and `=>`, strip it
+    // from the line, and parse the duration to ms. The existing rule regex
+    // below runs against the stripped line. Non-temporal rules have
+    // afterMs === null and are unaffected.
+    let afterMs: number | null = null;
+    let line = rawLine;
+    const afterMatch = line.match(/\s+after\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)\s+(?==>)/i);
+    if (afterMatch) {
+      const n = parseFloat(afterMatch[1]);
+      const unit = afterMatch[2].toLowerCase();
+      const multiplier = unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60000 : 3600000;
+      const computed = Math.round(n * multiplier);
+      if (!Number.isFinite(computed) || computed < 0) {
+        errors.push(new TSError(
+          "E-MACHINE-021",
+          `E-MACHINE-021: Machine '${machineName}' temporal transition has an invalid duration \`${afterMatch[1]}${afterMatch[2]}\`. ` +
+          `Duration must be a finite non-negative number with a unit (ms/s/m/h). Example: \`.Loading after 30s => .TimedOut\`.`,
+          span,
+        ));
+      } else {
+        afterMs = computed;
+      }
+      // Strip the `after X` fragment so the existing regex doesn't see it.
+      line = line.replace(afterMatch[0], " ");
+    }
 
     // Match: .From[(binding-list)] => .To[(binding-list)] [given (guard)] [{effect}]
     // Variant names must be PascalCase (per §14.4); constraining them excludes
@@ -2373,6 +2407,7 @@ function parseMachineRules(
           effectBody: null,
           fromBindings: null,
           toBindings: null,
+          afterMs,
         });
         continue;
       }
@@ -2385,6 +2420,7 @@ function parseMachineRules(
           effectBody: null,
           fromBindings: null,
           toBindings: null,
+          afterMs,
         });
         continue;
       }
@@ -2401,6 +2437,7 @@ function parseMachineRules(
           effectBody: null,
           fromBindings: null,
           toBindings: null,
+          afterMs,
         });
         continue;
       }
@@ -2470,7 +2507,23 @@ function parseMachineRules(
       }
     }
 
-    rules.push({ from, to, guard, label, effectBody, fromBindings, toBindings });
+    // §51.12 validation — temporal rule with a guard or effect is allowed
+    // (the timer fires the transition, then the guard/effect runs as usual).
+    // Temporal rule with a wildcard `from` (`* after Xs => .Y`) is rejected:
+    // without a specific source variant, there's no entry edge to start the
+    // timer from.
+    if (afterMs !== null && from === "*") {
+      errors.push(new TSError(
+        "E-MACHINE-021",
+        `E-MACHINE-021: Machine '${machineName}' temporal transition uses a wildcard \`from\`. ` +
+        `Temporal rules must name a specific \`from\` variant so the compiler knows when to ` +
+        `start the timer. Either name a specific \`from\` (e.g. \`.Loading after 30s => .TimedOut\`) ` +
+        `or remove the \`after\` clause.`,
+        span,
+      ));
+    }
+
+    rules.push({ from, to, guard, label, effectBody, fromBindings, toBindings, afterMs });
   }
 
   return rules;

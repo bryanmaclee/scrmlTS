@@ -18118,6 +18118,138 @@ issues before §51 is considered fully ratified.
 5. **Machine composition** — Formal composition (A's rules plus B's rules) is not
    specified. If needed, raise a dedicated spec issue.
 
+### 51.12 Temporal Transitions — `.From after Ns => .To`
+
+**Added:** 2026-04-18 — implementation of §2b C (machine-cluster-expressiveness
+deep-dive). Time-driven transitions as first-class machine rules. Prior art:
+XState `after`, SCXML `<send delay>`, Erlang `gen_statem` state timeouts.
+
+#### 51.12.1 Motivation
+
+A UI that fetches data and shows a "Taking too long? Refresh." banner after
+30s currently requires three coordinated pieces: a `<timeout>` element, a
+`when @var changes` effect to arm and disarm it, and a `cleanup()` to cancel
+it on scope exit. The pieces are correct-by-case but not correct-by-
+construction — a developer can forget to arm, forget to disarm, or let the
+reactive dep list drift out of sync.
+
+Temporal transitions declare the timer as part of the machine. The machine
+already knows when the variable enters and leaves each variant; attaching a
+`after Ns => .Target` clause to a rule lets the compiler synthesize the
+timer, arm it on entry, clear it on exit, and fire the transition when it
+elapses — all from the declaration alone.
+
+#### 51.12.2 Syntax
+
+```
+transition-rule ::= variant-ref ('after' duration)? '=>' variant-ref
+                    (guard-clause)? ('[' label ']')? (effect-block)?
+
+duration        ::= number unit
+number          ::= digit+ ('.' digit+)?
+unit            ::= 'ms' | 's' | 'm' | 'h'
+```
+
+The `after duration` clause appears between the `from` variant (and its
+optional binding-list) and the `=>` arrow. It is optional — rules without
+`after` retain their pre-S25 semantics.
+
+**Worked example:**
+
+```scrml
+${
+    type Fetch:enum = { Idle, Loading, Done, TimedOut }
+    @fetch: FetchMachine = Fetch.Idle
+    function start() { @fetch = Fetch.Loading }
+}
+
+< machine name=FetchMachine for=Fetch>
+    .Idle                => .Loading
+    .Loading             => .Done
+    .Loading after 30s   => .TimedOut
+</>
+```
+
+When `@fetch` transitions to `.Loading`, the compiler arms a 30000 ms timer.
+If `@fetch` remains in `.Loading` when the timer fires, it transitions to
+`.TimedOut`. If `@fetch` leaves `.Loading` before the timer fires (e.g., the
+fetch completes and transitions to `.Done`), the timer is cleared.
+
+#### 51.12.3 Duration Units
+
+The unit suffix is required. Supported units:
+
+| Unit | Meaning | Example |
+|------|---------|---------|
+| `ms` | milliseconds | `after 500ms` |
+| `s`  | seconds      | `after 30s`  |
+| `m`  | minutes      | `after 2m`   |
+| `h`  | hours        | `after 1h`   |
+
+Fractional numbers are permitted (`0.5s` is 500 ms). The compiler converts
+to integer milliseconds via `Math.round(n × multiplier)`.
+
+#### 51.12.4 Re-entry Semantics
+
+Re-entering the `from` variant during the timer window **resets** the
+timer. The timer starts fresh on every entry. This matches XState's `after`
+semantics and the deep-dive default. A cumulative model — where the timer
+tracks total time spent in the variant across multiple entries — is not
+supported; use an explicit elapsed-time reactive if that is what you need.
+
+#### 51.12.5 Interaction with Other Rule Clauses
+
+A temporal rule MAY carry a `given` guard and/or an `effect-block`. When
+the timer fires:
+
+1. The transition-table lookup runs (§51.3). An `* => *` or matching
+   `from => to` rule must exist; otherwise **E-MACHINE-001-RT** fires.
+2. The `given` guard, if present, is evaluated. If it returns false,
+   the transition is rejected.
+3. The `effect-block`, if present, runs after the state commits.
+4. The audit clause (§51.11), if present, records the transition.
+
+A temporal rule on a variant with a `|` alternation in the `to` side
+expands per §51.3.2 alternation rules. Each expanded pair receives the
+same timer clause — the first matching rule wins when the timer fires,
+mirroring §51.9 rule-precedence semantics.
+
+#### 51.12.6 Error Conditions
+
+**E-MACHINE-021: Invalid or unsupported temporal rule.**
+
+Two subcases:
+
+- **Invalid duration.** The number or unit fragment did not parse. Example:
+  `after 30` (no unit), `after Xs` (non-numeric), `after -5s` (negative).
+  Error points at the rule; suggests the canonical `after Ns` form.
+- **Wildcard `from`.** A temporal rule with `* after Ns => .Target` has no
+  specific entry edge from which to start the timer. Rejected; user must
+  name a concrete `from` variant.
+
+#### 51.12.7 Normative Statements
+
+- A transition rule MAY include a single `after duration` clause between the
+  `from` variant (and its optional binding-list) and the `=>` arrow.
+- The `duration` SHALL be a non-negative number followed by one of `ms`,
+  `s`, `m`, `h`. The compiler SHALL convert to integer milliseconds.
+- A temporal rule with a wildcard `from` SHALL be a compile error
+  **E-MACHINE-021**. A temporal rule with an invalid duration SHALL be a
+  compile error **E-MACHINE-021**.
+- When the machine-bound variable commits a transition that lands on a
+  variant with outgoing temporal rules, the compiler SHALL arm a timer that
+  fires the corresponding transition after the specified duration.
+- When the machine-bound variable commits a transition that leaves a variant
+  with an armed timer, the compiler SHALL clear that timer.
+- Re-entering a variant with an armed timer SHALL clear the existing timer
+  and arm a fresh one (reset semantics).
+- When a temporal timer fires, the resulting transition SHALL pass through
+  the normal transition pipeline (§51.3 table lookup, §51.3.2 guards,
+  effect blocks, §51.11 audit clause).
+- The initial-value assignment to a machine-bound variable SHALL arm a timer
+  for the initial variant if that variant has outgoing temporal rules, with
+  the same semantics as a transition-time arm.
+
 ---
 
 ## 52. State Authority Declarations
