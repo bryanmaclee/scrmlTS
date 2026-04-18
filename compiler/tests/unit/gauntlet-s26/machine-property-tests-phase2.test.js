@@ -213,7 +213,10 @@ describe("S26 §51.13 phase 2 — generateMachineTestJs contract", () => {
     });
     const out = generateMachineTestJs("/x/y.scrml", registry, new Map());
     expect(out).toContain("function tryTransition(from, to, guardResults)");
-    expect(out).toContain("guardResults.hasOwnProperty(__key)");
+    // Phase 4 renamed the lookup variable to __matchKey so guardResults can
+    // key on the matched (possibly-wildcard) rule rather than the concrete
+    // input pair. Either name satisfies the harness-shape check.
+    expect(out).toMatch(/guardResults\.hasOwnProperty\(__(match)?[kK]ey\)/);
     expect(out).toContain("Transition guard failed");
   });
 });

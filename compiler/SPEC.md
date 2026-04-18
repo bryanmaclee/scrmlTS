@@ -18276,8 +18276,15 @@ guard and relaxes the filter to allow guarded rules in property (a).
 **Phase 3** lifts the payload-bindings filter: §51.3.2 binding-group
 rules are in-scope because the generated-test harness is binding-
 transparent — it does not invoke the real machine IIFE, so declared
-destructuring never executes in generated tests. Remaining phases
-extend to wildcards, temporal rules, and derived machines.
+destructuring never executes in generated tests. **Phase 4** admits
+wildcard rules: `*` as the from-variant matches any already-reachable
+variant, and `*` as the to-variant expands the reachable set to every
+variant declared on the governed enum. Pair resolution follows the
+four-step fallback chain used by `emitTransitionGuard`: exact `From:To`,
+then `*:To`, then `From:*`, then `*:*`. The inlined test harness tracks
+the matched table key so `guardResults` can key on the matched
+(possibly-wildcard) rule rather than the concrete input pair.
+Remaining phases extend to temporal rules and derived machines.
 
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write
