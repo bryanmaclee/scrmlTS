@@ -263,8 +263,7 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
     const lookupName = rawName ?? encodedName;
     const binding = opts.machineBindings?.get(lookupName) ?? null;
     if (binding) {
-      const guardRules = binding.rules.filter((r: any) => r.guard != null && r.guard !== "");
-      return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, guardRules, (binding as any).auditTarget ?? null).join("\n");
+      return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, binding.rules, (binding as any).auditTarget ?? null).join("\n");
     }
   }
   return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`;

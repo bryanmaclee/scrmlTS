@@ -200,7 +200,7 @@ export function emitTransitionGuard(
   newValueExpr: string,
   tableName: string,
   machineName: string,
-  guardRules: TransitionRule[],
+  rules: TransitionRule[],
   auditTarget: string | null = null,
 ): string[] {
   const lines: string[] = [];
@@ -222,12 +222,13 @@ export function emitTransitionGuard(
   // destructure `.data.<field>` for each from-/to-binding into a locally scoped
   // block. Each rule with bindings gets its own keyed guard so the vars are
   // only exposed when the (from → to) transition matches.
-  const rulesWithBindings = guardRules.filter(r =>
+  const rulesWithBindings = rules.filter(r =>
     (r.fromBindings && r.fromBindings.length > 0) ||
     (r.toBindings && r.toBindings.length > 0)
   );
 
   // Guard evaluation (+ binding prelude when applicable)
+  const guardRules = rules.filter(r => r.guard != null && r.guard !== "");
   if (guardRules.length > 0) {
     lines.push(`  // Guard evaluation`);
     for (const rule of guardRules) {
@@ -253,8 +254,10 @@ export function emitTransitionGuard(
 
   lines.push(`  _scrml_reactive_set("${encodedVarName}", __next);`);
 
-  // Effect blocks
-  const effectRules = guardRules.filter(r => r.effectBody);
+  // Effect blocks. Includes effect-only rules that have no `given` guard
+  // (pre-S25 this filtered `guardRules`, which silently dropped any rule
+  // whose effect was not paired with a guard).
+  const effectRules = rules.filter(r => r.effectBody);
   if (effectRules.length > 0) {
     lines.push(`  // Effect blocks`);
     for (const rule of effectRules) {

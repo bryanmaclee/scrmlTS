@@ -896,13 +896,12 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
       const binding = machineBindings?.get(name) ?? null;
       if (binding) {
         // §51.5: Emit transition guard instead of plain reactive_set for machine-bound vars
-        const guardRules = binding.rules.filter((r: any) => r.guard != null && r.guard !== "");
         const guardLines = emitTransitionGuard(
           name,
           valueExpr,
           binding.tableName,
           binding.machineName,
-          guardRules,
+          binding.rules,
           binding.auditTarget ?? null,
         );
         results.push(guardLines.join("\n"));
