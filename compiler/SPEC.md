@@ -12521,12 +12521,33 @@ ${
 
 > E-LIN-005: `let token` shadows an in-scope `lin` variable of the same name. Shadowing a `lin` variable prevents the compiler from determining which binding a consumption refers to. Rename the new binding, or consume the outer `lin token` before this declaration.
 
+**E-LIN-006: `lin` variable consumed inside a deferred-execution markup body.**
+
+A `lin` variable declared outside a `<request>` (§6.7.7) or `<poll>` (§6.7.6) body is consumed inside the body. These markup elements schedule their body for deferred execution — after mount, on reactive-dep change, or on interval — and the compiler cannot statically prove that the consumption happens exactly once on the synchronous path leading into the body. The body may execute zero times (dep never changes, mount aborts) or many times.
+
+```scrml
+<program>
+    ${
+        lin token = fetchToken()   // declared outside the <request> body
+    }
+    <request id="profile">
+        ${ @user = authenticate(token) }   // Error E-LIN-006
+    </>
+</program>
+```
+
+> E-LIN-006: `lin` variable `token` is consumed inside a `<request>` body but was declared outside it. The compiler cannot prove dominance across the `<request>` scheduling boundary, so the consumption may happen zero or multiple times. Either declare `token` inside the `<request>` body, or pass a consumed (non-lin) value into the body.
+
+Closures (arrow / `function` expressions) are NOT deferred-execution contexts for the purposes of E-LIN-006. §35.6 governs them: a closure capture of a `lin` variable is the synchronous consumption event regardless of when or whether the closure runs. The static count is fixed at capture time, so dominance is trivially provable and E-LIN-006 does not apply.
+
 **Normative statements:**
 
 - The compiler SHALL emit E-LIN-001 when a `lin` variable has zero consumption sites on any execution path from its declaration to its scope exit.
 - The compiler SHALL emit E-LIN-002 when a `lin` variable has more than one consumption site on any execution path.
 - The compiler SHALL emit E-LIN-003 when a `lin` variable is consumed on some execution paths but not others.
 - The compiler SHALL emit E-LIN-005 when a `let`, `const`, or `lin` declaration has the same name as an in-scope `lin` variable declared in a strictly enclosing scope. A same-scope rebinding is not shadowing in the hierarchical sense and is not covered by E-LIN-005.
+- The compiler SHALL emit E-LIN-006 when a `lin` variable is consumed inside a `<request>` or `<poll>` markup body and the `lin` variable was declared outside that body. The scoping check is based on the markup-ctx stack at consumption time; the closure model in §35.6 is unaffected.
+- When E-LIN-006 fires on a reference, that reference SHALL be treated as having consumed the `lin` variable for scope-exit accounting; E-LIN-001 SHALL NOT cascade on the same variable.
 - `~` is subject to the same rules; E-TILDE-001 and E-TILDE-002 (§32.5) are the `~`-specific forms of E-LIN-001 and E-LIN-002 respectively.
 - All `lin` errors SHALL be reported at the TS stage (Stage 6) as part of the linear type pass, after type resolution and route inference.
 - The linear type pass SHALL run after the exhaustiveness checker on `match` expressions (§34.4.3).
