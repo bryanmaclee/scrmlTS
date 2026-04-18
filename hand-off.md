@@ -2,7 +2,7 @@
 
 **Date opens:** TBD (whenever S26 starts)
 **Previous:** `handOffs/hand-off-25.md` (the S25 starting brief)
-**Baseline at S25 wrap:** **6,981 pass / 10 skip / 2 fail** (25,667 expects across 289 files) at commit `4b1e8b2`.
+**Baseline at S25 wrap:** **6,987 pass / 10 skip / 2 fail** (25,677 expects across 290 files) at commit `e171e33`.
 
 ---
 
@@ -12,10 +12,12 @@
 
 - First 8 commits (through `7dd6fe6`) were pushed mid-session via one-time auth (covers E-LIN-005 + while-stmt + effect emission + §35 wording + match-arm-block + s25 wrap brief + s25 archive + tmp-artifactDir cleanup).
 
-### Unpushed at S25 wrap (2 commits)
+### Unpushed at S25 wrap (4 commits)
 
 - `83101c7` — `docs(§35.2.2)`: ratify cross-`${}` block lin — tests + spec.
 - `4b1e8b2` — `feat(§2a)`: push scope for if-stmt consequent and alternate branches.
+- `1da34e4` — `docs(s25)`: wrap — refresh hand-off with post-wrap slices.
+- `e171e33` — `feat(§35.5)`: E-LIN-006 — reject lin consumption inside `<request>`/`<poll>` body.
 
 S26 needs either one-time push auth or a `needs: push` message to master.
 
@@ -35,7 +37,7 @@ Retirement message sent to master 2026-04-17-1804. Still pending at S25 wrap; pr
 
 ## 1. S25 session summary
 
-### Work done (8 slices, 10 commits including the S24 carryover and 2 housekeeping)
+### Work done (9 slices, 12 commits including the S24 carryover and 2 housekeeping)
 
 - **E-LIN-005 reject let/const/lin shadowing** (`6f5b90c`). `ScopeEntry.isLin` carries through to let/const/lin-decl binding sites; `checkLinShadowing` fires when a new binding resolves via the scope chain to an isLin entry in a strictly enclosing scope. Same-scope rebinding explicitly out of scope. 11 gauntlet tests. SPEC §35.5 amended.
 
@@ -53,16 +55,18 @@ Retirement message sent to master 2026-04-17-1804. Still pending at S25 wrap; pr
 
 - **if-stmt branch scope push** (`4b1e8b2`). Parallel fix to the while-stmt slice. if-stmt walked consequent and alternate in the enclosing scope, so `let`/`const` leaked between branches and to the parent scope, and E-LIN-005 did not fire inside if bodies. Separate scope push for each branch. 6 tests. Zero regressions in existing suite — nothing in the corpus relied on the leak.
 
-### Blocked slices (recorded, not executed)
+- **E-LIN-006 reject lin consumption inside `<request>`/`<poll>` body** (`e171e33`). Closes the last user-decision block on §2h lin redesign. Narrow interpretation (A): only the two deferred-execution markup bodies are treated as dominance-unprovable. Closures remain §35.6 territory (capture = synchronous consumption). LinTracker gains `_declDeferredDepth`; checkLinear carries a `currentDeferredDepth` / `currentDeferredCtx` stack updated by a new markup case in walkNode. E-LIN-006 fires before the state check (boundary violation is primary), force-consume suppresses the cascading E-LIN-001. 6 tests. SPEC §35.5 amended with the new error block + normative statements + explicit closure carve-out.
 
-- **E-LIN-006** (lin in deferred-execution context). Deep-dive text conflicts with §35.6 "capture-as-consumption" — every closure capture is already a synchronous consumption event, so E-LIN-006 as written is either vacuous (closure body references aren't consumption) or overrides §35.6 (tightening semantics). Needs user resolution on which interpretation is intended:
-  - **(A) narrow** — E-LIN-006 applies only to `<request>`/`<poll>` markup bodies, closures unchanged under §35.6.
-  - **(B) override** — deferred closures (setTimeout, Promise, events) do not consume at capture time; consumption happens inside body and E-LIN-006 fires if declaration was outside.
-  - **(C) additional** — even with §35.6 capture-as-consumption, also fire E-LIN-006 when the capture is into a deferred closure.
+### Blocked slices resolved this session
+
+- **E-LIN-006** — user selected interpretation (A) "narrow" — markup `<request>`/`<poll>` bodies only; closures remain per §35.6. Shipped in `e171e33`.
+- **§35.2.2 cross-block hoisting** — diagnosis corrected (not blocked, already-working behavior). Tests + spec shipped in `83101c7`.
+
+Both blockers listed in the initial S25 wrap brief have been cleared this session. §2h lin redesign (Approach B) is now effectively complete in the compiler.
 
 ### Suite trajectory
 
-6,949 → 6,981 pass (+32), 25,619 → 25,667 expects (+48), 284 → 289 files (+5). Same 2 pre-existing self-host fails. Zero regressions across all eight slices.
+6,949 → 6,987 pass (+38), 25,619 → 25,677 expects (+58), 284 → 290 files (+6). Same 2 pre-existing self-host fails. Zero regressions across all nine slices.
 
 ### Incidental discoveries (not fixed)
 
@@ -76,7 +80,7 @@ Retirement message sent to master 2026-04-17-1804. Still pending at S25 wrap; pr
 
 ### §2h lin redesign — remaining work
 
-- **E-LIN-006 — needs user resolution.** Pick (A) narrow, (B) override, or (C) additional per the section above; implementation is straightforward once semantics are chosen.
+None blocking. Approach B is complete in the compiler per the 2026-04-13 deep-dive. Future work that could be layered on top is Approach C (cross-function `lin:out` / `lin:in` explicit teleportation), which the deep-dive marked as optional and would only be warranted if users request cross-function lin mobility — not on the critical path.
 
 ### §2a remaining coverage
 
@@ -125,7 +129,8 @@ Part of the §5-era self-host backlog.
   - `match-arm-block-scope.test.js` (§2a, 5 tests)
   - `lin-cross-block.test.js` (§35.2.2, 6 tests)
   - `if-stmt-scope.test.js` (§2a, 6 tests)
-- Suite at tip: 6,981 pass / 10 skip / 2 fail / 25,667 expects / 289 files / ~4.8s.
+  - `lin-006-deferred-ctx.test.js` (§35.5, 6 tests)
+- Suite at tip: 6,987 pass / 10 skip / 2 fail / 25,677 expects / 290 files / ~4.8s.
 
 ---
 
@@ -138,15 +143,15 @@ Same primary roster as S22/S23/S24/S25. No staging needed for follow-up slices.
 ## 5. Recommended S26 opening sequence
 
 1. Check `handOffs/incoming/` for messages. Master may have acted on the scrmlTSPub retirement; if so, archive the read message.
-2. Push the 2 unpushed commits via one-time auth or master-PA batch.
-3. Decide next priority. Options, roughly by user-vision impact:
-   - **E-LIN-006 resolution + implementation** — user picks (A), (B), or (C) interpretation from S25 summary; then ship.
+2. Push the 4 unpushed commits via one-time auth or master-PA batch.
+3. Decide next priority. §2h lin redesign is now complete. Options, roughly by user-vision impact:
+   - **§2b C temporal transitions** — natural carrier for the deferred machine-opener migration (§51.3.2).
+   - **§2b F auto-property-tests** — "machine = enforced spec" unlock.
    - **match-arm expression-only scope coverage** — AST-builder change; standalone slice.
    - **switch-stmt integration with checkLinear** — likely small, depends on whether switch is actually used in real code.
-   - **§2b C temporal transitions** — natural carrier for the deferred machine-opener migration.
-   - **§2b F auto-property-tests** — "machine = enforced spec" unlock.
+   - **S22 pre-existing parser bug** — untyped-then-typed reactive-decl statement-boundary. Body-pre-parser audit; unknown size.
 
 ---
 
 ## Tags
-#session-26 #open #unpushed-2-commits #blocked-lin-006 #queue-match-arm-expr-form #queue-switch-stmt-lin #queue-temporal-transitions #queue-property-tests #s25-complete
+#session-26 #open #unpushed-4-commits #lin-redesign-complete #queue-temporal-transitions #queue-property-tests #queue-match-arm-expr-form #queue-switch-stmt-lin #queue-s22-parser-bug #s25-complete
