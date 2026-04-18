@@ -196,6 +196,7 @@ scrml wins 6 of 10 benchmarks. Partial update is 8x faster than React; swap-rows
 
 - **Exact-once consumption (`lin`)** — values that must be used exactly once. The compiler verifies this statically across all code paths, including branches and loops.
 - **Site-agnostic** — a `lin` value can be created at one site, passed through function calls, and consumed at a completely different site. No manual threading through intermediate stages. If you need the value more than once, assign it to a `const` at the consumption site.
+- See [`docs/lin.md`](./docs/lin.md) for a complete how-to guide: when to reach for `lin`, what counts as consumption, branch and loop rules, cross-`${}`-block usage, closures, and a fix-by-error-code catalog.
 
 ### Type Safety
 
