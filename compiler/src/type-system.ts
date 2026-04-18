@@ -3948,10 +3948,9 @@ function annotateNodes(
         }
         const stmtBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(stmtBody)) {
-          // while-stmt body is a block scope. if-stmt is not touched here
-          // (consequent/alternate handled below) — changing if-stmt scoping
-          // is a separate concern. do-while-stmt has its own scope-pushing
-          // case further down.
+          // while-stmt body is a block scope. if-stmt branches are scoped
+          // below via consequent/alternate. do-while-stmt has its own
+          // scope-pushing case further down.
           const pushScope = n.kind === "while-stmt";
           if (pushScope) scopeChain.push(`while:${nodeKey(n)}`);
           for (const child of stmtBody) visitNode(child);
@@ -3959,11 +3958,17 @@ function annotateNodes(
         }
         const stmtConsequent = n.consequent as ASTNodeLike[] | undefined;
         if (Array.isArray(stmtConsequent)) {
+          const pushIf = n.kind === "if-stmt";
+          if (pushIf) scopeChain.push(`if-then:${nodeKey(n)}`);
           for (const child of stmtConsequent) visitNode(child);
+          if (pushIf) scopeChain.pop();
         }
         const stmtAlternate = n.alternate as ASTNodeLike[] | undefined;
         if (Array.isArray(stmtAlternate)) {
+          const pushIf = n.kind === "if-stmt";
+          if (pushIf) scopeChain.push(`if-else:${nodeKey(n)}`);
           for (const child of stmtAlternate) visitNode(child);
+          if (pushIf) scopeChain.pop();
         }
         resolvedType = tAsIs();
         break;
