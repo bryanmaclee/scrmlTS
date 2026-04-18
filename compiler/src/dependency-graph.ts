@@ -1453,10 +1453,25 @@ export function runDG(input: DGInput): DGOutput {
                   }
                 }
               } else if (attrVal && typeof attrVal === "object") {
+                const valObj = attrVal as Record<string, unknown>;
                 // e.g. bind:value={ kind: "variable-ref", name: "@country" }
-                const varRefName = (attrVal as Record<string, unknown>).name;
+                const varRefName = valObj.name;
                 if (typeof varRefName === "string" && varRefName.startsWith("@")) {
                   creditReader(varRefName.slice(1));
+                }
+                // Expression-valued attributes (e.g. `if=(@a && @b == false)`)
+                // are stored as `{ kind: "expr", raw, refs, exprNode }`. The AST
+                // builder already collects reactive refs into `refs`; fall back
+                // to scanning `raw` for the compound case if `refs` is missing.
+                if (Array.isArray(valObj.refs)) {
+                  for (const ref of valObj.refs) {
+                    if (typeof ref === "string") creditReader(ref);
+                  }
+                } else if (typeof valObj.raw === "string") {
+                  const rawRefs = (valObj.raw as string).match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+                  if (rawRefs) {
+                    for (const r of rawRefs) creditReader(r.slice(1));
+                  }
                 }
               }
             }
