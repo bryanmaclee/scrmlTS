@@ -1724,16 +1724,21 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // CONST — may be `const @name = expr` (reactive-derived-decl) or `const name = expr`
     if (tok.kind === "KEYWORD" && tok.text === "const") {
       const startTok = consume();
-      // Check for `const @name = expr` — derived reactive value
+      // Check for `const @name = expr` or `const @name: T = expr` — derived reactive value.
+      // S26 bug B: the original branch ignored the optional `:type` annotation;
+      // with the type present, the `=` check failed, the parser returned
+      // init:"", and emit-logic produced `const name = ;` (invalid JS).
+      // Mirror the typed-let/typed-const handling below.
       if (peek().kind === "AT_IDENT") {
         const atTok = consume();
         const derivedName = atTok.text.slice(1); // strip @
+        const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
         if (peek().text === "=" && peek(1)?.text !== "=") {
           consume();
           const { expr, span } = collectExpr();
-          return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         } else {
-          return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: "", span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "reactive-derived-decl", name: derivedName, init: "", ...(typeAnnotation ? { typeAnnotation } : {}), span: spanOf(startTok, peek()) };
         }
       }
       let name = "";
@@ -3489,10 +3494,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (tok.kind === "KEYWORD" && tok.text === "const") {
       const startTok = consume();
 
-      // Check for `const @name = expr` — derived reactive value
+      // Check for `const @name = expr` or `const @name: T = expr` — derived reactive value.
+      // S26 bug B (top-level branch): parallel to the nested-statement branch
+      // above — type annotation must be collected so that `const @x: boolean = true`
+      // doesn't silently lose its initializer.
       if (peek().kind === "AT_IDENT") {
         const atTok = consume();
         const derivedName = atTok.text.slice(1); // strip @
+        const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
         if (peek().text === "=" && peek(1)?.text !== "=") {
           consume(); // consume `=`
           const { expr, span } = collectExpr();
@@ -3502,6 +3511,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             name: derivedName,
             init: expr,
             initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             span: spanOf(startTok, peek()),
           });
         } else {
@@ -3510,6 +3520,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             kind: "reactive-derived-decl",
             name: derivedName,
             init: "",
+            ...(typeAnnotation ? { typeAnnotation } : {}),
             span: spanOf(startTok, peek()),
           });
         }
