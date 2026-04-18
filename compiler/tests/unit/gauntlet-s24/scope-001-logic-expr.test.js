@@ -231,3 +231,107 @@ describe("S24 §2a — E-SCOPE-001 on undeclared ident in let/const init", () =>
     expect(scope001).toEqual([]);
   });
 });
+
+describe("S24 §2a slice 2 — if / return / match-subject coverage", () => {
+  test("undeclared ident in if-stmt condition → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function test() {
+    if (undeclaredCondIdent) { return 1 }
+    return 2
+  }
+}
+<p>\${test()}</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredCondIdent/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in return-stmt expression → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function test() {
+    return undeclaredReturnIdent
+  }
+}
+<p>\${test()}</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredReturnIdent/.test(e.message))).toBe(true);
+  });
+
+  test("undeclared ident in match-stmt subject → E-SCOPE-001", () => {
+    const src = `<program>
+\${
+  function test() {
+    match undeclaredSubjectIdent {
+      .A => 1
+      else => 2
+    }
+    return 0
+  }
+}
+<p>\${test()}</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001.some(e => /undeclaredSubjectIdent/.test(e.message))).toBe(true);
+  });
+
+  test("for-loop counter in if-cond inside body resolves (loop-scope plumb)", () => {
+    const src = `<program>
+\${
+  function sieve(limit) {
+    const primes = []
+    for (let i = 2; i <= limit; i++) {
+      if (i > 1) { primes.push(i) }
+    }
+    return primes
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
+  test("for-of counter used in return inside body resolves", () => {
+    const src = `<program>
+\${
+  function findFirst(arr) {
+    for (item of arr) {
+      if (item > 0) { return item }
+    }
+    return 0
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+
+  test("propagate-expr binding is scope-visible to later statements", () => {
+    const src = `<program>
+\${
+  type E:enum = { Bad }
+  function risky(n)! -> E {
+    if (n < 0) { fail E.Bad("neg") }
+    return n
+  }
+  function caller(n)! -> E {
+    let x = risky(n)?
+    return x
+  }
+}
+<p>x</>
+</program>
+`;
+    const { scope001 } = compileSrc(src);
+    expect(scope001).toEqual([]);
+  });
+});

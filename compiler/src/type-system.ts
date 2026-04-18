@@ -3747,6 +3747,17 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "while-stmt":
       case "if-stmt": {
+        // §2a — E-SCOPE-001 on undeclared idents in the if condition.
+        // Loop-scope plumbing (for-stmt / while-stmt cases) already pushes
+        // and binds loop counters before walking the body, so conditions
+        // like `if (i > 0)` inside `for (let i of arr)` see `i` in scope.
+        {
+          const ifCondSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const ifCondExpr = (n as Record<string, unknown>).condExpr;
+          if (ifCondExpr) {
+            checkLogicExprIdents(ifCondExpr, ifCondSpan, scopeChain, typeRegistry, errors);
+          }
+        }
         // §S19 — run `is` / `not`-prefix checks on the RAW condition string
         // (pre-rewrite), so that `not (flag)` and `x is .V` are visible.
         const rawCondition = ((n as ASTNodeLike).condition as string | undefined) ?? "";
@@ -3826,10 +3837,141 @@ function annotateNodes(
       case "match-stmt":
       case "match-expr": {
         checkMatchDiagnostics(n, scopeChain, errors, filePath);
+        // §2a — E-SCOPE-001 on an undeclared subject ident (e.g.
+        // `match undeclaredSubj { ... }`). checkMatchDiagnostics already
+        // resolves the subject for type lookup but doesn't emit a scope
+        // diagnostic when the subject ident isn't in any scope.
+        {
+          const matchSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const headerExpr = (n as Record<string, unknown>).headerExpr;
+          if (headerExpr) {
+            checkLogicExprIdents(headerExpr, matchSpan, scopeChain, typeRegistry, errors);
+          }
+        }
         const mBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(mBody)) {
           for (const c of mBody) visitNode(c);
         }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // §2a — return-stmt scope walker. Returns appear inside function
+      // bodies where params + locals are in scope; loop-scope plumbing
+      // above ensures counters used in `return i` inside a for-body also
+      // resolve correctly.
+      // ------------------------------------------------------------------
+      case "return-stmt": {
+        const retSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const retExprNode = (n as Record<string, unknown>).exprNode;
+        if (retExprNode) {
+          checkLogicExprIdents(retExprNode, retSpan, scopeChain, typeRegistry, errors);
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // §2a — propagate-expr (`let x = risky()?` §19.5). Scans the inner
+      // call expression for undeclared idents and binds the `binding` name
+      // into the current scope so subsequent statements (like `return x`)
+      // can resolve it. Without this bind, propagate-expr's let-binding is
+      // invisible to the scope walker.
+      // ------------------------------------------------------------------
+      case "propagate-expr": {
+        const propSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        const propExprNode = (n as Record<string, unknown>).exprNode;
+        if (propExprNode) {
+          checkLogicExprIdents(propExprNode, propSpan, scopeChain, typeRegistry, errors);
+        }
+        const binding = (n as Record<string, unknown>).binding;
+        if (typeof binding === "string" && binding.length > 0) {
+          scopeChain.bind(binding, { kind: "variable", resolvedType: tAsIs() });
+        }
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
+      // §2a — for-stmt / while-stmt scope plumbing.
+      //
+      // Before this case existed, for-stmt nodes fell through to the default
+      // handler which only recursed into array fields — no scope push, no
+      // counter binding. That meant the E-SCOPE-001 walker (added in S24)
+      // couldn't be extended to if-stmt conditions or return-expr operands
+      // inside loop bodies, because `for (let i of arr) { if (i > 0) ... }`
+      // would false-positive on `i`.
+      //
+      // This case pushes a fresh scope, binds the loop variable (for-of and
+      // for-in forms) or the C-style initializer's declared name, visits the
+      // body inside that scope, and pops. No other semantics change — only
+      // the scope chain sees the counter.
+      //
+      // Deliberately conservative: C-style's counter-name extraction reads
+      // the initExpr ExprNode's top-level VariableDeclaration name if present.
+      // Complex init forms (destructuring, multi-var, no-decl) fall back to
+      // no binding — better to miss a scope-001 catch than spuriously flag
+      // a legitimate counter.
+      // ------------------------------------------------------------------
+      case "for-stmt":
+      case "for-loop": {
+        scopeChain.push(`for:${nodeKey(n)}`);
+        // for-of / for-in form: `variable` is a string name.
+        const forVar = (n as Record<string, unknown>).variable;
+        if (typeof forVar === "string" && forVar.length > 0) {
+          scopeChain.bind(forVar, { kind: "variable", resolvedType: tAsIs() });
+        }
+        // C-style form: extract the declared counter name from the initExpr
+        // if the ExprNode surfaces a VariableDeclaration at its root.
+        const cStyleParts = (n as Record<string, unknown>).cStyleParts as
+          | { initExpr?: { kind?: string; declarations?: Array<{ id?: { name?: string } }>; name?: string } }
+          | undefined;
+        const initExpr = cStyleParts?.initExpr as Record<string, unknown> | undefined;
+        if (initExpr) {
+          // VariableDeclaration shape: { kind: "variable-decl" | "VariableDeclaration", declarations: [{ id: { name } }] }
+          const declarations = initExpr.declarations as Array<{ id?: { name?: string }; name?: string }> | undefined;
+          if (Array.isArray(declarations)) {
+            for (const d of declarations) {
+              const idName = (d.id && typeof d.id.name === "string") ? d.id.name : (typeof d.name === "string" ? d.name : null);
+              if (idName) {
+                scopeChain.bind(idName, { kind: "variable", resolvedType: tAsIs() });
+              }
+            }
+          } else if (typeof initExpr.name === "string") {
+            scopeChain.bind(initExpr.name, { kind: "variable", resolvedType: tAsIs() });
+          } else if (typeof initExpr.raw === "string") {
+            // safeParseExprToNode bails to escape-hatch `{ kind: "escape-hatch",
+            // raw: "let i = 2" }` for C-style init text that isn't a single
+            // expression. Fall back to regex-parsing the raw decl to recover
+            // the counter name. Matches `let x =`, `const x =`, `var x =`, and
+            // multi-decl forms like `let x = 0, y = 1` (binds every name).
+            const raw = initExpr.raw as string;
+            const declRe = /\b(?:let|const|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g;
+            let m: RegExpExecArray | null;
+            while ((m = declRe.exec(raw)) !== null) {
+              scopeChain.bind(m[1], { kind: "variable", resolvedType: tAsIs() });
+            }
+          }
+        }
+        const forBody = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(forBody)) {
+          for (const child of forBody) visitNode(child);
+        }
+        scopeChain.pop();
+        resolvedType = tAsIs();
+        break;
+      }
+
+      case "while-stmt":
+      case "while-loop":
+      case "do-while-stmt": {
+        scopeChain.push(`while:${nodeKey(n)}`);
+        const whileBody = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(whileBody)) {
+          for (const child of whileBody) visitNode(child);
+        }
+        scopeChain.pop();
         resolvedType = tAsIs();
         break;
       }
