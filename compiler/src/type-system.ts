@@ -2640,6 +2640,101 @@ function generateDbTypes(
 }
 
 // ---------------------------------------------------------------------------
+// §2a — E-SCOPE-001 in logic expressions
+// ---------------------------------------------------------------------------
+
+/**
+ * Globals that may appear as bare identifiers in scrml logic expressions without
+ * being declared in scrml source. Kept conservative on purpose: easier to add an
+ * entry when a legitimate false positive surfaces than to debug a reported
+ * surprise where a typo compiled clean because the allowlist was too generous.
+ */
+const LOGIC_SCOPE_GLOBAL_ALLOWLIST: ReadonlySet<string> = new Set([
+  // JS language globals + constructors
+  "Math", "JSON", "Array", "Object", "Number", "String", "Boolean",
+  "Date", "Promise", "Set", "Map", "WeakMap", "WeakSet", "Symbol",
+  "RegExp", "Error", "TypeError", "RangeError", "SyntaxError",
+  "parseInt", "parseFloat", "isNaN", "isFinite",
+  "encodeURI", "encodeURIComponent", "decodeURI", "decodeURIComponent",
+  "undefined", "null", "true", "false", "NaN", "Infinity",
+  // Browser / DOM / Node runtime
+  "console", "document", "window", "globalThis", "navigator",
+  "location", "history", "localStorage", "sessionStorage",
+  "fetch", "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+  "requestAnimationFrame", "cancelAnimationFrame",
+  "performance", "crypto", "alert", "confirm", "prompt",
+  // Language keywords that may surface as idents after expression parsing
+  "this", "self", "super", "event", "arguments",
+  // scrml-specific — meta / compiler / SQL / error-context built-ins.
+  "meta", "reflect", "emit", "compiler", "bun",
+]);
+
+/**
+ * Walk every identifier in a logic-context ExprNode and emit E-SCOPE-001 for
+ * any bare ident that cannot be resolved against:
+ *   - the current ScopeChain (covers function params, let/const locals,
+ *     reactive-decls, function-decls, type-decls via the `kind: "type"`
+ *     binding added in case "type-decl"),
+ *   - the type registry (covers user-declared types referenced in expressions,
+ *     e.g. `Status.Todo` — the base name `Status` is looked up here),
+ *   - the global allowlist (JS/DOM builtins above),
+ *   - underscore-prefixed names (runtime helpers, `_scrml_*`, etc.).
+ *
+ * Skipped cases:
+ *   - `@`-prefixed names: reactive variables have their own scope-validation
+ *     path (sweepNodeForAtRefs in dependency-graph.ts + DG-level errors).
+ *   - member-access chains: only the base ident (leftmost component) is looked
+ *     up. `foo.bar.baz` → look up `foo`.
+ *   - name collision with declared struct/enum types: already covered by the
+ *     type registry check.
+ */
+function checkLogicExprIdents(
+  exprNode: unknown,
+  span: Span,
+  scopeChain: ScopeChain,
+  typeRegistry: Map<string, ResolvedType>,
+  errors: TSError[],
+  /** Optional name to exclude (e.g. the let-decl's own name for TDZ — though
+   *  scrml does not have TDZ semantics across a single stmt). */
+  excludeName?: string,
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+  forEachIdentInExprNode(exprNode as any, (ident) => {
+    if (typeof ident.name !== "string") return;
+    const raw = ident.name;
+    if (!raw) return;
+    // Skip reactive refs — validated by the DG sweep.
+    if (raw.startsWith("@")) return;
+    // Skip runtime helpers / underscore convention.
+    if (raw.startsWith("_")) return;
+    // Split off member-chain base.
+    const base = raw.includes(".") ? raw.slice(0, raw.indexOf(".")) : raw;
+    if (!base) return;
+    // Exclude the declared name itself (no TDZ in scrml, but a self-mention
+    // in the init shouldn't flag the variable's own name).
+    if (excludeName && base === excludeName) return;
+    // Skip purely numeric-looking tokens (shouldn't appear as idents but
+    // defensive against expression-parser edge cases).
+    if (/^\d/.test(base)) return;
+    // Allowlist: JS/DOM builtins + language keywords.
+    if (LOGIC_SCOPE_GLOBAL_ALLOWLIST.has(base)) return;
+    // Type registry — user-declared struct/enum type names are valid idents
+    // when used as constructors / variant accessors (`Status.Todo`, `Point`).
+    if (typeRegistry.has(base)) return;
+    // Scope chain — covers function-decls, params, let/const, reactive-decls,
+    // type-decls (bound under kind: "type" at declaration site), imports.
+    if (scopeChain.lookup(base)) return;
+    errors.push(new TSError(
+      "E-SCOPE-001",
+      `E-SCOPE-001: Undeclared identifier \`${base}\` in logic expression. ` +
+      `No variable, function, type, or import with that name is in scope. ` +
+      `Check for a typo, a missing \`import\`, or whether you meant a reactive \`@${base}\`.`,
+      span,
+    ));
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Node type annotator
 // ---------------------------------------------------------------------------
 
@@ -3271,6 +3366,19 @@ function annotateNodes(
             }
           }
         }
+        // §2a — E-SCOPE-001 on undeclared identifiers inside the initializer
+        // expression. Runs BEFORE the let/const name binding so a self-
+        // reference in the init (e.g. `let x = x + 1`) reports against the
+        // un-bound state — scrml does not have TDZ, so we excludeName here
+        // and treat a bare self-mention as a forward reference that will be
+        // shadowed by the new binding.
+        {
+          const letSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          const initExprForScope = (n as any).initExpr;
+          if (initExprForScope) {
+            checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+          }
+        }
         if (n.name) {
           scopeChain.bind(n.name as string, { kind: "variable", resolvedType });
         }
@@ -3784,6 +3892,36 @@ function annotateNodes(
   const topNodes = (fileAST.nodes as ASTNodeLike[] | undefined)
     ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
     ?? [];
+
+  // §2a — Pre-bind `export <kind> Name` declarations into the outer scope so
+  // intra-file references to exported functions/types/consts resolve for the
+  // E-SCOPE-001 walker. Without this pass the AST builder's export-decl node
+  // holds the declaration as an unparsed raw string (no function-decl sibling
+  // is emitted), so the normal scope-binding path misses the name. Binding
+  // with kind: "variable" + asIs type is sufficient for scope-resolution
+  // purposes — we're not tracking the exported symbol's real shape here.
+  function preBindExportedNames(nodes: ASTNodeLike[]): void {
+    for (const n of nodes) {
+      if (!n || typeof n !== "object") continue;
+      if (n.kind === "export-decl") {
+        const exportedName = (n as Record<string, unknown>).exportedName;
+        if (typeof exportedName === "string" && exportedName.length > 0) {
+          for (const name of exportedName.split(",").map(s => s.trim()).filter(Boolean)) {
+            if (!scopeChain.lookup(name)) {
+              scopeChain.bind(name, { kind: "variable", resolvedType: tAsIs() });
+            }
+          }
+        }
+      }
+      // Recurse into container blocks that wrap top-level declarations.
+      for (const key of ["nodes", "body", "children"] as const) {
+        const v = (n as Record<string, unknown>)[key];
+        if (Array.isArray(v)) preBindExportedNames(v as ASTNodeLike[]);
+      }
+    }
+  }
+  preBindExportedNames(topNodes);
+
   for (const node of topNodes) {
     visitNode(node);
   }
