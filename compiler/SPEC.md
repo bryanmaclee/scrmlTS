@@ -18284,7 +18284,18 @@ four-step fallback chain used by `emitTransitionGuard`: exact `From:To`,
 then `*:To`, then `From:*`, then `*:*`. The inlined test harness tracks
 the matched table key so `guardResults` can key on the matched
 (possibly-wildcard) rule rather than the concrete input pair.
-Remaining phases extend to temporal rules and derived machines.
+**Phase 5** admits §51.12 temporal rules (`.From after Ns => .To`).
+The `(.From, .To)` pair is a declared transition regardless of how it
+fires — timer-driven or user write — so exclusivity and guard coverage
+apply unchanged. Temporal rules contribute an `(after Nms)` annotation
+to test titles. The timer lifecycle itself — arm on variant entry,
+clear on variant exit, reset on reentry — is EXPLICITLY out of scope
+for the generated suite: verifying it requires a live runtime with
+fake-timer control, which the self-contained harness deliberately does
+not provide. When a machine includes any temporal rule, the generated
+file emits a header comment surfacing this scope boundary so users
+know to cover timer lifecycle with hand-written integration tests.
+The remaining phase extends to derived / projection machines (§51.9).
 
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write

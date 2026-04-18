@@ -37,9 +37,27 @@
  *   harness tracks the matched table key so guardResults can key on the
  *   matched wildcard rule (not the concrete input pair).
  *
- * Skipped machines (phase 4):
+ * Phase 5 (S26) — temporal rules (`.From after Ns => .To`).
+ *   Machines whose rules include §51.12 temporal transitions are in-
+ *   scope for exclusivity (property a) and guard coverage (property c).
+ *   The pair `(.From, .To)` is a declared transition regardless of how
+ *   it fires — timer-driven or user write — so the harness-level
+ *   properties carry over unchanged. Test titles receive an
+ *   `(after Nms)` annotation so the temporal nature of the rule is
+ *   visible in the generated suite.
+ *
+ *   EXPLICITLY OUT OF SCOPE for auto-property-tests: the timer lifecycle
+ *   itself (timer arms on variant entry, clears on variant exit, resets
+ *   on reentry). Verifying those behaviors requires a live scrml runtime
+ *   with fake-timer control — the self-contained harness deliberately
+ *   does not invoke runtime code. Timer-lifecycle regression coverage
+ *   lives in hand-written integration tests
+ *   (e.g. `gauntlet-s25/machine-temporal-transitions.test.js`). The
+ *   generated suite notes this in its header comment so users aren't
+ *   surprised when timer bugs slip past it.
+ *
+ * Skipped machines (phase 5):
  *   - unlabeled `given` guards (we can't name them stably in test titles)
- *   - temporal rules (phase 5)
  *   - derived / projection machines (phase 6)
  *
  * Skipped machines are recorded as comments at the top of the generated
@@ -74,16 +92,32 @@ interface MachineLike {
   governedTypeVariants?: string[];
 }
 
-// Phase 4 filter: only temporal rules and unlabeled guards still block.
-// Guards (if labeled), payload bindings, and wildcards are all in-scope.
+// Phase 5 filter: only unlabeled guards still block the machine entirely.
+// Guards (if labeled), payload bindings, wildcards, and temporal rules are
+// all in-scope. Temporal rules contribute exclusivity + guard-coverage
+// tests just like non-temporal rules; timer lifecycle is explicitly out
+// of scope for auto-property-tests (covered by hand-written integration
+// tests — see the file header).
 function rulesAreInScope(rules: TransitionRule[]): { ok: boolean; reason?: string } {
   for (const r of rules) {
-    if (r.afterMs != null)
-      return { ok: false, reason: "contains temporal rules (`after`)" };
     if (r.guard && !r.label)
       return { ok: false, reason: "contains unlabeled `given` guards (phase 2 requires a `[label]`)" };
   }
   return { ok: true };
+}
+
+// Phase 5: if any rule carries a temporal clause, the machine should
+// emit a suite-header note about the timer-lifecycle scope limit.
+function hasTemporalRule(rules: TransitionRule[]): boolean {
+  for (const r of rules) if (r.afterMs != null) return true;
+  return false;
+}
+
+// Phase 5: format an afterMs annotation for test titles so users can see
+// which pairs come from temporal rules in the emitted suite.
+function temporalSuffix(rule: TransitionRule | null): string {
+  if (rule && rule.afterMs != null) return ` (after ${rule.afterMs}ms)`;
+  return "";
 }
 
 function collectVariants(rules: TransitionRule[], typeVariants?: string[]): string[] {
@@ -220,9 +254,10 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
       const match = resolveRule(v, w, m.rules);
       if (match != null) {
         const wildcardNote = match.key !== `${v}:${w}` ? ` (via wildcard ${match.key})` : "";
+        const temporal = temporalSuffix(match.rule);
         const title = match.rule.guard
-          ? `declared .${v} => .${w} (guarded${wildcardNote}) succeeds when guard truthy`
-          : `declared .${v} => .${w}${wildcardNote} succeeds`;
+          ? `declared .${v} => .${w} (guarded${wildcardNote})${temporal} succeeds when guard truthy`
+          : `declared .${v} => .${w}${wildcardNote}${temporal} succeeds`;
         lines.push(`  test(${JSON.stringify(title)}, () => {`);
         const guardArg = match.rule.guard
           ? `, { ${JSON.stringify(match.key)}: true }`
@@ -272,7 +307,8 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
       continue;
     }
     const wildcardNote = ruleKey !== `${repV}:${repW}` ? ` (via wildcard ${ruleKey})` : "";
-    const failTitle = `guard [${r.label}] on .${r.from} => .${r.to}${wildcardNote}: rejected when guard falsy`;
+    const temporal = temporalSuffix(r);
+    const failTitle = `guard [${r.label}] on .${r.from} => .${r.to}${wildcardNote}${temporal}: rejected when guard falsy`;
     lines.push(`  test(${JSON.stringify(failTitle)}, () => {`);
     lines.push(`    const result = tryTransition(${variantLiteral(repV)}, ${variantLiteral(repW)}, { ${JSON.stringify(ruleKey)}: false });`);
     lines.push(`    expect(result).toBeInstanceOf(Error);`);
@@ -334,8 +370,21 @@ export function generateMachineTestJs(
 
   if (emittedBlocks.length === 0 && skipNotes.length === 0) return null;
 
+  // Phase 5 scope note: if any emitted machine uses temporal rules, call
+  // out that timer-lifecycle behavior is deliberately outside this
+  // suite's remit. The hand-written temporal tests cover it.
+  const anyTemporal = [...machineRegistry.values()].some(
+    m => !m.isDerived && Array.isArray(m.rules) && hasTemporalRule(m.rules),
+  );
+
   lines.push(`// §51.13 auto-generated machine property tests — do not edit.`);
   lines.push(`// Source: ${fileName}`);
+  if (anyTemporal) {
+    lines.push(`// Note: temporal rules (.From after Ns => .To) contribute exclusivity`);
+    lines.push(`// and guard-coverage tests only. Timer lifecycle (arm on entry, clear`);
+    lines.push(`// on exit, reset on reentry) is outside this suite's scope — cover it`);
+    lines.push(`// with hand-written integration tests against the real runtime.`);
+  }
   lines.push(`import { test, expect, describe } from "bun:test";`);
   lines.push(``);
   if (skipNotes.length > 0) {

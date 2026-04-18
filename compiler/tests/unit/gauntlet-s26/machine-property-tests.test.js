@@ -162,7 +162,11 @@ describe("S26 §51.13 — auto-generated machine property tests", () => {
     expect(machineTestJs).not.toContain("[generated] machine FlowMachine");
   });
 
-  test("temporal machine is skipped (phase 1)", () => {
+  test("temporal machine in-scope (phase 5) — exclusivity + timer-scope note", () => {
+    // Phase 5 lifts the temporal filter. The (From, To) pair is still
+    // declared regardless of how the transition fires; exclusivity
+    // applies. Timer lifecycle is explicitly out of scope for
+    // auto-property-tests and the emitted file calls that out.
     const src = `<program>
 \${
   type Fetch:enum = { Idle, Loading, Done }
@@ -178,8 +182,12 @@ describe("S26 §51.13 — auto-generated machine property tests", () => {
     const { errors, machineTestJs } = compileSrcWithFlag(src, true);
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     expect(machineTestJs).not.toBeNull();
-    expect(machineTestJs).toContain("Skipped FetchMachine");
-    expect(machineTestJs).toContain("contains temporal rules");
+    expect(machineTestJs).not.toContain("Skipped FetchMachine");
+    // The temporal rule emits an exclusivity test with (after Nms) annotation.
+    expect(machineTestJs).toContain("declared .Loading => .Done (after 30000ms) succeeds");
+    // Suite-level scope note calls out timer lifecycle as out-of-scope.
+    expect(machineTestJs).toContain("Timer lifecycle");
+    expect(machineTestJs).toContain("outside this suite's scope");
   });
 
   test("no machines in file: no .machine.test.js written", () => {
