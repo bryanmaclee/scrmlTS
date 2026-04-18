@@ -232,7 +232,11 @@ describe("S26 §51.13 — generateMachineTestJs unit contract", () => {
     expect(out).not.toContain("[generated] machine Proj");
   });
 
-  test("payload-bound rule skipped (phase 1)", () => {
+  test("payload-bound rule in-scope (phase 3) — emits exclusivity tests", () => {
+    // Phase 3 relaxes the payload-binding filter. The harness is
+    // binding-transparent (it never executes the real destructuring), so
+    // bindings don't change the emitted test shape — they're covered by
+    // their variant's exclusivity row just like any other declared pair.
     const registry = new Map();
     registry.set("M", {
       name: "M",
@@ -241,8 +245,9 @@ describe("S26 §51.13 — generateMachineTestJs unit contract", () => {
           fromBindings: [{ localName: "x", fieldName: "x" }] },
       ],
     });
-    const out = generateMachineTestJs("/x/y.scrml", registry, new Map());
-    expect(out).toContain("Skipped M");
-    expect(out).toContain("payload bindings");
+    const out = generateMachineTestJs("/x/y.scrml", registry, new Map([["M", "A"]]));
+    expect(out).not.toBeNull();
+    expect(out).not.toContain("Skipped M");
+    expect(out).toContain('"declared .A => .B succeeds"');
   });
 });

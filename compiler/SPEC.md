@@ -18273,8 +18273,11 @@ implementation: **phase 1** covers property (a) for machines whose rules
 are all unguarded, payload-free, non-wildcard, and non-temporal.
 **Phase 2** extends coverage to property (c) for every LABELED `given`
 guard and relaxes the filter to allow guarded rules in property (a).
-Remaining phases extend to payloads, wildcards, temporal rules, and
-derived machines.
+**Phase 3** lifts the payload-bindings filter: §51.3.2 binding-group
+rules are in-scope because the generated-test harness is binding-
+transparent — it does not invoke the real machine IIFE, so declared
+destructuring never executes in generated tests. Remaining phases
+extend to wildcards, temporal rules, and derived machines.
 
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write

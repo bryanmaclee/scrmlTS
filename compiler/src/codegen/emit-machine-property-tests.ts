@@ -21,9 +21,16 @@
  * coupling the test to the guard expression's inputs. Real-expression
  * evaluation with automatic input synthesis is a future phase.
  *
- * Skipped machines (phase 2):
+ * Phase 3 (S26) — payload-bound rules.
+ *   Machines whose rules use §51.3.2 payload bindings are now in-scope.
+ *   The harness is binding-transparent — it does not invoke the real
+ *   machine IIFE, so the declared destructuring is never executed during
+ *   the generated tests. Exclusivity + guard coverage work the same as
+ *   phases 1/2 because the variant's identity (`.From` / `.To`) is the
+ *   only axis the harness keys on.
+ *
+ * Skipped machines (phase 3):
  *   - unlabeled `given` guards (we can't name them stably in test titles)
- *   - payload bindings (phase 3)
  *   - wildcard rules (phase 4)
  *   - temporal rules (phase 5)
  *   - derived / projection machines (phase 6)
@@ -55,14 +62,12 @@ interface MachineLike {
   auditTarget?: string | null;
 }
 
-// Phase 2 filter: payload/wildcard/temporal are still blocking; guards are
-// now OK, but only if every guarded rule is labeled. An unlabeled guarded
-// rule breaks the phase-2 contract (we cannot title its coverage test).
+// Phase 3 filter: wildcard/temporal still blocking; guards allowed if
+// labeled; payload bindings now allowed. Bindings are transparent to the
+// harness (it doesn't invoke the real machine IIFE, so destructuring never
+// executes during generated tests).
 function rulesAreInScope(rules: TransitionRule[]): { ok: boolean; reason?: string } {
   for (const r of rules) {
-    if ((r.fromBindings && r.fromBindings.length > 0) ||
-        (r.toBindings && r.toBindings.length > 0))
-      return { ok: false, reason: "contains payload bindings" };
     if (r.from === "*" || r.to === "*")
       return { ok: false, reason: "contains wildcard rules" };
     if (r.afterMs != null)
