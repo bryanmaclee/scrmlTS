@@ -45,6 +45,7 @@ Options:
   --verbose, -v           Show per-stage timing and counts
   --embed-runtime         Embed runtime inline instead of writing a separate file
   --emit-batch-plan       Print the Stage 7.5 BatchPlan as JSON (§PIPELINE)
+  --emit-machine-tests    Emit <base>.machine.test.js for each source (§51.13)
   --watch, -w             Watch for changes and recompile
   --convert-legacy-css    Convert <style> blocks to #{...}
   --mode <mode>           Output mode: browser (default) or library
@@ -80,6 +81,7 @@ function parseArgs(args) {
   let mode = 'browser';
   let selfHost = false;
   let emitBatchPlan = false;
+  let emitMachineTests = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -112,6 +114,8 @@ function parseArgs(args) {
       selfHost = true;
     } else if (arg === "--emit-batch-plan") {
       emitBatchPlan = true;
+    } else if (arg === "--emit-machine-tests") {
+      emitMachineTests = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -147,7 +151,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitMachineTests };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,7 +257,7 @@ function formatWarning(warn, cwd) {
  * @returns {{ success: boolean }}
  */
 function runOnce(opts, selfHostModules = null) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan } = opts;
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitMachineTests } = opts;
   const cwd = process.cwd();
 
   if (verbose) {
@@ -273,6 +277,7 @@ function runOnce(opts, selfHostModules = null) {
       convertLegacyCss,
       embedRuntime,
       mode,
+      emitMachineTests,
       write: true,
       log: verbose ? (msg) => console.log(c.dim(msg)) : () => {},
       selfHostModules,

@@ -18250,6 +18250,56 @@ Two subcases:
   for the initial variant if that variant has outgoing temporal rules, with
   the same semantics as a transition-time arm.
 
+### 51.13 Auto-Generated Property Tests — `--emit-machine-tests`
+
+**Added:** 2026-04-18. Implementation of §2b F
+(machine-cluster-expressiveness-2026-04-17.md). Behind the
+`--emit-machine-tests` compile flag, the compiler emits a bun:test suite that
+exercises each `< machine>` declaration against a small set of invariants
+derived from its transition table. The slogan: **machine = enforced spec**.
+The declared transition table *is* the oracle; the generated tests confirm
+the compiled machine refuses everything the table does not allow.
+
+Generated tests are written to `<base>.machine.test.js`, a separate output
+from `<base>.test.js` (which holds user-authored `~{}` suites). The flag is
+independent of user test mode — enabling `--emit-machine-tests` does not
+require user `~{}` blocks to exist and does not trigger `~{}` emission.
+
+#### 51.13.1 Properties
+
+For each non-derived `< machine>` declaration with a non-empty transition
+table, the generator SHALL emit tests for the following properties. Phased
+implementation: **phase 1 covers property (a) for machines whose rules are
+all unguarded, payload-free, non-wildcard, and non-temporal.** Later phases
+extend to guards, payloads, wildcards, temporal rules, and derived machines.
+
+- **(a) Exclusivity.** For every reachable variant V and every variant W in
+  the governed enum: if `(V → W)` is not a declared rule, an attempted write
+  of `.W` to a variable whose current value is `.V` SHALL throw
+  `E-MACHINE-001-RT`. Declared rules must succeed (no throw).
+- **(b) Terminal rejection.** A reachable variant with zero outgoing rules
+  SHALL reject every transition out of it. (Consequence of (a); emitted as
+  a distinct test for clarity.)
+- **(c) Guard coverage.** Each labeled `given` guard SHALL receive one
+  passing test (guard evaluates truthy → transition succeeds) and one
+  failing test (guard evaluates falsy → `E-MACHINE-001-RT` thrown).
+
+#### 51.13.2 Normative Statements
+
+- Generated tests MUST be marked as generated in the output (describe label
+  includes `[generated]`) so users can filter them.
+- Generated tests MUST be deterministic — no randomness, no timers — so that
+  the suite is reproducible across runs.
+- The generator MUST NOT emit tests for derived / projection machines
+  (§51.9); projections are pure functions and carry no transition table.
+- The generator MUST NOT emit tests for machines whose rules reference
+  features outside the current implementation phase. Skipped machines SHALL
+  be recorded as a comment in the generated output so users know why.
+- The runtime helper `_scrml_machine_try(varName, newValue)` SHALL attempt a
+  transition and return `null` on success or the thrown `Error` on failure,
+  giving tests a pure-expression hook into the guard pipeline without
+  polluting reactive state permanently.
+
 ---
 
 ## 52. State Authority Declarations

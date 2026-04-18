@@ -32,6 +32,7 @@ import { generateLibraryJs } from "./emit-library.ts";
 import { BindingRegistry } from "./binding-registry.ts";
 import { analyzeAll } from "./analyze.ts";
 import { generateTestJs } from "./emit-test.ts";
+import { generateMachineTestJs } from "./emit-machine-property-tests.ts";
 import { generateWorkerJs } from "./emit-worker.ts";
 import { SourceMapBuilder, appendSourceMappingUrl } from "./source-map.ts";
 import { EncodingContext } from "./type-encoding.ts";
@@ -74,6 +75,12 @@ export interface CgInput {
   mode?: "browser" | "library";
   /** When true, generate bun:test output from ~{} test blocks. */
   testMode?: boolean;
+  /**
+   * §51.13 — When true, generate auto-property-tests for every non-derived
+   * machine declaration. Independent of testMode. Output lands on
+   * `CgFileOutput.machineTestJs`.
+   */
+  emitMachineTests?: boolean;
   /** Enable output name encoding (§47). Default: false. */
   encoding?: boolean | { enabled: boolean; debug?: boolean };
   /** Stage 7.5 BatchPlan — consumed by emit-server for Tier 1 envelopes. */
@@ -94,6 +101,8 @@ export interface CgFileOutput {
   css?: string | null;
   /** Generated bun:test JS output from ~{} test blocks (testMode only). */
   testJs?: string | null;
+  /** §51.13 generated machine property-test JS (emitMachineTests only). */
+  machineTestJs?: string | null;
   /** Worker JS bundles keyed by worker name (§4.12.4). */
   workerBundles?: Map<string, string>;
   clientJsMap?: string;
@@ -120,6 +129,7 @@ export function runCG(input: CgInput): CgOutput {
     sourceMap = false,
     mode = "browser",
     testMode = false,
+    emitMachineTests = false,
     encoding: encodingInput = false,
     batchPlan = null,
     batchPlannerErrors = [],
@@ -553,6 +563,31 @@ export function runCG(input: CgInput): CgOutput {
       ? generateTestJs(filePath, (analysis as any)?.testGroups ?? [], []) ?? null
       : null;
 
+    // §51.13 — auto-generated machine property tests.
+    let machineTestJs: string | null = null;
+    if (emitMachineTests) {
+      const machineRegistry = (fileAST as any).machineRegistry as Map<string, any> | undefined;
+      const initialVariants = new Map<string, string>();
+      function walkForMachineInitials(children: any[]): void {
+        if (!Array.isArray(children)) return;
+        for (const child of children) {
+          if (!child || typeof child !== "object") continue;
+          if (child.kind === "reactive-decl" && child.machineBinding && child.initialValue) {
+            const iv = child.initialValue;
+            const variant =
+              (iv.kind === "variant-literal" && typeof iv.variant === "string") ? iv.variant :
+              (iv.kind === "enum-variant" && typeof iv.variant === "string") ? iv.variant :
+              null;
+            if (variant) initialVariants.set(child.machineBinding, variant);
+          }
+          if (Array.isArray(child.children)) walkForMachineInitials(child.children);
+          if (Array.isArray(child.body)) walkForMachineInitials(child.body);
+        }
+      }
+      walkForMachineInitials(nodes);
+      machineTestJs = generateMachineTestJs(filePath, machineRegistry ?? null, initialVariants);
+    }
+
     const fileWorkerBundles = workerBundlesPerFile.get(filePath);
     const browserOutput: CgFileOutput = {
       sourceFile: filePath,
@@ -561,6 +596,7 @@ export function runCG(input: CgInput): CgOutput {
       clientJs,
       serverJs,
       ...(testJs !== null && { testJs }),
+      ...(machineTestJs !== null && { machineTestJs }),
       ...(fileWorkerBundles && { workerBundles: fileWorkerBundles }),
       ...(clientJsMap !== null && { clientJsMap }),
       ...(serverJsMap !== null && { serverJsMap }),

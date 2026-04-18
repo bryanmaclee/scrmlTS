@@ -131,6 +131,7 @@ export function compileScrml(options = {}) {
     write = true,
     sourceMap = false,
     mode = 'browser',
+    emitMachineTests = false,
     log = console.log,
     selfHostModules = null,
   } = options;
@@ -431,6 +432,7 @@ export function compileScrml(options = {}) {
     embedRuntime,
     sourceMap,
     mode,
+    emitMachineTests,
   }));
   collectErrors("CG", cgResult.errors);
 
@@ -487,6 +489,12 @@ export function compileScrml(options = {}) {
         if (output.serverJsMap) {
           writeFileSync(join(outputDir, `${base}.server.js.map`), output.serverJsMap);
           if (verbose) log(`  [CG] Wrote source map: ${base}.server.js.map`);
+        }
+        // §51.13 — auto-generated machine property tests
+        if (output.machineTestJs) {
+          writeFileSync(join(outputDir, `${base}.machine.test.js`), output.machineTestJs);
+          if (verbose) log(`  [CG] Wrote machine property tests: ${base}.machine.test.js`);
+          fileCount++;
         }
       }
     }
