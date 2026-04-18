@@ -314,6 +314,11 @@ interface ScopeEntry {
   fullType?: ResolvedType;
   clientType?: ResolvedType;
   domInterface?: string;
+  /**
+   * §35 E-LIN-005: set to true on lin-decl / lin-annotated param bindings so
+   * downstream let/const/lin declarations in child scopes can detect shadowing.
+   */
+  isLin?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -2766,6 +2771,35 @@ function checkLogicExprIdents(
   });
 }
 
+/**
+ * §35 E-LIN-005 — reject a let/const/lin declaration whose name shadows an
+ * in-scope `lin` variable from a parent scope. Shadowing is detected by
+ * looking up the name in the scope chain and checking that:
+ *   - the lookup resolves to an isLin entry, AND
+ *   - that entry is not in the current scope (i.e. it came from a parent).
+ * Same-scope rebinding (lookup resolves to current scope's own entry) is out
+ * of scope for E-LIN-005; it is not a "shadow" in the hierarchical sense.
+ */
+function checkLinShadowing(
+  name: string | undefined,
+  span: Span,
+  scopeChain: ScopeChain,
+  errors: TSError[],
+  declKind: "let" | "const" | "lin",
+): void {
+  if (!name) return;
+  if (scopeChain.current.hasOwn(name)) return;
+  const found = scopeChain.lookup(name);
+  if (!found || !found.isLin) return;
+  errors.push(new TSError(
+    "E-LIN-005",
+    `E-LIN-005: \`${declKind} ${name}\` shadows an in-scope \`lin\` variable of the same name. ` +
+    `Shadowing a \`lin\` variable prevents the compiler from determining which binding a consumption refers to. ` +
+    `Rename the new binding, or consume the outer \`lin ${name}\` before this declaration.`,
+    span,
+  ));
+}
+
 // ---------------------------------------------------------------------------
 // Node type annotator
 // ---------------------------------------------------------------------------
@@ -3193,6 +3227,9 @@ function annotateNodes(
             const paramAnnot = (typeof param === "object" && param !== null)
               ? ((param as ASTNodeLike).typeAnnotation as string | undefined)
               : undefined;
+            const paramIsLin = (typeof param === "object" && param !== null)
+              ? Boolean((param as ASTNodeLike).isLin)
+              : false;
             if (paramName) {
               let paramResolvedType: ResolvedType = tAsIs();
               if (paramAnnot) {
@@ -3201,7 +3238,9 @@ function annotateNodes(
                   paramResolvedType = resolved;
                 }
               }
-              scopeChain.bind(paramName, { kind: "variable", resolvedType: paramResolvedType });
+              const paramEntry: ScopeEntry = { kind: "variable", resolvedType: paramResolvedType };
+              if (paramIsLin) paramEntry.isLin = true;
+              scopeChain.bind(paramName, paramEntry);
             }
           }
         }
@@ -3410,6 +3449,16 @@ function annotateNodes(
           if (initExprForScope) {
             checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
           }
+        }
+        {
+          const bindSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+          checkLinShadowing(
+            n.name as string | undefined,
+            bindSpan,
+            scopeChain,
+            errors,
+            (n.kind === "const-decl") ? "const" : "let",
+          );
         }
         if (n.name) {
           scopeChain.bind(n.name as string, { kind: "variable", resolvedType });
@@ -3991,8 +4040,9 @@ function annotateNodes(
         if (linInitExpr) {
           checkLogicExprIdents(linInitExpr, linSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
         }
+        checkLinShadowing(n.name as string | undefined, linSpan, scopeChain, errors, "lin");
         if (n.name) {
-          scopeChain.bind(n.name as string, { kind: "variable", resolvedType: tAsIs() });
+          scopeChain.bind(n.name as string, { kind: "variable", resolvedType: tAsIs(), isLin: true });
         }
         resolvedType = tAsIs();
         break;
@@ -4129,6 +4179,7 @@ function annotateNodes(
       case "while-stmt":
       case "while-loop":
       case "do-while-stmt": {
+        if (process.env.DBG_LIN005) console.error("WHILE-STMT entered, body len:", (n.body as unknown[] | undefined)?.length, "kinds:", (n.body as ASTNodeLike[] | undefined ?? []).map(c => c.kind));
         scopeChain.push(`while:${nodeKey(n)}`);
         const whileBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(whileBody)) {
