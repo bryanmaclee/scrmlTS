@@ -12218,7 +12218,7 @@ A `pure` function SHALL NOT:
 
 ### 35.1 Overview
 
-A `lin` variable must be consumed exactly once. This is a compile-time guarantee, not a runtime check. The compiler enforces it by static analysis of every execution path through the program.
+A `lin` variable is a value with exactly-once consumption and restricted intermediate visibility. The binding is immutable, must be consumed on every execution path, and must not be referenced by any code between the declaration site and the consumption site except the consumption itself. This is a compile-time guarantee, not a runtime check. The compiler enforces it by static analysis of every execution path through the program.
 
 `lin` is used when a value must not be silently discarded and must not be used twice. The canonical use cases are: values that carry identity or ownership (auth tokens, transaction handles, one-time resources), and `~` (§32), which is a built-in `lin` variable.
 
@@ -12234,12 +12234,13 @@ lin x = fetchToken()
 lin-declaration ::= 'lin' identifier '=' expression
 ```
 
-A `lin` declaration binds a name to a value and marks that binding as linear. The binding is immutable — the developer cannot assign a new value to a `lin` variable after declaration.
+A `lin` declaration binds a name to a value and marks that binding as linear. The binding is immutable — the developer cannot assign a new value to a `lin` variable after declaration. Every reference to a `lin` identifier is counted as a consumption event (§35.3); there is no "read-only" reference that sits between declaration and consumption. A second reference — even one that would be a read-only observation in a non-linear language — is E-LIN-002.
 
 **Normative statements:**
 
 - `lin` SHALL be a declaration keyword valid inside any logic context `${ }` body and inside any function body.
 - A `lin` declaration SHALL bind the identifier immutably. The compiler SHALL reject any reassignment to a `lin`-declared identifier after its initial declaration.
+- Every appearance of a `lin` identifier in a position that is not a declaration SHALL count as a consumption event (§35.3). The compiler SHALL reject any second reference — read-only or otherwise — with E-LIN-002.
 - A function parameter MAY be declared `lin` by prefixing it with the `lin` keyword (§35.2.1). A `lin`-annotated parameter is treated as a linear binding at function entry; the consume-exactly-once rule (§35.3) applies to it for the duration of the function body.
 
 ### 35.2.1 Linear Function Parameters
