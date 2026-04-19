@@ -243,6 +243,28 @@ function runOnce(opts) {
     log: console.log,
   });
 
+  // Ghost-pattern lint diagnostics (W-LINT-NNN) — non-fatal, adopter-facing.
+  // Surfaces JSX/Vue/Svelte syntax early so it does not silently compile to
+  // broken output and leave a dead UI in the browser.
+  const lintDiags = result.lintDiagnostics || [];
+  if (lintDiags.length > 0) {
+    console.error(`[dev] ${lintDiags.length} ghost-pattern lint${lintDiags.length !== 1 ? "s" : ""}:`);
+    for (const d of lintDiags) {
+      const rel = d.filePath || d.file || "";
+      console.error(`  [${d.code}] ${rel}:${d.line}:${d.column} ${d.message}`);
+    }
+  }
+
+  // Non-fatal warnings
+  if (result.warnings && result.warnings.length > 0) {
+    console.error(`[dev] ${result.warnings.length} warning${result.warnings.length !== 1 ? "s" : ""}:`);
+    for (const w of result.warnings) {
+      const rel = w.filePath || w.file || "";
+      const loc = w.line ? `:${w.line}` : "";
+      console.error(`  ${w.code ? "[" + w.code + "] " : ""}${rel}${loc} ${w.message?.slice(0, 120)}`);
+    }
+  }
+
   if (result.errors.length > 0) {
     console.error(`[dev] Compilation errors: ${result.errors.length}`);
     for (const e of result.errors) {

@@ -245,6 +245,23 @@ function formatWarning(warn, cwd) {
   return msg;
 }
 
+/**
+ * Format a ghost-pattern lint diagnostic (W-LINT-NNN).
+ *
+ * Lint diagnostics are non-fatal — they flag React/Vue/Svelte syntax that
+ * looks plausible to a framework refugee but compiles to silently-wrong code
+ * in scrml. The goal is to turn silent ghost-pattern breakage into a visible
+ * nudge toward the correct scrml construct.
+ */
+function formatLintDiagnostic(diag, cwd) {
+  const label = c.bold(c.yellow("lint"));
+  const code = c.dim(`[${diag.code}]`);
+  const filePath = diag.filePath || diag.file;
+  const relPath = filePath ? relative(cwd, filePath) : "";
+  const loc = `:${diag.line}:${diag.column}`;
+  return `${label} ${code}: ${diag.message}\n  ${c.cyan("-->")} ${relPath}${loc}`;
+}
+
 // ---------------------------------------------------------------------------
 // Compilation runner
 // ---------------------------------------------------------------------------
@@ -301,6 +318,18 @@ function runOnce(opts, selfHostModules = null) {
     return { success: false };
   }
 
+  // Print ghost-pattern lint diagnostics (W-LINT-NNN)
+  // Non-fatal — adopter-facing guidance when JSX/Vue/Svelte syntax is detected.
+  // Visible by default so typing `onClick={fn}` does not silently compile to
+  // broken output.
+  const lintDiags = result.lintDiagnostics || [];
+  if (lintDiags.length > 0) {
+    console.error("");
+    for (const d of lintDiags) {
+      console.error(formatLintDiagnostic(d, cwd));
+    }
+  }
+
   // Print warnings
   if (result.warnings.length > 0) {
     console.error("");
@@ -338,6 +367,9 @@ function runOnce(opts, selfHostModules = null) {
 
   if (result.warnings.length > 0) {
     console.log(c.yellow(`  ${result.warnings.length} warning${result.warnings.length !== 1 ? "s" : ""}`));
+  }
+  if (lintDiags.length > 0) {
+    console.log(c.yellow(`  ${lintDiags.length} lint${lintDiags.length !== 1 ? "s" : ""} (ghost pattern)`));
   }
 
   if (emitBatchPlan && typeof result.batchPlanJson === "function") {
