@@ -36,6 +36,9 @@ interface TransitionRule {
   // null when the rule had no binding-group on that side.
   fromBindings?: RuleBinding[] | null;
   toBindings?: RuleBinding[] | null;
+  // §51.12 (S25) — temporal transition delay in milliseconds. null/undefined
+  // for non-temporal rules.
+  afterMs?: number | null;
 }
 
 /**
@@ -211,6 +214,175 @@ export function buildBindingPreludeStmts(rule: TransitionRule): string[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// §51.5.1 — Compile-time transition classifier (S28 validation elision)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a machine-bound assignment for validation elision.
+ *
+ * Returns:
+ *   - { kind: "legal", matchedKey, matchedRule }  — emit minimal side-effect-only
+ *     shape (no variant extraction, no matched-key resolution, no rejection throw)
+ *   - { kind: "unknown" }                          — emit the full runtime guard
+ *
+ * S28 slice 1 coverage (Cat 2.a / 2.b from the elision deep-dive):
+ *   - RHS is a literal unit-variant access (`EnumName.VariantName` or
+ *     `EnumName_VariantName`, no call parens, no surrounding expression).
+ *   - Some unguarded wildcard rule covers the target unambiguously:
+ *       (a) `* => .Target` with no higher-precedence rule (no `X:target`
+ *           specific) — matched key is `"*:Target"`.
+ *       (b) `* => *` with no higher-precedence rule of any shape — matched
+ *           key is `"*:*"`.
+ *   - NO rule in the machine has a `given` guard (a guard on any rule could
+ *     be selected at runtime for some `__prev` value, so we can't prove
+ *     validation always passes).
+ *   - NO rule has payload `fromBindings` / `toBindings` (bindings imply
+ *     runtime observation of payload data).
+ *
+ * The compile-time-baked matched key is contractually identical to what the
+ * runtime wildcard-fallback chain would resolve (§51.5.2 normative — see
+ * the 2026-04-19 amendment clarifying validation elision).
+ *
+ * Categories deferred to future slices:
+ *   - 2.c self-assignment, 2.d payload variants, 2.e flow-sensitive __prev,
+ *     2.f trivially-illegal (compile-time E-MACHINE-001).
+ */
+type TriageResult =
+  | { kind: "legal"; matchedKey: string; matchedRule: TransitionRule }
+  | { kind: "unknown" };
+
+export function classifyTransition(
+  newValueExpr: string,
+  rules: TransitionRule[],
+): TriageResult {
+  // Slice-1 sledgehammer: any guard anywhere → full guard. Any binding
+  // anywhere → full guard. Refining these checks (per-precedence analysis)
+  // is a future slice; the conservative gate catches enough of the canonical
+  // wildcard-rule case to be worthwhile, and never mis-classifies.
+  for (const r of rules) {
+    if (r.guard) return { kind: "unknown" };
+    if ((r.fromBindings && r.fromBindings.length > 0) ||
+        (r.toBindings && r.toBindings.length > 0)) {
+      return { kind: "unknown" };
+    }
+  }
+
+  // Literal unit-variant RHS: `EnumName.VariantName` or `EnumName_VariantName`.
+  // Rejects payload constructors (`Shape.Circle(10)`), runtime expressions,
+  // and anything not a clean two-segment identifier reference.
+  const m = newValueExpr.trim().match(/^[A-Z][A-Za-z0-9_]*[._]([A-Z][A-Za-z0-9_]*)$/);
+  if (!m) return { kind: "unknown" };
+  const targetVariant = m[1];
+
+  // Case (a): `*:target` match is safe iff no specific `X:target` rule
+  // exists — otherwise runtime would pick `X:target` for some prev and
+  // our baked-in matched key would disagree with the §51.11 `rule` field.
+  const wildTarget = rules.find(r => r.from === "*" && r.to === targetVariant);
+  if (wildTarget) {
+    const hasSpecificTarget = rules.some(r => r.from !== "*" && r.to === targetVariant);
+    if (!hasSpecificTarget) {
+      return { kind: "legal", matchedKey: `*:${targetVariant}`, matchedRule: wildTarget };
+    }
+  }
+
+  // Case (b): `*:*` match is safe only when no higher-precedence shape
+  // exists at all — no `X:target`, no `*:target`, no `X:*`. Conservative
+  // but correct.
+  const fullWild = rules.find(r => r.from === "*" && r.to === "*");
+  if (fullWild) {
+    const hasHigherPrecedence = rules.some(r =>
+      (r.from !== "*" && r.to === targetVariant) ||   // X:target
+      (r.from === "*" && r.to === targetVariant) ||   // *:target
+      (r.from !== "*" && r.to === "*"));              // X:*
+    if (!hasHigherPrecedence) {
+      return { kind: "legal", matchedKey: "*:*", matchedRule: fullWild };
+    }
+  }
+
+  return { kind: "unknown" };
+}
+
+/**
+ * Emit the elided side-effect-only shape. Validation work is dropped;
+ * §51.11 audit push, §51.12 timer arm/clear, §51.3.2 effect body, and
+ * the §51.5.2(5) state commit all run as the full guard would.
+ *
+ * The matched key is a compile-time string constant; the matched rule's
+ * label (if any) is baked in as well. Temporal timer-arm is emitted only
+ * for rules whose `from` matches the statically-proven target variant.
+ */
+function emitElidedTransition(
+  encodedVarName: string,
+  newValueExpr: string,
+  machineName: string,
+  matchedKey: string,
+  matchedRule: TransitionRule,
+  rules: TransitionRule[],
+  auditTarget: string | null,
+): string[] {
+  const targetVariant = matchedRule.to === "*" ? null : matchedRule.to;
+  const temporalRules = rules.filter(r => r.afterMs != null);
+  const relevantTemporals = targetVariant
+    ? temporalRules.filter(r => r.from === targetVariant)
+    : [];
+  const hasEffect = matchedRule.effectBody != null && matchedRule.effectBody !== "";
+  const hasAudit = auditTarget != null;
+  const hasTemporal = temporalRules.length > 0;
+
+  const lines: string[] = [];
+  lines.push(`// §51.5 elided transition: ${encodedVarName} (${machineName}) — matched ${matchedKey} at compile time`);
+
+  // Minimal collapse: no audit / no effect / no temporal → bare set.
+  if (!hasEffect && !hasAudit && !hasTemporal) {
+    lines.push(`_scrml_reactive_set("${encodedVarName}", ${newValueExpr});`);
+    return lines;
+  }
+
+  // Otherwise we need the IIFE so the side-effect helpers can read __prev/__next.
+  lines.push(`(function() {`);
+  lines.push(`  var __prev = _scrml_reactive_get("${encodedVarName}");`);
+  lines.push(`  var __next = ${newValueExpr};`);
+  lines.push(`  _scrml_reactive_set("${encodedVarName}", __next);`);
+
+  if (hasEffect) {
+    lines.push(`  // Effect block (from matched rule ${matchedRule.from}:${matchedRule.to})`);
+    lines.push(`  {`);
+    lines.push(`    var event = { from: __prev, to: __next };`);
+    lines.push(`    ${rewriteExpr(matchedRule.effectBody!)}`);
+    lines.push(`  }`);
+  }
+
+  if (hasAudit) {
+    const labelLit = matchedRule.label ? JSON.stringify(matchedRule.label) : "null";
+    lines.push(`  // §51.11 audit log push (matched key baked in)`);
+    lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([Object.freeze({ from: __prev, to: __next, at: Date.now(), rule: ${JSON.stringify(matchedKey)}, label: ${labelLit} })]));`);
+  }
+
+  if (hasTemporal) {
+    lines.push(`  // §51.12 temporal timer management`);
+    lines.push(`  _scrml_machine_clear_timer("${encodedVarName}");`);
+    if (relevantTemporals.length > 0) {
+      const rulesPayload = JSON.stringify(
+        temporalRules.map(r => ({
+          from: r.from,
+          afterMs: r.afterMs,
+          to: r.to,
+          label: r.label ?? null,
+        }))
+      );
+      const auditTargetLit = auditTarget ? JSON.stringify(auditTarget) : "null";
+      for (const r of relevantTemporals) {
+        const labelLit = r.label ? JSON.stringify(r.label) : "null";
+        lines.push(`  _scrml_machine_arm_timer("${encodedVarName}", ${r.afterMs}, "${r.to}", { fromVariant: "${r.from}", label: ${labelLit}, auditTarget: ${auditTargetLit}, rulesJson: ${JSON.stringify(rulesPayload)} });`);
+      }
+    }
+  }
+
+  lines.push(`})();`);
+  return lines;
+}
+
 export function emitTransitionGuard(
   encodedVarName: string,
   newValueExpr: string,
@@ -219,6 +391,21 @@ export function emitTransitionGuard(
   rules: TransitionRule[],
   auditTarget: string | null = null,
 ): string[] {
+  // §51.5.2 (S28) — validation elision: when the compiler can prove the
+  // transition is legal at compile time, emit the side-effect-only shape.
+  const triage = classifyTransition(newValueExpr, rules);
+  if (triage.kind === "legal") {
+    return emitElidedTransition(
+      encodedVarName,
+      newValueExpr,
+      machineName,
+      triage.matchedKey,
+      triage.matchedRule,
+      rules,
+      auditTarget,
+    );
+  }
+
   const lines: string[] = [];
 
   lines.push(`// §51 transition guard: ${encodedVarName} (${machineName})`);

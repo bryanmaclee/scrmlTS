@@ -169,11 +169,12 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
     expect(env.state.state).toBe("B");
   });
 
-  test("effect block emitted inside a wildcard rule keys on __matchedKey", () => {
-    // Shape-only assertion: the effect body is keyed by the wildcard
-    // table-entry, not the literal runtime __key. Runtime execution of
-    // effect bodies with @-refs is orthogonal (pre-existing rewrite gap
-    // in emit-machines effect emission) and out of scope here.
+  test("effect block emitted inside a wildcard rule — S28 elision", () => {
+    // Pre-S28 this test asserted on the full-guard `__matchedKey === "*:Done"`
+    // shape from the S27 parity fix. S28 elides this case (no guards, no
+    // bindings, literal RHS, wildcard `*:Done` target unambiguous) so the
+    // runtime key-check disappears — the effect body is unconditional
+    // because the matched key is compile-time known.
     const src = `<program>
 \${
   type S:enum = { A, B, Done }
@@ -189,10 +190,14 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
 `;
     const { errors, clientJs } = compile(src);
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
-    // Effect block should key on __matchedKey now (S27 parity fix).
-    expect(clientJs).toContain('__matchedKey === "*:Done"');
+    // S28 elision kicked in — marker comment present.
+    expect(clientJs).toContain("§51.5 elided transition");
+    // Effect body baked in unconditionally.
+    expect(clientJs).toContain('console.log("reached done")');
     // Pre-S27 shape is gone.
     expect(clientJs).not.toMatch(/if \(__key === "\*:Done"\)/);
+    // S28: full-guard __matchedKey check is no longer emitted for elided sites.
+    expect(clientJs).not.toContain('__matchedKey === "*:Done"');
   });
 
   test("`*:*` guard fires for any undeclared transition (catch-all)", () => {
