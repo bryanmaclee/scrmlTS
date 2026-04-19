@@ -203,6 +203,93 @@ export function rewriteNavigateCalls(expr: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// rewriteReplayCalls
+// ---------------------------------------------------------------------------
+
+/**
+ * §51.14 — rewrite `replay(@target, @log)` and `replay(@target, @log, index)`
+ * to the runtime primitive `_scrml_replay`. The target @-ref becomes a string
+ * (the encoded var name), the log @-ref becomes a `_scrml_reactive_get(...)`
+ * call (consistent with how other reactive args are passed through).
+ *
+ * Shapes emitted:
+ *   replay(@order, @log)          → _scrml_replay("order", _scrml_reactive_get("log"))
+ *   replay(@order, @log, 3)       → _scrml_replay("order", _scrml_reactive_get("log"), 3)
+ *   replay(@order, @log, n * 2)   → _scrml_replay("order", _scrml_reactive_get("log"), n * 2)
+ *
+ * MUST run BEFORE rewriteReactiveRefs so the first arg (@target) is still a
+ * raw @-ref at match time — we want its name, not its runtime value.
+ *
+ * Third-arg parsing is character-level (not regex) because the index
+ * expression may itself contain parens / commas / method calls. We match
+ * the `replay(@X, @Y` prefix with a regex, then seek the remainder with a
+ * paren-balance scan.
+ */
+export function rewriteReplayCalls(expr: string): string {
+  if (!expr || typeof expr !== "string" || !expr.includes("replay")) return expr;
+  // Prefix pattern: `replay(@target, @log` with optional whitespace.
+  const prefixRe = /\breplay\s*\(\s*@([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*@([A-Za-z_$][A-Za-z0-9_$]*)\s*/g;
+  const out: string[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+  while ((m = prefixRe.exec(expr)) !== null) {
+    const matchStart = m.index;
+    const matchEnd = prefixRe.lastIndex;
+    const targetName = m[1];
+    const logName = m[2];
+    // At matchEnd we expect either `)` (two-arg form) or `,` followed by an
+    // index expression, then `)`. Do a paren-balance scan to find the
+    // closing `)` of the replay call.
+    let i = matchEnd;
+    if (i >= expr.length) break;
+    let replayBody = "";
+    if (expr[i] === ")") {
+      // Two-arg form: replay(@X, @Y)
+      replayBody = `_scrml_replay("${targetName}", _scrml_reactive_get("${logName}"))`;
+      i++;
+    } else if (expr[i] === ",") {
+      // Three-arg form: skip the comma, find the matching `)`.
+      i++;
+      const exprStart = i;
+      let depth = 1;  // we're inside the replay( call, one level deep
+      let found = -1;
+      while (i < expr.length) {
+        const ch = expr[i];
+        if (ch === "(") depth++;
+        else if (ch === ")") {
+          depth--;
+          if (depth === 0) { found = i; break; }
+        }
+        i++;
+      }
+      if (found < 0) {
+        // Unbalanced parens — leave the match alone. Downstream compile will
+        // surface a parse error with source context.
+        out.push(expr.slice(lastIdx, matchEnd));
+        lastIdx = matchEnd;
+        continue;
+      }
+      const indexExpr = expr.slice(exprStart, found).trim();
+      replayBody = `_scrml_replay("${targetName}", _scrml_reactive_get("${logName}"), ${indexExpr})`;
+      i = found + 1;
+    } else {
+      // Unrecognized character after `replay(@X, @Y` — not a replay call we
+      // can rewrite. Skip this match and let the rest of the pipeline handle
+      // whatever it is.
+      out.push(expr.slice(lastIdx, matchEnd));
+      lastIdx = matchEnd;
+      continue;
+    }
+    out.push(expr.slice(lastIdx, matchStart));
+    out.push(replayBody);
+    lastIdx = i;
+    prefixRe.lastIndex = i;
+  }
+  out.push(expr.slice(lastIdx));
+  return out.join("");
+}
+
+// ---------------------------------------------------------------------------
 // rewriteWorkerRefs
 // ---------------------------------------------------------------------------
 
@@ -1396,6 +1483,11 @@ const clientPasses: RewritePass[] = [
   // Pass 9.5: early struct construction strip — ensures `@var` inside `Type { ...@var }` is
   // visible to rewriteReactiveRefs (the AST parser chokes on `Identifier {` prefix).
   (s, _ctx) => rewriteStructConstruction(s),
+  // Pass 9.7: §51.14 replay primitive — rewrite `replay(@target, @log[, n])` →
+  // `_scrml_replay("target", _scrml_reactive_get("log"), n?)`. MUST run
+  // before rewriteReactiveRefs so the first @-ref is still literal at
+  // match time (we want its name as a string, not its runtime value).
+  (s, _ctx) => rewriteReplayCalls(s),
   // Pass 10: derivedNames-aware reactive ref rewrite
   (s, ctx) => rewriteReactiveRefs(s, ctx.derivedNames ?? null),
   // Pass 10.5: fix leaked reactive assignments (reactive getter on LHS of =)

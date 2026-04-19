@@ -282,6 +282,31 @@ function emitIndex(node: IndexExpr, ctx: EmitExprContext): string {
 }
 
 function emitCall(node: CallExpr, ctx: EmitExprContext): string {
+  // §51.14 replay(@target, @log[, index]) → _scrml_replay("target", _scrml_reactive_get("log"), index?)
+  // The target's @-ref becomes a name string literal (not its value) so the
+  // runtime helper knows which reactive-store slot to write. Matched before
+  // the generic emitExpr pass on children so @target stays literal.
+  if (node.callee.kind === "ident" && node.callee.name === "replay" && node.args.length >= 2) {
+    const targetArg = node.args[0];
+    const logArg = node.args[1];
+    if (
+      targetArg.kind === "ident" && typeof (targetArg as { name: string }).name === "string"
+      && (targetArg as { name: string }).name.startsWith("@")
+      && logArg.kind === "ident" && typeof (logArg as { name: string }).name === "string"
+      && (logArg as { name: string }).name.startsWith("@")
+    ) {
+      const targetName = (targetArg as { name: string }).name.slice(1);
+      const logExpr = emitExpr(logArg, ctx);  // normal @-ref emission
+      const indexPart = node.args.length >= 3
+        ? `, ${emitExpr(node.args[2], ctx)}`
+        : "";
+      return `_scrml_replay(${JSON.stringify(targetName)}, ${logExpr}${indexPart})`;
+    }
+    // Malformed replay call (args not both @-refs) — fall through to the
+    // generic emit path. Slice 2 validation will surface this as a compile
+    // error.
+  }
+
   const callee = emitExpr(node.callee, ctx);
   const args = node.args.map(a => emitExpr(a, ctx)).join(", ");
 

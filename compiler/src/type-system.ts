@@ -2757,6 +2757,10 @@ const LOGIC_SCOPE_GLOBAL_ALLOWLIST: ReadonlySet<string> = new Set([
   "this", "self", "super", "event", "arguments",
   // scrml-specific — meta / compiler / SQL / error-context built-ins.
   "meta", "reflect", "emit", "compiler", "bun",
+  // §51.14 — replay primitive. Rewritten by rewriteReplayCalls in the
+  // codegen pipeline to _scrml_replay(...). Allowlisted here so the
+  // scope-check pass doesn't flag it as an undeclared identifier.
+  "replay",
 ]);
 
 /**

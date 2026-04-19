@@ -18393,6 +18393,194 @@ and a derived projection.
 
 ---
 
+### 51.14 Replay Primitive — `replay(@target, @log [, index])`
+
+**Added:** 2026-04-19 — §2b G slice 2 (machine-cluster-expressiveness
+deep-dive). Follows §51.11 (audit clause) and §51.11.4 (entry shape
+extension) which together produce trustworthy audit logs. §51.14
+gives users a compiler-blessed way to consume those logs to
+reconstruct past state.
+
+#### 51.14.1 Motivation
+
+With §51.11 in place, every successful machine transition — user-
+driven or timer-driven — appends a frozen entry
+`{from, to, at, rule, label}` to the machine's audit array. The
+resulting log is a complete, ordered trace of the machine's state
+history.
+
+Reconstructing past state from that log without compiler help is
+possible but awkward: a direct assignment like `@order = @log[n].to`
+fires the transition guard, which rejects any state the machine
+wouldn't normally accept from the current one. Users wanting
+"replay from bug report" or "time-travel debugging" had to either
+teardown-and-rebuild the reactive or hand-roll a runtime bypass.
+
+`replay` is a first-class way to set a machine-bound reactive's
+state to any point in an audit log, bypassing the transition guard
+and audit push since the transitions in the log were already
+validated and recorded at the time they originally fired.
+
+#### 51.14.2 Syntax
+
+```
+replay-call ::= 'replay' '(' '@' identifier ',' '@' identifier
+                 ( ',' expr )? ')'
+```
+
+Three arguments:
+
+1. **Target** — a machine-bound reactive to set. Must be declared
+   and governed by a machine (§51.3).
+2. **Log** — a reactive array whose entries conform to the §51.11.4
+   audit entry shape. Typically the `audit @log` target of the
+   target's machine, but `replay` does not enforce machine-log
+   pairing (see §51.14.6 for rationale).
+3. **Index** (optional) — an `integer`-typed expression naming the
+   "replay up to" point. Semantics:
+     - `n > 0`: state lands at `@log[n - 1].to` (the `to` of the
+       n-th transition).
+     - `n == 0`: state lands at `@log[0].from` (the state before
+       the first recorded transition). No-op if the log is empty.
+     - Default (omitted): equivalent to `n = @log.length`. Lands
+       at the last entry's `to`.
+
+**Worked example:**
+
+```scrml
+${
+    type S:enum = { Pending, Processing, Shipped, Delivered }
+    @order: OrderFlow = S.Pending
+    @log = []
+    function advance() { @order = S.Processing }
+    function seekStart() { replay(@order, @log, 0) }
+    function seekAfter(n: integer) { replay(@order, @log, n) }
+    function rewindToLatest() { replay(@order, @log) }
+}
+
+< machine name=OrderFlow for=S>
+    .Pending    => .Processing
+    .Processing => .Shipped
+    .Shipped    => .Delivered
+    audit @log
+</>
+```
+
+#### 51.14.3 Semantics
+
+- **Bypasses the transition guard.** The jump `replay(@order, @log, 0)`
+  from `.Delivered` back to `.Pending` violates the rules table, but
+  is legal under `replay` because the target state was already
+  produced by a validated transition. Replay is history inspection,
+  not a new transition.
+- **Does not push audit entries.** The §51.11 audit push lives
+  inside the transition guard (§51.11.5), which `replay` bypasses.
+  This avoids double-logging the same historical transition.
+- **Clears any pending temporal timer on the target** (§51.12).
+  Without this, a timer armed before replay would fire into the
+  replayed state and push a fresh audit entry for a transition the
+  user didn't intend.
+- **Does fire subscribers and derived-reactive propagation.** UI
+  bindings reading the target update on replay; derived reactives
+  (§6.6) and projection machines (§51.9) re-read their sources.
+- **Does fire `_scrml_effect`-registered effects** that track the
+  target or any downstream derived. Effects are side-effectful user
+  code that depends on current reactive state; on replay the current
+  state IS the replayed value, so effects must see it. Effects that
+  should not re-run during replay (e.g. analytics pings tied to
+  transitions) SHOULD be migrated into machine-rule effect blocks
+  (§51.3.2), which run on the original transition only.
+
+#### 51.14.4 Interaction with Other Features
+
+- **§51.11 audit clause:** `replay` is an intentional complement.
+  The audit clause is the WRITE-side surface (each transition
+  appends an entry); `replay` is the READ-side surface (state
+  reconstruction from the append log).
+- **§51.12 temporal transitions:** replay clears the active timer
+  and does not arm a new one. If the user wants the machine to
+  resume auto-advancing from a replayed mid-state, they must
+  trigger a user-driven transition afterwards, which re-arms via
+  the standard §51.12 path.
+- **§51.9 derived / projection machines:** replay of a source
+  reactive dirtied through the standard propagation path causes
+  the derived/projected reactive to re-read on next access. No
+  special handling required.
+- **§52 server-authoritative machines:** `replay` operates
+  client-locally. A server @var replayed on the client produces
+  an optimistic client-side state that will be overwritten by the
+  next server sync (§52.6). Server-side replay is out of scope
+  for §51.14 and is deferred to a §52 amendment.
+
+#### 51.14.5 Errors
+
+Slice 1 (current implementation):
+
+- **E-REPLAY-001-RT** (runtime): Index is out of bounds. Message:
+  `E-REPLAY-001-RT: replay index {n} out of bounds for log of
+  length {len}. Index SHALL be in the range [0, log.length].`
+
+Queued for slice 2 (planned, not yet enforced):
+
+- **E-REPLAY-001** (compile): First argument to `replay` is not a
+  machine-bound reactive. Message: `Replay target '@{name}' must be a
+  machine-bound reactive variable. Attach a < machine for {type}>
+  declaration or remove the replay call.`
+- **E-REPLAY-002** (compile): Second argument is not a reactive.
+  Message: `Replay source '@{name}' must be a reactive array
+  carrying audit entries.`
+
+Until slice 2 lands, malformed `replay` calls produce runtime
+behavior (unexpected state jumps, undefined log entries leading to
+writes of `undefined`) rather than compile errors. Users writing
+`replay` calls SHOULD verify both arguments refer to the machine's
+own target + audit-log pair.
+
+#### 51.14.6 Non-Goals
+
+- **Log/target machine-type matching is NOT enforced at compile
+  time in this version.** The audit log's entry shape carries
+  `{from, to, rule, label}` as strings; cross-machine replays
+  (replaying a log from machine A into a machine-B reactive)
+  produce well-defined but likely semantically-nonsensical
+  behavior. A future E-REPLAY-003 may track machine identity in
+  the audit entry shape to enable this check.
+- **No interactive time-travel UI.** The DevTools-style stepper
+  is user-space code built on `replay`; scrml provides the
+  primitive, not the wrapper.
+- **Replay does NOT restore effects-that-already-ran.** An effect
+  block (§51.3.2) attached to a transition rule runs when the
+  transition originally fires. On replay, only state changes;
+  the effect does not re-fire. This is usually the desired
+  behavior (effects often have external side effects — HTTP
+  requests, analytics) and matches Redux DevTools / Elm Debugger
+  conventions.
+
+#### 51.14.7 Normative Statements
+
+- `replay(@target, @log)` and `replay(@target, @log, index)` SHALL
+  be recognized as calls to the replay primitive.
+- `@target` SHALL be machine-bound (E-REPLAY-001 for violations).
+- `@log` SHALL be a reactive (E-REPLAY-002 for violations).
+- The call SHALL compile to `_scrml_replay(<target-name>,
+  _scrml_reactive_get(<log-name>), <index-expr>?)`.
+- The runtime SHALL clear any pending temporal timer on the target
+  before committing the replayed state.
+- With `index` omitted, the runtime SHALL treat it as
+  `log.length` and land state at the last entry's `to`.
+- With `index == 0`, the runtime SHALL land state at `log[0].from`,
+  or no-op when the log is empty.
+- With `index` out of the range `[0, log.length]`, the runtime
+  SHALL throw E-REPLAY-001-RT.
+- The replay commit SHALL bypass the transition guard (§51.5) and
+  the audit push (§51.11).
+- The replay commit SHALL fire subscribers, derived propagation,
+  and effect triggers as a normal `_scrml_reactive_set` does —
+  `replay` diverges from the standard reactive-set path ONLY in
+  (a) guard bypass, (b) audit bypass, (c) timer clearing.
+
+---
+
 ## 52. State Authority Declarations
 
 **Added:** 2026-04-08. Resolves debate-state-authority-2026-04-08.md (A-B Hybrid recommendation). Introduces two-tier model for declaring reactive variable authority (server vs. client-local), compiler-generated sync infrastructure, and authority boundary enforcement.

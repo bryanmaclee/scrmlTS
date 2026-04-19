@@ -145,6 +145,34 @@ function _scrml_machine_arm_initial(name, rulesJson, auditTarget) {
   }
 }
 
+// --- §51.14 replay primitive ---
+// _scrml_replay(name, log, endIdx?) jumps the machine-bound reactive 'name'
+// to the state recorded at index endIdx of the audit array 'log'. Bypasses
+// the transition guard (§51.5) and the audit push (§51.11), clears any
+// pending temporal timer (§51.12), and emits a standard _scrml_reactive_set
+// so subscribers, derived propagation, and effects all fire normally.
+//
+// Semantics (per SPEC.md §51.14.3):
+//   - endIdx > 0         → state lands at log[endIdx - 1].to
+//   - endIdx == 0        → state lands at log[0].from (or no-op if empty)
+//   - endIdx undefined   → state lands at log[log.length - 1].to (full replay)
+//   - endIdx < 0 or > length → throws E-REPLAY-001-RT
+function _scrml_replay(name, log, endIdx) {
+  const n = (endIdx != null) ? endIdx : log.length;
+  if (n < 0 || n > log.length) {
+    throw new Error("E-REPLAY-001-RT: replay index " + n +
+      " out of bounds for log of length " + log.length +
+      ". Index SHALL be in the range [0, log.length].");
+  }
+  _scrml_machine_clear_timer(name);
+  if (n === 0) {
+    if (log.length === 0) return;  // empty-log no-op (nothing to replay)
+    _scrml_reactive_set(name, log[0].from);
+    return;
+  }
+  _scrml_reactive_set(name, log[n - 1].to);
+}
+
 function _scrml_reactive_get(name) {
   // Bridge with _scrml_effect auto-tracking: record _scrml_state[name] as a dependency
   if (typeof _scrml_track === "function") _scrml_track(_scrml_state, name);
