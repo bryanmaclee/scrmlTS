@@ -154,11 +154,54 @@ describe("S27 §51.14 — well-formed replay calls produce no errors", () => {
     expect(rErrs).toEqual([]);
   });
 
-  test("replay against a different machine's audit log is permitted (non-goal per spec)", () => {
-    // §51.14.6 explicitly does not enforce log/target machine-type
-    // matching. A replay from machine-A's log into machine-B's target is
-    // well-formed at compile time (semantically nonsensical but legal).
-    // This test pins the current non-enforcement behavior.
+  test("replay with a synthetic (non-audit-target) log is permitted under E-REPLAY-003", () => {
+    // S28: only logs that ARE some machine's audit target trigger the
+    // cross-machine check. Hand-built reactive logs are user-managed and
+    // pass through.
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @synthLog = []
+  function rewindToFirst() { replay(@order, @synthLog) }
+}
+< machine name=M for=S>
+  .A => .B
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const rErrs = errors.filter(e => (e.code ?? "").startsWith("E-REPLAY-"));
+    expect(rErrs).toEqual([]);
+  });
+
+  test("replay with the target's OWN audit log is permitted under E-REPLAY-003", () => {
+    // S28 sanity: same-machine replay (the canonical case) is unchanged.
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @log = []
+  function rewind() { replay(@order, @log) }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const rErrs = errors.filter(e => (e.code ?? "").startsWith("E-REPLAY-"));
+    expect(rErrs).toEqual([]);
+  });
+
+  test("replay against a different machine's audit log → E-REPLAY-003 (S28)", () => {
+    // S28: §51.14.6 non-goal lifted. Cross-machine replay (replay a log
+    // owned by machine A's `audit @log` into a target governed by machine
+    // B) is now rejected at compile time because the log's variant names
+    // are A's, not B's, and the resulting state is semantically nonsensical.
     const src = `<program>
 \${
   type S:enum = { A, B }
@@ -179,8 +222,13 @@ describe("S27 §51.14 — well-formed replay calls produce no errors", () => {
 </program>
 `;
     const { errors } = compile(src);
-    const rErrs = errors.filter(e => (e.code ?? "").startsWith("E-REPLAY-"));
-    expect(rErrs).toEqual([]);
+    const rErrs = errors.filter(e => (e.code ?? "") === "E-REPLAY-003");
+    expect(rErrs).toHaveLength(1);
+    expect(rErrs[0].message).toContain("Cross-machine replay rejected");
+    expect(rErrs[0].message).toContain("'@two'");
+    expect(rErrs[0].message).toContain("'M2'");
+    expect(rErrs[0].message).toContain("'@logOne'");
+    expect(rErrs[0].message).toContain("'M1'");
   });
 });
 

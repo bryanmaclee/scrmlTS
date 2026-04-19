@@ -18552,21 +18552,22 @@ ${
   `E-REPLAY-001-RT: replay index {n} out of bounds for log of
   length {len}. Index SHALL be in the range [0, log.length].`
 
-**Not enforced at compile time** (pragma of current implementation):
+**Compile-time errors (added S28):**
 
-- Log/target machine-type matching (see §51.14.6 non-goals). A
-  future E-REPLAY-003 may enforce that the log being replayed
-  originated from the target's own audit clause.
+- **E-REPLAY-003** — Cross-machine replay. When `@target` is governed
+  by machine M2 and `@log` is the audit target of machine M1 (i.e.
+  some machine declares `audit @log` and that machine is not M2), the
+  call is rejected with E-REPLAY-003. Lookup is structural: a log that
+  is NOT any machine's audit target is treated as user-managed and
+  permitted (synthetic-log replays are still legal).
 
 #### 51.14.6 Non-Goals
 
-- **Log/target machine-type matching is NOT enforced at compile
-  time in this version.** The audit log's entry shape carries
-  `{from, to, rule, label}` as strings; cross-machine replays
-  (replaying a log from machine A into a machine-B reactive)
-  produce well-defined but likely semantically-nonsensical
-  behavior. A future E-REPLAY-003 may track machine identity in
-  the audit entry shape to enable this check.
+- **Synthetic-log replays are NOT machine-type-checked.** A reactive
+  array that is not declared as any machine's `audit @log` target is
+  treated as user-managed; `replay(@target, @synthLog)` accepts it
+  without further checks. The user is responsible for ensuring the
+  synthetic entries match @target's machine.
 - **No interactive time-travel UI.** The DevTools-style stepper
   is user-space code built on `replay`; scrml provides the
   primitive, not the wrapper.

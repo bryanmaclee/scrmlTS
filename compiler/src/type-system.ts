@@ -7079,6 +7079,16 @@ function processFile(
     // bare-expr exprNode, etc.). The duck-typed walker reaches them all
     // without needing to know the layout of every AST node kind.
     const machineBoundReactives = new Set(reactiveBindings.keys());
+    // §51.14 (S28) — E-REPLAY-003 prep: reverse map from audit-target reactive
+    // name to the owning machine. When `replay(@target, @log)` is called and
+    // @log is the audit target of some machine M, @target's machine MUST also
+    // be M (or `replay` is operating across-machines, which §51.14.6 calls
+    // semantically nonsensical).
+    const auditTargetToMachine = new Map<string, string>();
+    for (const [machineName, machine] of machineRegistry) {
+      const at = machine.auditTarget;
+      if (at) auditTargetToMachine.set(at, machineName);
+    }
     const visited = new WeakSet<object>();
     const visitForReplay = (value: unknown): void => {
       if (!value || typeof value !== "object") return;
@@ -7143,6 +7153,33 @@ function processFile(
               `so it accumulates transition entries.`,
               span,
             ));
+          }
+
+          // §51.14.6 / E-REPLAY-003 (S28): when both @target and @log resolve
+          // and @log is the audit target of some machine M, @target's machine
+          // MUST also be M. Cross-machine replays produce semantically
+          // nonsensical state because the variant names in M's audit entries
+          // don't necessarily exist in @target's enum. We only fire this when
+          // the log IS attached to a machine via `audit @log`; a hand-built
+          // log (not an audit target) is left alone — users may legitimately
+          // want to replay synthetic logs.
+          if (target && log && machineBoundReactives.has(target.name)) {
+            const logOwner = auditTargetToMachine.get(log.name) ?? null;
+            if (logOwner !== null) {
+              const targetMachine = reactiveBindings.get(target.name)!;
+              if (targetMachine.name !== logOwner) {
+                errors.push(new TSError(
+                  "E-REPLAY-003",
+                  `E-REPLAY-003: Cross-machine replay rejected. Target '@${target.name}' ` +
+                  `is governed by machine '${targetMachine.name}' but log '@${log.name}' ` +
+                  `is the audit target of machine '${logOwner}'. The log's entries reference ` +
+                  `'${logOwner}' variant names which may not exist in '${targetMachine.name}'. ` +
+                  `Replay each log into a reactive governed by its own machine, or use a ` +
+                  `synthetic (non-audit) log that you've validated manually.`,
+                  span,
+                ));
+              }
+            }
           }
         }
       }
