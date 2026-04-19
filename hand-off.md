@@ -1,117 +1,162 @@
-# scrmlTS — Session 27 Wrap
+# scrmlTS — Session 28 Wrap
 
-**Date opened:** 2026-04-18
-**Date closed:** 2026-04-19 (crossed midnight — single-arc session)
-**Previous:** `handOffs/hand-off-27.md` (S26 wrap rotated in as S27 starting brief)
-**Baseline entering S27:** 7,069 pass / 10 skip / 2 fail (25,991 expects / 301 files) at `6ca1adf`.
-**Final at S27 close:** **7,126 pass / 10 skip / 2 fail** (26,187 expects / 309 files) at `5d0bdc6`.
+**Date opened:** 2026-04-19
+**Date closed:** 2026-04-19 (single-day session)
+**Previous:** `handOffs/hand-off-28.md` (S27 wrap, rotated in as S28 starting brief)
+**Baseline entering S28:** 7,126 pass / 10 skip / 2 fail (26,187 expects / 309 files) at `75404a2`.
+**Final at S28 close:** **7,183 pass / 10 skip / 2 fail** (26,415 expects / 315 files) at `a15cdb6`.
 
 ---
 
 ## 0. Close state
 
-### All S27 commits on origin/main
-Two-batch push (user authorized both). Tip: `5d0bdc6`. No unpushed commits.
+### S28 commits — 9 unpushed (sent to master via `needs:push`)
+Tip: `a15cdb6`. Push coordination message dropped at `/home/bryan/scrmlMaster/handOffs/incoming/`.
 
 ### Uncommitted
-- `docs/SEO-LAUNCH.md` — still carrying the pre-S26 LICENSE hash + About copy edit, untouched for the third session in a row. Whenever the SEO work next moves.
+- `docs/SEO-LAUNCH.md` — same untouched edit, 4 sessions running.
 
 ### Incoming
 `handOffs/incoming/` empty (only `read/` archive).
 
 ### Cross-repo
-scrmlTSPub retirement still pending at master from S25. No new status from master during S27.
+scrmlTSPub retirement still pending at master since S25.
 
 ---
 
-## 1. Session theme — "close every correctness gap the machine feature was silently carrying"
+## 1. Session theme — "validation elision arc + the small wins parade"
 
-S26 shipped §2b F (auto-property-tests) end-to-end. The property-test harness synthesizes its own `{variant, data}` objects to exercise the transition guard. That masked a fact S27 exposed in the first hour: **the real transition guard was broken at runtime for unit-variant enums.** No existing test touched the compiled runtime path — every machine test was either shape-only or ran through a harness that bypassed the bug.
+S28 had two distinct phases. **Phase A** (commits 1–3, ~half the session): the user-queued static-elision deep-dive plus full implementation. **Phase B** (commits 4–9): a chain of clean small/medium wins riding on the warm context.
 
-Once the first bug surfaced, the session turned into a correctness sweep. Every subsequent arc either closed a cluster deep-dive item (§2b G) or fixed a silent-runtime bug that had been hiding behind shape tests. Each new arc typically surfaced the next bug during its own test writing. Eight commits landed, all zero-regression.
-
-### S27 commit chain (origin)
+### S28 commit chain (origin)
 
 | # | Commit | Scope |
 |---|--------|-------|
-| 1 | `eff8188` | fix(§51.5): unit-variant transitions crash at runtime. `__prev.variant` extraction falls back to `__prev` for bare-string enum values, not `"*"`. 3 end-to-end regression tests that actually execute the compiled transition guard. |
-| 2 | `224847d` | feat(§51.11): audit entry shape — rule + label fields. §51.11.4 rewritten for `{from, to, at, rule, label}`. `emitTransitionTable` bakes labels; `emitTransitionGuard` computes `__matchedKey` alongside `__rule` via parallel ternary fallback chain. 10 tests. |
-| 3 | `267ed61` | feat(§51.11): audit completeness — timer transitions + freeze. `_scrml_machine_arm_timer` signature extended with `meta` param carrying auditTarget + rulesJson; timer expiry now audits AND re-arms downstream temporal rules. `Object.freeze` on every entry. 5 tests. |
-| 4 | `00ba7d3` | feat(§51.14): replay primitive — `replay(@target, @log [, index])`. New §51.14 (~150 line) spec section. Runtime helper bypasses guard + audit + clears timers. Codegen recognizes the built-in in the structured Call emitter. 12 tests. |
-| 5 | `abfe637` | fix(§51.5): guarded wildcard rules fire guard + effect. Guard-evaluation and effect-block emission now match on `__matchedKey` (fallback-resolved) instead of `__key` (literal runtime variants). One-line change in each branch. 6 tests. |
-| 6 | `2453062` | feat(§51.14): compile-time validation for `replay()` args (G2 slice 2). E-REPLAY-001 (machine-bound target) + E-REPLAY-002 (declared reactive log) via a duck-typed recursive AST walker in type-system. 7 tests. |
-| 7 | `73225f7` | fix(§51.5): effect-body @-refs compile through `rewriteExpr`. `rule.effectBody` was inserted raw; reactive refs passed through as literal `@` tokens. 5 runtime tests. |
-| 8 | `5d0bdc6` | fix(§18): match-arm expression-only form on a single line. `splitMatchArms` rewritten as a char-level scanner (depth + strings + comments) so inline multi-arm bodies split correctly. 9 tests. |
+| 1 | `01f5847` | spec(§51.5.2): clarify validation elision — side effects still run. Tightens normative text — "SHALL NOT emit a runtime guard" was ambiguous once §51.11 audit + §51.12 timers + §51.3.2 effects were ratified. New normative permits compile-time-baked `rule` field under elision. |
+| 2 | `cb25aaa` | feat(§51.5.2): validation elision slice 1 — Cat 2.a/2.b. `classifyTransition` + `emitElidedTransition` for literal unit-variant RHS against unguarded wildcard rules. 22 tests. |
+| 3 | `59b35a1` | feat(§51.5): validation elision slices 2–4 — payload + E-MACHINE-001 + --no-elide. Cat 2.d (payload literals via balanced-paren scanner), Cat 2.f (compile-time E-MACHINE-001 via module-level CGError collector drained by codegen index), `setNoElide()` / `SCRML_NO_ELIDE=1` env var for CI dual-mode. 17 new tests. |
+| 4 | `17b8972` | fix(§51.3): parseMachineRules preserves multi-statement effect bodies. Replaces `raw.split(/[\n;]/)` with depth-tracking `splitRuleLines` so `{ @x = 1; @y = 2 }` stays one rule. 6 tests. |
+| 5 | `fdb43f0` | fix(§14.4): parseEnumBody splits single-line payload variants on commas. `splitTopLevel(variantsSection, ["\n", ","])` so `{ Pending, Success(value: number), Failed(error: string) }` registers all three variants instead of zero. Closes the slice-2 runtime-E2E gap. 5 tests + 2 backfilled. |
+| 6 | `2f3f95e` | feat(§51.13.1 phase 7): guarded projection-machine property tests. Mirrors phase 2's parametrization model — projection harness takes `guardResults` map keyed on rule label, generator emits one test per guarded rule + one terminal (unguarded fallback or `undefined` when all-guarded). Spec §51.13 + §51.13.1(d) updated. 8 tests. |
+| 7 | `6c1dfe7` | feat(§51.14): E-REPLAY-003 — reject cross-machine replay at compile time. §51.14.6 non-goal lifted. Reverse map `auditTarget → machineName` lets the replay validator detect when log's owning machine ≠ target's machine. Synthetic-log replays still permitted. 3 tests (1 modified, 2 new). |
+| 8 | `5c61438` | refactor: centralize user-fn extraction + fix bare-keyword gotcha. New `compiler/tests/helpers/extract-user-fns.js` replaces 8 duplicated regexes. Bare-word entries (`effect`, `lift`, `replay`, etc.) gain `(?!_\d)` negative lookahead so a user fn named `effect` no longer gets filtered as an internal helper. Doc note in `var-counter.ts`. |
+| 9 | `a15cdb6` | fix(§19): scope-check error-arm handler bodies + bind caught-error. Pre-S28 the `guarded-expr` case never walked arm.handlerExpr through scope checking — undeclared identifiers in handlers compiled cleanly. Symmetric with propagate-expr's binding push. 6 tests. Closes S25-queued item. |
 
-### §2b G free audit/replay — closed end-to-end
+### §51.5 validation elision — closed end-to-end
 
-- **Audit write surface (§51.11):** every successful transition (user-triggered or timer-fired) appends a frozen entry `{from, to, at, rule, label}` to the machine's audit array. `rule` is the canonical wildcard-fallback-resolved table key. `label` is the identifier from a labeled guard on the matched rule.
-- **Replay read surface (§51.14):** `replay(@target, @log)` / `replay(@target, @log, n)` consumes the audit log to reconstruct any past state. Bypasses transition guard, audit push, clears pending timers. Runtime validates bounds; compile-time validates arg shapes.
-- **Not shipped (intentional non-goals):** interactive time-travel UI (user-space), machine-type parity check between target + log (E-REPLAY-003 slot), §52 server-side audit amendment.
+The static-elision deep-dive
+(`scrml-support/docs/deep-dives/machine-guard-static-elision-2026-04-19.md`)
+ratified Approach C — **validation work is elidable, side-effect work is
+spec-normative on every successful transition**. Implementation across 4
+slices in a single session, plus the §51.5.2 spec amendment that
+disambiguates the normative text.
 
-### Machine-runtime correctness sweep
+Coverage today:
+- Cat 2.a/2.b: literal unit-variant RHS against unguarded wildcard rule with no specific shadow → bare `_scrml_reactive_set` (or IIFE with side effects only).
+- Cat 2.d: payload variants like `Shape.Circle(10)` — same gates, balanced-paren classifier accepts the call shape.
+- Cat 2.f: trivially-illegal targets → compile-time `E-MACHINE-001` (picked up the §51.5.1 symmetric obligation).
+- Slice 4: `setNoElide()` / env-var `SCRML_NO_ELIDE=1` for CI dual-mode parity. §51.5.1 illegal detection runs BEFORE the no-elide gate (normative correctness obligation, not a performance optimization).
 
-Four pre-existing latent bugs closed. All silent-runtime bugs — shape tests didn't catch them because shape tests don't execute the generated JS. The pattern in every case: the compiler emitted something that LOOKED right but was subtly broken at runtime.
+Deferred (intentional):
+- Cat 2.c self-assignment no-op
+- Cat 2.e flow-sensitive `__prev` tracking (probably S30+, needs profiling data first)
+- Cross-function elision via parameter typing
+- Struct-machine cross-field invariant proof
 
-| Bug | Impact | How it hid |
+### Adjacent fixes that surfaced during S28
+
+| Bug | Surfaced | Fix |
 |---|---|---|
-| Unit-variant transitions crash | Every machine-governed unit-variant enum threw E-MACHINE-001-RT on any transition | Shape tests; S26 property-test harness synthesized `{variant,data}` objects that bypassed the bug |
-| Timer-fired transitions skip audit | §51.11.6 "every successful transition SHALL append" violated for temporal rules | No existing test exercised timer + audit together; timers bypassed transition guard entirely |
-| Guarded wildcard rules never fire guard | `* => .X given (…)` treated as unguarded at runtime | Guard check keyed on literal `__key` not the matched rule key; no existing runtime test |
-| Effect-body @-refs emit literal `@` | Any machine with `{ @trace = @trace.concat(...) }` style effect produced invalid JS | Effect-body shape tests never executed the output |
-
-### §18 ergonomics closure
-
-Single-line match-arm form (`match x { .A => 1 .B => 2 }`) worked in spec's worked examples since §18 was authored but the parser rejected it with E-TYPE-020 because `splitMatchArms` only split on newlines. Char-level scanner replaces line scanner.
+| Multi-stmt effect bodies fragmented on `;` | S27 wrap noted | `splitRuleLines` with depth/string/comment tracking |
+| Single-line payload enum registers zero variants | Slice-2 runtime test | `splitTopLevel` with `["\n", ","]` |
+| Cross-machine replay silently nonsensical | §51.14.6 non-goal | Compile-time `E-REPLAY-003` |
+| User fn named `effect` filtered as internal helper | S27 wrap noted | `(?!_\d)` lookahead in shared `extract-user-fns.js` |
+| Error-arm handler body never scope-checked | S25 wrap noted | Per-arm scope-push w/ binding |
 
 ### Files touched
 
 **Production code:**
-- `compiler/SPEC.md` — §51.11.2/51.11.4/51.11.6 rewritten, new §51.14 (~210 lines)
-- `compiler/src/codegen/emit-machines.ts` — __matchedKey, label-in-table, Object.freeze, unit-variant fallback, timer meta, wildcard-matchedKey parity, effectBody rewrite
-- `compiler/src/codegen/emit-expr.ts` — replay Call-node recognition
-- `compiler/src/codegen/emit-logic.ts` — temporal rulesPayload gains label; arm_initial gets auditTarget
-- `compiler/src/codegen/rewrite.ts` — rewriteReplayCalls pass + wiring
-- `compiler/src/runtime-template.js` — _scrml_replay; arm_timer meta param; arm_initial auditTarget
-- `compiler/src/type-system.ts` — E-REPLAY-001/002 validator; splitMatchArms rewrite; `replay` in allowlist
-- `compiler/src/ast-builder.js` — collectExpr match-arm boundary detection (defensive)
+- `compiler/SPEC.md` — §51.5.2 normative amendment, §51.13.1 phase-7 description, §51.14.6 non-goal narrowing
+- `compiler/src/codegen/emit-machines.ts` — `classifyTransition`, `emitElidedTransition`, no-elide flag, machine-codegen error collector
+- `compiler/src/codegen/emit-machine-property-tests.ts` — phase-7 projection harness rewrite
+- `compiler/src/codegen/index.ts` — drain machine-codegen errors into the codegen errors list
+- `compiler/src/codegen/var-counter.ts` — naming-convention doc note
+- `compiler/src/type-system.ts` — `splitRuleLines`, payload enum comma-split, E-REPLAY-003, error-arm scope-push
 
 **Tests:**
-- `compiler/tests/unit/gauntlet-s27/` — 7 new files, 55 tests
-- `compiler/tests/unit/gauntlet-s22/machine-payload-binding.test.js` — regex tightening
-- `compiler/tests/unit/gauntlet-s24/machine-audit-clause.test.js` — audit shape update
-- `compiler/tests/unit/gauntlet-s25/machine-effect-without-guard.test.js` — __matchedKey shape
-- `compiler/tests/unit/machine-codegen.test.js` — effect-body + __matchedKey shape
+- `compiler/tests/helpers/extract-user-fns.js` — new shared helper
+- `compiler/tests/unit/gauntlet-s28/elision-cat-2a-2b.test.js` — 22 tests
+- `compiler/tests/unit/gauntlet-s28/elision-slice-2-3-4.test.js` — 17 tests
+- `compiler/tests/unit/gauntlet-s28/multi-stmt-effect-body.test.js` — 6 tests
+- `compiler/tests/unit/gauntlet-s28/payload-enum-comma-split.test.js` — 5 tests
+- `compiler/tests/unit/gauntlet-s28/projection-guard-phase-7.test.js` — 8 tests
+- `compiler/tests/unit/gauntlet-s28/error-arm-scope.test.js` — 6 tests
+- 8 S27 test files refactored to use `extractUserFns`
+- 3 S25 temporal tests retargeted (transition target validity now checked at compile time)
+- 1 S26 phase-6 test retargeted (unlabeled vs labeled-guarded projection)
+- 1 S27 cross-machine replay test flipped to assert E-REPLAY-003
 
 ---
 
-## 2. Queued for S28
+## 2. Queued for S29 — **Next PA should be ready for deep work**
 
-### High-impact (ordered by natural-next-ness)
+The remaining queue is no longer "small wins" territory. Each item below is a
+medium-to-large arc that benefits from a fresh context window.
 
-1. **Static-elision arc with fresh deep-dive.** Task #14. The SPARK-style "emit runtime guard only when not trivially provable" design from `scrml-support/docs/deep-dives/radical-doubt-machine-contract-unification-2026-04-08.md` line 236 is ratified but not implemented. Every machine-bound assignment pays the runtime-guard cost today, including `@order = S.X` where both sides are compile-time literals. The design is 10+ days stale and the compiler surface has changed substantially (the §51.11 + §51.14 work in S27 expanded the guard IIFE). Open with a fresh deep-dive to re-confirm direction before implementation. The user specifically queued this one up with "lets plan on queuing that arc and deep-dive."
+### Highest-priority deep arcs
 
-2. **§51.13 phase 7 — guarded projection machines.** Still queued from S26. First-match-wins projection-guard evaluation against simulated reactive state. Blocked on parametrization-model decision.
+1. **P3 self-host modernization.** The 2 pre-existing self-host fails
+   (`Bootstrap L3` and `tab.js exists`) trace to source files in
+   `compiler/self-host/` that haven't been kept current with scrml's
+   evolving strictness. Build-self-host current state:
+   - PASS: module-resolver, meta-checker, block-splitter, tokenizer
+   - FAIL: body-pre-parser (3 errs, `trimmed` unclosed), ast-builder
+     (47 errs, primarily `try/catch` not scrml + dynamic `import(URL)`
+     pattern compiler mangles), protect-analyzer (38 errs, `!==`),
+     route-inference (20 errs, `null` not scrml), type-system (116
+     errs, mostly `null`), dependency-graph (20 errs, `visit` undeclared)
 
-3. **§51.14 E-REPLAY-003 machine-type parity.** Cross-machine replay is currently permitted (spec §51.14.6 non-goal). Would require tracking machine identity in audit entries, or carrying a machine-name field in the compile-time validation pass. Small arc IF we decide to enforce; could also stay a non-goal forever.
+   Each module needs source modernization to match current scrml spec.
+   Not a single-arc fix — sustained translation work. ast.scrml is the
+   gnarliest because of the dynamic `await import(new URL(...).href)`
+   pattern in the parseExprToNode fallback chain (lines 31-42); the
+   compiler currently strips part of it producing malformed JS output
+   (saw `.href)` fragment in the stale dist). Recommend: scope a single
+   module first as a sample, decide whether the rest is mechanical
+   translation or genuinely blocked on language-feature gaps.
 
-### Small correctness items (pre-existing, surfaced during S27)
+2. **P5 ExprNode Phase 4d/Phase 5 — drop string fields.** Per master-list
+   §267: 15 of 17 consumer files were converted to ExprNode-first with
+   string fallback during S11. Remaining: component-expander.ts (needs
+   structural matching) and body-pre-parser.ts (inherently string-based).
+   Final step is to delete the legacy string expression fields from AST
+   types — that's the structural refactor that retires the string-form
+   surface. Risk: spread across many AST node types, broad blast radius.
 
-4. **Multi-statement effect body parser bug.** `parseMachineRules` in type-system.ts line 2328 splits rule lines on `[\n;]`. An effect like `{ @a = 1; @b = 2 }` fragments because the `;` is treated as a rule separator. Fix: track `{}` depth when splitting. Small, well-scoped.
+3. **Lift Approach C Phase 2.** Phase 2c-lite landed S18 (dead BS+TAB
+   reparse block removed); full Phase 2 involves `emitConsolidatedLift`
+   refactor for fragmented bodies.
 
-5. **`_scrml_effect` name conflict with user functions named `effect`.** Surfaced during S27 test writing — my buildEnv helper's knownInternal regex catches `_scrml_effect_N` too. Not a compiler bug but a naming-convention gotcha; worth documenting in the user-facing error messages for name-mangling collisions.
+### Medium arcs (could fit in a normal session)
 
-### From the S25–S26 queue (carried forward)
+4. **§51.13 phase 8 — guarded projection runtime parity.** Phase 7 (S28)
+   parametrized guard results for the test harness. A future phase could
+   inject real reactive-state to evaluate guards directly. Explicitly
+   deferred in S28 as "leapfrog of phase 2's input-synthesis deferral."
+   Only worth tackling once a phase-2 input-synthesis story exists.
 
-- **Error-arm `!{}` bindings scope-push.** Still queued from S25.
-- **Full Lift Approach C Phase 2.**
-- **P3 self-host completion + 2 pre-existing self-host fails.** Same 2 fails unchanged across S24–S27.
-- **P5 TS migrations** (`ast-builder.js`, `block-splitter.js`).
-- **P5 ExprNode Phase 4d / Phase 5.**
-- **Async loading stdlib helpers.**
-- **DQ-12 Phase B.**
+5. **`< machine for=Struct>` cross-field invariants.** Approach C from the
+   2026-04-08 unification debate ratified `for Type` (broader than
+   `for EnumType`). The implementation was deferred. Compile-time
+   `E-MACHINE-005` paths and `self.field` references in guards are the
+   touchpoints. Adjacent to phase-7 in feel.
 
-### Design / user-decision (deferred)
+### Carried small items (probably one-shot)
+
+6. **Async loading stdlib helpers.**
+7. **DQ-12 Phase B** — diagnostic quality work.
+
+### Long-deferred design
 
 - **Approach C lin** (cross-function `lin:out` / `lin:in`) — still deferred.
 
@@ -119,28 +164,51 @@ Single-line match-arm form (`match x { .A => 1 .B => 2 }`) worked in spec's work
 
 ## 3. Important design decisions made this session
 
-### Machine enforcement: runtime is primary, static is optimization
+### Validation elision — Approach C (partial) is final
 
-Confirmed against `debate-state-dynamics-2026-04-08.md` (ratified lookup-table runtime enforcement) and `radical-doubt-machine-contract-unification-2026-04-08.md` line 236 (SPARK-style hybrid: static error for trivially-provable, runtime guard otherwise). The user interrogated this mid-session with a "state machines enforced TWICE" framing; the correct reframe is "runtime is the only enforcement for most transitions in a reactive UI; compile-time is just name-existence." See user-voice Session 27 for the full exchange. This shaped the decision to queue static-elision with a fresh deep-dive rather than implement it blind.
+The radical-doubt deep-dive's SPARK hybrid is implemented. Key correction
+to the framing: "elision" is misleading. **Validation work** (variant
+extraction, matched-key resolution, throw construction) is elidable.
+**Side-effect work** (commit + audit + timer + effect body) is normative
+on every successful transition. The §51.5.2 spec amendment makes this
+explicit; the implementation honors it.
 
-### §51.14 replay semantics
+### §51.5.1 illegal-detection runs BEFORE the no-elide gate
 
-- Bypass transition guard + audit push (validated-and-recorded historical transitions don't need revalidation; double-logging would be surprising).
-- Clear pending temporal timers (stale arms would fire into replayed state and push spurious audit entries).
-- Do fire subscribers, derived propagation, effects (UI updates on replay for free; effects-that-shouldn't-re-run belong in machine rule effect blocks which don't fire on replay since the guard is bypassed).
-- Function-call syntax, not new keyword. No grammar change.
+Discovered during slice-4 testing: if the no-elide flag returned
+`unknown` from the very top of `classifyTransition`, the §51.5.1
+illegal-detection would never fire under no-elide. That violates the
+"normative obligation, not optimization" framing — illegal detection
+must run regardless of debug knobs. The classifier now does illegal
+detection first, then short-circuits to `unknown` for elision purposes
+under no-elide. Tests cover both modes.
 
-### S27 runtime-test convention
+### E-REPLAY-003 implementation — structural, no entry-shape change
 
-Several S27 tests execute compiled output via `SCRML_RUNTIME` in a `Function()` sandbox. This pattern now has precedent across four test files:
-- `compiler/tests/unit/gauntlet-s27/unit-variant-transition-regression.test.js`
-- `compiler/tests/unit/gauntlet-s27/audit-entry-rule-label.test.js`
-- `compiler/tests/unit/gauntlet-s27/audit-timer-and-freeze.test.js`
-- `compiler/tests/unit/gauntlet-s27/replay-primitive.test.js`
-- `compiler/tests/unit/gauntlet-s27/guarded-wildcard-rules.test.js`
-- `compiler/tests/unit/gauntlet-s27/effect-body-reactive-refs.test.js`
+Could've added `machine: "M"` to every audit entry shape (breaking
+§51.11.4 contract) or used existing machineRegistry to derive
+`auditTarget → machineName` reverse map. Chose the latter. Synthetic
+logs (not declared as any machine's audit target) still pass through
+because the user is responsible for them.
 
-Common helper shape: regex-extract user function names from compiled JS, closure-capture them into a userFns object returned from the Function body. This enables tests to invoke compiled user functions without DOM setup. New compiler features that claim runtime behavior should use this pattern rather than shape-only assertions — every pre-existing shape-tested bug S27 closed went undetected for months under shape-only testing.
+### Phase 7 guard parametrization mirrors phase 2 (consistency over fidelity)
+
+Surveyed 4 design options for phase-7 guarded projections. Picked
+Option A — parametrize guard results, mirroring phase 2's transition-
+guard treatment — over real reactive-state simulation (which would
+leapfrog phase 2's input-synthesis deferral) and over alternatives
+that either weakened the property test (structural-only) or generated
+auto-test gaps (skip with comment). Same labeled-guards constraint
+carries over.
+
+### Bare-word internal-helper distinction — `_<digit>` is the marker
+
+The `genVar` mangle convention is `_scrml_<safe>_<N>` where N is a
+per-compile counter. The trailing `_<digit>` is the ONLY structural
+marker that distinguishes a mangled user function from a bare-word
+internal helper like `_scrml_effect`. Test filters that don't honor
+this distinction will silently swallow user functions named after
+internal helpers. Documented in `var-counter.ts`.
 
 ---
 
@@ -148,26 +216,31 @@ Common helper shape: regex-extract user function names from compiled JS, closure
 
 - Test suite entry: `bun test compiler/tests/`.
 - Pretest hook: `scripts/compile-test-samples.sh`.
-- Suite at tip: **7,126 pass / 10 skip / 2 fail** / 26,187 expects / 309 files / ~5.5s.
-- New gauntlet dir `compiler/tests/unit/gauntlet-s27/` (7 files, 55 tests).
-- New CLI flag this session: none (G2 replay is a language primitive, not a CLI toggle).
+- Suite at tip: **7,183 pass / 10 skip / 2 fail** / 26,415 expects / 315 files / ~5.5s.
+- Dual-mode parity: same numbers under default and `SCRML_NO_ELIDE=1`.
+- New gauntlet dir `compiler/tests/unit/gauntlet-s28/` (6 files, 64 tests).
+- New shared helper `compiler/tests/helpers/extract-user-fns.js` — 8 test files use it.
+- New CLI/env knob: `SCRML_NO_ELIDE=1` (slice-4).
 
 ---
 
 ## 5. Agents available
 
-Same primary roster as S22–S26. No new agents staged this session.
+Same primary roster as S22–S27. `scrml-deep-dive` was used once this
+session (the static-elision opener). No new agents staged.
 
 ---
 
-## 6. Recommended S28 opening sequence
+## 6. Recommended S29 opening sequence
 
-1. Check `handOffs/incoming/` — may have messages from master re scrmlTSPub retirement.
-2. Verify origin/main at `5d0bdc6`.
-3. **Highest-value S28 opener: kick off the static-elision deep-dive** (Task #14). Dispatch `scrml-deep-dive` with a brief that references `radical-doubt-machine-contract-unification-2026-04-08.md` §236 and the S27 guard-IIFE expansion. Question for the deep-dive: given the §51.11 audit push, the __matchedKey resolution, and the Object.freeze in every guard, what's the actual cost/benefit of static elision TODAY? Does the design still hold when the guard IIFE has tripled in surface? Output informs whether S28 implements elision, redesigns the guard to be cheaper, or does nothing.
-4. Alternatives if user prefers smaller scope: (a) multi-statement effect body parser fix (small, concrete), (b) §51.13 phase 7 guarded projection machines (medium, needs design decision), (c) match-arm work carry-on (error-arm scope-push from S25 queue).
+1. Check `handOffs/incoming/` — may have push-confirmation or scrmlTSPub-retirement updates from master.
+2. Verify origin/main at the new tip after master pushes (was `a15cdb6` at session close).
+3. **The remaining queue is deep work.** Open with intent: pick ONE deep arc and commit context to it. Don't try to slice a deep arc into "small wins" — the previous five sessions have already exhausted the small-wins surface around the machine cluster.
+4. Top recommendation: **P3 self-host modernization**. It's the work that closes the 2 pre-existing fails that have been carried since S18. Suggested approach: (a) start with `body-pre-parser.scrml` (only 3 errors, smallest), (b) use it as a translation pattern, (c) move outward. ast.scrml is gnarliest — defer until last.
+5. Alternative: **P5 Phase 4d-finish** if user prefers structural cleanup. Requires careful risk management (15 consumer files touched).
+6. If user wants something visible to end-users instead of internal: **`< machine for=Struct>` cross-field invariants** (item 5 in queue).
 
 ---
 
 ## Tags
-#session-27 #closed #all-pushed #s2bG-complete #spec-§51.14 #audit-replay-shipped #unit-variant-fixed #timer-audit-fixed #wildcard-guards-fixed #effect-refs-fixed #match-arm-single-line-fixed #queue-static-elision-deep-dive #queue-§51.13-phase-7 #queue-multi-stmt-effect-parser
+#session-28 #closed #all-pushed #spec-§51.5.2-amended #validation-elision-shipped #cat-2a #cat-2b #cat-2d #cat-2f #no-elide-flag #§51.13-phase-7-shipped #e-replay-003 #multi-stmt-effect-fix #payload-enum-comma-fix #error-arm-scope-push #extract-user-fns-helper #queue-p3-selfhost #queue-p5-phase-4d #queue-machine-for-struct
