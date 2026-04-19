@@ -34,7 +34,7 @@
   ],
   "workspaces": ["compiler"],
   "bin": {
-    "scrml": "compiler/src/cli.js"
+    "scrml": "compiler/bin/scrml.js"
   },
   "scripts": {
     "compile": "bun run compiler/src/cli.js compile",
