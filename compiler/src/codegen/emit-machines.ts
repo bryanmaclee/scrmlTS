@@ -275,16 +275,23 @@ export function emitTransitionGuard(
       // so the user sees the source they wrote.
       const guardJs = rewriteExpr(rule.guard);
       const guardDiag = rule.guard.replace(/"/g, '\\"');
+      // S27: match against __matchedKey (the canonical rule key the
+      // wildcard-fallback chain resolved to) rather than __key (the
+      // literal runtime variants). Pre-S27 the comparison used __key,
+      // so a rule like `* => .X given (…)` never fired its guard at
+      // runtime — __key was e.g. "Pending:X", guardKey "*:X", and the
+      // equality check always failed. With __matchedKey, wildcard
+      // rules compare against the key the runtime actually selected.
       if (prelude.length > 0) {
         // Open a keyed block, declare bindings, then evaluate the guard.
-        lines.push(`  if (__key === "${guardKey}") {`);
+        lines.push(`  if (__matchedKey === "${guardKey}") {`);
         for (const p of prelude) lines.push(`    ${p}`);
         lines.push(`    if (!(${guardJs})) {`);
         lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`    }`);
         lines.push(`  }`);
       } else {
-        lines.push(`  if (__key === "${guardKey}" && !(${guardJs})) {`);
+        lines.push(`  if (__matchedKey === "${guardKey}" && !(${guardJs})) {`);
         lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`  }`);
       }
@@ -303,7 +310,9 @@ export function emitTransitionGuard(
       if (!rule.effectBody) continue;
       const effectKey = `${rule.from}:${rule.to}`;
       const prelude = buildBindingPreludeStmts(rule);
-      lines.push(`  if (__key === "${effectKey}") {`);
+      // S27: same parity fix as guards — match on __matchedKey so
+      // wildcard effect rules fire when the runtime resolves to them.
+      lines.push(`  if (__matchedKey === "${effectKey}") {`);
       lines.push(`    var event = { from: __prev, to: __next };`);
       for (const p of prelude) lines.push(`    ${p}`);
       lines.push(`    ${rule.effectBody}`);

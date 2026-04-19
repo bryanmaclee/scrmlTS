@@ -177,9 +177,10 @@ describe("§1b emitTransitionGuard — binding prelude", () => {
       },
     ];
     const code = emitTransitionGuard("r_state", "newVal", "__t", "M", rules).join("\n");
-    // The binding is scoped inside the keyed `if (__key === "Charging:Idle")` block
-    // so it does not leak into other rules' guards.
-    expect(code).toMatch(/if \(__key === "Charging:Idle"\) \{\s*var n = __prev != null && __prev\.data != null \? __prev\.data\.level : undefined;\s*if \(!\(n < 10\)\)/);
+    // The binding is scoped inside the keyed `if (__matchedKey === "Charging:Idle")` block
+    // so it does not leak into other rules' guards. (S27: matched-key rather
+    // than raw __key so guarded wildcard rules also fire correctly.)
+    expect(code).toMatch(/if \(__matchedKey === "Charging:Idle"\) \{\s*var n = __prev != null && __prev\.data != null \? __prev\.data\.level : undefined;\s*if \(!\(n < 10\)\)/);
   });
 
   test("to-binding emits `var r = __next.data.<field>` before the effect body", () => {
@@ -217,8 +218,10 @@ describe("§1b emitTransitionGuard — binding prelude", () => {
       },
     ];
     const code = emitTransitionGuard("r_state", "newVal", "__t", "M", rules).join("\n");
-    // Legacy form: single `if (__key === "A:B" && !(x > 0))` line.
-    expect(code).toMatch(/if \(__key === "A:B" && !\(x > 0\)\)/);
+    // Legacy form: single `if (__matchedKey === "A:B" && !(x > 0))` line.
+    // (S27 parity fix: __matchedKey replaces the old __key compare so
+    // wildcard-guarded rules fire correctly.)
+    expect(code).toMatch(/if \(__matchedKey === "A:B" && !\(x > 0\)\)/);
     // And no binding prelude. Binding prelude pattern is
     // `var <local> = __prev.data.<field>` / `var <local> = __next.data.<field>`
     // — scope the anti-match on `.data.` to avoid false hits on the

@@ -62,8 +62,10 @@ describe("S25 §51 — effect block emission for non-guarded rules", () => {
     const { errors, clientJs } = compileSrc(src);
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     // Effect body should be present in the generated JS guarded by the key.
+    // S27: match-key is now __matchedKey (fallback-resolved) so wildcard
+    // effect rules also fire correctly.
     expect(clientJs).toContain("Effect blocks");
-    expect(clientJs).toContain('__key === "A:B"');
+    expect(clientJs).toContain('__matchedKey === "A:B"');
     expect(clientJs).toContain("A-to-B");
   });
 
@@ -106,8 +108,8 @@ describe("S25 §51 — effect block emission for non-guarded rules", () => {
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     // Effect-only rule's body present
     expect(clientJs).toContain("on-B");
-    // Guard-only rule's guard check present
-    expect(clientJs).toContain('__key === "A:C"');
+    // Guard-only rule's guard check present (S27: __matchedKey).
+    expect(clientJs).toContain('__matchedKey === "A:C"');
   });
 
   test("rule with no guard and no effect → neither section emits for this rule", () => {
