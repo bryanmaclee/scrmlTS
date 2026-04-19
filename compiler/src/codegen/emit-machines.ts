@@ -335,7 +335,10 @@ export function emitTransitionGuard(
   if (auditTarget) {
     lines.push(`  // §51.11 audit log push`);
     lines.push(`  var __auditLabel = (__rule != null && typeof __rule === "object" && __rule.label != null) ? __rule.label : null;`);
-    lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([{ from: __prev, to: __next, at: Date.now(), rule: __matchedKey, label: __auditLabel }]));`);
+    // §51.11.4 specifies audit entries are frozen objects so consumers
+    // (replay, time-travel, server-side log aggregators) can safely hold
+    // long-lived references without worrying about mutation.
+    lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([Object.freeze({ from: __prev, to: __next, at: Date.now(), rule: __matchedKey, label: __auditLabel })]));`);
   }
 
   // §51.12 (S25) — temporal transitions. After state commit, clear any
@@ -351,12 +354,26 @@ export function emitTransitionGuard(
     // resolution (§51.11.4). The top declaration defaults to "*" for
     // variant-less values, which is equivalent for timer-arming purposes
     // because temporal rules always name a specific `from` variant.
+    //
+    // S27 (§51.11): pass a meta payload carrying auditTarget + rulesJson so
+    // the timer's expiry path can push an audit entry and re-arm any
+    // downstream temporal rule.
+    const rulesPayload = JSON.stringify(
+      temporalRules.map(r => ({
+        from: r.from,
+        afterMs: r.afterMs,
+        to: r.to,
+        label: r.label ?? null,
+      }))
+    );
+    const auditTargetLit = auditTarget ? JSON.stringify(auditTarget) : "null";
     for (const rule of temporalRules) {
       // Wildcard `from` was rejected at parse time; only specific variants
       // reach here. Each temporal rule fires from exactly its declared
       // `from` variant.
+      const labelLit = rule.label ? JSON.stringify(rule.label) : "null";
       lines.push(`  if (__nextVariant === "${rule.from}") {`);
-      lines.push(`    _scrml_machine_arm_timer("${encodedVarName}", ${rule.afterMs}, "${rule.to}");`);
+      lines.push(`    _scrml_machine_arm_timer("${encodedVarName}", ${rule.afterMs}, "${rule.to}", { fromVariant: "${rule.from}", label: ${labelLit}, auditTarget: ${auditTargetLit}, rulesJson: ${JSON.stringify(rulesPayload)} });`);
       lines.push(`  }`);
     }
   }

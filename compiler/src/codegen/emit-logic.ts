@@ -275,12 +275,24 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
     const binding = opts.machineBindings?.get(lookupName) ?? null;
     const temporalRules = binding?.rules?.filter((r: any) => r.afterMs != null) ?? [];
     if (temporalRules.length > 0) {
+      // S27 (§51.11): include `label` in the payload and pass the
+      // machine's audit target so the runtime can push audit entries
+      // on timer expiry. Re-arming of chained temporal rules cascades
+      // through `_scrml_machine_arm_initial` which consumes this same
+      // payload.
       const rulesPayload = JSON.stringify(
-        temporalRules.map((r: any) => ({ from: r.from, afterMs: r.afterMs, to: r.to }))
+        temporalRules.map((r: any) => ({
+          from: r.from,
+          afterMs: r.afterMs,
+          to: r.to,
+          label: r.label ?? null,
+        }))
       );
+      const auditTarget = (binding as any).auditTarget ?? null;
+      const auditArg = auditTarget ? `, ${JSON.stringify(auditTarget)}` : "";
       return [
         `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`,
-        `_scrml_machine_arm_initial(${JSON.stringify(encodedName)}, ${JSON.stringify(rulesPayload)});`,
+        `_scrml_machine_arm_initial(${JSON.stringify(encodedName)}, ${JSON.stringify(rulesPayload)}${auditArg});`,
       ].join("\n");
     }
   }

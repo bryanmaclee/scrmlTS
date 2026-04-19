@@ -77,23 +77,69 @@ function _scrml_machine_clear_timer(name) {
     delete _scrml_machine_timers[name];
   }
 }
-function _scrml_machine_arm_timer(name, ms, target) {
+function _scrml_machine_arm_timer(name, ms, target, meta) {
+  // meta (optional): { fromVariant, label, auditTarget, rulesJson }
+  //   fromVariant — the .From of the temporal rule being armed (used to
+  //     build the audit 'rule' key on expiry: fromVariant + ":" + target).
+  //   label — the rule's guard label if any, else null. Temporal rules
+  //     currently do not take 'given' clauses, so this is conventionally
+  //     null; the slot exists so a future temporal+guard syntax can slot
+  //     straight in.
+  //   auditTarget — the encoded reactive-var name of the machine's audit
+  //     target (the 'audit @log' clause in the machine body), else null.
+  //   rulesJson — the serialized temporal-rule list so the timer can
+  //     re-arm on the downstream variant. Chained temporal rules
+  //     (A after 1s => B, B after 1s => C) must continue automatically
+  //     without the user driving transitions.
+  //
+  // S27 (§51.11): timer-fired transitions now push audit entries and
+  // re-arm downstream temporal rules. Previously the timer invoked a
+  // bare _scrml_reactive_set, bypassing both the audit clause and the
+  // per-transition re-arm logic. This violated §51.11.6 "every
+  // successful transition SHALL append" for temporal rules.
   _scrml_machine_clear_timer(name);
   _scrml_machine_timers[name] = setTimeout(function () {
     delete _scrml_machine_timers[name];
+    const __prev = _scrml_reactive_get(name);
     _scrml_reactive_set(name, target);
+    if (meta && meta.auditTarget) {
+      const entry = Object.freeze({
+        from: __prev,
+        to: target,
+        at: Date.now(),
+        rule: meta.fromVariant + ":" + target,
+        label: meta.label != null ? meta.label : null,
+      });
+      _scrml_reactive_set(
+        meta.auditTarget,
+        (_scrml_reactive_get(meta.auditTarget) || []).concat([entry])
+      );
+    }
+    if (meta && meta.rulesJson) {
+      _scrml_machine_arm_initial(name, meta.rulesJson, meta.auditTarget);
+    }
   }, ms);
 }
-function _scrml_machine_arm_initial(name, rulesJson) {
-  // Called once per machine-bound reactive after its initial _scrml_reactive_set.
-  // Inspects the current variant and arms the first matching temporal rule, if any.
-  // Later transitions re-run the timer logic inside the transition guard.
+function _scrml_machine_arm_initial(name, rulesJson, auditTarget) {
+  // Called once per machine-bound reactive after its initial _scrml_reactive_set,
+  // and also re-invoked from _scrml_machine_arm_timer's expiry path so that
+  // chained temporal rules auto-advance. Inspects the current variant and arms
+  // the first matching temporal rule, if any.
+  //
+  // auditTarget (optional, added S27) propagates the machine's audit target
+  // through the re-arm cascade so chained temporal transitions keep auditing.
   const val = _scrml_reactive_get(name);
   const variant = (val != null && typeof val === "object" && val.variant != null) ? val.variant : val;
   const rules = JSON.parse(rulesJson);
   for (const r of rules) {
     if (r.from === variant) {
-      _scrml_machine_arm_timer(name, r.afterMs, r.to);
+      const meta = {
+        fromVariant: r.from,
+        label: r.label != null ? r.label : null,
+        auditTarget: auditTarget != null ? auditTarget : null,
+        rulesJson: rulesJson,
+      };
+      _scrml_machine_arm_timer(name, r.afterMs, r.to, meta);
       return;
     }
   }
