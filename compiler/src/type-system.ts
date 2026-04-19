@@ -6948,6 +6948,96 @@ function processFile(
       if (m.isDerived && m.projectedVarName) projectedVars.set(m.projectedVarName, m);
     }
     rejectWritesToDerivedVars(topNodes, projectedVars, errors, fileSpan);
+
+    // §51.14 (S27 G2 slice 2) — validate `replay(@target, @log[, n])` call
+    // sites. The rewrite path in emit-expr.ts already emits _scrml_replay for
+    // well-formed calls; this validation catches malformed calls at compile
+    // time with diagnostic spans.
+    //
+    //   E-REPLAY-001: @target is not a machine-bound reactive.
+    //   E-REPLAY-002: @log is not a declared reactive variable.
+    //
+    // A generic recursive object-walker visits every node under topNodes
+    // looking for CallExpr shapes (kind === "call") whose callee is an
+    // ident "replay". CallExprs live embedded in various fields
+    // (initExpr, valueExpr, conditionExpr, function-decl body statements'
+    // bare-expr exprNode, etc.). The duck-typed walker reaches them all
+    // without needing to know the layout of every AST node kind.
+    const machineBoundReactives = new Set(reactiveBindings.keys());
+    const visited = new WeakSet<object>();
+    const visitForReplay = (value: unknown): void => {
+      if (!value || typeof value !== "object") return;
+      if (visited.has(value as object)) return;
+      visited.add(value as object);
+      if (Array.isArray(value)) {
+        for (const item of value) visitForReplay(item);
+        return;
+      }
+      const v = value as Record<string, unknown>;
+      if (v.kind === "call" && v.callee && typeof v.callee === "object") {
+        const callee = v.callee as Record<string, unknown>;
+        if (callee.kind === "ident" && callee.name === "replay") {
+          const args = (v.args as unknown[]) ?? [];
+          const span = (v.span as Span | undefined) ?? fileSpan;
+          const targetArg = args[0] as Record<string, unknown> | undefined;
+          const logArg = args[1] as Record<string, unknown> | undefined;
+          const argShape = (a: unknown): { name: string } | null => {
+            if (!a || typeof a !== "object") return null;
+            const ar = a as Record<string, unknown>;
+            if (ar.kind !== "ident") return null;
+            const nm = ar.name;
+            if (typeof nm !== "string" || !nm.startsWith("@")) return null;
+            return { name: nm.slice(1) };
+          };
+          const target = argShape(targetArg);
+          const log = argShape(logArg);
+          if (!target) {
+            errors.push(new TSError(
+              "E-REPLAY-001",
+              `E-REPLAY-001: Replay target must be a machine-bound reactive variable (@name). ` +
+              `The first argument to 'replay' accepts an '@'-prefixed reactive that is ` +
+              `governed by a < machine> declaration; the current argument is not an @-ref.`,
+              span,
+            ));
+          } else if (!machineBoundReactives.has(target.name)) {
+            const isDeclaredReactive = declaredReactives.has(target.name);
+            errors.push(new TSError(
+              "E-REPLAY-001",
+              `E-REPLAY-001: Replay target '@${target.name}' must be a machine-bound reactive variable. ` +
+              (isDeclaredReactive
+                ? `'@${target.name}' is declared but is not governed by a < machine> declaration. ` +
+                  `Attach a machine to this reactive or replay a different variable.`
+                : `No reactive variable named '@${target.name}' is declared in scope. ` +
+                  `Declare '@${target.name}: <MachineName> = <initial>' before the replay call.`),
+              span,
+            ));
+          }
+          if (!log) {
+            errors.push(new TSError(
+              "E-REPLAY-002",
+              `E-REPLAY-002: Replay source must be a reactive array variable (@name). ` +
+              `The second argument to 'replay' accepts an '@'-prefixed reactive that carries ` +
+              `§51.11 audit entries; the current argument is not an @-ref.`,
+              span,
+            ));
+          } else if (!declaredReactives.has(log.name)) {
+            errors.push(new TSError(
+              "E-REPLAY-002",
+              `E-REPLAY-002: Replay source '@${log.name}' is not a declared reactive variable. ` +
+              `Declare '@${log.name} = []' and attach it to a machine via an 'audit @${log.name}' clause ` +
+              `so it accumulates transition entries.`,
+              span,
+            ));
+          }
+        }
+      }
+      for (const key of Object.keys(v)) {
+        // Skip span objects — they carry numeric positions, never ExprNodes.
+        if (key === "span") continue;
+        visitForReplay(v[key]);
+      }
+    };
+    for (const n of topNodes) visitForReplay(n);
   }
 
   // TS-G: Linear type enforcement pass.

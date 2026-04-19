@@ -1,0 +1,212 @@
+/**
+ * S27 — §51.14 G2 slice 2. Compile-time validation for replay() args.
+ *
+ * E-REPLAY-001 fires when the first argument to replay is not a
+ * machine-bound reactive:
+ *   - non-@-ref argument
+ *   - @-ref naming an undeclared reactive
+ *   - @-ref naming a declared reactive without a < machine> binding
+ *
+ * E-REPLAY-002 fires when the second argument is not a reactive:
+ *   - non-@-ref argument
+ *   - @-ref naming an undeclared reactive
+ *
+ * Well-formed calls produce no errors.
+ */
+
+import { describe, test, expect } from "bun:test";
+import { resolve } from "path";
+import { writeFileSync, rmSync, existsSync, mkdirSync } from "fs";
+import { tmpdir } from "os";
+import { compileScrml } from "../../../src/api.js";
+
+const tmpRoot = resolve(tmpdir(), "scrml-s27-replay-validation");
+let tmpCounter = 0;
+
+function compile(source) {
+  const tmpDir = resolve(tmpRoot, `case-${++tmpCounter}-${Date.now()}`);
+  const tmpInput = resolve(tmpDir, "app.scrml");
+  const outDir = resolve(tmpDir, "out");
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(tmpInput, source);
+  try {
+    const result = compileScrml({
+      inputFiles: [tmpInput],
+      write: false,
+      outputDir: outDir,
+    });
+    const errs = (result.errors ?? []).filter(e => e.severity !== "warning");
+    return { errors: errs };
+  } finally {
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+describe("S27 §51.14 — E-REPLAY-001 (target must be machine-bound)", () => {
+  test("non-machine-bound reactive → E-REPLAY-001 with 'not governed' message", () => {
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @plain = 0
+  @log = []
+  function bad() { replay(@plain, @log) }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const r001 = errors.filter(e => e.code === "E-REPLAY-001");
+    expect(r001).toHaveLength(1);
+    expect(r001[0].message).toContain("'@plain'");
+    expect(r001[0].message).toContain("not governed by a < machine> declaration");
+  });
+
+  test("undeclared target → E-REPLAY-001 with 'not declared in scope' message", () => {
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @log = []
+  function bad() { replay(@ghost, @log) }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const r001 = errors.filter(e => e.code === "E-REPLAY-001");
+    expect(r001).toHaveLength(1);
+    expect(r001[0].message).toContain("'@ghost'");
+    expect(r001[0].message).toContain("No reactive variable named '@ghost' is declared in scope");
+  });
+});
+
+describe("S27 §51.14 — E-REPLAY-002 (log must be a declared reactive)", () => {
+  test("undeclared log → E-REPLAY-002 with 'not declared' message", () => {
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @log = []
+  function bad() { replay(@order, @missingLog) }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const r002 = errors.filter(e => e.code === "E-REPLAY-002");
+    expect(r002).toHaveLength(1);
+    expect(r002[0].message).toContain("'@missingLog'");
+    expect(r002[0].message).toContain("not a declared reactive variable");
+  });
+});
+
+describe("S27 §51.14 — well-formed replay calls produce no errors", () => {
+  test("two-arg replay(@target, @log) on machine-bound target + declared reactive → clean", () => {
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @log = []
+  function good() { replay(@order, @log) }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const rErrs = errors.filter(e => (e.code ?? "").startsWith("E-REPLAY-"));
+    expect(rErrs).toEqual([]);
+  });
+
+  test("three-arg replay(@target, @log, n) → clean", () => {
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @log = []
+  function good() { replay(@order, @log, 0) }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const rErrs = errors.filter(e => (e.code ?? "").startsWith("E-REPLAY-"));
+    expect(rErrs).toEqual([]);
+  });
+
+  test("replay against a different machine's audit log is permitted (non-goal per spec)", () => {
+    // §51.14.6 explicitly does not enforce log/target machine-type
+    // matching. A replay from machine-A's log into machine-B's target is
+    // well-formed at compile time (semantically nonsensical but legal).
+    // This test pins the current non-enforcement behavior.
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  type T:enum = { X, Y }
+  @one: M1 = S.A
+  @two: M2 = T.X
+  @logOne = []
+  function cross() { replay(@two, @logOne) }
+}
+< machine name=M1 for=S>
+  .A => .B
+  audit @logOne
+</>
+< machine name=M2 for=T>
+  .X => .Y
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const rErrs = errors.filter(e => (e.code ?? "").startsWith("E-REPLAY-"));
+    expect(rErrs).toEqual([]);
+  });
+});
+
+describe("S27 §51.14 — multiple replay call sites validate independently", () => {
+  test("one good and one bad call in the same function → only the bad one errors", () => {
+    const src = `<program>
+\${
+  type S:enum = { A, B }
+  @order: M = S.A
+  @plain = 0
+  @log = []
+  function mixed() {
+    replay(@order, @log)
+    replay(@plain, @log)
+  }
+}
+< machine name=M for=S>
+  .A => .B
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors } = compile(src);
+    const r001 = errors.filter(e => e.code === "E-REPLAY-001");
+    expect(r001).toHaveLength(1);
+    expect(r001[0].message).toContain("'@plain'");
+  });
+});

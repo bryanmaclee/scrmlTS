@@ -18514,27 +18514,25 @@ ${
 
 #### 51.14.5 Errors
 
-Slice 1 (current implementation):
-
+- **E-REPLAY-001** (compile): First argument to `replay` is not a
+  machine-bound reactive. Fires when the target is not an `@`-ref,
+  is a declared reactive that lacks a `< machine>` binding, or is
+  an undeclared reactive. Message variants surface the specific
+  cause: `Replay target '@{name}' must be a machine-bound reactive
+  variable. …`
+- **E-REPLAY-002** (compile): Second argument is not a declared
+  reactive variable. Fires when the log is not an `@`-ref or names
+  a variable not in scope. Message: `Replay source '@{name}' is
+  not a declared reactive variable. …`
 - **E-REPLAY-001-RT** (runtime): Index is out of bounds. Message:
   `E-REPLAY-001-RT: replay index {n} out of bounds for log of
   length {len}. Index SHALL be in the range [0, log.length].`
 
-Queued for slice 2 (planned, not yet enforced):
+**Not enforced at compile time** (pragma of current implementation):
 
-- **E-REPLAY-001** (compile): First argument to `replay` is not a
-  machine-bound reactive. Message: `Replay target '@{name}' must be a
-  machine-bound reactive variable. Attach a < machine for {type}>
-  declaration or remove the replay call.`
-- **E-REPLAY-002** (compile): Second argument is not a reactive.
-  Message: `Replay source '@{name}' must be a reactive array
-  carrying audit entries.`
-
-Until slice 2 lands, malformed `replay` calls produce runtime
-behavior (unexpected state jumps, undefined log entries leading to
-writes of `undefined`) rather than compile errors. Users writing
-`replay` calls SHOULD verify both arguments refer to the machine's
-own target + audit-log pair.
+- Log/target machine-type matching (see §51.14.6 non-goals). A
+  future E-REPLAY-003 may enforce that the log being replayed
+  originated from the target's own audit clause.
 
 #### 51.14.6 Non-Goals
 
