@@ -69,15 +69,23 @@
  *   suite inlines a minimal copy of the projection function (mirroring
  *   emitProjectionFunction) and calls it per variant.
  *
- *   Phase 6 scope: unguarded projections only. Projections whose rules
- *   carry `given` guards require modeling first-match-wins semantics
- *   against a simulated reactive-store state, which is more involved
- *   than the parametrization used for transition-machine guards.
- *   Guarded projections are a future phase.
+ * Phase 7 (S28) — guarded projection rules.
+ *   Extends phase 6 to projections whose rules carry labeled `given`
+ *   guards. Mirrors phase 2's parametrization model: the inlined
+ *   projection function takes a `guardResults` map keyed on rule label
+ *   that decides whether each guarded rule fires. The generated suite
+ *   walks each source variant's rules in declaration order and emits
+ *   one test per guarded rule (guard truthy → target fires) plus a
+ *   terminal test (all guards falsy → unguarded fallback fires, or
+ *   `undefined` if no fallback exists).
  *
- * Skipped machines (phase 6):
- *   - unlabeled `given` guards on transition rules (still phase-2 rule)
- *   - derived machines with projection guards (future phase)
+ *   Same labeled-guards constraint as phase 2: every guarded rule
+ *   needs a `[label]` so the parametrization map has a stable key.
+ *   Projections with any unlabeled guard are skipped.
+ *
+ * Skipped machines (phase 7):
+ *   - unlabeled `given` guards on transition rules (phase-2 rule)
+ *   - unlabeled `given` guards on projection rules (phase-7 rule)
  *
  * Skipped machines are recorded as comments at the top of the generated
  * file so users know why.
@@ -132,32 +140,26 @@ function hasTemporalRule(rules: TransitionRule[]): boolean {
   return false;
 }
 
-// Phase 6: scope check for derived / projection machines. The transition-
-// machine filter (unlabeled guards, etc.) doesn't apply — projections have
-// a distinct shape. Phase 6 accepts projections whose rules are all
-// unguarded; guarded projections require modeling first-match-wins
-// semantics against guard results, which is a later phase.
+// Phase 7: scope check for derived / projection machines. Mirrors phase 2:
+// every guarded rule must carry a `[label]` so the parametrization map has
+// a stable key. Unguarded projections (phase 6) are still in scope.
 function projectionIsInScope(rules: TransitionRule[]): { ok: boolean; reason?: string } {
   for (const r of rules) {
-    if (r.guard) {
+    if (r.guard && !r.label) {
       return {
         ok: false,
-        reason: "derived machine has projection guards — phase 6 covers unguarded projections only",
+        reason: "derived machine has unlabeled `given` guard — phase 7 requires `[label]` on every guarded projection rule",
       };
     }
   }
   return { ok: true };
 }
 
-// Phase 6: for a source variant V, the expected projected target is the
-// `to` side of the first rule whose `from` matches V. Phase 6 only runs
-// when every rule is unguarded, so "first match" reduces to "first rule
-// with matching from".
-function projectedTargetFor(variant: string, rules: TransitionRule[]): string | null {
-  for (const r of rules) {
-    if (r.from === variant) return r.to;
-  }
-  return null;
+// Phase 6 / phase 7 helper: rules for a given source variant in declaration
+// order. Phase 6 used the first one (always unguarded under that phase's
+// gate); phase 7 walks the list to model first-match-wins with guards.
+function rulesForSource(variant: string, rules: TransitionRule[]): TransitionRule[] {
+  return rules.filter(r => r.from === variant);
 }
 
 // Phase 6: every source variant appears as some rule's `from` (§51.9
@@ -375,39 +377,104 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
   return lines;
 }
 
-// Phase 6: emit the projection-test block for a derived machine. Inlines
-// a minimal copy of the projection function that emitProjectionFunction
-// would emit, then one test per source variant asserting the projection
-// returns the declared target.
+// Phase 7: emit the projection-test block for a derived machine. Inlines
+// a guard-results-parametrized projection function (parallel to
+// emitProjectionFunction in emit-machines.ts §51.9), then walks each
+// source variant's rules in declaration order to emit:
+//   - one test per guarded rule asserting it fires when its label is true
+//     and all earlier guards are false
+//   - one terminal test asserting the unguarded fallback fires (or
+//     `undefined` when no fallback exists) once all guards are false
+//
+// Phase 6 (unguarded projections) is the strict subset where every rule
+// is unguarded — collapses to one test per source variant.
 function emitProjectionDescribe(m: MachineLike): string[] {
   const lines: string[] = [];
   const fnName = `__project_${m.name}`;
   const sourceVariants = collectSourceVariants(m.rules);
 
-  // Inline the projection function — same shape as
-  // emitProjectionFunction (emit-machines.ts §51.9).
-  lines.push(`  function ${fnName}(src) {`);
+  // Inline the projection function. Mirrors emitProjectionFunction except
+  // a guard rule's predicate is replaced with a lookup into the supplied
+  // `guardResults` map (keyed on the rule's label). Unguarded rules behave
+  // identically to phase 6.
+  lines.push(`  function ${fnName}(src, guardResults) {`);
+  lines.push(`    guardResults = guardResults || {};`);
   lines.push(`    var tag = (src != null && typeof src === "object") ? src.variant : src;`);
   for (const rule of m.rules) {
-    // Phase 6 asserts `!rule.guard` via projectionIsInScope; still
-    // pattern-match the shape emitProjectionFunction produces so future
-    // guarded-projection phases can drop in here.
-    lines.push(`    if (tag === ${JSON.stringify(rule.from)}) return ${JSON.stringify(rule.to)};`);
+    if (rule.guard) {
+      // projectionIsInScope guarantees rule.label is present when guard is.
+      const labelLit = JSON.stringify(rule.label);
+      lines.push(`    if (tag === ${JSON.stringify(rule.from)} && guardResults[${labelLit}]) return ${JSON.stringify(rule.to)};`);
+    } else {
+      lines.push(`    if (tag === ${JSON.stringify(rule.from)}) return ${JSON.stringify(rule.to)};`);
+    }
   }
   lines.push(`    return undefined;`);
   lines.push(`  }`);
   lines.push(``);
 
   for (const src of sourceVariants) {
-    const target = projectedTargetFor(src, m.rules);
-    // target is guaranteed non-null since src was drawn from rules[].from.
-    const title = `projects .${src} => .${target}`;
-    lines.push(`  test(${JSON.stringify(title)}, () => {`);
-    lines.push(`    expect(${fnName}({ variant: ${JSON.stringify(src)} })).toBe(${JSON.stringify(target)});`);
-    lines.push(`  });`);
+    const srcRules = rulesForSource(src, m.rules);
+    if (srcRules.length === 0) continue; // shouldn't happen — exhaustiveness
+
+    // Walk rules in declaration order. Build the cumulative `guardResults`
+    // map for the test: every earlier guarded rule's label set to `false`,
+    // the rule under test set to `true`. The unguarded terminal (if any)
+    // gets a separate test with all earlier guards false.
+    const earlierFalseLabels: string[] = [];
+
+    for (let i = 0; i < srcRules.length; i++) {
+      const r = srcRules[i];
+      if (r.guard) {
+        const truthyMap = buildGuardResultsMap(earlierFalseLabels, r.label!, true);
+        const title = `projects .${src} => .${r.to} when [${r.label}] truthy`;
+        lines.push(`  test(${JSON.stringify(title)}, () => {`);
+        lines.push(`    expect(${fnName}({ variant: ${JSON.stringify(src)} }, ${truthyMap})).toBe(${JSON.stringify(r.to)});`);
+        lines.push(`  });`);
+        earlierFalseLabels.push(r.label!);
+      } else {
+        // Unguarded fallback — emit one test with all earlier guards false.
+        // Later rules (if any) are unreachable for this source variant.
+        const fallbackMap = buildGuardResultsMap(earlierFalseLabels, null, false);
+        const guardClause = earlierFalseLabels.length > 0
+          ? ` (after ${earlierFalseLabels.length} guard${earlierFalseLabels.length === 1 ? "" : "s"} falsy)`
+          : "";
+        const title = `projects .${src} => .${r.to}${guardClause}`;
+        lines.push(`  test(${JSON.stringify(title)}, () => {`);
+        lines.push(`    expect(${fnName}({ variant: ${JSON.stringify(src)} }, ${fallbackMap})).toBe(${JSON.stringify(r.to)});`);
+        lines.push(`  });`);
+        break; // unreachable rules after an unguarded match
+      }
+    }
+
+    // If we exited the loop without hitting an unguarded fallback, emit
+    // the all-falsy → undefined terminal test. §51.9 exhaustiveness usually
+    // forces an unguarded rule per source, but this safety belt covers any
+    // path the spec leaves open.
+    const lastWasUnguarded = srcRules.some(r => !r.guard);
+    if (!lastWasUnguarded) {
+      const allFalseMap = buildGuardResultsMap(earlierFalseLabels, null, false);
+      const title = `.${src} → undefined when all guards falsy`;
+      lines.push(`  test(${JSON.stringify(title)}, () => {`);
+      lines.push(`    expect(${fnName}({ variant: ${JSON.stringify(src)} }, ${allFalseMap})).toBeUndefined();`);
+      lines.push(`  });`);
+    }
   }
 
   return lines;
+}
+
+// Build a JS object literal mapping each label in `falseLabels` to false,
+// optionally setting `trueLabel` to true. Empty map renders as `{}`.
+function buildGuardResultsMap(
+  falseLabels: string[],
+  trueLabel: string | null,
+  _trueLabelValue: boolean,
+): string {
+  const entries: string[] = [];
+  for (const l of falseLabels) entries.push(`${JSON.stringify(l)}: false`);
+  if (trueLabel != null) entries.push(`${JSON.stringify(trueLabel)}: true`);
+  return entries.length === 0 ? "{}" : `{ ${entries.join(", ")} }`;
 }
 
 /**

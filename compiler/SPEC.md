@@ -18340,12 +18340,23 @@ know to cover timer lifecycle with hand-written integration tests.
 emit path. Projections have no transition table — `@projected`
 delegates through `_scrml_project_<Name>(source)` — so the property
 under test is **(d) Projection correctness** (above). Phase 6 covers
-unguarded projections; guarded projections are deferred. Projection
-machines emit under a `[generated] projection machine <Name>`
-describe label; transition machines keep their `[generated] machine
-<Name>` label. The two describe-block families coexist cleanly in the
-same generated file when a source declares both a governing machine
-and a derived projection.
+unguarded projections; Projection machines emit under a
+`[generated] projection machine <Name>` describe label; transition
+machines keep their `[generated] machine <Name>` label. The two
+describe-block families coexist cleanly in the same generated file
+when a source declares both a governing machine and a derived
+projection.
+**Phase 7** extends phase 6 to projection rules with labeled `given`
+guards. The inlined projection harness takes a `guardResults` map
+keyed on rule label — parallel to phase 2's parametrization model
+for transition-machine guards. For each source variant V, the
+generator walks V's rules in declaration order and emits one test
+per guarded rule ("projects .V => .T when [label] truthy", with
+earlier guards forced falsy) plus a terminal test — either
+"projects .V => .Fallback (after N guards falsy)" when an unguarded
+rule exists, or ".V → undefined when all guards falsy" when none
+exists. Unlabeled guards on projection rules skip the machine with
+the same phase-2-style comment.
 
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write
@@ -18378,14 +18389,15 @@ and a derived projection.
   `_scrml_project_<Name>(src)` SHALL return the target variant
   declared by the first matching rule. The generated suite inlines a
   minimal copy of the projection function (mirroring
-  `emitProjectionFunction`) and emits one test per source variant.
+  `emitProjectionFunction`) and emits tests per source variant.
   Source variants are enumerated from `rules.map(r => r.from)` —
-  §51.9's compile-time exhaustiveness guarantee (E-MACHINE-018) ensures
-  every source variant appears. Projection guards (`given`-qualified
-  projection rules) require first-match-wins evaluation against a
-  simulated reactive-store state and are out of scope for the current
-  phase; a derived machine with any guarded rule is skipped with an
-  explanatory comment.
+  §51.9's compile-time exhaustiveness guarantee (E-MACHINE-018)
+  ensures every source variant appears. Projection guards
+  (`given`-qualified projection rules) are covered under phase 7 via
+  the same `guardResults` parametrization used for transition-machine
+  guards (phase 2); every guarded projection rule MUST carry a
+  `[label]`, and a projection with any unlabeled guard is skipped
+  with an explanatory comment.
 
 #### 51.13.2 Normative Statements
 

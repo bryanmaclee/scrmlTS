@@ -223,7 +223,11 @@ describe("S26 §51.13 phase 6 — generateMachineTestJs projection contract", ()
     expect(out).not.toContain('"projects .A => .Second"');
   });
 
-  test("projection with guards skipped with explanatory comment", () => {
+  test("projection with UNLABELED guards skipped with explanatory comment", () => {
+    // S28 phase 7 extends projection support to GUARDED projections —
+    // provided every guarded rule carries a `[label]`. An UNLABELED guard
+    // still skips the machine with an explanatory comment, parallel to
+    // phase 2's unlabeled-guard rule for transition machines.
     const registry = new Map();
     registry.set("Proj", {
       name: "Proj",
@@ -235,8 +239,8 @@ describe("S26 §51.13 phase 6 — generateMachineTestJs projection contract", ()
     });
     const out = generateMachineTestJs("/x/y.scrml", registry, new Map());
     expect(out).toContain("Skipped Proj");
-    expect(out).toContain("projection guards");
-    expect(out).toContain("phase 6 covers unguarded projections only");
+    expect(out).toContain("unlabeled `given` guard");
+    expect(out).toContain("phase 7");
     expect(out).not.toContain("[generated] projection machine Proj");
   });
 
