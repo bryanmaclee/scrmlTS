@@ -1716,7 +1716,11 @@ ${
                 if (peek().text == "=" && peek(1) && peek(1).text != "=") {
                     consume()
                     const result = collectExpr()
-                    if (blockContext != "meta" && name && name[0] == name[0].toUpperCase() && name[0] != name[0].toLowerCase()) {
+                    // Component-def requires BOTH uppercase-initial name AND markup RHS.
+                    // `const ASCII_WS = new Set(...)` must parse as const-decl, not
+                    // component-def (the latter would vacuum sibling decls into defChildren).
+                    const exprStartsWithMarkup = typeof result.expr == "string" && result.expr.trimStart().startsWith("<")
+                    if (blockContext != "meta" && exprStartsWithMarkup && name && name[0] == name[0].toUpperCase() && name[0] != name[0].toLowerCase()) {
                         nodes.push({
                             id: ++counter.next,
                             kind: "component-def",

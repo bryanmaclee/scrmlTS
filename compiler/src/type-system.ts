@@ -2816,6 +2816,7 @@ const LOGIC_SCOPE_GLOBAL_ALLOWLIST: ReadonlySet<string> = new Set([
   "fetch", "setTimeout", "clearTimeout", "setInterval", "clearInterval",
   "requestAnimationFrame", "cancelAnimationFrame",
   "performance", "crypto", "alert", "confirm", "prompt",
+  "URL", "URLSearchParams", "Buffer", "process",
   // Language keywords that may surface as idents after expression parsing
   "this", "self", "super", "event", "arguments",
   // scrml-specific — meta / compiler / SQL / error-context built-ins.
@@ -3772,12 +3773,44 @@ function annotateNodes(
       // Meta block.
       // ------------------------------------------------------------------
       case "meta": {
-        scopeChain.push("meta");
+        // §22.5.3: A `^{}` meta block captures the lexical scope at breakout.
+        // In practice, meta blocks are how server-side imports enter a module:
+        //   ^{ const { resolve, dirname } = await import("node:path") }
+        // The imported names must be visible in sibling logic blocks and in
+        // function bodies that follow. Two wrinkles in the current AST:
+        //   (1) A fresh scope push would lose bindings on pop — walk children
+        //       in the enclosing frame instead.
+        //   (2) The AST builder fragments `const { a, b } = await import(...)`
+        //       into three sibling nodes: a nameless const-decl, a bare-expr
+        //       holding `{ a, b } = await`, and an import-decl with empty
+        //       names. No single const-decl carries `a` or `b` as its name,
+        //       so the normal case "const-decl" binder never fires. Extract
+        //       the destructuring identifiers directly from bare-expr text so
+        //       those names are visible to downstream scope checks. Every
+        //       self-host module (module-resolver, bpp, pa, ri, ts, dg) uses
+        //       this pattern.
         const metaBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(metaBody)) {
-          for (const stmt of metaBody) visitNode(stmt);
+          for (const stmt of metaBody) {
+            if (stmt && stmt.kind === "bare-expr" && typeof (stmt as ASTNodeLike).expr === "string") {
+              const bareText = (stmt as ASTNodeLike).expr as string;
+              // Match `{ name1, name2, ... } = ...` (destructuring from an
+              // await import call). Capture the interior, split on commas.
+              const m = /^\s*\{\s*([^}]+)\}\s*=/.exec(bareText);
+              if (m) {
+                for (const part of m[1].split(",")) {
+                  // Support `{ original: alias }` → bind alias (RHS of colon).
+                  const nameRaw = part.includes(":") ? part.split(":").pop()! : part;
+                  const name = nameRaw.trim();
+                  if (name && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+                    scopeChain.bind(name, { kind: "variable", resolvedType: tAsIs() });
+                  }
+                }
+              }
+            }
+            visitNode(stmt);
+          }
         }
-        scopeChain.pop();
         resolvedType = { kind: "meta-splice", resultType: tAsIs(), parentContext: "meta" };
         break;
       }

@@ -646,11 +646,43 @@ describe("meta blocks", () => {
     expect(constNode.kind).toBe("const-decl");
   });
 
-  test("const with PascalCase name in logic block still produces component-def", () => {
+  test("const with PascalCase name + non-markup RHS produces const-decl", () => {
+    // Regression: the ast-builder used to classify ANY uppercase-initial const
+    // as component-def regardless of RHS. That vacuumed subsequent siblings
+    // into phantom defChildren and broke module-scope lookup in later function
+    // bodies (E-SCOPE-001 cascade). Component-def requires markup RHS.
     const node = firstNode("${ const MyComponent = 42; }");
-    const compNode = node.body.find(n => n.name === "MyComponent");
-    expect(compNode).toBeDefined();
-    expect(compNode.kind).toBe("component-def");
+    const decl = node.body.find(n => n.name === "MyComponent");
+    expect(decl).toBeDefined();
+    expect(decl.kind).toBe("const-decl");
+  });
+
+  test("const with UPPER_SNAKE_CASE name + non-markup RHS produces const-decl", () => {
+    const node = firstNode("${ const ASCII_WS = new Set([\"x\"]); }");
+    const decl = node.body.find(n => n.name === "ASCII_WS");
+    expect(decl).toBeDefined();
+    expect(decl.kind).toBe("const-decl");
+  });
+
+  test("const with PascalCase + markup RHS still produces component-def", () => {
+    const node = firstNode("${ const Card = <div>hi</div>; }");
+    const decl = node.body.find(n => n.name === "Card");
+    expect(decl).toBeDefined();
+    expect(decl.kind).toBe("component-def");
+  });
+
+  test("uppercase non-markup const does not vacuum subsequent sibling decls", () => {
+    // The defChildren attach pass collects following siblings into the first
+    // component-def it encounters. If `const ASCII_WS = ...` were mis-classified
+    // as component-def, `helper` would be absorbed as a defChild and no longer
+    // appear at the top-level body.
+    const src = "${ const ASCII_WS = new Set([\"x\"]); function helper() { return 1 } }";
+    const node = firstNode(src);
+    const helper = node.body.find(n => n.kind === "function-decl" && n.name === "helper");
+    expect(helper).toBeDefined();
+    // ASCII_WS is a const-decl, not a component-def — no vacuuming.
+    const ascii = node.body.find(n => n.name === "ASCII_WS");
+    expect(ascii.kind).toBe("const-decl");
   });
 });
 

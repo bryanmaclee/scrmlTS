@@ -3629,9 +3629,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           });
         } else {
         const { expr, span } = collectExpr();
-        // Check if this is a component definition (name starts with uppercase).
+        // Check if this is a component definition. Per SPEC §(component defs),
+        // a component-def requires BOTH an uppercase-initial name AND markup RHS
+        // (`const Button = < button>...</button>`). Uppercase names alone are
+        // not sufficient — `const ASCII_WS = new Set(...)` or `const VERSION = "1.0"`
+        // must parse as const-decl. Without the markup check the component-def
+        // would silently vacuum subsequent sibling declarations into defChildren.
         // In meta context, const declarations are always const-decl regardless of casing.
-        if (blockContext !== "meta" && name && name[0] === name[0].toUpperCase() && name[0] !== name[0].toLowerCase()) {
+        const exprStartsWithMarkup = typeof expr === "string" && expr.trimStart().startsWith("<");
+        if (blockContext !== "meta" && exprStartsWithMarkup && name && name[0] === name[0].toUpperCase() && name[0] !== name[0].toLowerCase()) {
           nodes.push({
             id: ++counter.next,
             kind: "component-def",
