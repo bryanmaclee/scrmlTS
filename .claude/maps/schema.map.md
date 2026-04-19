@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlTS
-# updated: 2026-04-17T17:00:00Z  commit: 41e4401
+# updated: 2026-04-19T22:00:00Z  commit: 74303d3
 
 ## TypeScript Types & Interfaces
 
@@ -22,7 +22,7 @@ CSSDeclaration: { prop, value, span, reactiveRefs?, isExpression? }
 CSSRule = CSSPropertyRule | CSSSelectorRule
 
 ### Error Effect Arm  [compiler/src/types/ast.ts:163-177]
-ErrorArm: { pattern, binding, handler, handlerExpr?, span } — Phase 3: handlerExpr on non-block arms
+ErrorArm: { pattern, binding, handler, handlerExpr?, span } — S28: handlerExpr walked by scope-checker (E-SCOPE-001 now fires in error-arm bodies; symmetric with propagate-expr binding push)
 LiftTarget = { kind:"markup", node } | { kind:"expr", expr, exprNode? }
 
 ### AST Nodes (~55 kinds)  [compiler/src/types/ast.ts:200-903]
@@ -37,11 +37,16 @@ Expressions: BareExprNode, HtmlFragmentNode, LiftExprNode, FailExprNode, Propaga
 Module: ImportDeclNode, UseDeclNode, ExportDeclNode, TypeDeclNode, ComponentDefNode
 Effects: TransactionBlockNode, CleanupRegistrationNode, WhenEffectNode (bodyExpr?), WhenMessageNode (bodyExpr?), UploadCallNode (fileExpr?, urlExpr?), DebounceCallNode, ThrottleCallNode
 
-### §19 Error-handling nodes (S21 codegen rewrite)  [ast.ts:717-756]
+### §19 Error-handling nodes  [ast.ts:717-756]
 FailExprNode: { kind:"fail-expr", enumType, variant, args?, argsExpr?, span } — codegens to `return { __scrml_error: true, type, variant, data };`
 PropagateExprNode: { kind:"propagate-expr", expr, exprNode?, binding?, span } — codegens to `const tmp = expr; if (tmp.__scrml_error) return tmp;` + optional bind
-GuardedExprNode: { kind:"guarded-expr", guardedNode, arms, span } — `!{ expr } catch .V { ... }` compiles to value-based error check (NOT try/catch)
+GuardedExprNode: { kind:"guarded-expr", guardedNode, arms:ErrorArm[], span } — `!{ expr } catch .V { ... }` compiles to value-based error check (NOT try/catch); S28 scope-checks arm.handlerExpr + binds caught-error
 ErrorEffectNode (standalone !{}): uses try/catch with type-name instanceof / tag check
+
+### Component Definition Node  [ast.ts:535-541]
+ComponentDefNode: { kind:"component-def", name:string, raw:string, span, defChildren?:ASTNode[] (attached at ast-builder.js:5708) }
+  **Documented contract (SPEC.md:6370):** `const Name = <element ...>` — RHS MUST be markup.
+  **Current impl (ast-builder.js:3634):** triggers on ANY `const/let Name = <expr>` where name[0] is uppercase, regardless of whether RHS is markup. See domain.map.md "Known bug — uppercase-const classification."
 
 ### ExprNode Types (19 kinds)  [compiler/src/types/ast.ts:1087-1420]
 ExprNode = IdentExpr | LitExpr | ArrayExpr | ObjectExpr | SpreadExpr | UnaryExpr | BinaryExpr | AssignExpr | TernaryExpr | MemberExpr | IndexExpr | CallExpr | NewExpr | LambdaExpr | CastExpr | MatchExpr | SqlRefExpr | InputStateRefExpr | EscapeHatchExpr
@@ -75,15 +80,22 @@ LogicBinding: { placeholderId, expr, reactiveRefs?, isConditionalDisplay?, varNa
 CGError: { code, message, span, severity }
 RewriteContext: { errors?, derivedNames?, dbVar? }
 
+### Machine Codegen Types  [compiler/src/codegen/emit-machines.ts]
+RuleBinding: { localName, fieldName }
+TransitionRule: { from, to, guard, label, effectBody, payloadBindings?, afterMs? }
+classifyTransition(newValueExpr, rules): "elidable" | "illegal" | "unknown"  — S28 slice 1-3 elision classifier
+emitElidedTransition(...): emits bare _scrml_reactive_set or IIFE retaining side-effect work (audit push / timer arm / effect body / state commit)
+
 ### Expression Parser Types  [compiler/src/expression-parser.ts:33-49]
 ESNode: { type:string, [key]:unknown } — minimal ESTree node
 ParseResult: { ast:ESNode|null, error:string|null }
 RewriteResult: { result:string, ok:boolean }
 
 ## Tags
-#scrmlTS #map #schema #ast #ExprNode #types #codegen #s21-error-handling
+#scrmlTS #map #schema #ast #ExprNode #types #codegen #s28 #component-def-bug
 
 ## Links
 - [primary.map.md](./primary.map.md)
+- [domain.map.md](./domain.map.md)
 - [master-list.md](../../master-list.md)
 - [pa.md](../../pa.md)

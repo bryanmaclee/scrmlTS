@@ -1,246 +1,132 @@
-# scrmlTS — Session 28 Wrap
+# scrmlTS — Session 29 Wrap
 
 **Date opened:** 2026-04-19
 **Date closed:** 2026-04-19 (single-day session)
-**Previous:** `handOffs/hand-off-28.md` (S27 wrap, rotated in as S28 starting brief)
-**Baseline entering S28:** 7,126 pass / 10 skip / 2 fail (26,187 expects / 309 files) at `75404a2`.
-**Final at S28 close:** **7,183 pass / 10 skip / 2 fail** (26,415 expects / 315 files) at `a15cdb6`.
+**Previous:** `handOffs/hand-off-29.md` (S28 wrap, rotated in as S29 starting brief)
+**Baseline entering S29:** 7,183 pass / 10 skip / 2 fail (26,415 expects / 315 files) at `bfad4c6`.
+**Final at S29 close:** **7,186 pass / 10 skip / 2 fail** (26,421 expects / 315 files) at `b189051`.
 
 ---
 
 ## 0. Close state
 
-### S28 commits — 9 unpushed (sent to master via `needs:push`)
-Tip: `a15cdb6`. Push coordination message dropped at `/home/bryan/scrmlMaster/handOffs/incoming/`.
+### S29 commits — 2 commits, both pushed to origin/main
+- `74303d3` — `fix(self-host/bpp): wrap content in ${} logic block + fix broken regex`
+- `b189051` — `fix(ast-builder): component-def requires markup RHS, not just uppercase name`
 
-### Uncommitted
-- `docs/SEO-LAUNCH.md` — same untouched edit, 4 sessions running.
+One external commit landed between mine (`2551fc7` — landing page "Null was a billion-dollar mistake" article link), not authored by this PA.
+
+### Uncommitted at wrap
+- `docs/SEO-LAUNCH.md` — same untouched edit, 6 sessions running. Still no action.
 
 ### Incoming
-`handOffs/incoming/` empty (only `read/` archive).
+- `handOffs/incoming/` empty (only `read/` archive).
 
 ### Cross-repo
-scrmlTSPub retirement still pending at master since S25.
+- scrmlTSPub retirement still pending at master since S25 (no update this session).
+
+### Self-host build state at wrap
+- PASS (5): `module-resolver`, `meta-checker`, `block-splitter`, **`body-pre-parser` (S29 fix)**, `tokenizer`
+- FAIL (5): `ast-builder` (59 err), `protect-analyzer` (31 err), `route-inference` (12 err), `type-system` (120 err), `dependency-graph` (20 err)
+- Before S29: module-resolver was masked-PASS (latent scope bug hidden by phantom-component vacuum). Now genuinely passing.
 
 ---
 
-## 1. Session theme — "validation elision arc + the small wins parade"
+## 1. Session theme — "bpp unlocked, then a compiler-bug arc uncovered"
 
-S28 had two distinct phases. **Phase A** (commits 1–3, ~half the session): the user-queued static-elision deep-dive plus full implementation. **Phase B** (commits 4–9): a chain of clean small/medium wins riding on the warm context.
-
-### S28 commit chain (origin)
-
-| # | Commit | Scope |
-|---|--------|-------|
-| 1 | `01f5847` | spec(§51.5.2): clarify validation elision — side effects still run. Tightens normative text — "SHALL NOT emit a runtime guard" was ambiguous once §51.11 audit + §51.12 timers + §51.3.2 effects were ratified. New normative permits compile-time-baked `rule` field under elision. |
-| 2 | `cb25aaa` | feat(§51.5.2): validation elision slice 1 — Cat 2.a/2.b. `classifyTransition` + `emitElidedTransition` for literal unit-variant RHS against unguarded wildcard rules. 22 tests. |
-| 3 | `59b35a1` | feat(§51.5): validation elision slices 2–4 — payload + E-MACHINE-001 + --no-elide. Cat 2.d (payload literals via balanced-paren scanner), Cat 2.f (compile-time E-MACHINE-001 via module-level CGError collector drained by codegen index), `setNoElide()` / `SCRML_NO_ELIDE=1` env var for CI dual-mode. 17 new tests. |
-| 4 | `17b8972` | fix(§51.3): parseMachineRules preserves multi-statement effect bodies. Replaces `raw.split(/[\n;]/)` with depth-tracking `splitRuleLines` so `{ @x = 1; @y = 2 }` stays one rule. 6 tests. |
-| 5 | `fdb43f0` | fix(§14.4): parseEnumBody splits single-line payload variants on commas. `splitTopLevel(variantsSection, ["\n", ","])` so `{ Pending, Success(value: number), Failed(error: string) }` registers all three variants instead of zero. Closes the slice-2 runtime-E2E gap. 5 tests + 2 backfilled. |
-| 6 | `2f3f95e` | feat(§51.13.1 phase 7): guarded projection-machine property tests. Mirrors phase 2's parametrization model — projection harness takes `guardResults` map keyed on rule label, generator emits one test per guarded rule + one terminal (unguarded fallback or `undefined` when all-guarded). Spec §51.13 + §51.13.1(d) updated. 8 tests. |
-| 7 | `6c1dfe7` | feat(§51.14): E-REPLAY-003 — reject cross-machine replay at compile time. §51.14.6 non-goal lifted. Reverse map `auditTarget → machineName` lets the replay validator detect when log's owning machine ≠ target's machine. Synthetic-log replays still permitted. 3 tests (1 modified, 2 new). |
-| 8 | `5c61438` | refactor: centralize user-fn extraction + fix bare-keyword gotcha. New `compiler/tests/helpers/extract-user-fns.js` replaces 8 duplicated regexes. Bare-word entries (`effect`, `lift`, `replay`, etc.) gain `(?!_\d)` negative lookahead so a user fn named `effect` no longer gets filtered as an internal helper. Doc note in `var-counter.ts`. |
-| 9 | `a15cdb6` | fix(§19): scope-check error-arm handler bodies + bind caught-error. Pre-S28 the `guarded-expr` case never walked arm.handlerExpr through scope checking — undeclared identifiers in handlers compiled cleanly. Symmetric with propagate-expr's binding push. 6 tests. Closes S25-queued item. |
-
-### §51.5 validation elision — closed end-to-end
-
-The static-elision deep-dive
-(`scrml-support/docs/deep-dives/machine-guard-static-elision-2026-04-19.md`)
-ratified Approach C — **validation work is elidable, side-effect work is
-spec-normative on every successful transition**. Implementation across 4
-slices in a single session, plus the §51.5.2 spec amendment that
-disambiguates the normative text.
-
-Coverage today:
-- Cat 2.a/2.b: literal unit-variant RHS against unguarded wildcard rule with no specific shadow → bare `_scrml_reactive_set` (or IIFE with side effects only).
-- Cat 2.d: payload variants like `Shape.Circle(10)` — same gates, balanced-paren classifier accepts the call shape.
-- Cat 2.f: trivially-illegal targets → compile-time `E-MACHINE-001` (picked up the §51.5.1 symmetric obligation).
-- Slice 4: `setNoElide()` / env-var `SCRML_NO_ELIDE=1` for CI dual-mode parity. §51.5.1 illegal detection runs BEFORE the no-elide gate (normative correctness obligation, not a performance optimization).
-
-Deferred (intentional):
-- Cat 2.c self-assignment no-op
-- Cat 2.e flow-sensitive `__prev` tracking (probably S30+, needs profiling data first)
-- Cross-function elision via parameter typing
-- Struct-machine cross-field invariant proof
-
-### Adjacent fixes that surfaced during S28
-
-| Bug | Surfaced | Fix |
-|---|---|---|
-| Multi-stmt effect bodies fragmented on `;` | S27 wrap noted | `splitRuleLines` with depth/string/comment tracking |
-| Single-line payload enum registers zero variants | Slice-2 runtime test | `splitTopLevel` with `["\n", ","]` |
-| Cross-machine replay silently nonsensical | §51.14.6 non-goal | Compile-time `E-REPLAY-003` |
-| User fn named `effect` filtered as internal helper | S27 wrap noted | `(?!_\d)` lookahead in shared `extract-user-fns.js` |
-| Error-arm handler body never scope-checked | S25 wrap noted | Per-arm scope-push w/ binding |
-
-### Files touched
-
-**Production code:**
-- `compiler/SPEC.md` — §51.5.2 normative amendment, §51.13.1 phase-7 description, §51.14.6 non-goal narrowing
-- `compiler/src/codegen/emit-machines.ts` — `classifyTransition`, `emitElidedTransition`, no-elide flag, machine-codegen error collector
-- `compiler/src/codegen/emit-machine-property-tests.ts` — phase-7 projection harness rewrite
-- `compiler/src/codegen/index.ts` — drain machine-codegen errors into the codegen errors list
-- `compiler/src/codegen/var-counter.ts` — naming-convention doc note
-- `compiler/src/type-system.ts` — `splitRuleLines`, payload enum comma-split, E-REPLAY-003, error-arm scope-push
-
-**Tests:**
-- `compiler/tests/helpers/extract-user-fns.js` — new shared helper
-- `compiler/tests/unit/gauntlet-s28/elision-cat-2a-2b.test.js` — 22 tests
-- `compiler/tests/unit/gauntlet-s28/elision-slice-2-3-4.test.js` — 17 tests
-- `compiler/tests/unit/gauntlet-s28/multi-stmt-effect-body.test.js` — 6 tests
-- `compiler/tests/unit/gauntlet-s28/payload-enum-comma-split.test.js` — 5 tests
-- `compiler/tests/unit/gauntlet-s28/projection-guard-phase-7.test.js` — 8 tests
-- `compiler/tests/unit/gauntlet-s28/error-arm-scope.test.js` — 6 tests
-- 8 S27 test files refactored to use `extractUserFns`
-- 3 S25 temporal tests retargeted (transition target validity now checked at compile time)
-- 1 S26 phase-6 test retargeted (unlabeled vs labeled-guarded projection)
-- 1 S27 cross-machine replay test flipped to assert E-REPLAY-003
+S29 opened with P3 self-host modernization, starting with body-pre-parser per the S28 recommendation. bpp.scrml unlocked in one structural fix plus one broken-regex fix. Moved to pa.scrml, hit a mysterious "every identifier undeclared including for-loop iter vars" scope-wipe inside `processDbBlock`. Deep-dive found the root cause was in the AST builder (`component-def` heuristic too aggressive), not the scope checker. Fixed that plus 3 coupled issues in one commit. S29 ended with the previously-hidden module-resolver latent bug fixed end-to-end, the full P3 queue better-understood, and 3 adjacent bugs captured for future arcs.
 
 ---
 
-## 2. Queued for S29 — **Next PA should be ready for deep work**
+## 2. Session log
 
-The remaining queue is no longer "small wins" territory. Each item below is a
-medium-to-large arc that benefits from a fresh context window.
+### Arc — P3 self-host modernization (picked option 1 from S28 queue)
 
-### Highest-priority deep arcs
+**Commit `74303d3`** — `fix(self-host/bpp): wrap content in ${} logic block + fix broken regex`. bpp.scrml moved from FAIL (3 errors) to PASS. Structural fix: content sat bare inside `<program>` (markup context); the `<` in `i < trimmed.length` was being scanned as a tag opener. Wrapping everything in `${ }` (the big-wrap idiom used by bs.scrml and module-resolver.scrml) resolved the E-CTX-003 AND the two E-IMPORT-001 errors. Also fixed a genuine bug in the source: `if (</>[—–]/.test(trimmed))` → `if (/[—–]/.test(trimmed))` — matched the JS original in parser-workarounds.js:22.
 
-1. **P3 self-host modernization.** The 2 pre-existing self-host fails
-   (`Bootstrap L3` and `tab.js exists`) trace to source files in
-   `compiler/self-host/` that haven't been kept current with scrml's
-   evolving strictness. Build-self-host current state:
-   - PASS: module-resolver, meta-checker, block-splitter, tokenizer
-   - FAIL: body-pre-parser (3 errs, `trimmed` unclosed), ast-builder
-     (47 errs, primarily `try/catch` not scrml + dynamic `import(URL)`
-     pattern compiler mangles), protect-analyzer (38 errs, `!==`),
-     route-inference (20 errs, `null` not scrml), type-system (116
-     errs, mostly `null`), dependency-graph (20 errs, `visit` undeclared)
+### Arc — pa.scrml translation attempt → compiler-bug deep-dive
 
-   Each module needs source modernization to match current scrml spec.
-   Not a single-arc fix — sustained translation work. ast.scrml is the
-   gnarliest because of the dynamic `await import(new URL(...).href)`
-   pattern in the parseExprToNode fallback chain (lines 31-42); the
-   compiler currently strips part of it producing malformed JS output
-   (saw `.href)` fragment in the stale dist). Recommend: scope a single
-   module first as a sample, decide whether the rest is mechanical
-   translation or genuinely blocked on language-feature gaps.
+Moved to pa.scrml (38 errors, next in the P3 queue). Mechanical ops (`!==` → `!=`, `===` → `==`) brought it to 28 errors. Then discovered a mysterious "all-scope-wiped" condition inside `processDbBlock` — even the function's own for-loop iter vars reported E-SCOPE-001. Deep-dive found the root cause was NOT in the scope checker but in the AST builder.
 
-2. **P5 ExprNode Phase 4d/Phase 5 — drop string fields.** Per master-list
-   §267: 15 of 17 consumer files were converted to ExprNode-first with
-   string fallback during S11. Remaining: component-expander.ts (needs
-   structural matching) and body-pre-parser.ts (inherently string-based).
-   Final step is to delete the legacy string expression fields from AST
-   types — that's the structural refactor that retires the string-form
-   surface. Risk: spread across many AST node types, broad blast radius.
+**Root cause:** `ast-builder.js:3634` treated ANY `const UpperName = ...` as a component-def regardless of RHS. An adjacent pass (`attachDefChildren`, lines 5695-5703) then vacuumed all subsequent sibling declarations — function-decls, classes, other consts — into the phantom component's defChildren. Scope-check doesn't descend into defChildren, which silenced every scope error for the swallowed helpers. In pa.scrml, `const ASCII_WS = new Set(...)` and `const CREATE_TABLE_RE = new RegExp(...)` both fired the bug; everything between them and the next barrier (export-decl) got absorbed.
 
-3. **Lift Approach C Phase 2.** Phase 2c-lite landed S18 (dead BS+TAB
-   reparse block removed); full Phase 2 involves `emitConsolidatedLift`
-   refactor for fragmented bodies.
+Minimal reproducer (15 lines) — see tab.test.js "uppercase non-markup const does not vacuum subsequent sibling decls".
 
-### Medium arcs (could fit in a normal session)
+### Project-mapper refresh
 
-4. **§51.13 phase 8 — guarded projection runtime parity.** Phase 7 (S28)
-   parametrized guard results for the test harness. A future phase could
-   inject real reactive-state to evaluate guards directly. Explicitly
-   deferred in S28 as "leapfrog of phase 2's input-synthesis deferral."
-   Only worth tackling once a phase-2 input-synthesis story exists.
+Ran between the deep-dive and the fix to surface side-effect risk. Confirmed fix surface is narrow (one predicate) but identified 3 lockstep changes needed: `tab.test.js:649` encoded the bug as test policy; `self-host/ast.scrml:1719` carries the same heuristic; module-resolver/bpp/pa rely on `^{}` destructuring imports which depend on a separate masked bug.
 
-5. **`< machine for=Struct>` cross-field invariants.** Approach C from the
-   2026-04-08 unification debate ratified `for Type` (broader than
-   `for EnumType`). The implementation was deferred. Compile-time
-   `E-MACHINE-005` paths and `self.field` references in guards are the
-   touchpoints. Adjacent to phase-7 in feel.
+### **Commit `b189051`** — `fix(ast-builder): component-def requires markup RHS, not just uppercase name`
 
-### Carried small items (probably one-shot)
+Four coupled changes in one commit:
+1. **ast-builder.js:3634** — require `expr.trimStart().startsWith("<")` in addition to uppercase-initial name.
+2. **self-host/ast.scrml:1719** — parity fix.
+3. **type-system.ts meta-case** — (a) remove the fresh scope push so `^{}` import bindings escape into the enclosing frame, and (b) extract destructuring patterns (`{ a, b } = ...`) directly from bare-expr text and bind the names, since the AST builder fragments them into three sibling nodes with no single decl carrying the name. Handles `{ name }` and `{ orig: alias }`. Surgical — a proper fix belongs in the AST builder.
+4. **LOGIC_SCOPE_GLOBAL_ALLOWLIST** — add `URL`, `URLSearchParams`, `Buffer`, `process`.
 
-6. **Async loading stdlib helpers.**
-7. **DQ-12 Phase B** — diagnostic quality work.
+**Tests:** flipped `tab.test.js:649` (was asserting `const MyComponent = 42` produces component-def — encoded the bug as policy). Added 3 positive tests.
 
-### Long-deferred design
-
-- **Approach C lin** (cross-function `lin:out` / `lin:in`) — still deferred.
+Suite 7183 → 7186 pass / 2 fail (pre-existing Bootstrap L3 + tab.js-path unchanged). Self-host `PASS module-resolver` confirms the exposed latent bug is resolved end-to-end. pa.scrml error count changed from 38 → 31 (mask is gone; errors are now real).
 
 ---
 
-## 3. Important design decisions made this session
+## 3. Adjacent bugs surfaced during the dive — NOT FIXED, queued for future arcs
 
-### Validation elision — Approach C (partial) is final
+These three bugs all fall out of the same "exported decls have their body stored as raw text" pattern and are visible once the component-def mask is gone. Fixing them requires AST-builder work (not just scope-chain patches).
 
-The radical-doubt deep-dive's SPARK hybrid is implemented. Key correction
-to the framing: "elision" is misleading. **Validation work** (variant
-extraction, matched-key resolution, throw construction) is elidable.
-**Side-effect work** (commit + audit + timer + effect body) is normative
-on every successful transition. The §51.5.2 spec amendment makes this
-explicit; the implementation honors it.
+### (a) `export class X { ... }` — class name never extracted
 
-### §51.5.1 illegal-detection runs BEFORE the no-elide gate
+The ast-builder produces an `export-decl` with `raw: "export class X {...}"`, `exportedName: null`, `exportKind: null`. The class name isn't parsed out. Consequence: `X` is never bound in any scope, so `new X(...)` anywhere else in the module is E-SCOPE-001.
 
-Discovered during slice-4 testing: if the no-elide flag returned
-`unknown` from the very top of `classifyTransition`, the §51.5.1
-illegal-detection would never fire under no-elide. That violates the
-"normative obligation, not optimization" framing — illegal detection
-must run regardless of debug knobs. The classifier now does illegal
-detection first, then short-circuits to `unknown` for elision purposes
-under no-elide. Tests cover both modes.
+Workaround in S28: every self-host module that exports classes (module-resolver's `ModuleError`, pa.scrml's `PAError`, etc.) was masked by the phantom-component vacuum. With the vacuum gone, these will now surface. module-resolver PASSES only because callers use the workaround of not re-referencing the class inside later scope-checked function bodies.
 
-### E-REPLAY-003 implementation — structural, no entry-shape change
+**Fix surface estimate:** parse the `raw` text when `exportKind` isn't extracted, or more robustly teach the AST-builder to recognize `export class Name` and emit a bound class-decl + export-decl pair. Tests would need updating.
 
-Could've added `machine: "M"` to every audit entry shape (breaking
-§51.11.4 contract) or used existing machineRegistry to derive
-`auditTarget → machineName` reverse map. Chose the latter. Synthetic
-logs (not declared as any machine's audit target) still pass through
-because the user is responsible for them.
+### (b) `export function X(...)` — body stored as raw string; scope-check never walks it
 
-### Phase 7 guard parametrization mirrors phase 2 (consistency over fidelity)
+`export-decl` stores the full function text (params, body) as a single `raw` field. No `function-decl` child is produced, no `params` array, no parsed `body`. Codegen clearly reads `raw` and produces working JS (bpp proves this). But the scope-check pass at type-system.ts only walks `function-decl` bodies, so exported function bodies are invisible to E-SCOPE-001 / E-ERROR-001 / lin checks.
 
-Surveyed 4 design options for phase-7 guarded projections. Picked
-Option A — parametrize guard results, mirroring phase 2's transition-
-guard treatment — over real reactive-state simulation (which would
-leapfrog phase 2's input-synthesis deferral) and over alternatives
-that either weakened the property test (structural-only) or generated
-auto-test gaps (skip with comment). Same labeled-guards constraint
-carries over.
+**Why this hides bugs:** every self-host module's public API (runPA, splitBlocks, tokenizeBlock, buildAST, etc.) is `export function` — so the exported entry points are scope-unchecked. Any `null`/`undefined`/bad-operator/undeclared-ident in those bodies slips through.
 
-### Bare-word internal-helper distinction — `_<digit>` is the marker
+**Fix surface estimate:** teach the AST-builder to produce a `function-decl` child for export-decl function exports (or mirror structure so scope-check descends). Likely touches many files. Could cascade into a flurry of genuine error reports across the self-host modules.
 
-The `genVar` mangle convention is `_scrml_<safe>_<N>` where N is a
-per-compile counter. The trailing `_<digit>` is the ONLY structural
-marker that distinguishes a mangled user function from a bare-word
-internal helper like `_scrml_effect`. Test filters that don't honor
-this distinction will silently swallow user functions named after
-internal helpers. Documented in `var-counter.ts`.
+### (c) Destructuring `const { a, b } = ...` fragmented in ALL contexts, not just meta
+
+Only worked around for meta blocks in commit `b189051` (via regex extraction from bare-expr text). The same fragmentation happens in regular logic — the AST builder produces:
+- `const-decl` with `name: ""`
+- `bare-expr` with `expr: "{ a, b } = ..."` and an `escape-hatch` exprNode marked `ParseError`
+- An orphan trailing node (import-decl / etc.)
+
+No names bind. Anyone writing `const { x, y } = obj` in user code gets `x` and `y` silently unbound.
+
+**Fix surface estimate:** AST-builder pattern parser. Extract all identifiers from the pattern, emit either multiple const-decls or a single pattern-decl with a names array. Scope binder loops over names. Medium-sized change but localized.
 
 ---
 
-## 4. Test infrastructure state
+## 4. Current queue for S30+
 
-- Test suite entry: `bun test compiler/tests/`.
-- Pretest hook: `scripts/compile-test-samples.sh`.
-- Suite at tip: **7,183 pass / 10 skip / 2 fail** / 26,415 expects / 315 files / ~5.5s.
-- Dual-mode parity: same numbers under default and `SCRML_NO_ELIDE=1`.
-- New gauntlet dir `compiler/tests/unit/gauntlet-s28/` (6 files, 64 tests).
-- New shared helper `compiler/tests/helpers/extract-user-fns.js` — 8 test files use it.
-- New CLI/env knob: `SCRML_NO_ELIDE=1` (slice-4).
+### Unblocked (next session can pick directly)
 
----
+1. **`^{}` destructuring — proper AST fix** (bug c above). Medium, localized to ast-builder.js. Should precede any more self-host translation so we're not working around it per-site.
 
-## 5. Agents available
+2. **Export-decl name extraction** (bugs a + b). Larger; will cascade. Recommend scoping first: draft the ast-builder change, run self-host build, inventory the new errors.
 
-Same primary roster as S22–S27. `scrml-deep-dive` was used once this
-session (the static-elision opener). No new agents staged.
+3. **P3 continued** — now that the mask is gone, the 5 still-failing self-host modules (ast, pa, ri, ts, dg) have more accurate error counts. Pre-S29: 47 / 38 / 20 / 116 / 20. Post-S29: 59 / 31 / 12 / 120 / 20. Net change is small (more scope-check coverage, same real-issue surface). pa.scrml is the smallest remaining; might be do-able once (c) lands.
 
----
+### Still carried from S28
 
-## 6. Recommended S29 opening sequence
-
-1. Check `handOffs/incoming/` — may have push-confirmation or scrmlTSPub-retirement updates from master.
-2. Verify origin/main at the new tip after master pushes (was `a15cdb6` at session close).
-3. **The remaining queue is deep work.** Open with intent: pick ONE deep arc and commit context to it. Don't try to slice a deep arc into "small wins" — the previous five sessions have already exhausted the small-wins surface around the machine cluster.
-4. Top recommendation: **P3 self-host modernization**. It's the work that closes the 2 pre-existing fails that have been carried since S18. Suggested approach: (a) start with `body-pre-parser.scrml` (only 3 errors, smallest), (b) use it as a translation pattern, (c) move outward. ast.scrml is gnarliest — defer until last.
-5. Alternative: **P5 Phase 4d-finish** if user prefers structural cleanup. Requires careful risk management (15 consumer files touched).
-6. If user wants something visible to end-users instead of internal: **`< machine for=Struct>` cross-field invariants** (item 5 in queue).
+4. P5 ExprNode Phase 4d/5 (delete legacy string fields)
+5. Lift Approach C Phase 2
+6. §51.13 phase 8 — guarded projection runtime parity
+7. `< machine for=Struct>` cross-field invariants
+8. Async loading stdlib helpers
+9. DQ-12 Phase B
+10. Approach C lin (long-deferred)
 
 ---
 
-## Tags
-#session-28 #closed #all-pushed #spec-§51.5.2-amended #validation-elision-shipped #cat-2a #cat-2b #cat-2d #cat-2f #no-elide-flag #§51.13-phase-7-shipped #e-replay-003 #multi-stmt-effect-fix #payload-enum-comma-fix #error-arm-scope-push #extract-user-fns-helper #queue-p3-selfhost #queue-p5-phase-4d #queue-machine-for-struct
+## 5. Non-compliance from map refresh
+
+- `master-list.md` header is 5 sessions stale (S23 / 6,889 pass). Entries missing for gauntlet-s24/s25/s26/s27/s28 test dirs, S28 elision, S27 replay, extract-user-fns helper, SCRML_NO_ELIDE env var.
+- `compiler/SPEC.md.pre-request-patch` — 12,414-line pre-amendment backup from 2026-04-11 sitting next to the authoritative 20,071-line SPEC.md. Grep-trap. Recommend deref to `../scrml-support/archive/spec-drafts/` or delete.
+- Uncertain: `docs/SEO-LAUNCH.md` uncommitted 5 sessions running; `benchmarks/fullstack-react/CLAUDE.md` agent-tooling in framework-comparison dir.

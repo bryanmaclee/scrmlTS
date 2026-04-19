@@ -1,13 +1,13 @@
 # build.map.md
 # project: scrmlTS
-# updated: 2026-04-17T17:00:00Z  commit: 41e4401
+# updated: 2026-04-19T22:00:00Z  commit: 74303d3
 
 ## Development Commands
 bun run compile <file|dir> — compile .scrml to HTML/CSS/JS via compiler/src/cli.js
 bun run test — run all tests (bun test compiler/tests/); pretest hook recompiles sample corpus
 bun run test:coverage — run tests with coverage reporting
 bun run watch — watch mode recompilation
-bun run bench — compile all samples/compilation-tests/ (781 .scrml files) with --timing
+bun run bench — compile all samples/compilation-tests/ (782 .scrml files) with --timing
 bun run security — compile samples + node --check JS validity on all *.client.js
 bun run lsp — start language server on stdio
 
@@ -34,8 +34,14 @@ serve.js — persistent compiler server
 ## CI/CD Pipeline
 No CI/CD configuration found (.github/workflows/, Dockerfile, etc. absent).
 
+## Dual-mode testing (S28)
+CI runs the suite twice for §51.5 elision parity:
+  1. Default — classifyTransition elides Cat 2.a/2.b/2.d literals.
+  2. SCRML_NO_ELIDE=1 — classifyTransition always returns "unknown"; full guard emits.
+Both modes must produce identical pass counts.
+
 ## Tags
-#scrmlTS #map #build #cli #bun
+#scrmlTS #map #build #cli #bun #s28-dual-mode
 
 ## Links
 - [primary.map.md](./primary.map.md)

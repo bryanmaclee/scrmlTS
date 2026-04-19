@@ -1,6 +1,6 @@
 # dependencies.map.md
 # project: scrmlTS
-# updated: 2026-04-17T17:00:00Z  commit: 41e4401
+# updated: 2026-04-19T22:00:00Z  commit: 74303d3
 
 ## Runtime Dependencies
 
@@ -21,21 +21,32 @@ puppeteer@^24.40.0 — Headless Chrome for browser E2E tests
 cli.js -> commands/{compile,dev,build,init,serve}.js
 api.js -> block-splitter.js, ast-builder.js, component-expander.ts, protect-analyzer.ts, route-inference.ts, type-system.ts, meta-checker.ts, dependency-graph.ts, code-generator.js, meta-eval.ts, module-resolver.js, lint-ghost-patterns.js, gauntlet-phase1-checks.js, gauntlet-phase3-eq-checks.js
 ast-builder.js -> tokenizer.ts, expression-parser.ts
+  owns `const Name = ...` → component-def classification at line 3634 (BUG: triggers on ANY uppercase-const regardless of RHS; non-markup RHS produces component-def node whose `defChildren` then vacuum siblings at lines 5697-5711)
 module-resolver.js -> fs (existsSync gate for E-IMPORT-006 on relative imports outside compile set)
 expression-parser.ts -> acorn, astring, types/ast.ts
-type-system.ts -> types/ast.ts; owns §51 machine `expandAlternation()` + E-MACHINE-014 duplicate-transition check
-codegen/index.ts -> codegen/{analyze,emit-html,emit-css,emit-server,emit-client,emit-library,emit-test,emit-worker,binding-registry,var-counter,utils,errors,source-map,type-encoding,collect,context,runtime-chunks,scheduling,ir}.ts
+type-system.ts -> types/ast.ts
+  owns §51 machine `expandAlternation()` (line 1902) + E-MACHINE-014 duplicate-transition check (line 1975)
+  owns §51.14 replay validation + reverse auditTarget→machineName map (S28 E-REPLAY-003) at line 7086-7150+
+  owns §51.13 projection-machine type/scope (phase 1-7)
+  owns §2a E-SCOPE-001 walk of logic-context ExprNode (S24) at line 2830+; S28 extends to guarded-expr arm.handlerExpr
+component-expander.ts -> block-splitter.js, ast-builder.js, expression-parser.ts
+  parseComponentDef (line 359) — re-parses component-def.raw via splitBlocks+buildAST; E-COMPONENT-021 fires when raw does not parse back to markup (would catch the non-markup-RHS case but siblings are already captured into defChildren)
+codegen/index.ts -> codegen/{analyze,emit-html,emit-css,emit-server,emit-client,emit-library,emit-test,emit-worker,emit-machines,emit-machine-property-tests,binding-registry,var-counter,utils,errors,source-map,type-encoding,collect,context,runtime-chunks,scheduling,ir}.ts
 codegen/emit-logic.ts -> codegen/{rewrite,emit-expr,emit-control-flow,emit-lift,reactive-deps,emit-predicates,emit-machines,var-counter,type-encoding}.ts, codegen/compat/parser-workarounds.js
-  owns §19 codegen: fail-expr (tagged-object return), propagate-expr (? check+return), guarded-expr (!{} inline catch via return-value check), error-effect (standalone !{} try/catch)
+  owns §19 codegen (fail / ? / !{} value-based rewrite, emit-logic.ts:632-756)
+codegen/emit-machines.ts -> codegen/{rewrite,errors}.ts
+  S28: classifyTransition (line 354) + emitElidedTransition (line 429) + module-level `_machineCodegenErrors` buffer (drainMachineCodegenErrors, clearMachineCodegenErrors) + `_noElide` env gate (setNoElide / SCRML_NO_ELIDE=1)
+codegen/emit-machine-property-tests.ts — phase 1-7 projection/guard property-test generator; S28 phase 7 adds guardResults map keyed on rule label (mirrors phase 2 parametrization)
 codegen/emit-expr.ts -> types/ast.ts, codegen/rewrite.ts (escape-hatch fallback)
 codegen/emit-control-flow.ts -> codegen/{var-counter,rewrite,emit-expr,emit-logic,emit-lift,emit-machines}.ts
 codegen/emit-event-wiring.ts -> codegen/{rewrite,emit-expr,emit-control-flow,type-encoding,context}.ts
 codegen/emit-html.ts -> codegen/{var-counter,utils,reactive-deps,rewrite,errors,binding-registry,emit-css,context}.ts
 codegen/emit-lift.js -> codegen/{rewrite,emit-expr,emit-logic,var-counter,utils}.ts
+codegen/emit-library.ts — Skips component-def ONLY if `(stmt.template || stmt.props)` (line 235) — has partial awareness of the misclassification bug but only in library mode; recovers name span by looking back for `const`/`let` (lines 284-294)
 codegen/rewrite.ts -> expression-parser.ts (rewriteReactiveRefsAST), codegen/var-counter.ts
 
 ## Tags
-#scrmlTS #map #dependencies #acorn #astring #bun
+#scrmlTS #map #dependencies #acorn #astring #bun #s27 #s28 #emit-machines
 
 ## Links
 - [primary.map.md](./primary.map.md)

@@ -1,13 +1,14 @@
 # config.map.md
 # project: scrmlTS
-# updated: 2026-04-17T17:00:00Z  commit: 41e4401
+# updated: 2026-04-19T22:00:00Z  commit: 74303d3
 
 ## Environment Variables
-No .env.example or .env.template found.
-No process.env references found in compiler source — the compiler is a pure local tool with no env var configuration.
+SCRML_NO_ELIDE — optional — S28 slice 4 — when set to "1" at module load, `classifyTransition` always returns "unknown" so the full machine-guard emits on every assignment; CI uses this to run the suite in dual-mode parity (emit-machines.ts:54)
+
+No .env.example or .env.template file. SCRML_NO_ELIDE is the only environment variable read by compiler source.
 
 ## Feature Flags
-No feature flags detected. The compiler uses CLI flags (--verbose, --convert-legacy-css, --embed-runtime, --self-host, --timing) passed via argv.
+--no-elide — CLI-equivalent via `setNoElide(true)` (emit-machines.ts:57); programmatic knob for unit tests
 
 ## Config Files
 
@@ -28,8 +29,15 @@ bench: bun run compiler/src/cli.js compile samples/compilation-tests/ --timing
 security: compile samples + node --check on output
 lsp: bun run lsp/server.js --stdio
 
+## CLI Flags (compiler/src/cli.js)
+--verbose — verbose compiler output
+--convert-legacy-css — one-shot css migration
+--embed-runtime — inline runtime chunks instead of import statements
+--self-host — load 11 self-hosted .scrml modules from compiler/self-host/
+--timing — emit per-stage timing for bench
+
 ## Tags
-#scrmlTS #map #config #bun #cli
+#scrmlTS #map #config #bun #cli #s28-no-elide
 
 ## Links
 - [primary.map.md](./primary.map.md)
