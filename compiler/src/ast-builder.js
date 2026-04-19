@@ -905,6 +905,62 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           break;
         }
         if (tok.kind === "PUNCT" && tok.text === "}") break;
+        // S27: match-arm-pattern boundary. When collectExpr has already
+        // consumed tokens (parts.length > 0) and the current token starts
+        // a NEW match-arm pattern (`.IDENT …=>`, `::IDENT …=>`, `else =>`,
+        // `_ =>`, `not …=>`), break so each arm parses independently.
+        // Pre-S27, a single-line `match x { .A => 1 .B => 2 }` collected
+        // both arms into one bare-expr; only the first arm reached the
+        // exhaustiveness checker.
+        // Safe as an always-on rule: `.IDENT =>` at depth 0 is unambiguous
+        // match-arm syntax — scrml has no other construct with that shape.
+        if (parts.length > 0) {
+          const startsArmPattern = (() => {
+            // `.IDENT =>` or `.IDENT(…)=>`  — enum-variant arm
+            if (tok.kind === "PUNCT" && (tok.text === "." || tok.text === "::")) {
+              const t1 = peek(1);
+              if (!t1 || t1.kind !== "IDENT" || !/^[A-Z]/.test(t1.text ?? "")) return false;
+              // Walk forward past an optional payload binding `(…)`
+              let i = 2;
+              if (peek(i)?.text === "(") {
+                let d = 1;
+                i++;
+                while (i < 20 && d > 0) {
+                  const tk = peek(i);
+                  if (!tk || tk.kind === "EOF") return false;
+                  if (tk.text === "(") d++;
+                  else if (tk.text === ")") d--;
+                  i++;
+                }
+              }
+              const arrow = peek(i);
+              return arrow && arrow.kind === "PUNCT" && (arrow.text === "=>" || arrow.text === "->");
+            }
+            // `else =>` — wildcard arm
+            if (tok.kind === "KEYWORD" && tok.text === "else") {
+              const arrow = peek(1);
+              return arrow && arrow.kind === "PUNCT" && (arrow.text === "=>" || arrow.text === "->");
+            }
+            // `_ =>` — wildcard alias
+            if (tok.kind === "IDENT" && tok.text === "_") {
+              const arrow = peek(1);
+              return arrow && arrow.kind === "PUNCT" && (arrow.text === "=>" || arrow.text === "->");
+            }
+            // `not …=>` — is-not arm (§42). Scan forward up to 6 tokens
+            // for `=>` before hitting a block opener.
+            if (tok.kind === "KEYWORD" && tok.text === "not") {
+              for (let i = 1; i < 6; i++) {
+                const tk = peek(i);
+                if (!tk || tk.kind === "EOF") return false;
+                if (tk.kind === "PUNCT" && (tk.text === "=>" || tk.text === "->")) return true;
+                if (tk.kind === "PUNCT" && tk.text === "{") return false;
+              }
+              return false;
+            }
+            return false;
+          })();
+          if (startsArmPattern) break;
+        }
         // Another statement-starting keyword is a boundary (do not consume).
         // Guard: angleDepth === 0 ensures we are NOT inside a tag expression
         // (e.g. <div if=visible>). Keywords used as HTML attributes must not

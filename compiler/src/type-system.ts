@@ -4713,28 +4713,80 @@ function checkUnionExhaustiveness(
  */
 function splitMatchArms(raw: string): string[] {
   if (!raw) return [];
+  // S27: char-level scanner that recognizes arm-header starts both after
+  // newlines AND inline on the same line. Pre-S27 splitMatchArms only
+  // split on line boundaries, so a single-line match body
+  //   `match x { .A => 1 .B => 2 }`
+  // collected both arms into one piece and only the first variant
+  // reached the exhaustiveness checker.
+  //
+  // Depth tracking: `{` `(` `[` increment; their counterparts decrement.
+  // String tracking: inside `"..."` / `'...'` / `` `...` ``, characters
+  // are literal — an arm-like substring inside a string is NOT a split.
   const arms: string[] = [];
-  const lines = raw.split(/\r?\n/);
-  let cur: string[] = [];
+  let cur = "";
   let depth = 0;
-  const isArmHeader = (line: string): boolean => {
-    const t = line.trimStart();
-    return /^\.\s*[A-Za-z_]/.test(t) ||
-           /^else\b/.test(t) ||
-           /^not\b/.test(t);
+  let inString: string | null = null;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  const looksLikeArmHeader = (pos: number): boolean => {
+    // Only consider arm-header starts preceded by whitespace (or at the
+    // very start of `raw` — but that case is already "the first arm" so
+    // we skip the split).
+    if (pos === 0) return false;
+    const prev = raw[pos - 1];
+    if (!/\s/.test(prev)) return false;
+    const rest = raw.slice(pos);
+    // `.IDENT` (PascalCase) — enum variant arm. Allow whitespace between
+    // `.` and the identifier (the tokenizer sometimes inserts space).
+    if (/^\.\s*[A-Z][A-Za-z0-9_]*/.test(rest)) return true;
+    // `::IDENT` — legacy variant arm
+    if (/^::[A-Z][A-Za-z0-9_]*/.test(rest)) return true;
+    // `else` / `not` keywords
+    if (/^else\b/.test(rest)) return true;
+    if (/^not\b/.test(rest)) return true;
+    // `_ =>` wildcard alias
+    if (/^_\s*(?:=>|:>|->)/.test(rest)) return true;
+    return false;
   };
-  for (const line of lines) {
-    if (depth === 0 && isArmHeader(line) && cur.length > 0) {
-      arms.push(cur.join("\n"));
-      cur = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    const next = raw[i + 1];
+
+    // End-of-line resets line-comment mode.
+    if (inLineComment) {
+      cur += ch;
+      if (ch === "\n") inLineComment = false;
+      continue;
     }
-    cur.push(line);
-    for (const ch of line) {
-      if (ch === "{") depth++;
-      else if (ch === "}") depth = Math.max(0, depth - 1);
+    if (inBlockComment) {
+      cur += ch;
+      if (ch === "*" && next === "/") { cur += next; i++; inBlockComment = false; }
+      continue;
     }
+    if (inString) {
+      cur += ch;
+      if (ch === "\\" && next !== undefined) { cur += next; i++; continue; }
+      if (ch === inString) inString = null;
+      continue;
+    }
+
+    // Enter string / comment modes BEFORE depth / arm-boundary checks
+    if (ch === "/" && next === "/") { inLineComment = true; cur += ch; continue; }
+    if (ch === "/" && next === "*") { inBlockComment = true; cur += ch; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { inString = ch; cur += ch; continue; }
+
+    if (depth === 0 && looksLikeArmHeader(i) && cur.trim().length > 0) {
+      arms.push(cur);
+      cur = "";
+    }
+    if (ch === "{" || ch === "(" || ch === "[") depth++;
+    else if (ch === "}" || ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+    cur += ch;
   }
-  if (cur.length > 0 && cur.some(l => l.trim().length > 0)) arms.push(cur.join("\n"));
+  if (cur.trim().length > 0) arms.push(cur);
   return arms;
 }
 
