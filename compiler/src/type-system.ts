@@ -1046,7 +1046,17 @@ function parseEnumBody(
   // -----------------------------------------------------------------------
   // Parse variants from variantsSection (same logic as before).
   // -----------------------------------------------------------------------
-  const lines = splitTopLevel(variantsSection, ["\n"]);
+  // §14.4 — split variants on BOTH newlines and top-level commas so a
+  // single-line declaration like
+  //   { Pending, Success(value: number), Failed(error: string) }
+  // yields three variants. splitTopLevel tracks `()` depth, so commas
+  // inside payload field lists stay with their variant. Pre-S28 this
+  // split on "\n" only; payload variants comma-separated on one line
+  // collapsed into a single malformed entry (`name` containing a comma
+  // fails the identifier regex) and the enum registered zero variants —
+  // surfaced as E-MACHINE-004 "Valid variants: ." when referenced from
+  // a `< machine for=Enum>` binding.
+  const lines = splitTopLevel(variantsSection, ["\n", ","]);
 
   for (const line of lines) {
     const trimmed = line.trim();

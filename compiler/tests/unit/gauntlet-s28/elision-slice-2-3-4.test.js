@@ -145,14 +145,62 @@ describe("S28 slice 2 — payload-variant literal RHS elision (Cat 2.d)", () => 
     expect(code).not.toContain("E-MACHINE-001-RT");
   });
 
-  // NOTE: Runtime E2E for payload-variant + machine binding is blocked by
-  // a pre-existing type-system gap — enums with payload-variant declarations
-  // don't always register their variants into the registry when referenced
-  // from a `< machine for=Enum>` binding (E-MACHINE-004 "Valid variants: ."
-  // reproduces from any such machine). The codegen-level elision path is
-  // exercised by the direct `emitTransitionGuard` call above; the full
-  // runtime E2E will be backfilled once the enum-registration gap is
-  // closed. Tracked as a follow-on in the S28 wrap.
+  test("runtime parity: payload data survives the elided commit", () => {
+    const src = `<program>
+\${
+  type Result:enum = { Pending, Success(value: number), Failed(error: string) }
+  @r: M = Result.Pending
+  @log = []
+  function finish() { @r = Result.Success(42) }
+}
+< machine name=M for=Result>
+  .Pending => .Success
+  .Pending => .Failed
+  * => .Success
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors, clientJs } = compileSrc(src);
+    expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
+    // `.Pending => .Success` shadows `* => .Success` at runtime precedence
+    // for prev=Pending, so elision can't prove a single matched key → full
+    // guard emits. This confirms the ambiguity gate from slice 1 still
+    // holds for payload targets.
+    expect(clientJs).not.toContain("§51.5 elided transition");
+
+    const { state } = runClientAndInvoke(clientJs, 1);
+    expect(state.r.variant).toBe("Success");
+    expect(state.r.data.value).toBe(42);
+    expect(state.log[0].rule).toBe("Pending:Success");
+  });
+
+  test("runtime parity: elided payload variant records *:target in audit log", () => {
+    // Pure wildcard with no specific shadowing — elision fires.
+    const src = `<program>
+\${
+  type Result:enum = { Pending, Success(value: number) }
+  @r: M = Result.Pending
+  @log = []
+  function finish() { @r = Result.Success(99) }
+}
+< machine name=M for=Result>
+  * => .Success
+  audit @log
+</>
+<p>x</>
+</program>
+`;
+    const { errors, clientJs } = compileSrc(src);
+    expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
+    expect(clientJs).toContain("§51.5 elided transition");
+
+    const { state } = runClientAndInvoke(clientJs, 1);
+    expect(state.r.variant).toBe("Success");
+    expect(state.r.data.value).toBe(99);
+    expect(state.log[0].rule).toBe("*:Success");
+  });
 });
 
 // ---------------------------------------------------------------------------
