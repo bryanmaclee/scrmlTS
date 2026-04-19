@@ -11,6 +11,7 @@
 //   splitMergedStatements(firstName, initStr, declType) — split merged declarations
 // ---------------------------------------------------------------------------
 
+${
 ^{
     const { rewriteExpr } = await import("../../compiler/src/codegen/rewrite.js");
 }
@@ -25,7 +26,7 @@ export function isLeakedComment(text) {
     if (!text || typeof text != "string") return false
     const trimmed = text.trim()
     // Contains em-dash or en-dash (common in English comments, rare in code)
-    if (</>[—–]/.test(trimmed)) return true
+    if (/[—–]/.test(trimmed)) return true
     // Starts with a capital letter followed by lowercase (natural language sentence)
     // and contains only word characters, spaces, and common punctuation (no operators, parens, dots)
     if (/^[A-Z][a-z]/.test(trimmed) && !/[(){}[\]=+<>@$.]/.test(trimmed)) return true
@@ -226,5 +227,6 @@ export function splitMergedStatements(firstName, initStr, declType) {
     }
 
     return statements.join("\n")
+}
 }
 </program>
