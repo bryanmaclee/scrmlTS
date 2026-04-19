@@ -17617,11 +17617,23 @@ The generated runtime guard:
   `transitions {}` block and for every `< machine>` declaration.
 - The lookup table SHALL be a constant object `{ "From.Variant:To.Variant": true }` or
   equivalent O(1) structure.
-- The compiler SHALL NOT emit a runtime guard for a transition that has been statically
-  proven legal. Redundant runtime checks are a performance defect.
-- The compiler SHALL emit a runtime guard for every transition that cannot be statically
-  proven legal or illegal. Omitting a runtime guard for a non-static transition is a
-  correctness defect.
+- The compiler SHALL NOT emit transition validation work — variant extraction,
+  matched-key resolution, or the rejection throw — for a transition that has been
+  statically proven legal. Redundant runtime checks are a performance defect.
+- Side-effect work mandated by other clauses — §51.11 audit push, §51.12 timer
+  arm/clear, §51.3.2 effect block execution, and the §51.5.2(5) state commit itself —
+  SHALL still execute on every successful transition, including those whose
+  validation has been elided. Validation elision does not change the observable
+  behavior of a successful transition; it only eliminates work that would have
+  re-derived an already-known fact.
+- The matched transition-table key recorded in audit entries (§51.11.4 `rule` field)
+  MAY be baked in as a compile-time string constant when the transition has been
+  statically proven legal. The recorded value SHALL be identical to what a runtime
+  resolution of the same `(from, to)` pair against the wildcard-fallback chain
+  (exact → `*:To` → `From:*` → `*:*`) would produce.
+- The compiler SHALL emit a runtime guard for every transition that cannot be
+  statically proven legal or illegal. Omitting a runtime guard for a non-static
+  transition is a correctness defect.
 
 ---
 
