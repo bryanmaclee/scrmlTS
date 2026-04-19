@@ -944,6 +944,23 @@ export function tokenizeSQL(content: string, baseOffset: number, baseLine: numbe
 // ---------------------------------------------------------------------------
 
 /**
+ * Lookahead helper: we're positioned at `:` after reading an ident that could
+ * be either an element selector (`button:hover { ... }`) or a property name
+ * (`color: red;`). Scan forward from `:` for the earliest `{`, `;`, or `}`:
+ *   `{` first → pseudo compound selector; continue reading as CSS_SELECTOR.
+ *   `;` or `}` first → property declaration.
+ * Returns true if this colon introduces a selector.
+ */
+function colonIntroducesSelector(content: string, colonPos: number): boolean {
+  for (let p = colonPos + 1; p < content.length; p++) {
+    const c = content[p];
+    if (c === "{") return true;
+    if (c === ";" || c === "}") return false;
+  }
+  return false;
+}
+
+/**
  * Tokenize the body of a CSS inline block (`#{...}`).
  *
  * The body contains CSS property declarations and/or selector rules.
@@ -952,10 +969,10 @@ export function tokenizeSQL(content: string, baseOffset: number, baseLine: numbe
  * Selector detection handles three forms:
  *   - Class/id/pseudo/combinator selectors starting with . # * [ > + ~ — always CSS_SELECTOR
  *   - Bare element selectors (e.g. body, div, h1) — identifier followed by { — CSS_SELECTOR
- *   - Property declarations — identifier followed by : — CSS_PROP
- *
- * The key disambiguation: after reading an identifier, skip whitespace, then
- * peek at the next character. `{` means selector; `:` means property.
+ *   - Compound element selectors (e.g. a.foo, button:hover, h1, h2) — ident followed by
+ *     a selector-continuation char (`.`, `#`, `[`, `,`, `>`, `+`, `~`, `*`) or by `:`
+ *     when the `:` resolves to a pseudo (first `{` before `;`/`}`) — CSS_SELECTOR
+ *   - Property declarations — identifier followed by : resolving to a value — CSS_PROP
  */
 export function tokenizeCSS(content: string, baseOffset: number, baseLine: number, baseCol: number): Token[] {
   const tokens: Token[] = [];
@@ -992,11 +1009,13 @@ export function tokenizeCSS(content: string, baseOffset: number, baseLine: numbe
       continue;
     }
 
-    // Identifier: could be a CSS property name OR a bare element selector (body, div, h1…).
-    // Disambiguation: read the identifier, skip whitespace, then peek at the next char.
-    //   Next char is `{` → bare element selector → emit CSS_SELECTOR (braces handled next iteration)
-    //   Next char is `:` → property declaration  → emit CSS_PROP + colon + value
-    //   Anything else    → emit CSS_PROP (degenerate / unknown, best-effort)
+    // Identifier: could be a CSS property name OR the start of an element-leading selector.
+    // Disambiguation after reading the ident + skipWs():
+    //   `{` → bare element selector (`body {`, `div {`)
+    //   `.`, `#`, `[`, `,`, `>`, `+`, `~`, `*` → compound selector (`a.foo`, `h1, h2`, `ul > li`)
+    //   `:` → ambiguous. Lookahead: if `{` appears before `;` or `}`, it's a pseudo selector
+    //         (`button:hover { ... }`); otherwise a property declaration (`color: red;`).
+    //   otherwise → property declaration (best-effort; degenerate input falls here).
     if (/[A-Za-z_\-]/.test(ch()) || (ch() === "-" && ch(1) === "-")) {
       const start = absOff();
       const l = line, c = col;
@@ -1006,12 +1025,32 @@ export function tokenizeCSS(content: string, baseOffset: number, baseLine: numbe
         advance();
       }
 
+      const beforeWs = pos;
       skipWs();
+      const hadWs = pos > beforeWs;
 
-      if (ch() === "{") {
+      const nextCh = ch();
+      const isCompoundSelectorChar =
+        nextCh === "." || nextCh === "#" || nextCh === "[" || nextCh === "," ||
+        nextCh === ">" || nextCh === "+" || nextCh === "~" || nextCh === "*";
+      const isPseudoThenBrace = nextCh === ":" && colonIntroducesSelector(content, pos);
+
+      if (nextCh === "{") {
         // Bare element selector: `body {`, `div {`, `h1 {`, etc.
         // Emit CSS_SELECTOR; the `{` will be consumed as CSS_LBRACE in the next iteration.
         tokens.push(makeToken("CSS_SELECTOR", ident, start, absOff(), l, c));
+      } else if (isCompoundSelectorChar || isPseudoThenBrace) {
+        // Compound selector beginning with an element name. Consume through `{` or `}`
+        // as one CSS_SELECTOR token. Examples: `a.foo`, `button:hover`, `h1, h2`, `ul > li`.
+        // Preserve a single space after the ident if source had whitespace (descendant
+        // combinator, selector-list separator, etc.); the continuation chars carry no
+        // separator themselves (e.g. `a.foo` is unspaced).
+        let sel = ident + (hadWs ? " " : "");
+        while (pos < content.length && ch() !== "{" && ch() !== "}") {
+          sel += content[pos];
+          advance();
+        }
+        tokens.push(makeToken("CSS_SELECTOR", sel.trim(), start, absOff(), l, c));
       } else {
         // Property declaration: `color: red`, `font-size: 14px`, `--custom-prop: val`, etc.
         tokens.push(makeToken("CSS_PROP", ident, start, absOff(), l, c));

@@ -399,3 +399,141 @@ describe("CSS bare element selector tokenization (css-brace-strip-fix)", () => {
     expect(propNames).not.toContain("body");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Element-leading compound selector tests (T16–T25) — scaffold-css-fix S30
+// ---------------------------------------------------------------------------
+//
+// Regression: before S30, tokenizeCSS recognized bare element selectors
+// (`body { ... }`) but mis-tokenized element-leading COMPOUND selectors.
+// Any `<element><suffix>` where suffix started with `:`, `.`, `#`, `[`, `,`,
+// `>`, `+`, `~`, or `*` fell to the declaration path and emitted as
+// `element: <suffix> { ... }` — breaking the selector AND eating sibling
+// rules (a single-line `button:hover { ... }` swallowed the subsequent
+// `label { ... }` rule). The default `scrml init` scaffold tripped this on
+// `button:hover { background: #f5f5f5; }` immediately after `bun link`.
+//
+// Fix: in the ident path, peek the next char after skipWs(). Compound
+// selector chars switch to selector mode; `:` uses a lookahead (first
+// `{` vs first `;`/`}`) to disambiguate pseudo-selector from declaration.
+
+describe("CSS element-leading compound selectors (scaffold-css-fix)", () => {
+
+  test("T16: element:pseudo — button:hover tokenizes as one CSS_SELECTOR", () => {
+    const tokens = tokenizeCSS("button:hover { background: red; }", 0, 1, 1);
+    const first = tokens.find(t => t.kind !== "EOF");
+    expect(first.kind).toBe("CSS_SELECTOR");
+    expect(first.text).toBe("button:hover");
+    // No CSS_PROP with text "button" anywhere
+    const props = tokens.filter(t => t.kind === "CSS_PROP").map(t => t.text);
+    expect(props).not.toContain("button");
+  });
+
+  test("T17: element.class — a.foo, div.box tokenize as CSS_SELECTOR", () => {
+    for (const sel of ["a.foo", "div.box", "span.highlight"]) {
+      const tokens = tokenizeCSS(`${sel} { color: red; }`, 0, 1, 1);
+      const first = tokens.find(t => t.kind !== "EOF");
+      expect(first.kind).toBe("CSS_SELECTOR");
+      expect(first.text).toBe(sel);
+    }
+  });
+
+  test("T18: element[attr] — button[disabled] tokenizes as CSS_SELECTOR", () => {
+    const tokens = tokenizeCSS("button[disabled] { opacity: 0.5; }", 0, 1, 1);
+    const first = tokens.find(t => t.kind !== "EOF");
+    expect(first.kind).toBe("CSS_SELECTOR");
+    expect(first.text).toBe("button[disabled]");
+  });
+
+  test("T19: selector list — h1, h2 tokenizes as one CSS_SELECTOR", () => {
+    const tokens = tokenizeCSS("h1, h2 { font-weight: bold; }", 0, 1, 1);
+    const first = tokens.find(t => t.kind !== "EOF");
+    expect(first.kind).toBe("CSS_SELECTOR");
+    expect(first.text).toBe("h1, h2");
+  });
+
+  test("T20: combinators — ul > li, ul + li, ul ~ li tokenize as one CSS_SELECTOR", () => {
+    for (const sel of ["ul > li", "ul + li", "ul ~ li"]) {
+      const tokens = tokenizeCSS(`${sel} { margin: 0; }`, 0, 1, 1);
+      const first = tokens.find(t => t.kind !== "EOF");
+      expect(first.kind).toBe("CSS_SELECTOR");
+      expect(first.text).toBe(sel);
+    }
+  });
+
+  test("T21: element#id — div#main tokenizes as CSS_SELECTOR", () => {
+    const tokens = tokenizeCSS("div#main { padding: 1rem; }", 0, 1, 1);
+    const first = tokens.find(t => t.kind !== "EOF");
+    expect(first.kind).toBe("CSS_SELECTOR");
+    expect(first.text).toBe("div#main");
+  });
+
+  test("T22: declaration path still works — property with : value ;", () => {
+    // Ensures the `:` lookahead correctly identifies declarations, not selectors.
+    const tokens = tokenizeCSS("color: red; font-size: 14px;", 0, 1, 1);
+    const props = tokens.filter(t => t.kind === "CSS_PROP").map(t => t.text);
+    expect(props).toContain("color");
+    expect(props).toContain("font-size");
+    // No CSS_SELECTOR tokens should exist
+    const selectors = tokens.filter(t => t.kind === "CSS_SELECTOR");
+    expect(selectors).toHaveLength(0);
+  });
+
+  test("T23: declaration without trailing semi — property with : value }", () => {
+    // `}` also terminates declaration; lookahead must return false (declaration).
+    const tokens = tokenizeCSS("{ color: red }", 0, 1, 1);
+    const props = tokens.filter(t => t.kind === "CSS_PROP").map(t => t.text);
+    expect(props).toContain("color");
+    const selectors = tokens.filter(t => t.kind === "CSS_SELECTOR");
+    expect(selectors).toHaveLength(0);
+  });
+
+  test("T24: mixed — inline one-liner + multi-line rules do not cross-contaminate", () => {
+    // The reproducing bug: a single-line `button:hover { ... }` swallowed the
+    // following `label { ... }` rule whole. This test pins that regression.
+    const cssContent = `button { padding: 0.5rem; }
+
+    button:hover { background: #f5f5f5; }
+
+    label { color: #777; }`;
+    const tokens = tokenizeCSS(cssContent, 0, 1, 1);
+    const selectors = tokens.filter(t => t.kind === "CSS_SELECTOR").map(t => t.text);
+    expect(selectors).toEqual(["button", "button:hover", "label"]);
+    // Every selector must have a following CSS_LBRACE + CSS_RBRACE pair.
+    const lbraces = tokens.filter(t => t.kind === "CSS_LBRACE").length;
+    const rbraces = tokens.filter(t => t.kind === "CSS_RBRACE").length;
+    expect(lbraces).toBe(3);
+    expect(rbraces).toBe(3);
+  });
+
+  test("T25: scaffold CSS round-trips through full pipeline without corruption", () => {
+    // End-to-end: from tokenizeCSS through parseCSSTokens through generateCss.
+    // Mirrors the default `scrml init` scaffold's #{} block.
+    const output = compileWithCss([
+      makeCssInlineWithRules([
+        {
+          selector: "button",
+          declarations: [{ prop: "padding", value: "0.5rem 1.5rem", span: span(0) }],
+          span: span(0),
+        },
+        {
+          selector: "button:hover",
+          declarations: [{ prop: "background", value: "#f5f5f5", span: span(0) }],
+          span: span(0),
+        },
+        {
+          selector: "label",
+          declarations: [{ prop: "color", value: "#777", span: span(0) }],
+          span: span(0),
+        },
+      ]),
+    ]);
+    const css = output.css;
+    // All three selectors must appear with braces intact.
+    expect(css).toContain("button { padding: 0.5rem 1.5rem; }");
+    expect(css).toContain("button:hover { background: #f5f5f5; }");
+    expect(css).toContain("label { color: #777; }");
+    // No corruption — no `button: hover` with space.
+    expect(css).not.toMatch(/button:\s+hover/);
+  });
+});
