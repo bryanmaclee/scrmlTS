@@ -107,10 +107,13 @@ describe("§51.5-b emitTransitionGuard", () => {
     const lines = emitTransitionGuard("r_x", "v", "__t", "M", []);
     const code = lines.join("\n");
 
-    // Should try: exact key, *:to, from:*, *:*
-    expect(code).toContain('|| __t["*:"');
-    expect(code).toContain('+ ":*"]');
-    expect(code).toContain('|| __t["*:*"]');
+    // Should try: exact key, *:to, from:*, *:* (S27: via __matchedKey
+    // ternary chain rather than the old `||` chain). Each fallback rung
+    // appears as a ternary test on the table.
+    expect(code).toContain('(__t[__key] != null) ? __key');
+    expect(code).toContain('(__t["*:" + __nextVariant] != null) ? ("*:" + __nextVariant)');
+    expect(code).toContain('(__t[__prevVariant + ":*"] != null) ? (__prevVariant + ":*")');
+    expect(code).toContain('(__t["*:*"] != null) ? "*:*"');
   });
 });
 

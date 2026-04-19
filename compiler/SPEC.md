@@ -18008,7 +18008,8 @@ ${
 </>
 
 // After `advance()` runs, @auditLog contains:
-//   [{ from: "Pending", to: "Processing", at: 1713456789012 }]
+//   [{ from: "Pending", to: "Processing", at: 1713456789012,
+//      rule: "Pending:Processing", label: null }]
 ```
 
 #### 51.11.3 Semantics
@@ -18037,13 +18038,16 @@ ${
 
 #### 51.11.4 Entry Shape
 
-Each audit entry is a frozen object with three fields:
+Each audit entry is an object with five fields:
 
 ```
 {
-  from: <previous value>,
-  to:   <new value>,
-  at:   <timestamp, Number — Date.now() at transition site>
+  from:  <previous value>,
+  to:    <new value>,
+  at:    <timestamp, Number — Date.now() at transition site>,
+  rule:  <string — the declared transition-table key that matched>,
+  label: <string | null — the guard label when the matched rule has one,
+           else null>
 }
 ```
 
@@ -18052,9 +18056,28 @@ enum-governed machines, struct objects for struct-governing machines. For
 derived machines (§51.9), the audit entry records the transition on the
 SOURCE variable — the projection is computed on read, not on transition.
 
-Future revisions MAY extend the entry shape (e.g. adding a `label` field for
-labeled guards or `cause` for event-sourced transitions). Extensions SHALL be
-additive only; existing fields SHALL NOT be renamed or retyped.
+**`rule`** is the canonical table key that permitted the transition, after
+wildcard fallback (§51.6). Precedence: exact `"From:To"` → `"*:To"` →
+`"From:*"` → `"*:*"`. Whichever key the runtime resolved to is the string
+recorded. Examples:
+
+- Rule `.Pending => .Processing` fires → `rule: "Pending:Processing"`.
+- Rule `* => .Failed` fires (no exact rule matched) → `rule: "*:Failed"`.
+- Rule `.Error => *` fires → `rule: "Error:*"`.
+- Rule `* => *` fires → `rule: "*:*"`.
+
+This lets replay and time-travel consumers reconstruct *which* declared rule
+was exercised, not just what the source and target variants were.
+
+**`label`** is the identifier from a labeled guard (§51.3.2 `given (expr)
+[labelName]`) attached to the matched rule. When the matched rule has no
+guard, or the guard is unlabeled, `label` is `null`. Labels are not unique
+across a machine, and a wildcard rule MAY carry a label — in both cases
+the recorded `label` reflects whatever the matched rule declared.
+
+Future revisions MAY extend the entry shape further (e.g. adding a `cause`
+field for event-sourced transitions). Extensions SHALL be additive only;
+existing fields SHALL NOT be renamed or retyped.
 
 #### 51.11.5 Interaction with Other Features
 
@@ -18083,10 +18106,16 @@ additive only; existing fields SHALL NOT be renamed or retyped.
   duplicates).
 - On every successful transition (table lookup + guards both pass + state
   commits + effects run), the compiler SHALL append a new entry
-  `{from, to, at}` to the audit target using an immutable-update pattern.
+  `{from, to, at, rule, label}` to the audit target using an
+  immutable-update pattern.
 - Rejected transitions SHALL NOT produce audit entries.
-- The audit entry shape SHALL be `{from, to, at}` with the semantics above.
-  Future additions to the shape SHALL be additive and SHALL NOT break
+- The audit entry shape SHALL be `{from, to, at, rule, label}` with the
+  semantics defined in §51.11.4.
+- `rule` SHALL be the canonical transition-table key the runtime resolved
+  to after wildcard fallback (exact → `*:To` → `From:*` → `*:*`).
+- `label` SHALL be the identifier from a labeled guard on the matched rule,
+  or `null` when no such label exists.
+- Future additions to the shape SHALL be additive and SHALL NOT break
   consumers of existing fields.
 
 ---

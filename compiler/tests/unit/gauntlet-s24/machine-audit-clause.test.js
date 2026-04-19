@@ -67,7 +67,8 @@ describe("S24 §51.11 — audit clause parses + compiles cleanly", () => {
     const { errors, clientJs } = compileSrc(src);
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     expect(clientJs).toContain("§51.11 audit log push");
-    expect(clientJs).toContain('_scrml_reactive_set("auditLog", (_scrml_reactive_get("auditLog") || []).concat([{ from: __prev, to: __next, at: Date.now() }]))');
+    // §51.11.4 (S27) — entry shape includes rule + label fields.
+    expect(clientJs).toContain('_scrml_reactive_set("auditLog", (_scrml_reactive_get("auditLog") || []).concat([{ from: __prev, to: __next, at: Date.now(), rule: __matchedKey, label: __auditLabel }]))');
   });
 
   test("machine without audit clause → no audit push emitted (opt-in)", () => {

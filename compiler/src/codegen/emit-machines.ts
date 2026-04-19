@@ -51,9 +51,18 @@ export function emitTransitionTable(tableName: string, rules: TransitionRule[]):
 
   for (const rule of rules) {
     const key = `${rule.from}:${rule.to}`;
+    // §51.11.4 (S27) — labels are baked into the table so the audit push can
+    // resolve them via the same wildcard-fallback chain that picks __rule.
+    // Entry shapes:
+    //   plain            "A:B": true
+    //   guarded          "A:B": { guard: true }
+    //   labeled          "A:B": { label: "foo" }
+    //   guarded+labeled  "A:B": { guard: true, label: "foo" }
+    const labelFrag = rule.label ? `, label: ${JSON.stringify(rule.label)}` : "";
     if (rule.guard) {
-      // Guard rules need runtime evaluation — store the guard expression
-      entries.push(`  "${key}": { guard: true }`);
+      entries.push(`  "${key}": { guard: true${labelFrag} }`);
+    } else if (rule.label) {
+      entries.push(`  "${key}": { label: ${JSON.stringify(rule.label)} }`);
     } else {
       entries.push(`  "${key}": true`);
     }
@@ -228,10 +237,17 @@ export function emitTransitionGuard(
   lines.push(`  var __prevVariant = (__prev != null ? (__prev.variant != null ? __prev.variant : __prev) : "*");`);
   lines.push(`  var __nextVariant = (__next != null ? (__next.variant != null ? __next.variant : __next) : "*");`);
   lines.push(`  var __key = __prevVariant + ":" + __nextVariant;`);
-  lines.push(`  var __rule = ${tableName}[__key]`);
-  lines.push(`    || ${tableName}["*:" + __nextVariant]`);
-  lines.push(`    || ${tableName}[__prevVariant + ":*"]`);
-  lines.push(`    || ${tableName}["*:*"];`);
+  // §51.11.4 (S27) — track both the matched rule value AND the canonical
+  // table key. The key is recorded in audit entries as the `rule` field so
+  // replay consumers can identify which declared rule fired after wildcard
+  // fallback. Precedence mirrors the `__rule` fallback chain: exact →
+  // "*:To" → "From:*" → "*:*".
+  lines.push(`  var __matchedKey = (${tableName}[__key] != null) ? __key`);
+  lines.push(`    : (${tableName}["*:" + __nextVariant] != null) ? ("*:" + __nextVariant)`);
+  lines.push(`    : (${tableName}[__prevVariant + ":*"] != null) ? (__prevVariant + ":*")`);
+  lines.push(`    : (${tableName}["*:*"] != null) ? "*:*"`);
+  lines.push(`    : null;`);
+  lines.push(`  var __rule = __matchedKey != null ? ${tableName}[__matchedKey] : null;`);
   lines.push(`  if (!__rule) {`);
   lines.push(`    throw new Error("E-MACHINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${machineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
   lines.push(`  }`);
@@ -306,14 +322,20 @@ export function emitTransitionGuard(
   // (No emission needed — left as a comment for future reviewers.)
   void rulesWithBindings;
 
-  // §51.11 (S24) — audit clause emission. After state commit and effect
-  // blocks, append an audit entry to the target reactive. Shape:
-  //   { from: __prev, to: __next, at: Date.now() }
+  // §51.11 (S24 / S27) — audit clause emission. After state commit and
+  // effect blocks, append an audit entry to the target reactive. Shape
+  // per §51.11.4:
+  //   { from: __prev, to: __next, at: Date.now(),
+  //     rule: __matchedKey, label: <from table entry or null> }
   // The concat-then-set pattern produces a fresh array each transition so
-  // the reactive fires its subscribers (mutating push would not).
+  // the reactive fires its subscribers (mutating push would not). `rule`
+  // is the canonical table key (with wildcards preserved); `label` is
+  // extracted from the matched table entry when it's an object carrying a
+  // `label` field (labeled guards per §51.3.2), else null.
   if (auditTarget) {
     lines.push(`  // §51.11 audit log push`);
-    lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([{ from: __prev, to: __next, at: Date.now() }]));`);
+    lines.push(`  var __auditLabel = (__rule != null && typeof __rule === "object" && __rule.label != null) ? __rule.label : null;`);
+    lines.push(`  _scrml_reactive_set("${auditTarget}", (_scrml_reactive_get("${auditTarget}") || []).concat([{ from: __prev, to: __next, at: Date.now(), rule: __matchedKey, label: __auditLabel }]));`);
   }
 
   // §51.12 (S25) — temporal transitions. After state commit, clear any
