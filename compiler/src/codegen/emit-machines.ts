@@ -315,7 +315,13 @@ export function emitTransitionGuard(
       lines.push(`  if (__matchedKey === "${effectKey}") {`);
       lines.push(`    var event = { from: __prev, to: __next };`);
       for (const p of prelude) lines.push(`    ${p}`);
-      lines.push(`    ${rule.effectBody}`);
+      // S27: effect-body text is raw scrml until we rewrite it. Before
+      // this pass, `@trace = @trace.concat([...])` inside an effect block
+      // emitted literal `@` tokens — invalid JS. rewriteExpr runs the
+      // same pipeline used for all other logic-context expressions
+      // (reactive-ref rewrite, match lowering, fn-keyword, etc.) so the
+      // effect body behaves like any other bare statement.
+      lines.push(`    ${rewriteExpr(rule.effectBody)}`);
       lines.push(`  }`);
     }
   }

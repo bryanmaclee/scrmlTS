@@ -100,7 +100,12 @@ describe("§51.5-b emitTransitionGuard", () => {
     const code = lines.join("\n");
 
     expect(code).toContain("var event = { from: __prev, to: __next }");
-    expect(code).toContain("@log = [...@log, event.to]");
+    // S27: effect body is rewritten through the logic pipeline, so the
+    // user's `@log = [...@log, event.to]` compiles to a reactive_set
+    // with reactive_get on the read side — NOT left as a literal `@`.
+    expect(code).toContain('_scrml_reactive_set("log"');
+    expect(code).toContain('_scrml_reactive_get("log")');
+    expect(code).toContain("event.to");
   });
 
   test("wildcard lookup fallback chain is present", () => {
