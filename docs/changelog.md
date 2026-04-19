@@ -2,11 +2,388 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Baseline (2026-04-17 after S22 §1a + §1b + §51.9 slices 1 + 2): **6,875 tests passing / 10 skipped / 2 failing** (25,520 expects across 277 files). 2 remaining self-host fails deferred per user.
+Baseline (2026-04-19 after S28 — validation elision + 5 adjacent fixes): **7,183 tests passing / 10 skipped / 2 failing** (26,415 expects across 315 files). Same 2 pre-existing self-host fails since S18, deferred for the next deep-arc session.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-19 (S28 — validation elision arc + 5 adjacent fixes)
+
+The S27-queued static-elision deep-dive shipped end-to-end across four
+codegen slices plus a §51.5.2 spec amendment. Five additional gaps closed
+on the warm context: §51.13 phase 7 (guarded projections), §51.14
+E-REPLAY-003 (cross-machine replay), two long-standing parser bugs,
+test-helper centralization, and §19 error-arm scope-push (S25-queued).
+Suite 7,126 → 7,183 pass (+57 new tests). Dual-mode parity verified
+(default vs. `SCRML_NO_ELIDE=1`).
+
+- **§51.5 validation elision (4 slices + spec).** `classifyTransition` +
+  `emitElidedTransition` in `emit-machines.ts` drop variant extraction,
+  matched-key resolution, and the rejection throw for transitions the
+  compiler can prove legal at compile time. Side-effect work — §51.11
+  audit push, §51.12 timer arm/clear, §51.3.2 effect block, §51.5.2(5)
+  state commit — is preserved on every elided site (spec normative).
+  Coverage: Cat 2.a/2.b literal unit-variant against unguarded wildcard
+  rule with no specific shadow; Cat 2.d payload constructors via
+  balanced-paren scanner; Cat 2.f trivially-illegal target → compile-
+  time **E-MACHINE-001** (closes §51.5.1's symmetric obligation). Slice
+  4 adds `setNoElide()` / `SCRML_NO_ELIDE=1` env var for CI dual-mode
+  parity. §51.5.1 illegal detection runs BEFORE the no-elide gate
+  (normative obligation, not optimization). Spec §51.5.2 normative
+  bullets rewritten to clarify "runtime guard" = validation work
+  specifically. Commits `01f5847` `cb25aaa` `59b35a1`. Backed by
+  `scrml-support/docs/deep-dives/machine-guard-static-elision-2026-04-19.md`.
+- **§51.13 phase 7 — guarded projection-machine property tests.** Mirrors
+  phase 2's parametrization model. Inlined projection harness takes a
+  `guardResults` map keyed on rule label; generator walks each source
+  variant's rules in declaration order emitting one test per guarded
+  rule (truthy case) plus a terminal test (unguarded fallback or
+  `undefined` when all-guarded). Same labeled-guards constraint carries
+  over from phase 2. Commit `2f3f95e`.
+- **§51.14 E-REPLAY-003 — cross-machine replay rejection.** §51.14.6
+  non-goal lifted. Reverse map `auditTarget → machineName` via existing
+  `machineRegistry` lets the compile-time validator detect when `@log`
+  is the audit target of machine A and `@target` is governed by
+  machine B. Synthetic-log replays (logs not declared as any machine's
+  audit target) still permitted — user-managed. No audit-entry-shape
+  change required. Commit `6c1dfe7`.
+- **§51.3 multi-statement effect bodies.** `parseMachineRules` previously
+  split rule lines on `raw.split(/[\n;]/)`, which fragmented effect
+  bodies containing `;` like `.A => .B { @x = 1; @y = 2 }` into three
+  broken lines (silent — first rule had unterminated brace, second was
+  dropped). Replaced with depth-tracking `splitRuleLines` that respects
+  `{}` / `()` / `[]` depth, strings (single/double/backtick), and
+  comments (line/block). Surfaced in S27 wrap. Commit `17b8972`.
+- **§14.4 single-line payload enums.** `parseEnumBody` split the variants
+  section on `\n` only, so a declaration like
+  `{ Pending, Success(value: number), Failed(error: string) }` collapsed
+  into one "line" that the payload branch silently rejected, registering
+  zero variants. Downstream symptom: any `< machine for=Result>` reference
+  fired E-MACHINE-004 "Valid variants: ." (empty list). Fixed by splitting
+  on `["\n", ","]` at top level — `splitTopLevel` already tracks `()`
+  depth so payload field commas stay with their variant. Backfilled the
+  slice-2 runtime-E2E tests deferred earlier in the session. Commit `fdb43f0`.
+- **§19 error-arm handler scope-push (S25 queue).** Pre-S28 the
+  `guarded-expr` case in `type-system.ts` did exhaustiveness analysis on
+  `!{}` arms but never walked arm.handlerExpr through the scope checker —
+  undeclared idents in handlers compiled cleanly, and the caught-error
+  binding (`::X(e) -> use(e)`) was invisible. Symmetric with propagate-
+  expr's binding push: enter a child scope per arm, bind `arm.binding`,
+  walk the handler, pop. Commit `a15cdb6`.
+- **Test-helper centralization + bare-keyword gotcha.** New
+  `compiler/tests/helpers/extract-user-fns.js` replaces 8 duplicated
+  `knownInternal` regexes across S27/S28 test files. Bare-word entries
+  (`effect`, `lift`, `replay`, `subscribe`, etc.) gain `(?!_\d)` negative
+  lookahead so a user fn named `effect` (which mangles to `_scrml_effect_5`)
+  no longer gets filtered as the internal `_scrml_effect` helper. Doc
+  comment in `var-counter.ts` documents the `_scrml_<safe>_<N>` mangle
+  convention. Commit `5c61438`.
+- **Regression tests (+64).** New `compiler/tests/unit/gauntlet-s28/`
+  with 6 files: elision slice-1 (22 tests), slices 2-4 (17 tests),
+  multi-stmt effect body (6), payload-enum comma-split (5), projection-
+  guard phase-7 (8), error-arm scope (6). Plus 8 S27 test files refactored
+  to use the shared helper, 3 S25 temporal tests retargeted (assignments
+  to undeclared targets are now compile-errors), 1 S26 phase-6 test
+  retargeted (unlabeled vs labeled-guarded projection), 1 S27 cross-
+  machine replay test flipped to assert E-REPLAY-003.
+
+### 2026-04-19 (S27 — §2b G free audit/replay shipped + 4 silent runtime fixes)
+
+Single-arc session: §2b G (the audit/replay deep-dive item) shipped end-
+to-end across two slices, but the real story was the four pre-existing
+silent-runtime bugs that surfaced during testing. S26's auto-property-
+test harness synthesized its own `{variant, data}` objects which
+ironically masked the fact that the real transition guard was broken
+for unit-variant enums. Suite 7,069 → 7,126 pass (+57 new tests).
+
+- **§51.11.4 audit entry shape extension.** Audit entries gain `rule` +
+  `label` fields alongside `from` / `to` / `at`. `rule` is the canonical
+  wildcard-fallback-resolved table key (`"A:B"` exact, `"*:B"` wildcard
+  target, etc.); `label` is the identifier from a `[label]` clause on the
+  matched rule. `emitTransitionTable` bakes labels into table entries
+  (`{ guard: true, label: "foo" }`); `emitTransitionGuard` computes
+  `__matchedKey` alongside `__rule` via a parallel ternary fallback chain.
+  Commit `224847d`.
+- **§51.11 audit completeness — timer transitions + freeze.**
+  `_scrml_machine_arm_timer` signature extended with a `meta` payload
+  carrying `auditTarget` + `rulesJson`. Timer expiry now both pushes the
+  audit entry AND re-arms downstream temporal rules so chained temporals
+  (A after 1s => B, B after 1s => C) cascade automatically. Every audit
+  entry is `Object.freeze`'d on both push paths (transition guard and
+  timer expiry) per §51.11.4. Commit `267ed61`.
+- **§51.14 replay primitive — `replay(@target, @log[, index])`.** New
+  spec section (~210 lines). Function-call syntax (no new keyword);
+  target is name-string via @-ref, log is reactive_get, index is any
+  integer expression. Runtime helper `_scrml_replay(name, log, endIdx?)`
+  bypasses transition guard, audit push, and clears pending temporal
+  timers; fires subscribers + derived propagation + effects normally.
+  Compile-time recognition in `emit-expr.ts` structured-call path +
+  fallback `rewriteReplayCalls` pass for non-structured contexts.
+  Commit `00ba7d3`.
+- **§51.14 replay compile-time validation (G2 slice 2).** **E-REPLAY-001**
+  (target must be machine-bound reactive) and **E-REPLAY-002** (log must
+  be declared reactive) via duck-typed recursive AST walker that visits
+  every `CallExpr` whose callee is `ident "replay"`. Two sub-messages
+  for E-REPLAY-001 distinguish "declared but not machine-governed" from
+  "undeclared in scope". Commit `2453062`.
+- **§51.5 unit-variant transitions crash at runtime — fix.** Pre-S27
+  `__prev.variant` extraction fell back to `"*"` for bare-string unit
+  variant values, producing key `"*:*"` that missed every declared rule
+  and threw E-MACHINE-001-RT. Every machine-governed unit-variant enum
+  was unusable in practice. Hidden by shape tests + the S26 property-
+  test harness that synthesized its own variant objects. Three real
+  end-to-end tests now compile + execute the guard via SCRML_RUNTIME in
+  a `Function()` sandbox. Commit `eff8188`.
+- **§51.5 guarded wildcard rules fire guard + effect — fix.** `* => .X
+  given (…)` was treated as unguarded at runtime because the guard /
+  effect comparisons keyed on `__key` (literal `prev:next`) instead of
+  the `__matchedKey` the runtime actually resolved to. One-line fix in
+  each branch. Commit `abfe637`.
+- **§51.5 effect-body @-refs compile through `rewriteExpr` — fix.** Effect
+  bodies like `{ @trace = @trace.concat(["x"]) }` emitted literal `@`
+  tokens (invalid JS) because emit-machines inserted `rule.effectBody`
+  raw. Wrapped in `rewriteExpr` so effect bodies behave like any other
+  bare statement. Commit `73225f7`.
+- **§18 match-arm expression-only form on a single line — fix.**
+  `match x { .A => 1 .B => 2 }` triggered E-TYPE-020 because
+  `splitMatchArms` only split on newlines, hiding B and later arms from
+  the exhaustiveness checker. Replaced with a char-level scanner that
+  tracks brace/paren/bracket depth, strings, and comments, recognizing
+  arm-header starts inline. Defensive `collectExpr` tightening in
+  `ast-builder.js` as a second layer. Commit `5d0bdc6`.
+- **Runtime-test convention established.** Several S27 tests execute
+  compiled output via `SCRML_RUNTIME` in a `Function()` sandbox to catch
+  silent-runtime bugs. Pattern: regex-extract user fn names from compiled
+  JS, closure-capture them into a `userFns` object. New compiler features
+  that claim runtime behavior should use this pattern rather than shape-
+  only assertions — every pre-existing bug closed in S27 went undetected
+  for months under shape-only testing.
+
+### 2026-04-18 (S26 — §2b F: auto-generated machine property tests, phases 1-6)
+
+§51.13 `--emit-machine-tests` shipped end-to-end across six phases in a
+single session. Slogan: **machine = enforced spec**. The declared
+transition table IS the oracle; generated tests confirm the compiled
+machine refuses everything the table doesn't allow. Suite 7,006 → 7,069
+pass (+63 new tests).
+
+- **§51.13 phase 1 — exclusivity (property a).** Generator emits a bun:test
+  suite per `< machine>` declaration: for every reachable variant V and
+  every variant W in the governed enum, declared `(V → W)` pairs SHALL
+  succeed and undeclared pairs SHALL throw E-MACHINE-001-RT. New
+  `compiler/src/codegen/emit-machine-property-tests.ts` (425 LOC) +
+  CLI flag `--emit-machine-tests` writes `<base>.machine.test.js`
+  alongside the user-test `<base>.test.js`. Inlined `tryTransition`
+  harness uses `globalThis._scrml_reactive_store` so tests don't bleed
+  into the real reactive runtime. Commit `24089c5`.
+- **Machine guard rewriteExpr fix.** `< machine>` rule guards captured raw
+  scrml text but emitted unmodified, so guards referencing `@reactive`
+  refs emitted invalid JS (raw `@name` token). Now run through `rewriteExpr`
+  before emission. Same root cause that S27 found in effect bodies.
+  Commit `b84dadf`.
+- **Parser fix — typed `const @name:` decls preserve initializer.** Pre-
+  S26 `const @gate: boolean = true` lost its `= true` initializer because
+  the typed-const parser branched into a path that didn't capture the
+  RHS. Surfaced while writing phase-1 tests that needed reactive-bound
+  gate vars. Commit `19e8b29`.
+- **§51.13 phase 2 — guard coverage (property c).** Each LABELED `given`
+  guard SHALL receive one passing test (truthy → succeeds) and one
+  failing test (falsy → E-MACHINE-001-RT). Tests parametrize the guard
+  result rather than evaluating the real expression — harness takes a
+  `guardResults: Map<ruleKey, boolean>` and dispatches on it. Real-
+  expression evaluation deferred to a future phase that needs input
+  synthesis. Unlabeled guards skip the enclosing machine entirely so
+  every guard in a generated suite has a human-readable identifier.
+  Commit `81d6d5c`.
+- **§51.13 phase 3 — payload-bound rule support.** §51.3.2 binding-group
+  rules now in scope. The harness is binding-transparent — it never
+  invokes the real machine IIFE, so declared destructuring is never
+  executed in generated tests. Filter relaxed accordingly. Commit `4bd9ca6`.
+- **§51.13 phase 4 — wildcard rule support.** `*` as the from-variant
+  matches any already-reachable variant; `*` as the to-variant expands
+  the reachable set to every variant declared on the governed enum.
+  Pair resolution follows the four-step fallback chain used by
+  `emitTransitionGuard`: exact → `*:To` → `From:*` → `*:*`. Harness
+  tracks the matched table key so `guardResults` keys on the matched
+  (possibly-wildcard) rule rather than the concrete input pair. Commit
+  `3156b5d`.
+- **§51.13 phase 5 — temporal rule support.** §51.12 temporal rules
+  contribute exclusivity + guard-coverage tests just like non-temporal
+  rules — the `(.From, .To)` pair is a declared transition regardless of
+  how it fires. Test titles get an `(after Nms)` annotation so temporal
+  rules are visible in the suite. EXPLICITLY OUT OF SCOPE: timer lifecycle
+  itself (arm/clear/reset on variant entry/exit/reentry). Verifying that
+  needs a live runtime with fake-timer control; the self-contained
+  harness doesn't invoke runtime code. Generated file emits a header
+  comment surfacing this scope boundary so users cover timer lifecycle
+  with hand-written integration tests. Commit `eecaa89`.
+- **§51.13 phase 6 — projection machine support.** §51.9 derived
+  machines emit through a distinct path. No transition table; reading
+  `@projected` delegates through `_scrml_project_<Name>(source)`. The
+  property under test is **(d) Projection correctness** — for every
+  source variant V, the projection function returns the target variant
+  declared by the first matching rule. Generated suite inlines a minimal
+  copy of the projection function (mirroring `emitProjectionFunction`)
+  and emits one test per source variant. Phase 6 covered unguarded
+  projections only; guarded projections deferred to phase 7 (shipped
+  S28). Commit `0af336e`.
+
+### 2026-04-18 (S25 — §2h lin redesign cleanup + §51.12 temporals + §51.11 audit clause)
+
+Two arcs in one session: closing the lin redesign work (Approach B —
+restricted intermediate visibility) and shipping §51.12 temporal
+transitions (`.From after Ns => .To`). Plus the §51.11 `audit @log`
+clause that S27 would later build replay on top of. Suite 6,949 →
+7,006 pass (+57 new tests).
+
+- **§35.5 E-LIN-005 — reject let/const/lin shadowing an enclosing lin.**
+  Per Approach B, intermediate visibility means a lin in an outer scope
+  is visible (and consumable) by inner scopes, but cannot be SHADOWED
+  by an inner declaration of the same name. New error fires for `let x`,
+  `const x`, and `lin x` declarations that would shadow an enclosing
+  `lin x`. Commit `6f5b90c`.
+- **§35.5 push scope for while-stmt so E-LIN-005 fires in while bodies.**
+  Companion fix — without scope-push, while-body declarations weren't
+  checked against the enclosing lin. Commit `b6c4f5d`.
+- **§51 emit effect blocks for rules without a `given` guard — fix.**
+  Pre-S25 the effect-block emission filter ran over `guardRules`, which
+  silently dropped effect-only rules (no guard). Now uses `effectRules`.
+  Commit `3556b22`.
+- **§35.1 / §35.2 wording — Approach-B restricted intermediate visibility.**
+  Spec text aligned with the implemented semantics: lin variables are
+  visible across all sibling and child scopes within the same `${}`
+  block, but shadowing is rejected. Companion §35.2.2 ratifies cross-
+  `${}` block lin via the same model. Commits `0e52306` `83101c7`.
+- **§2a scope push for match-arm-block + if-stmt branches.** Match arms
+  and if branches each get a fresh child scope so declarations inside
+  one branch don't leak into siblings. E-SCOPE-001 now fires correctly
+  for refs inside an arm body that don't resolve up the chain. Commits
+  `5ab63ac` `4b1e8b2`.
+- **§35.5 E-LIN-006 — reject lin consumption inside `<request>` /
+  `<poll>` body.** Async lifecycle elements re-execute their body on
+  every refresh cycle, which would consume the lin multiple times.
+  Compile-time check + diagnostic naming the lin and the lifecycle
+  element. Commit `e171e33`.
+- **`docs/lin.md` how-to guide.** User-facing walkthrough of the lin
+  keyword: declaration, consumption, scope visibility, shadowing rules,
+  E-LIN-005/006 examples. Commit `3b8f2db`.
+- **§51.3.2 machine opener migration — sentence form → attribute form.**
+  `< machine OrderFlow for OrderStatus { ... } /` (sentence form)
+  migrated to `< machine name=OrderFlow for=OrderStatus> ... </>`
+  (attribute form). The attribute form aligns with how every other
+  custom-element opener parses. The old sentence form stays parseable
+  for back-compat but the canonical form is now the attribute one.
+  Touched all examples, docs, and the spec. Commit `347ac02`.
+- **§51.12 temporal machine transitions — `.From after Ns => .To`.** New
+  rule grammar: `after Ns` (or `0.5s`, `500ms`, `3m`, `1h`) between
+  `.From` and `=>`. Wildcard `from` rejected at parse time
+  (E-MACHINE-021); concrete from-variant only. Each temporal rule arms
+  a timer when the machine enters its from-variant; on expiry the
+  timer commits the transition and re-arms downstream temporals.
+  `_scrml_machine_arm_timer` / `_scrml_machine_clear_timer` runtime
+  helpers. Cross-cutting interaction with §51.11 audit (S27 closed
+  the audit-completeness gap for timer-fired transitions). Commit
+  `7305ac1`.
+- **§51.11 audit @varName clause.** New machine-body clause `audit @log`
+  declares a reactive array as the destination for transition entries.
+  Each successful transition appends `{from, to, at}` (extended to
+  `{from, to, at, rule, label}` in S27). Foundation for S27's `replay`
+  primitive. Commit `c5e41b3`.
+- **Parser fix — statement boundary on `@name:`.** S22 had a known
+  pre-existing BPP bug where two consecutive `@foo: SomeMachine = ...`
+  reactive-decls on adjacent lines silently dropped the second one. S25
+  fixed it: the boundary detector now recognizes `@<ident>:` as a
+  statement start. Commit `e37a6fd`.
+
+### 2026-04-18 (S24 — §2a E-SCOPE-001 coverage sweep + §2b/c/d/e/f/g fixes)
+
+§2a scope-checker rolled out across the full statement / expression
+surface in nine slices. Plus a clutch of small §2b–§2g fixes from a
+gauntlet pass. Suite 6,889 → 6,949 pass (+60 new tests).
+
+- **§2a E-SCOPE-001 sweep — nine slices.** Pre-S24 `E-SCOPE-001`
+  (undeclared identifier in logic expression) only fired in a few
+  expression contexts. S24 extended coverage to: let/const initializers
+  (`9e06884`), reactive-decl initializers (`234f116`), loop-scope
+  plumbing + if/return/match-subject/propagate (`e1e21a5`), lin / tilde
+  / reactive-derived decls (`ec26c63`), structured assignment RHS
+  (`740de7d`), throw / fail / debounced / value-lift (`a758fe1`), and
+  bare-expr statements + two supporting fixes (`bb01644`). Each slice
+  shares the same pattern: walk the expression's ExprNode (or string
+  fallback) through `checkLogicExprIdents` against the current scope
+  chain, raising E-SCOPE-001 with a context-specific suggestion.
+- **§2b/d phase separation + nested `^{}` at checker-time.** Two meta-
+  context fixes: (b) the phase-separation check (compile-time `^{}` vs
+  runtime `^{}` content) now runs at meta-checker time instead of eval-
+  time, catching the error before it'd crash the eval; (d) nested `^{}`
+  in compile-time meta no longer crashes — it's flagged as a clear
+  E-META error. Commit `9f2a247`.
+- **§2c match subject narrowing for local let/const + function params.**
+  Match expression subject narrowing previously only worked for top-
+  level reactives. Extended to let/const-bound locals and function
+  parameters via the same scope-chain lookup. Commit `c1d71dd`.
+- **§2c/§2a meta DG fixes.** Dependency graph credits `meta.get` /
+  `meta.bindings` reads as @var consumers (so the dep-graph properly
+  tracks reactive dependencies through compile-time meta plumbing); lin
+  consumption is now counted at `^{}` capture time rather than later.
+  Commit `8711056`.
+- **§2d DG credits @var refs in compound `if=(...)` attributes.** Custom-
+  element `if=(@a + @b > 5)` previously credited only the leftmost @ref
+  (S22 regression). Now every @ref in the parenthesized expression is
+  added to the dep-graph so changes propagate correctly. Commit `e377223`.
+- **§2e DG credits @var refs inside runtime `^{}` meta html-fragment
+  content.** When meta html-fragment content references reactives
+  (`^{ <p>${@count}</p> }`), every @ref is added to the dep-graph.
+  Commit `ccfc0c0`.
+- **§2f trim whitespace after variant-ref prefix in in-enum transitions.**
+  `transitions { . Pending => .Processing }` (space after the dot)
+  previously fired E-MACHINE-004 against a variant called `" Pending"`.
+  Variant-ref normalization now trims whitespace between the prefix and
+  variant name. Commit `4f72a45`.
+- **§2g extension-less relative imports.** `import { x } from "./foo"`
+  now resolves to `./foo.scrml` if the bare path doesn't exist. Aligns
+  with TS / JS convention while keeping the explicit `.scrml` form valid.
+  Commit `9da03a7`.
+- **§4.11.4 / §51.3.2 spec ratification — machine cohesion.** After
+  debate the team kept `given` (vs. moving guards to a separate `where`
+  clause) and queued the machine-opener migration to attribute form for
+  S25. Commit `d2bee47`.
+
+### 2026-04-17 (S23 — meta-checker debt cleanup + DOM read-wiring + tutorial revamp)
+
+Tighter session focused on closing meta-checker debt items, adding the
+last piece of §51.9 derived machines (DOM read-wiring), and a tutorial
+content sweep. Suite 6,875 → 6,889 pass (+14 new tests).
+
+- **§51.9 DOM read-wiring for projected vars (`${@ui}`).** S22 slice 2
+  shipped projection runtime but reading `@ui` in markup left the
+  display element unwired because the dep-graph didn't know `@ui` was
+  reactive. S23 synthesizes a reactive-decl-like AST node for the
+  projected var during annotation so the dep-graph treats it as a
+  consumer of the source @order. Reading `${@ui}` now updates correctly
+  on @order writes. Closes the S22 known-blocker. Commit `5b5d636`.
+- **Meta-checker fixes (4 items).** Phase separation runs at checker time
+  (was eval time); nested `^{}` doesn't crash; DG credits `meta.get` /
+  `meta.bindings` reads as @var consumers; lin captured by `^{}` is
+  counted as consumed. Companion to S24's broader §2a coverage sweep.
+  Commits `9f2a247` `8711056`.
+- **Examples + tutorial refresh.** `examples/14-mario-state-machine.scrml`
+  rewritten to showcase S22 §1a payload variants + §51.9 derived
+  machines (the deferred S22 example update). All non-gauntlet sample
+  files brought up to current idiomatic scrml. Tutorial §2.3/§2.4 updated
+  to canonical syntax + new §2.10 state machines section. Commits
+  `7045adf` `2ba4ccd` `e0455b6`.
+- **MIT license + GitHub Pages landing.** scrmlTS went public under MIT.
+  GitHub Pages landing page at `docs/landing/index.html` + SEO checklist
+  in `docs/SEO-LAUNCH.md`. Custom domain CNAME set/unset cycle as the
+  domain config landed. user-voice relocated out of the public repo to
+  `scrml-support/user-voice-scrmlTS.md` (verbatim history split:
+  pre-public archived, post-public continues in scrml-support per the
+  per-repo PA scope rules). Commits `427b9ec` `46f007a` `99d9286`
+  `5811ed2` `0801d98` `3e8f545`.
+
+---
 
 ### 2026-04-17 (S22 — §51.9 slice 2: derived machines runtime + write rejection)
 
