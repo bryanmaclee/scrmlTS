@@ -393,7 +393,7 @@ MIT — see [LICENSE](./LICENSE).
 
 ## Related projects
 
-- **[6nz](../6NZ)** — a purpose-built code editor for the scrml ecosystem. An "Interactive Development Experience" written entirely in scrml, with a focus-centered viewport, NeoVim-superset keybindings plus mouse, CodeMirror 6 + canvas overlay, and offline-first PWA delivery. Currently in design phase, awaiting compiler API exposure in scrmlTS. The companion [Z-motion input spec](../6NZ/z-motion-spec) is released under CC0 so NeoVim and others can adopt it.
+- **[6nz](../6NZ)** — a purpose-built code editor for the scrml ecosystem. An "Interactive Development Experience" written entirely in scrml, with a focus-centered viewport, NeoVim-superset keybindings plus mouse, CodeMirror 6 + canvas overlay, and offline-first PWA delivery. Currently in design phase, awaiting compiler API exposure in scrmlTS. The companion [Z-motion input spec](../6NZ/z-motion-spec) is released under CC0 so others can adopt it.
 
 ## Status
 
