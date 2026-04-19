@@ -9,13 +9,13 @@
   <meta name="description" content="scrml is a compiled language that replaces your frontend framework, backend glue, and build toolchain with a single file type. Markup, logic, styles, SQL, server functions, realtime, and tests in one .scrml file. Open source, MIT.">
   <meta name="keywords" content="scrml, scrml language, scrml compiler, full-stack compiler, reactive web language, single-file app, scrml-lang, reactive dsl, server-client unified">
   <meta name="author" content="Bryan Maclee">
-  <link rel="canonical" href="https://bryanmaclee.github.io/scrmlTS/">
+  <link rel="canonical" href="https://scrml.dev/">
 
   <!-- Open Graph -->
   <meta property="og:title" content="scrml — a single-file, full-stack reactive web language">
   <meta property="og:description" content="A compiled language that replaces your frontend framework, backend glue, and build toolchain with one file type. Markup, logic, styles, SQL, server functions, realtime, and tests together — the compiler handles the rest.">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://bryanmaclee.github.io/scrmlTS/">
+  <meta property="og:url" content="https://scrml.dev/">
   <meta property="og:site_name" content="scrml">
 
   <!-- Twitter / X -->
@@ -85,8 +85,14 @@
     .tagline {
       font-size: 1.35rem;
       color: var(--fg-dim);
-      margin: 0 0 2rem;
+      margin: 0 0 0.5rem;
       font-weight: 400;
+    }
+    .pronunciation {
+      color: var(--fg-dim);
+      font-size: 0.95rem;
+      margin: 0 0 2rem;
+      font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
     }
     a { color: var(--accent); text-decoration: none; }
     a:hover { color: var(--accent-hover); text-decoration: underline; }
@@ -168,6 +174,7 @@
 <main>
   <h1>scrml</h1>
   <p class="tagline">A single-file, full-stack reactive web language. Stop wiring. Start building.</p>
+  <p class="pronunciation">/ˈskrɪmɛl/</p>
 
   <div class="meta-row">
     <span><span class="badge">MIT</span> open source</span>
@@ -232,6 +239,11 @@
     Because scrml owns both the query context and the loop context, a <code>for (let x of xs) { ?{... WHERE id = ${x.id}}.get() }</code> pattern is rewritten to one pre-loop <code>WHERE id IN (...)</code> fetch plus a keyed <code>Map</code> lookup. Independent reads in a <code>!</code> handler share one <code>BEGIN DEFERRED</code>..<code>COMMIT</code> envelope. On-mount <code>server @var</code> loads coalesce into a single <code>__mountHydrate</code> round-trip. <a href="https://github.com/bryanmaclee/scrmlTS/tree/main/benchmarks/sql-batching">Measured wins</a>: ~2× at N=10, ~3× at N=100, ~4× at N=1000 on on-disk WAL SQLite.
   </p>
 
+  <h3>This page is the highlights</h3>
+  <p>
+    The full language surface — macros, inline-test blocks, error boundaries, lifecycle hooks (<code>on mount</code> / <code>when message from</code>), the <code>not</code> / <code>is some</code> / <code>given</code> presence model, server authority declarations, the meta layer (<code>^{}</code>), the <code>use</code> / <code>import</code> system, channels, scoped CSS — is documented in the <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/docs/tutorial.md">tutorial</a> and the <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md">spec</a>. What's on this page is the headline. What's in the spec is the language.
+  </p>
+
   <h2>Quick start</h2>
   <pre><code># Install (Bun required)
 bun install
@@ -241,6 +253,18 @@ scrml compile examples/01-hello.scrml -o dist/
 
 # Or run the watcher
 scrml dev examples/</code></pre>
+
+  <h2>Articles</h2>
+  <ul>
+    <li>
+      <a href="https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp">Introducing scrml</a>
+      — the headline pitch, the three differentiators, where the project is today.
+    </li>
+    <li>
+      <a href="https://dev.to/bryan_maclee/scrmls-living-compiler-23f9">It's Alive — A Living Compiler</a>
+      — the case for crowd-sourced codegen, why <code>npm</code>'s trust model is the real problem, and the trust gradient that lets you opt out.
+    </li>
+  </ul>
 
   <h2>Status</h2>
   <p>
