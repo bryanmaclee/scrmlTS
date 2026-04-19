@@ -219,9 +219,13 @@ describe("§1b emitTransitionGuard — binding prelude", () => {
     const code = emitTransitionGuard("r_state", "newVal", "__t", "M", rules).join("\n");
     // Legacy form: single `if (__key === "A:B" && !(x > 0))` line.
     expect(code).toMatch(/if \(__key === "A:B" && !\(x > 0\)\)/);
-    // And no binding prelude.
-    expect(code).not.toMatch(/var \w+ = __prev/);
-    expect(code).not.toMatch(/var \w+ = __next/);
+    // And no binding prelude. Binding prelude pattern is
+    // `var <local> = __prev.data.<field>` / `var <local> = __next.data.<field>`
+    // — scope the anti-match on `.data.` to avoid false hits on the
+    // variant-extraction helpers introduced in S27 (which reference __prev
+    // / __next from inside a parenthesized ternary, not a bare `= __prev`).
+    expect(code).not.toMatch(/var \w+ = __prev\.data\./);
+    expect(code).not.toMatch(/var \w+ = __next\.data\./);
   });
 });
 

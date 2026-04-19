@@ -216,10 +216,21 @@ export function emitTransitionGuard(
   lines.push(`(function() {`);
   lines.push(`  var __prev = _scrml_reactive_get("${encodedVarName}");`);
   lines.push(`  var __next = ${newValueExpr};`);
-  lines.push(`  var __key = (__prev != null && __prev.variant != null ? __prev.variant : "*") + ":" + (__next != null && __next.variant != null ? __next.variant : "*");`);
+  // Variant extraction: payload variants emit as `{variant, data}` objects;
+  // unit variants emit as bare strings (see emitEnumVariantObjects in
+  // emit-client.ts). Both shapes reach this guard at runtime, and both must
+  // compose a correct table key. Fallback order:
+  //   1. object with `.variant` field → use that field
+  //   2. non-null primitive (bare-string unit variant) → use the value itself
+  //   3. null/undefined → "*" (matches the wildcard fallback contract below)
+  // This mirrors the error-message fallback at line ~243 (`String(__prev)`)
+  // that pre-dated the parity fix.
+  lines.push(`  var __prevVariant = (__prev != null ? (__prev.variant != null ? __prev.variant : __prev) : "*");`);
+  lines.push(`  var __nextVariant = (__next != null ? (__next.variant != null ? __next.variant : __next) : "*");`);
+  lines.push(`  var __key = __prevVariant + ":" + __nextVariant;`);
   lines.push(`  var __rule = ${tableName}[__key]`);
-  lines.push(`    || ${tableName}["*:" + (__next != null && __next.variant != null ? __next.variant : "*")]`);
-  lines.push(`    || ${tableName}[(__prev != null && __prev.variant != null ? __prev.variant : "*") + ":*"]`);
+  lines.push(`    || ${tableName}["*:" + __nextVariant]`);
+  lines.push(`    || ${tableName}[__prevVariant + ":*"]`);
   lines.push(`    || ${tableName}["*:*"];`);
   lines.push(`  if (!__rule) {`);
   lines.push(`    throw new Error("E-MACHINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${machineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
@@ -314,7 +325,10 @@ export function emitTransitionGuard(
   if (temporalRules.length > 0) {
     lines.push(`  // §51.12 temporal transitions`);
     lines.push(`  _scrml_machine_clear_timer("${encodedVarName}");`);
-    lines.push(`  var __nextVariant = (__next != null && __next.variant != null) ? __next.variant : __next;`);
+    // __nextVariant is already declared at the top of the IIFE for matched-key
+    // resolution (§51.11.4). The top declaration defaults to "*" for
+    // variant-less values, which is equivalent for timer-arming purposes
+    // because temporal rules always name a specific `from` variant.
     for (const rule of temporalRules) {
       // Wildcard `from` was rejected at parse time; only specific variants
       // reach here. Each temporal rule fires from exactly its declared
