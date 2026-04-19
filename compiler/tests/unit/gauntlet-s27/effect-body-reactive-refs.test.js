@@ -24,6 +24,7 @@ import { writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { compileScrml } from "../../../src/api.js";
 import { SCRML_RUNTIME } from "../../../src/runtime-template.js";
+import { extractUserFns } from "../../helpers/extract-user-fns.js";
 
 const tmpRoot = resolve(tmpdir(), "scrml-s27-effect-refs");
 let tmpCounter = 0;
@@ -50,9 +51,7 @@ function compile(source) {
 }
 
 function buildEnv(clientJs) {
-  const fns = [...clientJs.matchAll(/^function (_scrml_[A-Za-z0-9_$]+)\s*\(([^)]*)\)\s*\{/gm)].map(m => m[1]);
-  const knownInternal = /^_scrml_(project_|derived_|reflect|navigate|session_|auth_|generate_csrf|validate_csrf|ensure_csrf|cors_|server_sync_|machine_|reactive_|subscribe|track|trigger|effect|meta_|deep_|propagate_|lift|reconcile_|destroy_|register_|timer_|animation_|stop_|replay$)/;
-  const userFns = fns.filter(n => !knownInternal.test(n));
+  const userFns = extractUserFns(clientJs);
   const userFnBindings = userFns.map(n => `${JSON.stringify(n)}: ${n}`).join(",\n    ");
   const fnBody = `
     var requestAnimationFrame = function() {};

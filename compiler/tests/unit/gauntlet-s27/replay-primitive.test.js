@@ -26,6 +26,7 @@ import { writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { compileScrml } from "../../../src/api.js";
 import { SCRML_RUNTIME } from "../../../src/runtime-template.js";
+import { extractUserFns } from "../../helpers/extract-user-fns.js";
 
 const tmpRoot = resolve(tmpdir(), "scrml-s27-replay");
 let tmpCounter = 0;
@@ -52,10 +53,8 @@ function compile(source) {
 }
 
 function buildEnv(clientJs) {
-  const fns = [...clientJs.matchAll(/^function (_scrml_[A-Za-z0-9_$]+)\s*\(([^)]*)\)\s*\{/gm)].map(m => ({ name: m[1], params: m[2].trim() }));
-  const knownInternal = /^_scrml_(project_|derived_|reflect|navigate|session_|auth_|generate_csrf|validate_csrf|ensure_csrf|cors_|server_sync_|machine_|reactive_|subscribe|track|trigger|effect|meta_|deep_|propagate_|lift|reconcile_|destroy_|register_|timer_|animation_|stop_|replay$)/;
-  const userFns = fns.filter(f => !knownInternal.test(f.name));
-  const userFnBindings = userFns.map(f => `${JSON.stringify(f.name)}: ${f.name}`).join(",\n    ");
+  const userFns = extractUserFns(clientJs);
+  const userFnBindings = userFns.map(n => `${JSON.stringify(n)}: ${n}`).join(",\n    ");
   const fnBody = `
     var requestAnimationFrame = function() {};
     var cancelAnimationFrame = function() {};
@@ -64,7 +63,7 @@ function buildEnv(clientJs) {
     return {
       state: _scrml_state,
       userFns: { ${userFnBindings} },
-      userFnNames: ${JSON.stringify(userFns.map(f => f.name))},
+      userFnNames: ${JSON.stringify(userFns)},
     };
   `;
   // eslint-disable-next-line no-new-func

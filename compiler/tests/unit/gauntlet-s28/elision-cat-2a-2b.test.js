@@ -31,6 +31,7 @@ import { tmpdir } from "os";
 import { compileScrml } from "../../../src/api.js";
 import { SCRML_RUNTIME } from "../../../src/runtime-template.js";
 import { classifyTransition, emitTransitionGuard, setNoElide } from "../../../src/codegen/emit-machines.ts";
+import { extractUserFns } from "../../helpers/extract-user-fns.js";
 
 // All tests here exercise elision semantics directly — reset the no-elide
 // flag so behavior doesn't depend on SCRML_NO_ELIDE env state (CI runs the
@@ -61,10 +62,7 @@ function compileSrc(source) {
 }
 
 function runClientAndInvoke(clientJs, userFnCount) {
-  const allFns = [...clientJs.matchAll(/^function (_scrml_[A-Za-z0-9_$]+)\s*\(\s*\)\s*\{/gm)]
-    .map(m => m[1]);
-  const knownInternal = /^_scrml_(project_|derived_|reflect|navigate|session_|auth_|generate_csrf|validate_csrf|ensure_csrf|cors_|server_sync_|machine_|reactive_|subscribe|track|trigger|effect|meta_|deep_|propagate_|lift|reconcile_|destroy_|register_|timer_|animation_|stop_)/;
-  const userFns = allFns.filter(n => !knownInternal.test(n));
+  const userFns = extractUserFns(clientJs);
   const toInvoke = userFns.slice(0, userFnCount);
   const callList = toInvoke.map(n => `${n}();`).join("\n");
   const shims = `

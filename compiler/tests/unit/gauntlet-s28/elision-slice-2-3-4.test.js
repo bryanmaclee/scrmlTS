@@ -33,6 +33,7 @@ import {
   setNoElide,
   isNoElide,
 } from "../../../src/codegen/emit-machines.ts";
+import { extractUserFns } from "../../helpers/extract-user-fns.js";
 
 const tmpRoot = resolve(tmpdir(), "scrml-s28-slice-2-3-4");
 let tmpCounter = 0;
@@ -58,10 +59,7 @@ function compileSrc(source) {
 }
 
 function runClientAndInvoke(clientJs, userFnCount) {
-  const allFns = [...clientJs.matchAll(/^function (_scrml_[A-Za-z0-9_$]+)\s*\(\s*\)\s*\{/gm)]
-    .map(m => m[1]);
-  const knownInternal = /^_scrml_(project_|derived_|reflect|navigate|session_|auth_|generate_csrf|validate_csrf|ensure_csrf|cors_|server_sync_|machine_|reactive_|subscribe|track|trigger|effect|meta_|deep_|propagate_|lift|reconcile_|destroy_|register_|timer_|animation_|stop_)/;
-  const userFns = allFns.filter(n => !knownInternal.test(n));
+  const userFns = extractUserFns(clientJs);
   const toInvoke = userFns.slice(0, userFnCount);
   const callList = toInvoke.map(n => `${n}();`).join("\n");
   const shims = `
