@@ -283,6 +283,64 @@ const PATTERNS = [
       return false;
     },
   },
+
+  // Pattern 11: Vue `:attr=` colon-prefixed attribute binding
+  // Matches: whitespace + `:ident=` where no ident precedes the colon
+  // (distinguishes from scrml's `class:name=@cond` which has `class` before `:`)
+  {
+    regex: /\s:[a-z][a-zA-Z0-9-]*\s*=/g,
+    ghost: ":attr=\"expr\"",
+    correction: "attr=@var (or attr=\"literal\")",
+    see: "§5",
+    code: "W-LINT-011",
+    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+  },
+
+  // Pattern 12: Vue directives `v-if=`, `v-for=`, `v-model=`, `v-show=`,
+  // `v-else`, `v-else-if=`, `v-on:event=`, `v-bind:attr=`, `v-html=`, `v-text=`,
+  // `v-slot`, `v-cloak`, `v-once`, `v-pre`.
+  {
+    regex: /\bv-(?:if|else-if|else|for|model|show|on|bind|html|text|slot|cloak|once|pre)\b(?::[a-zA-Z]+)?\s*(?==|>|\s)/g,
+    ghost: "v-if / v-for / v-model / @click / :class",
+    correction: "scrml uses if=@cond, for @items, bind:value=@x, onclick=fn(), class:name=@cond",
+    see: "§5, §10, §17",
+    code: "W-LINT-012",
+    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+  },
+
+  // Pattern 13: Vue `@event=` attribute shorthand (e.g., `@click="fn"`,
+  // `@click.stop="fn"`). Distinguished from scrml's `@var` reactive sigil by
+  // requiring an `=` after the `@word` — scrml uses `@var` as VALUES
+  // (`value=@count`), never as attribute NAMES.
+  {
+    regex: /\s@[a-z][a-zA-Z0-9]*(?:\.[a-z]+)*\s*=/g,
+    ghost: "@click=\"handler\" (Vue event shorthand)",
+    correction: "onclick=handler() (scrml uses standard on<event> attribute names)",
+    see: "§5",
+    code: "W-LINT-013",
+    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+  },
+
+  // Pattern 14: Svelte block directives `{#if ...}`, `{:else}`, `{/if}`,
+  // `{#each xs as x}`, `{#await}`, `{#key}`, `{:then}`, `{:catch}`.
+  {
+    regex: /\{[#:\/]\s*(?:if|else|each|await|then|catch|key)\b/g,
+    ghost: "{#if @cond} ... {/if} (Svelte block)",
+    correction: "scrml uses <el if=@cond>, for @items / lift ... /, or match + <:arms/>",
+    see: "§10, §17",
+    code: "W-LINT-014",
+    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+  },
+
+  // Pattern 15: Svelte raw-HTML directive `{@html expr}`.
+  {
+    regex: /\{@html\s/g,
+    ghost: "{@html expr} (Svelte raw HTML)",
+    correction: "scrml uses ${ rawHtml() } inside markup; no dedicated @html directive",
+    see: "§5",
+    code: "W-LINT-015",
+    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+  },
 ];
 
 // ---------------------------------------------------------------------------

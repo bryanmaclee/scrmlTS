@@ -621,3 +621,215 @@ describe("§17 Diagnostic sorting", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// §18 — W-LINT-011: Vue `:attr=` colon-prefixed attribute binding
+// ---------------------------------------------------------------------------
+
+describe("W-LINT-011: Vue :attr= colon-prefixed attribute binding", () => {
+
+  test("fires on :class= at attribute position", () => {
+    const diags = lint('<div :class="wrapper">');
+    expect(hasCode(diags, "W-LINT-011")).toBe(true);
+  });
+
+  test("fires on :value= on form inputs", () => {
+    const diags = lint('<input :value="@text">');
+    expect(hasCode(diags, "W-LINT-011")).toBe(true);
+  });
+
+  test("does NOT fire on scrml's class:name= (ident before colon)", () => {
+    const diags = lint('<div class:active=@cond>');
+    expect(hasCode(diags, "W-LINT-011")).toBe(false);
+  });
+
+  test("does NOT fire on scrml's bind:value= (ident before colon)", () => {
+    const diags = lint('<input bind:value=@text>');
+    expect(hasCode(diags, "W-LINT-011")).toBe(false);
+  });
+
+  test("does NOT fire inside ${} logic blocks", () => {
+    const diags = lint('${ const obj = { :key: 1 } }');
+    expect(hasCode(diags, "W-LINT-011")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19 — W-LINT-012: Vue directive family (v-if, v-for, v-model, etc.)
+// ---------------------------------------------------------------------------
+
+describe("W-LINT-012: Vue directive family", () => {
+
+  test("fires on v-if=", () => {
+    const diags = lint('<p v-if="@show">shown</p>');
+    expect(hasCode(diags, "W-LINT-012")).toBe(true);
+  });
+
+  test("fires on v-for=", () => {
+    const diags = lint('<li v-for="item in @items">${item}</li>');
+    expect(hasCode(diags, "W-LINT-012")).toBe(true);
+  });
+
+  test("fires on v-model=", () => {
+    const diags = lint('<input v-model="@text">');
+    expect(hasCode(diags, "W-LINT-012")).toBe(true);
+  });
+
+  test("fires on v-show=", () => {
+    const diags = lint('<p v-show="@visible">hi</p>');
+    expect(hasCode(diags, "W-LINT-012")).toBe(true);
+  });
+
+  test("fires on v-else without value", () => {
+    const diags = lint('<p v-if="@a">A</p><p v-else>B</p>');
+    expect(hasCode(diags, "W-LINT-012")).toBe(true);
+  });
+
+  test("fires on v-bind:attr= long form", () => {
+    const diags = lint('<div v-bind:class="@wrapper">');
+    expect(hasCode(diags, "W-LINT-012")).toBe(true);
+  });
+
+  test("does NOT fire inside ${} logic blocks", () => {
+    const diags = lint('${ const v_if = 1 }');
+    expect(hasCode(diags, "W-LINT-012")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §20 — W-LINT-013: Vue @event= shorthand (with modifiers)
+// ---------------------------------------------------------------------------
+
+describe("W-LINT-013: Vue @event= attribute shorthand", () => {
+
+  test("fires on @click=", () => {
+    const diags = lint('<button @click="increment">+</button>');
+    expect(hasCode(diags, "W-LINT-013")).toBe(true);
+  });
+
+  test("fires on @click.stop= with modifier", () => {
+    const diags = lint('<button @click.stop="handler">+</button>');
+    expect(hasCode(diags, "W-LINT-013")).toBe(true);
+  });
+
+  test("fires on @submit.prevent=", () => {
+    const diags = lint('<form @submit.prevent="save"></form>');
+    expect(hasCode(diags, "W-LINT-013")).toBe(true);
+  });
+
+  test("does NOT fire on scrml's @count attribute value (preceded by =)", () => {
+    const diags = lint('<input value=@count>');
+    expect(hasCode(diags, "W-LINT-013")).toBe(false);
+  });
+
+  test("does NOT fire on @var inside ${} logic reactive sigil", () => {
+    const diags = lint('${ @count = 0 }');
+    expect(hasCode(diags, "W-LINT-013")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §21 — W-LINT-014: Svelte block directives {#if} {#each} {/if} etc.
+// ---------------------------------------------------------------------------
+
+describe("W-LINT-014: Svelte block directives", () => {
+
+  test("fires on {#if @cond}", () => {
+    const diags = lint('{#if @show}<p>hi</p>{/if}');
+    expect(hasCode(diags, "W-LINT-014")).toBe(true);
+  });
+
+  test("fires on {#each @items as item}", () => {
+    const diags = lint('{#each @items as item}<li>${item}</li>{/each}');
+    expect(hasCode(diags, "W-LINT-014")).toBe(true);
+  });
+
+  test("fires on {:else}", () => {
+    const diags = lint('{#if @a}A{:else}B{/if}');
+    expect(hasCode(diags, "W-LINT-014")).toBe(true);
+  });
+
+  test("fires on {#await promise}", () => {
+    const diags = lint('{#await @fetch}loading{:then v}done{/await}');
+    expect(hasCode(diags, "W-LINT-014")).toBe(true);
+  });
+
+  test("does NOT fire inside ${} logic blocks", () => {
+    const diags = lint('${ const o = { "#if": 1 } }');
+    expect(hasCode(diags, "W-LINT-014")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §22 — W-LINT-015: Svelte {@html expr} directive
+// ---------------------------------------------------------------------------
+
+describe("W-LINT-015: Svelte {@html expr} raw HTML directive", () => {
+
+  test("fires on {@html expr}", () => {
+    const diags = lint('<div>{@html @bio}</div>');
+    expect(hasCode(diags, "W-LINT-015")).toBe(true);
+  });
+
+  test("does NOT fire inside ${} logic blocks", () => {
+    const diags = lint('${ const o = { "@html": 1 } }');
+    expect(hasCode(diags, "W-LINT-015")).toBe(false);
+  });
+
+  test("does NOT fire on scrml's ${ expr } interpolation", () => {
+    const diags = lint('<div>${ @bio }</div>');
+    expect(hasCode(diags, "W-LINT-015")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §23 — No false positives on the default `scrml init` scaffold
+// ---------------------------------------------------------------------------
+
+describe("Scaffold zero-lint regression guard", () => {
+
+  test("the default `scrml init` scaffold produces zero ghost-lint diagnostics", () => {
+    // Mirrors the scaffold shipped by compiler/src/commands/init.js. If any of
+    // the W-LINT-NNN patterns fires here, the scaffold is advertising a
+    // forbidden pattern and needs updating.
+    const scaffold = [
+      "<program>",
+      "",
+      "${",
+      "    @count = 0",
+      "    @step = 1",
+      "    function increment() { @count = @count + Number(@step) }",
+      "    function decrement() { if (@count - @step >= 0) { @count = @count - @step } }",
+      "    function reset() { @count = 0 }",
+      "}",
+      "",
+      "<div class=\"app\">",
+      "    <h1>Hello from scrml</h1>",
+      "    <p class=\"count\">${@count}</p>",
+      "    <div class=\"controls\">",
+      "        <button onclick=decrement()>-</button>",
+      "        <button onclick=reset()>Reset</button>",
+      "        <button onclick=increment()>+</button>",
+      "    </div>",
+      "    <label>Step size:",
+      "        <select bind:value=@step>",
+      "            <option value=\"1\">1</option>",
+      "            <option value=\"5\">5</option>",
+      "            <option value=\"10\">10</option>",
+      "        </select>",
+      "    </label>",
+      "</div>",
+      "",
+      "#{",
+      "    .app { max-width: 400px; text-align: center; }",
+      "    .count { font-size: 4rem; }",
+      "    button:hover { background: #f5f5f5; }",
+      "    label { color: #777; }",
+      "}",
+      "",
+      "</program>",
+    ].join("\n");
+    const diags = lint(scaffold);
+    expect(diags).toHaveLength(0);
+  });
+});
