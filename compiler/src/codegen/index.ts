@@ -27,6 +27,7 @@ import { generateHtml } from "./emit-html.ts";
 import { generateCss } from "./emit-css.ts";
 import { generateServerJs } from "./emit-server.ts";
 import { setBatchLoopHoists } from "./emit-control-flow.ts";
+import { drainMachineCodegenErrors, clearMachineCodegenErrors } from "./emit-machines.ts";
 import { generateClientJs } from "./emit-client.js";
 import { generateLibraryJs } from "./emit-library.ts";
 import { BindingRegistry } from "./binding-registry.ts";
@@ -141,6 +142,11 @@ export function runCG(input: CgInput): CgOutput {
     : { enabled: encodingInput ?? false };
 
   resetVarCounter();
+
+  // §51.5.1 (S28 slice 3) — clear the machine-codegen error buffer before
+  // this compile. Entries accumulated during emitTransitionGuard are drained
+  // into `errors` after the per-file loop finishes.
+  clearMachineCodegenErrors();
 
   const outputs = new Map<string, CgFileOutput>();
   const errors: CGError[] = [];
@@ -605,6 +611,11 @@ export function runCG(input: CgInput): CgOutput {
   }
 
   const runtimeJs = embedRuntime ? null : SCRML_RUNTIME;
+
+  // §51.5.1 (S28 slice 3) — drain E-MACHINE-001 compile errors accumulated
+  // by emit-machines during this compile.
+  const machineErrors = drainMachineCodegenErrors();
+  if (machineErrors.length > 0) errors.push(...machineErrors);
 
   // Reset the Tier 2 hoist singleton so a subsequent compile in the same
   // process (persistent server, test harness) starts clean.

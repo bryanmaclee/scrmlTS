@@ -27,6 +27,7 @@ import { resolve } from "path";
 import { writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { compileScrml } from "../../../src/api.js";
+import { isNoElide } from "../../../src/codegen/emit-machines.ts";
 import { SCRML_RUNTIME } from "../../../src/runtime-template.js";
 
 const tmpRoot = resolve(tmpdir(), "scrml-s27-guarded-wildcard");
@@ -169,12 +170,12 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
     expect(env.state.state).toBe("B");
   });
 
-  test("effect block emitted inside a wildcard rule — S28 elision", () => {
+  test("effect block emitted inside a wildcard rule — S28 elision / no-elide parity", () => {
     // Pre-S28 this test asserted on the full-guard `__matchedKey === "*:Done"`
-    // shape from the S27 parity fix. S28 elides this case (no guards, no
-    // bindings, literal RHS, wildcard `*:Done` target unambiguous) so the
-    // runtime key-check disappears — the effect body is unconditional
-    // because the matched key is compile-time known.
+    // shape from the S27 parity fix. S28 elides this case when elision is on
+    // (no guards, no bindings, literal RHS, wildcard `*:Done` target unambiguous).
+    // Under SCRML_NO_ELIDE=1 the full-guard shape comes back; both modes must
+    // still fire the effect body.
     const src = `<program>
 \${
   type S:enum = { A, B, Done }
@@ -190,14 +191,23 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
 `;
     const { errors, clientJs } = compile(src);
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
-    // S28 elision kicked in — marker comment present.
-    expect(clientJs).toContain("§51.5 elided transition");
-    // Effect body baked in unconditionally.
+    // Effect body is present in both modes.
     expect(clientJs).toContain('console.log("reached done")');
-    // Pre-S27 shape is gone.
+    // Pre-S27 __key shape is gone in both modes.
     expect(clientJs).not.toMatch(/if \(__key === "\*:Done"\)/);
-    // S28: full-guard __matchedKey check is no longer emitted for elided sites.
-    expect(clientJs).not.toContain('__matchedKey === "*:Done"');
+
+    // Use the live flag rather than the env var — earlier tests in the
+    // suite may have toggled setNoElide, and the flag is what the compiler
+    // actually read during the compile above.
+    if (isNoElide()) {
+      // Full guard emits; effect keyed on __matchedKey.
+      expect(clientJs).toContain('__matchedKey === "*:Done"');
+      expect(clientJs).not.toContain("§51.5 elided transition");
+    } else {
+      // Elision kicked in — marker present, no runtime key-check.
+      expect(clientJs).toContain("§51.5 elided transition");
+      expect(clientJs).not.toContain('__matchedKey === "*:Done"');
+    }
   });
 
   test("`*:*` guard fires for any undeclared transition (catch-all)", () => {

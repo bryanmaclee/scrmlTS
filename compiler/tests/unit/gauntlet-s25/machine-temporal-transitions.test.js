@@ -81,11 +81,14 @@ describe("S25 §51.12 — temporal machine transitions", () => {
       { decl: "after 1h", ms: 3600000 },
     ];
     for (const c of cases) {
+      // S28: assigning to .B (the temporal target) keeps the transition
+      // legal for the trivially-illegal check. The test focus is timer
+      // codegen shape, not transition validity.
       const src = `<program>
 \${
   type S:enum = { A, B }
   @state: M = S.A
-  function go() { @state = S.A }
+  function go() { @state = S.B }
 }
 < machine name=M for=S>
   .A ${c.decl} => .B
@@ -124,11 +127,13 @@ describe("S25 §51.12 — temporal machine transitions", () => {
     // previous). Compiles without error; the behavior is that only one
     // timer is live at a time. This is a known accept: users who write
     // two timers on the same variant should use a guard instead.
+    // S28: assign to .B (a legal target via the first temporal rule) so
+    // the trivially-illegal check doesn't fire. Timer-codegen-shape focus.
     const src = `<program>
 \${
   type S:enum = { A, B, C }
   @state: M = S.A
-  function go() { @state = S.A }
+  function go() { @state = S.B }
 }
 < machine name=M for=S>
   .A after 1s => .B
@@ -187,11 +192,12 @@ describe("S25 §51.12 — temporal machine transitions", () => {
   });
 
   test("non-integer duration (0.5s) rounds to ms", () => {
+    // S28: assign to .B so the trivially-illegal check doesn't fire.
     const src = `<program>
 \${
   type S:enum = { A, B }
   @state: M = S.A
-  function go() { @state = S.A }
+  function go() { @state = S.B }
 }
 < machine name=M for=S>
   .A after 0.5s => .B

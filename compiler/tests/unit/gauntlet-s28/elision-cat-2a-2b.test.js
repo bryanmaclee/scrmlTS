@@ -24,13 +24,18 @@
  *     is compile-time known)
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { resolve } from "path";
 import { writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { compileScrml } from "../../../src/api.js";
 import { SCRML_RUNTIME } from "../../../src/runtime-template.js";
-import { classifyTransition, emitTransitionGuard } from "../../../src/codegen/emit-machines.ts";
+import { classifyTransition, emitTransitionGuard, setNoElide } from "../../../src/codegen/emit-machines.ts";
+
+// All tests here exercise elision semantics directly — reset the no-elide
+// flag so behavior doesn't depend on SCRML_NO_ELIDE env state (CI runs the
+// full suite with the env var set for parity checking).
+beforeEach(() => setNoElide(false));
 
 const tmpRoot = resolve(tmpdir(), "scrml-s28-elision-slice1");
 let tmpCounter = 0;
@@ -147,14 +152,27 @@ describe("S28 classifyTransition — direct unit tests", () => {
     expect(t.kind).toBe("unknown");
   });
 
-  test("non-literal RHS (call, expression) → unknown", () => {
+  test("non-literal RHS (expression, dynamic call) → unknown", () => {
     const rules = [
       { from: "*", to: "Done", guard: null, label: null, effectBody: null },
     ];
-    expect(classifyTransition("S.Done()", rules).kind).toBe("unknown");
+    // A bare call to an identifier (no Enum.Variant prefix) is non-literal.
     expect(classifyTransition("computeNext()", rules).kind).toBe("unknown");
     expect(classifyTransition("x + 1", rules).kind).toBe("unknown");
-    expect(classifyTransition("S.unknown", rules).kind).toBe("unknown"); // lowercase variant
+    // Lowercase variant name rejected by the regex.
+    expect(classifyTransition("S.unknown", rules).kind).toBe("unknown");
+    // Expression after enum access rejected (not a clean tail).
+    expect(classifyTransition("S.Done + x", rules).kind).toBe("unknown");
+  });
+
+  test("payload-variant literal `S.Variant(...)` classifies per target (slice 2)", () => {
+    const rules = [
+      { from: "*", to: "Success", guard: null, label: null, effectBody: null },
+    ];
+    // S28 slice 2 — payload constructor calls are literal for classification.
+    const t = classifyTransition("Result.Success(42)", rules);
+    expect(t.kind).toBe("legal");
+    expect(t.matchedKey).toBe("*:Success");
   });
 
   test("no wildcard rules at all → unknown (all specific; flow-sensitive deferred)", () => {

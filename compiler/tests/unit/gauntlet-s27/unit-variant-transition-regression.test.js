@@ -116,6 +116,11 @@ describe("S27 regression — unit-variant enum transition at runtime", () => {
   });
 
   test("illegal unit-variant transition still rejects (guarantees the fix didn't bypass validation)", () => {
+    // S28: trivially-illegal transitions are now rejected at compile time
+    // per §51.5.1 (target .C has no rule in the machine — no .C in any `to`
+    // and no wildcard catch-all). Pre-S28 this test ran the code and
+    // expected E-MACHINE-001-RT at runtime. The guarantee is identical
+    // (the assignment is refused) but the surface is now compile-time.
     const src = `<program>
 \${
   type S:enum = { A, B, C }
@@ -130,10 +135,10 @@ describe("S27 regression — unit-variant enum transition at runtime", () => {
 <p>x</>
 </program>
 `;
-    const { errors, clientJs } = compile(src);
-    expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
-    // A → C is undeclared. The fix must still reject undeclared transitions
-    // (i.e. not silently succeed).
-    expect(() => runAndInvokeAll(clientJs)).toThrow(/E-MACHINE-001-RT/);
+    const { errors } = compile(src);
+    const machineErrors = errors.filter(e => e.severity !== "warning" && e.code === "E-MACHINE-001");
+    expect(machineErrors).toHaveLength(1);
+    expect(machineErrors[0].message).toContain("targets variant .C");
+    expect(machineErrors[0].message).toContain("§51.5.1");
   });
 });

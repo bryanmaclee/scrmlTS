@@ -16,6 +16,51 @@
  */
 
 import { rewriteExpr } from "./rewrite.ts";
+import { CGError } from "./errors.ts";
+
+// ---------------------------------------------------------------------------
+// §51.5.1 — Compile-time illegal-transition collector (S28 slice 3)
+// ---------------------------------------------------------------------------
+// Module-level buffer for E-MACHINE-001 compile errors detected during
+// transition-guard emission. Populated by the classifier when a literal RHS
+// cannot match any rule in the machine. Drained by the codegen top level
+// (index.ts) into the file's error list before returning. Cleared at the
+// start of every compile via `clearMachineCodegenErrors()`.
+
+const _machineCodegenErrors: CGError[] = [];
+
+export function drainMachineCodegenErrors(): CGError[] {
+  const out = _machineCodegenErrors.slice();
+  _machineCodegenErrors.length = 0;
+  return out;
+}
+
+export function clearMachineCodegenErrors(): void {
+  _machineCodegenErrors.length = 0;
+}
+
+// ---------------------------------------------------------------------------
+// §51.5 — No-elide flag (S28 slice 4)
+// ---------------------------------------------------------------------------
+// Debug knob: when set, `classifyTransition` always returns `unknown` so the
+// full guard emits on every machine-bound assignment. Used by CI to run the
+// full test suite twice (elided default + non-elided parity) and by devs
+// wanting to breakpoint the runtime throw site.
+//
+// Activation:
+//   - Environment variable `SCRML_NO_ELIDE=1` at module load.
+//   - Programmatic `setNoElide(true)` from tests.
+
+let _noElide = (typeof process !== "undefined"
+  && (process as unknown as { env?: Record<string, string | undefined> }).env?.SCRML_NO_ELIDE === "1");
+
+export function setNoElide(v: boolean): void {
+  _noElide = v;
+}
+
+export function isNoElide(): boolean {
+  return _noElide;
+}
 
 // ---------------------------------------------------------------------------
 // §51.5.2 — Transition Lookup Table
@@ -224,42 +269,118 @@ export function buildBindingPreludeStmts(rule: TransitionRule): string[] {
  * Returns:
  *   - { kind: "legal", matchedKey, matchedRule }  — emit minimal side-effect-only
  *     shape (no variant extraction, no matched-key resolution, no rejection throw)
+ *   - { kind: "illegal", targetVariant }           — trivially-illegal; E-MACHINE-001
+ *     compile-time error (§51.5.1). Caller surfaces into the codegen error list
+ *     via `_machineCodegenErrors` and emits a full guard as a safety net so the
+ *     compiled JS remains syntactically valid if the caller chooses to continue.
  *   - { kind: "unknown" }                          — emit the full runtime guard
  *
- * S28 slice 1 coverage (Cat 2.a / 2.b from the elision deep-dive):
- *   - RHS is a literal unit-variant access (`EnumName.VariantName` or
- *     `EnumName_VariantName`, no call parens, no surrounding expression).
- *   - Some unguarded wildcard rule covers the target unambiguously:
- *       (a) `* => .Target` with no higher-precedence rule (no `X:target`
- *           specific) — matched key is `"*:Target"`.
- *       (b) `* => *` with no higher-precedence rule of any shape — matched
- *           key is `"*:*"`.
- *   - NO rule in the machine has a `given` guard (a guard on any rule could
- *     be selected at runtime for some `__prev` value, so we can't prove
- *     validation always passes).
- *   - NO rule has payload `fromBindings` / `toBindings` (bindings imply
- *     runtime observation of payload data).
+ * S28 slice 1 (Cat 2.a / 2.b): literal unit-variant RHS, unguarded wildcard rule
+ * covers the target unambiguously.
+ * S28 slice 2 (Cat 2.d): same conditions with a payload constructor call on the
+ * RHS (`EnumName.VariantName(args)`). The payload data is carried through the
+ * state commit; no binding extraction is performed because elision gates on the
+ * machine having no payload bindings anywhere.
+ * S28 slice 3 (Cat 2.f): literal RHS (unit or payload) that no rule in the
+ * machine can ever match (no `X:target`, no `*:target`, no `X:*`, no `*:*`)
+ * → §51.5.1 compile error.
+ *
+ * Preconditions for elision (preserved from slice 1):
+ *   - NO rule has a `given` guard (runtime resolution could pre-empt with a
+ *     guarded rule for some `__prev` value).
+ *   - NO rule has payload `fromBindings` / `toBindings` (bindings imply runtime
+ *     observation that elision cannot reproduce).
+ *
+ * Illegal-detection conditions (slice 3):
+ *   - RHS matches the literal-variant pattern (unit or payload).
+ *   - NO rule in the rules list has `to === targetVariant` OR `to === "*"`.
+ *   - No exception for guarded rules — a guard can only narrow legality, not
+ *     widen it; if no rule lists the target at all, runtime will throw regardless.
  *
  * The compile-time-baked matched key is contractually identical to what the
  * runtime wildcard-fallback chain would resolve (§51.5.2 normative — see
  * the 2026-04-19 amendment clarifying validation elision).
  *
  * Categories deferred to future slices:
- *   - 2.c self-assignment, 2.d payload variants, 2.e flow-sensitive __prev,
- *     2.f trivially-illegal (compile-time E-MACHINE-001).
+ *   - 2.c self-assignment, 2.e flow-sensitive __prev.
  */
 type TriageResult =
   | { kind: "legal"; matchedKey: string; matchedRule: TransitionRule }
+  | { kind: "illegal"; targetVariant: string }
   | { kind: "unknown" };
+
+/**
+ * Extract the target variant name from a literal RHS, or null if the RHS is
+ * not a clean literal. Accepts:
+ *   - Unit variant:    `EnumName.VariantName`    or `EnumName_VariantName`
+ *   - Payload variant: `EnumName.VariantName(…)` or `EnumName_VariantName(…)`
+ * Rejects anything else (runtime expressions, arithmetic, function calls not
+ * at the end, etc.).
+ */
+function extractLiteralTarget(newValueExpr: string): string | null {
+  const s = newValueExpr.trim();
+  // Unit-variant pattern (no parens)
+  let m = s.match(/^[A-Z][A-Za-z0-9_]*[._]([A-Z][A-Za-z0-9_]*)$/);
+  if (m) return m[1];
+  // Payload-variant pattern: identifier prefix + parenthesized args at end.
+  // Verify parens are balanced end-to-end (not just `(` appearing inside).
+  m = s.match(/^[A-Z][A-Za-z0-9_]*[._]([A-Z][A-Za-z0-9_]*)\(/);
+  if (m && s.endsWith(")")) {
+    // Cheap balance check: scan parens depth, ignoring content inside
+    // strings. If depth returns to 0 only at the final char, this is a
+    // top-level call.
+    let depth = 0;
+    let inStr: string | null = null;
+    const body = s;
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i];
+      if (inStr) {
+        if (ch === "\\") { i++; continue; }
+        if (ch === inStr) inStr = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") { inStr = ch; continue; }
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        depth--;
+        if (depth === 0 && i !== body.length - 1) return null;
+      }
+    }
+    if (depth === 0) return m[1];
+  }
+  return null;
+}
 
 export function classifyTransition(
   newValueExpr: string,
   rules: TransitionRule[],
 ): TriageResult {
-  // Slice-1 sledgehammer: any guard anywhere → full guard. Any binding
-  // anywhere → full guard. Refining these checks (per-precedence analysis)
-  // is a future slice; the conservative gate catches enough of the canonical
-  // wildcard-rule case to be worthwhile, and never mis-classifies.
+  // Extract the literal target (unit or payload). Non-literal RHS means
+  // neither elision nor illegal-detection is possible — fall through to
+  // full guard.
+  const targetVariant = extractLiteralTarget(newValueExpr);
+  if (!targetVariant) return { kind: "unknown" };
+
+  // §51.5.1 (S28 slice 3) — trivially-illegal detection runs BEFORE the
+  // no-elide gate because §51.5.1 is a normative correctness obligation,
+  // not a performance optimization. A debug flag should not silence a
+  // compile error. If NO rule in the machine has `to === target` and no
+  // wildcard target-side rule exists, runtime will always throw; raise a
+  // compile-time E-MACHINE-001 instead.
+  const anyTargetCoverage = rules.some(r => r.to === targetVariant || r.to === "*");
+  if (!anyTargetCoverage) {
+    return { kind: "illegal", targetVariant };
+  }
+
+  // §51.5 (S28 slice 4) — debug escape: skip elision (the performance
+  // optimization) and fall back to the full guard. Illegal-detection above
+  // still runs so the normative §51.5.1 behavior is preserved.
+  if (_noElide) return { kind: "unknown" };
+
+  // Slice-1 sledgehammer (elision gates): any guard or binding anywhere
+  // disables elision because either could selectively match at runtime for
+  // some prev value. Illegality check above is independent because no rule
+  // covering the target exists at all — a guard cannot widen legality.
   for (const r of rules) {
     if (r.guard) return { kind: "unknown" };
     if ((r.fromBindings && r.fromBindings.length > 0) ||
@@ -267,13 +388,6 @@ export function classifyTransition(
       return { kind: "unknown" };
     }
   }
-
-  // Literal unit-variant RHS: `EnumName.VariantName` or `EnumName_VariantName`.
-  // Rejects payload constructors (`Shape.Circle(10)`), runtime expressions,
-  // and anything not a clean two-segment identifier reference.
-  const m = newValueExpr.trim().match(/^[A-Z][A-Za-z0-9_]*[._]([A-Z][A-Za-z0-9_]*)$/);
-  if (!m) return { kind: "unknown" };
-  const targetVariant = m[1];
 
   // Case (a): `*:target` match is safe iff no specific `X:target` rule
   // exists — otherwise runtime would pick `X:target` for some prev and
@@ -404,6 +518,25 @@ export function emitTransitionGuard(
       rules,
       auditTarget,
     );
+  }
+  // §51.5.1 (S28 slice 3) — trivially-illegal: target variant has no rule
+  // in the machine. Push E-MACHINE-001 and fall through to emit the full
+  // guard so compilation can continue and produce a complete file; the
+  // runtime throw will fire if this code ever executes, but the compile
+  // error is the primary signal.
+  if (triage.kind === "illegal") {
+    _machineCodegenErrors.push(new CGError(
+      "E-MACHINE-001",
+      "E-MACHINE-001: Illegal transition. Assignment to @" + encodedVarName +
+      " (governed by " + machineName + ") targets variant ." + triage.targetVariant +
+      " but no rule in " + machineName + " covers that target " +
+      "(no exact `X:" + triage.targetVariant + "` rule, no `*:" + triage.targetVariant + "` wildcard, " +
+      "no `X:*` wildcard, no `*:*` catch-all). The runtime would always throw " +
+      "E-MACHINE-001-RT on this assignment; surfacing at compile time per §51.5.1. " +
+      "To fix: add a transition rule that covers ." + triage.targetVariant +
+      " or re-target the assignment.",
+      {},
+    ));
   }
 
   const lines: string[] = [];
