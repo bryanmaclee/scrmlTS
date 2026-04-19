@@ -2313,6 +2313,57 @@ function extractBindingSignature(variantRef: string): string {
  * `govType` in this case is the PROJECTION enum, so the RHS variant names
  * ARE validated against it.
  */
+/**
+ * Split machine-rule raw text on `\n` or `;` separators that live at depth 0.
+ * Separators inside `{}` / `()` / `[]` or inside string / comment contexts
+ * do not split — so a multi-statement effect body like
+ * `.A => .B { @a = 1; @b = 2 }` stays on one rule instead of fragmenting
+ * into three broken lines.
+ */
+function splitRuleLines(raw: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let depth = 0;
+  let inStr: string | null = null;
+  let inLineComment = false;
+  let inBlockComment = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    const next = raw[i + 1];
+    if (inLineComment) {
+      cur += ch;
+      if (ch === "\n") { inLineComment = false; }
+      continue;
+    }
+    if (inBlockComment) {
+      cur += ch;
+      if (ch === "*" && next === "/") { cur += "/"; i++; inBlockComment = false; }
+      continue;
+    }
+    if (inStr) {
+      cur += ch;
+      if (ch === "\\") { cur += raw[i + 1] ?? ""; i++; continue; }
+      if (ch === inStr) inStr = null;
+      continue;
+    }
+    if (ch === "/" && next === "/") { inLineComment = true; cur += ch; continue; }
+    if (ch === "/" && next === "*") { inBlockComment = true; cur += ch; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") { inStr = ch; cur += ch; continue; }
+    if (ch === "{" || ch === "(" || ch === "[") { depth++; cur += ch; continue; }
+    if (ch === "}" || ch === ")" || ch === "]") { depth--; cur += ch; continue; }
+    if ((ch === "\n" || ch === ";") && depth === 0) {
+      const trimmed = cur.trim();
+      if (trimmed) out.push(trimmed);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  const tail = cur.trim();
+  if (tail) out.push(tail);
+  return out;
+}
+
 function parseMachineRules(
   raw: string,
   govType: ResolvedType,
@@ -2324,8 +2375,10 @@ function parseMachineRules(
   const rules: TransitionRule[] = [];
   if (!raw.trim()) return rules;
 
-  // Split on newlines and semicolons
-  const rawLines = raw.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
+  // Split on `\n` / `;` at depth 0 — braces in effect bodies keep their
+  // contents intact. (Pre-S28 this was `raw.split(/[\n;]/)` which fragmented
+  // `{ @a = 1; @b = 2 }` into three broken lines.)
+  const rawLines = splitRuleLines(raw);
 
   // Expand `|` alternation on either side of `=>` into single-pair rules.
   // `.A | .B => .C | .D` becomes four lines: .A=>.C, .A=>.D, .B=>.C, .B=>.D.
