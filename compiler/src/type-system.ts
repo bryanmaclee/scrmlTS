@@ -3818,7 +3818,7 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "guarded-expr": {
         const guardedNode = n.guardedNode as ASTNodeLike | undefined;
-        const errorArms = (n.arms as Array<{pattern?: string; binding?: string; handler?: string}> | undefined) ?? [];
+        const errorArms = (n.arms as Array<{pattern?: string; binding?: string; handler?: string; handlerExpr?: unknown; span?: Span}> | undefined) ?? [];
 
         // Visit the guarded node itself for its type checks. Mark it so the
         // bare-expr branch's E-ERROR-002 check skips — the !{} arms handle it.
@@ -3897,6 +3897,25 @@ function annotateNodes(
               }
             }
           }
+        }
+
+        // S28 — scope-check each arm's handler body with arm.binding pushed
+        // as a local. Pre-S28 handler bodies bypassed the scope walker entirely
+        // (E-SCOPE-001 didn't fire for undeclared idents inside handlers) and
+        // the caught-error binding wasn't visible to the scope walker even
+        // when a handler WAS visited by some other path. Now every handler
+        // is walked with a fresh child scope carrying the binding.
+        const gExprSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        for (const arm of errorArms) {
+          const handlerExpr = arm.handlerExpr;
+          if (!handlerExpr) continue;
+          scopeChain.push("error-arm");
+          if (typeof arm.binding === "string" && arm.binding.length > 0) {
+            scopeChain.bind(arm.binding, { kind: "variable", resolvedType: tAsIs() });
+          }
+          const armSpan = (arm.span as Span | undefined) ?? gExprSpan;
+          checkLogicExprIdents(handlerExpr, armSpan, scopeChain, typeRegistry, errors);
+          scopeChain.pop();
         }
 
         resolvedType = tAsIs();
