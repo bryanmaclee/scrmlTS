@@ -390,7 +390,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         const varName = presenceGuardMatch[1];
         const body = presenceGuardMatch[2];
         // Rewrite the body contents through the normal pipeline
-        const rewrittenBody = rewriteExpr(body.trim());
+        const rewrittenBody = emitExprField(null, body.trim(), _makeExprCtx(opts));
         return `if (${varName} !== null && ${varName} !== undefined) {\n  ${rewrittenBody}\n}`;
       }
 
@@ -400,14 +400,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         const init = destructMatch[2].trim();
         const initSplit = splitBareExprStatements(init);
         if (initSplit.length > 1) {
-          const lines: string[] = [`const { ${vars} } = ${rewriteExpr(initSplit[0].trim())};`];
+          const lines: string[] = [`const { ${vars} } = ${emitExprField(null, initSplit[0].trim(), _makeExprCtx(opts))};`];
           for (let i = 1; i < initSplit.length; i++) {
             const s = initSplit[i].trim();
-            if (s) lines.push(`${rewriteExpr(s)};`);
+            if (s) lines.push(`${emitExprField(null, s, _makeExprCtx(opts))};`);
           }
           return lines.filter((l: string) => l !== ";").join("\n");
         }
-        return `const { ${vars} } = ${rewriteExpr(init)};`;
+        return `const { ${vars} } = ${emitExprField(null, init, _makeExprCtx(opts))};`;
       }
 
       const splitStmts = splitBareExprStatements(bareExpr);
@@ -415,7 +415,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         return splitStmts
           .map((s: string) => s.trim())
           .filter((s: string) => s && !isLeakedComment(s))
-          .map((s: string) => `${rewriteExpr(s)};`)
+          .map((s: string) => `${emitExprField(null, s, _makeExprCtx(opts))};`)
           .filter((s: string) => s !== ";")
           .join("\n");
       }
@@ -426,9 +426,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       if (opts.tildeContext) {
         const tVar = genVar("tilde");
         opts.tildeContext.var = tVar;
-        return `let ${tVar} = ${rewriteExpr(bareExpr)};`;
+        return `let ${tVar} = ${emitExprField(null, bareExpr, _makeExprCtx(opts))};`;
       }
-      return `${rewriteExpr(bareExpr)};`;
+      return `${emitExprField(null, bareExpr, _makeExprCtx(opts))};`;
     }
 
     case "let-decl": {
