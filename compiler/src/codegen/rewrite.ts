@@ -35,6 +35,14 @@ export interface RewriteContext {
   derivedNames?: Set<string> | null;
   /** Database variable name for SQL rewrite (server path). Default: "_scrml_db". */
   dbVar?: string;
+  /**
+   * When true, rewritePresenceGuard is skipped. Set by callers that know the
+   * input is an expression-position arrow/function body (e.g. escape-hatch
+   * emission for ArrowFunctionExpression). A statement-level presence guard
+   * rewrite would turn `(x) => { body }` into `if (x !== null ...) { body }`
+   * which is wrong when the arrow is a callback value. Bug C (6nz 2026-04-20).
+   */
+  skipPresenceGuard?: boolean;
 }
 
 /**
@@ -1463,7 +1471,7 @@ function runPasses(input: string, passes: RewritePass[], ctx: RewriteContext): s
  */
 const clientPasses: RewritePass[] = [
   // Pass 1
-  (s, _ctx) => rewritePresenceGuard(s),
+  (s, ctx) => ctx.skipPresenceGuard ? s : rewritePresenceGuard(s),
   // Pass 2
   (s, ctx) => rewriteNotKeyword(s, ctx.errors),
   // Pass 3
@@ -1531,7 +1539,7 @@ const clientPasses: RewritePass[] = [
  */
 const serverPasses: RewritePass[] = [
   // Pass 1
-  (s, _ctx) => rewritePresenceGuard(s),
+  (s, ctx) => ctx.skipPresenceGuard ? s : rewritePresenceGuard(s),
   // Pass 2
   (s, _ctx) => rewriteNotKeyword(s),
   // Pass 3
@@ -1589,6 +1597,23 @@ const serverPasses: RewritePass[] = [
  */
 export function rewriteExpr(expr: string, errors?: any[]): string {
   return runPasses(expr, clientPasses, { errors });
+}
+
+/**
+ * rewriteExpr variant that skips rewritePresenceGuard. Use when the input
+ * is known to be an expression-position arrow/function body (e.g. escape-hatch
+ * emission for ArrowFunctionExpression with BlockStatement body). Bug C
+ * (6nz 2026-04-20): a callback arrow like `(x) => { @count = @count + x }`
+ * otherwise matches the presence-guard regex and gets turned into
+ * `if (x !== null && x !== undefined) { ... }` at the call-arg site.
+ */
+export function rewriteExprArrowBody(expr: string, errors?: any[]): string {
+  return runPasses(expr, clientPasses, { errors, skipPresenceGuard: true });
+}
+
+/** Server-side variant of rewriteExprArrowBody. */
+export function rewriteServerExprArrowBody(expr: string, dbVar?: string): string {
+  return runPasses(expr, serverPasses, { dbVar, skipPresenceGuard: true });
 }
 
 // ---------------------------------------------------------------------------

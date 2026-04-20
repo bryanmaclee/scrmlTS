@@ -893,13 +893,16 @@ export function esTreeToExprNode(
       }
 
       // Normal call
-      const calleeExpr = esTreeToExprNode(callee, filePath, baseOffset);
+      const calleeExpr = esTreeToExprNode(callee, filePath, baseOffset, rawSource);
+      // Thread rawSource into arg recursion so arrow-with-block-body args
+      // can slice their own raw text for the escape-hatch fallback
+      // (Bug C — 6nz inbound 2026-04-20).
       const args = rawArgs.map(a => {
         if (a.type === "SpreadElement") {
-          const arg = esTreeToExprNode((a as { argument: ESNode }).argument, filePath, baseOffset);
+          const arg = esTreeToExprNode((a as { argument: ESNode }).argument, filePath, baseOffset, rawSource);
           return { kind: "spread" as const, span: spanFromEstree(a, filePath, baseOffset), argument: arg } satisfies SpreadExpr;
         }
-        return esTreeToExprNode(a, filePath, baseOffset);
+        return esTreeToExprNode(a, filePath, baseOffset, rawSource);
       });
       return { kind: "call", span, callee: calleeExpr, args, optional } satisfies CallExpr;
     }
@@ -978,7 +981,44 @@ export function esTreeToExprNode(
 
       // Block body: we cannot fully convert block statements in Phase 1.
       // Convert to EscapeHatchExpr with the raw body text.
-      return makeEscapeHatch(node, span, rawSource ?? "");
+      //
+      // Bug C (6nz 2026-04-20): the call site `esTreeToExprNode(callExpr, ...)`
+      // recursed into its args without threading `rawSource`, so every arrow
+      // in call-argument position (e.g. `arr.map((n, i) => { ... })`) got an
+      // escape-hatch with raw="". The downstream emitter dropped the empty
+      // raw, producing `arr.map()` — the whole callback silently lost.
+      //
+      // Fix: when rawSource is available, slice the arrow's own substring
+      // using the ESTree node's start/end offsets (same coordinate space).
+      // The slice is validated to look like a function form before use;
+      // otherwise fall back to the whole source (old behavior).
+      const nodeStart = (node as { start?: number }).start;
+      const nodeEnd = (node as { start?: number; end?: number }).end;
+      let rawSlice = "";
+      if (
+        rawSource != null &&
+        typeof nodeStart === "number" &&
+        typeof nodeEnd === "number" &&
+        nodeStart >= 0 &&
+        nodeEnd <= rawSource.length &&
+        nodeEnd > nodeStart
+      ) {
+        const candidate = rawSource.slice(nodeStart, nodeEnd);
+        // Minimal shape check: an arrow fn starts with `(`, `async`, or a
+        // bare ident (the single-param form `x => ...`); a function fn
+        // starts with `function`. Also require that the candidate contains
+        // the arrow token (or `function` keyword) so we don't accept a
+        // slice that happens to start with a letter but is some unrelated
+        // prefix caused by preprocessing offset shift.
+        const c = candidate.trimStart();
+        const looksLikeArrow = /^(async\s+)?(\(|[A-Za-z_$][A-Za-z0-9_$]*\s*=>)/.test(c) && c.includes("=>");
+        const looksLikeFn = /^(async\s+)?function\b/.test(c);
+        if (looksLikeArrow || looksLikeFn) {
+          rawSlice = candidate;
+        }
+        // If validation fails, rawSlice stays "" — same as pre-fix behavior.
+      }
+      return makeEscapeHatch(node, span, rawSlice);
     }
 
     // ---- Sequence Expression (a, b, c) — not common but valid ----

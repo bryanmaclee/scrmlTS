@@ -37,7 +37,7 @@ import type {
   InputStateRefExpr,
   EscapeHatchExpr,
 } from "../types/ast.ts";
-import { rewriteExpr, rewriteServerExpr } from "./rewrite.js";
+import { rewriteExpr, rewriteServerExpr, rewriteExprArrowBody, rewriteServerExprArrowBody } from "./rewrite.js";
 
 // ---------------------------------------------------------------------------
 // EmitExprContext — threaded through every emit call
@@ -408,7 +408,21 @@ function emitInputStateRef(node: InputStateRefExpr): string {
 function emitEscapeHatch(node: EscapeHatchExpr, ctx: EmitExprContext): string {
   // The string pipeline handles whatever the structured parser couldn't parse.
   // This path disappears when all escape hatches are eliminated (Phase 3.5).
-  return ctx.mode === "server"
-    ? rewriteServerExpr(node.raw, ctx.dbVar)
+  //
+  // Bug C (6nz 2026-04-20): for ArrowFunctionExpression / FunctionExpression
+  // escape-hatches the raw text is a callback VALUE at an expression position.
+  // The default pipeline's Pass 1 (rewritePresenceGuard) would match
+  // `(x) => { body }` and rewrite it into an if-statement, corrupting the
+  // arrow. Use the arrow-body variant that skips that pass.
+  const isArrowOrFn =
+    node.estreeType === "ArrowFunctionExpression" ||
+    node.estreeType === "FunctionExpression";
+  if (ctx.mode === "server") {
+    return isArrowOrFn
+      ? rewriteServerExprArrowBody(node.raw, ctx.dbVar)
+      : rewriteServerExpr(node.raw, ctx.dbVar);
+  }
+  return isArrowOrFn
+    ? rewriteExprArrowBody(node.raw, ctx.errors)
     : rewriteExpr(node.raw, ctx.errors);
 }
