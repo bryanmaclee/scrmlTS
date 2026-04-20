@@ -569,7 +569,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         return _emitReactiveSet(encodedName, wrappedInit, opts, node.name, isInit);
       }
       // Phase 4 simplified fallback: initExpr is missing (rare)
-      const rewrittenInit = rewriteExpr(initStr);
+      const rewrittenInit = emitExprField(node.initExpr, initStr, _makeExprCtx(opts));
       const wrappedInit = _wrapDeepReactive(rewrittenInit, initStr);
       if (node.predicateCheck && node.predicateCheck.zone === "boundary" && initStr !== "undefined") {
         const _pc = node.predicateCheck;
@@ -616,7 +616,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       }
       // Phase 4 fallback: exprNode is missing (rare — only for unparseable expressions)
       const retExpr: string = (node.expr ?? node.value ?? "").trim();
-      return retExpr ? `return ${rewriteExpr(retExpr)};` : "return;";
+      return retExpr ? `return ${emitExprField(node.exprNode, retExpr, _makeExprCtx(opts))};` : "return;";
     }
 
     case "if-stmt":
