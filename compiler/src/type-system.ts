@@ -4894,6 +4894,51 @@ function checkEnumExhaustiveness(
 }
 
 /**
+ * Check exhaustiveness of a match over a state type's substates (§54.4).
+ *
+ * Added 2026-04-20 (S32 Phase 3c). Substates are enum-like variants of the
+ * parent state type: closed set declared at the state's definition. This
+ * mirrors checkEnumExhaustiveness but iterates over the `substates` set
+ * registered by Phase 3b.
+ *
+ * Arm patterns name substates via `< SubstateName>` markup — the parser
+ * exposes them via `typeName` (kind === "is-type") or `variantName`
+ * depending on the arm shape. Both are checked against the substates set.
+ */
+function checkSubstateExhaustiveness(
+  stateType: StateType,
+  armPatterns: ArmPattern[],
+): EnumExhaustivenessResult {
+  const allSubstates = new Set(stateType.substates ?? []);
+  const coveredSubstates = new Set<string>();
+  const duplicateArms: string[] = [];
+  let hasWildcard = false;
+
+  for (const pattern of armPatterns) {
+    if (pattern.kind === "wildcard") {
+      hasWildcard = true;
+      break;
+    }
+    const name = pattern.variantName ?? pattern.typeName;
+    if (name && allSubstates.has(name)) {
+      if (coveredSubstates.has(name)) {
+        duplicateArms.push(name);
+      } else {
+        coveredSubstates.add(name);
+      }
+    }
+  }
+
+  const missing = hasWildcard
+    ? []
+    : [...allSubstates].filter(v => !coveredSubstates.has(v));
+
+  const unreachableWildcard = hasWildcard && coveredSubstates.size >= allSubstates.size;
+
+  return { missing, unreachableWildcard, duplicateArms };
+}
+
+/**
  * Check exhaustiveness of a match over a union type (§18.8.2).
  */
 function checkUnionExhaustiveness(
@@ -5239,7 +5284,11 @@ function checkMatchDiagnostics(
     return;
   }
 
-  if (subjectType.kind === "enum" || subjectType.kind === "union") {
+  const isSubstatedState = subjectType.kind === "state" &&
+    (subjectType as StateType).substates !== undefined &&
+    (subjectType as StateType).substates!.size > 0;
+
+  if (subjectType.kind === "enum" || subjectType.kind === "union" || isSubstatedState) {
     checkExhaustiveness(
       { arms: extracted.armPatterns } as unknown as ASTNodeLike,
       subjectType,
@@ -5306,6 +5355,50 @@ function checkExhaustiveness(
       errors.push(new TSError(
         "W-MATCH-001",
         `W-MATCH-001: Wildcard \`_\` arm is unreachable. All variants of \`${(subjectType as EnumType).name}\` ` +
+        `are already covered by explicit arms. Remove the \`_\` arm.`,
+        matchSpan,
+        "warning",
+      ));
+    }
+  } else if (subjectType.kind === "state" && (subjectType as StateType).substates && ((subjectType as StateType).substates!.size > 0)) {
+    // §54.4 — match over a substated state type. Substates are enum-like.
+    const stateType = subjectType as StateType;
+    const { missing, unreachableWildcard, duplicateArms } =
+      checkSubstateExhaustiveness(stateType, armPatterns);
+
+    for (const substateName of duplicateArms) {
+      errors.push(new TSError(
+        "E-TYPE-023",
+        `E-TYPE-023: Duplicate match arm for substate \`< ${substateName}>\`. ` +
+        `The second arm can never be reached. Remove the duplicate arm.`,
+        matchSpan,
+      ));
+    }
+
+    if (missing.length > 0 && !isPartial) {
+      errors.push(new TSError(
+        "E-TYPE-020",
+        `E-TYPE-020: Non-exhaustive match over \`< ${stateType.name}>\` substates (§54.4). ` +
+        `Missing substates: ${missing.map(v => `< ${v}>`).join(", ")}. ` +
+        `Add arms for the missing substates, or add an \`else\` arm to handle them all.`,
+        matchSpan,
+      ));
+    }
+
+    if (isPartial && missing.length === 0 && !unreachableWildcard) {
+      errors.push(new TSError(
+        "W-MATCH-003",
+        `W-MATCH-003: \`partial\` is unnecessary — all substates of \`< ${stateType.name}>\` are explicitly covered. ` +
+        `Remove \`partial\` to use standard exhaustive match, which will catch future substate additions.`,
+        matchSpan,
+        "warning",
+      ));
+    }
+
+    if (unreachableWildcard) {
+      errors.push(new TSError(
+        "W-MATCH-001",
+        `W-MATCH-001: Wildcard \`_\` arm is unreachable. All substates of \`< ${stateType.name}>\` ` +
         `are already covered by explicit arms. Remove the \`_\` arm.`,
         matchSpan,
         "warning",
@@ -8192,6 +8285,7 @@ export {
   checkStructFieldAccess,
   checkEnumExhaustiveness,
   checkUnionExhaustiveness,
+  checkSubstateExhaustiveness,
   checkExhaustiveness,
   isOptionalType,
   checkNotAssignment,
