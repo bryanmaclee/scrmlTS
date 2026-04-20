@@ -143,10 +143,47 @@ function isArrowFunction(raw: string): boolean {
          /^\s*[\w$_][\w$_0-9]*\s*=>/.test(raw);
 }
 
+/**
+ * Build a set of server-function names (user-level names) from fnNameMap.
+ * A server fn is identified by the `_scrml_fetch_<name>_N` or `_scrml_cps_<name>_N`
+ * prefix of its generated mangled name — both are produced only in emitFunctions
+ * for nodes whose route boundary is "server" (see emit-functions.ts).
+ *
+ * Used by the reactive-display wiring to detect `${serverFn()}` interpolations
+ * and emit an async-await wrapper so the awaited value (not the Promise) lands
+ * as the element's textContent. Bug GITI-005 (giti inbound 2026-04-20).
+ */
+function buildServerFnNames(fnNameMap: Map<string, string>): Set<string> {
+  const out = new Set<string>();
+  for (const [original, generated] of fnNameMap) {
+    if (/^_scrml_(fetch|cps)_/.test(generated)) out.add(original);
+  }
+  return out;
+}
+
+/**
+ * Return true if an expression contains a top-level call to any server fn
+ * whose name is in `serverFnNames`. Conservative textual check — a simple
+ * "<name>(" pattern (with word boundary) is sufficient because server fn
+ * names are post-mangling rewritten in expressions, but this check runs on
+ * the pre-rewrite scrml string (which contains the original names).
+ */
+function exprUsesServerFn(expr: string, serverFnNames: Set<string>): boolean {
+  if (!expr || serverFnNames.size === 0) return false;
+  for (const name of serverFnNames) {
+    // Match name followed by optional whitespace and `(` — not preceded by a
+    // property-access `.` (so we don't match `obj.name(` as a server-fn call).
+    const re = new RegExp(`(?<![.\\w$])${name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\s*\\(`, "");
+    if (re.test(expr)) return true;
+  }
+  return false;
+}
+
 export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, string>): string[] {
   const eventBindings = ctx.registry.eventBindings as EventBinding[];
   const logicBindings = ctx.registry.logicBindings as LogicBinding[];
   const encodingCtx = ctx.encodingCtx;
+  const serverFnNames = buildServerFnNames(fnNameMap);
   const lines: string[] = [];
 
   const hasEvents = eventBindings && eventBindings.length > 0;
@@ -404,6 +441,27 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         }
       }
 
+      // GITI-005: `${serverFn()}` in markup needs async wiring — the call
+      // returns a Promise; without await, textContent becomes "[object
+      // Promise]" and the reactive-refs path below never fires (expression
+      // has no @-refs). Emit an IIFE that awaits the rewritten expression
+      // and assigns the resolved value. This is a one-shot render (no
+      // reactivity on the fetch result); a future arc will add fine-grained
+      // reactivity for server-fn returns.
+      if (varRefs.length === 0 && exprUsesServerFn(expr, serverFnNames)) {
+        const rewrittenExpr = binding.exprNode
+          ? emitExpr(binding.exprNode, { mode: "client" })
+          : rewriteExpr(expr);
+
+        lines.push(`  {`);
+        lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
+        lines.push(`    if (el) {`);
+        lines.push(`      (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })();`);
+        lines.push(`    }`);
+        lines.push(`  }`);
+        continue;
+      }
+
       if (varRefs.length > 0) {
         let rewrittenExpr = binding.exprNode
           ? emitExpr(binding.exprNode, { mode: "client" })
@@ -419,13 +477,21 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
           }
         }
 
+        // If the reactive expression ALSO contains a server fn, wrap in async
+        // so the Promise is awaited (mixed case: @var + serverFn()). The effect
+        // re-runs on @var change; each re-run re-fires the server call.
+        const needsAsync = exprUsesServerFn(expr, serverFnNames);
+
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
         lines.push(`    if (el) {`);
-        lines.push(`      el.textContent = ${rewrittenExpr};`);
-
-        lines.push(`      _scrml_effect(function() { el.textContent = ${rewrittenExpr}; });`);
-
+        if (needsAsync) {
+          lines.push(`      (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })();`);
+          lines.push(`      _scrml_effect(function() { (async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })(); });`);
+        } else {
+          lines.push(`      el.textContent = ${rewrittenExpr};`);
+          lines.push(`      _scrml_effect(function() { el.textContent = ${rewrittenExpr}; });`);
+        }
         lines.push(`    }`);
         lines.push(`  }`);
       }
