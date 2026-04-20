@@ -472,9 +472,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
-        return [`const ${_checkTmpVar} = ${rewriteExpr(letInit)};`, ..._checkLines, `let ${node.name} = ${_checkTmpVar};`].join("\n");
+        return [`const ${_checkTmpVar} = ${emitExprField(node.initExpr, letInit, _makeExprCtx(opts))};`, ..._checkLines, `let ${node.name} = ${_checkTmpVar};`].join("\n");
       }
-      return `let ${node.name} = ${rewriteExpr(letInit)};`;
+      return `let ${node.name} = ${emitExprField(node.initExpr, letInit, _makeExprCtx(opts))};`;
     }
 
     case "const-decl":
@@ -533,7 +533,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         opts.tildeContext.var = null;
       }
       if (!constInit) return `const ${node.name};`;
-      return `const ${node.name} = ${rewriteExpr(constInit)};`;
+      return `const ${node.name} = ${emitExprField(node.initExpr, constInit, _makeExprCtx(opts))};`;
     }
 
     case "reactive-decl": {
