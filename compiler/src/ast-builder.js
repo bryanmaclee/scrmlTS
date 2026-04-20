@@ -3851,9 +3851,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // FN SHORTHAND: `[async] [server] fn name { body }` (no parens)
-    // `async` tokenizes as IDENT — detect it via text + lookahead.
+    // FN SHORTHAND: `[pure|async] [server] fn name { body }` (no parens)
+    // `async` and `pure` tokenize as IDENT — detect via text + lookahead.
     const _asyncFnLookahead = tok.text === "async" && (
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "fn") ||
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "server" &&
+       peek(2)?.kind === "KEYWORD" && peek(2)?.text === "fn")
+    );
+    // `pure fn` shorthand (§48.2, §33.2; redundant per §33.6 — W-PURE-REDUNDANT).
+    const _pureFnShorthandLookahead = tok.text === "pure" && (
       (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "fn") ||
       (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "server" &&
        peek(2)?.kind === "KEYWORD" && peek(2)?.text === "fn")
@@ -3861,7 +3867,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (
       tok.kind === "KEYWORD" && tok.text === "fn" ||
       (tok.kind === "KEYWORD" && tok.text === "server" && peek(1).kind === "KEYWORD" && peek(1).text === "fn") ||
-      _asyncFnLookahead
+      _asyncFnLookahead ||
+      _pureFnShorthandLookahead
     ) {
       // E-PARSE-002: `fn` shorthand is only valid in a logic context, not meta or other blocks
       if (blockContext !== "logic") {
@@ -3876,11 +3883,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
       let isServer = false;
       let isAsync = false;
+      let isPure = false;
       let startTok = tok;
 
       if (tok.text === "async") {
         isAsync = true;
         startTok = consume(); // consume `async`
+        if (peek().kind === "KEYWORD" && peek().text === "server") {
+          isServer = true;
+          consume(); // consume `server`
+        }
+      } else if (tok.text === "pure") {
+        isPure = true;
+        startTok = consume(); // consume `pure`
         if (peek().kind === "KEYWORD" && peek().text === "server") {
           isServer = true;
           consume(); // consume `server`
@@ -3943,6 +3958,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         fnKind: "fn",
         isServer,
         ...(isAsync ? { isAsync: true } : {}),
+        ...(isPure ? { isPure: true } : {}),
         canFail,
         errorType,
         span: spanOf(startTok, peek()),

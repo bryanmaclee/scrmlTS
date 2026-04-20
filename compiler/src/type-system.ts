@@ -3488,6 +3488,21 @@ function annotateNodes(
           checkFunctionBodyStateCompleteness(n, fnBody, errors, filePath, stateTypeRegistry);
         }
 
+        // §33.4/§33.6 W-PURE-REDUNDANT (S32 Phase 2).
+        // `pure fn` is redundant: fn is already pure (≡ pure function per §33.6).
+        if (n.fnKind === "fn" && (n as ASTNodeLike).isPure === true) {
+          const fnSpan = (n.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 }) as Span;
+          const fnName = (n.name as string) ?? "<anonymous>";
+          errors.push(new TSError(
+            "W-PURE-REDUNDANT",
+            `W-PURE-REDUNDANT: \`pure\` modifier on \`fn ${fnName}\` is redundant.\n` +
+            `  \`fn\` is a shorthand for \`pure function\` (§33.6); purity is implicit.\n` +
+            `  Remove the \`pure\` keyword — write \`fn ${fnName}(...)\` alone.`,
+            fnSpan,
+            "warning",
+          ));
+        }
+
         resolvedType = fnType;
         break;
       }

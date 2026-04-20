@@ -63,6 +63,7 @@ function makeFnDecl(name, body, opts = {}) {
     fnKind: "fn",
     isServer: opts.isServer ?? false,
     isAsync: opts.isAsync ?? false,
+    ...(opts.isPure ? { isPure: true } : {}),
     canFail: opts.canFail ?? false,
     span: mkSpan(10),
   };
@@ -97,7 +98,8 @@ function getFnErrors(nodes, filePath) {
   return errors.filter(e =>
     e.code.startsWith("E-FN-") ||
     e.code.startsWith("W-FN-") ||
-    e.code === "E-STATE-COMPLETE"
+    e.code === "E-STATE-COMPLETE" ||
+    e.code === "W-PURE-REDUNDANT"
   );
 }
 
@@ -1017,5 +1019,40 @@ describe("§11: E-FN-008 — lift targeting outer scope", () => {
     const errors = getFnErrors([fnDecl]);
 
     expect(errors.some(e => e.code === "E-FN-008")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §12  W-PURE-REDUNDANT — `pure fn` redundancy warning (§33.4, §33.6)
+//       Added 2026-04-20 (S32 Phase 2): `fn` is a shorthand for `pure function`
+//       so the `pure` modifier on `fn` adds nothing. Warning, not error.
+// ---------------------------------------------------------------------------
+
+describe("§12: W-PURE-REDUNDANT — `pure fn` emits a redundancy warning", () => {
+  test("`pure fn` emits W-PURE-REDUNDANT", () => {
+    const fnDecl = makeFnDecl("double", [], { isPure: true });
+    const errors = getFnErrors([fnDecl]);
+
+    expect(errors.some(e => e.code === "W-PURE-REDUNDANT")).toBe(true);
+    const warn = errors.find(e => e.code === "W-PURE-REDUNDANT");
+    expect(warn.severity).toBe("warning");
+    expect(warn.message).toContain("double");
+    expect(warn.message).toContain("redundant");
+  });
+
+  test("plain `fn` (no pure modifier) does NOT emit W-PURE-REDUNDANT", () => {
+    const fnDecl = makeFnDecl("double", []);
+    const errors = getFnErrors([fnDecl]);
+
+    expect(errors.some(e => e.code === "W-PURE-REDUNDANT")).toBe(false);
+  });
+
+  test("`pure function` (not fn) does NOT emit W-PURE-REDUNDANT (out of scope)", () => {
+    // W-PURE-REDUNDANT only fires on `pure fn` per §33.6 — `pure function`
+    // is the canonical full form and keeps its established semantics.
+    const fnDecl = { ...makeFunctionDecl("double", []), isPure: true };
+    const errors = getFnErrors([fnDecl]);
+
+    expect(errors.some(e => e.code === "W-PURE-REDUNDANT")).toBe(false);
   });
 });
