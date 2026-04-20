@@ -3055,6 +3055,106 @@ function checkTransitionCallsInExpr(
 }
 
 /**
+ * §54.6.4 E-STATE-TERMINAL-MUTATION — walk an ExprNode tree and fire on
+ * any AssignExpr whose target is a member-access on a state-typed binding
+ * where the resolved StateType is a TERMINAL substate: `parentState` is set
+ * (i.e., it IS a substate, not a top-level type) AND `transitions` is
+ * undefined or empty.
+ *
+ * Terminal substates are resting states that cannot progress further per
+ * the state-local life-cycle model; field writes on them have no defined
+ * semantics.
+ *
+ * Silent when:
+ *   - Target is not a member-access (plain variable assignment).
+ *   - Receiver doesn't resolve to a StateType.
+ *   - StateType has no parentState (top-level state — §54 terminality is
+ *     defined in the substate-graph sense).
+ *   - StateType has a non-empty transitions map (not terminal).
+ *
+ * Receiver shapes match Phase 4e: IdentExpr and the reactive-read rewrite
+ * `CallExpr(Ident("_scrml_reactive_get"), [Lit("name")])`.
+ */
+function checkTerminalMutationsInExpr(
+  exprNode: unknown,
+  span: Span,
+  scopeChain: ScopeChain,
+  stateTypeRegistry: Map<string, ResolvedType> | undefined,
+  errors: TSError[],
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+  if (!stateTypeRegistry) return;
+
+  const resolveReceiverStateType = (receiver: unknown): StateType | null => {
+    if (!receiver || typeof receiver !== "object") return null;
+    const r = receiver as { kind?: string; name?: string; callee?: unknown; args?: unknown[] };
+    if (r.kind === "ident" && typeof r.name === "string") {
+      let name = r.name;
+      if (name.startsWith("@")) name = name.slice(1);
+      const entry = scopeChain.lookup(name);
+      if (!entry) return null;
+      const t = entry.resolvedType as ResolvedType | undefined;
+      if (t && t.kind === "state") return t as StateType;
+      return null;
+    }
+    if (r.kind === "call" && r.callee && typeof r.callee === "object") {
+      const c = r.callee as { kind?: string; name?: string };
+      if (c.kind === "ident" && c.name === "_scrml_reactive_get") {
+        const args = r.args as Array<{ kind?: string; value?: unknown }> | undefined;
+        const first = args && args[0];
+        if (first && first.kind === "lit" && typeof first.value === "string") {
+          const name = first.value;
+          const entry = scopeChain.lookup(name);
+          if (!entry) return null;
+          const t = entry.resolvedType as ResolvedType | undefined;
+          if (t && t.kind === "state") return t as StateType;
+        }
+      }
+    }
+    return null;
+  };
+
+  // Local recursive walker — tolerant of unknown kinds; recurses through
+  // the generic object fields so it covers nested expressions without
+  // needing an exhaustive kind-switch.
+  const visit = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { kind?: string; target?: unknown };
+    if (n.kind === "assign") {
+      const target = n.target as { kind?: string; object?: unknown; property?: unknown } | undefined;
+      if (target && target.kind === "member" && typeof target.property === "string") {
+        const stateType = resolveReceiverStateType(target.object);
+        if (stateType && stateType.parentState) {
+          const transitions = stateType.transitions;
+          const isTerminal = !transitions || transitions.size === 0;
+          if (isTerminal) {
+            errors.push(new TSError(
+              "E-STATE-TERMINAL-MUTATION",
+              `E-STATE-TERMINAL-MUTATION: Cannot write field \`${target.property}\` on \`${stateType.name}\` — ` +
+              `\`${stateType.name}\` is a terminal substate (declares no outgoing transitions). ` +
+              `Terminal substates are resting states; their fields cannot be mutated. ` +
+              `Either declare a transition on \`${stateType.name}\` or reconsider the life-cycle design.`,
+              span,
+            ));
+          }
+        }
+      }
+    }
+    // Recurse into sub-expressions. Generic descent through known fields.
+    for (const k of ["callee", "object", "index", "target", "value", "left", "right",
+                     "condition", "consequent", "alternate", "argument", "subject", "expression"]) {
+      const v = (n as Record<string, unknown>)[k];
+      if (v) visit(v);
+    }
+    for (const k of ["args", "elements", "props", "rawArms"]) {
+      const v = (n as Record<string, unknown>)[k];
+      if (Array.isArray(v)) for (const el of v) visit(el);
+    }
+  };
+  visit(exprNode);
+}
+
+/**
  * §35 E-LIN-005 — reject a let/const/lin declaration whose name shadows an
  * in-scope `lin` variable from a parent scope. Shadowing is detected by
  * looking up the name in the scope chain and checking that:
@@ -3856,6 +3956,8 @@ function annotateNodes(
             checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
+            // §54.6.4 Phase 4f: terminal-substate mutation check
+            checkTerminalMutationsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
           }
         }
         {
@@ -3939,6 +4041,8 @@ function annotateNodes(
             checkLogicExprIdents(reactInitExprNode, reactSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
+            // §54.6.4 Phase 4f: terminal-substate mutation check
+            checkTerminalMutationsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
           }
         }
         if (n.name) {
@@ -4033,6 +4137,8 @@ function annotateNodes(
             checkLogicExprIdents(beExprNode, beSpan, scopeChain, typeRegistry, errors);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(beExprNode, beSpan, scopeChain, stateTypeRegistry, errors);
+            // §54.6.4 Phase 4f: terminal-substate mutation check
+            checkTerminalMutationsInExpr(beExprNode, beSpan, scopeChain, stateTypeRegistry, errors);
           }
         }
         // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level
@@ -4598,6 +4704,35 @@ function annotateNodes(
         const rnaValueExpr = (n as Record<string, unknown>).valueExpr;
         if (rnaValueExpr) {
           checkLogicExprIdents(rnaValueExpr, rnaSpan, scopeChain, typeRegistry, errors);
+        }
+        // §54.6.4 Phase 4f: terminal-substate mutation check.
+        // `@reactive.path = value` — if the reactive var resolves to a
+        // terminal substate, the write is illegal regardless of path depth.
+        if (stateTypeRegistry) {
+          const rnaTarget = (n as Record<string, unknown>).target as string | undefined;
+          const rnaPath = (n as Record<string, unknown>).path as string[] | undefined;
+          if (rnaTarget && Array.isArray(rnaPath) && rnaPath.length > 0) {
+            const entry = scopeChain.lookup(rnaTarget);
+            const rt = entry?.resolvedType;
+            if (rt && rt.kind === "state") {
+              const stateType = rt as StateType;
+              if (stateType.parentState) {
+                const transitions = stateType.transitions;
+                const isTerminal = !transitions || transitions.size === 0;
+                if (isTerminal) {
+                  const fieldName = rnaPath[0];
+                  errors.push(new TSError(
+                    "E-STATE-TERMINAL-MUTATION",
+                    `E-STATE-TERMINAL-MUTATION: Cannot write field \`${fieldName}\` on \`${stateType.name}\` — ` +
+                    `\`${stateType.name}\` is a terminal substate (declares no outgoing transitions). ` +
+                    `Terminal substates are resting states; their fields cannot be mutated. ` +
+                    `Either declare a transition on \`${stateType.name}\` or reconsider the life-cycle design.`,
+                    rnaSpan,
+                  ));
+                }
+              }
+            }
+          }
         }
         resolvedType = tAsIs();
         break;
