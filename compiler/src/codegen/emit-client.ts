@@ -510,11 +510,25 @@ export function generateClientJs(ctx: CompileContext): string {
     lines.push("");
   }
 
-  // Post-process to mangle function call sites
+  // Post-process to mangle function call sites.
+  //
+  // Negative lookbehind `(?<!\.)` excludes property-access positions: the user's
+  // fn `toggle()` must NOT rewrite `classList.toggle(...)`, `arr.forEach(...)`,
+  // etc. Those are DOM / stdlib method calls on runtime values, unrelated to
+  // the user symbol.
+  //
+  // Bug D (6nz inbound 2026-04-20): user fn `toggle()` → `_scrml_toggle_7`
+  // corrupted the compiler-generated `classList.toggle("active", ...)` emitted
+  // by the `class:active=@active` binding template. Any user fn sharing a name
+  // with a DOM method (toggle, add, remove, append, replace, forEach, ...) hit
+  // this bug silently.
   let clientCode = lines.join("\n");
   if (fnNameMap && fnNameMap.size > 0) {
     for (const [originalName, mangledName] of fnNameMap) {
-      const callSiteRegex = new RegExp(`\\b${escapeRegex(originalName)}\\b(?=\\s*[(;,}\\]\\n)]|$)`, "g");
+      const callSiteRegex = new RegExp(
+        `(?<!\\.)\\b${escapeRegex(originalName)}\\b(?=\\s*[(;,}\\]\\n)]|$)`,
+        "g",
+      );
       clientCode = clientCode.replace(callSiteRegex, mangledName);
     }
   }
