@@ -4244,9 +4244,29 @@ function annotateNodes(
 
       // ------------------------------------------------------------------
       // Import / export declarations.
+      //
+      // GITI-002 (giti inbound 2026-04-20): imports inside a `${}` logic
+      // block were not being registered into the scope chain. The
+      // scope-resolver then fired E-SCOPE-001 on any use of an imported
+      // name (e.g. from a `server function` body that called
+      // `getGreeting("world")`), even though the codegen path emitted
+      // the import into both `.server.js` and `.client.js` correctly.
+      //
+      // Bind each imported local name as `kind: "import"` so
+      // checkLogicExprIdents finds it via scopeChain.lookup(). The `names`
+      // array on the import-decl AST is populated by ast-builder.js —
+      // each entry is the local binding name (the import's `as`-alias if
+      // one was given, otherwise the bare imported name).
       // ------------------------------------------------------------------
       case "import-decl":
       case "export-decl": {
+        if (n.kind === "import-decl" && Array.isArray(n.names)) {
+          for (const name of n.names as unknown[]) {
+            if (typeof name === "string" && name.length > 0) {
+              scopeChain.bind(name, { kind: "import", resolvedType: tAsIs() });
+            }
+          }
+        }
         resolvedType = tAsIs();
         break;
       }
