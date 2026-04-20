@@ -1,132 +1,128 @@
-# scrmlTS — Session 29 Wrap
+# scrmlTS — Session 30 Wrap
 
 **Date opened:** 2026-04-19
 **Date closed:** 2026-04-19 (single-day session)
-**Previous:** `handOffs/hand-off-29.md` (S28 wrap, rotated in as S29 starting brief)
-**Baseline entering S29:** 7,183 pass / 10 skip / 2 fail (26,415 expects / 315 files) at `bfad4c6`.
-**Final at S29 close:** **7,186 pass / 10 skip / 2 fail** (26,421 expects / 315 files) at `b189051`.
+**Previous:** `handOffs/hand-off-30.md` (S29 wrap, rotated in as S30 starting brief)
+**Baseline entering S30:** 7,186 pass / 10 skip / 2 fail (26,421 expects / 315 files) at `b189051`.
+**Final at S30 close:** **7,222 pass / 10 skip / 2 fail** (26,480 expects / 315 files) at `e8ddc8d`.
 
 ---
 
 ## 0. Close state
 
-### S29 commits — 2 commits, both pushed to origin/main
-- `74303d3` — `fix(self-host/bpp): wrap content in ${} logic block + fix broken regex`
-- `b189051` — `fix(ast-builder): component-def requires markup RHS, not just uppercase name`
+### S30 commits — 4 commits, all pushed to origin/main
+- `2eb4513` — `fix(tokenizer/css): element-leading compound selectors no longer collapse to declarations`
+- `8217dd9` — `fix(package): point bin to compiler/bin/scrml.js (executable entry)`
+- `5e663a4` (rebased onto `f0e7222`) — `fix(cli): surface ghost-pattern lint diagnostics by default`
+- `e8ddc8d` — `feat(lint): cover Vue and Svelte ghost patterns (W-LINT-011..015)`
 
-One external commit landed between mine (`2551fc7` — landing page "Null was a billion-dollar mistake" article link), not authored by this PA.
+One external commit landed between mine (`8987201` — "minor edit to 6nz sectio" in README), rebased past cleanly.
 
 ### Uncommitted at wrap
-- `docs/SEO-LAUNCH.md` — same untouched edit, 6 sessions running. Still no action.
+- `docs/SEO-LAUNCH.md` — still untouched, 7 sessions running. Still no action.
 
 ### Incoming
 - `handOffs/incoming/` empty (only `read/` archive).
 
 ### Cross-repo
-- scrmlTSPub retirement still pending at master since S25 (no update this session).
-
-### Self-host build state at wrap
-- PASS (5): `module-resolver`, `meta-checker`, `block-splitter`, **`body-pre-parser` (S29 fix)**, `tokenizer`
-- FAIL (5): `ast-builder` (59 err), `protect-analyzer` (31 err), `route-inference` (12 err), `type-system` (120 err), `dependency-graph` (20 err)
-- Before S29: module-resolver was masked-PASS (latent scope bug hidden by phantom-component vacuum). Now genuinely passing.
+- scrmlTSPub retirement still pending at master since S25.
+- **New in scrml-support:** `docs/adopter-friction-audit-2026-04-19.md` — full audit with 13 findings (F1–F13), triage, and recommendations.
 
 ---
 
-## 1. Session theme — "bpp unlocked, then a compiler-bug arc uncovered"
+## 1. Session theme — "public pivot + golden-path adopter audit"
 
-S29 opened with P3 self-host modernization, starting with body-pre-parser per the S28 recommendation. bpp.scrml unlocked in one structural fix plus one broken-regex fix. Moved to pa.scrml, hit a mysterious "every identifier undeclared including for-loop iter vars" scope-wipe inside `processDbBlock`. Deep-dive found the root cause was in the AST builder (`component-def` heuristic too aggressive), not the scope checker. Fixed that plus 3 coupled issues in one commit. S29 ended with the previously-hidden module-resolver latent bug fixed end-to-end, the full P3 queue better-understood, and 3 adjacent bugs captured for future arcs.
+S30 opened with a strategic re-priority from the user: defer ALL self-host work (P3 in master-list + the S29-surfaced adjacent bugs a/b/c), focus on early-adopter friction. scrmlTS went public under MIT on 2026-04-17 and adopters were starting to arrive. Fixed-release-too-early risk was explicit.
+
+Ran a structured golden-path audit as a first-time user: README → `bun install` → `bun link` → `scrml init` → `scrml dev` → edit with intentional typos → copy example standalone. The audit surfaced 13 distinct friction points; 4 were fixed this session.
+
+Pivot recorded to memory (`project_public_pivot.md`) and user-voice so future sessions don't drift back toward self-host by default.
 
 ---
 
 ## 2. Session log
 
-### Arc — P3 self-host modernization (picked option 1 from S28 queue)
+### Arc — session start + priority pivot
 
-**Commit `74303d3`** — `fix(self-host/bpp): wrap content in ${} logic block + fix broken regex`. bpp.scrml moved from FAIL (3 errors) to PASS. Structural fix: content sat bare inside `<program>` (markup context); the `<` in `i < trimmed.length` was being scanned as a tag opener. Wrapping everything in `${ }` (the big-wrap idiom used by bs.scrml and module-resolver.scrml) resolved the E-CTX-003 AND the two E-IMPORT-001 errors. Also fixed a genuine bug in the source: `if (</>[—–]/.test(trimmed))` → `if (/[—–]/.test(trimmed))` — matched the JS original in parser-workarounds.js:22.
+User message: "I want to defer all self-host work. we are public and people are starting to take interest. we need to focus on what these early adopters are actually going to hit. if early momentum dies because I released to early, it will be tragic."
 
-### Arc — pa.scrml translation attempt → compiler-bug deep-dive
+Saved project memory, appended user-voice, proposed three first moves (golden-path audit / finish partial examples / error-quality audit). User picked golden-path audit.
 
-Moved to pa.scrml (38 errors, next in the P3 queue). Mechanical ops (`!==` → `!=`, `===` → `==`) brought it to 28 errors. Then discovered a mysterious "all-scope-wiped" condition inside `processDbBlock` — even the function's own for-loop iter vars reported E-SCOPE-001. Deep-dive found the root cause was NOT in the scope checker but in the AST builder.
+### Arc — golden-path audit → 4 critical fixes
 
-**Root cause:** `ast-builder.js:3634` treated ANY `const UpperName = ...` as a component-def regardless of RHS. An adjacent pass (`attachDefChildren`, lines 5695-5703) then vacuumed all subsequent sibling declarations — function-decls, classes, other consts — into the phantom component's defChildren. Scope-check doesn't descend into defChildren, which silenced every scope error for the swallowed helpers. In pa.scrml, `const ASCII_WS = new Set(...)` and `const CREATE_TABLE_RE = new RegExp(...)` both fired the bug; everything between them and the next barrier (export-decl) got absorbed.
+Walked README + install + scaffold + dev + realistic edits as a new adopter. Findings surfaced in order:
 
-Minimal reproducer (15 lines) — see tab.test.js "uppercase non-markup const does not vacuum subsequent sibling decls".
+1. **README `bun install; scrml compile ...` is broken.** After `bun install`, `scrml` is not on PATH. Needs one-time `bun link` (undocumented). Also `package.json.bin` pointed at `compiler/src/cli.js` (mode 644, non-executable) — even after `bun link`, invoking `scrml` produced "permission denied".
 
-### Project-mapper refresh
+2. **Scaffold's own `#{}` CSS block compiles to corrupted output.** Default `scrml init` includes `button:hover { background: #f5f5f5; }` — on compile, that line was space-mangled to `button: hover { background: #f5f5f5;` AND its closing `}` was dropped, consuming the next sibling rule (`label { ... }`) whole. Breadth: any element-leading compound selector (`a.foo`, `h1, h2`, `input:focus`, `div[disabled]`, `ul > li`) was affected. Root cause: `tokenizer.ts tokenizeCSS` ident path only recognised `<ident> {` as selector, sent everything else to the declaration path.
 
-Ran between the deep-dive and the fix to surface side-effect risk. Confirmed fix surface is narrow (one predicate) but identified 3 lockstep changes needed: `tab.test.js:649` encoded the bug as test policy; `self-host/ast.scrml:1719` carries the same heuristic; module-resolver/bpp/pa rely on `^{}` destructuring imports which depend on a separate masked bug.
+3. **Ghost-pattern lint pre-pass was invisible by default.** The W-LINT-001..010 catalog existed, the pass ran on every compile, but diagnostics were only printed under `--verbose`. Adopter typed `<button onClick={decrement}>` into the scaffold, got silent acceptance and a compiled-but-dead button.
 
-### **Commit `b189051`** — `fix(ast-builder): component-def requires markup RHS, not just uppercase name`
+4. **Ghost-lint catalog was React-centric.** Vue adopters typing `:class=`, `v-if=`, `@click=` got zero feedback. Svelte adopters typing `{#each}`, `{@html}` same.
 
-Four coupled changes in one commit:
-1. **ast-builder.js:3634** — require `expr.trimStart().startsWith("<")` in addition to uppercase-initial name.
-2. **self-host/ast.scrml:1719** — parity fix.
-3. **type-system.ts meta-case** — (a) remove the fresh scope push so `^{}` import bindings escape into the enclosing frame, and (b) extract destructuring patterns (`{ a, b } = ...`) directly from bare-expr text and bind the names, since the AST builder fragments them into three sibling nodes with no single decl carrying the name. Handles `{ name }` and `{ orig: alias }`. Surgical — a proper fix belongs in the AST builder.
-4. **LOGIC_SCOPE_GLOBAL_ALLOWLIST** — add `URL`, `URLSearchParams`, `Buffer`, `process`.
+Each fixed and pushed:
+- `2eb4513` — CSS tokenizer compound-selector disambiguation (+10 tests T16–T25)
+- `8217dd9` — `package.json bin` → `compiler/bin/scrml.js`
+- `5e663a4 → f0e7222` — CLI prints lint diagnostics by default (compile + dev)
+- `e8ddc8d` — W-LINT-011 (`:attr=`), W-LINT-012 (Vue directive family), W-LINT-013 (`@event=` shorthand), W-LINT-014 (Svelte blocks), W-LINT-015 (`{@html}`); +26 tests including a scaffold-zero-lint regression guard.
 
-**Tests:** flipped `tab.test.js:649` (was asserting `const MyComponent = 42` produces component-def — encoded the bug as policy). Added 3 positive tests.
+Suite: 7186 → 7222 (+36 new), 2 pre-existing failures unchanged.
 
-Suite 7183 → 7186 pass / 2 fail (pre-existing Bootstrap L3 + tab.js-path unchanged). Self-host `PASS module-resolver` confirms the exposed latent bug is resolved end-to-end. pa.scrml error count changed from 38 → 31 (mask is gone; errors are now real).
+### Arc — continued stress testing surfaced 1 critical + 8 known gaps
 
----
+Systematic pattern coverage after the fixes went in. Ran the full 15-pattern W-LINT matrix against fresh `.scrml` files + a standalone example copy. Works cleanly. Found one critical remaining gap:
 
-## 3. Adjacent bugs surfaced during the dive — NOT FIXED, queued for future arcs
+**Missing-`@`-sigil silent break (F5, NOT fixed).** Adopter declares `@count = 0`, writes `${count}` in markup (forgets `@`). Compile succeeds silently. HTML gets an empty `<span>`. JS gets a bare `count;` statement referencing an undefined global. The scope checker fires `E-SCOPE-001` for unquoted identifiers in ATTRIBUTE VALUES (`onclick=increment` → "Did you mean to quote or use @?"), but it doesn't descend into `${...}` interpolation contents inside markup. This is THE most common predicted adopter typo and it has zero feedback loop.
 
-These three bugs all fall out of the same "exported decls have their body stored as raw text" pattern and are visible once the component-def mask is gone. Fixing them requires AST-builder work (not just scope-chain patches).
-
-### (a) `export class X { ... }` — class name never extracted
-
-The ast-builder produces an `export-decl` with `raw: "export class X {...}"`, `exportedName: null`, `exportKind: null`. The class name isn't parsed out. Consequence: `X` is never bound in any scope, so `new X(...)` anywhere else in the module is E-SCOPE-001.
-
-Workaround in S28: every self-host module that exports classes (module-resolver's `ModuleError`, pa.scrml's `PAError`, etc.) was masked by the phantom-component vacuum. With the vacuum gone, these will now surface. module-resolver PASSES only because callers use the workaround of not re-referencing the class inside later scope-checked function bodies.
-
-**Fix surface estimate:** parse the `raw` text when `exportKind` isn't extracted, or more robustly teach the AST-builder to recognize `export class Name` and emit a bound class-decl + export-decl pair. Tests would need updating.
-
-### (b) `export function X(...)` — body stored as raw string; scope-check never walks it
-
-`export-decl` stores the full function text (params, body) as a single `raw` field. No `function-decl` child is produced, no `params` array, no parsed `body`. Codegen clearly reads `raw` and produces working JS (bpp proves this). But the scope-check pass at type-system.ts only walks `function-decl` bodies, so exported function bodies are invisible to E-SCOPE-001 / E-ERROR-001 / lin checks.
-
-**Why this hides bugs:** every self-host module's public API (runPA, splitBlocks, tokenizeBlock, buildAST, etc.) is `export function` — so the exported entry points are scope-unchecked. Any `null`/`undefined`/bad-operator/undeclared-ident in those bodies slips through.
-
-**Fix surface estimate:** teach the AST-builder to produce a `function-decl` child for export-decl function exports (or mirror structure so scope-check descends). Likely touches many files. Could cascade into a flurry of genuine error reports across the self-host modules.
-
-### (c) Destructuring `const { a, b } = ...` fragmented in ALL contexts, not just meta
-
-Only worked around for meta blocks in commit `b189051` (via regex extraction from bare-expr text). The same fragmentation happens in regular logic — the AST builder produces:
-- `const-decl` with `name: ""`
-- `bare-expr` with `expr: "{ a, b } = ..."` and an `escape-hatch` exprNode marked `ParseError`
-- An orphan trailing node (import-decl / etc.)
-
-No names bind. Anyone writing `const { x, y } = obj` in user code gets `x` and `y` silently unbound.
-
-**Fix surface estimate:** AST-builder pattern parser. Extract all identifiers from the pattern, emit either multiple const-decls or a single pattern-decl with a names array. Scope binder loops over names. Medium-sized change but localized.
+Parallels S29's component-def mask: a scope-pass gap is likely hiding more real bugs. Fix requires AST-builder or scope-pass investigation, not a one-liner.
 
 ---
 
-## 4. Current queue for S30+
+## 3. Full friction catalog
+
+Written to `../scrml-support/docs/adopter-friction-audit-2026-04-19.md`. Summary (13 findings, F1–F13):
+
+- **Critical — fixed:** F1 CSS tokenizer (2eb4513), F2 package.json bin (8217dd9), F3 lint diagnostics hidden (5e663a4/f0e7222), F4 Vue/Svelte lint coverage (e8ddc8d).
+- **Critical — open:** F5 missing-`@`-sigil silent break in markup interpolation.
+- **High:** F6 `scrml init` no-arg scaffolds into CWD, F7 scaffold .gitignore mismatch, F8 scaffold lacks package.json/README, F9 scaffold lacks orientation comments, F10 README missing `bun link` step.
+- **Medium:** F11 ugly relative paths past project root, F12 CSS output no trailing newline.
+- **Low:** F13 CLI help grammar drift vs README/tutorial.
+
+---
+
+## 4. Current queue for S31+
 
 ### Unblocked (next session can pick directly)
 
-1. **`^{}` destructuring — proper AST fix** (bug c above). Medium, localized to ast-builder.js. Should precede any more self-host translation so we're not working around it per-site.
+1. **F5 — missing-`@`-sigil E-SCOPE-001 coverage.** Highest-leverage adopter fix remaining. Scope-pass investigation, possibly AST-builder gap. Likely cascades into real-error surfacing analogous to S29 component-def removal. Budget 1 session.
 
-2. **Export-decl name extraction** (bugs a + b). Larger; will cascade. Recommend scoping first: draft the ast-builder change, run self-host build, inventory the new errors.
+2. **F6 + F7 + F10 scaffold/CLI polish batch.** Require explicit dir (or prompt) for `scrml init`; update `.gitignore` default; add `bun link` to README install. Cheap, maybe 1–2 hours.
 
-3. **P3 continued** — now that the mask is gone, the 5 still-failing self-host modules (ast, pa, ri, ts, dg) have more accurate error counts. Pre-S29: 47 / 38 / 20 / 116 / 20. Post-S29: 59 / 31 / 12 / 120 / 20. Net change is small (more scope-check coverage, same real-issue surface). pa.scrml is the smallest remaining; might be do-able once (c) lands.
+3. **F8 + F9 scaffold content polish.** Emit `package.json` with dev script + `README.md` in scaffold; add inline orientation comments. Cheap, adopter-facing.
 
-### Still carried from S28
+### Carried from S28/S29 (NOW DEFERRED PER S30 PIVOT)
 
-4. P5 ExprNode Phase 4d/5 (delete legacy string fields)
-5. Lift Approach C Phase 2
-6. §51.13 phase 8 — guarded projection runtime parity
-7. `< machine for=Struct>` cross-field invariants
-8. Async loading stdlib helpers
-9. DQ-12 Phase B
-10. Approach C lin (long-deferred)
+These are all self-host / compiler-internal and explicitly deferred until adopter-friction surface stabilizes:
+
+- Bug (a) — `export class X` name extraction
+- Bug (b) — `export function X` body scope-check skip
+- Bug (c) — destructuring `const { a, b } = ...` fragmentation
+- P3 continued — ast.scrml / ts.scrml / ri.scrml / pa.scrml / dg.scrml still FAIL in self-host build
+- P5 ExprNode Phase 4d/5, Lift Approach C Phase 2, §51.13 phase 8, `<machine for=Struct>` cross-field invariants, async loading stdlib helpers, DQ-12 Phase B, Approach C lin
 
 ---
 
-## 5. Non-compliance from map refresh
+## 5. Non-compliance from map refresh (carried unchanged from S29)
 
-- `master-list.md` header is 5 sessions stale (S23 / 6,889 pass). Entries missing for gauntlet-s24/s25/s26/s27/s28 test dirs, S28 elision, S27 replay, extract-user-fns helper, SCRML_NO_ELIDE env var.
-- `compiler/SPEC.md.pre-request-patch` — 12,414-line pre-amendment backup from 2026-04-11 sitting next to the authoritative 20,071-line SPEC.md. Grep-trap. Recommend deref to `../scrml-support/archive/spec-drafts/` or delete.
-- Uncertain: `docs/SEO-LAUNCH.md` uncommitted 5 sessions running; `benchmarks/fullstack-react/CLAUDE.md` agent-tooling in framework-comparison dir.
+- `master-list.md` header is 6 sessions stale (last updated S23). Needs refresh after this session; would be +4 commits, new F-series tracking, ghost-lint 10→15 patterns, etc.
+- `compiler/SPEC.md.pre-request-patch` — 12,414-line pre-amendment backup still sitting next to SPEC.md. Grep-trap. Deref to scrml-support/archive/spec-drafts/ or delete.
+- `docs/SEO-LAUNCH.md` uncommitted 7 sessions running.
+- `benchmarks/fullstack-react/CLAUDE.md` agent-tooling in framework-comparison dir.
+
+---
+
+## 6. Memory + user-voice updates
+
+- Saved project memory: `project_public_pivot.md` — scrmlTS public since 2026-04-17, self-host deferred, adopter-friction priority.
+- Added to MEMORY.md index.
+- User-voice appended with S30 entry — full verbatim of the strategic pivot.
