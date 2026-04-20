@@ -3662,10 +3662,18 @@ function annotateNodes(
 
         // Walk the body statements. Default to client boundary; §33.6 purity
         // rules apply uniformly so boundary is less load-bearing than for
-        // regular functions. Phase 4g will apply checkFnBodyProhibitions here.
+        // regular functions.
         const txBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(txBody)) {
           for (const stmt of txBody) visitLogicNode(stmt, "client");
+        }
+
+        // §33.6 Phase 4g: apply fn-level purity rules. Transition bodies are
+        // pure-function-equivalent per §33.6 (fn ≡ pure function). Reuse the
+        // same walker that fn bodies use so the same E-FN-001..E-FN-005
+        // codes surface uniformly — users already understand these codes.
+        if (Array.isArray(txBody)) {
+          checkFnBodyProhibitions(n, txBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain);
         }
 
         scopeChain.pop();
