@@ -961,6 +961,21 @@ function colonIntroducesSelector(content: string, colonPos: number): boolean {
 }
 
 /**
+ * Lookahead helper (GITI-007): disambiguate `nav a { ... }` (descendant
+ * combinator selector) from `foo bar;` (malformed property value). Scan
+ * forward for `{`, `;`, `}`; `{` first means we're in a selector rule.
+ * Returns true if a `{` appears before the next statement terminator.
+ */
+function hasBraceBeforeSemiOrRbrace(content: string, startPos: number): boolean {
+  for (let p = startPos; p < content.length; p++) {
+    const c = content[p];
+    if (c === "{") return true;
+    if (c === ";" || c === "}") return false;
+  }
+  return false;
+}
+
+/**
  * Tokenize the body of a CSS inline block (`#{...}`).
  *
  * The body contains CSS property declarations and/or selector rules.
@@ -1034,12 +1049,20 @@ export function tokenizeCSS(content: string, baseOffset: number, baseLine: numbe
         nextCh === "." || nextCh === "#" || nextCh === "[" || nextCh === "," ||
         nextCh === ">" || nextCh === "+" || nextCh === "~" || nextCh === "*";
       const isPseudoThenBrace = nextCh === ":" && colonIntroducesSelector(content, pos);
+      // GITI-007: descendant combinator. `nav a { ... }` — after ident + ws,
+      // another ident-start means the first ident was a selector, not a prop.
+      // Only trigger when ws separated them (unspaced `nava` would be one ident
+      // to the earlier loop anyway). Disambiguates from valueless-prop-followed-
+      // by-next-rule (already malformed) by requiring a `{` before `;`/`}`
+      // downstream.
+      const isDescendantCombinator =
+        hadWs && /[A-Za-z_\-]/.test(nextCh) && hasBraceBeforeSemiOrRbrace(content, pos);
 
       if (nextCh === "{") {
         // Bare element selector: `body {`, `div {`, `h1 {`, etc.
         // Emit CSS_SELECTOR; the `{` will be consumed as CSS_LBRACE in the next iteration.
         tokens.push(makeToken("CSS_SELECTOR", ident, start, absOff(), l, c));
-      } else if (isCompoundSelectorChar || isPseudoThenBrace) {
+      } else if (isCompoundSelectorChar || isPseudoThenBrace || isDescendantCombinator) {
         // Compound selector beginning with an element name. Consume through `{` or `}`
         // as one CSS_SELECTOR token. Examples: `a.foo`, `button:hover`, `h1, h2`, `ul > li`.
         // Preserve a single space after the ident if source had whitespace (descendant

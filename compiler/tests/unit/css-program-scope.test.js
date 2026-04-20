@@ -249,3 +249,50 @@ describe("CSS #{} program scope + element scope — combined", () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// GITI-007: bare-tag descendant combinator
+// ---------------------------------------------------------------------------
+
+describe("GITI-007: bare-tag descendant combinator", () => {
+  test("`nav a { ... }` after a prior rule emits as a compound selector", () => {
+    const source = [
+      "<program>",
+      "#{",
+      "  nav { display: flex; }",
+      "  nav a { color: red; }",
+      "}",
+      "</>",
+    ].join("\n");
+    const { css, bsErrors, tabErrors } = compileSource(source);
+    expect(bsErrors).toHaveLength(0);
+    expect(tabErrors).toHaveLength(0);
+    expect(css).toContain("nav a { color: red; }");
+    expect(css).not.toMatch(/nav:\s*;/);
+  });
+
+  test("bare-tag descendant works alone in a block", () => {
+    const source = [
+      "<program>",
+      "#{ main article { color: blue; } }",
+      "</>",
+    ].join("\n");
+    const { css, bsErrors, tabErrors } = compileSource(source);
+    expect(bsErrors).toHaveLength(0);
+    expect(tabErrors).toHaveLength(0);
+    expect(css).toContain("main article { color: blue; }");
+  });
+
+  test("plain property `color: red` still classifies as declaration (not selector)", () => {
+    const source = [
+      "<program>",
+      "#{ .x { color: red; padding: 10px; } }",
+      "</>",
+    ].join("\n");
+    const { css, bsErrors, tabErrors } = compileSource(source);
+    expect(bsErrors).toHaveLength(0);
+    expect(tabErrors).toHaveLength(0);
+    expect(css).toContain("color: red");
+    expect(css).toContain("padding: 10px");
+  });
+});
