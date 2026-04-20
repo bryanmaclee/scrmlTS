@@ -576,6 +576,139 @@ function tagFunctionsWithStateType(nodes, stateTypeName) {
   }
 }
 
+/**
+ * §54.3 Phase 4b — parse the trailing transition-decl signature from a text
+ * block's content. Returns null if the text does not end with a signature.
+ *
+ * Signature shape: `IDENT ( PARAMS ) => < TARGET >` optionally followed by
+ * whitespace. The companion block-splitter recognizer (Phase 4a) only emits
+ * the text+logic sibling pair when this pattern is present, but we re-verify
+ * here so the AST collapse is self-contained.
+ *
+ * Returns: { name, paramsRaw, target, sigStart } where sigStart is the index
+ * in `text` where the signature begins (useful for preserving leading
+ * residual content).
+ */
+function parseTrailingTransitionSignature(text) {
+  if (typeof text !== "string" || text.length === 0) return null;
+  let i = text.length - 1;
+  // Skip trailing whitespace
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  // Expect '>'
+  if (i < 0 || text[i] !== ">") return null;
+  i--;
+  // Optional whitespace inside the tag (rare, e.g., `< Target >`)
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  // Target identifier
+  const targetEnd = i + 1;
+  while (i >= 0 && /[A-Za-z0-9_]/.test(text[i])) i--;
+  const targetStart = i + 1;
+  if (targetStart === targetEnd) return null;
+  const target = text.slice(targetStart, targetEnd);
+  if (!/^[A-Za-z_]/.test(target)) return null;
+  // Required whitespace (the `< ` space per §4.3 / §54.3)
+  if (i < 0 || !/\s/.test(text[i])) return null;
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  // '<'
+  if (i < 0 || text[i] !== "<") return null;
+  i--;
+  // Whitespace
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  // '=>'
+  if (i < 1 || text[i] !== ">" || text[i - 1] !== "=") return null;
+  i -= 2;
+  // Whitespace
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  // ')' closing params
+  if (i < 0 || text[i] !== ")") return null;
+  // Balance-match back through parens
+  const paramsEnd = i; // exclusive end of params
+  let depth = 1;
+  i--;
+  while (i >= 0 && depth > 0) {
+    const c = text[i];
+    if (c === ")") depth++;
+    else if (c === "(") depth--;
+    if (depth === 0) break;
+    i--;
+  }
+  if (depth !== 0) return null;
+  // i is now at the '('
+  const paramsStart = i + 1;
+  const paramsRaw = text.slice(paramsStart, paramsEnd);
+  i--;
+  // Optional whitespace between name and '('
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  // Transition name (identifier)
+  const nameEnd = i + 1;
+  while (i >= 0 && /[A-Za-z0-9_]/.test(text[i])) i--;
+  const nameStart = i + 1;
+  if (nameStart === nameEnd) return null;
+  const name = text.slice(nameStart, nameEnd);
+  if (!/^[A-Za-z_]/.test(name)) return null;
+  return { name, paramsRaw, target, sigStart: nameStart };
+}
+
+/**
+ * §54.3 Phase 4b — walk a state-constructor's AST children and collapse each
+ * (text-ending-in-signature, logic) sibling pair into a single transition-decl
+ * node. Children not matching the pattern are passed through untouched.
+ *
+ * The block-splitter Phase 4a contract guarantees that when a transition-decl
+ * is present, the text block immediately precedes the logic body and carries
+ * the signature text verbatim (including any leading residual content).
+ *
+ * Leading residual text BEFORE the signature is preserved as its own text
+ * node so surrounding whitespace / comments / other content are not dropped.
+ */
+function collapseTransitionDecls(children, filePath, counter) {
+  const out = [];
+  for (let i = 0; i < children.length; i++) {
+    const cur = children[i];
+    const next = children[i + 1];
+    if (cur && cur.kind === "text" && next && next.kind === "logic") {
+      const sig = parseTrailingTransitionSignature(cur.value);
+      if (sig) {
+        // Preserve any leading residual text before the signature
+        const residual = cur.value.slice(0, sig.sigStart);
+        if (residual.length > 0) {
+          out.push({
+            id: ++counter.next,
+            kind: "text",
+            value: residual,
+            span: cur.span,
+          });
+        }
+        // Build the transition-decl node. Span covers signature start → body end.
+        const tdSpan = {
+          file: filePath,
+          start: (cur.span && typeof cur.span.start === "number")
+            ? cur.span.start + sig.sigStart
+            : (next.span ? next.span.start : 0),
+          end: (next.span && typeof next.span.end === "number")
+            ? next.span.end
+            : (cur.span ? cur.span.end : 0),
+          line: cur.span ? cur.span.line : (next.span ? next.span.line : 1),
+          col: cur.span ? cur.span.col : (next.span ? next.span.col : 1),
+        };
+        out.push({
+          id: ++counter.next,
+          kind: "transition-decl",
+          name: sig.name,
+          paramsRaw: sig.paramsRaw,
+          targetSubstate: sig.target,
+          body: Array.isArray(next.body) ? next.body : [],
+          span: tdSpan,
+        });
+        i++; // consume the logic sibling
+        continue;
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 function parseTypedAttributes(tokens, filePath, errors) {
   const attrs = [];
   const typedAttrs = [];
@@ -5670,9 +5803,14 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
 
       // Pass our own name down as parentStateName so nested state blocks
       // (substates per §54.2) can tag themselves with their parent's name.
-      const children = block.children.map(child =>
+      const rawChildren = block.children.map(child =>
         buildBlock(child, filePath, "state", counter, errors, block.name)
       ).filter(Boolean);
+
+      // S32 Phase 4b (§54.3): collapse `text-ending-in-signature` + `logic`
+      // sibling pairs into `transition-decl` nodes. Non-matching children
+      // pass through untouched.
+      const children = collapseTransitionDecls(rawChildren, filePath, counter);
 
       // S32 Phase 3a: if we are nested inside another state block, tag as substate (§54.2).
       const substateMetadata = parentStateName
@@ -5710,11 +5848,14 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
 
     // --------------------------------------------------------------- logic
     case "logic": {
-      // Body is between `${` and `}` — 2 chars prefix, 1 char suffix
-      const bodyRaw = preprocessWorkerAndStateRefs(block.raw.slice(2, block.raw.length - 1));
-      const bodyOffset = block.span.start + 2;
+      // Body is between the opener and `}`.
+      // Regular `${...}` blocks use a 2-char opener; §54.3 transition bodies
+      // (Phase 4a) push a `logic` frame on a bare `{` — 1-char opener.
+      const prefixLen = block.raw && block.raw.startsWith("${") ? 2 : 1;
+      const bodyRaw = preprocessWorkerAndStateRefs(block.raw.slice(prefixLen, block.raw.length - 1));
+      const bodyOffset = block.span.start + prefixLen;
       const bodyLine = block.span.line;
-      const bodyCol = block.span.col + 2;
+      const bodyCol = block.span.col + prefixLen;
 
       const tokens = tokenizeLogic(bodyRaw, bodyOffset, bodyLine, bodyCol, block.children);
       const body = parseLogicBody(tokens, filePath, block.children, block, counter, errors, "logic");
