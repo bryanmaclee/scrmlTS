@@ -87,12 +87,18 @@ function makeFunctionDecl(name, body, opts = {}) {
 }
 
 /**
- * Run runTS and return only errors whose code starts with "E-FN-" or "W-FN-".
+ * Run runTS and return only fn-boundary errors: E-FN-*, W-FN-*, and
+ * E-STATE-COMPLETE (formerly E-FN-006; universalized per §54.6.1 S32 amendment
+ * but still reached via the fn-body walker as of Phase 1a).
  */
 function getFnErrors(nodes, filePath) {
   const file = makeFile(nodes, filePath);
   const { errors } = runTS({ files: [file] });
-  return errors.filter(e => e.code.startsWith("E-FN-") || e.code.startsWith("W-FN-"));
+  return errors.filter(e =>
+    e.code.startsWith("E-FN-") ||
+    e.code.startsWith("W-FN-") ||
+    e.code === "E-STATE-COMPLETE"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +671,10 @@ describe("§8: E-FN-003 — outer-scope variable mutation inside fn", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §9  E-FN-006 — Returning Incomplete State
+// §9  E-STATE-COMPLETE — State literal with unassigned fields (§54.6.1)
+//     Amended 2026-04-20 (S32): renamed from E-FN-006; universal scope per §54.
+//     Phase 1a: rename + diagnostic-text update only. Phase 1b will widen to
+//     `function` bodies (currently still only fires inside `fn`).
 // ---------------------------------------------------------------------------
 
 /**
@@ -742,8 +751,8 @@ function getFnErrorsWithStateDef(stateCtorDefs, fnNodes, filePath = "/test/app.s
   return getFnErrors(allNodes, filePath);
 }
 
-describe("§9: E-FN-006 — returning incomplete state", () => {
-  test("fn returning state instance with all fields assigned — no E-FN-006", () => {
+describe("§9: E-STATE-COMPLETE — state literal with unassigned fields (§54.6.1)", () => {
+  test("fn returning state instance with all fields assigned — no E-STATE-COMPLETE", () => {
     const stateDef = makeStateCtorDef("User", ["name", "age"]);
     const stateInit = makeStateInit("u", "User");
     const nameAssign = makeFieldAssign("u", "name", '"alice"');
@@ -753,10 +762,12 @@ describe("§9: E-FN-006 — returning incomplete state", () => {
     const fnDecl = makeFnDecl("buildUser", [stateInit, nameAssign, ageAssign, ret]);
     const errors = getFnErrorsWithStateDef([stateDef], [fnDecl]);
 
+    expect(errors.some(e => e.code === "E-STATE-COMPLETE")).toBe(false);
+    // E-FN-006 is retired and SHALL NOT fire (§48.12).
     expect(errors.some(e => e.code === "E-FN-006")).toBe(false);
   });
 
-  test("fn returning state instance with missing field triggers E-FN-006", () => {
+  test("fn returning state instance with missing field triggers E-STATE-COMPLETE", () => {
     const stateDef = makeStateCtorDef("User", ["name", "age"]);
     const stateInit = makeStateInit("u", "User");
     // Only assigns name, skips age
@@ -766,14 +777,14 @@ describe("§9: E-FN-006 — returning incomplete state", () => {
     const fnDecl = makeFnDecl("buildUser", [stateInit, nameAssign, ret]);
     const errors = getFnErrorsWithStateDef([stateDef], [fnDecl]);
 
-    expect(errors.some(e => e.code === "E-FN-006")).toBe(true);
-    const err = errors.find(e => e.code === "E-FN-006");
+    expect(errors.some(e => e.code === "E-STATE-COMPLETE")).toBe(true);
+    const err = errors.find(e => e.code === "E-STATE-COMPLETE");
     expect(err.message).toContain("age");
     expect(err.message).toContain("User");
     expect(err.message).toContain("`u`");
   });
 
-  test("fn returning state instance with no fields assigned triggers E-FN-006 for each field", () => {
+  test("fn returning state instance with no fields assigned triggers E-STATE-COMPLETE for each field", () => {
     const stateDef = makeStateCtorDef("Product", ["title", "price"]);
     const stateInit = makeStateInit("p", "Product");
     const ret = makeReturn("p");
@@ -781,11 +792,14 @@ describe("§9: E-FN-006 — returning incomplete state", () => {
     const fnDecl = makeFnDecl("buildProduct", [stateInit, ret]);
     const errors = getFnErrorsWithStateDef([stateDef], [fnDecl]);
 
-    const fn006Errors = errors.filter(e => e.code === "E-FN-006");
-    expect(fn006Errors.length).toBeGreaterThanOrEqual(2); // one for title, one for price
+    const completeErrors = errors.filter(e => e.code === "E-STATE-COMPLETE");
+    expect(completeErrors.length).toBeGreaterThanOrEqual(2); // one for title, one for price
   });
 
-  test("E-FN-006 not triggered for function (not fn)", () => {
+  test("E-STATE-COMPLETE not yet triggered for function (Phase 1b widening pending)", () => {
+    // Phase 1a preserves existing fn-only scope. Phase 1b universalizes to
+    // function bodies per §54.6.1 ("universal scope"). Test will invert
+    // when 1b lands: `expect(...).toBe(true)`.
     const stateDef = makeStateCtorDef("User", ["name", "age"]);
     const stateInit = makeStateInit("u", "User");
     const nameAssign = makeFieldAssign("u", "name", '"alice"');
@@ -795,7 +809,7 @@ describe("§9: E-FN-006 — returning incomplete state", () => {
     const fnDecl = makeFunctionDecl("buildUser", [stateInit, nameAssign, ret]);
     const errors = getFnErrorsWithStateDef([stateDef], [fnDecl]);
 
-    expect(errors.some(e => e.code === "E-FN-006")).toBe(false);
+    expect(errors.some(e => e.code === "E-STATE-COMPLETE")).toBe(false);
   });
 });
 

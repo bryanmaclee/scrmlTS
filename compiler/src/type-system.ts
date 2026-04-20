@@ -7389,7 +7389,10 @@ export function runTS(input: {
  *   E-FN-005  async declaration or await expression
  *
  * Layer 2 (§48.4–§48.5):
- *   E-FN-006  Returning <state> with unassigned fields
+ *   E-STATE-COMPLETE  State literal has unassigned declared fields at literal close (§54.6.1).
+ *                     Amended 2026-04-20 (S32): retired E-FN-006; universal scope per §54.
+ *                     Current impl still fires at `return` site in fn body; universalization
+ *                     to `function` bodies + true literal-closing-tag pointing is future work.
  *   E-FN-007  Branches return different <state> types without an explicit union return type
  *   E-FN-008  lift targeting an outer-scope ~ accumulator
  *
@@ -7555,8 +7558,13 @@ function checkFnBodyProhibitions(
   }
 
   // ---------------------------------------------------------------------------
-  // E-FN-006 — Returning Incomplete State (§48.4.3)
-  // E-FN-007 — Branch Produces Different State Shape (§48.4.4)
+  // E-STATE-COMPLETE — State literal missing declared fields (§54.6.1)
+  // E-FN-007 — Branch Produces Different State Shape (§48.4.1)
+  //
+  // Amended 2026-04-20 (S32): E-FN-006 retired; state-completeness checks
+  // relocate to E-STATE-COMPLETE at every state-literal site per §54.6.1.
+  // Current impl still runs at `return` site inside `fn`; universalization
+  // to `function` bodies and literal-closing-tag pointing are Phase 1b/3.
   // ---------------------------------------------------------------------------
   // Track state instances created inside the fn body: varName -> typeName
   const stateInstances = new Map<string, string>(); // varName -> typeName
@@ -7845,12 +7853,14 @@ function checkFnBodyProhibitions(
         // E-FN-003: outer-scope variable mutation
         checkOuterScopeMutation(stmt, txt);
 
-        // Track field assignments for E-FN-006
+        // Track field assignments for E-STATE-COMPLETE
         trackFieldAssignment(txt);
       }
 
-      // E-FN-006: return statement — check completeness of state instances
-      // Phase 4d: ExprNode-first, string fallback
+      // E-STATE-COMPLETE: state-literal completeness check (§54.6.1).
+      // Current location: fires at `return` statement inside fn body.
+      // Target location (Phase 3+): fires at state literal's `</>` closer.
+      // Amended 2026-04-20 (S32): E-FN-006 retired; code + diagnostic updated.
       if (stmt.kind === "return-stmt" && stateTypeRegistry) {
         const _retExprNode2 = (stmt as Record<string, unknown>).exprNode;
         const returnValue = _retExprNode2
@@ -7865,12 +7875,15 @@ function checkFnBodyProhibitions(
               const loaded = loadedFields.get(returnVarName) ?? new Set();
               for (const [fieldName] of stateType.attributes) {
                 if (!loaded.has(fieldName)) {
+                  const declaredFields = [...stateType.attributes.keys()].join(", ");
                   errors.push(new TSError(
-                    "E-FN-006",
-                    `E-FN-006: \`fn\` returns \`${returnVarName}\` (type \`${typeName}\`) ` +
-                    `at line ${stmtSpan.line} with field \`${fieldName}\` unassigned. ` +
-                    `All fields of a \`<state>\` type must be assigned before the object is returned from \`fn\`. ` +
-                    `Assign \`${returnVarName}.${fieldName}\` before the \`return\` statement.`,
+                    "E-STATE-COMPLETE",
+                    `E-STATE-COMPLETE: field \`${fieldName}\` of \`< ${typeName}>\` is unassigned at literal close.\n` +
+                    `  Binding: \`${returnVarName}\` (returned from \`fn\` at line ${stmtSpan.line}).\n` +
+                    `  Declared fields: ${declaredFields}.\n` +
+                    `  On this evaluation path, \`${fieldName}\` was never assigned before the literal closed.\n` +
+                    `  Either assign \`${returnVarName}.${fieldName}\` before \`return\`, ` +
+                    `or give \`${fieldName}\` a default value in the \`< state ${typeName}>\` declaration.`,
                     stmtSpan,
                   ));
                 }
