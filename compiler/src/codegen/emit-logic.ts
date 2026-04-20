@@ -596,7 +596,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (opts.tildeContext || opts.continueBehavior) {
         return _emitIfStmtWithOpts(node, opts);
       }
-      return emitIfStmt(node);
+      // Always thread declaredNames + derivedNames so bare `x = expr`
+      // inside if/else body sees outer lets (Bug B + F).
+      return emitIfStmt(node, { derivedNames: opts.derivedNames, declaredNames: opts.declaredNames });
 
     case "for-stmt":
       // §32 array accumulator: when tilde context is active, switch to array-mode before
@@ -604,14 +606,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       if (opts.tildeContext) {
         return _emitForStmtWithTilde(node, opts);
       }
-      return emitForStmt(node, { dbVar: opts.dbVar });
+      return emitForStmt(node, { dbVar: opts.dbVar, declaredNames: opts.declaredNames });
 
     case "while-stmt":
       // §32 array accumulator: same pattern as for-stmt above.
       if (opts.tildeContext) {
         return _emitWhileStmtWithTilde(node, opts);
       }
-      return emitWhileStmt(node);
+      return emitWhileStmt(node, { declaredNames: opts.declaredNames });
 
     case "do-while-stmt":
       return emitDoWhileStmt(node);

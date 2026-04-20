@@ -55,6 +55,15 @@ export function setVariantFieldsForFile(
 
 interface IfOpts {
   derivedNames?: Set<string>;
+  /**
+   * Names declared in an outer scope (let/const/lin). Threaded through
+   * control-flow constructs so bare `x = expr` reassignments inside an
+   * if/else/for/while body are recognized as reassignments rather than
+   * new tilde-decls. Without this, the tilde-decl emission path would
+   * produce `const x = expr` shadows (Bug B) or _scrml_derived_declare
+   * calls for plain locals (Bug F).
+   */
+  declaredNames?: Set<string>;
 }
 
 // §51.5 — Machine binding info for transition guard emission in rewriteBlockBody
@@ -79,11 +88,19 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
 
   const consequent: any[] = node.consequent ?? node.body ?? [];
 
+  // Thread declaredNames through body emissions so bare `x = expr`
+  // reassignments inside the if/else body are recognized as rebinds of
+  // outer lets (Bug B + F).
+  const bodyOpts = {
+    derivedNames: opts.derivedNames,
+    declaredNames: opts.declaredNames,
+  };
+
   if (hasFragmentedLiftBody(consequent)) {
     const liftCode = emitConsolidatedLift(consequent);
     if (liftCode) lines.push(`  ${liftCode}`);
   } else {
-    for (const code of emitLogicBody(consequent, opts)) {
+    for (const code of emitLogicBody(consequent, bodyOpts)) {
       lines.push(`  ${code}`);
     }
   }
@@ -99,7 +116,7 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
       lines.push(`}`);
     } else {
       lines.push(`else {`);
-      for (const code of emitLogicBody(alternate, opts)) {
+      for (const code of emitLogicBody(alternate, bodyOpts)) {
         lines.push(`  ${code}`);
       }
       lines.push(`}`);
@@ -123,7 +140,7 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
  */
 export function emitForStmt(
   node: any,
-  opts?: { dbVar?: string },
+  opts?: { dbVar?: string; declaredNames?: Set<string> },
 ): string {
   const lines: string[] = [];
   let varName: string = node.variable ?? node.name ?? "item";
@@ -149,7 +166,7 @@ export function emitForStmt(
       lines.push(`for (${init}; ${cond}; ${update}) {`);
 
       const body: any[] = node.body ?? [];
-      for (const code of emitLogicBody(body)) {
+      for (const code of emitLogicBody(body, { declaredNames: opts?.declaredNames })) {
         lines.push(`  ${code}`);
       }
       lines.push(`}`);
@@ -242,7 +259,7 @@ export function emitForStmt(
       lines.push(`  ${liftCode}`);
     }
   } else {
-    for (const code of emitLogicBody(body)) {
+    for (const code of emitLogicBody(body, { declaredNames: opts?.declaredNames })) {
       lines.push(`  ${code}`);
     }
   }
@@ -398,13 +415,13 @@ function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
 /**
  * Emit a while statement, optionally with a label prefix.
  */
-export function emitWhileStmt(node: any): string {
+export function emitWhileStmt(node: any, opts?: { declaredNames?: Set<string> }): string {
   const lines: string[] = [];
   const _whileCtx: EmitExprContext = { mode: "client" };
   const condition = emitExprField(node.condExpr, node.condition ?? "true", _whileCtx);
   const label = node.label ? `${node.label}: ` : "";
   lines.push(`${label}while (${condition}) {`);
-  for (const code of emitLogicBody(node.body ?? [])) {
+  for (const code of emitLogicBody(node.body ?? [], { declaredNames: opts?.declaredNames })) {
     lines.push(`  ${code}`);
   }
   lines.push(`}`);
