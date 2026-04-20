@@ -72,7 +72,7 @@
  */
 
 import { getElementShape, getAllElementNames } from "./html-elements.js";
-import { forEachIdentInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall, emitStringFromTree } from "./expression-parser.ts";
+import { forEachIdentInExprNode, forEachCallInExprNode, classifyLiteralFromExprNode, exprNodeContainsCall, emitStringFromTree } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Internal span type (mirrors ast.ts Span)
@@ -2973,6 +2973,88 @@ function checkLogicExprIdents(
 }
 
 /**
+ * §54.6.3 E-STATE-TRANSITION-ILLEGAL — walk an ExprNode tree and fire on
+ * any call whose callee is a member-access on a state-typed binding where
+ * the method name is NOT in the binding's declared `transitions` map.
+ *
+ * Deliberately silent when:
+ *   - Callee is not a member-access (regular function call).
+ *   - Receiver cannot be resolved to a StateType.
+ *   - Resolved StateType has no `transitions` field (terminal — Phase 4f).
+ *   - Method name IS in the transitions map (legal call).
+ *
+ * Receiver shapes supported:
+ *   - IdentExpr: let-bound name, direct scopeChain lookup.
+ *   - CallExpr(Ident("_scrml_reactive_get"), [Lit("name")]): reactive @name
+ *     read rewrite — extract the string arg and look up its reactive entry.
+ */
+function checkTransitionCallsInExpr(
+  exprNode: unknown,
+  span: Span,
+  scopeChain: ScopeChain,
+  stateTypeRegistry: Map<string, ResolvedType> | undefined,
+  errors: TSError[],
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+  if (!stateTypeRegistry) return;
+
+  const resolveReceiverStateType = (receiver: unknown): StateType | null => {
+    if (!receiver || typeof receiver !== "object") return null;
+    const r = receiver as { kind?: string; name?: string; callee?: unknown; args?: unknown[] };
+    if (r.kind === "ident" && typeof r.name === "string") {
+      let name = r.name;
+      // The rewritten reactive-get call already unwrapped; guard against a
+      // raw "@name" ident form used before reactive-rewrite.
+      if (name.startsWith("@")) name = name.slice(1);
+      const entry = scopeChain.lookup(name);
+      if (!entry) return null;
+      const t = entry.resolvedType as ResolvedType | undefined;
+      if (t && t.kind === "state") return t as StateType;
+      return null;
+    }
+    // `@name` reactive-read rewrites to: call Ident("_scrml_reactive_get"), [Lit("name")]
+    if (r.kind === "call" && r.callee && typeof r.callee === "object") {
+      const c = r.callee as { kind?: string; name?: string };
+      if (c.kind === "ident" && c.name === "_scrml_reactive_get") {
+        const args = r.args as Array<{ kind?: string; value?: unknown }> | undefined;
+        const first = args && args[0];
+        if (first && first.kind === "lit" && typeof first.value === "string") {
+          const name = first.value;
+          const entry = scopeChain.lookup(name);
+          if (!entry) return null;
+          const t = entry.resolvedType as ResolvedType | undefined;
+          if (t && t.kind === "state") return t as StateType;
+        }
+      }
+    }
+    return null;
+  };
+
+  forEachCallInExprNode(exprNode as any, (call) => {
+    const callee = call.callee as { kind?: string; object?: unknown; property?: string };
+    if (!callee || callee.kind !== "member") return;
+    const method = callee.property;
+    if (typeof method !== "string" || !method) return;
+    const stateType = resolveReceiverStateType(callee.object);
+    if (!stateType) return;
+    // Only surface on types that declare AT LEAST one transition. Terminal
+    // states (no transitions field) are Phase 4f's territory.
+    const transitions = stateType.transitions;
+    if (!transitions || transitions.size === 0) return;
+    if (transitions.has(method)) return;
+    const declared = Array.from(transitions.keys()).sort().join(", ");
+    errors.push(new TSError(
+      "E-STATE-TRANSITION-ILLEGAL",
+      `E-STATE-TRANSITION-ILLEGAL: Call \`.${method}()\` on \`${stateType.name}\` — ` +
+      `\`${stateType.name}\` declares no transition named \`${method}\`. ` +
+      `Declared transitions: ${declared}. ` +
+      `Check for a typo, or that the binding has narrowed to the substate you expect.`,
+      span,
+    ));
+  });
+}
+
+/**
  * §35 E-LIN-005 — reject a let/const/lin declaration whose name shadows an
  * in-scope `lin` variable from a parent scope. Shadowing is detected by
  * looking up the name in the scope chain and checking that:
@@ -3772,6 +3854,8 @@ function annotateNodes(
           const initExprForScope = (n as any).initExpr;
           if (initExprForScope) {
             checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+            // §54.6.3 Phase 4e: transition-call legality check
+            checkTransitionCallsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
           }
         }
         {
@@ -3853,6 +3937,8 @@ function annotateNodes(
           const reactInitExprNode = (n as any).initExpr;
           if (reactInitExprNode) {
             checkLogicExprIdents(reactInitExprNode, reactSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+            // §54.6.3 Phase 4e: transition-call legality check
+            checkTransitionCallsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
           }
         }
         if (n.name) {
@@ -3945,6 +4031,8 @@ function annotateNodes(
           const beExprNode = (n as Record<string, unknown>).exprNode;
           if (beExprNode) {
             checkLogicExprIdents(beExprNode, beSpan, scopeChain, typeRegistry, errors);
+            // §54.6.3 Phase 4e: transition-call legality check
+            checkTransitionCallsInExpr(beExprNode, beSpan, scopeChain, stateTypeRegistry, errors);
           }
         }
         // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level

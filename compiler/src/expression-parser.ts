@@ -1784,7 +1784,7 @@ export function exprNodeCollectCallees(node: ExprNode): string[] {
 }
 
 /** Walk an ExprNode tree and invoke callback on every CallExpr. */
-function forEachCallInExprNode(node: ExprNode, cb: (call: CallExpr) => void): void {
+export function forEachCallInExprNode(node: ExprNode, cb: (call: CallExpr) => void): void {
   if (!node) return;
   switch (node.kind) {
     case "call": {
