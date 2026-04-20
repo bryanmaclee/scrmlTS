@@ -14,14 +14,18 @@ no state management library.
 # Install (Bun required)
 bun install
 
-# Compile a single file
-scrml compile examples/01-hello.scrml -o dist/
+# Link the scrml binary onto your PATH (one-time, from the repo root)
+bun link
 
-# Or use the CLI directly
+# Scaffold a new project, then run it
+scrml init my-app
+cd my-app
+scrml dev src/app.scrml   # watch + serve
+
+# Or use the CLI directly on any .scrml file or directory
 scrml compile <file|dir>
 scrml dev <file|dir>      # watch + serve
 scrml build <dir>         # production build
-scrml init <dir>          # scaffold a project
 
 # Run the test suite
 bun test compiler/tests/

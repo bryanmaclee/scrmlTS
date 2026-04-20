@@ -232,13 +232,18 @@ describe("§8 no-overwrite behavior", () => {
   beforeEach(setupTmp);
   afterEach(teardownTmp);
 
+  // S31 F6: a bare `scrml init` inside a non-empty dir now refuses to run.
+  // These no-overwrite tests pre-seed the dir, so they pass `.` explicitly
+  // to opt into current-dir scaffolding (mirrors how an end user would
+  // re-run init after seeding partial state).
+
   test("does not overwrite an existing app.scrml", async () => {
     const srcDir = join(tmpDir, "src");
     mkdirSync(srcDir, { recursive: true });
     const appPath = join(srcDir, "app.scrml");
     writeFileSync(appPath, "// existing content\n");
 
-    await runInitInTmp([]);
+    await runInitInTmp(["."]);
 
     const content = readFileSync(appPath, "utf8");
     expect(content).toBe("// existing content\n");
@@ -248,6 +253,9 @@ describe("§8 no-overwrite behavior", () => {
     const giPath = join(tmpDir, ".gitignore");
     writeFileSync(giPath, "# my custom gitignore\n");
 
+    // `.gitignore` is a dotfile so the F6 non-empty check ignores it —
+    // bare `scrml init` still works here, no `.` needed. Covered below
+    // as a positive case for the dotfile carve-out.
     await runInitInTmp([]);
 
     const content = readFileSync(giPath, "utf8");
@@ -259,7 +267,7 @@ describe("§8 no-overwrite behavior", () => {
     mkdirSync(srcDir, { recursive: true });
     writeFileSync(join(srcDir, "app.scrml"), "// existing\n");
 
-    const { warns } = await runInitInTmp([]);
+    const { warns } = await runInitInTmp(["."]);
     expect(warns.some(w => w.includes("already exists") || w.includes("skipping"))).toBe(true);
   });
 
@@ -269,7 +277,7 @@ describe("§8 no-overwrite behavior", () => {
     mkdirSync(srcDir, { recursive: true });
     writeFileSync(join(srcDir, "app.scrml"), "// existing\n");
 
-    await runInitInTmp([]);
+    await runInitInTmp(["."]);
 
     expect(existsSync(join(tmpDir, ".gitignore"))).toBe(true);
   });
@@ -351,5 +359,90 @@ describe("§10 named directory placement", () => {
     const { logs } = await runInitInTmp(["my-project"]);
     const combined = logs.join("\n");
     expect(combined).toContain("my-project");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §11 F6 (S31) — no-arg safety in non-empty directories
+// ---------------------------------------------------------------------------
+
+describe("§11 F6 — bare init rejects non-empty directory", () => {
+  beforeEach(setupTmp);
+  afterEach(teardownTmp);
+
+  /**
+   * Run runInit with a mocked process.exit so a "refuse to run" path does
+   * not terminate the test runner. Returns captured exit code + stderr.
+   */
+  async function runInitExpectingExit(args = []) {
+    const origCwd = process.cwd();
+    const origExit = process.exit;
+    const origErr = console.error;
+    process.chdir(tmpDir);
+
+    const errs = [];
+    let exitCode = null;
+    console.error = (...a) => errs.push(a.join(" "));
+    process.exit = (code) => {
+      exitCode = code;
+      throw new Error("__mock_exit__");
+    };
+
+    try {
+      const { runInit } = await import("../../src/commands/init.js");
+      try { runInit(args); } catch (e) {
+        if (e.message !== "__mock_exit__") throw e;
+      }
+    } finally {
+      console.error = origErr;
+      process.exit = origExit;
+      process.chdir(origCwd);
+    }
+    return { exitCode, errs };
+  }
+
+  test("no arg + non-empty dir → exits 1 with explicit error", async () => {
+    writeFileSync(join(tmpDir, "existing.txt"), "hello");
+
+    const { exitCode, errs } = await runInitExpectingExit([]);
+    expect(exitCode).toBe(1);
+    const combined = errs.join("\n");
+    expect(combined).toContain("requires a target directory");
+    // No files scaffolded
+    expect(existsSync(join(tmpDir, "src", "app.scrml"))).toBe(false);
+  });
+
+  test("no arg + empty dir → still succeeds (implicit current-dir)", async () => {
+    await runInitInTmp([]);
+    expect(existsSync(join(tmpDir, "src", "app.scrml"))).toBe(true);
+  });
+
+  test("explicit `.` + non-empty dir → succeeds (opt-in)", async () => {
+    writeFileSync(join(tmpDir, "existing.txt"), "hello");
+
+    await runInitInTmp(["."]);
+    expect(existsSync(join(tmpDir, "src", "app.scrml"))).toBe(true);
+    // The user-authored file is untouched.
+    expect(readFileSync(join(tmpDir, "existing.txt"), "utf8")).toBe("hello");
+  });
+
+  test("dotfile-only dir is treated as empty (bare init still works)", async () => {
+    // A freshly `git init`-ed or `.gitignore`-seeded dir should still be
+    // a valid bare-init target. F6 only guards against scattering the
+    // scaffold across visible user files.
+    mkdirSync(join(tmpDir, ".git"), { recursive: true });
+    writeFileSync(join(tmpDir, ".envrc"), "# dotfile");
+
+    await runInitInTmp([]);
+    expect(existsSync(join(tmpDir, "src", "app.scrml"))).toBe(true);
+  });
+
+  test("named subdir + non-empty dir → succeeds (scaffold under subdir)", async () => {
+    writeFileSync(join(tmpDir, "existing.txt"), "hello");
+
+    await runInitInTmp(["my-app"]);
+    expect(existsSync(join(tmpDir, "my-app", "src", "app.scrml"))).toBe(true);
+    // CWD is untouched.
+    expect(existsSync(join(tmpDir, "src"))).toBe(false);
   });
 });

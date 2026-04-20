@@ -67,5 +67,22 @@ The double-bind dates to initial commit; purpose is defensive fallback for a han
 - Positive: `${@count}`, `${@count + 1}`, `ref=@count` still compile.
 - Positive: `let x = 5; ${x}` still compiles (bare, non-reactive).
 
-**Status:** repro confirmed, about to implement.
+**Status:** landed as `ebd4d1d`. Suite 7222 → 7233 (+11), zero regressions. Not pushed (no push auth this session).
+
+### Arc — F6 / F10 scaffold/CLI polish (F7 turned out a non-issue)
+
+**F7 dismissed.** Audit claimed `.gitignore` containing `dist/` would miss `src/dist/`. Verified against git: `dist/` at root of `.gitignore` (no leading `/`, no middle `/`) matches `dist/` directories at any depth. `git check-ignore` confirms `src/dist/b.js` is ignored by `dist/` alone. Scaffold is correct; audit was wrong. Noting here so future sessions don't re-open.
+
+**F6 — `scrml init` bare-arg safety.** Added a non-empty-CWD check in `compiler/src/commands/init.js`. New behavior:
+- `scrml init` (bare, empty CWD) — implicit `.`, proceeds.
+- `scrml init` (bare, non-empty CWD) — exits 1 with: "Use `scrml init <name>` for a new subdirectory, or `scrml init .` to scaffold into the current directory."
+- `scrml init .` — explicit current-dir opt-in, always proceeds.
+- `scrml init <name>` — unchanged.
+Dotfiles don't count as "content" — a freshly `git init`-ed dir with only `.git/` / `.envrc` still accepts bare init.
+
+Updated `compiler/tests/commands/init.test.js` §8 tests to pass `.` explicitly (they pre-seeded `src/` which now triggers F6 safety); added §11 (5 new F6 tests).
+
+**F10 — README `bun link` step.** Added step 2 between `bun install` and the CLI usage. Also rewrote the "Quick start" block to show the golden adopter path: install → link → `scrml init my-app` → `cd && dev` (the latter demonstrates F6-safe form implicitly).
+
+Suite: 7233 → 7238 pass (+5 new F6 tests), 2 pre-existing fails unchanged.
 

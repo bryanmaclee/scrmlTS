@@ -16,7 +16,7 @@
  * Safety: never overwrites existing files. Warns and skips each conflict.
  */
 
-import { mkdirSync, existsSync, writeFileSync } from "fs";
+import { mkdirSync, existsSync, writeFileSync, readdirSync } from "fs";
 import { resolve, join, relative } from "path";
 
 // ---------------------------------------------------------------------------
@@ -146,11 +146,16 @@ node_modules/
 /**
  * Parse init-command arguments.
  *
+ * `targetDir` is null when no positional arg was given. The caller uses this
+ * to distinguish "user explicitly asked for CWD" (`scrml init .`) from
+ * "user forgot to say where" (`scrml init` alone) — the latter triggers
+ * the non-empty-CWD safety check (F6, S31).
+ *
  * @param {string[]} args
- * @returns {{ targetDir: string, help: boolean }}
+ * @returns {{ targetDir: string | null, help: boolean }}
  */
 function parseArgs(args) {
-  let targetDir = ".";
+  let targetDir = null;
   let help = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -168,6 +173,30 @@ function parseArgs(args) {
   }
 
   return { targetDir, help };
+}
+
+/**
+ * Return true if the given directory has any user-owned content that
+ * `scrml init` shouldn't silently scatter a scaffold across. Hidden files
+ * (dotfiles, `.git`) and a lone empty `src/` don't count — those commonly
+ * exist in a freshly-prepared working dir where `scrml init .` is exactly
+ * what the user wants.
+ *
+ * @param {string} dir — absolute path
+ * @returns {boolean}
+ */
+function dirHasContent(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  for (const name of entries) {
+    if (name.startsWith(".")) continue;
+    return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,16 +234,17 @@ function writeIfNew(filePath, content, cwd) {
  * @param {string[]} args — raw argv slice after "init"
  */
 export function runInit(args) {
-  const { targetDir, help } = parseArgs(args);
+  let { targetDir, help } = parseArgs(args);
 
   if (help) {
-    console.log(`scrml init [directory]
+    console.log(`scrml init <directory>
 
-Create a new scrml project in the given directory (default: current directory).
+Create a new scrml project in the given directory. Pass \`.\` to scaffold
+into the current directory.
 
 Usage:
-  scrml init            Init in current directory
   scrml init my-app     Init in ./my-app/
+  scrml init .          Init in current directory (explicit opt-in)
 
 What is created:
   src/app.scrml         Hello world app with a counter
@@ -229,6 +259,21 @@ Existing files are never overwritten — conflicting files are skipped with a wa
   }
 
   const cwd = process.cwd();
+
+  // F6 (S31): require an explicit target. A bare `scrml init` inside an
+  // existing project silently scatters a scaffold across the user's repo.
+  // Empty working dirs remain unambiguous — `scrml init .` is the explicit
+  // opt-in for "scaffold into current directory."
+  if (targetDir === null) {
+    if (dirHasContent(cwd)) {
+      console.error(c.red("error:") + " `scrml init` requires a target directory.");
+      console.error(c.dim("  Use `scrml init <name>` for a new subdirectory, or `scrml init .` to scaffold into the current directory."));
+      process.exit(1);
+    }
+    // CWD is empty — treat as implicit `.`
+    targetDir = ".";
+  }
+
   const projectDir = resolve(cwd, targetDir);
   const srcDir = join(projectDir, "src");
 
