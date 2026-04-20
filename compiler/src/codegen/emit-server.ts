@@ -755,5 +755,35 @@ export function generateServerJs(
     }
   }
 
+  // S35 insight 22 — per-file WinterCG fetch handler + aggregate `routes`
+  // array. Scans the just-emitted route manifest exports and appends:
+  //   export const routes = [__ri_route_X, ...];
+  //   export async function fetch(request) { ... }
+  // Returns null on no match so the output composes with other handlers
+  // via `scrml(req) ?? myApi(req)`. Does not touch CSRF inlining — Move 1
+  // of Q4, CSRF stays per-handler until the scrml-server wrapper ships.
+  const emitted = lines.join("\n");
+  const routeNameRe = /^export const (_scrml_[A-Za-z0-9_]+|__ri_route_[A-Za-z0-9_]+) = \{\s*\n\s*path:/gm;
+  const collected: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = routeNameRe.exec(emitted)) !== null) {
+    collected.push(m[1]);
+  }
+  if (collected.length > 0) {
+    lines.push("// --- S35 insight 22: aggregate routes + WinterCG fetch handler ---");
+    lines.push(`export const routes = [${collected.join(", ")}];`);
+    lines.push("");
+    lines.push("export async function fetch(request) {");
+    lines.push("  const url = new URL(request.url, 'http://localhost');");
+    lines.push("  for (const r of routes) {");
+    lines.push("    if (r.path === url.pathname && r.method === request.method) {");
+    lines.push("      return r.handler(request);");
+    lines.push("    }");
+    lines.push("  }");
+    lines.push("  return null;");
+    lines.push("}");
+    lines.push("");
+  }
+
   return lines.join("\n");
 }

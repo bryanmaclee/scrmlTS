@@ -173,3 +173,43 @@ describe("§5: server handler contains no client-only helpers", () => {
     expect(serverJs).not.toMatch(/\bdocument\.[a-z]/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §6: S35 insight 22 — aggregate `routes` array + WinterCG fetch handler
+// ---------------------------------------------------------------------------
+
+describe("§6: per-file aggregate routes + fetch(request) handler", () => {
+  test("server.js exports `routes` array listing every route", () => {
+    const result = compile(serverOnlyFx);
+    const serverJs = result.outputs.get(serverOnlyFx).serverJs;
+    expect(serverJs).toMatch(/export const routes = \[[^\]]*__ri_route_loadGreeting_1[^\]]*\];/);
+  });
+
+  test("server.js exports an async fetch(request) function", () => {
+    const result = compile(serverOnlyFx);
+    const serverJs = result.outputs.get(serverOnlyFx).serverJs;
+    expect(serverJs).toMatch(/export async function fetch\(request\) \{/);
+  });
+
+  test("fetch handler iterates `routes` and matches path + method", () => {
+    const result = compile(serverOnlyFx);
+    const serverJs = result.outputs.get(serverOnlyFx).serverJs;
+    expect(serverJs).toContain("for (const r of routes)");
+    expect(serverJs).toContain("r.path === url.pathname");
+    expect(serverJs).toContain("r.method === request.method");
+  });
+
+  test("fetch returns null on no match (composition seam)", () => {
+    const result = compile(serverOnlyFx);
+    const serverJs = result.outputs.get(serverOnlyFx).serverJs;
+    expect(serverJs).toMatch(/return null;\s*\}/);
+  });
+
+  test("client-only sources emit no routes + no fetch", () => {
+    const result = compile(clientUseFx);
+    const serverJs = result.outputs.get(clientUseFx).serverJs ?? "";
+    // No server functions → no manifest → no aggregate block
+    expect(serverJs).not.toContain("export const routes = [");
+    expect(serverJs).not.toContain("export async function fetch(request)");
+  });
+});
