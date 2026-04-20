@@ -3584,7 +3584,15 @@ function annotateNodes(
         // §53.4 — If a type annotation is present and predicated, classify the assignment zone.
         const letAnnot = (n as ASTNodeLike).typeAnnotation as string | undefined;
         if (letAnnot) {
-          const letAnnoType = resolveTypeExpr(letAnnot, typeRegistry);
+          let letAnnoType = resolveTypeExpr(letAnnot, typeRegistry);
+          // §54.2 Phase 3d: fall back to stateTypeRegistry for state-typed annotations
+          // (e.g. `let sub: Submission`). resolveTypeExpr only checks the general
+          // type registry (enums/structs); state types live in stateTypeRegistry.
+          if (letAnnoType.kind === "asIs" && stateTypeRegistry) {
+            const bare = letAnnot.trim();
+            const stateHit = stateTypeRegistry.get(bare);
+            if (stateHit) letAnnoType = stateHit;
+          }
           if (letAnnoType.kind === "predicated") {
             resolvedType = letAnnoType;
             const letDeclSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
@@ -3695,7 +3703,12 @@ function annotateNodes(
         // §53.4 — If a type annotation is present and predicated, classify the assignment zone.
         const reactAnnot = (n as ASTNodeLike).typeAnnotation as string | undefined;
         if (reactAnnot) {
-          const reactAnnoType = resolveTypeExpr(reactAnnot, typeRegistry);
+          let reactAnnoType = resolveTypeExpr(reactAnnot, typeRegistry);
+          // §54.2 Phase 3d: same state-type fallback as let-decl.
+          if (reactAnnoType.kind === "asIs" && stateTypeRegistry) {
+            const stateHit = stateTypeRegistry.get(reactAnnot.trim());
+            if (stateHit) reactAnnoType = stateHit;
+          }
           if (reactAnnoType.kind === "predicated") {
             resolvedType = reactAnnoType;
             const reactDeclSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
@@ -3721,10 +3734,14 @@ function annotateNodes(
         // S19 Phase 2: if the annotation resolved to an enum or union (non-predicated,
         // non-machine), surface that type so downstream checks (match exhaustiveness)
         // can see the real type instead of the default asIs placeholder.
+        // §54.2 Phase 3d: also surface state types (for substate match exhaustiveness).
         if (reactAnnot && resolvedType.kind === "asIs") {
           const reactAnnoType2 = resolveTypeExpr(reactAnnot, typeRegistry);
           if (reactAnnoType2 && (reactAnnoType2.kind === "enum" || reactAnnoType2.kind === "union" || reactAnnoType2.kind === "struct")) {
             resolvedType = reactAnnoType2;
+          } else if (stateTypeRegistry) {
+            const stateHit = stateTypeRegistry.get(reactAnnot.trim());
+            if (stateHit) resolvedType = stateHit;
           }
         }
 
@@ -5125,6 +5142,11 @@ function parseArmPattern(armText: string): ParsedArmPattern {
   const varMatch = patOnly.match(/^\.\s*([A-Za-z_][A-Za-z0-9_]*)/);
   if (varMatch) {
     return { kind: "variant", variantName: varMatch[1], hasGuard, armText };
+  }
+  // §54.4 Phase 3d: substate pattern `< SubstateName>` (space-after-< per §4.3 disambiguation).
+  const subMatch = patOnly.match(/^<\s+([A-Z][A-Za-z0-9_]*)\s*>/);
+  if (subMatch) {
+    return { kind: "variant", variantName: subMatch[1], hasGuard, armText };
   }
   return { kind: "unknown", armText };
 }
