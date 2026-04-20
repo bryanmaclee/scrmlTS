@@ -1,94 +1,140 @@
 /**
- * §54.2/§54.4 — Phase 3d scope verification
+ * §54.4 Match Exhaustiveness — End-to-End (S32 Phase 3d + 3e)
  *
- * Phase 3d landed two things:
- *   1. resolveTypeExpr falls back to stateTypeRegistry, so `let sub: SomeState`
- *      and `@sub: SomeState` resolve to the registered StateType instead of asIs.
- *   2. parseArmPattern recognizes `< SubstateName>` markup syntax as a variant
- *      pattern (alongside the existing `.VariantName` enum shorthand).
- *
- * Full end-to-end substate match exhaustiveness (user writes `match @sub { < Draft> => ... }`
- * and missing arms fire E-TYPE-020) additionally requires the ast-builder's
- * match-arm parser to emit arm patterns instead of html-fragments for
- * `< Name>` openers in arm position. That is Phase 3e+ grammar work.
- *
- * These tests verify Phase 3d's surface directly.
+ * Verifies the full pipeline lights up: user writes `match sub { < Draft> => ... }`,
+ * the compiler tokenizes + splits + builds AST, resolves `let sub: Submission`
+ * to the registered StateType, extracts substate arm patterns from the
+ * html-fragment arm content, and fires E-TYPE-020 for missing substates.
  */
 
 import { describe, test, expect } from "bun:test";
-import { splitBlocks } from "../../src/block-splitter.js";
-import { buildAST } from "../../src/ast-builder.js";
-import { runTS } from "../../src/type-system.js";
+import { resolve, dirname } from "path";
+import { writeFileSync, rmSync, existsSync, mkdirSync } from "fs";
+import { compileScrml } from "../../src/api.js";
 
-function compile(src) {
-  const bs = splitBlocks("/t.scrml", src);
-  const { ast } = buildAST(bs);
-  return runTS({ files: [ast] });
+const testDir = dirname(new URL(import.meta.url).pathname);
+let tmpCounter = 0;
+
+function compileWhole(source, testName = `sub-match-e2e-${++tmpCounter}`) {
+  const tmpDir = resolve(testDir, `_tmp_${testName}`);
+  const tmpInput = resolve(tmpDir, `${testName}.scrml`);
+  mkdirSync(tmpDir, { recursive: true });
+  writeFileSync(tmpInput, source);
+  try {
+    const result = compileScrml({
+      inputFiles: [tmpInput],
+      write: false,
+      outputDir: resolve(tmpDir, "out"),
+    });
+    return {
+      errors: result.errors ?? [],
+      warnings: result.warnings ?? [],
+    };
+  } finally {
+    if (existsSync(tmpInput)) rmSync(tmpInput);
+    if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
-describe("§54.2 Phase 3d — type-annotation resolution to StateType", () => {
-  test("`let x: StateName` binds to the registered StateType (was asIs before Phase 3d)", () => {
+describe("§54.4 substate match exhaustiveness — end-to-end", () => {
+  test("missing substate arm fires E-TYPE-020 with the missing name", () => {
+    const src = `< Submission id(string)>
+    < Draft body(string)></>
+    < Validated body(string)></>
+    < Submitted body(string)></>
+</>
+\${
+    let sub: Submission = < Draft></>
+    let label = match sub {
+        < Draft> => "a"
+        < Validated> => "b"
+    }
+}`;
+    const { errors } = compileWhole(src);
+    const missing = errors.find(e => e.code === "E-TYPE-020");
+    expect(missing).toBeDefined();
+    expect(missing.message).toContain("Submitted");
+    expect(missing.message).toContain("Submission");
+  });
+
+  test("exhaustive substate match — no E-TYPE-020", () => {
     const src = `< Submission id(string)>
     < Draft body(string)></>
     < Validated body(string)></>
 </>
 \${
     let sub: Submission = < Draft></>
-    let _ = sub
+    let label = match sub {
+        < Draft> => "a"
+        < Validated> => "b"
+    }
 }`;
-    const { stateTypeRegistry, errors } = compile(src);
-
-    // Registry should have Submission with substates
-    const submission = stateTypeRegistry.get("Submission");
-    expect(submission).toBeDefined();
-    expect(submission.substates).toBeDefined();
-    expect(submission.substates.has("Draft")).toBe(true);
-    expect(submission.substates.has("Validated")).toBe(true);
-
-    // No unresolved-type errors from the annotation
-    expect(errors.some(e => e.code === "E-TYPE-024")).toBe(false);
-    expect(errors.some(e => e.code === "E-TYPE-025")).toBe(false);
+    const { errors } = compileWhole(src);
+    expect(errors.some(e => e.code === "E-TYPE-020")).toBe(false);
   });
 
-  test("`@x: StateName` reactive annotation also resolves to StateType", () => {
+  test("reactive-typed subject @sub: Submission resolves + checks", () => {
+    const src = `< Submission id(string)>
+    < Draft body(string)></>
+    < Validated body(string)></>
+    < Submitted body(string)></>
+</>
+\${
+    @sub: Submission = < Draft></>
+    let label = match @sub {
+        < Draft> => "a"
+    }
+}`;
+    const { errors } = compileWhole(src);
+    const missing = errors.find(e => e.code === "E-TYPE-020");
+    expect(missing).toBeDefined();
+    expect(missing.message).toContain("Validated");
+    expect(missing.message).toContain("Submitted");
+  });
+
+  test("wildcard `_` covers missing substates", () => {
+    const src = `< Submission id(string)>
+    < Draft body(string)></>
+    < Validated body(string)></>
+    < Submitted body(string)></>
+</>
+\${
+    let sub: Submission = < Draft></>
+    let label = match sub {
+        < Draft> => "a"
+        _ => "other"
+    }
+}`;
+    const { errors } = compileWhole(src);
+    expect(errors.some(e => e.code === "E-TYPE-020")).toBe(false);
+  });
+});
+
+describe("§54.2 Phase 3d — type-annotation resolution to StateType (inspect registry)", () => {
+  test("substates register under parent with correct parentState + substates set", async () => {
+    const { splitBlocks } = await import("../../src/block-splitter.js");
+    const { buildAST } = await import("../../src/ast-builder.js");
+    const { runTS } = await import("../../src/type-system.js");
+
     const src = `< Flow id(string)>
     < Alpha label(string)></>
     < Beta count(number)></>
 </>
 \${
-    @sub: Flow = < Alpha></>
+    let sub: Flow = < Alpha></>
+    let _ = sub
 }`;
-    const { stateTypeRegistry, errors } = compile(src);
+    const bs = splitBlocks("/t.scrml", src);
+    const { ast } = buildAST(bs);
+    const { stateTypeRegistry } = runTS({ files: [ast] });
+
     const flow = stateTypeRegistry.get("Flow");
     expect(flow).toBeDefined();
     expect(flow.substates).toBeDefined();
     expect(flow.substates.has("Alpha")).toBe(true);
     expect(flow.substates.has("Beta")).toBe(true);
-    // The binding site should not produce a type-resolution error
-    expect(errors.every(e => !["E-TYPE-024","E-TYPE-025"].includes(e.code))).toBe(true);
-  });
-});
 
-describe("§54.4 Phase 3d — parseArmPattern recognizes `< SubstateName>`", () => {
-  // The arm-pattern parser is internal; exercised here via the public entry
-  // point checkExhaustiveness through a synthetic match node.
-  test("substate arm pattern resolves to variantName (via public checker exports)", async () => {
-    const { checkSubstateExhaustiveness } = await import("../../src/type-system.js");
-    const submission = {
-      kind: "state",
-      name: "Submission",
-      attributes: new Map(),
-      isHtml: false,
-      rendersToDom: false,
-      constructorBody: null,
-      substates: new Set(["Draft", "Validated"]),
-    };
-    // Arm patterns as they'd look post-parseArmPattern for `< Draft>` / `< Validated>` syntax
-    const patterns = [
-      { kind: "variant", variantName: "Draft" },
-      { kind: "variant", variantName: "Validated" },
-    ];
-    const r = checkSubstateExhaustiveness(submission, patterns);
-    expect(r.missing).toEqual([]);
+    const alpha = stateTypeRegistry.get("Alpha");
+    expect(alpha.parentState).toBe("Flow");
   });
 });

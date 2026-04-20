@@ -5039,6 +5039,8 @@ function splitMatchArms(raw: string): string[] {
     if (/^\.\s*[A-Z][A-Za-z0-9_]*/.test(rest)) return true;
     // `::IDENT` — legacy variant arm
     if (/^::[A-Z][A-Za-z0-9_]*/.test(rest)) return true;
+    // §54.4 Phase 3e: `< SubstateName>` — substate arm (space-after-< per §4.3).
+    if (/^<\s+[A-Z][A-Za-z0-9_]*\s*>/.test(rest)) return true;
     // `else` / `not` keywords
     if (/^else\b/.test(rest)) return true;
     if (/^not\b/.test(rest)) return true;
@@ -5186,8 +5188,14 @@ function extractArmsFromMatchNode(node: ASTNodeLike): ExtractedArms {
       else if (arm.variant) pushVariant(arm.variant as string);
       continue;
     }
-    if (arm.kind === "bare-expr" && typeof (arm as { expr?: unknown }).expr === "string") {
-      const raw = (arm as { expr: string }).expr;
+    // §54.4 Phase 3e: `< Substate>` at arm position parses as html-fragment
+    // today. Treat its content as an arm-pattern text, reusing the bare-expr
+    // path. Downstream parseArmPattern already recognizes the `< Name>` shape.
+    const armAsBareLike = arm.kind === "bare-expr"
+      ? (arm as { expr?: unknown }).expr
+      : (arm.kind === "html-fragment" ? (arm as { content?: unknown }).content : undefined);
+    if (typeof armAsBareLike === "string") {
+      const raw = armAsBareLike;
       const pieces = splitMatchArms(raw);
       for (const piece of pieces) {
         const parsed = parseArmPattern(piece);
