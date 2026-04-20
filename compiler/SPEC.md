@@ -99,6 +99,7 @@
 51. [State Transition Rules and `< machine>` State Type](#51-state-transition-rules-and--machine-state-type)
 52. [State Authority Declarations](#52-state-authority-declarations)
 53. [Inline Type Predicates](#53-inline-type-predicates)
+54. [Nested Substates and State-Local Transitions](#54-nested-substates-and-state-local-transitions)
 
 ---
 
@@ -5892,7 +5893,7 @@ if (tok.block is not) {
 }
 ```
 
-E-FN-006 (return-site completeness in `fn` bodies, §48.4.3) does NOT fire for optional fields that remain `not` at return time — only required fields (those without `= not` default) must be assigned before return.
+E-STATE-COMPLETE (state-literal completeness, §54.6.1; replaces retired E-FN-006 as of 2026-04-20 S32) does NOT fire for optional fields that remain `not` at the literal's closing tag — only required fields (those without `= not` default) must be assigned before the `</>`.
 
 #### 14.3.2 Enum Types as Struct Field Types
 
@@ -11989,7 +11990,14 @@ A `pure` function is a function that performs no side effects. The compiler stat
 ${ pure function add(a, b) { return a + b; } }
 ```
 
-The `pure` keyword precedes `function` in a function declaration. `pure` MAY also be used with `fn` shorthand:
+**Amended 2026-04-20 (S32).** The `pure` keyword is a modifier that attaches to any callable declaration site where purity is a meaningful contract. Supported attachment sites:
+
+- `pure function name(...) { ... }` — pure function declaration
+- `pure fn name(...) { ... }` — pure fn (equivalent to `fn` alone, since `fn` is always pure; `pure` here is redundant, see §33.6 and W-PURE-REDUNDANT)
+- `pure method name(...) { ... }` — pure method on a struct, state, or shape
+- State-local transition bodies (§54.3) SHALL be pure by default. `pure` on a transition declaration is accepted but redundant (§33.6).
+
+The `pure` modifier in all attachment sites enforces the purity constraints in §33.3.
 
 ```scrml
 ${ pure fn double { return ~ * 2; } }
@@ -12011,12 +12019,23 @@ A `pure` function SHALL NOT:
 - **E-PURE-001**: `pure` function body contains a purity violation (mutation, server call, DOM mutation, or `lift`).
 - **E-PURE-002**: `pure` function calls a non-`pure` function.
 - **E-RI-001**: A function that is both `pure` and server-escalated (§12.5). The `pure` guarantee and server execution are irreconcilable.
+- **W-PURE-REDUNDANT** (added 2026-04-20, S32): `pure` applied to a declaration that is already pure by context (e.g., `pure fn`, `pure transition`). The modifier has no additional effect. Author MAY remove the redundant modifier.
 
 ### 33.5 Normative Statements
 
 - The compiler SHALL verify purity constraints at the TS stage (Stage 6). RI (Stage 5) detects the `pure` + server conflict (E-RI-001) but does not verify full purity.
 - A `pure` function MAY be evaluated at compile time if all its arguments are compile-time constants.
 - The `pure` keyword is an assertion by the developer. The compiler validates it; the developer does not need to prove purity manually.
+
+### 33.6 Relationship to `fn` and state-local transitions
+
+**Added 2026-04-20 (S32).**
+
+`fn` is an ergonomic shorthand for `pure function`. Both forms enforce identical purity constraints; `fn` additionally raises the fn-boundary-specific E-FN-001..005, E-FN-007..009 diagnostics, which are specialized subcategories of E-PURE-001 with more targeted error messages.
+
+State-local transition bodies (§54.3) are implicitly pure at the `fn`-level (not the weaker `pure function` level). This means transition bodies are subject to the five body prohibitions of §48.3 AND the non-determinism prohibition of E-FN-004. Authors writing transitions MAY NOT call `Date.now()`, `Math.random()`, or other non-deterministic built-ins inside a transition body; these values SHALL be passed as parameters to the transition.
+
+Rationale: the stronger contract (fn-level) preserves the `< machine>` subsystem's replay (§51.14), audit (§51.11), and auto-property-test (§51.13) guarantees, which all assume deterministic transitions.
 
 ---
 
@@ -12155,8 +12174,14 @@ A `pure` function SHALL NOT:
 | E-FN-003 | §48.3.3 | Outer-scope variable mutation inside a `fn` body, or call to a non-`pure`, non-`fn` function | Error |
 | E-FN-004 | §48.3.4 | Non-deterministic call inside a `fn` body | Error |
 | E-FN-005 | §48.3.5 | `async` on a `fn` declaration, or `await` inside a `fn` body | Error |
-| E-FN-006 | §48.4.3 | `return` reached with one or more `<state>` fields in Unloaded phase | Error |
-| E-FN-007 | §48.4.4 | Branches return incompatible `<state>` types without an explicit union return type | Error |
+| ~~E-FN-006~~ | §48.4, §54.6.1 | **Retired 2026-04-20 (S32).** Relocated to E-STATE-COMPLETE (§54.6.1) — fires at every state literal's closing tag. | — |
+| E-STATE-COMPLETE | §54.6.1 | State literal reaches closing tag with declared field unassigned on some evaluation path | Error |
+| E-STATE-FIELD-MISSING | §54.6.2 | Read of a field declared on a different substate than the binding is narrowed to | Error |
+| E-STATE-TRANSITION-ILLEGAL | §54.6.3 | Call of a transition not declared on the binding's current substate | Error |
+| E-STATE-TERMINAL-MUTATION | §54.6.4 | Write to a field of a binding in a terminal substate (zero declared outgoing transitions) | Error |
+| E-STATE-MACHINE-DIVERGENCE | §51.15.4 | State-local transitions and override-mode machine body (or type-level `transitions {}`) are inconsistent | Error |
+| W-PURE-REDUNDANT | §33.4 | `pure` applied to a declaration that is already pure by context (`pure fn`, `pure transition`) | Warning |
+| E-FN-007 | §48.4.1 | Branches return incompatible `<state>` types without an explicit union return type | Error |
 | E-FN-008 | §48.5.2 | `lift` inside `fn` body targets a `~` accumulator outside the `fn` boundary | Error |
 | E-FN-009 | §48.5.4 | Reactive `@variable` captured as live subscription inside `fn` body | Error |
 | W-FN-001 | §48.3.2 | `asIs`-typed value in DOM-mutation position inside `fn` body (probable violation) | Warning |
@@ -15112,17 +15137,17 @@ Compilation halts.
 
 **Added:** 2026-04-07. Supersedes §7.3's description of `fn` as a `function` alias.
 **Amended:** 2026-04-08. Relaxed from "constrained state factory" to "pure function, any return type" based on self-hosting gauntlet R1 friction (both teams independently blocked on returning primitives/arrays from `fn`).
+**Amended:** 2026-04-20 (S32). "Constrained state factory" framing fully retired per insight 21. `fn` is now declared as an ergonomic shorthand for `pure function`. E-FN-006 (return-site state completeness) retired and relocated to E-STATE-COMPLETE at every state literal site (§54).
 
 ### 48.1 Overview
 
-`fn` declares a pure function with compiler-enforced purity constraints. It is **not** a shorthand alias for JavaScript's `function` keyword. `function` remains the declaration form for general-purpose callables. `fn` is the declaration form for pure, deterministic functions — including state factories, predicates, transformations, and any computation free of side effects.
+`fn` declares a pure function with compiler-enforced purity constraints. It is an ergonomic shorthand for `pure function` (§33); the two forms are semantically equivalent at the declaration site. `fn` is NOT a state factory, NOT a typestate transition site, and NOT a life-cycle progression primitive. State construction, progression, and life-cycle rules live on `< StateName>` blocks (§54) and `< machine>` declarations (§51).
 
-`fn` may return any value type: `<state>` objects, primitives (boolean, number, string), arrays, or plain objects. When `fn` returns a `<state>` value, additional return-site completeness checks apply (§48.4). When `fn` returns a non-state value, the purity constraints still apply but return-site completeness checks are skipped.
+`fn` may return any value type: `< state>` objects, primitives (boolean, number, string), arrays, or plain objects. Purity constraints (§48.3) apply to every `fn` body. Return-site completeness for state construction is enforced at every state literal site by E-STATE-COMPLETE (§54), not at `fn` return sites — E-FN-006 is retired and its role is subsumed by E-STATE-COMPLETE emitted at each `< StateName>` literal's closing tag.
 
-The compiler enforces two independent layers of constraints on every `fn` body:
+The compiler enforces one layer of constraints on every `fn` body:
 
-1. **Body prohibitions** — five classes of side-effectful operations are forbidden inside any `fn` body.
-2. **Return-site completeness** — every `<state>` object constructed inside a `fn` body must have all declared fields assigned on every execution path before it is returned. This layer applies only when the returned value is a `<state>` type instance.
+1. **Body prohibitions** — five classes of side-effectful operations are forbidden inside any `fn` body (§48.3).
 
 These constraints are verified statically at the TS stage (compiler Stage 6), after type resolution and route inference.
 
@@ -15285,49 +15310,13 @@ async fn buildProfile(id) {
 
 > E-FN-005: `fn` declaration at line N is marked `async`. `fn` is always synchronous. Perform the `await` at the call site and pass the resolved value as a parameter to `fn`.
 
-### 48.4 Layer 2 — Return-Site Completeness
+### 48.4 Return-Site Completeness — Relocated to §54
 
-#### 48.4.1 Field Loading Phase Tracking
+**Amended 2026-04-20 (S32).** State-construction completeness, formerly checked at `fn` return sites under E-FN-006, is now checked at every `< StateName>` literal's closing tag under E-STATE-COMPLETE (§54). The check applies universally: inside `fn` bodies, `function` bodies, transition bodies (§54.3), and every other expression position where a state literal is constructed.
 
-The compiler tracks each `<state>` object under construction inside a `fn` body using a **field phase** model. Each declared field of the `<state>` type is in one of two phases:
+The practical effect for existing `fn` code: identical behavior with a different diagnostic origin point. Where the old diagnostic pointed at `return u`, the new diagnostic points at the `</>` of `< User>...</>` — closer to the actually-unassigned field.
 
-- **Unloaded** — not yet assigned in the current execution path.
-- **Loaded** — assigned at least once on the current execution path.
-
-A `<state>` object MAY only be returned from a `fn` body when all declared fields are in the **Loaded** phase on the execution path reaching the `return` statement. Returning an object with any field in the **Unloaded** phase is E-FN-006.
-
-Field phase tracking is performed **per `<state>` instance** and **per execution path** through the `fn` body.
-
-#### 48.4.2 Field Accumulation — Implicit vs. Explicit
-
-Inside a `fn` body:
-
-- **Unconditional assignments** (`p.name = value` in straight-line code) automatically move the field from Unloaded to Loaded. No `lift` is required.
-- **Conditional assignments** (inside `if`/`else`, `match`, or `for` blocks) require `lift` to hoist the assignment into the enclosing scope's phase tracking (see §48.5). Without `lift`, an assignment inside a conditional arm is visible only on that execution path, and the compiler will report E-FN-006 on paths where the assignment was skipped.
-
-#### 48.4.3 E-FN-006 — Returning Incomplete State
-
-E-FN-006 only applies when the returned value is a `<state>` type instance. If a `fn` returns a primitive, array, or non-state object, E-FN-006 does not apply — the purity constraints (§48.3) are still enforced, but return-site completeness is skipped.
-
-If a `return` statement is reached when any field of a `<state>` object is still in the Unloaded phase, the compiler emits E-FN-006.
-
-```scrml
-<state User>
-    name: string
-    age:  number
-</>
-
-fn buildUser(name) {
-    let u = < User>
-    u.name = name
-    // u.age never assigned — E-FN-006
-    return u
-}
-```
-
-> E-FN-006: `fn` returns `u` (type `User`) at line N with field `age` unassigned. All fields of a `<state>` type must be assigned before the object is returned from `fn`. Assign `u.age` before the `return` statement.
-
-#### 48.4.4 E-FN-007 — Branch Produces Different State Shape
+#### 48.4.1 E-FN-007 — Branch Produces Different State Shape
 
 When a `fn` contains branches (`if`/`else`, `match`) that construct different `<state>` types and return from inside the branches, both branches must produce the same type — OR — the declared return type of the `fn` must be an explicit union of the types produced by all branches.
 
@@ -15492,7 +15481,7 @@ When a `fn` is stored in a `<state>` field, the field's type annotation carries 
 
 ### 48.7 Multiple `<state>` Objects in One `fn`
 
-A single `fn` body MAY construct multiple `<state>` objects. Each is tracked independently by the field phase system (§48.4.1). All must be fully Loaded before they appear in any `return` statement.
+A single `fn` body MAY construct multiple `< state>` objects. **Amended 2026-04-20 (S32):** each state literal is checked independently at its own closing tag by E-STATE-COMPLETE (§54.6.1); there is no longer a consolidated return-site phase check. Multiple literals in one `fn` body produce independent diagnostics, each pointing at the specific unassigned field.
 
 ```scrml
 fn buildPair(aName, bName) {
@@ -15504,7 +15493,7 @@ fn buildPair(aName, bName) {
 }
 ```
 
-If one object is Loaded and another is Unloaded at a `return` site, E-FN-006 fires for the Unloaded object. Both errors are reported in the same compilation pass; compilation does not halt after the first.
+If a literal reaches its closing tag with unassigned fields, E-STATE-COMPLETE fires at that literal regardless of other literals in the same `fn`. Multiple errors are reported in the same compilation pass; compilation does not halt after the first.
 
 ### 48.8 Return Type Annotation
 
@@ -15544,18 +15533,13 @@ The combination `pure fn` does not add any constraints beyond what `fn` already 
 
 Rationale: `fn` is a state factory, not a query executor. Database access is a coordination concern handled above the `fn` layer.
 
-### 48.11 Supersession of §7.3
+### 48.11 Relationship to `function` and `pure function`
 
-Section §7.3 previously described `fn` as a shorthand equivalent to `function`:
+**Amended 2026-04-20 (S32 amendment).** The "constrained state factory" framing from the 2026-04-07 amendment is retired. `fn` is an ergonomic shorthand for `pure function`. The two forms are semantically equivalent at the declaration site. The §48.3 body prohibitions remain in force because `fn` is always pure. The return-site state-completeness check (formerly E-FN-006) is relocated to E-STATE-COMPLETE at every state literal site (§54).
 
-> `fn name { ... }` — scrml shorthand lazy form. Equivalent to `function name() { ... }`.
+`fn` is retained. Existing scrml code using `fn` remains valid. New code MAY use `fn` or `pure function` interchangeably.
 
-This description is superseded by this section. Effective from this amendment:
-
-- `fn` and `function` are **distinct** declarations with distinct semantics.
-- `fn` is a constrained state factory subject to §48.3 through §48.8.
-- `function` is an unconstrained callable subject only to `pure` (§33) and `server` (§12.5) modifiers.
-- Any existing scrml code using `fn` as a general-purpose function shorthand remains syntactically valid. The compiler will apply the new constraints and emit E-FN-001 through E-FN-009 where violations are present.
+§7.3's original description of `fn` as a "shorthand lazy form equivalent to `function name()`" is superseded: `fn` is not equivalent to bare `function`, but IS equivalent to `pure function`. The compiler applies the §48.3 purity constraints to `fn` declarations and emits E-FN-001 through E-FN-005, E-FN-007 through E-FN-009 where violations are present. E-FN-006 is retired; its role is subsumed by E-STATE-COMPLETE.
 
 ### 48.12 Error Code Reference
 
@@ -15566,7 +15550,7 @@ This description is superseded by this section. Effective from this amendment:
 | E-FN-003 | Outer-scope variable mutation inside a `fn` body, or call to a non-`pure`, non-`fn` function | Error |
 | E-FN-004 | Non-deterministic call (`Date.now`, `Math.random`, `crypto.randomUUID`, etc.) inside a `fn` body | Error |
 | E-FN-005 | `async` on a `fn` declaration, or `await` inside a `fn` body | Error |
-| E-FN-006 | `return` reached with one or more `<state>` fields still in Unloaded phase | Error |
+| ~~E-FN-006~~ | **Retired 2026-04-20 (S32).** Relocated to E-STATE-COMPLETE at every state literal site (§54.6.1). | — |
 | E-FN-007 | Branches produce incompatible `<state>` types without an explicit union return type | Error |
 | E-FN-008 | `lift` inside `fn` body targets a `~` accumulator initialized outside the `fn` boundary | Error |
 | E-FN-009 | Reactive `@variable` captured as a live subscription inside a `fn` body | Error |
@@ -15582,9 +15566,9 @@ This description is superseded by this section. Effective from this amendment:
 - A `fn` body SHALL NOT contain calls to any non-deterministic built-in from the enumerated list. The compiler SHALL emit E-FN-004. (§48.3.4)
 - A `fn` declaration SHALL NOT carry the `async` keyword. The compiler SHALL emit E-FN-005. (§48.3.5)
 - `await` SHALL NOT appear inside a `fn` body. The compiler SHALL emit E-FN-005. (§48.3.5)
-- The compiler SHALL track each field of each `<state>` object constructed in a `fn` body as Unloaded until assigned. (§48.4.1)
-- A `return` statement in a `fn` body SHALL NOT be reached when any `<state>` field is in the Unloaded phase. The compiler SHALL emit E-FN-006. (§48.4.3)
-- When `fn` branches return different `<state>` types without an explicit union return type annotation, the compiler SHALL emit E-FN-007. (§48.4.4)
+- **Amended 2026-04-20 (S32).** `fn` SHALL be semantically equivalent to `pure function` at the declaration site. Existing `fn` declarations SHALL be accepted without modification; new code MAY use either form. (§48.11)
+- **Amended 2026-04-20 (S32).** State literal completeness SHALL be enforced at the literal's closing tag by E-STATE-COMPLETE (§54.6.1), regardless of containing function declaration form. The prior E-FN-006 rule (return-site completeness inside `fn`) is retired.
+- When `fn` branches return different `<state>` types without an explicit union return type annotation, the compiler SHALL emit E-FN-007. (§48.4.1)
 - `lift` inside a `fn` body SHALL accumulate into `~` at the `fn`-body level only. The compiler SHALL emit E-FN-008 if `lift` targets an outer scope's `~`. (§48.5.1–48.5.2)
 - A `lift` of an `@variable` inside a `fn` body SHALL read the current value only; it SHALL NOT establish a reactive subscription. (§48.5.3)
 - Establishing a live reactive dependency on an `@variable` declared outside the `fn` boundary SHALL be a compile error (E-FN-009). (§48.5.4)
@@ -15688,7 +15672,9 @@ fn buildUser(isAdmin, name) -> AdminUser | GuestUser {
 
 Expected: Compiles without error. Explicit `-> AdminUser | GuestUser` return type annotation suppresses E-FN-007.
 
-#### 48.14.5 Invalid — Missing Field Assignment (E-FN-006)
+#### 48.14.5 Invalid — Missing Field Assignment (E-STATE-COMPLETE)
+
+**Amended 2026-04-20 (S32).** This example previously demonstrated E-FN-006 at the `fn`'s `return`. With the S32 amendment, the same error fires as E-STATE-COMPLETE at the state literal's closing tag (§54.6.1).
 
 ```scrml
 <state Product>
@@ -15708,9 +15694,11 @@ fn buildProduct(name, price) {
 
 Expected compiler output:
 ```
-E-FN-006: `fn buildProduct` returns `p` (type `Product`) at line 11 with field `sku` unassigned.
-  All fields of a `<state>` type must be assigned before the object is returned from `fn`.
-  Assign `p.sku` before the `return` statement, or give `sku` a default value in the `<state>` declaration.
+E-STATE-COMPLETE: field 'sku' of < Product> is unassigned at literal close.
+  Literal opens at line 8, closes at literal's </> (implicit at assignment of `let p`).
+  Declared fields: name, price, sku.
+  On this evaluation path, sku was never assigned before </>.
+  Either assign p.sku before the literal closes, or give `sku` a default in the struct declaration.
 ```
 
 #### 48.14.6 Invalid — SQL Inside fn (E-FN-001)
@@ -17002,6 +16990,14 @@ variable as a transition request. An assignment to `@x: MachineName` that does n
 correspond to a declared `From => To` rule in `MachineName` — and is statically provable
 as illegal — SHALL be rejected at compile time with E-MACHINE-001.
 
+**Amended 2026-04-20 (S32).** Transition authoring in scrml has three legal sites:
+
+1. **Type-level transitions** (`transitions {}` inside enum declarations, §51.2) — structural default graph for all uses of the enum.
+2. **Machine-level transitions** (`< machine name=Name for=EnumType>`, §51.3) — named override graph with guards, temporal transitions, audit, replay, derived views.
+3. **State-local transitions** (transition declarations inside `< State>` substates, §54.3) — per-substate outgoing edges declared positively at the substate's own point of declaration.
+
+Sites 1 and 3 are authoritative for their respective graphs. Site 2 (machine) is either an independent named override graph, OR an aggregated-derived view synthesized from sites 1 and 3 when the author omits explicit machine-body rules (§51.15).
+
 ---
 
 ### 51.2 Type-Level Transitions — `transitions {}` Block
@@ -17322,7 +17318,7 @@ loop, or conditional. It MAY be declared inside a `${}` logic block at file scop
   error messages. When a labeled guard fails at runtime, E-MACHINE-001-RT SHALL include
   the label text.
 - A machine body SHALL NOT be empty. A machine with no transition rules serves no purpose
-  and SHALL be a compile error (E-MACHINE-005: empty machine body).
+  and SHALL be a compile error (E-MACHINE-005: empty machine body). **Amended 2026-04-20 (S32):** this rule is narrowed — a machine body SHALL NOT be empty UNLESS the governed state type has one or more state-local transition declarations (§54.3). When state-local transitions exist for the governed type, an empty machine body is a legal marker for aggregated-derived mode (§51.15.1) and SHALL NOT trigger E-MACHINE-005.
 - `given` guards are permitted in machine rules. A `given` clause SHALL be a boolean
   expression. The guard is evaluated at the moment of the transition attempt. If the guard
   evaluates to false, the transition is rejected with E-MACHINE-001-RT at runtime.
@@ -17739,7 +17735,7 @@ binding on struct fields; bind the enclosing `@var` to a machine instead).
 | E-MACHINE-001-RT | Illegal transition at runtime: no rule permits `From => To`, or `given` guard evaluated to false | Runtime |
 | E-MACHINE-003 | Duplicate machine name in the same file scope | Compile |
 | E-MACHINE-004 | Machine `for` clause references an unknown type or a primitive type (enum and struct types are valid `for` targets) | Compile |
-| E-MACHINE-005 | Machine body is empty (no transition rules declared) | Compile |
+| E-MACHINE-005 | Machine body is empty (no transition rules declared) AND the governed state type has no state-local transitions (§54.3). Amended 2026-04-20 (S32) — see §51.15.1. | Compile |
 | E-MACHINE-006 | Machine rebinding: attempt to shadow a machine-bound variable with a different machine | Compile |
 | E-MACHINE-007 | Assignment to `event.from` or `event.to` inside an effect block (`event` is read-only) | Compile |
 | E-MACHINE-008 | Reference to `event` outside an effect block (`event` is not in scope) | Compile |
@@ -18602,6 +18598,86 @@ ${
   and effect triggers as a normal `_scrml_reactive_set` does —
   `replay` diverges from the standard reactive-set path ONLY in
   (a) guard bypass, (b) audit bypass, (c) timer clearing.
+
+---
+
+### 51.15 State-Local Transitions and Machine Cross-Check
+
+**Added 2026-04-20 (S32).**
+
+#### 51.15.1 Machine modes (auto-detected)
+
+When a `< machine name=Name for=StateType>` declaration targets a state type that has state-local transitions (§54.3), the machine operates in one of two modes. Mode is auto-detected from the machine body:
+
+- **Override mode:** machine body contains one or more transition rules. Machine rules are authoritative for bindings bound to this machine.
+- **Aggregated-derived mode:** machine body is empty (no transition rules). Compiler synthesizes the edge list from state-local transitions. The machine's attached features (guards, audit, replay, etc.) remain available at their declaration sites; only the edge list is synthesized.
+
+**Precise definition of "empty body":** a machine body is empty for mode-detection purposes when it contains zero `machine-rule` productions (per §51.3.2 grammar). Comments, whitespace, and attached-feature clauses (`audit @log`, `replay from=...`) do NOT count as rules; a body containing only these remains empty. Placeholder/commented-out rules like `// .Draft => .Validated` also do NOT count.
+
+**Cross-reference to E-MACHINE-005 amendment:** the existing §51 rule "A machine body SHALL NOT be empty" was amended in the same S32 amendment to permit empty bodies when state-local transitions exist. See §51.3.2 normative list (line amended 2026-04-20).
+
+No attribute is required or permitted to mark the mode. The absence of transition rules IS the marker.
+
+#### 51.15.2 Cross-check rules (override mode only)
+
+When the machine is in override mode AND the governed state type has state-local transitions, the compiler cross-checks:
+
+1. Every state-local transition SHALL correspond to a machine edge, OR the machine SHALL explicitly omit that transition via a `ban` clause (deferred — not in this amendment; see BOQ-ban-clause).
+2. Every machine edge whose source is a substate SHALL correspond to a state-local transition, with exceptions:
+   - **Temporal transitions** (`after Ns => .To`) do NOT require a state-local counterpart.
+   - **Wildcard transitions** (`* => *`, `* => .To`) do NOT require a state-local counterpart.
+   - **Guarded machine transitions** (`From => To given (…)`) DO require a state-local counterpart; the machine guard is additional to the state-local authorization, not a substitute.
+
+Mismatches emit **E-STATE-MACHINE-DIVERGENCE**.
+
+#### 51.15.3 Dispatch semantics — three worked cases
+
+**Case 1: state-local transition on a machine-bound variable.**
+
+```scrml
+@sub: Submission = < Draft> ...</>
+bind @sub -> < machine SubmissionFlow>
+@sub = @sub.validate(now)
+```
+
+The state-local transition body runs (produces the new `< Validated>` value). The machine's assignment check validates the result against `SubmissionFlow`'s rules. Both layers run.
+
+**Case 2: state-local transition on a non-machine-bound variable.**
+
+```scrml
+@sub: Submission = < Draft> ...</>
+@sub = @sub.validate(now)
+```
+
+The state-local transition body runs. No machine rules apply. The assignment is authorized by state-local declaration only.
+
+**Consistency with type-level `transitions {}` graph (§51.2).** When the governed state type has a type-level `transitions {}` block AND state-local transitions (§54.3), the two sites SHALL declare a consistent edge set: every state-local transition target SHALL be permitted by the type-level graph. A state-local transition to a target not permitted by the type-level `transitions {}` block SHALL emit E-STATE-MACHINE-DIVERGENCE (same code, applied symmetrically to site 1 ↔ site 3, as it is to site 2 ↔ site 3). This check runs even when no machine is declared.
+
+**Case 3: direct reassignment on a machine-bound variable (bypassing state-local).**
+
+```scrml
+@sub: Submission = < Draft> ...</>
+bind @sub -> < machine SubmissionFlow>
+@sub = < Validated> id=..., title=..., body=..., validatedAt=now </>
+```
+
+No state-local transition is invoked. The machine's assignment check validates the move. This is legal if `SubmissionFlow` permits `Draft => Validated`. State-local transition bodies are NOT run (no method was called).
+
+#### 51.15.4 E-STATE-MACHINE-DIVERGENCE
+
+Emitted when the state-local transitions and the override-mode machine body (or the type-level `transitions {}` graph) are inconsistent.
+
+**Diagnostic format:**
+
+```
+E-STATE-MACHINE-DIVERGENCE: machine 'SubmissionFlow' declares edge < Validated> => < Submitted>,
+  but < Validated> has no matching state-local transition declaration.
+  Either add a transition to < Validated>:
+    submit(now: Date) => < Submitted> { return < Submitted> ... </> }
+  inside < Submission>'s < Validated> body;
+  or remove the edge from SubmissionFlow if it should not be reachable.
+  (Temporal edges 'after Ns =>' and wildcards '* =>' are exempt from this cross-check.)
+```
 
 ---
 
@@ -20070,3 +20146,294 @@ syntactically valid in the grammar but semantically unusual. This needs clarific
 Acceptance criteria: either spec the valid predicate expressions for `boolean(predicate)`,
 or remove `boolean` from the inline predicate grammar and restrict it to `number`, `string`,
 and `integer`.
+
+---
+
+## 54. Nested Substates and State-Local Transitions
+
+**Added 2026-04-20 (S32).** Ratifies Insight 21 (scrml-support/design-insights.md) — Flavor A+B
+(Plaid state-local transitions + `pure` modifier reach-extension). This section introduces
+nested substate grammar, state-local transition declarations, and five new error codes
+that together close the narrow state-machine completeness gap identified in the debate.
+
+### 54.1 Overview
+
+Scrml state types (`< StateName>` blocks declared via §4.2 or §11) MAY contain **nested substates** and **state-local transition declarations**. This section defines:
+
+- The nested substate syntax (§54.2)
+- State-local transition declarations (§54.3)
+- Field visibility and narrowing across substates (§54.4)
+- Terminal states (§54.5)
+- The five new error codes (§54.6)
+- Interaction with `< machine>` declarations (cross-reference to §51.15)
+- Interaction matrix with prior scrml features (§54.7)
+
+### 54.2 Nested Substate Declarations
+
+A nested substate is a `< SubstateName>...</>` block declared inside the enclosing state's body. Substates:
+
+- Inherit the enclosing state's fields (shared fields visible in every substate).
+- MAY declare additional fields specific to that substate (narrowing fields).
+- Are treated as variants of the enclosing state type for pattern matching (§18) and the `is` operator (§18.17).
+- Participate in `not`-narrowing semantics (§42).
+
+**Syntax:**
+
+```
+substate-decl      ::= '< ' SubstateName attribute-list? '>' substate-body '</>'
+substate-body      ::= (field-decl | substate-decl | transition-decl)*
+```
+
+**Note on opener syntax (§4.3 disambiguation):** The leading space inside `< SubstateName>` is required per §4.3's disambiguation rule. `<SubstateName>` (no space) parses as an HTML element.
+
+**Worked example:**
+
+```scrml
+< Submission>
+    id:    string
+    title: string
+
+    < Draft>
+        body:      string
+        draftedAt: Date
+    </>
+
+    < Validated>
+        body:        string
+        validatedAt: Date
+    </>
+
+    < Submitted>
+        body:        string
+        submittedAt: Date
+    </>
+</>
+```
+
+A `@sub: Submission` binding MAY be in any one of the declared substates at any time. Substate-specific fields are visible only when the compiler has narrowed `@sub` to that substate.
+
+### 54.3 State-Local Transition Declarations
+
+Substates MAY declare outgoing transitions. A transition declaration describes an edge in the type-level state machine and provides the body that constructs the target substate.
+
+**Syntax:**
+
+```
+transition-decl    ::= identifier '(' param-list? ')' '=>' substate-ref transition-body
+substate-ref       ::= '< ' SubstateName '>'
+transition-body    ::= '{' transition-stmt* 'return' state-literal '}'
+state-literal      ::= '< ' SubstateName attribute-list? '>' field-assignments '</>'
+```
+
+**Explicit `return` required.** A transition body SHALL terminate with an explicit `return` statement whose operand is a `< SubstateName>` literal. This matches `fn` convention (§48) and avoids introducing a third function-body shape. A transition body MAY contain additional statements (local `let`/`const`, `if`/`else` branches, etc.) before the `return`.
+
+**Pre-transition binding — `from`, not `self`.** Inside a transition body, the keyword `from` refers to the substate instance BEFORE the transition. Its fields are readable but not writable. `self` is NOT used in transition bodies (it remains reserved for §51.3.2 machine guards, where it refers to the post-mutation struct state).
+
+**`from` is a contextual keyword** (modeled on the §51.2 `renders` precedent). The compiler SHALL parse `from` as a keyword ONLY inside transition bodies (§54.3). `from` SHALL NOT be a reserved word outside this position. Existing code that uses `from` as a parameter name, local binding, or field name (e.g., `function foo(from: number) { return from + 1 }`) SHALL continue to compile without change.
+
+**Purity (reference §33.6):** transition bodies enforce `fn`-level constraints. Non-deterministic calls (`Date.now()`, `Math.random()`, etc.) are forbidden; pass timestamps and random values as parameters.
+
+**Worked example:**
+
+```scrml
+< Submission>
+    id:    string
+    title: string
+
+    < Draft>
+        body:      string
+        draftedAt: Date
+
+        validate(now: Date) => < Validated> {
+            return < Validated>
+                id          = from.id
+                title       = from.title
+                body        = from.body
+                validatedAt = now
+            </>
+        }
+    </>
+
+    < Validated>
+        body:        string
+        validatedAt: Date
+
+        submit(now: Date) => < Submitted> {
+            return < Submitted>
+                id          = from.id
+                title       = from.title
+                body        = from.body
+                submittedAt = now
+            </>
+        }
+    </>
+
+    < Submitted>
+        body:        string
+        submittedAt: Date
+        // zero outgoing transitions -> positively terminal
+    </>
+</>
+```
+
+**Usage:**
+
+```scrml
+@sub: Submission = < Draft> id=uuid() title="Hi" body="..." draftedAt=Date.now() </>
+
+${ function flow() {
+    @sub = @sub.validate(Date.now())   // legal; Draft declares validate()
+    @sub = @sub.submit(Date.now())     // legal; Validated declares submit()
+} }
+```
+
+### 54.4 Field Visibility and Narrowing
+
+When the compiler has narrowed a binding to a specific substate (via `is`, `match`, or consumption of a state-local transition return value), only that substate's declared fields plus the enclosing state's shared fields are in scope. Reading a field declared on a DIFFERENT substate is **E-STATE-FIELD-MISSING**.
+
+Narrowing semantics extend the existing §18.17 `is` operator and §42 `not` narrowing; no new narrowing machinery is introduced. A state-local transition call implicitly narrows the return binding to the declared target substate.
+
+**Match exhaustiveness.** `match` over a substated state type (§18.8.1) requires exhaustive coverage of ALL declared substates, identical to enum variant exhaustiveness. Missing a substate arm is **E-TYPE-020** (existing enum-match exhaustiveness code — no new code required). Substates are treated as enum-like variants for match purposes because they form a closed set declared at the enclosing state type; they are NOT union-type arms (E-TYPE-006 applies to open unions, not declared-variant sets).
+
+```scrml
+match @sub {
+    < Draft>     => "editing"
+    < Validated> => "ready"
+    < Submitted> => "done"
+    // missing any arm -> E-TYPE-020
+}
+```
+
+### 54.5 Terminal States
+
+A substate with zero declared outgoing transitions is **positively terminal**. Terminality is determined by absence of transition declarations — there is no dedicated `terminal` keyword.
+
+Terminal substates:
+
+- Accept no state-local transition calls. Calling any transition on a terminal substate binding is **E-STATE-TRANSITION-ILLEGAL**.
+- Reject all field mutations. Writing to any field of a terminal substate binding is **E-STATE-TERMINAL-MUTATION**.
+
+Terminal substates are compile-time immutable; the compiler MAY omit runtime mutation guards for terminal-narrowed bindings.
+
+### 54.6 Error Codes
+
+#### 54.6.1 E-STATE-COMPLETE
+
+A `< StateName>` literal reaches its closing tag (`</>` or `</StateName>`) with one or more declared fields unassigned on an evaluation path.
+
+**Scope:** universal. Fires wherever a state literal is constructed — inside `fn`, `function`, transition bodies, `lift` contexts, or any other expression position.
+
+**Diagnostic format (required):**
+
+```
+E-STATE-COMPLETE: field 'X' of < StateName> is unassigned at literal close.
+  Literal opens at line A, closes at line B.
+  Declared fields: field1, field2, field3, X.
+  On this evaluation path, X was never assigned before </>.
+  Either assign X before </>, or use an 'if' branch that assigns X on every path reachable from this point.
+```
+
+This code replaces the pre-2026-04-20 E-FN-006 (which fired only inside `fn` bodies at `return` statements). The universalization means `function buildUser() { let u = < User>; u.name = "x"; return u }` with `u.age` unassigned now fires E-STATE-COMPLETE at `< User>`'s closing tag, where the old grammar would have silently compiled.
+
+#### 54.6.2 E-STATE-FIELD-MISSING
+
+A field read on a binding narrowed to substate X, where the field is declared on a different substate Y of the same enclosing state type.
+
+**Diagnostic format (required — must demonstrate cross-substate hinting):**
+
+```
+E-STATE-FIELD-MISSING: field 'submittedAt' not readable on binding in substate < Draft>.
+  Field 'submittedAt' is declared on < Submitted>, not < Draft>.
+  @sub is currently narrowed to < Draft> (reached at line M).
+  To reach < Submitted>: apply transitions validate() then submit(), then read.
+  Alternative: use `match @sub { < Submitted> s => s.submittedAt ... }` to narrow first.
+```
+
+The cross-substate hint naming the field's actual substate is REQUIRED. This is what distinguishes E-STATE-FIELD-MISSING from §18.17's narrowing errors — without it, implementers SHOULD reuse E-TYPE-062 instead.
+
+#### 54.6.3 E-STATE-TRANSITION-ILLEGAL
+
+A state-local transition is called on a binding whose current substate does not declare that transition.
+
+**Diagnostic format (required — must name available transitions and terminal hint):**
+
+```
+E-STATE-TRANSITION-ILLEGAL: transition 'submit()' is not declared on < Validated>.
+  @sub is currently narrowed to < Validated>.
+  < Validated> declares: (none — terminal)
+  If this call should be legal, add a declaration: `submit() => < Target> { return < Target> ... </> }`
+  inside < Submission>'s < Validated> body.
+  If < Validated> should be terminal, the call at line N is a bug.
+```
+
+When the substate has zero outgoing transitions, the terminal hint is REQUIRED. When it has some but not the called one, the diagnostic names the declared set.
+
+#### 54.6.4 E-STATE-TERMINAL-MUTATION
+
+A field write on a binding narrowed to a terminal substate (zero declared outgoing transitions).
+
+**Diagnostic format (required):**
+
+```
+E-STATE-TERMINAL-MUTATION: cannot mutate field 'body' of < Submitted>.
+  < Submitted> declares zero outgoing transitions — it is positively terminal.
+  Terminal-substate fields are frozen after construction.
+  If < Submitted> should admit edits, add a self-transition: `edit() => < Submitted> { ... }`.
+```
+
+#### 54.6.5 Summary table
+
+| Code | Trigger | Severity |
+|---|---|---|
+| E-STATE-COMPLETE | state literal's closing tag reached with unassigned field on some path | Error |
+| E-STATE-FIELD-MISSING | read of field declared on a different substate than the narrowed one | Error |
+| E-STATE-TRANSITION-ILLEGAL | call of a transition not declared on the current substate | Error |
+| E-STATE-TERMINAL-MUTATION | write of a field of a terminal substate | Error |
+
+(The cross-site divergence code E-STATE-MACHINE-DIVERGENCE lives in §51.15.4.)
+
+### 54.7 Interaction Matrix
+
+#### 54.7.1 State-local transitions × `< machine derived=@source>` (§51.9 projection)
+
+A projection machine receives a machine-bound variable; when the source changes, projection re-reads. A state-local transition call re-assigns the source reactive, which is a source change; the projection re-reads. No special handling required.
+
+**Normative:** a state-local transition assignment SHALL be observable to projection machines identically to any other reactive reassignment.
+
+#### 54.7.2 State-local transitions × `lin` variables
+
+A `lin @sub: Submission` consumed by `@sub = @sub.validate(now)`: the transition body constructs a NEW `< Validated>` literal (from's fields are read, not mutated); linearity is trivially preserved — the old binding is consumed at the `=` assignment.
+
+**Normative:** state-local transitions SHALL be compatible with `lin` bindings without special marking.
+
+#### 54.7.3 State-local transitions × `match` exhaustiveness
+
+Covered in §54.4. Substate exhaustiveness is enforced identically to enum variant exhaustiveness (E-TYPE-020).
+
+#### 54.7.4 State-local transitions × `when @var changes {}` (§51.7.1)
+
+`@sub.validate(now)` re-assigns `@sub` exactly once.
+
+**Normative:** `when @sub changes {}` SHALL fire exactly once per state-local transition call.
+
+#### 54.7.5 State-local transitions × Audit clause (§51.11)
+
+Audit is a machine-attached clause. State-local transitions on a type NOT machine-bound are not audited. A state-local transition on a machine-bound variable IS audited (the audit sees the re-assignment, which is the transition).
+
+**Normative:** audit clauses SHALL capture state-local transition assignments on machine-bound variables; transitions on non-machine-bound state variables are NOT audited.
+
+#### 54.7.6 State-local transitions × Replay (§51.14)
+
+Replay applies to machine-bound variables and bypasses runtime machine guards.
+
+**Normative:** a replay SHALL execute the state-local transition body when replaying an edge that corresponds to a state-local declaration — this preserves the body's field assignments (e.g., `validatedAt = now`). Replay receives the recorded parameter values; non-deterministic values are already parameters (§33.6) so replay reproduces them exactly.
+
+#### 54.7.7 State-local transitions × Temporal transitions (§51.12)
+
+`after Ns =>` is machine-only; there is no state-local counterpart.
+
+**Normative:** temporal transitions do NOT require state-local declarations (cross-check exemption, §51.15.2). When a temporal transition fires, the machine assigns the target substate directly; any state-local transition body is NOT executed (temporal transitions are pure reassignments, not method-style invocations).
+
+#### 54.7.8 E-STATE-COMPLETE × `lift` in `fn` bodies (§48.5)
+
+**Normative:** `lift < Substate> ... </>` inside a `fn` body — E-STATE-COMPLETE SHALL fire at the `</>` of the lifted literal, at the `lift` statement's location, before the lift accumulates. The `lift` statement does not produce its own diagnostic — the state-literal check runs universally.

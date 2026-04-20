@@ -1,7 +1,7 @@
 # SPEC.md Section Index
 
 > Auto-generated line numbers. Regenerate: `bash scripts/update-spec-index.sh`
-> Last updated: 2026-04-14 (S16 — SQL batching §8.9/8.10/8.11 + §19.10.5)
+> Last updated: 2026-04-20 (S32 — fate-of-fn + state/machine completeness; §33 reach-extension, §48 minimize, §51.15 cross-check, §54 new). Line numbers in this file PREDATE the S32 amendment; regenerate before relying on them.
 
 Total lines: 19,023 | Total sections: 53 + appendices
 
@@ -70,6 +70,7 @@ Total lines: 19,023 | Total sections: 53 + appendices
 | 51 | State Transition Rules / `< machine>` | 16972-18310 | 1339 | Type-level transitions, machine declarations, runtime guards, event object, `\|` alternation, payload binding, derived/projection machines, §51.11 audit clause, §51.3.2 attribute-form opener, §51.12 temporal transitions (`after Ns =>`), §51.13 auto-property-tests (`--emit-machine-tests`) |
 | 52 | State Authority Declarations | 17559-18087 | 529 | Two-tier authority, server @var, sync infrastructure |
 | 53 | Inline Type Predicates | 18088-19023 | 936 | Value constraints, SPARK zones, named shapes, bind:value HTML attrs |
+| 54 | Nested Substates and State-Local Transitions | ~20150+ | ~250 | **Added 2026-04-20 (S32).** Nested substate grammar, state-local transitions, E-STATE-COMPLETE + 4 more codes, interaction matrix. Companion to §51.15 cross-check. |
 
 ## Quick Lookup: Topic → Section
 
