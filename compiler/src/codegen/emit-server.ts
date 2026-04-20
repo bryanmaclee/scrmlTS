@@ -310,7 +310,7 @@ export function generateServerJs(
 
       let resolveIdx = -1;
       for (let i = 0; i < handleBody.length; i++) {
-        const code = emitLogicNode(handleBody[i]);
+        const code = emitLogicNode(handleBody[i], { boundary: "server" });
         if (code && code.includes('resolve(')) {
           resolveIdx = i;
           break;
@@ -348,7 +348,7 @@ export function generateServerJs(
       }
 
       for (const stmt of handleBody) {
-        const code = emitLogicNode(stmt);
+        const code = emitLogicNode(stmt, { boundary: "server" });
         if (code) {
           for (const line of code.split('\n')) lines.push('      ' + line);
         }
@@ -435,7 +435,7 @@ export function generateServerJs(
       lines.push(`        async function* _scrml_gen() {`);
 
       for (const stmt of body) {
-        const code = emitLogicNode(stmt);
+        const code = emitLogicNode(stmt, { boundary: "server" });
         if (code) {
           for (const line of code.split("\n")) {
             lines.push(`          ${line}`);

@@ -85,9 +85,12 @@ interface EmitLogicOpts {
    * Emission boundary. "server" swaps DOM-oriented lowerings for their
    * server-context equivalents (e.g. `lift <expr>` in a server-fn body
    * becomes `return <expr>;` instead of a `_scrml_lift(() =>
-   * document.createTextNode(...))` call — GITI-004).
+   * document.createTextNode(...))` call — GITI-004). Required field
+   * (S35 B2) — every entry-point caller SHALL declare context. Missing
+   * `boundary` defaults to "client" at emitLogicNode entry with a
+   * runtime warning so undeclared sites are loud, not silent.
    */
-  boundary?: "server" | "client";
+  boundary: "server" | "client";
 }
 
 /** An entry in the captured scope for a runtime ^{} meta block (from meta-checker.ts). */
@@ -306,8 +309,27 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
   return `_scrml_reactive_set(${JSON.stringify(encodedName)}, ${valueExpr});`;
 }
 
-export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
+/**
+ * Default options at entry: treat unset `boundary` as "client" for backward
+ * compatibility, but surface missing boundary via a one-time warning so stray
+ * entry-point callers can be found and annotated. S35 B2.
+ */
+const _boundaryWarnedFor = new Set<string>();
+function _ensureBoundary(opts: EmitLogicOpts, context: string): EmitLogicOpts {
+  if (!opts.boundary) {
+    if (!_boundaryWarnedFor.has(context)) {
+      _boundaryWarnedFor.add(context);
+      console.warn(`[emit-logic] ${context}: EmitLogicOpts.boundary missing — defaulting to "client". Declare boundary at the call site.`);
+    }
+    return { ...opts, boundary: "client" };
+  }
+  return opts;
+}
+
+export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "client" }): string {
   if (!node || typeof node !== "object") return "";
+
+  opts = _ensureBoundary(opts, "emitLogicNode");
 
   // §4.12.6: Inherit dbVar from node annotation if not already set in opts
   if (!opts.dbVar && node._dbVar) {
@@ -643,6 +665,13 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
       // `document` and a client-only helper; neither exists in a Bun server
       // handler. Swap to `return <expr>;` when the caller signals server
       // boundary.
+      // S35 B2: exhaustive boundary handling. The `never` assignment in the
+      // default arm forces a compile-time decision whenever the
+      // `"server" | "client"` union grows.
+      if (opts.boundary !== "server" && opts.boundary !== "client") {
+        const _exhaustive: never = opts.boundary;
+        void _exhaustive;
+      }
       if (opts.boundary === "server" && liftE) {
         if (liftE.kind === "expr" && typeof liftE.expr === "string") {
           const rhsExpr = emitExprField(liftE.exprNode, liftE.expr.trim(), { mode: "server", dbVar: opts.dbVar });
