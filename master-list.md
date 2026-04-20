@@ -2,17 +2,19 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-17 (S23 — §51.9 DOM read-wiring for `${@ui}` (commit `5b5d636`), all four S20 meta bugs landed (2c/2a/2b/2d — `8711056` + `9f2a247`), Mario example rewritten to showcase S22 features (`7045adf`), non-gauntlet samples audit (`2ba4ccd` — 19 stale fixtures updated to idiomatic scrml), tutorial updated with canonical `=>` / bare variant names + new §2.10 state machines section + 3 new snippets (`e0455b6`); **6,889 pass / 10 skip / 2 fail** across 278 files)
+**Last updated:** 2026-04-20 (S34 — all 11 adopter-blocking codegen bugs from giti + 6nz shipped and verified (5 giti: GITI-001..005; 6 6nz: Bug A–F). S31 F5 missing-@-sigil fix (`ebd4d1d`). S32 ratified Insight 21 + Phases 1/2/3 — `pure fn` modifier, E-STATE-COMPLETE, substate match exhaustiveness (§54.2–4). S33 Phase 4a–4g — state-local transitions end-to-end (E-STATE-TRANSITION-ILLEGAL, E-STATE-TERMINAL-MUTATION, `from` contextual kw, fn-level purity in transition bodies §33.6/§54.6). **7,373 pass / 40 skip / 2 fail** across 338 files with 26,808 expects)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
+
+**Recent window (S24–S34):** 65+ commits. Major arcs: validation elision slices 1–4 (§51.5.2, S27), guarded projection-machine property tests (§51.13.1 phase 7, S28), E-REPLAY-003 cross-machine rejection (§51.14), 5 adjacent correctness fixes (S28 backfill in `bfad4c6`), ast-builder component-def bug fix (S29 `b189051`), module-resolver self-host pass (S29), `scrmlTS` went public on MIT license (2026-04-17), adopter friction audit 13 findings (S30, `a6ce8c6`), 4 critical scaffold+CLI fixes (S30: CSS tokenizer compound-selector parse `2eb4513`, bin-script mode `8217dd9`, ghost-lint default visibility `f0e7222`, 5 new Vue/Svelte W-LINT-011..015 `e8ddc8d`), F5 missing-@-sigil silent-break → E-SCOPE-001 (S31 `ebd4d1d`), F6 init-safety + F10 README bun-link (S31 `26df45d`), fn-debate + insight 20 (S31), insight 21 ratified + state-local transitions §54 end-to-end (S32–S33), 11 adopter codegen bugs (S34 `aa92070..d23fd54`).
 
 ---
 
 ## A. Compiler core (verified working S14)
 
-**Entry:** `compiler/src/cli.js` (bin: `scrml`)
-**Tests:** **6,889 pass, 10 skip, 2 fail** (S23 2026-04-17) across 278 files with 25,548 expects — includes S20 gauntlet regression tree (`compiler/tests/unit/gauntlet-s20/` — 4 files, 38 tests), S22 tree (`compiler/tests/unit/gauntlet-s22/` — 4 files, 45 tests: payload-variants + payload-variants-match + machine-payload-binding + derived-machines + 2 S23 DOM-wiring tests), new S23 tree (`compiler/tests/unit/gauntlet-s23/meta-bugs.test.js` — 9 tests for 2a/2b/2d meta fixes), and S19-S22 fixture corpus. 2 remaining self-host fails deferred per user.
+**Entry:** `compiler/src/cli.js` (bin: `scrml`); published binary shebang at `compiler/bin/scrml.js` (S30 `8217dd9`)
+**Tests:** **7,373 pass, 40 skip, 2 fail** (S34 2026-04-20) across 338 files with 26,808 expects — includes S20–S23 gauntlet trees (gauntlet-s20/s22/s23), S31 gauntlet-s31/ (11 tests for F5 `@`-sigil fix), S32 conformance tree `compiler/tests/conformance/s32-fn-state-machine/` (9 of 39 green — see §54 state-local transitions), S33 Phase 4 unit tests `transition-decl-*.test.js` (51 tests across 7 files), S34 adopter-bug-fix trees (8 new test files: `mangle-property-access`, `import-scope-registration`, `let-reassignment-in-branch`, `arrow-block-body-in-call-arg`, `server-fn-markup-interpolation`, `server-client-boundary`, `request-tag-and-server-fn-reactive`, plus additions to `meta-captured-bindings`, `event-delegation`, `state-block-event-wiring`, `event-handler-args-e2e`, `cross-file-import-export`). 2 remaining fails (Bootstrap L3 perf + tab.js-path parity) deferred.
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
-**Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/`
+**Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/` — deferred post-S30 public pivot
 
 ### Pipeline stages (all working)
 
@@ -71,8 +73,8 @@
 
 ## D. Spec + authoritative docs
 
-- [x][x] `compiler/SPEC.md` — 18,753 lines, 53 sections. AUTHORITATIVE.
-- [x][x] `compiler/SPEC-INDEX.md` — quick-lookup with line ranges.
+- [x][x] `compiler/SPEC.md` — 20,439 lines, 54 sections. AUTHORITATIVE. §54 added in S32 (state-local transitions, insight 21 amendment).
+- [x][x] `compiler/SPEC-INDEX.md` — quick-lookup with line ranges. Last regen S33 open (`2009bbb`).
 - [x][x] `compiler/PIPELINE.md` — 1,569 lines. Stage contracts.
 
 **All other spec history (drafts, updates, amendments) lives in `scrml-support/archive/spec-drafts/`**.
@@ -101,17 +103,23 @@
 
 ## G. Test infrastructure
 
-- [x][x] `compiler/tests/unit/` — 148+ files
-  - `compiler/tests/unit/gauntlet-s20/` (new S20/S21): `meta-gauntlet.test.js`, `fn-purity-reactive.test.js`, `error-handling-codegen.test.js`, `import-resolution.test.js`, `machine-or-alternation.test.js` (+ `__fixtures__/` per-test scratch dirs). 38 tests across the 5 files.
+- [x][x] `compiler/tests/unit/` — 175+ files (S34)
+  - `gauntlet-s20/` — 5 files, 38 tests
+  - `gauntlet-s22/` — 4 files, 45 tests
+  - `gauntlet-s23/meta-bugs.test.js` — 9 tests
+  - `gauntlet-s24/` — R14 bug tree
+  - `gauntlet-s31/` — 11 tests for F5 bare-ident-referencing-reactive (`ebd4d1d`)
+  - `transition-decl-block-split/ast/registry/scope/illegal/terminal/purity.test.js` — 7 files, 51 tests covering §54.3–6 state-local transitions end-to-end (S33)
+  - S34 adopter-bug trees: 8 new/updated files covering all 11 S34 bugs (Bug E/A/D/B+F/C + GITI-001/002/003/004/005)
 - [x][x] `compiler/tests/integration/` — 2 files
 - [x][x] `compiler/tests/self-host/` — 4 files
-- [x][x] `compiler/tests/conformance/` — 2 files
+- [x][x] `compiler/tests/conformance/s32-fn-state-machine/` — 4 files, 39 tests (9 green, 30 skipped with per-gate annotations)
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total (S21 2026-04-17):** 6,824 pass, 10 skip, 2 fail (25,375 expects across 273 test files). Puppeteer: `examples/test-examples.js` 14/14 pass.
+- **Total (S34 2026-04-20):** **7,373 pass, 40 skip, 2 fail** (26,808 expects across 338 test files). Puppeteer: `examples/test-examples.js` 14/14 pass.
 - **Pretest:** `scripts/compile-test-samples.sh` compiles 12 browser test samples (run via `bun run pretest`)
-- **Skipped:** `browser-reactive-arrays.test.js` — hangs in happy-dom (Puppeteer passes); 8 TodoMVC happy-dom tests with harness-IIFE-scope root cause documented (Puppeteer covers).
-- **Still failing (2):** self-host tokenizer parity + Bootstrap L3 — deferred per user.
+- **Skipped:** 30 S32 conformance tests gated on parser/narrowing capabilities (see `conformance/s32-fn-state-machine/REGISTRY.md`); `browser-reactive-arrays.test.js` (happy-dom hangs; Puppeteer passes); 8 TodoMVC happy-dom tests (harness-IIFE-scope root cause documented; Puppeteer covers).
+- **Still failing (2):** self-host tokenizer parity + Bootstrap L3 — deferred per user, unchanged S23–S34.
 
 ---
 
@@ -197,26 +205,49 @@
 
 **Fix details + rationale for each:** `scrml-support/docs/` (look up by bug ID or topic).
 
+**S31–S34 fixes (adopter-facing codegen + scope):**
+
+15. ~~**F5 — missing `@` sigil silent break in markup interpolation**~~ — **FIXED S31** (`ebd4d1d`). `${count}` when `@count` was declared compiled to empty span + bare `count;` reference with zero diagnostics. Root cause: reactive-decl double-bind (bare + sigil form) silently absorbed bare-ident references in logic. Fix: reactive-kind check in `checkLogicExprIdents` + `visitAttr` with tailored "write `@name`" message. +11 tests in `gauntlet-s31/`.
+16. ~~**F6 `init` in non-empty CWD + F10 README bun-link step**~~ — **FIXED S31** (`26df45d`). `init` now exits 1 with guidance when CWD is non-empty (dotfile-only accepts bare `init`). README Quick-start shows install → `bun link` → `init my-app`. +5 tests.
+17. ~~**Bug E (6nz) — `^{}` meta-block Object.freeze missing commas**~~ — **FIXED S34** (`aa92070`). `Object.freeze({ get a() {...} get b() {...} })` produced `SyntaxError: Unexpected token 'get'`. Template joined properties with `\n` only. Fix: `props.join(",\n")` in `emit-logic.ts`. Same fix applied to `emitTypeRegistryLiteral`. +3 tests.
+18. ~~**Bug A (6nz) — event arg dropped in bare-call handlers**~~ — **FIXED S34** (`eb86d31`). `onkeydown=handleKey()` emitted `function(event) { handleKey(); }` — event discarded. Per tutorial §1.5, bare-call event attrs receive event as first arg. Fix in `emit-event-wiring.ts`: `argsStr.length === 0 ? "event" : argsStr`. Tutorial snippet `docs/tutorial-snippets/01e-bindings.scrml` now compiles to the behavior it advertised. +2 new tests; 9 existing assertions updated.
+19. ~~**Bug D (6nz) — name-mangle bleeds onto DOM methods**~~ — **FIXED S34** (`27ed6fe`). User fn `toggle()` → `_scrml_toggle_N` textually rewrote `classList.toggle(...)` → `classList._scrml_toggle_N(...)`. Any user fn sharing a name with a DOM method (toggle, forEach, add, remove, append, replace, ...) was silently corrupted. Fix: negative lookbehind `(?<!\.)` on the post-emit mangler regex in `emit-client.ts`. +3 tests in `mangle-property-access.test.js`.
+20. ~~**GITI-002 — false E-SCOPE-001 on imports in server-fn bodies**~~ — **FIXED S34** (`881b411`). Codegen emitted imports correctly; scope-resolver `case "import-decl"` returned `tAsIs()` without binding names. Fix: bind each name from `importNode.names` as `kind: "import"` into scope chain. +6 tests in `import-scope-registration.test.js`.
+21. ~~**Bug B + F (6nz) — `let x = A; if (c) x = B` emits shadow or derived-declare**~~ — **FIXED S34** (`70190a7`). Shared root: `IfOpts` and for/while helpers didn't accept/thread `declaredNames`, so nested bodies got fresh empty `declaredNames` and outer `let` bindings were invisible to the inner tilde-decl reassignment branch. Fix: widen signatures of `emitIfStmt`, `emitForStmt`, `emitWhileStmt` to accept `declaredNames`; thread through all nested `emitLogicBody` calls; dispatch in `emit-logic.ts` passes `opts.declaredNames`. +10 tests in `let-reassignment-in-branch.test.js`.
+22. ~~**Bug C (6nz) — multi-statement arrow bodies dropped in call args**~~ — **FIXED S34** (`127d35a`). `arr.map((n, i) => { if (...) return n*2; return n })` compiled to `arr.map()` — entire callback lost. Two paired fixes: (a) `expression-parser.ts` CallExpression case now threads `rawSource` into arg recursion; arrow case slices its own raw via ESTree `node.start/end` with shape-validation fallback; (b) `rewrite.ts` adds `skipPresenceGuard` flag + `rewriteExprArrowBody` variant, consumed by `emitEscapeHatch` for Arrow/Function EscapeHatchExprs. +8 tests in `arrow-block-body-in-call-arg.test.js`.
+23. ~~**GITI-005 — `${serverFn()}` in markup drops fetch result**~~ — **FIXED S34** (`e585dba`). Expression has no `@`-refs, so reactive-display-wiring loop skipped entirely; fetch fired at module top with result dropped. Fix: `buildServerFnNames(fnNameMap)` detection via `_scrml_(fetch|cps)_` prefix; when binding expression uses a server fn, emit async IIFE `(async () => { try { el.textContent = await (expr); } catch (_e) { el.textContent = ""; } })();`. Mixed `${@var + serverFn()}` also covered. +7 tests in `server-fn-markup-interpolation.test.js`.
+24. ~~**GITI-003 — server-only imports leak to .client.js**~~ — **FIXED S34** (`e5f5b22`). `import { getGreeting } from './engine/probe.js'` used only inside server-fn bodies still wrote to `.client.js`, 500'ing browser load. Fix: post-emit prune pass in `emit-client.ts` drops imports with no client-body usage. Scoped to non-special paths (`scrml:`, `vendor:`, `.client.js` always preserved). `testMode` bypass for fixture-only unit tests.
+25. ~~**GITI-004 — `lift <expr>` in server fn lowers to DOM code**~~ — **FIXED S34** (`e5f5b22`). Handler body emitted `_scrml_lift(() => document.createTextNode(...))` — uses `document` and client-only helper in Bun server context. Fix: added `boundary: "server" | "client"` to `EmitLogicOpts`; `case "lift-expr"` in server boundary emits `return <expr>;`; `emit-server.ts` threads `{ boundary: "server" }` through 6 fn-body emission sites (CPS/non-CPS × CSRF/non-CSRF × body-iter/last-stmt-return). +5 tests in `server-client-boundary.test.js`.
+26. ~~**GITI-001 — `<request>` empty-URL fetch + unawaited `@data = serverFn()` Promise**~~ — **FIXED S34** (`d23fd54`). Two-part fix: (a) `emit-client.ts` post-emit rewrite wraps `_scrml_reactive_set("X", <stub>(ARGS))` in `(async () => _scrml_reactive_set("X", await <stub>(ARGS)))()` using a manual paren-depth walk (not regex) so nested args work; (b) `emit-reactive-wiring.ts` `emitRequestNode` returns early when no `url=` attribute. `<request url="...">` regression-guarded. +6 tests in `request-tag-and-server-fn-reactive.test.js`.
+
+**All 11 S34 adopter bugs verified PASS by giti** 2026-04-20 in `handOffs/incoming/read/2026-04-20-1558-giti-*.md` (formalized follow-up: **GITI-006** — markup `${@var.path}` emits module-top bare read that throws on async-initialized reactives; pre-existing emission shape, low-priority per giti).
+
 ---
 
 ## N. Open work (current truth, prioritized)
 
 ### P1 — Language Completeness
+- [x][x] **§54 State-local transitions** (insight 21, S31–S33). Ratified S32 (`1d1c49d`): substates declared inside state blocks, transitions declared positively on their states (`validate() => < Validated> { body }`), `pure fn` modifier + E-STATE-COMPLETE + substate match exhaustiveness. Phase 4a–4g implementation end-to-end S33 (`36320ab..37f21f7`): block-splitter transition-decl recognition, AST node, StateType.transitions registry, `from` contextual keyword + param binding, E-STATE-TRANSITION-ILLEGAL call-site check, E-STATE-TERMINAL-MUTATION field-write check, fn-level purity in transition bodies per §33.6. Phase 4h (return-type narrowing at transition call site) still open — blocked on §54.6 code-assignment gap (NC-3).
 - [x][x] **DQ-12 (Phase A)** — `is not`/`is some` on **parenthesized** compound expressions. **IMPLEMENTED S2 2026-04-10 (dq12-phase-a)** — `_rewriteParenthesizedIsOp` in `rewrite.ts`, temp-var single-evaluation per §42.2.4. Phase B (bare compound form, no parens) deferred as future work.
 - [x][x] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED + IMPLEMENTED S2 2026-04-10 (dq7-css-scope)** — native CSS `@scope` (Approach B). `emit-css.ts` + `emit-html.ts` + SPEC §9.1 + §25.6 rewrite landed. `data-scrml` attribute, donut scope, flat-declaration `#{}` → inline style.
 - [x][x] **DQ-11** — WebSocket / server-push. Spec complete (§38). **CLI implementation complete S2 2026-04-10 (websocket-cli-batch)** — 6 bugs fixed in dev.js/build.js/emit-channel.ts, channel runtime unblocked end-to-end.
 - [x][x] **Lin spec gaps — §35.2.1 working E2E as of S4.** Batch A ✅ S2; Batch B ✅ S3 (§35.2.1 lin-params parser + type-system, merge `90f1630`); Batch C Step 1 ✅ S4 (TS-G wiring fix, merge `503f5b9`); Batch C Step 2 PARKED in favor of structured expression AST migration. **§35.2.1 lin function parameters now work end-to-end for the first time** as of Phase 2 Slice 1+2 (Slice 1 merged S4 `9151f1a`, Slice 2 + ast-builder gap closures merged S4 `45208c6`). See P5 expression AST migration for ongoing work.
 
 ### P2 — DX
-- [x][x] **Ghost error mitigation** — lint pre-pass landed S2 (ghost-lint-prepass, 10 W-LINT-* patterns, +71 tests)
+- [x][x] **Ghost error mitigation** — lint pre-pass landed S2 (ghost-lint-prepass, 10 W-LINT-* patterns, +71 tests). S30: ghost-lint diagnostics now visible by default (`f0e7222`). S30: +5 Vue/Svelte patterns W-LINT-011..015 (`e8ddc8d`).
+- [x][x] **Adopter friction audit** — S30 (`a6ce8c6`), 13 findings. 4 critical landed same session: CSS tokenizer compound-selector fix (`2eb4513`), bin-script executable mode (`8217dd9`), ghost-lint default visibility (`f0e7222`), Vue/Svelte lint patterns (`e8ddc8d`). F5 missing-@-sigil silent break fixed S31 (`ebd4d1d`). F6 init-safety + F10 README bun-link S31 (`26df45d`). F7 audit error (false positive, no fix needed).
+- [x][x] **11 adopter-blocking codegen bugs** (5 giti + 6 6nz) — all 11 fixed S34 (`aa92070..d23fd54`), verified PASS by giti. See §M items 17–26.
+- [ ][ ] **GITI-006** — markup `${@var.path}` emits module-top bare read that throws on async-initialized reactives (e.g. `_scrml_reactive_get("data").value;` executes before the awaited fetch-stub set resolves). Pre-existing emission shape, formalized by giti 2026-04-20 as low-priority follow-up (workaround: `@data = { value: null }` default).
 - [ ][ ] Async loading stdlib helpers (RemoteData — deferred)
 - [ ][ ] Async loading sugar (Approach E — deferred)
+- [x][x] **F8 + F9 scaffold polish** (scrml init `package.json` + `README.md` + inline orientation comments) — still open from S30 deferred list, carried through S31/S32/S33/S34.
 - [x][x] **Fix example 12** — ex12-component-normalize S2. Examples now 14/14 clean.
 - [x][x] **Library mode type declarations** — R18 #2 verified fixed S2 (was already resolved by prior work; regression tests + sample added via library-mode-types batch)
 
-### P3 — Self-host completion
-- [ ][ ] CE + ME self-host (not yet ported)
-- [ ][ ] Idiomification: ts.scrml (2,570), ast.scrml (3,539) — ~6,109 lines
+### P3 — Self-host completion (DEFERRED post-S30 public pivot)
+- [ ][ ] CE + ME self-host (not yet ported) — deferred
+- [ ][ ] Idiomification: ts.scrml (2,570), ast.scrml (3,539) — ~6,109 lines — deferred
+- Three S29-surfaced adjacent bugs (export-decl name extraction for `export class X`; export-decl body scope check for `export function X`; destructuring `const { a, b } = ...` fragmentation) also deferred per S30 pivot decision.
 
 ### P4 — SQL Batching (spec-drafted S16 2026-04-14, awaiting user sign-off)
 
@@ -276,7 +307,7 @@ Compiler-level SQL batching in two tiers. Pipeline addition + §8 extensions + �
 ## O. Pending cleanup (post-split)
 
 - [x][x] **Non-compliance audit** (S2 2026-04-10) — 13 docs reviewed, 3 dereffed to `scrml-support/archive/`, 3 updated in place, 1 deleted (`shared/` fiction), 6 kept. See hand-off-2.
-- [x][x] **Cold project map** (S2 2026-04-10) — re-enabled with scope discipline (`node_modules`, `dist`, framework-comparison benchmarks excluded; master-list as spine). 10 maps + INDEX + non-compliance written to `.claude/maps/`. ~30 file reads, sustainable. Zero non-compliance findings (S2 audit cleared everything).
+- [x][x] **Cold project map** (S2 2026-04-10) — re-enabled with scope discipline (`node_modules`, `dist`, framework-comparison benchmarks excluded; master-list as spine). 10 maps + INDEX + non-compliance written to `.claude/maps/`. Incremental refreshes S30, S33 (with `PHASE-4-TOUCH-POINTS.md` artifact for Phase 4), S34.
 - [x][x] **Verify VS Code extension builds** (S2 2026-04-10) — added `@types/node` to devDeps, `bun install` + `bunx tsc` clean, produces `out/extension.js` (83 lines, `node --check` OK). Added `editors/vscode/{out,bun.lock}` to root `.gitignore`.
 - [x][x] **Install git hooks** (S2 2026-04-10) — copied pre-commit, post-commit, pre-push from scrml8 unchanged; all targets (`compiler/src/cli.js`, `compiler/src/index.js`, `benchmarks/todomvc/app.scrml`) exist in this repo. Hooks fire on next compiler commit. **Caveat:** `.git/hooks/` is not versioned — fresh clones won't have them. Consider mirroring into `scripts/git-hooks/` with an install script.
 
