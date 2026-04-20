@@ -140,6 +140,13 @@ interface SnippetType {
   optional: boolean;
 }
 
+interface TransitionInfo {
+  name: string;
+  paramsRaw: string;        // verbatim params between `(` and `)` — parsed on demand by Phase 4e
+  targetSubstate: string;
+  span: Span;
+}
+
 interface StateType {
   kind: "state";
   name: string;
@@ -155,6 +162,9 @@ interface StateType {
   // substates: if set, the names of this type's declared substates.
   parentState?: string;
   substates?: Set<string>;
+  // §54.3 State-local transitions (added 2026-04-20, S32 Phase 4c)
+  // transitions: if set, the declared outgoing transitions keyed by name.
+  transitions?: Map<string, TransitionInfo>;
 }
 
 interface ErrorType {
@@ -474,11 +484,13 @@ function tState(
   authority?: "server" | "local",
   tableName?: string | null,
   parentState?: string,
+  transitions?: Map<string, TransitionInfo>,
 ): StateType {
   return {
     kind: "state", name, attributes, isHtml, rendersToDom, constructorBody,
     authority, tableName,
     ...(parentState ? { parentState } : {}),
+    ...(transitions && transitions.size > 0 ? { transitions } : {}),
   };
 }
 
@@ -1824,6 +1836,7 @@ function registerStateType(
   authority?: "server" | "local",
   tableName?: string | null,
   parentState?: string,  // §54.2 Phase 3b — set when this type is a substate
+  transitions?: Map<string, TransitionInfo>,  // §54.3 Phase 4c — state-local transitions
 ): boolean {
   // E-STATE-005: collision with HTML element name
   if (getElementShape(name) !== null) {
@@ -1884,7 +1897,7 @@ function registerStateType(
     return false;
   }
 
-  const newType = tState(name, attributes, false, rendersToDom, constructorBody, authority, tableName, parentState);
+  const newType = tState(name, attributes, false, rendersToDom, constructorBody, authority, tableName, parentState, transitions);
   // Preserve accumulated substates if this call overwrites a forward-ref
   // placeholder (set earlier by a substate that registered before its parent).
   if (isPlaceholder && (existing as StateType).substates) {
@@ -3360,6 +3373,25 @@ function annotateNodes(
             ? ((n as ASTNodeLike).parentState as string | undefined)
             : undefined;
 
+          // §54.3 Phase 4c: collect state-local transition declarations from
+          // this constructor's children so the registry entry exposes them.
+          const ctorChildrenForTx = n.children as ASTNodeLike[] | undefined;
+          let ctorTransitions: Map<string, TransitionInfo> | undefined;
+          if (Array.isArray(ctorChildrenForTx)) {
+            for (const child of ctorChildrenForTx) {
+              if (child && (child as ASTNodeLike).kind === "transition-decl") {
+                const td = child as ASTNodeLike;
+                if (!ctorTransitions) ctorTransitions = new Map<string, TransitionInfo>();
+                ctorTransitions.set(td.name as string, {
+                  name: td.name as string,
+                  paramsRaw: (td.paramsRaw as string) ?? "",
+                  targetSubstate: td.targetSubstate as string,
+                  span: (td.span as Span) ?? ctorSpan,
+                });
+              }
+            }
+          }
+
           registerStateType(
             stateTypeRegistry,
             ctorName,
@@ -3371,6 +3403,7 @@ function annotateNodes(
             ctorAuthority,
             ctorTableName,
             ctorParentState,
+            ctorTransitions,
           );
 
           for (const ta of (n.typedAttrs as ASTNodeLike[])) {
