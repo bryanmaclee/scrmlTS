@@ -872,6 +872,7 @@ scrml attributes follow a three-way distinction based on quoting:
 - `attr=fn()` on an event attribute (e.g., `onclick`, `onsubmit`, `onchange`) SHALL wire `fn` as an event listener for that event. The compiler wraps the call in a closure: `function(event) { fn(...args); }`. Arguments in the parentheses are forwarded to `fn` as-is. The native event object is NOT passed to `fn` — it is available only inside the wrapper closure. To access the event object, use a logic context wrapper: `onclick=${(event) => fn(event, arg)}`.
 - `attr=fn()` on a non-event attribute SHALL be a compile error (E-ATTR-001) unless `fn` returns a value compatible with the attribute's expected type.
 - The compiler SHALL validate unquoted identifiers against the current scope. An unquoted identifier that cannot be resolved SHALL be a compile error (E-SCOPE-001).
+- A bare identifier in an attribute value or logic expression (`${ }`) whose name matches a declared reactive variable SHALL be a compile error (E-SCOPE-001). Reactive reads require the `@` sigil — `@name` — so the compiler can wire reactivity. The diagnostic SHALL name the reactive variable and point the author at the sigil form.
 
 ### 5.2.1 Event Handler Argument Passing
 

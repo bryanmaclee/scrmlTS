@@ -2881,7 +2881,26 @@ function checkLogicExprIdents(
     if (typeRegistry.has(base)) return;
     // Scope chain — covers function-decls, params, let/const, reactive-decls,
     // type-decls (bound under kind: "type" at declaration site), imports.
-    if (scopeChain.lookup(base)) return;
+    //
+    // F5 (S31): reactive-decl double-binds the bare name (`count`) in addition
+    // to the sigil form (`@count`) to support a handful of fallback lookup
+    // sites. That bare bind silently absorbs `${count}` / `count + 1` / etc.
+    // in logic context, letting undefined-in-JS references compile clean.
+    // Detect the reactive-kind entry here and surface E-SCOPE-001 with a
+    // tailored "did you mean `@name`?" message — the single most common
+    // adopter typo.
+    const entry = scopeChain.lookup(base);
+    if (entry) {
+      if (entry.kind !== "reactive") return;
+      errors.push(new TSError(
+        "E-SCOPE-001",
+        `E-SCOPE-001: Bare identifier \`${base}\` in logic expression references the reactive variable \`@${base}\` ` +
+        `without its \`@\` sigil. Reactive reads must use \`@${base}\` so the compiler can wire reactivity — ` +
+        `otherwise the emitted code references an undefined local. Write \`@${base}\`.`,
+        span,
+      ));
+      return;
+    }
     errors.push(new TSError(
       "E-SCOPE-001",
       `E-SCOPE-001: Undeclared identifier \`${base}\` in logic expression. ` +
@@ -4448,10 +4467,10 @@ function annotateNodes(
       // For dotted access like @todos.length, resolve the base name (@todos)
       const baseName = name.includes(".") ? name.slice(0, name.indexOf(".")) : name;
       const entry = scopeChain.lookup(baseName);
+      const attrSpan = (value.span ?? attr.span ?? parent?.span ?? {
+        file: filePath, start: 0, end: 0, line: 1, col: 1,
+      }) as Span;
       if (!entry) {
-        const attrSpan = (value.span ?? attr.span ?? parent?.span ?? {
-          file: filePath, start: 0, end: 0, line: 1, col: 1,
-        }) as Span;
         errors.push(new TSError(
           "E-SCOPE-001",
           `E-SCOPE-001: Unquoted identifier \`${baseName}\` in attribute \`${attr.name as string}\` ` +
@@ -4459,6 +4478,30 @@ function annotateNodes(
           `Did you mean to quote it as a string (\`"${baseName}"\`), or use \`@\` for a reactive variable (\`@${baseName}\`)?`,
           attrSpan,
         ));
+      } else if (entry.kind === "reactive" && !baseName.startsWith("@")) {
+        // F5 (S31): `class=count` / `value=count` where `@count` is declared.
+        // The reactive-decl's bare-name bind absorbs the lookup; the attr
+        // would otherwise compile silently to an unwired attribute value.
+        errors.push(new TSError(
+          "E-SCOPE-001",
+          `E-SCOPE-001: Unquoted identifier \`${baseName}\` in attribute \`${attr.name as string}\` ` +
+          `references the reactive variable \`@${baseName}\` without its \`@\` sigil. ` +
+          `Write \`@${baseName}\` to bind the reactive value, or quote \`"${baseName}"\` for a literal string.`,
+          attrSpan,
+        ));
+      }
+    } else if (value.kind === "expr") {
+      // F5 (S31): attribute value is a `${...}` interpolation — walk the
+      // parsed exprNode through the logic-scope checker the same way a
+      // bare-expr inside a logic child would. Without this, `value=${count}`
+      // (missing `@`) compiles silently to `<input />` with the value
+      // attribute dropped entirely.
+      const attrSpan = (value.span ?? attr.span ?? parent?.span ?? {
+        file: filePath, start: 0, end: 0, line: 1, col: 1,
+      }) as Span;
+      const exprNode = (value as Record<string, unknown>).exprNode;
+      if (exprNode) {
+        checkLogicExprIdents(exprNode, attrSpan, scopeChain, typeRegistry, errors);
       }
     }
   }
