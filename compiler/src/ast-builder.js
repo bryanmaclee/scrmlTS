@@ -1496,14 +1496,31 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           span: spanOf(startTok, peek()),
         };
       }
-      // Text content — consume and accumulate
+      // Text content — consume and accumulate.
+      // GITI-008: coalesce consecutive text tokens into one child. The
+      // tokenizer splits `Hello world` into separate tokens with the
+      // whitespace stripped; a prior span-gap means the source had
+      // whitespace there. Join with a single space (HTML whitespace
+      // semantics) so downstream emitters render text as the user wrote
+      // it, not `Helloworldlikethis`. Parity with the static markup
+      // path which preserves whitespace in text content; §10 imposes no
+      // divergent text semantics for lift markup.
       consume();
-      children.push({
-        id: ++counter.next,
-        kind: "text",
-        value: t.text,
-        span: tokenSpan(t, filePath),
-      });
+      const prev = children.length > 0 ? children[children.length - 1] : null;
+      if (prev && prev.kind === "text" && t.span.start > prev.span.end) {
+        prev.value = prev.value + " " + t.text;
+        prev.span = { ...prev.span, end: t.span.end };
+      } else if (prev && prev.kind === "text") {
+        prev.value = prev.value + t.text;
+        prev.span = { ...prev.span, end: t.span.end };
+      } else {
+        children.push({
+          id: ++counter.next,
+          kind: "text",
+          value: t.text,
+          span: tokenSpan(t, filePath),
+        });
+      }
     }
     // EOF without closer — if component with no children, treat as bare-ref
     if (isComponent && children.length === 0) {

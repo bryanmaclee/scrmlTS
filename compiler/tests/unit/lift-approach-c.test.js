@@ -239,3 +239,30 @@ describe("Lift Approach C §9: non-markup lift falls back to expr path", () => {
     expect(lift?.expr?.kind).toBe("expr");
   });
 });
+
+describe("Lift Approach C §10: multi-word text (GITI-008)", () => {
+  test("multi-word text coalesces into one text child with whitespace preserved", () => {
+    const ast = run("${ lift <p>Hello world this is a test</> }");
+    const lift = findLift(ast);
+    const children = lift.expr.node.children;
+    const textChildren = children.filter(c => c.kind === "text");
+    expect(textChildren).toHaveLength(1);
+    expect(textChildren[0].value).toBe("Hello world this is a test");
+  });
+
+  test("two-word text joins with single space", () => {
+    const ast = run("${ lift <span>Hello world</> }");
+    const lift = findLift(ast);
+    const textChildren = lift.expr.node.children.filter(c => c.kind === "text");
+    expect(textChildren).toHaveLength(1);
+    expect(textChildren[0].value).toBe("Hello world");
+  });
+
+  test("single word text unchanged", () => {
+    const ast = run("${ lift <p>hello</> }");
+    const lift = findLift(ast);
+    const textChildren = lift.expr.node.children.filter(c => c.kind === "text");
+    expect(textChildren).toHaveLength(1);
+    expect(textChildren[0].value).toBe("hello");
+  });
+});
