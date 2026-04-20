@@ -169,6 +169,49 @@ export function splitBlocks(filePath, source) {
     return pos + offset < len ? source[pos + offset] : "";
   }
 
+  /**
+   * §54.3 transition-decl target recognizer.
+   *
+   * Given the position of a `<` that begins a `< Ident>` state-opener at
+   * state-body level, determine whether this `<` is actually the TARGET of
+   * a state-local transition declaration (not a nested state push).
+   *
+   * Recognizes the suffix pattern immediately preceding the `<`:
+   *     <ident> <ws>* `(` <balanced> `)` <ws>* `=>` <ws>*
+   *
+   * When this returns true, the caller should consume `< Ident>` as text
+   * (so it survives as part of the transition signature for AST Phase 4b)
+   * and leave the state frame unchanged.
+   */
+  function isAfterTransitionArrow(tagStartPos) {
+    let i = tagStartPos - 1;
+    // Skip whitespace before '<'
+    while (i >= 0 && /\s/.test(source[i])) i--;
+    if (i < 1) return false;
+    // Expect '=>'
+    if (source[i] !== ">" || source[i - 1] !== "=") return false;
+    // Walk past '=>' and any whitespace
+    i -= 2;
+    while (i >= 0 && /\s/.test(source[i])) i--;
+    // Expect closing ')'
+    if (i < 0 || source[i] !== ")") return false;
+    // Balance-match back through parens
+    let parenDepth = 1;
+    i--;
+    while (i >= 0 && parenDepth > 0) {
+      const c = source[i];
+      if (c === ")") parenDepth++;
+      else if (c === "(") parenDepth--;
+      i--;
+    }
+    if (parenDepth !== 0) return false;
+    // Skip whitespace
+    while (i >= 0 && /\s/.test(source[i])) i--;
+    // Expect an identifier char (the transition name)
+    if (i < 0 || !/[A-Za-z0-9_]/.test(source[i])) return false;
+    return true;
+  }
+
   /** Advance one character, updating line/col. */
   function step() {
     if (pos < len) {
@@ -876,7 +919,19 @@ export function splitBlocks(filePath, source) {
     // Bare '{' at markup/state level (no preceding sigil) - track as orphan brace.
     // This handles type declarations like `type X:enum = { A, B, C }` where the
     // braces are structural text, not context delimiters.
+    //
+    // §54.3 transition-decl body: when the enclosing state frame is armed by
+    // a preceding `ident(...) => < Target>` pattern, this `{` opens a logic
+    // body frame instead of incrementing orphanBraceDepth.
     if (c === "{") {
+      const tfBrace = topFrame();
+      if (tfBrace && tfBrace.transitionBodyPending) {
+        tfBrace.transitionBodyPending = false;
+        flushText();
+        step(); // consume '{'
+        pushBraceContext("logic", curPos, curLine, curCol);
+        continue;
+      }
       orphanBraceDepth++;
       beginText();
       step();
@@ -1015,6 +1070,27 @@ export function splitBlocks(filePath, source) {
 
       // '< whitespace' - state block (section 4.2)
       if (/\s/.test(next)) {
+        // §54.3 transition-decl target: if this `<` follows `ident(...) =>`
+        // inside a state body, treat `< Target>` as text, not a state push.
+        // The next `{` at state-body level opens a logic body frame.
+        const tfInner = topFrame();
+        if (tfInner && tfInner.type === "state" && isAfterTransitionArrow(curPos)) {
+          step(); // consume '<'
+          while (pos < len && /\s/.test(source[pos])) step();
+          readIdent();
+          while (pos < len && source[pos] !== ">" && source[pos] !== "\n") step();
+          if (pos < len && source[pos] === ">") step();
+          // Forward-peek: only arm the flag when `{` (ignoring whitespace)
+          // follows the target — i.e., the full compound pattern is present.
+          let p = pos;
+          while (p < len && /\s/.test(source[p])) p++;
+          if (p < len && source[p] === "{") {
+            tfInner.transitionBodyPending = true;
+          }
+          inDoubleQuote = false;
+          inSingleQuote = false;
+          continue;
+        }
         flushText();
         step(); // consume '<'
         while (pos < len && /\s/.test(source[pos])) step(); // skip whitespace
