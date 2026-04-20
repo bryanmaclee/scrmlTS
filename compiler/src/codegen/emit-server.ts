@@ -569,7 +569,7 @@ export function generateServerJs(
               lines.push(`    const _scrml_cps_return = ${initExpr};`);
               continue;
             }
-            const code = serverRewriteEmitted(emitLogicNode(stmt));
+            const code = serverRewriteEmitted(emitLogicNode(stmt, { boundary: "server" }));
             if (code) {
               for (const line of code.split("\n")) {
                 lines.push(`    ${line}`);
@@ -585,7 +585,7 @@ export function generateServerJs(
           } else if (lastStmt && (lastStmt.kind === "let-decl" || lastStmt.kind === "const-decl")) {
             lines.push(`    return ${lastStmt.name};`);
           } else if (lastStmt && lastStmt.kind === "bare-expr") {
-            const emitted = serverRewriteEmitted(emitLogicNode(lastStmt));
+            const emitted = serverRewriteEmitted(emitLogicNode(lastStmt, { boundary: "server" }));
             if (emitted) {
               const returnExpr = emitted.replace(/;$/, "");
               lines.push(`    return ${returnExpr};`);
@@ -594,7 +594,7 @@ export function generateServerJs(
         }
       } else {
         for (const stmt of body) {
-          const code = serverRewriteEmitted(emitLogicNode(stmt));
+          const code = serverRewriteEmitted(emitLogicNode(stmt, { boundary: "server" }));
           if (code) {
             for (const line of code.split("\n")) {
               lines.push(`    ${line}`);
@@ -652,7 +652,7 @@ export function generateServerJs(
               lines.push(`  const _scrml_cps_return = ${initExpr};`);
               continue;
             }
-            const code = serverRewriteEmitted(emitLogicNode(stmt));
+            const code = serverRewriteEmitted(emitLogicNode(stmt, { boundary: "server" }));
             if (code) {
               for (const line of code.split("\n")) {
                 lines.push(`  ${line}`);
@@ -668,7 +668,7 @@ export function generateServerJs(
           } else if (lastStmt && (lastStmt.kind === "let-decl" || lastStmt.kind === "const-decl")) {
             lines.push(`  return ${lastStmt.name};`);
           } else if (lastStmt && lastStmt.kind === "bare-expr") {
-            const emitted = serverRewriteEmitted(emitLogicNode(lastStmt));
+            const emitted = serverRewriteEmitted(emitLogicNode(lastStmt, { boundary: "server" }));
             if (emitted) {
               const returnExpr = emitted.replace(/;$/, "");
               lines.push(`  return ${returnExpr};`);
@@ -677,7 +677,7 @@ export function generateServerJs(
         }
       } else {
         for (const stmt of body) {
-          const code = serverRewriteEmitted(emitLogicNode(stmt));
+          const code = serverRewriteEmitted(emitLogicNode(stmt, { boundary: "server" }));
           if (code) {
             for (const line of code.split("\n")) {
               lines.push(`  ${line}`);

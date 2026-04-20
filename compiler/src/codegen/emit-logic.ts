@@ -81,6 +81,13 @@ interface EmitLogicOpts {
   declaredNames?: Set<string>;
   /** §51.5: Machine binding map for transition guard emission. Keyed by reactive var name. */
   machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null;
+  /**
+   * Emission boundary. "server" swaps DOM-oriented lowerings for their
+   * server-context equivalents (e.g. `lift <expr>` in a server-fn body
+   * becomes `return <expr>;` instead of a `_scrml_lift(() =>
+   * document.createTextNode(...))` call — GITI-004).
+   */
+  boundary?: "server" | "client";
 }
 
 /** An entry in the captured scope for a runtime ^{} meta block (from meta-checker.ts). */
@@ -629,6 +636,22 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = {}): string {
 
     case "lift-expr": {
       const liftE = node.expr;
+      // GITI-004 (giti inbound 2026-04-20): in a server-function body,
+      // `lift <expr>` means "return this value from the handler" — NOT
+      // "create a DOM text node". The default emitLiftExpr lowering uses
+      // `_scrml_lift(() => document.createTextNode(...))` which references
+      // `document` and a client-only helper; neither exists in a Bun server
+      // handler. Swap to `return <expr>;` when the caller signals server
+      // boundary.
+      if (opts.boundary === "server" && liftE) {
+        if (liftE.kind === "expr" && typeof liftE.expr === "string") {
+          const rhsExpr = emitExprField(liftE.exprNode, liftE.expr.trim(), { mode: "server", dbVar: opts.dbVar });
+          return `return ${rhsExpr};`;
+        }
+        // Markup in a server handler is not meaningful — emit a typed
+        // compile-time comment so inspection shows the failure cause.
+        return `return null; /* server-lift: non-expr form */`;
+      }
       // §32 Value-lift: `lift <non-markup-expr>` — if tilde context is active AND the
       // expression does not look like a markup pattern (no leading < tag), treat as
       // a tilde variable assignment rather than a DOM lift.

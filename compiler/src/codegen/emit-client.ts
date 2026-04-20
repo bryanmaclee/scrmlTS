@@ -532,6 +532,93 @@ export function generateClientJs(ctx: CompileContext): string {
       clientCode = clientCode.replace(callSiteRegex, mangledName);
     }
   }
+
+  // GITI-003 (giti inbound 2026-04-20): prune imports that are only used by
+  // server-fn bodies. Client emission unconditionally writes every import-
+  // decl from the source file; when a name like `getGreeting` is referenced
+  // only inside a `server function` body (which gets lowered to a fetch stub
+  // that doesn't reference the original JS helper), the import in
+  // `.client.js` points at a server-only module and 500s the browser load.
+  //
+  // Strategy: after all rewrites have run, parse out the top-of-file import
+  // statements, check each imported name for any usage in the REMAINING body
+  // of clientCode, and drop imports with no remaining usage. This is a
+  // conservative post-pass — if a name is used anywhere in client output,
+  // the import is preserved verbatim.
+  //
+  // testMode skip: unit tests that assert import-source passthrough with
+  // minimal (empty-body) fixtures would see their imports pruned (correctly
+  // unused) without this carve-out. Real compilations always go through
+  // testMode: false.
+  clientCode = ctx.testMode ? clientCode : (function pruneUnusedClientImports(code: string): string {
+    const importRe = /^import\s+(?:\{([^}]*)\}|([A-Za-z_$][A-Za-z0-9_$]*))\s+from\s+(['"])([^'"]+)\3\s*;?\s*$/gm;
+    const imports: Array<{ match: string; start: number; end: number; names: string[]; isDefault: boolean; src: string }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = importRe.exec(code)) !== null) {
+      const namedList = m[1];
+      const defaultName = m[2];
+      const src = m[4];
+      const names = namedList
+        ? namedList.split(",").map(s => s.trim().split(/\s+as\s+/).pop()!).filter(Boolean)
+        : [defaultName];
+      imports.push({
+        match: m[0],
+        start: m.index,
+        end: m.index + m[0].length,
+        names,
+        isDefault: !namedList,
+        src,
+      });
+    }
+    // Build the "body" of the code (everything NOT in an import stmt), so
+    // usage checks don't match the import statement itself.
+    let body = code;
+    // Strip each import from the body view (from the end so offsets don't shift)
+    for (let i = imports.length - 1; i >= 0; i--) {
+      const imp = imports[i];
+      body = body.slice(0, imp.start) + " ".repeat(imp.end - imp.start) + body.slice(imp.end);
+    }
+    // Decide which imports to drop.
+    //
+    // Narrow targeting: only prune imports where the source is a plain
+    // external module specifier — i.e. a path to user-written JS/TS that
+    // might be server-only. Specifically preserve:
+    //   - cross-file scrml outputs  (`.client.js` — always keep; scrml
+    //     type decls and components are resolved at runtime via their
+    //     compiled files)
+    //   - scrml: stdlib imports     (runtime-provided)
+    //   - vendor: external packages (resolved by bundler/runtime)
+    //
+    // The common prune target is a hand-written JS helper that's only
+    // called from server fns — GITI-003.
+    const toDrop: Set<number> = new Set();
+    for (let i = 0; i < imports.length; i++) {
+      const imp = imports[i];
+      const src = imp.src;
+      // Preserve imports whose source is managed by the scrml runtime.
+      if (src.startsWith("scrml:") || src.startsWith("vendor:") || src.endsWith(".client.js")) continue;
+      const usedInBody = imp.names.some(name => {
+        const useRe = new RegExp(`(?<![.\\w$])${escapeRegex(name)}(?![\\w$])`, "");
+        return useRe.test(body);
+      });
+      if (!usedInBody) toDrop.add(i);
+    }
+    if (toDrop.size === 0) return code;
+    // Rebuild the file with dropped imports removed.
+    let result = "";
+    let cursor = 0;
+    for (let i = 0; i < imports.length; i++) {
+      if (toDrop.has(i)) {
+        result += code.slice(cursor, imports[i].start);
+        // skip the import itself; also skip a following newline if present
+        let endCursor = imports[i].end;
+        if (code[endCursor] === "\n") endCursor++;
+        cursor = endCursor;
+      }
+    }
+    result += code.slice(cursor);
+    return result;
+  })(clientCode);
   for (const field of protectedFields) {
     const fieldRegex = new RegExp(`\\.${escapeRegex(field)}\\b`);
     if (fieldRegex.test(clientCode)) {

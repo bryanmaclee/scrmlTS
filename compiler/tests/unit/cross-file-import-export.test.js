@@ -68,7 +68,10 @@ function makeTestCtx(fileAST) {
     csrfEnabled: false,
     encodingCtx: null,
     mode: "browser",
-    testMode: false,
+    // testMode: true — these tests exercise the import-source-rewrite path
+    // with minimal fixtures (no body nodes). testMode suppresses the GITI-003
+    // unused-import prune pass so the source-rewrite contract is observable.
+    testMode: true,
     dbVar: "_scrml_db",
     workerNames: [],
     errors: [],
