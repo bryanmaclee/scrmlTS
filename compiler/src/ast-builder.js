@@ -5514,7 +5514,7 @@ function _parseHandlerExpr(handler, filePath, startOffset) {
  * @param {TABError[]} errors
  * @returns {ASTNode | null}
  */
-function buildBlock(block, filePath, parentContextKind, counter, errors) {
+function buildBlock(block, filePath, parentContextKind, counter, errors, parentStateName = null) {
   const span = fullSpan(block.span, filePath);
 
   switch (block.type) {
@@ -5668,9 +5668,16 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
       // state constructor definition, not a state instantiation.
       const { attrs, typedAttrs, hasTypedDecls } = parseTypedAttributes(attrTokens, filePath, errors);
 
+      // Pass our own name down as parentStateName so nested state blocks
+      // (substates per §54.2) can tag themselves with their parent's name.
       const children = block.children.map(child =>
-        buildBlock(child, filePath, "state", counter, errors)
+        buildBlock(child, filePath, "state", counter, errors, block.name)
       ).filter(Boolean);
+
+      // S32 Phase 3a: if we are nested inside another state block, tag as substate (§54.2).
+      const substateMetadata = parentStateName
+        ? { isSubstate: true, parentState: parentStateName }
+        : {};
 
       if (hasTypedDecls) {
         // State constructor definition — `< name attrib(type)>` with typed declarations
@@ -5685,6 +5692,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
           typedAttrs,
           attrs,       // any non-typed attrs (e.g., metadata)
           children,    // constructor body
+          ...substateMetadata,
           span,
         };
       }
@@ -5695,6 +5703,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors) {
         stateType: block.name,
         attrs,
         children,
+        ...substateMetadata,
         span,
       };
     }
