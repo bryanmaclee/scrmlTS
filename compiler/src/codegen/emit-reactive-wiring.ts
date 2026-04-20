@@ -643,12 +643,22 @@ function emitRequestNode(node: any, errors: CGError[], filePath: string): string
 
   const urlAttr = attrMap.get("url");
   let urlExpr = '""';
+  let hasUrl = false;
   if (urlAttr) {
     const v = urlAttr.value;
-    if (v?.kind === "string-literal") urlExpr = JSON.stringify(v.value);
-    else if (typeof v === "string") urlExpr = JSON.stringify(v);
-    else if (typeof v?.value === "string") urlExpr = JSON.stringify(v.value);
+    if (v?.kind === "string-literal") { urlExpr = JSON.stringify(v.value); hasUrl = true; }
+    else if (typeof v === "string") { urlExpr = JSON.stringify(v); hasUrl = true; }
+    else if (typeof v?.value === "string") { urlExpr = JSON.stringify(v.value); hasUrl = true; }
   }
+
+  // GITI-001 (giti inbound 2026-04-20): without a `url=` attribute, the
+  // `<request>` tag previously emitted a full fetch machinery with empty URL
+  // — runtime noise that fired on mount and failed silently. When the tag is
+  // used as a wrapper around a body that calls a server fn directly (the
+  // common case: `<request id="x">\${ @data = serverFn() }</>`) the body is
+  // already the fetch. Skip the compiler-generated fetch emission entirely
+  // when url= is absent.
+  if (!hasUrl) return lines;
 
   const depsAttr = attrMap.get("deps");
   const depsVars: string[] = [];

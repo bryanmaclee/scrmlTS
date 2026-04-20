@@ -531,6 +531,83 @@ export function generateClientJs(ctx: CompileContext): string {
       );
       clientCode = clientCode.replace(callSiteRegex, mangledName);
     }
+
+    // GITI-001 (giti inbound 2026-04-20): `@data = serverFn(args)` emits
+    // `_scrml_reactive_set("data", _scrml_fetch_serverFn_N(args));` — storing
+    // the UNAWAITED Promise. Readers then see `[object Promise]` instead of
+    // the resolved value. Wrap each such statement in an async IIFE that
+    // awaits the fetch stub before setting the reactive. Scoped by fnNameMap
+    // so only server-fn call sites (fetch stubs / CPS wrappers) are touched.
+    for (const [, mangledName] of fnNameMap) {
+      if (!/^_scrml_(fetch|cps)_/.test(mangledName)) continue;
+      // Match _scrml_reactive_set("NAME", <mangledName>( ... );) at statement level.
+      // Body args may themselves contain `(`; count parens to find the matching close.
+      const callPrefix = `${mangledName}(`;
+      const setHead = "_scrml_reactive_set(";
+      let i = 0;
+      const parts: string[] = [];
+      while (i < clientCode.length) {
+        const setIdx = clientCode.indexOf(setHead, i);
+        if (setIdx < 0) {
+          parts.push(clientCode.slice(i));
+          break;
+        }
+        // Locate the "," separating name and value.
+        let depth = 1;
+        let j = setIdx + setHead.length;
+        while (j < clientCode.length && depth > 0) {
+          if (clientCode[j] === "," && depth === 1) break;
+          if (clientCode[j] === "(") depth++;
+          else if (clientCode[j] === ")") depth--;
+          j++;
+        }
+        if (j >= clientCode.length || clientCode[j] !== ",") {
+          parts.push(clientCode.slice(i, setIdx + setHead.length));
+          i = setIdx + setHead.length;
+          continue;
+        }
+        const nameArg = clientCode.slice(setIdx + setHead.length, j);
+        // Skip whitespace after the comma.
+        let valStart = j + 1;
+        while (valStart < clientCode.length && /\s/.test(clientCode[valStart])) valStart++;
+        // Value must begin with the mangled fetch-stub call.
+        if (clientCode.slice(valStart, valStart + callPrefix.length) !== callPrefix) {
+          parts.push(clientCode.slice(i, setIdx + setHead.length));
+          i = setIdx + setHead.length;
+          continue;
+        }
+        // Walk through the call args to find its matching `)`.
+        let cdepth = 1;
+        let k = valStart + callPrefix.length;
+        while (k < clientCode.length && cdepth > 0) {
+          if (clientCode[k] === "(") cdepth++;
+          else if (clientCode[k] === ")") cdepth--;
+          if (cdepth === 0) break;
+          k++;
+        }
+        if (k >= clientCode.length) {
+          parts.push(clientCode.slice(i, setIdx + setHead.length));
+          i = setIdx + setHead.length;
+          continue;
+        }
+        // k is the index of the closing `)` of the call. The outer
+        // _scrml_reactive_set should close right after.
+        let outerClose = k + 1;
+        while (outerClose < clientCode.length && /\s/.test(clientCode[outerClose])) outerClose++;
+        if (clientCode[outerClose] !== ")") {
+          parts.push(clientCode.slice(i, setIdx + setHead.length));
+          i = setIdx + setHead.length;
+          continue;
+        }
+        let stmtEnd = outerClose + 1;
+        if (clientCode[stmtEnd] === ";") stmtEnd++;
+        const args = clientCode.slice(valStart + callPrefix.length, k);
+        parts.push(clientCode.slice(i, setIdx));
+        parts.push(`(async () => _scrml_reactive_set(${nameArg}, await ${mangledName}(${args})))();`);
+        i = stmtEnd;
+      }
+      clientCode = parts.join("");
+    }
   }
 
   // GITI-003 (giti inbound 2026-04-20): prune imports that are only used by
