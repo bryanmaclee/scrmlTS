@@ -21,7 +21,7 @@
  *   §1 String literal arg preserved — onclick=fn("apple") → fn("apple")
  *   §2 Reactive variable arg rewritten — onclick=fn(@counter) → fn(_scrml_reactive_get("counter"))
  *   §3 Multiple args preserved — onclick=fn(item.id,"action") → fn(item.id,"action")
- *   §4 No args — onclick=fn() → fn() (no regression)
+ *   §4 No args — onclick=fn() → fn(event) (implicit event arg, tutorial §1.5)
  *   §5 HTML side — data-scrml-bind-onclick attribute emitted for delegation walk
  *   §6 Delegation path — args preserved in _scrml_click registry
  *   §7 Non-delegable path (onchange) — args preserved via querySelectorAll path
@@ -213,11 +213,11 @@ describe("§3: multiple args — onclick=fn(item.id, \"action\") → fn(item.id,
 });
 
 // ---------------------------------------------------------------------------
-// §4: No args — onclick=fn() (baseline, must not regress)
+// §4: No args — onclick=fn() → fn(event) (tutorial §1.5: implicit event arg)
 // ---------------------------------------------------------------------------
 
-describe("§4: no args — onclick=fn() → fn()", () => {
-  test("empty args array emits empty call", () => {
+describe("§4: no args — onclick=fn() → fn(event)", () => {
+  test("empty args array threads `event` into the handler call", () => {
     const result = runCGSimple([
       makeMarkupNode("button", [
         {
@@ -230,7 +230,47 @@ describe("§4: no args — onclick=fn() → fn()", () => {
 
     expect(result.errors).toHaveLength(0);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain("doThing()");
+    // Tutorial §1.5: bare `fn()` on an event attr passes native event as first arg
+    expect(out.clientJs).toContain("doThing(event)");
+    // Must not be the buggy bare-call form
+    expect(out.clientJs).not.toMatch(/doThing\(\s*\)/);
+  });
+
+  test("onkeydown=handleKey() threads event (Bug A repro from 6nz)", () => {
+    const result = runCGSimple([
+      makeMarkupNode("input", [
+        {
+          name: "onkeydown",
+          value: { kind: "call-ref", name: "handleKey", args: [] },
+          span: span(0),
+        },
+      ], [], { selfClosing: true }),
+    ]);
+
+    expect(result.errors).toHaveLength(0);
+    const out = result.outputs.get("/test/app.scrml");
+    expect(out.clientJs).toContain("handleKey(event)");
+    // The wrapper must still take `event` as its single parameter
+    expect(out.clientJs).toMatch(/function\(event\)\s*\{\s*handleKey\(event\);/);
+  });
+
+  test("non-empty args are NOT auto-injected (user was explicit)", () => {
+    const result = runCGSimple([
+      makeMarkupNode("button", [
+        {
+          name: "onclick",
+          value: { kind: "call-ref", name: "classify", args: ["10"] },
+          span: span(0),
+        },
+      ], [makeTextNode("10")]),
+    ]);
+
+    expect(result.errors).toHaveLength(0);
+    const out = result.outputs.get("/test/app.scrml");
+    expect(out.clientJs).toContain("classify(10)");
+    // No auto-injection of event when args were explicit
+    expect(out.clientJs).not.toContain("classify(10, event)");
+    expect(out.clientJs).not.toContain("classify(event, 10)");
   });
 });
 

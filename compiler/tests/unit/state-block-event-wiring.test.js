@@ -122,7 +122,7 @@ describe("BUG-R14-005 §1: onclick inside state block → DOMContentLoaded", () 
     ]);
 
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain("doSomething()");
+    expect(out.clientJs).toContain("doSomething(event)");
   });
 
   test("client JS uses event delegation (document.addEventListener('click', ...))", () => {
@@ -157,9 +157,9 @@ describe("BUG-R14-005 §2: multiple buttons inside state block all wired", () =>
     ]);
 
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain("actionA()");
-    expect(out.clientJs).toContain("actionB()");
-    expect(out.clientJs).toContain("actionC()");
+    expect(out.clientJs).toContain("actionA(event)");
+    expect(out.clientJs).toContain("actionB(event)");
+    expect(out.clientJs).toContain("actionC(event)");
   });
 
   test("DOMContentLoaded block appears exactly once", () => {
@@ -197,7 +197,7 @@ describe("BUG-R14-005 §3: deeply nested button inside state block", () => {
 
     const out = result.outputs.get("/test/app.scrml");
     expect(out.clientJs).toContain("document.addEventListener('DOMContentLoaded'");
-    expect(out.clientJs).toContain("openForm()");
+    expect(out.clientJs).toContain("openForm(event)");
   });
 
   test("HTML has data-scrml-bind-onclick for deeply nested button", () => {
@@ -250,7 +250,7 @@ describe("BUG-R14-005 §4: handle() middleware does not suppress DOMContentLoade
 
     const out = result.outputs.get("/test/app.scrml");
     expect(out.clientJs).toContain("document.addEventListener('DOMContentLoaded'");
-    expect(out.clientJs).toContain("createEntry()");
+    expect(out.clientJs).toContain("createEntry(event)");
   });
 });
 
@@ -324,7 +324,7 @@ describe("BUG-R14-005 §6: top-level button regression (outside state block)", (
 
     const out = result.outputs.get("/test/app.scrml");
     expect(out.clientJs).toContain("document.addEventListener('DOMContentLoaded'");
-    expect(out.clientJs).toContain("topLevelAction()");
+    expect(out.clientJs).toContain("topLevelAction(event)");
   });
 });
 
@@ -346,7 +346,7 @@ describe("BUG-R14-005 §7: delegation registry contents for state block buttons"
     // The click registry must exist
     expect(out.clientJs).toContain("const _scrml_click = {");
     // It must contain an entry calling execute()
-    expect(out.clientJs).toContain("execute()");
+    expect(out.clientJs).toContain("execute(event)");
   });
 
   test("ancestor walk uses data-scrml-bind-onclick attribute name", () => {

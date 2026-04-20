@@ -64,7 +64,8 @@ describe("§1: single click handler", () => {
 
     expect(out).toContain("_scrml_click");
     expect(out).toContain('"_scrml_attr_onclick_10"');
-    expect(out).toContain("handleClick()");
+    // Tutorial §1.5: bare-call event handlers receive `event` as first arg
+    expect(out).toContain("handleClick(event)");
   });
 
   test("emits document.addEventListener for click (not querySelectorAll)", () => {
@@ -228,7 +229,9 @@ describe("§5: server-escalated handler name resolution", () => {
       fnNameMap
     );
 
-    expect(out).toContain("_scrml_saveData_42()");
+    // Tutorial §1.5: bare-call event handlers receive `event` as first arg
+    expect(out).toContain("_scrml_saveData_42(event)");
+    expect(out).not.toContain("saveData(event)");
     expect(out).not.toContain("saveData()");
   });
 
@@ -240,7 +243,7 @@ describe("§5: server-escalated handler name resolution", () => {
       fnNameMap
     );
 
-    expect(out).toContain("handleClick()");
+    expect(out).toContain("handleClick(event)");
   });
 });
 
@@ -255,7 +258,7 @@ describe("§6: submit event with preventDefault", () => {
     ]);
 
     expect(out).toContain("event.preventDefault()");
-    expect(out).toContain("handleSubmit()");
+    expect(out).toContain("handleSubmit(event)");
   });
 
   test("click handler does NOT include event.preventDefault()", () => {
@@ -639,12 +642,15 @@ describe("§16: raw-string args from splitArgs — real AST shape regression", (
     expect(out).not.toContain("handleAction()");
   });
 
-  test("onclick=fn() — no args produces empty call (no regression)", () => {
-    // splitArgs('') with empty rawArgs → argList = [] (early exit in ast-builder)
+  test("onclick=fn() — no args threads `event` implicitly (tutorial §1.5)", () => {
+    // splitArgs('') with empty rawArgs → argList = [] (early exit in ast-builder).
+    // Per tutorial §1.5: bare-call event attrs receive the native event as
+    // first arg. Bug A repro from 6nz session 8.
     const out = run([
       makeBinding("_scrml_attr_onclick_10", "onclick", "doThing", []),
     ]);
-    expect(out).toContain("doThing()");
+    expect(out).toContain("doThing(event)");
+    expect(out).not.toMatch(/doThing\(\s*\)/);
   });
 
   test("raw-string arg with reactive ref inside delegated handler", () => {

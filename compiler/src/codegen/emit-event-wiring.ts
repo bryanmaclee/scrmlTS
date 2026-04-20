@@ -235,7 +235,13 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
 
       // For submit events on forms, auto-inject event.preventDefault()
       const preventLine = domEvent === "submit" ? "event.preventDefault(); " : "";
-      handlerExpr = `function(event) { ${preventLine}${resolvedHandler}(${argsStr}); }`;
+      // Per tutorial §1.5: `onkeydown=handleKey()` passes the native event
+      // implicitly. When the user wrote no args, thread `event` into the call
+      // so handlers declared as `fn(e)` receive it as the first arg. Handlers
+      // that ignore the arg are unaffected (extra positional args are silent
+      // in JS). Non-empty args are left alone — user was explicit.
+      const callArgs = argsStr.length === 0 ? "event" : argsStr;
+      handlerExpr = `function(event) { ${preventLine}${resolvedHandler}(${callArgs}); }`;
     }
 
     if (!byEventType.has(eventName)) {
