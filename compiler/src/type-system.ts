@@ -150,6 +150,11 @@ interface StateType {
   // §52 State Authority
   authority?: "server" | "local";
   tableName?: string | null;
+  // §54.2 Substate relationships (added 2026-04-20, S32 Phase 3b)
+  // parentState: if set, this type is a substate of the named parent state.
+  // substates: if set, the names of this type's declared substates.
+  parentState?: string;
+  substates?: Set<string>;
 }
 
 interface ErrorType {
@@ -468,8 +473,13 @@ function tState(
   constructorBody: ASTNodeLike[] | null = null,
   authority?: "server" | "local",
   tableName?: string | null,
+  parentState?: string,
 ): StateType {
-  return { kind: "state", name, attributes, isHtml, rendersToDom, constructorBody, authority, tableName };
+  return {
+    kind: "state", name, attributes, isHtml, rendersToDom, constructorBody,
+    authority, tableName,
+    ...(parentState ? { parentState } : {}),
+  };
 }
 
 function tError(name: string, fields: Map<string, ResolvedType>): ErrorType {
@@ -1813,6 +1823,7 @@ function registerStateType(
   span: Span,
   authority?: "server" | "local",
   tableName?: string | null,
+  parentState?: string,  // §54.2 Phase 3b — set when this type is a substate
 ): boolean {
   // E-STATE-005: collision with HTML element name
   if (getElementShape(name) !== null) {
@@ -1840,8 +1851,18 @@ function registerStateType(
     }
   }
 
-  // E-STATE-006: duplicate state type name (already registered as user-defined)
-  if (existing && !existing.isHtml) {
+  // E-STATE-006: duplicate state type name (already registered as user-defined).
+  //
+  // §54.2 Phase 3b exception: if the existing entry is a substate-forward-ref
+  // placeholder (created when a substate registered before its parent), the
+  // real parent registration SHALL overwrite it while preserving the accumulated
+  // substates set. The placeholder is detectable by having an empty attribute
+  // map and no constructorBody (never set outside the placeholder path).
+  const isPlaceholder = existing && !existing.isHtml &&
+    (existing as StateType).attributes.size === 0 &&
+    (existing as StateType).constructorBody === null &&
+    (existing as StateType).substates !== undefined;
+  if (existing && !existing.isHtml && !isPlaceholder) {
     errors.push(new TSError(
       "E-STATE-006",
       `E-STATE-006: Duplicate state type definition for \`${name}\`. ` +
@@ -1863,7 +1884,34 @@ function registerStateType(
     return false;
   }
 
-  registry.set(name, tState(name, attributes, false, rendersToDom, constructorBody, authority, tableName));
+  const newType = tState(name, attributes, false, rendersToDom, constructorBody, authority, tableName, parentState);
+  // Preserve accumulated substates if this call overwrites a forward-ref
+  // placeholder (set earlier by a substate that registered before its parent).
+  if (isPlaceholder && (existing as StateType).substates) {
+    newType.substates = (existing as StateType).substates;
+  }
+  registry.set(name, newType);
+
+  // §54.2 Phase 3b: if this is a substate, add it to the parent state's
+  // substates set. The parent may or may not be registered yet — handle both.
+  if (parentState) {
+    const parent = registry.get(parentState) as StateType | undefined;
+    if (parent && parent.kind === "state") {
+      if (!parent.substates) parent.substates = new Set<string>();
+      parent.substates.add(name);
+    } else {
+      // Parent not yet registered. Create a placeholder StateType entry so
+      // the forward reference is preserved. When the parent's own
+      // state-constructor-def is visited later, its registerStateType call
+      // will see the existing placeholder and E-STATE-006 (duplicate) guard
+      // would fire. Avoid that: if the only existing entry is our placeholder,
+      // allow the real registration to overwrite it while preserving substates.
+      const placeholder = tState(parentState, new Map<string, AttributeShapeDef>(), false, false, null);
+      placeholder.substates = new Set<string>([name]);
+      registry.set(parentState, placeholder);
+    }
+  }
+
   return true;
 }
 
@@ -3307,6 +3355,11 @@ function annotateNodes(
             ? tableAttr.value.value
             : null;
 
+          // §54.2 Phase 3b: propagate substate metadata from AST tag.
+          const ctorParentState = (n as ASTNodeLike).isSubstate === true
+            ? ((n as ASTNodeLike).parentState as string | undefined)
+            : undefined;
+
           registerStateType(
             stateTypeRegistry,
             ctorName,
@@ -3317,6 +3370,7 @@ function annotateNodes(
             ctorSpan,
             ctorAuthority,
             ctorTableName,
+            ctorParentState,
           );
 
           for (const ta of (n.typedAttrs as ASTNodeLike[])) {
@@ -7029,7 +7083,7 @@ function processFile(
   protectAnalysis: ProtectAnalysis,
   routeMap: RouteMap,
   importedTypes?: Map<string, ResolvedType>,
-): { typedAst: TypedFileAST; errors: TSError[] } {
+): { typedAst: TypedFileAST; errors: TSError[]; stateTypeRegistry: Map<string, ResolvedType> } {
   const errors: TSError[] = [];
 
   const filePath = fileAST.filePath;
@@ -7350,7 +7404,7 @@ function processFile(
     machineRegistry,
   });
 
-  return { typedAst, errors };
+  return { typedAst, errors, stateTypeRegistry };
 }
 
 // ---------------------------------------------------------------------------
@@ -7368,7 +7422,7 @@ export function runTS(input: {
    * Built in api.js from already-processed dependency files in topo order.
    * Keys are absolute file paths. Values are the exported type entries from that file. */
   importedTypesByFile?: Map<string, Map<string, ResolvedType>>;
-}): { files: TypedFileAST[]; errors: TSError[] } {
+}): { files: TypedFileAST[]; errors: TSError[]; stateTypeRegistry?: Map<string, ResolvedType> } {
   const {
     files = [],
     protectAnalysis = { views: new Map() },
@@ -7378,6 +7432,7 @@ export function runTS(input: {
 
   const typedFiles: TypedFileAST[] = [];
   const allErrors: TSError[] = [];
+  let lastStateTypeRegistry: Map<string, ResolvedType> | undefined;
 
   for (const fileAST of files) {
     // Look up imported types for this file from the caller-provided map.
@@ -7385,14 +7440,16 @@ export function runTS(input: {
     // when an importing file is processed. If not provided, cross-file types are absent
     // (pre-import-system behavior — single-file compilation still works correctly).
     const importedTypes = importedTypesByFile?.get(fileAST.filePath as string);
-    const { typedAst, errors } = processFile(fileAST, protectAnalysis, routeMap, importedTypes);
+    const { typedAst, errors, stateTypeRegistry } = processFile(fileAST, protectAnalysis, routeMap, importedTypes);
     typedFiles.push(typedAst);
     allErrors.push(...errors);
+    lastStateTypeRegistry = stateTypeRegistry;
   }
 
   return {
     files: typedFiles,
     errors: allErrors,
+    stateTypeRegistry: lastStateTypeRegistry,
   };
 }
 
