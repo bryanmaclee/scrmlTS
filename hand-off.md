@@ -1,428 +1,368 @@
-# scrmlTS — Session 33 Wrap
+# scrmlTS — Session 34 Wrap
 
 **Date opened:** 2026-04-20
 **Date closed:** 2026-04-20 (single-day session)
-**Previous:** `handOffs/hand-off-33.md` (S32 wrap, rotated in as S33 starting brief)
-**Baseline entering S33:** 7,262 pass / 49 skip / 2 fail (26,585 expects / 321 files) at `faf4c19`, origin/main clean.
-**Final at S33 close:** **7,322 pass / 40 skip / 2 fail** (26,703 expects / 331 files) at `36eadb9`, pushed to origin/main.
+**Previous:** `handOffs/hand-off-34.md` (S33 wrap, rotated in as S34 starting brief)
+**Baseline entering S34:** 7,322 pass / 40 skip / 2 fail (26,703 expects / 331 files) at `eab5251`, origin/main clean.
+**Final at S34 close:** **7,373 pass / 40 skip / 2 fail** (26,808 expects / 338 files) at `d23fd54`. Push requested via master inbox.
 
 ---
 
 ## 0. Close state
 
-### S33 commits — 10 commits, all pushed to origin/main
+### S34 commits — 9 commits, all awaiting push via master
 
-| Commit | Phase | Summary |
+| Commit | Bug | Summary |
 |---|---|---|
-| `2009bbb` | open | `docs(s33-open): regenerate SPEC-INDEX post-S32, rotate hand-off, log giti inbound` |
-| `36320ab` | 4a | `impl(s32-phase-4a): block-splitter recognizes transition-decl body (§54.3)` |
-| `44a348f` | 4b | `impl(s32-phase-4b): AST transition-decl node (§54.3)` |
-| `09ede6e` | 4c | `impl(s32-phase-4c): StateType.transitions registry hook (§54.3)` |
-| `82c9e17` | 4d | `impl(s32-phase-4d): from contextual keyword + params binding in transition bodies (§54.3)` |
-| `72210e8` | 4e | `impl(s32-phase-4e): E-STATE-TRANSITION-ILLEGAL at call site (§54.6.3)` |
-| `5de6a2d` | 4f | `impl(s32-phase-4f): E-STATE-TERMINAL-MUTATION on field writes to terminal substates (§54.6.4)` |
-| `37f21f7` | 4g | `impl(s32-phase-4g): fn-level purity in transition bodies (§33.6)` |
-| `36eadb9` | conf | `test(s32-conformance): un-skip 9 tests now covered by Phase 4a-4g` |
+| `aa92070` | E | `^{}` Object.freeze commas |
+| `eb86d31` | A | Event arg threaded into bare-call handlers |
+| `27ed6fe` | D | Scope-aware mangling (negative lookbehind for `.`) |
+| `881b411` | GITI-002 | Imports registered into logic-block scope chain |
+| `70190a7` | B + F | declaredNames threaded through control-flow (if/else/for/while) |
+| `127d35a` | C | Block-body arrows preserved in call-arg position |
+| `e585dba` | GITI-005 | `${serverFn()}` markup → awaited DOM wiring |
+| `e5f5b22` | GITI-003 + 004 | Unused-import prune + server-context `lift` lowering |
+| `d23fd54` | GITI-001 | Awaited reactive-set + skip empty-url `<request>` |
 
-Push range: `4ddb7e0..36eadb9` (push landed cleanly; user authorized at wrap via `C then B then A`).
+Push request sent to master at `/home/bryan/scrmlMaster/handOffs/incoming/2026-04-20-1700-scrmlTS-to-master-push-11-bug-fixes.md`. Commit range: `4ddb7e0..d23fd54`.
+
+### Outbound messages
+
+Both inbound repliers got acknowledgment drops:
+- `giti/handOffs/incoming/2026-04-20-1700-scrmlTS-to-giti-all-5-bugs-fixed.md` — per-bug summary + request to re-verify.
+- `6NZ/handOffs/incoming/2026-04-20-1700-scrmlTS-to-6nz-all-6-bugs-fixed.md` — per-bug summary + grammar-check pass note + request to re-verify.
+
+### Incoming archive
+
+Both S34 inbounds moved to `handOffs/incoming/read/` after user ack:
+- `read/2026-04-20-1210-giti-to-scrmlTS-server-function-codegen-bugs.md`
+- `read/2026-04-20-1251-6nz-to-scrmlTS-compiler-bugs-playground-zero.md`
 
 ### Uncommitted at wrap
 
-- `docs/SEO-LAUNCH.md` — still uncommitted, **11 sessions running**. Nothing touched it this session either.
-- `hand-off.md` — this file (new wrap content).
-
-### Incoming
-
-- `handOffs/incoming/2026-04-20-1210-giti-to-scrmlTS-server-function-codegen-bugs.md` — **unread as of wrap**. 5 P0 codegen bugs blocking giti UI end-to-end. User directive: S34 priority.
-- Nothing cross-repo outgoing from S33.
+- `docs/SEO-LAUNCH.md` — still uncommitted, **12 sessions running**. Nothing touched it this session either.
+- `hand-off.md` — this file (wrap content).
 
 ### Cross-repo
 
 - scrmlTSPub retirement still pending at master since S25 (untouched).
-- Design-insights ledger unchanged since insight 21 (S31, carried through S32/S33 implementation without new entries).
+- Design-insights ledger unchanged since insight 21 (carried through S33 + S34).
 
 ---
 
-## 1. Session theme — "S32 implementation completion — Phase 4a through 4g"
+## 1. Session theme — "11 adopter-blocking codegen bugs, end-to-end"
 
-S33 was pure implementation continuation of the S32 ratified amendment (insight 21 — Plaid state-local transitions + `pure` modifier reach-extension). Seven Phase 4 sub-phases landed, plus preflight (SPEC-INDEX regen + project-mapper refresh) and post-phase conformance un-skip. Zero regressions across every phase.
+S34 was pure bug-fix execution against two adopter-sent inboxes: giti's 5 server-function codegen bugs (received S33, read at S34 open) and 6nz's 6 playground-zero bugs (received mid-S33, read at S34 open).
 
-Single arc, linear cadence. User drove with terse "A" greenlights through the full sequence; no detours. Phase 4h (return-type narrowing at call site) is the only Phase 4 sub-phase not delivered — blocked on spec §54.6 code-assignment gap (NEW NC-3), not an implementation dependency.
+The core methodology: **reproduce first, fix by root-cause cluster, test per fix, zero regressions per commit.** User explicitly drove this discipline with "D then triage" at session open.
+
+Single arc. User picked "all 11 to unblock" after seeing the Round-1-only proposal; that forced Rounds 2+3 into the same session. All 11 landed; push + reply + archive on one "1 2 3 lets go" wrap.
 
 ---
 
-## 2. Session log
+## 2. Session log — arc by arc
 
-### Arc 1 — session open + preflight
+### Arc 1 — Session open + inbox surface
 
-User said "read pa.md and start session". Standard rotation: S32 wrap → `handOffs/hand-off-33.md`, fresh hand-off, incoming scan (empty at scan time).
+User: "read pa.md and start session"
 
-Reported preflight options to user. User: "lets do both and set up for success." Launched in parallel:
+Standard rotation: S33 wrap → `handOffs/hand-off-34.md`, fresh `hand-off.md`, user-voice tail pulled. Two inboxes surfaced at session open:
 
-- **SPEC-INDEX regen** via `bash scripts/update-spec-index.sh` then manual edit. Result: SPEC-INDEX.md rewritten from 149 lines to 155, all §1-§54 row lines + Quick Lookup refreshed, §54 row added explicitly (20152-20439, 288 lines), S32-specific lookups added (§33.6, §51.15, §54.3/4/5/6, E-STATE-COMPLETE, state-local transitions, field narrowing).
-- **project-mapper refresh** via Agent dispatch (opus). Mapper could not write (permission denied on `.claude/maps/`) but returned full delta patch inline. Most load-bearing output: **PHASE-4-TOUCH-POINTS.md** with 7-section inventory (block-splitter, tokenizer/BS handoff, AST transition-decl target sites, StateType mutation sites, scope-chain insertion points, purity walker reuse, diagnostic registry) — absolute paths + line numbers for every Phase 4a-4h hook point. I wrote this file at `.claude/maps/PHASE-4-TOUCH-POINTS.md` (gitignored) before proceeding.
+- **giti** (unread at S33 wrap): 5 P0 codegen bugs — GITI-BLOCK-001..005.
+- **6nz** (NEW this day 12:51, unread at S34 open): 6 bugs — A, B, C, D, E, F.
 
-Mapper also flagged NEW NC-4: **unread giti inbound** (arrived between my session-open scan and the map pass). Surfaced to user before committing to Phase 4.
+11 bugs total. S33 wrap's forward directive was unambiguous: "next session we will take a look at giti and 6nz bug reports."
 
-### Arc 2 — giti inbound triage decision
+### Arc 2 — Triage strategy
 
-**User:** "stay on 4"
+Surfaced four triage options: (A) giti sender order, (B) 6nz order, (C) cluster-first, (D) reproduce all then decide.
 
-Inbound message summary (kept in inbox, not opened into a task):
+**User:** "D then triage"
 
-- **GITI-BLOCK-001:** `<request>` emits `fetch("", {method:"GET"})` — empty URL.
-- **GITI-BLOCK-002:** `import { x } from './file.js'` inside `${}` triggers false E-SCOPE-001 when used inside a `server function` body.
-- **GITI-BLOCK-003:** server-only import leaks into `.client.js`.
-- **GITI-BLOCK-004:** `lift <bare-expr>` in a `server function` body lowers to `_scrml_lift(() => document.createTextNode(...))` — DOM code in a Bun server handler.
-- **GITI-BLOCK-005:** `${serverFn()}` in markup drops the fetch result (no DOM binding emitted).
+Created `/tmp/s34-repros/` with per-bug repros (wrote 5 from 6nz message, copied 2 from giti's existing repro dir + the tutorial snippet for Bug A + D). Compiled all 7 output dirs in parallel. Evidence captured per bug:
 
-giti has parked UI work entirely. Deferred to S34 per user wrap directive.
+- **Bug A** — `"_scrml_attr_onkeydown_3": function(event) { _scrml_handleKey_8(); }` — wrapper receives event, drops it.
+- **Bug B** — `const label = "HOLD"` inside `if` branch (shadow binding).
+- **Bug C** — `.map()` with empty args (whole callback lost).
+- **Bug D** — `classList._scrml_toggle_7("active", ...)` (mangler rewrites DOM method).
+- **Bug E** — `Object.freeze({ get count() {...} get label() {...} })` — no commas; `node --check` fails.
+- **Bug F** — `_scrml_derived_declare("next", () => [...])` inside else-branch (plain local treated as derived-reactive).
+- **GITI-001** — `fetch("", { method: "GET" })` + `_scrml_reactive_set("data", _scrml_fetch_loadValue_4())` (unawaited Promise).
+- **GITI-002** — E-SCOPE-001 error despite correct import in output files (scope-resolver doesn't register imports).
+- **GITI-003** — `import { getGreeting } from "../../src/engine/probe.js";` in `.client.js` (server-only leak).
+- **GITI-004** — `_scrml_lift(() => document.createTextNode(...))` in server handler body.
+- **GITI-005** — `_scrml_fetch_loadGreeting_4();` at module top, no DOM wiring.
 
-### Arc 3 — Phase 4a (block-splitter)
+Triage synthesis written to §3 of `hand-off.md` (overwritten at session wrap). Proposed 3-round plan: Round 1 (E, A, D, 002) — cheap+high-impact; Round 2 (B+F, C) — medium; Round 3 (005, 003+004, 001) — server-fn wiring.
 
-S32 close documented the wall: `name(params) => < Target> { body }` fails E-CTX-003 because `{` after `< Target>` enters nested-state context, not logic.
+### Arc 3 — User picks Round 1
 
-Reproduced at `/tmp/repro-phase4.mjs` with four cases. Narrowed: fails whenever `< Ident>` appears after `ident(...) =>` at state-body level — `< Ident>` pushed as state frame, stack goes off by one.
+**User:** "lets go 1"
 
-**Fix:** targeted block-splitter lookahead. Added `isAfterTransitionArrow(tagStartPos)` helper — backward-scans whitespace → `=>` → whitespace → balanced `(...)` → identifier. At the `<`-whitespace state-opener path (line 1017+), if topFrame is `state` AND `isAfterTransitionArrow` matches AND the `< Ident>` is followed by `{` (forward-peek skipping whitespace), consume `< Ident>` as text and set `topFrame.transitionBodyPending = true`. At the bare `{` branch (line 879+), if topFrame has the flag, pushBraceContext("logic") instead of orphanBraceDepth++.
+Task tracker created, Round 1 started.
 
-Three-part forward-peek guard means the flag is armed ONLY when the full compound pattern `ident(...) => < Target> {` is present. Plain `=>` in markup or `< Target>` elsewhere takes existing paths.
+**Bug E** (`aa92070`) — first fix. Located `emitCapturedBindings` and `emitTypeRegistryLiteral` in `compiler/src/codegen/emit-logic.ts` at lines 154 + 177. Both joined `props` with `\n` only. Changed to `props.join(",\n")` wrapped inside the brace literals. Same fix applied to both. 3 new CB-9 tests in `meta-captured-bindings.test.js` covering comma-between-getters, comma-between-mixed, and JS-parse validity of the full Object.freeze literal.
 
-Tests: `compiler/tests/unit/transition-decl-block-split.test.js` — 9 tests covering empty body, logic body, markup-returning body, no-param / typed-param / nested-paren signatures + three regression guards. 7,262 → 7,271 pass.
+**Bug A** (`eb86d31`) — second. Located the call-ref branch of `emitEventWiring` at line 238. When `argsStr.length === 0`, the wrapper called `handler()` bare. Per tutorial §1.5, bare-call event attrs receive event as first arg. Added `const callArgs = argsStr.length === 0 ? "event" : argsStr;`. Non-empty args left untouched. Updated §4 of `event-handler-args-e2e.test.js` + §1/§5/§6/§16 of `event-delegation.test.js` + BUG-R14-005 assertions in `state-block-event-wiring.test.js` (~9 assertions total) — these baked in the old (pre-tutorial) buggy behavior. Added 2 new tests: explicit `onkeydown` repro + non-empty-args regression guard.
 
-### Arc 4 — Phase 4b (AST node)
+**Bug D** (`27ed6fe`) — third. Root at `emit-client.ts:517` — post-processing mangler regex `\\b${name}\\b(?=\\s*[(...])` had no negative lookbehind for `.`. The generated `classList.toggle("active", ...)` template was getting textually rewritten. Fix: `(?<!\\.)\\b${name}\\b(?=...)`. New `mangle-property-access.test.js` — 3 tests covering `classList.toggle` preservation when user fn `toggle` exists, DOM-method preservation for `forEach`, and user-fn call sites still mangled correctly.
 
-Block-splitter Phase 4a emits text (signature) + logic (body) siblings inside state children. Phase 4b collapses them into a single `transition-decl` AST node.
+**GITI-002** (`881b411`) — fourth. Root at `type-system.ts:4248`  `case "import-decl"`. Case returned `tAsIs()` without binding names. Added `scopeChain.bind(name, { kind: "import", resolvedType: tAsIs() })` for each entry of `importNode.names`. New `import-scope-registration.test.js` — 6 tests covering imported name in fn body, server-fn body (the exact GITI-002 shape), top-level logic expression, default import, negative control (undeclared still fires), multiple named imports.
 
-Shape: `{ kind: "transition-decl", name, paramsRaw, targetSubstate, body: ASTNode[], span, fromSubstate: string | null }`.
+### Arc 4 — User overrides into all 11
 
-Helpers (ast-builder.js):
-- `parseTrailingTransitionSignature(text)` — backward-scans a text block's trailing content for the signature pattern. Returns `{name, paramsRaw, target, sigStart}` or null.
-- `collapseTransitionDecls(children, filePath, counter, parentStateName)` — walks state children pairwise; when text+logic matches a signature, emits a unified node and preserves any leading residual text.
+Presented push/reply/archive options after Round 1.
 
-Hooked in `case "state"` at buildBlock, right after children are recursively built. Also fixed the logic case's body slice: `prefixLen = raw.startsWith("${") ? 2 : 1` so transition bodies (`{...}`, 1-char opener) correctly strip the single brace instead of losing a whitespace char.
+**User:** "No, these were bare bones, no frills bugs. we need them all to unblock."
 
-Tests: `compiler/tests/unit/transition-decl-ast.test.js` — 8 tests covering node shape, params passthrough, multi-transition accumulation, sibling isolation, span presence, body-as-logic parsing. 7,271 → 7,279 pass.
+Interpretation: Round 1's 4 bugs weren't sufficient to unblock giti or 6nz. All 11 needed before any push/reply. Continued into Round 2.
 
-Note: `fromSubstate` field added in the Phase 4d commit but the plumbing was threaded through `collapseTransitionDecls` at 4b for locality.
+**Bug B + F** (`70190a7`) — likely shared root confirmed. AST dump showed `label = "HOLD"` parsing as `tilde-decl`. The `case "tilde-decl"` in emit-logic.ts:456 DOES have a reassignment-detection branch: `if (opts.declaredNames?.has(node.name))` → emit as reassignment. But `IfOpts` only had `derivedNames`, not `declaredNames`. Every nested body got a fresh empty `declaredNames` Set, so outer `let x = ...` bindings didn't reach inner assignments.
 
-### Arc 5 — Phase 4c (registry)
+Fix:
+- Widened `IfOpts` to include `declaredNames`.
+- `emitIfStmt` now threads `bodyOpts` (with `declaredNames`) into `emitLogicBody(consequent, ...)` and `emitLogicBody(alternate, ...)`.
+- Widened `emitForStmt` to accept `opts.declaredNames`, thread through.
+- Widened `emitWhileStmt` similarly.
+- Dispatch at `emit-logic.ts:603-616` passes `opts.declaredNames` through.
 
-Goal: `StateType.transitions?: Map<string, TransitionInfo>` so Phase 4e/4f can look up transitions by name on the receiver's type.
+Both Bug B (`let x=A; if(c) x=B` → `const x=B` shadow) and Bug F (`let next=[]; for(...) { if(...) next=[...next, @pressed[i]] }` → `_scrml_derived_declare("next", ...)`) share this root — once declaredNames reaches the inner tilde-decl, the reassignment branch fires correctly. 10 tests in new `let-reassignment-in-branch.test.js`.
 
-Additions (type-system.ts):
-- New `TransitionInfo` interface: `{ name, paramsRaw, targetSubstate, span }`.
-- `StateType` gains `transitions?: Map<string, TransitionInfo>`.
-- `tState()` factory grows optional `transitions` param; spread-sets only when non-empty (mirrors `parentState` pattern).
-- `registerStateType()` grows trailing `transitions?` param, passes through.
-- state-constructor-def visitor (line 3363+): walks `n.children`, filters `kind === "transition-decl"`, builds a Map, passes to `registerStateType`.
+**Bug C** (`127d35a`) — two-part fix. AST dump showed the arrow as `{ kind: "escape-hatch", estreeType: "ArrowFunctionExpression", raw: "" }` — empty raw. Traced to:
 
-Substates placeholder preservation at lines 1890-1892 unchanged — parents don't carry transitions, and the placeholder path only applies to parent states (substates register their own transitions at their own `tState` call). No new preservation needed.
+1. `expression-parser.ts:897-903` `CallExpression` case recurses into args via `esTreeToExprNode(a, filePath, baseOffset)` — does NOT thread `rawSource`. So when the arrow-function case at line 981 tried to build its escape-hatch, `rawSource` was `undefined`, producing `raw: ""`.
+2. Fix (a): thread `rawSource` into CallExpression arg recursion. In the arrow case, use ESTree `node.start`/`end` to slice the arrow's own substring from `rawSource`. Validate with a shape regex (`/^(async\s+)?(\(|[A-Za-z_$]...=>)/` + must-contain-`=>`) before accepting. If validation fails, fall back to `""` (old behavior) rather than emit a possibly-misaligned slice.
+3. That revealed a second bug in downstream processing. For `(x) => { body }`: `rewriteExpr` Pass 1 `rewritePresenceGuard` matches the whole arrow as a "presence guard" (§42) and rewrites to `if (x !== null && x !== undefined) { body }`. That's correct for a statement-level presence guard but wrong for an arrow VALUE in call-arg position.
+4. Fix (b): added `skipPresenceGuard` flag to `RewriteContext`; gated pass 1 in both `clientPasses` and `serverPasses`; exported `rewriteExprArrowBody` / `rewriteServerExprArrowBody`. `emitEscapeHatch` now detects arrow/function estreeType and uses the arrow-body variants.
 
-Tests: `compiler/tests/unit/transition-decl-registry.test.js` — 7 tests. No-transition state has `transitions === undefined`, single / multiple transitions accumulate, sibling isolation (Draft's transitions don't leak to Validated), parent does NOT inherit substate transitions, top-level state with a transition still registers, span presence. 7,279 → 7,286 pass.
+Tests in new `arrow-block-body-in-call-arg.test.js` — 8 covering .map, .forEach, .filter, single-expr arrow guard, nested arrows.
 
-### Arc 6 — Phase 4d (`from` + params)
+### Arc 5 — Round 3 (server-fn wiring, largest arc)
 
-Goal: inside a transition body, `from` is bound to the enclosing substate's type, and params bind with their declared types.
+**GITI-005** (`e585dba`) — server-fn in markup wired to DOM. Logic-binding loop in `emit-event-wiring.ts:407` only fired for `varRefs.length > 0` (i.e., `@`-prefixed vars in the expression). For `${loadGreeting()}`, varRefs is empty — wiring skipped entirely. Added detection via `buildServerFnNames(fnNameMap)` (matches `_scrml_fetch_` / `_scrml_cps_` prefix) and `exprUsesServerFn()` (textual check with `.`-lookbehind exclusion). When a logic binding's expr uses a server fn, emit:
 
-Additions:
-- **ast-builder.js:** `collapseTransitionDecls` now stamps `fromSubstate: string | null` on every transition-decl (the declaring state's name). Threaded from `buildBlock`'s `case "state"` via `block.name`.
-- **type-system.ts:** new `case "transition-decl"` after `case "state-constructor-def"`. Pushes `transition:<From>:<Name>` scope. Binds `from` via `stateTypeRegistry.get(fromSubstate) ?? tAsIs()`. Parses `paramsRaw` on the fly — top-level comma-split honoring `() [] {} <>` nesting, then `name: typeExpr` split at first colon. Resolves each type annotation through main `typeRegistry`. Walks body via `visitLogicNode(stmt, "client")`. Pops scope.
+```js
+(async () => { try { el.textContent = await (${rewrittenExpr}); } catch (_e) { el.textContent = ""; } })();
+```
 
-Client boundary chosen as a provisional default — §33.6 purity is a superset that applies uniformly, and Phase 4g layers `checkFnBodyProhibitions` on top independent of boundary. `from` already a tokenizer KEYWORD (line 57); contextual-ness enforced via scope lookup.
+For mixed expressions (`@var + serverFn()`), emit both the initial IIFE AND a reactive effect that re-fires the same IIFE on @var change. 7 tests in `server-fn-markup-interpolation.test.js`.
 
-Tests: `compiler/tests/unit/transition-decl-scope.test.js` — 6 tests. `fromSubstate` stamped correctly (Draft for nested, Solo for top-level). `from` bare / `from.field` / declared param inside body: no E-SCOPE-001. `from` outside transition: E-SCOPE-001 fires (negative control). 7,286 → 7,292 pass.
+**GITI-003 + GITI-004** (`e5f5b22`) — paired commit. Two separate fixes for boundary seepage.
 
-### Arc 7 — Phase 4e (E-STATE-TRANSITION-ILLEGAL) — first behavior-visible
+GITI-004: added `boundary: "server" | "client"` field to `EmitLogicOpts`. In `case "lift-expr"` — when `opts.boundary === "server"` and the lift is an expression form, emit `return ${rhsExpr};` via `emitExprField(..., { mode: "server" })` instead of `_scrml_lift(() => document.createTextNode(...))`. Markup form in server context returns a typed-comment null (non-sensical but emission-safe). Updated 6 emit sites in `emit-server.ts` to pass `{ boundary: "server" }` (CPS + non-CPS × CSRF + non-CSRF × body-iteration + last-stmt-return = 6 combinations).
 
-Call-site check: when `<receiver>.<method>(<args>)` resolves the receiver to a StateType with declared transitions, and `method` is not among them, fire E-STATE-TRANSITION-ILLEGAL.
+GITI-003: post-emit prune pass in `emit-client.ts`. Parses top-of-file import statements; for each, checks if any imported name is referenced in the REMAINING body (non-import portion); drops imports with zero usage. Scoped to non-special paths: `scrml:`, `vendor:`, and `.client.js` imports are always preserved. `testMode` bypasses so fixture-only unit tests preserve source-rewrite observability. `cross-file-import-export.test.js` `makeTestCtx` updated to `testMode: true`. 5 tests in new `server-client-boundary.test.js`.
 
-Additions:
-- **expression-parser.ts:** exported `forEachCallInExprNode` (was internal).
-- **type-system.ts:** new `checkTransitionCallsInExpr(exprNode, span, scopeChain, stateTypeRegistry, errors)`. Walks every CallExpr; when callee is a MemberExpr, resolves the receiver (IdentExpr direct lookup, OR the reactive-read rewrite `CallExpr(Ident("_scrml_reactive_get"), [Lit("name")])`). If receiver is a StateType with non-empty `transitions` AND method not in map → emit with declared-transitions list (sorted for stable messages).
+**GITI-001** (`d23fd54`) — last. Two parts.
 
-Hook sites (mirror of §2a E-SCOPE-001 hooks): let/const-decl initExpr, reactive-decl initExpr, bare-expr exprNode.
+Part 1: `@data = serverFn()` emits `_scrml_reactive_set("data", _scrml_fetch_loadValue_4())` — stores unawaited Promise. Post-emit rewrite pass in `emit-client.ts` (after fnNameMap mangling): for every server-fn mangled name, find `_scrml_reactive_set("X", <stub>(ARGS));` and rewrite to `(async () => _scrml_reactive_set("X", await <stub>(ARGS)))();`. Uses manual paren-depth walk (not regex) so nested args in the call are handled correctly.
 
-Silence rules: callee not member, receiver not state, state has no transitions (terminal — 4f's territory), method IS in map.
+Part 2: `<request id="req1">` without a `url=` attribute emits fetch machinery with `fetch("", { method: "GET" })`. Fix in `emit-reactive-wiring.ts:644`: track `hasUrl` flag; return early from `emitRequestNode` when no url. The body's server-fn call (now awaited per part 1) is the fetch. `<request url="...">` unchanged. 6 tests in new `request-tag-and-server-fn-reactive.test.js`.
 
-Tests: `compiler/tests/unit/transition-decl-illegal.test.js` — 8 tests. Legal / illegal / error message shape / field read (silent) / terminal (silent) / non-state binding (silent) / reactive `@sub.method()` legal and illegal.
+### Arc 6 — Push + reply + archive
 
-**Test fixture note:** `let x: T = < T></>; x.method();` — explicit `;` required between logic statements when the init is a state literal, otherwise the logic-body expression parser absorbs the following call into the previous let's initializer. Pre-existing parser shape, documented in 4e's commit body.
+**User:** "1 2 3 lets go"
 
-7,292 → 7,300 pass.
+All three simultaneously:
+1. Reply messages drafted and delivered to giti + 6nz inboxes with per-bug summaries and re-verify asks.
+2. `needs: push` message to master inbox with full commit range and push-coordination details (per `feedback_push_protocol` — commit to main, send needs:push to master, never push directly).
+3. Both S34 incoming messages moved to `handOffs/incoming/read/`.
 
-### Arc 8 — Phase 4f (E-STATE-TERMINAL-MUTATION)
+### Arc 7 — Open note in giti reply
 
-Completes the Phase 4 behavior surface. A substate is "terminal" iff `parentState` is set AND `transitions` is undefined or empty. Field writes on terminal substates fire E-STATE-TERMINAL-MUTATION.
-
-Scope narrowed deliberately: only fires on substates (parentState set). Top-level states are silent — firing there would regress every pre-S32 user program that writes fields on plain states.
-
-Additions (type-system.ts):
-- New `checkTerminalMutationsInExpr(exprNode, span, scopeChain, stateTypeRegistry, errors)` — walks for `AssignExpr` with `MemberExpr` target. Receiver resolution same as 4e. Generic descent through sub-expression fields avoids an exhaustive kind-switch.
-- Hook sites: same three as 4e (let/const/reactive init, bare-expr).
-- **reactive-nested-assign case:** the `@obj.path = value` form is a dedicated AST node, not a bare-expr. Added a mirror check here — if the reactive var resolves to a terminal substate, fire with `path[0]` as the reported field name.
-
-Tests: `compiler/tests/unit/transition-decl-terminal.test.js` — 7 tests. Terminal + field write fires. Error names substate and field. Non-terminal (has transitions): silent. Top-level state: silent. Field read: silent. Non-state binding: silent. Reactive `@sub.body = x` to terminal: fires.
-
-7,300 → 7,307 pass.
-
-### Arc 9 — Phase 4g (transition-body purity)
-
-One-line dispatch extension: after the body walks in `case "transition-decl"`, call `checkFnBodyProhibitions(n, txBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain)` — same signature the `case "function-decl"` dispatch uses. Per §33.6 transition purity is a subset of fn purity, so E-FN-001..E-FN-005 apply verbatim. No new error codes.
-
-Note: shared walker emits `fn <name>` prose since it reads `fnNode.name`. For a transition-decl, `.name` is the transition name, so users see `fn validate is declared async` etc. — mildly misleading wording but semantically correct per §33.6. Refining per-caller wording can come later.
-
-Tests: `compiler/tests/unit/transition-decl-purity.test.js` — 6 tests. Date.now / Math.random / new Date in transition body → E-FN-004. Pure body: silent. `from` / `from.field`: silent. Non-transition `function` with Date.now(): silent (regression guard — E-FN-* is fn/transition-only per §48, not regular `function`).
-
-7,307 → 7,313 pass.
-
-### Arc 10 — Conformance un-skip (post-phase)
-
-User directive "C then B then A". Un-skipped 9 of 39 gated S32 conformance tests.
-
-Rewrote diagnose() helper in each conformance file to use the lighter `splitBlocks → buildAST → runTS` harness instead of the `compileScrml`+tmpdir shim (matches unit-test pattern). Rewrote test source samples to use actual scrml typed-attr syntax `name(type)` instead of the spec-document shorthand `name: type` and legacy `< state Name>` opener.
-
-**Un-skipped (9 tests, all green):**
-- `s33-pure.test.js`: CONF-S32-001 (outer-scope mutation → E-FN-003), -002 (Date.now → E-FN-004), -003a (pure fn → W-PURE-REDUNDANT).
-- `s48-fn.test.js`: CONF-S32-004 (fn ≡ pure function diagnostic set parity).
-- `s54-substates.test.js`: CONF-S32-016 (`from.field` inside transition: no E-SCOPE-001), -017a/b (`from` as param/let outside transition: legal), -019 (terminal substate transition call → E-STATE-TRANSITION-ILLEGAL), -020 (terminal substate field write → E-STATE-TERMINAL-MUTATION).
-
-**Remaining 30 skips — each annotated with a specific gate** (see commit `36eadb9` body for full list). Categories:
-- **Inline state-literal field-assign syntax** `< T> name = x </>` — parser parses `name = x` as logic-level assignment, not a state field initializer. Blocks CONF-S32-005, -006a, -006b, -007, -021a, -021b, -031.
-- **Phase 4h / return-type narrowing** — blocks CONF-S32-015a, -015b. No spec code assigned (NEW NC-3).
-- **`@ narrowing` via `is < Substate>`** not threaded into call/mutation checks — blocks CONF-S32-023, -024.
-- **E-STATE-FIELD-MISSING + cross-substate narrowing** — separate §54.4 arc. Blocks CONF-S32-022.
-- **Struct `from` field naming** — blocks CONF-S32-017c.
-- **Pure transition modifier** (`pure validate() =>`) — parser doesn't accept yet. Blocks CONF-S32-003b.
-- **Untyped-state exhaustiveness syntax** — covered by unit tests. Blocks CONF-S32-018.
-- **§51.15 machine cross-check** — separate S32 arc not yet started. 7 tests.
-- **Runtime/e2e behavior** (audit, replay, temporal, `when changes`) — needs runtime harness. CONF-S32-025 through -031.
-
-7,313 → 7,322 pass / 40 skip (was 49).
-
-### Arc 11 — Push + wrap
-
-User: `C then B then A`. Completed C (above). Pushed 10 commits `4ddb7e0..36eadb9` to origin/main (one-time user auth via the wrap directive). Running wrap: updating hand-off, appending user-voice.
-
-Forward directive from user: **next session opens on giti + 6nz bug reports.** Phase 4h, 4+h conformance, and any further S32 work are deprioritized for S34.
+Called out one known-quirk in the giti reply message: `<p>${@data.value}</p>` emits a module-top bare read of `_scrml_reactive_get("data").value;` that executes before the async IIFE resolves — throws `Cannot read properties of undefined`. Pre-existing emission shape (markup `${@x.y}` generating a bare reference), not S34-introduced. Offered workarounds (default value, guard expr) and noted it's available as a follow-up if blocking.
 
 ---
 
-## 3. Files changed this session — full list with purpose
+## 3. Files changed this session
 
+### Source changes
 | File | Commit | Purpose |
 |---|---|---|
-| `compiler/SPEC-INDEX.md` | `2009bbb` | Full regeneration — §1-§54 line numbers + §54 row + Quick Lookup refresh |
-| `handOffs/hand-off-33.md` | `2009bbb` | Rotated S32 wrap |
-| `handOffs/incoming/2026-04-20-1210-giti-to-scrmlTS-server-function-codegen-bugs.md` | `2009bbb` | giti inbound — 5 P0 codegen bugs (unread, S34 priority) |
-| `compiler/src/block-splitter.js` | `36320ab` | `isAfterTransitionArrow` helper + state-opener hook + `{` branch hook |
-| `compiler/tests/unit/transition-decl-block-split.test.js` | `36320ab` | 9 Phase 4a tests |
-| `compiler/src/ast-builder.js` | `44a348f` | `parseTrailingTransitionSignature` + `collapseTransitionDecls` + logic case prefix detection |
-| `compiler/tests/unit/transition-decl-ast.test.js` | `44a348f` | 8 Phase 4b tests |
-| `compiler/src/type-system.ts` | `09ede6e` | TransitionInfo interface + StateType.transitions field + tState/registerStateType signatures + state-constructor-def visitor hook |
-| `compiler/tests/unit/transition-decl-registry.test.js` | `09ede6e` | 7 Phase 4c tests |
-| `compiler/src/ast-builder.js` | `82c9e17` | `fromSubstate` stamped on transition-decl |
-| `compiler/src/type-system.ts` | `82c9e17` | `case "transition-decl"` visitor — scope push, `from` bind, param parsing, body walk |
-| `compiler/tests/unit/transition-decl-scope.test.js` | `82c9e17` | 6 Phase 4d tests |
-| `compiler/src/expression-parser.ts` | `72210e8` | `forEachCallInExprNode` exported |
-| `compiler/src/type-system.ts` | `72210e8` | `checkTransitionCallsInExpr` + 3 hook sites |
-| `compiler/tests/unit/transition-decl-illegal.test.js` | `72210e8` | 8 Phase 4e tests |
-| `compiler/src/type-system.ts` | `5de6a2d` | `checkTerminalMutationsInExpr` + 3 hook sites + reactive-nested-assign case extension |
-| `compiler/tests/unit/transition-decl-terminal.test.js` | `5de6a2d` | 7 Phase 4f tests |
-| `compiler/src/type-system.ts` | `37f21f7` | `checkFnBodyProhibitions` call in transition-decl case |
-| `compiler/tests/unit/transition-decl-purity.test.js` | `37f21f7` | 6 Phase 4g tests |
-| `compiler/tests/conformance/s32-fn-state-machine/s33-pure.test.js` | `36eadb9` | diagnose() wired; 3 un-skipped + 1 skip |
-| `compiler/tests/conformance/s32-fn-state-machine/s48-fn.test.js` | `36eadb9` | diagnose() wired; 1 un-skipped + 4 skip |
-| `compiler/tests/conformance/s32-fn-state-machine/s54-substates.test.js` | `36eadb9` | diagnose() wired; 5 un-skipped + 18 skip |
-| `.claude/maps/PHASE-4-TOUCH-POINTS.md` | (local, gitignored) | 7-section Phase-4 inventory from project-mapper output |
-| `hand-off.md` | this wrap | S33 full log (this file) |
-| `handOffs/hand-off-33.md` | rotated | S32 wrap preserved verbatim |
-| `../scrml-support/user-voice-scrmlTS.md` | this wrap | S33 verbatim entries appended |
+| `compiler/src/codegen/emit-logic.ts` | `aa92070` | Object.freeze emission comma fix |
+| `compiler/src/codegen/emit-logic.ts` | `70190a7` | IfStmt dispatch now threads declaredNames |
+| `compiler/src/codegen/emit-logic.ts` | `e5f5b22` | lift-expr case handles boundary: "server" |
+| `compiler/src/codegen/emit-event-wiring.ts` | `eb86d31` | thread event into bare-call handlers |
+| `compiler/src/codegen/emit-event-wiring.ts` | `e585dba` | serverFn detection + async IIFE for DOM wiring |
+| `compiler/src/codegen/emit-client.ts` | `27ed6fe` | mangler regex negative lookbehind |
+| `compiler/src/codegen/emit-client.ts` | `e5f5b22` | unused-import prune pass |
+| `compiler/src/codegen/emit-client.ts` | `d23fd54` | awaited reactive-set post-rewrite |
+| `compiler/src/codegen/emit-control-flow.ts` | `70190a7` | IfOpts widened; for/while widened; thread declaredNames |
+| `compiler/src/type-system.ts` | `881b411` | import-decl case binds names into scope |
+| `compiler/src/expression-parser.ts` | `127d35a` | CallExpression threads rawSource; arrow slices raw |
+| `compiler/src/codegen/rewrite.ts` | `127d35a` | skipPresenceGuard flag + rewriteExprArrowBody variants |
+| `compiler/src/codegen/emit-expr.ts` | `127d35a` | emitEscapeHatch picks arrow variant on estreeType |
+| `compiler/src/codegen/emit-server.ts` | `e5f5b22` | 6 sites pass boundary: "server" to emitLogicNode |
+| `compiler/src/codegen/emit-reactive-wiring.ts` | `d23fd54` | emitRequestNode skip when no url= |
+
+### Test additions
+| File | Bug | Tests |
+|---|---|---|
+| `compiler/tests/unit/meta-captured-bindings.test.js` | E | +3 |
+| `compiler/tests/unit/event-handler-args-e2e.test.js` | A | +2 (§4 updated) |
+| `compiler/tests/unit/event-delegation.test.js` | A | asserts updated |
+| `compiler/tests/unit/state-block-event-wiring.test.js` | A | asserts updated |
+| `compiler/tests/unit/mangle-property-access.test.js` | D | +3 (new file) |
+| `compiler/tests/unit/import-scope-registration.test.js` | GITI-002 | +6 (new file) |
+| `compiler/tests/unit/let-reassignment-in-branch.test.js` | B + F | +10 (new file) |
+| `compiler/tests/unit/arrow-block-body-in-call-arg.test.js` | C | +8 (new file) |
+| `compiler/tests/unit/server-fn-markup-interpolation.test.js` | GITI-005 | +7 (new file) |
+| `compiler/tests/unit/server-client-boundary.test.js` | GITI-003+004 | +5 (new file) |
+| `compiler/tests/unit/request-tag-and-server-fn-reactive.test.js` | GITI-001 | +6 (new file) |
+| `compiler/tests/unit/cross-file-import-export.test.js` | GITI-003 | `makeTestCtx` switched to `testMode: true` |
+
+Total new tests: 51 (8 new test files + additions to 4 existing).
 
 ---
 
 ## 4. Test suite health
 
-- **Entering S33:** 7,262 pass / 49 skip / 2 fail (26,585 expects / 321 files) at `faf4c19`.
-- **After 2009bbb (open):** unchanged (docs only).
-- **After 36320ab (4a):** 7,271 pass / 49 / 2 (+9 tests).
-- **After 44a348f (4b):** 7,279 pass / 49 / 2 (+8 tests).
-- **After 09ede6e (4c):** 7,286 pass / 49 / 2 (+7 tests).
-- **After 82c9e17 (4d):** 7,292 pass / 49 / 2 (+6 tests).
-- **After 72210e8 (4e):** 7,300 pass / 49 / 2 (+8 tests).
-- **After 5de6a2d (4f):** 7,307 pass / 49 / 2 (+7 tests).
-- **After 37f21f7 (4g):** 7,313 pass / 49 / 2 (+6 tests).
-- **Close after 36eadb9 (conformance):** **7,322 pass / 40 skip / 2 fail (26,703 expects / 331 files).**
+| Snapshot | Pass | Skip | Fail | Files |
+|---|---|---|---|---|
+| Entering S34 (`eab5251`) | 7,322 | 40 | 2 | 331 |
+| After Bug E (`aa92070`) | 7,325 | 40 | 2 | 331 |
+| After Bug A (`eb86d31`) | 7,327 | 40 | 2 | 331 |
+| After Bug D (`27ed6fe`) | 7,330 | 40 | 2 | 332 |
+| After GITI-002 (`881b411`) | 7,336 | 40 | 2 | 333 |
+| After B+F (`70190a7`) | 7,346 | 40 | 2 | 334 |
+| After C (`127d35a`) | 7,354 | 40 | 2 | 335 |
+| After GITI-005 (`e585dba`) | 7,361 | 40 | 2 | 336 |
+| After GITI-003+004 (`e5f5b22`) | 7,367 | 40 | 2 | 337 |
+| **Close (`d23fd54`)** | **7,373** | **40** | **2** | **338** |
 
-**Zero regressions across every commit.** Nine dedicated test files added (one per phase + one per commit boundary where applicable).
-
-**Pre-existing fails unchanged:** Bootstrap L3 perf, tab.js-path test. Neither blocks any S33 work or adopter path.
-
-**Skip delta:** 49 → 40. Nine S32 conformance tests are now green; the remaining 30 each carry a specific gate annotation (see commit `36eadb9`).
+**Zero regressions at every commit.** Pre-existing fails unchanged (Bootstrap L3 perf + tab.js-path test).
 
 ---
 
-## 5. Design-insights ledger
+## 5. Non-compliance (current state)
 
-No new insights this session. Phase 4 was pure execution against insight 21's spec amendment — no new design calls emerged during implementation. The one "spec gap" surfaced (Phase 4h's narrow-fit error code, §54.6) was logged as NEW NC-3 in the project-mapper non-compliance report, not as a design insight.
-
-Insight 20 + 21 both remain byte-intact at `scrml-support/design-insights.md` lines 545-628 and 632-760 respectively.
-
----
-
-## 6. Non-compliance (current state)
-
-Carried from prior sessions:
-- `master-list.md` header still **10 sessions stale** (S23 baseline). S33 should have refreshed; did not.
-- `docs/SEO-LAUNCH.md` uncommitted **11 sessions**. Ask user once, close.
-- `benchmarks/fullstack-react/CLAUDE.md` — agent-tooling inside a framework-comparison dir. Out of place.
+Carried:
+- `master-list.md` header **11 sessions stale** (S23 baseline). S33 wrap flagged as highest-visibility onboarding doc. S34 did not refresh.
+- `docs/SEO-LAUNCH.md` uncommitted **12 sessions**. Ask user once, close.
+- `benchmarks/fullstack-react/CLAUDE.md` — out-of-place agent tooling inside framework-comparison dir.
 - §48.9 prose still says "pure adds memoization permission to fn" — stale under §33.6. Low priority.
-- **NEW NC-3 (S33):** §54.6 has no assigned code for Phase 4h (return-type narrow-fit mismatch). Design call needed before 4h can implement.
-- **NEW NC-4 (S33):** giti inbound unread in `handOffs/incoming/`. S34 priority.
+- **NC-3 (S33):** §54.6 has no assigned code for Phase 4h (return-type narrow-fit mismatch). Blocks Phase 4h. No design call yet.
 
 Resolved this session:
-- SPEC-INDEX.md line-number drift — regenerated (commit `2009bbb`).
+- **NC-5 (S34-open, 11 bugs)** — all fixed, all shipped.
 
-Fresh cleanup items from the conformance rewrite:
-- Inline state-literal field-assign syntax (`< T> name = val </>`) parses as logic-level assignment. This is a pre-existing parser shape that gates 7 conformance tests + future inline-construction ergonomics. Not a regression; a known limit.
-- `@ narrowing` via `is < Substate>` — not threaded into call-site / mutation-site type resolution. Gates 2 conformance tests. Future §54.4 arc.
-- E-STATE-FIELD-MISSING + cross-substate narrowing — separate §54.4 arc, not in Phase 4 scope. Gates 1 conformance test.
+Fresh surface note (not tracked as NC):
+- `<p>${@data.value}</p>` emits a module-top bare read of `_scrml_reactive_get("data").value` in addition to the reactive-effect wiring. When `data` starts as undefined (e.g. first async fetch), the module-top read throws. Pre-existing emission shape; flagged to giti as a follow-up.
+
+---
+
+## 6. Design-insights ledger
+
+No new insights. S34 was pure bug-fix execution; no design calls surfaced. Insight 21 ratified in S31/S32 remains byte-intact at `scrml-support/design-insights.md` lines 632-760.
 
 ---
 
 ## 7. User memory touched this session
 
-No new memories written. Existing memories honored:
+All existing memories honored:
 
-- `feedback_agent_model` — opus dispatched for project-mapper. No other subagents this session.
-- `feedback_persist_plans` — this hand-off written immediately at wrap (not deferred).
-- `feedback_user_voice` — S33 entries being appended to user-voice-scrmlTS.md this wrap (not deferred).
-- `feedback_push_protocol` — user explicitly authorized push via the wrap directive `C then B then A`. Single push of 10 commits.
-- `feedback_batch_size` — Phase 4 split across seven commits; each batch stayed well in-context. Worked.
-- `feedback_verify_compilation` — every phase verified via `bun test` before commit; zero regressions validates the discipline across 8 implementation commits + 1 conformance commit.
-- `user_truck_driver` — session stayed efficient; terse user greenlights + predictable phase cadence minimized wasted context.
-- `feedback_language_cohesion` — honored throughout. Phase 4 reuses existing grammar conventions (`< X>` space-after-`<`, `from` as KEYWORD, reuse E-FN-* rather than new purity codes, paramsRaw kept verbatim for later parse rather than inventing a new param AST shape).
-- `project_public_pivot` — tested when the giti inbound surfaced; user explicitly said "stay on 4" because Phase 4 IS the adopter-forward flagship feature. S34 shifts to giti + 6nz per user forward directive.
-- `project_lin_redesign` — untouched this session; noted in Phase 4g commit body as an interaction site for transition-body purity + `lin` bindings (CONF-S32-026).
+- `feedback_agent_model` — no subagents this session (direct PA work).
+- `feedback_persist_plans` — triage plan written to `hand-off.md` §3 immediately after reproduction, before any fix started. Not deferred to wrap.
+- `feedback_user_voice` — entries being appended to `user-voice-scrmlTS.md` this wrap (not deferred).
+- `feedback_push_protocol` — user authorized push via "1 2 3 lets go". `needs: push` message sent to master; no direct push from this PA.
+- `feedback_batch_size` — 9 commits, one per bug/cluster. Each batch stayed well in-context.
+- `feedback_verify_compilation` — every bug verified with local compile + `node --check` before committing. Every commit ran full test suite for regression check.
+- `user_truck_driver` — session stayed efficient. User's terse directives ("D then triage", "lets go 1", "no...we need them all to unblock", "1 2 3 lets go") minimized wasted context.
+- `feedback_language_cohesion` — honored. Fixes reused existing grammar conventions (e.g., the awaited-reactive-set follows the same IIFE shape as the markup-interpolation async wiring; the `boundary: "server"` option is a clean discriminated addition, not a new code path).
+- `project_public_pivot` — S34's bug list IS the adopter-friction queue. Both giti and 6nz are downstream adopters experiencing the compiler at realistic scale. Every fix is adopter-unblocking.
+- `project_lin_redesign` — untouched this session.
+
+No new memories written.
 
 ---
 
 ## 8. Next PA priorities — ordered
 
-### 8.1 FIRST — giti + 6nz bug reports (S34 user directive)
+### 8.1 Probably-top — await giti + 6nz replies
 
-User wrap: "next session we will take a look at giti and 6nz bug reports".
+Reply messages dropped at:
+- `giti/handOffs/incoming/2026-04-20-1700-scrmlTS-to-giti-all-5-bugs-fixed.md`
+- `6NZ/handOffs/incoming/2026-04-20-1700-scrmlTS-to-6nz-all-6-bugs-fixed.md`
 
-**giti inbound** at `handOffs/incoming/2026-04-20-1210-giti-to-scrmlTS-server-function-codegen-bugs.md`:
+Both ask for per-bug pass/fail confirmation after re-verify. Expect one or more follow-up messages into `scrmlTS/handOffs/incoming/` next session. Triage those first.
 
-1. **GITI-BLOCK-005** (highest priority per sender) — `${serverFn()}` in markup drops the fetch result. No DOM binding emitted. Related to 001 but on the non-`<request>` path.
-2. **GITI-BLOCK-002** — `import { x } from './file.js'` in logic context triggers false E-SCOPE-001 when used inside `server function` body. Scope resolver missing a rule that registers imported names into the logic-block symbol table.
-3. **GITI-BLOCK-001** — `<request>` tag emits `fetch("", {method:"GET"})` — empty URL. Also stores unawaited Promise.
-4. **GITI-BLOCK-003** — server-only import leaks into `.client.js`.
-5. **GITI-BLOCK-004** — `lift <bare-expr>` in `server function` body lowers to `_scrml_lift(() => document.createTextNode(...))`. DOM code in Bun handler.
+### 8.2 Cleanup item surfaced by GITI-001
 
-giti sender explicitly stated `Option A (fix bugs in order 005 first)` OR `Option B (document exact working idiom for <request>)`. Option A preferred.
+The `<p>${@x.y}</p>` module-top bare read (emits `_scrml_reactive_get("x").y;` at module load → throws on undefined). Pre-existing. Flagged to giti as a follow-up; if they confirm it's a blocker, fix scope is the markup-interpolation emission path that should skip the module-top bare read when the binding is reactive-only.
 
-**6nz** — no inbound as of S33 close. User's "giti and 6nz bug reports" suggests either an inbound is expected imminently or 6nz work needs proactive pull. First S34 action: check inbox, and if empty for 6nz, surface to user for clarification.
+### 8.3 Phase 4h (still deferred)
 
-Move the giti message to `handOffs/incoming/read/` only AFTER user acknowledgment (per pa.md protocol).
+Return-type narrowing at transition call site — blocked on spec gap NC-3 (§54.6 code-assignment). Unchanged from S33. Don't pull unless user redirects.
 
-### 8.2 SECOND — Phase 4h (remaining Phase 4 sub-phase, deferred)
+### 8.4 Conformance un-skip follow-ups
 
-Only unimplemented Phase 4 sub-phase. Return-type narrowing at transition call site: when `x.validate()` is called on `x: Draft` and `validate` has `targetSubstate: "Validated"`, the call result should narrow `x`'s static type to `Validated`.
+30 S32 conformance tests still skipped per S33 wrap's §8.3. Highest-leverage next un-skip: **inline state-literal field assignment** (`< T> name = x </>`). Gates 7 conformance tests + improves adopter ergonomics.
 
-**Blocked on spec gap (NEW NC-3):** §54.6 has no assigned code for narrow-fit mismatch. Candidates: (a) reuse E-STATE-COMPLETE with widened message, (b) new E-STATE-NARROWING-FIT under §54.6.5, (c) extend E-TYPE-026. Spec amendment needed before implementation.
-
-Non-blocking work 4h can start without the error-code decision: tracking the return type through the expression tree so `let v = sub.validate()` binds `v: Validated` rather than `asIs`. This is what the conformance test CONF-S32-015a/b expect for "body without return" / "return not a state literal" cases.
-
-### 8.3 THIRD — Conformance un-skip follow-ups
-
-As parser or narrowing capabilities land, un-skip the relevant tests. Un-skip map for the 30 still-skipped conformance tests is in commit `36eadb9`'s body.
-
-Highest-leverage next un-skip: **inline state-literal field assignment** (`< T> name = x </>`). Fixes 7 conformance tests + improves ergonomics of adopter code (which currently must use `< T></>` + post-assignment OR separate construction patterns).
-
-### 8.4 FOURTH — Non-compliance cleanup
+### 8.5 Non-compliance cleanup
 
 Ordered by leverage:
+1. `master-list.md` refresh — 11 sessions stale, highest-visibility onboarding doc.
+2. NC-3 spec decision — unblocks Phase 4h.
+3. `docs/SEO-LAUNCH.md` — ask user, close.
+4. `benchmarks/fullstack-react/CLAUDE.md` — move or delete.
+5. §48.9 cleanup — fold into any future SPEC-touching commit.
 
-1. **master-list.md refresh** — 10 sessions stale. Tight S30-S33 window (avoid backfilling). This is the highest-visibility doc for onboarding context.
-2. **NEW NC-3 spec decision** — unblocks Phase 4h. Probably 30 min of user-involved conversation.
-3. **SEO-LAUNCH.md** — ask user once ("commit, revert, or archive?"), then close.
-4. **benchmarks/fullstack-react/CLAUDE.md** — move or delete.
-5. **§48.9 cleanup** — fold into any future SPEC-touching commit. Not urgent alone.
+### 8.6 F8/F9 adopter polish (from S30's deferred list)
 
-### 8.5 FIFTH — F8/F9 adopter polish (from S30's deferred list, carried through S31/S32/S33)
-
-Still open:
-- F8 — scaffold lacks `package.json` + `README.md`. Cheap.
-- F9 — scaffold lacks inline orientation comments. Cheap.
-
-Good side-quest between larger arcs.
+Still open: F8 (scaffold lacks `package.json` + `README.md`) and F9 (scaffold lacks inline orientation comments). Cheap side-quests between larger arcs.
 
 ---
 
-## 9. Agents + artifacts reference (so you don't have to grep)
+## 9. Agents + artifacts reference
 
-### Conformance tests (31 statements, 39 tests, 9 now green)
+### Repro corpus
+- `/tmp/s34-repros/` — 8 scrml sources + 8 compiled output dirs. Ephemeral (in `/tmp`) but complete snapshots of expected-vs-actual for every bug. Useful for the next PA if any bug needs re-opening.
 
-- `/home/bryan/scrmlMaster/scrmlTS/compiler/tests/conformance/s32-fn-state-machine/REGISTRY.md` — statement ledger CONF-S32-001..031.
-- `s33-pure.test.js` — 3 green, 1 skip.
-- `s48-fn.test.js` — 1 green, 4 skip.
-- `s51-machine-cross-check.test.js` — 0 green, 7 skip (§51.15 not started).
-- `s54-substates.test.js` — 5 green, 18 skip.
+### Test artifacts
+All under `compiler/tests/unit/` with bug-specific prefixes:
+- `mangle-property-access.test.js` (D)
+- `import-scope-registration.test.js` (GITI-002)
+- `let-reassignment-in-branch.test.js` (B + F)
+- `arrow-block-body-in-call-arg.test.js` (C)
+- `server-fn-markup-interpolation.test.js` (GITI-005)
+- `server-client-boundary.test.js` (GITI-003 + 004)
+- `request-tag-and-server-fn-reactive.test.js` (GITI-001)
 
-### Phase 4 test artifacts
+Plus additions to:
+- `meta-captured-bindings.test.js` (E)
+- `event-handler-args-e2e.test.js` (A)
+- `event-delegation.test.js` (A)
+- `state-block-event-wiring.test.js` (A)
+- `cross-file-import-export.test.js` (testMode switch for GITI-003)
 
-All under `compiler/tests/unit/` with `transition-decl-*` prefix:
-- `block-split.test.js` — 9 tests (Phase 4a).
-- `ast.test.js` — 8 tests (Phase 4b).
-- `registry.test.js` — 7 tests (Phase 4c).
-- `scope.test.js` — 6 tests (Phase 4d).
-- `illegal.test.js` — 8 tests (Phase 4e).
-- `terminal.test.js` — 7 tests (Phase 4f).
-- `purity.test.js` — 6 tests (Phase 4g).
+### Spec (no changes this session)
+- `compiler/SPEC.md` — 20,439 lines, 54 sections.
+- `compiler/SPEC-INDEX.md` — accurate as of S33 open (`eab5251`). No regen needed this session.
 
-Total S33-added unit tests: 51.
+### Design-insights ledger
+- `scrml-support/design-insights.md` — 21 entries, unchanged.
 
-### Design-insights
+### Live touch-point map
+- `.claude/maps/PHASE-4-TOUCH-POINTS.md` — S33 artifact, not refreshed this session (Phase-4-scoped; S34 was adopter-bug-scoped, different surface).
 
-- `/home/bryan/scrmlMaster/scrml-support/design-insights.md` — 21 entries unchanged. Insight 21 at lines 632-760.
-
-### User voice
-
-- `/home/bryan/scrmlMaster/scrml-support/user-voice-scrmlTS.md` — S33 entries appended this wrap.
-
-### Live SPEC (authoritative)
-
-- `/home/bryan/scrmlMaster/scrmlTS/compiler/SPEC.md` — 20,439 lines, 54 sections.
-- `/home/bryan/scrmlMaster/scrmlTS/compiler/SPEC-INDEX.md` — **fresh this session** (commit `2009bbb`). Line numbers and Quick Lookup accurate as of S33 open. Re-regenerate if SPEC.md is edited before S34.
-
-### Phase 4 touch-point map
-
-- `/home/bryan/scrmlMaster/scrmlTS/.claude/maps/PHASE-4-TOUCH-POINTS.md` — written from project-mapper output. Gitignored; local only. Still accurate for Phase 4h.
-
-### Primary agents used this session
-
-- `project-mapper` (opus) — hit write-permission denial on `.claude/maps/`; returned full delta inline. PA wrote PHASE-4-TOUCH-POINTS.md from the mapper's output.
-
-No new agents staged; no agents retired.
+### Primary agents used
+None this session. All direct PA work.
 
 ### Gauntlet / debate
-
-No gauntlet dispatches. No new debates. S32's 5 fn-debate experts remain staged (from S31) but were not used this session.
+No dispatches. S32's 5 fn-debate experts remain staged but dormant.
 
 ---
 
-## 10. Session-close protocol executed (for the pattern)
+## 10. Session-close protocol executed
 
-User directive: `C then B then A`.
+User directive: `D then triage` → 11 repros → Round 1 → all-11 override → `1 2 3 lets go`.
 
-- **C (conformance):** `36eadb9` — 9 un-skipped, 30 annotated.
-- **B (push):** `4ddb7e0..36eadb9` → origin/main. 10 commits, zero conflicts.
-- **A (wrap):** this file, user-voice append.
+- **1 (push)**: `needs: push` message sent to master inbox. Commit range `4ddb7e0..d23fd54`. 9 commits.
+- **2 (reply)**: per-bug summary messages dropped into giti + 6nz inboxes.
+- **3 (archive)**: both S34 incoming messages moved to `handOffs/incoming/read/`.
 
 ---
 
 ## 11. Summary for the next PA — one paragraph
 
-S33 took S32's ratified §54 amendment from partial (Phases 1/2/3 complete) to substantively whole across 10 commits + 1 conformance commit. Phase 4a (block-splitter transition-decl recognition) through Phase 4g (fn-level purity in transition bodies) all landed cleanly with dedicated unit-test coverage per sub-phase. Baseline held exactly: 7,262 → 7,322 pass / 40 skip / 2 fail, zero regressions across 331 test files. User can now write `< Submission> < Draft> validate() => < Validated> { ... } </> < Validated></> </>` and get E-STATE-TRANSITION-ILLEGAL on undeclared calls, E-STATE-TERMINAL-MUTATION on terminal-substate field writes, and E-FN-* on impure transition bodies — all with the `from` contextual keyword and declared params in scope. Phase 4h (return-type narrowing) is the only remaining sub-phase, blocked on a spec code-assignment gap (NEW NC-3). User explicitly directed S34 to open on giti + 6nz bug reports (giti has an unread P0 inbound with 5 codegen bugs blocking its Web UI end-to-end), not further Phase 4 work. Push authorized at wrap; all 10 commits on origin/main at `36eadb9`. SPEC-INDEX regenerated at session open and remains accurate.
+S34 cleared both adopter inboxes end-to-end. 11 bugs (5 giti + 6 6nz) spanning seven distinct codegen surfaces: comma separators in Object.freeze (E), event-handler wrapper arity (A), post-emit name mangler scope (D), logic-block import binding (GITI-002), control-flow declaredNames threading for let+conditional reassignment (B + F), arrow-with-block-body rawSource propagation + presence-guard bypass (C), server-fn-in-markup async-IIFE DOM wiring (GITI-005), server/client boundary separation via `boundary: "server"` lift lowering + external-js-import prune (GITI-003 + 004), and `<request>`/reactive-set awaited-Promise post-rewrite (GITI-001). Nine commits `aa92070..d23fd54`, all committed to main, push requested via master inbox per `feedback_push_protocol`. Suite 7,322 → 7,373 / 40 / 2 with zero regressions at every commit. 51 new tests across 8 new test files plus additions to 4 existing files. Tutorial `docs/tutorial-snippets/01e-bindings.scrml` now compiles to the behavior it advertises (A + D both reproduced on it). One latent bug flagged in the giti reply: `${@x.y}` markup emits a module-top bare read that throws pre-resolution for async-initialized reactives — pre-existing emission shape, not S34-introduced, available as follow-up. No new design insights, no spec changes, no new agents staged or retired. Both inbound messages archived to `handOffs/incoming/read/`; next session opens on replies from giti + 6nz (expected).
