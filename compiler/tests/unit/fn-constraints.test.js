@@ -796,20 +796,24 @@ describe("§9: E-STATE-COMPLETE — state literal with unassigned fields (§54.6
     expect(completeErrors.length).toBeGreaterThanOrEqual(2); // one for title, one for price
   });
 
-  test("E-STATE-COMPLETE not yet triggered for function (Phase 1b widening pending)", () => {
-    // Phase 1a preserves existing fn-only scope. Phase 1b universalizes to
-    // function bodies per §54.6.1 ("universal scope"). Test will invert
-    // when 1b lands: `expect(...).toBe(true)`.
+  test("E-STATE-COMPLETE fires for `function` bodies too (§54.6.1 universal scope, S32 Phase 1b)", () => {
+    // §54.6.1 relocated E-FN-006 → E-STATE-COMPLETE with universal scope.
+    // Where the old E-FN-006 only fired inside `fn`, the new rule fires at
+    // every state-literal site regardless of containing function form.
     const stateDef = makeStateCtorDef("User", ["name", "age"]);
     const stateInit = makeStateInit("u", "User");
     const nameAssign = makeFieldAssign("u", "name", '"alice"');
-    // No age assignment — but it's a `function`, not `fn`
+    // No age assignment — `function` body, universal check applies
     const ret = makeReturn("u");
 
     const fnDecl = makeFunctionDecl("buildUser", [stateInit, nameAssign, ret]);
     const errors = getFnErrorsWithStateDef([stateDef], [fnDecl]);
 
-    expect(errors.some(e => e.code === "E-STATE-COMPLETE")).toBe(false);
+    expect(errors.some(e => e.code === "E-STATE-COMPLETE")).toBe(true);
+    const err = errors.find(e => e.code === "E-STATE-COMPLETE");
+    expect(err.message).toContain("age");
+    expect(err.message).toContain("User");
+    expect(err.message).toContain("function buildUser");
   });
 });
 

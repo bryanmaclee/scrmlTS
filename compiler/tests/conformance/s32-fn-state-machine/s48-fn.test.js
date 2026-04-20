@@ -10,9 +10,24 @@
 
 import { describe, test, expect } from "bun:test";
 import { compileScrml } from "../../../src/api.js";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
-function diagnose(/* source */) {
-  throw new Error("diagnose() harness not yet implemented — see test body");
+/**
+ * Compile a scrml source string and return { errors, warnings }.
+ * Writes to a temp file, invokes compileScrml with write:false, cleans up.
+ */
+function diagnose(source) {
+  const dir = mkdtempSync(join(tmpdir(), "scrml-conf-"));
+  const path = join(dir, "app.scrml");
+  writeFileSync(path, source);
+  try {
+    const result = compileScrml({ inputFiles: [path], write: false, mode: "library" });
+    return { errors: result.errors || [], warnings: result.warnings || [] };
+  } finally {
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
 }
 
 describe("S32-004: §48.11/48.13 — `fn` SHALL be semantically equivalent to `pure function`", () => {
@@ -59,6 +74,9 @@ describe("S32-005: §48.13 — existing `fn` declarations SHALL be accepted with
 });
 
 describe("S32-006: §48.13/§54.6.1 — state literal completeness SHALL be enforced at the literal's closing tag", () => {
+  // Gates on Phase 3 (§54.2) parser support for inline-state-literal field
+  // assignments (`let p = < Product> name = n </>`). Type-system widening
+  // (Phase 1b) is complete; waiting on grammar.
   test.skip("CONF-S32-006a: E-STATE-COMPLETE fires inside `fn` at the literal close, not at `return`", () => {
     // Expected: the old E-FN-006 would point at `return p`. The new
     // E-STATE-COMPLETE SHALL point at the state literal's closing tag (`</>`),
@@ -83,6 +101,8 @@ describe("S32-006: §48.13/§54.6.1 — state literal completeness SHALL be enfo
     // Implementer: assert on line/column matches the closer token.
   });
 
+  // Gates on Phase 3 (§54.2) parser support; type-system widening (Phase 1b)
+  // is live and verified via fn-constraints.test.js §9 "function bodies too" test.
   test.skip("CONF-S32-006b: E-STATE-COMPLETE fires in plain `function` at the literal close (universal scope)", () => {
     // Expected: the same check applies in a bare `function` body — before S32,
     // E-FN-006 only fired inside `fn`. Now E-STATE-COMPLETE is universal.
@@ -104,6 +124,8 @@ describe("S32-006: §48.13/§54.6.1 — state literal completeness SHALL be enfo
 });
 
 describe("S32-007: §48 — E-FN-006 is retired (MUST NOT fire)", () => {
+  // Gates on Phase 3 parser support (same as CONF-S32-006*). E-FN-006 absence
+  // is verified via the type-system rename (commit dd5f41d, Phase 1a).
   test.skip("CONF-S32-007: no diagnostic with code 'E-FN-006' is emitted by the S32-compliant compiler", () => {
     // Expected: E-FN-006 is retired. The diagnostic catalog SHALL NOT emit
     // any diagnostic with code 'E-FN-006' under any circumstance. Its role

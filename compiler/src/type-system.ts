@@ -3477,8 +3477,15 @@ function annotateNodes(
         }
 
         // §48 fn body prohibition checks (E-FN-001 through E-FN-008)
+        // E-STATE-COMPLETE (§54.6.1) is emitted from within for fn bodies.
         if (n.fnKind === "fn" && Array.isArray(fnBody)) {
           checkFnBodyProhibitions(n, fnBody, errors, filePath, stateTypeRegistry, nonPureFnNames, scopeChain);
+        }
+
+        // §54.6.1 E-STATE-COMPLETE universal widening (S32 Phase 1b).
+        // Also covers `function` bodies per spec's universal scope.
+        if (n.fnKind !== "fn" && Array.isArray(fnBody)) {
+          checkFunctionBodyStateCompleteness(n, fnBody, errors, filePath, stateTypeRegistry);
         }
 
         resolvedType = fnType;
@@ -7951,6 +7958,149 @@ function checkFnBodyProhibitions(
       liftSpan,
     ));
   }
+}
+
+// ---------------------------------------------------------------------------
+// §54.6.1 — E-STATE-COMPLETE universal state-literal completeness check
+//
+// Added 2026-04-20 (S32 Phase 1b). Standalone check that runs for plain
+// `function` bodies (checkFnBodyProhibitions already handles the `fn` case).
+// Per §54.6.1 the completeness rule applies universally; this function
+// is the universalization gate for non-fn function forms.
+//
+// Implementation mirrors the fn-body state-completeness logic: collect
+// state instantiations (`let u = < User>`), track field assignments
+// (`u.name = ...`), and at every `return x` site verify all declared
+// fields of the returned state instance are loaded.
+//
+// Current diagnostic location: `return` statement. Phase 3+ will relocate
+// to the state literal's `</>` closer per the spec's "literal close" pointer.
+// ---------------------------------------------------------------------------
+function checkFunctionBodyStateCompleteness(
+  fnNode: ASTNodeLike,
+  body: ASTNodeLike[],
+  errors: TSError[],
+  _filePath: string,
+  stateTypeRegistry?: Map<string, ResolvedType>,
+): void {
+  if (!stateTypeRegistry) return;
+
+  const fnName = (fnNode.name as string) ?? "<anonymous>";
+  const fnSpan = (fnNode.span ?? { file: _filePath, start: 0, end: 0, line: 1, col: 1 }) as Span;
+  const stateInstances = new Map<string, string>();
+  const loadedFields = new Map<string, Set<string>>();
+
+  function collectStateInstances(nodes: ASTNodeLike[]): void {
+    for (const stmt of nodes) {
+      if (!stmt || typeof stmt !== "object") continue;
+      if (stmt.kind === "function-decl") continue; // nested function — own scope
+
+      if (stmt.kind === "state-instantiation" || stmt.kind === "state-init") {
+        const varName = stmt.name as string | undefined;
+        const typeName = (stmt.stateType ?? stmt.typeName ?? stmt.type) as string | undefined;
+        if (varName && typeName) {
+          stateInstances.set(varName, typeName);
+          loadedFields.set(varName, new Set());
+        }
+      }
+
+      if (
+        stmt.kind === "let-decl" ||
+        stmt.kind === "const-decl" ||
+        stmt.kind === "variable-decl"
+      ) {
+        const varName = stmt.name as string | undefined;
+        const stateTypeName = (stmt.stateType ?? stmt.instanceOf) as string | undefined;
+        if (varName && stateTypeName) {
+          stateInstances.set(varName, stateTypeName);
+          loadedFields.set(varName, new Set());
+        } else if (varName && typeof stmt.value === "string") {
+          const stateMatch = /^\s*<\s*([A-Z][A-Za-z0-9_]*)\s*>\s*$/.exec(stmt.value as string);
+          if (stateMatch) {
+            stateInstances.set(varName, stateMatch[1]);
+            loadedFields.set(varName, new Set());
+          }
+        }
+      }
+    }
+  }
+  collectStateInstances(body);
+
+  const FIELD_ASSIGN_RE = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*=[^=>]/;
+
+  function trackFieldAssignment(txt: string): void {
+    const m = FIELD_ASSIGN_RE.exec(txt);
+    if (!m) return;
+    const [, varName, fieldName] = m;
+    if (stateInstances.has(varName)) {
+      const set = loadedFields.get(varName) ?? new Set();
+      set.add(fieldName);
+      loadedFields.set(varName, set);
+    }
+  }
+
+  function walkBody(nodes: ASTNodeLike[]): void {
+    for (const stmt of nodes) {
+      if (!stmt || typeof stmt !== "object") continue;
+      if (stmt.kind === "function-decl") continue; // nested function — own scope
+
+      const stmtSpan = (stmt.span ?? fnSpan) as Span;
+
+      // Track field assignments from expression/statement text
+      if (typeof stmt.value === "string") {
+        trackFieldAssignment(stmt.value as string);
+      }
+      const txt = typeof stmt.value === "string" ? (stmt.value as string) : "";
+      if (txt) trackFieldAssignment(txt);
+
+      // E-STATE-COMPLETE at return site
+      if (stmt.kind === "return-stmt") {
+        const _retExprNode = (stmt as Record<string, unknown>).exprNode;
+        const returnValue = _retExprNode
+          ? (() => { try { return emitStringFromTree(_retExprNode as import("./types/ast.ts").ExprNode); } catch { return undefined; } })()
+          : (stmt.value ?? stmt.expr ?? stmt.expression) as unknown;
+        const returnVarName = typeof returnValue === "string" ? returnValue.trim() : undefined;
+        if (returnVarName) {
+          const typeName = stateInstances.get(returnVarName);
+          if (typeName) {
+            const stateType = stateTypeRegistry.get(typeName) as StateType | undefined;
+            if (stateType && stateType.attributes) {
+              const loaded = loadedFields.get(returnVarName) ?? new Set();
+              for (const [fieldName] of stateType.attributes) {
+                if (!loaded.has(fieldName)) {
+                  const declaredFields = [...stateType.attributes.keys()].join(", ");
+                  errors.push(new TSError(
+                    "E-STATE-COMPLETE",
+                    `E-STATE-COMPLETE: field \`${fieldName}\` of \`< ${typeName}>\` is unassigned at literal close.\n` +
+                    `  Binding: \`${returnVarName}\` (returned from \`function ${fnName}\` at line ${stmtSpan.line}).\n` +
+                    `  Declared fields: ${declaredFields}.\n` +
+                    `  On this evaluation path, \`${fieldName}\` was never assigned before the literal closed.\n` +
+                    `  Either assign \`${returnVarName}.${fieldName}\` before \`return\`, ` +
+                    `or give \`${fieldName}\` a default value in the \`< state ${typeName}>\` declaration.`,
+                    stmtSpan,
+                  ));
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Recurse into child node arrays
+      if (Array.isArray(stmt.body)) walkBody(stmt.body as ASTNodeLike[]);
+      if (Array.isArray(stmt.children)) walkBody(stmt.children as ASTNodeLike[]);
+      if (Array.isArray(stmt.consequent)) walkBody(stmt.consequent as ASTNodeLike[]);
+      if (Array.isArray(stmt.alternate)) walkBody(stmt.alternate as ASTNodeLike[]);
+      if (Array.isArray(stmt.then)) walkBody(stmt.then as ASTNodeLike[]);
+      if (Array.isArray(stmt.else)) walkBody(stmt.else as ASTNodeLike[]);
+      if (Array.isArray(stmt.arms)) {
+        for (const arm of stmt.arms as ASTNodeLike[]) {
+          if (Array.isArray(arm.body)) walkBody(arm.body as ASTNodeLike[]);
+        }
+      }
+    }
+  }
+  walkBody(body);
 }
 
 // ---------------------------------------------------------------------------
