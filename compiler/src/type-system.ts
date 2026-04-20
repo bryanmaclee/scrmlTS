@@ -3425,6 +3425,73 @@ function annotateNodes(
       }
 
       // ------------------------------------------------------------------
+      // Transition declaration (§54.3 Phase 4d)
+      // ------------------------------------------------------------------
+      case "transition-decl": {
+        const txName = (n.name as string) ?? "anon";
+        const fromSubstate = (n.fromSubstate as string | null) ?? null;
+
+        scopeChain.push(`transition:${fromSubstate ?? "?"}:${txName}`);
+
+        // Bind `from` to the enclosing substate's type. stateTypeRegistry may
+        // not yet hold the substate (forward-ref placeholder path); in that
+        // case we fall back to tAsIs() so the ident still resolves and
+        // downstream passes can refine later.
+        if (fromSubstate) {
+          const fromType: ResolvedType =
+            (stateTypeRegistry && stateTypeRegistry.get(fromSubstate)) ?? tAsIs();
+          scopeChain.bind("from", {
+            kind: "variable",
+            resolvedType: fromType,
+          });
+        }
+
+        // Parse paramsRaw and bind each param. Params shape: `name: type, ...`
+        // Type annotation optional. Simple top-level comma-split honoring
+        // paren/bracket nesting.
+        const rawParams = (n.paramsRaw as string | undefined) ?? "";
+        if (rawParams.trim().length > 0) {
+          const pieces: string[] = [];
+          let depth = 0;
+          let cur = "";
+          for (const ch of rawParams) {
+            if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
+            else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
+            if (ch === "," && depth === 0) { pieces.push(cur); cur = ""; }
+            else cur += ch;
+          }
+          if (cur.trim().length > 0) pieces.push(cur);
+          for (const piece of pieces) {
+            const colonIdx = piece.indexOf(":");
+            const paramName = (colonIdx >= 0 ? piece.slice(0, colonIdx) : piece).trim();
+            const paramTypeExpr = colonIdx >= 0 ? piece.slice(colonIdx + 1).trim() : "";
+            if (!paramName) continue;
+            let paramType: ResolvedType = tAsIs();
+            if (paramTypeExpr) {
+              const resolved = resolveTypeExpr(paramTypeExpr, typeRegistry);
+              if (resolved && resolved.kind !== "asIs") paramType = resolved;
+            }
+            scopeChain.bind(paramName, {
+              kind: "variable",
+              resolvedType: paramType,
+            });
+          }
+        }
+
+        // Walk the body statements. Default to client boundary; §33.6 purity
+        // rules apply uniformly so boundary is less load-bearing than for
+        // regular functions. Phase 4g will apply checkFnBodyProhibitions here.
+        const txBody = n.body as ASTNodeLike[] | undefined;
+        if (Array.isArray(txBody)) {
+          for (const stmt of txBody) visitLogicNode(stmt, "client");
+        }
+
+        scopeChain.pop();
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
       // Logic block (`${ }`)
       // ------------------------------------------------------------------
       case "logic": {

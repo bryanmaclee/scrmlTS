@@ -661,7 +661,7 @@ function parseTrailingTransitionSignature(text) {
  * Leading residual text BEFORE the signature is preserved as its own text
  * node so surrounding whitespace / comments / other content are not dropped.
  */
-function collapseTransitionDecls(children, filePath, counter) {
+function collapseTransitionDecls(children, filePath, counter, parentStateName) {
   const out = [];
   for (let i = 0; i < children.length; i++) {
     const cur = children[i];
@@ -697,6 +697,9 @@ function collapseTransitionDecls(children, filePath, counter) {
           name: sig.name,
           paramsRaw: sig.paramsRaw,
           targetSubstate: sig.target,
+          // §54.3 Phase 4d: the declaring state is the `from` binding type for
+          // expressions inside the body. Null at top-level states (no parent).
+          fromSubstate: parentStateName ?? null,
           body: Array.isArray(next.body) ? next.body : [],
           span: tdSpan,
         });
@@ -5809,8 +5812,10 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
 
       // S32 Phase 4b (§54.3): collapse `text-ending-in-signature` + `logic`
       // sibling pairs into `transition-decl` nodes. Non-matching children
-      // pass through untouched.
-      const children = collapseTransitionDecls(rawChildren, filePath, counter);
+      // pass through untouched. Phase 4d: stamp the declaring state's name
+      // as `fromSubstate` on each emitted transition-decl so the type
+      // system can bind `from` to that state's type inside the body.
+      const children = collapseTransitionDecls(rawChildren, filePath, counter, block.name);
 
       // S32 Phase 3a: if we are nested inside another state block, tag as substate (§54.2).
       const substateMetadata = parentStateName
