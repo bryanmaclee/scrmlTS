@@ -151,7 +151,7 @@ function emitCapturedBindings(node: any): string {
   }
 
   if (props.length === 0) return "null";
-  return ["Object.freeze({", ...props, "})"].join("\n");
+  return ["Object.freeze({", props.join(",\n"), "})"].join("\n");
 }
 
 /**
@@ -174,7 +174,7 @@ function emitTypeRegistryLiteral(node: any): string {
   }
 
   if (typeProps.length === 0) return "null";
-  return ["({", ...typeProps, "})"].join("\n");
+  return ["({", typeProps.join(",\n"), "})"].join("\n");
 }
 
 /**

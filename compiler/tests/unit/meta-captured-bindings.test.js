@@ -178,6 +178,51 @@ describe("meta-captured-bindings CB-7: Object.freeze wrapping", () => {
 });
 
 // ---------------------------------------------------------------------------
+// CB-9: Multi-property object literal is syntactically valid JS (separator regression)
+// Regression for bug where Object.freeze({ ... }) emitted no commas between
+// properties, producing `get count() {...} get label() {...} inc: ...` which
+// fails at node --check / in the browser with SyntaxError: Unexpected token 'get'.
+// ---------------------------------------------------------------------------
+
+describe("meta-captured-bindings CB-9: multi-property output is valid JS", () => {
+  test("two getters emit a comma between them", () => {
+    const node = makeMetaNodeWithScope([makeBareExpr("x()")], 9, [
+      { name: "count", kind: "reactive" },
+      { name: "label", kind: "reactive" },
+    ]);
+    const output = emitLogicNode(node);
+    // A comma must appear between the two getter declarations
+    expect(output).toMatch(/get count\(\)[^}]*\}\s*,\s*get label\(\)/);
+  });
+
+  test("mixed getter + let property emits comma between them", () => {
+    const node = makeMetaNodeWithScope([makeBareExpr("x()")], 10, [
+      { name: "count", kind: "reactive" },
+      { name: "inc", kind: "let" },
+    ]);
+    const output = emitLogicNode(node);
+    expect(output).toMatch(/get count\(\)[^}]*\}\s*,\s*inc: inc/);
+  });
+
+  test("the emitted Object.freeze literal is parseable as JS", () => {
+    const node = makeMetaNodeWithScope([makeBareExpr("x()")], 11, [
+      { name: "count", kind: "reactive" },
+      { name: "label", kind: "reactive" },
+      { name: "inc", kind: "let" },
+    ]);
+    const output = emitLogicNode(node);
+    // Extract just the Object.freeze(...) argument and parse it as an expression.
+    // If the old buggy emission returns, this throws SyntaxError.
+    const match = output.match(/Object\.freeze\(\{[\s\S]*?\}\)/);
+    expect(match).not.toBeNull();
+    // Define a local `inc` so the direct-reference property doesn't fail resolution at parse.
+    // We only care about syntactic validity — `new Function` performs a parse.
+    expect(() => new Function("_scrml_reactive_get", "inc", `return ${match[0]};`))
+      .not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CB-8: @var getter uses source name (not encoded)
 // ---------------------------------------------------------------------------
 
