@@ -1,7 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 import { emitLogicNode } from "./emit-logic.js";
-import { rewriteExpr } from "./rewrite.js";
 import { CGError } from "./errors.ts";
 import {
   collectTopLevelLogicStatements,

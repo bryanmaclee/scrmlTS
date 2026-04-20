@@ -5,7 +5,7 @@ import { collectFunctions, collectServerVarDecls, callableServerVarDecls } from 
 import { emitLogicNode } from "./emit-logic.ts";
 import { getNodes } from "./collect.ts";
 import { collectChannelNodes, emitChannelServerJs, emitChannelWsHandlers } from "./emit-channel.ts";
-import { rewriteExpr, rewriteServerExpr, serverRewriteEmitted } from "./rewrite.ts";
+import { serverRewriteEmitted } from "./rewrite.ts";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import type { CompileContext } from "./context.ts";
 import { emitServerParamCheck, parsePredicateAnnotation } from "./emit-predicates.ts";

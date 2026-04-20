@@ -1,5 +1,4 @@
 import { genVar } from "./var-counter.ts";
-import { rewriteExpr } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { exprNodeCollectCallees } from "../expression-parser.ts";
 import { emitLogicNode } from "./emit-logic.js";
