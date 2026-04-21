@@ -1,5 +1,5 @@
 import { genVar } from "./var-counter.ts";
-import { rewriteExpr, rewriteExprWithDerived, extractSqlParams, rewriteTildeRef } from "./rewrite.js";
+import { extractSqlParams, rewriteTildeRef } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
@@ -495,9 +495,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
           ? extractReactiveDepsFromExprNode(node.initExpr)
           : extractReactiveDeps(tildeInit);
         if (tildeDeps.size > 0) {
-          const rewrittenBody = node.initExpr
-            ? emitExpr(node.initExpr, { ..._makeExprCtx(opts), derivedNames })
-            : rewriteExprWithDerived(tildeInit, derivedNames);
+          const rewrittenBody = emitExprField(node.initExpr, tildeInit, { ..._makeExprCtx(opts), derivedNames });
           const ctx = opts.encodingCtx;
           const encodedName = ctx ? ctx.encode(node.name) : node.name;
           const lines: string[] = [];
@@ -594,9 +592,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         return `/* W-DERIVED-001: const @${node.name} has no reactive dependencies — treating as const */ const ${node.name} = ${derivedRhs};`;
       }
 
-      const rewrittenBody = node.initExpr
-        ? emitExpr(node.initExpr, { ..._makeExprCtx(opts), derivedNames })
-        : rewriteExprWithDerived(derivedInit, derivedNames);
+      const rewrittenBody = emitExprField(node.initExpr, derivedInit, { ..._makeExprCtx(opts), derivedNames });
       const ctx = opts.encodingCtx;
       const encodedDeclName = ctx ? ctx.encode(node.name) : node.name;
 

@@ -37,7 +37,7 @@ import type {
   InputStateRefExpr,
   EscapeHatchExpr,
 } from "../types/ast.ts";
-import { rewriteExpr, rewriteServerExpr, rewriteExprArrowBody, rewriteServerExprArrowBody } from "./rewrite.js";
+import { rewriteExpr, rewriteServerExpr, rewriteExprArrowBody, rewriteServerExprArrowBody, rewriteExprWithDerived } from "./rewrite.js";
 
 // ---------------------------------------------------------------------------
 // EmitExprContext — threaded through every emit call
@@ -100,10 +100,16 @@ export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
  * If exprNode is missing (legacy AST or unparseable expression), falls back to
  * the string rewrite pipeline. The fallback is expected to be dead code for
  * well-formed scrml — Slice 4b will remove it entirely.
+ *
+ * Client-mode fallback routes through rewriteExprWithDerived so ctx.derivedNames
+ * is honored on the fallback path (@derived → _scrml_derived_get vs @reactive →
+ * _scrml_reactive_get). When derivedNames is null/empty, rewriteExprWithDerived
+ * delegates to rewriteExpr — char-identical to the previous behavior.
  */
 export function emitExprField(exprNode: ExprNode | null | undefined, fallbackStr: string, ctx: EmitExprContext): string {
   if (exprNode) return emitExpr(exprNode, ctx);
-  return ctx.mode === "server" ? rewriteServerExpr(fallbackStr) : rewriteExpr(fallbackStr);
+  if (ctx.mode === "server") return rewriteServerExpr(fallbackStr);
+  return rewriteExprWithDerived(fallbackStr, ctx.derivedNames ?? null);
 }
 
 // ---------------------------------------------------------------------------
