@@ -1,5 +1,4 @@
-import { rewriteExpr } from "./rewrite.js";
-import { emitExpr, emitExprField } from "./emit-expr.ts";
+import { emitExprField } from "./emit-expr.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 import { emitLogicNode } from "./emit-logic.js";
 import { genVar } from "./var-counter.ts";
@@ -394,9 +393,9 @@ function emitSetAttrs(elVar, attrs) {
         ? (() => {
             const parts = [];
             parseLiftContentParts(attr.value, parts);
-            return parts.map(p => p.type === "expr" ? rewriteExpr(p.value) : p.value).join("");
+            return parts.map(p => p.type === "expr" ? emitExprField(null, p.value, { mode: "client" }) : p.value).join("");
           })()
-        : rewriteExpr(attr.value);
+        : emitExprField(null, attr.value, { mode: "client" });
       lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${handlerExpr}; });`);
     } else {
       // Check if the value contains interpolation (compact or tokenizer-spaced)
@@ -407,7 +406,7 @@ function emitSetAttrs(elVar, attrs) {
         let tpl = "`";
         for (const p of parts) {
           if (p.type === "expr") {
-            tpl += "${" + rewriteExpr(rewriteRenderCall(p.value)) + "}";
+            tpl += "${" + emitExprField(null, rewriteRenderCall(p.value), { mode: "client" }) + "}";
           } else {
             tpl += p.value.replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
           }
@@ -445,7 +444,7 @@ function emitSetContent(elVar, parts) {
   let tpl = "`";
   for (const p of parts) {
     if (p.type === "expr") {
-      tpl += "${" + rewriteExpr(rewriteRenderCall(p.value)) + "}";
+      tpl += "${" + emitExprField(null, rewriteRenderCall(p.value), { mode: "client" }) + "}";
     } else {
       tpl += p.value.replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
     }
@@ -494,8 +493,8 @@ function emitCreateElementFromMarkup(node, lines) {
       // Function call in attribute — reconstruct full call with arguments
       const rewrittenArgs = val.argExprNodes
         ? val.argExprNodes.map(n => emitExprField(n, "", { mode: "client" })).join(", ")
-        : (val.args || []).map(a => rewriteExpr(a.trim())).join(", ");
-      const rewrittenName = rewriteExpr(val.name);
+        : (val.args || []).map(a => emitExprField(null, a.trim(), { mode: "client" })).join(", ");
+      const rewrittenName = emitExprField(null, val.name, { mode: "client" });
       const callExpr = `${rewrittenName}(${rewrittenArgs})`;
       if (/^on[a-z]/.test(name)) {
         const eventName = name.replace(/^on/, "");
@@ -541,9 +540,7 @@ function emitCreateElementFromMarkup(node, lines) {
         if (child.body) {
           for (const logicChild of child.body) {
             if (logicChild && logicChild.kind === "bare-expr" && logicChild.expr) {
-              const rewritten = logicChild.exprNode
-                ? emitExpr(logicChild.exprNode, { mode: "client" })
-                : rewriteExpr(rewriteRenderCall(logicChild.expr));
+              const rewritten = emitExprField(logicChild.exprNode, rewriteRenderCall(logicChild.expr), { mode: "client" });
               lines.push(`${elVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`);
             }
           }
@@ -844,9 +841,7 @@ function emitForStmtWithContainer(forNode, containerElVar) {
     }
   }
 
-  const rewrittenIterable = forNode.iterExpr
-    ? emitExpr(forNode.iterExpr, { mode: "client" })
-    : rewriteExpr(iterable);
+  const rewrittenIterable = emitExprField(forNode.iterExpr, iterable, { mode: "client" });
   lines.push(`for (const ${varName} of ${rewrittenIterable}) {`);
 
   const body = forNode.body ?? [];
@@ -1127,9 +1122,7 @@ export function emitConsolidatedLift(body, opts = {}) {
               if (elVar) {
                 const attrName = pendingAttrName;
                 pendingAttrName = null;
-                const rewritten = logicChild.exprNode
-                  ? emitExpr(logicChild.exprNode, { mode: "client" })
-                  : rewriteExpr(logicChild.expr);
+                const rewritten = emitExprField(logicChild.exprNode, logicChild.expr, { mode: "client" });
                 if (/^on[a-z]/.test(attrName)) {
                   const eventName = attrName.replace(/^on/, "");
                   lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
@@ -1384,9 +1377,7 @@ export function emitLiftExpr(node, opts = {}) {
     }
 
     // No tag pattern at all — emit as text node
-    const rewritten = liftExpr.exprNode
-      ? emitExpr(liftExpr.exprNode, { mode: "client" })
-      : rewriteExpr(expr);
+    const rewritten = emitExprField(liftExpr.exprNode, expr, { mode: "client" });
     if (containerVar) {
       return `${containerVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`;
     }

@@ -15,7 +15,7 @@
  *   _scrml_reactive_set("varName", newValue);
  */
 
-import { rewriteExpr } from "./rewrite.ts";
+import { emitExprField } from "./emit-expr.ts";
 import { CGError } from "./errors.ts";
 
 // ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ export function emitProjectionFunction(machine: DerivedMachineLike): string[] {
       // before emitting the guard as a JS expression. rule.guard captures
       // raw scrml text from the machine body; without this rewrite, guards
       // referencing reactive vars emit invalid JS (raw `@name` token).
-      const guardJs = rewriteExpr(rule.guard);
+      const guardJs = emitExprField(null, rule.guard, { mode: "client" });
       lines.push(`  if (tag === "${rule.from}" && (${guardJs})) return ${toLiteral};`);
     } else {
       lines.push(`  if (tag === "${rule.from}") return ${toLiteral};`);
@@ -463,7 +463,7 @@ function emitElidedTransition(
     lines.push(`  // Effect block (from matched rule ${matchedRule.from}:${matchedRule.to})`);
     lines.push(`  {`);
     lines.push(`    var event = { from: __prev, to: __next };`);
-    lines.push(`    ${rewriteExpr(matchedRule.effectBody!)}`);
+    lines.push(`    ${emitExprField(null, matchedRule.effectBody!, { mode: "client" })}`);
     lines.push(`  }`);
   }
 
@@ -593,7 +593,7 @@ export function emitTransitionGuard(
       // §51.5 (S26) — rewrite @reactive refs to _scrml_reactive_get(...) for
       // the JS evaluation. Diagnostic "Guard:" text keeps the raw scrml form
       // so the user sees the source they wrote.
-      const guardJs = rewriteExpr(rule.guard);
+      const guardJs = emitExprField(null, rule.guard, { mode: "client" });
       const guardDiag = rule.guard.replace(/"/g, '\\"');
       // S27: match against __matchedKey (the canonical rule key the
       // wildcard-fallback chain resolved to) rather than __key (the
@@ -641,7 +641,7 @@ export function emitTransitionGuard(
       // same pipeline used for all other logic-context expressions
       // (reactive-ref rewrite, match lowering, fn-keyword, etc.) so the
       // effect body behaves like any other bare statement.
-      lines.push(`    ${rewriteExpr(rule.effectBody)}`);
+      lines.push(`    ${emitExprField(null, rule.effectBody, { mode: "client" })}`);
       lines.push(`  }`);
     }
   }
