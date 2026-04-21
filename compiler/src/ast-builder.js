@@ -4084,10 +4084,21 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
       }
 
-      // Skip return type annotation — `: TypeName` between `)` and `{`
-      // Handles: `: Mario`, `: HurtResult`, `: Array<Thing>`, etc.
+      // Skip return type annotation — `: TypeName` or `-> TypeName` between `)` and `{`
+      // Handles: `: Mario`, `: HurtResult`, `-> string`, `: Array<Thing>`, etc.
       if (peek().text === ":") {
         consume(); // consume `:`
+        let angleDepth = 0;
+        while (peek().kind !== "EOF") {
+          if (peek().text === "<") { angleDepth++; consume(); }
+          else if (peek().text === ">") { angleDepth--; consume(); }
+          else if (peek().text === "{" && angleDepth === 0) break;
+          else consume();
+        }
+      } else if (!canFail && peek().text === "-" && peek(1)?.text === ">") {
+        // Non-failable `-> ReturnType` (failable `-> ErrorType` already handled above)
+        consume(); // consume `-`
+        consume(); // consume `>`
         let angleDepth = 0;
         while (peek().kind !== "EOF") {
           if (peek().text === "<") { angleDepth++; consume(); }

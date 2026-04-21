@@ -23,6 +23,8 @@
  *   §7  nested function inside logic block — body non-empty (Site 1)
  *   §8  multi-generic return type — Map<string, Mario> — body non-empty
  *   §9  return type with dotted path — Result.Ok — body non-empty
+ *   §10 fn shorthand with `-> Type` arrow return — body non-empty (Bug G)
+ *   §11 fn shorthand with `-> Type | not` union return — body non-empty (Bug G)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -137,6 +139,29 @@ describe("ast-builder return type skip", () => {
   test("§9 dotted return type path — body is non-empty", () => {
     const fn = parseFunctionDecl("function getStatus(): Result.Ok { return ok }");
     expect(fn).toBeDefined();
+    expect(fn.body.length).toBeGreaterThan(0);
+  });
+
+  // §10: Bug G regression — fn shorthand with `-> Type` arrow return.
+  //
+  // Before the fix, the fn-shorthand parsing branch only handled `: TypeName`
+  // (colon form). A declaration like `fn foo(p: T) -> string { body }` would
+  // leave body = [] (empty) AND leak the `-`, `>`, type tokens, and `{` as
+  // subsequent top-level bare-exprs. 6nz hit this writing playground-one;
+  // examples/14-mario-state-machine.scrml already shipped the pattern.
+  test("§10 fn shorthand with -> return type — body is non-empty (Bug G)", () => {
+    const fn = parseFnDecl("fn colorName(c: Color) -> string { return c }");
+    expect(fn).toBeDefined();
+    expect(fn.fnKind).toBe("fn");
+    expect(fn.body.length).toBeGreaterThan(0);
+  });
+
+  // §11: Bug G regression — fn shorthand with `-> Type | not` union return.
+  // Covers the same fix path with a more elaborate type expression.
+  test("§11 fn shorthand with -> union return type — body is non-empty (Bug G)", () => {
+    const fn = parseFnDecl("fn safeDiv(a: number, b: number) -> number | not { return a / b }");
+    expect(fn).toBeDefined();
+    expect(fn.fnKind).toBe("fn");
     expect(fn.body.length).toBeGreaterThan(0);
   });
 });
