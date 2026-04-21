@@ -1,4 +1,4 @@
-import { rewriteExpr } from "../rewrite.js";
+import { emitExprField } from "../emit-expr.ts";
 
 // ---------------------------------------------------------------------------
 // Self-host override support
@@ -219,9 +219,9 @@ export function splitMergedStatements(firstName, initStr, declType) {
     if (match) {
       const currentValue = match[1].trim();
       if (currentType === "reactive" || currentType === "reactive-decl") {
-        statements.push(`_scrml_reactive_set(${JSON.stringify(currentName)}, ${rewriteExpr(currentValue)});`);
+        statements.push(`_scrml_reactive_set(${JSON.stringify(currentName)}, ${emitExprField(null, currentValue, { mode: "client" })});`);
       } else {
-        statements.push(`${currentType} ${currentName} = ${rewriteExpr(currentValue)};`);
+        statements.push(`${currentType} ${currentName} = ${emitExprField(null, currentValue, { mode: "client" })};`);
       }
       currentName = match[2];
       // Determine type of next declaration
@@ -241,20 +241,20 @@ export function splitMergedStatements(firstName, initStr, declType) {
       if (valueParts.length > 1) {
         // First part is the actual variable value; rest are trailing statements
         if (currentType === "reactive" || currentType === "reactive-decl") {
-          statements.push(`_scrml_reactive_set(${JSON.stringify(currentName)}, ${rewriteExpr(valueParts[0].trim())});`);
+          statements.push(`_scrml_reactive_set(${JSON.stringify(currentName)}, ${emitExprField(null, valueParts[0].trim(), { mode: "client" })});`);
         } else {
-          statements.push(`${currentType} ${currentName} = ${rewriteExpr(valueParts[0].trim())};`);
+          statements.push(`${currentType} ${currentName} = ${emitExprField(null, valueParts[0].trim(), { mode: "client" })};`);
         }
         for (let k = 1; k < valueParts.length; k++) {
           const s = valueParts[k].trim();
-          if (s) statements.push(`${rewriteExpr(s)};`);
+          if (s) statements.push(`${emitExprField(null, s, { mode: "client" })};`);
         }
       } else {
         // Single value — emit as-is
         if (currentType === "reactive" || currentType === "reactive-decl") {
-          statements.push(`_scrml_reactive_set(${JSON.stringify(currentName)}, ${rewriteExpr(finalValue)});`);
+          statements.push(`_scrml_reactive_set(${JSON.stringify(currentName)}, ${emitExprField(null, finalValue, { mode: "client" })});`);
         } else {
-          statements.push(`${currentType} ${currentName} = ${rewriteExpr(finalValue)};`);
+          statements.push(`${currentType} ${currentName} = ${emitExprField(null, finalValue, { mode: "client" })};`);
         }
       }
       remaining = null;

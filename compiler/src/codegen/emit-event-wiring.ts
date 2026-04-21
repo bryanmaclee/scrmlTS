@@ -1,6 +1,6 @@
-import { rewriteExpr, rewriteReactiveRefs } from "./rewrite.js";
+import { rewriteReactiveRefs } from "./rewrite.js";
 import { rewriteBlockBody } from "./emit-control-flow.ts";
-import { emitExpr, emitExprField } from "./emit-expr.ts";
+import { emitExprField } from "./emit-expr.ts";
 import type { ExprNode } from "../types/ast.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
@@ -238,9 +238,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       } else if (isArrowFunction(binding.handlerExpr)) {
         // Case B: Arrow function — rewrite reactive refs in the expression but
         // do not add an outer wrapper.
-        handlerExpr = binding.handlerExprNode
-          ? emitExpr(binding.handlerExprNode, { mode: "client" })
-          : rewriteExpr(binding.handlerExpr);
+        handlerExpr = emitExprField(binding.handlerExprNode, binding.handlerExpr, { mode: "client" });
       } else {
         // Case C: Plain expression or statement body. Rewrite and wrap.
         const rewritten = rewriteBlockBody(binding.handlerExpr);
@@ -362,9 +360,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         // no @-prefixed reactive refs) to silently fall through, producing no output.
         // condExpr is valid even when refs is empty — emit the condition unconditionally.
         if (binding.condExpr) {
-          const compiled = binding.condExprNode
-            ? emitExpr(binding.condExprNode, { mode: "client" })
-            : rewriteExpr(binding.condExpr);
+          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client" });
           conditionCode = `(${compiled})`;
           subscribeVars = binding.refs ?? [];
         } else if (binding.varName) {
@@ -449,9 +445,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // reactivity on the fetch result); a future arc will add fine-grained
       // reactivity for server-fn returns.
       if (varRefs.length === 0 && exprUsesServerFn(expr, serverFnNames)) {
-        const rewrittenExpr = binding.exprNode
-          ? emitExpr(binding.exprNode, { mode: "client" })
-          : rewriteExpr(expr);
+        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client" });
 
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
@@ -463,9 +457,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       }
 
       if (varRefs.length > 0) {
-        let rewrittenExpr = binding.exprNode
-          ? emitExpr(binding.exprNode, { mode: "client" })
-          : rewriteExpr(expr);
+        let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client" });
 
         // When encoding is active, replace _scrml_reactive_get("name") with encoded names
         if (encodingCtx && encodingCtx.enabled) {
