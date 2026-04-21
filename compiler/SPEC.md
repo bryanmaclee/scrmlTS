@@ -4213,12 +4213,12 @@ Inside a logic context, two lazy function declaration forms are supported in add
 | Form | Semantics |
 |---|---|
 | `function name() { ... }` | Standard JS function. Lazy — executes on call, not on render. Unconstrained. |
-| `fn name { ... }` | Constrained state factory. **Not** a shorthand alias for `function`. See §48. |
+| `fn name { ... }` | Ergonomic shorthand for `pure function` (§33, §48). Not equivalent to bare `function`. |
 | Bare expression | Executes immediately on render (initial mount). See Section 17.3. |
 
 - A function body declared with `function` SHALL execute only when explicitly called.
 - A `fn` body SHALL execute only when explicitly called and is subject to the five body prohibitions and return-site completeness checks defined in §48.
-- `fn` and `function` are distinct declarations. `fn` enforces purity constraints; `function` is unconstrained. See §48.11.
+- `fn` is semantically equivalent to `pure function` (§48.11) and is distinct from bare `function` (no `pure` modifier). Bare `function` is unconstrained; `fn` and `pure function` enforce the purity contract of §33.3. See §48.11.
 - A bare expression in a logic context (not wrapped in a function declaration) SHALL execute at initial render.
 - The compiler SHALL treat calls to server-inferred functions as async call sites and insert `await` automatically (see Section 13).
 
@@ -12005,37 +12005,41 @@ ${ pure fn double { return ~ * 2; } }
 
 ### 33.3 Purity Constraints
 
+**Amended 2026-04-21 (S37).** Non-determinism and async were absorbed into the base purity contract so `pure function` and `fn` (§48) enforce the same set of prohibitions. Prior to this amendment, §33.3 listed six constraints and §48.3 listed five overlapping-but-not-identical prohibitions; the two sets are now merged.
+
 A `pure` function SHALL NOT:
 
 1. Mutate any value outside its own scope (no assignment to outer variables, no property mutation on external objects).
-2. Perform server calls or database access (no `?{ }` SQL contexts, no `< db>` operations). Additionally, declaring a function `server` is itself a side-effect declaration from the caller's perspective — the function will be executed remotely, involving network I/O. Therefore `pure server` co-declaration is always E-RI-001, regardless of the function body's contents.
+2. Perform database access in the body (no `?{ }` SQL contexts, no `< db>` operations inside the function body). The `server` modifier is orthogonal: it designates execution-site dispatch, not a body-level side effect. A `server pure function` (equivalently `server fn`, §48.10) is valid — the body must still satisfy every §33.3 constraint, and the network transport is a compiler-mediated call mechanism that is deterministic in value (same inputs → same outputs) from the developer's standpoint. Network failure surfaces through the orthogonal `!` error-return path (§19), not as non-determinism.
 3. Mutate the DOM (no element creation, no attribute modification).
 4. Use `lift` (§10) — `lift` accumulates into a parent context, which is a side effect.
 5. Mutate `@` reactive variables (§6).
 6. Call a non-`pure` function, unless the call is provably side-effect-free (e.g., built-in math functions).
+7. Call any non-deterministic built-in (`Date.now`, `Math.random`, `crypto.randomUUID`, `performance.now`, and the enumerated list in §48.3.4). Non-deterministic values SHALL be passed as parameters.
+8. Carry the `async` modifier or contain `await`. `pure` and `async` are semantically irreconcilable — an `async` function returns a `Promise` whose resolution depends on external scheduling, which is itself a form of observable side effect (timing-dependent output for the same inputs).
 
 ### 33.4 Error Codes
 
-- **E-PURE-001**: `pure` function body contains a purity violation (mutation, server call, DOM mutation, or `lift`).
+- **E-PURE-001**: `pure` function body contains a purity violation (mutation, DB access, DOM mutation, non-deterministic call, `lift`, `async`/`await`, or call to a non-pure function). **Amended 2026-04-21 (S37):** "server call" removed — server dispatch is an execution-site concern, not a body-level violation (§33.3 item 2).
 - **E-PURE-002**: `pure` function calls a non-`pure` function.
-- **E-RI-001**: A function that is both `pure` and server-escalated (§12.5). The `pure` guarantee and server execution are irreconcilable.
 - **W-PURE-REDUNDANT** (added 2026-04-20, S32): `pure` applied to a declaration that is already pure by context (e.g., `pure fn`, `pure transition`). The modifier has no additional effect. Author MAY remove the redundant modifier.
+- **~~E-RI-001~~** (retired 2026-04-21, S37): formerly fired on `pure` + `server` co-declaration under the "server is a caller-perspective side effect" framing. Retired because `server` is an execution-site dispatch directive, not a body-level side effect; client↔server transport is deterministic from the developer's standpoint. `server pure function` / `server fn` are valid forms (§48.10). The error code was never emitted by the compiler and no ratified test covered it.
 
 ### 33.5 Normative Statements
 
-- The compiler SHALL verify purity constraints at the TS stage (Stage 6). RI (Stage 5) detects the `pure` + server conflict (E-RI-001) but does not verify full purity.
+- The compiler SHALL verify purity constraints at the TS stage (Stage 6). **Amended 2026-04-21 (S37).** The former "RI detects pure+server conflict (E-RI-001)" clause is retired — E-RI-001 was retired and `server` + `pure` is a valid co-declaration (§33.3 item 2, §48.10).
 - A `pure` function MAY be evaluated at compile time if all its arguments are compile-time constants.
 - The `pure` keyword is an assertion by the developer. The compiler validates it; the developer does not need to prove purity manually.
 
 ### 33.6 Relationship to `fn` and state-local transitions
 
-**Added 2026-04-20 (S32).**
+**Added 2026-04-20 (S32). Amended 2026-04-21 (S37)** to remove the "weaker pure function level" qualifier now that §33.3 absorbs non-determinism and async.
 
-`fn` is an ergonomic shorthand for `pure function`. Both forms enforce identical purity constraints; `fn` additionally raises the fn-boundary-specific E-FN-001..005, E-FN-007..009 diagnostics, which are specialized subcategories of E-PURE-001 with more targeted error messages.
+`fn` is an ergonomic shorthand for `pure function`. Both forms enforce identical purity constraints (§33.3). `fn` additionally raises the fn-boundary-specific E-FN-001..005, E-FN-007..009 diagnostics, which are specialized subcategories of E-PURE-001 with more targeted error messages. The underlying contract is identical; only the diagnostic text differs.
 
-State-local transition bodies (§54.3) are implicitly pure at the `fn`-level (not the weaker `pure function` level). This means transition bodies are subject to the five body prohibitions of §48.3 AND the non-determinism prohibition of E-FN-004. Authors writing transitions MAY NOT call `Date.now()`, `Math.random()`, or other non-deterministic built-ins inside a transition body; these values SHALL be passed as parameters to the transition.
+State-local transition bodies (§54.3) are implicitly pure. Because `fn` and `pure function` now enforce the same contract, the prior distinction between "fn-level" and "weaker pure function level" is retired. Transition bodies are subject to every constraint in §33.3 — authors MAY NOT call `Date.now()`, `Math.random()`, or other non-deterministic built-ins inside a transition body; these values SHALL be passed as parameters to the transition.
 
-Rationale: the stronger contract (fn-level) preserves the `< machine>` subsystem's replay (§51.14), audit (§51.11), and auto-property-test (§51.13) guarantees, which all assume deterministic transitions.
+Rationale: the unified purity contract preserves the `< machine>` subsystem's replay (§51.14), audit (§51.11), and auto-property-test (§51.13) guarantees, which all assume deterministic transitions.
 
 ---
 
@@ -12120,7 +12124,7 @@ Rationale: the stronger contract (fn-level) preserves the `< machine>` subsystem
 | E-PROTECT-001 | §11.3.2 | Protected field accessed on client type | Error |
 | E-PROTECT-002 | §11.3.3 | Code accessing protected field may run client-side | Error |
 | E-ROUTE-001 | §12.4 | Unresolvable callee or computed member access in route analysis | Warning |
-| E-RI-001 | §33.5, §12 | Function declared both `pure` and server-escalated | Error |
+| ~~E-RI-001~~ | — | **Retired 2026-04-21 (S37)**; `server pure` is now valid (§33.3, §48.10). | — |
 | E-RI-002 | §12 | Server-escalated function mutates `@` reactive variable | Error |
 | E-IMPORT-001 | §21.2 | `export` used outside a `${ }` context or component `const` | Error |
 | E-IMPORT-002 | §21.3 | Circular import detected | Error |
@@ -15219,7 +15223,7 @@ fn buildProfile(id) {
 }
 ```
 
-> E-FN-001: `fn` body contains a `?{}` SQL access at line N. `fn` is a pure state factory and may not perform database operations. Move the `?{}` query outside `fn` and pass the result as a parameter.
+> E-FN-001: `fn` body contains a `?{}` SQL access at line N. `fn` is a pure function and may not perform database operations. Move the `?{}` query outside `fn` and pass the result as a parameter.
 
 #### 48.3.2 E-FN-002 — DOM Mutation
 
@@ -15237,7 +15241,7 @@ fn buildWidget() {
 }
 ```
 
-> E-FN-002: `fn` body contains a DOM mutation call (`document.createElement`) at line N. `fn` is a pure state factory and may not mutate the DOM. Use `<state>` fields to hold configuration data; let the runtime render the DOM from state.
+> E-FN-002: `fn` body contains a DOM mutation call (`document.createElement`) at line N. `fn` is a pure function and may not mutate the DOM. Use `<state>` fields to hold configuration data; let the runtime render the DOM from state.
 
 #### 48.3.3 E-FN-003 — Outer-Scope Variable Mutation
 
@@ -15444,7 +15448,7 @@ fn buildUser(name, city, country) {
 
 A `fn` body SHALL NOT call a `function`-declared callable (§7.3), because `function` declarations carry no purity guarantees and may contain any of the five prohibited constructs. Calling a `function` from inside `fn` is E-FN-003 (outer-scope mutation vector) unless the compiler can statically verify the `function` body satisfies all five prohibitions — which is only possible for `pure function` declarations.
 
-**Exception:** A `fn` body MAY call a `pure function` (§33), because `pure function` satisfies a strict superset of `fn`'s body prohibitions.
+**Exception:** A `fn` body MAY call a `pure function` (§33), because `pure function` enforces the same purity contract as `fn` (§33.3, §48.11). The two forms are semantically equivalent at the declaration site.
 
 ```scrml
 pure function double(x) { return x * 2; }
@@ -15517,13 +15521,11 @@ When a return type annotation is absent:
 
 ### 48.9 Relationship to `pure` (§33)
 
-`pure fn` is a valid combination. `pure` adds the constraint that the function is memoization-safe and MAY be evaluated at compile time if all arguments are compile-time constants (§33.5). The five `fn` body prohibitions are a strict subset of `pure`'s purity constraints. Therefore:
+**Amended 2026-04-21 (S37).** `fn` and `pure function` enforce the same purity contract (§33.3). `pure fn` is therefore redundant — the compiler emits W-PURE-REDUNDANT (§33.4) because `fn` is already pure by definition.
 
-- Every valid `fn` body is a subset of what `pure` allows.
-- `pure fn` is valid and enforces both constraint sets.
-- `pure function` (without `fn`) is NOT a state factory and does not trigger field phase tracking.
+`pure function` is equivalent to `fn` at the declaration site; it enforces every constraint listed in §33.3, including the non-determinism and async prohibitions that §48 raises as E-FN-004 and E-FN-005. The two forms produce different diagnostic text (E-PURE-001 vs E-FN-001..005) but verify the same body invariants.
 
-The combination `pure fn` does not add any constraints beyond what `fn` already enforces (since `fn`'s five prohibitions fully imply purity). `pure` adds the optimizer permission to memoize and evaluate at compile time.
+The `pure` modifier does not add runtime or verification constraints beyond what §33.3 already imposes. What it does signal to the optimizer — wherever attached (`pure function`, `pure fn`, `pure method`) — is the permission to memoize the call and to evaluate it at compile time when all arguments are compile-time constants (§33.5).
 
 ### 48.10 Relationship to `server fn` (§12.5)
 
@@ -15531,7 +15533,7 @@ The combination `pure fn` does not add any constraints beyond what `fn` already 
 
 `server fn` MAY call `?{}` SQL contexts only if the SQL is not inside the `fn` body itself — the `fn` receives query results as parameters. If `?{}` appears inside a `server fn` body, E-FN-001 fires regardless of the execution context.
 
-Rationale: `fn` is a state factory, not a query executor. Database access is a coordination concern handled above the `fn` layer.
+Rationale: `fn` is a pure function, not a query executor. Database access is a coordination concern handled above the `fn` layer.
 
 ### 48.11 Relationship to `function` and `pure function`
 
@@ -15558,7 +15560,7 @@ Rationale: `fn` is a state factory, not a query executor. Database access is a c
 
 ### 48.13 Normative Statements
 
-- `fn` SHALL be a distinct declaration keyword from `function`. They are not aliases. (§48.11)
+- `fn` SHALL be a distinct declaration keyword from bare `function` (i.e. `function` without the `pure` modifier). `fn` is semantically equivalent to `pure function` (§48.11). (§48.11)
 - A `fn` body SHALL NOT contain a `?{}` SQL context at any syntactic nesting depth. The compiler SHALL emit E-FN-001. (§48.3.1)
 - A `fn` body SHALL NOT contain any DOM mutation call from the known-identifier list. The compiler SHALL emit E-FN-002. (§48.3.2)
 - A `fn` body SHALL NOT write to any variable declared outside the `fn`'s scope boundary. The compiler SHALL emit E-FN-003. (§48.3.3)
@@ -15580,7 +15582,7 @@ Rationale: `fn` is a state factory, not a query executor. Database access is a c
 
 ### 48.14 Worked Examples
 
-#### 48.14.1 Valid — Basic State Factory
+#### 48.14.1 Valid — Basic State Construction
 
 ```scrml
 <state Point>
@@ -15716,7 +15718,7 @@ fn buildUserFromDb(id) {
 Expected compiler output:
 ```
 E-FN-001: `fn buildUserFromDb` contains a `?{}` SQL access at line 2.
-  `fn` is a pure state factory and may not perform database operations.
+  `fn` is a pure function and may not perform database operations.
   Move the `?{}` query outside `fn` and pass the result as a parameter:
 
     let row = ?{ SELECT name, age FROM users WHERE id = $id }
@@ -15777,7 +15779,7 @@ E-FN-007: `fn buildEntity` returns `Product` at line 7 and `Category` at line 12
 - **§7.3 (Function Declaration Forms)** — `fn` is no longer a `function` alias. Table row updated by §48.11.
 - **§10 (lift)** — `lift` inside `fn` hoists to `fn`-body scope only. E-SYNTAX-002 ("lift inside a named function") is superseded for `fn` by E-FN-008 (scope-boundary violation) when the lift targets an outer `~`. E-SYNTAX-002 continues to apply to `function`-declared bodies only.
 - **§11 (State Objects)** — Field phase tracking in §48.4 extends the state object model. `<state>` declarations remain the source of truth for field names and types; the `fn` compiler pass reads field lists from the state type registry.
-- **§33 (pure)** — `pure fn` is valid. `pure` adds optimizer permissions. The five `fn` prohibitions are a strict subset of `pure`'s constraints, so `pure fn` does not require additional verification beyond what each keyword already enforces.
+- **§33 (pure)** — `pure fn` is valid but redundant (W-PURE-REDUNDANT, §33.4). `fn` and `pure function` enforce the same purity contract (§33.3, §48.9). `pure` adds optimizer permissions (memoization, compile-time evaluation) independent of the body prohibitions.
 - **§35 (lin)** — `lin` declarations are valid inside `fn` bodies and follow the standard linear type rules (§35.3–35.5). A `lin` variable inside `fn` must be consumed exactly once within the `fn` body; it cannot be returned as unconsumed.
 - **§47 (Output Name Encoding)** — The kind marker `f` (§47.1.2) applies to both `fn`-declared and `function`-declared callables. The encoding does not distinguish between them at the name-encoding level.
 
@@ -20231,7 +20233,7 @@ state-literal      ::= '< ' SubstateName attribute-list? '>' field-assignments '
 
 **`from` is a contextual keyword** (modeled on the §51.2 `renders` precedent). The compiler SHALL parse `from` as a keyword ONLY inside transition bodies (§54.3). `from` SHALL NOT be a reserved word outside this position. Existing code that uses `from` as a parameter name, local binding, or field name (e.g., `function foo(from: number) { return from + 1 }`) SHALL continue to compile without change.
 
-**Purity (reference §33.6):** transition bodies enforce `fn`-level constraints. Non-deterministic calls (`Date.now()`, `Math.random()`, etc.) are forbidden; pass timestamps and random values as parameters.
+**Purity (reference §33.6):** transition bodies enforce the purity constraints of §33.3. Non-deterministic calls (`Date.now()`, `Math.random()`, etc.) are forbidden; pass timestamps and random values as parameters.
 
 **Worked example:**
 
