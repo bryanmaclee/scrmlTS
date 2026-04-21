@@ -1,6 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { routePath } from "./utils.ts";
-import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
+import { emitLogicNode, emitLogicBody, emitFnShortcutBody } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import { isServerOnlyNode, collectFunctions } from "./collect.ts";
 import { hasServerCallees, scheduleStatements } from "./scheduling.js";
@@ -243,9 +243,22 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     lines.push(`${asyncPrefix}function ${generatedName}(${paramNames.join(", ")}) {`);
 
     const body = (fnNode.body as ASTNode[]) ?? [];
-    const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings);
-    for (const line of scheduled) {
-      lines.push(`  ${line}`);
+    // §48: `fn` shorthand uses tail-expression implicit return. Bypass scheduleStatements
+    // (which has no notion of implicit return); `fn` bodies can't contain server calls
+    // (E-FN-005 prohibits async/await), so the Promise.all scheduler is never needed here.
+    if ((fnNode as { fnKind?: string }).fnKind === "fn") {
+      const fnOpts = { boundary: "client" as const, declaredNames: new Set<string>(), ...(machineBindings ? { machineBindings } : {}) };
+      const shortcutLines = emitFnShortcutBody(body, fnOpts, "fn");
+      for (const code of shortcutLines) {
+        for (const line of code.split("\n")) {
+          lines.push(`  ${line}`);
+        }
+      }
+    } else {
+      const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings);
+      for (const line of scheduled) {
+        lines.push(`  ${line}`);
+      }
     }
 
     lines.push(`}`);

@@ -1112,12 +1112,12 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
 
       // Function body has its own scope for declared names
       const fnOpts: EmitLogicOpts = { ...opts, declaredNames: new Set<string>() };
-      for (const stmt of (node.body ?? [])) {
-        const code = emitLogicNode(stmt, fnOpts);
-        if (code) {
-          for (const line of code.split("\n")) {
-            fnLines.push(`  ${line}`);
-          }
+      const body: any[] = node.body ?? [];
+
+      const bodyCodes = emitFnShortcutBody(body, fnOpts, node.fnKind);
+      for (const code of bodyCodes) {
+        for (const line of code.split("\n")) {
+          fnLines.push(`  ${line}`);
         }
       }
 
@@ -1139,7 +1139,58 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
   }
 }
 
-
+/**
+ * §48 implicit-return: emit a `fn` shorthand body with tail-expression return semantics.
+ *
+ * When `fnKind === "fn"`, the body's last non-compile-time-only statement — if it is
+ * an expression-shape (bare-expr, match-stmt, match-expr, switch-stmt) — is wrapped
+ * as `return ...;`. This aligns with example 14 (`fn riskBanner(risk) -> string { match risk {...} }`)
+ * and Rust/OCaml/Scala/Kotlin tail-expression conventions.
+ *
+ * `fnKind !== "fn"` (plain `function` keyword) is unchanged — callers write `return` explicitly.
+ *
+ * Returns emitted JS code strings (each entry may be multi-line; caller indents).
+ */
+export function emitFnShortcutBody(body: any[], opts: EmitLogicOpts, fnKind: string | undefined): string[] {
+  const TAIL_KINDS = new Set(["bare-expr", "match-stmt", "match-expr", "switch-stmt"]);
+  let tailIdx = -1;
+  if (fnKind === "fn") {
+    for (let i = body.length - 1; i >= 0; i--) {
+      const s = body[i];
+      if (!s || s._compileTimeOnly) continue;
+      if (TAIL_KINDS.has(s.kind)) tailIdx = i;
+      break;
+    }
+  }
+  const out: string[] = [];
+  for (let i = 0; i < body.length; i++) {
+    const stmt = body[i];
+    if (!stmt) continue;
+    let code: string;
+    if (i === tailIdx) {
+      if (stmt.kind === "bare-expr") {
+        const exprCtx = _makeExprCtx(opts);
+        const exprCode = stmt.exprNode
+          ? emitExpr(stmt.exprNode, exprCtx)
+          : emitExprField(null, stmt.expr ?? "", exprCtx);
+        code = exprCode ? `return ${exprCode};` : "";
+      } else {
+        // match/switch emit as IIFE expression strings — wrap in `return ...;`.
+        const rawCode = emitLogicNode(stmt, opts);
+        if (rawCode) {
+          const stripped = rawCode.replace(/;\s*$/, "");
+          code = `return ${stripped};`;
+        } else {
+          code = "";
+        }
+      }
+    } else {
+      code = emitLogicNode(stmt, opts);
+    }
+    if (code) out.push(code);
+  }
+  return out;
+}
 
 /**
  * Emit an if-stmt, threading EmitLogicOpts through to child nodes.
