@@ -1,5 +1,4 @@
 import { genVar } from "./var-counter.ts";
-import { rewriteExpr } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { emitLogicNode, emitLogicBody } from "./emit-logic.js";
 import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr } from "./emit-lift.js";
@@ -909,7 +908,7 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
     const reactiveAssignMatch = stmt.match(/^@([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]+)$/);
     if (reactiveAssignMatch) {
       const name = reactiveAssignMatch[1];
-      const valueExpr = rewriteExpr(reactiveAssignMatch[2].trim());
+      const valueExpr = emitExprField(null, reactiveAssignMatch[2].trim(), { mode: "client" });
       const binding = machineBindings?.get(name) ?? null;
       if (binding) {
         // §51.5: Emit transition guard instead of plain reactive_set for machine-bound vars
@@ -926,7 +925,7 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
         results.push(`_scrml_reactive_set("${name}", ${valueExpr})`);
       }
     } else {
-      results.push(rewriteExpr(stmt));
+      results.push(emitExprField(null, stmt, { mode: "client" }));
     }
   }
   return results.join("; ");
@@ -979,7 +978,7 @@ export function emitMatchExpr(node: any): string {
   }
 
   if (arms.length === 0) {
-    return `/* match expression could not be compiled */ ${rewriteExpr(header)};`;
+    return `/* match expression could not be compiled */ ${emitExprField(null, header, _matchCtx)};`;
   }
 
   // S22 §1a slice 2: decide whether this match needs the tagged-object normalization.
@@ -1035,8 +1034,8 @@ export function emitMatchExpr(node: any): string {
           return inner ? `{ ${bindingPrelude}${rewriteBlockBody(inner)} }` : (bindingPrelude ? `{ ${bindingPrelude.trimEnd()} }` : `{}`);
         })()
       : (bindingPrelude
-          ? `{ ${bindingPrelude}return ${rewriteExpr(arm.result)}; }`
-          : `return ${rewriteExpr(arm.result)};`);
+          ? `{ ${bindingPrelude}return ${emitExprField(null, arm.result, _matchCtx)}; }`
+          : `return ${emitExprField(null, arm.result, _matchCtx)};`);
 
     if (arm.kind === "wildcard") {
       if (arm.binding) {
@@ -1044,7 +1043,7 @@ export function emitMatchExpr(node: any): string {
         if (isBlockBody) {
           iifeLines.push(`  else { const ${arm.binding} = ${tmpVar}; ${emitResult} }`);
         } else {
-          iifeLines.push(`  else { const ${arm.binding} = ${tmpVar}; return ${rewriteExpr(arm.result)}; }`);
+          iifeLines.push(`  else { const ${arm.binding} = ${tmpVar}; return ${emitExprField(null, arm.result, _matchCtx)}; }`);
         }
       } else {
         iifeLines.push(`  else ${emitResult}`);
@@ -1165,7 +1164,7 @@ export function emitSwitchStmt(node: any): string {
         lines.push(`  }`);
         caseBlockOpen = false;
         const caseLabel = breakCaseMatch[1].trim();
-        lines.push(`  ${rewriteExpr(caseLabel)} {`);
+        lines.push(`  ${emitExprField(null, caseLabel, _switchCtx)} {`);
         caseBlockOpen = true;
         i++;
         continue;
@@ -1175,7 +1174,7 @@ export function emitSwitchStmt(node: any): string {
         if (caseBlockOpen) {
           lines.push(`  }`);
         }
-        lines.push(`  ${rewriteExpr(exprTrimmed)} {`);
+        lines.push(`  ${emitExprField(null, exprTrimmed, _switchCtx)} {`);
         caseBlockOpen = true;
         i++;
         continue;
