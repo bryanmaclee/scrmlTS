@@ -723,16 +723,16 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         // SQL uses bare ? placeholders and the dev passes params at call site.
         let argList: string;
         if (params.length > 0) {
-          argList = params.map((p: string) => rewriteExpr(p)).join(", ");
+          argList = params.map((p: string) => emitExprField(null, p, _makeExprCtx(opts))).join(", ");
         } else if (call.args && call.args.trim()) {
-          argList = rewriteExpr(call.args.trim());
+          argList = emitExprField(null, call.args.trim(), _makeExprCtx(opts));
         } else {
           argList = "";
         }
         return `${db}.query(${JSON.stringify(sql)}).${call.method}(${argList});`;
       }
       if (params.length > 0) {
-        const argList = params.map((p: string) => rewriteExpr(p)).join(", ");
+        const argList = params.map((p: string) => emitExprField(null, p, _makeExprCtx(opts))).join(", ");
         return `${db}.query(${JSON.stringify(sql)}).run(${argList});`;
       }
       return `_scrml_sql_exec(${JSON.stringify(rawQuery)});`;
@@ -1544,12 +1544,12 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
     if (arm.kind === "wildcard") {
       lines.push(`else {`);
       if (arm.binding) lines.push(`  const ${arm.binding} = ${tmpVar};`);
-      lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
+      lines.push(`  ${tildeVar} = ${emitExprField(null, arm.result, _makeExprCtx(opts))};`);
       lines.push(`}`);
     } else if (arm.kind === "not") {
       const prefix = conditionIndex === 0 ? "if" : "else if";
       lines.push(`${prefix} (${tmpVar} === null || ${tmpVar} === undefined) {`);
-      lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
+      lines.push(`  ${tildeVar} = ${emitExprField(null, arm.result, _makeExprCtx(opts))};`);
       lines.push(`}`);
       conditionIndex++;
     } else {
@@ -1559,7 +1559,7 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
         : `${tmpVar} === ${arm.test}`;
       lines.push(`${prefix} (${cmp}) {`);
       if (bindingPrelude) lines.push(`  ${bindingPrelude.trimEnd()}`);
-      lines.push(`  ${tildeVar} = ${rewriteExpr(arm.result)};`);
+      lines.push(`  ${tildeVar} = ${emitExprField(null, arm.result, _makeExprCtx(opts))};`);
       lines.push(`}`);
       conditionIndex++;
     }
