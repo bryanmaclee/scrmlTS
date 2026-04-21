@@ -905,8 +905,10 @@ output: each block still receives its own independent `DBTypeViews` entry.
 - May throw: No.
 - Error type: `RIError { code: string, message: string, span: Span }`
 - Error codes:
-  - `E-RI-001`: A function is both `pure` (§32) and server-escalated (by any mechanism — explicit
-    `server` annotation, protected field access, or transitive escalation). These are irreconcilable.
+  - ~~`E-RI-001`~~: **Retired 2026-04-21 (S37).** Formerly fired on `pure` + server-escalated
+    co-declaration; retired when §33.3 and §48.10 converged on "server is an execution-site
+    dispatch directive, not a body-level side effect." Was never actually emitted by this
+    source — only referenced in a helper comment. See SPEC.md §33.4.
   - `E-RI-002`: A server-escalated function mutates an `@` reactive variable. Reactive state is
     client-side; server functions cannot mutate it directly.
   - `E-ROUTE-001`: Warning. Computed member access on a db-derived value (`row[fieldKey]`) where
@@ -914,9 +916,9 @@ output: each block still receives its own independent `DBTypeViews` entry.
     is warned. Note: variable-stored function references are an accepted RI limitation (DC-011);
     TS (Stage 6) detects these authoritatively via full scope resolution.
 - Partial output: All errors are accumulated and returned alongside the complete route map.
-  `E-RI-001` and `E-RI-002` are compile errors; `E-ROUTE-001` is a warning. The route map
-  is always complete — error-producing functions still receive entries (with `boundary: 'server'`
-  for E-RI-001/E-RI-002 so downstream stages can proceed).
+  `E-RI-002` is a compile error; `E-ROUTE-001` is a warning. The route map is always complete —
+  error-producing functions still receive entries (with `boundary: 'server'` for E-RI-002 so
+  downstream stages can proceed).
 
 **Transformation:**
 The route inferrer walks every `FunctionDecl`, `PureDecl`, and `fn` shorthand node in every

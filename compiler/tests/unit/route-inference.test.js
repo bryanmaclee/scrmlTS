@@ -15,12 +15,12 @@
  *   §6  Direct-only escalation — caller of server fn stays client (no transitive escalation)
  *   §7  Direct-only escalation — only direct-trigger functions escalate (multi-hop)
  *   §8  Direct-only escalation — cycle detection (no infinite loop)
- *   §9  E-RI-001 — pure + server-escalated = compile error
+ *   §9  (retired) — E-RI-001 retired 2026-04-21 (S37); `pure` + `server` is valid.
  *   §10 E-RI-002 — server-escalated function with reactive assignment
  *   §11 E-ROUTE-001 — computed member access produces warning (with severity:"warning")
  *   §12 External function calls are non-escalating
  *   §13 Multiple escalation reasons accumulate
- *   §14 pure function with no escalation — no error
+ *   §14 (reserved)
  *   §15 RouteMap entry shape — FunctionRoute fields correct
  *   §16 PureDecl nodes appear in RouteMap
  *   §17 Cross-file transitive escalation
@@ -366,7 +366,7 @@ describe("§2 — trigger 2: protected field access via member expression", () =
     expect(route.escalationReasons).toHaveLength(1);
     expect(route.escalationReasons[0].kind).toBe("protected-field-access");
     expect(route.escalationReasons[0].field).toBe("passwordHash");
-    expect(errors.filter(e => e.code === "E-RI-001" || e.code === "E-RI-002")).toHaveLength(0);
+    expect(errors.filter(e => e.code === "E-RI-002")).toHaveLength(0);
   });
 
   test("function without protected field access stays 'client' even with PA present", () => {
@@ -485,8 +485,8 @@ describe("§4 — trigger 4: explicit server annotation", () => {
     expect(route.escalationReasons[0].kind).toBe("explicit-annotation");
     expect(route.generatedRouteName).not.toBeNull();
     expect(route.generatedRouteName).toContain("loadData");
-    // No E-RI-001 or E-RI-002 errors (no pure, no reactive assignment).
-    expect(errors.filter(e => e.code === "E-RI-001" || e.code === "E-RI-002")).toHaveLength(0);
+    // No E-RI-002 errors (no reactive assignment). E-RI-001 retired S37.
+    expect(errors.filter(e => e.code === "E-RI-002")).toHaveLength(0);
   });
 
   test("explicit annotation produces non-null serverEntrySpan", () => {
@@ -828,10 +828,7 @@ describe("§8 — direct-only escalation: cycle detection (no infinite loop)", (
   });
 });
 
-// ---------------------------------------------------------------------------
-// §9  E-RI-001 — pure + server-escalated
-// ---------------------------------------------------------------------------
-
+// §9 retired (E-RI-001 retired 2026-04-21 S37 — `pure` + `server` is valid; SPEC §33.4)
 
 // ---------------------------------------------------------------------------
 // §10 E-RI-002 — server-escalated function with reactive assignment
@@ -1172,10 +1169,7 @@ describe("§13 — multiple escalation reasons accumulate", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// §14 pure function with no escalation — no error, stays client
-// ---------------------------------------------------------------------------
-
+// §14 reserved
 
 // ---------------------------------------------------------------------------
 // §15 RouteMap entry shape — FunctionRoute fields correct

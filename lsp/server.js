@@ -749,8 +749,7 @@ const ERROR_DESCRIPTIONS = {
   "E-PA-006": "src= attribute is absent from a <db> block.",
   "E-PA-007": "protect= field matches no column in any listed table (security error).",
 
-  // Route Inference
-  "E-RI-001": "Pure function is server-escalated. A function declared `pure` cannot also be routed to the server.",
+  // Route Inference (E-RI-001 retired 2026-04-21 S37 — server+pure is now valid)
   "E-RI-002": "Server-escalated function assigns to @reactive variable. Server functions cannot write client-side reactive state.",
   "E-ROUTE-001": "Unresolvable callee. A function call target could not be statically resolved.",
 

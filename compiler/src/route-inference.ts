@@ -1493,15 +1493,3 @@ function deduplicateReasons(reasons: EscalationReason[]): EscalationReason[] {
   return result;
 }
 
-/**
- * Produce a short human-readable description of the first escalation reason.
- * Used in E-RI-001 error messages.
- */
-function describeFirstReason(reasons: EscalationReason[]): string {
-  if (reasons.length === 0) return "unknown reason";
-  const r = reasons[0];
-  if (r.kind === "explicit-annotation") return "explicit `server` annotation";
-  if (r.kind === "server-only-resource") return `server-only resource \`${r.resourceType}\``;
-  if (r.kind === "protected-field-access") return `protected field access \`${r.field}\``;
-  return (r as any).kind;
-}
