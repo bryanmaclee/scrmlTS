@@ -1,0 +1,60 @@
+// Repro 05 — GITI-010: compiler-generated CSRF scheme is not bootstrappable.
+//
+// Any compile that emits at least one server function produces:
+//   server.js  — validates X-CSRF-Token against scrml_csrf cookie, 403s on
+//                mismatch. Success path Set-Cookies scrml_csrf. 403 path
+//                does NOT Set-Cookie.
+//   client.js  — reads document.cookie for scrml_csrf before sending.
+//
+// Failure flow in the browser on first page load:
+//   1. HTML served by host app (no cookie set)
+//   2. client.js calls server fn: cookie empty → X-CSRF-Token empty
+//   3. server: validate fails (cookieToken.length === 0) → 403, no Set-Cookie
+//   4. every subsequent call: still no cookie → still 403 → forever
+//
+// There is no compiler-emitted path by which the browser can obtain a valid
+// scrml_csrf cookie. The double-submit pattern is closed on both sides.
+//
+// Expected: some bootstrap exists so the very first POST from a cookie-less
+// browser succeeds, or succeeds-after-one-retry. Candidates (pick one):
+//   A. 403 branch mints a fresh token + returns Set-Cookie; generated
+//      client retries once on 403 using the new cookie.
+//   B. Compiler emits a dedicated GET /_scrml/csrf bootstrap route that
+//      only Set-Cookies a token; client fetches it before the first POST.
+//   C. Compiler injects <meta name="csrf-token" content="…"> into
+//      generated HTML and mints the matching cookie server-side when the
+//      HTML is rendered; client reads the meta instead of document.cookie.
+//
+// Actual: no bootstrap — browser cannot reach status 200 on any
+// server-function call.
+//
+// This repro has one trivial server fn; the shape is independent of body
+// complexity. Compile this, serve the generated .html + .client.js + .css
+// from any static host, and POST to the generated route from the browser.
+//
+// Observed server log from giti (three calls on first page load of
+// ui/status.scrml, scrmlTS @ ccae1f6):
+//
+//   REQ  POST /_scrml/__ri_route_loadStatus_3    csrfCookie: null  csrfHeader: null
+//   RES  status: 403  setCookie: null
+//   REQ  POST /_scrml/__ri_route_loadHistory_4   csrfCookie: null  csrfHeader: null
+//   RES  status: 403  setCookie: null
+//   REQ  POST /_scrml/__ri_route_loadBookmarks_5 csrfCookie: null  csrfHeader: null
+//   RES  status: 403  setCookie: null
+
+<program>
+
+${
+  server function ping() {
+    return { ok: true }
+  }
+}
+
+<div>
+  <request id="req1">
+    ${ @pong = ping() }
+  </>
+  <p>pong: ${@pong.ok}</p>
+</div>
+
+</program>

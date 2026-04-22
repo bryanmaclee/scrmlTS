@@ -49,6 +49,127 @@ function stripReconcileCalls(code: string): string {
   return out;
 }
 
+/**
+ * Mixed-case for-lift helper (follow-on to Bug 5): extract the one-time
+ * setup lines emitted by `emit-control-flow.ts` for each reactive for-lift
+ * in a logic group, so they can be hoisted outside the outer `_scrml_effect`
+ * wrap. Leaves the `_scrml_lift(wrapper)` call in place so wrapper mount
+ * order is preserved on each effect re-fire (appendChild on an already-
+ * created node MOVES it rather than duplicating — wrapper's reconciled
+ * children come along).
+ *
+ * The emit shape produced by emit-control-flow.ts (reactive for-lift branch
+ * at line 190-245) is always:
+ *   const _scrml_list_wrapper_N = document.createElement("div");
+ *   _scrml_lift(_scrml_list_wrapper_N);                        ← left in place
+ *   function _scrml_create_item_M(var, _scrml_idx) { ... }     ← hoisted
+ *   function _scrml_render_list_P() {
+ *     _scrml_reconcile_list(_scrml_list_wrapper_N, ..., _scrml_create_item_M);
+ *   }                                                           ← hoisted
+ *   _scrml_render_list_P();                                     ← hoisted
+ *   _scrml_effect_static(_scrml_render_list_P);                 ← hoisted
+ *
+ * The wrapper declaration (line 1) is also hoisted so the effect body
+ * references an outer-scope const (closure) that persists across re-fires.
+ * With `TARGET.innerHTML = ""` at the top of the effect, the wrapper is
+ * temporarily detached from TARGET; `_scrml_lift(wrapper)` re-mounts it
+ * with its reconciled children intact.
+ */
+function hoistForLiftSetup(combinedCode: string): { hoistedSetup: string; remaining: string } {
+  const wrapperRegex = /^( *)const (_scrml_list_wrapper_\d+) = document\.createElement\("div"\);\s*\n/m;
+  const hoisted: string[] = [];
+  let remaining = combinedCode;
+
+  while (true) {
+    const wrapperMatch = remaining.match(wrapperRegex);
+    if (!wrapperMatch) break;
+
+    const wrapperVar = wrapperMatch[2];
+    const wrapperStart = wrapperMatch.index!;
+    const wrapperEnd = wrapperStart + wrapperMatch[0].length;
+
+    // Immediately after wrapper decl is `_scrml_lift(WRAPPER);` — keep in place.
+    const liftLine = `_scrml_lift(${wrapperVar});`;
+    const liftIdx = remaining.indexOf(liftLine, wrapperEnd);
+    if (liftIdx === -1) break;
+    const liftEnd = remaining.indexOf("\n", liftIdx) + 1;
+    if (liftEnd === 0) break;
+
+    // Find `function _scrml_create_item_M(...)` — balanced-brace extent.
+    const createFnRegex = /function (_scrml_create_item_\d+)\(/;
+    const createMatchRel = remaining.slice(liftEnd).match(createFnRegex);
+    if (!createMatchRel) break;
+    const createStart = liftEnd + createMatchRel.index!;
+    const createEnd = _findFunctionBodyEnd(remaining, createStart);
+    if (createEnd === -1) break;
+
+    // Find `function _scrml_render_list_P()` — balanced-brace extent.
+    const renderFnRegex = /function (_scrml_render_list_\d+)\(/;
+    const renderMatchRel = remaining.slice(createEnd).match(renderFnRegex);
+    if (!renderMatchRel) break;
+    const renderStart = createEnd + renderMatchRel.index!;
+    const renderFnName = renderMatchRel[1];
+    const renderEnd = _findFunctionBodyEnd(remaining, renderStart);
+    if (renderEnd === -1) break;
+
+    // Find `RENDER_FN();` call line. Accept newline OR end-of-string because
+    // combinedCode for the last group may lack a trailing newline.
+    const callRegex = new RegExp(`^ *${renderFnName}\\(\\);\\s*(?:\\n|$)`, "m");
+    const afterRender = remaining.slice(renderEnd);
+    const callMatchRel = afterRender.match(callRegex);
+    if (!callMatchRel) break;
+    const callStart = renderEnd + callMatchRel.index!;
+    const callEnd = callStart + callMatchRel[0].length;
+
+    // Find `_scrml_effect_static(RENDER_FN);` line. Accept EOF terminator too.
+    const effectRegex = new RegExp(`^ *_scrml_effect_static\\(${renderFnName}\\);\\s*(?:\\n|$)`, "m");
+    const effectMatchRel = remaining.slice(callEnd).match(effectRegex);
+    if (!effectMatchRel) break;
+    const effectStart = callEnd + effectMatchRel.index!;
+    const effectEnd = effectStart + effectMatchRel[0].length;
+
+    // Collect hoisted content in emit order.
+    hoisted.push(remaining.slice(wrapperStart, wrapperEnd).replace(/\n$/, ""));
+    hoisted.push(remaining.slice(createStart, createEnd).replace(/\n$/, ""));
+    hoisted.push(remaining.slice(renderStart, renderEnd).replace(/\n$/, ""));
+    hoisted.push(remaining.slice(callStart, callEnd).replace(/\n$/, ""));
+    hoisted.push(remaining.slice(effectStart, effectEnd).replace(/\n$/, ""));
+
+    // Remove hoisted segments from `remaining`. Work back-to-front so earlier
+    // indices remain valid during splicing.
+    remaining = remaining.slice(0, effectStart) + remaining.slice(effectEnd);
+    remaining = remaining.slice(0, callStart) + remaining.slice(callEnd);
+    remaining = remaining.slice(0, renderStart) + remaining.slice(renderEnd);
+    remaining = remaining.slice(0, createStart) + remaining.slice(createEnd);
+    // wrapper decl line (leave the lift line intact).
+    remaining = remaining.slice(0, wrapperStart) + remaining.slice(wrapperEnd);
+  }
+
+  return { hoistedSetup: hoisted.join("\n"), remaining };
+}
+
+/**
+ * Find the index one past the closing `}` (and trailing newline, if present)
+ * of a `function NAME(...) { ... }` declaration starting at `start`. Performs
+ * balanced-brace matching. Returns -1 if no balanced match found.
+ */
+function _findFunctionBodyEnd(code: string, start: number): number {
+  const openBrace = code.indexOf("{", start);
+  if (openBrace === -1) return -1;
+  let depth = 1;
+  let i = openBrace + 1;
+  while (i < code.length && depth > 0) {
+    const c = code[i];
+    if (c === "{") depth++;
+    else if (c === "}") depth--;
+    i++;
+  }
+  if (depth !== 0) return -1;
+  // Include trailing newline if present.
+  while (i < code.length && code[i] !== "\n") i++;
+  return i < code.length ? i + 1 : i;
+}
+
 /** Check if an AST statement contains a lift-expr anywhere in its tree. */
 function stmtContainsLift(node: any): boolean {
   if (!node || typeof node !== "object") return false;
@@ -267,22 +388,48 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
           if (branchVar) {
             lines.push(`let ${branchVar} = -1;`);
           }
+
+          // Mixed-case follow-on to Bug 5: if the block combines a keyed-
+          // reconcile for-lift with OTHER reactive content (e.g. a sibling
+          // `if (@cond) { lift ... }`), hoist the for-lift's one-time setup
+          // (wrapper creation, createFn, renderFn, first render call, static
+          // effect registration) OUTSIDE the outer _scrml_effect. Inside the
+          // effect we retain `_scrml_lift(wrapper)` which re-mounts the same
+          // wrapper node (appendChild MOVES rather than duplicates; the
+          // wrapper's reconciled children persist). With this hoist we can
+          // safely re-enable `targetVar.innerHTML = ""` — it clears other
+          // content but the hoisted wrapper is re-mounted right after,
+          // fixing both (a) wrapper accumulation and (b) conditional-lift
+          // accumulation in one pass.
+          let effectBodyCode = combinedCode;
+          if (hasKeyedReconcile && hasOtherReactiveReads) {
+            const { hoistedSetup, remaining } = hoistForLiftSetup(combinedCode);
+            if (hoistedSetup) {
+              lines.push(hoistedSetup);
+              effectBodyCode = remaining;
+            }
+          }
+
           lines.push(`_scrml_effect(function() {`);
           if (branchVar) {
             // Extract the condition from the emitted if-statement to check branch identity.
             // The emitted code starts with `if (condition) {` — extract and test condition.
-            const condMatch = combinedCode.match(/^if\s*\((.+)\)\s*\{/);
+            const condMatch = effectBodyCode.match(/^if\s*\((.+)\)\s*\{/);
             if (condMatch) {
               lines.push(`  const _branch = (${condMatch[1]}) ? 1 : 0;`);
               lines.push(`  if (_branch === ${branchVar}) return;`);
               lines.push(`  ${branchVar} = _branch;`);
             }
           }
-          if (!hasKeyedReconcile) {
+          // With the mixed-case hoist in place, innerHTML clear is now safe
+          // even when hasKeyedReconcile (the wrapper is outer-scope; it
+          // re-mounts via the retained _scrml_lift(wrapper) in the body).
+          const hoisted = hasKeyedReconcile && hasOtherReactiveReads;
+          if (!hasKeyedReconcile || hoisted) {
             lines.push(`  ${targetVar}.innerHTML = "";`);
           }
           lines.push(`  _scrml_lift_target = ${targetVar};`);
-          lines.push(`  ${combinedCode}`);
+          lines.push(`  ${effectBodyCode}`);
           lines.push(`  _scrml_lift_target = null;`);
           lines.push(`});`);
         }

@@ -119,7 +119,13 @@ describe("for-lift no outer _scrml_effect (Bug 5)", () => {
     expect(opens).toBe(0);
   });
 
-  test("mixed case (if + for-lift) keeps outer _scrml_effect (regression guard)", () => {
+  test("mixed case (if + for-lift): outer _scrml_effect present, wrapper hoisted before it", () => {
+    // Follow-on to Bug 5: the mixed case (keyed reconcile + other reactive
+    // reads) still needs the outer _scrml_effect to re-render the conditional
+    // content, but the for-lift's one-time setup (wrapper creation, render
+    // function, static-effect registration) is hoisted BEFORE the effect.
+    // The effect body retains `_scrml_lift(wrapper)` which re-mounts the
+    // same wrapper node on each re-fire, preserving reconciled children.
     const src = `<program>
 \${
   @todos = []
@@ -136,13 +142,21 @@ describe("for-lift no outer _scrml_effect (Bug 5)", () => {
 </ol>
 </program>`;
     const { clientJs } = compileSource(src, "mixed-if-for-lift");
-    // Mixed case should still wrap in _scrml_effect
+    // Mixed case should still wrap in _scrml_effect (for the conditional content)
     expect(clientJs).toContain("_scrml_effect(function()");
-    // Wrapper creation should appear AFTER the _scrml_effect opens
+    // Wrapper creation should now appear BEFORE the _scrml_effect opens (hoisted)
     const effectOpenIdx = clientJs.indexOf("_scrml_effect(function()");
     const wrapperIdx = clientJs.indexOf("_scrml_list_wrapper_");
     expect(effectOpenIdx).toBeGreaterThan(-1);
-    expect(wrapperIdx).toBeGreaterThan(effectOpenIdx);
+    expect(wrapperIdx).toBeGreaterThan(-1);
+    expect(wrapperIdx).toBeLessThan(effectOpenIdx);
+    // _scrml_effect_static must also be outside the outer effect.
+    const staticIdx = clientJs.indexOf("_scrml_effect_static(");
+    expect(staticIdx).toBeGreaterThan(-1);
+    expect(staticIdx).toBeLessThan(effectOpenIdx);
+    // The inner effect body should still contain _scrml_lift(wrapper) for re-mount.
+    const effectBody = clientJs.slice(effectOpenIdx);
+    expect(effectBody).toMatch(/_scrml_lift\(_scrml_list_wrapper_\d+\);/);
   });
 
   test("two independent pure for-lifts in the same logic block: no outer effect", () => {

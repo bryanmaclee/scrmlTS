@@ -1,0 +1,52 @@
+// Bug 5 minimal repro — markup `for (let x of @arr) { lift <li>... }`
+// accumulates on re-render instead of replacing.
+//
+// Run: scrml dev bug5-for-lift-no-rerender.scrml  (port 3133)
+//      open browser, click "Add one" a few times.
+//
+// Expected: each click adds ONE <li> so the list grows 3 → 4 → 5 → 6.
+// Actual:   click count grows ~quadratically: 3 → 8 → 15 → 24.
+//
+// Mechanism (from compiled JS, dist/...client.js):
+//   - The whole for-lift block is wrapped in _scrml_effect(function() {...})
+//   - Inside: `const _scrml_list_wrapper_7 = document.createElement("div")`
+//     then `_scrml_lift(_scrml_list_wrapper_7)` into the target
+//   - Then `_scrml_render_list_8()` uses `_scrml_reconcile_list` on THAT
+//     new wrapper, and `_scrml_effect_static(_scrml_render_list_8)` to
+//     re-reconcile its children
+//   - When @items mutates, the OUTER effect re-fires because it reads
+//     @items via the reconciliation setup → creates a fresh wrapper div
+//     → appends it → net effect is accumulation, not replacement.
+//
+// Fix hypothesis: wrapper div creation + first _scrml_lift should happen
+// OUTSIDE _scrml_effect; only the reconciliation call belongs in the
+// effect (via _scrml_effect_static, which is already there).
+
+<program>
+
+${
+    @items = ["alpha", "beta", "gamma"]
+    @count = 3
+
+    function addOne() {
+        @items = [...@items, "item-" + (@items.length + 1)]
+        @count = @items.length
+    }
+}
+
+<div>
+    <h2>for-lift re-render check</>
+    <p>Click "Add one". Count updates (inline spans work). &lt;ol&gt; accumulates.</>
+    <button onclick=addOne()>Add one</>
+    <p>counter (inline): ${@count}</>
+    <p>counter via items.length (inline): ${@items.length}</>
+    <ol>
+        ${
+            for (let x of @items) {
+                lift <li>${x}</>
+            }
+        }
+    </ol>
+</>
+
+</program>
