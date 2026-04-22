@@ -14116,6 +14116,8 @@ A scrml application with one custom concern adds one `handle()`. The common 80% 
 
 **Added:** 2026-04-01 — debate verdict: hybrid `use` + `import` (50.5/60). Two-keyword vocabulary with shared `scrml:` protocol prefix resolution.
 
+**Adopter-facing companion doc:** `docs/external-js.md` — translation table from common JS/TS package expectations to scrml's stdlib and escape hatches, FAQ, and the `^{}` / `vendor:` / sidecar decision tree. Read that first if you're asking "how do I use lodash/zod/date-fns/etc. in scrml."
+
 ### 41.1 Overview
 
 scrml's import system uses two keywords with distinct roles:
