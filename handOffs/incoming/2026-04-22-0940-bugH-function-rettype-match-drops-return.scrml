@@ -1,0 +1,33 @@
+// Bug H minimal repro — `function name(arg: T) -> ReturnType { match arg { … } }`
+// parses but compiles to an IIFE called without a leading `return`.
+// Result: the function always returns undefined.
+//
+// Run: scrml compile bugH-function-rettype-match-drops-return.scrml
+//      node -e 'require("./dist/bugH.../app.client.js")' — the @result is undefined
+//
+// Expected compiled form (like the post-Bug-G `fn` shorthand):
+//   function colorName(c) { return (function() { const m = c; if (m === "Red") return "red"; ... })(); }
+// Actual:
+//   function colorName(c) { (function() { const m = c; if (m === "Red") return "red"; ... })(); }
+
+<program>
+
+${
+    type Color:enum = { Red, Green, Blue }
+
+    function colorName(c: Color) -> string {
+        match c {
+            .Red   => "red"
+            .Green => "green"
+            .Blue  => "blue"
+        }
+    }
+
+    @result = colorName(Color.Red)  // expect "red", actual undefined
+}
+
+<div>
+    <p>colorName(Red) = ${@result} (expect "red", actual undefined)</>
+</>
+
+</program>

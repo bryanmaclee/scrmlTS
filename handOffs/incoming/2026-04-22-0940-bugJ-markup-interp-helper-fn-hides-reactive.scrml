@@ -1,0 +1,47 @@
+// Bug J minimal repro — markup `${fn(helper().field)}` interpolation
+// gets no display-wiring emitted when all reactive reads happen inside
+// a helper function (so they're not literal @refs at the interpolation
+// site). Inlining the reactive reads directly in the interpolation
+// expression does get wired.
+//
+// Distinct from Bug 4 (which was about named-derived-reactive refs and
+// is now fixed as of adbc30c). This one is about the compiler's
+// reactive-dep extractor only seeing top-level @refs in the interpolation
+// AST — it doesn't recurse into helper-function bodies to find reads.
+//
+// Run: scrml dev bugJ-markup-interp-helper-fn-hides-reactive.scrml
+//      click "increment". @msg updates but the first two <p>s don't.
+//
+// Expected: both <p>A and <p>B update when @msg changes.
+// Actual:   only the "direct" forms (inline @msg) update; the helper-
+//           call forms stay at their initial text.
+
+<program>
+
+${
+    @msg = "hello"
+    @count = 0
+
+    function increment() {
+        @count = @count + 1
+        @msg = "hello " + @count
+    }
+
+    function getMsg()     { return @msg }
+    function upperOf(s)   { return s.toUpperCase() }
+    function record()     { return { text: @msg, len: @msg.length } }
+}
+
+<div>
+    <button onclick=increment()>increment</>
+
+    <p><strong>A:</> ${upperOf(getMsg())} — doesn't update: @msg read is behind getMsg()</>
+    <p><strong>B:</> ${record().text} — doesn't update: @msg read is behind record()</>
+
+    <p><strong>C:</> ${upperOf(@msg)} — updates: @msg is a literal ref in the interpolation</>
+    <p><strong>D:</> ${@msg} — updates: plain reactive interpolation</>
+
+    <p>raw count = ${@count}</>
+</>
+
+</program>

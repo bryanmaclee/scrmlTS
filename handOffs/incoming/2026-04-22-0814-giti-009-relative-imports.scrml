@@ -1,0 +1,54 @@
+// Repro 06 — GITI-009: relative imports in server-function scope are
+// forwarded verbatim into the emitted `.server.js`, so paths that were
+// source-relative (resolve from the `.scrml` source location) now
+// resolve from the compiled-output location instead and fail.
+//
+// Source layout:
+//   ui/repros/repro-06-relative-imports.scrml
+//   ui/repros/repro-06-relative-imports-helper.js
+//
+// Compiled output (flattened into dist/ui/):
+//   dist/ui/repro-06-relative-imports.server.js
+//
+// Source-relative `./repro-06-relative-imports-helper.js` resolves to
+// `ui/repros/repro-06-relative-imports-helper.js` (exists). Same string
+// forwarded into dist/ui/repro-06-relative-imports.server.js resolves to
+// `dist/ui/repro-06-relative-imports-helper.js` (does not exist) — the
+// helper was never emitted there, and there is no rewritten path to
+// reach the source copy.
+//
+// Expected: one of —
+//   A. Compiler rewrites relative-import path strings so they resolve
+//      from the compiled-output location. Here: `'./helper.js'` →
+//      `'../../ui/repros/helper.js'`.
+//   B. Compiler copies (or symlinks) imported source-relative files into
+//      the output tree alongside the emitted `.server.js`.
+//   C. Compiler errors out at compile time with a clear "source-relative
+//      import will not resolve from output location" diagnostic,
+//      nudging the author to use a path relative to the output dir.
+//
+// Actual: import path is forwarded unchanged, runtime resolution fails
+// the first time the server fn executes.
+//
+// Current giti workaround (applied in `ui/status.scrml`): author the
+// import using the path that resolves from `dist/ui/`, i.e.
+// `'../../src/engine/index.js'` instead of `'../src/engine/index.js'`.
+// This makes the dist file work but makes the source file misleading —
+// the import path in the `.scrml` file no longer describes where the
+// module actually lives relative to that file.
+
+<program>
+
+${
+  import { helper } from './repro-06-relative-imports-helper.js'
+
+  server function getValue() {
+    return { value: helper() }
+  }
+}
+
+<div>
+  <p>value: ${getValue().value}</p>
+</div>
+
+</program>

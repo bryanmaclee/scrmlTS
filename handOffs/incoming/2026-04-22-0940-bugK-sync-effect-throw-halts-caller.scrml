@@ -1,0 +1,35 @@
+// Bug K minimal repro — when `@x = …` triggers a synchronous reactive
+// effect that throws, the throw propagates out of the set call and
+// halts the enclosing function mid-way. Writes after the first one
+// whose effect throws silently don't run.
+//
+// Run: scrml dev bugK-sync-effect-throw-halts-caller.scrml
+//      click the button once.
+//      expected: a=-1, b=20, c="done"
+//      actual:   a=-1, b=10, c="init"
+//      (one pageerror logged for the throw, but the caller has no way
+//       to see that its @b and @c writes were dropped.)
+
+<program>
+
+${
+    @a = 0
+    @b = 10
+    @c = "init"
+
+    function twoOfThreeWrites() {
+        @a = -1
+        @b = 20
+        @c = "done"
+    }
+}
+
+<div>
+    <button onclick=twoOfThreeWrites()>click me once</>
+    <p>a = ${@a}</>
+    <p>throws-when-a-neg: ${@a < 0 ? null.bogus : "ok"}</>
+    <p>b = ${@b} (expect 20 after click)</>
+    <p>c = ${@c} (expect "done" after click)</>
+</>
+
+</program>

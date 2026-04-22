@@ -2,11 +2,231 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Baseline (2026-04-19 after S28 — validation elision + 5 adjacent fixes): **7,183 tests passing / 10 skipped / 2 failing** (26,415 expects across 315 files). Same 2 pre-existing self-host fails since S18, deferred for the next deep-arc session.
+Current baseline (2026-04-22 after S38): **7,463 tests passing / 40 skipped / 2 failing** (27,003 expects across 347 files). Same 2 pre-existing self-host bootstrap fails since S18, deferred for a future deep-arc session.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-22 (S38 — adopter-bug wave + CSRF bootstrap + SPEC §22.3 multi-`^{}`)
+
+Eight commits, all pushed to origin/main. Four adopter bugs from the 6nz
+2026-04-21 batch shipped (Bugs 1, 3, 4, 5), GITI-010 CSRF bootstrap blocker
+resolved, Bug-5 mixed-case follow-on hoist, SPEC §22.3 terminal bullet
+ratifying multi-top-level `^{}` source-order semantics (5-expert debate,
+minimum-delta won), and a classifier bug surfaced during multi-`^{}`
+testing fixed the same day. Suite 7,383 → 7,463 (+80 net tests), zero
+regressions throughout.
+
+- **Bug 1 (ast-builder) — string literal escapes double-escaped in emit.**
+  8 identical `STRING`-token re-quote sites in `ast-builder.js` used
+  `.replace(/\\/g, "\\\\").replace(/"/g, '\\"')` on the tokenizer's raw
+  inner text. Tokenizer stores source-as-written (`"a\n b"` → 4 chars:
+  `a`, `\`, `n`, `b`); the `.replace` doubled every backslash → `"a\\nb"`
+  in emitted JS → parses as literal backslash+n, not LF. Every escape
+  sequence affected; leaked into bug-2 and bug-6 reproducers too. Fix:
+  new `reemitJsStringLiteral(rawInner)` helper interprets standard
+  escapes (`\n \t \r \\ \" \' \0 \b \f \v \xHH \uHHHH \u{HHHHHH}`) then
+  `JSON.stringify`s — canonical double-quoted JS literal. 11 unit tests.
+  Commit `41aa7c0`.
+- **Bug 3 (ast-builder) — `return X + y` dropped after `const y = A ? B : C`.**
+  Root cause: `collectExpr`'s angle-bracket tracker bumped `angleDepth`
+  unconditionally when `<` was followed by IDENT. In `base < limit`,
+  no matching `>` appeared — `angleDepth` stayed at 1, disabling the
+  `STMT_KEYWORDS` boundary check. Greedy collect ate `return base + min`
+  into the expression; meriyah rejected the mashed string; downstream
+  silently dropped the tail. Fix: before bumping `angleDepth`, check
+  whether the previous consumed token is a clearly value-producing token
+  (IDENT, AT_IDENT, NUMBER, STRING, `)`, `]`). If so, `<` is a less-than
+  comparison. 11 unit tests. Commit `3778d76`.
+- **Bug 5 (codegen) — pure keyed-reconcile skips outer `_scrml_effect`.**
+  `emit-reactive-wiring.ts` unconditionally wrapped any reactive-deps
+  lift group in `_scrml_effect`. Reactive for-lift emits already contain
+  `_scrml_effect_static(renderFn)` which handles re-reconciliation on
+  `@items` mutation in-place. The outer effect re-created the list
+  wrapper div per mutation — 6nz observed `3 → 8 → 15` `<li>` children
+  on sequential clicks. Fix: detect pure-keyed-reconcile (combinedCode
+  has `_scrml_reconcile_list(` AND no other `_scrml_reactive_get(`
+  outside reconcile calls, via balanced-paren `stripReconcileCalls`
+  helper) and skip the outer wrap. 6 unit tests. Narrow-scope caveat:
+  mixed-case (keyed reconcile + other reactive reads) still had a
+  pre-existing wrapper-re-creation issue — shipped as separate follow-on
+  `8691f75` the same session. Commit `b37769c`.
+- **GITI-010 (codegen) — CSRF bootstrap mint-on-403 + client single-retry.**
+  Baseline CSRF 403 response emitted no `Set-Cookie`, so cookie-less
+  first POST returned 403 forever. User ratified Option A after A/B/C
+  trade-off analysis. Three-sided fix: (1) server baseline path — 403
+  now includes `Set-Cookie: scrml_csrf=${token}; Path=/; SameSite=Strict`;
+  (2) middleware CSRF paths — split missing-vs-mismatched cookie (missing
+  gets mint+retry, mismatched gets terminal 403); (3) client — new shared
+  `_scrml_fetch_with_csrf_retry(path, method, body)` helper that retries
+  exactly once on 403 re-reading `document.cookie`. Helper emission gated
+  behind `hasMutatingCsrfServerFn` so SSE-only files don't emit dead
+  code. Auth-middleware CSRF path deferred to its own fix. 9 unit tests.
+  Commit `40e162b`.
+- **Bug 4 (codegen) — named derived reactive refs get DOM wiring.**
+  Two-layered root cause: (1) `collectReactiveVarNames` in `reactive-deps.ts`
+  collected `reactive-decl` and `tilde-decl` but not `reactive-derived-decl`
+  — `${@isInsert}` had `reactiveRefs` computed as empty, emit-event-wiring
+  saw `varRefs.length === 0`, skipped the wiring block entirely (silent
+  render bug). (2) Once wiring emission was restored, the rewrite emitted
+  `_scrml_reactive_get("isInsert")` instead of `_scrml_derived_get(...)`
+  because `emitExprField` calls in emit-event-wiring didn't pass
+  `ctx.derivedNames`. Fix: (a) add `reactive-derived-decl` to the name
+  collector; (b) populate `ctx.derivedNames` via `collectDerivedVarNames`
+  at both CompileContext construction sites; (c) thread `derivedNames`
+  through the markup-interpolation `emitExprField` calls. 8 unit tests.
+  Commit `adbc30c`.
+- **Mixed-case for-lift wrapper hoist (follow-on to Bug 5).** Logic blocks
+  combining keyed for-lift with other reactive content stacked two bugs:
+  (a) wrapper re-created per outer-effect fire; (b) conditional lift
+  accumulated without `innerHTML=""` (skipped to preserve wrapper). Fix:
+  detect mixed case and hoist for-lift setup OUTSIDE the outer effect
+  via `hoistForLiftSetup(combinedCode)` — regex + balanced-brace
+  extraction of wrapper decl, `createFn`, `renderFn`, first `renderFn()`
+  call, `_scrml_effect_static(renderFn)`. Effect body retains
+  `_scrml_lift(wrapper)` which re-mounts the same node (appendChild
+  MOVES, wrapper's reconciled children persist). With wrapper hoisted,
+  `innerHTML=""` restored at effect top — safe. Fixes both (a) and (b)
+  in one pass. 11 unit tests. Commit `8691f75`.
+- **SPEC §22.3 — multi-top-level `^{}` source-order normative rule.**
+  Ratified by 5-expert debate (elm-architecture 34, template-haskell 45,
+  zig-comptime 46, racket-phases 44, scrml-radical-doubt **53/60 — winner**).
+  Minimum-delta wins: codify existing compiler behavior, **do NOT**
+  introduce `^init{}`/`^mount{}`/`^teardown{}` keywords. One bullet
+  appended to §22.3 Normative statements (top-level = file scope; each
+  block classified independently per §22.4/§22.5; source order within
+  phase; DOMContentLoaded-already-fired clause; mixed compile-time+runtime
+  permitted). scrml-language-design-reviewer 2-pass review: pass 1 REVISE
+  (4 issues) → pass 2 CLEAN. Two debate-curator hallucinated citations
+  caught + stripped before merge (nonexistent "insight 40" and "file-
+  scoped compile-time accumulator"). 6 unit tests + 1 sample. Commit
+  `6609fb6`.
+- **`emit.raw(...)` classifier compile-time detection (surfaced same day).**
+  `^{ emit.raw("<p>...") }` was classifying as runtime meta — emitting
+  `_scrml_meta_effect(...)` with body `emit.raw(...)` that would CRASH
+  at runtime (per §22.5.1, `emit.raw` has no runtime counterpart). Root
+  cause: `testExprNode` in `meta-checker.ts` used `exprNodeContainsCall(exprNode, "emit")`
+  which only matches bare `emit(...)`; for `emit.raw(...)` the callee
+  is a MemberExpr, not an IdentExpr. String-fallback regex DID catch
+  it, but ExprNode path runs first and short-circuits. Fix: new
+  `exprNodeContainsEmitRawCall` helper walks for CallExpr with
+  MemberExpr callee matching `emit.raw`. Wired into `testExprNode`.
+  7 unit tests. Commit `cfb1a14`.
+
+Process highlights:
+- Verify-before-fix applied throughout — every bug had a confirmed repro
+  before any source edit.
+- Write-test-always applied throughout — each fix shipped with tests.
+- SPEC edit gated by 2-pass scrml-language-design-reviewer discipline
+  (1 REVISE → 1 CLEAN).
+- Radical-doubt debate-curator flow executed on the multi-`^{}` question.
+- Two debate-agent hallucinations (invented insight + invented compiler
+  concept) caught during the pre-merge review and stripped.
+
+### 2026-04-19 → 2026-04-21 catch-up (S29–S37, consolidated)
+
+Nine sessions' worth of commits that were never individually logged. Organized by arc rather than session-by-session for readability.
+
+**S29 — ast-builder component-def gate (2026-04-19).** `const X = <markup>`
+without explicit RHS markup was parsing as a runtime const-decl but
+being treated downstream as a component. Fix at `b189051` adds markup-
+RHS requirement for uppercase-name const decls. Wrap at `4823519`.
+
+**S30 — adopter friction audit, 4 fixes (2026-04-19/20).** Four
+adopter-facing polish items landed:
+- `8217dd9` — `package.json` bin points to `compiler/bin/scrml.js` (executable entry fixed for users installing via npm link).
+- `2eb4513` — CSS tokenizer no longer collapses element-leading compound selectors to declarations.
+- `f0e7222` — CLI surfaces ghost-pattern lint diagnostics by default (W-LINT-011..015).
+- `e8ddc8d` — W-LINT coverage extended to Vue and Svelte ghost patterns.
+Wrap at `a6ce8c6`.
+
+**S31 — adopter polish + fate-of-fn debate verdict (2026-04-20).**
+Two adopter fixes (`ebd4d1d` F5 — bare ident referencing reactive
+without `@` is now E-SCOPE-001; `26df45d` F6 init-safety + F10 README
+bun link step) plus a multi-expert inline debate on whether `fn` should
+be retired, merged with `pure function`, or elevated into a state-
+typestate contract. Insight 21 ratified (commit `1d1c49d`): fate-of-fn
+verdict leans toward `pure fn` as redundant-but-permitted, deferred the
+state/machine-completeness strengthening to S32's phased implementation.
+Wrap at `696b787`.
+
+**S32 — state/machine cluster, Phases 1–3 (2026-04-20/21).** Fate-of-fn
+verdict translated to incremental compiler work:
+- Phase 1a/1b: E-FN-006 renamed E-STATE-COMPLETE; widened to `function`
+  bodies (§54.6.1 universal scope).
+- Phase 2: `pure fn` parser support + W-PURE-REDUNDANT warning.
+- Phase 3a–3e: substate blocks tagged with `isSubstate` + `parentState`;
+  registered with parent's `substates` set; substate match exhaustiveness
+  wired; `resolveTypeExpr` falls back to `stateTypeRegistry`;
+  `< Substate>` recognized as match arm pattern. Substate match is now
+  end-to-end live.
+- 31 normative statements from Insight 21 registered as skipped gating
+  conformance tests (commit `328b6ab`) — to be un-skipped as phases
+  land.
+Wrap at `593f52f`.
+
+**S33 — state Phase 4a–4g + adopter bug salvo (2026-04-21).** Phase 4
+of the state cluster plus 9 adopter bugs shipped:
+- Phase 4a/b: block-splitter recognizes transition-decl body + AST
+  transition-decl node.
+- Phase 4c: `StateType.transitions` registry hook.
+- Phase 4d: `from` contextual keyword + params binding in transition
+  bodies.
+- Phase 4e: E-STATE-TRANSITION-ILLEGAL at call site.
+- Phase 4f: E-STATE-TERMINAL-MUTATION on field writes to terminal
+  substates.
+- Phase 4g: fn-level purity enforcement in transition bodies (§33.6).
+- 9 adopter bugs: Object.freeze comma emission (E); `event` threading
+  in bare-call handlers (A); scope-aware mangling to skip property
+  access (D); GITI-002 imported names in scope; declaredNames threading
+  through control-flow (B + F); block-body arrows in call-arg position
+  (C); GITI-005 `${serverFn()}` markup interpolation wiring; GITI-003 +
+  GITI-004 server/client boundary import pruning + server-context lift;
+  GITI-001 await server-fn reactive-set + skip empty-url `<request>`.
+- S32 conformance tests un-skipped for the 9 Phase-4 statements now
+  covered (`36eadb9`).
+Wrap at `eab5251`.
+
+**S34 — map refresh + 2 GITI lift/css adopter fixes (2026-04-21).**
+Narrow session:
+- `3f79d71` — GITI-008: coalesce consecutive text tokens in lift markup.
+- `b8f3b51` — GITI-007: descendant combinator selector recognition.
+- Project-map + master-list refresh. Wrap at `d6e8288`.
+
+**S35 — codegen refactor C-arc (2026-04-21).** Nine-step codegen cleanup
+migrating call sites from legacy `rewriteExpr` to the
+`emitExprField`-with-`derivedNames` pattern. Steps 1–9 commits
+`3f8d88c`, `099a30a`, `36b02ec`, `03aad3d`, `6cdcc7f`, `3c2e848`,
+`03a0c56`, `9501371`, `54bcab7`. Also `fd51d70` required boundary on
+`EmitLogicOpts` (B2 refactor gate — boundary is no longer optional);
+`8c64a98` added per-file WinterCG fetch handler + aggregate routes.
+
+**S36 — context-carry snapshot (2026-04-21).** No commits shipped;
+interrupted mid-arc. Content rolled into S37.
+
+**S37 — fn/pure unification + Bug G + Bug 6 + adopter external-JS doc
+(2026-04-21 → 2026-04-22).** Major arcs:
+- `83e6896` — Bug G parser: `fn` shorthand accepts `-> ReturnType` annotation.
+- `d40afbe` — Bug G codegen: `fn` shorthand implicit-return for tail
+  expressions (match, switch, bare-expr).
+- `6d9b62a` — §33.3 / §48 spec consolidation: unify `fn` ≡ pure function,
+  retire E-RI-001, absorb non-determinism + async into §33.3. Three
+  `scrml-language-design-reviewer` passes surfaced 6 cross-section
+  contradictions the first-pass eyeball missed.
+- `ccae1f6` — E-RI-001 code cleanup across PIPELINE.md, route-inference.ts,
+  lsp/server.js, stale test headers.
+- `c7198b6` — Phase 0 item 2: adopter-facing `docs/external-js.md`
+  translation table (zod→§53 is the anchor; lodash/date-fns/cm6 etc.).
+- `f6fb0cc` — Bug 6: `^{}` meta-checker no longer collects function-local
+  decls as module-scope (over-capture fix).
+- 2 ratified debates: B1+B3 refactor DEFER (insight 23 staged) and
+  NPM compat-tier Phase-0-first verdict (insight 24 staged). Radical-
+  doubt explicitly overturned user bias on the compat-tier question —
+  user: "Accept verdict, I'm thrilled to be wrong here."
+- 6-bug triage of 6nz batch: 1, 4 confirmed HIGH; 3, 5 confirmed; 2
+  dismissed (downstream effect of bug 4); 6 fixed same session.
+- Wrap + pa.md rule updates at `9540518`.
 
 ### 2026-04-19 (S28 — validation elision arc + 5 adjacent fixes)
 

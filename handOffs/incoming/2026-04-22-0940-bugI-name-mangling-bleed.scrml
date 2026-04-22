@@ -1,0 +1,48 @@
+// Bug I minimal repro — user function `lines` at module scope causes
+// the compiler to rename `n.lines` inside a record-literal value
+// position to `n._scrml_lines_N`.
+//
+// Family: Bug D from session 8 (`classList.toggle` → `classList._scrml_toggle_N`
+// when user function `toggle()` exists). That was reported fixed in a
+// DOM-method-access path, but the record-literal-rhs form still hits.
+//
+// The trigger observed in playground-four: a `.map(n => …)` that
+// returns a record literal like `{ lines: n.lines, ... }`. The key
+// `lines` stays fine; the value `n.lines` becomes `n._scrml_lines_N`.
+//
+// Run: scrml compile bugI-name-mangling-bleed.scrml
+//      grep _scrml_lines_ dist/bugI.../app.client.js
+
+<program>
+
+${
+    // Module-scope helper with a name that matches a record field.
+    function lines() {
+        return [""]
+    }
+
+    @items = [{ id: 0, lines: ["x", "y"], other: "a" }]
+
+    // Emulate an immutable update: map the array, returning new records
+    // whose `lines` field passes through from the source record.
+    function copyAll() {
+        return @items.map((n, i) => {
+            return {
+                id: n.id,
+                lines: n.lines,     // ← Expected: `n.lines`. Actual: `n._scrml_lines_N`.
+                other: n.other
+            }
+        })
+    }
+
+    @copied = copyAll()
+    @copiedLinesFirst = @copied[0].lines[0]  // expect "x", actual undefined
+}
+
+<div>
+    <p>helper returns: ${lines()[0]} (expect "")</>
+    <p>items[0].lines[0] = ${@items[0].lines[0]} (expect "x")</>
+    <p>copied[0].lines[0] = ${@copiedLinesFirst} (expect "x")</>
+</>
+
+</program>

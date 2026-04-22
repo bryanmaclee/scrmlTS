@@ -1,8 +1,10 @@
-# scrmlTS — Session 38
+# scrmlTS — Session 38 (CLOSED)
 
 **Date opened:** 2026-04-22
+**Date closed:** 2026-04-22
 **Previous:** `handOffs/hand-off-38.md` (S37 wrap snapshot)
 **Baseline entering S38:** 7,393 pass / 40 skip / 2 fail / 339 files at `9540518` (S37 wrap).
+**Final at S38 close:** **7,463 pass / 40 skip / 2 fail / 347 files** at `cfb1a14`. All 8 session commits pushed to origin/main. Plus S37 carryover (`f6fb0cc`, `9540518`) also pushed.
 
 ---
 
@@ -14,9 +16,15 @@
 - **Unpushed locally:** `f6fb0cc` (Bug 6 meta-checker fix) + `9540518` (S37 wrap).
 - Push relay is live: `handOffs/incoming/2026-04-22-scrmlTS-to-master-s37-close-consolidated.md` dropped into master's inbox at S37 close. No direct-push auth carried into this session.
 
-### Inbox
-- `handOffs/incoming/` — empty (only `read/` subdir).
-- No new cross-repo messages since S37 close.
+### Inbox (at close)
+- **Inbox NOT empty at close** — arrived during wrap:
+  - `2026-04-22-0612-master-to-scrmlTS-readme-add-giti-link.md` — master asks to add giti link to README.
+  - `2026-04-22-0814-giti-009-relative-imports.scrml` + `.js` sidecar + `.md` — GITI-009 relative-import forwarding bug (reproducer attached).
+  - `2026-04-22-0814-giti-to-scrmlTS-giti-010-acked-and-giti-009-filed.md` — giti confirms GITI-010 resolution + files GITI-009.
+  - `2026-04-22-0841-giti-011-css-at-rules.scrml` + `.md` — GITI-011 CSS at-rule handling bug (reproducer attached).
+  - `2026-04-22-0940-6nz-to-scrmlTS-bugs-4-5-verified-playground-four-surfaces-4-new.md` + 4 `.scrml` sidecars — 6nz verified S38 bugs 4+5 against push, then playground-four surfaced **4 new bugs** (H: function-rettype match drops return; I: name-mangling bleed; J: markup-interp helper-fn hides reactive; K: sync-effect throw halts caller).
+- Carryover from S37 wrap archived to `read/`: none still open.
+- **S39 should triage this batch first.** The 4 new 6nz bugs + GITI-009 + GITI-011 exceed a single session's fix capacity — will need priority ranking.
 
 ### scrml-support picked up
 - `a5b99f5` — insight 23 (B1+B3 DEFER + trigger registry) ✅ appended
@@ -29,27 +37,33 @@
 
 ---
 
-## 1. Next-priority queue (inherited from S37 §5, unchanged)
+## 1. Next-priority queue for S39 (updated at close)
 
-In priority order:
+S38 closed the entire S37 bug queue (1, 3, 4, 5, 6 all fixed, plus mixed-case follow-on), GITI-010, and the multi-`^{}` debate. Remaining follow-ups in priority order:
 
-1. **Phase 0 item 1 continuation — `^{}` audit**
-   - Investigate if `if`/`for`/`while`/`match`/`try` bodies also over-capture (Bug 6 siblings).
-   - Check `lin-decl` handling inside `^{}` capture.
-   - Check `^{}` inside a loop body — re-capture per iteration?
-   - Add `^{}` cookbook section to `docs/external-js.md` once ≥3 patterns validated.
+1. **Auth-middleware CSRF mint-on-403 path** — surfaced from GITI-010.
+   Session-based CSRF validation in `emit-server.ts` at line 510 still
+   doesn't mint on 403; different contract from baseline (uses
+   `_scrml_session_middleware`). Scope a dedicated fix when someone
+   reports it in the wild OR when giti migrates to auth middleware.
 
-2. **Phase 0 item 3 — `scrml vendor add <url>` CLI.** Fetch + sha384 + write to `vendor/<name>/` + update manifest. Session-sized.
+2. **Phase 0 item 1 `^{}` audit continuation** — 4 items remain:
+   - If/for/while/match/try body over-capture siblings (Bug 6 shape).
+   - `lin-decl` handling inside `^{}` capture.
+   - `^{}` inside a loop body — re-capture per iteration?
+   - Add `^{}` cookbook section to `docs/external-js.md` once ≥3 patterns validated (emit.raw fix just added a second; CM6-via-esm.sh would be the third).
 
-3. **Bug 1 — string literal escape handling.** Foundational (affects `\n`/`\t`/`\r` in every string); leaks into Bugs 2 + 6 outputs. Likely 10–30 LOC in tokenizer/string-emit path.
+3. **Phase 0 item 3 — `scrml vendor add <url>` CLI.** Fetch + sha384 +
+   write to `vendor/<name>/` + update manifest. Session-sized. Not started.
 
-4. **Bug 4 — derived-reactive markup display wiring.** Named derived refs skip subscription; breaks core reactive idiom. Likely 20–60 LOC.
+4. **master-list.md header + `docs/SEO-LAUNCH.md` hygiene** — both
+   ~15 sessions stale (noted in §3).
 
-5. **Bug 3 clarification** — ask 6nz for exact source with `prevStart` scope.
+5. **NC-3 / NC-4 non-compliance items** — §54.6 Phase 4h return-type-
+   narrow-fit gap, `_ensureBoundary` warning shim cleanup.
 
-6. **Bug 5 behavioral test** — confirm runtime reactive dep-tracking for `for-lift`.
-
-7. **Follow-up message to 6nz** — consolidated state of all 6 bugs.
+6. **GITI-009 (giti-reported)** — relative-import forwarding against source
+   path instead of compiled output path. Waiting on minimal repro from giti.
 
 ---
 
@@ -78,11 +92,12 @@ In priority order:
 
 ---
 
-## 4. Open threads
+## 4. Open threads (at close)
 
-- Master has not yet executed `2026-04-22-scrmlTS-to-master-s37-close-consolidated.md` push request at session open. If user re-auths direct push, can be handled locally.
-- Phase 0 item 2 (`docs/external-js.md`) committed at `c7198b6` — landed upstream. Item 1 + item 3 are the remaining Phase 0 deliverables.
-- S37 Phase 0 item 1 "recalibration": meta-eval.ts already 646 lines + wiring complete; Phase 0 item 1 was redefined as **audit + fix concrete `^{}` bugs**, not "implement emit+reparse." Bug 6 was the first fruit; continuation queue in §1.
+- User-authorized direct push executed 2× during S38 (Bug 1–GITI-010 batch pushed at `40e162b`; Bug 4 push at `adbc30c`; mixed-case push at `8691f75`; SPEC §22.3 push at `6609fb6`; emit.raw fix push at `cfb1a14`). Forward protocol: direct-push auth was per-session; default DEFAULT for S39 is needs:push relay to master unless user re-auths.
+- **Master-side pending**: `handOffs/incoming/2026-04-22-scrmlTS-to-master-insight-25-multi-meta.md` requests append of multi-`^{}` debate verdict as insight 25 to `scrml-support/design-insights.md`. Two hallucinated refs (nonexistent "insight 40", nonexistent "file-scoped compile-time accumulator") flagged in the relay message — master must strip before append.
+- Phase 0 item 2 (`docs/external-js.md`) committed S37 `c7198b6`. Item 1 (`^{}` audit) advanced this session via Bug 6 (S37), Bug 4 (S38), and emit.raw classifier (S38). Item 3 (`scrml vendor add <url>` CLI) still not started.
+- S37 Phase 0 item 1 audit queue: remaining items are `if`/`for`/`while`/`match`/`try` body over-capture siblings (Bug-6-shape), `lin-decl` handling inside `^{}`, `^{}` inside a loop body (re-capture per iteration?), multiple top-level `^{}` nice-to-have (RATIFIED + SPEC'd this session).
 
 ---
 
@@ -99,4 +114,5 @@ In priority order:
 - 2026-04-22 — **Inbox replies dispatched**: (1) 6nz: full batch resolved (bugs 1, 3, 4, 5 + bug 6 already verified) → `6NZ/handOffs/incoming/2026-04-22-scrmlTS-to-6nz-bug-4-and-bug-5-fixed.md`. (2) giti: GITI-010 fix shipped in `40e162b`; their retraction was timing confusion (they compiled after my push and mistook it for pre-existing behavior) → `giti/handOffs/incoming/2026-04-22-scrmlTS-to-giti-giti-010-fixed.md`. Four inbox messages archived to `incoming/read/`.
 - 2026-04-22 — **Mixed-case for-lift wrapper re-creation FIXED — follow-on to Bug 5 (Option B).** Root cause: logic blocks combining keyed for-lift with other reactive content (e.g. `if (@empty) { lift... } for (let x of @items)...`) had outer `_scrml_effect` wrapping everything, stacking two bugs — (a) wrapper div re-created per outer-effect fire; (b) conditional `_scrml_lift(<li empty>)` accumulated because `hasKeyedReconcile` correctly skipped `innerHTML=""` (skipping clear preserves wrapper but also stops clearing conditional). Fix: detect mixed case (`hasKeyedReconcile && hasOtherReactiveReads`) and hoist for-lift setup OUTSIDE the effect via `hoistForLiftSetup(combinedCode)` helper — extracts wrapper decl + createFn + renderFn + first renderFn() call + `_scrml_effect_static(renderFn)` using regex + balanced-brace matching. Effect body retains `_scrml_lift(wrapper)` which re-mounts the same node (appendChild MOVES it, wrapper's reconciled children persist). With wrapper hoisted, `innerHTML=""` restored at effect top — safe because re-mount happens immediately. Fixes both (a) and (b) in one pass. 11 unit tests at `compiler/tests/unit/for-lift-mixed-case-hoist.test.js`. One pre-existing Bug-5 test updated to match new mixed-case shape (wrapper BEFORE effect now, not after). Suite: **7,449 pass / 40 skip / 2 fail / 345 files**. Commit `8691f75`. Pushed.
 - 2026-04-22 — **Multi-top-level `^{}` debate RATIFIED — SPEC §22.3 terminal bullet added.** User asked for a debate on 6nz's "allow multiple top-level `^{…}` blocks for lifecycle stages" nice-to-have. debate-curator dispatched (5 experts: elm-architecture 34, template-haskell 45, zig-comptime 46, racket-phases 44, scrml-radical-doubt 53 — minimum-delta wins). Verdict: codify existing compiler behavior; **do NOT** introduce `^init{}`/`^mount{}`/`^teardown{}` keywords. Applied: (1) SPEC edit — one-bullet normative rule at §22.3 (top-level = file scope; each block classified independently; source order within phase; DOMContentLoaded-already-fired clause; mixed compile-time+runtime permitted). scrml-language-design-reviewer 2-pass review: pass 1 REVISE (4 issues: undefined "top-level", async over-strength, already-fired gap, "emission order" unused) — all fixed; pass 2 CLEAN (cross-sections verified against §22.4/§22.5/§22.6/§7.3/§22.8/§22.10/§41). (2) Test suite at `compiler/tests/unit/multi-meta-source-order.test.js` (6 tests) + compilation sample at `samples/compilation-tests/multi-meta-source-order.scrml`. (3) 6nz reply dropped at `6NZ/handOffs/incoming/2026-04-22-scrmlTS-to-6nz-multi-meta-ratified.md` — "already supported, SPEC says so now, name the functions `init()`/`mount()` not keywords." (4) Master relay at `handOffs/incoming/2026-04-22-scrmlTS-to-master-insight-25-multi-meta.md` requesting scrml-support/design-insights.md append as insight 25, with two hallucinated references flagged (debate-curator invented "insight 40" and "file-scoped compile-time accumulator" — stripped from SPEC delta, flagged in relay). Suite: **7,456 pass / 40 skip / 2 fail / 346 files**. Commit `6609fb6`. Pushed.
-- 2026-04-22 — **`emit.raw` classifier bug (task #6) FIXED.** Surfaced during multi-meta testing: `^{ emit.raw(...) }` at file scope was being classified as runtime meta, emitting `_scrml_meta_effect(...)` with body `emit.raw("...")` — which would CRASH at runtime (per §22.5.1, `emit.raw` has no runtime counterpart). Root cause: `testExprNode` in `meta-checker.ts` used `exprNodeContainsCall(exprNode, "emit")` which only matches CallExpr where callee is an IdentExpr with name "emit". For `emit.raw(...)`, the callee is a MemberExpr (object=ident("emit"), property="raw") — not matched. The string-fallback regex DID catch it, but the ExprNode path runs first and short-circuits. Fix: added `exprNodeContainsEmitRawCall` helper that walks ExprNode tree looking for CallExpr with MemberExpr callee matching `emit.raw`. Wired into `testExprNode`. Verified on `/tmp/emit-raw/app.scrml`: HTML now contains the injected `<p class="compile-time-emitted">` at compile time; client JS has no `_scrml_meta_effect` for the block and no runtime `emit.raw(` reference. 7 unit tests at `compiler/tests/unit/meta-classifier-emit-raw.test.js` covering compile-time expansion, no runtime emit, bare `emit(...)` regression guard, `reflect(...)` regression guard, pure-runtime regression guard, `meta.emit.raw` false-positive guard, nested-statements classification. Suite: **7,463 pass / 40 skip / 2 fail / 347 files**. LOC: ~50 (helper + wire-in) + ~130 (tests).
+- 2026-04-22 — **`emit.raw` classifier bug (task #6) FIXED.** Surfaced during multi-meta testing: `^{ emit.raw(...) }` at file scope was being classified as runtime meta, emitting `_scrml_meta_effect(...)` with body `emit.raw("...")` — which would CRASH at runtime (per §22.5.1, `emit.raw` has no runtime counterpart). Root cause: `testExprNode` in `meta-checker.ts` used `exprNodeContainsCall(exprNode, "emit")` which only matches CallExpr where callee is an IdentExpr with name "emit". For `emit.raw(...)`, the callee is a MemberExpr (object=ident("emit"), property="raw") — not matched. The string-fallback regex DID catch it, but the ExprNode path runs first and short-circuits. Fix: added `exprNodeContainsEmitRawCall` helper that walks ExprNode tree looking for CallExpr with MemberExpr callee matching `emit.raw`. Wired into `testExprNode`. Verified on `/tmp/emit-raw/app.scrml`: HTML now contains the injected `<p class="compile-time-emitted">` at compile time; client JS has no `_scrml_meta_effect` for the block and no runtime `emit.raw(` reference. 7 unit tests at `compiler/tests/unit/meta-classifier-emit-raw.test.js` covering compile-time expansion, no runtime emit, bare `emit(...)` regression guard, `reflect(...)` regression guard, pure-runtime regression guard, `meta.emit.raw` false-positive guard, nested-statements classification. Suite: **7,463 pass / 40 skip / 2 fail / 347 files**. Commit `cfb1a14`. Pushed.
+- 2026-04-22 — **S38 WRAP.** User-voice S38 appended to `../scrml-support/user-voice-scrmlTS.md` (6 verbatim entries + commentary). Changelog catch-up block covering S29–S37 (consolidated, arc-organized, ~180 lines) + detailed S38 entry appended to `docs/changelog.md` (502 → 722 lines — previously last-updated S28). S38 closed the entire S37 bug queue (1, 3, 4, 5 + mixed-case follow-on), resolved GITI-010, ratified SPEC §22.3 multi-`^{}` via 5-expert debate, and fixed a `emit.raw` classifier bug surfaced during testing. 8 commits total this session, all pushed to origin/main. Final: **7,463 pass / 40 skip / 2 fail / 347 files** at `cfb1a14`.
