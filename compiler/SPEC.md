@@ -10450,6 +10450,16 @@ state that are in scope where `^{}` appears are accessible inside the meta block
 - The mechanism by which access is provided SHALL differ between compile-time and runtime
   meta (see §22.4 and §22.5 respectively). Both modes SHALL satisfy the access guarantees
   stated above.
+- A scrml file MAY contain zero or more top-level `^{}` meta blocks (top-level = file scope,
+  outside any function, component, markup, or nested block). Each top-level block SHALL be
+  classified independently per §22.4 (compile-time) or §22.5 (runtime). Top-level compile-time
+  blocks SHALL evaluate in source order during compilation. Top-level runtime blocks SHALL
+  emit `_scrml_meta_effect` calls in source order and SHALL execute in source order on
+  `DOMContentLoaded`; each effect SHALL be invoked and SHALL return before the next is
+  invoked. If `DOMContentLoaded` has already fired when the generated module initializes, the
+  scheduled effects SHALL run immediately in source order. A file MAY freely mix compile-time
+  and runtime top-level blocks; classification is per-block and does not perturb the
+  source-order contract among blocks of the same phase.
 
 ### 22.4 Compile-Time Meta
 

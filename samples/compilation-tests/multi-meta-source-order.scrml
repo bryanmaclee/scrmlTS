@@ -1,0 +1,33 @@
+<program>
+
+// §22.3 multi-top-level-^{} source-order test.
+//
+// Exercises the ratified normative rule: multiple top-level ^{} blocks are
+// permitted; runtime blocks emit _scrml_meta_effect calls in source order
+// and execute in source order on DOMContentLoaded; each effect returns
+// before the next is invoked.
+//
+// Three runtime blocks; second block's log entry depends on first block's
+// side effect (to exercise the "completes-before-next" ordering guarantee
+// beyond raw emit position).
+
+${
+  @log = []
+
+  function recordPhase(label: string) {
+    @log = [...@log, label]
+  }
+}
+
+^{ recordPhase("block-1") }
+
+^{ recordPhase("block-2-after-" + @log[0]) }
+
+^{ recordPhase("block-3") }
+
+<section>
+  <h1>Multi-meta source-order verification</h1>
+  <p>log order: ${@log.join(" -> ")}</p>
+</section>
+
+</program>
