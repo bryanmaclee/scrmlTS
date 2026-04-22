@@ -68,7 +68,7 @@ scrmlTS/
 - PA must not edit code without express permission
 - All compiler changes go through the pipeline (T1/T2/T3 tier system)
 - Never bypass the pre-commit test hook without explicit user authorization
-- Always commit on feature branches, never directly to main
+- **Commits to main are allowed only after explicit user authorization in the current session.** Confirm with the user before the first commit of a session, and before any push. Authorization stands for the scope specified, not beyond — "push S35" does not authorize a surprise commit to main in S36. Updated 2026-04-22 (master PA directive) — supersedes prior "never directly to main" rule.
 - **All agents run on Opus 4.6** (PA and subagents alike). Updated S4 2026-04-11 — supersedes the earlier "background agents use Sonnet" rule. Pass `model: "opus"` on every `Agent` dispatch.
 
 ## Link + tag conventions
@@ -79,7 +79,6 @@ Same as scrml-support — markdown `[links]` + inline `#tags` + optional frontma
 
 - Do not import stale or historical docs into this repo — they go to scrml-support
 - Do not edit scrml8 (frozen)
-- Do not commit to main directly
 - Do not use `--no-verify` unless explicitly authorized
 - Do not create new agents for compiler work — use `scrml-dev-pipeline`
 
@@ -151,7 +150,6 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 ### What NOT to do
 - Do not edit files in sibling project repos (scrml-support, giti, 6nz — user opens a different Claude instance). The single exception is dropping message files into `<sibling>/handOffs/incoming/` — see Cross-repo messaging below.
 - Do not modify scrml8 (frozen)
-- Do not commit to main directly
 - Do not bypass pre-commit hooks without explicit user authorization
 - Do not run resource-mapper in write mode on scrml8 (frozen)
 - Do not treat stale sources as authoritative — check currency flags
@@ -244,3 +242,21 @@ Agents to remove: <agent-filename>.md, <agent-filename>.md
 ### Scope of the exception
 - **Allowed:** creating new `.md` files inside `<sibling>/handOffs/incoming/`
 - **NOT allowed:** reading, editing, or deleting anything else in a sibling repo. Messages are a one-way write; the sibling's PA reads them in its own session.
+
+### Cross-repo bug reports — reproducer source required
+
+**Added 2026-04-22 (master PA directive, user-authorized).**
+
+When this PA files a bug report into another repo's `handOffs/incoming/` — or when this PA receives one — the report MUST include a minimal scrml reproducer:
+
+- **Inline** as a ` ```scrml ` fenced block in the message body (preferred for ≤ ~200 lines), OR
+- **Sidecar file** dropped next to the message: `YYYY-MM-DD-HHMM-<slug>.scrml` (same stem as the `.md`).
+
+The reproducer must be:
+
+- **Self-contained** — runnable against the receiving repo's current compiler without external setup.
+- **Minimal** — smallest scrml that still exhibits the bug.
+- **Version-stamped** — exact command used and compiler SHA (e.g., `scrmltsc repro.scrml` against `scrmlTS@ccae1f6`).
+- **Expected vs actual** — state both in the report body.
+
+As the RECEIVER (scrmlTS is the usual target for bug reports from giti/6nz): do not begin diagnosis without the reproducer. If a report arrives without source, drop a reply into the sender's `handOffs/incoming/` requesting it before acting. Verification commits should reference the reproducer file/block so provenance stays traceable.
