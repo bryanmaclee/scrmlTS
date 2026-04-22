@@ -294,6 +294,61 @@ function exprNodeContainsCompileTimeReflect(node: ExprNode): boolean {
 /** Regex to check if a bare reflect() call (not meta.types.reflect()) has a compile-time argument (PascalCase or string literal). */
 const REFLECT_COMPILE_TIME_RE = /(?<!\.\s{0,10})\breflect\s*\(\s*(?:"[^"]*"|'[^']*'|[A-Z][A-Za-z0-9_$]*)\s*\)/;
 
+/**
+ * Walk an ExprNode tree and return true if it contains a call to `emit.raw(...)`
+ * — a CallExpr whose callee is a MemberExpr with object=ident("emit") and
+ * property="raw". Needed as a sibling to `exprNodeContainsCall(exprNode, "emit")`
+ * (which only matches bare `emit(...)` where callee is an IdentExpr). Per
+ * SPEC §22.4, `emit.raw(...)` is a compile-time API trigger and the classifier
+ * must recognize it.
+ *
+ * The string-fallback regex `/\bemit(?:\.raw)?\s*\(/` already catches this
+ * case, but the ExprNode path runs first and short-circuits — without this
+ * helper, `^{ emit.raw("...") }` silently classifies as runtime meta and the
+ * generated JS calls `emit.raw` as if it were a runtime global (crash).
+ */
+function exprNodeContainsEmitRawCall(node: ExprNode | undefined): boolean {
+  if (!node || typeof node !== "object") return false;
+  const n = node as any;
+  if (n.kind === "call") {
+    const callee = n.callee;
+    if (callee &&
+        callee.kind === "member" &&
+        callee.object &&
+        callee.object.kind === "ident" &&
+        callee.object.name === "emit" &&
+        callee.property === "raw") {
+      return true;
+    }
+    if (exprNodeContainsEmitRawCall(callee)) return true;
+    if (Array.isArray(n.args)) {
+      for (const arg of n.args) {
+        if (exprNodeContainsEmitRawCall(arg)) return true;
+      }
+    }
+    return false;
+  }
+  // Walk common child fields generically; mirrors the shape used by sibling
+  // helpers in expression-parser.ts but without per-kind type switches.
+  for (const key of ["callee", "object", "argument", "left", "right", "target", "value",
+                     "condition", "consequent", "alternate", "subject", "expression", "index"]) {
+    if (n[key] && exprNodeContainsEmitRawCall(n[key])) return true;
+  }
+  for (const key of ["elements", "props", "args"]) {
+    if (Array.isArray(n[key])) {
+      for (const el of n[key]) {
+        if (el && typeof el === "object" && exprNodeContainsEmitRawCall(el)) return true;
+        // Object-property shape: { kind:"prop", key, value } — recurse into both.
+        if (el && (el.value || el.key)) {
+          if (el.value && exprNodeContainsEmitRawCall(el.value)) return true;
+          if (typeof el.key !== "string" && exprNodeContainsEmitRawCall(el.key)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
   if (!Array.isArray(body)) return false;
 
@@ -301,6 +356,7 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
     if (!exprNode) return false;
     return exprNodeContainsCompileTimeReflect(exprNode)
       || exprNodeContainsCall(exprNode, "emit")
+      || exprNodeContainsEmitRawCall(exprNode)
       || exprNodeContainsMemberAccess(exprNode, ["compiler"])
       || exprNodeContainsMemberAccess(exprNode, ["bun", "eval"]);
   }
