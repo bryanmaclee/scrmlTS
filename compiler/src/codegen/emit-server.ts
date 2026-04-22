@@ -329,7 +329,19 @@ export function generateServerJs(
         lines.push("          const _scrml_ck = _scrml_resolve_req.headers.get('Cookie') ?? '';");
         lines.push("          const _scrml_ct = (_scrml_ck.match(/scrml_csrf=([^;]+)/)?.[1]) ?? '';");
         lines.push("          const _scrml_ch = _scrml_resolve_req.headers.get('X-CSRF-Token') ?? '';");
-        lines.push("          if (!_scrml_ct || _scrml_ct !== _scrml_ch) {");
+        // GITI-010: mint-on-403 bootstrap. If cookie missing, plant a fresh
+        // token in the 403 response so the client's retry has a valid cookie.
+        // If cookie present but mismatched, terminal 403 (real CSRF).
+        lines.push("          if (!_scrml_ct) {");
+        lines.push("            return new Response(JSON.stringify({ error: 'CSRF bootstrap — retry' }), {");
+        lines.push("              status: 403,");
+        lines.push("              headers: {");
+        lines.push("                'Content-Type': 'application/json',");
+        lines.push("                'Set-Cookie': `scrml_csrf=${crypto.randomUUID()}; Path=/; SameSite=Strict`,");
+        lines.push("              },");
+        lines.push("            });");
+        lines.push("          }");
+        lines.push("          if (_scrml_ct !== _scrml_ch) {");
         lines.push("            return new Response(JSON.stringify({ error: 'CSRF validation failed' }), {");
         lines.push("              status: 403,");
         lines.push("              headers: { 'Content-Type': 'application/json' },");
@@ -364,7 +376,17 @@ export function generateServerJs(
         lines.push("      const _scrml_ck = _scrml_mw_req.headers.get('Cookie') ?? '';");
         lines.push("      const _scrml_ct = (_scrml_ck.match(/scrml_csrf=([^;]+)/)?.[1]) ?? '';");
         lines.push("      const _scrml_ch = _scrml_mw_req.headers.get('X-CSRF-Token') ?? '';");
-        lines.push("      if (!_scrml_ct || _scrml_ct !== _scrml_ch) {");
+        // GITI-010: mint-on-403 bootstrap (see baseline path comment for rationale).
+        lines.push("      if (!_scrml_ct) {");
+        lines.push("        return new Response(JSON.stringify({ error: 'CSRF bootstrap — retry' }), {");
+        lines.push("          status: 403,");
+        lines.push("          headers: {");
+        lines.push("            'Content-Type': 'application/json',");
+        lines.push("            'Set-Cookie': `scrml_csrf=${crypto.randomUUID()}; Path=/; SameSite=Strict`,");
+        lines.push("          },");
+        lines.push("        });");
+        lines.push("      }");
+        lines.push("      if (_scrml_ct !== _scrml_ch) {");
         lines.push("        return new Response(JSON.stringify({ error: 'CSRF validation failed' }), {");
         lines.push("          status: 403,");
         lines.push("          headers: { 'Content-Type': 'application/json' },");
@@ -520,9 +542,17 @@ export function generateServerJs(
       lines.push(`  const _scrml_csrf_token = _scrml_ensure_csrf_cookie(_scrml_req);`);
       lines.push(`  // CSRF validation (compiler-generated, baseline double-submit cookie)`);
       lines.push(`  if (!_scrml_validate_csrf(_scrml_req)) {`);
+      // GITI-010: mint-on-403 bootstrap — include Set-Cookie so a cookie-less
+      // first POST receives a token; client retries once with the new cookie.
+      // _scrml_csrf_token is always valid here (existing or freshly-minted by
+      // _scrml_ensure_csrf_cookie above). Re-emitting it on valid-cookie
+      // requests is a no-op refresh.
       lines.push(`    return new Response(JSON.stringify({ error: "CSRF validation failed" }), {`);
       lines.push(`      status: 403,`);
-      lines.push(`      headers: { "Content-Type": "application/json" },`);
+      lines.push(`      headers: {`);
+      lines.push(`        "Content-Type": "application/json",`);
+      lines.push(`        "Set-Cookie": \`scrml_csrf=\${_scrml_csrf_token}; Path=/; SameSite=Strict\`,`);
+      lines.push(`      },`);
       lines.push(`    });`);
       lines.push(`  }`);
     }

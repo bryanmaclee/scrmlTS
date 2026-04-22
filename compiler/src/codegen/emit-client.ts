@@ -478,6 +478,44 @@ export function generateClientJs(ctx: CompileContext): string {
     lines.push("  return match ? decodeURIComponent(match[1]) : '';");
     lines.push("}");
     lines.push("");
+    // GITI-010: fetch-with-retry wrapper. Only emitted when at least one
+    // CSRF-gated mutating route exists — otherwise the helper would be dead
+    // code (an SSE-only file uses EventSource, not fetch).
+    let hasMutatingCsrfServerFn = false;
+    const routeMap = ctx.routeMap;
+    if (routeMap?.functions) {
+      for (const [, route] of routeMap.functions) {
+        if (!route || route.boundary !== "server") continue;
+        const method = route.explicitMethod ?? "POST";
+        if (method !== "GET" && method !== "HEAD") {
+          hasMutatingCsrfServerFn = true;
+          break;
+        }
+      }
+    }
+    if (hasMutatingCsrfServerFn) {
+      // Cookie-less first POST receives a 403 with Set-Cookie (server plants
+      // a fresh token). We retry exactly once, re-reading document.cookie
+      // for the fresh X-CSRF-Token. Single-shot retry — if the second
+      // attempt also 403s, it's a real mismatch (stale token, actual CSRF
+      // attempt) and propagates to the caller.
+      lines.push("async function _scrml_fetch_with_csrf_retry(path, method, body) {");
+      lines.push("  let _scrml_resp = await fetch(path, {");
+      lines.push("    method,");
+      lines.push('    headers: { "Content-Type": "application/json", "X-CSRF-Token": _scrml_get_csrf_token() },');
+      lines.push("    body,");
+      lines.push("  });");
+      lines.push("  if (_scrml_resp.status === 403) {");
+      lines.push("    _scrml_resp = await fetch(path, {");
+      lines.push("      method,");
+      lines.push('      headers: { "Content-Type": "application/json", "X-CSRF-Token": _scrml_get_csrf_token() },');
+      lines.push("      body,");
+      lines.push("    });");
+      lines.push("  }");
+      lines.push("  return _scrml_resp;");
+      lines.push("}");
+      lines.push("");
+    }
   }
 
   // Emit fetch stubs, CPS wrappers, and client-boundary function bodies

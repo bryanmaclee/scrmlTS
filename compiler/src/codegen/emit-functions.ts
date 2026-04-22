@@ -114,19 +114,28 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     fnNameMap.set(name, stubName);
 
     lines.push(`async function ${stubName}(${paramNames.join(", ")}) {`);
-    lines.push(`  const _scrml_resp = await fetch(${JSON.stringify(path)}, {`);
-    lines.push(`    method: ${JSON.stringify(httpMethod)},`);
-    if (csrfEnabled && httpMethod !== "GET" && httpMethod !== "HEAD") {
-      lines.push(`    headers: { "Content-Type": "application/json", "X-CSRF-Token": _scrml_get_csrf_token() },`);
+    const usesCsrfRetry = csrfEnabled && httpMethod !== "GET" && httpMethod !== "HEAD";
+    if (usesCsrfRetry) {
+      // GITI-010: route through _scrml_fetch_with_csrf_retry so a cookie-less
+      // first POST receives a Set-Cookie 403, then automatically retries with
+      // the freshly-planted token.
+      lines.push(`  const _scrml_body = JSON.stringify({`);
+      for (const p of paramNames) {
+        lines.push(`    ${JSON.stringify(p)}: ${p},`);
+      }
+      lines.push(`  });`);
+      lines.push(`  const _scrml_resp = await _scrml_fetch_with_csrf_retry(${JSON.stringify(path)}, ${JSON.stringify(httpMethod)}, _scrml_body);`);
     } else {
+      lines.push(`  const _scrml_resp = await fetch(${JSON.stringify(path)}, {`);
+      lines.push(`    method: ${JSON.stringify(httpMethod)},`);
       lines.push(`    headers: { "Content-Type": "application/json" },`);
+      lines.push(`    body: JSON.stringify({`);
+      for (const p of paramNames) {
+        lines.push(`      ${JSON.stringify(p)}: ${p},`);
+      }
+      lines.push(`    }),`);
+      lines.push(`  });`);
     }
-    lines.push(`    body: JSON.stringify({`);
-    for (const p of paramNames) {
-      lines.push(`      ${JSON.stringify(p)}: ${p},`);
-    }
-    lines.push(`    }),`);
-    lines.push(`  });`);
     lines.push(`  return _scrml_resp.json();`);
     lines.push(`}`);
     lines.push("");
