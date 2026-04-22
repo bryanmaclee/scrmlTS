@@ -37,6 +37,7 @@ import { generateMachineTestJs } from "./emit-machine-property-tests.ts";
 import { generateWorkerJs } from "./emit-worker.ts";
 import { SourceMapBuilder, appendSourceMappingUrl } from "./source-map.ts";
 import { EncodingContext } from "./type-encoding.ts";
+import { collectDerivedVarNames } from "./reactive-deps.ts";
 import { collectTopLevelLogicStatements } from "./collect.ts";
 import type { CompileContext } from "./context.ts";
 
@@ -363,7 +364,7 @@ export function runCG(input: CgInput): CgOutput {
         workerNames: [],
         errors,
         registry: new BindingRegistry(),
-        derivedNames: new Set<string>(),
+        derivedNames: collectDerivedVarNames(fileAST),
         analysis: analysis ?? null,
       };
       const libraryJs: string | null = generateLibraryJs(libCtx) || null;
@@ -432,7 +433,7 @@ export function runCG(input: CgInput): CgOutput {
       workerNames: fileWorkerNames,
       errors,
       registry,
-      derivedNames: new Set<string>(),
+      derivedNames: collectDerivedVarNames(fileAST),
       analysis: analysis ?? null,
       usedRuntimeChunks: new Set(['core', 'scope', 'errors', 'transitions']),
     };

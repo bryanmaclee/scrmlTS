@@ -137,6 +137,19 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
       if (n.kind === "reactive-decl" && n.name) {
         names.add(n.name as string);
       }
+      // Bug 4 fix: derived reactive decls (`const @name = expr`) must be
+      // recognized by the markup display-wiring pass. Without them in this
+      // set, `extractReactiveDeps` filters `${@isInsert}` out of binding
+      // reactive refs, emit-event-wiring sees empty varRefs, no effect wrap
+      // is emitted, and the named derived reference never updates in the DOM
+      // after the first render. The wiring target calls _scrml_derived_get
+      // inside _scrml_effect — on first run the derived fn evaluates, reads
+      // its upstream @roots via _scrml_reactive_get, and the outer effect
+      // picks up those deps. Subsequent mutations propagate dirty-flags and
+      // re-fire the effect normally.
+      if (n.kind === "reactive-derived-decl" && n.name) {
+        names.add(n.name as string);
+      }
       // Tilde-decl with reactive deps compiles to a derived reactive
       // Phase 4d: ExprNode-first — check initExpr for @-prefixed idents, string fallback
       if (n.kind === "tilde-decl" && n.name) {

@@ -445,7 +445,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       // reactivity on the fetch result); a future arc will add fine-grained
       // reactivity for server-fn returns.
       if (varRefs.length === 0 && exprUsesServerFn(expr, serverFnNames)) {
-        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client" });
+        const rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames });
 
         lines.push(`  {`);
         lines.push(`    const el = document.querySelector('[data-scrml-logic="${placeholderId}"]');`);
@@ -457,7 +457,7 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       }
 
       if (varRefs.length > 0) {
-        let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client" });
+        let rewrittenExpr = emitExprField(binding.exprNode, expr, { mode: "client", derivedNames: ctx.derivedNames });
 
         // When encoding is active, replace _scrml_reactive_get("name") with encoded names
         if (encodingCtx && encodingCtx.enabled) {
