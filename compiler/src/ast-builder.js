@@ -48,6 +48,61 @@ import {
 import { parseExprToNode } from "./expression-parser.ts";
 
 /**
+ * Bug 1 fix: re-emit a string literal's raw inner text as a valid JS string
+ * literal. The scrml tokenizer stores the source-as-written inner text for
+ * STRING tokens (e.g., `"a\nb"` → `a\nb` = 4 chars including a literal
+ * backslash). Previous code double-escaped this by `.replace(/\\/g, "\\\\")`,
+ * producing `"a\\nb"` in the emitted JS, which parses as literal backslash+n
+ * instead of LF. This helper interprets standard escapes into their character
+ * values, then JSON.stringifies to produce a canonical double-quoted JS literal.
+ *
+ * Handles: \n \t \r \\ \" \' \0 \b \f \v \xHH \uHHHH \u{HHHHHH}
+ * Unknown escape sequences pass through as literal backslash+char (conservative).
+ */
+function reemitJsStringLiteral(rawInner) {
+  let out = "";
+  for (let i = 0; i < rawInner.length; i++) {
+    const c = rawInner[i];
+    if (c !== "\\" || i + 1 >= rawInner.length) { out += c; continue; }
+    const n = rawInner[i + 1];
+    switch (n) {
+      case "n":  out += "\n"; i++; break;
+      case "t":  out += "\t"; i++; break;
+      case "r":  out += "\r"; i++; break;
+      case "\\": out += "\\"; i++; break;
+      case '"':  out += '"';  i++; break;
+      case "'":  out += "'";  i++; break;
+      case "`":  out += "`";  i++; break;
+      case "0":  out += "\0"; i++; break;
+      case "b":  out += "\b"; i++; break;
+      case "f":  out += "\f"; i++; break;
+      case "v":  out += "\v"; i++; break;
+      case "x": {
+        const hex = rawInner.slice(i + 2, i + 4);
+        if (/^[0-9a-fA-F]{2}$/.test(hex)) { out += String.fromCharCode(parseInt(hex, 16)); i += 3; }
+        else { out += "\\" + n; i++; }
+        break;
+      }
+      case "u": {
+        if (rawInner[i + 2] === "{") {
+          const close = rawInner.indexOf("}", i + 3);
+          const hex = close > 0 ? rawInner.slice(i + 3, close) : "";
+          if (/^[0-9a-fA-F]+$/.test(hex)) { out += String.fromCodePoint(parseInt(hex, 16)); i = close; }
+          else { out += "\\" + n; i++; }
+        } else {
+          const hex = rawInner.slice(i + 2, i + 6);
+          if (/^[0-9a-fA-F]{4}$/.test(hex)) { out += String.fromCharCode(parseInt(hex, 16)); i += 5; }
+          else { out += "\\" + n; i++; }
+        }
+        break;
+      }
+      default:   out += "\\" + n; i++; break;
+    }
+  }
+  return JSON.stringify(out);
+}
+
+/**
  * Phase 3.5: detect expressions that should NOT be parsed to ExprNode.
  * Returns true for:
  * - HTML tag fragments (tokenizer-spaced: `< / span >`, `< button onclick = ...`)
@@ -1228,7 +1283,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       lastTok = consume();
       // Re-quote STRING tokens so their delimiters are preserved in the expression
       if (lastTok.kind === "STRING") {
-        parts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+        parts.push(reemitJsStringLiteral(lastTok.text));
       } else {
         parts.push(lastTok.text);
       }
@@ -1349,7 +1404,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       lastTok = consume();
       // Re-quote STRING tokens so their delimiters are preserved
       if (lastTok.kind === "STRING") {
-        parts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+        parts.push(reemitJsStringLiteral(lastTok.text));
       } else {
         parts.push(lastTok.text);
       }
@@ -1799,7 +1854,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
         const ct = consume();
         if (ct.kind === "STRING") {
-          argParts.push(`"${ct.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+          argParts.push(reemitJsStringLiteral(ct.text));
         } else {
           argParts.push(ct.text);
         }
@@ -2852,7 +2907,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       lastTok = consume();
       // Re-quote STRING tokens so their delimiters are preserved in the expression
       if (lastTok.kind === "STRING") {
-        parts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+        parts.push(reemitJsStringLiteral(lastTok.text));
       } else {
         parts.push(lastTok.text);
       }
@@ -4521,7 +4576,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           lastTok = consume();
           if (lastTok.kind === "STRING") {
-            callbackParts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+            callbackParts.push(reemitJsStringLiteral(lastTok.text));
           } else {
             callbackParts.push(lastTok.text);
           }
@@ -4583,7 +4638,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             }
             lastTok = consume();
             if (lastTok.kind === "STRING") {
-              bodyParts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+              bodyParts.push(reemitJsStringLiteral(lastTok.text));
             } else {
               bodyParts.push(lastTok.text);
             }
@@ -4643,7 +4698,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           lastTok = consume();
           if (lastTok.kind === "STRING") {
-            bodyParts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+            bodyParts.push(reemitJsStringLiteral(lastTok.text));
           } else {
             bodyParts.push(lastTok.text);
           }
@@ -4700,7 +4755,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           lastTok = consume();
           if (lastTok.kind === "STRING") {
-            urlParts.push(`"${lastTok.text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`);
+            urlParts.push(reemitJsStringLiteral(lastTok.text));
           } else {
             urlParts.push(lastTok.text);
           }
