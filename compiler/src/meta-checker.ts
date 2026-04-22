@@ -1775,6 +1775,13 @@ export function collectRuntimeVars(fileAST: MetaFileAST): Map<string, "reactive"
         }
       }
 
+      // Bug 6 fix (2026-04-22): function-decl body is function-local scope, not
+      // module scope. Descending into it caused the ^{} env-capture to emit
+      // function-local names (host, nl, doc, etc.) in the module-scope
+      // Object.freeze({...}), producing ReferenceError on mount. Skip the body.
+      // `fn` shorthand uses the same `function-decl` kind so this covers both.
+      if (node.kind === "function-decl") continue;
+
       if (Array.isArray(node.children)) walk(node.children, inMeta);
       if (Array.isArray(node.body)) walk(node.body, inMeta);
     }

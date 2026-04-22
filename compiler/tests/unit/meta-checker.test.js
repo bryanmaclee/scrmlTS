@@ -775,6 +775,50 @@ describe("collectRuntimeVars", () => {
     const vars = collectRuntimeVars(fileAST);
     expect(vars.has("metaVar")).toBe(false);
   });
+
+  test("§41b does not collect vars declared inside function-decl body (Bug 6)", () => {
+    // 6nz Bug 6 repro: ^{} meta over-captures function-local bindings.
+    // `function loadExternal() { const host = ...; const nl = ...; const doc = ...; }`
+    // followed by `^{ loadExternal() }` produced an Object.freeze({ host, nl, doc })
+    // at module scope where those names don't exist → ReferenceError on mount.
+    //
+    // The bug: collectRuntimeVars walks into function-decl body and records
+    // function-local const/let as if they were module-scope.
+    // Fix: function-body scope is not module scope; locals stay inside.
+    const fn = makeFnDecl("loadExternal", [
+      makeConstDecl("host"),
+      makeConstDecl("nl"),
+      makeConstDecl("doc"),
+    ]);
+    const fileAST = makeFileAST({
+      nodes: [fn],
+    });
+    const vars = collectRuntimeVars(fileAST);
+    // The function name itself IS module-scope — should be captured.
+    expect(vars.has("loadExternal")).toBe(true);
+    // Function-local bindings are NOT module-scope — must not leak out.
+    expect(vars.has("host")).toBe(false);
+    expect(vars.has("nl")).toBe(false);
+    expect(vars.has("doc")).toBe(false);
+  });
+
+  test("§41c does not collect vars declared inside nested function bodies", () => {
+    // Defense-in-depth: a function inside a function, with locals in both.
+    const innerFn = makeFnDecl("inner", [
+      makeLetDecl("innerLocal"),
+    ]);
+    const outerFn = makeFnDecl("outer", [
+      makeConstDecl("outerLocal"),
+      innerFn,
+    ]);
+    const fileAST = makeFileAST({ nodes: [outerFn] });
+    const vars = collectRuntimeVars(fileAST);
+    expect(vars.has("outer")).toBe(true);
+    // Inner function name is function-local too; should NOT surface at module scope.
+    expect(vars.has("inner")).toBe(false);
+    expect(vars.has("outerLocal")).toBe(false);
+    expect(vars.has("innerLocal")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
