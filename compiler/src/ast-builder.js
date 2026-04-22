@@ -1236,10 +1236,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         depth--;
       }
       // Track angle-bracket depth for tag expressions (< tag attr="val" />)
-      // Open: `<` followed by an IDENT (tag name pattern)
+      // Open: `<` followed by an IDENT (tag name pattern).
+      //
+      // Bug 3 guard: if the previous token is a clearly value-producing token
+      // (IDENT, AT_IDENT, NUMBER, STRING, `)`, `]`), `<` is a less-than
+      // comparison operator, not a tag opener. Without this, `base < limit`
+      // in `const min = base < limit ? base : limit` bumps angleDepth
+      // permanently (no matching `>` in the expression), disabling the
+      // statement-boundary check — causing greedy collect to eat subsequent
+      // statements (including `return`) into the expression.
+      //
+      // Tag openers always appear at expression positions: after `=`, `,`,
+      // `(`, `[`, statement-start, or permitting keywords (`return`, `lift`).
+      // Never after a value token.
       if (tok.kind === "PUNCT" && tok.text === "<" && depth === 0) {
         const afterLt = peek(1);
-        if (afterLt && (afterLt.kind === "IDENT" || afterLt.kind === "KEYWORD")) {
+        const isTagNameAfter = afterLt && (afterLt.kind === "IDENT" || afterLt.kind === "KEYWORD");
+        const prevEndsValue = parts.length > 0 && (
+          lastTok.kind === "IDENT" ||
+          lastTok.kind === "AT_IDENT" ||
+          lastTok.kind === "NUMBER" ||
+          lastTok.kind === "STRING" ||
+          (lastTok.kind === "PUNCT" && (lastTok.text === ")" || lastTok.text === "]"))
+        );
+        if (isTagNameAfter && !prevEndsValue) {
           angleDepth++;
         }
       }
