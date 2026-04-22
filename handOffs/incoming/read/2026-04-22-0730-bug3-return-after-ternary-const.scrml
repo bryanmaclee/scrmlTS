@@ -1,0 +1,35 @@
+// Bug 3 minimal repro — `return X + y` after `const y = A ? B : C` dropped.
+//
+// Run: scrml compile bug3-return-after-ternary-const.scrml
+//      cat dist/app.client.js  (inspect _scrml_broken body)
+//
+// Expected: broken(3, 5) returns 6 (3 + min(3,5) = 3 + 3 = 6).
+// Actual: inspect compiled JS to see whether `return base + min` is dropped.
+
+<program>
+
+${
+    function broken(base, limit) {
+        const min = base < limit ? base : limit
+        return base + min
+    }
+
+    function working(base, limit) {
+        const min = Math.min(base, limit)
+        return base + min
+    }
+
+    @broken1   = broken(3, 5)    // expect 6
+    @broken2   = broken(7, 2)    // expect 9
+    @working1  = working(3, 5)   // expect 6
+    @working2  = working(7, 2)   // expect 9
+}
+
+<div>
+    <p>broken(3, 5) = ${@broken1} (expect 6)</>
+    <p>broken(7, 2) = ${@broken2} (expect 9)</>
+    <p>working(3, 5) = ${@working1} (expect 6)</>
+    <p>working(7, 2) = ${@working2} (expect 9)</>
+</>
+
+</program>

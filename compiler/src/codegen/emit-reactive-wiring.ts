@@ -20,6 +20,35 @@ import type { CompileContext } from "./context.ts";
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Bug 5 helper: strip `_scrml_reconcile_list(...)` calls (with balanced parens)
+ * from emitted code so we can detect whether the REMAINING code has any
+ * reactive reads. Used to recognize pure-keyed-reconcile blocks whose only
+ * reactive deps are already inside self-registering `_scrml_effect_static`.
+ * For those blocks, wrapping in an outer `_scrml_effect` re-creates the list
+ * wrapper per mutation → list accumulation (3 → 8 → 15 on sequential clicks).
+ */
+function stripReconcileCalls(code: string): string {
+  let out = "";
+  let i = 0;
+  const needle = "_scrml_reconcile_list(";
+  while (i < code.length) {
+    const idx = code.indexOf(needle, i);
+    if (idx === -1) { out += code.slice(i); break; }
+    out += code.slice(i, idx);
+    let j = idx + needle.length;
+    let depth = 1;
+    while (j < code.length && depth > 0) {
+      const c = code[j];
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      j++;
+    }
+    i = j;
+  }
+  return out;
+}
+
 /** Check if an AST statement contains a lift-expr anywhere in its tree. */
 function stmtContainsLift(node: any): boolean {
   if (!node || typeof node !== "object") return false;
@@ -211,32 +240,52 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
         //   `_scrml_reconcile_list`, the list wrapper is mounted once and
         //   reconciled in place. An innerHTML clear would destroy the wrapper
         //   every time the effect re-runs, breaking keyed diffing.
+        // Bug 5: if the ONLY reactive reads in the block are inside keyed
+        //   reconcile calls, the `_scrml_effect_static(renderFn)` inside the
+        //   for-lift emit already handles re-reconciliation. An outer
+        //   _scrml_effect wrap would re-create the list wrapper per mutation,
+        //   causing list accumulation (3 → 8 → 15 on sequential clicks).
+        //   Skip the outer effect wrap for this case. Mixed case (keyed
+        //   reconcile + other reactive reads) falls through to the general
+        //   wrap — preserves existing behavior (known issues there are
+        //   separate from Bug 5 and addressed in a follow-on).
         const isSingleIf = stmts.length === 1 && stmts[0].kind === "if-stmt";
         const hasKeyedReconcile = combinedCode.includes("_scrml_reconcile_list(");
-        const targetVar = genVar("lift_tgt");
-        const branchVar = isSingleIf ? genVar("lift_branch") : null;
-        lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
-        if (branchVar) {
-          lines.push(`let ${branchVar} = -1;`);
-        }
-        lines.push(`_scrml_effect(function() {`);
-        if (branchVar) {
-          // Extract the condition from the emitted if-statement to check branch identity.
-          // The emitted code starts with `if (condition) {` — extract and test condition.
-          const condMatch = combinedCode.match(/^if\s*\((.+)\)\s*\{/);
-          if (condMatch) {
-            lines.push(`  const _branch = (${condMatch[1]}) ? 1 : 0;`);
-            lines.push(`  if (_branch === ${branchVar}) return;`);
-            lines.push(`  ${branchVar} = _branch;`);
+        const hasOtherReactiveReads = hasKeyedReconcile
+          ? stripReconcileCalls(combinedCode).includes("_scrml_reactive_get(")
+          : true;
+        const canSkipOuterEffect = hasKeyedReconcile && !hasOtherReactiveReads;
+
+        if (canSkipOuterEffect) {
+          lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
+          lines.push(combinedCode);
+          lines.push(`_scrml_lift_target = null;`);
+        } else {
+          const targetVar = genVar("lift_tgt");
+          const branchVar = isSingleIf ? genVar("lift_branch") : null;
+          lines.push(`const ${targetVar} = document.querySelector('[data-scrml-logic="${pid}"]');`);
+          if (branchVar) {
+            lines.push(`let ${branchVar} = -1;`);
           }
+          lines.push(`_scrml_effect(function() {`);
+          if (branchVar) {
+            // Extract the condition from the emitted if-statement to check branch identity.
+            // The emitted code starts with `if (condition) {` — extract and test condition.
+            const condMatch = combinedCode.match(/^if\s*\((.+)\)\s*\{/);
+            if (condMatch) {
+              lines.push(`  const _branch = (${condMatch[1]}) ? 1 : 0;`);
+              lines.push(`  if (_branch === ${branchVar}) return;`);
+              lines.push(`  ${branchVar} = _branch;`);
+            }
+          }
+          if (!hasKeyedReconcile) {
+            lines.push(`  ${targetVar}.innerHTML = "";`);
+          }
+          lines.push(`  _scrml_lift_target = ${targetVar};`);
+          lines.push(`  ${combinedCode}`);
+          lines.push(`  _scrml_lift_target = null;`);
+          lines.push(`});`);
         }
-        if (!hasKeyedReconcile) {
-          lines.push(`  ${targetVar}.innerHTML = "";`);
-        }
-        lines.push(`  _scrml_lift_target = ${targetVar};`);
-        lines.push(`  ${combinedCode}`);
-        lines.push(`  _scrml_lift_target = null;`);
-        lines.push(`});`);
       } else {
         lines.push(`_scrml_lift_target = document.querySelector('[data-scrml-logic="${pid}"]');`);
         lines.push(combinedCode);
