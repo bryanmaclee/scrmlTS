@@ -2653,7 +2653,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
       // Skip return type annotation — `: TypeName` or `-> TypeName` between `)` and `{`
       // Handles: `: Mario`, `-> string`, `: Array<Thing>`, etc.
+      let hasReturnType = false;
       if (peek().text === ":") {
+        hasReturnType = true;
         consume(); // consume `:`
         let angleDepth = 0;
         while (peek().kind !== "EOF") {
@@ -2663,6 +2665,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           else consume();
         }
       } else if (peek().text === "-" && peek(1)?.text === ">") {
+        hasReturnType = true;
         consume(); // consume `-`
         consume(); // consume `>`
         // Skip the type name(s) until `{`
@@ -2689,6 +2692,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         isServer: false,
         isGenerator,
         canFail,
+        ...(hasReturnType ? { hasReturnType: true } : {}),
         span: spanOf(startTok, peek()),
       };
     }
@@ -4014,7 +4018,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
       // Skip return type annotation — `: TypeName` or `-> TypeName` between `)` and `{`
       // Handles: `: Mario`, `-> string`, `: Array<Thing>`, etc.
+      let hasReturnType = false;
       if (peek().text === ":") {
+        hasReturnType = true;
         consume(); // consume `:`
         let angleDepth = 0;
         while (peek().kind !== "EOF") {
@@ -4025,6 +4031,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
       } else if (!canFail && peek().text === "-" && peek(1)?.text === ">") {
         // Non-failable `-> ReturnType` (failable `-> ErrorType` already handled above)
+        hasReturnType = true;
         consume(); // consume `-`
         consume(); // consume `>`
         let angleDepth = 0;
@@ -4074,6 +4081,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // Naming-based: isServer && name === 'handle' (not a generator). CG uses this to weave
         // the middleware pipeline around route handlers.
         isHandleEscapeHatch: isServer && !isGenerator && name === 'handle',
+        ...(hasReturnType ? { hasReturnType: true } : {}),
         span: spanOf(startTok, peek()),
       });
       continue;
@@ -4161,7 +4169,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
       // Skip return type annotation — `: TypeName` or `-> TypeName` between `)` and `{`
       // Handles: `: Mario`, `: HurtResult`, `-> string`, `: Array<Thing>`, etc.
+      let hasReturnType = false;
       if (peek().text === ":") {
+        hasReturnType = true;
         consume(); // consume `:`
         let angleDepth = 0;
         while (peek().kind !== "EOF") {
@@ -4172,6 +4182,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
       } else if (!canFail && peek().text === "-" && peek(1)?.text === ">") {
         // Non-failable `-> ReturnType` (failable `-> ErrorType` already handled above)
+        hasReturnType = true;
         consume(); // consume `-`
         consume(); // consume `>`
         let angleDepth = 0;
@@ -4200,6 +4211,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         ...(isPure ? { isPure: true } : {}),
         canFail,
         errorType,
+        ...(hasReturnType ? { hasReturnType: true } : {}),
         span: spanOf(startTok, peek()),
       });
       continue;
