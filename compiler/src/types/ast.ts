@@ -677,6 +677,31 @@ export interface MatchStmtNode extends BaseNode {
   headerExpr?: ExprNode;
 }
 
+/**
+ * A structured inline match arm: `.Variant => result` (no braces).
+ *
+ * Produced by the AST builder for inline (single-expression) match arms.
+ * Previously these fell through to `bare-expr` nodes and were regex-parsed
+ * at codegen time. With this node, the AST carries structured data and
+ * codegen can skip the regex parse for a fast path.
+ *
+ * Block arms (with `{ }`) produce `match-arm-block` nodes instead.
+ */
+export interface MatchArmInlineNode extends BaseNode {
+  kind: "match-arm-inline";
+  /**
+   * The full pattern text: `.Loading`, `.Ready(data)`, `"string"`, `else`, `not`.
+   * For variant arms, includes the dot prefix and optional payload parens.
+   */
+  test: string;
+  /** Optional payload binding name extracted from `.Variant(binding)`. */
+  binding?: string;
+  /** The result expression as a raw string. */
+  result: string;
+  /** The result expression as a structured ExprNode (via safeParseExprToNode). */
+  resultExpr?: ExprNode;
+}
+
 // -- Expressions --
 
 /** A bare expression (fallback when no declaration keyword matches). */
@@ -925,6 +950,7 @@ export type LogicStatement =
   | SwitchStmtNode
   | TryStmtNode
   | MatchStmtNode
+  | MatchArmInlineNode
   | BareExprNode
   | LiftExprNode
   | FailExprNode
