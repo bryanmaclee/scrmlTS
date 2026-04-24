@@ -560,11 +560,16 @@ export function generateClientJs(ctx: CompileContext): string {
   // by the `class:active=@active` binding template. Any user fn sharing a name
   // with a DOM method (toggle, add, remove, append, replace, forEach, ...) hit
   // this bug silently.
+  //
+  // Bug I (adopter inbound 2026-04-22): user fn `lines()` corrupted
+  // `n . lines` in record literal values because the emitter outputs
+  // spaces around `.`, so the fixed-width `(?<!\.)` lookbehind saw a
+  // space instead of a dot. Extended to variable-length `(?<!\.\s*)`.
   let clientCode = lines.join("\n");
   if (fnNameMap && fnNameMap.size > 0) {
     for (const [originalName, mangledName] of fnNameMap) {
       const callSiteRegex = new RegExp(
-        `(?<!\\.)\\b${escapeRegex(originalName)}\\b(?=\\s*[(;,}\\]\\n)]|$)`,
+        `(?<!\\.\\s*)\\b${escapeRegex(originalName)}\\b(?=\\s*[(;,}\\]\\n)]|$)`,
         "g",
       );
       clientCode = clientCode.replace(callSiteRegex, mangledName);
