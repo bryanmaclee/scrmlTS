@@ -578,6 +578,12 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // Replace `not (expr)` prefix negation → `!(expr)`
   s = s.replace(/(?<![A-Za-z0-9_$@])not\s*\(/g, "!(");
 
+  // §14.9/§16.6: render name() → __scrml_render_name__()
+  s = s.replace(
+    /(?<![A-Za-z0-9_$])render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g,
+    '__scrml_render_$1__('
+  );
+
   // §32 tilde accumulator: replace standalone `~` with placeholder identifier.
   // Only active inside tilde contexts (after value-lift). Outside tilde context,
   // `~` is JS bitwise NOT and must not be replaced.
