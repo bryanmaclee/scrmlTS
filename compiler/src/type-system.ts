@@ -4648,6 +4648,17 @@ function annotateNodes(
       }
 
       // ------------------------------------------------------------------
+      // §2a — match-arm-inline scope. Inline arms (`. Variant => result`)
+      // produce structured nodes with a result expression. No body scope
+      // needed (single expression), but the node must be recognized to
+      // prevent "unknown kind" fallthrough.
+      // ------------------------------------------------------------------
+      case "match-arm-inline": {
+        resolvedType = tAsIs();
+        break;
+      }
+
+      // ------------------------------------------------------------------
       // §2a — return-stmt scope walker. Returns appear inside function
       // bodies where params + locals are in scope; loop-scope plumbing
       // above ensures counters used in `return i` inside a for-body also
@@ -5554,6 +5565,22 @@ function extractArmsFromMatchNode(node: ASTNodeLike): ExtractedArms {
       if (arm.isWildcard) pushWildcard(false);
       else if (arm.isNotArm) pushWildcard(true);
       else if (arm.variant) pushVariant(arm.variant as string);
+      continue;
+    }
+    // Structured match-arm-inline nodes from the AST builder.
+    if (arm.kind === "match-arm-inline") {
+      const test: string = (arm as { test?: string }).test ?? "";
+      if (test === "else") pushWildcard(false);
+      else if (test === "not") pushWildcard(true);
+      else {
+        // Extract variant name from test pattern: ".VariantName" or ".Variant(binding)"
+        const vMatch = test.match(/^(?:\.|::)\s*([A-Z][A-Za-z0-9_]*)/);
+        if (vMatch) pushVariant(vMatch[1]);
+        else if (test.startsWith('"') || test.startsWith("'")) {
+          // String literal arms don't contribute to variant exhaustiveness
+          armPatterns.push({ kind: "unknown", armText: test } as ParsedArmPattern);
+        }
+      }
       continue;
     }
     // §54.4 Phase 3e: `< Substate>` at arm position parses as html-fragment
@@ -6505,12 +6532,14 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
       case "match-expr": {
         // Match-arm branch-parallel linear analysis. The parser stores arms
         // under node.body (not node.arms). Arm forms:
-        //   - match-arm-block  — `.Variant => { stmt... }` with structured body
-        //   - bare-expr        — `.Variant => expr` (single-line arm, body raw)
+        //   - match-arm-block   — `.Variant => { stmt... }` with structured body
+        //   - match-arm-inline  — `.Variant => expr` (structured single-expression arm)
+        //   - bare-expr         — `.Variant => expr` (legacy: single-line arm, body raw)
         const armNodes = (node.body as ASTNodeLike[] | undefined) ?? [];
         const realArms = armNodes.filter(a =>
           !!a && typeof a === "object" &&
           (a.kind === "match-arm-block" ||
+           a.kind === "match-arm-inline" ||
            (a.kind === "bare-expr" && typeof (a as { expr?: unknown }).expr === "string" &&
             /^\s*(?:\.[A-Z_]|else\b|not\b|"|')/.test((a as { expr: string }).expr)))
         );
@@ -6530,8 +6559,14 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
             for (const n of ((arm.body as ASTNodeLike[] | undefined) ?? [])) {
               walkNode(n, lt, tt, loop);
             }
+          } else if (arm.kind === "match-arm-inline") {
+            // Structured inline arm: result field already holds the expression
+            const result = typeof (arm as { result?: unknown }).result === "string"
+              ? ((arm as { result: string }).result)
+              : "";
+            consumeLinRefByTextScan(lt, result, arm.span, loop);
           } else {
-            // Single-expression arm: extract RHS of `=>` / `:>` / `->` and
+            // Single-expression arm (legacy bare-expr): extract RHS of `=>` / `:>` / `->` and
             // text-scan for any declared lin variable name.
             const raw = typeof (arm as { expr?: unknown }).expr === "string"
               ? ((arm as { expr: string }).expr)

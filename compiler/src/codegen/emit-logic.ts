@@ -2,7 +2,7 @@ import { genVar } from "./var-counter.ts";
 import { extractSqlParams, rewriteTildeRef } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
-import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
+import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, matchArmInlineToMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
 import { emitLiftExpr } from "./emit-lift.js";
 import { extractReactiveDeps, extractReactiveDepsFromExprNode } from "./reactive-deps.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
@@ -1553,6 +1553,12 @@ function emitMatchExprDecl(name: string, matchExpr: any, keyword: "let" | "const
         result: "",
         structuredBody: Array.isArray(child.body) ? child.body : null,
       });
+      continue;
+    }
+    // Structured match-arm-inline nodes (from `. Variant => result` arms)
+    if (child.kind === "match-arm-inline") {
+      const arm = matchArmInlineToMatchArm(child);
+      if (arm) arms.push(arm);
       continue;
     }
     // Raw expression arms — parse via shared arm splitter/parser

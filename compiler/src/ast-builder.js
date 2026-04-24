@@ -1107,6 +1107,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // match-arm syntax — scrml has no other construct with that shape.
         if (parts.length > 0) {
           const startsArmPattern = (() => {
+            // Helper: check if a token is an arm arrow (=>, :>, or legacy ->).
+            // The tokenizer produces `=>` and `:>` as OPERATOR kind,
+            // and `->` as two separate PUNCT tokens — but accept either kind
+            // so the boundary detection is robust.
+            const isArmArrow = (t) => t && (t.kind === "OPERATOR" || t.kind === "PUNCT") && (t.text === "=>" || t.text === ":>" || t.text === "->");
             // `.IDENT =>` or `.IDENT(…)=>`  — enum-variant arm
             if (tok.kind === "PUNCT" && (tok.text === "." || tok.text === "::")) {
               const t1 = peek(1);
@@ -1124,18 +1129,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
                   i++;
                 }
               }
-              const arrow = peek(i);
-              return arrow && arrow.kind === "PUNCT" && (arrow.text === "=>" || arrow.text === "->");
+              return isArmArrow(peek(i));
             }
             // `else =>` — wildcard arm
             if (tok.kind === "KEYWORD" && tok.text === "else") {
-              const arrow = peek(1);
-              return arrow && arrow.kind === "PUNCT" && (arrow.text === "=>" || arrow.text === "->");
+              return isArmArrow(peek(1));
             }
             // `_ =>` — wildcard alias
             if (tok.kind === "IDENT" && tok.text === "_") {
-              const arrow = peek(1);
-              return arrow && arrow.kind === "PUNCT" && (arrow.text === "=>" || arrow.text === "->");
+              return isArmArrow(peek(1));
             }
             // `not …=>` — is-not arm (§42). Scan forward up to 6 tokens
             // for `=>` before hitting a block opener.
@@ -1143,10 +1145,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               for (let i = 1; i < 6; i++) {
                 const tk = peek(i);
                 if (!tk || tk.kind === "EOF") return false;
-                if (tk.kind === "PUNCT" && (tk.text === "=>" || tk.text === "->")) return true;
+                if (isArmArrow(tk)) return true;
                 if (tk.kind === "PUNCT" && tk.text === "{") return false;
               }
               return false;
+            }
+            // `"string" =>` or `'string' =>` — string literal arm
+            if (tok.kind === "STRING") {
+              return isArmArrow(peek(1));
             }
             return false;
           })();
@@ -2794,6 +2800,160 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         body: blockBody,
         span: spanOf(startTok, peek()),
       };
+    }
+
+    // MATCH ARM INLINE: `. VariantName => result`, `else => result`, `not => result`
+    // Produce structured `match-arm-inline` nodes instead of falling through to bare-expr.
+    // Block arms (with `{` after arrow) are already handled above as match-arm-block.
+    // Inline arms are single-expression arms where the result is collected via collectExpr.
+    //
+    // Inline Form 1: `. VariantName => result` or `. VariantName(binding) => result`
+    //                 `:: VariantName => result` (legacy double-colon prefix)
+    if (tok.kind === 'PUNCT' && (tok.text === '.' || tok.text === '::')) {
+      const prefix = tok.text;
+      const t1 = peek(1);
+      if (t1 && t1.kind === 'IDENT' && /^[A-Z]/.test(t1.text)) {
+        // Scan forward past optional payload binding `(...)`
+        let arrowIdx = 2;
+        let bindingText = null;
+        if (peek(arrowIdx)?.text === '(') {
+          const parenStart = arrowIdx;
+          let d = 1;
+          arrowIdx++;
+          while (arrowIdx < 40 && d > 0) {
+            const tk = peek(arrowIdx);
+            if (!tk || tk.kind === 'EOF') break;
+            if (tk.text === '(') d++;
+            else if (tk.text === ')') d--;
+            arrowIdx++;
+          }
+          // Extract binding text from inside the parens
+          if (d === 0) {
+            const innerTokens = [];
+            for (let j = parenStart + 1; j < arrowIdx - 1; j++) {
+              innerTokens.push(peek(j)?.text ?? '');
+            }
+            bindingText = innerTokens.join(' ').replace(/\s+/g, ' ').trim() || null;
+          }
+        }
+        const arrowTok = peek(arrowIdx);
+        if (arrowTok && isMatchArrow(arrowTok)) {
+          const afterArrow = peek(arrowIdx + 1);
+          // Only match inline arms (no `{` after arrow — block arms handled above)
+          if (!afterArrow || afterArrow.text !== '{') {
+            const startTok = consume(); // consume '.' or '::'
+            const variantNameTok = consume(); // consume IDENT
+            const testStr = prefix + variantNameTok.text + (bindingText != null ? '(' + bindingText + ')' : '');
+            // Consume optional payload `(...)`
+            if (peek().text === '(') {
+              consume(); // '('
+              while (!(peek().kind === 'PUNCT' && peek().text === ')') && peek().kind !== 'EOF') consume();
+              if (peek().text === ')') consume(); // ')'
+            }
+            consume(); // consume arrow
+            const { expr: result } = collectExpr();
+            const trimmedResult = result.trim();
+            return {
+              id: ++counter.next,
+              kind: 'match-arm-inline',
+              test: testStr,
+              binding: bindingText ?? undefined,
+              result: trimmedResult,
+              resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+              span: spanOf(startTok, peek()),
+            };
+          }
+        }
+      }
+    }
+
+    // Inline Form 2: `else => result` — wildcard arm without block body
+    if (tok.kind === 'KEYWORD' && tok.text === 'else' &&
+        peek(1) && isMatchArrow(peek(1))) {
+      const afterArrow = peek(2);
+      if (!afterArrow || afterArrow.text !== '{') {
+        const startTok = consume(); // consume 'else'
+        consume(); // consume arrow
+        const { expr: result } = collectExpr();
+        const trimmedResult = result.trim();
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-inline',
+          test: 'else',
+          result: trimmedResult,
+          resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+          span: spanOf(startTok, peek()),
+        };
+      }
+    }
+
+    // Inline Form 3: `not => result` — absence arm without block body
+    if (tok.kind === 'KEYWORD' && tok.text === 'not' &&
+        peek(1) && isMatchArrow(peek(1))) {
+      const afterArrow = peek(2);
+      if (!afterArrow || afterArrow.text !== '{') {
+        const startTok = consume(); // consume 'not'
+        consume(); // consume arrow
+        const { expr: result } = collectExpr();
+        const trimmedResult = result.trim();
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-inline',
+          test: 'not',
+          result: trimmedResult,
+          resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+          span: spanOf(startTok, peek()),
+        };
+      }
+    }
+
+    // Inline Form 4: `_ => result` — wildcard alias (legacy)
+    if (tok.kind === 'IDENT' && tok.text === '_' &&
+        peek(1) && isMatchArrow(peek(1))) {
+      const afterArrow = peek(2);
+      if (!afterArrow || afterArrow.text !== '{') {
+        const startTok = consume(); // consume '_'
+        consume(); // consume arrow
+        const { expr: result } = collectExpr();
+        const trimmedResult = result.trim();
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-inline',
+          test: 'else', // normalize _ to else
+          result: trimmedResult,
+          resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+          span: spanOf(startTok, peek()),
+        };
+      }
+    }
+
+    // Inline Form 5: `"string" => result` or `'string' => result` — string literal arm
+    if (tok.kind === 'STRING') {
+      const t1 = peek(1);
+      if (t1 && isMatchArrow(t1)) {
+        const afterArrow = peek(2);
+        if (!afterArrow || afterArrow.text !== '{') {
+          const startTok = consume(); // consume string literal
+          // STRING tokens have their delimiters stripped by the tokenizer.
+          // Reconstruct the quoted form for the test field. Use double quotes
+          // unless the content contains unescaped double quotes.
+          const rawText = startTok.text;
+          const testStr = rawText.includes('"') && !rawText.includes("'")
+            ? `'${rawText}'`
+            : `"${rawText}"`;
+          consume(); // consume arrow
+          const { expr: result } = collectExpr();
+          const trimmedResult = result.trim();
+          return {
+            id: ++counter.next,
+            kind: 'match-arm-inline',
+            test: testStr,
+            result: trimmedResult,
+            resultExpr: safeParseExprToNode(trimmedResult, spanOf(startTok, peek())?.start ?? 0),
+            span: spanOf(startTok, peek()),
+          };
+        }
+      }
     }
 
     // E-SYNTAX-043: Detect old `(x) =>` presence guard syntax (§42.2.3)

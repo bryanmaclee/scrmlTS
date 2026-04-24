@@ -671,6 +671,49 @@ export function parseMatchArm(trimmed: string): MatchArm | null {
 }
 
 /**
+ * Convert a structured `match-arm-inline` AST node into a `MatchArm`.
+ *
+ * The inline node carries pre-parsed fields from the AST builder, so no regex
+ * parsing is needed — this is a fast-path conversion.
+ *
+ * Test field formats:
+ *   - `.VariantName`        → kind "variant", test "VariantName"
+ *   - `.Variant(binding)`   → kind "variant", test "Variant", binding from node
+ *   - `"string"`            → kind "string", test includes quotes
+ *   - `else`                → kind "wildcard"
+ *   - `not`                 → kind "not"
+ */
+export function matchArmInlineToMatchArm(node: any): MatchArm | null {
+  const test: string = node.test ?? "";
+  const result: string = node.result ?? "";
+  const binding: string | null = node.binding ?? null;
+
+  // Determine arm kind from test pattern
+  if (test === "else") {
+    return { kind: "wildcard", test: null, binding: null, result };
+  }
+  if (test === "not") {
+    return { kind: "not", test: null, binding: null, result };
+  }
+  // String literal arms: test starts with " or '
+  if (test.startsWith('"') || test.startsWith("'")) {
+    return { kind: "string", test, binding: null, result };
+  }
+  // Variant arms: test starts with . or ::
+  const variantMatch = test.match(/^(?:\.|::)\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(([^)]*)\))?$/);
+  if (variantMatch) {
+    return {
+      kind: "variant",
+      test: variantMatch[1],
+      binding: variantMatch[2]?.trim() ?? binding ?? null,
+      result,
+    };
+  }
+  // Fallback: try parsing as raw text (shouldn't normally happen)
+  return parseMatchArm(test + " => " + result);
+}
+
+/**
  * Split a string containing multiple concatenated match arms into individual arm strings.
  *
  * When the AST delivers a single body child with all arms merged on one line
@@ -955,6 +998,14 @@ export function emitMatchExpr(node: any): string {
         structuredBody: Array.isArray(child.body) ? child.body : null,
       };
       arms.push(arm);
+      continue;
+    }
+    // Handle structured match-arm-inline nodes (from AST builder inline arm parsing).
+    // These come from `. VariantName => result` arms where the result is a single expression.
+    // The structured node carries pre-parsed test/binding/result fields, so no regex needed.
+    if (child.kind === "match-arm-inline") {
+      const arm = matchArmInlineToMatchArm(child);
+      if (arm) arms.push(arm);
       continue;
     }
     // Prefer string `expr`: match arm text (e.g. `.Variant :> result`) is inherently
