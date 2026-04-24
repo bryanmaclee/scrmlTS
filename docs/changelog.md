@@ -2,11 +2,92 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-04-22 after S38): **7,463 tests passing / 40 skipped / 2 failing** (27,003 expects across 347 files). Same 2 pre-existing self-host bootstrap fails since S18, deferred for a future deep-arc session.
+Current baseline (2026-04-24 after S39): **7,562 tests passing / 40 skipped / 0 failing** (27,246 expects across 354 files). The 2 pre-existing self-host bootstrap fails resolved in S38.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-24 (S39 — boundary security + 6 bug fixes + ExprNode Phase 4d + multi-DB scoping)
+
+Largest single-session output in project history. Boundary security deep-dive
++ 3-expert debate produced a compiler-enforced closure-capture taint model.
+All 6 inbox bug reports (4 from 6nz, 2 from giti) fixed and verified. ExprNode
+Phase 4d advanced through structured inline match arms + render preprocessor.
+Multi-DB SQL driver support scoped via deep-dive. Suite 7,463 → 7,562
+(+99 net tests), zero regressions.
+
+- **Boundary security — closure-capture taint propagation.**
+  Deep-dive identified 5 root causes: transitive escalation deliberately
+  disabled in RI (correct for calls, wrong for captures), `extractReactiveDeps`
+  string-only scan (Bug J), global regex name-mangling (Bug I), fail-open
+  `_ensureBoundary` (NC-4), SPEC §15.11.6 violation (prop-passing not detected).
+  3-expert debate: Type Tags (42/60), Crossing Points (48/60), Extended
+  Interprocedural Taint (54/60 — winner). Implementation: `closureCaptures`
+  map + fixed-point taint propagation in `route-inference.ts`, call-graph BFS
+  for transitive reactive deps in `reactive-deps.ts`, `_ensureBoundary`
+  graduated to diagnostic fail-safe with `SCRML_STRICT_BOUNDARY=1` strict mode.
+  +15 tests in `boundary-security.test.js`.
+
+- **Bug I (codegen) — name-mangling bleed through spaced member expressions.**
+  Lookbehind `(?<!\.)` missed emitter's spaced `.` output (`n . lines`).
+  Fix: variable-length `(?<!\.\s*)`. +7 tests.
+
+- **Bug H (codegen) — function return-type match drops return.**
+  Missing `return` before match-expression IIFEs when `function` (not `fn`)
+  has `-> T` or `: T` return-type annotation. Fix: `hasReturnType` flag on
+  function-decl AST nodes; `emitFnShortcutBody` applies implicit return when
+  set. +5 tests.
+
+- **Bug K (runtime) — sync-effect throw halts caller.**
+  `_scrml_trigger()` dispatched effects without try/catch. A throwing derived
+  expression propagated through `_scrml_reactive_set` → user function, halting
+  subsequent reactive writes. Fix: try/catch per effect, consistent with
+  existing subscriber pattern. +5 tests.
+
+- **GITI-009 (codegen) — relative-import forwarding against source path.**
+  Server JS emitted import paths verbatim from source `.scrml`; wrong when
+  output directory differs. Fix: `rewriteRelativeImportPaths()` post-processor
+  in `api.js` resolves against source dir then computes relative from output dir.
+  +16 tests.
+
+- **GITI-011 (tokenizer+codegen) — CSS at-rule handling.**
+  `tokenizeCSS()` had no `@` handler. `@import`, `@media`, `@keyframes` etc.
+  mangled into property declarations (`media: ;`). Fix: new `CSS_AT_RULE` token
+  type with depth-tracked brace matching for block at-rules, semicolon-terminated
+  for statement at-rules. AST builder stores verbatim text; `emit-css.ts`
+  passthrough. +19 tests.
+
+- **ExprNode Phase 4d — structured inline match arms.**
+  Inline match arms (`. Variant => result`) now produce structured
+  `match-arm-inline` AST nodes instead of raw `bare-expr` strings. Codegen
+  uses pre-parsed fields (test, binding, result, resultExpr) instead of
+  regex-parsing `.expr` at emit time. Also fixed two token-kind bugs in S27
+  arm-boundary detection (`=>` is OPERATOR not PUNCT, `::` is OPERATOR not
+  PUNCT). +19 tests.
+
+- **ExprNode Phase 4d — render preprocessor.**
+  `render name()` → `__scrml_render_name__()` in `preprocessForAcorn`,
+  following the same pattern as 6 existing preprocessor rules. Produces
+  proper `CallExpr` ExprNode instead of escape-hatch. Enables CE to switch
+  from string regex to ExprNode structural matching, unblocking
+  `bare-expr.expr` field deletion.
+
+- **ExprNode Phase 4d — steps 1-7 merged.** ExprNode-first paths across
+  `body-pre-parser.ts`, `component-expander.ts`, `type-system.ts`,
+  `dependency-graph.ts`, `meta-checker.ts`. `bpp.test.js` GIT_DIR leak fix.
+
+- **Multi-DB SQL deep-dive.** Bun.SQL template literals (SPEC §44 mandate).
+  4-phase plan: (1) SQLite→Bun.SQL, (2) Postgres, (3) MySQL, (4) edge DBs.
+  Per-stage change assessment with file:line references. Phase 1 code
+  complete in concept; merge deferred to S40 due to branch divergence.
+
+- **README:** giti added to Related Projects, broken 6nz relative links
+  fixed to absolute GitHub URLs.
+
+- **Maps refreshed:** 11 maps + non-compliance report regenerated.
+
+- **master-list.md refreshed** to S39 (was ~15 sessions stale).
 
 ### 2026-04-22 (S38 — adopter-bug wave + CSRF bootstrap + SPEC §22.3 multi-`^{}`)
 
