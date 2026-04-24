@@ -1398,11 +1398,15 @@ function _scrml_trigger(target, prop) {
   if (!propMap) return;
   const effects = propMap.get(prop);
   if (!effects) return;
-  // Copy to avoid mutation during iteration
+  // Copy to avoid mutation during iteration.
+  // Each effect is wrapped in try/catch so that a throwing effect (e.g. a
+  // derived expression that evaluates null.property) does not halt the
+  // trigger loop or propagate up to the reactive-set caller — Bug K.
   for (const effect of [...effects]) {
-    effect();
+    try { effect(); } catch(e) { console.error("scrml effect error:", e); }
   }
 }
+
 
 /**
  * Array methods that mutate and should trigger reactivity.
