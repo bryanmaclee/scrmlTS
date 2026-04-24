@@ -2,17 +2,17 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-20 (S34 — all 11 adopter-blocking codegen bugs from giti + 6nz shipped and verified (5 giti: GITI-001..005; 6 6nz: Bug A–F). S31 F5 missing-@-sigil fix (`ebd4d1d`). S32 ratified Insight 21 + Phases 1/2/3 — `pure fn` modifier, E-STATE-COMPLETE, substate match exhaustiveness (§54.2–4). S33 Phase 4a–4g — state-local transitions end-to-end (E-STATE-TRANSITION-ILLEGAL, E-STATE-TERMINAL-MUTATION, `from` contextual kw, fn-level purity in transition bodies §33.6/§54.6). **7,373 pass / 40 skip / 2 fail** across 338 files with 26,808 expects)
+**Last updated:** 2026-04-24 (S39 — boundary security deep-dive + debate + implementation, 6 bug fixes (H/I/J/K + GITI-009/011), NC-4 `_ensureBoundary` graduated to fail-safe, maps refresh, state-of-language audit. **7,543 pass / 40 skip / 0 fail** across 353 files with 27,201 expects)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
-**Recent window (S24–S34):** 65+ commits. Major arcs: validation elision slices 1–4 (§51.5.2, S27), guarded projection-machine property tests (§51.13.1 phase 7, S28), E-REPLAY-003 cross-machine rejection (§51.14), 5 adjacent correctness fixes (S28 backfill in `bfad4c6`), ast-builder component-def bug fix (S29 `b189051`), module-resolver self-host pass (S29), `scrmlTS` went public on MIT license (2026-04-17), adopter friction audit 13 findings (S30, `a6ce8c6`), 4 critical scaffold+CLI fixes (S30: CSS tokenizer compound-selector parse `2eb4513`, bin-script mode `8217dd9`, ghost-lint default visibility `f0e7222`, 5 new Vue/Svelte W-LINT-011..015 `e8ddc8d`), F5 missing-@-sigil silent-break → E-SCOPE-001 (S31 `ebd4d1d`), F6 init-safety + F10 README bun-link (S31 `26df45d`), fn-debate + insight 20 (S31), insight 21 ratified + state-local transitions §54 end-to-end (S32–S33), 11 adopter codegen bugs (S34 `aa92070..d23fd54`).
+**Recent window (S35–S39):** S35–S37: 6 bugs fixed (Bugs 1/3/4/5/6 + mixed-case for-lift follow-on), SPEC §22.3 multi-`^{}` ratified via 5-expert debate, `emit.raw` classifier fix, Phase 0 `docs/external-js.md`. S38: string escape fix (Bug 1), return-after-ternary (Bug 3), for-lift wrapper (Bug 5), CSRF bootstrap GITI-010 (Option A), derived-reactive markup wiring (Bug 4), mixed-case hoist follow-on, multi-`^{}` debate + SPEC §22.3, `emit.raw` classifier. S39: boundary security deep-dive (3 approaches debated, Approach C won 54/60), closureCaptures + taint propagation in RI, transitive reactive deps BFS (Bug J), `_ensureBoundary` fail-safe (NC-4), Bug I name-mangle lookbehind, Bug H return-type match implicit return, Bug K sync-effect try/catch, GITI-009 import path rewrite, GITI-011 CSS at-rule tokenization, README giti link + broken 6nz links fixed, maps refresh, state-of-language audit.
 
 ---
 
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`); published binary shebang at `compiler/bin/scrml.js` (S30 `8217dd9`)
-**Tests:** **7,373 pass, 40 skip, 2 fail** (S34 2026-04-20) across 338 files with 26,808 expects — includes S20–S23 gauntlet trees (gauntlet-s20/s22/s23), S31 gauntlet-s31/ (11 tests for F5 `@`-sigil fix), S32 conformance tree `compiler/tests/conformance/s32-fn-state-machine/` (9 of 39 green — see §54 state-local transitions), S33 Phase 4 unit tests `transition-decl-*.test.js` (51 tests across 7 files), S34 adopter-bug-fix trees (8 new test files: `mangle-property-access`, `import-scope-registration`, `let-reassignment-in-branch`, `arrow-block-body-in-call-arg`, `server-fn-markup-interpolation`, `server-client-boundary`, `request-tag-and-server-fn-reactive`, plus additions to `meta-captured-bindings`, `event-delegation`, `state-block-event-wiring`, `event-handler-args-e2e`, `cross-file-import-export`). 2 remaining fails (Bootstrap L3 perf + tab.js-path parity) deferred.
+**Tests:** **7,543 pass, 40 skip, 0 fail** (S39 2026-04-24) across 353 files with 27,201 expects. S38 resolved the 2 pre-existing self-host failures. S39 added 80 new tests across boundary-security, Bug H/I/J/K, GITI-009, GITI-011.
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/` — deferred post-S30 public pivot
 
@@ -73,9 +73,9 @@
 
 ## D. Spec + authoritative docs
 
-- [x][x] `compiler/SPEC.md` — 20,439 lines, 54 sections. AUTHORITATIVE. §54 added in S32 (state-local transitions, insight 21 amendment).
-- [x][x] `compiler/SPEC-INDEX.md` — quick-lookup with line ranges. Last regen S33 open (`2009bbb`).
-- [x][x] `compiler/PIPELINE.md` — 1,569 lines. Stage contracts.
+- [x][x] `compiler/SPEC.md` — 20,453 lines, 65 sections (§1–§54). AUTHORITATIVE. §22.3 multi-`^{}` added S38, §12.5 server return values added S37.
+- [x][x] `compiler/SPEC-INDEX.md` — quick-lookup with line ranges.
+- [x][x] `compiler/PIPELINE.md` — stage contracts. RI now includes closureCaptures + capture taint propagation (S39).
 
 **All other spec history (drafts, updates, amendments) lives in `scrml-support/archive/spec-drafts/`**.
 
@@ -83,7 +83,7 @@
 
 ## E. Examples (14 files — verified S86)
 
-**14/14 compile clean, 14/14 puppeteer smoke pass** (S12 2026-04-13). 7 examples on Tailwind (01, 02, 04, 09, 10, 13, 14), 7 on `#{}` CSS.
+**13/14 compile clean** (S39 2026-04-24 audit). Example 05 fails E-COMPONENT-020 (component forward-ref). 7 examples on Tailwind, 7 on `#{}` CSS.
 
 - [x][x] 01-hello (Tailwind), 02-counter (Tailwind, reactive), 04-live-search (Tailwind, reactive)
 - [x][x] 10-inline-tests (Tailwind), 14-mario-state-machine (Tailwind, fully interactive — machine, derived, match, if=)
@@ -96,7 +96,7 @@
 
 ## F. Samples
 
-- [x][x] `samples/compilation-tests/` — 275+ .scrml test files. S20 gauntlet fixtures added in 7 subdirs:
+- [x][x] `samples/compilation-tests/` — 274 .scrml test files (250/274 compile clean, S39 audit). 24 failures mostly E-SCOPE-001 in gauntlet/meta samples. S20 gauntlet fixtures in 7 subdirs:
   - `gauntlet-s20-channels/`, `gauntlet-s20-error-test/`, `gauntlet-s20-error-ux/`, `gauntlet-s20-meta/`, `gauntlet-s20-sql/`, `gauntlet-s20-styles/`, `gauntlet-s20-validation/` (80 fixture files, S20/S21 regression corpus).
 
 ---
@@ -116,10 +116,10 @@
 - [x][x] `compiler/tests/conformance/s32-fn-state-machine/` — 4 files, 39 tests (9 green, 30 skipped with per-gate annotations)
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total (S34 2026-04-20):** **7,373 pass, 40 skip, 2 fail** (26,808 expects across 338 test files). Puppeteer: `examples/test-examples.js` 14/14 pass.
+- **Total (S39 2026-04-24):** **7,543 pass, 40 skip, 0 fail** (27,201 expects across 353 test files).
 - **Pretest:** `scripts/compile-test-samples.sh` compiles 12 browser test samples (run via `bun run pretest`)
-- **Skipped:** 30 S32 conformance tests gated on parser/narrowing capabilities (see `conformance/s32-fn-state-machine/REGISTRY.md`); `browser-reactive-arrays.test.js` (happy-dom hangs; Puppeteer passes); 8 TodoMVC happy-dom tests (harness-IIFE-scope root cause documented; Puppeteer covers).
-- **Still failing (2):** self-host tokenizer parity + Bootstrap L3 — deferred per user, unchanged S23–S34.
+- **Skipped:** 30 S32 conformance tests gated on parser/narrowing capabilities; `browser-reactive-arrays.test.js` (happy-dom hangs); 8 TodoMVC happy-dom tests (harness-IIFE-scope).
+- **Previously failing (2):** self-host tokenizer parity + Bootstrap L3 — resolved S38.
 
 ---
 
@@ -165,7 +165,9 @@
 
 **Note:** framework comparison `node_modules/` removed for repo slimness. Run `bun install` in each to restore.
 
-**Results:** scrml wins 5/10 runtime ops. 10-15x faster builds. 5.2x smaller JS.
+- [x][x] `sql-batching/` — Tier 1+2 microbench (S17). ~2×/3×/4× at N=10/100/1000 on WAL `bun:sqlite`.
+
+**Results:** scrml wins 6/10 runtime ops (S39 audit). 8-13x faster partial updates/swaps. ~10x faster builds. ~4x smaller JS.
 
 ---
 
@@ -221,6 +223,26 @@
 26. ~~**GITI-001 — `<request>` empty-URL fetch + unawaited `@data = serverFn()` Promise**~~ — **FIXED S34** (`d23fd54`). Two-part fix: (a) `emit-client.ts` post-emit rewrite wraps `_scrml_reactive_set("X", <stub>(ARGS))` in `(async () => _scrml_reactive_set("X", await <stub>(ARGS)))()` using a manual paren-depth walk (not regex) so nested args work; (b) `emit-reactive-wiring.ts` `emitRequestNode` returns early when no `url=` attribute. `<request url="...">` regression-guarded. +6 tests in `request-tag-and-server-fn-reactive.test.js`.
 
 **All 11 S34 adopter bugs verified PASS by giti** 2026-04-20 in `handOffs/incoming/read/2026-04-20-1558-giti-*.md` (formalized follow-up: **GITI-006** — markup `${@var.path}` emits module-top bare read that throws on async-initialized reactives; pre-existing emission shape, low-priority per giti).
+
+**S37–S38 fixes:**
+
+27. ~~**Bug 1 (string escape)**~~ — **FIXED S38** (`41aa7c0`). 8 STRING-token re-quote sites double-escaped backslashes. Fix: `reemitJsStringLiteral`. +11 tests.
+28. ~~**Bug 3 (return after ternary-const dropped)**~~ — **FIXED S38** (`3778d76`). `collectExpr` angle-bracket tracker bumped unconditionally on `<` after IDENT. Fix: value-position check. +11 tests.
+29. ~~**Bug 5 (for-lift wrapper accumulation)**~~ — **FIXED S38** (`b37769c`). Outer `_scrml_effect` re-created wrapper div per mutation. +6 tests.
+30. ~~**GITI-010 (CSRF bootstrap unbootstrappable)**~~ — **FIXED S38** (`40e162b`). 403 response didn't Set-Cookie. Fix: Option A (mint-on-403 + client retry). +9 tests.
+31. ~~**Bug 4 (derived-reactive markup wiring)**~~ — **FIXED S38** (`adbc30c`). `collectReactiveVarNames` missed `reactive-derived-decl`. +8 tests.
+32. ~~**Mixed-case for-lift hoist**~~ — **FIXED S38** (`8691f75`). Hoist for-lift setup outside effect for mixed keyed-reconcile + reactive reads. +11 tests.
+33. ~~**`emit.raw` classifier bug**~~ — **FIXED S38** (`cfb1a14`). `testExprNode` missed MemberExpr callee `emit.raw`. +7 tests.
+
+**S39 fixes:**
+
+34. ~~**Bug I (name-mangling bleed)**~~ — **FIXED S39** (`6b3e63f`). Lookbehind `(?<!\.)` missed spaced member expressions. Fix: `(?<!\.\s*)`. +7 tests.
+35. ~~**Bug J (markup-interp helper hides reactive)**~~ — **FIXED S39** (boundary security merge). `extractReactiveDeps` didn't recurse into function bodies. Fix: call-graph BFS. +15 tests (in boundary-security suite).
+36. ~~**NC-4 (`_ensureBoundary` fail-open)**~~ — **FIXED S39** (boundary security merge). Graduated from silent console.warn to diagnostic fail-safe with `SCRML_STRICT_BOUNDARY=1` strict mode.
+37. ~~**Bug H (function-rettype match drops return)**~~ — **FIXED S39** (`39782f0`). Missing `return` before match IIFE when function has return-type annotation. Fix: `hasReturnType` flag + implicit return. +5 tests.
+38. ~~**Bug K (sync-effect throw halts caller)**~~ — **FIXED S39** (`686ffcd`). `_scrml_trigger` dispatched effects without try/catch. +5 tests.
+39. ~~**GITI-009 (relative-import forwarding)**~~ — **FIXED S39** (`e926983`). Server JS emitted import paths verbatim from source. Fix: `rewriteRelativeImportPaths()` post-processor. +16 tests.
+40. ~~**GITI-011 (CSS at-rule handling)**~~ — **FIXED S39** (`8b80138`). `tokenizeCSS()` had no `@` handler. Fix: `CSS_AT_RULE` token type + passthrough emission. +19 tests.
 
 ---
 
