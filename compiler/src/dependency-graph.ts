@@ -45,7 +45,7 @@ import type {
   ReactiveDerivedDeclNode,
   ExprNode,
 } from "./types/ast.ts";
-import { forEachIdentInExprNode } from "./expression-parser.ts";
+import { forEachIdentInExprNode, emitStringFromTree } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // DG-internal types (not in the shared AST, specific to Stage 7 output)
@@ -652,7 +652,8 @@ function hasLiftAfter(
     // A server call statement (bare-expr calling a server function) ends the scan
     if (stmt.kind === "bare-expr") {
       const callees = collectCalleesFromExprNode(stmt as Record<string, unknown>);
-      const finalCallees = callees.length > 0 ? callees : (stmt.expr ? extractCallees(stmt.expr) : []);
+      const _exprStr = (stmt as any).exprNode ? emitStringFromTree((stmt as any).exprNode as import("./types/ast.ts").ExprNode) : (stmt.expr ?? null);
+      const finalCallees = callees.length > 0 ? callees : (_exprStr ? extractCallees(_exprStr) : []);
       if (finalCallees.some(c => serverFunctionNames.has(c))) return false;
     }
 
@@ -849,7 +850,8 @@ export function runDG(input: DGInput): DGOutput {
         for (const bodyNode of fnNode.body) {
           if (bodyNode.kind === "bare-expr") {
             const exprCallees = collectCalleesFromExprNode(bodyNode as Record<string, unknown>);
-            const callees = exprCallees.length > 0 ? exprCallees : (bodyNode.expr ? extractCallees(bodyNode.expr) : []);
+            const _bExprStr = (bodyNode as any).exprNode ? emitStringFromTree((bodyNode as any).exprNode as import("./types/ast.ts").ExprNode) : (bodyNode.expr ?? null);
+            const callees = exprCallees.length > 0 ? exprCallees : (_bExprStr ? extractCallees(_bExprStr) : []);
             for (const calleeName of callees) {
               if (!dgNode._pendingCallees) dgNode._pendingCallees = [];
               dgNode._pendingCallees.push(calleeName);
@@ -904,18 +906,28 @@ export function runDG(input: DGInput): DGOutput {
       const exprCallees = collectCalleesFromExprNode(dNode as Record<string, unknown>);
       if (exprRefs.length > 0) {
         (dgNode as any)._pendingDerivedReads = exprRefs;
-      } else if (dNode.init) {
-        const atRefs = dNode.init.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
-        if (atRefs) {
-          (dgNode as any)._pendingDerivedReads = atRefs.map((r: string) => r.slice(1));
+      } else {
+        const _initStr = (dNode as any).initExpr
+          ? emitStringFromTree((dNode as any).initExpr as import("./types/ast.ts").ExprNode)
+          : (dNode.init ?? null);
+        if (_initStr) {
+          const atRefs = _initStr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+          if (atRefs) {
+            (dgNode as any)._pendingDerivedReads = atRefs.map((r: string) => r.slice(1));
+          }
         }
       }
       if (exprCallees.length > 0) {
         (dgNode as any)._pendingDerivedCallees = exprCallees;
-      } else if (dNode.init) {
-        const callees = extractCallees(dNode.init);
-        if (callees.length > 0) {
-          (dgNode as any)._pendingDerivedCallees = callees;
+      } else {
+        const _initStr2 = (dNode as any).initExpr
+          ? emitStringFromTree((dNode as any).initExpr as import("./types/ast.ts").ExprNode)
+          : (dNode.init ?? null);
+        if (_initStr2) {
+          const callees = extractCallees(_initStr2);
+          if (callees.length > 0) {
+            (dgNode as any)._pendingDerivedCallees = callees;
+          }
         }
       }
     }
@@ -1117,7 +1129,11 @@ export function runDG(input: DGInput): DGOutput {
           if (bodyNode.kind === "bare-expr" || bodyNode.kind === "reactive-derived-decl") {
             const exprRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
             const refs = exprRefs.length > 0 ? exprRefs : (() => {
-              const field = bodyNode.expr ?? bodyNode.init;
+              const field = bodyNode.exprNode
+                ? emitStringFromTree(bodyNode.exprNode as import("./types/ast.ts").ExprNode)
+                : (bodyNode.initExpr
+                  ? emitStringFromTree(bodyNode.initExpr as import("./types/ast.ts").ExprNode)
+                  : (bodyNode.expr ?? bodyNode.init));
               if (typeof field !== "string") return [];
               const m = field.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
               return m ? m.map((r: string) => r.slice(1)) : [];
@@ -1145,8 +1161,11 @@ export function runDG(input: DGInput): DGOutput {
             // Match stmt header may contain @var refs — ExprNode-first, string fallback
             const matchHeaderRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
             const headerRefNames = matchHeaderRefs.length > 0 ? matchHeaderRefs : (() => {
-              if (typeof bodyNode.header !== "string") return [];
-              const m = bodyNode.header.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              const _hdr = (bodyNode as any).headerExpr
+                ? emitStringFromTree((bodyNode as any).headerExpr as import("./types/ast.ts").ExprNode)
+                : (typeof bodyNode.header === "string" ? bodyNode.header : null);
+              if (!_hdr) return [];
+              const m = _hdr.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
               return m ? m.map((r: string) => r.slice(1)) : [];
             })();
             for (const varName of headerRefNames) {
@@ -1164,8 +1183,11 @@ export function runDG(input: DGInput): DGOutput {
             // Scan condition for @var refs — ExprNode-first, string fallback
             const condRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
             const condRefNames = condRefs.length > 0 ? condRefs : (() => {
-              if (typeof bodyNode.condition !== "string") return [];
-              const m = bodyNode.condition.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              const _cond = (bodyNode as any).condExpr
+                ? emitStringFromTree((bodyNode as any).condExpr as import("./types/ast.ts").ExprNode)
+                : (typeof bodyNode.condition === "string" ? bodyNode.condition : null);
+              if (!_cond) return [];
+              const m = _cond.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
               return m ? m.map((r: string) => r.slice(1)) : [];
             })();
             for (const varName of condRefNames) {

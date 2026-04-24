@@ -683,7 +683,7 @@ export function collectMetaLocals(body: LogicNode[]): Set<string> {
           locals.add(node.name);
         } else if (node.init || (node as any).initExpr) {
           // Destructured declaration: name is empty, init contains `{ a, b } = expr`
-          const initStr = node.init ?? ((node as any).initExpr ? emitStringFromTree((node as any).initExpr) : "");
+          const initStr = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : (node.init ?? "");
           for (const local of extractDestructuredLocals(initStr)) {
             locals.add(local);
           }

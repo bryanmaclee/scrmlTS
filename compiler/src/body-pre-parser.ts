@@ -25,8 +25,10 @@
 
 import { tokenizeLogic } from "./tokenizer.ts";
 import { parseLogicBody } from "./ast-builder.js";
+import { emitStringFromTree } from "./expression-parser.ts";
 import type {
   Span,
+  ExprNode,
   FileAST,
   ASTNode,
   LogicStatement,
@@ -211,10 +213,12 @@ function processFunctionNode(
     Array.isArray(body) &&
     body.length === 1 &&
     body[0].kind === "bare-expr" &&
-    typeof (body[0] as BareExprNode).expr === "string"
+    (typeof (body[0] as BareExprNode).expr === "string" || (body[0] as BareExprNode).exprNode != null)
   ) {
     const bareExprNode = body[0] as BareExprNode;
-    const rawBody = bareExprNode.expr;
+    const rawBody = bareExprNode.exprNode
+      ? emitStringFromTree(bareExprNode.exprNode as ExprNode)
+      : (bareExprNode.expr ?? "");
     const bodySpan = bareExprNode.span;
 
     const { nodes: parsedNodes, parseErrors } = parseBody(rawBody, bodySpan, filePath, counter);

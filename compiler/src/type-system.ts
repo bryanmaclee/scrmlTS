@@ -2134,9 +2134,9 @@ export function rejectWritesToDerivedVars(
 
       // Reactive assignment surfaced as a bare-expr — `@ui = X`, `@ui += Y`, etc.
       if (n.kind === "bare-expr") {
-        const exprText = typeof (n as ASTNodeLike).expr === "string"
-          ? ((n as ASTNodeLike).expr as string)
-          : "";
+        const exprText = (n as ASTNodeLike).exprNode
+          ? emitStringFromTree((n as ASTNodeLike).exprNode as import("./types/ast.ts").ExprNode)
+          : (typeof (n as ASTNodeLike).expr === "string" ? ((n as ASTNodeLike).expr as string) : "");
         const m = assignRe.exec(exprText);
         if (m && projectedVars.has(m[1])) {
           report(m[1], span);
@@ -3769,13 +3769,16 @@ function annotateNodes(
             // Also detect `fail` that survives as a bare-expr string (e.g.
             // single-line if body where the if-body wasn't re-parsed through the
             // statement loop).
-            if (k === "bare-expr" && !canFail && typeof stmt.expr === "string" && /^\s*fail\s+[A-Za-z_]/.test(stmt.expr)) {
-              errors.push(new TSError(
-                "E-ERROR-001",
-                `E-ERROR-001: 'fail' used in function '${fnName}' which is not declared as failable. ` +
-                `Add '!' to the function signature: 'function ${fnName}(...)! -> {ErrorType}'.`,
-                (stmt.span ?? n.span) as Span,
-              ));
+            if (k === "bare-expr" && !canFail) {
+              const _failStr = stmt.exprNode ? emitStringFromTree(stmt.exprNode as import("./types/ast.ts").ExprNode) : (typeof stmt.expr === "string" ? stmt.expr : "");
+              if (/^\s*fail\s+[A-Za-z_]/.test(_failStr)) {
+                errors.push(new TSError(
+                  "E-ERROR-001",
+                  `E-ERROR-001: 'fail' used in function '${fnName}' which is not declared as failable. ` +
+                  `Add '!' to the function signature: 'function ${fnName}(...)! -> {ErrorType}'.`,
+                  (stmt.span ?? n.span) as Span,
+                ));
+              }
             }
             // E-ERROR-003: ? propagation in non-! function (§19.5.4)
             if (k === "propagate-expr" && !canFail) {
@@ -3788,7 +3791,9 @@ function annotateNodes(
             }
             // E-ERROR-004: ? applied to non-failable callee (§19.5.4)
             if (k === "propagate-expr" && canFail) {
-              const calleeName = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
+              const calleeName = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(
+                stmt.exprNode ? emitStringFromTree(stmt.exprNode as import("./types/ast.ts").ExprNode) : (stmt.expr as string | undefined)
+              );
               if (calleeName && fnAllDeclared.has(calleeName) && !fnCanFail.has(calleeName)) {
                 errors.push(new TSError(
                   "E-ERROR-004",
@@ -3800,7 +3805,9 @@ function annotateNodes(
             }
             // E-ERROR-002: bare call to failable function with no error handling (§19.4.3)
             if (k === "bare-expr") {
-              const bareCallee = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(stmt.expr as string | undefined);
+              const bareCallee = extractCalleeNameFromNode(stmt) ?? extractCalleeNameFromString(
+                stmt.exprNode ? emitStringFromTree(stmt.exprNode as import("./types/ast.ts").ExprNode) : (stmt.expr as string | undefined)
+              );
               if (bareCallee && fnCanFail.has(bareCallee)) {
                 errors.push(new TSError(
                   "E-ERROR-002",
@@ -4154,7 +4161,9 @@ function annotateNodes(
         // runs in the function-decl branch; this catches the outer case.
         // Skip when this node is the guardedNode of a parent guarded-expr — the
         // !{} arms already handle the error.
-        const bareCallee = extractCalleeNameFromNode(n) ?? extractCalleeNameFromString(n.expr as string | undefined);
+        const bareCallee = extractCalleeNameFromNode(n) ?? extractCalleeNameFromString(
+          n.exprNode ? emitStringFromTree(n.exprNode as import("./types/ast.ts").ExprNode) : (n.expr as string | undefined)
+        );
         const inGuarded = (n as Record<string, unknown>).__inGuardedContext === true;
         if (bareCallee && fnCanFail.has(bareCallee) && !inGuarded) {
           errors.push(new TSError(
@@ -4206,8 +4215,10 @@ function annotateNodes(
         const metaBody = n.body as ASTNodeLike[] | undefined;
         if (Array.isArray(metaBody)) {
           for (const stmt of metaBody) {
-            if (stmt && stmt.kind === "bare-expr" && typeof (stmt as ASTNodeLike).expr === "string") {
-              const bareText = (stmt as ASTNodeLike).expr as string;
+            if (stmt && stmt.kind === "bare-expr") {
+              const bareText = (stmt as ASTNodeLike).exprNode
+                ? emitStringFromTree((stmt as ASTNodeLike).exprNode as import("./types/ast.ts").ExprNode)
+                : (typeof (stmt as ASTNodeLike).expr === "string" ? ((stmt as ASTNodeLike).expr as string) : "");
               // Match `{ name1, name2, ... } = ...` (destructuring from an
               // await import call). Capture the interior, split on commas.
               const m = /^\s*\{\s*([^}]+)\}\s*=/.exec(bareText);
@@ -4309,13 +4320,16 @@ function annotateNodes(
           // String fallback
           if (!calleeName) {
             let calleeExpr: string | null = null;
-            if (guardedNode.kind === "bare-expr" && typeof guardedNode.expr === "string") {
-              calleeExpr = (guardedNode.expr as string).trim();
+            if (guardedNode.kind === "bare-expr") {
+              calleeExpr = ((guardedNode as any).exprNode
+                ? emitStringFromTree((guardedNode as any).exprNode as import("./types/ast.ts").ExprNode)
+                : (typeof guardedNode.expr === "string" ? guardedNode.expr : "")).trim();
             } else if (
-              (guardedNode.kind === "let-decl" || guardedNode.kind === "const-decl") &&
-              typeof guardedNode.init === "string"
+              (guardedNode.kind === "let-decl" || guardedNode.kind === "const-decl")
             ) {
-              calleeExpr = (guardedNode.init as string).trim();
+              calleeExpr = ((guardedNode as any).initExpr
+                ? emitStringFromTree((guardedNode as any).initExpr as import("./types/ast.ts").ExprNode)
+                : (typeof guardedNode.init === "string" ? guardedNode.init : "")).trim();
             }
             if (calleeExpr) {
               const calleeMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(calleeExpr);
@@ -4415,8 +4429,11 @@ function annotateNodes(
       case "lift-expr": {
         const liftExpr = n.expr as { kind: string; expr?: string; exprNode?: unknown } | undefined;
         // Check if the lift target is a raw expression string that starts with "partial match"
-        if (liftExpr && liftExpr.kind === "expr" && typeof liftExpr.expr === "string") {
-          if (/^\s*partial\s+match/.test(liftExpr.expr)) {
+        if (liftExpr && liftExpr.kind === "expr") {
+          const _liftStr = liftExpr.exprNode
+            ? emitStringFromTree(liftExpr.exprNode as import("./types/ast.ts").ExprNode)
+            : (typeof liftExpr.expr === "string" ? liftExpr.expr : "");
+          if (/^\s*partial\s+match/.test(_liftStr)) {
             errors.push(new TSError(
               "E-TYPE-081",
               "E-TYPE-081: `partial match` is not valid in a rendering context. " +
@@ -6395,9 +6412,11 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
         // Lin-A1: `lift x` counts as consuming the lin variable `x`.
         // AST shape: lift-expr has expr: { kind: "expr", expr: "<identifier>" }.
         // We scan the expression string for a bare lin variable name as the lift target.
-        const liftInner = node.expr as { kind?: string; expr?: string; node?: ASTNodeLike } | undefined;
-        if (liftInner && liftInner.kind === "expr" && typeof liftInner.expr === "string") {
-          const exprStr = liftInner.expr.trim();
+        const liftInner = node.expr as { kind?: string; expr?: string; exprNode?: unknown; node?: ASTNodeLike } | undefined;
+        if (liftInner && liftInner.kind === "expr") {
+          const exprStr = (liftInner.exprNode
+            ? emitStringFromTree(liftInner.exprNode as import("./types/ast.ts").ExprNode)
+            : (typeof liftInner.expr === "string" ? liftInner.expr : "")).trim();
           const checkLiftConsumption = (tracker: LinTracker): void => {
             for (const linName of tracker.names()) {
               if (tracker.isUnconsumed(linName) && exprStr === linName) {
@@ -7206,11 +7225,13 @@ function checkAnimationFrame(nodes: ASTNodeLike[], errors: TSError[], filePath: 
     if (exprNode && (exprNode as any).kind === "call") {
       const callee = (exprNode as any).callee;
       if (callee && callee.kind === "ident" && callee.name === "animationFrame") {
-        return { callExpr: exprNode, argSource: (node.expr as string | undefined) ?? "" };
+        return { callExpr: exprNode, argSource: exprNode ? emitStringFromTree(exprNode as unknown as import("./types/ast.ts").ExprNode) : ((node.expr as string | undefined) ?? "") };
       }
     }
     // String path
-    const expr = (node.expr as string | undefined) ?? "";
+    const expr = (node as any).exprNode
+      ? emitStringFromTree((node as any).exprNode as import("./types/ast.ts").ExprNode)
+      : ((node.expr as string | undefined) ?? "");
     const m = expr.match(/^\s*animationFrame\s*\(/);
     if (m) return { argSource: expr };
     return null;
@@ -8327,7 +8348,9 @@ function checkFnBodyProhibitions(
         }
         // Text heuristic fallback: @identifier followed by assignment operator
         if (!exprNode && stmt.kind !== "reactive-decl") {
-          const exprText = typeof stmt.expr === "string" ? stmt.expr : "";
+          const exprText = (stmt as any).exprNode
+            ? emitStringFromTree((stmt as any).exprNode as import("./types/ast.ts").ExprNode)
+            : (typeof stmt.expr === "string" ? stmt.expr : "");
           const reactiveAssignMatch = /^@([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:\+|-|\*|\/|%|\?\?)?=/.exec(exprText);
           if (reactiveAssignMatch) {
             const varName = "@" + reactiveAssignMatch[1];

@@ -44,7 +44,7 @@
 
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
-import { exprNodeMatchesIdent, exprNodeContainsCall } from "./expression-parser.ts";
+import { exprNodeMatchesIdent, exprNodeContainsCall, emitStringFromTree } from "./expression-parser.ts";
 import type {
   Span,
   FileAST,
@@ -1019,6 +1019,8 @@ function _injectChildrenWalk(
       );
 
       // §14.9: ${render name()} — substitute with slotted group
+      // NOTE: render is scrml-specific syntax, not a JS expression. The ExprNode
+      // parser cannot faithfully represent it, so we must use the raw .expr string.
       const renderMatch = Array.isArray(logicChild.body) && logicChild.body.reduce(
         (found: string | null, n: unknown) => {
           if (found) return found;

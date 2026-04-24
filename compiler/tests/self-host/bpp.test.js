@@ -20,16 +20,23 @@ const testDir = dirname(new URL(import.meta.url).pathname);
 
 function findProjectRoot() {
   // In a worktree, --show-toplevel returns the worktree root which has the files
+  // Unset GIT_DIR so -C works correctly when invoked from pre-commit hooks
+  const gitEnv = { ...process.env };
+  delete gitEnv.GIT_DIR;
+  delete gitEnv.GIT_WORK_TREE;
   return execSync(
     "git -C " + testDir + " rev-parse --show-toplevel",
-    { encoding: "utf-8" },
+    { encoding: "utf-8", env: gitEnv },
   ).trim();
 }
 
 function findMainProjectRoot() {
   // For the JS original, we need the main worktree (which has all files)
+  const gitEnv = { ...process.env };
+  delete gitEnv.GIT_DIR;
+  delete gitEnv.GIT_WORK_TREE;
   try {
-    const wtList = execSync("git -C " + testDir + " worktree list --porcelain", { encoding: "utf-8" });
+    const wtList = execSync("git -C " + testDir + " worktree list --porcelain", { encoding: "utf-8", env: gitEnv });
     const firstLine = wtList.split("\n").find(l => l.startsWith("worktree "));
     if (firstLine) {
       const mainRoot = firstLine.replace("worktree ", "");
