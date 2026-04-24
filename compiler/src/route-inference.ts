@@ -136,6 +136,8 @@ interface AnalysisRecord {
   directTriggers: EscalationReason[];
   callees: string[];
   warnings: RouteWarning[];
+  /** Names captured from outer scope (closure variables). */
+  closureCaptures: Set<string>;
 }
 
 /** An entry in the global function index. */
@@ -999,6 +1001,219 @@ function buildImportedServerFnNames(files: FileAST[]): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Closure capture analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect all names locally declared inside a function body.
+ * Includes: let/const/tilde/lin/reactive declarations, nested function names,
+ * for-loop iterator variables, try-catch binding names.
+ * Does NOT include params (handled separately).
+ */
+function collectLocalNames(body: LogicStatement[]): Set<string> {
+  const names = new Set<string>();
+
+  function visitStmt(node: LogicStatement): void {
+    if (!node || typeof node !== "object") return;
+
+    switch (node.kind) {
+      case "let-decl":
+      case "const-decl":
+      case "tilde-decl":
+      case "lin-decl":
+        if ((node as any).name) names.add((node as any).name);
+        break;
+      case "reactive-decl":
+      case "reactive-derived-decl":
+      case "reactive-debounced-decl":
+        if ((node as any).name) names.add((node as any).name);
+        break;
+      case "function-decl":
+        // Nested function is a local name but do NOT recurse into its body
+        // for local name collection — its body has its own scope.
+        if ((node as any).name) names.add((node as any).name);
+        return; // do not recurse
+      case "for-stmt":
+        if ((node as any).iteratorVar) names.add((node as any).iteratorVar);
+        if ((node as any).indexVar) names.add((node as any).indexVar);
+        if (Array.isArray((node as any).body)) {
+          for (const child of (node as any).body) visitStmt(child);
+        }
+        return;
+      case "try-stmt":
+        if ((node as any).catchNode && (node as any).catchNode.binding) {
+          names.add((node as any).catchNode.binding);
+        }
+        if (Array.isArray((node as any).body)) {
+          for (const child of (node as any).body) visitStmt(child);
+        }
+        if ((node as any).catchNode && Array.isArray((node as any).catchNode.body)) {
+          for (const child of (node as any).catchNode.body) visitStmt(child);
+        }
+        if (Array.isArray((node as any).finallyBody)) {
+          for (const child of (node as any).finallyBody) visitStmt(child);
+        }
+        return;
+      case "if-stmt":
+        if (Array.isArray((node as any).consequent)) {
+          for (const child of (node as any).consequent) visitStmt(child);
+        }
+        if (Array.isArray((node as any).alternate)) {
+          for (const child of (node as any).alternate) visitStmt(child);
+        }
+        return;
+      case "while-stmt":
+        if (Array.isArray((node as any).body)) {
+          for (const child of (node as any).body) visitStmt(child);
+        }
+        return;
+      case "match-stmt":
+        if (Array.isArray((node as any).body)) {
+          for (const child of (node as any).body) visitStmt(child);
+        }
+        return;
+    }
+
+    // Generic recursion for other node kinds with array children
+    for (const key of Object.keys(node)) {
+      if (key === "span" || key === "id") continue;
+      const val = (node as any)[key];
+      if (Array.isArray(val)) {
+        for (const child of val) {
+          if (child && typeof child === "object" && child.kind) {
+            visitStmt(child);
+          }
+        }
+      }
+    }
+  }
+
+  for (const stmt of body) {
+    visitStmt(stmt);
+  }
+  return names;
+}
+
+/**
+ * Collect all identifier names referenced (read or called) in a function body.
+ * This includes: identifiers in bare-expr strings, init expressions, callee names,
+ * and identifiers in ExprNode trees.
+ *
+ * Does NOT recurse into nested function bodies — those have their own scope.
+ */
+function collectReferencedNames(body: LogicStatement[]): Set<string> {
+  const names = new Set<string>();
+  const IDENT_RE = /\b([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
+
+  function extractIdentsFromString(str: string): void {
+    if (!str) return;
+    let m: RegExpExecArray | null;
+    const re = new RegExp(IDENT_RE.source, "g");
+    while ((m = re.exec(str)) !== null) {
+      // Skip JS keywords and common built-ins
+      if (!JS_KEYWORDS.has(m[1])) {
+        names.add(m[1]);
+      }
+    }
+  }
+
+  function visitStmt(node: LogicStatement): void {
+    if (!node || typeof node !== "object") return;
+
+    // Do NOT recurse into nested function bodies.
+    if (node.kind === "function-decl") return;
+
+    if (node.kind === "bare-expr") {
+      const expr = (node as any).exprNode
+        ? emitStringFromTree((node as any).exprNode)
+        : ((node as any).expr ?? "");
+      extractIdentsFromString(expr);
+      return;
+    }
+
+    if (
+      node.kind === "let-decl" ||
+      node.kind === "const-decl" ||
+      node.kind === "tilde-decl" ||
+      node.kind === "lin-decl"
+    ) {
+      const init = (node as any).initExpr
+        ? emitStringFromTree((node as any).initExpr)
+        : ((node as any).init ?? "");
+      extractIdentsFromString(init);
+    }
+
+    if (
+      node.kind === "reactive-decl" ||
+      node.kind === "reactive-derived-decl" ||
+      node.kind === "reactive-debounced-decl"
+    ) {
+      const init = (node as any).initExpr
+        ? emitStringFromTree((node as any).initExpr)
+        : ((node as any).init ?? "");
+      extractIdentsFromString(init);
+    }
+
+    // Recurse into control flow bodies
+    for (const key of Object.keys(node)) {
+      if (key === "span" || key === "id" || key === "name") continue;
+      const val = (node as any)[key];
+      if (Array.isArray(val)) {
+        for (const child of val) {
+          if (child && typeof child === "object" && child.kind) {
+            visitStmt(child);
+          }
+        }
+      }
+    }
+  }
+
+  for (const stmt of body) {
+    visitStmt(stmt);
+  }
+  return names;
+}
+
+/** JS keywords and built-ins to exclude from identifier collection. */
+const JS_KEYWORDS = new Set([
+  "break", "case", "catch", "continue", "debugger", "default", "delete",
+  "do", "else", "finally", "for", "function", "if", "in", "instanceof",
+  "new", "return", "switch", "this", "throw", "try", "typeof", "var",
+  "void", "while", "with", "class", "const", "enum", "export", "extends",
+  "import", "super", "implements", "interface", "let", "package", "private",
+  "protected", "public", "static", "yield", "await", "async",
+  "true", "false", "null", "undefined", "NaN", "Infinity",
+  "console", "Math", "JSON", "Object", "Array", "String", "Number",
+  "Boolean", "Date", "RegExp", "Error", "Map", "Set", "Promise",
+  "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent",
+  "decodeURIComponent", "setTimeout", "setInterval", "clearTimeout",
+  "clearInterval", "document", "window", "navigator", "fetch",
+  "not", "is", "some", "match", "fail",
+]);
+
+/**
+ * Build the closure captures set for a function.
+ * Captures = referenced names - local names - params - JS keywords.
+ *
+ * @param fnNode — the function declaration node
+ * @returns Set of captured variable names
+ */
+function buildClosureCapturesForFunction(fnNode: FunctionDeclNode): Set<string> {
+  const body = Array.isArray(fnNode.body) ? fnNode.body : [];
+  const params = new Set(fnNode.params ?? []);
+  const localNames = collectLocalNames(body);
+  const referencedNames = collectReferencedNames(body);
+
+  const captures = new Set<string>();
+  for (const name of referencedNames) {
+    if (!params.has(name) && !localNames.has(name)) {
+      captures.add(name);
+    }
+  }
+  return captures;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -1101,6 +1316,9 @@ export function runRI(input: RIInput): RIOutput {
 
       const directTriggers: EscalationReason[] = [...explicitTriggers, ...bodyTriggers];
 
+      // Build closure captures for this function.
+      const closureCaptures = buildClosureCapturesForFunction(fnNode);
+
       analysisMap.set(fnNodeId, {
         fnNodeId,
         filePath,
@@ -1109,6 +1327,7 @@ export function runRI(input: RIInput): RIOutput {
         directTriggers,
         callees,
         warnings,
+        closureCaptures,
       });
     }
   }
@@ -1153,6 +1372,100 @@ export function runRI(input: RIInput): RIOutput {
     escalationResults.set(fnNodeId, { allReasons, deduped });
     if (allReasons.length > 0) {
       resolvedServerFnIds.add(fnNodeId);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 5b: Capture-based taint propagation via fixed-point iteration.
+  //
+  // If function A captures variable V, and V is the name of a function
+  // that is server-tainted, then A is also server-tainted. This handles
+  // closures that close over server-side functions or data.
+  //
+  // Unlike callee-based escalation (which uses fetch stubs), capture-based
+  // taint means the function CLOSES OVER server state/behavior — it cannot
+  // be split at the boundary.
+  //
+  // The lattice is: pure < client < server. Join = max.
+  // Fixed-point iteration terminates because:
+  //   1. The lattice is finite (3 levels)
+  //   2. Each iteration can only promote a function UP the lattice
+  //   3. Once server, a function stays server
+  //   4. MAX_ITER guard prevents runaway in pathological cases
+  // ------------------------------------------------------------------
+
+  // Build name → fnNodeId mapping for capture lookup
+  const fnNameToNodeIds = new Map<string, string[]>();
+  for (const [fnNodeId, record] of analysisMap) {
+    const name = record.fnNode.name;
+    if (!name) continue;
+    if (!fnNameToNodeIds.has(name)) fnNameToNodeIds.set(name, []);
+    fnNameToNodeIds.get(name)!.push(fnNodeId);
+  }
+
+  // Also collect all reactive variable names declared at file scope —
+  // if a function captures a server @var, it needs server context.
+  // (Currently server @var produces server-tainted reactive-decl nodes,
+  // which are not function nodes. For now, capture of @var names does
+  // not propagate taint — the @var is accessed via _scrml_reactive_get
+  // which is a runtime call, not a compile-time boundary concern.
+  // This comment documents the design boundary.)
+
+  const MAX_CAPTURE_TAINT_ITER = analysisMap.size + 1;
+  let captureTaintChanged = true;
+  let captureTaintIter = 0;
+
+  while (captureTaintChanged && captureTaintIter < MAX_CAPTURE_TAINT_ITER) {
+    captureTaintChanged = false;
+    captureTaintIter++;
+
+    for (const [fnNodeId, record] of analysisMap) {
+      // Already server-tainted — nothing to propagate
+      if (resolvedServerFnIds.has(fnNodeId)) continue;
+
+      // Exclude callees from capture taint — calling a server function uses
+      // a fetch stub (stays client). Only non-called captures trigger taint.
+      const calleesSet = new Set(record.callees);
+
+      // Check if any captured name is a server-tainted function
+      for (const capturedName of record.closureCaptures) {
+        // Skip names that are called (use fetch stubs) — only pure captures taint.
+        if (calleesSet.has(capturedName)) continue;
+        const capturedFnIds = fnNameToNodeIds.get(capturedName);
+        if (!capturedFnIds) continue;
+
+        for (const capturedFnId of capturedFnIds) {
+          if (resolvedServerFnIds.has(capturedFnId)) {
+            // This function captures a server-tainted function — propagate taint
+            const capturedRecord = analysisMap.get(capturedFnId);
+            const captureTaintReason: EscalationReason = {
+              kind: "server-only-resource",
+              resourceType: `closure-capture:${capturedName}`,
+              span: record.fnNode.span,
+            };
+
+            // Update the analysis records
+            record.directTriggers.push(captureTaintReason);
+            resolvedServerFnIds.add(fnNodeId);
+
+            // Update escalationResults
+            const existing = escalationResults.get(fnNodeId);
+            if (existing) {
+              existing.allReasons.push(captureTaintReason);
+              existing.deduped = deduplicateReasons(existing.allReasons);
+            } else {
+              escalationResults.set(fnNodeId, {
+                allReasons: [captureTaintReason],
+                deduped: [captureTaintReason],
+              });
+            }
+
+            captureTaintChanged = true;
+            break; // One taint reason is sufficient — move to next function
+          }
+        }
+        if (resolvedServerFnIds.has(fnNodeId)) break;
+      }
     }
   }
 
