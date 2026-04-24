@@ -1139,7 +1139,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const fnOpts: EmitLogicOpts = { ...opts, declaredNames: new Set<string>() };
       const body: any[] = node.body ?? [];
 
-      const bodyCodes = emitFnShortcutBody(body, fnOpts, node.fnKind);
+      const bodyCodes = emitFnShortcutBody(body, fnOpts, node.fnKind, node.hasReturnType);
       for (const code of bodyCodes) {
         for (const line of code.split("\n")) {
           fnLines.push(`  ${line}`);
@@ -1172,14 +1172,19 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
  * as `return ...;`. This aligns with example 14 (`fn riskBanner(risk) -> string { match risk {...} }`)
  * and Rust/OCaml/Scala/Kotlin tail-expression conventions.
  *
- * `fnKind !== "fn"` (plain `function` keyword) is unchanged — callers write `return` explicitly.
+ * `fnKind !== "fn"` (plain `function` keyword) is unchanged UNLESS `hasReturnType` is set,
+ * in which case the same tail-expression return semantics apply (Bug H fix).
  *
  * Returns emitted JS code strings (each entry may be multi-line; caller indents).
  */
-export function emitFnShortcutBody(body: any[], opts: EmitLogicOpts, fnKind: string | undefined): string[] {
+export function emitFnShortcutBody(body: any[], opts: EmitLogicOpts, fnKind: string | undefined, hasReturnType?: boolean): string[] {
   const TAIL_KINDS = new Set(["bare-expr", "match-stmt", "match-expr", "switch-stmt"]);
   let tailIdx = -1;
-  if (fnKind === "fn") {
+  // Bug H fix: apply implicit tail-expression return for both `fn` shorthand and
+  // `function` declarations with return-type annotations (`-> T` or `: T`).
+  // When a function declares its return type, the tail match/switch/bare-expr is
+  // wrapped in `return ...;` so the IIFE result is actually returned.
+  if (fnKind === "fn" || hasReturnType) {
     for (let i = body.length - 1; i >= 0; i--) {
       const s = body[i];
       if (!s || s._compileTimeOnly) continue;

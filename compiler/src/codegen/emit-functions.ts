@@ -255,9 +255,13 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     // §48: `fn` shorthand uses tail-expression implicit return. Bypass scheduleStatements
     // (which has no notion of implicit return); `fn` bodies can't contain server calls
     // (E-FN-005 prohibits async/await), so the Promise.all scheduler is never needed here.
-    if ((fnNode as { fnKind?: string }).fnKind === "fn") {
+    // Bug H fix: also route `function` declarations with return-type annotations through
+    // emitFnShortcutBody so match/switch tail expressions get implicit return.
+    const fnKind = (fnNode as { fnKind?: string }).fnKind;
+    const hasRetType = (fnNode as { hasReturnType?: boolean }).hasReturnType;
+    if (fnKind === "fn" || hasRetType) {
       const fnOpts = { boundary: "client" as const, declaredNames: new Set<string>(), ...(machineBindings ? { machineBindings } : {}) };
-      const shortcutLines = emitFnShortcutBody(body, fnOpts, "fn");
+      const shortcutLines = emitFnShortcutBody(body, fnOpts, fnKind, hasRetType);
       for (const code of shortcutLines) {
         for (const line of code.split("\n")) {
           lines.push(`  ${line}`);
