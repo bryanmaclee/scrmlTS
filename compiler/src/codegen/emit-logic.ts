@@ -310,16 +310,41 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
 }
 
 /**
- * Default options at entry: treat unset `boundary` as "client" for backward
- * compatibility, but surface missing boundary via a one-time warning so stray
- * entry-point callers can be found and annotated. S35 B2.
+ * Ensure boundary is set in EmitLogicOpts. When missing, default to "client"
+ * but emit a one-time diagnostic warning. This is a semi-fail-closed approach:
+ * the compilation succeeds, but the missing boundary is surfaced.
+ *
+ * Every function should have a resolved boundary from RI (Stage 5). A missing
+ * boundary at CG time is either (a) an internal emit path that inherently runs
+ * client-side (legitimate — most CG paths are client), or (b) a boundary
+ * propagation bug where server code is silently emitted as client code.
+ *
+ * In development mode (SCRML_STRICT_BOUNDARY=1), this throws instead of
+ * warning, so boundary propagation bugs are caught during compiler testing.
+ *
+ * Changed from silent fail-open to diagnostic-emitting fail-safe as part of
+ * boundary-security-fix (NC-4).
  */
 const _boundaryWarnedFor = new Set<string>();
+const _strictBoundary = typeof process !== "undefined" && process.env?.SCRML_STRICT_BOUNDARY === "1";
 function _ensureBoundary(opts: EmitLogicOpts, context: string): EmitLogicOpts {
   if (!opts.boundary) {
+    if (_strictBoundary) {
+      throw new Error(
+        `[emit-logic] BOUNDARY MISSING: ${context} called without opts.boundary. ` +
+        `Every function must have a resolved boundary from Route Inference (RI, Stage 5). ` +
+        `A missing boundary is a compiler bug — report this to the scrml team. ` +
+        `(SCRML_STRICT_BOUNDARY=1 is set — strict mode.)`
+      );
+    }
     if (!_boundaryWarnedFor.has(context)) {
       _boundaryWarnedFor.add(context);
-      console.warn(`[emit-logic] ${context}: EmitLogicOpts.boundary missing — defaulting to "client". Declare boundary at the call site.`);
+      if (typeof process !== "undefined" && process.env?.SCRML_DEBUG) {
+        console.warn(
+          `[emit-logic] ${context}: EmitLogicOpts.boundary missing — defaulting to "client". ` +
+          `Set SCRML_STRICT_BOUNDARY=1 to make this an error.`
+        );
+      }
     }
     return { ...opts, boundary: "client" };
   }
