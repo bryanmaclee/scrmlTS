@@ -7,6 +7,7 @@ interface CSSDeclaration {
   value: string;
   reactiveRefs?: Array<{ name: string }>;
   isExpression?: boolean;
+  atRule?: string;
 }
 
 /** A CSS rule: either grouped (selector + declarations) or flat (prop + value). */
@@ -17,6 +18,7 @@ interface CSSRule {
   value?: string;
   reactiveRefs?: Array<{ name: string }>;
   isExpression?: boolean;
+  atRule?: string;
 }
 
 /** A CSS block node (css-inline or style block) from the AST. */
@@ -81,6 +83,11 @@ function renderCssBlock(block: CSSBlock): string {
   if (block.rules && Array.isArray(block.rules)) {
     const ruleParts: string[] = [];
     for (const rule of block.rules) {
+      // GITI-011: at-rule passthrough — emit verbatim
+      if (rule.atRule) {
+        ruleParts.push(rule.atRule);
+        continue;
+      }
       if (rule.selector && rule.declarations) {
         // Grouped rule: selector { declarations }
         const declParts: string[] = [];

@@ -5234,6 +5234,12 @@ function parseCSSTokens(tokens, filePath) {
         rule.isExpression = isExpression;
       }
       rules.push(rule);
+    } else if (tok.kind === "CSS_AT_RULE") {
+      // GITI-011: CSS at-rule — store verbatim text for passthrough emission.
+      const atRuleSpan = tokenSpan(tok, filePath);
+      rules.push({ atRule: tok.text, span: atRuleSpan });
+      i++;
+      continue;
     } else if (tok.kind === "CSS_SELECTOR") {
       const selector = tok.text;
       const selectorSpan = tokenSpan(tok, filePath);

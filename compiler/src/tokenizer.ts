@@ -42,6 +42,7 @@
  *   CSS_SEMI      ;
  *   CSS_LBRACE    {
  *   CSS_RBRACE    }
+ *   CSS_AT_RULE   verbatim CSS at-rule (@import, @media, @keyframes, etc.)
  *
  * SQL-specific
  *   SQL_RAW       raw query text (template literal contents)
@@ -1021,6 +1022,82 @@ export function tokenizeCSS(content: string, baseOffset: number, baseLine: numbe
       advance(2);
       while (pos < content.length && !(ch() === "*" && ch(1) === "/")) advance();
       if (pos < content.length) advance(2);
+      continue;
+    }
+
+    // CSS at-rule: @import, @media, @keyframes, @font-face, @supports, @page, @layer, etc.
+    // Statement at-rules (@import, @charset, @namespace) end at `;`.
+    // Block at-rules (@media, @keyframes, @font-face, @supports, @page, @layer) have a
+    // brace-delimited body. We capture the entire at-rule (prelude + body) as a single
+    // CSS_AT_RULE token for verbatim passthrough (GITI-011).
+    if (ch() === "@") {
+      const start = absOff();
+      const l = line, c = col;
+      advance(); // skip @
+
+      // Read the at-rule name (e.g. "media", "import", "keyframes")
+      let name = "";
+      while (pos < content.length && /[A-Za-z0-9_\-]/.test(content[pos])) {
+        name += content[pos];
+        advance();
+      }
+
+      if (!name) {
+        // Bare `@` with no ident — skip it (degenerate input)
+        continue;
+      }
+
+      // Statement at-rules: consume everything through `;`
+      const statementAtRules = new Set(["import", "charset", "namespace"]);
+      if (statementAtRules.has(name)) {
+        let text = `@${name}`;
+        while (pos < content.length && ch() !== ";") {
+          text += content[pos];
+          advance();
+        }
+        if (ch() === ";") {
+          text += ";";
+          advance();
+        }
+        tokens.push(makeToken("CSS_AT_RULE", text, start, absOff(), l, c));
+        continue;
+      }
+
+      // Block at-rules: consume prelude, then brace-delimited body with depth tracking.
+      // This handles nested braces in @keyframes (e.g. `from { ... } to { ... }` inside
+      // the outer `@keyframes spin { ... }`).
+      let text = `@${name}`;
+      // Consume prelude (everything before the opening `{`)
+      while (pos < content.length && ch() !== "{" && ch() !== ";") {
+        text += content[pos];
+        advance();
+      }
+      if (ch() === ";") {
+        // At-rule ended with `;` instead of `{` — treat as statement (e.g. @layer name;)
+        text += ";";
+        advance();
+        tokens.push(makeToken("CSS_AT_RULE", text, start, absOff(), l, c));
+        continue;
+      }
+      if (ch() === "{") {
+        text += " {";
+        advance(); // consume opening {
+        let depth = 1;
+        while (pos < content.length && depth > 0) {
+          if (ch() === "{") depth++;
+          else if (ch() === "}") depth--;
+          if (depth > 0) {
+            text += content[pos];
+          }
+          advance();
+        }
+        text += " }";
+        tokens.push(makeToken("CSS_AT_RULE", text, start, absOff(), l, c));
+        continue;
+      }
+
+      // No `{` or `;` found — emit what we have (degenerate/truncated input)
+      tokens.push(makeToken("CSS_AT_RULE", text.trim(), start, absOff(), l, c));
       continue;
     }
 
