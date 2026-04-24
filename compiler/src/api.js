@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "fs";
-import { resolve, extname, dirname, basename, join } from "path";
+import { resolve, extname, dirname, basename, join, relative } from "path";
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
 import { runCE } from "./component-expander.ts";
@@ -75,6 +75,48 @@ function convertLegacyCssSource(source) {
   return source.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (_, content) => {
     return `#{${content}}`;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Import path rewriting (GITI-009)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite relative .js import paths in generated JS output so they resolve
+ * from the output directory instead of the source file directory.
+ *
+ * When a .scrml file at `ui/repros/foo.scrml` imports `./helper.js`, the
+ * import resolves to `ui/repros/helper.js` in source. But the compiled
+ * output at `dist/ui/foo.server.js` needs the import to resolve from
+ * `dist/ui/` — so the path must be rewritten to `../../ui/repros/helper.js`.
+ *
+ * Only rewrites relative imports (starting with ./ or ../) that end with .js.
+ * Non-relative imports (scrml:, vendor:, bare names) are left untouched.
+ *
+ * @param {string} jsCode — generated JS source code
+ * @param {string} sourceFilePath — absolute path of the source .scrml file
+ * @param {string} outputDir — absolute path of the output directory
+ * @returns {string} — JS code with rewritten import paths
+ */
+export function rewriteRelativeImportPaths(jsCode, sourceFilePath, outputDir) {
+  if (!jsCode || !sourceFilePath || !outputDir) return jsCode;
+  const sourceDir = dirname(resolve(sourceFilePath));
+  const outDir = resolve(outputDir);
+  // If source dir and output dir are the same, no rewriting needed
+  if (sourceDir === outDir) return jsCode;
+
+  return jsCode.replace(
+    /^(import\s+(?:\{[^}]*\}|[^\s]+)\s+from\s+)(["'])(\.\.?\/[^"']+\.js)\2(;?)$/gm,
+    (_match, prefix, quote, relPath, semi) => {
+      // Resolve the import path from the source file's directory
+      const absImportPath = resolve(sourceDir, relPath);
+      // Compute the relative path from the output directory
+      let newRelPath = relative(outDir, absImportPath);
+      // Ensure it starts with ./ or ../
+      if (!newRelPath.startsWith('.')) newRelPath = './' + newRelPath;
+      return `${prefix}${quote}${newRelPath}${quote}${semi}`;
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -456,14 +498,20 @@ export function compileScrml(options = {}) {
     if (cgResult.outputs) {
       for (const [filePath, output] of cgResult.outputs) {
         const base = basename(filePath, ".scrml");
+
+        // GITI-009: rewrite relative .js import paths in server and library
+        // output so they resolve from the output directory, not the source
+        // file's directory.
         if (output.serverJs) {
-          writeFileSync(join(outputDir, `${base}.server.js`), output.serverJs);
+          const rewritten = rewriteRelativeImportPaths(output.serverJs, filePath, outputDir);
+          writeFileSync(join(outputDir, `${base}.server.js`), rewritten);
           fileCount++;
         }
         if (mode === 'library') {
           // Library mode: write libraryJs as <base>.js (importable ES module)
           if (output.libraryJs) {
-            writeFileSync(join(outputDir, `${base}.js`), output.libraryJs);
+            const rewritten = rewriteRelativeImportPaths(output.libraryJs, filePath, outputDir);
+            writeFileSync(join(outputDir, `${base}.js`), rewritten);
             fileCount++;
           }
         } else {
