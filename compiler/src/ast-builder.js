@@ -1113,7 +1113,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             // so the boundary detection is robust.
             const isArmArrow = (t) => t && (t.kind === "OPERATOR" || t.kind === "PUNCT") && (t.text === "=>" || t.text === ":>" || t.text === "->");
             // `.IDENT =>` or `.IDENT(…)=>`  — enum-variant arm
-            if (tok.kind === "PUNCT" && (tok.text === "." || tok.text === "::")) {
+            if ((tok.kind === "PUNCT" && tok.text === ".") || (tok.kind === "OPERATOR" && tok.text === "::")) {
               const t1 = peek(1);
               if (!t1 || t1.kind !== "IDENT" || !/^[A-Z]/.test(t1.text ?? "")) return false;
               // Walk forward past an optional payload binding `(…)`
@@ -2809,7 +2809,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     //
     // Inline Form 1: `. VariantName => result` or `. VariantName(binding) => result`
     //                 `:: VariantName => result` (legacy double-colon prefix)
-    if (tok.kind === 'PUNCT' && (tok.text === '.' || tok.text === '::')) {
+    if ((tok.kind === 'PUNCT' && tok.text === '.') || (tok.kind === 'OPERATOR' && tok.text === '::')) {
       const prefix = tok.text;
       const t1 = peek(1);
       if (t1 && t1.kind === 'IDENT' && /^[A-Z]/.test(t1.text)) {
