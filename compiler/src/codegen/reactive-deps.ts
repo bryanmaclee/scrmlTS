@@ -16,7 +16,7 @@
  */
 
 import { getNodes } from "./collect.ts";
-import { extractReactiveDepsFromAST, forEachIdentInExprNode } from "../expression-parser.ts";
+import { extractReactiveDepsFromAST, forEachIdentInExprNode, emitStringFromTree } from "../expression-parser.ts";
 
 /** A loosely-typed AST node. */
 type ASTNode = Record<string, unknown>;
@@ -291,4 +291,197 @@ export function extractReactiveDepsFromExprNode(
     }
   });
   return found;
+}
+
+// ---------------------------------------------------------------------------
+// Transitive reactive dependency extraction via call-graph BFS (Bug J fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * A registry of function bodies for call-graph traversal.
+ * Maps function name → array of function body statements.
+ * Multiple entries per name are possible (overloads, cross-file).
+ */
+export type FunctionBodyRegistry = Map<string, { body: unknown[]; params: string[] }[]>;
+
+/**
+ * Build a FunctionBodyRegistry from a FileAST.
+ * Collects all function-decl nodes and indexes them by name.
+ */
+export function buildFunctionBodyRegistry(fileAST: Record<string, unknown>): FunctionBodyRegistry {
+  const registry: FunctionBodyRegistry = new Map();
+  const nodes = getNodes(fileAST);
+
+  function collectFunctions(nodeList: unknown[]): void {
+    if (!Array.isArray(nodeList)) return;
+    for (const node of nodeList) {
+      if (!node || typeof node !== "object") continue;
+      const n = node as ASTNode;
+
+      if (n.kind === "function-decl" && n.name && Array.isArray(n.body)) {
+        const name = n.name as string;
+        if (!registry.has(name)) registry.set(name, []);
+        registry.get(name)!.push({
+          body: n.body as unknown[],
+          params: (n.params as string[]) ?? [],
+        });
+        // Recurse into nested functions
+        collectFunctions(n.body as unknown[]);
+      }
+
+      if (n.kind === "logic" && Array.isArray(n.body)) {
+        collectFunctions(n.body as unknown[]);
+      }
+      if (Array.isArray(n.children)) {
+        collectFunctions(n.children as unknown[]);
+      }
+    }
+  }
+
+  collectFunctions(nodes as unknown[]);
+  return registry;
+}
+
+/**
+ * Extract callee names from an expression string.
+ * Simple direct-call extraction: `name(` pattern.
+ */
+function extractCalleesFromExprString(expr: string): string[] {
+  const names: string[] = [];
+  const re = /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(expr)) !== null) {
+    names.push(m[1]);
+  }
+  return names;
+}
+
+/**
+ * Extract reactive deps from a function body (flat scan — no recursion).
+ * Walks body statements for @var patterns in expression strings.
+ */
+function extractReactiveDepsFromBody(
+  body: unknown[],
+  knownReactiveVars: Set<string> | null,
+): { deps: Set<string>; callees: string[] } {
+  const deps = new Set<string>();
+  const callees: string[] = [];
+
+  function visitStmt(node: unknown): void {
+    if (!node || typeof node !== "object") return;
+    const n = node as ASTNode;
+
+    // Skip nested function bodies — they have their own scope
+    if (n.kind === "function-decl") return;
+
+    // Extract from expression strings
+    let exprStr = "";
+    if (n.kind === "bare-expr") {
+      exprStr = (n as any).exprNode
+        ? emitStringFromTreeSafe((n as any).exprNode)
+        : ((n.expr as string) ?? "");
+    } else if (
+      n.kind === "let-decl" ||
+      n.kind === "const-decl" ||
+      n.kind === "tilde-decl" ||
+      n.kind === "reactive-decl" ||
+      n.kind === "reactive-derived-decl"
+    ) {
+      exprStr = (n as any).initExpr
+        ? emitStringFromTreeSafe((n as any).initExpr)
+        : ((n.init as string) ?? "");
+    } else if (n.kind === "return-stmt") {
+      exprStr = (n as any).exprNode
+        ? emitStringFromTreeSafe((n as any).exprNode)
+        : ((n.expr as string) ?? "");
+    }
+
+    if (exprStr) {
+      const exprDeps = extractReactiveDeps(exprStr, knownReactiveVars);
+      for (const d of exprDeps) deps.add(d);
+      callees.push(...extractCalleesFromExprString(exprStr));
+    }
+
+    // Recurse into control flow children (but not nested functions)
+    for (const key of Object.keys(n)) {
+      if (key === "span" || key === "id" || key === "name") continue;
+      const val = (n as any)[key];
+      if (Array.isArray(val)) {
+        for (const child of val) {
+          if (child && typeof child === "object" && (child as ASTNode).kind) {
+            visitStmt(child);
+          }
+        }
+      }
+    }
+  }
+
+  for (const stmt of body) {
+    visitStmt(stmt);
+  }
+
+  return { deps, callees };
+}
+
+/**
+ * Safe wrapper for emitStringFromTree that catches errors.
+ */
+function emitStringFromTreeSafe(node: unknown): string {
+  try {
+    return emitStringFromTree(node as any);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Extract reactive dependencies transitively through function calls.
+ *
+ * Given an expression like `${upperOf(getMsg())}`, this function:
+ * 1. Extracts direct @var refs from the expression (standard behavior)
+ * 2. Extracts callee names from the expression
+ * 3. For each callee, looks up its body in the function registry
+ * 4. BFS through the call graph collecting reactive deps from each body
+ * 5. Returns the union of all reactive deps found
+ *
+ * This fixes Bug J where markup interpolations using helper functions
+ * that wrap reactive reads get no display-wiring because the @var
+ * references are inside the helper function's body, not the
+ * interpolation expression itself.
+ *
+ * @param expr — the interpolation expression string
+ * @param knownReactiveVars — known reactive variable names for filtering
+ * @param fnRegistry — function body registry from buildFunctionBodyRegistry
+ * @returns set of reactive variable names (without @ prefix)
+ */
+export function extractReactiveDepsTransitive(
+  expr: string,
+  knownReactiveVars: Set<string> | null,
+  fnRegistry: FunctionBodyRegistry,
+): Set<string> {
+  // Step 1: Extract direct deps from the expression itself
+  const allDeps = extractReactiveDeps(expr, knownReactiveVars);
+
+  // Step 2: BFS through call graph
+  const visited = new Set<string>();
+  const queue = extractCalleesFromExprString(expr);
+
+  while (queue.length > 0) {
+    const calleeName = queue.shift()!;
+    if (visited.has(calleeName)) continue;
+    visited.add(calleeName);
+
+    const fnEntries = fnRegistry.get(calleeName);
+    if (!fnEntries) continue;
+
+    for (const { body } of fnEntries) {
+      const { deps, callees } = extractReactiveDepsFromBody(body, knownReactiveVars);
+      for (const d of deps) allDeps.add(d);
+      for (const c of callees) {
+        if (!visited.has(c)) queue.push(c);
+      }
+    }
+  }
+
+  return allDeps;
 }

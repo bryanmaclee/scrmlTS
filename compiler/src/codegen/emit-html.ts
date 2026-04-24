@@ -1,7 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { emitStringFromTree, exprNodeContainsMemberAccess } from "../expression-parser.ts";
 import { escapeHtmlAttr, VOID_ELEMENTS } from "./utils.ts";
-import { extractReactiveDeps, collectReactiveVarNames } from "./reactive-deps.ts";
+import { extractReactiveDeps, collectReactiveVarNames, extractReactiveDepsTransitive, buildFunctionBodyRegistry } from "./reactive-deps.ts";
 import { hasTemplateInterpolation, rewriteBunEval } from "./rewrite.js";
 import { CGError } from "./errors.ts";
 import type { BindingRegistry } from "./binding-registry.ts";
@@ -69,6 +69,7 @@ export function generateHtml(
   const parts: string[] = [];
 
   const reactiveVarNames: Set<string> | null = fileAST ? collectReactiveVarNames(fileAST) : null;
+  const fnBodyRegistry = fileAST ? buildFunctionBodyRegistry(fileAST) : null;
 
   function emitNode(node: any): void {
     if (!node || typeof node !== "object") return;
@@ -636,7 +637,9 @@ export function generateHtml(
           if (child && child.kind === "bare-expr" && (child.exprNode || child.expr)) {
             // Phase 4d: ExprNode-first for reactive dep extraction
             const exprStr = child.exprNode ? emitStringFromTree(child.exprNode) : child.expr;
-            const reactiveRefs = extractReactiveDeps(exprStr, reactiveVarNames);
+            const reactiveRefs = fnBodyRegistry
+              ? extractReactiveDepsTransitive(exprStr, reactiveVarNames, fnBodyRegistry)
+              : extractReactiveDeps(exprStr, reactiveVarNames);
             registry.addLogicBinding({ placeholderId, expr: exprStr, exprNode: child.exprNode, reactiveRefs });
           }
         }
