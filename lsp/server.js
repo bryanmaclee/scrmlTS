@@ -2,12 +2,14 @@
 /**
  * scrml Language Server Protocol (LSP) server.
  *
- * Provides diagnostics, completions, hover, definition, and document symbols
- * for .scrml files. Imports compiler stages directly for fast in-process analysis.
+ * Provides diagnostics, completions, hover, definition, document symbols,
+ * signature help, and code actions for .scrml files. Imports compiler
+ * stages directly for fast in-process analysis.
  *
- * The handler logic lives in `lsp/handlers.js` so it can be unit-tested
- * without booting an LSP transport (createConnection demands one at module
- * load time). This module is the LSP wiring shell only.
+ * The handler logic lives in `lsp/handlers.js` (L1-L3) and `lsp/l4.js`
+ * (L4 — signature help + code actions) so it can be unit-tested without
+ * booting an LSP transport (createConnection demands one at module load
+ * time). This module is the LSP wiring shell only.
  *
  * L2 (deep-dive 2026-04-24, "See the workspace"):
  *   - On `initialize`, the server bootstraps a workspace-wide cache by
@@ -27,6 +29,12 @@
  *   - Cross-file import-clause completion (`import { | } from "./other.scrml"`).
  *   - Cross-file imported components surface in `<Cap...` markup completions.
  *
+ * L4 (deep-dive 2026-04-24, "Standards polish"):
+ *   - signatureHelpProvider: triggered on `(` and `,`. Resolves the callee,
+ *     same-file or cross-file, and emits parameter highlighting.
+ *   - codeActionProvider: emits `quickfix` actions for E-IMPORT-004,
+ *     E-IMPORT-005, E-LIN-001, E-PA-007, and E-SQL-006.
+ *
  * Usage: bun run lsp/server.js --stdio
  */
 
@@ -37,6 +45,7 @@ import {
   TextDocuments,
   ProposedFeatures,
   TextDocumentSyncKind,
+  CodeActionKind,
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 
@@ -47,6 +56,11 @@ import {
   buildDocumentSymbols,
   buildHover,
 } from "./handlers.js";
+
+import {
+  buildSignatureHelp,
+  buildCodeActions,
+} from "./l4.js";
 
 import {
   createWorkspace,
@@ -114,6 +128,18 @@ connection.onInitialize((params) => {
       // documentSymbolProvider populates editor outline panels (VS Code,
       // Neovim, etc) from a single AST walk over the .scrml file.
       documentSymbolProvider: true,
+      // L4.1 — signature help fires on `(` and `,`. The retrigger char
+      // set lets the active-parameter index update as the user advances
+      // through the argument list.
+      signatureHelpProvider: {
+        triggerCharacters: ["(", ","],
+        retriggerCharacters: [","],
+      },
+      // L4.2 — code actions of kind "quickfix" for the top-5 mechanical
+      // error codes. The client filters by kind via codeActionKinds.
+      codeActionProvider: {
+        codeActionKinds: [CodeActionKind.QuickFix],
+      },
     },
   };
 });
@@ -185,7 +211,7 @@ documents.onDidClose((event) => {
 });
 
 // ---------------------------------------------------------------------------
-// Per-feature handlers (delegate to handlers.js)
+// Per-feature handlers (delegate to handlers.js / l4.js)
 // ---------------------------------------------------------------------------
 
 connection.onCompletion((params) => {
@@ -225,6 +251,34 @@ connection.onDocumentSymbol((params) => {
   const analysis = fileAnalysis.get(params.textDocument.uri);
   if (!analysis?.ast) return [];
   return buildDocumentSymbols(analysis.ast, analysis.text || document.getText());
+});
+
+// L4.1 — Signature help
+connection.onSignatureHelp((params) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return null;
+  const text = document.getText();
+  const offset = document.offsetAt(params.position);
+  const analysis = fileAnalysis.get(params.textDocument.uri);
+  const filePath = uriToPath(params.textDocument.uri);
+  return buildSignatureHelp(text, offset, analysis, workspace, filePath);
+});
+
+// L4.2 — Code actions (quickfix for top-5 error codes)
+connection.onCodeAction((params) => {
+  const document = documents.get(params.textDocument.uri);
+  if (!document) return [];
+  const text = document.getText();
+  const analysis = fileAnalysis.get(params.textDocument.uri);
+  const filePath = uriToPath(params.textDocument.uri);
+  return buildCodeActions(
+    text,
+    params.textDocument.uri,
+    params.context,
+    analysis,
+    workspace,
+    filePath,
+  );
 });
 
 // ---------------------------------------------------------------------------
