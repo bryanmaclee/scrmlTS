@@ -984,10 +984,7 @@ function _injectChildrenWalk(
 ): ASTNode[] {
   const result: ASTNode[] = [];
 
-  // §14.9: regex for render name() pattern (zero-param)
-  const renderRe = /^render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*\)$/;
-  // §16.6: regex for render name(expr) pattern (parametric)
-  const renderParamRe = /^render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(\s*(.+)\s*\)$/;
+  // Phase 4d Step 8: render name() / render name(expr) detection moved to ExprNode-only structural match (see __scrml_render_NAME__ unwrapping below).
 
   for (const child of expandedChildren) {
     if (!child) continue;
@@ -996,57 +993,62 @@ function _injectChildrenWalk(
       const logicChild = child as LogicNode;
 
       // Check each body node for special bare-expr patterns
-      // Phase 4d: ExprNode-first ident matching, string fallback
+      // Phase 4d Step 8: ExprNode-only ident matching (bare-expr.expr deleted)
       const isChildrenSlot = Array.isArray(logicChild.body) && logicChild.body.some(
         (n: unknown) => {
           const node = n as Record<string, unknown>;
           if (!node || node.kind !== "bare-expr") return false;
-          // Phase 4d: ExprNode-first, but skip escape-hatch (fall through to string)
+          // ExprNode path: skip escape-hatch (cannot represent identifier match)
           if (node.exprNode && (node.exprNode as any).kind !== "escape-hatch") return exprNodeMatchesIdent(node.exprNode as ExprNode, "children");
-          return node.expr && (node.expr as string).trim() === "children";
+          return false;
         }
       );
 
       // §14.9: ${...} spread — substitute with unslotted children
+      // The `...` token is not valid JS; ast-builder emits it as an escape-hatch
+      // ExprNode with raw === "...".
       const isSpreadSlot = Array.isArray(logicChild.body) && logicChild.body.some(
         (n: unknown) => {
           const node = n as Record<string, unknown>;
           if (!node || node.kind !== "bare-expr") return false;
-          // Phase 4d: ExprNode-first, but skip escape-hatch (fall through to string)
-          if (node.exprNode && (node.exprNode as any).kind !== "escape-hatch") return exprNodeMatchesIdent(node.exprNode as ExprNode, "...");
-          return node.expr && (node.expr as string).trim() === "...";
+          const en = node.exprNode as Record<string, unknown> | undefined;
+          if (!en) return false;
+          if (en.kind === "escape-hatch" && typeof en.raw === "string" && (en.raw as string).trim() === "...") return true;
+          if (en.kind !== "escape-hatch") return exprNodeMatchesIdent(en as ExprNode, "...");
+          return false;
         }
       );
 
       // §14.9: ${render name()} — substitute with slotted group
-      // NOTE: render is scrml-specific syntax, not a JS expression. The ExprNode
-      // parser cannot faithfully represent it, so we must use the raw .expr string.
-      const renderMatch = Array.isArray(logicChild.body) && logicChild.body.reduce(
-        (found: string | null, n: unknown) => {
-          if (found) return found;
-          const node = n as Record<string, unknown>;
-          if (node && node.kind === "bare-expr" && node.expr) {
-            const m = (node.expr as string).trim().match(renderRe);
-            if (m) return m[1];
-          }
-          return null;
-        },
-        null as string | null,
-      );
-
       // §16.6: ${render name(expr)} — parametric snippet substitution
-      const renderParamMatch = !renderMatch && Array.isArray(logicChild.body) && logicChild.body.reduce(
-        (found: { name: string; argExpr: string } | null, n: unknown) => {
-          if (found) return found;
+      // Phase 4d Step 8: ExprNode-only structural matching (bare-expr.expr deleted).
+      // The expression preprocessor (S39 1e304c8) rewrites `render name(...)` to
+      // `__scrml_render_name__(...)` so the ExprNode parser can represent it as a
+      // call node. We unwrap that here to detect render-slot patterns.
+      let renderMatch: string | null = null;
+      let renderParamMatch: { name: string; argExpr: string } | null = null;
+      if (Array.isArray(logicChild.body)) {
+        for (const n of logicChild.body) {
+          if (renderMatch || renderParamMatch) break;
           const node = n as Record<string, unknown>;
-          if (node && node.kind === "bare-expr" && node.expr) {
-            const m = (node.expr as string).trim().match(renderParamRe);
-            if (m) return { name: m[1], argExpr: m[2].trim() };
+          if (!node || node.kind !== "bare-expr") continue;
+          if (!node.exprNode) continue;
+          const en = node.exprNode as ExprNode;
+          if (en.kind !== "call") continue;
+          const callee = (en as any).callee;
+          if (!callee || callee.kind !== "ident") continue;
+          const calleeName = callee.name as string;
+          const nameM = calleeName.match(/^__scrml_render_([A-Za-z_$][A-Za-z0-9_$]*)__$/);
+          if (!nameM) continue;
+          const args = ((en as any).args ?? []) as ExprNode[];
+          if (args.length === 0) {
+            renderMatch = nameM[1];
+          } else {
+            const argExpr = emitStringFromTree(args[0]).trim();
+            renderParamMatch = { name: nameM[1], argExpr };
           }
-          return null;
-        },
-        null as { name: string; argExpr: string } | null,
-      );
+        }
+      }
 
       if (isChildrenSlot) {
         // Replace the slot with the caller's children (backward compat)
