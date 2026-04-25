@@ -502,3 +502,116 @@ describe("§10 RI — CPS-split detection for SQL-init reactive-decl still works
     expect(serverJs).toContain("__ri_route_refreshList");
   });
 });
+
+// ---------------------------------------------------------------------------
+// §11  CG client boundary — top-level / client-context @x = ?{...} does not
+//      emit a bare `_scrml_reactive_set("x", )` (empty arg)
+//      (fix-cg-mounthydrate-sql-ref-placeholder, S40 follow-up sibling)
+// ---------------------------------------------------------------------------
+
+describe("§11 CG client — bare @x = ?{...} suppresses empty-arg reactive_set", () => {
+  test("synthetic reactive-decl + sqlNode (client boundary) emits comment, NOT _scrml_reactive_set", () => {
+    const node = {
+      kind: "reactive-decl",
+      name: "rows",
+      init: "",
+      sqlNode: {
+        kind: "sql",
+        query: "SELECT id, name FROM users",
+        chainedCalls: [],
+      },
+    };
+    const out = emitLogicNode(node, { boundary: "client" });
+    // Pre-fix: `_scrml_reactive_set("rows", );` (empty arg). Post-fix: comment line.
+    expect(out).not.toMatch(/_scrml_reactive_set\(\s*"rows"\s*,\s*\)/);
+    expect(out).toContain("// SQL-init for @rows");
+    expect(out).toContain("E-CG-006");
+    expect(out).toContain("§8.11");
+  });
+
+  test("synthetic reactive-decl + sqlNode {.all()} (client boundary) — same suppression", () => {
+    const node = {
+      kind: "reactive-decl",
+      name: "users",
+      init: "",
+      sqlNode: {
+        kind: "sql",
+        query: "SELECT id FROM users",
+        chainedCalls: [{ method: "all", args: "" }],
+      },
+    };
+    const out = emitLogicNode(node, { boundary: "client" });
+    expect(out).not.toMatch(/_scrml_reactive_set\(\s*"users"\s*,\s*\)/);
+    expect(out).toContain("// SQL-init for @users");
+  });
+
+  test("synthetic reactive-decl + sqlNode (no boundary in opts) — defaults to client suppression path", () => {
+    // When opts.boundary is undefined we fall through past the server check.
+    // The client-side suppression should still fire because the sqlNode short-circuit
+    // is placed at the top of the post-server fallthrough.
+    const node = {
+      kind: "reactive-decl",
+      name: "x",
+      init: "",
+      sqlNode: { kind: "sql", query: "SELECT 1", chainedCalls: [] },
+    };
+    const out = emitLogicNode(node, {}); // no boundary
+    expect(out).not.toMatch(/_scrml_reactive_set\(\s*"x"\s*,\s*\)/);
+    expect(out).toContain("// SQL-init for @x");
+  });
+
+  test("non-SQL reactive-decl is unaffected — legacy emitter still fires (no regression)", () => {
+    // Sanity: `@count = 0` must continue to emit `_scrml_reactive_set("count", 0);`.
+    const src = `<program>
+\${
+  @count = 0
+}
+<div>\${@count}</div>
+</program>`;
+    const { errors, clientJs } = compileSource(src, "count-zero-baseline");
+    expect(errors).toEqual([]);
+    expect(clientJs).toBeTruthy();
+    expect(clientJs).toContain('_scrml_reactive_set("count", 0)');
+  });
+
+  test("E2E — combined-007-crud shape: client.js has zero empty-arg reactive_set", () => {
+    const src = `<program db="./test.db">
+\${
+  @users = ?{\`SELECT id, name, email FROM users\`}
+  @editingId = not
+  @newName = ""
+  @newEmail = ""
+
+  function createUser() {
+    ?{\`INSERT INTO users (name, email) VALUES ('New', 'new@example.com')\`}
+    @users = ?{\`SELECT id, name, email FROM users\`}
+  }
+
+  function refreshList() {
+    @users = ?{\`SELECT id, name, email FROM users\`}
+  }
+}
+<div>\${@users.length}</div>
+</program>`;
+    const { errors, serverJs, clientJs } = compileSource(src, "combined-007-empty-arg");
+    expect(errors).toEqual([]);
+    expect(clientJs).toBeTruthy();
+    expect(serverJs).toBeTruthy();
+
+    // Primary regression: zero `_scrml_reactive_set("X", )` empty-arg sites.
+    expect(clientJs).not.toMatch(/_scrml_reactive_set\(\s*"users"\s*,\s*\)/);
+    expect(clientJs).not.toMatch(/_scrml_reactive_set\(\s*"[A-Za-z_$][A-Za-z0-9_$]*"\s*,\s*\)/);
+
+    // The other vars (initialized to literals) MUST still emit their reactive_set.
+    expect(clientJs).toContain('_scrml_reactive_set("editingId", null)');
+    expect(clientJs).toContain('_scrml_reactive_set("newName", "")');
+    expect(clientJs).toContain('_scrml_reactive_set("newEmail", "")');
+
+    // The suppressed @users decl emits the explanatory comment.
+    expect(clientJs).toContain("// SQL-init for @users");
+
+    // Both files still parse cleanly.
+    expect(() => parseServerJs(serverJs)).not.toThrow();
+    expect(() => parseServerJs(clientJs)).not.toThrow();
+  });
+});
