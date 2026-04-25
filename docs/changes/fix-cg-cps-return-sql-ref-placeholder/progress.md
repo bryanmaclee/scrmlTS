@@ -9,4 +9,12 @@
   - **emit-server.ts** — at the two CPS sites (L599-602 and L682-685) — when `stmt.sqlNode` is present, recurse `emitLogicNode(stmt.sqlNode, { boundary: "server" })` and strip trailing `;` so `_scrml_cps_return = <sql-expr>;` is well-formed.
   - **emit-logic.ts case "reactive-decl"** — when `node.sqlNode` is present, recurse into case "sql" and emit `_scrml_reactive_set("<name>", <sql-expr>);` instead of going through `emitExpr(node.initExpr, ...)`.
   - **Tests** — new `compiler/tests/unit/reactive-decl-sql-chained-call.test.js` mirroring `return-sql-chained-call.test.js`.
-- [step 5] Implementing the ast-builder change for both parse sites (parseOneStatement + buildBlock body-loop). Including untyped + typed + server + @shared variants.
+- [step 5] Implemented + committed ast-builder.js helper + 8-site changes (commit `00b1d88`). Tests still 7714 / 0 fail.
+- [step 6] First codegen pass: emit-server.ts CPS sites + emit-logic.ts case "reactive-decl" (unconditional). FAILED — E-CG-006 server-only-pattern guard caught `_scrml_sql` references emitted on the client. Refined emit-logic to gate by `opts.boundary === "server"` only. Client-side leak is the sibling bug noted in the parent anomaly report — out of scope.
+- [step 7] Second codegen pass: recompile combined-007-crud — discovered route inference regression. `refreshList()` was no longer classified as server-escalated because `hasServerOnlyResourceInInit` only saw `init` strings (now `""`) and `detectServerOnlyResource` returned null. Added `sqlNode`-aware checks at TWO sites in `route-inference.ts`:
+  - `hasServerOnlyResourceInInit()` — for CPS-eligibility detection
+  - The trigger-1 visitor in `collectStmtTriggers()` — for server-escalation triggering itself
+- [step 8] Third codegen pass: combined-007-crud now compiles + parses cleanly on both server.js and client.js. Both CPS-return sites emit `await _scrml_sql.unsafe("SELECT ...");`. Zero sql-ref leaks. Committed (`9d65a46`).
+- [step 9] Wrote `compiler/tests/unit/reactive-decl-sql-chained-call.test.js` (16 tests / 66 expects, all passing). Committed (`d1d7be8`).
+- [step 10] Ran broader gauntlet check on all 275 samples: combined-007-crud is the ONLY file where the change has effect (1 fewer sql-ref leak, 1 fewer server.js parse failure). Zero regressions. 13 other pre-existing leaks remain unchanged (separate code paths — sibling bug intakes recommended in the anomaly report).
+- [step 11] Wrote anomaly-report.md. Total test count: 7730 pass / 0 fail / 365 files (was 7714 / 364 — exactly +16 from the new file, +1 file). CLEAR FOR MERGE.
