@@ -32,6 +32,12 @@
  *   §6  emit-logic — server boundary `.run()` produces `return await sql\`...\``
  *   §7  E2E — examples-style server function compiles and produces parseable JS
  *   §8  No orphan `. all ( );` / `. get ( );` after fix
+ *   §9  Bare `?{}.method()` at non-lift sites — parseOneStatement + buildBlock body-loop
+ *       (S40 follow-up: fix-lift-sql-chained-call-parallel-sites — closes the same
+ *        IDENT-only bug at the 2 BLOCK_REF sites that don't go through the `lift`
+ *        keyword path; previously, KEYWORD method names like `.get()` would be left
+ *        orphan in the parent token stream because both inline duplicate loops only
+ *        accepted IDENT method tokens.)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -377,5 +383,185 @@ describe("§8 No orphan chained-call statement after fix", () => {
     expect(serverJs).not.toMatch(/^\s*\.\s*(all|get|run)\s*\(/m);
     // The full server bundle must parse.
     expect(() => parseServerJs(serverJs)).not.toThrow();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §9  Bare `?{}.method()` at the 2 non-lift BLOCK_REF sites in parseLogicBody
+//
+// These exercise the parseOneStatement BLOCK_REF case (Site A) and the
+// buildBlock body-loop BLOCK_REF case (Site B). Both sites previously
+// duplicated the chain-consumption loop with an IDENT-only method-name check
+// that would skip KEYWORD-tokenized methods like .get() and .set(). The
+// helper consumeSqlChainedCalls (S40, baccf56) accepts both IDENT and
+// KEYWORD; this change applies it at both bare-BLOCK_REF sites too.
+//
+// Site A: bare ?{}.method() inside a function body
+//   server function fnA() { ?{`SELECT 1`}.all() }
+//   parseRecursiveBody → parseOneStatement → BLOCK_REF case
+//
+// Site B: bare ?{}.method() at the top level of a ${} logic block
+//   ${ ?{`SELECT 1`}.run() }
+//   parseLogicBody outer while-loop → BLOCK_REF case
+// ---------------------------------------------------------------------------
+
+// Walk a logic block (`kind: "logic"`) and return its `body` array. Used for
+// Site B tests, where the SQL node lives directly under the logic-block body
+// rather than inside a function-decl.
+function findLogicBody(ast) {
+  function walk(nodes) {
+    for (const n of nodes ?? []) {
+      if (!n) continue;
+      if (n.kind === "logic" && Array.isArray(n.body)) return n.body;
+      for (const k of ["body", "consequent", "alternate", "children", "nodes"]) {
+        const v = n[k];
+        if (Array.isArray(v)) {
+          const r = walk(v);
+          if (r) return r;
+        }
+      }
+    }
+    return null;
+  }
+  return walk(ast.nodes);
+}
+
+describe("§9 Bare `?{}.method()` — parseOneStatement BLOCK_REF case (Site A)", () => {
+  test("§9.1 `?{...}.all()` inside a server function — chainedCalls captured, no orphan sibling", () => {
+    const src = `<program db="./test.db">
+\${
+  server function fnA() {
+    ?{\`SELECT 1\`}.all()
+  }
+}
+<div>x</div>
+</program>`;
+    const ast = runAst(src);
+    const fn = findFn(ast, "fnA");
+    expect(fn).toBeTruthy();
+    // Exactly ONE statement — no orphan bare-expr sibling holding the .all() chain.
+    expect(fn.body.length).toBe(1);
+    const sqlNode = fn.body[0];
+    expect(sqlNode.kind).toBe("sql");
+    expect(sqlNode.query).toContain("SELECT 1");
+    expect(sqlNode.chainedCalls).toBeArray();
+    expect(sqlNode.chainedCalls.length).toBe(1);
+    expect(sqlNode.chainedCalls[0].method).toBe("all");
+  });
+
+  test("§9.2 `?{...}.get()` inside a server function — KEYWORD method captured, no orphan sibling", () => {
+    // .get() is the previously-buggy case at this site: `get` tokenizes as
+    // KEYWORD (tokenizer.ts:62), and the pre-fix inline loop only matched IDENT.
+    const src = `<program db="./test.db">
+\${
+  server function fnB() {
+    ?{\`SELECT 1\`}.get()
+  }
+}
+<div>x</div>
+</program>`;
+    const ast = runAst(src);
+    const fn = findFn(ast, "fnB");
+    expect(fn).toBeTruthy();
+    expect(fn.body.length).toBe(1);
+    const sqlNode = fn.body[0];
+    expect(sqlNode.kind).toBe("sql");
+    expect(sqlNode.chainedCalls).toBeArray();
+    expect(sqlNode.chainedCalls.length).toBe(1);
+    expect(sqlNode.chainedCalls[0].method).toBe("get");
+    // Negative: no sibling bare-expr holding the orphan ".get()" tokens.
+    const orphans = fn.body.filter(n => n && n.kind === "bare-expr");
+    expect(orphans).toEqual([]);
+  });
+
+  test("§9.2b `?{...}.get()` — server JS emits singleton-or-null form (no orphan dot-statement)", () => {
+    // Codegen check for the previously-latent KEYWORD path. With the fix,
+    // .get() inside a server function compiles to the canonical
+    // `(await sql\`...\`)[0] ?? null` shape (per emit-logic.ts).
+    const src = `<program db="./test.db">
+\${
+  server function fnB() {
+    ?{\`SELECT id FROM users WHERE id = 1\`}.get()
+  }
+}
+<div>x</div>
+</program>`;
+    const { errors, serverJs } = compileSource(src, "bare-get-server");
+    expect(errors).toEqual([]);
+    expect(serverJs).toBeTruthy();
+    expect(serverJs).toContain("(await _scrml_sql`SELECT id FROM users WHERE id = 1`)[0] ?? null");
+    // Pre-fix shape would have left a bare `. get ( )` line in the handler body.
+    expect(serverJs).not.toMatch(/^\s*\.\s*get\s*\(/m);
+    expect(() => parseServerJs(serverJs)).not.toThrow();
+  });
+});
+
+describe("§9 Bare `?{}.method()` — buildBlock body-loop BLOCK_REF case (Site B)", () => {
+  test("§9.3 `?{...}.run()` at top-level \${} — chainedCalls captured, no orphan sibling", () => {
+    const src = `<program db="./test.db">
+\${
+  ?{\`DELETE FROM tmp\`}.run()
+}
+<div>x</div>
+</program>`;
+    const ast = runAst(src);
+    const body = findLogicBody(ast);
+    expect(body).toBeTruthy();
+    // The logic body should contain exactly one node (the SQL), not two
+    // (SQL + orphan bare-expr).
+    expect(body.length).toBe(1);
+    const sqlNode = body[0];
+    expect(sqlNode.kind).toBe("sql");
+    expect(sqlNode.query).toContain("DELETE FROM tmp");
+    expect(sqlNode.chainedCalls).toBeArray();
+    expect(sqlNode.chainedCalls.length).toBe(1);
+    expect(sqlNode.chainedCalls[0].method).toBe("run");
+  });
+
+  test("§9.4 `?{...}.get()` at top-level \${} — KEYWORD method captured, no orphan sibling", () => {
+    // The previously-buggy KEYWORD case at Site B. Pre-fix: `.get()` would
+    // fall through to the parent stream and be parsed as an orphan bare-expr,
+    // producing a sibling node. Post-fix: chain is consumed by the helper.
+    const src = `<program db="./test.db">
+\${
+  ?{\`SELECT 1\`}.get()
+}
+<div>x</div>
+</program>`;
+    const ast = runAst(src);
+    const body = findLogicBody(ast);
+    expect(body).toBeTruthy();
+    expect(body.length).toBe(1);
+    const sqlNode = body[0];
+    expect(sqlNode.kind).toBe("sql");
+    expect(sqlNode.chainedCalls).toBeArray();
+    expect(sqlNode.chainedCalls.length).toBe(1);
+    expect(sqlNode.chainedCalls[0].method).toBe("get");
+    // Negative: no sibling bare-expr holding the orphan `.get()` tokens.
+    const orphans = body.filter(n => n && n.kind === "bare-expr");
+    expect(orphans).toEqual([]);
+  });
+
+  test("§9.5 `?{...}.run().nobatch()` at top-level \${} — chained .nobatch marker still honored", () => {
+    // The helper has special-case behavior for `.nobatch()` (§8.9.5): instead
+    // of pushing onto chainedCalls, it sets sqlNode.nobatch = true. Verify
+    // that special-case still fires through the helper at Site B.
+    const src = `<program db="./test.db">
+\${
+  ?{\`INSERT INTO logs VALUES (1)\`}.run().nobatch()
+}
+<div>x</div>
+</program>`;
+    const ast = runAst(src);
+    const body = findLogicBody(ast);
+    expect(body).toBeTruthy();
+    expect(body.length).toBe(1);
+    const sqlNode = body[0];
+    expect(sqlNode.kind).toBe("sql");
+    // .run() landed on chainedCalls (one entry), .nobatch() flipped the flag.
+    expect(sqlNode.chainedCalls.length).toBe(1);
+    expect(sqlNode.chainedCalls[0].method).toBe("run");
+    expect(sqlNode.nobatch).toBe(true);
   });
 });
