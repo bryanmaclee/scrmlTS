@@ -125,6 +125,18 @@ The hybrid is honest about the contract (TS type cleaned) but defers strict cons
 - 2026-04-24 — Outbound messages sent to siblings:
   - `giti/handOffs/incoming/2026-04-24-2245-scrmlTS-to-giti-s40-sql-and-lsp-landings.md` — `needs: fyi`. Bun.SQL Phase 1+2 codegen shape change (`_scrml_db`→`_scrml_sql`), `.prepare()`→E-SQL-006, 3 placeholder fixes, LSP L1-L3 capabilities.
   - `6nz/handOffs/incoming/2026-04-24-2245-scrmlTS-to-6nz-s40-lsp-and-bun-sql.md` — `needs: fyi`. LSP L1-L3 architecture + capabilities + sample responses; L5 semantic-tokens decision deferred to 6nz; Bun.SQL change summary.
+- 2026-04-24 — fix-cg-mounthydrate-sql-ref-placeholder LANDED (`efcfaf5`, +5 tests). Approach (b) — suppress bare `_scrml_reactive_set` for client-side SQL-init reactive-decls; emit a comment instead of `_scrml_reactive_set("var", )` empty-arg. Closes the SQL placeholder fix arc (4 contexts now all clean).
+- 2026-04-24 — LSP L4 LANDED (`c51ad15`, +53 tests, 7,825/0/370). New `lsp/l4.js` (~600 LOC) for signatureHelpProvider + codeActionProvider with quick-fixes for E-IMPORT-004 / E-IMPORT-005 / E-LIN-001 / E-PA-007 / E-SQL-006. Cross-file signature help works (synthesizes function shape from `export-decl.raw`).
+- 2026-04-25 — 7 inbox messages received from siblings (replies to S40 wrap):
+  - 6nz refile of bugs H/I/J/K — all 4 were FIXED in S39, 6nz tested against stale `9540518`. Reply sent with commit SHAs + retest ask.
+  - 6nz L5 deferral confirmation — L5 dropped from active roadmap. `endLine`/`endCol` Span detached as standalone follow-up.
+  - giti GITI-009 + GITI-011 verification — both confirmed closed. GITI-011 first message had wrong workaround status; second message confirms fix is in `7a91068`.
+  - **2 new bugs from giti**: GITI-012 (`==` in server fn references undefined `_scrml_structural_eq`) + GITI-013 (arrow body returning object literal loses wrapping parens). Both filed as intakes (`fix-server-eq-helper-import`, `fix-arrow-object-literal-paren-loss`) — **awaiting sidecar reproducers** per pa.md cross-repo rule. Reply sent requesting drops.
+- 2026-04-25 — Maps refresh agent returned write-blocked but with full content. Applied subset inline (primary.map.md header refreshed to S40 fingerprint + test counts). Full domain/structure/error map content captured but not yet applied.
+- 2026-04-25 — Outbound replies sent:
+  - `6nz/handOffs/incoming/2026-04-25-2300-scrmlTS-to-6nz-bugs-h-i-j-k-fixed-in-s39.md` — `needs: action`. All 4 bugs fixed S39, please pull + retest.
+  - `6nz/handOffs/incoming/2026-04-25-2305-scrmlTS-to-6nz-l5-defer-acked.md` — `needs: fyi`. L5 dropped from roadmap.
+  - `giti/handOffs/incoming/2026-04-25-2315-scrmlTS-to-giti-giti-009-011-acked-012-013-need-sidecars.md` — `needs: action`. GITI-009/011 closed; GITI-012/013 received, request sidecars.
 
 ---
 

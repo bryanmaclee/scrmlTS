@@ -1,0 +1,42 @@
+// Bug I minimal repro — name-mangling bleed into record literal RHS
+//
+// Recurrence of the Bug D family. scrmlTS previously fixed the
+// DOM-method-access path of Bug D; this record-literal-rhs path still
+// hits.
+//
+// Trigger: a module-scope `function lines()` (or similar helper)
+// whose name collides with a record FIELD name. The compiler renames
+// occurrences of that name throughout the module to `_scrml_lines_N`.
+// The mangling correctly avoids the field name on the LHS of a record
+// literal, but BLEEDS INTO `n.lines` on the RHS (the value being
+// assigned to the field) inside a `.map` callback's return record.
+//
+// In playground-four this hit three field names: `lines`, `cursorLine`,
+// `cursorCol` — corresponding to module-scope helpers `lines()`,
+// `cursorLine()`, `cursorCol()`. Renaming the helpers to `cnLines`,
+// `cnLineNum`, `cnColNum` worked around it.
+
+<program>
+${
+    @items = [{ name: "a", lines: ["x", "y"] }]
+
+    // Module-scope helper named `lines` — same name as the field below.
+    // Triggers the mangling pass to rename `lines` references.
+    function lines() { return ["dummy"] }
+
+    function bumpName() {
+        return @items.map((n, i) => {
+            return {
+                name: n.name + "!",
+                lines: n.lines  // <-- this `n.lines` mangles to `n._scrml_lines_N`
+            }
+        })
+    }
+
+    @result = bumpName()
+}
+
+<div>first item lines: ${@result[0].lines.length}</>
+<!-- Expected: first item lines: 2          -->
+<!-- Actual:   "Cannot read properties of undefined" because n._scrml_lines_N is undefined -->
+</program>

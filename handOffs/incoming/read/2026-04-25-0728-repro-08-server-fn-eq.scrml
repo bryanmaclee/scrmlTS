@@ -1,0 +1,41 @@
+// Repro 08 — GITI-012: `==` in a server fn body emits a call to
+// `_scrml_structural_eq()` but the helper is never imported into the
+// generated `.server.js` module, so the fn crashes at runtime with
+// `ReferenceError: _scrml_structural_eq is not defined`.
+//
+// Tested against scrmlTS @ 7a91068.
+//
+// Authoring constraints: scrml rejects `===` at compile time
+// (E-EQ-004: "scrml equality is always strict; use ==") so the author
+// has no language-level escape hatch. The only workaround is to avoid
+// equality entirely in server fn body (truthy/falsy checks instead).
+//
+// To reproduce:
+//   bun run compiler/src/cli.js compile ui/repros/repro-08-server-fn-eq.scrml -o /tmp/r08
+//   grep "_scrml_structural_eq" /tmp/r08/repro-08-server-fn-eq.server.js
+//     -> shows the call
+//   grep "import\|_scrml_structural_eq =\|function _scrml_structural_eq" /tmp/r08/repro-08-server-fn-eq.server.js
+//     -> shows no import, no definition
+//   POST any request that hits the server fn → ReferenceError at runtime
+//
+// Compare: client-side `.client.js` modules link against scrml-runtime.js
+// which provides the helper. .server.js modules don't.
+
+<program>
+
+${
+  server function checkLength() {
+    const arr = []
+    // The bare `==` here is what triggers the broken emit.
+    return { ok: arr.length == 0 }
+  }
+
+  @res = { ok: false }
+  @res = checkLength()
+}
+
+<div>
+  <p>length-eq probe</p>
+</div>
+
+</program>

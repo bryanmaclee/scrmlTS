@@ -1,0 +1,43 @@
+// Repro 09 — GITI-013: an arrow function body returning an object
+// literal (with the standard JS parens-around-object-literal idiom)
+// loses the wrapping parens in emit, producing unparseable JS.
+//
+//   author:  xs.map(f => ({ path: f.path, kind: f.kind }))
+//   emit:    xs.map((f) => {path: f.path, kind: f.kind})
+//
+// The emitted form parses `{path: ...}` as a block statement with
+// labelled statements, not as an expression returning an object —
+// `bun --check` then fails with "Expected ';' but found ':'".
+//
+// Tested against scrmlTS @ 7a91068.
+//
+// To reproduce:
+//   bun run compiler/src/cli.js compile ui/repros/repro-09-arrow-object-literal.scrml -o /tmp/r09
+//   bun --check /tmp/r09/repro-09-arrow-object-literal.server.js
+//     -> SyntaxError: Expected ";" but found ":"
+//
+// Workaround in giti: build the result array with an explicit
+// for-loop and `push`, dodging the arrow-body form entirely.
+
+<program>
+
+${
+  server function classify() {
+    const items = [
+      { path: "a.txt", kind: "added" },
+      { path: "b.txt", kind: "modified" },
+    ]
+    // The `f => ({ ... })` form below is what the compiler mis-emits.
+    const out = items.map(f => ({ path: f.path, kind: f.kind }))
+    return { count: out.length }
+  }
+
+  @res = { count: 0 }
+  @res = classify()
+}
+
+<div>
+  <p>arrow-object probe</p>
+</div>
+
+</program>

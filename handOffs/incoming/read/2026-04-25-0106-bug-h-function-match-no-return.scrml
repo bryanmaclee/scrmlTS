@@ -1,0 +1,30 @@
+// Bug H minimal repro — `function name() { match … }` codegen drops `return`
+//
+// Sibling of Bug G (`fn name() { match … }` was missing implicit return).
+// Bug G fix shipped 2026-04-21 (scrmlTS 83e6896 / d40afbe) — but only for
+// the `fn` keyword. The `function` keyword still emits the match-IIFE
+// without a leading `return`, so the function always returns undefined.
+//
+// Repro: type-annotated `function … -> string { match … }` with no other
+// body. Expected: returns the matched string. Actual: returns undefined.
+// Workaround in playground-four: switched to `fn` shorthand.
+
+<program>
+${
+    type Color:enum = { Red, Green, Blue }
+
+    function nameOf(c: Color) -> string {
+        match c {
+            .Red   => "red"
+            .Green => "green"
+            .Blue  => "blue"
+        }
+    }
+
+    @result = nameOf(Color.Red)
+}
+
+<div>result = ${@result}</>
+<!-- Expected: result = red       -->
+<!-- Actual:   result = undefined -->
+</program>

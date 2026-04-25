@@ -1,13 +1,13 @@
 # primary.map.md
 # project: scrmlTS
-# updated: 2026-04-20T22:05:00Z  commit: d6e8288
+# updated: 2026-04-25T07:00:00Z  commit: c7466c8
 
 ## Project Fingerprint
 Language:   JavaScript / TypeScript (mixed — .js and .ts files, Bun runtime)
 Framework:  Custom compiler (scrml language compiler)
 Runtime:    Bun (no Node.js — bun test, bun run)
 Type:       Compiler + CLI tool + LSP server
-Size:       ast-builder.js 6,489 LOC; type-system.ts 8,712 LOC (+786 since S29); expression-parser.ts 2,029 LOC; types/ast.ts 1,420 LOC; SPEC.md 20,439 lines; PIPELINE.md 1,630 lines; codegen/ 37 modules (emit-client.ts 1,058 / emit-logic.ts 1,630 / rewrite.ts 1,767 / emit-control-flow.ts 1,200); 338 test files
+Size:       ast-builder.js 7,150 LOC; type-system.ts 8,770 LOC; expression-parser.ts 2,035 LOC; types/ast.ts 1,452 LOC; SPEC.md 20,442 lines; PIPELINE.md 1,632 lines; codegen/ 39 modules (incl. db-driver.ts NEW S40 Phase 2; emit-client.ts 1,107 / emit-logic.ts 1,855 / rewrite.ts 1,861 / emit-control-flow.ts 1,253 / emit-server.ts 842); LSP split into 3 files (server.js 235 + handlers.js 2,113 + workspace.js 440 + l4.js ~600); 370 test files. **S40 Key Facts:** Bun.SQL Phase 1 + Phase 2 landed (codegen `_scrml_db`→`_scrml_sql` rename, tagged-template emission, `db-driver.ts` URI classification with E-SQL-005); LSP refactored into 3+1 files (L1+L2+L3+L4 all merged); Phase 4d Step 8 `BareExprNode.expr` deleted (+strict cleanup of meta-checker); render preprocessor closes the `render name()` ExprNode gap; `consumeSqlChainedCalls`/`tryConsumeSqlInit` helpers fix the lift+sql / return+sql / reactive-decl+sql triad.
 
 ## Map Index
 | Map                      | Status  | Contents                                                       |
@@ -18,7 +18,7 @@ Size:       ast-builder.js 6,489 LOC; type-system.ts 8,712 LOC (+786 since S29);
 | config.map.md            | present | 1 env var (SCRML_NO_ELIDE), CLI flags, bunfig.toml             |
 | build.map.md             | present | 8 npm scripts, 5 CLI subcommands, dual-mode testing            |
 | error.map.md             | present | ~200+ codes; E-STATE-TRANSITION-ILLEGAL / E-STATE-TERMINAL-MUTATION (S32); import-decl scope bind (S34) |
-| test.map.md              | present | bun test, 338 files, 7,373 pass / 40 skip / 2 fail (S34 close) |
+| test.map.md              | present | bun test, 370 files, 7,825+ pass / 40 skip / 0 fail (S40, before L4 merge) |
 | domain.map.md            | present | pipeline, §19, §51 machines, §51.5 elision, §54.6 purity, S34 codegen fixes |
 | non-compliance.report.md | present | refreshed S34 close — carries master-list 12-session staleness + GITI-006 follow-up |
 | api.map.md               | absent  | not applicable (compiler, not web API)                         |

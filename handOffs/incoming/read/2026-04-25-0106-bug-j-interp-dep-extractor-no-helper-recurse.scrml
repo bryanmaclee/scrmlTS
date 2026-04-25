@@ -1,0 +1,61 @@
+// Bug J minimal repro — markup ${fn(helper().field)} emits no display wiring
+//
+// Distinct from Bug 4 (which was about named derived reactive refs and
+// shipped in scrmlTS adbc30c). This is about the interpolation-dep
+// extractor not recursing INTO helper function bodies to discover
+// indirect `@ref` dependencies.
+//
+// When the interpolation expression's only reactive reads happen
+// transitively — i.e., the `@ref` is read inside a helper function
+// that the interpolation calls, not directly in the interpolation
+// expression — the compiler emits no display-update wiring. The
+// markup renders once and stays stale forever.
+//
+// Workaround in playground-four: inline the `@ref` reads directly in
+// the markup interpolation:
+//
+//   <pre>${renderBuffer(@nodes[@current].lines, @nodes[@current].cursorLine, @nodes[@current].cursorCol)}</pre>
+//
+// instead of the cleaner:
+//
+//   <pre>${renderBuffer(curNode().lines, curNode().cursorLine, curNode().cursorCol)}</pre>
+//
+// where `curNode()` is `function curNode() { return @nodes[@current] }`.
+
+<program>
+${
+    @count = 0
+
+    function curCount() { return @count }   // helper that reads @count
+
+    function bump() { @count = @count + 1 }
+}
+
+<!-- Direct @ref read in interpolation — wires correctly. -->
+<div>direct: ${@count}</>
+
+<!-- Helper-mediated @ref read — interpolation extractor doesn't see
+     into curCount()'s body, so no display wiring is emitted. -->
+<div>via helper: ${curCount()}</>
+
+<button onclick=bump()>bump</>
+
+<!--
+Expected behavior:
+  Click bump() three times:
+    direct:     0 -> 1 -> 2 -> 3
+    via helper: 0 -> 1 -> 2 -> 3
+Actual behavior:
+    direct:     0 -> 1 -> 2 -> 3   (correct)
+    via helper: 0 -> 0 -> 0 -> 0   (stale; no display wiring)
+
+Hypothesis: dep-extractor walks the interpolation AST literally and
+collects @-prefixed identifiers it sees. It does not enter
+function-body subtrees (curCount() body sits in the module scope,
+not in the interpolation AST). Fix would be either: (a) traverse
+function bodies during dep extraction for the interpolation, or
+(b) annotate functions with their reactive-read set during the
+existing per-function pass and union those sets when an
+interpolation calls them.
+-->
+</program>

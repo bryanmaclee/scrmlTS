@@ -1,0 +1,91 @@
+// Bug K minimal repro — synchronous reactive effect throwing
+// out of `@x = …` halts the caller mid-function
+//
+// This is design-question-shaped, not a clear "wrong codegen" bug.
+//
+// `@x = value` looks like a statement. It actually fires every reactive
+// effect that depends on `@x`, synchronously, before the next statement
+// runs. If any of those effects throws, the throw propagates out of
+// the assignment and aborts the caller. Subsequent statements never
+// run.
+//
+// In playground-four, commit() needed to perform two sequential @nodes
+// writes:
+//   1. @nodes = parents.map(...)        // append child id to parent
+//   2. @nodes = [...@nodes, newNode]    // add the new node
+//
+// Between (1) and (2), the renderTree() effect re-fired on @nodes,
+// walked the tree, and looked up parent.children[i] in @nodes. Step
+// (1) introduced a child id that didn't exist in @nodes yet — step
+// (2) was the one that would have added it. renderTree threw
+// "cannot read properties of undefined", the throw propagated out of
+// the @nodes assignment in (1), and (2) + the @current and @nextId
+// updates that followed never ran. Result: every keystroke lost
+// 3 of 4 writes.
+//
+// Workaround: collapse to a single atomic @nodes write.
+//
+// Possible fix directions (all design choices):
+//   (a) Effects fire eventually — schedule on microtask, isolate
+//       errors per effect.
+//   (b) Effects wrap in try/catch by default; emit a runtime warning
+//       but don't propagate.
+//   (c) Explicit `batch(() => { @x = …; @y = … })` wrapper that
+//       defers effects until the closure returns.
+//   (d) Status quo (silent caller-halting) is actually the desired
+//       semantics — but if so, the spec should say so prominently
+//       because it's invisible from the source.
+
+<program>
+${
+    @items = [1, 2, 3]
+    @reads = 0
+
+    // A function that reads @items and throws on a temporarily-bad shape.
+    // Stand-in for "any reactive consumer (a renderer, a derived
+    // computation) that can fail mid-update."
+    function strictSum() {
+        let total = 0
+        for (let i = 0; i < @items.length; i = i + 1) {
+            const v = @items[i]
+            if (v == null) { throw "saw null mid-update" }
+            total = total + v
+        }
+        return total
+    }
+
+    @sum = strictSum()      // initial value, succeeds
+    @done = "init"
+
+    function twoStep() {
+        // Step 1: introduce a temporary null (caller intends to fix it
+        //         in step 2 immediately after).
+        @items = [...@items, null]      // <-- strictSum fires, throws,
+                                        //     control never reaches step 2.
+        // Step 2: replace the null with a real value.
+        @items = @items.map((v, i) => v == null ? 99 : v)
+        @done = "ok"
+    }
+}
+
+<div>items.length = ${@items.length}</>
+<div>done = ${@done}</>
+
+<button onclick=twoStep()>run twoStep</>
+
+<!--
+Expected (one of the four design choices above): twoStep() runs to
+completion, leaving items = [1,2,3,99] and done = "ok".
+
+Actual: throws inside step 1's @items assignment, twoStep() halts
+mid-function. items = [1,2,3,null], done = "init". Subsequent
+keypresses on the button don't recover (initial state already broken).
+
+The design question is whether "@x = …" should be reasoned about
+as:
+  - a statement (current source-level appearance, but doesn't match
+    runtime behavior), or
+  - an expression that may throw arbitrarily (runtime reality, but
+    surprising and untyped).
+-->
+</program>
