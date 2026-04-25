@@ -32,6 +32,11 @@
  *     exports, return { filePath, span, kind } for the foreign declaration.
  *     Returns null if unresolved.
  *
+ *   lookupCrossFileFunction(ws, importerPath, name)  [L4]
+ *     Same shape as lookupCrossFileDefinition but ALSO returns the foreign
+ *     function-decl AST node so signature help can render parameters from
+ *     a foreign function declaration without re-parsing.
+ *
  *   getCrossFileDiagnosticsFor(ws, filePath)
  *     Return E-IMPORT-* diagnostics whose importer is `filePath`.
  *
@@ -329,6 +334,67 @@ export function lookupCrossFileDefinition(ws, importerPath, symbolName) {
     }
   }
   return null;
+}
+
+/**
+ * L4 — Locate a foreign function-decl by name and return the AST node itself
+ * (not just the span). Used by signature help to render parameters from a
+ * cross-file function without re-parsing the foreign source.
+ *
+ * Walks the importer's import declarations; for each import that names
+ * `symbolName`, scans the target file's logic blocks for a `function-decl`
+ * with that name. Returns { filePath, fnNode } or null.
+ *
+ * @param {object} ws
+ * @param {string} importerPath — absolute path of the importing file
+ * @param {string} symbolName — the function name
+ * @returns {null | { filePath: string, fnNode: object }}
+ */
+export function lookupCrossFileFunction(ws, importerPath, symbolName) {
+  if (!ws || !importerPath || !symbolName) return null;
+  const importerEntry = ws.importGraph?.get(importerPath);
+  if (!importerEntry) return null;
+
+  for (const imp of importerEntry.imports || []) {
+    const names = imp.names || [];
+    if (!names.includes(symbolName)) continue;
+    const targetPath = imp.absSource;
+    if (!targetPath) continue;
+    const targetRec = ws.fileASTMap.get(targetPath);
+    if (!targetRec || !targetRec.ast) continue;
+
+    const fnNode = findFunctionDeclInAST(targetRec.ast, symbolName);
+    if (fnNode) {
+      return { filePath: targetPath, fnNode };
+    }
+  }
+  return null;
+}
+
+/**
+ * Walk a file AST for a function-decl with the given name. Looks at logic
+ * blocks (function decls live inside `${}`). Returns the AST node or null.
+ */
+function findFunctionDeclInAST(ast, name) {
+  if (!ast) return null;
+  function walk(nodes) {
+    for (const node of nodes || []) {
+      if (!node) continue;
+      if (node.kind === "logic" || node.kind === "meta") {
+        for (const stmt of node.body || []) {
+          if (stmt && stmt.kind === "function-decl" && stmt.name === name) {
+            return stmt;
+          }
+        }
+      }
+      if (Array.isArray(node.children)) {
+        const hit = walk(node.children);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  return walk(ast.nodes || []);
 }
 
 /**
