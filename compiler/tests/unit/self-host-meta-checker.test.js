@@ -9,6 +9,7 @@
  * these tests should be updated to import from the compiled scrml output instead.
  */
 
+import { parseExprToNode } from "../../src/expression-parser.ts";
 import { describe, test, expect } from "bun:test";
 import { execSync } from "child_process";
 import { resolve, dirname } from "path";
@@ -52,7 +53,8 @@ function makeMetaNode(body, span = null) {
 }
 
 function makeBareExpr(expr, span = null) {
-  return { kind: "bare-expr", expr, span: span || makeSpan() };
+  const finalSpan = span || makeSpan();
+  return { kind: "bare-expr", expr, exprNode: parseExprToNode(expr, finalSpan.file || "test.scrml", 0), span: finalSpan };
 }
 
 function makeLetDecl(name, init, span = null) {
@@ -187,7 +189,7 @@ describe("self-host parity: bodyUsesCompileTimeApis", () => {
   });
 
   test("detects reflect() call in bare-expr", () => {
-    const body = [makeBareExpr("const info = reflect(Status)")];
+    const body = [makeBareExpr("info = reflect(Status)")];
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
@@ -585,7 +587,7 @@ describe("self-host parity: checkReflectCalls", () => {
     const registry = new Map([["Status", { kind: "enum", name: "Status", variants: [] }]]);
     const errors = [];
     checkReflectCalls(
-      [makeBareExpr("const info = reflect(Status)")],
+      [makeBareExpr("info = reflect(Status)")],
       registry,
       "test.scrml",
       makeSpan(),
@@ -598,7 +600,7 @@ describe("self-host parity: checkReflectCalls", () => {
     const registry = new Map();
     const errors = [];
     checkReflectCalls(
-      [makeBareExpr("const info = reflect(UnknownType)")],
+      [makeBareExpr("info = reflect(UnknownType)")],
       registry,
       "test.scrml",
       makeSpan(),
@@ -678,7 +680,7 @@ describe("self-host parity: checkMetaBlock E-META-001", () => {
 
   test("no errors when identifier is a type name", () => {
     const body = [
-      makeBareExpr("const info = reflect(Status)"),
+      makeLetDecl("info", "reflect(Status)"),
     ];
     const typeRegistry = new Map([["Status", { kind: "enum", name: "Status", variants: [] }]]);
     const errors = [];
@@ -860,7 +862,7 @@ describe("self-host parity: runMetaChecker integration", () => {
       nodes: [
         {
           kind: "meta",
-          body: [makeBareExpr("const info = reflect(GhostType)")],
+          body: [makeBareExpr("info = reflect(GhostType)")],
           span: makeSpan("test.scrml"),
         },
       ],

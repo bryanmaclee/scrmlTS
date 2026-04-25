@@ -29,6 +29,7 @@
  *   §24 multi-emit with \n: literal newline in emit() string becomes real newline
  */
 
+import { parseExprToNode } from "../../src/expression-parser.ts";
 import { describe, test, expect } from "bun:test";
 import {
   runMetaEval,
@@ -56,7 +57,7 @@ function metaNode(body, span) {
 }
 
 function bareExpr(expr) {
-  return { id: 2, kind: "bare-expr", expr, span: { file: "test.scrml", start: 0, end: 10, line: 1, col: 1 } };
+  return { id: 2, kind: "bare-expr", expr, exprNode: parseExprToNode(expr, "test.scrml", 0), span: { file: "test.scrml", start: 0, end: 10, line: 1, col: 1 } };
 }
 
 function letDecl(name, init) {

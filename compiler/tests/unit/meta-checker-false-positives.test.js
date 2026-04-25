@@ -36,6 +36,7 @@
  *   §76  checkExprForRuntimeVars — outer var inside forEach still fires E-META-001
  */
 
+import { parseExprToNode } from "../../src/expression-parser.ts";
 import { describe, test, expect } from "bun:test";
 import {
   extractIdentifiers,
@@ -391,7 +392,7 @@ function fp_makeConstDecl(name, init = null, id = 10) {
 }
 
 function fp_makeBareExpr(expr, id = 10) {
-  return { id, kind: "bare-expr", expr, span: fp_span(0) };
+  return { id, kind: "bare-expr", expr, exprNode: parseExprToNode(expr, "/test/palette.scrml", 0), span: fp_span(0) };
 }
 
 function fp_makeForStmt(variable, iterable, body = [], id = 10) {

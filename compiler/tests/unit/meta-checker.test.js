@@ -106,6 +106,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { parseExprToNode } from "../../src/expression-parser.ts";
 import {
   runMetaChecker,
   createReflect,
@@ -192,6 +193,7 @@ function makeBareExpr(expr, id = 1) {
     id,
     kind: "bare-expr",
     expr,
+    exprNode: parseExprToNode(expr, "/test/app.scrml", 0),
     span: span(0),
   };
 }
@@ -862,7 +864,7 @@ describe("bodyUsesCompileTimeApis", () => {
   });
 
   test("§50 returns true when reflect() is present in bare-expr", () => {
-    const body = [makeBareExpr("const fields = reflect(UserProfile).fields")];
+    const body = [makeBareExpr("fields = reflect(UserProfile).fields")];
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
@@ -934,7 +936,7 @@ describe("checkMetaBlock — runtime meta classification", () => {
     const errors = [];
     const registry = new Map([["PostStatus", { kind: "enum", name: "PostStatus" }]]);
     const meta = makeMetaNode([
-      makeBareExpr("const info = reflect(PostStatus)"),
+      makeBareExpr("info = reflect(PostStatus)"),
       makeBareExpr("runtimeVar.doSomething()"),
     ]);
     checkMetaBlock(meta, null, registry, "/test.scrml", errors);
@@ -1313,7 +1315,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
     // Since typeName is a meta-local, it resolves at eval time — no E-META-003.
     const body = [
       { id: 1, kind: "const-decl", name: "typeName", init: '"Color"', span: span() },
-      { id: 2, kind: "bare-expr", expr: "reflect(typeName)", span: span() },
+      { id: 2, kind: "bare-expr", expr: "reflect(typeName)", exprNode: parseExprToNode("reflect(typeName)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map([
       ["Color", { kind: "enum", name: "Color", variants: [{ name: "Red" }] }],
@@ -1329,7 +1331,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
   test("§73b no E-META-003 for meta-local let variable in reflect()", () => {
     const body = [
       { id: 1, kind: "let-decl", name: "typeName", init: '"Status"', span: span() },
-      { id: 2, kind: "bare-expr", expr: "let info = reflect(typeName)", span: span() },
+      { id: 2, kind: "bare-expr", expr: "let info = reflect(typeName)", exprNode: parseExprToNode("let info = reflect(typeName)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map([
       ["Status", { kind: "enum", name: "Status", variants: [{ name: "Active" }] }],
@@ -1343,7 +1345,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
   test("§74 E-META-003 is still emitted for genuinely unknown type names", () => {
     // UnknownType is NOT in the registry and NOT a meta-local — must fire E-META-003.
     const body = [
-      { id: 1, kind: "bare-expr", expr: "reflect(UnknownType)", span: span() },
+      { id: 1, kind: "bare-expr", expr: "reflect(UnknownType)", exprNode: parseExprToNode("reflect(UnknownType)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map(); // empty registry
     const errors = [];
@@ -1361,7 +1363,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
         id: 1, kind: "for-loop", variable: "t", indexVariable: null,
         iterable: "typeNames",
         body: [
-          { id: 2, kind: "bare-expr", expr: "reflect(t)", span: span() },
+          { id: 2, kind: "bare-expr", expr: "reflect(t)", exprNode: parseExprToNode("reflect(t)", "/test/app.scrml", 0), span: span() },
         ],
         span: span(),
       },
@@ -1404,7 +1406,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
   test("§79 checkReflectCalls — reflect(variableName) no E-META-003", () => {
     // reflect(typeName) where typeName is camelCase — skip validation
     const body = [
-      { id: 1, kind: "bare-expr", expr: "reflect(typeName)", span: span() },
+      { id: 1, kind: "bare-expr", expr: "reflect(typeName)", exprNode: parseExprToNode("reflect(typeName)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map(); // empty — typeName is not a type
     const errors = [];
@@ -1415,7 +1417,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
 
   test("§80 checkReflectCalls — reflect(@reactiveVar) no E-META-003", () => {
     const body = [
-      { id: 1, kind: "bare-expr", expr: "reflect(@selectedType)", span: span() },
+      { id: 1, kind: "bare-expr", expr: "reflect(@selectedType)", exprNode: parseExprToNode("reflect(@selectedType)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map();
     const errors = [];
@@ -1426,7 +1428,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
 
   test("§81 checkReflectCalls — reflect(UnknownType) still triggers E-META-003", () => {
     const body = [
-      { id: 1, kind: "bare-expr", expr: "reflect(UnknownType)", span: span() },
+      { id: 1, kind: "bare-expr", expr: "reflect(UnknownType)", exprNode: parseExprToNode("reflect(UnknownType)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map();
     const errors = [];
@@ -1438,7 +1440,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
 
   test("§82 checkReflectCalls — reflect(KnownType) in compile-time block still inlines", () => {
     const body = [
-      { id: 1, kind: "bare-expr", expr: "reflect(Color)", span: span() },
+      { id: 1, kind: "bare-expr", expr: "reflect(Color)", exprNode: parseExprToNode("reflect(Color)", "/test/app.scrml", 0), span: span() },
     ];
     const registry = new Map([
       ["Color", { kind: "enum", name: "Color", variants: ["Red", "Green", "Blue"] }],
@@ -1461,7 +1463,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
             kind: "meta",
             body: [
               { id: 2, kind: "let-decl", name: "typeName", init: '"Color"', span: span() },
-              { id: 3, kind: "bare-expr", expr: "reflect(typeName)", span: span() },
+              { id: 3, kind: "bare-expr", expr: "reflect(typeName)", exprNode: parseExprToNode("reflect(typeName)", "/test/app.scrml", 0), span: span() },
             ],
             span: span(),
           },
@@ -1488,7 +1490,7 @@ describe("checkReflectCalls — meta-local variables do not produce E-META-003",
             id: 1,
             kind: "meta",
             body: [
-              { id: 2, kind: "bare-expr", expr: "reflect(selectedType)", span: span() },
+              { id: 2, kind: "bare-expr", expr: "reflect(selectedType)", exprNode: parseExprToNode("reflect(selectedType)", "/test/app.scrml", 0), span: span() },
             ],
             span: span(),
           },
@@ -1755,7 +1757,7 @@ describe("checkMetaBlock — destructuring integration (E-META-001)", () => {
     // }
     const metaNode = makeMetaNode([
       { id: 1, kind: "const-decl", name: "", init: "{ a, b } = someCompileObj", span: span() },
-      { id: 2, kind: "bare-expr", expr: "emit(a + b)", span: span() },
+      { id: 2, kind: "bare-expr", expr: "emit(a + b)", exprNode: parseExprToNode("emit(a + b)", "/test/app.scrml", 0), span: span() },
     ]);
     const errors = [];
     const registry = new Map();
@@ -1817,7 +1819,7 @@ describe("§22.7 Runtime meta guard", () => {
 describe("§22.8 Phase separation (E-META-005)", () => {
   test("§77 bodyMixesPhases — returns true for block with reflect() + runtime var", () => {
     const body = [
-      makeBareExpr("const info = reflect(MyEnum)"),
+      makeBareExpr("info = reflect(MyEnum)"),
       makeBareExpr("console.log(myRuntimeVar)"),
     ];
     const registry = new Map([
@@ -1850,7 +1852,7 @@ describe("§22.8 Phase separation (E-META-005)", () => {
       files: [makeFileAST({
         nodes: [
           makeMetaNode([
-            makeBareExpr("const info = reflect(MyEnum)"),
+            makeBareExpr("info = reflect(MyEnum)"),
             makeBareExpr("myRuntimeVar.doSomething()"),
           ]),
         ],
@@ -1940,7 +1942,7 @@ describe("§22.9 Interaction with other features (E-META-006, E-META-007)", () =
     const result = runMetaChecker({
       files: [makeFileAST({
         nodes: [
-          makeMetaNode([makeBareExpr("let result = ?{ SELECT 1 }")]),
+          makeMetaNode([makeBareExpr("result = ?{ SELECT 1 }")]),
         ],
       })],
     });
@@ -1955,8 +1957,8 @@ describe("§22.9 Interaction with other features (E-META-006, E-META-007)", () =
       files: [makeFileAST({
         nodes: [
           makeMetaNode([
-            makeBareExpr("const info = reflect(MyEnum)"),
-            makeBareExpr("let result = ?{ SELECT 1 }"),
+            makeBareExpr("info = reflect(MyEnum)"),
+            makeBareExpr("result = ?{ SELECT 1 }"),
           ]),
         ],
         typeDecls: [makeTypeDecl("MyEnum", "enum", "{ A | B }")],
