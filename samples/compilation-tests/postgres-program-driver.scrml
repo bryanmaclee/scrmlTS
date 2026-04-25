@@ -1,0 +1,28 @@
+// postgres-program-driver.scrml
+//
+// Phase 2 smoke test: <program db="postgres://..."> compiles cleanly.
+//
+// The driver detection (§44.2) classifies the URI as 'postgres' and the
+// emitted SQL goes through the same _scrml_sql tagged-template form as
+// SQLite (Phase 1). Host harness is responsible for constructing
+// `new SQL("postgres://...")` at runtime.
+//
+// No real Postgres connection is touched at compile time. Schema validation
+// uses the shadow DB built from the CREATE TABLE statement below.
+
+<program db="postgres://localhost:5432/scrml_demo">
+
+    ${
+        server function recordHit() {
+            ?{`INSERT INTO hits (when_ts) VALUES (${Date.now()})`}
+        }
+    }
+
+    <div>
+        <h1>Phase 2 Postgres Smoke</>
+        <button onclick=recordHit()>Record Hit</>
+    </>
+
+    ?{`CREATE TABLE IF NOT EXISTS hits (id INTEGER PRIMARY KEY, when_ts INTEGER)`}
+
+</>
