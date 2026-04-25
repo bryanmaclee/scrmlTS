@@ -310,7 +310,7 @@ scrml uses sigil-delimited contexts to separate concerns within a single file:
 | Markup  | `<tag>` | HTML elements and components |
 | State   | `< name>` | Server-persisted state blocks (note the space) |
 | Logic   | `${}` | JavaScript expressions and functions |
-| SQL     | `?{}` | Database queries (bun:sqlite passthrough); auto-batched N+1 + envelope |
+| SQL     | `?{}` | Database queries (Bun.SQL tagged-template; SQLite shipping, Postgres in progress); auto-batched N+1 + envelope |
 | CSS     | `#{}` | Scoped styles |
 | Error   | `!{}` | Typed error handling |
 | Meta    | `^{}` | Compile-time (or runtime) code generation |

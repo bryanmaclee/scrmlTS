@@ -2,17 +2,17 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-24 (S39 — boundary security deep-dive + debate + implementation, 6 bug fixes (H/I/J/K + GITI-009/011), NC-4 `_ensureBoundary` graduated to fail-safe, maps refresh, state-of-language audit. **7,543 pass / 40 skip / 0 fail** across 353 files with 27,201 expects)
+**Last updated:** 2026-04-24 (S40 — Bun.SQL Phase 1 codegen migration, SPEC §8/§44 reconciliation, fix-lift-sql-chained-call, Phase 4d Step 8 .expr field deletion. **7,578 pass / 40 skip / 0 fail** across 355 files with 27,316 expects)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
-**Recent window (S35–S39):** S35–S37: 6 bugs fixed (Bugs 1/3/4/5/6 + mixed-case for-lift follow-on), SPEC §22.3 multi-`^{}` ratified via 5-expert debate, `emit.raw` classifier fix, Phase 0 `docs/external-js.md`. S38: string escape fix (Bug 1), return-after-ternary (Bug 3), for-lift wrapper (Bug 5), CSRF bootstrap GITI-010 (Option A), derived-reactive markup wiring (Bug 4), mixed-case hoist follow-on, multi-`^{}` debate + SPEC §22.3, `emit.raw` classifier. S39: boundary security deep-dive (3 approaches debated, Approach C won 54/60), closureCaptures + taint propagation in RI, transitive reactive deps BFS (Bug J), `_ensureBoundary` fail-safe (NC-4), Bug I name-mangle lookbehind, Bug H return-type match implicit return, Bug K sync-effect try/catch, GITI-009 import path rewrite, GITI-011 CSS at-rule tokenization, README giti link + broken 6nz links fixed, maps refresh, state-of-language audit.
+**Recent window (S35–S40):** S35–S37: 6 bugs fixed (Bugs 1/3/4/5/6 + mixed-case for-lift follow-on), SPEC §22.3 multi-`^{}` ratified via 5-expert debate, `emit.raw` classifier fix, Phase 0 `docs/external-js.md`. S38: string escape fix (Bug 1), return-after-ternary (Bug 3), for-lift wrapper (Bug 5), CSRF bootstrap GITI-010 (Option A), derived-reactive markup wiring (Bug 4), mixed-case hoist follow-on, multi-`^{}` debate + SPEC §22.3, `emit.raw` classifier. S39: boundary security deep-dive (3 approaches debated, Approach C won 54/60), closureCaptures + taint propagation in RI, transitive reactive deps BFS (Bug J), `_ensureBoundary` fail-safe (NC-4), Bug I name-mangle lookbehind, Bug H return-type match implicit return, Bug K sync-effect try/catch, GITI-009 import path rewrite, GITI-011 CSS at-rule tokenization, README giti link + broken 6nz links fixed, maps refresh, state-of-language audit. **S40:** Bun.SQL Phase 1 codegen migration (SPEC §44 alignment — `?{}` now emits `await _scrml_sql\`...\`` tagged-template; `_scrml_db`→`_scrml_sql` rename; `.prepare()`→E-SQL-006), SPEC §8/§44 reconciliation (§8 source-language vs §44 codegen target), fix-lift-sql-chained-call (`consumeSqlChainedCalls` helper in ast-builder.js + emit-logic.ts lift-expr `kind:"sql"` variant; latent `.get()` KEYWORD bug caught), Phase 4d Step 8 (BareExprNode.expr TS field deleted, hybrid `(any).expr` fallback in consumers), pipeline agent definition fixed (`scrml8`→`scrmlTS` paths).
 
 ---
 
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`); published binary shebang at `compiler/bin/scrml.js` (S30 `8217dd9`)
-**Tests:** **7,543 pass, 40 skip, 0 fail** (S39 2026-04-24) across 353 files with 27,201 expects. S38 resolved the 2 pre-existing self-host failures. S39 added 80 new tests across boundary-security, Bug H/I/J/K, GITI-009, GITI-011.
+**Tests:** **7,578 pass, 40 skip, 0 fail** (S40 2026-04-24) across 355 files with 27,316 expects. S38 resolved the 2 pre-existing self-host failures. S39 added 80 new tests. S40 added 35 net tests (Bun.SQL Phase 1 +3, SPEC reconciliation 0, fix-lift-sql +13, Phase 4d Step 8 0).
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/` — deferred post-S30 public pivot
 
@@ -116,7 +116,7 @@
 - [x][x] `compiler/tests/conformance/s32-fn-state-machine/` — 4 files, 39 tests (9 green, 30 skipped with per-gate annotations)
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total (S39 2026-04-24):** **7,543 pass, 40 skip, 0 fail** (27,201 expects across 353 test files).
+- **Total (S40 2026-04-24):** **7,578 pass, 40 skip, 0 fail** (27,316 expects across 355 test files).
 - **Pretest:** `scripts/compile-test-samples.sh` compiles 12 browser test samples (run via `bun run pretest`)
 - **Skipped:** 30 S32 conformance tests gated on parser/narrowing capabilities; `browser-reactive-arrays.test.js` (happy-dom hangs); 8 TodoMVC happy-dom tests (harness-IIFE-scope).
 - **Previously failing (2):** self-host tokenizer parity + Bootstrap L3 — resolved S38.
@@ -244,11 +244,19 @@
 39. ~~**GITI-009 (relative-import forwarding)**~~ — **FIXED S39** (`e926983`). Server JS emitted import paths verbatim from source. Fix: `rewriteRelativeImportPaths()` post-processor. +16 tests.
 40. ~~**GITI-011 (CSS at-rule handling)**~~ — **FIXED S39** (`8b80138`). `tokenizeCSS()` had no `@` handler. Fix: `CSS_AT_RULE` token type + passthrough emission. +19 tests.
 
+**S40 fixes:**
+
+41. ~~**fix-lift-sql-chained-call (orphan `.method()` after lift+SQL)**~~ — **FIXED S40** (`15a0698`). `lift ?{`SELECT...`}.all()` in server functions emitted `return null; /* server-lift: non-expr form */` followed by orphan `.all()` chain. Pre-existing on bare `b3c83d3`; surfaced during Bun.SQL Phase 1 verification. Fix: `consumeSqlChainedCalls` helper in `ast-builder.js` (handles both IDENT and KEYWORD method names — `get` is KEYWORD, latent bug caught mid-impl); `emit-logic.ts::case "lift-expr"` extended to handle new `kind:"sql"` variant emitting `return await _scrml_sql\`...\`;`. Examples 03/07/08 now compile cleanly. +13 tests.
+42. ~~**Bun.SQL Phase 1 — `?{}` codegen migration**~~ — **LANDED S40** (`6e21f76`..`cd8dea1`). SQLite branch now emits Bun.SQL tagged-template per SPEC §44 (was: `_scrml_db.query("...").all()`; now: `await _scrml_sql\`...\``). `.prepare()` now compiles to E-SQL-006 per §44.3. `_scrml_db`→`_scrml_sql` codegen identifier rename for grep clarity. Loop hoist (§8.10) batch path uses `sql.unsafe(rawSql, keys)` (Bun.SQL SQLite branch rejects array binding). Transaction envelopes use `sql.unsafe("BEGIN DEFERRED")`. +3 tests; 7 source files + 7 test files.
+43. ~~**SPEC §8/§44 reconciliation**~~ — **LANDED S40** (`74881ea`). §8 now describes source-language `?{}` method API; §44 owns the codegen target. Stripped `bun:sqlite`-specific codegen claims from §8.2/§8.4/§8.5.1, replaced with §44 cross-refs. §8.5.2 rewritten as "Removed" with bulkInsert example; §8.6 added E-SQL-006 + E-SQL-007.
+44. ~~**Phase 4d Step 8 — `BareExprNode.expr` TS field deletion**~~ — **LANDED S40** (`e478c99`). Deleted `expr?: string` from `BareExprNode` in `compiler/src/types/ast.ts`. Hybrid resolution: kept `(node as any).expr` fallback reads in 7 meta-checker sites to avoid breaking 30+ tests with synthetic fixtures missing `.exprNode`. 10 source files touched. Strict-deletion follow-up filed as `expr-ast-phase-4d-step-8-strict`.
+
 ---
 
 ## N. Open work (current truth, prioritized)
 
 ### P1 — Language Completeness
+- [x][x] **Bun.SQL multi-driver target** (S40). SPEC §44 ratified Bun.SQL as the unified SQL codegen target. Phase 1 ✅ S40 (`6e21f76..cd8dea1`) — SQLite branch migrated to `await _scrml_sql\`...\`` tagged-template. Phase 2 (Postgres URI + introspection) in progress. Phase 3 (MySQL) deferred.
 - [x][x] **§54 State-local transitions** (insight 21, S31–S33). Ratified S32 (`1d1c49d`): substates declared inside state blocks, transitions declared positively on their states (`validate() => < Validated> { body }`), `pure fn` modifier + E-STATE-COMPLETE + substate match exhaustiveness. Phase 4a–4g implementation end-to-end S33 (`36320ab..37f21f7`): block-splitter transition-decl recognition, AST node, StateType.transitions registry, `from` contextual keyword + param binding, E-STATE-TRANSITION-ILLEGAL call-site check, E-STATE-TERMINAL-MUTATION field-write check, fn-level purity in transition bodies per §33.6. Phase 4h (return-type narrowing at transition call site) still open — blocked on §54.6 code-assignment gap (NC-3).
 - [x][x] **DQ-12 (Phase A)** — `is not`/`is some` on **parenthesized** compound expressions. **IMPLEMENTED S2 2026-04-10 (dq12-phase-a)** — `_rewriteParenthesizedIsOp` in `rewrite.ts`, temp-var single-evaluation per §42.2.4. Phase B (bare compound form, no parens) deferred as future work.
 - [x][x] **DQ-7** — CSS `#{}` scoping strategy. **DECIDED + IMPLEMENTED S2 2026-04-10 (dq7-css-scope)** — native CSS `@scope` (Approach B). `emit-css.ts` + `emit-html.ts` + SPEC §9.1 + §25.6 rewrite landed. `data-scrml` attribute, donut scope, flat-declaration `#{}` → inline style.
@@ -317,7 +325,7 @@ Compiler-level SQL batching in two tiers. Pipeline addition + §8 extensions + �
   - **Phase 4b — error-arm block handlers** ✅ S9. `_parseHandlerExpr` strips braces before parsing. 4 gaps closed. Coverage **98.8% → 99.0% (1858/1876)**.
   - **Phase 4c — C-style for-loop verification** ✅ S9. All 11 C-style for-loops confirmed to have `cStyleParts` with ExprNodes. No code changes needed.
   - **Phase 4 remaining gaps:** 18 irreducible (11 C-style iterables covered by cStyleParts, 3 `.all()` SQL chains, 4 `.Variant :>` match patterns). No further coverage improvement possible.
-  - **Phase 4d — drop string fields** 🏗 S10–S11. Slice 2+3 (S10): 7 ExprNode walker utilities + ~25 semantic pass sites migrated. Slice 4a (S11): `emitExprField` consolidates 27 dual-path ternaries. S11: 15 of 17 consumer files converted to ExprNode-first with string fallback. Remaining: component-expander.ts (needs structural matching), body-pre-parser.ts (inherently string-based). Final step: delete string fields from AST types.
+  - **Phase 4d — drop string fields** ✅ S40. Steps 1-7 merged S39 (ExprNode-first paths across body-pre-parser, component-expander, type-system, dependency-graph, meta-checker). Render preprocessor merged S39 (`1e304c8`) — `render name()` → `__scrml_render_name__()` placeholder unblocks structural matching. **Step 8 (`BareExprNode.expr` field deletion)** ✅ S40 (`e478c99`) — TS field deleted; consumer migration hybrid (kept `(any).expr` fallback in 7 meta-checker sites for synthetic test fixtures). Strict-deletion follow-up filed.
   - **Phase 5 — self-host parity** port `compiler/self-host/ast.scrml` (3,551 lines).
   - All other P1/P2 work continues in parallel unless it touches expression fields.
 
