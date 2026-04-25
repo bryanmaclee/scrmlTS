@@ -1,0 +1,11 @@
+<program db="./test.db">
+
+< db tables="users">
+
+  ${
+    server function loadUser(id) {
+      @user = ?{`SELECT * FROM users WHERE id = ${id}`}.get()
+      return @user
+    }
+  }
+</>
