@@ -1086,6 +1086,14 @@ const SQL_KEYWORDS = [
  */
 export function detectContext(text, offset) {
   let depth = { logic: 0, sql: 0, meta: 0, css: 0 };
+  // L1 fix: track plain `{` openers separately so bare braces inside a
+  // logic/sql/meta/css context balance correctly (e.g. `${ type T = { ... } }`).
+  // Plain braces are only counted when we are already inside one of the
+  // language contexts — at top-level, plain `{` is meaningless.
+  let plainDepth = 0;
+  function inAnyContext() {
+    return depth.logic > 0 || depth.sql > 0 || depth.meta > 0 || depth.css > 0;
+  }
   let inString = false;
   let stringChar = null;
 
@@ -1118,7 +1126,10 @@ export function detectContext(text, offset) {
     if (ch === "^" && next === "{") { depth.meta++;  i++; continue; }
     if (ch === "#" && next === "{") { depth.css++;   i++; continue; }
 
+    if (ch === "{" && inAnyContext()) { plainDepth++; continue; }
+
     if (ch === "}") {
+      if (plainDepth > 0) { plainDepth--; continue; }
       if (depth.css > 0) depth.css--;
       else if (depth.sql > 0) depth.sql--;
       else if (depth.meta > 0) depth.meta--;
