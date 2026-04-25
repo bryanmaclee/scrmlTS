@@ -1,0 +1,18 @@
+<program>
+< db src="./test.db" tables="users">
+    ${
+        server function init() {
+            ?{`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)`}
+        }
+
+        server function getAll() {
+            return ?{`SELECT * FROM users`}.all()
+        }
+
+        server function getOne(id) {
+            return ?{`SELECT * FROM users WHERE id = ${id}`}.get()
+        }
+    }
+    <h1>Repro</>
+</>
+</program>
