@@ -19,9 +19,11 @@ import {
 } from "vscode-languageserver/node";
 
 // Import compiler stages directly. Same set as server.js.
+// NOTE: BPP (Stage 3.5) was retired as a no-op in PIPELINE.md v0.6.0
+// (2026-04-02). The stage is no longer in the pipeline; we run TAB →
+// PA → RI → TS → DG and pass `tabResult` directly through.
 import { splitBlocks } from "../compiler/src/block-splitter.js";
 import { buildAST } from "../compiler/src/ast-builder.js";
-import { runBPP } from "../compiler/src/body-pre-parser.js";
 import { runPA } from "../compiler/src/protect-analyzer.js";
 import { runRI } from "../compiler/src/route-inference.js";
 import { runTS } from "../compiler/src/type-system.js";
@@ -180,6 +182,7 @@ export function analyzeText(filePath, text, logger, workspace) {
   const analysis = {
     ast: null,
     text,
+    filePath,
     reactiveVars: [],
     tildeVars: [],
     linVars: [],
@@ -216,17 +219,10 @@ export function analyzeText(filePath, text, logger, workspace) {
     extractAnalysisInfo(tabResult.ast, analysis);
   }
 
-  let bppResult;
-  try {
-    bppResult = runBPP({ files: [tabResult] });
-    if (bppResult.errors?.length > 0) {
-      for (const e of bppResult.errors) pushError(diagnostics, e, text);
-    }
-  } catch (e) {
-    log(`BPP error: ${e.message}`);
-  }
-
-  const files = bppResult?.files ?? [tabResult];
+  // BPP (Stage 3.5) was retired in PIPELINE.md v0.6.0 (no-op pass-through).
+  // We feed `tabResult` directly into PA so the file shape used by downstream
+  // stages is the TAB output.
+  const files = [tabResult];
 
   let paResult = { protectAnalysis: { views: new Map() }, errors: [] };
   try {
@@ -237,6 +233,11 @@ export function analyzeText(filePath, text, logger, workspace) {
   } catch (e) {
     log(`PA error: ${e.message}`);
   }
+
+  // L3 — surface PA's `views` Map on the analysis cache so per-completion
+  // handlers (SQL column completion) can resolve table → ColumnDef[] lookups
+  // without re-running PA.
+  analysis.protectAnalysis = paResult.protectAnalysis;
 
   let riResult = { routeMap: { functions: new Map() }, errors: [] };
   try {
@@ -328,6 +329,7 @@ export function extractAnalysisInfo(ast, analysis) {
       analysis.components.push({
         name: c.name,
         span: c.span,
+        raw: c.raw || "",
       });
     }
   }
@@ -363,7 +365,7 @@ export function extractAnalysisInfo(ast, analysis) {
           if (Array.isArray(node.components)) {
             for (const c of node.components) {
               if (!analysis.components.find(x => x.name === c.name)) {
-                analysis.components.push({ name: c.name, span: c.span });
+                analysis.components.push({ name: c.name, span: c.span, raw: c.raw || "" });
               }
             }
           }
@@ -461,7 +463,7 @@ export function extractAnalysisInfo(ast, analysis) {
           break;
         case "component-def":
           if (!analysis.components.find(x => x.name === node.name)) {
-            analysis.components.push({ name: node.name, span: node.span });
+            analysis.components.push({ name: node.name, span: node.span, raw: node.raw || "" });
           }
           break;
         case "if-stmt":
