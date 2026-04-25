@@ -27,6 +27,12 @@ import { runRI } from "../compiler/src/route-inference.js";
 import { runTS } from "../compiler/src/type-system.js";
 import { runDG } from "../compiler/src/dependency-graph.js";
 
+// L2 — workspace cache for cross-file go-to-def + diagnostics.
+import {
+  lookupCrossFileDefinition,
+  getCrossFileDiagnosticsFor,
+} from "./workspace.js";
+
 // ---------------------------------------------------------------------------
 // Span / Range helpers
 // ---------------------------------------------------------------------------
@@ -85,6 +91,18 @@ export function nameRange(span, name, text) {
   };
 }
 
+/**
+ * Convert an absolute filesystem path to a `file://` URI. Used by L2
+ * cross-file go-to-def so the LSP client can open the foreign file.
+ */
+export function pathToUri(filePath) {
+  if (!filePath) return "";
+  if (filePath.startsWith("file://")) return filePath;
+  // Encode each path segment but preserve the slashes.
+  const encoded = filePath.split("/").map(encodeURIComponent).join("/");
+  return "file://" + encoded;
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostics — error code → human-readable source/severity
 // ---------------------------------------------------------------------------
@@ -131,6 +149,7 @@ export function getErrorSource(code) {
   if (code.startsWith("E-CTX-") || code.startsWith("E-BS-")) return "scrml/block-splitter";
   if (code.startsWith("E-TAB-") || code.startsWith("E-MARKUP-") || code.startsWith("E-STATE-")) return "scrml/tokenizer";
   if (code.startsWith("E-BPP-")) return "scrml/body-pre-parser";
+  if (code.startsWith("E-IMPORT-")) return "scrml/module-resolver";
   if (code.startsWith("E-PA-")) return "scrml/protect-analyzer";
   if (code.startsWith("E-RI-") || code.startsWith("E-ROUTE-")) return "scrml/route-inference";
   if (code.startsWith("E-TYPE-") || code.startsWith("E-SCOPE-") || code.startsWith("E-PURE-") || code.startsWith("E-LIN-") || code.startsWith("E-TILDE-") || code.startsWith("W-MATCH-")) return "scrml/type-system";
@@ -149,8 +168,13 @@ export function getErrorSource(code) {
  *
  * `logger` is an optional `(msg) => void` for non-fatal stage warnings.
  * If omitted, warnings are silently dropped.
+ *
+ * `workspace` (L2, optional): when provided, cross-file `E-IMPORT-*`
+ * diagnostics from the workspace cache are merged into the diagnostics
+ * array so import-resolution errors surface in the editor on the importer's
+ * line.
  */
-export function analyzeText(filePath, text, logger) {
+export function analyzeText(filePath, text, logger, workspace) {
   const log = logger || (() => {});
   const diagnostics = [];
   const analysis = {
@@ -246,6 +270,14 @@ export function analyzeText(filePath, text, logger) {
     }
   } catch (e) {
     log(`TS error: ${e.message}`);
+  }
+
+  // L2 — append cross-file diagnostics from the workspace cache. The cache
+  // owns the latest E-IMPORT-* errors for this file's import declarations
+  // (e.g. importing a non-exported name surfaces here).
+  if (workspace) {
+    const crossFile = getCrossFileDiagnosticsFor(workspace, filePath);
+    for (const e of crossFile) pushError(diagnostics, e, text);
   }
 
   return { diagnostics, analysis };
@@ -778,6 +810,11 @@ export const ERROR_DESCRIPTIONS = {
   "E-TAB-002": "Unexpected token in AST construction.",
   // Body Pre-Parser
   "E-BPP-001": "Parse failure in a function/pure/fn body. The body could not be tokenized or parsed into a LogicNode tree.",
+  // Module Resolver (L2)
+  "E-IMPORT-002": "Circular import detected. Break the cycle by extracting shared code into a third file.",
+  "E-IMPORT-004": "Imported name is not exported by the target file. Check the file's exports or add the missing export.",
+  "E-IMPORT-005": "Bare npm-style import specifier. scrml requires `./relative`, `scrml:stdlib`, or `vendor:vendor` prefixes.",
+  "E-IMPORT-006": "Cannot resolve import — no file found at the given path.",
   // Protect Analyzer
   "E-PA-001": "src= database file does not exist on disk.",
   "E-PA-003": "Bun SQLite schema introspection failed.",
@@ -955,35 +992,81 @@ export function getWordAtOffset(text, offset) {
 // Definition
 // ---------------------------------------------------------------------------
 
-export function buildDefinitionLocation(uri, text, offset, analysis) {
-  if (!analysis) return null;
+/**
+ * Resolve the declaration site of the symbol under the cursor.
+ *
+ * `uri`       LSP URI of the file the user is editing.
+ * `text`      current buffer contents.
+ * `offset`    cursor offset.
+ * `analysis`  same-file analysis cache.
+ * `workspace` (L2, optional) workspace cache. When provided, an unresolved
+ *             same-file lookup falls through to a cross-file lookup that
+ *             walks the file's import declarations and follows them to the
+ *             foreign declaration. The returned Location's `uri` points
+ *             into the foreign file.
+ * `filePath`  (L2, optional) absolute path of the importing file. Required
+ *             when `workspace` is supplied so the cross-file lookup can
+ *             find the importer's import-graph entry. Falls back to
+ *             converting `uri` if omitted.
+ *
+ * Returns an LSP Location, or null if no definition was found.
+ */
+export function buildDefinitionLocation(uri, text, offset, analysis, workspace, filePath) {
+  if (!analysis && !workspace) return null;
   const word = getWordAtOffset(text, offset);
   if (!word) return null;
   const varName = word.startsWith("@") ? word.slice(1) : word;
 
-  if (word.startsWith("@") && analysis.reactiveVars) {
-    const rv = analysis.reactiveVars.find(
-      (v) => (v.name?.startsWith("@") ? v.name.slice(1) : v.name) === varName
-    );
-    if (rv?.span) return { uri, range: spanToRange(rv.span, text) };
+  if (analysis) {
+    if (word.startsWith("@") && analysis.reactiveVars) {
+      const rv = analysis.reactiveVars.find(
+        (v) => (v.name?.startsWith("@") ? v.name.slice(1) : v.name) === varName
+      );
+      if (rv?.span) return { uri, range: spanToRange(rv.span, text) };
+    }
+    if (analysis.functions) {
+      const fn = analysis.functions.find((f) => f.name === word);
+      if (fn?.span) return { uri, range: spanToRange(fn.span, text) };
+    }
+    if (analysis.types) {
+      const t = analysis.types.find((td) => td.name === word);
+      if (t?.span) return { uri, range: spanToRange(t.span, text) };
+    }
+    if (analysis.machines) {
+      const m = analysis.machines.find((md) => md.name === word);
+      if (m?.span) return { uri, range: spanToRange(m.span, text) };
+    }
+    if (analysis.components) {
+      const c = analysis.components.find((co) => co.name === word);
+      if (c?.span) return { uri, range: spanToRange(c.span, text) };
+    }
   }
-  if (analysis.functions) {
-    const fn = analysis.functions.find((f) => f.name === word);
-    if (fn?.span) return { uri, range: spanToRange(fn.span, text) };
-  }
-  if (analysis.types) {
-    const t = analysis.types.find((td) => td.name === word);
-    if (t?.span) return { uri, range: spanToRange(t.span, text) };
-  }
-  if (analysis.machines) {
-    const m = analysis.machines.find((md) => md.name === word);
-    if (m?.span) return { uri, range: spanToRange(m.span, text) };
-  }
-  if (analysis.components) {
-    const c = analysis.components.find((co) => co.name === word);
-    if (c?.span) return { uri, range: spanToRange(c.span, text) };
+
+  // L2 — fall through to cross-file lookup. Reactive vars (`@x`) are scoped
+  // per-file by spec, so skip cross-file search for `@`-prefixed words.
+  if (workspace && !word.startsWith("@")) {
+    const importerPath = filePath || uriToFilePath(uri);
+    if (importerPath) {
+      const hit = lookupCrossFileDefinition(workspace, importerPath, word);
+      if (hit && hit.span) {
+        return {
+          uri: pathToUri(hit.filePath),
+          range: spanToRange(hit.span, hit.sourceText || ""),
+        };
+      }
+    }
   }
   return null;
+}
+
+/**
+ * Convert an LSP URI back to an absolute path. Mirror of `pathToUri`.
+ * Used by `buildDefinitionLocation` when `filePath` isn't passed explicitly.
+ */
+export function uriToFilePath(uri) {
+  if (!uri) return null;
+  if (uri.startsWith("file://")) return decodeURIComponent(uri.slice(7));
+  return uri;
 }
 
 // ---------------------------------------------------------------------------
