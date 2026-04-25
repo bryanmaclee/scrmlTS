@@ -181,6 +181,38 @@ function parseCommaList(raw: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Driver URI detection (§44.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Test whether a `<db src=>` value is a PostgreSQL connection URI. Recognizes
+ * both `postgres://` and `postgresql://` per SPEC §44.2.
+ *
+ * For Postgres URIs the protect-analyzer skips file-existence checking and
+ * routes directly to shadow-DB construction (CREATE TABLE statements harvested
+ * from ?{} blocks). The shadow DB itself still uses bun:sqlite — Phase 2 does
+ * NOT add a real Postgres connection at compile time. That is Phase 2.5.
+ *
+ * MySQL URIs (`mysql://`) get the same treatment for symmetry; full support
+ * lands in Phase 3.
+ */
+function isPostgresUri(s: string): boolean {
+  return s.startsWith("postgres://") || s.startsWith("postgresql://");
+}
+
+function isMysqlUri(s: string): boolean {
+  return s.startsWith("mysql://");
+}
+
+/**
+ * Test whether a `<db src=>` value is a non-filesystem driver URI that should
+ * skip file resolution.
+ */
+function isDriverUri(s: string): boolean {
+  return isPostgresUri(s) || isMysqlUri(s);
+}
+
+// ---------------------------------------------------------------------------
 // SQLite schema introspection
 // ---------------------------------------------------------------------------
 
@@ -421,13 +453,16 @@ function resolveDb(
   cache: SchemaCache,
   blockSpan: Span,
   errors: PAError[],
+  srcIsDriverUri: boolean = false,
 ): Database | null {
-  // Fast path: real file exists.
-  if (existsSync(dbPath)) {
+  // Driver URI (postgres:// / mysql://) — skip the filesystem check entirely.
+  // Schema validation at compile time happens via the shadow-DB path. Real
+  // driver introspection is deferred to a later phase.
+  if (!srcIsDriverUri && existsSync(dbPath)) {
     return cache.openDb(dbPath, blockSpan, errors);
   }
 
-  // File is missing. Check shadow DB eligibility.
+  // File is missing OR src= is a driver URI. Check shadow DB eligibility.
   const missingTables: string[] = [];
   const createStmts: string[] = [];
 
@@ -445,20 +480,27 @@ function resolveDb(
     // E-PA-002: cannot build shadow DB — missing CREATE TABLE for at least one table.
     const missingList = missingTables.join(", ");
     const tableWord = missingTables.length === 1 ? "table" : "tables";
+    const what = srcIsDriverUri
+      ? `Driver URI \`${dbPath}\` cannot be introspected at compile time yet (Phase 2)`
+      : `Database file \`${dbPath}\` does not exist`;
     errors.push(new PAError(
       "E-PA-002",
-      `E-PA-002: Database file \`${dbPath}\` does not exist and no CREATE TABLE statement ` +
+      `E-PA-002: ${what} and no CREATE TABLE statement ` +
       `was found in any \`?{}\` block for ${tableWord} \`${missingList}\`. ` +
-      `Either create the database file first, or add a CREATE TABLE statement in a \`?{}\` ` +
-      `block so the compiler can validate the schema at compile time.`,
+      (srcIsDriverUri
+        ? `Add a CREATE TABLE statement (e.g. in a startup \`?{}\` block) so the compiler ` +
+          `can validate the schema. Real Postgres / MySQL introspection lands in a future phase.`
+        : `Either create the database file first, or add a CREATE TABLE statement in a \`?{}\` ` +
+          `block so the compiler can validate the schema at compile time.`),
       blockSpan,
     ));
     return null;
   }
 
   // All tables have CREATE TABLE statements. Build shadow DB.
+  const what = srcIsDriverUri ? `Driver URI '${dbPath}'` : `Database file '${dbPath}' does not exist`;
   process.stderr.write(
-    `Note(PA): Database file '${dbPath}' does not exist. ` +
+    `Note(PA): ${what}. ` +
     `Using in-memory schema from ?{} blocks for compile-time validation.\n`,
   );
 
@@ -596,17 +638,30 @@ function processDbBlock(
   // ------------------------------------------------------------------
   // Step 2: Resolve src= against the source file's directory to get the
   //         canonical absolute dbPath.
+  //
+  // §44.2: when src= is a Postgres or MySQL connection URI we skip filesystem
+  // resolution entirely. The URI itself becomes the cache key. Schema
+  // introspection routes through the shadow-DB path (CREATE TABLE harvested
+  // from ?{} blocks). Real driver introspection at compile time is deferred
+  // to a future phase.
   // ------------------------------------------------------------------
-  const sourceDir = dirname(filePath);
-  const resolvedRaw = resolve(sourceDir, srcRaw);
-
-  // realpathSync resolves symlinks to a canonical path. We only call it if
-  // the file exists; if it doesn't exist, resolveDb() handles the missing case.
   let dbPath: string;
-  try {
-    dbPath = existsSync(resolvedRaw) ? realpathSync(resolvedRaw) : resolvedRaw;
-  } catch {
-    dbPath = resolvedRaw;
+  const isDriverConnectionUri = isDriverUri(srcRaw);
+
+  if (isDriverConnectionUri) {
+    // Use the URI verbatim as the cache key — no path resolution.
+    dbPath = srcRaw;
+  } else {
+    const sourceDir = dirname(filePath);
+    const resolvedRaw = resolve(sourceDir, srcRaw);
+
+    // realpathSync resolves symlinks to a canonical path. We only call it if
+    // the file exists; if it doesn't exist, resolveDb() handles the missing case.
+    try {
+      dbPath = existsSync(resolvedRaw) ? realpathSync(resolvedRaw) : resolvedRaw;
+    } catch {
+      dbPath = resolvedRaw;
+    }
   }
 
   // ------------------------------------------------------------------
@@ -647,8 +702,9 @@ function processDbBlock(
   //   - real file exists → open readonly
   //   - file missing + CREATE TABLE in ?{} blocks → shadow DB
   //   - file missing + no CREATE TABLE → E-PA-002
+  //   - driver URI (postgres:// / mysql://) → forced shadow DB; no file check
   // ------------------------------------------------------------------
-  const db = resolveDb(dbPath, tableNames, createTableMap, cache, blockSpan, errors);
+  const db = resolveDb(dbPath, tableNames, createTableMap, cache, blockSpan, errors, isDriverConnectionUri);
   if (db === null) return;
 
   // ------------------------------------------------------------------
