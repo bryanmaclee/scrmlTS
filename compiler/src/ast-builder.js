@@ -1941,6 +1941,47 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when a reactive-decl
+   * initializer (RHS of `@x = …`, `server @x = …`, `@shared x = …`,
+   * `@x: T = …`) is a SQL `?{}` BLOCK_REF — possibly with a chained
+   * `.all()/.get()/.run()` — build the structured SQL child node, consume
+   * the chain, and return it. Caller attaches the returned node as
+   * `sqlNode` on the reactive-decl AST node and sets `init: ""` /
+   * omits `initExpr` so downstream consumers (batch-planner string scanner,
+   * emit-server CPS path, emit-logic case "reactive-decl") opt into the
+   * structured form instead of the broken sql-ref placeholder comment
+   * that `safeParseExprToNode` would otherwise produce
+   * (the placeholder shape is "(slash-star) sql-ref:N (star-slash)" — written
+   * out longhand here so this JSDoc comment doesn't close prematurely).
+   *
+   * Mirrors the parent fix at `return ?{…}.method()` (commit 2a05585).
+   *
+   * Returns the SQL child node on success; null otherwise. On null, no
+   * tokens are consumed and callers MUST fall through to the legacy
+   * `collectExpr()` path. The optional trailing `;` is consumed here
+   * when a SQL node is built.
+   */
+  function tryConsumeSqlInit() {
+    const next = peek();
+    if (!(next && next.kind === "BLOCK_REF" && next.block && next.block.type === "sql")) {
+      return null;
+    }
+    const refTok = consume(); // consume the BLOCK_REF
+    const childNode = buildBlock(refTok.block, filePath, parentBlock.type, counter, errors);
+    if (!childNode || childNode.kind !== "sql") {
+      // Defensive: BS contract guarantees BLOCK_REF.block.type === "sql"
+      // means buildBlock returns a SQL node. If that ever breaks, we have
+      // already consumed the BLOCK_REF token; surfacing as null here would
+      // create a token-stream hole for the caller. Best-effort: return null
+      // and let collectExpr emit whatever it can with the remaining tokens.
+      return null;
+    }
+    consumeSqlChainedCalls(childNode);
+    if (peek().kind === "PUNCT" && peek().text === ";") consume();
+    return childNode;
+  }
+
+  /**
    * Parse a single statement and return an AST node.
    * Handles: let, const, @reactive, lift, for, if, while, return, bare-expr.
    */
@@ -2116,6 +2157,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const typeAnnotation = collectTypeAnnotation();
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
+        // fix-cg-cps-return-sql-ref-placeholder: detect `server @x = ?{...}.method()`.
+        const _sqlInit = tryConsumeSqlInit();
+        if (_sqlInit) {
+          const node = { id: ++counter.next, kind: "reactive-decl", name, init: "", sqlNode: _sqlInit, isServer: true, span: spanOf(startTok, peek()) };
+          if (typeAnnotation) node.typeAnnotation = typeAnnotation;
+          return node;
+        }
         const { expr } = collectExpr();
         const node = { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, span: spanOf(startTok, peek()) };
         if (typeAnnotation) node.typeAnnotation = typeAnnotation;
@@ -2134,6 +2182,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if ((peek().kind === "IDENT" || peek().kind === "KEYWORD") && peek(1)?.text === "=" && peek(2)?.text !== "=") {
         const nameTok = consume(); // consume varName
         consume(); // consume `=`
+        // fix-cg-cps-return-sql-ref-placeholder: detect `@shared x = ?{...}.method()`.
+        const _sqlInit = tryConsumeSqlInit();
+        if (_sqlInit) {
+          return { id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: "", sqlNode: _sqlInit, isShared: true, span: spanOf(startTok, peek()) };
+        }
         const { expr } = collectExpr();
         return { id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) };
       }
@@ -2221,6 +2274,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const typeAnnotation = collectTypeAnnotation();
         if (peek().text === "=" && peek(1)?.text !== "=") {
           consume(); // consume '='
+          // fix-cg-cps-return-sql-ref-placeholder: detect `@x: T = ?{...}.method()`.
+          const _sqlInit = tryConsumeSqlInit();
+          if (_sqlInit) {
+            return { id: ++counter.next, kind: "reactive-decl", name, init: "", sqlNode: _sqlInit, typeAnnotation, span: spanOf(startTok, peek()) };
+          }
           const { expr } = collectExpr();
           return { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), typeAnnotation, span: spanOf(startTok, peek()) };
         }
@@ -2230,6 +2288,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // Simple reactive decl: @name = expr
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
+        // fix-cg-cps-return-sql-ref-placeholder: detect `@x = ?{...}.method()`.
+        // The bare `?{}` (no chained call) and `?{...}.all()/.get()/.run()` shapes
+        // both flow through here. Without this, safeParseExprToNode preprocesses
+        // the BLOCK_REF to `__scrml_sql_placeholder__` and emit-expr renders
+        // `/* sql-ref:-1 */` — broken in both server CPS and client init contexts.
+        const _sqlInit = tryConsumeSqlInit();
+        if (_sqlInit) {
+          return { id: ++counter.next, kind: "reactive-decl", name, init: "", sqlNode: _sqlInit, span: spanOf(startTok, peek()) };
+        }
         const { expr, span } = collectExpr();
         return { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
       }
@@ -3722,6 +3789,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const typeAnnotation = collectTypeAnnotation();
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
+        // fix-cg-cps-return-sql-ref-placeholder: detect `server @x = ?{...}.method()`.
+        const _sqlInit = tryConsumeSqlInit();
+        if (_sqlInit) {
+          const node = { id: ++counter.next, kind: "reactive-decl", name, init: "", sqlNode: _sqlInit, isServer: true, span: spanOf(startTok, peek()) };
+          if (typeAnnotation) node.typeAnnotation = typeAnnotation;
+          nodes.push(node);
+          continue;
+        }
         const { expr } = collectExpr();
         const node = { id: ++counter.next, kind: "reactive-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, span: spanOf(startTok, peek()) };
         if (typeAnnotation) node.typeAnnotation = typeAnnotation;
@@ -3742,6 +3817,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if ((peek().kind === "IDENT" || peek().kind === "KEYWORD") && peek(1)?.text === "=" && peek(2)?.text !== "=") {
         const nameTok = consume(); // consume varName
         consume(); // consume `=`
+        // fix-cg-cps-return-sql-ref-placeholder: detect `@shared x = ?{...}.method()`.
+        const _sqlInit = tryConsumeSqlInit();
+        if (_sqlInit) {
+          nodes.push({ id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: "", sqlNode: _sqlInit, isShared: true, span: spanOf(startTok, peek()) });
+          continue;
+        }
         const { expr } = collectExpr();
         nodes.push({ id: ++counter.next, kind: "reactive-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) });
         continue;
@@ -3836,6 +3917,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const typeAnnotation = collectTypeAnnotation();
         if (peek().text === "=" && peek(1)?.text !== "=") {
           consume(); // consume '='
+          // fix-cg-cps-return-sql-ref-placeholder: detect `@x: T = ?{...}.method()`.
+          const _sqlInit = tryConsumeSqlInit();
+          if (_sqlInit) {
+            nodes.push({
+              id: ++counter.next,
+              kind: "reactive-decl",
+              name,
+              init: "",
+              sqlNode: _sqlInit,
+              ...(typeAnnotation ? { typeAnnotation } : {}),
+              span: spanOf(startTok, peek()),
+            });
+            continue;
+          }
           const { expr } = collectExpr();
           nodes.push({
             id: ++counter.next,
@@ -3854,6 +3949,23 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // Simple reactive decl: @name = expr
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
+        // fix-cg-cps-return-sql-ref-placeholder: detect `@x = ?{...}.method()`.
+        // Bare `?{...}` and `?{...}.all()/.get()/.run()` both flow through here.
+        // Without this, safeParseExprToNode produces the broken sql-ref placeholder
+        // ExprNode that emit-expr renders as `/* sql-ref:-1 */` — the leak this
+        // fix targets in combined-007-crud (server.js:38,74 and client.js:55).
+        const _sqlInit = tryConsumeSqlInit();
+        if (_sqlInit) {
+          nodes.push({
+            id: ++counter.next,
+            kind: "reactive-decl",
+            name,
+            init: "",
+            sqlNode: _sqlInit,
+            span: spanOf(startTok, peek()),
+          });
+          continue;
+        }
         const { expr, span } = collectExpr();
         nodes.push({
           id: ++counter.next,
