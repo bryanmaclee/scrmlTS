@@ -432,7 +432,16 @@ export function splitBlocks(filePath, source) {
       children: [],
       braceDepth: 1,
       tagNesting: inheritedTagNesting,
-      // Local string tracking for tag nesting disambiguation (private state)
+      // Local string/comment state machine for brace-counter suppression and
+      // for tag-nesting disambiguation. See "String/comment state tracking
+      // for brace-delimited contexts" block in the main scan loop.
+      //   _strState: null | 'dq' | 'sq' | 'bc'
+      //     null = normal code, 'dq' = inside "...", 'sq' = inside '...',
+      //     'bc' = inside /* ... */
+      //   _inDouble / _inSingle mirror _strState for the tag-nesting check
+      //   at line ~775 (kept for back-compat with that read site).
+      //   _inBacktick is tracked separately by the meta-block backtick handler.
+      _strState: null,
       _inDouble: false,
       _inSingle: false,
       _inBacktick: false,
@@ -511,9 +520,24 @@ export function splitBlocks(filePath, source) {
     const c = source[pos];
 
     // -----------------------------------------------------------------------
-    // Section 4.7: '//' comment suppression (applies at ALL context levels)
+    // Section 4.7: '//' comment suppression (applies at ALL context levels).
+    //
+    // We must respect the per-frame string state when inside a brace context,
+    // otherwise '//' inside a string literal (e.g., "https://example.com")
+    // would incorrectly start a comment and consume the rest of the line,
+    // leaving the string state desynced. The outer inDoubleQuote/inSingleQuote
+    // globals are only maintained at markup/state level — they are stale-false
+    // inside brace contexts. The frame._strState tracks brace-context state.
     // -----------------------------------------------------------------------
-    if (c === "/" && ch(1) === "/" && !inDoubleQuote && !inSingleQuote) {
+    let _suppressLineComment = false;
+    if (topIsBraceContext()) {
+      const _topFrame = topFrame();
+      if (_topFrame._strState === "dq" || _topFrame._strState === "sq" ||
+          _topFrame._strState === "bc" || _topFrame._strState === "bt") {
+        _suppressLineComment = true;
+      }
+    }
+    if (c === "/" && ch(1) === "/" && !inDoubleQuote && !inSingleQuote && !_suppressLineComment) {
       flushText();
       const commentStart = curPos;
       const commentStartLine = curLine;
@@ -644,27 +668,133 @@ export function splitBlocks(filePath, source) {
       }
 
       // -----------------------------------------------------------------------
-      // Brace-in-string detection for brace-delimited contexts (§4.6).
+      // String/comment state tracking for brace-delimited contexts (§4.6, Bug L).
       //
-      // Full string-state tracking is impractical at the BS level because the
-      // BS cannot reliably distinguish string delimiters from other uses of
-      // quote characters (regex patterns, template interpolation boundaries,
-      // apostrophes in comments, etc.).
+      // The brace counter feeding `${...}` close detection MUST ignore braces
+      // that appear inside string literals, otherwise multi-line authoring of
+      // sample text/code (where '{' and '}' may appear in different string
+      // literals) desyncs the counter and produces misleading "Unclosed 'logic'"
+      // / "Unclosed 'program'" diagnostics.
       //
-      // Instead, we detect the exact 3-character patterns: '{', '}', "{", "}"
-      // — a brace character immediately surrounded by matching quotes. This
-      // handles the common case (Set/Map literals with single-brace strings)
-      // without any risk of state corruption.
+      // We maintain a small state machine on the frame:
+      //   frame._strState: null | 'dq' | 'sq' | 'bc'
+      //     null  - normal code (default)
+      //     'dq'  - inside a double-quoted string
+      //     'sq'  - inside a single-quoted string
+      //     'bc'  - inside a block comment /* ... */
       //
-      // For longer strings containing braces (e.g., "{ hello }"), users should
-      // use String.fromCharCode(123/125) as a workaround.
+      // While in a non-null state, ALL brace counting and sigil openers
+      // (${, ?{, #{, !{, ^{, ~{) are suppressed.
+      //
+      // Scope deferred (out of scope for Bug L):
+      //   * Regex literals (/.../) - too ambiguous to distinguish from division
+      //     without parsing JS expression context. Braces inside a regex char
+      //     class will still affect depth counting (e.g., /\\{[^}]*\\}/).
+      //   * Template strings (backtick) inside non-meta brace contexts - the
+      //     meta-block handler above already tracks backticks; logic/sql/css
+      //     would require duplicating that machinery and the downstream JS
+      //     tokenizer handles template-string brace state correctly there.
+      //   * Line comments (//) inside strings - the // handler runs above
+      //     this block and uses outer-quote globals only; that gap is
+      //     adjacent but not part of Bug L.
+      //
+      // _inDouble / _inSingle on the frame are kept in sync with _strState
+      // so the existing tag-nesting check at line ~775 keeps working (and
+      // now actually does its job - those flags were never being written
+      // before this change).
       // -----------------------------------------------------------------------
+
+      // Helper: is the char at position i preceded by an unescaped backslash?
+      // Counts back the run of consecutive backslashes; an odd count means the
+      // char at i IS escaped.
+      function isEscapedAt(i) {
+        let n = 0;
+        let k = i - 1;
+        while (k >= 0 && source[k] === "\\") { n++; k--; }
+        return (n % 2) === 1;
+      }
+
       let _inBraceStr = false;
-      if (c === "{" || c === "}") {
-        const prev1 = curPos > 0 ? source[curPos - 1] : "";
-        const next1 = curPos + 1 < len ? source[curPos + 1] : "";
-        if ((prev1 === '"' && next1 === '"') || (prev1 === "'" && next1 === "'")) {
+
+      if (frame._strState === "dq") {
+        // Inside "..." - look for unescaped closing "
+        if (c === '"' && !isEscapedAt(curPos)) {
+          frame._strState = null;
+          frame._inDouble = false;
+        }
+        _inBraceStr = true;
+      } else if (frame._strState === "sq") {
+        // Inside '...' - look for unescaped closing '
+        if (c === "'" && !isEscapedAt(curPos)) {
+          frame._strState = null;
+          frame._inSingle = false;
+        }
+        _inBraceStr = true;
+      } else if (frame._strState === "bc") {
+        // Inside /* ... */ - look for closing */
+        if (c === "*" && ch(1) === "/") {
+          frame._strState = null;
+          // Consume the '*' here; the '/' falls through and is consumed below.
+          beginText();
+          step();
+          continue;
+        }
+        _inBraceStr = true;
+      } else if (frame._strState === "bt") {
+        // Inside `...` template literal - look for unescaped closing `.
+        // We do NOT suppress brace/sigil counting here: the pre-fix behavior
+        // was to count braces straight through backtick templates in non-meta
+        // contexts (causing \${...} to spuriously push a logic frame, with
+        // the matching } popping it; net depth preserved). We preserve that
+        // behavior. We only need to suppress THIS state machine's own SQ/DQ
+        // tracking so quote characters inside the template body don't toggle
+        // string state.
+        //
+        // Note: the meta-block backtick handler above (lines ~602-643) does
+        // full tracking with interpolation depth and runs BEFORE this code,
+        // so meta blocks are unaffected.
+        if (c === "`" && !isEscapedAt(curPos)) {
+          frame._strState = null;
+        }
+        // Fall through with _inBraceStr=false so existing brace/sigil
+        // handlers run (preserving pre-fix non-meta backtick behavior).
+      } else {
+        // Not in a string/comment - check for openers.
+        if (c === '"') {
+          frame._strState = "dq";
+          frame._inDouble = true;
           _inBraceStr = true;
+        } else if (c === "'") {
+          // Apostrophe-in-word heuristic (matches the markup-level rule at
+          // line ~564): only open a single-quoted string when the previous
+          // char is NOT alphanumeric. This prevents contractions inside
+          // backtick template literals (e.g., `don't ...` or `it's ...`)
+          // and inside regular comments/text from spuriously opening SQ
+          // mode and dragging suppression across many subsequent chars.
+          //
+          // In valid JS code, an opening ' is always preceded by a non-
+          // alphanumeric (whitespace, paren, comma, equals, etc.) so the
+          // heuristic is a strict subset of "real string delimiter" cases.
+          const prev = curPos > 0 ? source[curPos - 1] : " ";
+          if (!/[A-Za-z0-9]/.test(prev)) {
+            frame._strState = "sq";
+            frame._inSingle = true;
+          }
+          _inBraceStr = true;
+        } else if (c === "/" && ch(1) === "*") {
+          frame._strState = "bc";
+          // Consume both chars of '/*' here - prevent the '/' or '*' from
+          // matching anything downstream.
+          beginText();
+          advance(2);
+          continue;
+        } else if (c === "`") {
+          // Enter backtick template literal. Do not set _inBraceStr=true:
+          // the ` itself is text (no brace handlers fire on it), and we
+          // want the brace/sigil handlers below to run for chars inside the
+          // template body (preserving pre-fix non-meta backtick behavior).
+          // See the matching 'bt' arm above for the rationale.
+          frame._strState = "bt";
         }
       }
 
