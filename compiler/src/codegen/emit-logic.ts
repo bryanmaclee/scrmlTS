@@ -587,13 +587,30 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         const isInit2 = hasTypeAnnotation2 || hasMachineBinding2 || !(opts.machineBindings?.has(node.name));
         return _emitReactiveSet(encodedName2, sqlExpr, opts, node.name, isInit2);
       }
-      // Client path (or no sqlNode): legacy emitter. If sqlNode is present
-      // but boundary is client, the fallthrough relies on init=""/initExpr
-      // being absent — the legacy emitter will read `node.init ?? "undefined"`
-      // → "undefined" and emit `_scrml_reactive_set("name", undefined)`.
-      // This is BETTER than the prior `/_* sql-ref:N *_/` placeholder leak
-      // because it parses cleanly. The semantically-correct client-side fix
-      // (mountHydrate routing) is sibling work for a follow-up intake.
+      // fix-cg-mounthydrate-sql-ref-placeholder (S40 follow-up): on the CLIENT
+      // boundary a SQL-init reactive-decl (`@x = ?{...}` at top level or in a
+      // client logic block) cannot be evaluated — `_scrml_sql` is server-only
+      // (E-CG-006). Falling through to the legacy emitter below would produce
+      // `_scrml_reactive_set("name", )` (empty arg, parses but ugly) because
+      // the AST builder sets `init: ""` and omits `initExpr` for the SQL
+      // shape, and `?? "undefined"` does NOT fire on the empty string.
+      //
+      // The "right" fix here is mount-hydration coalescing (§8.11), but §8.11
+      // is scoped to `server @var` declarations only (`isServer === true` —
+      // see `collect.ts` `collectServerVarDecls`). Implicitly promoting
+      // bare `@var = ?{...}` to server-authoritative semantics is a spec
+      // amendment with cascading E-AUTH implications — out of scope for this
+      // cosmetic fix.
+      //
+      // Approach (b) from the intake: emit an explanatory comment instead of
+      // the broken `_scrml_reactive_set`. Runtime semantics are identical to
+      // the pre-fix behavior — `_scrml_reactive_get("name")` returns
+      // `undefined` either way. The variable can still be (re)assigned later
+      // (e.g. via a `server function` returning the SQL result through CPS).
+      if (node.sqlNode && node.sqlNode.kind === "sql") {
+        return `// SQL-init for @${node.name} — client cannot evaluate _scrml_sql (E-CG-006); declare as \`server @${node.name}\` for mount-hydration (§8.11).`;
+      }
+      // Legacy fallthrough for non-SQL reactive-decl initializers.
       const initStr: string = node.init ?? "undefined";
       const ctx = opts.encodingCtx;
       const encodedName = ctx ? ctx.encode(node.name) : node.name;
