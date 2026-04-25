@@ -1911,7 +1911,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (!sqlNode || sqlNode.kind !== "sql" || !sqlNode.chainedCalls) return;
     while (peek().kind === "PUNCT" && peek().text === ".") {
       consume(); // dot
-      if (peek().kind === "IDENT") {
+      // Accept IDENT or KEYWORD as the method name. `get` and `set` are
+      // tokenized as KEYWORD per tokenizer.ts:62 — without this, `.get()`
+      // would be left orphan in the parent token stream.
+      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
         const methodTok = consume();
         let args = "";
         if (peek().kind === "PUNCT" && peek().text === "(") {
