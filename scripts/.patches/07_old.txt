@@ -1,0 +1,2 @@
+  /** Database variable name for SQL rewrite (server path). Default: "_scrml_db". */
+  dbVar?: string;

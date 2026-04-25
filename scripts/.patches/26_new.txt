@@ -1,0 +1,68 @@
+// ---------------------------------------------------------------------------
+// §15: rewriteSqlRefs — bare ?{...} without method call → await sql.unsafe()
+//
+// These tests verify that the rewriteSqlRefs function correctly transforms
+// bare ?{`...`} expressions (without a chained method call) into
+// `await _scrml_sql.unsafe(...)` calls (§44). This ensures the client leak
+// guard (`/_scrml_sql(?:_\d+)?[.`]/`) catches any leak as E-CG-006.
+// ---------------------------------------------------------------------------
+
+describe("§15: rewriteSqlRefs — bare ?{...} without method call (§44)", () => {
+  test("bare ?{`SELECT...`} is rewritten to await sql.unsafe()", () => {
+    const result = rewriteSqlRefs("?{`SELECT id, name FROM users`}");
+    expect(result).toContain("_scrml_sql.unsafe(");
+    expect(result).toContain("await ");
+    expect(result).not.toContain("?{`");
+    expect(result).toContain("SELECT id, name FROM users");
+  });
+
+  test("bare ?{`INSERT...`} is rewritten to await sql.unsafe()", () => {
+    const result = rewriteSqlRefs("?{`INSERT INTO users (name) VALUES ('Alice')`}");
+    expect(result).toContain("_scrml_sql.unsafe(");
+    expect(result).toContain("await ");
+    expect(result).not.toContain("?{`");
+    expect(result).toContain("INSERT INTO users");
+  });
+
+  test("bare ?{`DELETE...`} is rewritten to await sql.unsafe()", () => {
+    const result = rewriteSqlRefs("?{`DELETE FROM sessions WHERE expired = 1`}");
+    expect(result).toContain("_scrml_sql.unsafe(");
+    expect(result).not.toContain("?{`");
+  });
+
+  test("bare ?{`...${param}...`} extracts parameters into bound array", () => {
+    const result = rewriteSqlRefs("?{`SELECT * FROM users WHERE id = ${userId}`}");
+    // Bare-with-params route: await sql.unsafe(rawSql, [argList])
+    expect(result).toContain("_scrml_sql.unsafe(");
+    expect(result).toContain("userId");
+    expect(result).not.toContain("?{`");
+    // The SQL string still has positional `?N` placeholder for the unsafe path.
+    expect(result).toContain("?1");
+  });
+
+  test("?{`...`}.all() form still works (regression guard)", () => {
+    const result = rewriteSqlRefs("?{`SELECT * FROM users`}.all()");
+    expect(result).toContain("await _scrml_sql`");
+    expect(result).not.toContain("?{`");
+    expect(result).not.toContain("_scrml_sql_exec");
+    expect(result).not.toContain("_scrml_db.query");
+  });
+
+  test("?{`...`}.first() form still works (regression guard)", () => {
+    const result = rewriteSqlRefs("?{`SELECT * FROM users WHERE id = ${id}`}.first()");
+    expect(result).toContain("await _scrml_sql`");
+    expect(result).toContain("[0] ?? null");
+    expect(result).not.toContain("?{`");
+  });
+
+  test("expression with no SQL passes through unchanged", () => {
+    const result = rewriteSqlRefs("console.log('hello')");
+    expect(result).toBe("console.log('hello')");
+  });
+
+  test("null/undefined/empty string returns unchanged", () => {
+    expect(rewriteSqlRefs(null)).toBe(null);
+    expect(rewriteSqlRefs(undefined)).toBe(undefined);
+    expect(rewriteSqlRefs("")).toBe("");
+  });
+});

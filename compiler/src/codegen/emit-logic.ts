@@ -1,5 +1,5 @@
 import { genVar } from "./var-counter.ts";
-import { extractSqlParams, rewriteTildeRef } from "./rewrite.js";
+import { extractSqlParams, rewriteTildeRef, buildTaggedTemplate } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, matchArmInlineToMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
@@ -733,30 +733,72 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
     }
 
     case "sql": {
+      // SPEC §44 — emit Bun.SQL tagged-template form.
+      //   ?{`SQL ${x}`}.all()   → await sql`SQL ${x}`;
+      //   ?{`SQL ${x}`}.get()   → const _r = (await sql`SQL ${x}`)[0] ?? null;
+      //   ?{`SQL ${x}`}.run()   → await sql`SQL ${x}`;
+      //   ?{`SQL ${x}`}.prepare() → E-SQL-006 (compile error + runtime throw)
+      //   bare ?{`DDL`}         → await sql.unsafe("DDL");
+      // For SQL using bare `?` placeholders with explicit call.args (legacy
+      // path), we emit `await sql.unsafe(rawSql, [argList])` — Bun.SQL's
+      // unsafe() accepts a bound-params array.
       const rawQuery: string = node.query ?? node.body ?? "";
       const calls: any[] = node.chainedCalls ?? [];
-      const { sql, params } = extractSqlParams(rawQuery);
-      const db = opts.dbVar ?? "_scrml_db";
+      const { sql, params, segments } = extractSqlParams(rawQuery);
+      const db = opts.dbVar ?? "_scrml_sql";
+
+      const taggedFromParams = (): string => {
+        const renderedParams = params.map(
+          (p: string) => emitExprField(null, p, _makeExprCtx(opts)),
+        );
+        return buildTaggedTemplate(db, segments, renderedParams);
+      };
+
       if (calls.length > 0) {
         const call = calls[0];
-        // Build argList: prefer params extracted from SQL ${} interpolations.
-        // Fall back to call.args (explicit .run(@var) / .all(@var) args) when the
-        // SQL uses bare ? placeholders and the dev passes params at call site.
-        let argList: string;
-        if (params.length > 0) {
-          argList = params.map((p: string) => emitExprField(null, p, _makeExprCtx(opts))).join(", ");
-        } else if (call.args && call.args.trim()) {
-          argList = emitExprField(null, call.args.trim(), _makeExprCtx(opts));
-        } else {
-          argList = "";
+        const method: string = call.method;
+
+        // §44.3: .prepare() is removed.
+        if (method === "prepare") {
+          // Emit a runtime-throwing IIFE so the JS still parses; CG-level
+          // E-SQL-006 emission is handled in rewriteSqlRefs (inline path).
+          return `(()=>{throw new Error(${JSON.stringify("E-SQL-006: .prepare() is removed in Bun.SQL (§44.3) — use .all()/.get()/.run() or bare ?{}")})})();`;
         }
-        return `${db}.query(${JSON.stringify(sql)}).${call.method}(${argList});`;
+
+        // Branch A: SQL has ${} params — use tagged template form.
+        if (params.length > 0) {
+          const tagged = taggedFromParams();
+          if (method === "get" || method === "first") {
+            return `(await ${tagged})[0] ?? null;`;
+          }
+          return `await ${tagged};`;
+        }
+
+        // Branch B: SQL uses bare ? placeholders + explicit call.args.
+        // Use sql.unsafe(rawSql, [argArray]) — unsafe() accepts a bound array.
+        if (call.args && call.args.trim()) {
+          const argList = emitExprField(null, call.args.trim(), _makeExprCtx(opts));
+          if (method === "get" || method === "first") {
+            return `(await ${db}.unsafe(${JSON.stringify(sql)}, [${argList}]))[0] ?? null;`;
+          }
+          return `await ${db}.unsafe(${JSON.stringify(sql)}, [${argList}]);`;
+        }
+
+        // Branch C: no params, no call.args. Bare tagged template.
+        const taggedNoParams = `${db}\`${sql.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${")}\``;
+        if (method === "get" || method === "first") {
+          return `(await ${taggedNoParams})[0] ?? null;`;
+        }
+        return `await ${taggedNoParams};`;
       }
+
+      // No chained call.
       if (params.length > 0) {
-        const argList = params.map((p: string) => emitExprField(null, p, _makeExprCtx(opts))).join(", ");
-        return `${db}.query(${JSON.stringify(sql)}).run(${argList});`;
+        // Defaults to .run() semantics — value dropped.
+        return `await ${taggedFromParams()};`;
       }
-      return `_scrml_sql_exec(${JSON.stringify(rawQuery)});`;
+      // Static DDL — route through unsafe() so the runtime accepts no-param SQL.
+      return `await ${db}.unsafe(${JSON.stringify(rawQuery)});`;
     }
 
     case "fail-expr": {
@@ -1051,9 +1093,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
     }
 
     case "transaction-block": {
+      // SPEC §44.6 — transactions are deferred to SPEC-ISSUE-018. The current
+      // workaround is to use Bun.SQL `sql.unsafe()` for BEGIN/COMMIT/ROLLBACK
+      // on the same connection. Proper `sql.begin(callback)` integration
+      // requires a callback-shaped emitter restructure and is out of scope
+      // for Phase 1.
       const lines: string[] = [];
-      const db = opts.dbVar ?? "_scrml_db";
-      lines.push(`${db}.exec("BEGIN");`);
+      const db = opts.dbVar ?? "_scrml_sql";
+      lines.push(`await ${db}.unsafe("BEGIN");`);
       lines.push(`try {`);
       for (const stmt of (node.body ?? [])) {
         const code = emitLogicNode(stmt, opts);
@@ -1065,15 +1112,15 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
             const lastIdx = lines.length - 1;
             const lastLine = lines[lastIdx];
             if (lastLine.trimStart().startsWith("return {")) {
-              lines[lastIdx] = `  ${db}.exec("ROLLBACK");`;
+              lines[lastIdx] = `  await ${db}.unsafe("ROLLBACK");`;
               lines.push(`  ${lastLine.trim()}`);
             }
           }
         }
       }
-      lines.push(`  ${db}.exec("COMMIT");`);
+      lines.push(`  await ${db}.unsafe("COMMIT");`);
       lines.push(`} catch (_scrml_txn_err) {`);
-      lines.push(`  ${db}.exec("ROLLBACK");`);
+      lines.push(`  await ${db}.unsafe("ROLLBACK");`);
       lines.push(`  throw _scrml_txn_err;`);
       lines.push(`}`);
       return lines.join("\n");

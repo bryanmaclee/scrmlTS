@@ -751,10 +751,14 @@ export function generateClientJs(ctx: CompileContext): string {
     }
   }
 
-  // Security validation: client JS must not contain SQL execution calls
+  // Security validation: client JS must not contain SQL execution calls.
+  // §44 Bun.SQL identifier `_scrml_sql` (and scoped `_scrml_sql_<n>` for
+  // nested <program db="..."> contexts) must never reach the client.
+  // Detected forms: `_scrml_sql.method(`, `_scrml_sql\``, `_scrml_sql_2.unsafe(`
   const SQL_LEAK_PATTERNS: RegExp[] = [
-    /_scrml_sql_exec\s*\(/,
-    /_scrml_db\s*\./,
+    /_scrml_sql_exec\s*\(/,                 // legacy helper name (defensive)
+    /_scrml_db\s*\./,                       // legacy bun:sqlite db var (defensive)
+    /\b_scrml_sql(?:_\d+)?\s*[.`]/,         // §44 Bun.SQL tag/method calls
     /\bprocess\.env\b/,
     /\bBun\.env\b/,
     /\bbun\.eval\s*\(/,

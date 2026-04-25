@@ -1,0 +1,4 @@
+interface SqlParams {
+  sql: string;
+  params: string[];
+}

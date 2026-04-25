@@ -1,0 +1,4 @@
+      lines.push(`  })();`);
+      if (_envelope) {
+        lines.push(`  await _scrml_sql.unsafe("COMMIT");`);
+      }

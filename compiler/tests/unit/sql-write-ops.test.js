@@ -1,24 +1,32 @@
 /**
- * SQL Write Operations — Unit Tests (§8.5)
+ * SQL Write Operations — Unit Tests (SPEC §44 Bun.SQL emission)
  *
  * Tests for write-operation codegen: INSERT, UPDATE, DELETE via .run(),
- * .prepare() compiled to db.prepare(), and transaction block emission.
+ * .prepare() now compiles to E-SQL-006 (§44.3), and transaction-block
+ * emission uses sql.unsafe() per §44.6 deferred-transaction workaround.
+ *
+ * Output shape (§44.3):
+ *   .run() / bare-with-params → await _scrml_sql`SQL ${param}`;
+ *   bare DDL                  → await _scrml_sql.unsafe("SQL");
+ *   .prepare()                → E-SQL-006 (compile error + runtime IIFE)
  *
  * Coverage:
- *   §1  INSERT with .run() — params parameterized, method preserved
+ *   §1  INSERT with .run() — params preserved as ${} slots
  *   §2  UPDATE with .run() — multi-param
  *   §3  DELETE with .run() — single param
- *   §4  Static DDL with no chained call — falls through to _scrml_sql_exec
- *   §5  .prepare() — emits db.prepare(sql) WITHOUT bound params
- *   §6  .prepare() static SQL — no params in SQL, no params at call site
- *   §7  .prepare() with params — sql has ?N placeholders but no args passed
- *   §8  .run() return value — compiler does not wrap (passthrough)
+ *   §4  Static DDL with no chained call — falls through to sql.unsafe()
+ *   §5  .prepare() — emits E-SQL-006 compile error (§44.3)
+ *   §6  .prepare() static SQL — same E-SQL-006 path
+ *   §7  .prepare() with multiple params — same E-SQL-006 path
+ *   §8  .run() return value — passthrough (no compiler wrapping)
  *   §9  emitLogicNode sql node — INSERT .run() codegen
- *   §10 emitLogicNode sql node — .prepare() codegen
- *   §11 transaction-block emit — BEGIN / COMMIT / ROLLBACK structure
- *   §12 transaction-block emit — write stmts inside are parameterized
+ *   §10 emitLogicNode sql node — .prepare() emits IIFE that throws
+ *   §11 transaction-block emit — BEGIN / COMMIT / ROLLBACK via sql.unsafe()
+ *   §12 transaction-block emit — write stmts inside use Bun.SQL form
  *   §13 rewriteExpr integration — .run() and .prepare() in full pipeline
  *   §14 route inference — sql node triggers server escalation
+ *   §15 @var in SQL params — server path (rewriteServerExpr)
+ *   §16 explicit call.args @var rewriting — emitLogicNode
  */
 
 import { describe, test, expect } from "bun:test";
@@ -29,30 +37,32 @@ import { emitLogicNode } from "../../src/codegen/emit-logic.js";
 // §1  INSERT with .run()
 // ---------------------------------------------------------------------------
 
-describe("§1 INSERT with .run() — parameterized", () => {
+describe("§1 INSERT with .run() — Bun.SQL tagged template", () => {
   test("INSERT with two params", () => {
     const input = "?{`INSERT INTO users (name, email) VALUES (${name}, ${email})`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("INSERT INTO users (name, email) VALUES (?1, ?2)").run(name, email)');
+    expect(output).toBe('await _scrml_sql`INSERT INTO users (name, email) VALUES (${name}, ${email})`');
   });
 
   test("INSERT with one param", () => {
     const input = "?{`INSERT INTO sessions (token) VALUES (${token})`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("INSERT INTO sessions (token) VALUES (?1)").run(token)');
+    expect(output).toBe('await _scrml_sql`INSERT INTO sessions (token) VALUES (${token})`');
   });
 
-  test("INSERT output does not contain raw ${}", () => {
+  test("INSERT output preserves ${} slots — bound at driver layer (§44.5)", () => {
     const input = "?{`INSERT INTO logs (msg) VALUES (${msg})`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).not.toContain("${");
-    expect(output).not.toContain("${msg}");
+    // The ${msg} slot stays — Bun binds it as a positional parameter.
+    expect(output).toContain("${msg}");
+    // No double-quoted SQL string (no string-interp shape).
+    expect(output).not.toContain('"INSERT');
   });
 
-  test("INSERT static (no params) — no args in .run() call", () => {
+  test("INSERT static (no params) — bare tagged template", () => {
     const input = "?{`INSERT INTO defaults (key, val) VALUES ('lang', 'en')`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe("_scrml_db.query(\"INSERT INTO defaults (key, val) VALUES ('lang', 'en')\").run()");
+    expect(output).toBe("await _scrml_sql`INSERT INTO defaults (key, val) VALUES ('lang', 'en')`");
   });
 });
 
@@ -64,13 +74,13 @@ describe("§2 UPDATE with .run() — multi-param", () => {
   test("UPDATE with two params", () => {
     const input = "?{`UPDATE users SET email = ${email} WHERE id = ${id}`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("UPDATE users SET email = ?1 WHERE id = ?2").run(email, id)');
+    expect(output).toBe('await _scrml_sql`UPDATE users SET email = ${email} WHERE id = ${id}`');
   });
 
   test("UPDATE with three params", () => {
     const input = "?{`UPDATE posts SET title = ${title}, body = ${body} WHERE id = ${id}`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("UPDATE posts SET title = ?1, body = ?2 WHERE id = ?3").run(title, body, id)');
+    expect(output).toBe('await _scrml_sql`UPDATE posts SET title = ${title}, body = ${body} WHERE id = ${id}`');
   });
 });
 
@@ -82,93 +92,89 @@ describe("§3 DELETE with .run() — single param", () => {
   test("DELETE by primary key", () => {
     const input = "?{`DELETE FROM users WHERE id = ${userId}`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("DELETE FROM users WHERE id = ?1").run(userId)');
+    expect(output).toBe('await _scrml_sql`DELETE FROM users WHERE id = ${userId}`');
   });
 
   test("DELETE by token string", () => {
     const input = "?{`DELETE FROM sessions WHERE token = ${tok}`}.run()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("DELETE FROM sessions WHERE token = ?1").run(tok)');
+    expect(output).toBe('await _scrml_sql`DELETE FROM sessions WHERE token = ${tok}`');
   });
 });
 
 // ---------------------------------------------------------------------------
-// §4  Static DDL — no chained call — falls through to _scrml_sql_exec
+// §4  Static DDL — no chained call — falls through to sql.unsafe()
 // ---------------------------------------------------------------------------
 
-describe("§4 static DDL without method call — _scrml_sql_exec", () => {
-  test("bare DDL statement routes to _scrml_sql_exec", () => {
+describe("§4 static DDL without method call — sql.unsafe()", () => {
+  test("bare DDL statement routes to sql.unsafe()", () => {
     const input = "?{`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)`}";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_sql_exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")');
+    expect(output).toBe('await _scrml_sql.unsafe("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY)")');
   });
 
-  test("bare DDL does not use _scrml_db.query()", () => {
+  test("bare DDL uses sql.unsafe(), not legacy helper", () => {
     const input = "?{`CREATE INDEX idx_email ON users (email)`}";
     const output = rewriteSqlRefs(input);
-    expect(output).not.toContain("_scrml_db.query");
-    expect(output).toContain("_scrml_sql_exec");
+    expect(output).not.toContain("_scrml_db");
+    expect(output).not.toContain("_scrml_sql_exec");
+    expect(output).toContain("_scrml_sql.unsafe(");
   });
 });
 
 // ---------------------------------------------------------------------------
-// §5  .prepare() — emits db.prepare(sql) WITHOUT bound params
+// §5  .prepare() — emits E-SQL-006 (§44.3)
 // ---------------------------------------------------------------------------
 
-describe("§5 .prepare() — no params at call site", () => {
-  test("INSERT with params — .prepare() omits params", () => {
+describe("§5 .prepare() — E-SQL-006 compile error (§44.3)", () => {
+  test("INSERT with params — .prepare() emits runtime-throwing IIFE", () => {
     const input = "?{`INSERT INTO users (n, e) VALUES (${n}, ${e})`}.prepare()";
     const output = rewriteSqlRefs(input);
-    // .prepare() should produce db.prepare(sql) — NO bound params at prepare time
-    expect(output).toBe('_scrml_db.prepare("INSERT INTO users (n, e) VALUES (?1, ?2)")');
+    expect(output).toContain("E-SQL-006");
+    expect(output).toContain("throw new Error");
+    // Defense in depth: no _scrml_sql.prepare() leaks into the output
+    expect(output).not.toContain("_scrml_sql.prepare(");
+    expect(output).not.toContain("_scrml_db.prepare(");
   });
 
-  test("SELECT with param — .prepare() omits params", () => {
+  test("SELECT with param — .prepare() emits the same E-SQL-006 marker", () => {
     const input = "?{`SELECT * FROM users WHERE id = ${id}`}.prepare()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.prepare("SELECT * FROM users WHERE id = ?1")');
+    expect(output).toContain("E-SQL-006");
+    expect(output).toContain("§44.3");
   });
 
-  test(".prepare() output is db.prepare() — exact match verifies no args leaked", () => {
-    // Use variables 'x' and 'y' that don't appear in the SQL column list
+  test(".prepare() pushes E-SQL-006 onto errors[]", () => {
     const input = "?{`INSERT INTO t (a, b) VALUES (${x}, ${y})`}.prepare()";
-    const output = rewriteSqlRefs(input);
-    // Exact match: if x or y appeared in the call, the output would differ
-    expect(output).toBe('_scrml_db.prepare("INSERT INTO t (a, b) VALUES (?1, ?2)")');
-    // Confirm the param variables do not appear anywhere after the closing quote
-    const afterQuote = output.slice(output.lastIndexOf('"') + 1);
-    expect(afterQuote).toBe(")");
-  });
-
-  test(".prepare() uses db.prepare(), not db.query()", () => {
-    const input = "?{`UPDATE users SET x = ${x} WHERE id = ${id}`}.prepare()";
-    const output = rewriteSqlRefs(input);
-    expect(output).toContain("_scrml_db.prepare(");
-    expect(output).not.toContain("_scrml_db.query(");
+    const errors = [];
+    rewriteSqlRefs(input, "_scrml_sql", errors);
+    expect(errors.length).toBe(1);
+    expect(errors[0].code).toBe("E-SQL-006");
   });
 });
 
 // ---------------------------------------------------------------------------
-// §6  .prepare() static SQL — no params at all
+// §6  .prepare() static SQL — still E-SQL-006
 // ---------------------------------------------------------------------------
 
-describe("§6 .prepare() with static SQL — no ?N placeholders", () => {
-  test("static SELECT — prepare with no placeholders", () => {
+describe("§6 .prepare() with static SQL — E-SQL-006 (§44.3)", () => {
+  test("static SELECT — prepare emits E-SQL-006", () => {
     const input = "?{`SELECT * FROM config WHERE active = 1`}.prepare()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.prepare("SELECT * FROM config WHERE active = 1")');
+    expect(output).toContain("E-SQL-006");
   });
 });
 
 // ---------------------------------------------------------------------------
-// §7  .prepare() — SQL has ?N placeholders, no params passed at prepare time
+// §7  .prepare() — multi-param case is same E-SQL-006 path
 // ---------------------------------------------------------------------------
 
-describe("§7 .prepare() positional placeholders in output SQL", () => {
-  test("three params produce ?1, ?2, ?3 in the prepared SQL string", () => {
+describe("§7 .prepare() with multiple params — E-SQL-006 (§44.3)", () => {
+  test("three params — same E-SQL-006 emission path", () => {
     const input = "?{`UPDATE posts SET a = ${a}, b = ${b}, c = ${c}`}.prepare()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.prepare("UPDATE posts SET a = ?1, b = ?2, c = ?3")');
+    expect(output).toContain("E-SQL-006");
+    expect(output).not.toContain("_scrml_sql.prepare(");
   });
 });
 
@@ -177,12 +183,11 @@ describe("§7 .prepare() positional placeholders in output SQL", () => {
 // ---------------------------------------------------------------------------
 
 describe("§8 .run() return value is driver passthrough", () => {
-  test(".run() output does not have extra wrapper call", () => {
+  test(".run() output is the bare await tagged template", () => {
     const input = "?{`INSERT INTO users (nm) VALUES (${nm})`}.run()";
     const output = rewriteSqlRefs(input);
-    // Output must end with .run(nm) — no extra wrapping
-    expect(output).toMatch(/\.run\(nm\)$/);
-    // Must not wrap in a helper like _scrml_run_result()
+    expect(output).toBe('await _scrml_sql`INSERT INTO users (nm) VALUES (${nm})`');
+    // No extra wrapping helpers.
     expect(output).not.toContain("_scrml_run_result");
     expect(output).not.toContain("_scrml_wrap");
   });
@@ -193,37 +198,34 @@ describe("§8 .run() return value is driver passthrough", () => {
 // ---------------------------------------------------------------------------
 
 describe("§9 emitLogicNode — INSERT sql node with .run() chained call", () => {
-  test("sql node with .run() chained call emits parameterized run", () => {
+  test("sql node with .run() chained call emits await tagged template", () => {
     const node = {
       kind: "sql",
       query: "INSERT INTO users (name, email) VALUES (${name}, ${email})",
       chainedCalls: [{ method: "run" }],
     };
     const output = emitLogicNode(node);
-    expect(output).toBe('_scrml_db.query("INSERT INTO users (name, email) VALUES (?1, ?2)").run(name, email);');
+    expect(output).toBe('await _scrml_sql`INSERT INTO users (name, email) VALUES (${name}, ${email})`;');
   });
 
-  test("sql node with .run() — output has no ${}", () => {
+  test("sql node with .run() — output uses Bun.SQL tag form", () => {
     const node = {
       kind: "sql",
       query: "UPDATE posts SET title = ${title} WHERE id = ${id}",
       chainedCalls: [{ method: "run" }],
     };
     const output = emitLogicNode(node);
-    expect(output).not.toContain("${");
-    expect(output).toBe('_scrml_db.query("UPDATE posts SET title = ?1 WHERE id = ?2").run(title, id);');
+    expect(output).toBe('await _scrml_sql`UPDATE posts SET title = ${title} WHERE id = ${id}`;');
   });
 
-  test("sql node without chained call and with params defaults to .run()", () => {
+  test("sql node without chained call and with params defaults to await form", () => {
     const node = {
       kind: "sql",
       query: "DELETE FROM sessions WHERE tok = ${tok}",
       chainedCalls: [],
     };
     const output = emitLogicNode(node);
-    // No chained call + params → default to .run() per existing behavior
-    expect(output).toContain(".run(tok)");
-    expect(output).toBe('_scrml_db.query("DELETE FROM sessions WHERE tok = ?1").run(tok);');
+    expect(output).toBe('await _scrml_sql`DELETE FROM sessions WHERE tok = ${tok}`;');
   });
 });
 
@@ -231,36 +233,35 @@ describe("§9 emitLogicNode — INSERT sql node with .run() chained call", () =>
 // §10  emitLogicNode sql node — .prepare() codegen
 // ---------------------------------------------------------------------------
 
-describe("§10 emitLogicNode — sql node with .prepare() chained call", () => {
-  test(".prepare() emitted as db.query().prepare() — current behavior", () => {
-    // Note: emitLogicNode uses the chained call directly via db.query().method()
-    // The .prepare() special-casing only applies in rewriteSqlRefs (inline expressions).
-    // emitLogicNode always uses db.query() for all chained calls.
+describe("§10 emitLogicNode — sql node with .prepare() chained call emits E-SQL-006 IIFE", () => {
+  test(".prepare() emits a runtime-throwing IIFE (§44.3)", () => {
     const node = {
       kind: "sql",
       query: "INSERT INTO users (name) VALUES (?1)",
       chainedCalls: [{ method: "prepare" }],
     };
     const output = emitLogicNode(node);
-    expect(output).toContain("_scrml_db.query(");
-    expect(output).toContain(".prepare(");
+    expect(output).toContain("E-SQL-006");
+    expect(output).toContain("throw new Error");
+    expect(output).not.toContain("_scrml_sql.prepare(");
+    expect(output).not.toContain("_scrml_db.prepare(");
   });
 });
 
 // ---------------------------------------------------------------------------
-// §11  transaction-block emit — BEGIN / COMMIT / ROLLBACK
+// §11  transaction-block emit — BEGIN / COMMIT / ROLLBACK via sql.unsafe()
 // ---------------------------------------------------------------------------
 
-describe("§11 transaction-block — BEGIN/COMMIT/ROLLBACK structure", () => {
-  test("empty transaction block emits BEGIN and COMMIT", () => {
+describe("§11 transaction-block — BEGIN/COMMIT/ROLLBACK via sql.unsafe() (§44.6)", () => {
+  test("empty transaction block emits BEGIN and COMMIT via sql.unsafe()", () => {
     const node = {
       kind: "transaction-block",
       body: [],
     };
     const output = emitLogicNode(node);
-    expect(output).toContain('_scrml_db.exec("BEGIN")');
-    expect(output).toContain('_scrml_db.exec("COMMIT")');
-    expect(output).toContain('_scrml_db.exec("ROLLBACK")');
+    expect(output).toContain('await _scrml_sql.unsafe("BEGIN")');
+    expect(output).toContain('await _scrml_sql.unsafe("COMMIT")');
+    expect(output).toContain('await _scrml_sql.unsafe("ROLLBACK")');
   });
 
   test("transaction block has try/catch structure", () => {
@@ -284,19 +285,17 @@ describe("§11 transaction-block — BEGIN/COMMIT/ROLLBACK structure", () => {
     const rollbackLine = lines.findIndex(l => l.includes("ROLLBACK"));
     const catchLine = lines.findIndex(l => l.includes("} catch ("));
     const commitLine = lines.findIndex(l => l.includes("COMMIT"));
-    // ROLLBACK must come after catch
     expect(rollbackLine).toBeGreaterThan(catchLine);
-    // COMMIT must come before catch
     expect(commitLine).toBeLessThan(catchLine);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §12  transaction-block — write stmts inside are parameterized
+// §12  transaction-block — write stmts inside are tagged-template form
 // ---------------------------------------------------------------------------
 
-describe("§12 transaction-block — inner SQL stmts parameterized", () => {
-  test("two sql nodes inside transaction both parameterized", () => {
+describe("§12 transaction-block — inner SQL stmts use Bun.SQL form", () => {
+  test("two sql nodes inside transaction emit tagged templates", () => {
     const node = {
       kind: "transaction-block",
       body: [
@@ -313,11 +312,10 @@ describe("§12 transaction-block — inner SQL stmts parameterized", () => {
       ],
     };
     const output = emitLogicNode(node);
-    expect(output).not.toContain("${");
-    expect(output).toContain("?1");
-    expect(output).toContain(".run(");
-    expect(output).toContain('_scrml_db.exec("BEGIN")');
-    expect(output).toContain('_scrml_db.exec("COMMIT")');
+    expect(output).toContain("_scrml_sql`UPDATE accounts SET balance = balance - ${amt} WHERE id = ${fromId}`");
+    expect(output).toContain("_scrml_sql`UPDATE accounts SET balance = balance + ${amt} WHERE id = ${toId}`");
+    expect(output).toContain('await _scrml_sql.unsafe("BEGIN")');
+    expect(output).toContain('await _scrml_sql.unsafe("COMMIT")');
   });
 });
 
@@ -329,23 +327,22 @@ describe("§13 rewriteExpr integration — write ops in full pipeline", () => {
   test("INSERT .run() passes through rewriteExpr correctly", () => {
     const input = "?{`INSERT INTO users (nm) VALUES (${nm})`}.run()";
     const output = rewriteExpr(input);
-    expect(output).toBe('_scrml_db.query("INSERT INTO users (nm) VALUES (?1)").run(nm)');
+    expect(output).toBe('await _scrml_sql`INSERT INTO users (nm) VALUES (${nm})`');
   });
 
-  test(".prepare() in rewriteExpr — exact output matches, no param variables after closing quote", () => {
-    // Use variables p1, p2 that don't appear in the SQL column/table names
+  test(".prepare() in rewriteExpr emits E-SQL-006 marker", () => {
     const input = "const stmt = ?{`INSERT INTO t (a, b) VALUES (${p1}, ${p2})`}.prepare()";
     const output = rewriteExpr(input);
-    expect(output).toBe('const stmt = _scrml_db.prepare("INSERT INTO t (a, b) VALUES (?1, ?2)")');
+    expect(output).toContain("E-SQL-006");
+    expect(output).toContain("const stmt = ");
   });
 
   test("DELETE .run() with reactive ref param", () => {
     const input = "?{`DELETE FROM sessions WHERE user_id = ${@userId}`}.run()";
     const output = rewriteExpr(input);
-    // @userId should be rewritten to reactive get, sql should be parameterized
-    expect(output).toContain('_scrml_db.query("DELETE FROM sessions WHERE user_id = ?1")');
-    expect(output).toContain('.run(');
-    expect(output).not.toContain("${@userId}");
+    // @userId rewritten to _scrml_reactive_get and lives inside the ${} slot
+    expect(output).toContain('_scrml_reactive_get("userId")');
+    expect(output).toContain("_scrml_sql`DELETE FROM sessions WHERE user_id = ${");
   });
 });
 
@@ -361,7 +358,7 @@ describe("§14 route inference — sql nodes are server-only", () => {
     expect(isServerOnlyNode(node)).toBe(true);
   });
 
-  test("sql node with .prepare() is server-only", () => {
+  test("sql node with .prepare() is still server-only (compile-error path)", () => {
     const node = { kind: "sql", query: "INSERT INTO users (name) VALUES (?1)", chainedCalls: [{ method: "prepare" }] };
     expect(isServerOnlyNode(node)).toBe(true);
   });
@@ -378,39 +375,49 @@ describe("§14 route inference — sql nodes are server-only", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §15  @var rewriting in SQL params — server path (fix-sql-param-rewrite)
+// §15  @var rewriting in SQL params — server path (rewriteServerExpr)
 // ---------------------------------------------------------------------------
-
 
 describe("§15 @var in SQL template params — server path (rewriteServerExpr)", () => {
   test("@var in INSERT template params is rewritten to _scrml_body on server path", () => {
     const input = "?{`INSERT INTO tasks (title, cat) VALUES (${@newTask}, ${@selectedCat})`}.run()";
     const output = rewriteServerExpr(input);
-    expect(output).toBe('_scrml_db.query("INSERT INTO tasks (title, cat) VALUES (?1, ?2)").run(_scrml_body["newTask"], _scrml_body["selectedCat"])');
+    // @vars are rewritten into the ${} slots which Bun.SQL binds.
+    expect(output).toContain('_scrml_body["newTask"]');
+    expect(output).toContain('_scrml_body["selectedCat"]');
+    expect(output).toContain("_scrml_sql`INSERT INTO tasks (title, cat) VALUES (${");
+    expect(output).toContain("await ");
   });
 
-  test("@var in SELECT template param is rewritten on server path — .all()", () => {
+  test("@var in SELECT template param — .all()", () => {
     const input = "?{`SELECT * FROM posts WHERE author = ${@userId}`}.all()";
     const output = rewriteServerExpr(input);
-    expect(output).toBe('_scrml_db.query("SELECT * FROM posts WHERE author = ?1").all(_scrml_body["userId"])');
+    expect(output).toContain('_scrml_body["userId"]');
+    expect(output).toContain("_scrml_sql`SELECT * FROM posts WHERE author = ${");
+    expect(output.startsWith("await ")).toBe(true);
   });
 
-  test("@var in SELECT template param is rewritten on server path — .get()", () => {
+  test("@var in SELECT template param — .get() emits the single-row helper", () => {
     const input = "?{`SELECT * FROM users WHERE id = ${@userId}`}.get()";
     const output = rewriteServerExpr(input);
-    expect(output).toBe('_scrml_db.query("SELECT * FROM users WHERE id = ?1").get(_scrml_body["userId"])');
+    expect(output).toContain('_scrml_body["userId"]');
+    expect(output).toContain("[0] ?? null");
+    expect(output.startsWith("(await ")).toBe(true);
   });
 
   test("@var in UPDATE template params is rewritten on server path", () => {
     const input = "?{`UPDATE users SET email = ${@email} WHERE id = ${@id}`}.run()";
     const output = rewriteServerExpr(input);
-    expect(output).toBe('_scrml_db.query("UPDATE users SET email = ?1 WHERE id = ?2").run(_scrml_body["email"], _scrml_body["id"])');
+    expect(output).toContain('_scrml_body["email"]');
+    expect(output).toContain('_scrml_body["id"]');
+    expect(output).toContain("await _scrml_sql`UPDATE users SET email = ${");
   });
 
   test("@var in DELETE template param is rewritten on server path", () => {
     const input = "?{`DELETE FROM sessions WHERE token = ${@token}`}.run()";
     const output = rewriteServerExpr(input);
-    expect(output).toBe('_scrml_db.query("DELETE FROM sessions WHERE token = ?1").run(_scrml_body["token"])');
+    expect(output).toContain('_scrml_body["token"]');
+    expect(output).toContain("await _scrml_sql`DELETE FROM sessions WHERE token = ${");
   });
 
   test("output does not contain raw @var after server rewrite", () => {
@@ -435,9 +442,10 @@ describe("§16 call.args @var rewriting — emitLogicNode with explicit .run(@va
       chainedCalls: [{ method: "run", args: "@userId" }],
     };
     const output = emitLogicNode(node);
-    // @userId should be rewritten by rewriteExpr → _scrml_reactive_get("userId")
+    // Bare ? + call.args path → emit await sql.unsafe(rawSql, [argList])
     expect(output).toContain("userId");
-    expect(output).not.toBe('_scrml_db.query("SELECT * FROM users WHERE id = ?").run();');
+    expect(output).toContain("_scrml_sql.unsafe(");
+    expect(output).toContain("await ");
   });
 
   test("sql node with bare ? and @var call.args — serverRewriteEmitted converts to body lookup", () => {
@@ -453,23 +461,23 @@ describe("§16 call.args @var rewriting — emitLogicNode with explicit .run(@va
   });
 
   test("sql node with template params takes precedence over empty call.args", () => {
-    // When SQL has ${} params AND call.args is empty, template params are used
     const node = {
       kind: "sql",
       query: "INSERT INTO t (a) VALUES (${val})",
       chainedCalls: [{ method: "run", args: "" }],
     };
     const output = emitLogicNode(node);
-    expect(output).toBe('_scrml_db.query("INSERT INTO t (a) VALUES (?1)").run(val);');
+    expect(output).toBe('await _scrml_sql`INSERT INTO t (a) VALUES (${val})`;');
   });
 
-  test("sql node with empty call.args and no template params — empty argList", () => {
+  test("sql node with empty call.args and no template params — bare unsafe call", () => {
     const node = {
       kind: "sql",
       query: "DELETE FROM logs WHERE done = 1",
       chainedCalls: [{ method: "run", args: "" }],
     };
     const output = emitLogicNode(node);
-    expect(output).toBe('_scrml_db.query("DELETE FROM logs WHERE done = 1").run();');
+    // Branch C (no params, no call.args) — bare tagged template
+    expect(output).toBe('await _scrml_sql`DELETE FROM logs WHERE done = 1`;');
   });
 });

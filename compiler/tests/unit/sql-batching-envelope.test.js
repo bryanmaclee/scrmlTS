@@ -2,9 +2,13 @@
  * Tier 1 Implicit Per-Handler Transaction Envelope — CG Tests (Slice 3b)
  *
  * Verifies that CG consumes the Stage 7.5 BatchPlan and wraps `!` server
- * handler bodies in `?{BEGIN DEFERRED}` / `?{COMMIT}` / catch-`?{ROLLBACK}`
- * (§8.9.2, §19.10.5) when an implicit-handler-tx CoalescingGroup is
- * recorded and no E-BATCH-001 composition error fired.
+ * handler bodies in a transaction envelope (§8.9.2, §19.10.5) when an
+ * implicit-handler-tx CoalescingGroup is recorded and no E-BATCH-001
+ * composition error fired.
+ *
+ * Phase 1 §44 update: BEGIN/COMMIT/ROLLBACK now go through Bun.SQL's
+ * `sql.unsafe()` since the bun:sqlite-style `db.exec()` is not on the
+ * Bun.SQL surface (§44.6 — proper sql.begin() integration is deferred).
  *
  * Coverage:
  *   §1  `!` handler with 2 SQL sites → envelope emitted
@@ -32,12 +36,16 @@ function compile(source) {
   }
 }
 
+const BEGIN_RE = /await _scrml_sql\.unsafe\("BEGIN DEFERRED"\)/g;
+const COMMIT_RE = /await _scrml_sql\.unsafe\("COMMIT"\)/g;
+const ROLLBACK_RE = /await _scrml_sql\.unsafe\("ROLLBACK"\)/g;
+
 // ---------------------------------------------------------------------------
 // §1
 // ---------------------------------------------------------------------------
 
 describe("§1 `!` handler with 2 coalescing SQL → envelope emitted", () => {
-  test("server JS contains BEGIN DEFERRED, COMMIT, and catch/ROLLBACK", () => {
+  test("server JS contains BEGIN DEFERRED, COMMIT, and catch/ROLLBACK via sql.unsafe()", () => {
     const src = [
       '<program db="test.db">',
       "${ server function load(id)! {",
@@ -51,9 +59,9 @@ describe("§1 `!` handler with 2 coalescing SQL → envelope emitted", () => {
     const js = [...(result.outputs?.values() ?? [])]
       .map((o) => o.serverJs ?? "")
       .join("\n");
-    expect(js).toContain('_scrml_db.exec("BEGIN DEFERRED")');
-    expect(js).toContain('_scrml_db.exec("COMMIT")');
-    expect(js).toContain('_scrml_db.exec("ROLLBACK")');
+    expect(js).toContain('await _scrml_sql.unsafe("BEGIN DEFERRED")');
+    expect(js).toContain('await _scrml_sql.unsafe("COMMIT")');
+    expect(js).toContain('await _scrml_sql.unsafe("ROLLBACK")');
     expect(js).toContain("_scrml_batch_err");
   });
 });
@@ -77,7 +85,7 @@ describe("§2 non-`!` handler — no envelope even with 2 SQL sites", () => {
     const js = [...(result.outputs?.values() ?? [])]
       .map((o) => o.serverJs ?? "")
       .join("\n");
-    expect(js).not.toContain('_scrml_db.exec("BEGIN DEFERRED")');
+    expect(js).not.toContain('await _scrml_sql.unsafe("BEGIN DEFERRED")');
   });
 });
 
@@ -98,7 +106,7 @@ describe("§3 `!` handler with single SQL site → no envelope", () => {
     const js = [...(result.outputs?.values() ?? [])]
       .map((o) => o.serverJs ?? "")
       .join("\n");
-    expect(js).not.toContain('_scrml_db.exec("BEGIN DEFERRED")');
+    expect(js).not.toContain('await _scrml_sql.unsafe("BEGIN DEFERRED")');
   });
 });
 
@@ -121,11 +129,11 @@ describe("§4 envelope structure is correct", () => {
     const js = [...(result.outputs?.values() ?? [])]
       .map((o) => o.serverJs ?? "")
       .join("\n");
-    const idxBegin = js.indexOf('_scrml_db.exec("BEGIN DEFERRED")');
+    const idxBegin = js.indexOf('await _scrml_sql.unsafe("BEGIN DEFERRED")');
     const idxIife = js.indexOf("const _scrml_result = await (async () =>", idxBegin);
-    const idxCommit = js.indexOf('_scrml_db.exec("COMMIT")', idxBegin);
+    const idxCommit = js.indexOf('await _scrml_sql.unsafe("COMMIT")', idxBegin);
     const idxCatch = js.indexOf("catch (_scrml_batch_err)", idxBegin);
-    const idxRollback = js.indexOf('_scrml_db.exec("ROLLBACK")', idxBegin);
+    const idxRollback = js.indexOf('await _scrml_sql.unsafe("ROLLBACK")', idxBegin);
     expect(idxBegin).toBeGreaterThan(-1);
     expect(idxIife).toBeGreaterThan(idxBegin);
     expect(idxCommit).toBeGreaterThan(idxIife);
@@ -153,7 +161,7 @@ describe("§5 `.nobatch()` pulling a handler below 2 eligible sites → no envel
     const js = [...(result.outputs?.values() ?? [])]
       .map((o) => o.serverJs ?? "")
       .join("\n");
-    expect(js).not.toContain('_scrml_db.exec("BEGIN DEFERRED")');
+    expect(js).not.toContain('await _scrml_sql.unsafe("BEGIN DEFERRED")');
   });
 });
 
@@ -182,7 +190,7 @@ describe("§6 envelope is per-handler", () => {
       .map((o) => o.serverJs ?? "")
       .join("\n");
     // One BEGIN DEFERRED (fallible), not two
-    const count = (js.match(/_scrml_db\.exec\("BEGIN DEFERRED"\)/g) ?? []).length;
+    const count = (js.match(BEGIN_RE) ?? []).length;
     expect(count).toBe(1);
   });
 });

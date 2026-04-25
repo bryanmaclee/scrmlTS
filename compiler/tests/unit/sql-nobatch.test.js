@@ -74,8 +74,9 @@ describe("§1 rewriteSqlRefs: `?{...}.nobatch().get()` → real call on real met
     const input = "?{`SELECT * FROM users WHERE id = ${id}`}.nobatch().get()";
     const output = rewriteSqlRefs(input);
     expect(output).not.toContain(".nobatch(");
-    expect(output).toContain(".get(");
-    expect(output).toContain("_scrml_db.query");
+    // §44.3: .get() emits the single-row helper using a Bun.SQL tagged template.
+    expect(output).toContain("[0] ?? null");
+    expect(output).toContain("_scrml_sql`");
   });
 });
 
@@ -88,7 +89,7 @@ describe("§2 rewriteSqlRefs: `?{...}.get().nobatch()` — trailing nobatch drop
     const input = "?{`SELECT 1`}.get().nobatch()";
     const output = rewriteSqlRefs(input);
     expect(output).not.toContain(".nobatch(");
-    expect(output).toContain(".get(");
+    expect(output).toContain("[0] ?? null");
   });
 });
 
@@ -100,7 +101,7 @@ describe("§3 regression: baseline without nobatch is unchanged", () => {
   test("plain `.get()` passes through unchanged by the nobatch pass", () => {
     const input = "?{`SELECT * FROM users WHERE id = ${id}`}.get()";
     const output = rewriteSqlRefs(input);
-    expect(output).toBe('_scrml_db.query("SELECT * FROM users WHERE id = ?1").get(id)');
+    expect(output).toBe('(await _scrml_sql`SELECT * FROM users WHERE id = ${id}`)[0] ?? null');
   });
 });
 
@@ -109,11 +110,13 @@ describe("§3 regression: baseline without nobatch is unchanged", () => {
 // ---------------------------------------------------------------------------
 
 describe("§4 rewriteSqlRefs: .nobatch().all() with a bound param", () => {
-  test("params survive, nobatch dropped", () => {
+  test("params survive as ${} slot, nobatch dropped", () => {
     const input = "?{`SELECT * FROM posts WHERE author_id = ${userId}`}.nobatch().all()";
     const output = rewriteSqlRefs(input);
     expect(output).not.toContain(".nobatch(");
-    expect(output).toContain(".all(userId)");
+    // §44 Bun.SQL: param preserved as JS template-literal slot, bound at driver.
+    expect(output).toContain("${userId}");
+    expect(output).toContain("await _scrml_sql`");
   });
 });
 

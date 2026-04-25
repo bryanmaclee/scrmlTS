@@ -142,7 +142,7 @@ describe("§4 original `?{...}.get()` call is removed from loop body", () => {
 // ---------------------------------------------------------------------------
 
 describe("§5 single `WHERE IN (...)` query built before the loop", () => {
-  test("the pre-loop query runs .all(...keys) — one round trip", () => {
+  test("the pre-loop query runs sql.unsafe(rawSql, keys) — one round trip", () => {
     const src = [
       '<program db="test.db">',
       "${ server function recent(ids) {",
@@ -154,8 +154,11 @@ describe("§5 single `WHERE IN (...)` query built before the loop", () => {
     ].join("\n");
     const js = serverJsOf(compile(src));
     expect(js).toContain("__SCRML_BATCH_IN__");
-    expect(js).toMatch(/\.all\(\.\.\._scrml_batch_keys_\d+\)/);
-    expect(js).toContain("_scrml_db.query(");
+    // §44 / Bun.SQL: dynamic IN-list emission goes through sql.unsafe(rawSql, paramArray).
+    // Bun.SQL's SQLite branch does NOT support array binding via tagged-template ${arr},
+    // so we keep manual `?N` placeholder construction and bind via .unsafe().
+    expect(js).toMatch(/_scrml_sql\.unsafe\(.*?_scrml_batch_keys_\d+\)/s);
+    expect(js).toContain("_scrml_sql.unsafe(");
   });
 });
 
@@ -225,7 +228,7 @@ describe("§9 E-BATCH-002: runtime guard on SQLITE_MAX_VARIABLE_NUMBER (§8.10.6
     expect(js).toContain("SQLITE_MAX_VARIABLE_NUMBER");
   });
 
-  test("guard is placed before the .all() spread call", () => {
+  test("guard is placed before the sql.unsafe() bind call", () => {
     const src = [
       '<program db="test.db">',
       "${ server function recent(ids) {",
@@ -237,9 +240,10 @@ describe("§9 E-BATCH-002: runtime guard on SQLITE_MAX_VARIABLE_NUMBER (§8.10.6
     ].join("\n");
     const js = serverJsOf(compile(src));
     const guardIdx = js.indexOf("E-BATCH-002");
-    const spreadIdx = js.search(/\.all\(\.\.\._scrml_batch_keys_\d+\)/);
+    // §44 emission: dynamic IN-list binds via sql.unsafe(rawSql, paramArray).
+    const bindIdx = js.search(/_scrml_sql\.unsafe\(.*?_scrml_batch_keys_\d+\)/s);
     expect(guardIdx).toBeGreaterThan(-1);
-    expect(spreadIdx).toBeGreaterThan(guardIdx);
+    expect(bindIdx).toBeGreaterThan(guardIdx);
   });
 });
 

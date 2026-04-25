@@ -1,0 +1,11 @@
+    expect(result.errors.filter(e => e.severity !== "warning")).toHaveLength(0);
+    const out = result.outputs.get("/test/app.scrml");
+    // §44 emission: bare DDL routes through Bun.SQL's `sql.unsafe()`.
+    expect(out.serverJs).toContain("_scrml_sql.unsafe(");
+    expect(out.serverJs).toContain("SELECT * FROM users");
+    // clientJs should have only the fetch stub, no SQL identifier and no SQL text
+    expect(out.clientJs).not.toContain("_scrml_sql.unsafe(");
+    expect(out.clientJs).not.toContain("_scrml_sql_exec");
+    expect(out.clientJs).not.toContain("SELECT * FROM users");
+  });
+});

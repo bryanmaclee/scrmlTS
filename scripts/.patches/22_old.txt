@@ -1,0 +1,6 @@
+    const output = emitLogicNode(node);
+    expect(output).toContain("_scrml_sql`");
+    expect(output).toContain("await ");
+    expect(output).not.toContain("${name");  // sanity — should be a JS slot, not raw text in a string
+    // The output IS a JS template — the ${} slots are preserved
+    expect(output).toBe('await _scrml_sql`INSERT INTO messages (name, email) VALUES (${name}, ${email})`;');

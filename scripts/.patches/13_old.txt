@@ -1,0 +1,10 @@
+  // Build placeholder list `?1, ?2, ...` so bun:sqlite gets positional bound params.
+  lines.push(
+    `const ${placeholdersVar} = ${keysVar}.map((_, _i) => "?" + (_i + 1)).join(", ");`,
+  );
+  // Substitute `__SCRML_BATCH_IN__` placeholder in the template with the
+  // generated positional placeholder list. The rest of the SQL template
+  // (column list, table, other predicates) is preserved verbatim.
+  lines.push(
+    `const ${rowsVar} = ${keysVar}.length === 0 ? [] : ${dbVar}.query(${JSON.stringify(inSqlTemplate)}.replace("__SCRML_BATCH_IN__", ${placeholdersVar})).all(...${keysVar});`,
+  );

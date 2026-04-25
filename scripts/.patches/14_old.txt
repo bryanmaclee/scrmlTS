@@ -1,0 +1,8 @@
+    if (useBaselineCsrf) {
+      // §8.9.2: implicit per-handler transaction envelope (Tier 1 coalescing).
+      const _envelope = needsImplicitEnvelope(name);
+      if (_envelope) {
+        lines.push(`  // §8.9.2 implicit per-handler transaction`);
+        lines.push(`  _scrml_db.exec("BEGIN DEFERRED");`);
+        lines.push(`  try {`);
+      }

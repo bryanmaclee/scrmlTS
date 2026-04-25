@@ -1,6 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { splitBareExprStatements } from "./compat/parser-workarounds.js";
 import { rewriteReactiveRefsAST, rewriteServerReactiveRefsAST } from "../expression-parser.ts";
+import { CGError } from "./errors.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,8 +14,14 @@ interface InlineMatchArm {
 }
 
 interface SqlParams {
+  /** Legacy `?N` placeholder form. Retained for callers that still build
+   *  positional-bind SQL strings (e.g. emit-control-flow loop hoist). */
   sql: string;
+  /** Captured `${expr}` interpolation expressions in left-to-right order. */
   params: string[];
+  /** Static text segments between params. `segments.length === params.length + 1`.
+   *  Used by Bun.SQL tagged-template emission. */
+  segments: string[];
 }
 
 interface TemplateAttrResult {
@@ -33,7 +40,8 @@ export interface RewriteContext {
   errors?: any[];
   /** Derived reactive variable names for derived-aware @-ref rewriting. */
   derivedNames?: Set<string> | null;
-  /** Database variable name for SQL rewrite (server path). Default: "_scrml_db". */
+  /** Database variable name for SQL rewrite (server path). Default: "_scrml_sql"
+   *  (Bun.SQL tag function — §44). */
   dbVar?: string;
   /**
    * When true, rewritePresenceGuard is skipped. Set by callers that know the
@@ -121,10 +129,21 @@ function _rewriteSegment(segment: string, derivedNames: Set<string> | null): str
 
 /**
  * Extract `${expr}` interpolations from a SQL template literal string.
+ *
+ * Returns three views of the input:
+ *   - `params`  — the captured `${expr}` payloads, in order
+ *   - `sql`     — legacy `?N` placeholder form (kept for emit-control-flow's
+ *                 dynamic IN-list emitter, which builds runtime SQL strings
+ *                 then binds via `sql.unsafe(rawSql, paramArray)`)
+ *   - `segments` — the static text between params; `segments.length` is
+ *                  always `params.length + 1`. Used to rebuild a Bun.SQL
+ *                  tagged-template literal in `buildTaggedTemplate()`.
  */
 export function extractSqlParams(sqlContent: string): SqlParams {
   const params: string[] = [];
+  const segments: string[] = [];
   let sql = "";
+  let curSeg = "";
   let i = 0;
 
   while (i < sqlContent.length) {
@@ -139,14 +158,56 @@ export function extractSqlParams(sqlContent: string): SqlParams {
       const paramExpr = sqlContent.slice(i + 2, j);
       params.push(paramExpr);
       sql += `?${params.length}`;
+      segments.push(curSeg);
+      curSeg = "";
       i = j + 1;
     } else {
       sql += sqlContent[i];
+      curSeg += sqlContent[i];
       i++;
     }
   }
+  segments.push(curSeg);
 
-  return { sql, params };
+  return { sql, params, segments };
+}
+
+// ---------------------------------------------------------------------------
+// buildTaggedTemplate
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a Bun.SQL tagged-template invocation from extracted params.
+ *
+ *   buildTaggedTemplate("sql", ["SELECT * FROM u WHERE id = ", ""], ["id"])
+ *     → "sql`SELECT * FROM u WHERE id = ${id}`"
+ *
+ * The template body is a raw template literal — `${param}` slots are
+ * preserved as JS interpolations so Bun.SQL binds each as a positional
+ * parameter (§44.5: bound, never string-interpolated).
+ *
+ * Static text inside `segments` may legitimately contain backticks or
+ * `${` sequences if the developer wrote a quoted SQL identifier or an
+ * escaped sequence. We escape both so the generated template is a
+ * syntactically valid JS template literal regardless of input.
+ */
+export function buildTaggedTemplate(
+  dbVar: string,
+  segments: string[],
+  params: string[],
+): string {
+  const escSeg = (s: string): string =>
+    s.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+
+  if (params.length === 0) {
+    return `${dbVar}\`${escSeg(segments[0] ?? "")}\``;
+  }
+  let out = `${dbVar}\`${escSeg(segments[0] ?? "")}`;
+  for (let k = 0; k < params.length; k++) {
+    out += `\${${params[k]}}${escSeg(segments[k + 1] ?? "")}`;
+  }
+  out += "`";
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,44 +216,77 @@ export function extractSqlParams(sqlContent: string): SqlParams {
 
 /**
  * Rewrite `?{`...`}.method()` and bare `?{`...`}` inline SQL blocks to
- * parameterized runtime database calls.
+ * Bun.SQL tagged-template invocations (SPEC §44).
  *
- * Special handling for `.prepare()`:
- *   `?{`INSERT INTO users (name) VALUES (${name})`}.prepare()`
- *   → `_scrml_db.prepare("INSERT INTO users (name) VALUES (?1)")`
+ * Method mapping (§44.3):
+ *   `.all()` (or bare `?{}`) → `await dbVar`...``         (returns Row[])
+ *   `.get()` / `.first()`    → `(await dbVar`...`)[0] ?? null`  (Row | null)
+ *   `.run()`                 → `await dbVar`...``         (return value unused)
+ *   `.prepare()`             → E-SQL-006 compile error    (§44.3)
+ *   bare `?{...}` (no chain) → `await dbVar.unsafe(SQL[, params])` (DDL paths)
  *
- * The `.prepare()` method returns a reusable PreparedStatement. Bound params
- * are NOT passed at prepare time — they are passed when the statement is
- * later executed via `.run()`, `.all()`, or `.get()` on the returned object.
- * This matches the bun:sqlite API (§8.5).
+ * `${expr}` interpolations are preserved as JS template-literal slots
+ * (Bun.SQL binds them as positional parameters per §44.5 — never string-
+ * interpolated). When this rewrite runs after rewriteReactiveRefs / on
+ * the server path, the param expressions may already be `_scrml_body[..]`
+ * lookups; the tagged-template form works identically for both.
  *
- * All other methods (`.all()`, `.first()`, `.get()`, `.run()`) pass bound
- * params immediately at call time.
+ * §8.9.5: `.nobatch()` is a compile-time marker with no runtime effect.
+ * It is stripped from both call positions before the main rewrite.
  */
-export function rewriteSqlRefs(expr: string, dbVar: string = "_scrml_db"): string {
+export function rewriteSqlRefs(
+  expr: string,
+  dbVar: string = "_scrml_sql",
+  errors?: any[],
+): string {
   if (!expr || typeof expr !== "string") return expr;
 
-  // §8.9.5: `.nobatch()` is a compile-time marker with no runtime effect.
-  // Strip it from the chain before the main rewrite. Both positions handled:
+  // §8.9.5: strip `.nobatch()` from either chain position.
   //   ?{...}.nobatch().get()  →  ?{...}.get()
   //   ?{...}.get().nobatch()  →  ?{...}.get()
   let result = expr.replace(/\.nobatch\(\)/g, "");
 
   result = result.replace(/\?\{`([^`]*)`\}\.(\w+)\(\)/g, (_, sqlContent: string, method: string) => {
-    const { sql, params } = extractSqlParams(sqlContent);
-    // .prepare() returns a reusable PreparedStatement — params are bound at
-    // execution time, not at prepare time. Emit db.prepare(sql) without params.
+    const { params, segments } = extractSqlParams(sqlContent);
+
+    // §44.3: `.prepare()` is removed from Bun.SQL. Bound-statement caching
+    // is handled internally — surface E-SQL-006 at compile time.
     if (method === "prepare") {
-      return `${dbVar}.prepare(${JSON.stringify(sql)})`;
+      if (errors) {
+        errors.push(new CGError(
+          "E-SQL-006",
+          `E-SQL-006: \`.prepare()\` is removed in Bun.SQL — use bare \`?{...}\` or \`.all()\`/\`.get()\`/\`.run()\` (§44.3). Bun.SQL caches prepared statements internally.`,
+          { start: 0, end: 0 },
+        ));
+      }
+      // Emit a compile-error marker so the JS still parses (defense in depth)
+      // but any runtime execution surfaces the issue immediately.
+      return `(()=>{throw new Error(${JSON.stringify("E-SQL-006: .prepare() is removed in Bun.SQL (§44.3) — use .all()/.get()/.run() or bare ?{}")})})()`;
     }
-    const argList = params.length > 0 ? params.join(", ") : "";
-    return `${dbVar}.query(${JSON.stringify(sql)}).${method}(${argList})`;
+
+    const tagged = buildTaggedTemplate(dbVar, segments, params);
+
+    // .get() and .first() — single-row helpers (§44.3 .get() returns Row | not).
+    // .first() is preserved as a back-compat alias for code emitted before §44
+    // was finalized. Both produce `(await sql`...`)[0] ?? null`.
+    if (method === "get" || method === "first") {
+      return `(await ${tagged})[0] ?? null`;
+    }
+
+    // .all() (Row[]) and .run() (void / mutation) emit the bare await form.
+    return `await ${tagged}`;
   });
 
+  // Bare `?{`...`}` form — typically static DDL (`CREATE TABLE ...`) or a
+  // dropped-value statement. Routes through `dbVar.unsafe()` so dynamically-
+  // built SQL strings are accepted, with params (if any) passed as a bound
+  // array (Bun.SQL binds them per §44.5).
   result = result.replace(/\?\{`([^`]*)`\}/g, (_, sqlContent: string) => {
     const { sql, params } = extractSqlParams(sqlContent);
-    const argList = params.length > 0 ? params.join(", ") : "";
-    return `_scrml_sql_exec(${JSON.stringify(sql)}${argList ? `, ${argList}` : ""})`;
+    if (params.length === 0) {
+      return `await ${dbVar}.unsafe(${JSON.stringify(sql)})`;
+    }
+    return `await ${dbVar}.unsafe(${JSON.stringify(sql)}, [${params.join(", ")}])`;
   });
 
   return result;
@@ -1485,7 +1579,7 @@ const clientPasses: RewritePass[] = [
   // Pass 7
   (s, _ctx) => rewriteInputStateRefs(s),
   // Pass 8
-  (s, _ctx) => rewriteSqlRefs(s),
+  (s, ctx) => rewriteSqlRefs(s, "_scrml_sql", ctx.errors),
   // Pass 9
   (s, _ctx) => rewriteEnumToEnum(s),
   // Pass 9.5: early struct construction strip — ensures `@var` inside `Type { ...@var }` is
@@ -1555,7 +1649,7 @@ const serverPasses: RewritePass[] = [
   // Pass 7: server-side reactive refs (different from client rewriteReactiveRefs)
   (s, _ctx) => rewriteServerReactiveRefs(s),
   // Pass 8: SQL with server dbVar
-  (s, ctx) => rewriteSqlRefs(s, ctx.dbVar ?? "_scrml_db"),
+  (s, ctx) => rewriteSqlRefs(s, ctx.dbVar ?? "_scrml_sql", ctx.errors),
   // Pass 8.5: re-run server reactive refs to catch @var that rewriteSqlRefs exposed.
   // rewriteSqlRefs extracts @var from SQL template params (${@var}) into plain JS argList
   // positions. Those @var were inside backtick strings during pass 7 and were skipped.
@@ -1695,7 +1789,7 @@ export function rewriteServerReactiveRefs(expr: string): string {
  * - rewriteServerReactiveRefs runs BEFORE rewriteSqlRefs (opposite of client ordering)
  * - dbVar is threaded via context for the SQL pass
  */
-export function rewriteServerExpr(expr: string, dbVar: string = "_scrml_db"): string {
+export function rewriteServerExpr(expr: string, dbVar: string = "_scrml_sql"): string {
   return runPasses(expr, serverPasses, { dbVar });
 }
 

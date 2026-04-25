@@ -1,0 +1,3 @@
+  /** Database variable name for SQL rewrite (server path). Default: "_scrml_sql"
+   *  (Bun.SQL tag function — §44). */
+  dbVar?: string;

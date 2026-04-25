@@ -1,0 +1,1 @@
+            const scopedDbVar = `_scrml_db_${++dbScopeCounter}`;

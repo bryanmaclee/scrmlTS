@@ -1,0 +1,1 @@
+    return emitHoistedForStmt(node, _hoist, opts?.dbVar ?? "_scrml_sql");

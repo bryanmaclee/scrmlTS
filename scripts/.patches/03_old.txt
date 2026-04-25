@@ -1,0 +1,44 @@
+/**
+ * Rewrite `?{`...`}.method()` and bare `?{`...`}` inline SQL blocks to
+ * parameterized runtime database calls.
+ *
+ * Special handling for `.prepare()`:
+ *   `?{`INSERT INTO users (name) VALUES (${name})`}.prepare()`
+ *   → `_scrml_db.prepare("INSERT INTO users (name) VALUES (?1)")`
+ *
+ * The `.prepare()` method returns a reusable PreparedStatement. Bound params
+ * are NOT passed at prepare time — they are passed when the statement is
+ * later executed via `.run()`, `.all()`, or `.get()` on the returned object.
+ * This matches the bun:sqlite API (§8.5).
+ *
+ * All other methods (`.all()`, `.first()`, `.get()`, `.run()`) pass bound
+ * params immediately at call time.
+ */
+export function rewriteSqlRefs(expr: string, dbVar: string = "_scrml_db"): string {
+  if (!expr || typeof expr !== "string") return expr;
+
+  // §8.9.5: `.nobatch()` is a compile-time marker with no runtime effect.
+  // Strip it from the chain before the main rewrite. Both positions handled:
+  //   ?{...}.nobatch().get()  →  ?{...}.get()
+  //   ?{...}.get().nobatch()  →  ?{...}.get()
+  let result = expr.replace(/\.nobatch\(\)/g, "");
+
+  result = result.replace(/\?\{`([^`]*)`\}\.(\w+)\(\)/g, (_, sqlContent: string, method: string) => {
+    const { sql, params } = extractSqlParams(sqlContent);
+    // .prepare() returns a reusable PreparedStatement — params are bound at
+    // execution time, not at prepare time. Emit db.prepare(sql) without params.
+    if (method === "prepare") {
+      return `${dbVar}.prepare(${JSON.stringify(sql)})`;
+    }
+    const argList = params.length > 0 ? params.join(", ") : "";
+    return `${dbVar}.query(${JSON.stringify(sql)}).${method}(${argList})`;
+  });
+
+  result = result.replace(/\?\{`([^`]*)`\}/g, (_, sqlContent: string) => {
+    const { sql, params } = extractSqlParams(sqlContent);
+    const argList = params.length > 0 ? params.join(", ") : "";
+    return `_scrml_sql_exec(${JSON.stringify(sql)}${argList ? `, ${argList}` : ""})`;
+  });
+
+  return result;
+}

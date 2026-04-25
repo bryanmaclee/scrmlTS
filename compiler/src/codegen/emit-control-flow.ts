@@ -150,7 +150,7 @@ export function emitForStmt(
   // to the standard emission path.
   const _hoist = (_hoistMap && node.id != null) ? _hoistMap.get(node.id) : null;
   if (_hoist) {
-    return emitHoistedForStmt(node, _hoist, opts?.dbVar ?? "_scrml_db");
+    return emitHoistedForStmt(node, _hoist, opts?.dbVar ?? "_scrml_sql");
   }
 
   if (typeof iterable === "string") {
@@ -363,7 +363,10 @@ function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
   lines.push(
     `if (${keysVar}.length > 32766) { const _e = new Error("E-BATCH-002: batched IN-list exceeds SQLITE_MAX_VARIABLE_NUMBER (32766) for hoisted loop"); _e.code = "E-BATCH-002"; throw _e; }`,
   );
-  // Build placeholder list `?1, ?2, ...` so bun:sqlite gets positional bound params.
+  // Build placeholder list `?1, ?2, ...` so Bun.SQL gets positional bound
+  // params. Bun.SQL's SQLite branch does NOT support array binding in tagged
+  // templates (`${arr}` throws), so we emit a runtime-built SQL string and
+  // bind the array via `sql.unsafe(rawSql, paramArray)` (§44.5).
   lines.push(
     `const ${placeholdersVar} = ${keysVar}.map((_, _i) => "?" + (_i + 1)).join(", ");`,
   );
@@ -371,7 +374,7 @@ function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
   // generated positional placeholder list. The rest of the SQL template
   // (column list, table, other predicates) is preserved verbatim.
   lines.push(
-    `const ${rowsVar} = ${keysVar}.length === 0 ? [] : ${dbVar}.query(${JSON.stringify(inSqlTemplate)}.replace("__SCRML_BATCH_IN__", ${placeholdersVar})).all(...${keysVar});`,
+    `const ${rowsVar} = ${keysVar}.length === 0 ? [] : (await ${dbVar}.unsafe(${JSON.stringify(inSqlTemplate)}.replace("__SCRML_BATCH_IN__", ${placeholdersVar}), ${keysVar}));`,
   );
   lines.push(`const ${mapVar} = new Map();`);
   if (terminator === "get") {

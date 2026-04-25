@@ -1,0 +1,16 @@
+  test("guard is placed before the .all() spread call", () => {
+    const src = [
+      '<program db="test.db">',
+      "${ server function recent(ids) {",
+      "    for (let x of ids) {",
+      "        let row = ?{`SELECT id FROM users WHERE id = ${x.id}`}.get()",
+      "    }",
+      "} }",
+      "</>",
+    ].join("\n");
+    const js = serverJsOf(compile(src));
+    const guardIdx = js.indexOf("E-BATCH-002");
+    const spreadIdx = js.search(/\.all\(\.\.\._scrml_batch_keys_\d+\)/);
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(spreadIdx).toBeGreaterThan(guardIdx);
+  });

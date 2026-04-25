@@ -283,7 +283,7 @@ export function runCG(input: CgInput): CgOutput {
           if (dbAttr && !nameAttr) {
             // Scoped DB context — tag all children with the scoped DB variable
             const dbVal = dbAttr.value?.value ?? dbAttr.value?.name ?? "";
-            const scopedDbVar = `_scrml_db_${++dbScopeCounter}`;
+            const scopedDbVar = `_scrml_sql_${++dbScopeCounter}`;
             (node as any)._dbScope = { dbVar: scopedDbVar, connectionString: dbVal };
             // Tag all descendant logic/sql nodes
             function tagDescendants(children: any[]): void {
@@ -360,7 +360,7 @@ export function runCG(input: CgInput): CgOutput {
         encodingCtx: null,
         mode,
         testMode,
-        dbVar: "_scrml_db",
+        dbVar: "_scrml_sql",
         workerNames: [],
         errors,
         registry: new BindingRegistry(),
@@ -429,7 +429,7 @@ export function runCG(input: CgInput): CgOutput {
       encodingCtx: null,
       mode,
       testMode,
-      dbVar: "_scrml_db",
+      dbVar: "_scrml_sql",
       workerNames: fileWorkerNames,
       errors,
       registry,

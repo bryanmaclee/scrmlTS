@@ -83,7 +83,7 @@ export function makeCompileContext(partial: Partial<CompileContext> & { fileAST:
     encodingCtx: partial.encodingCtx ?? null,
     mode: partial.mode ?? "browser",
     testMode: partial.testMode ?? false,
-    dbVar: partial.dbVar ?? "_scrml_db",
+    dbVar: partial.dbVar ?? "_scrml_sql",
     workerNames: partial.workerNames ?? [],
     errors: partial.errors ?? [],
     registry: partial.registry ?? new BindingRegistry(),

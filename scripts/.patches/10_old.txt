@@ -1,0 +1,26 @@
+    case "sql": {
+      const rawQuery: string = node.query ?? node.body ?? "";
+      const calls: any[] = node.chainedCalls ?? [];
+      const { sql, params } = extractSqlParams(rawQuery);
+      const db = opts.dbVar ?? "_scrml_db";
+      if (calls.length > 0) {
+        const call = calls[0];
+        // Build argList: prefer params extracted from SQL ${} interpolations.
+        // Fall back to call.args (explicit .run(@var) / .all(@var) args) when the
+        // SQL uses bare ? placeholders and the dev passes params at call site.
+        let argList: string;
+        if (params.length > 0) {
+          argList = params.map((p: string) => emitExprField(null, p, _makeExprCtx(opts))).join(", ");
+        } else if (call.args && call.args.trim()) {
+          argList = emitExprField(null, call.args.trim(), _makeExprCtx(opts));
+        } else {
+          argList = "";
+        }
+        return `${db}.query(${JSON.stringify(sql)}).${call.method}(${argList});`;
+      }
+      if (params.length > 0) {
+        const argList = params.map((p: string) => emitExprField(null, p, _makeExprCtx(opts))).join(", ");
+        return `${db}.query(${JSON.stringify(sql)}).run(${argList});`;
+      }
+      return `_scrml_sql_exec(${JSON.stringify(rawQuery)});`;
+    }

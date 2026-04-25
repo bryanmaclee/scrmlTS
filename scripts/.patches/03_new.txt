@@ -1,0 +1,77 @@
+/**
+ * Rewrite `?{`...`}.method()` and bare `?{`...`}` inline SQL blocks to
+ * Bun.SQL tagged-template invocations (SPEC §44).
+ *
+ * Method mapping (§44.3):
+ *   `.all()` (or bare `?{}`) → `await dbVar`...``         (returns Row[])
+ *   `.get()` / `.first()`    → `(await dbVar`...`)[0] ?? null`  (Row | null)
+ *   `.run()`                 → `await dbVar`...``         (return value unused)
+ *   `.prepare()`             → E-SQL-006 compile error    (§44.3)
+ *   bare `?{...}` (no chain) → `await dbVar.unsafe(SQL[, params])` (DDL paths)
+ *
+ * `${expr}` interpolations are preserved as JS template-literal slots
+ * (Bun.SQL binds them as positional parameters per §44.5 — never string-
+ * interpolated). When this rewrite runs after rewriteReactiveRefs / on
+ * the server path, the param expressions may already be `_scrml_body[..]`
+ * lookups; the tagged-template form works identically for both.
+ *
+ * §8.9.5: `.nobatch()` is a compile-time marker with no runtime effect.
+ * It is stripped from both call positions before the main rewrite.
+ */
+export function rewriteSqlRefs(
+  expr: string,
+  dbVar: string = "_scrml_sql",
+  errors?: any[],
+): string {
+  if (!expr || typeof expr !== "string") return expr;
+
+  // §8.9.5: strip `.nobatch()` from either chain position.
+  //   ?{...}.nobatch().get()  →  ?{...}.get()
+  //   ?{...}.get().nobatch()  →  ?{...}.get()
+  let result = expr.replace(/\.nobatch\(\)/g, "");
+
+  result = result.replace(/\?\{`([^`]*)`\}\.(\w+)\(\)/g, (_, sqlContent: string, method: string) => {
+    const { params, segments } = extractSqlParams(sqlContent);
+
+    // §44.3: `.prepare()` is removed from Bun.SQL. Bound-statement caching
+    // is handled internally — surface E-SQL-006 at compile time.
+    if (method === "prepare") {
+      if (errors) {
+        errors.push(new CGError(
+          "E-SQL-006",
+          `E-SQL-006: \`.prepare()\` is removed in Bun.SQL — use bare \`?{...}\` or \`.all()\`/\`.get()\`/\`.run()\` (§44.3). Bun.SQL caches prepared statements internally.`,
+          { start: 0, end: 0 },
+        ));
+      }
+      // Emit a compile-error marker so the JS still parses (defense in depth)
+      // but any runtime execution surfaces the issue immediately.
+      return `(()=>{throw new Error(${JSON.stringify("E-SQL-006: .prepare() is removed in Bun.SQL (§44.3) — use .all()/.get()/.run() or bare ?{}")})})()`;
+    }
+
+    const tagged = buildTaggedTemplate(dbVar, segments, params);
+
+    // .get() and .first() — single-row helpers (§44.3 .get() returns Row | not).
+    // .first() is preserved as a back-compat alias for code emitted before §44
+    // was finalized. Both produce `(await sql`...`)[0] ?? null`.
+    if (method === "get" || method === "first") {
+      return `(await ${tagged})[0] ?? null`;
+    }
+
+    // .all() (Row[]) and .run() (void / mutation) emit the bare await form.
+    return `await ${tagged}`;
+  });
+
+  // Bare `?{`...`}` form — typically static DDL (`CREATE TABLE ...`) or a
+  // dropped-value statement. Routes through `dbVar.unsafe()` so dynamically-
+  // built SQL strings are accepted, with params (if any) passed as a bound
+  // array (Bun.SQL binds them per §44.5).
+  result = result.replace(/\?\{`([^`]*)`\}/g, (_, sqlContent: string) => {
+    const { sql, params } = extractSqlParams(sqlContent);
+    if (params.length === 0) {
+      return `await ${dbVar}.unsafe(${JSON.stringify(sql)})`;
+    }
+    return `await ${dbVar}.unsafe(${JSON.stringify(sql)}, [${params.join(", ")}])`;
+  });
+
+  return result;
+}

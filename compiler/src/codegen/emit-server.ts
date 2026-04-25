@@ -559,10 +559,12 @@ export function generateServerJs(
 
     if (useBaselineCsrf) {
       // §8.9.2: implicit per-handler transaction envelope (Tier 1 coalescing).
+      // §44.6: transactions deferred to SPEC-ISSUE-018 — use sql.unsafe()
+      // for BEGIN/COMMIT/ROLLBACK on the same Bun.SQL connection.
       const _envelope = needsImplicitEnvelope(name);
       if (_envelope) {
         lines.push(`  // §8.9.2 implicit per-handler transaction`);
-        lines.push(`  _scrml_db.exec("BEGIN DEFERRED");`);
+        lines.push(`  await _scrml_sql.unsafe("BEGIN DEFERRED");`);
         lines.push(`  try {`);
       }
 
@@ -635,7 +637,7 @@ export function generateServerJs(
 
       lines.push(`  })();`);
       if (_envelope) {
-        lines.push(`  _scrml_db.exec("COMMIT");`);
+        lines.push(`  await _scrml_sql.unsafe("COMMIT");`);
       }
       lines.push(`  return new Response(JSON.stringify(_scrml_result ?? null), {`);
       lines.push(`    status: 200,`);
@@ -646,7 +648,7 @@ export function generateServerJs(
       lines.push(`  });`);
       if (_envelope) {
         lines.push(`  } catch (_scrml_batch_err) {`);
-        lines.push(`    _scrml_db.exec("ROLLBACK");`);
+        lines.push(`    await _scrml_sql.unsafe("ROLLBACK");`);
         lines.push(`    throw _scrml_batch_err;`);
         lines.push(`  }`);
       }
