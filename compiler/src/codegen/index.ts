@@ -40,6 +40,7 @@ import { EncodingContext } from "./type-encoding.ts";
 import { collectDerivedVarNames } from "./reactive-deps.ts";
 import { collectTopLevelLogicStatements } from "./collect.ts";
 import type { CompileContext } from "./context.ts";
+import { resolveDbDriver } from "./db-driver.ts";
 
 // ---------------------------------------------------------------------------
 // Input / output types
@@ -271,7 +272,9 @@ export function runCG(input: CgInput): CgOutput {
       workerBundlesPerFile.set(filePath, bundles);
     }
 
-    // §4.12.6: DB scope annotation — tag children of <program db="..."> with _dbScope
+    // §4.12.6: DB scope annotation — tag children of <program db="..."> with _dbScope.
+    // §44.2: classify the db= URI into a driver kind (sqlite | postgres | mysql).
+    // Unsupported prefixes (e.g. mongodb://) emit E-SQL-005 at compile time.
     let dbScopeCounter = 0;
     function annotateDbScopes(parentChildren: any[]): void {
       for (const node of parentChildren) {
@@ -284,7 +287,22 @@ export function runCG(input: CgInput): CgOutput {
             // Scoped DB context — tag all children with the scoped DB variable
             const dbVal = dbAttr.value?.value ?? dbAttr.value?.name ?? "";
             const scopedDbVar = `_scrml_sql_${++dbScopeCounter}`;
-            (node as any)._dbScope = { dbVar: scopedDbVar, connectionString: dbVal };
+            // §44.2 driver resolution — emit E-SQL-005 on unsupported prefix.
+            // On error we still annotate the scope (with driver=sqlite default)
+            // so downstream codegen does not crash; the user sees the diagnostic.
+            const driverResult = resolveDbDriver(dbVal);
+            let driver: "sqlite" | "postgres" | "mysql" = "sqlite";
+            if (driverResult.ok) {
+              driver = driverResult.info.driver;
+            } else {
+              const span = (dbAttr.span ?? (node as any).span ?? { file: filePath, start: 0, end: 0, line: 0, col: 0 });
+              errors.push(new CGError(
+                driverResult.error.code,
+                driverResult.error.message,
+                { file: filePath, start: span.start ?? 0, end: span.end ?? 0, line: span.line ?? 0, col: span.col ?? 0 },
+              ));
+            }
+            (node as any)._dbScope = { dbVar: scopedDbVar, connectionString: dbVal, driver };
             // Tag all descendant logic/sql nodes
             function tagDescendants(children: any[]): void {
               for (const child of children) {
