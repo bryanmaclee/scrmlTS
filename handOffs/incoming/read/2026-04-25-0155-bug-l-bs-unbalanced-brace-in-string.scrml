@@ -1,0 +1,69 @@
+// Bug L minimal repro — BS choke on unbalanced {/} inside string literals
+//
+// When a single string literal contains an unmatched `{` or `}`, BS's
+// brace counter (which feeds `${}` logic-block close detection) gets
+// out of sync. The parser ends up reporting "Unclosed 'logic'" and
+// "Unclosed 'program'" even though the actual scrml braces are
+// balanced.
+//
+// Trigger: split a JS function declaration's `{` and `}` across two
+// separate strings (e.g., when authoring a sample doc to embed in
+// CM6). Each string is well-formed JS; the JS spans multiple
+// strings. BS sees unbalanced raw braces and miscounts.
+//
+// Discovered during playground-five construction (2026-04-25). The
+// sample-doc concatenation pattern is:
+//   const doc =
+//       "function greet(name) {" + nl +
+//       "    return 'hello';"   + nl +
+//       "}"                      + nl
+// Each line is its own string literal. BS sees `{` in one string and
+// `}` in another, fails to match them as in-string content.
+//
+// Tested against scrmlTS HEAD c51ad15.
+//
+// Note: the symmetric BALANCED-IN-ONE-STRING case works fine. p3's
+// bridge string `"window.__cmMod = { basicSetup, EditorView }; "` has
+// both braces in a single literal and compiles cleanly.
+
+<program>
+
+${
+    @doc = ""
+
+    function buildDoc() {
+        const nl = String.fromCharCode(10)
+        @doc =
+            "function greet(name) {" + nl +
+            "    return 'hello';"     + nl +
+            "}"                       + nl
+    }
+}
+
+<div>${@doc.length}</>
+<button onclick=buildDoc()>build</>
+
+</program>
+
+<!--
+Expected: compiles cleanly. @doc.length displays 0, then 38 after click.
+
+Actual: compiler fails at BS with:
+  warning [W-PROGRAM-001]: No <program> root element found. (line 1, col 1)
+  error   [E-CTX-003]:    Unclosed 'logic' (line 4, col 1)
+  error   [E-CTX-003]:    Unclosed 'program' (line 1, col 1)
+
+Hypothesis: BS's brace counter for `${...}` close detection is not
+string-aware. The fix is the standard tokenizer pattern: when entering
+a string literal (`"..."` or `'...'`), suppress all brace-count
+updates until the matching close quote.
+
+This is a sibling of the earlier `\n` issue (string literals don't
+process backslash-n as a newline character) — both stem from
+incomplete string-literal handling in BS's preprocessing. Different
+fix sites, same root cause class.
+
+Workaround in playground-five: rewrite the sample doc without raw
+braces. Either keep brace pairs within a single string literal, or
+emit them via String.fromCharCode(123)/(125).
+-->

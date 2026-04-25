@@ -1,7 +1,7 @@
 # fix-arrow-object-literal-paren-loss — Intake (GITI-013)
 
 **Surfaced:** 2026-04-25, by giti via inbox `2026-04-25-0728-giti-to-scrmlTS-...`.
-**Status:** RECEIVED with sidecar; queued for triage.
+**Status:** RECEIVED with sidecar; queued for triage. Sidecar confirmed in `read/` 2026-04-25 (S41).
 **Sidecar:** `handOffs/incoming/read/2026-04-25-0728-repro-09-arrow-object-literal.scrml`
 **Priority:** medium — `bun --check` (or runtime parse) fails; arrow-returning-object-literal is a common pattern.
 
@@ -46,4 +46,4 @@ Sidecar in inbox archive: `handOffs/incoming/read/2026-04-25-0728-repro-09-arrow
 - Related S34 fix: `127d35a` (Bug C — multi-statement arrow bodies dropped in call args). Different bug but adjacent code path.
 
 ## Tags
-#bug #codegen #arrow-function #object-literal #parsing #giti-013 #awaiting-sidecar
+#bug #codegen #arrow-function #object-literal #parsing #giti-013 #sidecar-in-read

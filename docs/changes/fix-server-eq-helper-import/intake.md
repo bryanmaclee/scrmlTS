@@ -1,7 +1,7 @@
 # fix-server-eq-helper-import — Intake (GITI-012)
 
 **Surfaced:** 2026-04-25, by giti via inbox `2026-04-25-0728-giti-to-scrmlTS-...`.
-**Status:** RECEIVED with sidecar; queued for triage.
+**Status:** RECEIVED with sidecar; queued for triage. Sidecar confirmed in `read/` 2026-04-25 (S41).
 **Sidecar:** `handOffs/incoming/read/2026-04-25-0728-repro-08-server-fn-eq.scrml`
 **Priority:** medium — runtime crash at every server fn invocation that uses `==`.
 
@@ -47,4 +47,4 @@ Sidecar in inbox archive: `handOffs/incoming/read/2026-04-25-0728-repro-08-serve
 - E-EQ-001..E-EQ-004 error codes
 
 ## Tags
-#bug #codegen #server #equality #runtime-import #giti-012 #awaiting-sidecar
+#bug #codegen #server #equality #runtime-import #giti-012 #sidecar-in-read
