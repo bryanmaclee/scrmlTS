@@ -216,6 +216,10 @@ const SERVER_ONLY_PATTERNS: ServerOnlyPattern[] = [
   { pattern: /\bBun\.env\b/, resourceType: "Bun.env" },
   { pattern: /\bnew\s+Bun\.Server\b/, resourceType: "Bun.Server" },
   { pattern: /\bnew\s+Database\s*\(/, resourceType: "bun:sqlite Database" },
+  // §44 Bun.SQL constructor — driver-agnostic SQL client. Server-only because
+  // any DB connection is a server-side resource (escalation trigger §12.2).
+  { pattern: /\bnew\s+SQL\s*\(/, resourceType: "Bun.SQL" },
+  { pattern: /\bnew\s+Bun\.SQL\s*\(/, resourceType: "Bun.SQL" },
   // Node.js fs module calls
   { pattern: /\bfs\.readFile\s*\(/, resourceType: "fs.readFile" },
   { pattern: /\bfs\.writeFile\s*\(/, resourceType: "fs.writeFile" },
