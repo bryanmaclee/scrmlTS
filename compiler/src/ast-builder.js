@@ -1955,30 +1955,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const childNode = buildBlock(child, filePath, parentBlock.type, counter, errors);
         if (childNode) {
           childNode.span = fullSpan(child.span, filePath);
-          // §SQL: collect chained method calls (.run(), .all(), .get()) from parent token stream
-          if (childNode.kind === "sql" && childNode.chainedCalls) {
-            while (peek().kind === "PUNCT" && peek().text === ".") {
-              consume(); // dot
-              if (peek().kind === "IDENT") {
-                const methodTok = consume();
-                let args = "";
-                if (peek().kind === "PUNCT" && peek().text === "(") {
-                  consume(); // open paren
-                  while (peek().kind !== "EOF" && !(peek().kind === "PUNCT" && peek().text === ")")) {
-                    args += consume().text;
-                  }
-                  if (peek().kind === "PUNCT" && peek().text === ")") consume(); // close paren
-                }
-                // §8.9.5: `.nobatch()` is a compile-time marker with no
-                // runtime effect. Flag the node and drop the call.
-                if (methodTok.text === "nobatch") {
-                  childNode.nobatch = true;
-                } else {
-                  childNode.chainedCalls.push({ method: methodTok.text, args });
-                }
-              }
-            }
-          }
+          // §SQL: collect chained method calls (.run(), .all(), .get()) from parent token stream.
+          // Uses the shared helper (defined ~L1910) which accepts both IDENT and KEYWORD method
+          // names — `.get()` and `.set()` tokenize as KEYWORD per tokenizer.ts:62.
+          // (fix-lift-sql-chained-call-parallel-sites, S40 follow-up.)
+          consumeSqlChainedCalls(childNode);
           return childNode;
         }
       }
@@ -3479,30 +3460,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const childNode = buildBlock(child, filePath, parentBlock.type, counter, errors);
         if (childNode) {
           childNode.span = fullSpan(child.span, filePath);
-          // §SQL: collect chained method calls (.run(), .all(), .get()) from parent token stream
-          if (childNode.kind === "sql" && childNode.chainedCalls) {
-            while (peek().kind === "PUNCT" && peek().text === ".") {
-              consume(); // dot
-              if (peek().kind === "IDENT") {
-                const methodTok = consume();
-                let args = "";
-                if (peek().kind === "PUNCT" && peek().text === "(") {
-                  consume(); // open paren
-                  while (peek().kind !== "EOF" && !(peek().kind === "PUNCT" && peek().text === ")")) {
-                    args += consume().text;
-                  }
-                  if (peek().kind === "PUNCT" && peek().text === ")") consume(); // close paren
-                }
-                // §8.9.5: `.nobatch()` is a compile-time marker with no
-                // runtime effect. Flag the node and drop the call.
-                if (methodTok.text === "nobatch") {
-                  childNode.nobatch = true;
-                } else {
-                  childNode.chainedCalls.push({ method: methodTok.text, args });
-                }
-              }
-            }
-          }
+          // §SQL: collect chained method calls (.run(), .all(), .get()) from parent token stream.
+          // Uses the shared helper (defined ~L1910) which accepts both IDENT and KEYWORD method
+          // names — `.get()` and `.set()` tokenize as KEYWORD per tokenizer.ts:62.
+          // (fix-lift-sql-chained-call-parallel-sites, S40 follow-up.)
+          consumeSqlChainedCalls(childNode);
           nodes.push(childNode);
         }
       }
