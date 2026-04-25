@@ -200,15 +200,115 @@ function emitUnary(node: UnaryExpr, ctx: EmitExprContext): string {
   return `${arg}${node.op}`;
 }
 
+/**
+ * GITI-012 / fix-server-eq-helper-import:
+ *
+ * Returns true when an ExprNode is statically known to evaluate to a JS
+ * primitive (number, string, boolean, null, undefined). When BOTH operands of
+ * a `==`/`!=` are statically primitive, SPEC §45.4 authorizes lowering to
+ * `===`/`!==` instead of `_scrml_structural_eq(...)`. This:
+ *   - avoids a function-call helper at runtime for the common case (cheaper),
+ *   - removes the dependency on `_scrml_structural_eq` being available in the
+ *     emit context (the bug: the helper lives in the client runtime; .server.js
+ *     never imports or inlines it, so any `==` on primitives in a `server fn`
+ *     body crashed with `ReferenceError`).
+ *
+ * Detection is intentionally conservative — only return true when the value
+ * MUST be a primitive at runtime regardless of the operand's static type. When
+ * unsure, return false and let the call fall back to the structural helper
+ * (the helper itself is correct for primitives — it's just unavailable on the
+ * server). The complementary fix in emit-server.ts inlines the helper when
+ * any non-shortcut `==`/`!=` survives into server code.
+ */
+function isStaticallyPrimitive(node: ExprNode): boolean {
+  switch (node.kind) {
+    case "lit":
+      // All LitExpr litTypes are primitive: number, string, template, bool,
+      // null, undefined, and `not` (which lowers to null).
+      return true;
+
+    case "unary": {
+      // Numeric/boolean unary operators always produce primitives.
+      // - `!x`, `-x`, `+x`, `~x`, `typeof x`, `void x` → primitive
+      // - `delete x` → boolean (primitive)
+      // - `await x` → unknown; do NOT shortcut
+      // - `++` / `--` → number (primitive), but only valid on lvalue refs
+      const u = node as UnaryExpr;
+      if (u.op === "await") return false;
+      return true;
+    }
+
+    case "binary": {
+      // Arithmetic, comparison, and logical-with-primitive operands all
+      // produce primitives.
+      const b = node as BinaryExpr;
+      switch (b.op) {
+        case "+": case "-": case "*": case "/": case "%": case "**":
+        case "<": case "<=": case ">": case ">=":
+        case "==": case "!=":
+        case "&": case "|": case "^": case "<<": case ">>": case ">>>":
+        case "in": case "instanceof":
+        case "is": case "is-not": case "is-some": case "is-not-not":
+          return true;
+        case "&&": case "||": case "??":
+          // Short-circuit ops return one of their operands — primitive only
+          // if both sides are statically primitive.
+          return isStaticallyPrimitive(b.left) && isStaticallyPrimitive(b.right);
+        default:
+          return false;
+      }
+    }
+
+    case "ternary": {
+      // `cond ? a : b` is primitive iff both branches are primitive.
+      return isStaticallyPrimitive(node.consequent) && isStaticallyPrimitive(node.alternate);
+    }
+
+    case "member": {
+      // Conservative whitelist of well-known primitive-returning property
+      // accesses. Don't try to be clever — only catch the obvious cases.
+      // (`arr.length`, `str.length` is the case in the GITI-012 reproducer.)
+      const m = node as MemberExpr;
+      switch (m.property) {
+        case "length":           // string.length, array.length, function.length
+        case "size":              // Map.size, Set.size — number
+        case "byteLength":        // ArrayBuffer.byteLength — number
+        case "name":              // function.name — string
+          return true;
+        default:
+          return false;
+      }
+    }
+
+    // Everything else (ident, array, object, call, lambda, cast, match-expr,
+    // sql-ref, input-state-ref, escape-hatch, new, index, spread, assign):
+    // either may carry a struct/enum/object value, or we have no static info.
+    // Fall through to the structural helper.
+    default:
+      return false;
+  }
+}
+
 function emitBinary(node: BinaryExpr, ctx: EmitExprContext): string {
   const left = emitExpr(node.left, ctx);
   const right = emitExpr(node.right, ctx);
 
   switch (node.op) {
-    // §45 structural equality — compiles to deep comparison helper
+    // §45 structural equality — compiles to deep comparison helper.
+    // Per §45.4: "a == b (primitives) → a === b in JavaScript". When both
+    // operands are statically known primitives, lower to ===/!==. This (a)
+    // skips a helper-function call at runtime and (b) avoids referencing
+    // `_scrml_structural_eq` in contexts where the helper isn't available
+    // (notably .server.js — see GITI-012 / fix-server-eq-helper-import).
     case "==":
+      if (isStaticallyPrimitive(node.left) && isStaticallyPrimitive(node.right)) {
+        return `(${left} === ${right})`;
+      }
       return `_scrml_structural_eq(${left}, ${right})`;
     case "!=":
+      if (isStaticallyPrimitive(node.left) && isStaticallyPrimitive(node.right)) {
+        return `(${left} !== ${right})`;
+      }
       return `!_scrml_structural_eq(${left}, ${right})`;
 
     // §42 presence/absence checks
