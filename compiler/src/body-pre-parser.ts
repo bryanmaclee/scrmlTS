@@ -209,16 +209,17 @@ function processFunctionNode(
   const body = node.body;
 
   // Check for the TAB deferred pattern: exactly one BareExpr node in the body array
+  // Phase 4d Step 8: BareExprNode.expr TS field deleted — read via (any) for runtime fallback
   if (
     Array.isArray(body) &&
     body.length === 1 &&
     body[0].kind === "bare-expr" &&
-    (typeof (body[0] as BareExprNode).expr === "string" || (body[0] as BareExprNode).exprNode != null)
+    (typeof (body[0] as any).expr === "string" || (body[0] as BareExprNode).exprNode != null)
   ) {
     const bareExprNode = body[0] as BareExprNode;
     const rawBody = bareExprNode.exprNode
       ? emitStringFromTree(bareExprNode.exprNode as ExprNode)
-      : (bareExprNode.expr ?? "");
+      : ((bareExprNode as any).expr ?? "");
     const bodySpan = bareExprNode.span;
 
     const { nodes: parsedNodes, parseErrors } = parseBody(rawBody, bodySpan, filePath, counter);

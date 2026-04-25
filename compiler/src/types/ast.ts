@@ -707,9 +707,15 @@ export interface MatchArmInlineNode extends BaseNode {
 /** A bare expression (fallback when no declaration keyword matches). */
 export interface BareExprNode extends BaseNode {
   kind: "bare-expr";
-  /** @deprecated Phase 4d: use exprNode. Retained for component-expander render pattern. */
-  expr?: string;
-  /** Structured ExprNode form of the expression. Always populated by ast-builder. */
+  /**
+   * Structured ExprNode form of the expression. Always populated by ast-builder.
+   *
+   * Phase 4d Step 8 (S40): the deprecated `expr?: string` field has been removed
+   * from the TypeScript surface. The runtime `.expr` value is still written by
+   * ast-builder.js for backward compat with JS consumers (read via duck typing
+   * or `(node as any).expr`), but TypeScript no longer acknowledges it as part
+   * of the BareExprNode contract. Consumers MUST prefer exprNode.
+   */
   exprNode?: ExprNode;
 }
 
