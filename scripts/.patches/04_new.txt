@@ -1,4 +1,0 @@
-import { genVar } from "./var-counter.ts";
-import { splitBareExprStatements } from "./compat/parser-workarounds.js";
-import { rewriteReactiveRefsAST, rewriteServerReactiveRefsAST } from "../expression-parser.ts";
-import { CGError } from "./errors.ts";

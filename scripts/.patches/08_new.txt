@@ -1,3 +1,0 @@
-export function rewriteServerExpr(expr: string, dbVar: string = "_scrml_sql"): string {
-  return runPasses(expr, serverPasses, { dbVar });
-}

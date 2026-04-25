@@ -1,2 +1,0 @@
-  // Pass 8: SQL with server dbVar
-  (s, ctx) => rewriteSqlRefs(s, ctx.dbVar ?? "_scrml_db"),

@@ -1,2 +1,0 @@
-  // Pass 8
-  (s, _ctx) => rewriteSqlRefs(s),

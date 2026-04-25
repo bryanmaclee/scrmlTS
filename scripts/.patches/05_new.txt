@@ -1,2 +1,0 @@
-  // Pass 8
-  (s, ctx) => rewriteSqlRefs(s, "_scrml_sql", ctx.errors),

@@ -1,5 +1,0 @@
-    const output = emitLogicNode(node);
-    expect(output).toContain("_scrml_sql`");
-    expect(output).toContain("await ");
-    // The output IS a JS template — the ${} slots are preserved as Bun.SQL bind sites.
-    expect(output).toBe('await _scrml_sql`INSERT INTO messages (name, email) VALUES (${name}, ${email})`;');

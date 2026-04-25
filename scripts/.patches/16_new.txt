@@ -1,6 +1,0 @@
-      if (_envelope) {
-        lines.push(`  } catch (_scrml_batch_err) {`);
-        lines.push(`    await _scrml_sql.unsafe("ROLLBACK");`);
-        lines.push(`    throw _scrml_batch_err;`);
-        lines.push(`  }`);
-      }

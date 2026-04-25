@@ -1,9 +1,0 @@
-  // Security validation: client JS must not contain SQL execution calls
-  const SQL_LEAK_PATTERNS: RegExp[] = [
-    /_scrml_sql_exec\s*\(/,
-    /_scrml_db\s*\./,
-    /\bprocess\.env\b/,
-    /\bBun\.env\b/,
-    /\bbun\.eval\s*\(/,
-    /\?\{`/,
-  ];

@@ -1,4 +1,0 @@
-      lines.push(`  })();`);
-      if (_envelope) {
-        lines.push(`  _scrml_db.exec("COMMIT");`);
-      }

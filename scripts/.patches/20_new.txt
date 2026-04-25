@@ -1,3 +1,0 @@
-      testMode,
-      dbVar: "_scrml_sql",
-      workerNames: fileWorkerNames,
