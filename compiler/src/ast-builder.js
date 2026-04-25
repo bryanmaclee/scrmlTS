@@ -1900,6 +1900,44 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * §SQL: collect chained method calls (.run(), .all(), .get(), …) from the
+   * parent token stream and append them to a SQL node's chainedCalls array.
+   * Mirrors the consumption pattern used by the bare-BLOCK_REF handler
+   * (parseOneStatement BLOCK_REF case and the buildBlock body-loop). Extracted
+   * so the lift+BLOCK_REF case can apply the same chain-consumption when its
+   * BLOCK_REF child is a SQL node (fix-lift-sql-chained-call, S40).
+   */
+  function consumeSqlChainedCalls(sqlNode) {
+    if (!sqlNode || sqlNode.kind !== "sql" || !sqlNode.chainedCalls) return;
+    while (peek().kind === "PUNCT" && peek().text === ".") {
+      consume(); // dot
+      if (peek().kind === "IDENT") {
+        const methodTok = consume();
+        let args = "";
+        if (peek().kind === "PUNCT" && peek().text === "(") {
+          consume(); // open paren
+          while (peek().kind !== "EOF" && !(peek().kind === "PUNCT" && peek().text === ")")) {
+            args += consume().text;
+          }
+          if (peek().kind === "PUNCT" && peek().text === ")") consume(); // close paren
+        }
+        // §8.9.5: `.nobatch()` is a compile-time marker with no
+        // runtime effect. Flag the node and drop the call.
+        if (methodTok.text === "nobatch") {
+          sqlNode.nobatch = true;
+        } else {
+          sqlNode.chainedCalls.push({ method: methodTok.text, args });
+        }
+      } else {
+        // Defensive: a dot followed by a non-IDENT is malformed; bail to avoid
+        // spinning. The trailing tokens fall through to the parent's normal
+        // statement processing.
+        break;
+      }
+    }
+  }
+
+  /**
    * Parse a single statement and return an AST node.
    * Handles: let, const, @reactive, lift, for, if, while, return, bare-expr.
    */
@@ -2246,7 +2284,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const refTok = consume();
         const child = refTok.block;
         if (child) {
-          const childNode = buildBlock(child, filePath, "logic", counter, errors);
+          // Build the child block in its own native context (sql / markup / logic / etc.).
+          // Previously hardcoded to "logic" — that worked for the original markup case but
+          // suppresses correct context for ?{} SQL blocks. Use parentBlock.type to mirror
+          // the pattern in parseOneStatement BLOCK_REF case (line ~1914) and the buildBlock
+          // body-loop BLOCK_REF case (line ~3417). The buildBlock dispatch keys off
+          // block.type, so the parentContextKind argument is mainly informational here.
+          const childNode = buildBlock(child, filePath, parentBlock.type, counter, errors);
+          // fix-lift-sql-chained-call (S40): when the BLOCK_REF child is a SQL
+          // node, consume any trailing .method() chain and wrap as a SQL
+          // lift-expr variant. The previous code wrapped a SQL node as
+          // {kind:"markup"} which (a) lied about the payload, (b) caused
+          // emit-lift to render an empty <div>, and (c) left the trailing
+          // .all()/.get()/.run() chain orphan in the parent token stream.
+          if (childNode && childNode.kind === "sql") {
+            consumeSqlChainedCalls(childNode);
+            return {
+              id: ++counter.next,
+              kind: "lift-expr",
+              expr: { kind: "sql", node: childNode },
+              span: spanOf(startTok, peek()),
+            };
+          }
           return { id: ++counter.next, kind: "lift-expr", expr: { kind: "markup", node: childNode }, span: spanOf(startTok, refTok) };
         }
       }
@@ -4071,13 +4130,25 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const refTok = consume();
         const child = refTok.block;
         if (child) {
-          const childNode = buildBlock(child, filePath, "logic", counter, errors);
-          nodes.push({
-            id: ++counter.next,
-            kind: "lift-expr",
-            expr: { kind: "markup", node: childNode },
-            span: spanOf(startTok, refTok),
-          });
+          // See parseOneStatement lift+BLOCK_REF site (~line 2245) for the
+          // matching SQL-aware handling rationale.
+          const childNode = buildBlock(child, filePath, parentBlock.type, counter, errors);
+          if (childNode && childNode.kind === "sql") {
+            consumeSqlChainedCalls(childNode);
+            nodes.push({
+              id: ++counter.next,
+              kind: "lift-expr",
+              expr: { kind: "sql", node: childNode },
+              span: spanOf(startTok, peek()),
+            });
+          } else {
+            nodes.push({
+              id: ++counter.next,
+              kind: "lift-expr",
+              expr: { kind: "markup", node: childNode },
+              span: spanOf(startTok, refTok),
+            });
+          }
         }
       } else if (peek().text === "<" && peek().kind === "PUNCT" && peek(1) && (peek(1).kind === "IDENT" || peek(1).kind === "KEYWORD")) {
         // Lift Approach C: inline markup → structured MarkupNode
