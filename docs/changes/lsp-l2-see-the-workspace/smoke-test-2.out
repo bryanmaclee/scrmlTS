@@ -1,0 +1,72 @@
+=== LSP L2 SMOKE TEST #2 — success path ===
+
+Workspace root: /tmp/scrml-l2-smoke2-1777094259648
+page.scrml content:
+${
+  import { Card } from "./card.scrml"
+}
+<Card />
+
+card.scrml content:
+${
+  export const Card = <article class=card>
+    <h2>Card</h2>
+  </article>
+}
+
+--- Diagnostics for page.scrml ---
+{
+  "uri": "file:///tmp/scrml-l2-smoke2-1777094259648/page.scrml",
+  "diagnostics": [
+    {
+      "severity": 2,
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 0
+        }
+      },
+      "message": "W-PROGRAM-001: No <program> root element found. Consider wrapping your file content in <program> ... </program> for explicit configuration of database connections, protection, and HTML spec version. (line 1, col 1)",
+      "source": "scrml",
+      "code": "W-PROGRAM-001"
+    }
+  ]
+}
+
+--- textDocument/definition request ---
+{
+  "textDocument": {
+    "uri": "file:///tmp/scrml-l2-smoke2-1777094259648/page.scrml"
+  },
+  "position": {
+    "line": 3,
+    "character": 2
+  }
+}
+
+--- textDocument/definition response ---
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "uri": "file:///tmp/scrml-l2-smoke2-1777094259648/card.scrml",
+    "range": {
+      "start": {
+        "line": 1,
+        "character": 9
+      },
+      "end": {
+        "line": 3,
+        "character": 12
+      }
+    }
+  }
+}
+
+--- Verification ---
+PASS: definition response points to card.scrml
+PASS: target line is 1 (0-based; expect 1 for 'export const Card = ...')

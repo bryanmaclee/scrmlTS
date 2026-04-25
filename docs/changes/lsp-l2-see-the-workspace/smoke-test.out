@@ -1,0 +1,62 @@
+=== LSP L2 SMOKE TEST RESULTS ===
+
+Workspace root: /tmp/scrml-l2-smoke-1777094259183
+page.scrml: /tmp/scrml-l2-smoke-1777094259183/page.scrml
+card.scrml: /tmp/scrml-l2-smoke-1777094259183/card.scrml
+
+--- Diagnostics for page.scrml ---
+{
+  "uri": "file:///tmp/scrml-l2-smoke-1777094259183/page.scrml",
+  "diagnostics": [
+    {
+      "severity": 2,
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 0
+        }
+      },
+      "message": "W-PROGRAM-001: No <program> root element found. Consider wrapping your file content in <program> ... </program> for explicit configuration of database connections, protection, and HTML spec version. (line 1, col 1)",
+      "source": "scrml",
+      "code": "W-PROGRAM-001"
+    },
+    {
+      "severity": 1,
+      "range": {
+        "start": {
+          "line": 1,
+          "character": 9
+        },
+        "end": {
+          "line": 1,
+          "character": 44
+        }
+      },
+      "message": "E-IMPORT-004: `CardMissing` is not exported by `./card.scrml`. Check the file for available exports, or add `export CardMissing` to `./card.scrml`.",
+      "source": "scrml/module-resolver",
+      "code": "E-IMPORT-004"
+    }
+  ]
+}
+
+--- textDocument/definition request ---
+{
+  "textDocument": {
+    "uri": "file:///tmp/scrml-l2-smoke-1777094259183/page.scrml"
+  },
+  "position": {
+    "line": 3,
+    "character": 2
+  }
+}
+
+--- textDocument/definition response ---
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": null
+}
