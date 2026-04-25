@@ -838,5 +838,60 @@ export function generateServerJs(
     lines.push("");
   }
 
-  return lines.join("\n");
+  // GITI-012 / fix-server-eq-helper-import: structural-equality helper inlining.
+  // SPEC §45 emits \`_scrml_structural_eq(a, b)\` for any \`==\`/\`!=\` whose operands
+  // aren't statically primitive (see emit-expr.ts). The helper lives in the
+  // client runtime; .server.js never imports it. If any callsite survived the
+  // primitive shortcut, inline the helper at the top of the server module so
+  // the reference resolves at runtime.
+  const finalEmitted = lines.join("\n");
+  if (finalEmitted.includes("_scrml_structural_eq(")) {
+    const helper = [
+      "",
+      "// --- §45 Structural equality helper (inlined for server, no client runtime here) ---",
+      "function _scrml_structural_eq(a, b) {",
+      "  if (a === b) return true;",
+      "  if (a === null || b === null || a === undefined || b === undefined) return false;",
+      "  if (typeof a !== typeof b) return false;",
+      "  if (typeof a !== \"object\") return a === b;",
+      "  if (Array.isArray(a)) {",
+      "    if (!Array.isArray(b) || a.length !== b.length) return false;",
+      "    for (let i = 0; i < a.length; i++) {",
+      "      if (!_scrml_structural_eq(a[i], b[i])) return false;",
+      "    }",
+      "    return true;",
+      "  }",
+      "  if (a._tag !== undefined && b._tag !== undefined) {",
+      "    if (a._tag !== b._tag) return false;",
+      "    const aKeys = Object.keys(a);",
+      "    const bKeys = Object.keys(b);",
+      "    if (aKeys.length !== bKeys.length) return false;",
+      "    for (const key of aKeys) {",
+      "      if (key === \"_tag\") continue;",
+      "      if (!_scrml_structural_eq(a[key], b[key])) return false;",
+      "    }",
+      "    return true;",
+      "  }",
+      "  const aKeys = Object.keys(a);",
+      "  const bKeys = Object.keys(b);",
+      "  if (aKeys.length !== bKeys.length) return false;",
+      "  for (const key of aKeys) {",
+      "    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;",
+      "    if (!_scrml_structural_eq(a[key], b[key])) return false;",
+      "  }",
+      "  return true;",
+      "}",
+      "",
+    ].join("\n");
+    // Inject AFTER the file header + imports block so the helper is hoisted
+    // above any function that might call it. The marker we insert at is the
+    // first blank line that follows the imports (which the emitter places at
+    // line 123-ish via \`lines.push("")\` after the import loop).
+    const headerEndIdx = finalEmitted.indexOf("\n\n");
+    if (headerEndIdx === -1) {
+      return helper + finalEmitted;
+    }
+    return finalEmitted.slice(0, headerEndIdx) + helper + finalEmitted.slice(headerEndIdx);
+  }
+  return finalEmitted;
 }
