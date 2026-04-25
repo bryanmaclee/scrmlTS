@@ -1208,8 +1208,8 @@ export function emitSwitchStmt(node: any): string {
     const child = body[i];
     if (!child) { i++; continue; }
 
-    if (child.kind === "bare-expr" && (child.expr || child.exprNode)) {
-      // Phase 4d: ExprNode-first, string fallback
+    // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
+    if (child.kind === "bare-expr" && (child.exprNode || child.expr)) {
       const exprTrimmed: string = (child.exprNode ? emitStringFromTree(child.exprNode) : (child.expr ?? "")).trim();
 
       const breakCaseMatch = exprTrimmed.match(/^break\s+(case\s+.*|default\s*:.*)$/s);

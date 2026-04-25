@@ -247,13 +247,15 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     }
 
     // Check for animationFrame calls in bare-expr nodes
-    // Phase 4d: ExprNode-first, string fallback
+    // Phase 4d Step 8: ExprNode-only (bare-expr.expr TS field deleted; production AST always has exprNode)
     if (kind === "bare-expr") {
-      if ((node as any).exprNode) {
-        if (exprNodeContainsCall((node as any).exprNode, "animationFrame")) chunks.add("animation");
-        if (exprNodeContainsCall((node as any).exprNode, "navigate") || exprNodeContainsCall((node as any).exprNode, "_scrml_navigate")) chunks.add("utilities");
-      } else {
-        const expr: string = node.expr ?? "";
+      const exprNode = (node as any).exprNode;
+      if (exprNode) {
+        if (exprNodeContainsCall(exprNode, "animationFrame")) chunks.add("animation");
+        if (exprNodeContainsCall(exprNode, "navigate") || exprNodeContainsCall(exprNode, "_scrml_navigate")) chunks.add("utilities");
+      } else if ((node as any).expr) {
+        // Runtime-only fallback for synthetic test nodes
+        const expr: string = (node as any).expr ?? "";
         if (expr.includes("animationFrame(")) chunks.add("animation");
         if (expr.includes("navigate(") || expr.includes("_scrml_navigate(")) chunks.add("utilities");
       }

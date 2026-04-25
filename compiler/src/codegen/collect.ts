@@ -366,7 +366,7 @@ function collectMetaExprStrings(body: Node[]): string[] {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
       const n = node as Node;
-      // Phase 4d: ExprNode-first, string fallback
+      // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
       if (n.kind === "bare-expr") {
         if ((n as any).exprNode) exprs.push(emitStringFromTree((n as any).exprNode));
         else if (n.expr) exprs.push(n.expr as string);
@@ -427,6 +427,7 @@ export function isServerOnlyNode(node: unknown): boolean {
   }
 
   // Catch inline ?{} SQL sigil in bare-expr nodes.
+  // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
   if (n.kind === "bare-expr") {
     const expr = (n as any).exprNode ? emitStringFromTree((n as any).exprNode) : (typeof n.expr === "string" ? n.expr : "");
     if (SQL_SIGIL_PATTERN.test(expr)) return true;

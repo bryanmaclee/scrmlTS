@@ -607,7 +607,7 @@ export function generateHtml(
     // For logic blocks embedded in markup, emit a placeholder span for client JS
     if (node.kind === "logic") {
       if (node.body?.length === 1 && node.body[0]?.kind === "bare-expr") {
-        // Phase 4d: ExprNode-first, string fallback
+        // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
         const expr: string = node.body[0].exprNode ? emitStringFromTree(node.body[0].exprNode) : (node.body[0].expr ?? "");
         if (/\bbun\s*\.\s*eval\s*\(/.test(expr)) {
           const evalErrors: any[] = [];
@@ -634,8 +634,8 @@ export function generateHtml(
       parts.push(`<span data-scrml-logic="${placeholderId}"></span>`);
       if (registry && node.body) {
         for (const child of node.body) {
+          // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
           if (child && child.kind === "bare-expr" && (child.exprNode || child.expr)) {
-            // Phase 4d: ExprNode-first for reactive dep extraction
             const exprStr = child.exprNode ? emitStringFromTree(child.exprNode) : child.expr;
             const reactiveRefs = fnBodyRegistry
               ? extractReactiveDepsTransitive(exprStr, reactiveVarNames, fnBodyRegistry)
