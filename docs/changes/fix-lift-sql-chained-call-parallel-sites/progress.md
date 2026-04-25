@@ -12,4 +12,5 @@
 - [00:10] Probed actual codegen for the 4 cases — confirmed Site A (in server function) produces canonical `await _scrml_sql\`...\`` for `.all()` and `(await ...)[0] ?? null` for `.get()`. Site B (top-level `${}`) has no server-route codegen path (no surrounding function), so AST shape is the only observable for those.
 - [00:11] Added §9 regression tests: 6 new tests (5 AST-shape across both sites x both IDENT/KEYWORD methods, plus 1 codegen check for Site A `.get()`, plus 1 nobatch-marker test at Site B). All 19 lift-sql-chained-call tests pass (13 original + 6 new).
 - [00:12] Verified: full SQL suite 195/195 pass (was 189; +6); full bun test 7584/40/0 (was 7578/40/0; +6 expected). Examples 03/07/08 compile cleanly; node --check passes for all 6 server+client outputs; no orphan `. (all|get|run)(` lines.
-- [00:13] Writing anomaly report and cleaning dev scaffolding.
+- [00:13] Wrote anomaly report (CLEAR FOR MERGE, 0 anomalies). Deleted 4 dev scaffolding files (`_apply-fixes.mjs`, `_append-tests.mjs`, `_probe.mjs`, `_replace-95.mjs` — none tracked in git). Committing anomaly report.
+- [00:14] Done.
