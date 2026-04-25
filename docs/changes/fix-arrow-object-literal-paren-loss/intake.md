@@ -1,7 +1,8 @@
 # fix-arrow-object-literal-paren-loss — Intake (GITI-013)
 
 **Surfaced:** 2026-04-25, by giti via inbox `2026-04-25-0728-giti-to-scrmlTS-...`.
-**Status:** RECEIVED, **awaiting sidecar reproducer** before diagnosis.
+**Status:** RECEIVED with sidecar; queued for triage.
+**Sidecar:** `handOffs/incoming/read/2026-04-25-0728-repro-09-arrow-object-literal.scrml`
 **Priority:** medium — `bun --check` (or runtime parse) fails; arrow-returning-object-literal is a common pattern.
 
 ## Symptom
@@ -28,9 +29,7 @@ Arrow-body codegen path (probably `expression-parser.ts` or `emit-expr.ts`) is c
 
 ## Reproducer
 
-**AWAITING from giti:** `ui/repros/repro-09-arrow-object-literal.scrml`. Tested by giti against `7a91068`. Reply sent 2026-04-25 requesting sidecar drop.
-
-Will start triage once sidecar lands.
+Sidecar in inbox archive: `handOffs/incoming/read/2026-04-25-0728-repro-09-arrow-object-literal.scrml`. Tested against `7a91068`. Triggering shape: `items.map(f => ({ path: f.path, kind: f.kind }))` — clean canonical "arrow returning object literal" pattern. Compile produces `(f) => {path: f.path, ...}` — parens stripped, body parses as block statement.
 
 ## Suggested fix scope (conditional)
 

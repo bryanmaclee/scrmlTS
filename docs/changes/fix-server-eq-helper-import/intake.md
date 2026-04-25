@@ -1,7 +1,8 @@
 # fix-server-eq-helper-import — Intake (GITI-012)
 
 **Surfaced:** 2026-04-25, by giti via inbox `2026-04-25-0728-giti-to-scrmlTS-...`.
-**Status:** RECEIVED, **awaiting sidecar reproducer** before diagnosis.
+**Status:** RECEIVED with sidecar; queued for triage.
+**Sidecar:** `handOffs/incoming/read/2026-04-25-0728-repro-08-server-fn-eq.scrml`
 **Priority:** medium — runtime crash at every server fn invocation that uses `==`.
 
 ## Symptom
@@ -30,9 +31,7 @@ Most likely it's the codegen path for `==` not detecting the primitive case in s
 
 ## Reproducer
 
-**AWAITING from giti:** `ui/repros/repro-08-server-fn-eq.scrml`. Tested by giti against `7a91068`. Reply sent 2026-04-25 requesting sidecar drop into `scrmlTS/handOffs/incoming/`.
-
-Will start triage once sidecar lands.
+Sidecar in inbox archive: `handOffs/incoming/read/2026-04-25-0728-repro-08-server-fn-eq.scrml`. Tested against `7a91068`. Triggering shape: `arr.length == 0` in server fn body — `arr.length` is a number primitive, so SPEC §45.4 says it should lower to `===`, not the helper. Codegen apparently falls through to the helper path regardless of operand type.
 
 ## Suggested fix scope (conditional)
 
