@@ -23,6 +23,21 @@ function rewriteRenderCall(expr) {
   return expr.replace(/(?<![A-Za-z0-9_$])render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g, '$1(');
 }
 
+/**
+ * Clean __scrml_render_NAME__() placeholders from emitted code.
+ * The expression preprocessor (S39 commit 1e304c8) rewrites `render name(...)` to
+ * `__scrml_render_name__(...)` so the structural ExprNode parser can recognize it.
+ * When the ExprNode path emits a preprocessed render call, the placeholder leaks
+ * through verbatim — this helper strips it back to `name(...)`.
+ *
+ * @param {string} code — emitted JS code
+ * @returns {string} — cleaned code
+ */
+function cleanRenderPlaceholder(code) {
+  if (!code || typeof code !== 'string' || !code.includes('__scrml_render_')) return code;
+  return code.replace(/__scrml_render_([A-Za-z_$][A-Za-z0-9_$]*)__/g, '$1');
+}
+
 // ---------------------------------------------------------------------------
 // Attribute string parser
 // ---------------------------------------------------------------------------
@@ -539,8 +554,9 @@ function emitCreateElementFromMarkup(node, lines) {
         // Logic block in markup — emit as a text node with the evaluated expression
         if (child.body) {
           for (const logicChild of child.body) {
-            if (logicChild && logicChild.kind === "bare-expr" && logicChild.expr) {
-              const rewritten = emitExprField(logicChild.exprNode, rewriteRenderCall(logicChild.expr), { mode: "client" });
+            // Phase 4d Step 8: ExprNode-only (bare-expr.expr deleted)
+            if (logicChild && logicChild.kind === "bare-expr" && (logicChild.exprNode || logicChild.expr)) {
+              const rewritten = cleanRenderPlaceholder(emitExprField(logicChild.exprNode, rewriteRenderCall(logicChild.expr ?? ""), { mode: "client" }));
               lines.push(`${elVar}.appendChild(document.createTextNode(String(${rewritten} ?? "")));`);
             }
           }
@@ -1113,7 +1129,8 @@ export function emitConsolidatedLift(body, opts = {}) {
       } else {
         // Simple interpolation — extract bare-expr values as content or attribute values
         for (const logicChild of child.body) {
-          if (logicChild && logicChild.kind === "bare-expr" && logicChild.expr) {
+          // Phase 4d Step 8: ExprNode-only guard (bare-expr.expr deleted)
+          if (logicChild && logicChild.kind === "bare-expr" && (logicChild.exprNode || logicChild.expr)) {
             if (pendingAttrName !== null) {
               // This logic node is the value for a BLOCK_REF-split attribute
               // e.g. `checked = ${todo.completed}` — the `todo.completed` part
@@ -1122,7 +1139,7 @@ export function emitConsolidatedLift(body, opts = {}) {
               if (elVar) {
                 const attrName = pendingAttrName;
                 pendingAttrName = null;
-                const rewritten = emitExprField(logicChild.exprNode, logicChild.expr, { mode: "client" });
+                const rewritten = emitExprField(logicChild.exprNode, logicChild.expr ?? "", { mode: "client" });
                 if (/^on[a-z]/.test(attrName)) {
                   const eventName = attrName.replace(/^on/, "");
                   lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${rewritten}; });`);
@@ -1131,8 +1148,8 @@ export function emitConsolidatedLift(body, opts = {}) {
                 }
               }
             } else {
-              // Phase 4d: ExprNode-first, string fallback
-              const _exprStr = logicChild.exprNode ? emitStringFromTree(logicChild.exprNode) : logicChild.expr;
+              // Phase 4d Step 8: ExprNode-only (bare-expr.expr deleted)
+              const _exprStr = logicChild.exprNode ? emitStringFromTree(logicChild.exprNode) : (logicChild.expr ?? "");
               const parts = [{ type: "expr", value: _exprStr }];
               addContentToCurrentElement(parts);
             }
