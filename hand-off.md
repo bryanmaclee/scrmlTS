@@ -3,7 +3,7 @@
 **Date opened:** 2026-04-24
 **Previous:** `handOffs/hand-off-40.md` (S39 closed)
 **Baseline entering S40:** **7,562 pass / 40 skip / 0 fail / 354 files** at `b3c83d3`.
-**Current:** **7,578 pass / 40 skip / 0 fail / 355 files** at `ca6928a` (+16 tests, +1 file).
+**Current:** **7,632 pass / 40 skip / 0 fail / 358 files** at `c9ebc78` (+70 tests, +4 files).
 
 ---
 
@@ -67,15 +67,27 @@ Pipeline agent. Deleted `BareExprNode.expr?: string` from `compiler/src/types/as
 
 The hybrid is honest about the contract (TS type cleaned) but defers strict consumer cleanup. Filed strict-deletion follow-up as `docs/changes/expr-ast-phase-4d-step-8-strict/intake.md` (low priority).
 
+### Wave 3 — 4 parallel background agents (all landed)
+
+**fix-lift-sql-chained-call-parallel-sites (LANDED — `06c27f0`)** — extracted `consumeSqlChainedCalls` helper, applied at all 4 BLOCK_REF chained-call sites in `ast-builder.js` (helper kept at `parseLogicBody` scope, not module — closes over per-call `peek`/`consume`). +6 tests. Site B more latent than intake suggested (no plausible runtime trigger without wrapping function, in which case Site A catches first). Agent surfaced `acorn` missing from package.json — filed as `fix-acorn-implicit-dep` intake.
+
+**LSP enhancement scoping (deep-dive LANDED — `ab45ce9`)** — 574-line phased roadmap at `docs/deep-dives/lsp-enhancement-scoping-2026-04-24.md`. **L1→L5 phasing, no debate needed:** L1 see-the-file (doc symbols + hover + completion-trigger), L2 see-the-workspace (wire MOD/CE for cross-file go-to-def — single highest-impact gap), L3 scrml-unique completions (SQL column completion is a tiny LSP-side pull because PA already has the data; component prop completion; cross-file completion), L4 standards polish (signature help + code actions), L5 spatial-ready (semantic tokens, defer). No spec changes required. Editor coverage automatic. Surfaced `lsp/server.js:26` still imports retired BPP — filed as `lsp-cleanup-retired-bpp-import` intake.
+
+**Bun.SQL Phase 2 — Postgres support (LANDED — `9ef0ccb`)** — `compiler/src/codegen/db-driver.ts` (151 LOC) + `protect-analyzer.ts` Postgres URI path + RI `Bun.SQL` patterns. Sample compile verifies driver-agnostic emission (Phase 1 made it unified). Negative paths verified (`mongodb://` → E-SQL-005 with `^{}` pointer). +47 tests. **Postgres compile-time introspection deferred** — agent declined async PA migration (would ripple through `api.js` + downstream stages); CREATE-TABLE shadow-DB pattern reused. Phase 2.5 is the natural extension point. Surfaced **pre-existing `/* sql-ref:-1 */` placeholder bug** for `return ?{...}.method()` from server fn — filed as `fix-cg-sql-ref-placeholder` intake.
+
+**expr-ast-phase-4d-step-8-strict (LANDED — `c9ebc78`)** — strict-deleted all 7 `(node as any).expr` fallback reads in `meta-checker.ts`. Updated 13 synthetic test fixtures across 4 test files. **Surfaced + fixed 2 latent bugs** the hybrid was masking: (a) `bodyUsesCompileTimeApis` was using wrong helper for `compiler.*` detection — added `exprNodeContainsIdentNamed`; (b) `exprNodeContainsCompileTimeReflect` had multiple bugs (missing `assign` kind, wrong field names `.operand`→`.argument`, `.test`→`.condition`). Test count flat (no new tests needed; existing tests cover via fixture updates). Phase 4d Step 8 now strictly complete in meta-checker; remaining `.expr` reads in route-inference, body-pre-parser, emit-client are out of scope (Cat B/C).
+
 ---
 
 ## 2. Next priority
 
-1. **Bun.SQL Phase 2 (Postgres)** — parse `postgres://` URI, Postgres schema introspection, runtime smoke against a postgres instance. Phase 1 emission (`await _scrml_sql\`...\``) already works for any Bun.SQL-supported driver — Phase 2 is mostly about driver resolution + schema-differ Postgres path.
-2. **LSP enhancement** — diagnostics on save + document symbols + go-to-definition. Highest-leverage DX investment per S39 user-voice signal.
-3. **fix-lift-sql-chained-call-parallel-sites** — extract `consumeSqlChainedCalls` to shared module-scope; apply at 2 latent sites (`ast-builder.js:1918`, `:3421`). Low priority — no current fixture exercises.
-4. **expr-ast-phase-4d-step-8-strict** — remove `(node as any).expr` fallback reads in meta-checker (10 sites) by updating synthetic test fixtures. Tech debt cleanup.
-5. **example 05 E-COMPONENT-020** (forward-ref `InfoStep`) — confirmed pre-existing across S39/S40, nobody's looked at it yet.
+1. **LSP L1 — "See the file"** — implement document symbols + hover signature improvements + completion-trigger fixes per `docs/deep-dives/lsp-enhancement-scoping-2026-04-24.md`. Cheapest delight per LOC, pure AST walks, no multi-file work.
+2. **fix-cg-sql-ref-placeholder** — `return ?{...}.method()` from server fn emits `/* sql-ref:-1 */` placeholder. Pre-existing on `2e6a42d`. Trace `/* sql-ref:` markers, apply Bun.SQL rewrite at the missed site. Reproducer at `samples/compilation-tests/combined-007-crud.scrml`.
+3. **fix-acorn-implicit-dep** — add `acorn` to the right `package.json`, verify with clean `bun install`. Fresh-clone reproducibility issue.
+4. **lsp-cleanup-retired-bpp-import** — drop `runBPP` import from `lsp/server.js:26`. Trivial.
+5. **Bun.SQL Phase 2.5** — async PA + real `Bun.SQL` Postgres introspection at compile time. The `resolveDb()` extension point is in place. Bigger scope (touches `api.js` + downstream).
+6. **LSP L2 — "See the workspace"** — wire MOD + CE into LSP for cross-file go-to-definition + cross-file diagnostics. One-time architectural investment that unblocks every later cross-file feature.
+7. **example 05 E-COMPONENT-020** (forward-ref `InfoStep`) — confirmed pre-existing across S39/S40.
 
 ### Carried older
 - Auth-middleware CSRF mint-on-403 (session-based path, deferred)
@@ -103,18 +115,29 @@ The hybrid is honest about the contract (TS type cleaned) but defers strict cons
 - 2026-04-24 — B returned green: 7,578/0/355 (+13 tests). Latent `.get()` KEYWORD-vs-IDENT bug found and fixed mid-impl. Scratchpad cleanup. Merged FF at `15a0698`.
 - 2026-04-24 — Two parallel-site latent bugs filed as `fix-lift-sql-chained-call-parallel-sites` intake (`a1a6dc1`).
 - 2026-04-24 — C returned with hybrid resolution (TS field deleted, `(any).expr` fallback kept in consumers). Rebased onto current main, tested green on main (worktree-only env failures). Merged FF at `e478c99`. Worktree removed. Strict-deletion follow-up filed as `expr-ast-phase-4d-step-8-strict` intake (`ca6928a`).
+- 2026-04-24 — Wave 3 dispatched: 4 background agents in parallel — Phase 2 (Postgres), parallel-sites (chained-call helper), strict-cleanup (meta-checker `(any).expr`), LSP scoping deep-dive.
+- 2026-04-24 — parallel-sites returned green (+6 tests, `06c27f0`). `acorn` missing from package.json filed as intake (`25ce5f1`).
+- 2026-04-24 — LSP deep-dive returned (`ab45ce9`, 574 lines). L1→L5 phasing, no debate. Retired BPP import filed as cleanup intake (`7825a83`).
+- 2026-04-24 — Phase 2 returned green (+47 tests, `9ef0ccb`). Pre-existing `/* sql-ref:-1 */` bug filed as `fix-cg-sql-ref-placeholder` (`ca5f753`).
+- 2026-04-24 — strict-cleanup returned green (`c9ebc78`). Surfaced + fixed 2 latent meta-checker ExprNode-detection bugs the hybrid was masking. Phase 4d Step 8 now strictly complete in meta-checker.
+- 2026-04-24 — Final S40 state: **7,632 pass / 40 skip / 0 fail / 358 files** (+70 net, +4 files). 5 user-facing landings + 4 follow-up intakes filed.
 
 ---
 
 ## Tags
-#session-40 #active #bun-sql-phase-1 #spec-44 #lift-sql-fixed #phase-4d-step-8 #agent-fix
+#session-40 #active #bun-sql-phase-1 #bun-sql-phase-2 #spec-44 #lift-sql-fixed #phase-4d-step-8 #phase-4d-strict #parallel-sites #lsp-roadmap #agent-fix
 
 ## Links
 - [handOffs/hand-off-40.md](./handOffs/hand-off-40.md) — S39 closed
 - [pa.md](./pa.md)
 - [master-list.md](./master-list.md)
-- [docs/changes/bun-sql-phase-1/](./docs/changes/bun-sql-phase-1/) — Phase 1 artifacts
+- [docs/changes/bun-sql-phase-1/](./docs/changes/bun-sql-phase-1/) — landed
+- [docs/changes/bun-sql-phase-2/](./docs/changes/bun-sql-phase-2/) — landed
 - [docs/changes/fix-lift-sql-chained-call/](./docs/changes/fix-lift-sql-chained-call/) — landed
+- [docs/changes/fix-lift-sql-chained-call-parallel-sites/](./docs/changes/fix-lift-sql-chained-call-parallel-sites/) — landed
 - [docs/changes/expr-ast-phase-4d-step-8/](./docs/changes/expr-ast-phase-4d-step-8/) — landed
-- [docs/changes/fix-lift-sql-chained-call-parallel-sites/intake.md](./docs/changes/fix-lift-sql-chained-call-parallel-sites/intake.md) — follow-up
-- [docs/changes/expr-ast-phase-4d-step-8-strict/intake.md](./docs/changes/expr-ast-phase-4d-step-8-strict/intake.md) — follow-up
+- [docs/changes/expr-ast-phase-4d-step-8-strict/](./docs/changes/expr-ast-phase-4d-step-8-strict/) — landed
+- [docs/deep-dives/lsp-enhancement-scoping-2026-04-24.md](./docs/deep-dives/lsp-enhancement-scoping-2026-04-24.md) — L1→L5 roadmap
+- [docs/changes/fix-cg-sql-ref-placeholder/intake.md](./docs/changes/fix-cg-sql-ref-placeholder/intake.md) — follow-up
+- [docs/changes/fix-acorn-implicit-dep/intake.md](./docs/changes/fix-acorn-implicit-dep/intake.md) — follow-up
+- [docs/changes/lsp-cleanup-retired-bpp-import/intake.md](./docs/changes/lsp-cleanup-retired-bpp-import/intake.md) — follow-up

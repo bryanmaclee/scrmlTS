@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS. Current truth only. Anything historical or aspirational lives in scrml-support.
 
-**Last updated:** 2026-04-24 (S40 — Bun.SQL Phase 1 codegen migration, SPEC §8/§44 reconciliation, fix-lift-sql-chained-call, Phase 4d Step 8 .expr field deletion. **7,578 pass / 40 skip / 0 fail** across 355 files with 27,316 expects)
+**Last updated:** 2026-04-24 (S40 — Bun.SQL Phase 1 + Phase 2 (Postgres URI + driver helper), SPEC §8/§44 reconciliation, fix-lift-sql-chained-call (+parallel-sites), Phase 4d Step 8 .expr deletion + strict cleanup, LSP enhancement scoping deep-dive. **7,632 pass / 40 skip / 0 fail** across 358 files with 27,476 expects)
 **Format:** `[x][x]` = complete + verified, `[x][ ]` = exists/in progress, `[ ][ ]` = not started
 
 **Recent window (S35–S40):** S35–S37: 6 bugs fixed (Bugs 1/3/4/5/6 + mixed-case for-lift follow-on), SPEC §22.3 multi-`^{}` ratified via 5-expert debate, `emit.raw` classifier fix, Phase 0 `docs/external-js.md`. S38: string escape fix (Bug 1), return-after-ternary (Bug 3), for-lift wrapper (Bug 5), CSRF bootstrap GITI-010 (Option A), derived-reactive markup wiring (Bug 4), mixed-case hoist follow-on, multi-`^{}` debate + SPEC §22.3, `emit.raw` classifier. S39: boundary security deep-dive (3 approaches debated, Approach C won 54/60), closureCaptures + taint propagation in RI, transitive reactive deps BFS (Bug J), `_ensureBoundary` fail-safe (NC-4), Bug I name-mangle lookbehind, Bug H return-type match implicit return, Bug K sync-effect try/catch, GITI-009 import path rewrite, GITI-011 CSS at-rule tokenization, README giti link + broken 6nz links fixed, maps refresh, state-of-language audit. **S40:** Bun.SQL Phase 1 codegen migration (SPEC §44 alignment — `?{}` now emits `await _scrml_sql\`...\`` tagged-template; `_scrml_db`→`_scrml_sql` rename; `.prepare()`→E-SQL-006), SPEC §8/§44 reconciliation (§8 source-language vs §44 codegen target), fix-lift-sql-chained-call (`consumeSqlChainedCalls` helper in ast-builder.js + emit-logic.ts lift-expr `kind:"sql"` variant; latent `.get()` KEYWORD bug caught), Phase 4d Step 8 (BareExprNode.expr TS field deleted, hybrid `(any).expr` fallback in consumers), pipeline agent definition fixed (`scrml8`→`scrmlTS` paths).
@@ -12,7 +12,7 @@
 ## A. Compiler core (verified working S14)
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`); published binary shebang at `compiler/bin/scrml.js` (S30 `8217dd9`)
-**Tests:** **7,578 pass, 40 skip, 0 fail** (S40 2026-04-24) across 355 files with 27,316 expects. S38 resolved the 2 pre-existing self-host failures. S39 added 80 new tests. S40 added 35 net tests (Bun.SQL Phase 1 +3, SPEC reconciliation 0, fix-lift-sql +13, Phase 4d Step 8 0).
+**Tests:** **7,632 pass, 40 skip, 0 fail** (S40 2026-04-24) across 358 files with 27,476 expects. S38 resolved the 2 pre-existing self-host failures. S39 added 80 new tests. S40 added 70 net tests (Bun.SQL Phase 1 +3, SPEC reconciliation 0, fix-lift-sql +13, Phase 4d Step 8 0, parallel-sites +6, Phase 2 +47, strict-cleanup 0).
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/` — deferred post-S30 public pivot
 
@@ -116,7 +116,7 @@
 - [x][x] `compiler/tests/conformance/s32-fn-state-machine/` — 4 files, 39 tests (9 green, 30 skipped with per-gate annotations)
 - [x][x] `compiler/tests/browser/` — 11 files (happy-dom)
 - [x][x] `compiler/tests/commands/` — 2 files
-- **Total (S40 2026-04-24):** **7,578 pass, 40 skip, 0 fail** (27,316 expects across 355 test files).
+- **Total (S40 2026-04-24):** **7,632 pass, 40 skip, 0 fail** (27,476 expects across 358 test files).
 - **Pretest:** `scripts/compile-test-samples.sh` compiles 12 browser test samples (run via `bun run pretest`)
 - **Skipped:** 30 S32 conformance tests gated on parser/narrowing capabilities; `browser-reactive-arrays.test.js` (happy-dom hangs); 8 TodoMVC happy-dom tests (harness-IIFE-scope).
 - **Previously failing (2):** self-host tokenizer parity + Bootstrap L3 — resolved S38.
@@ -249,7 +249,10 @@
 41. ~~**fix-lift-sql-chained-call (orphan `.method()` after lift+SQL)**~~ — **FIXED S40** (`15a0698`). `lift ?{`SELECT...`}.all()` in server functions emitted `return null; /* server-lift: non-expr form */` followed by orphan `.all()` chain. Pre-existing on bare `b3c83d3`; surfaced during Bun.SQL Phase 1 verification. Fix: `consumeSqlChainedCalls` helper in `ast-builder.js` (handles both IDENT and KEYWORD method names — `get` is KEYWORD, latent bug caught mid-impl); `emit-logic.ts::case "lift-expr"` extended to handle new `kind:"sql"` variant emitting `return await _scrml_sql\`...\`;`. Examples 03/07/08 now compile cleanly. +13 tests.
 42. ~~**Bun.SQL Phase 1 — `?{}` codegen migration**~~ — **LANDED S40** (`6e21f76`..`cd8dea1`). SQLite branch now emits Bun.SQL tagged-template per SPEC §44 (was: `_scrml_db.query("...").all()`; now: `await _scrml_sql\`...\``). `.prepare()` now compiles to E-SQL-006 per §44.3. `_scrml_db`→`_scrml_sql` codegen identifier rename for grep clarity. Loop hoist (§8.10) batch path uses `sql.unsafe(rawSql, keys)` (Bun.SQL SQLite branch rejects array binding). Transaction envelopes use `sql.unsafe("BEGIN DEFERRED")`. +3 tests; 7 source files + 7 test files.
 43. ~~**SPEC §8/§44 reconciliation**~~ — **LANDED S40** (`74881ea`). §8 now describes source-language `?{}` method API; §44 owns the codegen target. Stripped `bun:sqlite`-specific codegen claims from §8.2/§8.4/§8.5.1, replaced with §44 cross-refs. §8.5.2 rewritten as "Removed" with bulkInsert example; §8.6 added E-SQL-006 + E-SQL-007.
-44. ~~**Phase 4d Step 8 — `BareExprNode.expr` TS field deletion**~~ — **LANDED S40** (`e478c99`). Deleted `expr?: string` from `BareExprNode` in `compiler/src/types/ast.ts`. Hybrid resolution: kept `(node as any).expr` fallback reads in 7 meta-checker sites to avoid breaking 30+ tests with synthetic fixtures missing `.exprNode`. 10 source files touched. Strict-deletion follow-up filed as `expr-ast-phase-4d-step-8-strict`.
+44. ~~**Phase 4d Step 8 — `BareExprNode.expr` TS field deletion**~~ — **LANDED S40** (`e478c99`). Deleted `expr?: string` from `BareExprNode` in `compiler/src/types/ast.ts`. Hybrid resolution: kept `(node as any).expr` fallback reads in 7 meta-checker sites to avoid breaking 30+ tests with synthetic fixtures missing `.exprNode`. 10 source files touched.
+45. ~~**Phase 4d Step 8 strict cleanup**~~ — **LANDED S40** (`c9ebc78`). Strict-deleted all 7 `(node as any).expr` fallback reads in `meta-checker.ts`. Updated 13 synthetic test fixtures across 4 test files. Surfaced + fixed 2 latent bugs the hybrid was masking: (a) `bodyUsesCompileTimeApis` `compiler.*` detection (added `exprNodeContainsIdentNamed`); (b) `exprNodeContainsCompileTimeReflect` missing `assign` kind + wrong field names (`.operand`→`.argument`, `.test`→`.condition`).
+46. ~~**fix-lift-sql-chained-call-parallel-sites**~~ — **LANDED S40** (`06c27f0`). Extracted `consumeSqlChainedCalls` helper, applied at all 4 BLOCK_REF chained-call sites in `ast-builder.js`. +6 tests.
+47. ~~**Bun.SQL Phase 2 — Postgres driver resolution**~~ — **LANDED S40** (`9ef0ccb`). New `compiler/src/codegen/db-driver.ts` (151 LOC) for §44.2 URI resolution. `protect-analyzer.ts` Postgres URI path. RI `Bun.SQL` patterns. Driver-agnostic emission verified via sample compile. Negative paths: `mongodb://` → E-SQL-005 with `^{}` pointer. +47 tests. Real Postgres compile-time introspection deferred (would require async PA migration) — Phase 2.5 extension point in place.
 
 ---
 
