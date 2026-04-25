@@ -2516,6 +2516,36 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           span: spanOf(startTok, startTok),
         };
       }
+      // fix-cg-sql-ref-placeholder (S40 follow-up): `return ?{...}.method()` —
+      // when the immediate next non-comment token is a SQL BLOCK_REF, build the
+      // child SQL node, consume any trailing .all()/.get()/.run() chain, and
+      // attach it as `sqlNode` on the return-stmt. emit-logic case "return-stmt"
+      // routes through case "sql" when sqlNode is present. Mirrors the
+      // lift-expr SQL fix from `fix-lift-sql-chained-call` (S40).
+      // Without this, `safeParseExprToNode` parses `?{...}.all()` → preprocesses
+      // `?{}` to `__scrml_sql_placeholder__` → emits `return /* sql-ref:-1 */.all();`.
+      if (next && next.kind === "BLOCK_REF" && next.block && next.block.type === "sql") {
+        // Skip leading comments (already accounted for by lookAhead) — consume them.
+        for (let i = 0; i < lookAhead; i++) consume();
+        const refTok = consume(); // consume the BLOCK_REF
+        const childNode = buildBlock(refTok.block, filePath, parentBlock.type, counter, errors);
+        if (childNode && childNode.kind === "sql") {
+          consumeSqlChainedCalls(childNode);
+          // Optional trailing semicolon
+          if (peek().kind === "PUNCT" && peek().text === ";") consume();
+          return {
+            id: ++counter.next,
+            kind: "return-stmt",
+            // raw ?{...} source intentionally NOT stored in `expr` — batch-planner
+            // string scanner would otherwise double-count the SQL site (structured walk
+            // via sqlNode already counts it once). Empty expr matches the bare-return shape.
+            expr: "",
+            sqlNode: childNode,
+            span: spanOf(startTok, peek()),
+          };
+        }
+        // Defensive: child wasn't SQL — fall through to legacy path.
+      }
       const { expr, span } = collectExpr();
       return {
         id: ++counter.next,
@@ -4650,6 +4680,31 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           span: spanOf(startTok, startTok),
         });
         continue;
+      }
+      // fix-cg-sql-ref-placeholder (S40 follow-up): mirror parseOneStatement —
+      // `return ?{...}.method()` collapses to `return /* sql-ref:-1 */.method()`
+      // when the BLOCK_REF is left to fall through collectExpr → safeParseExprToNode.
+      // Detect the SQL BLOCK_REF here, build the child, and attach as `sqlNode`.
+      if (next && next.kind === "BLOCK_REF" && next.block && next.block.type === "sql") {
+        for (let i = 0; i < lookAhead; i++) consume();
+        const refTok = consume();
+        const childNode = buildBlock(refTok.block, filePath, parentBlock.type, counter, errors);
+        if (childNode && childNode.kind === "sql") {
+          consumeSqlChainedCalls(childNode);
+          if (peek().kind === "PUNCT" && peek().text === ";") consume();
+          nodes.push({
+            id: ++counter.next,
+            kind: "return-stmt",
+            // raw ?{...} source intentionally NOT stored in `expr` — batch-planner
+            // string scanner would otherwise double-count the SQL site (structured walk
+            // via sqlNode already counts it once). Empty expr matches the bare-return shape.
+            expr: "",
+            sqlNode: childNode,
+            span: spanOf(startTok, peek()),
+          });
+          continue;
+        }
+        // Defensive: child wasn't SQL — fall through.
       }
       const { expr } = collectExpr();
       nodes.push({

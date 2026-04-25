@@ -1,0 +1,36 @@
+--- a/compiler/src/ast-builder.js
++++ b/compiler/src/ast-builder.js
+@@ -2516,6 +2516,33 @@
+           span: spanOf(startTok, startTok),
+         };
+       }
++      // fix-cg-sql-ref-placeholder (S40 follow-up): `return ?{...}.method()` —
++      // when the immediate next non-comment token is a SQL BLOCK_REF, build the
++      // child SQL node, consume any trailing .all()/.get()/.run() chain, and
++      // attach it as `sqlNode` on the return-stmt. emit-logic case "return-stmt"
++      // routes through case "sql" when sqlNode is present. Mirrors the
++      // lift-expr SQL fix from `fix-lift-sql-chained-call` (S40).
++      // Without this, `safeParseExprToNode` parses `?{...}.all()` → preprocesses
++      // `?{}` to `__scrml_sql_placeholder__` → emits `return /* sql-ref:-1 */.all();`.
++      if (next && next.kind === "BLOCK_REF" && next.block && next.block.type === "sql") {
++        // Consume any leading comments (already peeked past at lookAhead).
++        for (let i = 0; i < lookAhead; i++) consume();
++        const refTok = consume(); // consume the BLOCK_REF
++        const childNode = buildBlock(refTok.block, filePath, parentBlock.type, counter, errors);
++        if (childNode && childNode.kind === "sql") {
++          consumeSqlChainedCalls(childNode);
++          // Optional trailing semicolon
++          if (peek().kind === "PUNCT" && peek().text === ";") consume();
++          return {
++            id: ++counter.next,
++            kind: "return-stmt",
++            expr: refTok.text,
++            sqlNode: childNode,
++            span: spanOf(startTok, peek()),
++          };
++        }
++        // Defensive: child wasn't SQL — fall through to legacy path.
++      }
+       const { expr, span } = collectExpr();
+       return {
+         id: ++counter.next,

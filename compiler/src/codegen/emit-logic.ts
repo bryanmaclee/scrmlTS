@@ -631,6 +631,18 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
     }
 
     case "return-stmt": {
+      // fix-cg-sql-ref-placeholder (S40 follow-up): `return ?{...}.method()` —
+      // when the AST builder attached a structured `sqlNode` (because `return` was
+      // followed directly by a SQL BLOCK_REF), recurse into `case "sql"` and
+      // wrap the resulting expression as a return statement. Mirrors the
+      // `lift ?{...}.method()` SQL handling in `case "lift-expr"` above.
+      if (node.sqlNode && node.sqlNode.kind === "sql") {
+        const sqlStmt = emitLogicNode(node.sqlNode, opts);
+        // `case "sql"` always returns an expression form ending in `;`.
+        // Strip the trailing `;` so we can wrap as `return …;`.
+        const sqlExpr = sqlStmt.replace(/;\s*$/, "");
+        return `return ${sqlExpr};`;
+      }
       // Phase 3 fast path: when exprNode is present, skip all string splitting
       if (node.exprNode) {
         return `return ${emitExpr(node.exprNode, _makeExprCtx(opts))};`;
