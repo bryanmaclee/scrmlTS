@@ -630,6 +630,24 @@ export function walkBodyForTriggers(
       // Phase 4d: ExprNode-first, string fallback
       const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : ((node as any).init ?? "");
 
+      // fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when the AST
+      // builder attached a structured sqlNode (because the initializer was
+      // `?{...}.method()` — see ast-builder tryConsumeSqlInit), `init` is
+      // "" and `initExpr` is undefined. The SQL site is no longer visible
+      // to detectServerOnlyResource(string), so we must trigger escalation
+      // explicitly here. Mirrors the trigger-1 path for direct `sql` nodes
+      // at the top of visitNode (line ~537). Without this, server-only
+      // functions whose ONLY trigger was `@x = ?{...}` lose their route
+      // (e.g. refreshList() in combined-007-crud.scrml regressed pre-fix to
+      // having no emitted route).
+      if ((node as any).sqlNode && (node as any).sqlNode.kind === "sql") {
+        triggers.push({
+          kind: "server-only-resource",
+          resourceType: "sql-query",
+          span: node.span,
+        });
+      }
+
       // Trigger 1: server-only resource in the init expression (e.g. ?{} SQL sigil).
       // Matches the same check applied to let-decl/const-decl/tilde-decl above.
       const reactDeclResourceType = detectServerOnlyResource(init);
@@ -854,6 +872,15 @@ function hasServerCallInInit(
  * resource: SQL sigil (?{`), Bun.* APIs, process.env, env(), etc.
  */
 function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
+  // fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when the AST
+  // builder attached a structured sqlNode (because the initializer was
+  // `?{...}.method()`), `init` is "" and `initExpr` is undefined. The
+  // structured form is the canonical way to detect SQL-init from now on;
+  // the legacy string match remains for back-compat / defense-in-depth.
+  // Without this, `refreshList()` in combined-007-crud.scrml regressed to
+  // E-RI-002 because CPS split was no longer detected for `@users = ?{...}`.
+  if ((node as any).sqlNode && (node as any).sqlNode.kind === "sql") return true;
+
   // Phase 4d: ExprNode-first, string fallback
   const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : (typeof (node as any).init === "string" ? (node as any).init : "");
   if (!init) return false;

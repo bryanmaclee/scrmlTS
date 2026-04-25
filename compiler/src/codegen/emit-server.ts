@@ -597,6 +597,18 @@ export function generateServerJs(
           if (idx < body.length) {
             const stmt = body[idx];
             if (stmt && stmt.kind === "reactive-decl" && cpsSplit.returnVarName === stmt.name) {
+              // fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when the
+              // continuation is `@x = ?{...}.method()`, the AST builder attached
+              // a structured `sqlNode` so we can route through emit-logic case
+              // "sql" instead of `emitExprField(initExpr, init, ...)` — which
+              // would otherwise produce `/_* sql-ref:N *_/` from the SQL-placeholder
+              // ExprNode that safeParseExprToNode preprocesses `?{}` into.
+              if (stmt.sqlNode && stmt.sqlNode.kind === "sql") {
+                const sqlStmt = serverRewriteEmitted(emitLogicNode(stmt.sqlNode, { boundary: "server" })) ?? "";
+                const sqlExpr = sqlStmt.replace(/;\s*$/, "");
+                lines.push(`    const _scrml_cps_return = ${sqlExpr};`);
+                continue;
+              }
               const initExpr = emitExprField(stmt.initExpr, stmt.init ?? "undefined", { mode: "server" });
               lines.push(`    const _scrml_cps_return = ${initExpr};`);
               continue;
@@ -680,6 +692,15 @@ export function generateServerJs(
           if (idx < body.length) {
             const stmt = body[idx];
             if (stmt && stmt.kind === "reactive-decl" && cpsSplit.returnVarName === stmt.name) {
+              // fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): mirror of
+              // the useBaselineCsrf=true CPS site above. Route SQL-init reactive
+              // decls through emit-logic case "sql" via the structured sqlNode.
+              if (stmt.sqlNode && stmt.sqlNode.kind === "sql") {
+                const sqlStmt = serverRewriteEmitted(emitLogicNode(stmt.sqlNode, { boundary: "server" })) ?? "";
+                const sqlExpr = sqlStmt.replace(/;\s*$/, "");
+                lines.push(`  const _scrml_cps_return = ${sqlExpr};`);
+                continue;
+              }
               const initExpr = emitExprField(stmt.initExpr, stmt.init ?? "undefined", { mode: "server" });
               lines.push(`  const _scrml_cps_return = ${initExpr};`);
               continue;
