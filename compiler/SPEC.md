@@ -4381,25 +4381,27 @@ The content between backticks in `?{` \`...\` `}` is a **scrml SQL template**. I
 
 ### 8.1.1 Database Driver Resolution
 
-A `?{}` context does NOT generate bun:sqlite calls unconditionally. The compiler resolves
-the database driver by walking up the `<program>` ancestor tree from the `?{}` block's
-position to find the closest `<program>` with a `db=` attribute. The connection string value
-of that `db=` attribute determines the driver.
+A `?{}` context resolves its database driver by walking up the `<program>` ancestor tree from
+the `?{}` block's position to find the closest `<program>` with a `db=` attribute. The
+connection string value of that `db=` attribute determines the driver.
 
-**Driver selection table:**
+The codegen target is **Bun.SQL** for all SQL drivers (SPEC §44). MongoDB uses `^{}` meta
+contexts, not `?{}`. The driver-prefix table below is the source-language view; for the
+compiler's codegen target shape (tagged-template, async, `.unsafe()`), see §44.2.
 
-| `db=` value prefix | Driver generated | Notes |
-|--------------------|-----------------|-------|
-| `sqlite:./path` | `bun:sqlite` | Local SQLite file |
-| `./path` or `./path.db` | `bun:sqlite` | Default; implicit `sqlite:` prefix |
-| `:memory:` | `bun:sqlite` | In-memory SQLite |
-| `postgres://...` or `postgresql://...` | Postgres driver | Connection string forwarded |
-| `mysql://...` | MySQL driver | Connection string forwarded |
-| `mongo://...` or `mongodb://...` | MongoDB driver | Connection string forwarded |
+**Driver selection table (source-language view):**
 
-The compiler generates driver-appropriate calls. All scrml `?{}` query semantics (bound
-parameters, `.all()`, `.get()`, `.run()`, `.prepare()`) are preserved across drivers. The
-generated code uses the driver's equivalent API.
+| `db=` value prefix | Backing driver | Notes |
+|--------------------|---------------|-------|
+| `sqlite:./path` | `bun:sqlite` via Bun.SQL | Local SQLite file |
+| `./path` or `./path.db` | `bun:sqlite` via Bun.SQL | Default; implicit `sqlite:` prefix |
+| `:memory:` | `bun:sqlite` via Bun.SQL | In-memory SQLite |
+| `postgres://...` or `postgresql://...` | PostgreSQL via Bun.SQL | Connection string forwarded |
+| `mysql://...` | MySQL via Bun.SQL | Connection string forwarded |
+| `mongo://...` or `mongodb://...` | NOT VALID for `?{}` | Use `^{}` meta context |
+
+All scrml `?{}` source-language method semantics (bound parameters, `.all()`, `.get()`,
+`.run()`) are preserved across drivers. `.prepare()` is removed — see §44.3 / E-SQL-006.
 
 **Normative statements:**
 
@@ -4463,9 +4465,9 @@ When a SQL template contains one or more `${}` expressions, the compiler SHALL:
 
 **Normative statements:**
 
-- The compiler SHALL assign positional parameter slots starting at `?1` and incrementing by one for each distinct expression, in order of first appearance left-to-right in the template.
+- The compiler SHALL assign positional parameter slots starting at `?1` and incrementing by one for each distinct expression, in order of first appearance left-to-right in the template (positional slot model is used for tracking; codegen emits as Bun.SQL tagged-template `${}` slots — see §44.5).
 - If the same expression appears at positions P1 and P2 in the template, and P1 < P2, both positions SHALL use the parameter slot assigned at P1.
-- The compiler SHALL emit a prepared statement of the form `db.prepare(sql).get(...params)` (or `.all()`, `.run()` per §8.3), where `sql` is the template string with `${...}` replaced by `?N` slots and `params` is the array of unique expression values in slot order.
+- The codegen target shape is described in §44 (Bun.SQL tagged-template, auto-`await`). Each `?{}` source call SHALL emit code that binds the slot expressions as parameters — never as string interpolation.
 - The compiler SHALL NOT emit string concatenation, template literal interpolation, or any form of string construction that embeds a runtime value into the SQL string.
 
 **Worked example — valid (single parameter):**
@@ -4478,12 +4480,12 @@ When a SQL template contains one or more `${}` expressions, the compiler SHALL:
 </>
 ```
 
-Compiled to (illustrative — exact IR encoding not specified here):
+Compiled to (illustrative — see §44 for the canonical codegen shape):
 ```javascript
-db.prepare("SELECT id, name FROM users WHERE email = ?1").get(email)
+const [user] = await _scrml_sql`SELECT id, name FROM users WHERE email = ${email}`;
 ```
 
-`${email}` becomes `?1`. `email` is passed as the first parameter value.
+`${email}` becomes a bound parameter in the Bun.SQL tagged-template. `email` is passed by reference, never string-interpolated.
 
 **Worked example — valid (two distinct parameters):**
 ```scrml
@@ -4528,12 +4530,15 @@ The result of a `?{ }` context is a query result object. The following methods a
 
 | Method | Return type | Description |
 |---|---|---|
-| `.all()` | `Row[]` | All matching rows as an array |
-| `.get()` | `Row \| not` | First matching row, or `not` if no rows (matches bun:sqlite convention) |
-| `.run()` | `RunResult` | Execute without returning rows (INSERT/UPDATE/DELETE) |
-| `.prepare()` | `PreparedStatement` | Return a reusable prepared statement |
+| `.all()` (or bare `?{}`) | `Row[]` | All matching rows as an array |
+| `.get()` | `Row \| not` | First matching row, or `not` if no rows |
+| `.run()` | `void` | Execute without returning rows (INSERT/UPDATE/DELETE) |
 
-These methods correspond directly to `bun:sqlite` APIs. The compiler passes through the call to the underlying prepared statement.
+`.prepare()` is **removed** — Bun.SQL manages prepared-statement caching internally. Calling
+`.prepare()` on a `?{}` result SHALL be compile error E-SQL-006 (see §44.3).
+
+These methods are the source-language API. For the compiler's codegen target shape (Bun.SQL
+tagged-template, auto-`await`), see §44.
 
 **Worked example — static query:**
 ```scrml
@@ -4574,10 +4579,10 @@ When `category` is `null`, the condition `(NULL IS NULL OR category = NULL)` sho
 
 This is standard SQLite behavior. The pattern is verbose but correct, teachable, and requires no special compiler support beyond the bound parameter semantics of §8.2.
 
-**Note on parameter deduplication:** In the example above, `${category}` appears twice. The compiler assigns it `?1` and reuses that slot for both occurrences (§8.2 deduplication rule):
+**Note on parameter deduplication:** In the example above, `${category}` appears twice. The compiler assigns it a single slot and reuses it for both occurrences (§8.2 deduplication rule). The Bun.SQL emit (per §44) reuses the same `${}` template position for both occurrences:
 
 ```javascript
-db.prepare("SELECT * FROM posts WHERE (?1 IS NULL OR category = ?1)").all(category)
+await _scrml_sql`SELECT * FROM posts WHERE (${category} IS NULL OR category = ${category})`
 ```
 
 **Canonical forms:**
@@ -4622,76 +4627,58 @@ ${ server function badQuery(filterCol) {
 ### 8.5 Full SQL Support — INSERT/UPDATE/DELETE
 
 SQL write operations (INSERT, UPDATE, DELETE) use the same `?{}` syntax as SELECT queries.
-The method determines the execution mode:
-
-- `.run()` — execute a write statement; returns a `RunResult` object
-- `.prepare()` — return a reusable `PreparedStatement` without executing
+The `.run()` method executes a write statement.
 
 #### 8.5.1 Write Operations with `.run()`
 
-`.run()` executes a SQL statement and returns an object with:
-
-| Field | Type | Description |
-|---|---|---|
-| `changes` | `number` | Number of rows affected by the statement |
-| `lastInsertRowid` | `number` | Row ID of the last inserted row (INSERT only; 0 for UPDATE/DELETE) |
-
-This is a direct passthrough of the bun:sqlite `RunResult` shape. The compiler does not
-transform or wrap the return value.
+`.run()` executes a SQL statement. The return value is `void` per §44.3 — Bun.SQL does not
+return the legacy `bun:sqlite` `RunResult` shape (`{ changes, lastInsertRowid }`). Source
+code that previously read `result.changes` or `result.lastInsertRowid` no longer works on
+`?{}.run()`. Use a `RETURNING` clause or a follow-up `?{`SELECT changes()`}.get()` if the
+write outcome is needed.
 
 **Normative statements:**
 
-- `.run()` SHALL be compiled to `db.query(sql).run(...params)` where `sql` is the
-  parameterized SQL string and `params` is the bound parameter array per §8.2.
-- The return value of `.run()` SHALL be the database driver's native write result object.
-  For bun:sqlite, this is `{ changes: number, lastInsertRowid: number }`.
-- The compiler SHALL NOT wrap, transform, or inspect the return value of `.run()`.
+- `.run()` SHALL emit a Bun.SQL tagged-template execution (see §44 for the codegen shape).
+  The return value SHALL be `void`; the compiler SHALL NOT synthesize a `RunResult` shim.
 - All `?{}` SQL blocks, including write operations, are server-escalated by Route Inference
   (§12.2 Trigger 1). A function containing a `?{}` write operation SHALL be classified as
   server-side. This applies equally to INSERT, UPDATE, DELETE, and DDL statements.
+- For write outcomes (last insert ID, affected rows), use `RETURNING` (PostgreSQL/MySQL) or
+  a follow-up `SELECT last_insert_rowid()` / `SELECT changes()` query (SQLite).
 
-**Worked example — INSERT and inspect result:**
+**Worked example — INSERT and capture inserted row via RETURNING:**
 
 ```scrml
 < db src="./app.db" tables="users">
     ${ server function createUser(name, email) {
-        let result = ?{`INSERT INTO users (name, email) VALUES (${name}, ${email})`}.run()
-        return result.lastInsertRowid
+        let [row] = ?{`INSERT INTO users (name, email) VALUES (${name}, ${email}) RETURNING id`}.all()
+        return row.id
     } }
 </>
 ```
 
-**Worked example — DELETE:**
+**Worked example — DELETE (no return value needed):**
 
 ```scrml
 ${ server function deleteSession(token) {
-    let result = ?{`DELETE FROM sessions WHERE token = ${token}`}.run()
-    return result.changes
+    ?{`DELETE FROM sessions WHERE token = ${token}`}.run()
 } }
 ```
 
-#### 8.5.2 Prepared Statements with `.prepare()`
+#### 8.5.2 Prepared Statements — Removed
 
-`.prepare()` returns a reusable `PreparedStatement` object without executing the query.
-The statement is used for repeated execution with varying parameters.
+`.prepare()` was removed in S40 / SPEC §44 (2026-04-24). Bun.SQL manages prepared-statement
+caching internally; explicit `.prepare()` is no longer needed and SHALL be compile error
+E-SQL-006 (see §44.3, §44.7).
 
-**Normative statements:**
-
-- `.prepare()` SHALL be compiled to `db.prepare(sql)` where `sql` is the parameterized
-  SQL string with `?N` placeholders per §8.2.
-- The bound parameter expressions from the `?{}` template SHALL NOT be passed to
-  `db.prepare()`. Params are supplied at execution time on the returned statement.
-- The return type of `.prepare()` is the database driver's `PreparedStatement` type.
-  For bun:sqlite this is `Statement`. The compiler does not type-annotate the result.
-- `.prepare()` calls, like all `?{}` SQL blocks, are server-escalated by RI.
-
-**Worked example:**
+For batch inserts, write the same `?{}` query inside a loop — Bun.SQL caches the prepared
+statement across iterations:
 
 ```scrml
 ${ server function bulkInsert(users) {
-    const stmt = ?{`INSERT INTO users (name, email) VALUES (?1, ?2)`}.prepare()
     for (u of users) {
-        stmt.run(u.name, u.email)
+        ?{`INSERT INTO users (name, email) VALUES (${u.name}, ${u.email})`}.run()
     }
 } }
 ```
@@ -4711,10 +4698,10 @@ ${ server function transferFunds(fromId, toId, amount) {
 
 **Normative statements:**
 
-- A `transaction` block SHALL be compiled to BEGIN/COMMIT/ROLLBACK wrapping. On any
-  exception thrown from within the block, the compiler-generated catch clause SHALL execute
-  ROLLBACK and re-throw the exception.
-- All SQL statements inside a `transaction` block use the same `_scrml_db` connection.
+- A `transaction` block SHALL be compiled to BEGIN/COMMIT/ROLLBACK wrapping (emitted as
+  `await _scrml_sql.unsafe("BEGIN DEFERRED")` etc. per §44). On any exception thrown from
+  within the block, the compiler-generated catch clause SHALL execute ROLLBACK and re-throw.
+- All SQL statements inside a `transaction` block use the same `_scrml_sql` Bun.SQL handle.
 - `transaction` blocks, like all `?{}` SQL operations, are server-side constructs.
   A `transaction` block in a client-boundary function is E-CG-006.
 
@@ -4737,6 +4724,8 @@ read/write distinction.
 | E-SQL-003 | SQL template content is a runtime expression, not a literal string template | Error |
 | E-SQL-004 | `?{}` block has no `db=` declaration in any ancestor `<program>` | Error |
 | E-SQL-005 | Unrecognized database connection string prefix in `db=` attribute | Error |
+| E-SQL-006 | `.prepare()` called on `?{}` result (removed — see §44.3) | Error |
+| E-SQL-007 | `?{}` in a non-async context (see §44.4) | Error |
 | E-BATCH-001 | Explicit `transaction { }` composed with an implicit per-handler transaction (§8.9.3 / §19.10.5) | Error |
 | E-BATCH-002 | Batched `IN (...)` parameter count exceeds `SQLITE_MAX_VARIABLE_NUMBER` and chunking is not applicable | Error |
 | E-PROTECT-003 | A `BatchPlan.rowCacheColumns` entry includes a `protect` column that appears in the handler's client-visible return type (§8.10.7) | Error |
@@ -4837,7 +4826,7 @@ A for-loop is a *Tier 2 candidate* iff all of the following hold, matched syntac
 
 1. Loop header is `for (let x of xs)` or `for (const x of xs)` (iteration binding is a single identifier).
 2. Loop body contains exactly one `?{}` block whose template matches `... WHERE <column> = ${x.<field>} ...` (single equality predicate on the loop binding).
-3. The `?{}` block is terminated with `.get()` or `.all()`. `.run()` is excluded (see §8.10.5). `.prepare()` is excluded (no round trip to hoist).
+3. The `?{}` block is terminated with `.get()` or `.all()`. `.run()` is excluded (see §8.10.5). `.prepare()` is invalid in scrml — see §44.3 / E-SQL-006.
 4. No other `?{}` blocks appear in the loop body.
 5. The query is not marked `.nobatch()` (§8.9.5).
 
