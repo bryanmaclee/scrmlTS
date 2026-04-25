@@ -33,9 +33,10 @@
  *     Returns null if unresolved.
  *
  *   lookupCrossFileFunction(ws, importerPath, name)  [L4]
- *     Same shape as lookupCrossFileDefinition but ALSO returns the foreign
- *     function-decl AST node so signature help can render parameters from
- *     a foreign function declaration without re-parsing.
+ *     Same shape as lookupCrossFileDefinition but ALSO returns a function-decl
+ *     shaped record (synthesizing one from `export-decl.raw` if needed) so
+ *     signature help can render parameters from a foreign function without
+ *     re-parsing the foreign source.
  *
  *   getCrossFileDiagnosticsFor(ws, filePath)
  *     Return E-IMPORT-* diagnostics whose importer is `filePath`.
@@ -337,13 +338,24 @@ export function lookupCrossFileDefinition(ws, importerPath, symbolName) {
 }
 
 /**
- * L4 — Locate a foreign function-decl by name and return the AST node itself
- * (not just the span). Used by signature help to render parameters from a
- * cross-file function without re-parsing the foreign source.
+ * L4 — Locate a foreign function-decl by name and return either the AST node
+ * (when the function is declared bare inside a logic block) or a synthesized
+ * function-decl-shaped record (when the function is wrapped in an
+ * `export function ...` declaration that the AST builder records as an
+ * `export-decl` with `exportKind: "function"`).
+ *
+ * Used by signature help to render parameters from a cross-file function
+ * without re-parsing the foreign source.
  *
  * Walks the importer's import declarations; for each import that names
- * `symbolName`, scans the target file's logic blocks for a `function-decl`
- * with that name. Returns { filePath, fnNode } or null.
+ * `symbolName`, scans the target file for either:
+ *   a. a `function-decl` inside a logic block, or
+ *   b. an `export-decl` with `exportKind === "function"` whose `raw` text
+ *      lifts the function signature out via regex (param list only —
+ *      sufficient for signature help).
+ *
+ * Returns { filePath, fnNode } or null. `fnNode` always exposes
+ * `{ name, params, isServer, fnKind, isGenerator?, canFail?, errorType? }`.
  *
  * @param {object} ws
  * @param {string} importerPath — absolute path of the importing file
@@ -372,18 +384,42 @@ export function lookupCrossFileFunction(ws, importerPath, symbolName) {
 }
 
 /**
- * Walk a file AST for a function-decl with the given name. Looks at logic
- * blocks (function decls live inside `${}`). Returns the AST node or null.
+ * Walk a file AST for a function declaration named `name`. Looks at:
+ *   - logic.body for `function-decl` nodes (bare functions inside `${}`),
+ *   - logic.body for `export-decl` nodes with `exportKind === "function"`
+ *     (synthesizing a function-decl-shaped record from the `raw` text), and
+ *   - the file's hoisted `ast.exports` array (same synthesis).
+ *
+ * Returns the AST node (or synthesized record) or null.
  */
 function findFunctionDeclInAST(ast, name) {
   if (!ast) return null;
+
+  // 1. Hoisted exports — try synthesize from the export-decl's `raw` text.
+  for (const e of ast.exports || []) {
+    if (e?.exportedName === name && e?.exportKind === "function") {
+      const synth = synthesizeFunctionFromExportRaw(e.raw, name);
+      if (synth) return synth;
+    }
+  }
+
+  // 2. Walk logic blocks for bare `function-decl` and `export-decl` (function).
   function walk(nodes) {
     for (const node of nodes || []) {
       if (!node) continue;
       if (node.kind === "logic" || node.kind === "meta") {
         for (const stmt of node.body || []) {
-          if (stmt && stmt.kind === "function-decl" && stmt.name === name) {
+          if (!stmt) continue;
+          if (stmt.kind === "function-decl" && stmt.name === name) {
             return stmt;
+          }
+          if (
+            stmt.kind === "export-decl" &&
+            stmt.exportKind === "function" &&
+            stmt.exportedName === name
+          ) {
+            const synth = synthesizeFunctionFromExportRaw(stmt.raw, name);
+            if (synth) return synth;
           }
         }
       }
@@ -395,6 +431,61 @@ function findFunctionDeclInAST(ast, name) {
     return null;
   }
   return walk(ast.nodes || []);
+}
+
+/**
+ * Parse the `raw` text of an export-decl whose `exportKind === "function"`
+ * and synthesize a function-decl-shaped record carrying `params`.
+ *
+ * Accepts both:
+ *   `export function foo ( a , b )` (TAB-tokenized form, spaces around tokens)
+ *   `export function foo(a, b)`     (compact source form)
+ *   `export server function foo ( a )`
+ *   `export pure function* foo (...)`
+ *
+ * Returns null if the regex doesn't lock onto a known shape.
+ */
+function synthesizeFunctionFromExportRaw(raw, name) {
+  if (typeof raw !== "string" || !raw) return null;
+  // Match `export [server] [pure] function[*] NAME ( ... )` ignoring
+  // surrounding whitespace; capture the param list. The raw string from
+  // TAB lifts inner identifiers separated by spaces (e.g. "a , b") so we
+  // tolerate both ", " and " ,".
+  const re = new RegExp(
+    "export\\s+(server\\s+)?(pure\\s+)?function(\\*)?\\s+" +
+      name.replace(/[$()*+.?[\\\]^{|}]/g, "\\$&") +
+      "\\s*\\(([^)]*)\\)",
+  );
+  const m = raw.match(re);
+  if (!m) return null;
+  const isServer = !!m[1];
+  const isGenerator = !!m[3];
+  const paramListRaw = (m[4] || "").trim();
+  // Split on commas, normalize whitespace around each segment.
+  const params = paramListRaw
+    ? paramListRaw.split(",").map((p) => p.trim()).filter(Boolean)
+    : [];
+
+  // Detect a trailing `! -> ErrorType` failure marker.
+  let canFail = false;
+  let errorType = null;
+  const tailMatch = raw.slice(m.index + m[0].length).match(/^\s*(!)\s*(?:->\s*([A-Za-z_][A-Za-z0-9_]*))?/);
+  if (tailMatch) {
+    canFail = true;
+    if (tailMatch[2]) errorType = tailMatch[2];
+  }
+
+  return {
+    kind: "function-decl",
+    name,
+    params,
+    isServer,
+    fnKind: "function",
+    isGenerator,
+    canFail,
+    errorType,
+    _synthesizedFromExportRaw: true,
+  };
 }
 
 /**
