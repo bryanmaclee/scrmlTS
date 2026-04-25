@@ -698,9 +698,29 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
           const rhsExpr = emitExprField(liftE.exprNode, liftE.expr.trim(), { mode: "server", dbVar: opts.dbVar });
           return `return ${rhsExpr};`;
         }
+        // fix-lift-sql-chained-call (S40): `lift ?{...}.method()` inside a
+        // server function — the ast-builder now wraps the SQL block as
+        // `expr: { kind: "sql", node: <sqlNode> }`. Reuse the existing
+        // `case "sql":` emission by recursing on the SQL child node, then
+        // promote the resulting expression to a return statement.
+        if (liftE.kind === "sql" && liftE.node) {
+          const sqlStmt = emitLogicNode(liftE.node, opts);
+          // `case "sql"` always returns an expression form ending in `;`
+          // (e.g. `await sql\`SELECT ...\`;` or `(await sql\`SELECT ...\`)[0] ?? null;`).
+          // Strip the trailing `;` so we can wrap as `return …;`.
+          const sqlExpr = sqlStmt.replace(/;\s*$/, "");
+          return `return ${sqlExpr};`;
+        }
         // Markup in a server handler is not meaningful — emit a typed
         // compile-time comment so inspection shows the failure cause.
         return `return null; /* server-lift: non-expr form */`;
+      }
+      // fix-lift-sql-chained-call (S40): non-server boundary — `lift ?{...}`
+      // outside a server function is unusual but should emit something
+      // parseable. Drop the value and emit the SQL as a statement so the
+      // query still runs (matches the bare `?{}` semantics).
+      if (liftE && liftE.kind === "sql" && liftE.node) {
+        return emitLogicNode(liftE.node, opts);
       }
       // §32 Value-lift: `lift <non-markup-expr>` — if tilde context is active AND the
       // expression does not look like a markup pattern (no leading < tag), treat as
