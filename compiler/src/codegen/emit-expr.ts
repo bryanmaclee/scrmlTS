@@ -440,6 +440,32 @@ function emitNew(node: NewExpr, ctx: EmitExprContext): string {
 // Lambda / inline function
 // ---------------------------------------------------------------------------
 
+/**
+ * GITI-013 (2026-04-25): when an arrow function's expression body is an object
+ * literal, the wrapping parens are load-bearing. Without them, JS parses the
+ * `=> {...}` form as a block statement (with `key:` looking like a label),
+ * not an expression returning an object — `bun --check` then fails with
+ * `Expected ";" but found ":"`.
+ *
+ * Only the structured-tree arrow-expression-body path is affected:
+ *   `(f) => ${emitExpr(body)}` where `body.kind === "object"`.
+ *
+ * Other potentially-leading-`{` forms are NOT reachable here:
+ *   - BlockStatement bodies are routed through EscapeHatchExpr (Bug C, 127d35a),
+ *     never enter this code path (body.kind === "expr" is the gate).
+ *   - SequenceExpression / SpreadElement at top level go through escape-hatch
+ *     (see expression-parser.ts lines 1031-1039).
+ *   - The `function` style emits `function(){ return X; }` — `return {...}`
+ *     is a return statement, not a block-statement collision.
+ *
+ * The check uses node.body.value.kind directly (cleaner intent than scanning
+ * the emitted string). A defensive emitted-string check would also catch the
+ * case but couples the fix to a textual property of emitObject.
+ */
+function arrowBodyNeedsParens(value: ExprNode): boolean {
+  return value.kind === "object";
+}
+
 function emitLambda(node: LambdaExpr, ctx: EmitExprContext): string {
   const params = node.params.map(p => emitLambdaParam(p, ctx)).join(", ");
   const asyncPrefix = node.isAsync ? "async " : "";
@@ -457,7 +483,9 @@ function emitLambda(node: LambdaExpr, ctx: EmitExprContext): string {
 
   // Arrow or fn style
   if (node.body.kind === "expr") {
-    return `${asyncPrefix}(${params}) => ${emitExpr(node.body.value, ctx)}`;
+    const body = emitExpr(node.body.value, ctx);
+    const wrapped = arrowBodyNeedsParens(node.body.value) ? `(${body})` : body;
+    return `${asyncPrefix}(${params}) => ${wrapped}`;
   }
   // Block body arrow — same limitation as above
   return `${asyncPrefix}(${params}) => { /* block body */ }`;
