@@ -374,10 +374,10 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
     for (const node of nodes) {
       if (!node || typeof node !== "object") continue;
 
-      // Phase 4d: ExprNode-first, string fallback
+      // Phase 4d Step 8: ExprNode-first; runtime-only string fallback for synthetic test nodes (bare-expr.expr TS field deleted)
       if (node.kind === "bare-expr") {
         if ((node as any).exprNode && testExprNode((node as any).exprNode)) return true;
-        else if (testExpr(node.expr)) return true;
+        else if (testExpr((node as any).expr)) return true;
       }
       if (node.kind === "let-decl" || node.kind === "const-decl") {
         if ((node as any).initExpr && testExprNode((node as any).initExpr)) return true;
@@ -455,10 +455,10 @@ export function bodyContainsLift(body: LogicNode[]): LogicNode | null {
       // for both `lift <tag>` (markup lift) and `lift expr` (value lift).
       if (node.kind === "lift-expr") return node;
 
-      // Phase 4d: ExprNode-first lift detection, string fallback
+      // Phase 4d Step 8: ExprNode-first lift detection; runtime-only string fallback (bare-expr.expr TS field deleted)
       if (node.kind === "bare-expr") {
         if ((node as any).exprNode && exprNodeContainsCall((node as any).exprNode, "lift")) return node;
-        else if (node.expr && LIFT_CALL_RE.test(node.expr)) return node;
+        else if ((node as any).expr && LIFT_CALL_RE.test((node as any).expr)) return node;
       }
       if (node.kind === "let-decl" || node.kind === "const-decl") {
         if ((node as any).initExpr && exprNodeContainsCall((node as any).initExpr, "lift")) return node;
@@ -495,10 +495,10 @@ export function bodyContainsSqlContext(body: LogicNode[]): LogicNode | null {
       // Check for sql-context nodes in the AST
       if (node.kind === "sql" || node.kind === "sql-context") return node;
 
-      // Phase 4d: ExprNode-first for SQL detection, string fallback
+      // Phase 4d Step 8: ExprNode-first SQL detection; runtime-only string fallback (bare-expr.expr TS field deleted)
       if (node.kind === "bare-expr") {
         if ((node as any).exprNode) { const s = emitStringFromTree((node as any).exprNode); if (SQL_CONTEXT_RE.test(s)) return node; }
-        else if (node.expr && SQL_CONTEXT_RE.test(node.expr)) return node;
+        else if ((node as any).expr && SQL_CONTEXT_RE.test((node as any).expr)) return node;
       }
       if (node.kind === "let-decl" || node.kind === "const-decl") {
         if ((node as any).initExpr) { const s = emitStringFromTree((node as any).initExpr); if (SQL_CONTEXT_RE.test(s)) return node; }
@@ -542,7 +542,8 @@ function collectReflectArgIdents(body: LogicNode[]): Set<string> {
 
       const exprs: string[] = [];
       if (node.kind === "bare-expr") {
-        const s = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : node.expr;
+        // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
+        const s = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : (node as any).expr;
         if (s) exprs.push(s);
       }
       if (node.kind === "let-decl" || node.kind === "const-decl") {
@@ -634,8 +635,9 @@ export function bodyMixesPhases(
         });
         if (foundRuntime) return true;
       } else {
+        // Phase 4d Step 8: bare-expr.expr TS field deleted; runtime-only fallback for synthetic test nodes
         const exprs: string[] = [];
-        if (node.kind === "bare-expr" && node.expr) exprs.push(node.expr);
+        if (node.kind === "bare-expr" && (node as any).expr) exprs.push((node as any).expr as string);
         if ((node.kind === "let-decl" || node.kind === "const-decl") && node.init) exprs.push(node.init);
 
         for (const expr of exprs) {
@@ -1086,8 +1088,9 @@ function checkNodeForRuntimeVars(
   }
 
   // Fall back to string fields if no ExprNode was found.
+  // Phase 4d Step 8: bare-expr.expr TS field deleted; runtime-only fallback for synthetic test nodes.
   if (!foundExprNode) {
-    const expr = (node.kind === "bare-expr" ? node.expr : node.init) as string | undefined;
+    const expr = (node.kind === "bare-expr" ? (node as any).expr : node.init) as string | undefined;
     if (expr) {
       checkExprForRuntimeVars(expr, metaLocals, typeRegistry, span, filePath, errors);
     }
@@ -1358,9 +1361,9 @@ export function checkReflectCalls(
   for (const node of body) {
     if (!node || typeof node !== "object") continue;
 
-    // Phase 4d: ExprNode-first — emit string from tree for reflect checking, string fallback
+    // Phase 4d Step 8: ExprNode-first reflect checking; runtime-only string fallback (bare-expr.expr TS field deleted)
     if (node.kind === "bare-expr") {
-      const exprStr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : node.expr;
+      const exprStr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : (node as any).expr;
       if (exprStr) checkExprForReflect(exprStr, typeRegistry, node.span || metaSpan, filePath, errors, locals);
     }
 
