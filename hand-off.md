@@ -1,9 +1,10 @@
 # scrmlTS — Session 40
 
 **Date opened:** 2026-04-24
+**Date closed:** 2026-04-25
 **Previous:** `handOffs/hand-off-40.md` (S39 closed)
 **Baseline entering S40:** **7,562 pass / 40 skip / 0 fail / 354 files** at `b3c83d3`.
-**Current:** **7,632 pass / 40 skip / 0 fail / 358 files** at `c9ebc78` (+70 tests, +4 files).
+**Final at S40 close:** **7,825 pass / 40 skip / 0 fail / 370 files** at `a71f849` (+263 tests, +16 files). All commits pushed to origin/main in 2 waves.
 
 ---
 
