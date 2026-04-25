@@ -29,6 +29,12 @@
  *       5. E-SQL-006 — `.prepare()` removed. Quick-fix: drop `.prepare()`
  *          (Bun.SQL caches automatically).
  *
+ *   - Both E-IMPORT-* builders extract the offending token from the
+ *     diagnostic.message (which always names it in backticks) AND locate
+ *     the precise byte range of that token inside the diagnostic span,
+ *     so the resulting TextEdit only replaces the offending substring,
+ *     never the whole import declaration.
+ *
  * Held-LSP-shape contract:
  *   - SignatureHelp: { signatures: SignatureInformation[], activeSignature, activeParameter }
  *   - SignatureInformation: { label, parameters: ParameterInformation[], documentation? }
@@ -338,27 +344,22 @@ export function closestMatch(target, candidates, maxDistance = 3) {
 }
 
 /**
- * Build an LSP TextEdit replacing the diagnostic's range with `newText`.
+ * Extract the first backtick-quoted token from a message string. Diagnostic
+ * messages use the convention `` `name` `` to cite offending identifiers,
+ * column names, and import specifiers. Returns the token (without backticks)
+ * or null.
  */
-function replaceEdit(range, newText) {
-  return { range, newText };
+export function extractBacktickedToken(message) {
+  if (typeof message !== "string") return null;
+  const m = message.match(/`([^`]+)`/);
+  return m ? m[1] : null;
 }
 
 /**
- * Helper: map a span object onto an LSP Range using start/end byte offsets.
- * Mirrors handlers.js::spanToRange; inlined to avoid the heavier import.
+ * Build an LSP TextEdit replacing `range` with `newText`.
  */
-function spanToRangeLite(span, text) {
-  if (!span) return { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
-  if (span.start != null && span.end != null && text) {
-    return {
-      start: offsetToPosition(text, span.start),
-      end: offsetToPosition(text, Math.min(span.end, text.length)),
-    };
-  }
-  const line = Math.max(0, (span.line ?? 1) - 1);
-  const col = Math.max(0, (span.col ?? 1) - 1);
-  return { start: { line, character: col }, end: { line, character: col + 1 } };
+function replaceEdit(range, newText) {
+  return { range, newText };
 }
 
 /**
@@ -378,6 +379,17 @@ function makeQuickFix({ title, uri, range, newText, diagnostic }) {
 }
 
 /**
+ * Find the substring `needle` within `text` strictly inside the byte range
+ * [startOff, endOff). Returns its absolute offset or -1 if not found.
+ */
+function findSubstringInRange(text, startOff, endOff, needle) {
+  if (!needle) return -1;
+  const segment = text.slice(startOff, endOff);
+  const idx = segment.indexOf(needle);
+  return idx < 0 ? -1 : startOff + idx;
+}
+
+/**
  * Quick-fix builders, keyed by error code. Each receives a context with:
  *   - diagnostic   the LSP Diagnostic that triggered the action
  *   - text         the current buffer text (so we can read identifiers around
@@ -393,19 +405,34 @@ export const QUICK_FIX_BUILDERS = {
   // -------------------------------------------------------------------------
   // E-IMPORT-004 — imported name is not exported. Suggest the closest exported
   // name from the target file's exportRegistry.
+  //
+  // Diagnostic span typically covers the whole `{ X } from "..."` clause; we
+  // extract the offending name from the message's `` `X` `` token, then locate
+  // its precise byte range inside the span so the rename only touches X.
   // -------------------------------------------------------------------------
   "E-IMPORT-004": (ctx) => {
     const { diagnostic, text, uri, workspace, filePath } = ctx;
     if (!workspace || !filePath) return [];
-    // Read the offending name from the buffer at the diagnostic's range.
+
     const range = diagnostic.range;
-    const start = positionToOffset(text, range.start);
-    const end = positionToOffset(text, range.end);
-    const offendingName = (text.slice(start, end).match(/[A-Za-z_$][A-Za-z0-9_$]*/) || [null])[0];
+    const startOff = positionToOffset(text, range.start);
+    const endOff = positionToOffset(text, range.end);
+
+    // 1. Pull the offending name from the diagnostic message (more precise
+    //    than reading the segment, which may include several identifiers).
+    let offendingName = extractBacktickedToken(diagnostic.message || "");
+    if (!offendingName || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(offendingName)) {
+      // Fallback: first identifier in the segment.
+      offendingName = (text.slice(startOff, endOff).match(/[A-Za-z_$][A-Za-z0-9_$]*/) || [null])[0];
+    }
     if (!offendingName) return [];
 
-    // Find which import declaration surfaced this — inspect importGraph
-    // for `filePath` and find the import where `offendingName` is referenced.
+    // 2. Find the precise byte range of `offendingName` inside the segment.
+    const nameStart = findSubstringInRange(text, startOff, endOff, offendingName);
+    if (nameStart < 0) return [];
+    const nameEnd = nameStart + offendingName.length;
+
+    // 3. Look up exports of the target file via importGraph.
     const entry = workspace.importGraph?.get(filePath);
     if (!entry) return [];
     let candidateNames = null;
@@ -425,7 +452,10 @@ export const QUICK_FIX_BUILDERS = {
     return [makeQuickFix({
       title: `Rename import "${offendingName}" → "${best}"`,
       uri,
-      range,
+      range: {
+        start: offsetToPosition(text, nameStart),
+        end: offsetToPosition(text, nameEnd),
+      },
       newText: best,
       diagnostic,
     })];
@@ -433,38 +463,58 @@ export const QUICK_FIX_BUILDERS = {
 
   // -------------------------------------------------------------------------
   // E-IMPORT-005 — bare npm-style specifier. Quick-fix: prefix with `./`.
-  // The diagnostic's range covers the offending specifier (or a span near it);
-  // we read it, strip surrounding quotes if present, and prepend `./`.
+  //
+  // Strategy:
+  //   1. Pull the bare specifier from the diagnostic message (`` `react` ``).
+  //   2. Find a quoted occurrence of that specifier inside the diagnostic's
+  //      byte span (the import statement).
+  //   3. Replace just the inner specifier text with `./<spec>`, leaving the
+  //      surrounding quotes intact.
+  // If the specifier already starts with `./`, `../`, `scrml:`, or
+  // `vendor:`, no quickfix is emitted.
   // -------------------------------------------------------------------------
   "E-IMPORT-005": (ctx) => {
     const { diagnostic, text, uri } = ctx;
     const range = diagnostic.range;
-    const start = positionToOffset(text, range.start);
-    const end = positionToOffset(text, range.end);
-    let segment = text.slice(start, end);
-    // Strip outer quotes if the diagnostic span covers them.
-    const quoted = segment.match(/^(['"])([^'"]*)\1$/);
-    let bare;
-    let withQuotes = false;
-    if (quoted) {
-      bare = quoted[2];
-      withQuotes = true;
-    } else {
-      bare = segment.trim();
+    const startOff = positionToOffset(text, range.start);
+    const endOff = positionToOffset(text, range.end);
+    const segment = text.slice(startOff, endOff);
+
+    let bare = extractBacktickedToken(diagnostic.message || "");
+    if (!bare) {
+      // Fallback: try to match a quoted spec in the segment.
+      const quotedMatch = segment.match(/(['"])([^'"]+)\1/);
+      bare = quotedMatch ? quotedMatch[2] : segment.trim();
     }
-    if (!bare || bare.startsWith("./") || bare.startsWith("../") ||
-        bare.startsWith("scrml:") || bare.startsWith("vendor:")) {
+    if (!bare) return [];
+
+    if (bare.startsWith("./") || bare.startsWith("../") ||
+        bare.startsWith("scrml:") || bare.startsWith("vendor:") ||
+        bare.startsWith("/")) {
       return [];
     }
-    const fixed = withQuotes
-      ? `${quoted[1]}./${bare}${quoted[1]}`
-      : `./${bare}`;
+
+    // Locate the bare specifier inside the segment. We look for the literal
+    // `bare` substring; if found, replace just it. Otherwise, fall through
+    // to a wider buffer search starting from `startOff`.
+    let specStart = findSubstringInRange(text, startOff, endOff, bare);
+    if (specStart < 0) {
+      // Try widening — diagnostic span may not cover the spec at all.
+      const widerStart = Math.max(0, startOff - 50);
+      const widerEnd = Math.min(text.length, endOff + 50);
+      specStart = findSubstringInRange(text, widerStart, widerEnd, bare);
+      if (specStart < 0) return [];
+    }
+    const specEnd = specStart + bare.length;
 
     return [makeQuickFix({
       title: `Prefix import with "./" → "./${bare}"`,
       uri,
-      range,
-      newText: fixed,
+      range: {
+        start: offsetToPosition(text, specStart),
+        end: offsetToPosition(text, specEnd),
+      },
+      newText: `./${bare}`,
       diagnostic,
     })];
   },
@@ -472,37 +522,54 @@ export const QUICK_FIX_BUILDERS = {
   // -------------------------------------------------------------------------
   // E-LIN-001 — linear var declared but never consumed. Quick-fix: prefix
   // the variable name with `_` (LSP convention for "intentionally unused").
+  //
+  // The diagnostic span often points at (0,0) when the var span is missing;
+  // we fall back to the message's backtick token, then walk `analysis.linVars`
+  // for a span we can use.
   // -------------------------------------------------------------------------
   "E-LIN-001": (ctx) => {
     const { diagnostic, text, uri, analysis } = ctx;
-    if (!analysis?.linVars) return [];
-    // The diagnostic span typically covers the declaration; pick the
-    // identifier inside it, fallback to walking analysis.linVars for the
-    // var whose span contains the diagnostic position.
     const range = diagnostic.range;
     const startOff = positionToOffset(text, range.start);
     const endOff = positionToOffset(text, range.end);
     const segment = text.slice(startOff, endOff);
+
+    // 1. Try the segment directly (`lin myvar = ...`).
     let varName = (segment.match(/\blin\s+([A-Za-z_$][A-Za-z0-9_$]*)/) || [null, null])[1];
-    if (!varName) {
-      // Fallback: any identifier in the segment.
-      varName = (segment.match(/[A-Za-z_$][A-Za-z0-9_$]*/) || [null])[0];
+    if (!varName) varName = (segment.match(/[A-Za-z_$][A-Za-z0-9_$]*/) || [null])[0];
+
+    // 2. Fallback: backtick-quoted name in the message (`` `myvar` ``).
+    if (!varName || varName === "lin") {
+      const fromMsg = extractBacktickedToken(diagnostic.message || "");
+      if (fromMsg && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fromMsg)) {
+        varName = fromMsg;
+      }
     }
     if (!varName || varName.startsWith("_")) return [];
 
-    // Find the offset of the identifier inside the buffer for the rename.
-    // Look within the diagnostic range (the var name is local to the decl).
-    const localIdx = segment.indexOf(varName);
-    if (localIdx < 0) return [];
-    const idStart = startOff + localIdx;
-    const idEnd = idStart + varName.length;
+    // 3. Locate the precise byte range of `varName` to rename. Try the
+    //    diagnostic segment first; then widen via analysis.linVars (which
+    //    has a span from TS).
+    let idStart = findSubstringInRange(text, startOff, endOff, varName);
+    if (idStart < 0 && analysis?.linVars) {
+      const lv = analysis.linVars.find((v) => v.name === varName && v.span);
+      if (lv?.span?.start != null && lv.span.end != null) {
+        idStart = findSubstringInRange(text, lv.span.start, lv.span.end, varName);
+      }
+    }
+    // Final fallback: scan the whole buffer for the var name in a `lin` decl.
+    if (idStart < 0) {
+      const decl = text.match(new RegExp(`\\blin\\s+(${varName})\\b`));
+      if (decl) idStart = decl.index + decl[0].lastIndexOf(varName);
+    }
+    if (idStart < 0) return [];
 
     return [makeQuickFix({
       title: `Prefix "${varName}" with "_" to silence E-LIN-001`,
       uri,
       range: {
         start: offsetToPosition(text, idStart),
-        end: offsetToPosition(text, idEnd),
+        end: offsetToPosition(text, idStart + varName.length),
       },
       newText: "_" + varName,
       diagnostic,
@@ -518,10 +585,21 @@ export const QUICK_FIX_BUILDERS = {
     const { diagnostic, text, uri, analysis } = ctx;
     if (!analysis?.protectAnalysis?.views) return [];
     const range = diagnostic.range;
-    const start = positionToOffset(text, range.start);
-    const end = positionToOffset(text, range.end);
-    const offendingField = (text.slice(start, end).match(/[A-Za-z_][A-Za-z0-9_]*/) || [null])[0];
+    const startOff = positionToOffset(text, range.start);
+    const endOff = positionToOffset(text, range.end);
+    const segment = text.slice(startOff, endOff);
+
+    // Prefer the message's backtick token (more precise).
+    let offendingField = extractBacktickedToken(diagnostic.message || "");
+    if (!offendingField || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(offendingField)) {
+      offendingField = (segment.match(/[A-Za-z_][A-Za-z0-9_]*/) || [null])[0];
+    }
     if (!offendingField) return [];
+
+    // Find precise byte range of the field inside the segment.
+    const fieldStart = findSubstringInRange(text, startOff, endOff, offendingField);
+    if (fieldStart < 0) return [];
+    const fieldEnd = fieldStart + offendingField.length;
 
     // Collect every column name across every view in the file.
     const allCols = new Set();
@@ -539,7 +617,10 @@ export const QUICK_FIX_BUILDERS = {
     return [makeQuickFix({
       title: `Rename protect field "${offendingField}" → "${best}"`,
       uri,
-      range,
+      range: {
+        start: offsetToPosition(text, fieldStart),
+        end: offsetToPosition(text, fieldEnd),
+      },
       newText: best,
       diagnostic,
     })];
@@ -549,7 +630,7 @@ export const QUICK_FIX_BUILDERS = {
   // E-SQL-006 — `.prepare()` removed (Bun.SQL caches automatically).
   // Quick-fix: drop the `.prepare()` call entirely. The diagnostic span
   // generally covers `.prepare()` or the surrounding expression; we look
-  // for the literal substring and remove it.
+  // for the literal substring and remove it (widening the search if needed).
   // -------------------------------------------------------------------------
   "E-SQL-006": (ctx) => {
     const { diagnostic, text, uri } = ctx;
@@ -558,35 +639,34 @@ export const QUICK_FIX_BUILDERS = {
     const endOff = positionToOffset(text, range.end);
     const segment = text.slice(startOff, endOff);
     // Look for `.prepare()` (with optional whitespace inside parens).
-    const idx = segment.search(/\.prepare\s*\(\s*\)/);
-    if (idx < 0) {
-      // Maybe the diagnostic only spans `.prepare` part — try widening.
-      const widerStart = Math.max(0, startOff - 10);
-      const widerEnd = Math.min(text.length, endOff + 10);
-      const widerSegment = text.slice(widerStart, widerEnd);
-      const m = widerSegment.match(/\.prepare\s*\(\s*\)/);
-      if (!m) return [];
-      const matchStart = widerStart + widerSegment.indexOf(m[0]);
+    const prepareRe = /\.prepare\s*\(\s*\)/;
+    const inSegment = segment.match(prepareRe);
+    if (inSegment) {
+      const matchStart = startOff + segment.indexOf(inSegment[0]);
       return [makeQuickFix({
         title: `Drop ".prepare()" — Bun.SQL caches automatically`,
         uri,
         range: {
           start: offsetToPosition(text, matchStart),
-          end: offsetToPosition(text, matchStart + m[0].length),
+          end: offsetToPosition(text, matchStart + inSegment[0].length),
         },
         newText: "",
         diagnostic,
       })];
     }
-
-    const matchStart = startOff + idx;
-    const matchLen = segment.match(/\.prepare\s*\(\s*\)/)[0].length;
+    // Maybe the diagnostic only spans `.prepare` part — widen the search.
+    const widerStart = Math.max(0, startOff - 10);
+    const widerEnd = Math.min(text.length, endOff + 10);
+    const widerSegment = text.slice(widerStart, widerEnd);
+    const m = widerSegment.match(prepareRe);
+    if (!m) return [];
+    const matchStart = widerStart + widerSegment.indexOf(m[0]);
     return [makeQuickFix({
       title: `Drop ".prepare()" — Bun.SQL caches automatically`,
       uri,
       range: {
         start: offsetToPosition(text, matchStart),
-        end: offsetToPosition(text, matchStart + matchLen),
+        end: offsetToPosition(text, matchStart + m[0].length),
       },
       newText: "",
       diagnostic,
@@ -671,8 +751,6 @@ export function positionToOffset(text, position) {
 // module without round-tripping through handlers.js.
 export { pathToUri };
 
-// Silence "unused import" lint when buildSignatureInformation is the only
-// consumer of MarkupKind / formatFunctionSignature from a downstream test
-// import path.
+// Silence "unused import" lint on the few imports that only appear in
+// secondary code paths. (No-op at runtime.)
 void MarkupKind;
-void spanToRangeLite;
