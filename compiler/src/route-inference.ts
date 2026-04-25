@@ -540,7 +540,7 @@ export function walkBodyForTriggers(
     }
 
     if (node.kind === "bare-expr") {
-      // Phase 4d: ExprNode-first, string fallback
+      // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
       const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
 
       // Trigger 1: server-only resource access.
@@ -683,8 +683,9 @@ function findReactiveAssignment(body: LogicStatement[]): LogicStatement | null {
     }
 
     // Also check bare-expr for @name = pattern.
+    // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
     if (node.kind === "bare-expr") {
-      const expr = (node as any).expr ?? "";
+      const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
       if (/\B@[A-Za-z_$][A-Za-z0-9_$]*\s*=[^=]/.test(expr)) {
         return node;
       }
@@ -868,7 +869,7 @@ function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
 function isReactiveStatement(node: LogicStatement): boolean {
   if (node.kind === "reactive-decl") return true;
   if (node.kind === "bare-expr") {
-    // Phase 4d: ExprNode-first, string fallback
+    // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
     const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
     if (/\B@[A-Za-z_$][A-Za-z0-9_$]*\s*=[^=]/.test(expr)) return true;
   }
@@ -893,7 +894,7 @@ function isServerTriggerStatement(
   if (node.kind === "sql") return true;
 
   if (node.kind === "bare-expr") {
-    // Phase 4d: ExprNode-first, string fallback
+    // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
     const expr = (node as any).exprNode ? emitStringFromTree((node as any).exprNode) : ((node as any).expr ?? "");
 
     // Server-only resource access
