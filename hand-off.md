@@ -121,6 +121,10 @@ The hybrid is honest about the contract (TS type cleaned) but defers strict cons
 - 2026-04-24 — Phase 2 returned green (+47 tests, `9ef0ccb`). Pre-existing `/* sql-ref:-1 */` bug filed as `fix-cg-sql-ref-placeholder` (`ca5f753`).
 - 2026-04-24 — strict-cleanup returned green (`c9ebc78`). Surfaced + fixed 2 latent meta-checker ExprNode-detection bugs the hybrid was masking. Phase 4d Step 8 now strictly complete in meta-checker.
 - 2026-04-24 — Final S40 state: **7,632 pass / 40 skip / 0 fail / 358 files** (+70 net, +4 files). 5 user-facing landings + 4 follow-up intakes filed.
+- 2026-04-24 — Wave 4 dispatched + landed: parallel-sites refactor pushed already; LSP L1+L2+L3 phased roadmap shipped (`e1827e6`/`14cc1d1`/`24712f5`); fix-cg-sql-ref-placeholder (`2a05585`); fix-cg-cps-return-sql-ref-placeholder (`9d65a46`). 80 commits pushed to origin/main.
+- 2026-04-24 — Outbound messages sent to siblings:
+  - `giti/handOffs/incoming/2026-04-24-2245-scrmlTS-to-giti-s40-sql-and-lsp-landings.md` — `needs: fyi`. Bun.SQL Phase 1+2 codegen shape change (`_scrml_db`→`_scrml_sql`), `.prepare()`→E-SQL-006, 3 placeholder fixes, LSP L1-L3 capabilities.
+  - `6nz/handOffs/incoming/2026-04-24-2245-scrmlTS-to-6nz-s40-lsp-and-bun-sql.md` — `needs: fyi`. LSP L1-L3 architecture + capabilities + sample responses; L5 semantic-tokens decision deferred to 6nz; Bun.SQL change summary.
 
 ---
 
