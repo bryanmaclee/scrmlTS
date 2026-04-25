@@ -21,6 +21,12 @@
  *     per Q3 of the deep-dive).
  *   - `onDefinition` consults the workspace for cross-file lookups.
  *
+ * L3 (deep-dive 2026-04-24, "Scrml-unique completions"):
+ *   - SQL column completion inside `?{}` blocks (driven by PA's `views` map).
+ *   - Component prop completion for `<Card |...` tags (same-file + cross-file).
+ *   - Cross-file import-clause completion (`import { | } from "./other.scrml"`).
+ *   - Cross-file imported components surface in `<Cap...` markup completions.
+ *
  * Usage: bun run lsp/server.js --stdio
  */
 
@@ -96,8 +102,10 @@ connection.onInitialize((params) => {
       completionProvider: {
         // Trigger chars cover scrml's six contexts: markup `<`, reactive `@`,
         // logic `$`, sql `?`, meta `^`, css `#`, plus member-access `.`,
-        // type-annotation `:`, and attribute `=`.
-        triggerCharacters: ["<", "@", "$", "?", "^", "#", ".", ":", "="],
+        // type-annotation `:`, attribute `=`, and a single space — the
+        // L3 SQL column completion needs to fire after typing `SELECT u.|`
+        // or `SELECT |` where the trailing whitespace is the trigger.
+        triggerCharacters: ["<", "@", "$", "?", "^", "#", ".", ":", "=", " "],
         resolveProvider: false,
       },
       hoverProvider: true,
@@ -186,7 +194,8 @@ connection.onCompletion((params) => {
   const text = document.getText();
   const offset = document.offsetAt(params.position);
   const analysis = fileAnalysis.get(params.textDocument.uri);
-  return buildCompletions(text, offset, analysis);
+  // L3 — pass workspace so cross-file completions (imports, components) work.
+  return buildCompletions(text, offset, analysis, workspace);
 });
 
 connection.onHover((params) => {

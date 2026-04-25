@@ -9,7 +9,17 @@
  * No side effects on import. No I/O. Inputs are already-parsed TextDocument
  * contents; outputs are LSP-shaped (DocumentSymbol[], CompletionItem[],
  * Hover, Diagnostic[], etc).
+ *
+ * L3 (deep-dive 2026-04-24, "Scrml-unique completions"):
+ *   - SQL column completion inside `?{}` blocks driven by PA's `views` Map.
+ *   - Component prop completion inside `<Card |...` tags.
+ *   - Cross-file completion: `import { | } from "./other.scrml"` lists
+ *     exported symbols of the target file. Cross-file imported components
+ *     also surface in `<Cap...` markup completions.
  */
+
+import { dirname, resolve, join } from "path";
+import { existsSync } from "fs";
 
 import {
   DiagnosticSeverity,
@@ -1072,7 +1082,7 @@ export function uriToFilePath(uri) {
 }
 
 // ---------------------------------------------------------------------------
-// Completions
+// Completions — common data
 // ---------------------------------------------------------------------------
 
 export const HTML_TAGS = [
@@ -1261,11 +1271,713 @@ export function reactiveVarCompletions(reactiveVars) {
   return items;
 }
 
+// ---------------------------------------------------------------------------
+// L3 — SQL column completion
+// ---------------------------------------------------------------------------
+
+/**
+ * Test whether `offset` is inside a span (start <= offset <= end). Tolerant
+ * of missing fields.
+ */
+function offsetInSpan(span, offset) {
+  if (!span || span.start == null || span.end == null) return false;
+  return offset >= span.start && offset <= span.end;
+}
+
+/**
+ * Find the deepest `<db>` state block that contains `offset`. The set comes
+ * from `analysis.stateBlocks` (which is filtered on stateType === 'db').
+ *
+ * Returns the matching stateBlock object or null.
+ */
+export function findEnclosingDbBlock(stateBlocks, offset) {
+  if (!Array.isArray(stateBlocks)) return null;
+  let best = null;
+  let bestSize = Infinity;
+  for (const sb of stateBlocks) {
+    if (sb.stateType !== "db") continue;
+    if (!offsetInSpan(sb.span, offset)) continue;
+    const size = sb.span.end - sb.span.start;
+    if (size < bestSize) {
+      best = sb;
+      bestSize = size;
+    }
+  }
+  return best;
+}
+
+/**
+ * Locate the enclosing `?{` and return the SQL body slice from just after
+ * `?{` to `offset`. Returns null if `offset` is not inside any `?{}`.
+ *
+ * Thin wrapper over `findEnclosingSqlContext` for callers that only need
+ * the body up to the cursor (not the full body of the enclosing `?{}`).
+ */
+export function findEnclosingSqlBody(text, offset) {
+  const ctx = findEnclosingSqlContext(text, offset);
+  return ctx ? ctx.bodyToCursor : null;
+}
+
+/**
+ * Locate the enclosing `?{` and return:
+ *   - bodyStart    — offset of the first character inside the `?{`
+ *   - bodyEnd      — offset of the matching `}` (or text.length if unclosed)
+ *   - bodyToCursor — text from bodyStart to `offset`
+ *   - fullBody     — text from bodyStart to bodyEnd
+ *
+ * Returns null when `offset` is not inside any `?{}`. Mirrors the
+ * brace-balancing semantics of `detectContext` but tracks the START
+ * position of the deepest enclosing sql frame so we can extract its body
+ * for SQL alias parsing in both directions (FROM may follow the cursor).
+ */
+export function findEnclosingSqlContext(text, offset) {
+  // Phase 1: walk text up to `offset` to find the deepest enclosing `?{` start.
+  const sqlStarts = []; // stack of start-of-body offsets (just past `?{`)
+  let plainDepth = 0;
+  let inString = false;
+  let stringChar = null;
+  let logic = 0, meta = 0, css = 0;
+  function inAnyContext() {
+    return sqlStarts.length > 0 || logic > 0 || meta > 0 || css > 0;
+  }
+  for (let i = 0; i < offset && i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (inString) {
+      if (ch === stringChar && text[i - 1] !== "\\") {
+        inString = false;
+        stringChar = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      const eol = text.indexOf("\n", i);
+      if (eol !== -1) i = eol;
+      continue;
+    }
+    if (ch === "$" && next === "{") { logic++; i++; continue; }
+    if (ch === "?" && next === "{") { sqlStarts.push(i + 2); i++; continue; }
+    if (ch === "^" && next === "{") { meta++; i++; continue; }
+    if (ch === "#" && next === "{") { css++; i++; continue; }
+    if (ch === "{" && inAnyContext()) { plainDepth++; continue; }
+    if (ch === "}") {
+      if (plainDepth > 0) { plainDepth--; continue; }
+      if (css > 0) css--;
+      else if (sqlStarts.length > 0) sqlStarts.pop();
+      else if (meta > 0) meta--;
+      else if (logic > 0) logic--;
+    }
+  }
+  if (sqlStarts.length === 0) return null;
+  const bodyStart = sqlStarts[sqlStarts.length - 1];
+
+  // Phase 2: scan forward from `offset` to find the matching close brace
+  // for the deepest enclosing `?{`. The stack starts with one outstanding
+  // `?{` so the first un-balanced `}` ends our body.
+  let bodyEnd = text.length;
+  let plain = 0;
+  let logic2 = 0, sql2 = 1, meta2 = 0, css2 = 0;
+  let inStr = false;
+  let strCh = null;
+  function any2() { return logic2 > 0 || sql2 > 0 || meta2 > 0 || css2 > 0; }
+  for (let i = offset; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (inStr) {
+      if (ch === strCh && text[i - 1] !== "\\") {
+        inStr = false;
+        strCh = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inStr = true;
+      strCh = ch;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      const eol = text.indexOf("\n", i);
+      if (eol !== -1) i = eol;
+      continue;
+    }
+    if (ch === "$" && next === "{") { logic2++; i++; continue; }
+    if (ch === "?" && next === "{") { sql2++; i++; continue; }
+    if (ch === "^" && next === "{") { meta2++; i++; continue; }
+    if (ch === "#" && next === "{") { css2++; i++; continue; }
+    if (ch === "{" && any2()) { plain++; continue; }
+    if (ch === "}") {
+      if (plain > 0) { plain--; continue; }
+      if (css2 > 0) css2--;
+      else if (sql2 > 0) {
+        sql2--;
+        if (sql2 === 0) { bodyEnd = i; break; }
+      }
+      else if (meta2 > 0) meta2--;
+      else if (logic2 > 0) logic2--;
+    }
+  }
+
+  return {
+    bodyStart,
+    bodyEnd,
+    bodyToCursor: text.slice(bodyStart, offset),
+    fullBody: text.slice(bodyStart, bodyEnd),
+  };
+}
+
+/**
+ * Tiny SQL alias pre-parser. Given a SQL body (the contents of a `?{}`),
+ * extract `FROM table [alias]` and `JOIN table [alias]` pairs. Aliases
+ * preceded by the `AS` keyword are also captured. Backtick-quoted identifiers
+ * are stripped of their backticks. Comma-separated FROM tables are parsed.
+ *
+ * Returns:
+ *   {
+ *     tables: Set<string>,            // all tables referenced
+ *     aliases: Map<string, string>,   // alias → table (alias may equal table)
+ *   }
+ */
+export function parseSqlAliases(sql) {
+  const tables = new Set();
+  const aliases = new Map();
+  if (!sql || typeof sql !== "string") return { tables, aliases };
+
+  // Strip leading/trailing backtick wrappers and inline backticks. SQL bodies
+  // in scrml are inside `?{`...`}` and the body itself is often wrapped in
+  // backtick template literals: `?{`SELECT ...`}`. The backticks are not
+  // SQL semantics — we drop them for parsing.
+  const stripped = sql.replace(/`/g, " ");
+
+  // Lowercase the body to a parallel array for keyword detection while
+  // preserving original-cased identifiers for emission.
+  const lower = stripped.toLowerCase();
+
+  function captureFromList(startIdx) {
+    // Walk forward through identifier-comma sequences until we hit a SQL
+    // keyword that ends the FROM clause (WHERE/GROUP/ORDER/HAVING/LIMIT/JOIN).
+    let i = startIdx;
+    while (i < stripped.length) {
+      // Skip whitespace
+      while (i < stripped.length && /\s/.test(stripped[i])) i++;
+      if (i >= stripped.length) break;
+
+      // Identifier
+      const idMatch = stripped.slice(i).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+      if (!idMatch) break;
+      const tableName = idMatch[1];
+      const tableLower = tableName.toLowerCase();
+      // Stop on terminating keywords
+      if (["where", "group", "order", "having", "limit", "offset", "join",
+           "left", "right", "inner", "outer", "on", "union"].includes(tableLower)) {
+        break;
+      }
+      tables.add(tableName);
+      aliases.set(tableName, tableName); // self-alias
+      i += tableName.length;
+
+      // Skip whitespace, optional AS, then optional alias identifier
+      while (i < stripped.length && /\s/.test(stripped[i])) i++;
+      if (lower.slice(i, i + 3) === "as " || lower.slice(i, i + 3) === "as\n" || lower.slice(i, i + 3) === "as\t") {
+        i += 2;
+        while (i < stripped.length && /\s/.test(stripped[i])) i++;
+      }
+      const aliasMatch = stripped.slice(i).match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+      if (aliasMatch) {
+        const alias = aliasMatch[1];
+        const aliasLower = alias.toLowerCase();
+        if (!["where", "group", "order", "having", "limit", "offset", "join",
+              "left", "right", "inner", "outer", "on", "union"].includes(aliasLower)) {
+          aliases.set(alias, tableName);
+          i += alias.length;
+        }
+      }
+
+      // Skip whitespace, then expect comma to continue the list
+      while (i < stripped.length && /\s/.test(stripped[i])) i++;
+      if (stripped[i] === ",") { i++; continue; }
+      break;
+    }
+  }
+
+  // Find every FROM and JOIN keyword (case-insensitive, word-boundaried).
+  const re = /\b(from|join)\b/gi;
+  let m;
+  while ((m = re.exec(stripped)) !== null) {
+    captureFromList(m.index + m[0].length);
+  }
+
+  return { tables, aliases };
+}
+
+/**
+ * Build SQL column completions for a cursor inside `?{...}` SQL context.
+ * Looks up the enclosing `<db>` block, fetches its DBTypeViews from
+ * `analysis.protectAnalysis.views`, walks the SQL body (in BOTH directions
+ * — FROM/JOIN may appear after the cursor) to find the table aliases, and
+ * emits CompletionItem[] for the columns of the resolved table(s).
+ *
+ * If no alias prefix is detected (e.g. cursor is bare "SELECT |"), columns
+ * from every FROM/JOIN-referenced table in scope are emitted; if no FROM
+ * has been typed yet, every column from every table the <db> block exposes.
+ */
+export function buildSqlColumnCompletions(text, offset, analysis) {
+  if (!analysis?.protectAnalysis?.views || !analysis.stateBlocks) return [];
+
+  const dbBlock = findEnclosingDbBlock(analysis.stateBlocks, offset);
+  if (!dbBlock) return [];
+
+  const stateBlockId = `${analysis.filePath}::${dbBlock.span.start}`;
+  const view = analysis.protectAnalysis.views.get(stateBlockId);
+  if (!view || !view.tables) return [];
+
+  const sqlCtx = findEnclosingSqlContext(text, offset);
+  if (!sqlCtx) return [];
+
+  // Parse aliases from the FULL ?{} body so a cursor placed before the
+  // FROM clause still resolves the eventual tables (real-world flow:
+  // `SELECT u.|` is typed before `FROM users u`, but the editor may
+  // re-trigger completion after FROM is added).
+  const { aliases } = parseSqlAliases(sqlCtx.fullBody);
+
+  // Detect `<alias>.<partial>` immediately to the LEFT of the cursor.
+  const prefixMatch = sqlCtx.bodyToCursor.match(/([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)?$/);
+  let targetTables = null;
+  if (prefixMatch) {
+    const aliasName = prefixMatch[1];
+    const tableName = aliases.get(aliasName);
+    if (tableName && view.tables.has(tableName)) {
+      targetTables = [tableName];
+    } else if (view.tables.has(aliasName)) {
+      // Bare table-name prefix (no FROM clause yet, or table self-reference).
+      targetTables = [aliasName];
+    } else {
+      // Unknown alias — fall back to nothing so we don't pollute.
+      return [];
+    }
+  }
+
+  // Without an alias prefix, emit every column from every table we know
+  // about. Prefer the FROM/JOIN-referenced subset; if that's empty (cursor
+  // before any FROM clause), fall back to every table in the <db> view.
+  if (!targetTables) {
+    const fromTables = [...aliases.values()].filter(t => view.tables.has(t));
+    targetTables = fromTables.length > 0
+      ? Array.from(new Set(fromTables))
+      : Array.from(view.tables.keys());
+  }
+
+  const items = [];
+  const seen = new Set();
+  for (const tableName of targetTables) {
+    const tableView = view.tables.get(tableName);
+    if (!tableView) continue;
+    for (const col of tableView.fullSchema || []) {
+      const key = `${tableName}.${col.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const protectedTag = tableView.protectedFields?.has(col.name) ? " (protected)" : "";
+      items.push({
+        label: col.name,
+        kind: CompletionItemKind.Field,
+        detail: `${col.sqlType}${col.isPrimaryKey ? " PK" : ""}${col.nullable ? "" : " NOT NULL"} -- ${tableName}${protectedTag}`,
+        documentation: `Column \`${col.name}\` of table \`${tableName}\` (from <db src="${view.dbPath}">).`,
+      });
+    }
+  }
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// L3 — Component prop completion
+// ---------------------------------------------------------------------------
+
+// Cache parsed props per (componentDef.raw) so we don't re-parse on every
+// completion request. Keyed by raw because raw is the only identifier that
+// reflects the user's edits to the component body.
+const componentPropsCache = new Map();
+
+/**
+ * Normalize a tokenized `raw` string (logic-tokenizer output) back to
+ * parseable scrml markup source. Mirrors compiler/src/component-expander.ts
+ * `normalizeTokenizedRaw` — kept LSP-local to avoid touching CE.
+ */
+function normalizeTokenizedComponentRaw(raw) {
+  let s = String(raw || "").trim();
+  s = s.replace(/< \/ >/g, "</>");
+  s = s.replace(/< \/ ([A-Za-z][A-Za-z0-9_-]*) >/g, "</$1>");
+  s = s.replace(/< ([A-Za-z])/g, "<$1");
+  s = s.replace(/([A-Za-z0-9_"])\s+>/g, "$1>");
+  s = s.replace(/\s+\/\s+>(\s*)$/, "/>");
+  s = s.replace(/\s+\/>\s*$/, "/>");
+  s = s.replace(/\s+>\s*$/, ">");
+  s = s.replace(/(\w)\s+-\s+(\w)/g, "$1-$2");
+  s = s.replace(/(\w)\s+\?\s*:/g, "$1?:");
+  s = s.replace(/(\w)\s+=\s+/g, "$1=");
+  s = s.replace(/\s+=\s+/g, "=");
+  return s;
+}
+
+/**
+ * Extract the prop declarations from a component-def's `raw` text. Runs
+ * BS+TAB on the normalized raw so we get the same `propsDecl` structure
+ * the AST builder produces for `props={ ... }` attributes.
+ *
+ * Returns PropDecl[] (possibly empty) or null if parsing failed.
+ *
+ * PropDecl = {
+ *   name: string,
+ *   type: string,
+ *   optional: boolean,
+ *   default: string | null,
+ *   bindable: boolean,
+ *   isFunctionProp: boolean,
+ * }
+ */
+export function extractComponentProps(componentDef, filePath) {
+  if (!componentDef || !componentDef.raw) return [];
+  const cacheKey = `${componentDef.name}::${componentDef.raw}`;
+  if (componentPropsCache.has(cacheKey)) return componentPropsCache.get(cacheKey);
+
+  let result = [];
+  try {
+    const normalized = normalizeTokenizedComponentRaw(componentDef.raw);
+    const bs = splitBlocks((filePath || "/lsp-virtual.scrml") + "#" + componentDef.name, normalized);
+    const tab = buildAST(bs);
+    if (tab && tab.ast && Array.isArray(tab.ast.nodes)) {
+      // First markup root is the primary node where `props={...}` lives.
+      const primary = tab.ast.nodes.find(n => n && n.kind === "markup");
+      if (primary && Array.isArray(primary.attrs)) {
+        const propsAttr = primary.attrs.find(a => a && a.name === "props");
+        if (propsAttr && propsAttr.value && propsAttr.value.kind === "props-block") {
+          result = Array.isArray(propsAttr.value.propsDecl) ? propsAttr.value.propsDecl : [];
+        }
+      }
+    }
+  } catch {
+    result = [];
+  }
+
+  componentPropsCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * Detect whether the cursor is inside an open `<Component ...|` tag. Returns
+ * the component name plus the partial attribute text already typed (so the
+ * caller can filter the prop list by prefix).
+ *
+ * Walks backwards from `offset` looking for the most recent `<` whose tag
+ * name starts with an uppercase ASCII letter (component tag, not an HTML
+ * element). If a `>` closes the tag before we reach that `<`, returns null.
+ *
+ * Returns { componentName, prefix } or null.
+ */
+export function detectOpenComponentTag(text, offset) {
+  let i = offset - 1;
+  let inString = false;
+  let stringChar = null;
+  while (i >= 0) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === stringChar && text[i - 1] !== "\\") {
+        inString = false;
+        stringChar = null;
+      }
+      i--;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      i--;
+      continue;
+    }
+    if (ch === ">" || ch === "{" || ch === "}") return null;
+    if (ch === "<") {
+      // Look at the tag name immediately after `<`.
+      const after = text.slice(i + 1);
+      const m = after.match(/^([A-Z][A-Za-z0-9_]*)/);
+      if (!m) return null;
+      const componentName = m[1];
+      // Compute the in-tag prefix: everything between the tag name and
+      // the cursor, minus leading whitespace and any partial identifier
+      // immediately before the cursor.
+      const tagPrefix = text.slice(i + 1 + componentName.length, offset);
+      const prefixIdent = tagPrefix.match(/([A-Za-z_:][A-Za-z0-9_-]*)$/);
+      const prefix = prefixIdent ? prefixIdent[1] : "";
+      return { componentName, prefix };
+    }
+    i--;
+  }
+  return null;
+}
+
+/**
+ * Build prop-name completions for an open component tag at `offset`. Looks
+ * the component up first in `analysis.components`, then (if `workspace` is
+ * provided) walks the file's import graph to find a foreign component with
+ * the same name and reads its props from the workspace's TAB cache.
+ */
+export function buildComponentPropCompletions(text, offset, analysis, workspace) {
+  const tag = detectOpenComponentTag(text, offset);
+  if (!tag) return [];
+  const { componentName, prefix } = tag;
+
+  // 1. Same-file lookup — propsCache keyed by componentDef.raw.
+  let propsDecl = null;
+  let foundFilePath = analysis?.filePath || null;
+  let isCrossFile = false;
+  if (analysis?.components) {
+    const local = analysis.components.find(c => c.name === componentName);
+    if (local) {
+      propsDecl = extractComponentProps(local, foundFilePath);
+    }
+  }
+
+  // 2. Cross-file lookup — walk workspace.fileASTMap for an exported component
+  //    of this name, then read its componentDef.raw.
+  if ((!propsDecl || propsDecl.length === 0) && workspace?.fileASTMap) {
+    const hit = findCrossFileComponent(workspace, analysis?.filePath, componentName);
+    if (hit) {
+      propsDecl = extractComponentProps(hit.componentDef, hit.filePath);
+      foundFilePath = hit.filePath;
+      isCrossFile = true;
+    }
+  }
+
+  if (!propsDecl || propsDecl.length === 0) return [];
+
+  const items = [];
+  for (const decl of propsDecl) {
+    if (prefix && !decl.name.startsWith(prefix)) continue;
+    const typeStr = decl.type || "any";
+    const optTag = decl.optional ? "?" : "";
+    const bindTag = decl.bindable ? " (bind)" : "";
+    items.push({
+      label: decl.name,
+      kind: CompletionItemKind.Property,
+      detail: `${decl.name}${optTag}: ${typeStr}${bindTag}`,
+      documentation: isCrossFile
+        ? `Prop of <${componentName}> (defined in ${foundFilePath || "another file"}).`
+        : `Prop of <${componentName}>.`,
+      insertText: decl.name + "=",
+    });
+  }
+  return items;
+}
+
+/**
+ * Walk an importer's import declarations; when one names `componentName`,
+ * look up the target file's AST in workspace.fileASTMap and find the
+ * matching component-def. Returns { filePath, componentDef } or null.
+ *
+ * The importer's imports come from the workspace.importGraph (resolveModules
+ * output keyed by absolute path).
+ */
+function findCrossFileComponent(workspace, importerPath, componentName) {
+  if (!workspace || !importerPath) return null;
+  const entry = workspace.importGraph?.get(importerPath);
+  if (!entry) return null;
+  for (const imp of entry.imports || []) {
+    const names = imp.names || [];
+    if (!names.includes(componentName)) continue;
+    const targetPath = imp.absSource;
+    if (!targetPath) continue;
+    const targetRec = workspace.fileASTMap?.get(targetPath);
+    if (!targetRec || !targetRec.ast) continue;
+    const def = findComponentDefInAST(targetRec.ast, componentName);
+    if (def) return { filePath: targetPath, componentDef: def };
+  }
+  return null;
+}
+
+/**
+ * Search a FileAST for a component-def with the given name. Looks at hoisted
+ * `ast.components`, then walks logic blocks (component-defs nest inside `${
+ * }` logic blocks).
+ */
+function findComponentDefInAST(ast, name) {
+  if (!ast) return null;
+  for (const c of ast.components || []) {
+    if (c.name === name) return c;
+  }
+  // Cross-file exports often appear as export-decl wrappers around a const
+  // markup definition ("export const Card = < article ...>"). The hoisted
+  // ast.components list is empty in that case (the AST builder didn t lift
+  // the wrapped definition into ast.components). Synthesize a componentDef
+  // by stripping the export-const-name= prefix from export.raw.
+  for (const e of ast.exports || []) {
+    if (e.exportedName !== name || e.exportKind !== "const") continue;
+    if (typeof e.raw !== "string") continue;
+    const m = e.raw.match(/^\s*export\s+const\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*([\s\S]+)$/);
+    if (m && m[1].trim().startsWith("<")) {
+      return { kind: "component-def", name, raw: m[1] };
+    }
+  }
+  function walk(nodes) {
+    for (const node of nodes || []) {
+      if (!node) continue;
+      if (node.kind === "logic" || node.kind === "meta") {
+        for (const stmt of node.body || []) {
+          if (stmt && stmt.kind === "component-def" && stmt.name === name) return stmt;
+        }
+        for (const c of node.components || []) {
+          if (c.name === name) return c;
+        }
+      }
+      if (Array.isArray(node.children)) {
+        const hit = walk(node.children);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  return walk(ast.nodes || []);
+}
+
+// ---------------------------------------------------------------------------
+// L3 — Cross-file import completion
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a relative scrml import specifier to an absolute path. LSP-local
+ * mirror of `compiler/src/module-resolver.js::resolveModulePath` — kept here
+ * to avoid changing the compiler's resolver. Only supports `./` and `../`
+ * forms (the forms used in import-clause completion); other forms return
+ * null and the caller should give up gracefully.
+ */
+function resolveScrmlImport(source, importerPath) {
+  if (!source || !importerPath) return null;
+  if (!source.startsWith("./") && !source.startsWith("../")) return null;
+  const baseDir = dirname(importerPath);
+  const resolved = resolve(baseDir, source);
+  if (existsSync(resolved)) return resolved;
+  if (!resolved.endsWith(".scrml") && !resolved.endsWith(".js")) {
+    const withExt = resolved + ".scrml";
+    if (existsSync(withExt)) return withExt;
+    const asDir = join(resolved, "index.scrml");
+    if (existsSync(asDir)) return asDir;
+  }
+  return resolved;
+}
+
+/**
+ * Detect whether the cursor is inside an `import { ... | ... } from "..."`
+ * clause. Returns { source, prefix } where `source` is the literal between
+ * `from "` and the closing quote (may be undefined if the source hasn't
+ * been typed yet) and `prefix` is the partial identifier already typed
+ * before the cursor inside the brace list.
+ *
+ * Returns null if the cursor is not inside an import-clause brace pair.
+ */
+export function detectImportClauseContext(text, offset) {
+  // Find the start of the current line.
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const lineToCursor = text.slice(lineStart, offset);
+  // Match a partially-typed import line: optional `import`, then `{` and
+  // anything before the cursor.
+  const m = lineToCursor.match(/(?:^|\s)import\s*\{([^}]*)$/);
+  if (!m) return null;
+  const inBrace = m[1];
+  // Compute the partial identifier under the cursor.
+  const prefMatch = inBrace.match(/([A-Za-z_][A-Za-z0-9_]*)?$/);
+  const prefix = prefMatch ? (prefMatch[1] || "") : "";
+
+  // Look ahead from the cursor to see if a `from "..."` source string is
+  // already on the line. The line may be incomplete; try to find a quoted
+  // string after `from`.
+  const restOfLine = text.slice(offset, text.indexOf("\n", offset) === -1 ? text.length : text.indexOf("\n", offset));
+  const fromMatch = restOfLine.match(/\}\s*from\s*["']([^"']+)["']/);
+  let source = null;
+  if (fromMatch) {
+    source = fromMatch[1];
+  }
+  return { source, prefix };
+}
+
+/**
+ * Build completion items for `import { | }` clauses. Reads the workspace's
+ * exportRegistry to enumerate exports of the target file.
+ *
+ * Returns an empty array when the workspace cache or target file is missing,
+ * or when the source path can't be resolved.
+ */
+export function buildImportCompletions(text, offset, analysis, workspace) {
+  if (!workspace || !workspace.exportRegistry) return [];
+  const ctx = detectImportClauseContext(text, offset);
+  if (!ctx || !ctx.source) return [];
+
+  const importerPath = analysis?.filePath || null;
+  if (!importerPath) return [];
+  const targetPath = resolveScrmlImport(ctx.source, importerPath);
+  if (!targetPath) return [];
+
+  const exports = workspace.exportRegistry.get(targetPath);
+  if (!exports) return [];
+
+  const items = [];
+  for (const [name, info] of exports) {
+    if (ctx.prefix && !name.startsWith(ctx.prefix)) continue;
+    const kind = info?.isComponent
+      ? CompletionItemKind.Class
+      : info?.kind === "type"
+        ? CompletionItemKind.TypeParameter
+        : info?.kind === "function"
+          ? CompletionItemKind.Function
+          : CompletionItemKind.Variable;
+    items.push({
+      label: name,
+      kind,
+      detail: info?.kind ? `exported ${info.kind} from ${ctx.source}` : `exported from ${ctx.source}`,
+    });
+  }
+  return items;
+}
+
+// ---------------------------------------------------------------------------
+// L3 — Cross-file component completion (for `<Cap...` in markup)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enumerate cross-file component names that are imported by `importerPath`.
+ * Reads the workspace's importGraph for the file, then for each import that
+ * resolves to a file with an exported component, returns the component
+ * name + its source-file path.
+ */
+export function listImportedCrossFileComponents(workspace, importerPath) {
+  const out = [];
+  if (!workspace || !importerPath) return out;
+  const entry = workspace.importGraph?.get(importerPath);
+  if (!entry) return out;
+  for (const imp of entry.imports || []) {
+    const targetPath = imp.absSource;
+    if (!targetPath) continue;
+    const targetExports = workspace.exportRegistry?.get(targetPath);
+    if (!targetExports) continue;
+    for (const importedName of imp.names || []) {
+      const info = targetExports.get(importedName);
+      if (info?.isComponent) {
+        out.push({ name: importedName, sourcePath: targetPath });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Build completion items for `text` at `offset`. `analysis` is the cached
  * symbol info from `analyzeText`, or null if analysis hasn't run yet.
+ *
+ * `workspace` (L2/L3, optional) lets the completion consult the multi-file
+ * cross-file import graph + export registry. When omitted, completions
+ * degrade to single-file behavior.
  */
-export function buildCompletions(text, offset, analysis) {
+export function buildCompletions(text, offset, analysis, workspace) {
   const line = text.substring(text.lastIndexOf("\n", offset - 1) + 1, offset);
   const items = [];
   const context = detectContext(text, offset);
@@ -1288,8 +2000,27 @@ export function buildCompletions(text, offset, analysis) {
     }
   }
 
+  // L3.2 — Component prop completion when cursor is inside `<Card |...`.
+  // Run before generic markup-context completions because the component-prop
+  // surface is more specific. Falls through to generic if no open component
+  // tag is detected.
+  const propItems = buildComponentPropCompletions(text, offset, analysis, workspace);
+  if (propItems.length > 0) {
+    for (const it of propItems) items.push(it);
+  }
+
+  // L3.3 — Cross-file import-clause completion. Only fires inside
+  // `import { ... }` braces; takes precedence over the generic logic
+  // completion list because the surface is narrow.
+  if (workspace) {
+    const importItems = buildImportCompletions(text, offset, analysis, workspace);
+    if (importItems.length > 0) {
+      for (const it of importItems) items.push(it);
+    }
+  }
+
   if (context === "markup" || context === "top-level") {
-    if (line.endsWith("<") || /^\s*<[a-z]*$/.test(line)) {
+    if (line.endsWith("<") || /^\s*<[a-z]*$/.test(line) || /<[A-Z][A-Za-z0-9_]*$/.test(line)) {
       for (const tag of HTML_TAGS) {
         items.push({ label: tag, kind: CompletionItemKind.Class, detail: `<${tag}>` });
       }
@@ -1299,6 +2030,21 @@ export function buildCompletions(text, offset, analysis) {
             label: c.name,
             kind: CompletionItemKind.Class,
             detail: `<${c.name}> -- component`,
+          });
+        }
+      }
+      // L3 — also offer cross-file imported components (those in scope via
+      // the importer's import graph).
+      if (workspace && analysis?.filePath) {
+        const crossComps = listImportedCrossFileComponents(workspace, analysis.filePath);
+        const seen = new Set(items.map(i => i.label));
+        for (const cc of crossComps) {
+          if (seen.has(cc.name)) continue;
+          seen.add(cc.name);
+          items.push({
+            label: cc.name,
+            kind: CompletionItemKind.Class,
+            detail: `<${cc.name}> -- imported from ${cc.sourcePath}`,
           });
         }
       }
@@ -1349,6 +2095,12 @@ export function buildCompletions(text, offset, analysis) {
   }
 
   if (context === "sql") {
+    // L3.1 — SQL column completion driven by PA's views Map. Emit column
+    // items FIRST (more specific) so an editor that surfaces only the top N
+    // shows column names ahead of generic SQL keywords.
+    const sqlColumnItems = buildSqlColumnCompletions(text, offset, analysis);
+    for (const it of sqlColumnItems) items.push(it);
+
     for (const kw of SQL_KEYWORDS) {
       items.push({ label: kw, kind: CompletionItemKind.Keyword, detail: "SQL keyword" });
     }
