@@ -76,9 +76,12 @@ This preserves all 25 existing `top-level-decls.test.js` tests and converts all 
   - Post-fix: samples **23 fail / 275** (`func-007-fn-params.scrml` flips PASS — same bug fixed), examples **1 fail / 14** (unchanged pre-existing failure in `05-multi-step-form.scrml`).
   - Diff: -1 sample failure, no new failures, no example regressions. Anomaly status: CLEAR (the resolved sample failure is the same bug class as the intake-described issue).
 - [02:58] Updated progress.md with Option 2 fallback rationale and corpus sweep deltas. Cleaning up scratch files.
+- [03:02] Committed fix+tests+intake+progress in single commit `088d920`. Pre-commit hook PASS (7858 pass, 0 fail). Post-commit gauntlet PASS (TodoMVC), browser validation PASS.
 
 ## Final state
 
+- **Branch:** `worktree-agent-a04eafaed62431350`
+- **Final commit:** `088d920`
 - **Files modified:** `compiler/src/ast-builder.js` (single function `liftBareDeclarations`, ~28 net lines added including comments)
 - **Files added:**
   - `compiler/tests/unit/bare-decl-markup-text-no-lift.test.js` (6 regression tests)
@@ -87,3 +90,18 @@ This preserves all 25 existing `top-level-decls.test.js` tests and converts all 
 - **Tests:** 7858 pass / 40 skip / 0 fail (worktree, post-fix). Net delta vs pre-fix worktree baseline: +6 new tests added, all passing; no regressions.
 - **Corpus sweep:** -1 sample failure (`func-007-fn-params.scrml` resolved, same bug class). No new failures.
 - **Approach used:** Option 2 (intake's fallback) — Option 1 broke top-level-decls.test.js because `<program>` is a markup-typed block at the BS level.
+
+## Tags
+
+#bug #parser #ast-builder #bare-decl-lift #markup-context-leak #silent-corruption #scope-c #stage-3 #t1 #high-priority #fixed
+
+## Links
+
+- Intake (the contract): `docs/changes/fix-bare-decl-markup-text-lift/intake.md`
+- Findings tracker: `docs/audits/scope-c-findings-tracker.md` §A5
+- Source change: `compiler/src/ast-builder.js` lines 235-282 (`liftBareDeclarations` function)
+- New regression tests: `compiler/tests/unit/bare-decl-markup-text-no-lift.test.js`
+- Existing tests still passing: `compiler/tests/unit/top-level-decls.test.js`
+- Stage 3 audit context: `docs/audits/scope-c-stage-1-2026-04-25.md` §4
+- Example originally surfacing the bug: `examples/20-middleware.scrml`
+- Sample resolved by the fix: `samples/compilation-tests/func-007-fn-params.scrml`
