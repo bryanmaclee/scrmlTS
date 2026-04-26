@@ -206,6 +206,46 @@ function buildCommentRanges(source) {
 }
 
 // ---------------------------------------------------------------------------
+// Tilde-sigil detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Build ranges for `~{...}` test-sigil blocks (brace-balanced).
+ *
+ * Per SPEC §32, `~{}` is the inline-test sigil. Its body contains scrml code
+ * (test declarations, assertions, reactive reads/writes) that should not
+ * trigger ghost-pattern detection — `@count = 0` inside a test body is a
+ * legitimate reactive assignment, not a Vue-style attribute shorthand.
+ *
+ * Mirrors `buildLogicRanges` / `buildCssRanges`: requires the sigil pair
+ * (`~{`) to start a range, so a bare `~` elsewhere does not accidentally
+ * open a phantom range.
+ *
+ * @param {string} source
+ * @returns {Array<[number, number]>}
+ */
+function buildTildeRanges(source) {
+  const ranges = [];
+  let i = 0;
+  while (i < source.length) {
+    if (source[i] === "~" && source[i + 1] === "{") {
+      const start = i;
+      i += 2;
+      let depth = 1;
+      while (i < source.length && depth > 0) {
+        if (source[i] === "{") depth++;
+        else if (source[i] === "}") depth--;
+        i++;
+      }
+      ranges.push([start, i]);
+    } else {
+      i++;
+    }
+  }
+  return ranges;
+}
+
+// ---------------------------------------------------------------------------
 // Pattern definitions
 // ---------------------------------------------------------------------------
 
@@ -216,7 +256,8 @@ function buildCommentRanges(source) {
  *   correction  — scrml equivalent
  *   see         — spec section
  *   code        — W-LINT-NNN
- *   skipIf      — optional fn(offset, logicRanges, cssRanges, commentRanges) -> bool to skip match
+ *   skipIf      — optional fn(offset, logicRanges, cssRanges, commentRanges, tildeRanges) -> bool
+ *                 to skip match. Backwards compatible — patterns may use shorter signatures.
  */
 const PATTERNS = [
   // Pattern 1: <style> block — unambiguous, no scrml meaning
@@ -363,15 +404,19 @@ const PATTERNS = [
   // (`value=@count`), never as attribute NAMES. The trailing `(?!=)` negative
   // lookahead rejects `@var ==` (scrml equality per SPEC §45) so the lint
   // does not misfire on `assert @count == 0` or `if=(@x == 1)` expressions.
-  // Also skips comment regions (per SPEC §27) via commentRanges.
+  // Also skips comment regions (per SPEC §27) via commentRanges and `~{}`
+  // test-sigil bodies (per SPEC §32) via tildeRanges — `@count = 0` inside a
+  // `~{}` test block is a legitimate reactive assignment, not a Vue ghost.
   {
     regex: /\s@[a-z][a-zA-Z0-9]*(?:\.[a-z]+)*\s*=(?!=)/g,
     ghost: "@click=\"handler\" (Vue event shorthand)",
     correction: "onclick=handler() (scrml uses standard on<event> attribute names)",
     see: "§5",
     code: "W-LINT-013",
-    skipIf: (offset, logicRanges, _cssRanges, commentRanges) =>
-      inRange(offset, logicRanges) || inRange(offset, commentRanges),
+    skipIf: (offset, logicRanges, _cssRanges, commentRanges, tildeRanges) =>
+      inRange(offset, logicRanges) ||
+      inRange(offset, commentRanges) ||
+      inRange(offset, tildeRanges),
   },
 
   // Pattern 14: Svelte block directives `{#if ...}`, `{:else}`, `{/if}`,
@@ -417,6 +462,7 @@ export function lintGhostPatterns(source, filePath) {
   const logicRanges = buildLogicRanges(source);
   const cssRanges = buildCssRanges(source);
   const commentRanges = buildCommentRanges(source);
+  const tildeRanges = buildTildeRanges(source);
   const diagnostics = [];
 
   for (const pattern of PATTERNS) {
@@ -426,7 +472,7 @@ export function lintGhostPatterns(source, filePath) {
       const offset = match.index;
 
       // Apply false-positive guard
-      if (pattern.skipIf && pattern.skipIf(offset, logicRanges, cssRanges, commentRanges)) {
+      if (pattern.skipIf && pattern.skipIf(offset, logicRanges, cssRanges, commentRanges, tildeRanges)) {
         continue;
       }
 
