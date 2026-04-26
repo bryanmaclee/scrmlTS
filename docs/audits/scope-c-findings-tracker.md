@@ -32,15 +32,23 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 | A5 | `function`/`fn` in markup text auto-promoted to logic | **T1** (post-deep-dive) | `ast-builder.js:235-260` | After S42 deep-dive: bug located in `liftBareDeclarations` recursing into markup children. ~5-line fix: stop recursing into `markup` blocks (only state). Reclassified from T2/T3. **Severity escalated to HIGH** — silent text corruption mode discovered (short-form lifted text compiles clean but loses prose from output). Move ahead of A3/A4 in priority. |
 
 **Recommended order (revised after A5 deep-dive):**
-1. **A5 first** (HIGH severity due to silent corruption mode)
-2. **A2 + A1** (T1 lint family, single-file batch)
-3. **A3** (match-arm component refs)
-4. **A4** (lin template-literal interpolation)
+1. ~~A5~~ ✅ **FIXED** (commit `284c21d` 2026-04-25)
+2. ~~A2 + A1~~ ✅ **FIXED** (commit `9a07d07` 2026-04-25)
+3. **A6** — `~{}` tilde-range exclusion (T1, follow-up surfaced by A1+A2 pipeline). Smallest remaining fix. Cleans up the 8 leftover lints in ex 10.
+4. **A3** — component-def text-plus-handler-child trigger (T2, needs parser-level trace before code lands; intake explicitly defers fix-sketch to dispatch agent).
+5. **A4** — lin template-literal interpolation walk (T2 surgical — recommended; T3 structural — deferred).
+
+**Status as of S42 close (2026-04-25):**
+- 3 fixed (A1, A2, A5)
+- 3 intake-filed and ready to dispatch (A6, A3, A4)
+- Test suite: 7889 pass / 40 skip / 0 fail / 375 files
+- All 22 examples compile; ex 10 has 8 W-LINT-013 lints awaiting A6; ex 14 has 0 lints; ex 18 has 1 W-AUTH-001 awaiting C2 (the §C scaffold-only finding, not a bug)
+- Sample-corpus failure count: 23 / 275 (down from 24 — A5 resolved `func-007-fn-params.scrml` as a bonus)
 
 
 
 ### A1. `W-LINT-013` misfires on `@reactive` reads
-- **Status:** **intake-filed** at `docs/changes/fix-w-lint-013-context-scope/intake.md` (2026-04-25, S42)
+- **Status:** **FIXED** — landed on main at commit `9a07d07` (2026-04-25, S42). Combined with A2 in single pipeline run. `(?!=)` lookahead added to W-LINT-013 regex; comment-range exclusion via A2's `buildCommentRanges`. Ex 14 misfire on line 144 resolved (2 lints → 0). Ex 10 partially fixed (14 → 8); the 8 remaining are a separate misfire class — see **A6**.
 - **Severity:** medium (noisy, doesn't block compiles, but pollutes diagnostics)
 - **Tier:** **T1** (single-file, two changes)
 - **Surfaced in:** Stage 1 audit §4 Issue A (`docs/audits/scope-c-stage-1-2026-04-25.md`)
@@ -60,7 +68,7 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Repro (minimal):** any `${assert @x == 0}` or `<div if=(@x == 0)/>` in a compilable file.
 
 ### A2. `W-LINT-007` misfires on comment text
-- **Status:** **intake-filed** at `docs/changes/fix-w-lint-007-comment-range-exclusion/intake.md` (2026-04-25, S42)
+- **Status:** **FIXED** — landed on main at commit `9a07d07` (2026-04-25, S42). Combined with A1 in single pipeline run. Added `buildCommentRanges` helper (line/block comments), threaded 4th arg through skipIf signature, updated W-LINT-007 (and W-LINT-013) skipIfs to skip comment regions. Ex 14 line-5 misfire resolved.
 - **Severity:** low (one-line annoyance)
 - **Tier:** **T1** (single-file, add comment-range exclusion)
 - **Surfaced in:** Stage 1 audit §4 Issue B
@@ -71,30 +79,39 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Fix sketch:** add `buildCommentRanges(source)` that scans for `//` (line comments) and `/* */` (block comments). Add `commentRanges` to the `skipIf` callback signature. Update relevant lint entries (W-LINT-007, W-LINT-013, others that scan markup text) to also skip when offset is inside a comment range.
 - **Repro (minimal):** any `// ... <Comp prop={x}> ...` comment line in a compilable file.
 
-### A3. `match { .X => { lift <Component> } }` triggers E-COMPONENT-020
-- **Status:** not-filed
-- **Severity:** medium-high (the documented pattern doesn't compile)
-- **Tier:** **T2** (component-expander tree-walk update + AST shape verification)
+### A3. Component-def with `<wrapper>{text}+<element with onclick=fn()>` shape fails to register
+- **Status:** **intake-filed** at `docs/changes/fix-component-def-text-plus-handler-child/intake.md` (2026-04-25, S42). Hypothesis revised — original "walkLogicBody not recursing into match arms" was wrong (match nodes use `body` key which the walker DOES recurse into). Actual trigger documented in keyword sweep table below.
+- **Severity:** medium-high (the canonical "render component per state" pattern hits this when the component contains common UI shapes like `<div>label <button onclick=fn()>x</button></div>`)
+- **Tier:** **T2** (component-expander or component-def parser — needs further trace to locate the exact failure path)
 - **Surfaced in:** Stage 3 — refactor of ex 05.
 - **What:** When a component reference (`<InfoStep>`, `<PreferencesStep>`, etc.) appears inside a `match` arm body via `lift`, the compiler reports E-COMPONENT-020 saying the component is undefined — even when it IS defined in an earlier `${...}` block in the same file. The component IS in scope; the error message is wrong.
 - **Workaround that works:** `if=`/`else-if=`/`else` chain on the component instances directly (e.g. `<InfoStep if=(@step == .Info)/>`). This compiles clean. Used in ex 05 refresh.
 - **Implication for kickstarter v1:** the canonical "render different component per state" pattern is the if-chain, not match-with-lift. v1 reflects this in §3 anti-pattern table + §8 known traps.
 - **Examples affected:** ex 05 (was failing pre-S42 audit, fixed via if-chain workaround).
-- **Source location:** `compiler/src/component-expander.ts:1411`
-  ```ts
-  for (const key of ["body", "consequent", "alternate"]) {
-    if (Array.isArray(n[key])) {
-      const newBody = walkLogicBody(n[key] as unknown[], registry, filePath, counter, ceErrors);
-      ...
-    }
-  }
+- **S42 keyword sweep — verified triggers:**
+  - `<div>{text}+<button onclick=fn()>x</button></div>` component def → **FAIL E-COMPONENT-020**
+  - `<div><button onclick=fn()>x</button></div>` (no leading text) → OK
+  - `<div>{text}<span>more</span></div>` (no event handler) → OK
+  - `<button onclick=fn()>x</button>` (single-element root, no wrapper) → OK
+  - Direct `<Foo/>` use OR match-with-lift `${match @x { .V => { lift <Foo> } } }` — both fail equally when the def hits the trigger shape
+- **The trigger is in component DEFINITION parsing, not USAGE.** Component-def with a `<wrapper>` containing `{text} + <child with onclick handler>` fails to register in the component registry. Once not registered, any reference to it produces E-COMPONENT-020 — whether direct (`<Foo/>`) or under match-with-lift. The original failing example (ex 05's InfoStep with `<div>...<button onclick=next()>Next</button></div>`) hit this. The match-with-lift in the audit was incidental.
+- **Hypothesis (NEW):** the component-def parser (`parseComponentDef` in `component-expander.ts` around line 356, or AST builder's component-def handling in `ast-builder.js`) likely fails when the def's body contains text-then-element-with-event-handler. Maybe the BS-stage `raw` collection for the def includes the `onclick=fn()` attribute in a way that breaks the re-parse step (component-expander.ts:301 mentions "raw is a space-joined logic token stream" needing normalization).
+- **Source location candidates (need trace):**
+  - `compiler/src/component-expander.ts:222-461` (parseComponentDef + raw normalization)
+  - `compiler/src/ast-builder.js` component-def collection logic
+- **Fix sketch (DEFERRED — needs deeper trace):** find where the def's body parse fails. Likely the `raw` normalization in `component-expander.ts:301-355` doesn't handle the `text + <elem onclick=...>` shape. May need to fix the re-parse OR change how the raw is collected so the re-parse sees parseable input.
+- **Repro (minimal — verified S42):**
+  ```scrml
+  <program>
+  ${ function fn() { } }
+  ${ const Foo = <div>label <button onclick=fn()>x</button></div> }
+  <div><Foo/></div>
+  </program>
   ```
-- **Root cause:** `walkLogicBody` recurses into nested-body keys `body`, `consequent`, `alternate` for if-stmt / for-stmt / while-stmt. **It does NOT recurse into `match-expr` arms** (which are stored under `arms` array, with each arm having its own body). Component references inside match arm bodies are therefore never visited by the expander, never resolved against the registry, and end up emitting E-COMPONENT-020 from a later pass that finds them still in `isComponent: true` state.
-- **Fix sketch:** add match-arm handling to `walkLogicBody`. When `n.kind === "match-expr"`, iterate `n.arms` (or whatever the AST builder names it — verify against `types/ast.ts`), and for each arm recurse into `arm.body` (or `arm.consequent`). This may also need to handle the rawArms string-form (used in expression-form match per type-system.ts:6987) by re-parsing — which is more involved.
-- **Repro (minimal):** any file with `${ const Foo = <div>...</> }` followed by `${ match @x { .V => { lift <Foo> } } }` markup.
+  Compiles with E-COMPONENT-020 even though `Foo` IS defined.
 
 ### A4. `lin` template-literal interpolation `${ticket}` not counted as consumption
-- **Status:** not-filed
+- **Status:** **intake-filed** at `docs/changes/fix-lin-template-literal-interpolation-walk/intake.md` (2026-04-25, S42). Two fix paths scoped — Option 1 (surgical T2) recommended; Option 2 (structural T3) deferred.
 - **Severity:** medium (forces awkward workaround)
 - **Tier:** **T2** (lin-tracker tree-walk update; needs verification of where function-body templates are scanned)
 - **Surfaced in:** Stage 3 — writing ex 19.
@@ -102,8 +119,21 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Workaround:** explicit `const consumed = ticket` followed by `${consumed}` in the template. The `const` binding IS counted as a consumption.
 - **Implication:** §35.3's "any read of `~` as an expression is a consumption" should also apply to lin-typed locals/params, but the lin analyzer doesn't follow into template-literal interpolation positions inside server-fn body returns.
 - **Examples affected:** ex 19 (worked around with `const consumed = ticket`).
-- **Source location (likely):** `compiler/src/type-system.ts` — `consumeLinRefByTextScan` (line 6265) and `consumeLinRef` (line 6880). The `consumeLinRefByTextScan` uses regex word-boundary matching (`\\b${name}\\b`) which SHOULD match `${ticket}` since `${` and `}` are non-word boundaries. So the regex side works; the missing piece is **whether the function-body return-statement template-literal raw text is being passed to the scanner at all**.
-- **Fix sketch:** trace from a server-function-body analysis path (where `lin` parameters are introduced) through to the body's `return-stmt`. Verify the return value's expression node — if it's a `template-literal` kind, the analyzer needs to descend into its interpolations. Most likely the analyzer treats template literals as opaque strings and skips them. Fix: descend into template-literal expressions and call `consumeLinRefByTextScan` on each interpolation segment.
+- **Source location (located S42 deep-dive):**
+  - `compiler/src/expression-parser.ts:1598-1604` — `forEachIdentInExprNode` treats `lit` ExprNodes (which include template literals per `:745-759`, `litType: "template"`) as **leaf nodes**: "Leaf nodes with no sub-expressions. Nothing to walk." No descent into template-literal interpolations.
+  - `compiler/src/type-system.ts:7060-7073` — the lin-tracking code calls `forEachIdentInExprNode(field, callback)` on each ExprNode field of a node (return-stmt's `exprNode`, etc.). When the return value is `` `Redeemed ${ticket}` ``, the entire template literal is a single `lit` node with `raw: "\`Redeemed ${ticket}\`"`. The walker doesn't see `ticket` because lit is a leaf.
+  - **Same gap affects `scanLambdasInExpr` (`type-system.ts:6936`)** — it walks fields recursively but stops at lit nodes too.
+- **Root cause:** template-literal interpolations are not represented as structured ExprNode children. They're embedded in the opaque `raw` string of a single lit node. Any analysis that walks IdentExprs misses identifiers inside `${...}` interpolations.
+- **Fix sketches (two paths):**
+  1. **Surgical (T2):** in `forEachIdentInExprNode`'s `lit` case, when `node.litType === "template"`, regex-extract `${...}` interpolation segments from `node.raw` and either parse each segment to an ExprNode and walk it, or text-scan for identifiers and synthesize IdentExpr objects with approximate spans.
+  2. **Structural (T3):** change the AST builder so template-literal interpolations are parsed into structured ExprNode children at parse time (a new `template-literal` ExprNode kind with `quasis: string[]` and `expressions: ExprNode[]`). Walker then descends naturally. Bigger change but eliminates the impedance mismatch for ALL analyses (lin, type narrowing, dep-graph, etc.).
+- **Recommendation:** Path 1 (surgical) for the lin tracker specifically. Path 2 is right structural shape but invasive.
+- **Repro (minimal — verified S42):**
+  ```scrml
+  server function f(lin t: string) {
+    return `value: ${t}`   // E-LIN-001 even though t IS read
+  }
+  ```
 - **Repro (minimal):**
   ```scrml
   server function f(lin t: string) {
@@ -111,8 +141,26 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
   }
   ```
 
+### A6. `W-LINT-013` misfires on `@var = N` single-`=` assignments inside `~{}` test sigil bodies
+- **Status:** **intake-filed** at `docs/changes/fix-w-lint-013-tilde-range-exclusion/intake.md` (2026-04-25, S42). Anticipated by A1's intake §"Step 3 (optional, deferred)"; pipeline confirmed it's needed.
+- **Severity:** low (cosmetic — example 10 still emits 8 lints after A1's `(?!=)` fix; doesn't block anything)
+- **Tier:** **T1** (single helper added — `buildTildeRanges` analogous to `buildCommentRanges`)
+- **Surfaced in:** A1+A2 pipeline run (S42). A1's `(?!=)` lookahead caught 6 of 14 misfires in ex 10 (the `assert @x == N` cases) but 8 cases remained: `@count = 0` / `@step = 1` etc. inside `~{}` test bodies. These are LEGITIMATE single-`=` assignments to reactives — the `(?!=)` lookahead correctly does NOT exclude them, but they're still not Vue ghost shorthand.
+- **What:** test bodies inside `~{ "name" test "case" { @count = 0; ... } }` blocks contain reactive assignments that look identical to attribute-position `@click=` ghost patterns from W-LINT-013's perspective. The lint can't distinguish "assignment to `@var` inside a test body" from "Vue `@click=` attribute".
+- **Repro (verified S42):**
+  ```scrml
+  ~{ "x"
+    test "y" {
+      @count = 0   // W-LINT-013 misfires here
+    }
+  }
+  ```
+- **Fix sketch:** add `buildTildeRanges(source)` helper in `lint-ghost-patterns.js` (analogous to `buildLogicRanges` / `buildCommentRanges` / the new `buildCommentRanges` from A2). Extend skipIf signature to take a 5th `tildeRanges` arg. Update W-LINT-013's skipIf to skip tilde ranges. Possibly other lint patterns benefit too — audit during the fix.
+- **Anticipated by A1's intake** ("Step 3 (optional, deferred): `~{}` test sigil exclusion"). The pipeline confirmed it's needed.
+- **Examples affected:** ex 10 (8 remaining lints post-A1+A2).
+
 ### A5. Markup text starting with `function`/`fn` is auto-promoted to logic block
-- **Status:** **intake-filed** at `docs/changes/fix-bare-decl-markup-text-lift/intake.md` (2026-04-25, S42)
+- **Status:** **FIXED** — landed on main at commit `284c21d` (2026-04-25, S42). Approach: Option 2 fallback (`parentType` flag form, `<program>` carved out as decl-site) — Option 1 broke 7 tests in `top-level-decls.test.js` because `<program>` is a markup-typed block that needs to retain the lift for top-level bare decls. **Bonus:** `samples/compilation-tests/func-007-fn-params.scrml` flipped FAIL → PASS (same bug class). Sample-corpus failure baseline 24 → 23. Test suite post-fix: 7878 pass / 40 skip / 0 fail / 373 files.
 - **Severity:** **HIGH** (post-deep-dive). Two failure modes from the same root cause:
   1. Long enough lifted text → phantom E-SCOPE-001 (visible compile error)
   2. Short lifted text → silent text loss (compiles clean, output is wrong)
