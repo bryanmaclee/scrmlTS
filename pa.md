@@ -76,7 +76,7 @@ When the user says "wrap" (or PA proposes wrap), execute ALL of:
 
 1. **Hand-off:** update `hand-off.md` to reflect current state per the bloat-OK directive above. Cover all in-flight threads, open questions, state-as-of-close tables, file inventories.
 2. **Master-list:** update `master-list.md` with current counts / statuses / inventory deltas (test count, sample count, examples count, etc.).
-3. **CHANGELOG:** update `../scrml-support/CHANGELOG-scrmlTS.md` with a new top-level `## Session N — YYYY-MM-DD` block. Populate Added / Changed / Fixed / Removed / Process subsections from the session log + git log. Per-commit detail belongs in git log; this file is the cross-session audit trail.
+3. **CHANGELOG:** update `docs/changelog.md` (in-repo) with a new dated session block at the top of "Recently Landed". Format follows existing entries — `### YYYY-MM-DD (S<N> — short title)`, paragraph summary, then bullet items per landing with prose detail and `+N tests` annotations. Per-commit detail belongs in git log; this file is the cross-session, user-discoverable audit trail (scrmlTS is public/MIT — `docs/changelog.md` is the conventional location). Updated 2026-04-26 (S43): supersedes the brief experiment with `../scrml-support/CHANGELOG-scrmlTS.md` — there is ONE changelog and it lives in this repo.
 4. **Inbox/outbox:** process `handOffs/incoming/*.md` (move read to `read/`); send any outbound notices that are due (giti, 6nz, scrml-support, master).
 5. **Test suite:** run `bun test`, record final pass/skip/fail counts in hand-off + CHANGELOG.
 6. **Working tree:** verify clean, OR commit pending work (with appropriate authorization). No silent uncommitted state at session close.
@@ -352,3 +352,54 @@ The reproducer must be:
 - **Expected vs actual** — state both in the report body.
 
 As the RECEIVER (scrmlTS is the usual target for bug reports from giti/6nz): do not begin diagnosis without the reproducer. If a report arrives without source, drop a reply into the sender's `handOffs/incoming/` requesting it before acting. Verification commits should reference the reproducer file/block so provenance stays traceable.
+
+---
+
+## Cross-machine sync hygiene
+
+**Added 2026-04-26 (S43, user-authorized).** The user works on two machines. Each is a separate clone. Without explicit fetch/pull/push discipline, work on one machine becomes invisible to the other, accumulates on top of stale baselines, and either gets clobbered or requires expensive reconciliation. The S43 (2026-04-26) staleness reconciliation in this repo's `scrml-support` clone is the canonical example of what this rule prevents — 12 commits / 12 days behind origin, S42 cross-repo writes built on stale baseline, full forensic audit + reset required to recover.
+
+### Session-start protocol (every session, every repo this PA touches)
+
+For this PA's own repo (scrmlTS) AND every cross-repo write target (especially `scrml-support`, the universal storage hub):
+
+1. `git -C <repo> fetch origin`
+2. Check ahead/behind: `git -C <repo> rev-list --left-right --count origin/main...HEAD` (left = behind, right = ahead)
+3. If LOCAL is BEHIND: `git -C <repo> pull --rebase origin main`. Resolve any conflicts (or surface them) before reading hand-off or doing any work.
+4. If LOCAL is AHEAD: surface to user — "unpushed work from a previous session in `<repo>`, was this intentional?" Don't proceed without acknowledgment.
+5. If LOCAL has uncommitted changes that pre-date this session: surface them. They may be in-flight from another machine via filesystem sync, OR from a previous session that didn't push. Don't proceed without disposition.
+
+This applies at minimum to scrmlTS itself and to scrml-support. If the session will write into giti/6nz/scrml inboxes (cross-repo messaging), they need the check too — but the check there is lighter (inbox writes don't conflict-stack the way storage writes do).
+
+### Session-end protocol (during "wrap")
+
+For every repo touched in the session:
+- Run `git -C <repo> status` + `git -C <repo> rev-list --left-right --count origin/main...HEAD`.
+- Surface push state explicitly. NEVER allow silent unpushed work at session close.
+- Push (with explicit user authorization) OR record "push pending" in hand-off §"Open questions to surface immediately."
+
+This is an extension of the existing "wrap" §7 (push or surface push-pending) to all repos this PA wrote into, not just scrmlTS.
+
+### Machine-switch protocol (when user is about to switch machines)
+
+Before leaving the current machine:
+1. For every repo with uncommitted changes: commit (with authorization) or stash with a descriptive label.
+2. For every repo with unpushed commits: push (with authorization) or surface "leaving with unpushed commits in `<repo>`" to user.
+3. Wait for clean state across all repos before user closes the session.
+
+On arriving at the other machine, before any work:
+1. `git fetch origin && git pull --rebase origin main` for every relevant repo.
+2. Resolve any divergence before session-start hand-off read.
+3. Only then begin work.
+
+### Recovery (when staleness is discovered mid-session)
+
+If a fetch reveals local-is-behind state with local uncommitted writes on a stale baseline (the S43 case), follow the "MAKE NO MISTAKES" forensic protocol from S43 user-voice:
+
+1. **Audit first:** map every modified/untracked file to one of {preserve, duplicate-of-origin, safe-to-drop}. Verify content overlap with origin via diff/grep.
+2. **Pre-stage backups:** copy every at-risk file to `/tmp/` with checksums. Record reflog HEAD as recovery anchor.
+3. **Reset only after the audit proves loss-free:** `git reset --hard origin/main` integrates origin's commits without losing audited content.
+4. **Restore + append:** untracked keepers survive `reset --hard`. Append session-current content after reset.
+5. **Coordinate cross-machine:** drop a master-PA inbox message describing the reconciliation so the other machine doesn't repeat the same trap.
+
+The full S43 reconciliation lives in `scrml-support/user-voice-scrmlTS.md` §"Make no mistakes — paranoia principle for irreversible operations" as the canonical reference.
