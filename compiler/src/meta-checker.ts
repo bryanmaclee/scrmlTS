@@ -1866,10 +1866,15 @@ export function collectRuntimeVars(fileAST: MetaFileAST): Map<string, "reactive"
         if ((node.kind === "function-decl") && node.name) {
           vars.set(node.name, "function");
         }
-        if (node.kind === "for-loop" || node.kind === "for-stmt") {
-          if (node.variable) vars.set(node.variable, "let");
-          if (node.indexVariable) vars.set(node.indexVariable, "let");
-        }
+        // Bug O fix (2026-04-26): for-loop iteration variables are loop-local,
+        // not module-scope. Adding them to runtimeVars caused the ^{} env-
+        // capture to emit names like `it: it` in the module-scope
+        // Object.freeze({...}), producing "ReferenceError: it is not defined"
+        // at module load when a for-of in markup coexisted with a meta-effect.
+        // Same root-cause shape as the function-decl Bug 6 fix below: a scope-
+        // introducing construct's locals must not appear in the module-scope
+        // capture. Loop variables and any decls inside the loop body are
+        // handled by the body-skip below.
       }
 
       // Bug 6 fix (2026-04-22): function-decl body is function-local scope, not
@@ -1878,6 +1883,14 @@ export function collectRuntimeVars(fileAST: MetaFileAST): Map<string, "reactive"
       // Object.freeze({...}), producing ReferenceError on mount. Skip the body.
       // `fn` shorthand uses the same `function-decl` kind so this covers both.
       if (node.kind === "function-decl") continue;
+
+      // Bug O fix (2026-04-26): same rationale for for-loops. The loop body
+      // introduces the iteration variable plus any let/const/lin declared
+      // inside; none of those are module-scope. Skip the body to keep loop-
+      // local names out of the meta-effect's frozen capture object.
+      // `for-loop` is the markup-template iteration kind; `for-stmt` is the
+      // logic-body iteration kind (including JS-style for-of/for-in/C-style).
+      if (node.kind === "for-loop" || node.kind === "for-stmt") continue;
 
       if (Array.isArray(node.children)) walk(node.children, inMeta);
       if (Array.isArray(node.body)) walk(node.body, inMeta);

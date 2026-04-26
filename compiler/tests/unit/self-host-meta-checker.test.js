@@ -576,6 +576,123 @@ describe("self-host parity: collectRuntimeVars", () => {
     const vars = collectRuntimeVars(fileAST);
     expect(vars.has("metaLocal")).toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // Bug O regression (2026-04-26): for-loop iteration variables and any
+  // let/const/lin declared inside for-loop bodies are LOOP-LOCAL and SHALL
+  // NOT appear in the module-scope runtimeVars map. Adding them caused the
+  // meta-effect frozen-scope object to emit names like \`it: it\` that are
+  // out-of-scope at module load — "ReferenceError: it is not defined".
+  // See compiler/src/meta-checker.ts collectRuntimeVars (Bug O fix).
+  // -------------------------------------------------------------------------
+
+  test("Bug O: does NOT collect for-loop iteration variable (markup-template for-loop)", () => {
+    const fileAST = {
+      filePath: "test.scrml",
+      nodes: [
+        {
+          kind: "logic",
+          body: [
+            makeForLoop("it"),
+          ],
+        },
+      ],
+    };
+    const vars = collectRuntimeVars(fileAST);
+    expect(vars.has("it")).toBe(false);
+  });
+
+  test("Bug O: does NOT collect for-stmt iteration variable (logic-body for-of)", () => {
+    const fileAST = {
+      filePath: "test.scrml",
+      nodes: [
+        {
+          kind: "logic",
+          body: [
+            { kind: "for-stmt", variable: "item" },
+          ],
+        },
+      ],
+    };
+    const vars = collectRuntimeVars(fileAST);
+    expect(vars.has("item")).toBe(false);
+  });
+
+  test("Bug O: does NOT collect for-loop index variable", () => {
+    const fileAST = {
+      filePath: "test.scrml",
+      nodes: [
+        {
+          kind: "logic",
+          body: [
+            makeForLoop("it", "idx"),
+          ],
+        },
+      ],
+    };
+    const vars = collectRuntimeVars(fileAST);
+    expect(vars.has("it")).toBe(false);
+    expect(vars.has("idx")).toBe(false);
+  });
+
+  test("Bug O: does NOT collect let-decl declared inside for-loop body", () => {
+    const fileAST = {
+      filePath: "test.scrml",
+      nodes: [
+        {
+          kind: "logic",
+          body: [
+            { kind: "for-stmt", variable: "it", body: [makeLetDecl("localInner", "42")] },
+          ],
+        },
+      ],
+    };
+    const vars = collectRuntimeVars(fileAST);
+    expect(vars.has("it")).toBe(false);
+    expect(vars.has("localInner")).toBe(false);
+  });
+
+  test("Bug O: collects sibling module-scope decls correctly when a for-loop is present", () => {
+    const fileAST = {
+      filePath: "test.scrml",
+      nodes: [
+        {
+          kind: "logic",
+          body: [
+            makeLetDecl("a", "1"),
+            { kind: "reactive-decl", name: "items" },
+            makeFunctionDecl("init"),
+            { kind: "for-stmt", variable: "it" },
+          ],
+        },
+      ],
+    };
+    const vars = collectRuntimeVars(fileAST);
+    // Module-scope siblings ARE collected.
+    expect(vars.has("a")).toBe(true);
+    expect(vars.has("items")).toBe(true);
+    expect(vars.has("@items")).toBe(true);
+    expect(vars.has("init")).toBe(true);
+    // Loop-local is NOT collected.
+    expect(vars.has("it")).toBe(false);
+  });
+
+  test("Bug O: multiple for-loops with same loop-var name remain excluded", () => {
+    const fileAST = {
+      filePath: "test.scrml",
+      nodes: [
+        {
+          kind: "logic",
+          body: [
+            { kind: "for-stmt", variable: "x" },
+            { kind: "for-loop", variable: "x" },
+          ],
+        },
+      ],
+    };
+    const vars = collectRuntimeVars(fileAST);
+    expect(vars.has("x")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
