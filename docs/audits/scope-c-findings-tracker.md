@@ -162,7 +162,7 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Examples affected:** ex 10 (8 remaining lints post-A1+A2).
 
 ### A7. Component-def with `${@reactive}` BLOCK_REF interpolation in body fails to register
-- **Status:** not-filed (surfaced 2026-04-25 by A3's bonus-signal trace)
+- **Status:** **intake-filed** at `docs/changes/fix-component-def-block-ref-interpolation-in-body/intake.md` (2026-04-25, S42)
 - **Severity:** medium (blocks a common pattern — components that render a reactive value inline)
 - **Tier:** **T2** (parser-level — same family as A3 but different parser shape)
 - **Surfaced in:** A3 fix verification (S42). After A3 landed, `examples/05-multi-step-form.scrml` `InfoStep` reverts cleanly to `match { .Variant => { lift <Comp> } }` form. But `ConfirmStep` (contains `<dl>` with `${@firstName}`/`${@email}` BLOCK_REF interpolations in body) still fails E-COMPONENT-020 — different parser shape than A3's text-plus-handler-child trigger.
@@ -179,7 +179,7 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Examples affected:** ex 05 (ConfirmStep remains in if-chain workaround form post-A3).
 
 ### A8. Component-def with `<select><option>` children fails to register
-- **Status:** not-filed (surfaced 2026-04-25 by A3's bonus-signal trace)
+- **Status:** **intake-filed** at `docs/changes/fix-component-def-select-option-children/intake.md` (2026-04-25, S42)
 - **Severity:** medium (blocks form-shaped components — a `<form>` with a `<select>` is a common pattern)
 - **Tier:** **T2** (parser-level — same family as A3, possibly same family as A7)
 - **Surfaced in:** A3 fix verification (S42). `PreferencesStep` (contains `<select bind:value=@theme><option>...</option></select>` + checkbox `<input type="checkbox" bind:value=@newsletter>`) still fails E-COMPONENT-020 post-A3.
