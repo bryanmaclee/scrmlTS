@@ -1186,7 +1186,30 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // break expression collection mid-tag.
         // Guard: last part is not "." — e.g. `node.type` should NOT break at `type`.
         // Keywords after a dot are property accesses, not statement boundaries.
-        if (parts.length > 0 && angleDepth === 0 && tok.kind === "KEYWORD" && STMT_KEYWORDS.has(tok.text) && parts[parts.length - 1]?.trim() !== ".") break;
+        // Guard (Bug M, 2026-04-26): `function` and `fn` are dual-form. They start
+        // function-decl statements, but also start function expressions. When the
+        // previous part is an operator/punctuation that places us in expression-RHS
+        // context (e.g. `= , : => :> ? && || ?? ! + - * / % < > <= >= == !=` or
+        // an expression-opening keyword like `return throw yield await new`), the
+        // upcoming `function` belongs to this expression. Without this exception,
+        // `obj.x = function() {...}` truncated at `=` and emitted an orphan
+        // function-decl. (Function-as-call-arg already worked because it sits inside
+        // `(`...`)` and never reached depth 0 here.)
+        if (parts.length > 0 && angleDepth === 0 && tok.kind === "KEYWORD" && STMT_KEYWORDS.has(tok.text) && parts[parts.length - 1]?.trim() !== ".") {
+          let _isFnExprAfterRhs = false;
+          if (tok.text === "function" || tok.text === "fn") {
+            const _lastPart = parts[parts.length - 1]?.trim() ?? "";
+            const _RHS_CTX = new Set([
+              "=", ",", ":", "=>", ":>", "?",
+              "&&", "||", "??", "!",
+              "+", "-", "*", "/", "%",
+              "<", ">", "<=", ">=", "==", "!=",
+              "return", "throw", "yield", "await", "new",
+            ]);
+            if (_RHS_CTX.has(_lastPart)) _isFnExprAfterRhs = true;
+          }
+          if (!_isFnExprAfterRhs) break;
+        }
         // BUG-R14-002: @name = or bare name = at depth 0 starts a new statement.
         // Guards:
         //   1. angleDepth > 0 — inside a tag expression (< div class="x" />),
@@ -1471,7 +1494,23 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // Statement keyword boundary (do not consume)
         // Guard: keywords after "." are property accesses (e.g. node.type), not boundaries.
         // Guard: keywords inside markup text content (angleDepth > 0) are text, not code.
-        if (parts.length > 0 && angleDepth === 0 && tok.kind === "KEYWORD" && STMT_KEYWORDS.has(tok.text) && parts[parts.length - 1]?.trim() !== ".") break;
+        // Guard (Bug M, 2026-04-26): `function` / `fn` after expression-RHS context
+        // is a function expression — keep collecting. See collectExpr above.
+        if (parts.length > 0 && angleDepth === 0 && tok.kind === "KEYWORD" && STMT_KEYWORDS.has(tok.text) && parts[parts.length - 1]?.trim() !== ".") {
+          let _isFnExprAfterRhs = false;
+          if (tok.text === "function" || tok.text === "fn") {
+            const _lastPart = parts[parts.length - 1]?.trim() ?? "";
+            const _RHS_CTX = new Set([
+              "=", ",", ":", "=>", ":>", "?",
+              "&&", "||", "??", "!",
+              "+", "-", "*", "/", "%",
+              "<", ">", "<=", ">=", "==", "!=",
+              "return", "throw", "yield", "await", "new",
+            ]);
+            if (_RHS_CTX.has(_lastPart)) _isFnExprAfterRhs = true;
+          }
+          if (!_isFnExprAfterRhs) break;
+        }
       }
       // Track brace / paren / angle depth
       if (tok.kind === "PUNCT" && (tok.text === "{" || tok.text === "(" || tok.text === "[")) depth++;

@@ -858,8 +858,15 @@ export function esTreeToExprNode(
     // ---- Assignment ----
     case "AssignmentExpression": {
       const op = node.operator as string;
-      const target = esTreeToExprNode(node.left as ESNode, filePath, baseOffset);
-      const value = esTreeToExprNode(node.right as ESNode, filePath, baseOffset);
+      // Bug M (2026-04-26): thread rawSource into both target and value
+      // recursion. The right-hand side may be a FunctionExpression with a
+      // BlockStatement body, which esTreeToExprNode cannot fully convert
+      // and falls back to escape-hatch. Without rawSource, the slice from
+      // node.start..node.end produces raw="" and the emitter drops the
+      // whole RHS — leaving `obj.x = ;` in the output. (Same fix shape as
+      // Bug C / 6nz 2026-04-20 for CallExpression args.)
+      const target = esTreeToExprNode(node.left as ESNode, filePath, baseOffset, rawSource);
+      const value = esTreeToExprNode(node.right as ESNode, filePath, baseOffset, rawSource);
       return { kind: "assign", span, op: op as AssignExpr["op"], target, value } satisfies AssignExpr;
     }
 
