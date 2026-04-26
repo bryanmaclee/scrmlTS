@@ -1,0 +1,276 @@
+file	exit	warn_codes	err_codes	first_err_line
+basic-001-empty.scrml	0	W-PROGRAM-001		
+basic-002-single-tag.scrml	0	W-PROGRAM-001		
+basic-003-nested-tags.scrml	0	W-PROGRAM-001		
+basic-004-self-closing.scrml	0	W-PROGRAM-001		
+basic-005-attributes.scrml	0	W-PROGRAM-001		
+basic-006-deep-nesting.scrml	0	W-PROGRAM-001		
+basic-007-siblings.scrml	0	W-PROGRAM-001		
+basic-008-semantic-html.scrml	0	W-PROGRAM-001		
+basic-009-lists.scrml	0	W-PROGRAM-001		
+basic-010-table.scrml	0	W-PROGRAM-001		
+basic-011-form.scrml	0	W-PROGRAM-001		
+basic-012-mixed-content.scrml	0	W-PROGRAM-001		
+basic-013-inferred-closers.scrml	0	W-PROGRAM-001		
+basic-014-multiple-attrs.scrml	0	W-PROGRAM-001		
+basic-015-heading-levels.scrml	0	W-PROGRAM-001		
+channel-basic.scrml	1		E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `msg` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether y
+combined-001-counter.scrml	0	W-PROGRAM-001		
+combined-002-todo.scrml	0	W-PROGRAM-001		
+combined-003-form-validation.scrml	0	W-PROGRAM-001		
+combined-004-data-table.scrml	0	W-PROGRAM-001		
+combined-005-dashboard.scrml	0	W-PROGRAM-001	E-DG-002	
+combined-006-search-filter.scrml	0	W-PROGRAM-001	E-DG-002	
+combined-007-crud.scrml	0	W-PROGRAM-001	E-DG-002	
+combined-008-wizard.scrml	0	W-PROGRAM-001	E-DG-002	
+combined-009-chat.scrml	0	W-PROGRAM-001		
+combined-010-theme-switcher.scrml	0	W-PROGRAM-001		
+combined-011-shopping-cart.scrml	0	W-PROGRAM-001		
+combined-012-login.scrml	1	W-PROGRAM-001	E-DG-002,E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `error` in attribute `if` references the reactive variable `@error` without its `@` sigil. Write `@error` to bind the reactive value, or quote `"e
+combined-013-blog.scrml	0	W-PROGRAM-001		
+combined-014-settings.scrml	0	W-PROGRAM-001	E-DG-002	
+combined-015-user-list.scrml	0	W-PROGRAM-001		
+combined-016-notification.scrml	0	W-PROGRAM-001		
+combined-017-color-picker.scrml	0	W-PROGRAM-001		
+combined-018-timer.scrml	0	W-PROGRAM-001	E-DG-002	
+combined-019-gallery.scrml	0	W-PROGRAM-001		
+combined-020-calculator.scrml	0	W-PROGRAM-001		
+combined-021-component-basic.scrml	0	W-PROGRAM-001		
+comp-001-basic.scrml	0	W-PROGRAM-001		
+comp-002-card.scrml	0	W-PROGRAM-001		
+comp-003-button.scrml	0	W-PROGRAM-001		
+comp-004-modal.scrml	1	W-PROGRAM-001	E-DG-002,E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `isOpen` in attribute `if` references the reactive variable `@isOpen` without its `@` sigil. Write `@isOpen` to bind the reactive value, or quote 
+comp-005-tabs.scrml	0	W-PROGRAM-001	E-DG-002	
+comp-006-alert.scrml	1	W-PROGRAM-001	E-DG-002,E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `showAlert` in attribute `if` references the reactive variable `@showAlert` without its `@` sigil. Write `@showAlert` to bind the reactive value, 
+comp-007-breadcrumb.scrml	0	W-PROGRAM-001		
+comp-008-avatar.scrml	0	W-PROGRAM-001		
+comp-009-dropdown.scrml	1	W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `isOpen` in attribute `if` references the reactive variable `@isOpen` without its `@` sigil. Write `@isOpen` to bind the reactive value, or quote 
+comp-010-progress.scrml	0	W-PROGRAM-001		
+comp-011-badge.scrml	0	W-PROGRAM-001		
+comp-012-pagination.scrml	0	W-PROGRAM-001		
+comp-013-tooltip.scrml	1	W-PROGRAM-001	E-DG-002,E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `showTip` in attribute `if` references the reactive variable `@showTip` without its `@` sigil. Write `@showTip` to bind the reactive value, or quo
+comp-014-accordion.scrml	0	W-PROGRAM-001	E-DG-002	
+comp-015-search-input.scrml	0	W-PROGRAM-001	E-DG-002	
+component-scoped-css.scrml	1		E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `title` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether
+control-001-if-basic.scrml	0	W-PROGRAM-001		
+control-002-if-else.scrml	0	W-PROGRAM-001		
+control-003-if-elseif.scrml	0	W-PROGRAM-001		
+control-004-for-array.scrml	0	W-PROGRAM-001		
+control-005-for-index.scrml	0	W-PROGRAM-001		
+control-006-nested-if.scrml	0	W-PROGRAM-001		
+control-007-while.scrml	0	W-PROGRAM-001		
+control-008-for-in-markup.scrml	0	W-PROGRAM-001		
+control-009-conditional-attr.scrml	0	W-PROGRAM-001		
+control-010-nested-loops.scrml	0	W-PROGRAM-001		
+control-011-if-reactive.scrml	0	W-PROGRAM-001		
+control-012-for-lift-complex.scrml	0	W-PROGRAM-001		
+control-013-switch.scrml	0	W-PROGRAM-001		
+control-014-break-continue.scrml	0	W-PROGRAM-001		
+control-015-try-catch.scrml	0	W-PROGRAM-001		
+css-001-inline.scrml	0	W-PROGRAM-001		
+css-002-multiple-props.scrml	0	W-PROGRAM-001		
+css-003-custom-props.scrml	0	W-PROGRAM-001		
+css-004-layout.scrml	0	W-PROGRAM-001		
+css-005-typography.scrml	0	W-PROGRAM-001		
+css-scope-01.scrml	1		E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `title` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether
+edge-001-empty-logic.scrml	0	W-PROGRAM-001		
+edge-002-empty-css.scrml	0	W-PROGRAM-001		
+edge-003-empty-meta.scrml	0	W-PROGRAM-001		
+edge-004-only-comments.scrml	0	W-PROGRAM-001		
+edge-005-deep-logic.scrml	0	W-PROGRAM-001		
+edge-006-url-in-attr.scrml	0	W-PROGRAM-001		
+edge-007-special-chars.scrml	0	W-PROGRAM-001		
+edge-008-mixed-closers.scrml	0	W-PROGRAM-001		
+edge-009-nested-sql-in-logic.scrml	0	W-PROGRAM-001		
+edge-010-css-in-markup.scrml	0	W-PROGRAM-001		
+error-001-basic.scrml	0	W-PROGRAM-001		
+error-002-multiple-arms.scrml	0	W-PROGRAM-001		
+error-003-wildcard.scrml	0	W-PROGRAM-001		
+error-004-in-logic.scrml	0	W-PROGRAM-001		
+error-005-typed.scrml	0	W-PROGRAM-001		
+func-001-basic.scrml	0	W-PROGRAM-001		
+func-002-params.scrml	0	W-PROGRAM-001		
+func-003-onclick.scrml	0	W-PROGRAM-001		
+func-004-reactive-mutation.scrml	0	W-PROGRAM-001		
+func-005-multiple.scrml	0	W-PROGRAM-001		
+func-006-fn-shorthand.scrml	0	W-PROGRAM-001		
+func-007-fn-params.scrml	1	W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `params` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whethe
+func-008-onsubmit.scrml	0	W-PROGRAM-001		
+func-009-oninput.scrml	0	W-PROGRAM-001		
+func-010-server.scrml	0	W-PROGRAM-001		
+func-012-multiple-events.scrml	0	W-PROGRAM-001		
+func-013-return-value.scrml	0	W-PROGRAM-001		
+func-014-nested-calls.scrml	0	W-PROGRAM-001		
+func-015-event-with-args.scrml	0	W-PROGRAM-001	E-DG-002	
+gauntlet-r10-bun-admin.scrml	1	W-AUTH-001,W-LINT-007,W-LINT-013,W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `@lowStockCount` in attribute `if` cannot be resolved in the current scope. Did you mean to quote it as a string (`"@lowStockCount"`), or use `@` 
+gauntlet-r10-elixir-chat.scrml	1	W-AUTH-001,W-LINT-002,W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `5000` in attribute `interval` cannot be resolved in the current scope. Did you mean to quote it as a string (`"5000"`), or use `@` for a reactive
+gauntlet-r10-go-contacts.scrml	0	W-PROGRAM-001		
+gauntlet-r10-htmx-feedback.scrml	0	W-PROGRAM-001		
+gauntlet-r10-odin-filebrowser.scrml	1	W-LINT-013	E-DG-002,E-SCOPE-001,E-TYPE-045	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `findNode` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whet
+gauntlet-r10-rails-blog.scrml	0	W-AUTH-001,W-CG-001,W-LINT-002,W-PROGRAM-001		
+gauntlet-r10-react-wizard.scrml	0			
+gauntlet-r10-rust-orders.scrml	0	W-LINT-002		
+gauntlet-r10-solid-spreadsheet.scrml	1	W-LINT-013	E-SCOPE-001,E-SYNTAX-042	error [E-SYNTAX-042]: E-SYNTAX-042: `undefined` is not a scrml token — scrml uses `not` for absence (§42). Replace `== undefined` with `x is not` (checks for absence) or `x is some` for presence.
+gauntlet-r10-svelte-dashboard.scrml	1	W-LINT-007,W-LINT-013,W-LINT-014	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `1000` in attribute `interval` cannot be resolved in the current scope. Did you mean to quote it as a string (`"1000"`), or use `@` for a reactive
+gauntlet-r10-ts-components.scrml	1	W-COMPONENT-001	E-DG-002,E-MU-001,E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `visible` in attribute `if` cannot be resolved in the current scope. Did you mean to quote it as a string (`"visible"`), or use `@` for a reactive
+gauntlet-r10-vue-datatable.scrml	0	W-PROGRAM-001		
+gauntlet-r10-zig-buildconfig.scrml	1	W-LINT-013	E-CG-006,E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `buildCommandFor` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, 
+gauntlet-s79-calculator.scrml	0	W-PROGRAM-001	E-DG-002	
+gauntlet-s79-counter-todo.scrml	0	W-PROGRAM-001		
+gauntlet-s79-signup-form.scrml	1	W-PROGRAM-001	E-TYPE-025	error [E-TYPE-025]: E-TYPE-025: Cannot match on `asIs`-typed subject. `match` requires a typed subject (enum, union, or primitive). Narrow the type first via a type annotation (`let x: SomeType = ...`
+gauntlet-s79-theme-settings.scrml	1	W-PROGRAM-001	E-SYNTAX-002	error [E-SYNTAX-002]: E-SYNTAX-002: `lift` is not valid inside a standard `function` body (§49.6.2). `lift` may only appear in logic blocks or component bodies. Return the value with `return` and have
+integration-001-stripe-mini.scrml	0	W-PROGRAM-001	E-DG-002	
+is-not-compound.scrml	0	W-PROGRAM-001		
+library-mode-types.scrml	0	W-LINT-007		
+lift-001-basic.scrml	0	W-PROGRAM-001		
+lift-002-transformed.scrml	0	W-PROGRAM-001		
+lift-003-nested-markup.scrml	0	W-PROGRAM-001		
+lift-004-conditional.scrml	0	W-PROGRAM-001		
+lift-005-table-rows.scrml	0	W-PROGRAM-001		
+lift-006-list-items.scrml	0	W-PROGRAM-001		
+lift-007-with-index.scrml	0	W-PROGRAM-001		
+lift-008-self-closing.scrml	0	W-PROGRAM-001		
+lift-009-string-expr.scrml	0	W-PROGRAM-001		
+lift-010-complex.scrml	0	W-PROGRAM-001		
+lin-001-basic-linear.scrml	0			
+lin-002-double-use.scrml	1		E-LIN-002	error [E-LIN-002]: E-LIN-002: Linear variable `token` consumed more than once. First use at line 1, col 1; second use at line 1, col 1. A 'lin' variable can only be used once. Clone it first, or chang
+logic-001-let-decl.scrml	0	W-PROGRAM-001		
+logic-002-const-decl.scrml	0	W-PROGRAM-001		
+logic-003-arithmetic.scrml	0	W-PROGRAM-001		
+logic-004-string-ops.scrml	0	W-PROGRAM-001		
+logic-005-boolean-expr.scrml	0	W-PROGRAM-001		
+logic-006-ternary.scrml	0	W-PROGRAM-001		
+logic-007-multiple-blocks.scrml	0	W-PROGRAM-001		
+logic-008-nested-logic.scrml	0	W-PROGRAM-001		
+logic-009-expressions.scrml	0	W-PROGRAM-001		
+logic-010-array-decl.scrml	0	W-PROGRAM-001		
+logic-011-object-decl.scrml	0	W-PROGRAM-001		
+logic-012-nested-objects.scrml	0	W-PROGRAM-001		
+logic-013-method-calls.scrml	0	W-PROGRAM-001		
+logic-014-template-literal.scrml	0	W-PROGRAM-001		
+logic-015-multiline.scrml	0	W-PROGRAM-001		
+machine-002-traffic-light.scrml	0	W-PROGRAM-001		
+machine-basic.scrml	0			
+match-001-nested-with-call.scrml	0	W-PROGRAM-001		
+match-as-expression.scrml	0	W-PROGRAM-001		
+match-colon-arrow.scrml	0	W-PROGRAM-001		
+meta-001-basic.scrml	0	W-PROGRAM-001		
+meta-001-emit-html.scrml	0			
+meta-001-reflect-enum.scrml	0			
+meta-002-reflect-struct.scrml	0			
+meta-002-reflect.scrml	0			
+meta-002-with-logic.scrml	0	W-PROGRAM-001		
+meta-003-function.scrml	0	W-PROGRAM-001		
+meta-003-runtime-var-error.scrml	0	W-PROGRAM-001		
+meta-004-clean-config.scrml	1	W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `WEBHOOK_CONFIG` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, o
+meta-004-config.scrml	0	W-LINT-007,W-PROGRAM-001		
+meta-005-nested-meta.scrml	1	W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `ENV` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether y
+meta-005-nested.scrml	0	W-PROGRAM-001		
+meta-006-reflect-unknown-type.scrml	0	W-PROGRAM-001		
+meta-007-reflect-enum-buttons.scrml	0	W-PROGRAM-001		
+meta-008-reflect-struct-form.scrml	0	W-PROGRAM-001		
+meta-009-multiple-runtime-vars-error.scrml	0	W-PROGRAM-001		
+meta-010-reflect-with-config.scrml	1	W-PROGRAM-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `APP_CONFIG` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or wh
+meta-011-for-of-loop.scrml	0			
+meta-012-reflect-callback-param.scrml	0	W-LINT-007		
+meta-013-runtime-meta-dg002.scrml	0	W-LINT-013		
+meta-component-gen.scrml	0			
+meta-conditional-markup.scrml	0			
+meta-data-table.scrml	0			
+meta-loop-gen.scrml	0			
+meta-style-gen.scrml	0			
+modern-001-state-with-tests.scrml	0	W-PROGRAM-001		
+modern-002-projection.scrml	0	W-LINT-007,W-PROGRAM-001		
+modern-003-full-app.scrml	0	W-LINT-007,W-LINT-013,W-PROGRAM-001		
+modern-004-canary-pattern.scrml	0			
+modern-005-ref-and-state.scrml	0	W-PROGRAM-001		
+modern-006-canvas-with-helpers.scrml	1		E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `fn` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether yo
+modern-007-dnd-with-helpers.scrml	0			
+multi-meta-source-order.scrml	0			
+payload-variants-001.scrml	0			
+postgres-program-driver.scrml	0			
+protect-001-basic-auth.scrml	1	W-AUTH-001	E-SCOPE-001	error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `verifyHash` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or wh
+reactive-001-basic-decl.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-002-multiple.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-003-string.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-004-number.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-005-boolean.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-006-array.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-007-object.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-008-null.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-009-empty-string.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-010-empty-array.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-011-with-logic.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-012-computed.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-013-nested-markup.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-014-form-state.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-015-complex-init.scrml	0	W-PROGRAM-001	E-DG-002	
+reactive-016-bind-value.scrml	0	W-PROGRAM-001		
+reactive-017-arrays.scrml	0	W-PROGRAM-001		
+reactive-018-class-binding.scrml	0	W-PROGRAM-001	E-DG-002	
+ref-001-basic.scrml	0	W-PROGRAM-001		
+ref-002-in-logic.scrml	0	W-PROGRAM-001		
+ref-003-attribute-access.scrml	0	W-PROGRAM-001		
+ref-004-with-state.scrml	0	W-PROGRAM-001		
+ref-005-multiple-refs.scrml	0	W-PROGRAM-001		
+server-001-state-block.scrml	0	W-PROGRAM-001		
+server-002-protect.scrml	0	W-AUTH-001,W-PROGRAM-001		
+server-003-protect-multi.scrml	0	W-AUTH-001,W-PROGRAM-001		
+server-004-server-func.scrml	0	W-PROGRAM-001		
+server-005-mixed.scrml	0	W-PROGRAM-001		
+server-006-state-with-tables.scrml	0	W-PROGRAM-001		
+server-007-client-only.scrml	0	W-PROGRAM-001		
+server-008-form-handler.scrml	0	W-PROGRAM-001		
+server-009-server-fn.scrml	0	W-PROGRAM-001		
+server-010-multiple-state.scrml	0	W-PROGRAM-001		
+snippet-001-basic-slot.scrml	0			
+snippet-002-parametric.scrml	0	W-LINT-007		
+sql-001-basic-select.scrml	0	W-PROGRAM-001		
+sql-002-where.scrml	0	W-PROGRAM-001		
+sql-003-join.scrml	0	W-PROGRAM-001		
+sql-004-count.scrml	0	W-PROGRAM-001		
+sql-005-insert.scrml	0	W-CG-001,W-PROGRAM-001		
+sql-006-update.scrml	0	W-CG-001,W-PROGRAM-001		
+sql-007-delete.scrml	0	W-CG-001,W-PROGRAM-001		
+sql-008-order-limit.scrml	0	W-PROGRAM-001		
+sql-009-multiple.scrml	0	W-PROGRAM-001		
+sql-010-create-table.scrml	0	W-CG-001,W-PROGRAM-001		
+state-001-basic-constructor.scrml	0	W-PROGRAM-001		
+state-002-typed-attrs.scrml	0	W-PROGRAM-001		
+state-003-constructor-with-logic.scrml	0	W-PROGRAM-001		
+state-004-instantiation.scrml	0	W-PROGRAM-001		
+state-005-const-binding.scrml	0	W-PROGRAM-001		
+state-006-nested-state.scrml	0	W-PROGRAM-001		
+state-007-html-attrs.scrml	0	W-PROGRAM-001		
+state-008-default-values.scrml	0	W-PROGRAM-001		
+state-009-enum-in-state.scrml	0	W-LINT-007,W-PROGRAM-001		
+state-010-struct-state-combo.scrml	0	W-LINT-007,W-PROGRAM-001		
+state-type-001-custom.scrml	0			
+test-001-basic.scrml	0	W-PROGRAM-001		
+test-002-with-logic.scrml	0	W-LINT-013,W-PROGRAM-001		
+test-003-multiple-tests.scrml	0	W-PROGRAM-001		
+test-004-assert-equals.scrml	0	W-PROGRAM-001		
+test-005-test-state.scrml	0	W-PROGRAM-001		
+test-006-test-sql.scrml	0	W-PROGRAM-001		
+test-007-test-function.scrml	0	W-PROGRAM-001		
+test-008-test-enum.scrml	0	W-LINT-007,W-PROGRAM-001		
+test-009-test-reactive.scrml	0	W-LINT-013,W-PROGRAM-001		
+test-010-nested-context.scrml	0	W-PROGRAM-001		
+transition-001-basic.scrml	0	W-PROGRAM-001		
+type-001-enum.scrml	0	W-PROGRAM-001		
+type-002-struct.scrml	0	W-PROGRAM-001		
+type-003-tuple.scrml	0	W-PROGRAM-001		
+type-004-enum-use.scrml	0	W-PROGRAM-001	E-DG-002	
+type-005-multiple-types.scrml	0	W-PROGRAM-001		
+type-006-struct-nested.scrml	0	W-PROGRAM-001		
+type-007-enum-simple.scrml	0	W-PROGRAM-001		
+type-008-type-no-kind.scrml	0	W-PROGRAM-001		
+type-009-with-functions.scrml	0	W-PROGRAM-001		
+type-010-struct-many-fields.scrml	0	W-PROGRAM-001		
+type-011-enum-many-variants.scrml	0	W-PROGRAM-001		
+type-012-struct-optional.scrml	0	W-PROGRAM-001		
+type-013-type-with-reactive.scrml	0	W-PROGRAM-001	E-DG-002	
+type-014-type-before-markup.scrml	0	W-PROGRAM-001		
+type-015-combined.scrml	0	W-PROGRAM-001	E-DG-002	
+when-001-basic-effect.scrml	0			
+when-002-message-handler.scrml	0			

@@ -1,0 +1,7018 @@
+{
+  "summary": {
+    "total": 275,
+    "clean": 22,
+    "warn": 229,
+    "fail": 24,
+    "failCats": {
+      "negative-test": 0,
+      "stale": 0,
+      "unknown": 24
+    },
+    "warnCats": {
+      "testing-of-warnings": 0,
+      "systemic-warning": 209,
+      "stale-shape": 0,
+      "unknown": 20
+    },
+    "warnFreq": [
+      [
+        "W-PROGRAM-001",
+        224
+      ],
+      [
+        "W-LINT-007",
+        9
+      ],
+      [
+        "W-CG-001",
+        5
+      ],
+      [
+        "W-LINT-013",
+        4
+      ],
+      [
+        "W-AUTH-001",
+        3
+      ],
+      [
+        "W-LINT-002",
+        2
+      ]
+    ]
+  },
+  "buckets": {
+    "clean": [
+      {
+        "file": "gauntlet-r10-react-wizard.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lin-001-basic-linear.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "machine-basic.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-001-emit-html.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-001-reflect-enum.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-002-reflect-struct.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-002-reflect.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-011-for-of-loop.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-component-gen.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-conditional-markup.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-data-table.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-loop-gen.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-style-gen.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-004-canary-pattern.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-007-dnd-with-helpers.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "multi-meta-source-order.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "payload-variants-001.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "postgres-program-driver.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "snippet-001-basic-slot.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-type-001-custom.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "when-001-basic-effect.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "when-002-message-handler.scrml",
+        "exit": 0,
+        "warn_codes": [],
+        "err_codes": [],
+        "first_err": ""
+      }
+    ],
+    "warn": [
+      {
+        "file": "basic-001-empty.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-002-single-tag.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-003-nested-tags.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-004-self-closing.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-005-attributes.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-006-deep-nesting.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-007-siblings.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-008-semantic-html.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-009-lists.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-010-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-011-form.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-012-mixed-content.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-013-inferred-closers.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-014-multiple-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-015-heading-levels.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-001-counter.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-002-todo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-003-form-validation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-004-data-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-005-dashboard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-006-search-filter.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-007-crud.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-008-wizard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-009-chat.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-010-theme-switcher.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-011-shopping-cart.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-013-blog.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-014-settings.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-015-user-list.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-016-notification.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-017-color-picker.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-018-timer.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-019-gallery.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-020-calculator.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-021-component-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-002-card.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-003-button.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-005-tabs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "comp-007-breadcrumb.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-008-avatar.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-010-progress.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-011-badge.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-012-pagination.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-014-accordion.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "comp-015-search-input.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "control-001-if-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-002-if-else.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-003-if-elseif.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-004-for-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-005-for-index.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-006-nested-if.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-007-while.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-008-for-in-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-009-conditional-attr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-010-nested-loops.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-011-if-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-012-for-lift-complex.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-013-switch.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-014-break-continue.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-015-try-catch.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-001-inline.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-002-multiple-props.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-003-custom-props.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-004-layout.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-005-typography.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-001-empty-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-002-empty-css.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-003-empty-meta.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-004-only-comments.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-005-deep-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-006-url-in-attr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-007-special-chars.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-008-mixed-closers.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-009-nested-sql-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-010-css-in-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-002-multiple-arms.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-003-wildcard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-004-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-005-typed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-002-params.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-003-onclick.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-004-reactive-mutation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-005-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-006-fn-shorthand.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-008-onsubmit.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-009-oninput.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-010-server.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-012-multiple-events.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-013-return-value.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-014-nested-calls.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-015-event-with-args.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-go-contacts.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-htmx-feedback.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-rails-blog.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-CG-001",
+          "W-LINT-002",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-rust-orders.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-002"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-vue-datatable.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-s79-calculator.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-s79-counter-todo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "integration-001-stripe-mini.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "is-not-compound.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "library-mode-types.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-002-transformed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-003-nested-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-004-conditional.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-005-table-rows.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-006-list-items.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-007-with-index.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-008-self-closing.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-009-string-expr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-010-complex.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-001-let-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-002-const-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-003-arithmetic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-004-string-ops.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-005-boolean-expr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-006-ternary.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-007-multiple-blocks.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-008-nested-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-009-expressions.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-010-array-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-011-object-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-012-nested-objects.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-013-method-calls.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-014-template-literal.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-015-multiline.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "machine-002-traffic-light.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-001-nested-with-call.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-as-expression.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-colon-arrow.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-002-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-003-function.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-003-runtime-var-error.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-004-config.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-005-nested.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-006-reflect-unknown-type.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-007-reflect-enum-buttons.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-008-reflect-struct-form.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-009-multiple-runtime-vars-error.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-012-reflect-callback-param.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-013-runtime-meta-dg002.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-001-state-with-tests.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-002-projection.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-003-full-app.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-005-ref-and-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-001-basic-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-002-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-003-string.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-004-number.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-005-boolean.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-006-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-007-object.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-008-null.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-009-empty-string.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-010-empty-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-011-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-012-computed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-013-nested-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-014-form-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-015-complex-init.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-016-bind-value.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-017-arrays.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-018-class-binding.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "ref-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-002-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-003-attribute-access.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-004-with-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-005-multiple-refs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-001-state-block.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-002-protect.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-003-protect-multi.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-004-server-func.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-005-mixed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-006-state-with-tables.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-007-client-only.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-008-form-handler.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-009-server-fn.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-010-multiple-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "snippet-002-parametric.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-001-basic-select.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-002-where.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-003-join.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-004-count.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-005-insert.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-006-update.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-007-delete.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-008-order-limit.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-009-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-010-create-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-001-basic-constructor.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-002-typed-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-003-constructor-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-004-instantiation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-005-const-binding.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-006-nested-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-007-html-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-008-default-values.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-009-enum-in-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-010-struct-state-combo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-002-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-003-multiple-tests.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-004-assert-equals.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-005-test-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-006-test-sql.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-007-test-function.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-008-test-enum.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-009-test-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-010-nested-context.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "transition-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-001-enum.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-002-struct.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-003-tuple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-004-enum-use.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "type-005-multiple-types.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-006-struct-nested.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-007-enum-simple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-008-type-no-kind.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-009-with-functions.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-010-struct-many-fields.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-011-enum-many-variants.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-012-struct-optional.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-013-type-with-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "type-014-type-before-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-015-combined.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      }
+    ],
+    "fail": [
+      {
+        "file": "channel-basic.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `msg` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether y"
+      },
+      {
+        "file": "combined-012-login.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `error` in attribute `if` references the reactive variable `@error` without its `@` sigil. Write `@error` to bind the reactive value, or quote `\"e"
+      },
+      {
+        "file": "comp-004-modal.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `isOpen` in attribute `if` references the reactive variable `@isOpen` without its `@` sigil. Write `@isOpen` to bind the reactive value, or quote "
+      },
+      {
+        "file": "comp-006-alert.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `showAlert` in attribute `if` references the reactive variable `@showAlert` without its `@` sigil. Write `@showAlert` to bind the reactive value, "
+      },
+      {
+        "file": "comp-009-dropdown.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `isOpen` in attribute `if` references the reactive variable `@isOpen` without its `@` sigil. Write `@isOpen` to bind the reactive value, or quote "
+      },
+      {
+        "file": "comp-013-tooltip.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `showTip` in attribute `if` references the reactive variable `@showTip` without its `@` sigil. Write `@showTip` to bind the reactive value, or quo"
+      },
+      {
+        "file": "component-scoped-css.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `title` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether"
+      },
+      {
+        "file": "css-scope-01.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `title` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether"
+      },
+      {
+        "file": "func-007-fn-params.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `params` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whethe"
+      },
+      {
+        "file": "gauntlet-r10-bun-admin.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-LINT-007",
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `@lowStockCount` in attribute `if` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"@lowStockCount\"`), or use `@` "
+      },
+      {
+        "file": "gauntlet-r10-elixir-chat.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-LINT-002",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `5000` in attribute `interval` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"5000\"`), or use `@` for a reactive"
+      },
+      {
+        "file": "gauntlet-r10-odin-filebrowser.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001",
+          "E-TYPE-045"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `findNode` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whet"
+      },
+      {
+        "file": "gauntlet-r10-solid-spreadsheet.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [
+          "E-SCOPE-001",
+          "E-SYNTAX-042"
+        ],
+        "first_err": "error [E-SYNTAX-042]: E-SYNTAX-042: `undefined` is not a scrml token — scrml uses `not` for absence (§42). Replace `== undefined` with `x is not` (checks for absence) or `x is some` for presence."
+      },
+      {
+        "file": "gauntlet-r10-svelte-dashboard.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-LINT-013",
+          "W-LINT-014"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `1000` in attribute `interval` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"1000\"`), or use `@` for a reactive"
+      },
+      {
+        "file": "gauntlet-r10-ts-components.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-COMPONENT-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-MU-001",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `visible` in attribute `if` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"visible\"`), or use `@` for a reactive"
+      },
+      {
+        "file": "gauntlet-r10-zig-buildconfig.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [
+          "E-CG-006",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `buildCommandFor` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, "
+      },
+      {
+        "file": "gauntlet-s79-signup-form.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-TYPE-025"
+        ],
+        "first_err": "error [E-TYPE-025]: E-TYPE-025: Cannot match on `asIs`-typed subject. `match` requires a typed subject (enum, union, or primitive). Narrow the type first via a type annotation (`let x: SomeType = ...`"
+      },
+      {
+        "file": "gauntlet-s79-theme-settings.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SYNTAX-002"
+        ],
+        "first_err": "error [E-SYNTAX-002]: E-SYNTAX-002: `lift` is not valid inside a standard `function` body (§49.6.2). `lift` may only appear in logic blocks or component bodies. Return the value with `return` and have"
+      },
+      {
+        "file": "lin-002-double-use.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-LIN-002"
+        ],
+        "first_err": "error [E-LIN-002]: E-LIN-002: Linear variable `token` consumed more than once. First use at line 1, col 1; second use at line 1, col 1. A 'lin' variable can only be used once. Clone it first, or chang"
+      },
+      {
+        "file": "meta-004-clean-config.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `WEBHOOK_CONFIG` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, o"
+      },
+      {
+        "file": "meta-005-nested-meta.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `ENV` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether y"
+      },
+      {
+        "file": "meta-010-reflect-with-config.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `APP_CONFIG` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or wh"
+      },
+      {
+        "file": "modern-006-canvas-with-helpers.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `fn` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether yo"
+      },
+      {
+        "file": "protect-001-basic-auth.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-AUTH-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `verifyHash` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or wh"
+      }
+    ]
+  },
+  "failCats": {
+    "negative-test": [],
+    "stale": [],
+    "unknown": [
+      {
+        "file": "channel-basic.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `msg` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether y"
+      },
+      {
+        "file": "combined-012-login.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `error` in attribute `if` references the reactive variable `@error` without its `@` sigil. Write `@error` to bind the reactive value, or quote `\"e"
+      },
+      {
+        "file": "comp-004-modal.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `isOpen` in attribute `if` references the reactive variable `@isOpen` without its `@` sigil. Write `@isOpen` to bind the reactive value, or quote "
+      },
+      {
+        "file": "comp-006-alert.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `showAlert` in attribute `if` references the reactive variable `@showAlert` without its `@` sigil. Write `@showAlert` to bind the reactive value, "
+      },
+      {
+        "file": "comp-009-dropdown.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `isOpen` in attribute `if` references the reactive variable `@isOpen` without its `@` sigil. Write `@isOpen` to bind the reactive value, or quote "
+      },
+      {
+        "file": "comp-013-tooltip.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `showTip` in attribute `if` references the reactive variable `@showTip` without its `@` sigil. Write `@showTip` to bind the reactive value, or quo"
+      },
+      {
+        "file": "component-scoped-css.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `title` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether"
+      },
+      {
+        "file": "css-scope-01.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `title` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether"
+      },
+      {
+        "file": "func-007-fn-params.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `params` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whethe"
+      },
+      {
+        "file": "gauntlet-r10-bun-admin.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-LINT-007",
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `@lowStockCount` in attribute `if` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"@lowStockCount\"`), or use `@` "
+      },
+      {
+        "file": "gauntlet-r10-elixir-chat.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-LINT-002",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `5000` in attribute `interval` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"5000\"`), or use `@` for a reactive"
+      },
+      {
+        "file": "gauntlet-r10-odin-filebrowser.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-SCOPE-001",
+          "E-TYPE-045"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `findNode` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whet"
+      },
+      {
+        "file": "gauntlet-r10-solid-spreadsheet.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [
+          "E-SCOPE-001",
+          "E-SYNTAX-042"
+        ],
+        "first_err": "error [E-SYNTAX-042]: E-SYNTAX-042: `undefined` is not a scrml token — scrml uses `not` for absence (§42). Replace `== undefined` with `x is not` (checks for absence) or `x is some` for presence."
+      },
+      {
+        "file": "gauntlet-r10-svelte-dashboard.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-LINT-013",
+          "W-LINT-014"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `1000` in attribute `interval` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"1000\"`), or use `@` for a reactive"
+      },
+      {
+        "file": "gauntlet-r10-ts-components.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-COMPONENT-001"
+        ],
+        "err_codes": [
+          "E-DG-002",
+          "E-MU-001",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Unquoted identifier `visible` in attribute `if` cannot be resolved in the current scope. Did you mean to quote it as a string (`\"visible\"`), or use `@` for a reactive"
+      },
+      {
+        "file": "gauntlet-r10-zig-buildconfig.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [
+          "E-CG-006",
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `buildCommandFor` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, "
+      },
+      {
+        "file": "gauntlet-s79-signup-form.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-TYPE-025"
+        ],
+        "first_err": "error [E-TYPE-025]: E-TYPE-025: Cannot match on `asIs`-typed subject. `match` requires a typed subject (enum, union, or primitive). Narrow the type first via a type annotation (`let x: SomeType = ...`"
+      },
+      {
+        "file": "gauntlet-s79-theme-settings.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SYNTAX-002"
+        ],
+        "first_err": "error [E-SYNTAX-002]: E-SYNTAX-002: `lift` is not valid inside a standard `function` body (§49.6.2). `lift` may only appear in logic blocks or component bodies. Return the value with `return` and have"
+      },
+      {
+        "file": "lin-002-double-use.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-LIN-002"
+        ],
+        "first_err": "error [E-LIN-002]: E-LIN-002: Linear variable `token` consumed more than once. First use at line 1, col 1; second use at line 1, col 1. A 'lin' variable can only be used once. Clone it first, or chang"
+      },
+      {
+        "file": "meta-004-clean-config.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `WEBHOOK_CONFIG` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, o"
+      },
+      {
+        "file": "meta-005-nested-meta.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `ENV` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether y"
+      },
+      {
+        "file": "meta-010-reflect-with-config.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `APP_CONFIG` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or wh"
+      },
+      {
+        "file": "modern-006-canvas-with-helpers.scrml",
+        "exit": 1,
+        "warn_codes": [],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `fn` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or whether yo"
+      },
+      {
+        "file": "protect-001-basic-auth.scrml",
+        "exit": 1,
+        "warn_codes": [
+          "W-AUTH-001"
+        ],
+        "err_codes": [
+          "E-SCOPE-001"
+        ],
+        "first_err": "error [E-SCOPE-001]: E-SCOPE-001: Undeclared identifier `verifyHash` in logic expression. No variable, function, type, or import with that name is in scope. Check for a typo, a missing `import`, or wh"
+      }
+    ]
+  },
+  "warnCats": {
+    "testing-of-warnings": [],
+    "systemic-warning": [
+      {
+        "file": "basic-001-empty.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-002-single-tag.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-003-nested-tags.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-004-self-closing.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-005-attributes.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-006-deep-nesting.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-007-siblings.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-008-semantic-html.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-009-lists.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-010-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-011-form.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-012-mixed-content.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-013-inferred-closers.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-014-multiple-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-015-heading-levels.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-001-counter.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-002-todo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-003-form-validation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-004-data-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-005-dashboard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-006-search-filter.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-007-crud.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-008-wizard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-009-chat.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-010-theme-switcher.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-011-shopping-cart.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-013-blog.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-014-settings.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-015-user-list.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-016-notification.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-017-color-picker.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-018-timer.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-019-gallery.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-020-calculator.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-021-component-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-002-card.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-003-button.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-005-tabs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "comp-007-breadcrumb.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-008-avatar.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-010-progress.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-011-badge.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-012-pagination.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-014-accordion.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "comp-015-search-input.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "control-001-if-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-002-if-else.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-003-if-elseif.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-004-for-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-005-for-index.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-006-nested-if.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-007-while.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-008-for-in-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-009-conditional-attr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-010-nested-loops.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-011-if-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-012-for-lift-complex.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-013-switch.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-014-break-continue.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-015-try-catch.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-001-inline.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-002-multiple-props.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-003-custom-props.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-004-layout.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-005-typography.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-001-empty-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-002-empty-css.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-003-empty-meta.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-004-only-comments.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-005-deep-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-006-url-in-attr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-007-special-chars.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-008-mixed-closers.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-009-nested-sql-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-010-css-in-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-002-multiple-arms.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-003-wildcard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-004-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-005-typed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-002-params.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-003-onclick.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-004-reactive-mutation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-005-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-006-fn-shorthand.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-008-onsubmit.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-009-oninput.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-010-server.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-012-multiple-events.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-013-return-value.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-014-nested-calls.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-015-event-with-args.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-go-contacts.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-htmx-feedback.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-vue-datatable.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-s79-calculator.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-s79-counter-todo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "integration-001-stripe-mini.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "is-not-compound.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-002-transformed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-003-nested-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-004-conditional.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-005-table-rows.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-006-list-items.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-007-with-index.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-008-self-closing.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-009-string-expr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-010-complex.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-001-let-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-002-const-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-003-arithmetic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-004-string-ops.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-005-boolean-expr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-006-ternary.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-007-multiple-blocks.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-008-nested-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-009-expressions.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-010-array-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-011-object-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-012-nested-objects.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-013-method-calls.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-014-template-literal.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-015-multiline.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "machine-002-traffic-light.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-001-nested-with-call.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-as-expression.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-colon-arrow.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-002-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-003-function.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-003-runtime-var-error.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-005-nested.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-006-reflect-unknown-type.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-007-reflect-enum-buttons.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-008-reflect-struct-form.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-009-multiple-runtime-vars-error.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-001-state-with-tests.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-005-ref-and-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-001-basic-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-002-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-003-string.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-004-number.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-005-boolean.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-006-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-007-object.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-008-null.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-009-empty-string.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-010-empty-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-011-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-012-computed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-013-nested-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-014-form-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-015-complex-init.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-016-bind-value.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-017-arrays.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-018-class-binding.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "ref-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-002-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-003-attribute-access.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-004-with-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-005-multiple-refs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-001-state-block.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-004-server-func.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-005-mixed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-006-state-with-tables.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-007-client-only.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-008-form-handler.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-009-server-fn.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-010-multiple-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-001-basic-select.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-002-where.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-003-join.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-004-count.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-008-order-limit.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-009-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-001-basic-constructor.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-002-typed-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-003-constructor-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-004-instantiation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-005-const-binding.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-006-nested-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-007-html-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-008-default-values.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-003-multiple-tests.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-004-assert-equals.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-005-test-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-006-test-sql.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-007-test-function.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-010-nested-context.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "transition-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-001-enum.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-002-struct.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-003-tuple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-004-enum-use.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "type-005-multiple-types.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-006-struct-nested.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-007-enum-simple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-008-type-no-kind.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-009-with-functions.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-010-struct-many-fields.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-011-enum-many-variants.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-012-struct-optional.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-013-type-with-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "type-014-type-before-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-015-combined.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      }
+    ],
+    "stale-shape": [],
+    "unknown": [
+      {
+        "file": "gauntlet-r10-rails-blog.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-CG-001",
+          "W-LINT-002",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-rust-orders.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-002"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "library-mode-types.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-004-config.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-012-reflect-callback-param.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-013-runtime-meta-dg002.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-013"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-002-projection.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-003-full-app.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-002-protect.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-003-protect-multi.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-AUTH-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "snippet-002-parametric.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-005-insert.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-006-update.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-007-delete.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-010-create-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-CG-001",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-009-enum-in-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-010-struct-state-combo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-002-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-008-test-enum.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-007",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-009-test-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-LINT-013",
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      }
+    ]
+  },
+  "warnFreq": [
+    [
+      "W-PROGRAM-001",
+      224
+    ],
+    [
+      "W-LINT-007",
+      9
+    ],
+    [
+      "W-CG-001",
+      5
+    ],
+    [
+      "W-LINT-013",
+      4
+    ],
+    [
+      "W-AUTH-001",
+      3
+    ],
+    [
+      "W-LINT-002",
+      2
+    ]
+  ],
+  "systemicByCode": {
+    "W-PROGRAM-001": [
+      {
+        "file": "basic-001-empty.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-002-single-tag.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-003-nested-tags.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-004-self-closing.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-005-attributes.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-006-deep-nesting.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-007-siblings.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-008-semantic-html.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-009-lists.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-010-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-011-form.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-012-mixed-content.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-013-inferred-closers.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-014-multiple-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "basic-015-heading-levels.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-001-counter.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-002-todo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-003-form-validation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-004-data-table.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-005-dashboard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-006-search-filter.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-007-crud.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-008-wizard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-009-chat.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-010-theme-switcher.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-011-shopping-cart.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-013-blog.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-014-settings.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-015-user-list.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-016-notification.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-017-color-picker.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-018-timer.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "combined-019-gallery.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-020-calculator.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "combined-021-component-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-002-card.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-003-button.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-005-tabs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "comp-007-breadcrumb.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-008-avatar.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-010-progress.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-011-badge.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-012-pagination.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "comp-014-accordion.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "comp-015-search-input.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "control-001-if-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-002-if-else.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-003-if-elseif.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-004-for-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-005-for-index.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-006-nested-if.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-007-while.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-008-for-in-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-009-conditional-attr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-010-nested-loops.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-011-if-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-012-for-lift-complex.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-013-switch.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-014-break-continue.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "control-015-try-catch.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-001-inline.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-002-multiple-props.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-003-custom-props.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-004-layout.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "css-005-typography.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-001-empty-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-002-empty-css.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-003-empty-meta.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-004-only-comments.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-005-deep-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-006-url-in-attr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-007-special-chars.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-008-mixed-closers.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-009-nested-sql-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "edge-010-css-in-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-002-multiple-arms.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-003-wildcard.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-004-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "error-005-typed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-002-params.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-003-onclick.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-004-reactive-mutation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-005-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-006-fn-shorthand.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-008-onsubmit.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-009-oninput.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-010-server.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-012-multiple-events.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-013-return-value.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-014-nested-calls.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "func-015-event-with-args.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-go-contacts.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-htmx-feedback.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-r10-vue-datatable.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-s79-calculator.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "gauntlet-s79-counter-todo.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "integration-001-stripe-mini.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "is-not-compound.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-002-transformed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-003-nested-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-004-conditional.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-005-table-rows.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-006-list-items.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-007-with-index.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-008-self-closing.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-009-string-expr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "lift-010-complex.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-001-let-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-002-const-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-003-arithmetic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-004-string-ops.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-005-boolean-expr.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-006-ternary.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-007-multiple-blocks.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-008-nested-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-009-expressions.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-010-array-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-011-object-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-012-nested-objects.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-013-method-calls.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-014-template-literal.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "logic-015-multiline.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "machine-002-traffic-light.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-001-nested-with-call.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-as-expression.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "match-colon-arrow.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-002-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-003-function.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-003-runtime-var-error.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-005-nested.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-006-reflect-unknown-type.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-007-reflect-enum-buttons.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-008-reflect-struct-form.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "meta-009-multiple-runtime-vars-error.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-001-state-with-tests.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "modern-005-ref-and-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-001-basic-decl.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-002-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-003-string.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-004-number.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-005-boolean.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-006-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-007-object.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-008-null.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-009-empty-string.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-010-empty-array.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-011-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-012-computed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-013-nested-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-014-form-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-015-complex-init.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-016-bind-value.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-017-arrays.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "reactive-018-class-binding.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "ref-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-002-in-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-003-attribute-access.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-004-with-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "ref-005-multiple-refs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-001-state-block.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-004-server-func.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-005-mixed.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-006-state-with-tables.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-007-client-only.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-008-form-handler.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-009-server-fn.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "server-010-multiple-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-001-basic-select.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-002-where.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-003-join.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-004-count.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-008-order-limit.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "sql-009-multiple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-001-basic-constructor.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-002-typed-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-003-constructor-with-logic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-004-instantiation.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-005-const-binding.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-006-nested-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-007-html-attrs.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "state-008-default-values.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-003-multiple-tests.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-004-assert-equals.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-005-test-state.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-006-test-sql.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-007-test-function.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "test-010-nested-context.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "transition-001-basic.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-001-enum.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-002-struct.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-003-tuple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-004-enum-use.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "type-005-multiple-types.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-006-struct-nested.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-007-enum-simple.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-008-type-no-kind.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-009-with-functions.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-010-struct-many-fields.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-011-enum-many-variants.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-012-struct-optional.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-013-type-with-reactive.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      },
+      {
+        "file": "type-014-type-before-markup.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [],
+        "first_err": ""
+      },
+      {
+        "file": "type-015-combined.scrml",
+        "exit": 0,
+        "warn_codes": [
+          "W-PROGRAM-001"
+        ],
+        "err_codes": [
+          "E-DG-002"
+        ],
+        "first_err": ""
+      }
+    ]
+  }
+}
