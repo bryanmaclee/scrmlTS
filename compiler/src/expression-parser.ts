@@ -749,7 +749,11 @@ export function esTreeToExprNode(
       return makeEscapeHatch(node, span, rawSource ?? String(node.value));
     }
 
-    // ---- Template Literal (back-tick string with no live interpolation) ----
+    // ---- Template Literal ----
+    // Both single-quasi (no interpolation) and multi-quasi (with `${...}`) are
+    // represented as `lit { litType: "template" }` carrying the full backtick
+    // source in `raw`. The walker (forEachIdentInExprNode) special-cases
+    // template literals and recurses into the interpolations.
     case "TemplateLiteral": {
       const quasis = (node.quasis as ESNode[]) ?? [];
       if (quasis.length === 1) {
@@ -758,8 +762,43 @@ export function esTreeToExprNode(
         const raw = "`" + cooked + "`";
         return { kind: "lit", span, raw, value: cooked, litType: "template" } satisfies LitExpr;
       }
-      // Template literal with expressions — not yet structured
-      return makeEscapeHatch(node, span, rawSource ?? "");
+      // Multi-quasi template — reconstruct the original backtick source from
+      // the ESTree node's start/end offsets within `rawSource` (which is the
+      // full expression text passed to esTreeToExprNode).
+      // A4: previously this branch made an escape-hatch carrying the OUTER
+      // `rawSource`, which broke round-trip (emit doubled the surrounding call)
+      // AND hid interpolations from the walker. Now we keep the literal
+      // structured so both work.
+      const tplStart = (node as unknown as { start?: number }).start;
+      const tplEnd = (node as unknown as { end?: number }).end;
+      let templateRaw = "";
+      if (typeof tplStart === "number" && typeof tplEnd === "number"
+          && rawSource && tplStart >= 0 && tplEnd <= rawSource.length && tplStart < tplEnd) {
+        templateRaw = rawSource.slice(tplStart, tplEnd);
+      }
+      // Defensive fallback: if we couldn't slice the source, reconstruct from
+      // quasis + expressions via astring (best-effort) so `raw` is at least
+      // a valid template literal.
+      if (!templateRaw || !templateRaw.startsWith("`")) {
+        try {
+          templateRaw = astringGenerate(node as unknown as Parameters<typeof astringGenerate>[0]);
+        } catch (_e) {
+          // Last-resort: empty template (caller will see `kind: lit / template`
+          // with empty raw — the walker's interpolation extractor will simply
+          // find no segments).
+          templateRaw = "``";
+        }
+      }
+      // `value` for a template lit is conventionally the joined cooked-quasi
+      // text (matches the single-quasi branch above for un-interpolated parts);
+      // for the multi-quasi case we just record empty since the cooked value
+      // isn't meaningful without interpolation values.
+      return {
+        kind: "lit", span,
+        raw: templateRaw,
+        value: "",
+        litType: "template",
+      } satisfies LitExpr;
     }
 
     // ---- Unary ----
@@ -1553,6 +1592,290 @@ export function deepEqualExprNode(a: ExprNode, b: ExprNode): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Template-literal interpolation walking (A4 surgical fix)
+// ---------------------------------------------------------------------------
+//
+// Template literals are stored in the AST as `lit` ExprNodes with
+// `litType === "template"`. The interpolated `${...}` segments are NOT
+// represented as structured children — they live inside the opaque `raw`
+// field as text. Without special handling, every consumer of
+// `forEachIdentInExprNode` (lin tracking, dep-graph, reactive analysis, ...)
+// misses identifiers inside interpolations.
+//
+// The helpers below tokenize a template-literal `raw` string and re-parse
+// each interpolation back to an ExprNode so the walker can recurse. Results
+// are memoized per-LitExpr so repeated walks don't re-parse.
+//
+// Reference: docs/changes/fix-lin-template-literal-interpolation-walk/intake.md
+// Reference: SPEC §35.3 rule 1 — any read of a `lin` value as an expression
+//            is a consumption (interpolations are expression-position reads).
+// ---------------------------------------------------------------------------
+
+/**
+ * One segment of a tokenized template literal.
+ *
+ * - `quasi` segments are literal text (no interpolation).
+ * - `expr` segments are the source text inside `${ ... }` (without the
+ *   surrounding `${` and `}`); `exprOffset` is the offset of the FIRST
+ *   character of the expression text within the full `raw` string.
+ */
+interface TemplateSegment {
+  kind: "quasi" | "expr";
+  text: string;
+  /** Offset of `text[0]` within the original `raw` string. */
+  offset: number;
+}
+
+/**
+ * Tokenize a template-literal `raw` string into quasis and interpolations.
+ *
+ * Walks character-by-character respecting:
+ *   - Backslash escapes inside the literal text (so `\${` and `\\` are not
+ *     interpolation starts).
+ *   - Nested `${...}` braces — interpolation expressions can themselves
+ *     contain `{}`, including nested template literals.
+ *   - String literals and comments inside an interpolation expression so
+ *     `${"}"}` doesn't terminate prematurely.
+ *
+ * Tolerant: malformed input falls through with whatever segments were
+ * recognized so far. Caller falls back to a regex scan when parsing the
+ * extracted expression fails.
+ *
+ * @param raw The full template-literal source including outer backticks.
+ *            If the input does not look like a backtick template, returns
+ *            a single quasi covering the whole string.
+ */
+function tokenizeTemplateInterpolations(raw: string): TemplateSegment[] {
+  const segments: TemplateSegment[] = [];
+  if (!raw || typeof raw !== "string") return segments;
+
+  // Strip surrounding backticks if present; the inner content is what we walk.
+  // We track offsets relative to the ORIGINAL `raw` string so spans line up.
+  let i = 0;
+  let innerStart = 0;
+  let innerEnd = raw.length;
+  if (raw.startsWith("`")) {
+    innerStart = 1;
+    if (raw.endsWith("`") && raw.length >= 2) innerEnd = raw.length - 1;
+    i = innerStart;
+  }
+
+  let quasiStart = i;
+
+  while (i < innerEnd) {
+    const ch = raw.charCodeAt(i);
+    // Backslash escape: skip the next char inside literal text.
+    if (ch === 92 /* \ */) { i += 2; continue; }
+    // ${ — interpolation start.
+    if (ch === 36 /* $ */ && i + 1 < innerEnd && raw.charCodeAt(i + 1) === 123 /* { */) {
+      // Emit the preceding quasi.
+      if (i > quasiStart) {
+        segments.push({ kind: "quasi", text: raw.slice(quasiStart, i), offset: quasiStart });
+      } else {
+        segments.push({ kind: "quasi", text: "", offset: quasiStart });
+      }
+      const exprStart = i + 2;
+      // Walk forward respecting nested braces and strings.
+      let depth = 1;
+      let j = exprStart;
+      while (j < innerEnd && depth > 0) {
+        const c = raw.charCodeAt(j);
+        if (c === 92 /* \ */) { j += 2; continue; }
+        if (c === 123 /* { */) { depth++; j++; continue; }
+        if (c === 125 /* } */) { depth--; j++; continue; }
+        // Single-quoted string.
+        if (c === 39 /* ' */) {
+          j++;
+          while (j < innerEnd) {
+            const sc = raw.charCodeAt(j);
+            if (sc === 92) { j += 2; continue; }
+            if (sc === 39) { j++; break; }
+            j++;
+          }
+          continue;
+        }
+        // Double-quoted string.
+        if (c === 34 /* " */) {
+          j++;
+          while (j < innerEnd) {
+            const sc = raw.charCodeAt(j);
+            if (sc === 92) { j += 2; continue; }
+            if (sc === 34) { j++; break; }
+            j++;
+          }
+          continue;
+        }
+        // Nested backtick template — count balanced backticks. We do not
+        // recurse here; re-parse will handle the nested template structure
+        // via esTreeToExprNode (which calls back into the lit case).
+        if (c === 96 /* ` */) {
+          j++;
+          let nestedDepth = 0;
+          while (j < innerEnd) {
+            const tc = raw.charCodeAt(j);
+            if (tc === 92) { j += 2; continue; }
+            if (tc === 36 /* $ */ && j + 1 < innerEnd && raw.charCodeAt(j + 1) === 123) {
+              nestedDepth++;
+              j += 2;
+              continue;
+            }
+            if (tc === 125 /* } */ && nestedDepth > 0) {
+              nestedDepth--;
+              j++;
+              continue;
+            }
+            if (tc === 96 /* ` */ && nestedDepth === 0) { j++; break; }
+            j++;
+          }
+          continue;
+        }
+        j++;
+      }
+      // depth==0 means we consumed the closing `}`; the expression text
+      // ends at j-1 (one before the closing brace).
+      const exprEnd = depth === 0 ? j - 1 : j;
+      segments.push({ kind: "expr", text: raw.slice(exprStart, exprEnd), offset: exprStart });
+      i = j;
+      quasiStart = i;
+      continue;
+    }
+    i++;
+  }
+
+  // Trailing quasi.
+  if (quasiStart < innerEnd) {
+    segments.push({ kind: "quasi", text: raw.slice(quasiStart, innerEnd), offset: quasiStart });
+  }
+
+  return segments;
+}
+
+/**
+ * Memoized cache of parsed interpolation ExprNodes for a given LitExpr.
+ *
+ * Keyed by the LitExpr object reference. The walker is called on the same
+ * AST repeatedly across pipeline stages (lin tracking, dep-graph, ...);
+ * caching the parsed sub-trees avoids re-tokenizing and re-parsing each
+ * time. The cache lives only as long as the LitExpr — when the AST is
+ * dropped, the cache is GC'd.
+ */
+const TEMPLATE_INTERP_CACHE: WeakMap<LitExpr, ExprNode[]> = new WeakMap();
+
+/**
+ * Regex fallback for extracting identifier-like tokens from an interpolation
+ * source string when full expression parsing fails. Matches scrml identifier
+ * shapes: `@name` (reactive), `~` (tilde accumulator), bare names. Avoids
+ * matching inside string literals via a simple state machine.
+ *
+ * Synthesizes IdentExpr nodes anchored at the lit node's span — exact column
+ * positions inside the template literal are not preserved (this is a fallback
+ * path; precision is best-effort).
+ */
+function regexExtractIdents(
+  exprText: string,
+  span: ExprSpan,
+  callback: (ident: IdentExpr) => void,
+): void {
+  // Skip strings/comments crudely so we don't pick up identifiers inside them.
+  let cleaned = "";
+  let i = 0;
+  while (i < exprText.length) {
+    const c = exprText.charCodeAt(i);
+    if (c === 92 /* \ */) { i += 2; continue; }
+    if (c === 34 /* " */ || c === 39 /* ' */ || c === 96 /* ` */) {
+      const quote = c;
+      cleaned += " ";
+      i++;
+      while (i < exprText.length) {
+        const sc = exprText.charCodeAt(i);
+        if (sc === 92) { cleaned += "  "; i += 2; continue; }
+        if (sc === quote) { cleaned += " "; i++; break; }
+        cleaned += " "; i++;
+      }
+      continue;
+    }
+    cleaned += exprText[i];
+    i++;
+  }
+  // Match @ident, ~, and bare identifiers. Don't match property access (the
+  // `.` makes the ident a member name, not a binding reference, but the
+  // walker callsite handles MemberExpr — here we're a regex fallback so we
+  // accept some imprecision).
+  const re = /(?<![A-Za-z0-9_$\.])(?:@[A-Za-z_$][A-Za-z0-9_$]*|~|[A-Za-z_$][A-Za-z0-9_$]*)/g;
+  // Reserved JS keywords / scrml literals we should not emit as idents.
+  const STOP = new Set([
+    "true", "false", "null", "undefined", "not",
+    "if", "else", "return", "function", "let", "const", "var", "new", "this",
+    "typeof", "void", "delete", "instanceof", "in", "of", "for", "while", "do",
+    "break", "continue", "switch", "case", "default", "throw", "try", "catch",
+    "finally", "class", "extends", "super", "import", "export", "from", "as",
+    "async", "await", "yield",
+  ]);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cleaned)) !== null) {
+    const name = m[0];
+    if (STOP.has(name)) continue;
+    callback({ kind: "ident", span, name } as IdentExpr);
+  }
+}
+
+/**
+ * Walk a template-literal LitExpr's interpolations, invoking `callback` for
+ * every IdentExpr inside any `${...}` segment. Quasi (literal text) segments
+ * are ignored.
+ *
+ * Caches the parsed interpolation ExprNodes on the LitExpr for repeated walks.
+ * On parse failure for a segment, falls back to a regex-based identifier scan.
+ */
+function walkTemplateInterpolations(
+  lit: { raw: string; span: ExprSpan } & object,
+  callback: (ident: IdentExpr) => void,
+): void {
+  let cached = TEMPLATE_INTERP_CACHE.get(lit as unknown as LitExpr);
+  if (!cached) {
+    cached = [];
+    const segments = tokenizeTemplateInterpolations(lit.raw);
+    for (const seg of segments) {
+      if (seg.kind !== "expr") continue;
+      const exprText = seg.text.trim();
+      if (!exprText) continue;
+      // Try to parse as a full expression.
+      const { ast, error } = parseExpression(exprText, { tolerant: true });
+      if (ast && !error) {
+        try {
+          const baseOffset = (lit.span?.start ?? 0) + seg.offset;
+          const node = esTreeToExprNode(ast, lit.span?.file ?? "", baseOffset);
+          cached.push(node);
+          continue;
+        } catch (_e) {
+          // Conversion error — fall through to regex fallback below.
+        }
+      }
+      // Fallback: synthesize an EscapeHatchExpr-ish marker carrying a regex
+      // pre-scan. We store a sentinel so future walks know to use the regex
+      // path. To keep this simple we cache nothing for the sentinel and
+      // re-run the regex each walk (fallback path is cold).
+      cached.push({
+        kind: "escape-hatch",
+        span: lit.span,
+        estreeType: "TemplateInterpFallback",
+        raw: exprText,
+      } as EscapeHatchExpr);
+    }
+    TEMPLATE_INTERP_CACHE.set(lit as unknown as LitExpr, cached);
+  }
+
+  for (const node of cached) {
+    if ((node as EscapeHatchExpr).kind === "escape-hatch"
+        && (node as EscapeHatchExpr).estreeType === "TemplateInterpFallback") {
+      regexExtractIdents((node as EscapeHatchExpr).raw, lit.span, callback);
+      continue;
+    }
+    forEachIdentInExprNode(node, callback);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // forEachIdentInExprNode — walk ExprNode tree and invoke callback on every IdentExpr
 // ---------------------------------------------------------------------------
 //
@@ -1595,11 +1918,38 @@ export function forEachIdentInExprNode(
       return;
     }
 
-    case "lit":
+    case "lit": {
+      // Most lit kinds (string, number, bool, null, undefined, not) are leaves.
+      // Template literals (litType === "template") are NOT leaves: their
+      // `${...}` interpolations contain identifier reads that downstream
+      // analyses (lin tracking, dep-graph, reactive deps) need to see.
+      // Surgical fix A4: tokenize the raw template and recurse into each
+      // interpolation. See walkTemplateInterpolations above.
+      const litNode = node as LitExpr;
+      if (litNode.litType === "template") {
+        walkTemplateInterpolations(litNode, callback);
+      }
+      return;
+    }
+
     case "sql-ref":
-    case "input-state-ref":
-    case "escape-hatch": {
+    case "input-state-ref": {
       // Leaf nodes with no sub-expressions. Nothing to walk.
+      return;
+    }
+
+    case "escape-hatch": {
+      // Most escape-hatch nodes are opaque (no identifier extraction). But
+      // template literals with interpolations currently route through
+      // makeEscapeHatch in esTreeToExprNode (see expression-parser.ts ~line 762),
+      // so their `${...}` interpolations would otherwise be invisible to
+      // every walker consumer. Surgical fix A4: when the escape-hatch was
+      // built from a TemplateLiteral, descend into its interpolations.
+      const eh = node as EscapeHatchExpr;
+      if (eh.estreeType === "TemplateLiteral" && typeof eh.raw === "string"
+          && eh.raw.startsWith("`") && eh.raw.includes("${")) {
+        walkTemplateInterpolations(eh as unknown as { raw: string; span: ExprSpan } & object, callback);
+      }
       return;
     }
 

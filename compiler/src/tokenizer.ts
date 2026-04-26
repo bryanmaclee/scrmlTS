@@ -112,6 +112,16 @@ export interface Token {
   text: string;
   span: Span;
   block?: Block;
+  /**
+   * True when this STRING token came from a backtick template literal.
+   * Set by readBacktickString. Consumed by collectExpr in ast-builder.js
+   * to re-emit the literal as `…` (preserving `${...}` interpolations)
+   * rather than JSON.stringify-ing it as a plain double-quoted string.
+   * (A4 surgical fix — preserves template-literal interpolations through
+   * the tokenize/re-emit/parse pipeline so forEachIdentInExprNode can
+   * descend into them.)
+   */
+  isTemplate?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -618,7 +628,12 @@ export function tokenizeLogic(content: string, baseOffset: number, baseLine: num
       str += content[pos];
       advance();
     }
-    tokens.push(makeToken("STRING", str, start, absOff(), l, c));
+    const tok = makeToken("STRING", str, start, absOff(), l, c);
+    // A4: mark backtick-derived STRING tokens so collectExpr can re-emit
+    // them with backticks (preserving `${...}` interpolations) instead of
+    // JSON.stringify-ing them as plain double-quoted strings.
+    tok.isTemplate = true;
+    tokens.push(tok);
   }
 
   function readNumber() {

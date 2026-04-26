@@ -1352,7 +1352,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       lastTok = consume();
       // Re-quote STRING tokens so their delimiters are preserved in the expression
       if (lastTok.kind === "STRING") {
-        parts.push(reemitJsStringLiteral(lastTok.text));
+        // A4: backtick-derived strings are re-emitted with backticks so any
+        // `${...}` interpolations they contain remain template-literal
+        // interpolations after re-parsing. Without this, the tokenizer's STRING
+        // token would be JSON-stringified into a plain "..." literal and the
+        // walker (lin tracking, dep-graph, …) would never see the identifiers
+        // inside the interpolations.
+        if (lastTok.isTemplate) {
+          parts.push("`" + lastTok.text + "`");
+        } else {
+          parts.push(reemitJsStringLiteral(lastTok.text));
+        }
       } else {
         parts.push(lastTok.text);
       }
@@ -1473,7 +1483,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       lastTok = consume();
       // Re-quote STRING tokens so their delimiters are preserved
       if (lastTok.kind === "STRING") {
-        parts.push(reemitJsStringLiteral(lastTok.text));
+        // A4: preserve backtick templates so `${...}` interpolations
+
+        // remain template-literal interpolations after re-parsing.
+
+        if (lastTok.isTemplate) {
+
+          parts.push('`' + lastTok.text + '`');
+
+        } else {
+
+          parts.push(reemitJsStringLiteral(lastTok.text));
+
+        }
       } else {
         parts.push(lastTok.text);
       }
@@ -1923,7 +1945,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         }
         const ct = consume();
         if (ct.kind === "STRING") {
-          argParts.push(reemitJsStringLiteral(ct.text));
+          // A4: preserve backtick templates so `${...}` interpolations
+
+          // remain template-literal interpolations after re-parsing.
+
+          if (ct.isTemplate) {
+
+            argParts.push('`' + ct.text + '`');
+
+          } else {
+
+            argParts.push(reemitJsStringLiteral(ct.text));
+
+          }
         } else {
           argParts.push(ct.text);
         }
@@ -3274,7 +3308,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       lastTok = consume();
       // Re-quote STRING tokens so their delimiters are preserved in the expression
       if (lastTok.kind === "STRING") {
-        parts.push(reemitJsStringLiteral(lastTok.text));
+        // A4: preserve backtick templates so `${...}` interpolations
+
+        // remain template-literal interpolations after re-parsing.
+
+        if (lastTok.isTemplate) {
+
+          parts.push('`' + lastTok.text + '`');
+
+        } else {
+
+          parts.push(reemitJsStringLiteral(lastTok.text));
+
+        }
       } else {
         parts.push(lastTok.text);
       }
@@ -5014,7 +5060,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           lastTok = consume();
           if (lastTok.kind === "STRING") {
-            callbackParts.push(reemitJsStringLiteral(lastTok.text));
+            // A4: preserve backtick templates so `${...}` interpolations
+
+            // remain template-literal interpolations after re-parsing.
+
+            if (lastTok.isTemplate) {
+
+              callbackParts.push('`' + lastTok.text + '`');
+
+            } else {
+
+              callbackParts.push(reemitJsStringLiteral(lastTok.text));
+
+            }
           } else {
             callbackParts.push(lastTok.text);
           }
@@ -5076,7 +5134,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             }
             lastTok = consume();
             if (lastTok.kind === "STRING") {
-              bodyParts.push(reemitJsStringLiteral(lastTok.text));
+              // A4: preserve backtick templates so `${...}` interpolations
+
+              // remain template-literal interpolations after re-parsing.
+
+              if (lastTok.isTemplate) {
+
+                bodyParts.push('`' + lastTok.text + '`');
+
+              } else {
+
+                bodyParts.push(reemitJsStringLiteral(lastTok.text));
+
+              }
             } else {
               bodyParts.push(lastTok.text);
             }
@@ -5136,7 +5206,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           lastTok = consume();
           if (lastTok.kind === "STRING") {
-            bodyParts.push(reemitJsStringLiteral(lastTok.text));
+            // A4: preserve backtick templates so `${...}` interpolations
+
+            // remain template-literal interpolations after re-parsing.
+
+            if (lastTok.isTemplate) {
+
+              bodyParts.push('`' + lastTok.text + '`');
+
+            } else {
+
+              bodyParts.push(reemitJsStringLiteral(lastTok.text));
+
+            }
           } else {
             bodyParts.push(lastTok.text);
           }
@@ -5193,7 +5275,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           lastTok = consume();
           if (lastTok.kind === "STRING") {
-            urlParts.push(reemitJsStringLiteral(lastTok.text));
+            // A4: preserve backtick templates so `${...}` interpolations
+
+            // remain template-literal interpolations after re-parsing.
+
+            if (lastTok.isTemplate) {
+
+              urlParts.push('`' + lastTok.text + '`');
+
+            } else {
+
+              urlParts.push(reemitJsStringLiteral(lastTok.text));
+
+            }
           } else {
             urlParts.push(lastTok.text);
           }

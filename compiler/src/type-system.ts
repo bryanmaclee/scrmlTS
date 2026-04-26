@@ -2916,6 +2916,16 @@ function checkLogicExprIdents(
   /** Optional name to exclude (e.g. the let-decl's own name for TDZ — though
    *  scrml does not have TDZ semantics across a single stmt). */
   excludeName?: string,
+  /**
+   * A4 follow-up: optional set of all function-decl names declared anywhere
+   * in the current file. Used as a fallback when the scope chain hasn't yet
+   * bound a function name (e.g. self-recursion: `fn f() { f() }` walks the
+   * body BEFORE binding `f` in the enclosing scope, see type-system.ts
+   * case "function-decl"). Without this, the surgical A4 walker fix would
+   * surface E-SCOPE-001 on previously-hidden self-recursive references
+   * inside template literals like `\`${f(...)}\``.
+   */
+  knownFnNames?: Set<string>,
 ): void {
   if (!exprNode || typeof exprNode !== "object") return;
   forEachIdentInExprNode(exprNode as any, (ident) => {
@@ -2940,6 +2950,10 @@ function checkLogicExprIdents(
     // Type registry — user-declared struct/enum type names are valid idents
     // when used as constructors / variant accessors (`Status.Todo`, `Point`).
     if (typeRegistry.has(base)) return;
+    // A4 follow-up: known function-decl names (collected file-wide before
+    // the per-function walk). Covers self-recursion / forward refs that
+    // were previously hidden inside template literals.
+    if (knownFnNames && knownFnNames.has(base)) return;
     // Scope chain — covers function-decls, params, let/const, reactive-decls,
     // type-decls (bound under kind: "type" at declaration site), imports.
     //
@@ -3968,7 +3982,7 @@ function annotateNodes(
           const letSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const initExprForScope = (n as any).initExpr;
           if (initExprForScope) {
-            checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+            checkLogicExprIdents(initExprForScope, letSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
             // §54.6.4 Phase 4f: terminal-substate mutation check
@@ -4053,7 +4067,7 @@ function annotateNodes(
           const reactSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const reactInitExprNode = (n as any).initExpr;
           if (reactInitExprNode) {
-            checkLogicExprIdents(reactInitExprNode, reactSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+            checkLogicExprIdents(reactInitExprNode, reactSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
             // §54.6.4 Phase 4f: terminal-substate mutation check
@@ -4149,7 +4163,7 @@ function annotateNodes(
           const beSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const beExprNode = (n as Record<string, unknown>).exprNode;
           if (beExprNode) {
-            checkLogicExprIdents(beExprNode, beSpan, scopeChain, typeRegistry, errors);
+            checkLogicExprIdents(beExprNode, beSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
             // §54.6.3 Phase 4e: transition-call legality check
             checkTransitionCallsInExpr(beExprNode, beSpan, scopeChain, stateTypeRegistry, errors);
             // §54.6.4 Phase 4f: terminal-substate mutation check
@@ -4395,7 +4409,7 @@ function annotateNodes(
             scopeChain.bind(arm.binding, { kind: "variable", resolvedType: tAsIs() });
           }
           const armSpan = (arm.span as Span | undefined) ?? gExprSpan;
-          checkLogicExprIdents(handlerExpr, armSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(handlerExpr, armSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
           scopeChain.pop();
         }
 
@@ -4448,7 +4462,7 @@ function annotateNodes(
         // `lift expr` where expr is an ExprNode payload (not a markup subtree).
         if (liftExpr && liftExpr.kind === "expr" && liftExpr.exprNode) {
           const liftSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-          checkLogicExprIdents(liftExpr.exprNode, liftSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(liftExpr.exprNode, liftSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         // For lift with embedded markup (lift-expr with kind === "markup"), the markup
         // node is visited via the default recursion below; partial match inside markup
@@ -4467,7 +4481,7 @@ function annotateNodes(
         const thrSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const thrExprNode = (n as Record<string, unknown>).exprNode;
         if (thrExprNode) {
-          checkLogicExprIdents(thrExprNode, thrSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(thrExprNode, thrSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         resolvedType = tAsIs();
         break;
@@ -4477,7 +4491,7 @@ function annotateNodes(
         const failSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const failArgsExpr = (n as Record<string, unknown>).argsExpr;
         if (failArgsExpr) {
-          checkLogicExprIdents(failArgsExpr, failSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(failArgsExpr, failSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         resolvedType = tAsIs();
         break;
@@ -4487,7 +4501,7 @@ function annotateNodes(
         const dbSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const dbInitExpr = (n as Record<string, unknown>).initExpr;
         if (dbInitExpr) {
-          checkLogicExprIdents(dbInitExpr, dbSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+          checkLogicExprIdents(dbInitExpr, dbSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
         }
         if (n.name) {
           // Same double-bind as reactive-decl / reactive-derived-decl.
@@ -4511,7 +4525,7 @@ function annotateNodes(
           const ifCondSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const ifCondExpr = (n as Record<string, unknown>).condExpr;
           if (ifCondExpr) {
-            checkLogicExprIdents(ifCondExpr, ifCondSpan, scopeChain, typeRegistry, errors);
+            checkLogicExprIdents(ifCondExpr, ifCondSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
           }
         }
         // §S19 — run `is` / `not`-prefix checks on the RAW condition string
@@ -4613,7 +4627,7 @@ function annotateNodes(
           const matchSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           const headerExpr = (n as Record<string, unknown>).headerExpr;
           if (headerExpr) {
-            checkLogicExprIdents(headerExpr, matchSpan, scopeChain, typeRegistry, errors);
+            checkLogicExprIdents(headerExpr, matchSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
           }
         }
         const mBody = n.body as ASTNodeLike[] | undefined;
@@ -4668,7 +4682,7 @@ function annotateNodes(
         const retSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const retExprNode = (n as Record<string, unknown>).exprNode;
         if (retExprNode) {
-          checkLogicExprIdents(retExprNode, retSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(retExprNode, retSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         resolvedType = tAsIs();
         break;
@@ -4685,7 +4699,7 @@ function annotateNodes(
         const propSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const propExprNode = (n as Record<string, unknown>).exprNode;
         if (propExprNode) {
-          checkLogicExprIdents(propExprNode, propSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(propExprNode, propSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         const binding = (n as Record<string, unknown>).binding;
         if (typeof binding === "string" && binding.length > 0) {
@@ -4707,7 +4721,7 @@ function annotateNodes(
         const linSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const linInitExpr = (n as Record<string, unknown>).initExpr;
         if (linInitExpr) {
-          checkLogicExprIdents(linInitExpr, linSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+          checkLogicExprIdents(linInitExpr, linSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
         }
         checkLinShadowing(n.name as string | undefined, linSpan, scopeChain, errors, "lin");
         if (n.name) {
@@ -4721,7 +4735,7 @@ function annotateNodes(
         const tildSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const tildInitExpr = (n as Record<string, unknown>).initExpr;
         if (tildInitExpr) {
-          checkLogicExprIdents(tildInitExpr, tildSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+          checkLogicExprIdents(tildInitExpr, tildSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
         }
         if (n.name) {
           scopeChain.bind(n.name as string, { kind: "variable", resolvedType: tAsIs() });
@@ -4734,7 +4748,7 @@ function annotateNodes(
         const drvSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const drvInitExpr = (n as Record<string, unknown>).initExpr;
         if (drvInitExpr) {
-          checkLogicExprIdents(drvInitExpr, drvSpan, scopeChain, typeRegistry, errors, n.name as string | undefined);
+          checkLogicExprIdents(drvInitExpr, drvSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
         }
         if (n.name) {
           // `const @x = expr` creates both a @-form reference (`@x`) and
@@ -4759,7 +4773,7 @@ function annotateNodes(
         const rnaSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const rnaValueExpr = (n as Record<string, unknown>).valueExpr;
         if (rnaValueExpr) {
-          checkLogicExprIdents(rnaValueExpr, rnaSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(rnaValueExpr, rnaSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         // §54.6.4 Phase 4f: terminal-substate mutation check.
         // `@reactive.path = value` — if the reactive var resolves to a
@@ -4798,7 +4812,7 @@ function annotateNodes(
         const ramSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
         const ramArgsExpr = (n as Record<string, unknown>).argsExpr;
         if (ramArgsExpr) {
-          checkLogicExprIdents(ramArgsExpr, ramSpan, scopeChain, typeRegistry, errors);
+          checkLogicExprIdents(ramArgsExpr, ramSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
         }
         resolvedType = tAsIs();
         break;
@@ -4973,7 +4987,7 @@ function annotateNodes(
       }) as Span;
       const exprNode = (value as Record<string, unknown>).exprNode;
       if (exprNode) {
-        checkLogicExprIdents(exprNode, attrSpan, scopeChain, typeRegistry, errors);
+        checkLogicExprIdents(exprNode, attrSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
       }
     }
   }

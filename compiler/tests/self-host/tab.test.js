@@ -53,12 +53,15 @@ beforeAll(async () => {
 
 /**
  * Strip the `.block` property from BLOCK_REF tokens since the self-hosted
- * version may attach it slightly differently (object identity). We compare
- * everything else.
+ * version may attach it slightly differently (object identity). Also drop
+ * the `isTemplate` flag introduced by the A4 surgical fix — the JS tokenizer
+ * sets it on backtick-derived STRING tokens so the AST builder can re-emit
+ * them with backticks. The self-hosted scrml tokenizer doesn't track this
+ * flag yet (cleanup follow-up). We compare everything else.
  */
 function stripBlockRefs(tokens) {
   return tokens.map(t => {
-    const { block, ...rest } = t;
+    const { block, isTemplate, ...rest } = t;
     return rest;
   });
 }
