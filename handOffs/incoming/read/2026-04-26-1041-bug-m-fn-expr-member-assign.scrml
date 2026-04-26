@@ -1,0 +1,43 @@
+// Bug M minimal repro — obj.field = function() {...} mis-emits
+//
+// Assigning a function expression to a member property emits as TWO
+// statements: the member assignment with EMPTY RHS, followed by an
+// orphaned function literal. The result is a JS syntax error
+// ("Unexpected token ';'").
+//
+// The function-as-argument path (e.g., addEventListener("ev", function(){...}))
+// emits correctly — the bug is specific to property/member assignment.
+//
+// Discovered in playground-six's WebSocket setup. Workaround: use
+// addEventListener instead of `ws.onopen = function() {...}`.
+
+<program>
+${
+    @opened = false
+
+    function setup() {
+        const ws = new window.WebSocket("ws://localhost:65535")
+        ws.onopen = function() {
+            @opened = true
+        }
+    }
+}
+
+<button onclick=setup()>setup</>
+<div>${@opened}</>
+</program>
+
+<!--
+Expected emit (something like):
+    ws.onopen = function () { _scrml_reactive_set("opened", true); };
+
+Actual emit:
+    ws . onopen =;
+    function () {
+        _scrml_reactive_set("opened", true);
+    }
+
+JS parser then errors with "Unexpected token ';'" at the empty RHS.
+
+Tested against scrmlTS HEAD c51ad15.
+-->

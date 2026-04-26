@@ -1,0 +1,55 @@
+// Bug O minimal repro — for-of loop variable in markup leaks into
+// the surrounding meta-effect closure as a free identifier
+//
+// When the markup contains `${ for (x of @list) { lift <tag>...</tag> } }`
+// AND the program ALSO contains a `^{ ... }` meta-effect block, the
+// codegen captures the loop variable `x` as a free identifier in the
+// meta-effect's frozen-scope object: `x: x`. Since `x` is loop-local
+// and not defined at module scope, the emitted code throws
+// "ReferenceError: <name> is not defined" at module load.
+//
+// In playground-six this surfaced as "item is not defined" (after a
+// source rename) and "d is not defined" (before the rename). The
+// emitted lift create-item closure correctly used the loop variable
+// internally — the leak was specifically into the meta-effect's
+// captured-scope object, which is at module top-level.
+//
+// Workaround: avoid the for-lift markup entirely; render the list as
+// a single string via a helper function and interpolate that.
+
+<program>
+${
+    @items = ["a", "b", "c"]
+    @tick = 0
+
+    function init() {
+        @tick = 1
+    }
+}
+
+^{ init() }
+
+<ul> ${
+    for (it of @items) {
+        lift <li>${it}</li>
+    }
+} </ul>
+
+<div>tick: ${@tick}</>
+</program>
+
+<!--
+Expected: page renders <li>a</li><li>b</li><li>c</li> and tick = 1.
+
+Actual: page throws "ReferenceError: it is not defined" at module
+load. Browser console shows the error stack pointing at the
+_scrml_meta_effect call where the captured-scope object includes
+`it: it` referring to the (out-of-scope) loop variable.
+
+Tested against scrmlTS HEAD c51ad15.
+
+Note: removing the `^{ init() }` block (so no meta-effect exists)
+should make the for-lift work — it's the meta-effect's scope-
+capture that's incorrectly pulling in the loop variable. The two
+features only collide together.
+-->

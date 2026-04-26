@@ -1,0 +1,56 @@
+// Bug N minimal repro — two consecutive @x = ... reactive writes
+// inside an INLINE function expression mis-emit
+//
+// When two `@x = ...` reactive assignments appear back-to-back inside
+// a function expression that's passed as an argument (e.g. to
+// addEventListener), the codegen emits the first reactive_set call
+// MISSING its closing paren, and the second reactive write becomes
+// `_scrml_reactive_get(name) = value` (assignment-to-get, which is
+// invalid JS).
+//
+// The same pattern in a NAMED function body (declared at module
+// scope) emits cleanly. The trigger is specifically inline-function-
+// expression context with two-or-more sequential reactive writes.
+//
+// Workaround: extract the inline body to a named helper function and
+// pass that by reference (or its caller) through addEventListener.
+
+<program>
+${
+    @status = "init"
+    @error  = ""
+
+    function setup() {
+        const target = document.body
+        target.addEventListener("click", function() {
+            @status = "clicked"
+            @error  = "none"
+        })
+    }
+}
+
+<button onclick=setup()>arm</>
+<div>status: ${@status}</>
+<div>error: ${@error}</>
+</program>
+
+<!--
+Expected emit: addEventListener with a function that calls
+_scrml_reactive_set twice, in proper sequence.
+
+Actual emit (current main):
+    target.addEventListener("click", function () {
+        _scrml_reactive_set("status", "clicked"
+        _scrml_reactive_get("error") = "none")
+    });
+
+JS parser then errors with "missing ) after argument list". The
+assignment-to-get on the second line is also semantically invalid
+even if you fix the parens.
+
+Tested against scrmlTS HEAD c51ad15.
+
+Note: the SAME two-reactive-writes pattern in a named function body
+(e.g. function setStatus() { @status = "..."; @error = "..." })
+emits cleanly. Trigger is inline-function-expression context only.
+-->
