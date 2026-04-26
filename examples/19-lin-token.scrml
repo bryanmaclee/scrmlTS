@@ -20,9 +20,10 @@ ${
   // function body MUST consume `ticket` exactly once on every execution
   // path — this is enforced at compile time, with E-LIN-001 (never used),
   // E-LIN-002 (used twice), or E-LIN-003 (used in some branches not all).
+  // Template-literal interpolation `${ticket}` counts as a consumption
+  // event per §35.3 rule 1 (post-A4 fix, commit 330fd28).
   server function redeem(lin ticket: string, username: string) {
-    const consumed = ticket   // single consumption of the lin parameter
-    return `Redeemed ticket=${consumed} for user=${username}`
+    return `Redeemed ticket=${ticket} for user=${username}`
   }
 
   server function mintTicket(username, password) {

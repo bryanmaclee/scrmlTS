@@ -114,10 +114,14 @@ ${
   </div>
 
   // Conditional component rendering via if= chain (§17.1.1).
-  // This is the canonical "render one of several components based on enum state"
-  // pattern. The match-with-lift form (`match @x { .Variant => { lift <Comp> } }`)
-  // currently hits E-COMPONENT-020 against component refs declared in earlier
-  // `${}` blocks — open question, see docs/audits/scope-c-stage-1-2026-04-25.md §4.
+  // Both this if= chain and the match-with-lift form (`match @x { .V => { lift <Comp> } }`)
+  // are valid §17 patterns. The if-chain is kept here because two of the three
+  // components below (PreferencesStep + ConfirmStep) still hit registration
+  // failures from S42 findings A7 (`${@reactive}` BLOCK_REF interpolation in
+  // component def) and A8 (`<select><option>` children + `bind:value=@x`).
+  // Once A7 + A8 land, this can revert to canonical match-with-lift form.
+  // (A3 was the related fix that already shipped — commit bcd4557 — which
+  // unblocked InfoStep specifically. See docs/audits/scope-c-findings-tracker.md.)
   <InfoStep        if=(@currentStep == Step.Info)/>
   <PreferencesStep else-if=(@currentStep == Step.Preferences)/>
   <ConfirmStep     else/>
