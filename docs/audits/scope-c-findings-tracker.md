@@ -389,7 +389,8 @@ Findings from sample classification (`docs/audits/scope-c-stage-1-sample-classif
   2. **A6 stall** — Same routing as A5. Agent did the work in main checkout, then the stream watchdog stalled before the agent's commit step. Files were left in main's working tree (uncommitted, would have been lost on next reset). PA salvaged by committing main's working tree directly to main (work was verified-correct via `bun test`).
   3. **A4 leak during A3 cherry-pick** — A4 was running in background while PA cherry-picked A3. A4's leaked progress.md/pre-snapshot.md files in main's working tree caused the A4 cherry-pick to conflict on add/add when it later landed.
 - **Symptoms:** background agents dispatched with `isolation: "worktree"` end up making file modifications to the parent's main checkout (not the worktree). The agent's `git status` / `git log` / etc. operations correctly target the worktree (so commits land on the right branch), but `Read`/`Write`/`Edit` tool calls land in the parent checkout.
-- **Hypothesis (root cause, untested):** the agent's tool routing falls back to the parent process's CWD or some session-shared FS perspective rather than the worktree's path. Could be intermittent (worked correctly for A1+A2 combined dispatch) or shape-dependent (e.g. only when first tool call is a Read on a path that exists in main but not yet in worktree).
+- **Root cause (CONFIRMED via diagnostic dispatch S42):** **NOT a harness routing bug — an agent-discipline bug.** Tool calls follow CWD when paths are relative; resolve literal absolute paths when given one. There is NO worktree-boundary enforcement at the tool layer. The leak vector: when a dispatched agent constructs an absolute path that points at the main repo root (`/home/bryan-maclee/scrmlMaster/scrmlTS/...`) — typically by copy-pasting a path from intake docs / hand-off references / conversation context, or by hardcoding the canonical repo path from training-data convention — the Write/Edit tool obediently writes to main. CWD-relative paths and worktree-rooted absolute paths both stay in the worktree; main-rooted absolute paths are the failure mode.
+- **Diagnostic evidence (read-only forensic dispatch `a1ce9f7446b09c058`):** ran a 6-step matrix across (Read vs Write) × (relative vs absolute-worktree vs absolute-main) paths. All 6 tool invocations were deterministic. Read with relative path → worktree's pa.md (263 lines). Read with absolute-main path → main's pa.md (288 lines, leaked). Write with relative path → worktree. Write with absolute-main path → main (leaked). Same behavior for Read and Write. Hypotheses H1 (universal main routing) / H3 (intermittent) / H4 (tool-specific) all rejected. H2 (CWD-honoring) + H5 (absolute paths are the leak vector) confirmed.
 
 #### Recovery patterns (catalogued from S42)
 
@@ -401,32 +402,66 @@ When the leak occurs:
 | Agent stalls before self-recovery; main has uncommitted work | If the work is verified correct (run tests yourself), commit main's working tree directly to main with explicit user authorization. Note in commit message that the dispatch leaked + work was salvaged (A6 path). |
 | Background agent leaks files into main while PA does unrelated work | `git status --short` in main BEFORE any cherry-pick. Reconcile leaked files first — either commit them as the leaked agent's work, or stash aside. Don't cherry-pick over a dirty tree (A4 path). |
 
-#### Mitigation: prompt-hardening template
+#### Mitigation: agent-discipline template (revised post-diagnostic)
 
-Every `scrml-dev-pipeline` dispatch with `isolation: "worktree"` SHOULD include a startup verification block that catches the routing fault before any work product is corrupted. Template (paste into `pa.md` or pass inline in dispatch prompt):
+The CWD-check template is **necessary but NOT sufficient** — it confirms the agent starts in the worktree, but doesn't prevent the agent from later constructing a main-rooted absolute path. Per diagnostic findings, the actual rules are:
+
+1. **Verify worktree at startup** (catches harness-level mis-dispatch, even if rare per H1 rejection).
+2. **Derive worktree root from `pwd` and store it as a variable** — never hardcode the canonical repo path (`/home/bryan-maclee/scrmlMaster/scrmlTS/`).
+3. **Prefer relative paths or `$WORKTREE_ROOT/...` for all Write/Edit operations.** Relative paths are CWD-resolved (CWD = worktree, since startup check confirmed it).
+4. **Forbid hardcoded main-repo absolute paths** in any Write/Edit call. If an intake or hand-off doc references such a path, translate it to `$WORKTREE_ROOT/<relative-suffix>` before writing.
+
+Template (paste into `pa.md` or inline in every dispatch with `isolation: "worktree"`):
 
 ```
-# CRITICAL — STARTUP VERIFICATION (before any other tool call)
+# CRITICAL — STARTUP VERIFICATION + PATH DISCIPLINE
 
 Your worktree path is: <ABSOLUTE-WORKTREE-PATH>
 
-1. Run `pwd` via Bash. Output MUST equal the worktree path.
-2. Run `git rev-parse --show-toplevel` via Bash. Output MUST equal the worktree path.
-3. Run `git status --short` via Bash. Confirm tree is clean (or matches expected pre-snapshot).
+## Startup verification (do this BEFORE any other tool call)
 
-If ANY of these checks fails:
-- DO NOT proceed with implementation.
-- DO NOT make Read/Write/Edit calls — they may land in the wrong checkout.
-- Report the mismatch in your final result and exit.
+1. Run `pwd` via Bash. Output MUST equal the worktree path above. Save the
+   output as your `WORKTREE_ROOT` for the rest of the dispatch.
+2. Run `git rev-parse --show-toplevel` via Bash. Output MUST equal WORKTREE_ROOT.
+3. Run `git status --short` via Bash. Confirm tree is clean (or matches the
+   expected pre-snapshot).
 
-If all checks pass: you are safely in the worktree. Proceed.
+If ANY check fails: DO NOT proceed. Report the mismatch and exit.
+
+## Path discipline (enforce on EVERY Read/Write/Edit call)
+
+- For Read: relative paths or paths under WORKTREE_ROOT are safe. Reading
+  from main via absolute path will give you the wrong file content (main is
+  AHEAD of your worktree on the same branches, but parallel-different on
+  in-flight work).
+- For Write/Edit: ONLY use paths under WORKTREE_ROOT. NEVER use absolute paths
+  starting with `/home/bryan-maclee/scrmlMaster/scrmlTS/` directly — those
+  point to main and will leak your work product into main's working tree
+  (the bug that this rule prevents — see findings tracker §F4).
+- If an intake doc / hand-off doc / conversation context references a path
+  like `/home/bryan-maclee/scrmlMaster/scrmlTS/foo/bar.ts`, translate it to
+  `$WORKTREE_ROOT/foo/bar.ts` (or the relative equivalent) before writing.
+
+If you find yourself about to write to a path starting with the main repo
+root, STOP. Re-derive the path from WORKTREE_ROOT.
 ```
 
-PA-side mitigation: before any cherry-pick from a worktree branch, run `git status --short` in main and reconcile any unexpected uncommitted files — they may be agent leaks.
+#### PA-side mitigations (carried)
 
-#### Diagnostic recommendation (deferred)
+- Before any cherry-pick from a worktree branch, run `git status --short` in main and reconcile any unexpected uncommitted files — they may be in-flight agent leaks.
+- When dispatching, paste the absolute worktree path into the prompt as a literal value (the agent will be told its WORKTREE_ROOT). Don't expect the agent to derive it on its own from the agent ID.
 
-A controlled minimal dispatch — one short-lived agent that does nothing but `pwd`, `Read`, `Write`, and reports the actual paths each tool call targeted — would pinpoint whether the routing fault is deterministic, intermittent, or shape-dependent. Worth doing IF the prompt-hardening doesn't catch the next occurrence.
+#### Platform-level defense (recommended, not yet scoped)
+
+The diagnostic agent's recommendation: a settings.json **PreToolUse hook** that rejects Write/Edit calls whose absolute path starts with the main repo root but not the active worktree subtree. Hard-fail at the tool layer rather than relying on agent discipline.
+
+- **Pro:** closes the leak entirely. Agent prompt discipline has already failed 3 times this session.
+- **Con:** the hook must be context-aware — the PA itself NEEDS to write to main paths; only sub-dispatched agents under `isolation: "worktree"` should be blocked from main-path writes. The hook needs a signal (env var? hook context?) to distinguish.
+- **Status:** not yet scoped. Filed as a follow-up to F4. Could be drafted via the `update-config` skill if/when the agent-discipline template proves insufficient.
+
+#### Diagnostic dispatch (completed)
+
+`a1ce9f7446b09c058` ran a 6-step forensic matrix and reported the verdict above. Logs preserved in the dispatch's notification record (read-only — no production code touched, all 3 marker files cleaned up).
 
 #### Cross-references
 - A5 progress notes: `docs/changes/fix-bare-decl-markup-text-lift/progress.md` ("Initial Read/Write tool calls accidentally landed in the main checkout...").
