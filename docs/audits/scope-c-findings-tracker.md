@@ -31,19 +31,21 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 | A4 | `lin` template-literal interpolation skipped | T2 | `type-system.ts` | Localized to the lin tracker. Less common code path — affects only `lin` users. Lower priority than A3 but still real. |
 | A5 | `function`/`fn` in markup text auto-promoted to logic | **T1** (post-deep-dive) | `ast-builder.js:235-260` | After S42 deep-dive: bug located in `liftBareDeclarations` recursing into markup children. ~5-line fix: stop recursing into `markup` blocks (only state). Reclassified from T2/T3. **Severity escalated to HIGH** — silent text corruption mode discovered (short-form lifted text compiles clean but loses prose from output). Move ahead of A3/A4 in priority. |
 
-**Recommended order (revised after A5 deep-dive):**
+**Recommended order (all original §A items now FIXED; remaining are post-A3-trace follow-ups):**
 1. ~~A5~~ ✅ **FIXED** (commit `284c21d` 2026-04-25)
 2. ~~A2 + A1~~ ✅ **FIXED** (commit `9a07d07` 2026-04-25)
-3. **A6** — `~{}` tilde-range exclusion (T1, follow-up surfaced by A1+A2 pipeline). Smallest remaining fix. Cleans up the 8 leftover lints in ex 10.
-4. **A3** — component-def text-plus-handler-child trigger (T2, needs parser-level trace before code lands; intake explicitly defers fix-sketch to dispatch agent).
-5. **A4** — lin template-literal interpolation walk (T2 surgical — recommended; T3 structural — deferred).
+3. ~~A6~~ ✅ **FIXED** (commit `9ca9c3f` 2026-04-25)
+4. ~~A3~~ ✅ **FIXED** (commit `bcd4557` 2026-04-25)
+5. ~~A4~~ ✅ **FIXED** (commit `330fd28` 2026-04-25)
+6. **A7** — `${@reactive}` BLOCK_REF interpolation in component def (T2, surfaced by A3's bonus-signal trace). Same family as A3.
+7. **A8** — `<select><option>` children in component def (T2, surfaced by A3's bonus-signal trace). Same family.
 
-**Status as of S42 close (2026-04-25):**
-- 3 fixed (A1, A2, A5)
-- 3 intake-filed and ready to dispatch (A6, A3, A4)
-- Test suite: 7889 pass / 40 skip / 0 fail / 375 files
-- All 22 examples compile; ex 10 has 8 W-LINT-013 lints awaiting A6; ex 14 has 0 lints; ex 18 has 1 W-AUTH-001 awaiting C2 (the §C scaffold-only finding, not a bug)
-- Sample-corpus failure count: 23 / 275 (down from 24 — A5 resolved `func-007-fn-params.scrml` as a bonus)
+**Status as of S42 (2026-04-25):**
+- **6 fixed** (A1, A2, A3, A4, A5, A6)
+- 2 newly-surfaced not-yet-filed (A7, A8 — post-A3 trace findings, both T2 same parser family)
+- Test suite: **7906 pass / 40 skip / 0 fail / 378 files**
+- All 22 examples compile; ex 10 / ex 14 lints 0; ex 18 W-AUTH-001 (scaffold C2). ex 19 can revert workaround post-A4. ex 05 InfoStep can revert post-A3 (PreferencesStep + ConfirmStep blocked on A7/A8).
+- Sample-corpus failure count: 23 / 275 (down from 24 via A5; possibly more drops post-A3 — needs re-classify)
 
 
 
@@ -80,7 +82,7 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Repro (minimal):** any `// ... <Comp prop={x}> ...` comment line in a compilable file.
 
 ### A3. Component-def with `<wrapper>{text}+<element with onclick=fn()>` shape fails to register
-- **Status:** **intake-filed** at `docs/changes/fix-component-def-text-plus-handler-child/intake.md` (2026-04-25, S42). Hypothesis revised — original "walkLogicBody not recursing into match arms" was wrong (match nodes use `body` key which the walker DOES recurse into). Actual trigger documented in keyword sweep table below.
+- **Status:** **FIXED** — landed on main at commit `bcd4557` (2026-04-25, S42). Trace proved BOTH prior hypotheses wrong (the original walker-gap and the intake's raw-normalization-regex one). **Real bug** was in `ast-builder.js` `collectExpr`'s angle-bracket tracker using delimiter-nesting (`>` decrements). After consuming `<div>`'s `>`, angleDepth dropped to 0; the next `<` was gated by Bug-3 prevEndsValue guard; with angleDepth==0, `onclick =` then tripped the IDENT-`=` statement-boundary check at line 1203-1211 and `collectExpr` returned mid-stream. **Fix:** switch to element-nesting semantics matching `collectLiftExpr` (`<` IDENT/KEYWORD increments; `</` and `/>` decrement; plain `>` does NOT decrement). 6 new tests + 8/8 generalization sweep cases pass. Test suite: 7894 → 7900 pass / 40 skip / 0 fail / 377 files. **Bonus signal partial:** `examples/05-multi-step-form.scrml` `InfoStep` reverts cleanly to match-with-lift form; `PreferencesStep` (contains `<select><option>`) and `ConfirmStep` (contains `<dl>` with `${@...}` BLOCK_REF interpolations) still fail E-COMPONENT-020 — **different parser shapes, separate bugs.** Filed below as A7 (BLOCK_REF interpolation in component def) and A8 (`<select><option>` children in component def).
 - **Severity:** medium-high (the canonical "render component per state" pattern hits this when the component contains common UI shapes like `<div>label <button onclick=fn()>x</button></div>`)
 - **Tier:** **T2** (component-expander or component-def parser — needs further trace to locate the exact failure path)
 - **Surfaced in:** Stage 3 — refactor of ex 05.
@@ -111,7 +113,7 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
   Compiles with E-COMPONENT-020 even though `Foo` IS defined.
 
 ### A4. `lin` template-literal interpolation `${ticket}` not counted as consumption
-- **Status:** **intake-filed** at `docs/changes/fix-lin-template-literal-interpolation-walk/intake.md` (2026-04-25, S42). Two fix paths scoped — Option 1 (surgical T2) recommended; Option 2 (structural T3) deferred.
+- **Status:** **FIXED** — landed on main at commit `330fd28` (2026-04-25, S42). **Intake hypothesis was INCOMPLETE** (third hypothesis revision in a row — A3, A5, now A4). Real chain was multi-layer: tokenizer strips backticks → `reemitJsStringLiteral` JSON-stringifies the template → multi-quasi templates emit as `escape-hatch` (not `lit/template`) → walker never sees a template literal. Walker-only fix could not work alone. **Fix spans 4 source files:** (1) `tokenizer.ts` adds `Token.isTemplate` flag; (2) `ast-builder.js` 8 re-emit sites preserve backticks for template tokens; (3) `expression-parser.ts` adds `walkTemplateInterpolations` helper + `TEMPLATE_INTERP_CACHE` WeakMap memoization, multi-quasi templates now emit as `lit/template`; (4) `type-system.ts` `checkLogicExprIdents` consults `fnAllDeclared` to avoid false E-SCOPE-001 on now-visible self/forward function refs. **Two side-bugs surfaced and fixed in the same commit:** (a) `function-decl` binds name AFTER walking body, broke self-recursion across newly-visible template interpolations; (b) multi-quasi template round-trip silently broken (escape-hatch carried OUTER expression source). Test suite: 7900 → **7906 pass / 40 skip / 0 fail / 378 files**. **Bonus signal confirmed:** `examples/19-lin-token.scrml` can drop the `const consumed = ticket` workaround and use `\`Redeemed: ${ticket}\`` directly (verified by compile-test).
 - **Severity:** medium (forces awkward workaround)
 - **Tier:** **T2** (lin-tracker tree-walk update; needs verification of where function-body templates are scanned)
 - **Surfaced in:** Stage 3 — writing ex 19.
@@ -142,7 +144,7 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
   ```
 
 ### A6. `W-LINT-013` misfires on `@var = N` single-`=` assignments inside `~{}` test sigil bodies
-- **Status:** **intake-filed** at `docs/changes/fix-w-lint-013-tilde-range-exclusion/intake.md` (2026-04-25, S42). Anticipated by A1's intake §"Step 3 (optional, deferred)"; pipeline confirmed it's needed.
+- **Status:** **FIXED** — landed on main at commit `9ca9c3f` (2026-04-25, S42). Added `buildTildeRanges` helper (analogous to A2's `buildCommentRanges`), extended skipIf signature to 5 args, W-LINT-013's skipIf now excludes tilde ranges. Effect: ex 10 drops from 8 W-LINT-013 lints to 0. Test suite: 7889 → 7894 pass / 40 skip / 0 fail / 376 files.
 - **Severity:** low (cosmetic — example 10 still emits 8 lints after A1's `(?!=)` fix; doesn't block anything)
 - **Tier:** **T1** (single helper added — `buildTildeRanges` analogous to `buildCommentRanges`)
 - **Surfaced in:** A1+A2 pipeline run (S42). A1's `(?!=)` lookahead caught 6 of 14 misfires in ex 10 (the `assert @x == N` cases) but 8 cases remained: `@count = 0` / `@step = 1` etc. inside `~{}` test bodies. These are LEGITIMATE single-`=` assignments to reactives — the `(?!=)` lookahead correctly does NOT exclude them, but they're still not Vue ghost shorthand.
@@ -158,6 +160,43 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Fix sketch:** add `buildTildeRanges(source)` helper in `lint-ghost-patterns.js` (analogous to `buildLogicRanges` / `buildCommentRanges` / the new `buildCommentRanges` from A2). Extend skipIf signature to take a 5th `tildeRanges` arg. Update W-LINT-013's skipIf to skip tilde ranges. Possibly other lint patterns benefit too — audit during the fix.
 - **Anticipated by A1's intake** ("Step 3 (optional, deferred): `~{}` test sigil exclusion"). The pipeline confirmed it's needed.
 - **Examples affected:** ex 10 (8 remaining lints post-A1+A2).
+
+### A7. Component-def with `${@reactive}` BLOCK_REF interpolation in body fails to register
+- **Status:** not-filed (surfaced 2026-04-25 by A3's bonus-signal trace)
+- **Severity:** medium (blocks a common pattern — components that render a reactive value inline)
+- **Tier:** **T2** (parser-level — same family as A3 but different parser shape)
+- **Surfaced in:** A3 fix verification (S42). After A3 landed, `examples/05-multi-step-form.scrml` `InfoStep` reverts cleanly to `match { .Variant => { lift <Comp> } }` form. But `ConfirmStep` (contains `<dl>` with `${@firstName}`/`${@email}` BLOCK_REF interpolations in body) still fails E-COMPONENT-020 — different parser shape than A3's text-plus-handler-child trigger.
+- **What (likely cause):** the same `collectExpr` angle-tracker that A3 fixed for text-plus-handler-child shape may have a similar gap when the component body contains `${@reactive}` BLOCK_REF interpolations. The interpolation may interact with angleDepth tracking similarly to how `onclick=` tripped the IDENT-`=` boundary in A3.
+- **Repro (extracted from ex 05 ConfirmStep, untested as standalone — needs minimal repro work):**
+  ```scrml
+  ${ const ConfirmStep = <div class="step">
+       <dl><dt>Name</dt><dd>${@firstName} ${@lastName}</dd></dl>
+     </div>
+  }
+  <ConfirmStep/>
+  ```
+- **Fix sketch:** trace the `collectExpr` behavior on the BLOCK_REF interpolation case. The fix may share infrastructure with A3 (element-nesting semantics) but the trigger is different. Likely needs another small extension to the angle/brace tracker.
+- **Examples affected:** ex 05 (ConfirmStep remains in if-chain workaround form post-A3).
+
+### A8. Component-def with `<select><option>` children fails to register
+- **Status:** not-filed (surfaced 2026-04-25 by A3's bonus-signal trace)
+- **Severity:** medium (blocks form-shaped components — a `<form>` with a `<select>` is a common pattern)
+- **Tier:** **T2** (parser-level — same family as A3, possibly same family as A7)
+- **Surfaced in:** A3 fix verification (S42). `PreferencesStep` (contains `<select bind:value=@theme><option>...</option></select>` + checkbox `<input type="checkbox" bind:value=@newsletter>`) still fails E-COMPONENT-020 post-A3.
+- **What (likely cause):** the `<select><option>` nesting + `bind:value=@reactive` attributes interact with the angle/brace tracker in a way that's still defective post-A3. Could be that `<option>` is treated as void-element in HTML registry but content-element in scrml, OR the `bind:value=@x` syntax has a different angle-tracker interaction than `onclick=fn()`.
+- **Repro (extracted from ex 05 PreferencesStep — needs minimal repro work):**
+  ```scrml
+  ${ const PrefStep = <div class="step">
+       <select bind:value=@theme>
+         <option value="light">Light</option>
+         <option value="dark">Dark</option>
+       </select>
+     </div>
+  }
+  <PrefStep/>
+  ```
+- **Fix sketch:** trace + bisect to identify the exact trigger element/attribute pair. The fix may share infrastructure with A3 + A7. May resolve as part of A7's investigation.
+- **Examples affected:** ex 05 (PreferencesStep remains in if-chain workaround form post-A3).
 
 ### A5. Markup text starting with `function`/`fn` is auto-promoted to logic block
 - **Status:** **FIXED** — landed on main at commit `284c21d` (2026-04-25, S42). Approach: Option 2 fallback (`parentType` flag form, `<program>` carved out as decl-site) — Option 1 broke 7 tests in `top-level-decls.test.js` because `<program>` is a markup-typed block that needs to retain the lift for top-level bare decls. **Bonus:** `samples/compilation-tests/func-007-fn-params.scrml` flipped FAIL → PASS (same bug class). Sample-corpus failure baseline 24 → 23. Test suite post-fix: 7878 pass / 40 skip / 0 fail / 373 files.
