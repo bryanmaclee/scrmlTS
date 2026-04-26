@@ -55,6 +55,52 @@ scrmlTS/
 5. Check if pa.md or scrml-support has anything new that affects today's work
 6. Report: caught up, next priority
 
+## Hand-off context-density directive (PERMANENT)
+
+**Never make the next-session PA re-acquire context that the current session already has.** Hand-off should err on the side of bloat to capture every in-flight thread, every open question, every state transition, every recovered-from anomaly. Optimize for the next-session PA's pickup, not for the current session's terseness.
+
+This is a standing rule. Per user-voice S42 (verbatim): *"this has been going much better since I have been explicit about not caring about a little ctx bloat to get all the info to the next pa. before that handoffs rarely went as smoothly. I want this to be a permanent directive to the pa, dont make the next pa re acquire the requisite understanding."*
+
+Empirically validated: S42 was the smoothest multi-thread session to date, partly because S41-close hand-off captured everything explicitly + S42 mid-session hand-off rewrites continued the pattern. Hand-off bloat is acceptable; under-documentation is not.
+
+What this means in practice:
+- Every in-flight thread gets its own section in the hand-off.
+- Every recovery-from-anomaly is documented with what went wrong + how it was recovered + what the next session should watch for.
+- Every open question (push? next dispatch? cross-repo notice?) is enumerated explicitly at the top so the next session surfaces them immediately.
+- Tables for state-as-of-close (test counts, fixed bugs vs in-flight, examples lint-status, etc.) — the next session shouldn't have to derive these.
+- File-modification inventories at session close so cherry-pick / forensic review is unambiguous.
+
+## "wrap" — defined operation, not a vague directive
+
+When the user says "wrap" (or PA proposes wrap), execute ALL of:
+
+1. **Hand-off:** update `hand-off.md` to reflect current state per the bloat-OK directive above. Cover all in-flight threads, open questions, state-as-of-close tables, file inventories.
+2. **Master-list:** update `master-list.md` with current counts / statuses / inventory deltas (test count, sample count, examples count, etc.).
+3. **CHANGELOG:** update `../scrml-support/CHANGELOG-scrmlTS.md` with a new top-level `## Session N — YYYY-MM-DD` block. Populate Added / Changed / Fixed / Removed / Process subsections from the session log + git log. Per-commit detail belongs in git log; this file is the cross-session audit trail.
+4. **Inbox/outbox:** process `handOffs/incoming/*.md` (move read to `read/`); send any outbound notices that are due (giti, 6nz, scrml-support, master).
+5. **Test suite:** run `bun test`, record final pass/skip/fail counts in hand-off + CHANGELOG.
+6. **Working tree:** verify clean, OR commit pending work (with appropriate authorization). No silent uncommitted state at session close.
+7. **Push:** push to origin OR surface push-pending state explicitly in hand-off §"Open questions to surface immediately."
+8. **Meta-docs:** update findings tracker, pinned discussions, intakes-with-status-changes, user-voice (if any new durable directives), and any other meta-doc that has a state to record.
+
+If the user says just "wrap" without further context, default to executing all 8 steps. If the user says "wrap and push" — same plus authorize step 7. If the user says "wrap, no push" — execute 1-6 + 8, leave 7 explicit-pending.
+
+## Human-verified examples log
+
+`examples/VERIFIED.md` is a sibling to `examples/README.md` that tracks which examples the **user has personally verified** end-to-end (compiled, run, output checked). Each verification is a USER action; PA can compile-test and check format compliance, but "human verified" means the user has actually run and confirmed correct behavior.
+
+Each entry records the commit hash at which it was verified. Any commit advancing past the verified hash potentially stales the verification — if the file is modified or its surrounding compiler behavior changes, re-verification is needed.
+
+PA's responsibility:
+- Keep the file in sync with `examples/` (add new rows when new examples are added; remove rows if examples are deleted).
+- Note the current HEAD commit in a "last reviewed" footer when running compile-tests as part of audits — this is PA's own check, NOT human verification.
+- DO NOT mark items as user-verified. Only the user does that.
+
+User's flow when verifying:
+- Run the example.
+- If it works correctly, record the current `git rev-parse HEAD` next to the example's checkbox.
+- Optionally add notes (e.g. "verified runs but could use more samples on the dropdown").
+
 ## Cross-repo references
 
 - **scrml-support** at `../scrml-support/` — deep-dives, ADRs, gauntlet reports, user-voice, design insights
