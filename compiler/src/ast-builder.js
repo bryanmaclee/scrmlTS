@@ -232,16 +232,38 @@ const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function
  * @param {object[]} blocks  — Block[] from the Block Splitter
  * @returns {object[]}  — transformed Block[] (new array, no mutation)
  */
-function liftBareDeclarations(blocks) {
+function liftBareDeclarations(blocks, parentType = null) {
   return blocks.map(block => {
-    // Recursively process children of markup/state contexts
-    if (block.type === "markup" || block.type === "state") {
-      const newChildren = liftBareDeclarations(block.children || []);
+    // Recurse into state children — server fns inside <db>/state contexts
+    // are real declarations and need the same lift treatment. Pass
+    // parentType="state" so a state block nested inside markup still lifts.
+    if (block.type === "state") {
+      const newChildren = liftBareDeclarations(block.children || [], "state");
       return { ...block, children: newChildren };
     }
 
-    // Convert text blocks that start with a bare declaration keyword
-    if (block.type === "text" && BARE_DECL_RE.test(block.raw)) {
+    // Recurse into markup children with a context flag. The lift transform
+    // still fires for direct children of <program> (the canonical wrapper
+    // for bare top-level declarations) and for state descendants, but is
+    // suppressed for text inside any deeper markup descendant. This stops
+    // BARE_DECL_RE from promoting markup-text content (e.g. prose inside
+    // <p>function adds.</p>) into a synthetic logic block, while preserving
+    // the bare-decl auto-lift inside <program>.
+    // (Fix for Scope C finding A5 — see docs/changes/fix-bare-decl-markup-text-lift/.)
+    if (block.type === "markup") {
+      // Top-level <program> remains a declaration site for its direct text
+      // children. Any other markup tag is prose context — its text children
+      // must be passed through unchanged.
+      const isProgramRoot = parentType !== "markup" && block.name === "program";
+      const childContext = isProgramRoot ? "state" : "markup";
+      const newChildren = liftBareDeclarations(block.children || [], childContext);
+      return { ...block, children: newChildren };
+    }
+
+    // Convert text blocks that start with a bare declaration keyword.
+    // Suppressed when parentType === "markup" (i.e. inside non-program
+    // markup) — text there is prose content, not a declaration.
+    if (block.type === "text" && parentType !== "markup" && BARE_DECL_RE.test(block.raw)) {
       return {
         type: "logic",
         raw: "${" + block.raw + "}",
