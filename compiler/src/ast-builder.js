@@ -1263,37 +1263,58 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (depth === 0) break;
         depth--;
       }
-      // Track angle-bracket depth for tag expressions (< tag attr="val" />)
-      // Open: `<` followed by an IDENT (tag name pattern).
+      // Track angle-bracket depth as ELEMENT NESTING (not delimiter nesting).
+      // Open: `<` IDENT/KEYWORD increments — opens an element.
+      // Close: `< /` decrements — start of a `</tag>` close-tag.
+      //        `/ >` decrements — self-closing `<tag/>`.
+      // Plain `>` does NOT decrement: it ends an open-tag delimiter, but the
+      // element body (text + children) continues until its `</tag>`.
       //
-      // Bug 3 guard: if the previous token is a clearly value-producing token
-      // (IDENT, AT_IDENT, NUMBER, STRING, `)`, `]`), `<` is a less-than
-      // comparison operator, not a tag opener. Without this, `base < limit`
-      // in `const min = base < limit ? base : limit` bumps angleDepth
-      // permanently (no matching `>` in the expression), disabling the
-      // statement-boundary check — causing greedy collect to eat subsequent
-      // statements (including `return`) into the expression.
+      // Bug 3 guard (`base < limit ? base : limit`): outside markup
+      // (angleDepth === 0), if the previous token is a value-producing token,
+      // `<` is a less-than comparison, not a tag opener — leave angleDepth
+      // alone. INSIDE markup (angleDepth > 0) the guard does NOT apply: text
+      // content tokenizes as IDENT/NUMBER/STRING and naturally precedes child
+      // tags (`<div>label <button…>`), so a `<` IDENT/KEYWORD sequence is
+      // unambiguously a child element opener.
       //
-      // Tag openers always appear at expression positions: after `=`, `,`,
-      // `(`, `[`, statement-start, or permitting keywords (`return`, `lift`).
-      // Never after a value token.
+      // A3 fix (fix-component-def-text-plus-handler-child): pre-fix this used
+      // delimiter nesting (`>` decrements). For `<div>label <button onclick=…`,
+      // the `>` of `<div>` dropped angleDepth to 0; then the prevEndsValue
+      // guard blocked the next `<` from re-opening because lastTok was the
+      // text-IDENT `label`. With angleDepth==0, the inner `onclick =` tripped
+      // the IDENT-`=` statement-boundary check and `collectExpr` truncated
+      // the component-def body mid-stream. The element-nesting scheme aligns
+      // with `collectLiftExpr` (above) and resolves the bug.
       if (tok.kind === "PUNCT" && tok.text === "<" && depth === 0) {
         const afterLt = peek(1);
         const isTagNameAfter = afterLt && (afterLt.kind === "IDENT" || afterLt.kind === "KEYWORD");
-        const prevEndsValue = parts.length > 0 && (
-          lastTok.kind === "IDENT" ||
-          lastTok.kind === "AT_IDENT" ||
-          lastTok.kind === "NUMBER" ||
-          lastTok.kind === "STRING" ||
-          (lastTok.kind === "PUNCT" && (lastTok.text === ")" || lastTok.text === "]"))
-        );
-        if (isTagNameAfter && !prevEndsValue) {
-          angleDepth++;
+        const isCloseTagStart = afterLt && afterLt.kind === "PUNCT" && afterLt.text === "/";
+        if (isCloseTagStart && angleDepth > 0) {
+          angleDepth--;
+        } else if (isTagNameAfter) {
+          if (angleDepth > 0) {
+            // Inside markup — child tag opener, unconditional.
+            angleDepth++;
+          } else {
+            // Outside markup — Bug 3 guard against `value < value`.
+            const prevEndsValue = parts.length > 0 && (
+              lastTok.kind === "IDENT" ||
+              lastTok.kind === "AT_IDENT" ||
+              lastTok.kind === "NUMBER" ||
+              lastTok.kind === "STRING" ||
+              (lastTok.kind === "PUNCT" && (lastTok.text === ")" || lastTok.text === "]"))
+            );
+            if (!prevEndsValue) angleDepth++;
+          }
         }
       }
-      // Close: `>` closes a tag expression (covers both `>` and the `>` in `/>`)
-      if (angleDepth > 0 && tok.kind === "PUNCT" && tok.text === ">" && depth === 0) {
-        angleDepth--;
+      // Self-close: `/` followed by `>` decrements element depth.
+      if (angleDepth > 0 && tok.kind === "PUNCT" && tok.text === "/" && depth === 0) {
+        const next = peek(1);
+        if (next && next.kind === "PUNCT" && next.text === ">") {
+          angleDepth--;
+        }
       }
       // E-EQ-004: `===` and `!==` are not valid scrml operators (§45)
       if (tok.kind === "OPERATOR" && (tok.text === "===" || tok.text === "!==")) {
