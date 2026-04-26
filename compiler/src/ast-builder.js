@@ -363,6 +363,35 @@ const BIND_DIRECTIVES = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
+// HTML void elements (no closer required by HTML semantics)
+// ---------------------------------------------------------------------------
+// scrml accepts the natural HTML form for these tags — `<br>`, `<input>`,
+// `<img src="…">` — without a `/>` self-close or `</tag>` closer. The angle-
+// tracker in collectExpr / collectLiftExpr (A3 fix, commit bcd4557) uses
+// element-nesting semantics where every `<TAG` increments depth and is
+// expected to be matched by `</TAG` or `/>`. Void elements have NO closer
+// in idiomatic scrml, so they would leak depth permanently. This Set lets
+// the angle-tracker skip the increment for known void tags.
+//
+// A7 fix (fix-component-def-block-ref-interpolation-in-body): without this
+// Set, `<div><input bind:value=@x></div>` left angleDepth at 1 after the
+// closing `</div>`, defeating the IDENT-`=` boundary guard at the next
+// sibling `const Foo = …` and silently swallowing all subsequent component
+// declarations into one greedy raw expression. Same root cause as A8
+// (`<select><option>…<input bind:value=@x>` shape).
+//
+// Standard HTML5 void elements + SVG primitive shapes registered in
+// compiler/src/html-elements.js with isVoid: true. Lower-cased; lookup
+// must lower-case the tag name.
+const HTML_VOID_ELEMENTS = new Set([
+  // HTML5 void elements (W3C HTML Living Standard)
+  "area", "base", "br", "col", "embed", "hr", "img", "input",
+  "link", "meta", "source", "track", "wbr",
+  // SVG primitive shapes — leaf elements with no children (registry: html-elements.js)
+  "rect", "circle", "line", "path", "polyline", "polygon",
+]);
+
+// ---------------------------------------------------------------------------
 // Block context → user-readable label
 // ---------------------------------------------------------------------------
 
@@ -1096,6 +1125,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     let lastTok = startTok;
     let depth = 0;
     let angleDepth = 0; // Track < ... > nesting for component tag expressions
+    // A7 fix: when an HTML void element is opened (`<br`, `<input`, etc.),
+    // the matching close is the open-tag's bare `>` (not `</tag>`, which
+    // doesn't exist for void elements). pendingVoidClose flags that the next
+    // `>` should decrement angleDepth. Cleared on `/>` (self-close) or after
+    // it fires on `>`.
+    let pendingVoidClose = false;
 
     const STMT_KEYWORDS = new Set(["lift", "function", "fn", "const", "let", "import", "export", "use", "type", "server", "for", "while", "do", "if", "return", "match", "partial", "switch", "try", "fail", "transaction", "throw", "continue", "break", "when", "given"]);
     const DECL_KEYWORDS = new Set(["const", "let", "type", "function", "fn"]);
@@ -1313,12 +1348,22 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const afterLt = peek(1);
         const isTagNameAfter = afterLt && (afterLt.kind === "IDENT" || afterLt.kind === "KEYWORD");
         const isCloseTagStart = afterLt && afterLt.kind === "PUNCT" && afterLt.text === "/";
+        // A7 fix (fix-component-def-block-ref-interpolation-in-body): track
+        // whether this open tag is for an HTML void element (`<br>`,
+        // `<input>`, `<hr>`, etc.). Void elements increment angleDepth like
+        // any other element so attribute tokens (`bind:value=@x`) inside
+        // their open tag are correctly treated as inside-markup. The matching
+        // decrement happens on the open-tag's closing `>` (not `</tag>`,
+        // which never appears for void elements). See the void-close handler
+        // below which fires on the next `>` after `pendingVoidClose` is set.
+        const isVoidHtmlTag = isTagNameAfter && afterLt.kind === "IDENT" && HTML_VOID_ELEMENTS.has(afterLt.text.toLowerCase());
         if (isCloseTagStart && angleDepth > 0) {
           angleDepth--;
         } else if (isTagNameAfter) {
           if (angleDepth > 0) {
             // Inside markup — child tag opener, unconditional.
             angleDepth++;
+            if (isVoidHtmlTag) pendingVoidClose = true;
           } else {
             // Outside markup — Bug 3 guard against `value < value`.
             const prevEndsValue = parts.length > 0 && (
@@ -1328,7 +1373,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               lastTok.kind === "STRING" ||
               (lastTok.kind === "PUNCT" && (lastTok.text === ")" || lastTok.text === "]"))
             );
-            if (!prevEndsValue) angleDepth++;
+            if (!prevEndsValue) {
+              angleDepth++;
+              if (isVoidHtmlTag) pendingVoidClose = true;
+            }
           }
         }
       }
@@ -1337,7 +1385,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const next = peek(1);
         if (next && next.kind === "PUNCT" && next.text === ">") {
           angleDepth--;
+          // `<voidtag/>` self-closes via the slash; cancel any pending void close
+          // so the subsequent `>` does not double-decrement.
+          pendingVoidClose = false;
         }
+      }
+      // A7 fix: void-element close — when `pendingVoidClose` is set, the next
+      // bare `>` (not `/>`, handled above) closes the void element. Decrement
+      // angleDepth and clear the flag.
+      if (pendingVoidClose && tok.kind === "PUNCT" && tok.text === ">" && depth === 0 && angleDepth > 0) {
+        angleDepth--;
+        pendingVoidClose = false;
       }
       // E-EQ-004: `===` and `!==` are not valid scrml operators (§45)
       if (tok.kind === "OPERATOR" && (tok.text === "===" || tok.text === "!==")) {
@@ -1446,6 +1504,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // Track whether we're inside a markup tag's text content (between > and /).
     // Keywords in text content should NOT be treated as statement boundaries.
     let angleDepth = 0;
+    // A7 fix: pending void-element close flag. Set when a `<voidtag` opens;
+    // cleared on the open-tag's `>` or on a `/>` self-close.
+    let pendingVoidClose = false;
 
     const STMT_KEYWORDS = new Set(["lift", "function", "fn", "const", "let", "import", "export", "use", "type", "server", "for", "while", "do", "if", "return", "match", "partial", "switch", "try", "fail", "transaction", "throw", "continue", "break", "when", "given"]);
 
@@ -1465,9 +1526,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           angleDepth--;
         }
         // `< ident` or `< keyword` = tag open → increment angleDepth
+        // A7 fix: HTML void elements (`<br>`, `<input>`, etc.) have no closer.
+        // Increment angleDepth (so attributes inside the open tag are tracked
+        // as inside-markup), then flag pendingVoidClose so the next bare `>`
+        // decrements it.
         else if (next && (next.kind === "IDENT" || next.kind === "KEYWORD")) {
           angleDepth++;
+          if (next.kind === "IDENT" && HTML_VOID_ELEMENTS.has(next.text.toLowerCase())) {
+            pendingVoidClose = true;
+          }
         }
+      }
+      // A7 fix: `/>` self-close cancels any pending void close (slash decrement
+      // happens via the brace/paren/angle generic handler below).
+      if (tok.kind === "PUNCT" && tok.text === "/" && peek(1)?.kind === "PUNCT" && peek(1)?.text === ">") {
+        if (angleDepth > 0) angleDepth--;
+        pendingVoidClose = false;
+      }
+      // A7 fix: void-element close — bare `>` (not `/>`) decrements when a
+      // void open tag is pending.
+      else if (pendingVoidClose && tok.kind === "PUNCT" && tok.text === ">" && angleDepth > 0) {
+        angleDepth--;
+        pendingVoidClose = false;
       }
       // ASI-style newline boundary (same logic as collectExpr BUG-ASI-NEWLINE)
       if (parts.length > 0 && depth === 0 && angleDepth === 0 && tok.span.line > lastTok.span.line) {
@@ -1621,6 +1701,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         selfClosing: true,
         closerForm: "self-closing",
         isComponent,
+        span: spanOf(startTok, peek()),
+      };
+    }
+
+    // A7 fix (fix-component-def-block-ref-interpolation-in-body): HTML void
+    // elements (`<br>`, `<input>`, `<hr>`, `<img>`, etc.) are implicitly
+    // closed by HTML semantics — they have no children and no closer in
+    // idiomatic scrml. Without this case, parseLiftTag would try to parse
+    // the parent's `</tag>` as the void element's closer, mismatch, return
+    // null, and force the lift expression into the string-fallback path
+    // which then truncates at the next sibling's IDENT-`=` boundary.
+    // Treat void elements like self-close: emit a children-less markup node.
+    if (HTML_VOID_ELEMENTS.has(tag.toLowerCase())) {
+      return {
+        id: ++counter.next,
+        kind: "markup",
+        tag,
+        attrs,
+        children: [],
+        selfClosing: true,
+        closerForm: "void",
+        isComponent: false, // void elements are HTML, never components
         span: spanOf(startTok, peek()),
       };
     }
