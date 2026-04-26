@@ -381,6 +381,58 @@ Findings from sample classification (`docs/audits/scope-c-stage-1-sample-classif
 - **Files added during S42:** `examples/notes.db`, `examples/tasks.db` (created via `bun:sqlite` Database constructor with matching CREATE TABLE statements).
 - **Implication for future example writers:** when introducing a new DB-backed example, create the `.db` file at the same time. Document the schema in a comment so the file can be recreated.
 
+### F4. Agent tool-routing leak — `isolation: "worktree"` agents sometimes write to main checkout
+- **Status:** living issue, recurring; mitigation in place; root cause unfixed (likely a platform-level bug)
+- **Severity:** medium-high (data-loss class — when paired with a stall, work product can be silently lost or commit-target ambiguity arises)
+- **Surfaced in:** Recurred 3 times during S42:
+  1. **A5 first attempt** — Agent's Read/Write/Edit tool calls landed in main checkout (`/home/.../scrmlTS/`) instead of the assigned worktree (`/home/.../scrmlTS/.claude/worktrees/agent-<id>/`). Agent self-recovered by `mv`-ing files into the worktree before committing. No data loss.
+  2. **A6 stall** — Same routing as A5. Agent did the work in main checkout, then the stream watchdog stalled before the agent's commit step. Files were left in main's working tree (uncommitted, would have been lost on next reset). PA salvaged by committing main's working tree directly to main (work was verified-correct via `bun test`).
+  3. **A4 leak during A3 cherry-pick** — A4 was running in background while PA cherry-picked A3. A4's leaked progress.md/pre-snapshot.md files in main's working tree caused the A4 cherry-pick to conflict on add/add when it later landed.
+- **Symptoms:** background agents dispatched with `isolation: "worktree"` end up making file modifications to the parent's main checkout (not the worktree). The agent's `git status` / `git log` / etc. operations correctly target the worktree (so commits land on the right branch), but `Read`/`Write`/`Edit` tool calls land in the parent checkout.
+- **Hypothesis (root cause, untested):** the agent's tool routing falls back to the parent process's CWD or some session-shared FS perspective rather than the worktree's path. Could be intermittent (worked correctly for A1+A2 combined dispatch) or shape-dependent (e.g. only when first tool call is a Read on a path that exists in main but not yet in worktree).
+
+#### Recovery patterns (catalogued from S42)
+
+When the leak occurs:
+
+| Symptom | Recovery |
+|---|---|
+| Agent self-detects mid-flight + manually `mv`s files into worktree before commit | None needed — agent recovers itself (A5 first attempt). |
+| Agent stalls before self-recovery; main has uncommitted work | If the work is verified correct (run tests yourself), commit main's working tree directly to main with explicit user authorization. Note in commit message that the dispatch leaked + work was salvaged (A6 path). |
+| Background agent leaks files into main while PA does unrelated work | `git status --short` in main BEFORE any cherry-pick. Reconcile leaked files first — either commit them as the leaked agent's work, or stash aside. Don't cherry-pick over a dirty tree (A4 path). |
+
+#### Mitigation: prompt-hardening template
+
+Every `scrml-dev-pipeline` dispatch with `isolation: "worktree"` SHOULD include a startup verification block that catches the routing fault before any work product is corrupted. Template (paste into `pa.md` or pass inline in dispatch prompt):
+
+```
+# CRITICAL — STARTUP VERIFICATION (before any other tool call)
+
+Your worktree path is: <ABSOLUTE-WORKTREE-PATH>
+
+1. Run `pwd` via Bash. Output MUST equal the worktree path.
+2. Run `git rev-parse --show-toplevel` via Bash. Output MUST equal the worktree path.
+3. Run `git status --short` via Bash. Confirm tree is clean (or matches expected pre-snapshot).
+
+If ANY of these checks fails:
+- DO NOT proceed with implementation.
+- DO NOT make Read/Write/Edit calls — they may land in the wrong checkout.
+- Report the mismatch in your final result and exit.
+
+If all checks pass: you are safely in the worktree. Proceed.
+```
+
+PA-side mitigation: before any cherry-pick from a worktree branch, run `git status --short` in main and reconcile any unexpected uncommitted files — they may be agent leaks.
+
+#### Diagnostic recommendation (deferred)
+
+A controlled minimal dispatch — one short-lived agent that does nothing but `pwd`, `Read`, `Write`, and reports the actual paths each tool call targeted — would pinpoint whether the routing fault is deterministic, intermittent, or shape-dependent. Worth doing IF the prompt-hardening doesn't catch the next occurrence.
+
+#### Cross-references
+- A5 progress notes: `docs/changes/fix-bare-decl-markup-text-lift/progress.md` ("Initial Read/Write tool calls accidentally landed in the main checkout...").
+- A6 leak commit: `9ca9c3f` (committed directly to main; commit message documents the salvage).
+- A4 leak observed during cherry-pick of A3 (PA's session log entry).
+
 ---
 
 ## How to update this tracker

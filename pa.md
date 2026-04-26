@@ -141,6 +141,31 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 - **Every gauntlet dev dispatch MUST include `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` in the briefing** — this is the Ghost-Pattern mitigation (Solution #1 of `scrml-support/docs/ghost-error-mitigation-plan.md`). Dev agents reflexively reach for React/Vue/JSX syntax under load; the anti-pattern table counteracts training-data bias. The brief must say: "Read `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md` before writing any code, and reread it before each feature." Skipping this costs overseer time and pollutes bug reports.
 - **Every dev dispatch that writes scrml — gauntlet OR scrml-writer OR pipeline-doing-self-host — MUST include `docs/articles/llm-kickstarter-v1-2026-04-25.md` in the briefing.** Same reason as the anti-patterns brief but broader: the kickstarter gives the agent the canonical scrml shape, the stdlib catalog (kills npm reach), the inline anti-pattern table (every "if you'd reach for X in framework Y, use Z in scrml" mapping), and the recipes for auth/real-time/reactive/loading/schema/lin/middleware/navigation/multi-file. Derived from 5 clueless-agent experiments S41 + Scope C verification S42 (`docs/audits/kickstarter-v0-verification-matrix.md` + `docs/audits/scope-c-stage-1-2026-04-25.md`). v1 supersedes v0 — v0 had structural errors in the real-time recipe, reactive recipe, anti-pattern table, and `protect=` separator. **Use v1.** The brief must say: "Read `docs/articles/llm-kickstarter-v1-2026-04-25.md` in full before generating any scrml code."
 
+### Worktree-isolation startup verification (S42 finding F4)
+
+**Every dispatch with `isolation: "worktree"` MUST include the startup-verification block below.** Recurred 3 times during S42 — agent's Read/Write/Edit tool calls leak into the main checkout (`/home/.../scrmlTS/`) instead of the assigned worktree (`.claude/worktrees/agent-<id>/`). When paired with a stall, this can silently lose work or pollute main's working tree with another agent's artifacts. See `docs/audits/scope-c-findings-tracker.md` §F4 for the recovery patterns.
+
+Paste this verbatim near the top of every pipeline / dev-agent dispatch prompt:
+
+```
+# CRITICAL — STARTUP VERIFICATION (do this BEFORE any other tool call)
+
+Your worktree path is: <ABSOLUTE-WORKTREE-PATH>
+
+1. Run `pwd` via Bash. Output MUST equal the worktree path above.
+2. Run `git rev-parse --show-toplevel` via Bash. Output MUST equal the worktree path.
+3. Run `git status --short` via Bash. Confirm tree is clean (or matches expected pre-snapshot).
+
+If ANY check fails:
+- DO NOT proceed with implementation.
+- DO NOT make Read/Write/Edit calls — they may land in the wrong checkout.
+- Report the mismatch in your final result and exit with a clear diagnostic.
+
+If all checks pass: you are safely in the worktree. Proceed.
+```
+
+PA-side mitigation: before any cherry-pick from a worktree branch, run `git status --short` in main and reconcile any unexpected uncommitted files — they may be agent leaks.
+
 ### Writing to user-voice
 - Append-only, verbatim
 - Path: `../scrml-support/user-voice-scrmlTS.md` (moved out of this repo 2026-04-17 when scrmlTS went public — MIT license)
