@@ -1,0 +1,97 @@
+// Example 22 (main): Multi-file imports — `import` / `export` across .scrml
+// files (§21). This file is the page; it imports the UserRole type from
+// ./types.scrml (a pure-type file) and the UserBadge component from
+// ./components.scrml.
+//
+// Compile this single file and the compiler resolves the import graph,
+// pulls in the type + component, and emits a single page bundle.
+//
+// To compile: bun run compiler/src/cli.js compile examples/22-multifile/app.scrml -o dist/
+
+<program>
+
+${
+  // Cross-file imports — types and components both work (§21.3).
+  // The imported UserRole enum is usable in @var type annotations,
+  // match subjects, and prop types.
+  import { UserRole } from './types.scrml'
+  import { UserBadge } from './components.scrml'
+
+  // Static seed data — in production this would come from a server fn.
+  const team = [
+    { name: "Ada Lovelace",    role: UserRole.Admin },
+    { name: "Grace Hopper",    role: UserRole.Moderator },
+    { name: "Alan Turing",     role: UserRole.Member },
+    { name: "Linus Torvalds",  role: UserRole.Member },
+    { name: "Anonymous",       role: UserRole.Guest },
+  ]
+}
+
+<div class="team">
+  <h1>Team</>
+  <p class="hint">
+    UserRole and UserBadge are imported from sibling files. The compiler
+    resolves the import graph, pulls in the type + component, and emits
+    one page bundle. Pure-type files emit no HTML/CSS — only a JS module.
+  </p>
+
+  <ul>
+    ${ for (let m of team) {
+      lift <li>
+        <UserBadge name=m.name role=m.role/>
+      </li>
+    } }
+  </ul>
+</div>
+
+#{
+  .team {
+    max-width: 520px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  .hint {
+    color: #6b7280;
+    font-size: 0.9rem;
+    background: #f3f4f6;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+  }
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 999px;
+    font-size: 0.9rem;
+  }
+
+  .badge-dot {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+  }
+
+  .badge-name { font-weight: 600; }
+
+  .badge-role {
+    color: #6b7280;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+  }
+}
+
+</program>

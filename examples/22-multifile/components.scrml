@@ -1,0 +1,18 @@
+// Component-only file. Exports a single component for cross-file reuse.
+// Imports the UserRole type from ./types.scrml so the component's prop
+// can be typed by the imported enum (§21.3 — types are first-class across
+// file boundaries).
+//
+// Used by: ./app.scrml
+
+${
+  import { UserRole, badgeColor } from './types.scrml'
+}
+
+${
+  export const UserBadge = <span class="badge" props={ name: string, role: UserRole }>
+    <span class="badge-dot" style="background:${badgeColor(role)}"></span>
+    <span class="badge-name">${name}</span>
+    <span class="badge-role">${role}</span>
+  </>
+}

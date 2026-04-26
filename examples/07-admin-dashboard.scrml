@@ -16,10 +16,6 @@ ${
   }
 }
 
-// Table headers derived from User type fields.
-// (A ^{} meta block could generate these at compile time via reflect(User) —
-// see example 11 for metaprogramming in action.)
-
 < db src="admin.db" protect="password_hash" tables="users, audit_log">
 
 ${
@@ -60,10 +56,15 @@ ${
   <table class="data-table">
     <thead>
       <tr>
-        <th>Username</th>
-        <th>Email</th>
-        <th>Role</th>
-        <th>Joined</th>
+        ^{
+          // Compile-time: reflect the User type and emit one <th> per field.
+          // Edit the User type above and the table header updates automatically.
+          // Excludes `id` (not user-facing) — the rest become column titles.
+          for (const field of reflect(User).fields) {
+            if (field.name == "id") continue
+            emit(`<th>${field.name}</th>`)
+          }
+        }
         <th>Actions</th>
       </tr>
     </thead>

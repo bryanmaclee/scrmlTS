@@ -1,6 +1,8 @@
-// Example 05: Multi-Step Form — wizard UI with components, enums, match, lin.
-// Demonstrates type:enum, match exhaustive dispatch, component props,
-// lin one-shot submission token. Steps: Info → Preferences → Confirm.
+// Example 05: Multi-Step Form — wizard UI with components, enums, match.
+// Demonstrates type:enum, match exhaustive dispatch, component instances,
+// `class:active=` dynamic class. Steps: Info → Preferences → Confirm.
+// Submit guard uses a plain @reactive boolean (simpler than a one-shot token
+// for a teaching example).
 
 <program>
 
@@ -54,8 +56,8 @@ ${
 }
 
 // Step components — each accepts only the fields it needs.
-// Component definitions must be inside ${ } blocks so the compiler
-// recognizes them as component-def nodes (not top-level text).
+// Component definitions must be inside ${ } blocks AND must precede the markup
+// that references them in the file (E-COMPONENT-020 if forward-ref).
 
 ${
   const InfoStep = <div class="step">
@@ -111,13 +113,14 @@ ${
     <span class:active=(@currentStep == Step.Confirm)>3. Confirm</span>
   </div>
 
-  ${
-    match @currentStep {
-      .Info        => { lift <InfoStep> }
-      .Preferences => { lift <PreferencesStep> }
-      .Confirm     => { lift <ConfirmStep> }
-    }
-  }
+  // Conditional component rendering via if= chain (§17.1.1).
+  // This is the canonical "render one of several components based on enum state"
+  // pattern. The match-with-lift form (`match @x { .Variant => { lift <Comp> } }`)
+  // currently hits E-COMPONENT-020 against component refs declared in earlier
+  // `${}` blocks — open question, see docs/audits/scope-c-stage-1-2026-04-25.md §4.
+  <InfoStep        if=(@currentStep == Step.Info)/>
+  <PreferencesStep else-if=(@currentStep == Step.Preferences)/>
+  <ConfirmStep     else/>
 
 </div>
 

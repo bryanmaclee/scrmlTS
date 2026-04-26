@@ -1,7 +1,11 @@
-// Example 08: Chat — reactive message list with server persistence.
-// Demonstrates @messages reactive array, server function for persistence,
-// for/lift rendering, timestamps, #{} chat bubble styling.
-// Adding a message updates @messages instantly (optimistic) then persists.
+// Example 08: Message log — single-user persistent feed (no real-time sync).
+// Demonstrates @messages reactive array, server function for DB persistence,
+// for/lift rendering, optimistic update, timestamp formatting, #{} bubble styling.
+// Adding a message updates @messages instantly then persists to SQLite.
+//
+// This is NOT real-time chat — two browsers will not see each other's messages.
+// For real-time multi-client sync, see the channel example (§38 `<channel>` +
+// `@shared`) which adds WebSocket pub/sub on top of this persistence layer.
 
 <program>
 
@@ -11,6 +15,14 @@ ${
   @messages  = []
   @draft     = ""
   @authorId  = "user-1"   // In a real app: session/auth. Hardcoded for clarity.
+
+  // Local time formatter — pure function, runs in any context.
+  function formatTime(iso) {
+    const d = new Date(iso)
+    const hh = String(d.getHours()).padStart(2, "0")
+    const mm = String(d.getMinutes()).padStart(2, "0")
+    return `${hh}:${mm}`
+  }
 
   server function loadMessages() {
     lift ?{`

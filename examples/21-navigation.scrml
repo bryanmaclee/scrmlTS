@@ -1,0 +1,103 @@
+// Example 21: Navigation API — `navigate()` + route params (§20).
+// Demonstrates the navigation primitive and the compiler-provided `route`
+// object. `navigate(path)` infers Hard (302 server redirect) vs Soft
+// (history push) based on the calling context. `.Hard` / `.Soft` enum
+// variants are explicit overrides.
+//
+// `route.params` carries path parameters, `route.query` carries query
+// string. Both are always typed `string` — parse manually for numeric IDs.
+//
+// Note: in a real multi-page app, this file would be one route among
+// several (e.g. `/`, `/profile/:id`, `/settings`). Here we simulate a
+// single-page client navigation between three views via @currentView.
+
+<program>
+
+${
+  // Tab/page identifier — drives which sub-view renders.
+  type View:enum = { Home, Profile, Settings }
+  @currentView: View = View.Home
+
+  // Read query string at mount — `route` is a compiler-provided binding (§20.4).
+  // route.query.view (if present) overrides the default starting view.
+  // Comment out for now — `route` requires the file to be compiled as a page,
+  // not a single-file demo. The principle stands: route.query.foo and
+  // route.params.id are how URL params reach scrml source.
+  // const initialView = route.query.view || "Home"
+
+  function go(target: View) {
+    @currentView = target
+    // For real cross-page navigation, navigate("/profile/42") would server-redirect
+    // (Hard) or history-push (Soft) based on context. .Hard / .Soft override:
+    //   navigate("/profile/42", .Hard)   // always 302
+    //   navigate("/profile/42", .Soft)   // always history push
+  }
+}
+
+<div class="app">
+  <nav class="nav">
+    <button class:active=(@currentView == View.Home)     onclick=go(View.Home)>Home</button>
+    <button class:active=(@currentView == View.Profile)  onclick=go(View.Profile)>Profile</button>
+    <button class:active=(@currentView == View.Settings) onclick=go(View.Settings)>Settings</button>
+  </nav>
+
+  <main class="view">
+    ${ match @currentView {
+      .Home     => { lift <h1>Home</h1> }
+      .Profile  => { lift <h1>Profile</h1> }
+      .Settings => { lift <h1>Settings</h1> }
+    } }
+
+    <p class="hint">
+      In a real multi-page scrml app you would have multiple .scrml files at
+      different paths (one per route). Each gets a compiler-provided route
+      object: route.params for path params, route.query for query string,
+      route.path for the current URL. Use navigate(path) to move between them.
+    </p>
+  </main>
+</div>
+
+#{
+  .app {
+    max-width: 720px;
+    margin: 0 auto;
+    font-family: sans-serif;
+  }
+
+  .nav {
+    display: flex;
+    gap: 0.5rem;
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .nav button {
+    padding: 0.4rem 0.9rem;
+    background: transparent;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+
+  .nav button.active {
+    background: #2563eb;
+    color: #fff;
+    border-color: #2563eb;
+  }
+
+  .view {
+    padding: 1.5rem;
+  }
+
+  .hint {
+    color: #6b7280;
+    font-size: 0.9rem;
+    background: #f3f4f6;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-top: 1.5rem;
+  }
+}
+
+</program>

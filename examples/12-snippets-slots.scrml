@@ -19,8 +19,8 @@ ${
         <div class="card__body">
             ${render body()}
         </>
-        // Render actions only when the slot has been provided — presence check.
-        <div class="card__actions" if=(not (actions is not))>
+        // Render actions only when the slot has been provided — presence check (§42.2.4).
+        <div class="card__actions" if=(actions is some)>
             ${render actions()}
         </>
     </>
@@ -79,6 +79,15 @@ ${
             Slots let you inject markup into a component from the call site.
             The compiler desugars slot= attributes into snippet prop assignments.
         </>
+    </>
+
+    // Unnamed children — when a Card opener has direct text/markup children
+    // outside any `slot="..."` attribute, those children flow into ${children}
+    // in the component body (rendered above the named slots in the Card def).
+    <Card>
+        <em>Unnamed children appear here, before the named slots.</em>
+        <h4 slot="header">Mixed call site</>
+        <p slot="body">Named slots and unnamed children can coexist.</>
     </>
 </>
 

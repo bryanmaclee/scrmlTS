@@ -83,7 +83,7 @@
 
 ## E. Examples (14 files — verified S86)
 
-**13/14 compile clean** (S39 2026-04-24 audit). Example 05 fails E-COMPONENT-020 (component forward-ref). 7 examples on Tailwind, 7 on `#{}` CSS.
+**22/22 example files compile** as of S42 Stage 3 close (2026-04-25). 21 top-level examples (01-21) + a multi-file example (22-multifile/ with 3 .scrml files). Examples 15-22 added in S42 to fill the 8 critical spec coverage gaps from Stage 1: 15-channel-chat (§38 real-time), 16-remote-data (§13.5 enum loading state), 17-schema-migrations (§39 declarative schema), 18-state-authority (§52 Tier 2 `server @var` — scaffold, emits W-AUTH-001 by design until detection ships), 19-lin-token (§35 linear types), 20-middleware (§40 `<program>` attrs + `handle()`), 21-navigation (§20 `navigate()` + `route`), 22-multifile/ (§21 cross-file `import`/`export` + pure-type files). Example 05 fixed via `if=`/`else-if=`/`else` chain (was E-COMPONENT-020 forward-ref under match-with-lift). Examples 10, 14, 18 still emit known-compiler-bug warnings (W-LINT-013 misfires on `@reactive` reads, W-LINT-007 misfires on comment text, W-AUTH-001 scaffold) — pre-existing or scaffold-only, NOT introduced by Stage 3 work. **All bugs/anomalies surfaced during Scope C are tracked at `docs/audits/scope-c-findings-tracker.md` (stable IDs A1-A5, B1-B3, C1-C3, D1-D10, E1-E2, F1-F3).**
 
 - [x][x] 01-hello (Tailwind), 02-counter (Tailwind, reactive), 04-live-search (Tailwind, reactive)
 - [x][x] 10-inline-tests (Tailwind), 14-mario-state-machine (Tailwind, fully interactive — machine, derived, match, if=)
@@ -96,8 +96,8 @@
 
 ## F. Samples
 
-- [x][x] `samples/compilation-tests/` — 274 .scrml test files (250/274 compile clean, S39 audit). 24 failures mostly E-SCOPE-001 in gauntlet/meta samples. S20 gauntlet fixtures in 7 subdirs:
-  - `gauntlet-s20-channels/`, `gauntlet-s20-error-test/`, `gauntlet-s20-error-ux/`, `gauntlet-s20-meta/`, `gauntlet-s20-sql/`, `gauntlet-s20-styles/`, `gauntlet-s20-validation/` (80 fixture files, S20/S21 regression corpus).
+- [x][x] `samples/compilation-tests/` — **275 top-level `.scrml` test files** (S41 close 2026-04-25 audit: 27 clean / 24 fail / 224 warning-only). Plus ~509 fixture files in subdirs (recursive total: 784). Top-level failure mode mostly E-SCOPE-001 in gauntlet/meta samples; warning bucket contents being classified under Scope C Stage 1.4. S20 gauntlet fixtures in 7 subdirs:
+  - `gauntlet-s20-channels/`, `gauntlet-s20-error-test/`, `gauntlet-s20-error-ux/`, `gauntlet-s20-meta/`, `gauntlet-s20-sql/`, `gauntlet-s20-styles/`, `gauntlet-s20-validation/` (S20/S21 regression corpus).
 
 ---
 

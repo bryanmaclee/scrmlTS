@@ -1,0 +1,145 @@
+// Example 15: Real-time chat — `<channel>` + `@shared` for WebSocket sync (§38).
+// Demonstrates the canonical real-time scrml pattern: a `<channel>` element
+// auto-creates a WebSocket endpoint, and `@shared` reactive vars declared
+// inside its body sync across every connected client. Writing to `@messages`
+// in one browser propagates to every other browser subscribed to the topic.
+//
+// Compare with example 08 (single-user message log, no sync).
+
+<program>
+
+${
+  @username = ""
+  @draft    = ""
+}
+
+// The <channel> element auto-creates the WebSocket endpoint at /_scrml_ws/chat.
+// Every client connecting with topic="lobby" is pub/sub-subscribed together.
+// @shared messages = [] inside the body is auto-synced — every write on any
+// client appears on every client. No socket.io, no manual broadcast wiring.
+<channel name="chat" topic="lobby">
+  ${
+    @shared messages = []
+
+    // Server-fn inside the channel scope — client calls it like any server fn.
+    // The call appends to the shared list; the @shared sync infrastructure
+    // pushes the new value to every subscribed client.
+    server function postMessage(author, body) {
+      messages = [...messages, { author, body, ts: Date.now() }]
+    }
+  }
+</>
+
+// Time formatter — pure, runs in any context.
+${
+  function formatTime(ms) {
+    const d = new Date(ms)
+    const hh = String(d.getHours()).padStart(2, "0")
+    const mm = String(d.getMinutes()).padStart(2, "0")
+    return `${hh}:${mm}`
+  }
+
+  function send() {
+    if (@draft.trim() == "" || @username.trim() == "") return
+    postMessage(@username, @draft)
+    @draft = ""
+  }
+}
+
+<div class="chat">
+  <header class="chat-header">
+    <h2>Lobby</>
+    <input type="text" bind:value=@username placeholder="Your name" class="name-input"/>
+  </header>
+
+  <ul class="messages">
+    ${ for (let m of @messages) {
+      lift <li class="msg">
+        <span class="author">${m.author}</span>
+        <span class="body">${m.body}</span>
+        <time class="ts">${formatTime(m.ts)}</time>
+      </li>
+    } }
+  </ul>
+
+  <form class="composer" onsubmit=send()>
+    <input type="text" bind:value=@draft placeholder="Message #lobby"/>
+    <button type="submit">Send</button>
+  </form>
+</div>
+
+#{
+  .chat {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 700px;
+    margin: 0 auto;
+    font-family: sans-serif;
+  }
+
+  .chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .name-input {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.9rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    list-style: none;
+    padding: 1rem 1.25rem;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .msg {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
+  .author { font-weight: 600; color: #2563eb; }
+  .body   { white-space: pre-wrap; }
+  .ts     { font-size: 0.75rem; color: #9ca3af; }
+
+  .composer {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid #e5e7eb;
+  }
+
+  .composer input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+
+  .composer button {
+    padding: 0.5rem 1rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .composer button:hover { background: #1d4ed8; }
+}
+
+</program>

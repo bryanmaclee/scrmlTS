@@ -1,6 +1,6 @@
 // Example 04: Live Search — reactive filtering with Tailwind utilities.
-// Demonstrates @query bound to input, derived filtering via for/lift,
-// class:highlighted= dynamic class toggle. No #{} CSS — all Tailwind.
+// Demonstrates @query bound to input, derived filtering via for/lift
+// (bare `if (!matches) continue` skip pattern). No #{} CSS — all Tailwind.
 
 <program>
 

@@ -1,0 +1,113 @@
+// Example 19: Linear types — `lin` exactly-once consumption (§35).
+// Demonstrates a `lin`-bound auth-style token that MUST be consumed on
+// every execution path and CANNOT be referenced twice. The compiler
+// enforces this by static analysis — it's a compile-time guarantee, not
+// a runtime check.
+//
+// Use case: anything that carries identity or one-shot ownership semantics
+// (auth tokens, transaction handles, payment intents, single-use redirect
+// IDs, idempotency keys). The compiler refuses to let you accidentally
+// re-use them or silently drop them.
+
+<program>
+
+${
+  @username = ""
+  @password = ""
+  @result   = ""
+
+  // Server function takes a `lin`-annotated parameter (§35.2.1). The
+  // function body MUST consume `ticket` exactly once on every execution
+  // path — this is enforced at compile time, with E-LIN-001 (never used),
+  // E-LIN-002 (used twice), or E-LIN-003 (used in some branches not all).
+  server function redeem(lin ticket: string, username: string) {
+    const consumed = ticket   // single consumption of the lin parameter
+    return `Redeemed ticket=${consumed} for user=${username}`
+  }
+
+  server function mintTicket(username, password) {
+    if (username == "" || password == "") return ""
+    return `tk_${username}_${Date.now()}`
+  }
+
+  function login() {
+    // `lin` declaration — exactly-once consumption rule (§35.3).
+    // The compiler tracks `ticket` from declaration to consumption and
+    // refuses to let it be referenced twice or dropped on any branch.
+    lin ticket = mintTicket(@username, @password)
+
+    // Single consumption — passing to the redeem server fn (which itself
+    // declares the parameter as `lin`, so the consume-exactly-once rule
+    // continues inside that function body).
+    const message = redeem(ticket, @username)
+    @result = message
+
+    // Trying to reference `ticket` again here would be E-LIN-002:
+    //   console.log(ticket)   // ← compile error
+  }
+}
+
+<div class="login">
+  <h1>One-shot ticket login</>
+  <p class="hint">
+    The `lin` keyword binds a value with exactly-once-consumption semantics.
+    The compiler refuses to let `ticket` be silently discarded or used twice.
+  </p>
+
+  <form onsubmit=login()>
+    <input type="text"     bind:value=@username placeholder="Username" required/>
+    <input type="password" bind:value=@password placeholder="Password" required/>
+    <button type="submit">Mint + Redeem ticket</button>
+  </form>
+
+  <p class="result" if=(@result != "")>${@result}</p>
+</div>
+
+#{
+  .login {
+    max-width: 420px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  .hint {
+    color: #6b7280;
+    font-size: 0.9rem;
+    background: #f3f4f6;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+  }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  input {
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+
+  button {
+    padding: 0.5rem 1rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .result {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    background: #ecfdf5;
+    color: #065f46;
+    border-radius: 6px;
+    font-family: monospace;
+  }
+}
+
+</program>

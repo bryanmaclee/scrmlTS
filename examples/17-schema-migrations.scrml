@@ -1,0 +1,151 @@
+// Example 17: Schema declaration — `< schema>` block (§39).
+// Demonstrates declarative DB schema. The developer states what the database
+// SHOULD look like; the compiler reads the live schema, computes the diff,
+// and generates migration SQL. `scrml migrate` applies it. No hand-written
+// `ALTER TABLE`.
+//
+// Note: `< schema>` requires `<program db="...">` (NOT `< db src=...>`). The
+// `db=` attribute on <program> tells the compiler which file to migrate; the
+// `< db>` sibling block (also pointing at the same path) establishes the SQL
+// context for ?{} blocks. Both can coexist.
+
+<program db="./notes.db">
+
+< schema>
+    users {
+        id:            integer primary key
+        email:         text not null unique
+        display_name:  text not null
+        created_at:    timestamp default(CURRENT_TIMESTAMP)
+    }
+
+    notes {
+        id:         integer primary key
+        user_id:    integer not null references users(id)
+        title:      text not null
+        body:       text not null
+        published:  boolean default(0)
+        created_at: timestamp default(CURRENT_TIMESTAMP)
+    }
+</>
+
+< db src="./notes.db" tables="users, notes">
+
+  ${
+    @authorEmail = ""
+    @noteTitle   = ""
+    @noteBody    = ""
+
+    server function lookupUser(email) {
+      return ?{`SELECT id, display_name FROM users WHERE email = ${email}`}.get()
+    }
+
+    server function postNote(authorEmail, title, body) {
+      const user = ?{`SELECT id FROM users WHERE email = ${authorEmail}`}.get()
+      if (!user) return
+      ?{`
+        INSERT INTO notes (user_id, title, body, published)
+        VALUES (${user.id}, ${title}, ${body}, 1)
+      `}.run()
+    }
+
+    server function listNotes() {
+      lift ?{`
+        SELECT n.id, n.title, n.body, u.display_name AS author
+        FROM notes n
+        JOIN users u ON u.id = n.user_id
+        WHERE n.published = 1
+        ORDER BY n.created_at DESC
+      `}.all()
+    }
+
+    function publish() {
+      if (@authorEmail == "" || @noteTitle == "" || @noteBody == "") return
+      postNote(@authorEmail, @noteTitle, @noteBody)
+      @noteTitle = ""
+      @noteBody  = ""
+    }
+  }
+
+  <div class="notes">
+    <h1>Notes</>
+
+    <form class="composer" onsubmit=publish()>
+      <input type="email" bind:value=@authorEmail placeholder="Author email" required/>
+      <input type="text"  bind:value=@noteTitle   placeholder="Title" required/>
+      <textarea bind:value=@noteBody              placeholder="Body" required></textarea>
+      <button type="submit">Publish</button>
+    </form>
+
+    <ul class="feed">
+      ${ for (let n of listNotes()) {
+        lift <li class="note">
+          <h3>${n.title}</>
+          <p class="meta">by ${n.author}</p>
+          <p class="body">${n.body}</p>
+        </li>
+      } }
+    </ul>
+  </div>
+
+</>
+
+#{
+  .notes {
+    max-width: 640px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  .composer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .composer input, .composer textarea {
+    padding: 0.5rem;
+    font-size: 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+
+  .composer button {
+    padding: 0.5rem 1rem;
+    background: #10b981;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+
+  .feed {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .note {
+    padding: 1rem 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .note h3 {
+    margin: 0 0 0.25rem 0;
+  }
+
+  .meta {
+    margin: 0 0 0.5rem 0;
+    color: #6b7280;
+    font-size: 0.85rem;
+  }
+
+  .body {
+    margin: 0;
+    white-space: pre-wrap;
+  }
+}
+
+</program>

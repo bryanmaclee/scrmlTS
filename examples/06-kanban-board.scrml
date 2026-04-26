@@ -1,5 +1,6 @@
-// Example 06: Kanban Board — enum-driven UI with match, reusable components, CSS grid.
-// Demonstrates type:enum column states, Card component with props, match dispatch,
+// Example 06: Kanban Board — enum-driven UI with for/if filtering, CSS grid.
+// Demonstrates type:enum column states (bar-form `.A | .B | .C` syntax),
+// reactive array mutation via `.map()`, for/if filtering per column,
 // moving cards between columns, #{} grid layout. No external state library.
 
 <program>

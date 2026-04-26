@@ -1,0 +1,153 @@
+// Example 18: State authority — `server @var` declarations (§52, Tier 2).
+// Demonstrates instance-level server-authoritative state. The `server` modifier
+// on a reactive declaration tells the compiler this variable is owned by the
+// server. The compiler generates load + optimistic update + rollback + re-fetch
+// for every assignment. The developer never writes that infrastructure.
+//
+// Pattern B (used here): an explicit `on mount` block fetches the initial
+// value (§52.6.5). The on-mount runs once after first render; `@tasks` is
+// the placeholder ([] empty array) until then.
+//
+// **Implementation status:** Tier 2 `server @var` parses + accepts the
+// modifier and the assignment functions correctly, but the W-AUTH-001
+// auto-detection is scaffold-only (compiler doesn't yet recognize the
+// `on mount { @tasks = loadTasks() }` pattern as the load source). Expect
+// the warning until detection lands.
+//
+// Compare with Tier 1 `<TypeName authority="server" table="...">` which
+// declares but does not yet emit auto-SELECT codegen end-to-end either.
+
+<program db="./tasks.db">
+
+< db src="./tasks.db" tables="tasks">
+  ${
+    // Tier 2: server-authoritative reactive (§52.4 + §6.1.2).
+    // The compiler will:
+    //   1. On mount, call loadTasks() and seed @tasks
+    //   2. On assignment, optimistically update + persist + rollback on error
+    server @tasks = []
+
+    // Local UI state — no server modifier, defaults to client-local.
+    // No sync infrastructure for these (§52.5 row 1).
+    @draftTitle = ""
+
+    server function loadTasks() {
+      return ?{`SELECT id, title, completed, position FROM tasks ORDER BY position`}.all()
+    }
+
+    server function addTask(title) {
+      ?{`INSERT INTO tasks (title, position) VALUES (${title}, (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks))`}.run()
+      return ?{`SELECT id, title, completed, position FROM tasks ORDER BY position`}.all()
+    }
+
+    server function toggleTask(id, completed) {
+      ?{`UPDATE tasks SET completed = ${completed ? 1 : 0} WHERE id = ${id}`}.run()
+      return ?{`SELECT id, title, completed, position FROM tasks ORDER BY position`}.all()
+    }
+
+    server function deleteTaskById(id) {
+      ?{`DELETE FROM tasks WHERE id = ${id}`}.run()
+      return ?{`SELECT id, title, completed, position FROM tasks ORDER BY position`}.all()
+    }
+
+    // Pattern B — explicit `on mount` block triggers the initial fetch (§52.6.5).
+    on mount {
+      @tasks = loadTasks()
+    }
+
+    function submit() {
+      if (@draftTitle.trim() == "") return
+      @tasks = addTask(@draftTitle)
+      @draftTitle = ""
+    }
+
+    function toggle(id, completed) {
+      @tasks = toggleTask(id, completed)
+    }
+
+    function remove(id) {
+      @tasks = deleteTaskById(id)
+    }
+  }
+
+  <div class="tasks">
+    <h1>Tasks</>
+
+    <form class="adder" onsubmit=submit()>
+      <input type="text" bind:value=@draftTitle placeholder="Add a task…" required/>
+      <button type="submit">Add</button>
+    </form>
+
+    <ul>
+      ${ for (let t of @tasks) {
+        lift <li class="task">
+          <input type="checkbox" checked=t.completed onchange=toggle(t.id, !t.completed)/>
+          <span class="title" class:done=t.completed>${t.title}</span>
+          <button class="rm" onclick=remove(t.id)>×</button>
+        </li>
+      } }
+    </ul>
+  </div>
+</>
+
+#{
+  .tasks {
+    max-width: 480px;
+    margin: 2rem auto;
+    font-family: sans-serif;
+  }
+
+  .adder {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .adder input {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+  }
+
+  .adder button {
+    padding: 0.5rem 1rem;
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .task {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .title { flex: 1; }
+  .title.done {
+    text-decoration: line-through;
+    color: #9ca3af;
+  }
+
+  .rm {
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    font-size: 1.2rem;
+  }
+
+  .rm:hover { color: #dc2626; }
+}
+
+</program>
