@@ -159,6 +159,53 @@ function buildCssRanges(source) {
 }
 
 // ---------------------------------------------------------------------------
+// Comment-region detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Build ranges for `//` line comments and block comments (slash-star ... star-slash).
+ * Used to exclude comment text from ghost-pattern detection — comment regions
+ * per SPEC §27 are not parsed as code, so any framework-shaped text inside a
+ * comment is documentation, not a real ghost.
+ *
+ * Edge cases:
+ *  - `//` inside a string literal: the builder does not track string state, so
+ *    a `//` inside a string opens a phantom "comment" range to end-of-line.
+ *    Acceptable: false negatives on lint warnings are not failures, just
+ *    reduced signal. The cost of over-exclusion is low.
+ *  - Block comment with no closing marker: i advances past end-of-source and
+ *    the outer `i < source.length` check terminates the loop cleanly.
+ *
+ * @param {string} source
+ * @returns {Array<[number, number]>}
+ */
+function buildCommentRanges(source) {
+  const ranges = [];
+  let i = 0;
+  while (i < source.length) {
+    // Line comment: // through end of line
+    if (source[i] === "/" && source[i + 1] === "/") {
+      const start = i;
+      i += 2;
+      while (i < source.length && source[i] !== "\n") i++;
+      ranges.push([start, i]);
+      continue;
+    }
+    // Block comment: /* ... */
+    if (source[i] === "/" && source[i + 1] === "*") {
+      const start = i;
+      i += 2;
+      while (i < source.length - 1 && !(source[i] === "*" && source[i + 1] === "/")) i++;
+      i += 2; // consume the closing */
+      ranges.push([start, i]);
+      continue;
+    }
+    i++;
+  }
+  return ranges;
+}
+
+// ---------------------------------------------------------------------------
 // Pattern definitions
 // ---------------------------------------------------------------------------
 
@@ -169,7 +216,7 @@ function buildCssRanges(source) {
  *   correction  — scrml equivalent
  *   see         — spec section
  *   code        — W-LINT-NNN
- *   skipIf      — optional fn(offset, logicRanges, cssRanges) -> bool to skip match
+ *   skipIf      — optional fn(offset, logicRanges, cssRanges, commentRanges) -> bool to skip match
  */
 const PATTERNS = [
   // Pattern 1: <style> block — unambiguous, no scrml meaning
@@ -240,13 +287,15 @@ const PATTERNS = [
   // Pattern 7: <Comp prop={val}> — JSX attribute braces on component props
   // Matches prop={  but NOT prop=${ and NOT value= (covered by P5)
   // Only trigger when the attribute name is NOT 'value' (P5 covers that)
+  // Skip when the match falls inside a `//` or block comment (per SPEC §27).
   {
     regex: /\b(?!value\b)(\w+)\s*=\s*(?<!\$)\{(?!\{)/g,
     ghost: "<Comp prop={val}>",
     correction: "<Comp prop=val>",
     see: "§5",
     code: "W-LINT-007",
-    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+    skipIf: (offset, logicRanges, _cssRanges, commentRanges) =>
+      inRange(offset, logicRanges) || inRange(offset, commentRanges),
   },
 
   // Pattern 8: {cond && <El>} — React conditional rendering
@@ -311,14 +360,18 @@ const PATTERNS = [
   // Pattern 13: Vue `@event=` attribute shorthand (e.g., `@click="fn"`,
   // `@click.stop="fn"`). Distinguished from scrml's `@var` reactive sigil by
   // requiring an `=` after the `@word` — scrml uses `@var` as VALUES
-  // (`value=@count`), never as attribute NAMES.
+  // (`value=@count`), never as attribute NAMES. The trailing `(?!=)` negative
+  // lookahead rejects `@var ==` (scrml equality per SPEC §45) so the lint
+  // does not misfire on `assert @count == 0` or `if=(@x == 1)` expressions.
+  // Also skips comment regions (per SPEC §27) via commentRanges.
   {
-    regex: /\s@[a-z][a-zA-Z0-9]*(?:\.[a-z]+)*\s*=/g,
+    regex: /\s@[a-z][a-zA-Z0-9]*(?:\.[a-z]+)*\s*=(?!=)/g,
     ghost: "@click=\"handler\" (Vue event shorthand)",
     correction: "onclick=handler() (scrml uses standard on<event> attribute names)",
     see: "§5",
     code: "W-LINT-013",
-    skipIf: (offset, logicRanges) => inRange(offset, logicRanges),
+    skipIf: (offset, logicRanges, _cssRanges, commentRanges) =>
+      inRange(offset, logicRanges) || inRange(offset, commentRanges),
   },
 
   // Pattern 14: Svelte block directives `{#if ...}`, `{:else}`, `{/if}`,
@@ -363,6 +416,7 @@ export function lintGhostPatterns(source, filePath) {
 
   const logicRanges = buildLogicRanges(source);
   const cssRanges = buildCssRanges(source);
+  const commentRanges = buildCommentRanges(source);
   const diagnostics = [];
 
   for (const pattern of PATTERNS) {
@@ -372,7 +426,7 @@ export function lintGhostPatterns(source, filePath) {
       const offset = match.index;
 
       // Apply false-positive guard
-      if (pattern.skipIf && pattern.skipIf(offset, logicRanges, cssRanges)) {
+      if (pattern.skipIf && pattern.skipIf(offset, logicRanges, cssRanges, commentRanges)) {
         continue;
       }
 
