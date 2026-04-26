@@ -2,13 +2,128 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-04-26 after S43): **7,906 tests passing / 40 skipped / 0 failing** (28,140 expects across 378 files). S43 was design-heavy (no compiler changes); test counts carry forward unchanged from S42 close.
+Current baseline (2026-04-26 after S44): **7,952 tests passing / 40 skipped / 0 failing** (28,256 expects across 381 files). S44 shipped 3 compiler fixes (Bug M, Bug O, A7+A8); S43 was design-heavy (no compiler changes).
 
-**Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 entry below; full backfill is open content todo.
+**Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 entries below; full backfill is open content todo.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-26 (S44 — compiler-bug throughput: 3 fixes shipped + 12 debate experts forged + systemic YAML loader bug diagnosed/fixed)
+
+High-throughput session immediately following S43. Three compiler bugs cleared from the
+inbox/carry queue, all shipped to main and pushed (`8d1e07f..150c553`). Twelve debate
+experts forged across three waves. Diagnosed and fixed a systemic YAML format defect in
+all 18 forged-agent files (gap-0 between `</example>` and `model:` was breaking the
+harness loader; fix takes effect on next session start). Superposition formalization debate
+held per user direction; pillar commitment standing.
+
+- **Bug M — `obj.field = function() {...}` mis-emits.** `08ca2f8`. Property/member
+  assignment of a function expression was emitting as two statements with empty RHS,
+  producing `SyntaxError: Unexpected token ';'` on JS load. Two-file fix:
+  `compiler/src/ast-builder.js` `collectExpr` (keep function-expression as part of
+  AssignmentExpression RHS rather than detaching as sibling stmt) +
+  `compiler/src/expression-parser.ts` `AssignmentExpression` branch (thread `rawSource`
+  through so function-expression child receives source context). Filed by 6nz from
+  playground-six WebSocket setup. **+18 regression tests.** Anomaly noted: the same
+  rawSource-threading gap exists in 5 other expression-parser branches (BinaryExpr,
+  NewExpr, ArrayExpr, ObjectExpr, ConditionalExpr); function-expression children of those
+  nodes will fall back to `raw=""` until that sweep lands. Probably masked in practice by
+  scrml's arrow-callback convention.
+
+- **Bug O — for-of loop variable leaks into `^{}` meta-effect frozen-scope.** `50b431e`.
+  Markup-embedded `for (it of @list) { lift <li>${it}</li> }` was leaking `it` into the
+  surrounding meta-effect's frozen-scope object as `it: it`, producing
+  `ReferenceError: it is not defined` at module load. Single-file fix in
+  `compiler/src/meta-checker.ts` `collectRuntimeVars` — skip for-loop bodies during
+  module-scope walk (parallel to existing function-decl skip from Bug 6). Filed by 6nz
+  from playground-six diagnostics list. **+13 regression tests** (6 unit + 7 integration).
+  **Bonus discovery:** the duplicate `_scrml_meta_effect` emission in O's repro is a
+  SEPARATE BS-stage bug — HTML `<!-- ... -->` comments aren't opaque to the block splitter,
+  so `^{}` text inside a comment parses as a real meta block. After O's fix the phantom
+  emission has clean capture (no crash); severity dropped to "phantom side-effect on
+  module load." Filed as standalone intake at `docs/changes/fix-bs-html-comment-opacity/intake.md`.
+
+- **A7 + A8 — HTML void elements leak `angleDepth` in component-def body.** `150c553`.
+  Resolves both Scope C tracker findings A7 and A8 with a single fix. The original A7
+  hypothesis pointed at `${@reactive}` BLOCK_REF interpolations; trace proved the
+  BLOCK_REF was a red herring — the actual trigger was HTML void elements (`<input>`,
+  `<br>`, `<hr>`, `<img>`, etc.) leaking `angleDepth` in `collectExpr` because the
+  element-nesting tracker (added in A3 `bcd4557`) treated `<void>` opens without ever
+  seeing closing tags. Depth counter went up, never came down, swallowing later
+  component-def declarations into the first def's body. A8 was a side-effect of the same
+  root cause: PreferencesStep's failure was the void
+  `<input bind:value=@newsletter>`, not the `<select><option>` shape. Fix in
+  `compiler/src/ast-builder.js`: added `HTML_VOID_ELEMENTS` const list (the standard 14)
+  and updated `collectExpr` / `collectLiftExpr` / `parseLiftTag` to NOT increment
+  `angleDepth` for void elements. **+15 regression tests.** `examples/05-multi-step-form`
+  now compiles clean — all three components register. **A8 closure note** filed at
+  `docs/changes/fix-component-def-select-option-children/closure-note.md`. **New finding
+  A9 surfaced:** components inside if-chain branches are not expanded by component-expander;
+  distinct downstream concern, tracker entry filed (intake pending next session).
+
+- **Bug N — closure pending 6nz confirmation.** Two `@x = ...` reactive writes inside an
+  inline function expression were producing missing-paren-on-set + assignment-to-get
+  emit on `c51ad15`. On current main `82e5b0d`+ the codegen now emits cleanly with
+  `node --check` passing. Likely fixed incidentally by `ed9766d`
+  (arrow-object-literal-paren-loss) or `2a5f4a0` (BS string-aware brace counter). 6nz
+  follow-up dropped at `2026-04-26-1530-scrmlTS-to-6nz-bugs-mo-shipped.md` requesting
+  re-verification on a `82e5b0d`+ 6nz clone before closing.
+
+- **12 debate experts forged in 3 waves (`~/.claude/agents/`):**
+  - **Wave 2 (Bug B's tier-ladder set, 4 experts):** `racket-hash-lang-expert` (file-pragma
+    via DSL), `haskell-language-pragma-expert` (file-pragma + project-default-baseline),
+    `rust-edition-expert` (project/lockfile + migration), `lean-tactic-mode-expert`
+    (block-tier extensibility).
+  - **Wave 3 (Superposition set, 4 experts — all forged before Superposition was held):**
+    `modal-logic-expert` (formal substrate), `quantum-PL-expert` (E hardline,
+    type-primitive), `haskell-laziness-expert` (B-leaning hybrid), `erlang-hot-reload-expert`
+    (runtime/distributed perspective).
+  - **Wave 4 (G + C debate completers + cross-debate voice, 4 experts):**
+    `salsa-incremental-compilation-expert` (G C-hybrid), `simplicity-defender`
+    (cross-debate conservative voice; synthesizes Hickey + gingerBill + Armstrong + Wirth),
+    `roc-expert` (C platform abstraction + URL distribution),
+    `gingerbill-expert` (C distributed-hash-refs / no central registry).
+
+- **Systemic YAML loader-bug diagnosis + fix.** All 18 forged-agent files (S43's 5 +
+  scrml-voice-author + S44's 12) had `</example>` immediately followed by `model: ...`
+  with no blank-line separator. The harness's YAML loader treated this as a malformed
+  block scalar and silently dropped the agents — every dispatch attempt returned
+  `Agent type 'X' not found`. Diagnosed by comparing agent-forge output to working agents
+  (gauntlet-overseer, scrml-deep-dive). Fixed all 18 files via awk script (insert blank
+  line before `^model: `). Latency: harness loaded the agent list at S44 start; fix takes
+  effect on next session. **Backlog:** update agent-forge template to emit a blank line
+  before `model:` so future forges aren't broken.
+
+- **Color collisions caught + fixed:** rust-edition-expert + lean-tactic-mode-expert
+  both forged with `purple` (fixed lean-tactic-mode → `teal`); modal-logic-expert +
+  quantum-PL-expert both with `pink` (fixed quantum-PL → `coral`). Pre-existing yellow
+  collision between security-expert + unison-expert (S43 carryover) NOT fixed this
+  session.
+
+- **Superposition formalization debate HELD.** Per user direction mid-session ("we can
+  hold superposition off in the plan"), the B-vs-E formalization decision is deferred;
+  the Superposition pillar commitment from S43 standing. 4-debate queue remaining for
+  next session: B → G → A → C (in dependency order).
+
+- **scrml-support push STILL HELD** — 18 untracked files (8 deep-dives + 8 progress
+  files + joint synthesis + user-voice-scrmlTS.md) sustained from S43 close through
+  S44 close. **Now 2 sessions held**, flagged as the immediate next-session decision
+  per the cross-machine sync hygiene rule.
+
+- **Cross-repo:** dropped 2 messages into 6nz inbox: `2026-04-26-1430-...mno-triage.md`
+  (initial triage) and `2026-04-26-1530-...mo-shipped.md` (post-fix follow-up with commit
+  SHAs + workaround revert points + bonus-bug intake notice + Bug N re-verification
+  request).
+
+- **Anomaly inventory at S44 close:** A9 candidate (if-chain branch expansion gap),
+  rawSource-threading gap in 5 expression-parser branches, BS-html-comment opacity (intake
+  filed), agent-forge template needs update, fresh-worktree dist regen requirement,
+  voice-author bio bake blocked through S44 (resolves on next session start).
+
+- **Tests:** 7906 → 7952 / 40 / 0 / 381 files. **+46 net tests across 3 fixes, 0
+  regressions.** Per fix: M +18, O +13, A7+A8 +15.
 
 ### 2026-04-26 (S43 — living-compiler investigation arc: 8 deep-dives + 5 expert agents + voice-author + permission fix + cross-machine sync hygiene)
 

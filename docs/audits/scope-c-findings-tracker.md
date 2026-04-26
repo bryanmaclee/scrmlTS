@@ -31,21 +31,22 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 | A4 | `lin` template-literal interpolation skipped | T2 | `type-system.ts` | Localized to the lin tracker. Less common code path — affects only `lin` users. Lower priority than A3 but still real. |
 | A5 | `function`/`fn` in markup text auto-promoted to logic | **T1** (post-deep-dive) | `ast-builder.js:235-260` | After S42 deep-dive: bug located in `liftBareDeclarations` recursing into markup children. ~5-line fix: stop recursing into `markup` blocks (only state). Reclassified from T2/T3. **Severity escalated to HIGH** — silent text corruption mode discovered (short-form lifted text compiles clean but loses prose from output). Move ahead of A3/A4 in priority. |
 
-**Recommended order (all original §A items now FIXED; remaining are post-A3-trace follow-ups):**
+**Recommended order (all original §A items now FIXED; remaining are post-A7-trace follow-ups):**
 1. ~~A5~~ ✅ **FIXED** (commit `284c21d` 2026-04-25)
 2. ~~A2 + A1~~ ✅ **FIXED** (commit `9a07d07` 2026-04-25)
 3. ~~A6~~ ✅ **FIXED** (commit `9ca9c3f` 2026-04-25)
 4. ~~A3~~ ✅ **FIXED** (commit `bcd4557` 2026-04-25)
 5. ~~A4~~ ✅ **FIXED** (commit `330fd28` 2026-04-25)
-6. **A7** — `${@reactive}` BLOCK_REF interpolation in component def (T2, surfaced by A3's bonus-signal trace). Same family as A3.
-7. **A8** — `<select><option>` children in component def (T2, surfaced by A3's bonus-signal trace). Same family.
+6. ~~A7~~ ✅ **FIXED** (commit `150c553` 2026-04-26, S44) — corrected root cause (HTML void elements, not BLOCK_REF as originally hypothesized)
+7. ~~A8~~ ✅ **FIXED-AS-SIDE-EFFECT-OF-A7** (closure verified 2026-04-26, S44 — same root cause)
+8. **A9** — components inside if-chain branches not expanded by component-expander (T2, surfaced by A7 dispatch trace). Distinct downstream concern from A3/A7 family — `walkAndExpand` doesn't recurse into if-chain `branches`.
 
-**Status as of S42 (2026-04-25):**
-- **6 fixed** (A1, A2, A3, A4, A5, A6)
-- 2 newly-surfaced not-yet-filed (A7, A8 — post-A3 trace findings, both T2 same parser family)
-- Test suite: **7906 pass / 40 skip / 0 fail / 378 files**
-- All 22 examples compile; ex 10 / ex 14 lints 0; ex 18 W-AUTH-001 (scaffold C2). ex 19 can revert workaround post-A4. ex 05 InfoStep can revert post-A3 (PreferencesStep + ConfirmStep blocked on A7/A8).
-- Sample-corpus failure count: 23 / 275 (down from 24 via A5; possibly more drops post-A3 — needs re-classify)
+**Status as of S44 (2026-04-26):**
+- **8 fixed** (A1-A8 inclusive — A7+A8 closed in S44 as one fix)
+- 1 newly-surfaced not-yet-filed (**A9** — if-chain branch component-expander gap, surfaced by A7 dispatch)
+- Test suite: **7952 pass / 40 skip / 0 fail / 381 files** (S44 close — adds Bug M +18, Bug O +13, A7+A8 +15 over S42 baseline)
+- All 22 examples compile; ex 05 multi-step-form parser-side now clean (all 3 components register). If-chain dispatch in ex 05 still needs A9 to render correctly via if-chain; match-with-lift form works post-A7.
+- Sample-corpus failure count: needs re-classify post-A7 + post-Bug-M + post-Bug-O.
 
 
 
@@ -161,42 +162,46 @@ Real compiler defects: input is valid scrml, output is wrong (false-positive lin
 - **Anticipated by A1's intake** ("Step 3 (optional, deferred): `~{}` test sigil exclusion"). The pipeline confirmed it's needed.
 - **Examples affected:** ex 10 (8 remaining lints post-A1+A2).
 
-### A7. Component-def with `${@reactive}` BLOCK_REF interpolation in body fails to register
-- **Status:** **intake-filed** at `docs/changes/fix-component-def-block-ref-interpolation-in-body/intake.md` (2026-04-25, S42)
-- **Severity:** medium (blocks a common pattern — components that render a reactive value inline)
-- **Tier:** **T2** (parser-level — same family as A3 but different parser shape)
-- **Surfaced in:** A3 fix verification (S42). After A3 landed, `examples/05-multi-step-form.scrml` `InfoStep` reverts cleanly to `match { .Variant => { lift <Comp> } }` form. But `ConfirmStep` (contains `<dl>` with `${@firstName}`/`${@email}` BLOCK_REF interpolations in body) still fails E-COMPONENT-020 — different parser shape than A3's text-plus-handler-child trigger.
-- **What (likely cause):** the same `collectExpr` angle-tracker that A3 fixed for text-plus-handler-child shape may have a similar gap when the component body contains `${@reactive}` BLOCK_REF interpolations. The interpolation may interact with angleDepth tracking similarly to how `onclick=` tripped the IDENT-`=` boundary in A3.
-- **Repro (extracted from ex 05 ConfirmStep, untested as standalone — needs minimal repro work):**
-  ```scrml
-  ${ const ConfirmStep = <div class="step">
-       <dl><dt>Name</dt><dd>${@firstName} ${@lastName}</dd></dl>
-     </div>
-  }
-  <ConfirmStep/>
-  ```
-- **Fix sketch:** trace the `collectExpr` behavior on the BLOCK_REF interpolation case. The fix may share infrastructure with A3 (element-nesting semantics) but the trigger is different. Likely needs another small extension to the angle/brace tracker.
-- **Examples affected:** ex 05 (ConfirmStep remains in if-chain workaround form post-A3).
+### A7. Component-def body containing HTML void elements fails to register
+- **Status:** **FIXED** — landed on main at commit `150c553` (2026-04-26, S44).
+- **Severity:** medium (blocks any component-def whose body contains a void element — input/br/hr/img/etc., extremely common in form-shaped components).
+- **Tier:** **T2** (parser-level — same family as A3 element-nesting fix `bcd4557`).
+- **Original hypothesis (2026-04-25, S42):** `${@reactive}` BLOCK_REF interpolations in markup-text positions trigger the bug. Filed under the title "Component-def with `${@reactive}` BLOCK_REF interpolation in body fails to register."
+- **Corrected root cause (2026-04-26, S44 dispatch trace):** **HTML void elements** (`<input>`, `<br>`, `<hr>`, `<img>`, etc.) leak `angleDepth` in `collectExpr`. The element-nesting tracker (added in A3) treats `<void>` opens without seeing closing tags — depth counter goes up, never comes down — swallowing later component-def declarations into the first def's body. The `${@reactive}` BLOCK_REF was a red herring in the failing repro; it happened to coexist with the actual void-element trigger in `PreferencesStep`.
+- **Fix:** added `HTML_VOID_ELEMENTS` const list (the 14 standard: area, base, br, col, embed, hr, img, input, link, meta, param, source, track, wbr) and updated `collectExpr` (~1340), `collectLiftExpr` (~1525), `parseLiftTag` (~1700) in `compiler/src/ast-builder.js` to NOT increment angleDepth for void elements. **Resolves A8 as side-effect** (A8's `PreferencesStep` failure was the void `<input bind:value=@newsletter>`, NOT the `<select><option>` shape).
+- **Tests:** +15 in `compiler/tests/unit/component-def-void-elements.test.js`. Suite: 7937 → 7952 / 40 / 0 / 381 files.
+- **Examples affected:** ex 05 (multi-step-form) — all 3 step components (InfoStep + PreferencesStep + ConfirmStep) now register; both direct ref and match-with-lift work. The if-chain workaround can be retired pending A9 (see below).
+- **Adjacent anomaly surfaced:** A9 (if-chain branches not expanded by component-expander) — distinct downstream concern; filed as separate finding below.
 
 ### A8. Component-def with `<select><option>` children fails to register
-- **Status:** **intake-filed** at `docs/changes/fix-component-def-select-option-children/intake.md` (2026-04-25, S42)
-- **Severity:** medium (blocks form-shaped components — a `<form>` with a `<select>` is a common pattern)
-- **Tier:** **T2** (parser-level — same family as A3, possibly same family as A7)
-- **Surfaced in:** A3 fix verification (S42). `PreferencesStep` (contains `<select bind:value=@theme><option>...</option></select>` + checkbox `<input type="checkbox" bind:value=@newsletter>`) still fails E-COMPONENT-020 post-A3.
-- **What (likely cause):** the `<select><option>` nesting + `bind:value=@reactive` attributes interact with the angle/brace tracker in a way that's still defective post-A3. Could be that `<option>` is treated as void-element in HTML registry but content-element in scrml, OR the `bind:value=@x` syntax has a different angle-tracker interaction than `onclick=fn()`.
-- **Repro (extracted from ex 05 PreferencesStep — needs minimal repro work):**
+- **Status:** **FIXED-AS-SIDE-EFFECT-OF-A7** — closure verified by A7 dispatch (2026-04-26, S44). Closure note at `docs/changes/fix-component-def-select-option-children/closure-note.md`. Same root cause as A7 (HTML void elements, not `<select><option>` nesting). The original hypothesis pointed at `<select><option>`; the actual trigger was the adjacent `<input type="checkbox" bind:value=@newsletter>` void element in `PreferencesStep`. A regression test for the A8 PreferencesStep shape is included in the A7 test suite (`component-def-void-elements.test.js`).
+- **Severity:** medium (now resolved — was: blocks form-shaped components).
+- **Tier:** **T2** — resolved without separate dispatch.
+- **Examples affected:** ex 05 PreferencesStep (now registers post-A7 fix).
+
+### A9. Components inside if-chain branches not expanded by component-expander
+- **Status:** **surfaced** (2026-04-26, S44) — discovered as adjacent anomaly during A7 dispatch trace. Intake not yet filed.
+- **Severity:** medium — blocks the if-chain dispatch pattern (`<InfoStep if=…/> <PreferencesStep else-if=…/> <ConfirmStep else/>`) commonly used for step-wise UIs. Components inside the chain branches stay unexpanded — they appear as raw `<InfoStep …>` etc. in the HTML output.
+- **Tier:** **T2** (component-expander walk extension; distinct from the parser-level A3/A7 family).
+- **What:** `compiler/src/component-expander.ts` `walkAndExpand` (lines 1178-1240) handles `markup`, `state`, `logic` node kinds but does NOT recurse into `if-chain` node `branches`. Each branch's `<Component …/>` reference is visited by the walker but not expanded.
+- **Surfaced in:** A7 dispatch (2026-04-26). Verified after A7 fix landed: all 3 step components in `examples/05-multi-step-form.scrml` now register correctly (parser side OK), but the if-chain dispatch produces unexpanded component refs in HTML.
+- **Repro (proposed minimal — needs validation):**
   ```scrml
-  ${ const PrefStep = <div class="step">
-       <select bind:value=@theme>
-         <option value="light">Light</option>
-         <option value="dark">Dark</option>
-       </select>
-     </div>
+  <program>
+  ${
+    @step = "info"
+    const InfoStep = <div>info!</div>
+    const PrefsStep = <div>prefs!</div>
   }
-  <PrefStep/>
+
+  <InfoStep if=@step == "info"/>
+  <PrefsStep else-if=@step == "prefs"/>
+  </program>
   ```
-- **Fix sketch:** trace + bisect to identify the exact trigger element/attribute pair. The fix may share infrastructure with A3 + A7. May resolve as part of A7's investigation.
-- **Examples affected:** ex 05 (PreferencesStep remains in if-chain workaround form post-A3).
+  Expected: when @step == "info", renders `<div>info!</div>`. Actual: renders `<InfoStep ...>` raw.
+- **Fix sketch:** extend `walkAndExpand` to recurse into the `branches` field of if-chain nodes, applying the same component-expansion logic to each branch's body. Add tests covering: 2-branch if/else, 3-branch if/else-if/else, nested if-chains, branches containing component AND non-component markup.
+- **Adjacent to:** A7 (parser-level component-def fix) — distinct downstream concern. A7 makes the components REGISTER; A9 makes if-chain dispatch USE the registered components.
+- **Examples affected:** ex 05 (multi-step-form) — current if-chain workaround form depends on A9 fix to actually render the steps via if-chain. Until A9 ships, ex 05 will need to use match-with-lift form (which does expand correctly post-A7).
 
 ### A5. Markup text starting with `function`/`fn` is auto-promoted to logic block
 - **Status:** **FIXED** — landed on main at commit `284c21d` (2026-04-25, S42). Approach: Option 2 fallback (`parentType` flag form, `<program>` carved out as decl-site) — Option 1 broke 7 tests in `top-level-decls.test.js` because `<program>` is a markup-typed block that needs to retain the lift for top-level bare decls. **Bonus:** `samples/compilation-tests/func-007-fn-params.scrml` flipped FAIL → PASS (same bug class). Sample-corpus failure baseline 24 → 23. Test suite post-fix: 7878 pass / 40 skip / 0 fail / 373 files.
