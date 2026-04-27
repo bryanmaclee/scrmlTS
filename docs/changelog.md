@@ -2,13 +2,72 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-04-26 after S44): **7,952 tests passing / 40 skipped / 0 failing** (28,256 expects across 381 files). S44 shipped 3 compiler fixes (Bug M, Bug O, A7+A8); S43 was design-heavy (no compiler changes).
+Current baseline (2026-04-27 after S45): **7,952 tests passing / 40 skipped / 0 failing** (28,256 expects across 381 files). S45 was design-only — 4 sequential debates fired (Bug B / G / A / C); 4 design insights recorded; tracking doc landed in scrml-support; 2-session push hold cleared. No compiler changes.
 
-**Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 entries below; full backfill is open content todo.
+**Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 + S45 entries below; full backfill is open content todo.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-27 (S45 — 4-debate wave: Bug B / G / A / C; 4 design insights; tracking doc; scrml-support push cleared)
+
+Design-only session. User direction at session open: "defer push go to debate waves." Four
+sequential debates fired with full expert rosters (5 + 5 + 5 + 4 = 19 expert dispatches);
+4 design insights recorded to `scrml-support/design-insights.md` (lines 498/533/560/669).
+A condensed tracking doc — `scrml-support/docs/debate-wave-2026-04-26-actionables.md` —
+distills the 5 v1 commitments + 1 open user-decision + explicit non-goals from the wave.
+scrml-support pushed at `d177afe` (20 files / 8,299 insertions), clearing the 2-session
+push hold from S43+S44.
+
+**No compiler changes. No test changes.** Tests at S45 close: 7952 pass / 40 skip / 0 fail
+across 381 files (unchanged from S44 close).
+
+- **Bug B debate (tier ladder).** Roster: haskell-language-pragma + rust-edition +
+  lean-tactic-mode + racket-hash-lang + simplicity-defender. Final: simplicity-defender
+  50.5/60 > rust-edition 49 > racket-hash-lang 45 > haskell-language-pragma 43 >
+  lean-tactic-mode 41. Decision for v1: no-knob, ship `scrml fmt --upgrade-syntax` first;
+  reach for `#lang` only when Superposition lands as a non-default dialect.
+
+- **G debate (file storage model).** Roster: salsa (C-hybrid) + unison (B-pure) +
+  simplicity-defender (A-pure) + nix + bazel as CAS witnesses. Final: A 52 > C 48.5 >
+  B 32.5. Decision: stay on A (source-canonical); B falsified empirically by Unison's own
+  `oss-transcripts` (LLM/AI-agent friction); C-with-Salsa deferred until measurement
+  justifies. The G-judge stream timed out on first attempt; recovered with a condensed
+  retry.
+
+- **A debate (recoverability + comp-time-shape capture).** Roster: unison (B-pure CA-AST) +
+  nix (C-layered Merkle DAG) + lean-lake (R3 hybrid `.olean`) + bazel (C-action-graph +
+  toolchain transitions) + security (provenance/DDC/SLSA). Final: lean-lake 49 > unison-B
+  46.5 > security-hybrid 44.5 > nix-C 43 > bazel-C 41.5. The B-vs-C dispute resolves via
+  hybrid: AST-as-identity (B's win) orthogonal to hermetic-build-with-signed-provenance
+  (C's win). v1 capture format = `.scrml-shape/objects/<hash>` + `manifest.toml` carrying
+  `(root, compiler, target)` — designed now to carry SLSA L3 attestation later. **Open
+  user-side question flagged by lean-lake-expert:** "Is R4 a real workflow or a wish?"
+  Mathlib's 1.5M LOC ships entirely on R1+R3, never R4; Bazel says R4 operational at
+  Google/Meta scale.
+
+- **C debate (bridges architecture).** Roster: roc + gingerbill + security + unison.
+  Final: roc 47 > gingerbill 46.5 > security 44 > unison 42.5. The 4 positions converge
+  to a single composite: distribution + identity + execution + trust are 4 orthogonal
+  layers. v1: BLAKE3 hash-of-tarball + URL+hash transport (no registry) + §41.6 vendored
+  floor + `scrml vendor add` does NOT execute bridge code + comp-time bridge code in
+  kernel-enforced capability sandbox.
+
+- **The single highest-leverage commitment surfaced across all 4 debates:** specify the
+  comp-time capability boundary in SPEC BEFORE any `^{}` / bridge / build-time feature
+  ships. Cargo `build.rs` RFC#475 is stuck 7 years because they tried to retrofit. scrml
+  has the structural advantage of writing the boundary now. **The window closes once the
+  first popular bridge ships needing $HOME or network at compile time.**
+
+- **scrml-support push** at `d177afe` (origin/main). 20 files / 8,299 insertions: 4 new
+  design-insight entries + tracking doc + 8 deep-dives + 8 progress files +
+  joint-coupling synthesis + user-voice-scrmlTS.md. Stray draft `design-insights-tmp-G.md`
+  (from G-judge timeout retry) left unstaged.
+
+- **Forged-agent harness load:** S44's YAML format fix took effect on session restart.
+  All 17 forged experts + scrml-voice-author + simplicity-defender visible at S45 open.
+  19 expert dispatches across the wave executed cleanly.
 
 ### 2026-04-26 (S44 — compiler-bug throughput: 3 fixes shipped + 12 debate experts forged + systemic YAML loader bug diagnosed/fixed)
 
