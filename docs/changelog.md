@@ -10,6 +10,10 @@ Current baseline (2026-04-27 after S45): **7,952 tests passing / 40 skipped / 0 
 
 ## Recently Landed
 
+### 2026-04-27 (post-S45 — article-author agent shipped + first article landed in `docs/articles/`)
+
+Side session post-S45 close. No compiler changes. Tests held at S45 baseline (7,952 / 40 / 0 / 381). New article landed at `docs/articles/why-programming-for-the-browser-needs-a-different-kind-of-language-devto-2026-04-27.md` — dev.to-ready format (`published: false`, will flip when user uploads). Authored by the new `scrml-voice-author` agent (commissioned scrmlTS S38, built today). Agent file at `~/.claude/agents/scrml-voice-author.md` is outside this repo. Working drafts + bio + tweet drafts live in `scrml-support/voice/` (private). User direction 2026-04-27 whitelisted `scrmlTS/docs/articles/` as the agent's only writable path on the public side; everything else (compiler source, spec, root) remains hard-prohibited for the agent.
+
 ### 2026-04-27 (S45 — 4-debate wave: Bug B / G / A / C; 4 design insights; tracking doc; scrml-support push cleared)
 
 Design-only session. User direction at session open: "defer push go to debate waves." Four
