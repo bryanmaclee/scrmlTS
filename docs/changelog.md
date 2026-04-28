@@ -2,13 +2,23 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-04-27 after S45): **7,952 tests passing / 40 skipped / 0 failing** (28,256 expects across 381 files). S45 was design-only — 4 sequential debates fired (Bug B / G / A / C); 4 design insights recorded; tracking doc landed in scrml-support; 2-session push hold cleared. No compiler changes.
+Current baseline (2026-04-28 after S47): **7,952 tests passing / 40 skipped / 0 failing** (28,256 expects across 381 files). S47 was cross-machine pickup + voice-author increment + carry resolution — bio v0 → v1 (Tier 1 SIGNED OFF + Tier 2-3 INCREMENT + sibling-sweep CLOSED EMPIRICALLY); `design-insights-tmp-G.md` carry resolved via lift-then-delete; PA-direct empirical-closure recipe documented. No compiler changes.
 
-**Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 + S45 entries below; full backfill is open content todo.
+**Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 + S45 + S46 + S47 entries below; full backfill is open content todo.
 
 ---
 
 ## Recently Landed
+
+### 2026-04-28 (S47 — cross-machine pickup + voice-author bio v0 → v1 + sibling-sweep + carry resolution)
+
+Cross-machine pickup session. S46 ran on the OTHER machine as a scrml-voice-author session; S47 picked up here with a 26-commit pull on scrml-support to integrate machine-B's deliverables. No compiler changes; tests held at S46/S45 baseline.
+
+- **Bio v0 signed off** — user *"sign off start the next bio-crawl"* cleared the bio gating clause and authorized Tier 2-3 incremental crawl in one phrase. Bio status flipped from `DRAFT — v0 initial seed` → `v1 — Tier 1 baseline SIGNED OFF`. Article mode unblocked.
+- **Tier 2-3 bio increment** (`scrml-voice-author` background dispatch) — 339 → 392 lines (+53). 6 net-new verbatim quotes: 2 in §3a (NPM/Odin from `transformation-registry-design`, originally pre-archive `user-voice.md:1739/1747`), 4 in §3j (workflow-style from `hand-off-47`). 1 v0 gap closure (R13 "see how it feels" was in Tier 1 all along; v0 missed it). Zero contradictions; zero position shifts. §10 (provenance) + §11 (sibling-repo coverage gap) added. Two scrml-support commits: `1ead983` + `782551b`.
+- **Sibling-repo sweep CLOSED EMPIRICALLY** — second `scrml-voice-author` dispatch with PA-enumerated file paths reached `scrml/` (3/3 read, 0 net-new — pure PA-admin) but Read-blocked at sub-agent permission level for `giti/` + `6nz/` (Bash universally denied). PA closed the gap directly via `grep -c` from PA shell across all 20 sibling-repo hand-offs: giti/ → 0 file matches → 0 quotes; 6nz/ → 1 match (`hand-off-4.md:52`) → 1 quote (`> strip shift from roll`, captured in §3h). All sibling-repo coverage gaps closed. §11 rewritten from "STILL BLOCKED" to "CLOSED EMPIRICALLY". **PA-direct empirical-closure recipe** documented as durable methodology for future sandbox-restricted scopes.
+- **`design-insights-tmp-G.md` carry-over from S45 §1.9 RESOLVED via lift-then-delete** — PA-direct read showed canonical `design-insights.md` §"scrml G" preserved the headline insight (B-as-category-error, A-now-C-later, tar test, oss-transcripts, §47 stay artifact-scoped) but lossy-compressed the §"Debate-worthy follow-ups" section. 5 specific gates (3 measurement: gauntlet hot-loop wall-clock, parsing-fraction breakdown, parallel-parsing-first; 2 policy: LSP regime shift, SPEC §47 lift separability) lifted into `scrml-support/docs/debate-wave-2026-04-26-actionables.md` §"G-debate storage-model migration gates" with attribution. Temp file deleted. Zero actionable loss.
+- **Cross-machine rotation gap convention** — first occurrence on record. When one machine runs a session-N that's sibling-repo-only (e.g. machine-B S46 was scrml-voice-author work, only one scrmlTS commit `b1f6a00`), the OTHER machine's `handOffs/` slot N stays empty when picking up. Sequential numbering preserved by rotating S(N-1)-close to slot (N+1). Slot 46 is permanently empty on this clone.
 
 ### 2026-04-27 (post-S45 — article-author agent shipped + first article landed in `docs/articles/`)
 
