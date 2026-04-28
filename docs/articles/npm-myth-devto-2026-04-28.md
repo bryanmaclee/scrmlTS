@@ -144,7 +144,7 @@ And me? I'll be back in the cab, thinking about the next puzzle.
 ## Further reading
 
 - [Why programming for the browser needs a different kind of language](https://dev.to/bryan_maclee/why-programming-for-the-browser-needs-a-different-kind-of-language-6m2). The companion piece. What a browser-shaped language actually owns at the type level.
-- [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](./lsp-and-giti-advantages-devto-2026-04-28.md). What vertical integration unlocks, in two pieces of the ecosystem.
+- [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](https://dev.to/bryan_maclee/what-scrmls-lsp-can-do-that-no-other-lsp-can-and-why-giti-follows-from-the-same-principle-4899). What vertical integration unlocks, in two pieces of the ecosystem.
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). The starting-point overview if you haven't seen scrml before.
 - [Null was a billion-dollar mistake. Falsy was the second.](https://dev.to/bryan_maclee/null-was-a-billion-dollar-mistake-falsy-was-the-second-3o61). On `not`, presence as a type-system question, and why scrml refuses to inherit JavaScript's truthiness rules.
 - [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The transformation-registry framing. The constructive flip-side of the npm critique above.

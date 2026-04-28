@@ -218,7 +218,7 @@ Vertical integration of a thoughtful design is the only path through this. scrml
 ## Further reading
 
 - [Why programming for the browser needs a different kind of language](https://dev.to/bryan_maclee/why-programming-for-the-browser-needs-a-different-kind-of-language-6m2). The first-principles case for the language under both of these tools.
-- [What npm package do you actually need in scrml?](./npm-myth-devto-2026-04-28.md). The package-list-collapses argument worked through one tier at a time. Companion to this piece.
+- [What npm package do you actually need in scrml?](https://dev.to/bryan_maclee/what-npm-package-do-you-actually-need-in-scrml-2247). The package-list-collapses argument worked through one tier at a time. Companion to this piece.
 - [Introducing scrml: a single-file, full-stack reactive web language](https://dev.to/bryan_maclee/introducing-scrml-a-single-file-full-stack-reactive-web-language-9dp). The one-pager intro.
 - [Null was a billion-dollar mistake. Falsy was the second.](https://dev.to/bryan_maclee/null-was-a-billion-dollar-mistake-falsy-was-the-second-3o61). On `not` and the absence model.
 - [scrml's Living Compiler](https://dev.to/bryan_maclee/scrmls-living-compiler-23f9). The compile-time evaluation story and why it changes what tooling can do.
