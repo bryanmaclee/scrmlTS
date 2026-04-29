@@ -196,11 +196,22 @@ Every scrml file is a single `<program>` element. Markup inside `<program>` is H
 
 There is no extra boilerplate. No `<html>`, no `<head>`, no `<body>` — the compiler wraps what you write in a proper document shell and injects the runtime. Anything outside `<program>` is an error; comments (`// ...` and `/* ... */`) are allowed anywhere.
 
-The tag names themselves are the ones you already know — `<div>`, `<p>`, `<form>`, and so on. A few tags (`<program>`, `<db>`, `<channel>`, `<errorBoundary>`) are built-in *language* elements that the compiler treats specially. Everything else is plain HTML plus any components you define yourself.
+The tag names themselves are the ones you already know — `<div>`, `<p>`, `<form>`, and so on. A handful of tags are *not* HTML at all but language-level **state object openers** that the compiler treats specially. The full list is:
+
+- `<program>` — the program root (this section);
+- `< db>` — a database connection scope (Section 3.1);
+- `< channel>` — a real-time WebSocket scope (Section 4.4);
+- `<errorBoundary>` — a failure-recovery scope (Section 3.5);
+- `< machine>` — a state-machine scope (Section 2.10);
+- `< schema>` — a declarative DB-schema scope (taught at SPEC level for now; tutorial coverage lands in a later pass);
+- `< keyboard>`, `< mouse>`, `< gamepad>` — input-state scopes (SPEC-only for now);
+- `< timer>`, `< timeout>` — timing scopes (SPEC-only for now).
+
+Each opener introduces its own state context and is covered in the section that uses it. The opener syntax for the multi-letter ones is `< name ...>` with a leading space after the `<` to disambiguate from regular HTML elements (per `compiler/SPEC.md` §4.2). State object openers cannot carry `if=`, `else=`, or `else-if=` (Section 1.8) — they are infrastructure, not conditional markup, and removing one would tear down the lifecycle the rest of the program depends on. Everything else in markup is plain HTML plus any components you define yourself.
 
 A scrml file is self-contained: one file, one program, one deliverable. You do not need to set up a project scaffold, configure a bundler, or create a `pages/` directory. Compile `hello.scrml` and you get `hello.html` plus the JavaScript, CSS, and (for full-stack programs) server artifacts to run it. That is the whole conceptual footprint of the language at the file level.
 
-Attributes inside markup mostly behave like regular HTML. The few that do not are the scrml extensions you will meet across Layer 1: `bind:value`, `class:name`, `onclick` (and other event names), `if=`, `show=`, `slot=`, `protect=`, and `auth=`. Every one of them is a plain attribute-looking name with a scrml-specific compile-time meaning.
+Attributes inside markup mostly behave like regular HTML. The few that do not are the scrml extensions you will meet across Layer 1: `bind:value`, `class:name`, `onclick` (and other event names), and `if=` / `else=` / `else-if=` (Section 1.8). The remaining scrml-specific attributes — `slot=` (Section 2.7), `protect=` (Section 3.4), `auth=` (Section 3.4), and `show=` (Section 2.5) — are introduced where they belong. Every one of them is a plain attribute-looking name with a scrml-specific compile-time meaning.
 
 ### 1.2 The `${}` logic block
 
@@ -699,13 +710,13 @@ Construction mirrors this: `Shape.Circle(10)` returns a tagged object you can co
 
 Match also works on non-enum values — you can match on numbers, strings, or booleans — but the exhaustiveness check is most useful on enums, because only enums have a finite known set of cases.
 
-### 2.5 Control flow: `if=`, `show=`, ternary
+### 2.5 Control flow: `show=` and ternary (and when to reach for `match`)
 
-For conditional markup scrml gives you three tools, each with a different trade-off. `if=` mounts or un-mounts an element entirely; `show=` keeps it in the DOM but toggles its visibility; a ternary inside an interpolation substitutes one of two expressions.
+By Section 1.8 you have already seen `if=`/`else-if=`/`else` chains. This section covers the two remaining conditional-markup tools: `show=`, which keeps the element mounted and toggles its CSS `display`; and a ternary inside an interpolation, which substitutes one of two expressions.
 
 ```scrml
-// 02e — Control flow: if= (mount/unmount), show= (toggle visibility),
-// and a ternary inside interpolation.
+// 02e — show= visibility toggle and a ternary inside interpolation.
+// (For if=/else=/else-if= chains, see 01h.)
 
 <program>
 
@@ -715,7 +726,6 @@ ${
 }
 
 <div>
-  <p if=@loggedIn>Welcome back.</p>
   <p show=@verbose>Extra diagnostic info.</p>
   <p>Status: ${@loggedIn ? "online" : "offline"}</p>
 </div>
@@ -723,13 +733,11 @@ ${
 </program>
 ```
 
-Use `if=` when you need the absence: an element with `if=@x` that evaluates falsey is not in the tree at all. Use `show=` when you need fast toggling and the element's state should persist (form inputs, media elements). The ternary is for when you just want a different bit of text.
+Use `show=` when the element should stay in the DOM but its visibility toggles. Common cases: a form input you want to keep mounted across tab switches so its in-progress value is preserved; a media element you do not want to tear down between toggles; an expensive subtree that flips on and off often. Like `if=`, `show=` does not apply to state-object openers — see Section 1.1 for the full list.
 
-The distinction between `if=` and `show=` is the same one that exists in Vue and a few other frameworks, and the trade-offs are identical. `if=` is cheaper when the element is usually absent, because no DOM is created unless needed. `show=` is cheaper when the element toggles frequently, because the DOM is built once and then its `display` is flipped. Pick the one that matches how the element is used.
+A ternary inside an interpolation handles the smaller case of "two slightly different bits of text or attribute value." `${@loggedIn ? "online" : "offline"}` is an ordinary scrml expression in interpolation position; it does not change the DOM tree at all, only the substituted value. Reach for it when both branches are short expressions and there is no markup to swap.
 
-You cannot use `if=` on `<program>`, `<db>`, `<channel>`, or `<errorBoundary>` — these are language-level elements that must always be present. You can use it freely on any ordinary HTML tag and on any user component.
-
-For "either-or" blocks, a two-`if=` pattern works: `<p if=@loading>Loading...</p><div if=(not @loading)>...</div>`. For anything more elaborate (three or more branches), reach for `match` on an enum; it will read better than a chain of `if=`s.
+For exhaustive branching over an enum's variants, prefer `match` (Section 2.4) rather than a long `if=`/`else-if=` chain. `match` is exhaustiveness-checked: adding a new variant to the enum forces every match site to be updated, which a chain of `if=`s does not. The chain form is structural rather than enum-aware; use it when the conditions are independent boolean expressions, and use `match` when the conditions are "which variant of this enum is it?".
 
 ### 2.6 Inline components
 
@@ -1671,7 +1679,8 @@ A fast reference for the keywords and sigils you met in this tutorial. Each line
 - `match expr { .A => {...} .B(n) => {...} }` — exhaustive destructuring with positional payload binding. Section 2.4.
 - `< machine name=Name for=EnumType>` / `@var: Name = EnumType.First` — machine-governed reactive state. Section 2.10.
 - `< machine name=P for=ProjEnum derived=@source>` — projected read-only reactive. Section 2.10.
-- `if=expr` / `show=expr` — mount vs. toggle-visibility. Section 2.5.
+- `if=expr` / `else-if=expr` / `else` — conditional rendering chain on sibling elements (`else` is bare). Section 1.8.
+- `show=expr` — visibility toggle; element stays in the DOM. Section 2.5.
 - `const Name = <...>` — component declaration as a const expression. Section 2.6.
 - `${children}` — the caller's positional children inside a component body. Section 2.6.
 - `props={ name: type, ... }` — typed props on a component. Sections 2.6/2.7.
