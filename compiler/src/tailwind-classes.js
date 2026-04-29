@@ -6,9 +6,13 @@
  * PostCSS, or purge step is required.
  *
  * Exports:
- *   getTailwindCSS(className)       — returns CSS rule string or null
- *   getAllUsedCSS(classNames[])     — returns combined CSS string for all matched classes
- *   scanClassesFromHtml(html)       — extracts all class names from HTML class="" attributes
+ *   getTailwindCSS(className)            — returns CSS rule string or null
+ *   getAllUsedCSS(classNames[])          — returns combined CSS string for all matched classes
+ *   scanClassesFromHtml(html)            — extracts all class names from HTML class="" attributes
+ *   findUnsupportedTailwindShapes(src)   — returns W-TAILWIND-001 diagnostics for class strings
+ *                                          that look like Tailwind variant/arbitrary syntax but
+ *                                          do not match a registered utility (SPEC §26.3,
+ *                                          SPEC-ISSUE-012).
  */
 
 // ---------------------------------------------------------------------------
@@ -736,6 +740,119 @@ export function scanClassesFromHtml(html) {
   }
 
   return [...classNames];
+}
+
+// ---------------------------------------------------------------------------
+// W-TAILWIND-001: unsupported Tailwind syntax detection (SPEC §26.3,
+// SPEC-ISSUE-012). The compiler does not yet implement arbitrary values
+// (e.g. `p-[1.5rem]`) or arbitrary variant prefixes (e.g. `dark:`, custom
+// variants). Today such class strings are emitted into HTML but produce no
+// CSS — silent failure. This pre-pass surfaces a warning so adopters can see
+// that the syntax is unsupported and rename or define their own CSS rule.
+//
+// Detection rule (per task brief):
+//   1. Skip if `getTailwindCSS(name)` returns non-null (already supported).
+//   2. Skip if name contains neither `:` nor `[` (looks like a USER class).
+//   3. Otherwise fire — class has Tailwind-shape (`:` or `[`) but does not
+//      match a registered utility.
+//
+// False positives on user-defined classes named like `weird:name` are
+// acceptable; users can rename. Better to over-warn than to silently drop.
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a flat string offset to { line, column } (1-based).
+ *
+ * @param {string} source
+ * @param {number} offset — byte offset into source
+ * @returns {{ line: number, column: number }}
+ */
+function offsetToLineCol(source, offset) {
+  let line = 1;
+  let lastNewline = -1;
+  for (let i = 0; i < offset && i < source.length; i++) {
+    if (source[i] === "\n") {
+      line++;
+      lastNewline = i;
+    }
+  }
+  const column = offset - lastNewline;
+  return { line, column };
+}
+
+/**
+ * @typedef {{
+ *   line: number,
+ *   column: number,
+ *   className: string,
+ *   message: string,
+ *   severity: 'warning',
+ *   code: 'W-TAILWIND-001',
+ * }} TailwindLintDiagnostic
+ */
+
+/**
+ * Scan a source string (any text, typically a `.scrml` file) for class names
+ * inside `class="..."` attributes that look like Tailwind variant or
+ * arbitrary-value syntax but do not match a registered utility. Return one
+ * diagnostic per (offset, class) pair.
+ *
+ * Diagnostics are deduplicated within a single class= value but reported
+ * per occurrence across the source so multi-line / multi-attribute coverage
+ * is preserved (each class="..." attribute reports its own offenders).
+ *
+ * @param {string} source
+ * @returns {TailwindLintDiagnostic[]}
+ */
+export function findUnsupportedTailwindShapes(source) {
+  if (!source || typeof source !== "string") return [];
+
+  const diagnostics = [];
+  const attrRe = /\bclass="([^"]*)"/g;
+  let attrMatch;
+
+  while ((attrMatch = attrRe.exec(source)) !== null) {
+    const attrValue = attrMatch[1];
+    const attrValueStart = attrMatch.index + attrMatch[0].indexOf('"') + 1;
+
+    // Walk the attribute value, recording each class name and its source offset.
+    // Classes are whitespace-separated; we need per-class offsets so messages
+    // point at the offending class, not the start of the attribute.
+    const classRe = /\S+/g;
+    let classMatch;
+    const seenInThisAttr = new Set();
+    while ((classMatch = classRe.exec(attrValue)) !== null) {
+      const cls = classMatch[0];
+      if (seenInThisAttr.has(cls)) continue;
+      seenInThisAttr.add(cls);
+
+      // Skip user-shaped classes (no Tailwind variant/arbitrary syntax).
+      if (!cls.includes(":") && !cls.includes("[")) continue;
+
+      // Skip classes that ARE supported by the registered Tailwind engine.
+      if (getTailwindCSS(cls) !== null) continue;
+
+      const offset = attrValueStart + classMatch.index;
+      const { line, column } = offsetToLineCol(source, offset);
+      diagnostics.push({
+        line,
+        column,
+        className: cls,
+        message:
+          `Line ${line}: Class \`${cls}\` looks like Tailwind variant/arbitrary ` +
+          `syntax which is not yet supported in this scrml revision ` +
+          `(SPEC-ISSUE-012). The class will not produce any CSS. Use a base ` +
+          `utility class (e.g. \`p-4\` instead of \`md:p-4\`) or define your ` +
+          `own CSS rule.`,
+        severity: "warning",
+        code: "W-TAILWIND-001",
+      });
+    }
+  }
+
+  // Sort by line, then column for deterministic output (mirrors lintGhostPatterns).
+  diagnostics.sort((a, b) => a.line !== b.line ? a.line - b.line : a.column - b.column);
+  return diagnostics;
 }
 
 // ---------------------------------------------------------------------------
