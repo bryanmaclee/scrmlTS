@@ -347,6 +347,65 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
     for (const binding of logicBindings) {
       const { placeholderId, expr } = binding;
 
+      // -----------------------------------------------------------------
+      // Phase 2b: if= mount/unmount (clean-subtree path)
+      //
+      // The HTML emitter produced a <template id="TID"> wrapping the
+      // would-be element + a <!--scrml-if-marker:MID--> placeholder
+      // comment. The controller below watches the condition and calls
+      // _scrml_mount_template / _scrml_unmount_scope on each transition.
+      // -----------------------------------------------------------------
+      if (binding.isMountToggle && binding.templateId && binding.markerId) {
+        const tid = binding.templateId;
+        const mid = binding.markerId;
+        const suffix = (placeholderId || mid).replace(/[^a-zA-Z0-9_]/g, "_");
+
+        // Build the condition expression (same shape as the display-toggle path).
+        let conditionCode: string | undefined;
+        if (binding.condExpr) {
+          const compiled = emitExprField(binding.condExprNode, binding.condExpr, { mode: "client" });
+          conditionCode = `(${compiled})`;
+        } else if (binding.varName) {
+          const condVarName = binding.varName;
+          const encodedCondVar = encodingCtx && encodingCtx.enabled ? encodingCtx.encode(condVarName) : condVarName;
+          if (binding.dotPath) {
+            conditionCode = `(_scrml_reactive_get(${JSON.stringify(encodedCondVar)}).${binding.dotPath.slice(condVarName.length + 1)})`;
+          } else {
+            conditionCode = `_scrml_reactive_get(${JSON.stringify(encodedCondVar)})`;
+          }
+        }
+
+        if (conditionCode) {
+          lines.push(`  {`);
+          lines.push(`    // if= mount/unmount controller — marker ${mid}, template ${tid}`);
+          lines.push(`    let _scrml_mr_${suffix} = null;`);
+          lines.push(`    let _scrml_ms_${suffix} = null;`);
+          lines.push(`    function _scrml_if_mount_${suffix}() {`);
+          lines.push(`      _scrml_ms_${suffix} = _scrml_create_scope();`);
+          lines.push(`      _scrml_mr_${suffix} = _scrml_mount_template(${JSON.stringify(mid)}, ${JSON.stringify(tid)});`);
+          lines.push(`    }`);
+          lines.push(`    function _scrml_if_unmount_${suffix}() {`);
+          lines.push(`      if (_scrml_mr_${suffix} !== null) {`);
+          lines.push(`        _scrml_unmount_scope(_scrml_mr_${suffix}, _scrml_ms_${suffix});`);
+          lines.push(`        _scrml_mr_${suffix} = null;`);
+          lines.push(`        _scrml_ms_${suffix} = null;`);
+          lines.push(`      }`);
+          lines.push(`    }`);
+          // Initial mount on first render if condition is true.
+          lines.push(`    if (${conditionCode}) _scrml_if_mount_${suffix}();`);
+          // Reactive update — _scrml_effect subscribes to all reactives in the body.
+          lines.push(`    _scrml_effect(function() {`);
+          lines.push(`      if (${conditionCode}) {`);
+          lines.push(`        if (_scrml_mr_${suffix} === null) _scrml_if_mount_${suffix}();`);
+          lines.push(`      } else {`);
+          lines.push(`        if (_scrml_mr_${suffix} !== null) _scrml_if_unmount_${suffix}();`);
+          lines.push(`      }`);
+          lines.push(`    });`);
+          lines.push(`  }`);
+        }
+        continue;
+      }
+
       // Conditional display (if=) — toggle element visibility
       // Visibility toggle (show=) — same display-toggle codegen, different selector
       // With optional transition:fade/slide/fly, in:fade, out:slide directives

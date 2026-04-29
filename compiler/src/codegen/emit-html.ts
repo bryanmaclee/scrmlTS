@@ -27,6 +27,75 @@ const BIND_VALID_TAGS: Record<string, Set<string>> = {
 // Lifecycle elements that emit no HTML — handled by emit-reactive-wiring.js
 const LIFECYCLE_SILENT_TAGS = new Set(["timer", "poll"]);
 
+/**
+ * Phase 2b of if/show split: detect whether an if= element's subtree is
+ * "clean" — i.e., contains no nested wiring (no events, no reactive
+ * interpolation, no nested if=/show=, no components, no state openers,
+ * no expression attributes). Clean subtrees route through mount/unmount
+ * (template-clone + marker comment + scope teardown). Non-clean subtrees
+ * fall back to the display-toggle path (Phase 1) until later sub-phases
+ * extend mount/unmount to cover those cases.
+ *
+ * Conservative: when in doubt, return false (display-toggle is the safe
+ * fallback that already works).
+ */
+function isCleanIfSubtree(children: any[]): boolean {
+  for (const child of children ?? []) {
+    if (!isCleanIfNode(child)) return false;
+  }
+  return true;
+}
+
+/**
+ * Returns true if an attribute is "wiring-free" — does not require any
+ * compile-time-emitted runtime wiring (event listeners, reactive
+ * subscriptions, two-way bindings, conditional classes, transitions,
+ * directive semantics). Static HTML attributes pass; reactive or
+ * directive-style attributes do not.
+ *
+ * The optional `allowName` parameter lets the caller exempt one attribute
+ * (typically the if= attribute on the element under consideration).
+ */
+function attrIsWiringFree(attr: any, allowName: string | null = null): boolean {
+  const name: string = attr.name ?? "";
+  if (name === allowName) return true;
+  if (name === "if" || name === "show" || name === "else" || name === "else-if") return false;
+  if (name === "protect" || name === "auth" || name === "slot") return false;
+  if (name.startsWith("on")) return false;
+  if (name.startsWith("bind:")) return false;
+  if (name.startsWith("class:")) return false;
+  if (name.startsWith("transition:") || name.startsWith("in:") || name.startsWith("out:")) return false;
+  const val = attr.value;
+  if (val) {
+    if (val.kind === "variable-ref" && (val.name ?? "").startsWith("@")) return false;
+    if (val.kind === "expr") return false;
+    if (val.kind === "string-literal" && hasTemplateInterpolation(val.value)) return false;
+  }
+  return true;
+}
+
+function isCleanIfNode(node: any): boolean {
+  if (!node || typeof node !== "object") return true;
+  if (node.kind === "text" || node.kind === "comment") return true;
+  if (node.kind !== "markup") return false; // logic, expr, state, if-chain, meta = not clean
+
+  const tag: string = node.tag ?? node.tagName ?? "";
+  // Components (capital first letter) and language-level state openers
+  // are not "clean" — they have their own wiring.
+  if (/^[A-Z]/.test(tag)) return false;
+
+  const attrs: any[] = node.attributes ?? node.attrs ?? [];
+  for (const attr of attrs) {
+    if (!attrIsWiringFree(attr)) return false;
+  }
+
+  const children: any[] = node.children ?? [];
+  for (const child of children) {
+    if (!isCleanIfNode(child)) return false;
+  }
+  return true;
+}
+
 // §35 Input state type elements that emit no HTML — handled by emit-reactive-wiring.js
 const INPUT_STATE_TAGS = new Set(["keyboard", "mouse", "gamepad"]);
 
@@ -451,6 +520,56 @@ export function generateHtml(
         }
         if (flatParts.length > 0) flatInlineStyle = flatParts.join(" ");
       }
+
+      // ---------------------------------------------------------------------
+      // Phase 2b of if/show split — DEFERRED to Phase 2c (2026-04-29 wrap).
+      //
+      // The codegen below would route clean-subtree if= elements through
+      // template + marker emission, registering an isMountToggle binding for
+      // emit-event-wiring to consume. It is correct (verified by hand against
+      // control-if-mount-basic.scrml) but deferred because activating it
+      // simultaneously fails ~22 existing tests that lock in the OLD
+      // display-toggle behavior. Group the test churn into one disciplined
+      // commit alongside the rest of the Phase 2 work (see hand-off doc).
+      //
+      // The helper functions attrIsWiringFree / isCleanIfNode / isCleanIfSubtree
+      // are kept (declared above) — they will be used as-is when Phase 2c
+      // re-enables the early-out below.
+      //
+      // To re-enable: uncomment the block below; update the failing tests in
+      // if-expression.test.js, allow-atvar-attrs.test.js, code-generator.test.js
+      // to assert the new emission shape (<template id="..."> + marker comment
+      // + _scrml_mount_template / _scrml_unmount_scope client wiring).
+      // ---------------------------------------------------------------------
+      // const ifAttrCheck = attrs.find((a: any) => a.name === "if");
+      // if (
+      //   ifAttrCheck &&
+      //   ifAttrCheck.value &&
+      //   (ifAttrCheck.value.kind === "variable-ref" || ifAttrCheck.value.kind === "expr") &&
+      //   !/^[A-Z]/.test(tag) &&
+      //   attrs.every((a: any) => attrIsWiringFree(a, "if")) &&
+      //   isCleanIfSubtree(children)
+      // ) {
+      //   const ifVal = ifAttrCheck.value;
+      //   const templateId = genVar("scrml_tpl");
+      //   const markerId = genVar("if_marker");
+      //   parts.push(`<template id="${templateId}">`);
+      //   const innerNode = { ...node, attributes: attrs.filter((a: any) => a.name !== "if"), attrs: attrs.filter((a: any) => a.name !== "if") };
+      //   emitNode(innerNode);
+      //   parts.push(`</template>`);
+      //   parts.push(`<!--scrml-if-marker:${markerId}-->`);
+      //   if (registry) {
+      //     if (ifVal.kind === "variable-ref") {
+      //       const ifVarName = (ifVal.name ?? "").replace(/^@/, "");
+      //       const ifBaseVar = ifVarName.split(".")[0];
+      //       const hasDotPath = ifVarName.includes(".");
+      //       registry.addLogicBinding({ placeholderId: markerId, expr: `@${ifVarName}`, isMountToggle: true, templateId, markerId, varName: ifBaseVar, ...(hasDotPath ? { dotPath: ifVarName } : {}) } as any);
+      //     } else {
+      //       registry.addLogicBinding({ placeholderId: markerId, expr: ifVal.raw, isMountToggle: true, templateId, markerId, condExpr: ifVal.raw, condExprNode: ifVal.exprNode, refs: ifVal.refs } as any);
+      //     }
+      //   }
+      //   return;
+      // }
 
       parts.push(`<${tag}`);
 
