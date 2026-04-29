@@ -10,9 +10,11 @@
  *   getAllUsedCSS(classNames[])          — returns combined CSS string for all matched classes
  *   scanClassesFromHtml(html)            — extracts all class names from HTML class="" attributes
  *   findUnsupportedTailwindShapes(src)   — returns W-TAILWIND-001 diagnostics for class strings
- *                                          that look like Tailwind variant/arbitrary syntax but
- *                                          do not match a registered utility (SPEC §26.3,
- *                                          SPEC-ISSUE-012).
+ *                                          that look like Tailwind variant/arbitrary syntax
+ *                                          (SPEC §26.3, SPEC-ISSUE-012). The full variant +
+ *                                          arbitrary-value system is not yet supported, so the
+ *                                          warning fires on shape regardless of whether the
+ *                                          embedded engine has incidental partial support.
  */
 
 // ---------------------------------------------------------------------------
@@ -744,17 +746,19 @@ export function scanClassesFromHtml(html) {
 
 // ---------------------------------------------------------------------------
 // W-TAILWIND-001: unsupported Tailwind syntax detection (SPEC §26.3,
-// SPEC-ISSUE-012). The compiler does not yet implement arbitrary values
-// (e.g. `p-[1.5rem]`) or arbitrary variant prefixes (e.g. `dark:`, custom
-// variants). Today such class strings are emitted into HTML but produce no
-// CSS — silent failure. This pre-pass surfaces a warning so adopters can see
-// that the syntax is unsupported and rename or define their own CSS rule.
+// SPEC-ISSUE-012). The full Tailwind variant + arbitrary-value system is
+// listed as TBD in §26.3 — when adopters write class strings using that
+// syntax the embedded engine either silently drops them (e.g.
+// `p-[1.5rem]`) or, for incidentally-handled prefixes (e.g. `md:`,
+// `hover:`), happens to emit a rule today but the spec considers the
+// feature unfinished. This pre-pass surfaces a warning on every class
+// whose shape suggests variant or arbitrary-value syntax so adopters are
+// not surprised when SPEC-ISSUE-012 closes and the semantics may shift.
 //
-// Detection rule (per task brief):
-//   1. Skip if `getTailwindCSS(name)` returns non-null (already supported).
-//   2. Skip if name contains neither `:` nor `[` (looks like a USER class).
-//   3. Otherwise fire — class has Tailwind-shape (`:` or `[`) but does not
-//      match a registered utility.
+// Detection rule:
+//   1. Skip names that contain neither `:` nor `[` (look like USER classes).
+//   2. Otherwise fire — the name has Tailwind variant or arbitrary-value
+//      shape and falls under SPEC-ISSUE-012.
 //
 // False positives on user-defined classes named like `weird:name` are
 // acceptable; users can rename. Better to over-warn than to silently drop.
@@ -794,12 +798,9 @@ function offsetToLineCol(source, offset) {
 /**
  * Scan a source string (any text, typically a `.scrml` file) for class names
  * inside `class="..."` attributes that look like Tailwind variant or
- * arbitrary-value syntax but do not match a registered utility. Return one
- * diagnostic per (offset, class) pair.
- *
- * Diagnostics are deduplicated within a single class= value but reported
- * per occurrence across the source so multi-line / multi-attribute coverage
- * is preserved (each class="..." attribute reports its own offenders).
+ * arbitrary-value syntax. Return one diagnostic per offending (offset, class)
+ * pair. Within a single `class="..."` value duplicate offenders are reported
+ * once; across multiple `class=` attributes each occurrence is reported.
  *
  * @param {string} source
  * @returns {TailwindLintDiagnostic[]}
@@ -829,9 +830,10 @@ export function findUnsupportedTailwindShapes(source) {
       // Skip user-shaped classes (no Tailwind variant/arbitrary syntax).
       if (!cls.includes(":") && !cls.includes("[")) continue;
 
-      // Skip classes that ARE supported by the registered Tailwind engine.
-      if (getTailwindCSS(cls) !== null) continue;
-
+      // Tailwind-shape: emit W-TAILWIND-001. The full variant + arbitrary-value
+      // system is unfinished (SPEC-ISSUE-012) so we warn on shape regardless of
+      // whether the embedded engine has incidental partial support — adopters
+      // should treat all such classes as TBD until that issue closes.
       const offset = attrValueStart + classMatch.index;
       const { line, column } = offsetToLineCol(source, offset);
       diagnostics.push({

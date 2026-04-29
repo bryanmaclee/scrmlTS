@@ -24,6 +24,7 @@ import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules } from "./module-resolver.js";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
 import { lintGhostPatterns } from "./lint-ghost-patterns.js";
+import { findUnsupportedTailwindShapes } from "./tailwind-classes.js";
 import { runGauntletPhase1Checks } from "./gauntlet-phase1-checks.js";
 import { runGauntletPhase3EqChecks } from "./gauntlet-phase3-eq-checks.js";
 
@@ -209,6 +210,10 @@ export function compileScrml(options = {}) {
   // Ghost-error lint pre-pass (runs before Stage 2 / BS)
   // Non-fatal: diagnostics are returned in lintDiagnostics[], never in errors[].
   // The real compiler always runs regardless of lint findings.
+  //
+  // Also runs the W-TAILWIND-001 detector (SPEC §26.3, SPEC-ISSUE-012) which
+  // surfaces class names in source whose shape suggests Tailwind variant or
+  // arbitrary-value syntax but does not match the registered utility set.
   // ---------------------------------------------------------------------------
   const allLintDiagnostics = [];
   for (const inputFile of inputFiles) {
@@ -217,6 +222,11 @@ export function compileScrml(options = {}) {
       const source = readFileSync(filePath, "utf8");
       const diags = lintGhostPatterns(source, filePath);
       for (const d of diags) {
+        allLintDiagnostics.push({ ...d, filePath });
+        if (verbose) log(`  [LINT] ${filePath}:${d.line}:${d.column} ${d.code}: ${d.message}`);
+      }
+      const tailwindDiags = findUnsupportedTailwindShapes(source);
+      for (const d of tailwindDiags) {
         allLintDiagnostics.push({ ...d, filePath });
         if (verbose) log(`  [LINT] ${filePath}:${d.line}:${d.column} ${d.code}: ${d.message}`);
       }
