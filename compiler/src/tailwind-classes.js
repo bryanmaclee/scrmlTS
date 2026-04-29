@@ -785,6 +785,50 @@ function offsetToLineCol(source, offset) {
 }
 
 /**
+ * Replace each `${...}` interpolation region in the given string with the same
+ * number of spaces. Preserves source byte offsets so callers can keep using
+ * `attrMatch.index + classMatch.index` arithmetic against the original source.
+ *
+ * Handles brace-balanced `${...}` (nested objects, ternary expressions, etc.).
+ * If a `${` has no matching closing `}` the rest of the string is masked.
+ *
+ * Used by `findUnsupportedTailwindShapes` to avoid false-positive warnings on
+ * the contents of `class="${cond ? 'a' : 'b'}"` (the `:` from the ternary
+ * would otherwise be parsed as a Tailwind variant shape).
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function maskInterpolations(value) {
+  let out = "";
+  let i = 0;
+  while (i < value.length) {
+    if (value[i] === "$" && value[i + 1] === "{") {
+      // Brace-balanced scan.
+      let depth = 1;
+      let j = i + 2;
+      while (j < value.length && depth > 0) {
+        if (value[j] === "{") depth++;
+        else if (value[j] === "}") depth--;
+        if (depth === 0) break;
+        j++;
+      }
+      // Replace [i, j+1] with spaces (preserving newlines so offsetToLineCol
+      // still produces correct line numbers).
+      const end = Math.min(j + 1, value.length);
+      for (let k = i; k < end; k++) {
+        out += value[k] === "\n" ? "\n" : " ";
+      }
+      i = end;
+    } else {
+      out += value[i];
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
  * @typedef {{
  *   line: number,
  *   column: number,
@@ -802,6 +846,10 @@ function offsetToLineCol(source, offset) {
  * pair. Within a single `class="..."` value duplicate offenders are reported
  * once; across multiple `class=` attributes each occurrence is reported.
  *
+ * `${...}` interpolation regions inside the attribute value are masked before
+ * scanning so dynamic-class expressions like `class="${cond ? 'a' : 'b'}"`
+ * do not produce false positives on the ternary's `:`.
+ *
  * @param {string} source
  * @returns {TailwindLintDiagnostic[]}
  */
@@ -816,13 +864,20 @@ export function findUnsupportedTailwindShapes(source) {
     const attrValue = attrMatch[1];
     const attrValueStart = attrMatch.index + attrMatch[0].indexOf('"') + 1;
 
-    // Walk the attribute value, recording each class name and its source offset.
-    // Classes are whitespace-separated; we need per-class offsets so messages
-    // point at the offending class, not the start of the attribute.
+    // Mask out ${...} interpolation regions inside the attribute value. Their
+    // contents are JS expressions that frequently include ':' (ternaries) and
+    // would otherwise produce false-positive W-TAILWIND-001 diagnostics. The
+    // mask preserves length so source offsets stay accurate.
+    const masked = maskInterpolations(attrValue);
+
+    // Walk the (masked) attribute value, recording each class name and its
+    // source offset. Classes are whitespace-separated; we need per-class
+    // offsets so messages point at the offending class, not the start of the
+    // attribute.
     const classRe = /\S+/g;
     let classMatch;
     const seenInThisAttr = new Set();
-    while ((classMatch = classRe.exec(attrValue)) !== null) {
+    while ((classMatch = classRe.exec(masked)) !== null) {
       const cls = classMatch[0];
       if (seenInThisAttr.has(cls)) continue;
       seenInThisAttr.add(cls);

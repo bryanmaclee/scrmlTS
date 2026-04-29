@@ -21,6 +21,7 @@
  *   §7  Diagnostic shape (code, severity, message, line, column)
  *   §8  Multi-line / multi-attribute coverage
  *   §9  Integration via compileScrml.lintDiagnostics
+ *   §10 ${...} interpolation regions are masked (no false positives on ternaries)
  */
 
 import { describe, test, expect } from "bun:test";
@@ -311,5 +312,52 @@ describe("§9 Integration: compileScrml lintDiagnostics field", () => {
     const result = compileSource(source);
     const tailwindDiags = (result.lintDiagnostics || []).filter(d => d.code === "W-TAILWIND-001");
     expect(tailwindDiags.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §10 ${...} interpolation regions are masked
+// ---------------------------------------------------------------------------
+//
+// scrml supports dynamic class strings like `class="${cond ? 'a' : 'b'}"`
+// (§5.5 dynamic class). The `:` from the ternary inside the interpolation
+// must NOT trigger W-TAILWIND-001 — it is JS expression syntax, not a
+// Tailwind variant prefix.
+
+describe("§10 ${...} interpolation masking — no false positives", () => {
+  test("ternary in dynamic class does not fire", () => {
+    const diags = scan(`<div class="\${cond ? 'a' : 'b'}"></div>`);
+    expect(diags.length).toBe(0);
+  });
+
+  test("nested ternary in dynamic class does not fire", () => {
+    const diags = scan(`<div class="\${a ? (b ? 'x' : 'y') : 'z'}"></div>`);
+    expect(diags.length).toBe(0);
+  });
+
+  test("interpolation with array index does not fire on the bracket", () => {
+    const diags = scan(`<div class="\${arr[0]}"></div>`);
+    expect(diags.length).toBe(0);
+  });
+
+  test("static class outside interpolation still fires", () => {
+    // Mixed: static base utility + interpolation. The base utility has no
+    // shape so no warning. The interpolation is masked.
+    const diags = scan(`<div class="card \${cond ? 'a' : 'b'}"></div>`);
+    expect(diags.length).toBe(0);
+  });
+
+  test("static md:p-4 next to a ternary interpolation fires only on md:p-4", () => {
+    // The static portion has md:p-4 (Tailwind shape) — should fire. The
+    // interpolation is masked so the ternary's `:` is not seen.
+    const diags = scan(`<div class="md:p-4 \${cond ? 'a' : 'b'}"></div>`);
+    expect(diags.length).toBe(1);
+    expect(fired(diags, "md:p-4")).toBe(true);
+  });
+
+  test("unclosed ${ masks to end of attribute value (no spurious diagnostics)", () => {
+    // Defensive: malformed ${... without } should not trip the scanner.
+    const diags = scan(`<div class="\${cond ? 'a' : 'b'"></div>`);
+    expect(diags.length).toBe(0);
   });
 });
