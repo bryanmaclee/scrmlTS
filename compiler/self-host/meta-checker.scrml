@@ -101,6 +101,12 @@ ${
         // scrml meta API
         "reflect",
         "emit",
+        // S48: `compiler` is registered here so E-META-001/E-META-005 don't pile
+        // on top of E-META-010 when a user references the reserved `compiler.*`
+        // namespace. The diagnostic of record is E-META-010 ("reserved for future
+        // use"); META_BUILTINS membership is purely to suppress the redundant
+        // "runtime variable" classification.
+        "compiler",
     ])
 
     // ---------------------------------------------------------------------------
