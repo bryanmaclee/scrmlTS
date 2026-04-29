@@ -406,6 +406,65 @@ Because the compiler scans class attributes at build time, the Tailwind CSS it e
 
 You can combine the two styling approaches freely: Tailwind utilities for layout and spacing (`flex`, `gap-2`, `p-4`), `#{ ... }` blocks for anything fiddly that utilities cannot express naturally (complex selectors, keyframes, pseudo-elements). Neither is "better"; the two cover complementary needs.
 
+### 1.8 Conditional rendering: `if=`, `else=`, `else-if=`
+
+Most apps need to show or hide markup based on state. scrml's primary tool for this is the `if=` attribute, an unquoted expression placed directly on the element you want to conditionalise. When the expression is true, the element appears; when it is false, the element does not appear. The companion attributes `else-if=` and the bare `else` extend this into a multi-branch chain.
+
+```scrml
+// 01h — Conditional rendering. if=, else-if=, else as an attribute chain.
+// `else` is a bare attribute (no `=`, no value). The chain runs over sibling
+// elements at the same parent level. Exactly one branch is shown at a time.
+
+<program>
+
+${
+  @step = 1
+
+  function next() {
+    @step = @step >= 3 ? 1 : @step + 1
+  }
+}
+
+<div>
+  <p if=(@step == 1)>Step one: enter your name.</p>
+  <p else-if=(@step == 2)>Step two: confirm your email.</p>
+  <p else>All done.</p>
+
+  <button onclick=next()>Next (current: ${@step})</button>
+</div>
+
+</program>
+```
+
+The two-branch shape is the everyday case: one element carries `if=expr` and an immediately-following sibling carries the bare attribute `else` (no `=`, no value). For three or more branches, insert any number of `else-if=expr` siblings between the opener and the optional `else`. Exactly one branch's element is shown at a time.
+
+> **`else` is bare on purpose.** Unlike every other scrml attribute you have seen so far, `else` takes no `=` and no value — `<p else>` is the literal syntax. This is the only bare attribute in Layer 1 and it is worth memorising. Spelling it as `else=true` or `else=""` is a parse error.
+
+A few rules govern chains. They follow naturally from "the chain has to be a contiguous sequence of siblings":
+
+- A bare `else` must immediately follow an `if=` or `else-if=` element at the same parent level. A stray `<span else>` with no preceding `if=` is `E-CTRL-001`.
+- An `else-if=` must immediately follow an `if=` or `else-if=` element at the same parent level. Otherwise: `E-CTRL-002`.
+- Once a chain ends with `else`, no further `else-if=` or `else` may continue it. A second `else` on the next sibling is `E-CTRL-003`.
+- A single element cannot carry both `if=` and `else-if=`/`else` simultaneously — it either opens a chain or continues one. Both is `E-CTRL-005`.
+
+"Immediately following" means at the same parent level, with nothing in between except whitespace. A comment, a stray text node, or a closer tag breaks the chain. If you need to interleave unrelated markup between branches, factor each branch into a component and apply the chain at the call sites instead.
+
+The chain attributes work on any HTML element and on any user-defined component, but they cannot appear on the language-level *state object openers* listed in Section 1.1 — `<program>`, `<db>`, `<channel>`, `<errorBoundary>`, `<machine>`, and the input-state and timing openers. Putting `if=`, `else-if=`, or `else` on one of those is `E-CTRL-004`. The reasoning is straightforward: a state opener carries lifecycle and infrastructure (a database connection, a WebSocket, a state machine) that the rest of the program assumes is always present. Conditionally hiding it would tear that lifecycle down underneath running code.
+
+The observable behaviour of `if=` and the chain is "the element appears when the condition is true and does not appear when it is false." The visible result of changing `@step` from 1 to 2 in the example above is that the first paragraph disappears and the second appears, in either order, atomically. The compiler is free to achieve that effect by removing the DOM node entirely or by toggling its `display` property — either way, the user sees the same thing. (If you want a guaranteed *DOM stays mounted* toggle for performance reasons, reach for `show=`; see Section 2.5.)
+
+A common shape worth knowing is the loading/error/success triad:
+
+```scrml
+<div if=@loading>Loading…</div>
+<div else-if=@error>Error: ${@error}</div>
+<div else>Welcome, ${@user.name}.</div>
+```
+
+Three siblings, exhaustive over the three states. This is also a natural pattern for component-per-state rendering — you can mix HTML elements and component instances freely in a single chain (`<Spinner if=@loading/><ErrorPanel else-if=@error msg=@error/><Dashboard else user=@user/>`). For exhaustive branching over the variants of an enum, prefer `match` (introduced in Section 2.4); the chain form is structural rather than exhaustiveness-checked, so adding a new enum variant will not warn you that a chain is missing a branch.
+
+Note that this `if=` chain idiom is markup-level only. Inside a logic block (`${ ... }`) you write ordinary `if (cond) { ... } else { ... }` JavaScript, lifting markup out via `lift` when needed. The two are different tools: the attribute chain is for "this element's existence depends on a condition," and the `${ if (...) { lift ... } }` form is for "I want a logic-block branch that emits markup." Section 2.5 returns to the topic with `show=` and ternary interpolation; the rest of this layer assumes you are comfortable with `if=`, `else-if=`, and `else` from here onward.
+
 ### Checkpoint
 
 At this point you have seen enough to write a client-side scrml app. You can declare state, write derived values, bind form inputs, handle events, and style elements. The todo list in Section 0.1 uses exactly these primitives and nothing else — go re-read it now; every line should make sense.
