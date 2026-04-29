@@ -1,7 +1,7 @@
 /**
  * Tailwind Utility Classes — Unit Tests
  *
- * Tests for src/tailwind-classes.js (SPEC §25).
+ * Tests for src/tailwind-classes.js (SPEC §26).
  *
  * Coverage:
  *   §1  Known utility classes produce correct CSS
@@ -22,10 +22,11 @@
  *   §16 scanClassesFromHtml extracts class names
  *   §17 Deduplication in getAllUsedCSS
  *   §18 Edge cases (null, empty, undefined)
+ *   §19 Arbitrary values: utility-[<value>] (per §26.4)
  */
 
 import { describe, test, expect } from "bun:test";
-import { getTailwindCSS, getAllUsedCSS, scanClassesFromHtml } from "../../src/tailwind-classes.js";
+import { getTailwindCSS, getTailwindCSSWithDiagnostic, getAllUsedCSS, getAllUsedCSSWithDiagnostics, scanClassesFromHtml } from "../../src/tailwind-classes.js";
 
 // ---------------------------------------------------------------------------
 // §1 Known utility classes produce correct CSS
@@ -617,5 +618,381 @@ describe("§18 Edge cases", () => {
 
   test("fractional spacing p-0.5", () => {
     expect(getTailwindCSS("p-0.5")).toContain("padding: 0.125rem");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19 Arbitrary values (per §26.4)
+// ---------------------------------------------------------------------------
+
+describe("§19 Arbitrary values — spacing", () => {
+  test("p-[1.5rem] emits padding: 1.5rem", () => {
+    const css = getTailwindCSS("p-[1.5rem]");
+    expect(css).toContain("padding: 1.5rem");
+    expect(css).toContain(".p-\\[1\\.5rem\\]");
+  });
+
+  test("px-[42px] emits padding-left and padding-right", () => {
+    const css = getTailwindCSS("px-[42px]");
+    expect(css).toContain("padding-left: 42px");
+    expect(css).toContain("padding-right: 42px");
+  });
+
+  test("py-[2rem] emits padding-top and padding-bottom", () => {
+    const css = getTailwindCSS("py-[2rem]");
+    expect(css).toContain("padding-top: 2rem");
+    expect(css).toContain("padding-bottom: 2rem");
+  });
+
+  test("pt-[10%], pr-[10%], pb-[10%], pl-[10%]", () => {
+    expect(getTailwindCSS("pt-[10%]")).toContain("padding-top: 10%");
+    expect(getTailwindCSS("pr-[10%]")).toContain("padding-right: 10%");
+    expect(getTailwindCSS("pb-[10%]")).toContain("padding-bottom: 10%");
+    expect(getTailwindCSS("pl-[10%]")).toContain("padding-left: 10%");
+  });
+
+  test("m-[3.5rem]", () => {
+    expect(getTailwindCSS("m-[3.5rem]")).toContain("margin: 3.5rem");
+  });
+
+  test("mt-[-10px] (negative value)", () => {
+    expect(getTailwindCSS("mt-[-10px]")).toContain("margin-top: -10px");
+  });
+
+  test("gap-[2.4rem], gap-x-[1rem], gap-y-[0.5rem]", () => {
+    expect(getTailwindCSS("gap-[2.4rem]")).toContain("gap: 2.4rem");
+    expect(getTailwindCSS("gap-x-[1rem]")).toContain("column-gap: 1rem");
+    expect(getTailwindCSS("gap-y-[0.5rem]")).toContain("row-gap: 0.5rem");
+  });
+});
+
+describe("§19 Arbitrary values — sizing", () => {
+  test("w-[200px], h-[150px]", () => {
+    expect(getTailwindCSS("w-[200px]")).toContain("width: 200px");
+    expect(getTailwindCSS("h-[150px]")).toContain("height: 150px");
+  });
+
+  test("min-w-[10ch], max-w-[80ch]", () => {
+    expect(getTailwindCSS("min-w-[10ch]")).toContain("min-width: 10ch");
+    expect(getTailwindCSS("max-w-[80ch]")).toContain("max-width: 80ch");
+  });
+
+  test("min-h-[100vh], max-h-[50svh]", () => {
+    expect(getTailwindCSS("min-h-[100vh]")).toContain("min-height: 100vh");
+    expect(getTailwindCSS("max-h-[50svh]")).toContain("max-height: 50svh");
+  });
+});
+
+describe("§19 Arbitrary values — position", () => {
+  test("top-[3.5%], right-[1rem], bottom-[0px], left-[10vw]", () => {
+    expect(getTailwindCSS("top-[3.5%]")).toContain("top: 3.5%");
+    expect(getTailwindCSS("right-[1rem]")).toContain("right: 1rem");
+    expect(getTailwindCSS("bottom-[0px]")).toContain("bottom: 0px");
+    expect(getTailwindCSS("left-[10vw]")).toContain("left: 10vw");
+  });
+
+  test("inset-[2rem]", () => {
+    expect(getTailwindCSS("inset-[2rem]")).toContain("inset: 2rem");
+  });
+});
+
+describe("§19 Arbitrary values — color (hex)", () => {
+  test("bg-[#ff00ff] (6-digit hex)", () => {
+    const css = getTailwindCSS("bg-[#ff00ff]");
+    expect(css).toContain("background-color: #ff00ff");
+    expect(css).toContain(".bg-\\[\\#ff00ff\\]");
+  });
+
+  test("bg-[#fff] (3-digit hex)", () => {
+    expect(getTailwindCSS("bg-[#fff]")).toContain("background-color: #fff");
+  });
+
+  test("bg-[#ffffffff] (8-digit hex with alpha)", () => {
+    expect(getTailwindCSS("bg-[#ffffffff]")).toContain("background-color: #ffffffff");
+  });
+
+  test("text-[#ef4444]", () => {
+    expect(getTailwindCSS("text-[#ef4444]")).toContain("color: #ef4444");
+  });
+
+  test("border-[#ccc]", () => {
+    expect(getTailwindCSS("border-[#ccc]")).toContain("border-color: #ccc");
+  });
+});
+
+describe("§19 Arbitrary values — color functions", () => {
+  test("bg-[rgb(255,0,0)]", () => {
+    const css = getTailwindCSS("bg-[rgb(255,0,0)]");
+    expect(css).toContain("background-color: rgb(255,0,0)");
+  });
+
+  test("bg-[rgba(0,0,0,0.5)]", () => {
+    expect(getTailwindCSS("bg-[rgba(0,0,0,0.5)]")).toContain("background-color: rgba(0,0,0,0.5)");
+  });
+
+  test("bg-[hsl(120,100%,50%)]", () => {
+    expect(getTailwindCSS("bg-[hsl(120,100%,50%)]")).toContain("background-color: hsl(120,100%,50%)");
+  });
+
+  test("text-[oklch(0.7,0.15,200)]", () => {
+    expect(getTailwindCSS("text-[oklch(0.7,0.15,200)]")).toContain("color: oklch(0.7,0.15,200)");
+  });
+});
+
+describe("§19 Arbitrary values — typography (font-size)", () => {
+  test("text-[14px] uses font-size", () => {
+    expect(getTailwindCSS("text-[14px]")).toContain("font-size: 14px");
+  });
+
+  test("text-[1.125rem]", () => {
+    expect(getTailwindCSS("text-[1.125rem]")).toContain("font-size: 1.125rem");
+  });
+
+  test("leading-[1.7]", () => {
+    expect(getTailwindCSS("leading-[1.7]")).toContain("line-height: 1.7");
+  });
+
+  test("tracking-[0.05em]", () => {
+    expect(getTailwindCSS("tracking-[0.05em]")).toContain("letter-spacing: 0.05em");
+  });
+});
+
+describe("§19 Arbitrary values — border", () => {
+  test("border-[2px] uses border-width", () => {
+    expect(getTailwindCSS("border-[2px]")).toContain("border-width: 2px");
+  });
+
+  test("rounded-[16px]", () => {
+    expect(getTailwindCSS("rounded-[16px]")).toContain("border-radius: 16px");
+  });
+});
+
+describe("§19 Arbitrary values — effects", () => {
+  test("opacity-[0.42]", () => {
+    expect(getTailwindCSS("opacity-[0.42]")).toContain("opacity: 0.42");
+  });
+
+  test("shadow-[#fff] passes through to box-shadow", () => {
+    // Note: Tailwind's underscore-as-space convention is intentionally NOT
+    // implemented in v1 (whitespace inside [] would break HTML class scanning).
+    // Users must use a real color function or hex for shadow.
+    expect(getTailwindCSS("shadow-[#fff]")).toContain("box-shadow: #fff");
+  });
+});
+
+describe("§19 Arbitrary values — z-index", () => {
+  test("z-[42]", () => {
+    expect(getTailwindCSS("z-[42]")).toContain("z-index: 42");
+  });
+
+  test("z-[-1] (negative)", () => {
+    expect(getTailwindCSS("z-[-1]")).toContain("z-index: -1");
+  });
+});
+
+describe("§19 Arbitrary values — var() and url()", () => {
+  test("text-[var(--my-text-color)] defaults to font-size", () => {
+    // Per §26.4: var() defaults to font-size for text-, border-width for border-,
+    // background-color for bg-.
+    expect(getTailwindCSS("text-[var(--my-text-color)]")).toContain("font-size: var(--my-text-color)");
+  });
+
+  test("bg-[var(--bg)] defaults to background-color", () => {
+    expect(getTailwindCSS("bg-[var(--bg)]")).toContain("background-color: var(--bg)");
+  });
+
+  test("p-[var(--gap)]", () => {
+    expect(getTailwindCSS("p-[var(--gap)]")).toContain("padding: var(--gap)");
+  });
+
+  test("var() with fallback", () => {
+    expect(getTailwindCSS("p-[var(--gap,1rem)]")).toContain("padding: var(--gap,1rem)");
+  });
+
+  test("bg-[url(/foo.png)] sets background-image", () => {
+    const css = getTailwindCSS("bg-[url(/foo.png)]");
+    expect(css).toContain("background-image: url(/foo.png)");
+  });
+
+  test("bg-[url('foo.png')] (single-quoted)", () => {
+    const css = getTailwindCSS("bg-[url('foo.png')]");
+    expect(css).toContain("background-image: url('foo.png')");
+  });
+
+  test("bg-[url(\"foo.png\")] (double-quoted)", () => {
+    const css = getTailwindCSS("bg-[url(\"foo.png\")]");
+    expect(css).toContain("background-image: url(\"foo.png\")");
+  });
+});
+
+describe("§19 Arbitrary values — math functions", () => {
+  test("w-[calc(100%-2rem)]", () => {
+    expect(getTailwindCSS("w-[calc(100%-2rem)]")).toContain("width: calc(100%-2rem)");
+  });
+
+  test("p-[min(1rem,2vw)]", () => {
+    expect(getTailwindCSS("p-[min(1rem,2vw)]")).toContain("padding: min(1rem,2vw)");
+  });
+
+  test("h-[clamp(1rem,5vw,10rem)]", () => {
+    expect(getTailwindCSS("h-[clamp(1rem,5vw,10rem)]")).toContain("height: clamp(1rem,5vw,10rem)");
+  });
+});
+
+describe("§19 Arbitrary values — keyword + ident", () => {
+  test("w-[auto]", () => {
+    expect(getTailwindCSS("w-[auto]")).toContain("width: auto");
+  });
+
+  test("text-[currentColor]", () => {
+    expect(getTailwindCSS("text-[currentColor]")).toContain("color: currentColor");
+  });
+
+  test("bg-[transparent]", () => {
+    expect(getTailwindCSS("bg-[transparent]")).toContain("background-color: transparent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19b Arbitrary values — validation errors (E-TAILWIND-001)
+// ---------------------------------------------------------------------------
+
+describe("§19b Arbitrary value validation errors", () => {
+  test("getTailwindCSS returns null on empty []", () => {
+    expect(getTailwindCSS("p-[]")).toBeNull();
+  });
+
+  test("empty bracket emits E-TAILWIND-001", () => {
+    const { css, diagnostic } = getTailwindCSSWithDiagnostic("p-[]");
+    expect(css).toBeNull();
+    expect(diagnostic).not.toBeNull();
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("empty");
+  });
+
+  test("invalid CSS unit emits E-TAILWIND-001", () => {
+    const { css, diagnostic } = getTailwindCSSWithDiagnostic("p-[1.5quux]");
+    expect(css).toBeNull();
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("invalid CSS unit");
+    expect(diagnostic.message).toContain("quux");
+  });
+
+  test("malformed hex (5 digits) emits E-TAILWIND-001", () => {
+    const { diagnostic } = getTailwindCSSWithDiagnostic("bg-[#abcde]");
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("hex color");
+  });
+
+  test("non-hex digit in hex emits E-TAILWIND-001", () => {
+    const { diagnostic } = getTailwindCSSWithDiagnostic("bg-[#ggg]");
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("hex color");
+  });
+
+  test("unbalanced parens emits E-TAILWIND-001", () => {
+    const { diagnostic } = getTailwindCSSWithDiagnostic("bg-[rgb(255,0,0]");
+    // Note: outer brackets are balanced (`[...]`) but inner parens are not.
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+  });
+
+  test("unknown CSS function emits E-TAILWIND-001", () => {
+    const { diagnostic } = getTailwindCSSWithDiagnostic("bg-[notreal(1,2,3)]");
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("unknown CSS function");
+    expect(diagnostic.message).toContain("notreal");
+  });
+
+  test("malformed var() emits E-TAILWIND-001", () => {
+    const { diagnostic } = getTailwindCSSWithDiagnostic("p-[var(notADoubleHyphen)]");
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("var()");
+  });
+
+  test("whitespace inside [] emits E-TAILWIND-001", () => {
+    const { diagnostic } = getTailwindCSSWithDiagnostic("p-[1.5 rem]");
+    expect(diagnostic.code).toBe("E-TAILWIND-001");
+    expect(diagnostic.message).toContain("whitespace");
+  });
+
+  test("CSS-injection chars emit E-TAILWIND-001", () => {
+    expect(getTailwindCSSWithDiagnostic("p-[1px;color:red]").diagnostic.code).toBe("E-TAILWIND-001");
+    expect(getTailwindCSSWithDiagnostic("p-[1px}color:red]").diagnostic.code).toBe("E-TAILWIND-001");
+    expect(getTailwindCSSWithDiagnostic("p-[<script>]").diagnostic.code).toBe("E-TAILWIND-001");
+  });
+
+  test("getAllUsedCSSWithDiagnostics collects diagnostics", () => {
+    const result = getAllUsedCSSWithDiagnostics(["p-4", "p-[1.5quux]", "bg-[#ggg]"]);
+    expect(result.css).toContain("padding: 1rem");
+    expect(result.diagnostics).toHaveLength(2);
+    expect(result.diagnostics.every(d => d.code === "E-TAILWIND-001")).toBe(true);
+  });
+
+  test("non-arbitrary unknown class produces no diagnostic", () => {
+    const result = getAllUsedCSSWithDiagnostics(["not-a-real-class"]);
+    expect(result.css).toBe("");
+    expect(result.diagnostics).toHaveLength(0);
+  });
+
+  test("getAllUsedCSS still drops invalid arbitrary values silently", () => {
+    const css = getAllUsedCSS(["p-4", "p-[notreal()]"]);
+    expect(css).toContain("padding: 1rem");
+    expect(css).not.toContain("notreal");
+  });
+
+  test("text-[xy] (non-numeric, non-color) is treated as ident-color (per §26.4)", () => {
+    // Bare identifier defaults to color (e.g., `text-[currentColor]`-style).
+    const css = getTailwindCSS("text-[xy]");
+    expect(css).toContain("color: xy");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19c Arbitrary values + variants (cross-feature)
+// ---------------------------------------------------------------------------
+
+describe("§19c Arbitrary values + variants", () => {
+  test("md:p-[1.5rem] wraps in @media (min-width: 768px)", () => {
+    const css = getTailwindCSS("md:p-[1.5rem]");
+    expect(css).toContain("@media (min-width: 768px)");
+    expect(css).toContain("padding: 1.5rem");
+  });
+
+  test("hover:bg-[#ff00ff] applies :hover", () => {
+    const css = getTailwindCSS("hover:bg-[#ff00ff]");
+    expect(css).toContain(":hover");
+    expect(css).toContain("background-color: #ff00ff");
+  });
+
+  test("md:hover:bg-[#ff00ff] applies both", () => {
+    const css = getTailwindCSS("md:hover:bg-[#ff00ff]");
+    expect(css).toContain("@media (min-width: 768px)");
+    expect(css).toContain(":hover");
+    expect(css).toContain("background-color: #ff00ff");
+  });
+
+  test("focus:w-[200px]", () => {
+    const css = getTailwindCSS("focus:w-[200px]");
+    expect(css).toContain(":focus");
+    expect(css).toContain("width: 200px");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19d HTML scanning preserves arbitrary-value class names
+// ---------------------------------------------------------------------------
+
+describe("§19d scanClassesFromHtml + arbitrary values", () => {
+  test("captures p-[1.5rem] from HTML", () => {
+    const classes = scanClassesFromHtml('<div class="flex p-[1.5rem] m-2"></div>');
+    expect(classes).toContain("p-[1.5rem]");
+    expect(classes).toContain("flex");
+    expect(classes).toContain("m-2");
+  });
+
+  test("captures bg-[#ff00ff] and bg-[rgb(0,255,0)]", () => {
+    const classes = scanClassesFromHtml('<span class="bg-[#ff00ff] bg-[rgb(0,255,0)]"></span>');
+    expect(classes).toContain("bg-[#ff00ff]");
+    expect(classes).toContain("bg-[rgb(0,255,0)]");
   });
 });
