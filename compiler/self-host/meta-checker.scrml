@@ -8,7 +8,7 @@ ${
     //   1. Phase separation check (E-META-001)
     //      Detects when runtime-scoped variables are referenced inside ^{} meta
     //      contexts that are compile-time-only. Meta contexts that use compile-time
-    //      APIs (reflect, bun.eval, emit, compiler.*) execute at compile time and
+    //      APIs (reflect, bun.eval, emit) execute at compile time and
     //      cannot access runtime values. This check runs after the type system has
     //      built the scope chain, so we know which variables exist and where they
     //      were declared.
@@ -117,7 +117,6 @@ ${
     export const COMPILE_TIME_API_PATTERNS = [
         /\breflect\s*\(/,          // reflect(TypeName)
         /\bemit\s*\(/,             // emit(...)
-        /\bcompiler\s*\./,         // compiler.registerMacro(...) etc.
         /\bbun\s*\.\s*eval\s*\(/,  // bun.eval(...)
     ]
 

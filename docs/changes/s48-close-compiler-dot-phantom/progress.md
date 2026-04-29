@@ -11,4 +11,22 @@
 - [00:08] Ran `bun run pretest` — compiled 12 test samples to `samples/compilation-tests/dist/`.
 - [00:09] Ran `bun run compiler/scripts/build-self-host.js` — meta-checker.js built successfully (other modules have pre-existing failures, not relevant).
 - [00:10] Pre-snapshot baseline: **7954 pass / 40 skip / 0 fail** (better than recon's expected 7941/40/2).
-- [00:11] Wrote pre-snapshot.md.
+- [00:11] Wrote pre-snapshot.md, committed (2174f49).
+- [00:12] Edits to `compiler/src/meta-checker.ts`:
+  - Edit 1: doc comment line 12 — drop `compiler.*` from "(reflect, bun.eval, emit, compiler.*)"
+  - Edit 2: delete `\bcompiler\s*\.` regex from `COMPILE_TIME_API_PATTERNS`
+  - Edit 3: delete `exprNodeContainsIdentNamed` helper (lines 367-388) AND the wire-up at testExprNode
+  - Edit 4: drop `compiler.*` from E-META-005 phase-separation message text
+  - Edit 5a: add new helper `bodyReferencesCompilerNamespace` (with ExprNode primary path + string fallback)
+  - Edit 5b: wire E-META-010 emission into `runMetaChecker` per-meta-block loop, immediately after E-META-009
+  - Edit 6: update module-level doc comment with E-META-009 and E-META-010 entries
+- [00:13] Edits to test files:
+  - `compiler/tests/unit/meta-checker.test.js`: deleted §53 test + its header doc line; added 5 new tests in `§22.4 / S48 — compiler.* phantom closed (E-META-010) + E-META-009 backfill` describe block; added `bodyReferencesCompilerNamespace` to imports.
+  - `compiler/tests/unit/self-host-meta-checker.test.js`: deleted "detects compiler. access in bare-expr" test.
+  - `compiler/tests/unit/meta-classifier-emit-raw.test.js`: renamed misleading test (body uses `reflect()` not `compiler.*`); body unchanged.
+- [00:14] Edits to self-host scrml files (BOTH copies; build-self-host reads from `stdlib/compiler/`):
+  - Doc comment line 11 — drop `compiler.*`
+  - Line 120 — delete `\bcompiler\s*\.` regex from `COMPILE_TIME_API_PATTERNS`
+- [00:15] Rebuilt `compiler/dist/self-host/meta-checker.js` via `bun run compiler/scripts/build-self-host.js` — meta-checker passes (other modules have pre-existing failures). Dist artifact is gitignored.
+- [00:16] Full test suite: **7957 pass / 40 skip / 0 fail** (baseline 7954 → +3 net). 5 added, 2 deleted = +3.
+- [00:17] Next: SPEC.md edits (§22.4, §22.8, §22.11, §34) + SPEC-INDEX regen.
