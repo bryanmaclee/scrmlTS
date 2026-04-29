@@ -348,7 +348,10 @@ describe("§8: emit-html emits data-scrml-bind-if for expr kind", () => {
     const registry = new BindingRegistry();
     const html = generateHtml([node], errors, false, registry, null);
 
-    expect(html).toContain("data-scrml-bind-if=");
+    // Phase 2c (B1): clean-subtree if= emits <template id="..."> + marker comment.
+    expect(html).toContain('<template id="');
+    expect(html).toContain("scrml-if-marker:");
+    expect(html).not.toContain("data-scrml-bind-if=");
     expect(errors).toHaveLength(0);
   });
 
@@ -374,9 +377,13 @@ describe("§9: emit-html registry binding has condExpr + refs", () => {
     const registry = new BindingRegistry();
     generateHtml([node], errors, false, registry, null);
 
-    const binding = registry.logicBindings.find(b => b.isConditionalDisplay);
+    // Phase 2c: clean-subtree if= registers an isMountToggle binding (was isConditionalDisplay
+    // pre-Phase-2c). isConditionalDisplay is only used for the non-clean fallback path.
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
     expect(binding).toBeDefined();
-    expect(binding.isConditionalDisplay).toBe(true);
+    expect(binding.isMountToggle).toBe(true);
+    expect(binding.templateId).toBeDefined();
+    expect(binding.markerId).toBeDefined();
   });
 
   test("binding has condExpr with the raw expression text", () => {
@@ -385,7 +392,7 @@ describe("§9: emit-html registry binding has condExpr + refs", () => {
     const registry = new BindingRegistry();
     generateHtml([node], errors, false, registry, null);
 
-    const binding = registry.logicBindings.find(b => b.isConditionalDisplay);
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
     expect(binding.condExpr).toBe("!@active");
   });
 
@@ -395,7 +402,7 @@ describe("§9: emit-html registry binding has condExpr + refs", () => {
     const registry = new BindingRegistry();
     generateHtml([node], errors, false, registry, null);
 
-    const binding = registry.logicBindings.find(b => b.isConditionalDisplay);
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
     expect(binding.refs).toContain("a");
     expect(binding.refs).toContain("b");
   });
@@ -465,15 +472,20 @@ describe("§11: emit-event-wiring compiles @var → _scrml_reactive_get('var')",
     expect(out.clientJs).toContain("&&");
   });
 
-  test("conditional display uses el.style.display toggle", () => {
+  test("clean-subtree if= emits mount/unmount controller (replaces display-toggle for clean subtrees)", () => {
+    // Phase 2c: was "conditional display uses el.style.display toggle" pre-Phase-2c.
+    // Clean subtrees now emit the mount/unmount controller; the display-toggle
+    // assertion is preserved on the non-clean fallback path (see §11 fallback test
+    // and event-delegation.test.js for that branch).
     const node = makeMarkupNode("div", [exprAttr("if", "!@active", ["active"])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    expect(out.clientJs).toContain('el.style.display');
-    expect(out.clientJs).toContain('"none"');
+    expect(out.clientJs).toContain("_scrml_mount_template");
+    expect(out.clientJs).toContain("_scrml_unmount_scope");
+    expect(out.clientJs).not.toContain("el.style.display");
   });
 });
 
@@ -482,16 +494,18 @@ describe("§11: emit-event-wiring compiles @var → _scrml_reactive_get('var')",
 // ---------------------------------------------------------------------------
 
 describe("§12: negation expression wiring", () => {
-  test("if=!@active: element hidden when active is truthy", () => {
+  test("if=!@active: element unmounts when active is truthy", () => {
+    // Phase 2c: clean-subtree if= mounts/unmounts. The condition expression
+    // (!_scrml_reactive_get("active")) is reused verbatim in the controller —
+    // truthy → mount, falsy → unmount. The legacy `"none"` literal is gone.
     const node = makeMarkupNode("div", [exprAttr("if", "!@active", ["active"])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    // Should contain: (!_scrml_reactive_get("active")) ? "" : "none"
     expect(out.clientJs).toContain('!_scrml_reactive_get("active")');
-    expect(out.clientJs).toContain('"none"');
+    expect(out.clientJs).toContain("_scrml_unmount_scope");
   });
 });
 
@@ -534,25 +548,33 @@ describe("§14: logical OR — both refs subscribed", () => {
 // ---------------------------------------------------------------------------
 
 describe("§15: backward compat — if=@var still works via variable-ref", () => {
-  test("if=@active still emits data-scrml-bind-if placeholder", () => {
+  test("if=@active emits <template>+marker for clean subtrees (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if=@var compiles to template + marker, NOT
+    // data-scrml-bind-if (which is now reserved for the non-clean fallback path).
     const node = makeMarkupNode("div", [varRefAttr("if", "@active")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    expect(out.html).toContain("data-scrml-bind-if=");
+    expect(out.html).toContain('<template id="');
+    expect(out.html).toContain("scrml-if-marker:");
+    expect(out.html).not.toContain("data-scrml-bind-if=");
   });
 
-  test("if=@active subscribes to 'active' and uses simple display toggle", () => {
+  test("if=@active subscribes to 'active' and uses mount/unmount controller (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if=@var emits the mount/unmount controller —
+    // _scrml_effect remains (subscription mechanism unchanged) but el.style.display
+    // is replaced by _scrml_mount_template / _scrml_unmount_scope.
     const node = makeMarkupNode("div", [varRefAttr("if", "@active")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    expect(out.clientJs).toContain('_scrml_effect');
-    expect(out.clientJs).toContain('el.style.display');
+    expect(out.clientJs).toContain("_scrml_effect");
+    expect(out.clientJs).toContain("_scrml_mount_template");
+    expect(out.clientJs).not.toContain("el.style.display");
   });
 
   test("if=@active wiring uses _scrml_reactive_get('active')", () => {
@@ -651,7 +673,10 @@ describe("§16: tokenizer emits ATTR_EXPR for unquoted parenthesized if= express
     expect(name).toContain("obj");
   });
 
-  test("if=@obj.prop — emit-html generates data-scrml-bind-if placeholder", () => {
+  test("if=@obj.prop — emit-html generates <template>+marker for clean subtree (Phase 2c B1)", () => {
+    // Phase 2c: dot-path variable-ref still passes the cleanliness gate; emits
+    // template + marker instead of data-scrml-bind-if. The dotPath is preserved
+    // on the binding for the controller's _scrml_reactive_get(...).<path> lookup.
     const attrs = parseAttrs("<div if=@obj.prop>text</>");
     const ifAttr = attrs.find(a => a.name === "if");
     const registry = new BindingRegistry();
@@ -659,7 +684,12 @@ describe("§16: tokenizer emits ATTR_EXPR for unquoted parenthesized if= express
     const fileAST = makeFileAST([node]);
     resetVarCounter();
     const html = generateHtml(fileAST.nodes, [], false, registry, fileAST);
-    expect(html).toContain("data-scrml-bind-if");
+    expect(html).toContain('<template id="');
+    expect(html).toContain("scrml-if-marker:");
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
+    expect(binding).toBeDefined();
+    expect(binding.dotPath).toBe("obj.prop");
+    expect(binding.varName).toBe("obj");
   });
 
   test("if=@user.loggedIn — property access on reactive var is valid", () => {

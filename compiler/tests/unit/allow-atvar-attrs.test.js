@@ -141,34 +141,46 @@ describe("§1: show=@count produces data-scrml-bind-show", () => {
 // ---------------------------------------------------------------------------
 
 describe("§2: if=@visible compiles correctly", () => {
-  test("if=@visible produces data-scrml-bind-if", () => {
+  test("if=@visible produces <template>+marker for clean subtrees (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if=@var emits template + marker instead of
+    // data-scrml-bind-if. The placeholder mechanism shifts from a DOM attribute
+    // to a comment marker that _scrml_mount_template / _scrml_unmount_scope locate.
     const node = makeMarkupNode("div", [varRefAttr("if", "@visible")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.html).toContain("data-scrml-bind-if=");
+    expect(out.html).toContain('<template id="');
+    expect(out.html).toContain("scrml-if-marker:");
+    expect(out.html).not.toContain("data-scrml-bind-if=");
   });
 
-  test("if=@visible wires reactive subscription", () => {
+  test("if=@visible wires reactive subscription via mount/unmount controller (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if=@var emits the mount/unmount controller. The
+    // _scrml_effect subscription is preserved; el.style.display is replaced by
+    // _scrml_mount_template / _scrml_unmount_scope.
     const node = makeMarkupNode("div", [varRefAttr("if", "@visible")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain('_scrml_effect(');
-    expect(out.clientJs).toContain("el.style.display");
+    expect(out.clientJs).toContain("_scrml_effect(");
+    expect(out.clientJs).toContain("_scrml_mount_template");
+    expect(out.clientJs).not.toContain("el.style.display");
   });
 
-  test("if=@visible does not strip the @ prefix", () => {
+  test("if=@visible does not strip the @ prefix (Phase 2c emits <template>+marker)", () => {
+    // Phase 2c: clean-subtree if=@var emits template + marker. The original
+    // assertion (no leaked literal `if="visible"` HTML attribute) still holds —
+    // the @-prefixed reactive form must NEVER produce a literal HTML attribute.
     const node = makeMarkupNode("span", [varRefAttr("if", "@visible")], [
       { kind: "text", value: "shown", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    // if= should NOT produce if="visible" — it produces data-scrml-bind-if
     expect(out.html).not.toContain('if="visible"');
-    expect(out.html).toContain("data-scrml-bind-if=");
+    expect(out.html).toContain('<template id="');
+    expect(out.html).toContain("scrml-if-marker:");
   });
 });
 
@@ -344,13 +356,17 @@ describe("§8: @-prefixed attribute with dotted path", () => {
     expect(out.html).not.toContain('show="obj.field"');
   });
 
-  test("if=@user.loggedIn keeps @ behavior (reactive binding)", () => {
+  test("if=@user.loggedIn keeps @ behavior (reactive binding via Phase 2c B1)", () => {
+    // Phase 2c: dot-path variable-ref passes the cleanliness gate. Emits
+    // template + marker; the `if="user.loggedIn"` literal-HTML attribute
+    // must still NEVER leak (the original guarantee).
     const node = makeMarkupNode("div", [varRefAttr("if", "@user.loggedIn")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.html).toContain("data-scrml-bind-if=");
+    expect(out.html).toContain('<template id="');
+    expect(out.html).toContain("scrml-if-marker:");
     expect(out.html).not.toContain('if="user.loggedIn"');
   });
 });

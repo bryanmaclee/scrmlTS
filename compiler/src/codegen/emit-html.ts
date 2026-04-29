@@ -549,54 +549,58 @@ export function generateHtml(
       }
 
       // ---------------------------------------------------------------------
-      // Phase 2b of if/show split — DEFERRED to Phase 2c (2026-04-29 wrap).
+      // Phase 2c (LIVE): if/show split mount/unmount path for clean subtrees.
       //
-      // The codegen below would route clean-subtree if= elements through
-      // template + marker emission, registering an isMountToggle binding for
-      // emit-event-wiring to consume. It is correct (verified by hand against
-      // control-if-mount-basic.scrml) but deferred because activating it
-      // simultaneously fails ~22 existing tests that lock in the OLD
-      // display-toggle behavior. Group the test churn into one disciplined
-      // commit alongside the rest of the Phase 2 work (see hand-off doc).
+      // Per SPEC §17.1 if= is DOM existence, not visibility — the element is
+      // not rendered when the condition is false. Clean-subtree if= elements
+      // (lowercase tag, all attributes wiring-free, all descendants in
+      // {text, comment, markup} with the same constraints recursively) compile
+      // to a <template id="..."> wrapping the inner element + a
+      // <!--scrml-if-marker:N--> placeholder comment. emit-event-wiring then
+      // emits a controller that calls _scrml_mount_template on truthy and
+      // _scrml_unmount_scope on falsy (LIFO scope teardown per §6.7.2).
       //
-      // The helper functions attrIsWiringFree / isCleanIfNode / isCleanIfSubtree
-      // are kept (declared above) — they will be used as-is when Phase 2c
-      // re-enables the early-out below.
+      // Non-clean subtrees (events, binds, transitions, components, nested
+      // reactive content, expr attributes, …) fall through to the legacy
+      // display-toggle path below. Phase 2d-2h will progressively widen the
+      // cleanliness gate.
       //
-      // To re-enable: uncomment the block below; update the failing tests in
-      // if-expression.test.js, allow-atvar-attrs.test.js, code-generator.test.js
-      // to assert the new emission shape (<template id="..."> + marker comment
-      // + _scrml_mount_template / _scrml_unmount_scope client wiring).
+      // Approach B1 (template + marker comment) was locked by the user in
+      // S49 after a 5-phase deep-dive. Alternatives B4 (DOM-keep + scope-swap)
+      // and B5 (compile-time-static-analysis + hide-on-init) eliminated on
+      // §17.1 verbatim, cross-ecosystem dev expectation, stale-DOM event
+      // delegation hazard, and Svelte 5 PR sveltejs/svelte#603 (separating
+      // unmount from destroy) grounds. See deep-dive §3, §8, §10.
       // ---------------------------------------------------------------------
-      // const ifAttrCheck = attrs.find((a: any) => a.name === "if");
-      // if (
-      //   ifAttrCheck &&
-      //   ifAttrCheck.value &&
-      //   (ifAttrCheck.value.kind === "variable-ref" || ifAttrCheck.value.kind === "expr") &&
-      //   !/^[A-Z]/.test(tag) &&
-      //   attrs.every((a: any) => attrIsWiringFree(a, "if")) &&
-      //   isCleanIfSubtree(children)
-      // ) {
-      //   const ifVal = ifAttrCheck.value;
-      //   const templateId = genVar("scrml_tpl");
-      //   const markerId = genVar("if_marker");
-      //   parts.push(`<template id="${templateId}">`);
-      //   const innerNode = { ...node, attributes: attrs.filter((a: any) => a.name !== "if"), attrs: attrs.filter((a: any) => a.name !== "if") };
-      //   emitNode(innerNode);
-      //   parts.push(`</template>`);
-      //   parts.push(`<!--scrml-if-marker:${markerId}-->`);
-      //   if (registry) {
-      //     if (ifVal.kind === "variable-ref") {
-      //       const ifVarName = (ifVal.name ?? "").replace(/^@/, "");
-      //       const ifBaseVar = ifVarName.split(".")[0];
-      //       const hasDotPath = ifVarName.includes(".");
-      //       registry.addLogicBinding({ placeholderId: markerId, expr: `@${ifVarName}`, isMountToggle: true, templateId, markerId, varName: ifBaseVar, ...(hasDotPath ? { dotPath: ifVarName } : {}) } as any);
-      //     } else {
-      //       registry.addLogicBinding({ placeholderId: markerId, expr: ifVal.raw, isMountToggle: true, templateId, markerId, condExpr: ifVal.raw, condExprNode: ifVal.exprNode, refs: ifVal.refs } as any);
-      //     }
-      //   }
-      //   return;
-      // }
+      const ifAttrCheck = attrs.find((a: any) => a.name === "if");
+      if (
+        ifAttrCheck &&
+        ifAttrCheck.value &&
+        (ifAttrCheck.value.kind === "variable-ref" || ifAttrCheck.value.kind === "expr") &&
+        !/^[A-Z]/.test(tag) &&
+        attrs.every((a: any) => attrIsWiringFree(a, "if")) &&
+        isCleanIfSubtree(children)
+      ) {
+        const ifVal = ifAttrCheck.value;
+        const templateId = genVar("scrml_tpl");
+        const markerId = genVar("if_marker");
+        parts.push(`<template id="${templateId}">`);
+        const innerNode = { ...node, attributes: attrs.filter((a: any) => a.name !== "if"), attrs: attrs.filter((a: any) => a.name !== "if") };
+        emitNode(innerNode);
+        parts.push(`</template>`);
+        parts.push(`<!--scrml-if-marker:${markerId}-->`);
+        if (registry) {
+          if (ifVal.kind === "variable-ref") {
+            const ifVarName = (ifVal.name ?? "").replace(/^@/, "");
+            const ifBaseVar = ifVarName.split(".")[0];
+            const hasDotPath = ifVarName.includes(".");
+            registry.addLogicBinding({ placeholderId: markerId, expr: `@${ifVarName}`, isMountToggle: true, templateId, markerId, varName: ifBaseVar, ...(hasDotPath ? { dotPath: ifVarName } : {}) } as any);
+          } else {
+            registry.addLogicBinding({ placeholderId: markerId, expr: ifVal.raw, isMountToggle: true, templateId, markerId, condExpr: ifVal.raw, condExprNode: ifVal.exprNode, refs: ifVal.refs } as any);
+          }
+        }
+        return;
+      }
 
       parts.push(`<${tag}`);
 
