@@ -11050,6 +11050,7 @@ Where:
 | E-META-001 | Runtime `^{}` block used when `meta.runtime` is `false` | Error |
 | E-META-002 | Invalid token inside `^{}` meta block (existing) | Error |
 | E-META-003 | `reflect()` called on unknown type in compile-time meta (existing) | Error |
+| E-META-004 | *Reserved.* Number unallocated; do not reuse — preserved for forensic search-hit stability against historical bug reports and design notes that may reference E-META-004. Future codes SHOULD start at E-META-011. | — |
 | E-META-005 | `^{}` block mixes compile-time API patterns with runtime-only values | Error |
 | E-META-006 | `lift` call inside a `^{}` block | Error |
 | E-META-007 | `?{}` SQL context inside a runtime `^{}` block | Error |
@@ -12221,6 +12222,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-LIN-002 | §35.5 | `lin` variable consumed more than once | Error |
 | E-LIN-003 | §35.5 | `lin` variable consumed in some branches but not all | Error |
 | E-META-001 | §22.6 | `^{ }` block requires runtime but `meta.runtime` is `false` | Error |
+| E-META-004 | §22.11 | *Reserved* — number unallocated; preserved for search-hit stability. Do not reuse. | — |
 | E-META-009 | §22.11 | Nested `^{}` inside a compile-time `^{}` block | Error |
 | E-META-010 | §22.4, §22.11 | Reference to the reserved `compiler.*` namespace in a `^{}` block | Error |
 | E-PURE-001 | §33.4 | `pure` function contains a purity violation | Error |
