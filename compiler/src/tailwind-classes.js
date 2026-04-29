@@ -6,9 +6,15 @@
  * PostCSS, or purge step is required.
  *
  * Exports:
- *   getTailwindCSS(className)       — returns CSS rule string or null
- *   getAllUsedCSS(classNames[])     — returns combined CSS string for all matched classes
- *   scanClassesFromHtml(html)       — extracts all class names from HTML class="" attributes
+ *   getTailwindCSS(className)            — returns CSS rule string or null
+ *   getAllUsedCSS(classNames[])          — returns combined CSS string for all matched classes
+ *   scanClassesFromHtml(html)            — extracts all class names from HTML class="" attributes
+ *   findUnsupportedTailwindShapes(src)   — returns W-TAILWIND-001 diagnostics for class strings
+ *                                          that look like Tailwind variant/arbitrary syntax
+ *                                          (SPEC §26.3, SPEC-ISSUE-012). The full variant +
+ *                                          arbitrary-value system is not yet supported, so the
+ *                                          warning fires on shape regardless of whether the
+ *                                          embedded engine has incidental partial support.
  */
 
 // ---------------------------------------------------------------------------
@@ -736,6 +742,174 @@ export function scanClassesFromHtml(html) {
   }
 
   return [...classNames];
+}
+
+// ---------------------------------------------------------------------------
+// W-TAILWIND-001: unsupported Tailwind syntax detection (SPEC §26.3,
+// SPEC-ISSUE-012). The full Tailwind variant + arbitrary-value system is
+// listed as TBD in §26.3 — when adopters write class strings using that
+// syntax the embedded engine either silently drops them (e.g.
+// `p-[1.5rem]`) or, for incidentally-handled prefixes (e.g. `md:`,
+// `hover:`), happens to emit a rule today but the spec considers the
+// feature unfinished. This pre-pass surfaces a warning on every class
+// whose shape suggests variant or arbitrary-value syntax so adopters are
+// not surprised when SPEC-ISSUE-012 closes and the semantics may shift.
+//
+// Detection rule:
+//   1. Skip names that contain neither `:` nor `[` (look like USER classes).
+//   2. Otherwise fire — the name has Tailwind variant or arbitrary-value
+//      shape and falls under SPEC-ISSUE-012.
+//
+// False positives on user-defined classes named like `weird:name` are
+// acceptable; users can rename. Better to over-warn than to silently drop.
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a flat string offset to { line, column } (1-based).
+ *
+ * @param {string} source
+ * @param {number} offset — byte offset into source
+ * @returns {{ line: number, column: number }}
+ */
+function offsetToLineCol(source, offset) {
+  let line = 1;
+  let lastNewline = -1;
+  for (let i = 0; i < offset && i < source.length; i++) {
+    if (source[i] === "\n") {
+      line++;
+      lastNewline = i;
+    }
+  }
+  const column = offset - lastNewline;
+  return { line, column };
+}
+
+/**
+ * Replace each `${...}` interpolation region in the given string with the same
+ * number of spaces. Preserves source byte offsets so callers can keep using
+ * `attrMatch.index + classMatch.index` arithmetic against the original source.
+ *
+ * Handles brace-balanced `${...}` (nested objects, ternary expressions, etc.).
+ * If a `${` has no matching closing `}` the rest of the string is masked.
+ *
+ * Used by `findUnsupportedTailwindShapes` to avoid false-positive warnings on
+ * the contents of `class="${cond ? 'a' : 'b'}"` (the `:` from the ternary
+ * would otherwise be parsed as a Tailwind variant shape).
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function maskInterpolations(value) {
+  let out = "";
+  let i = 0;
+  while (i < value.length) {
+    if (value[i] === "$" && value[i + 1] === "{") {
+      // Brace-balanced scan.
+      let depth = 1;
+      let j = i + 2;
+      while (j < value.length && depth > 0) {
+        if (value[j] === "{") depth++;
+        else if (value[j] === "}") depth--;
+        if (depth === 0) break;
+        j++;
+      }
+      // Replace [i, j+1] with spaces (preserving newlines so offsetToLineCol
+      // still produces correct line numbers).
+      const end = Math.min(j + 1, value.length);
+      for (let k = i; k < end; k++) {
+        out += value[k] === "\n" ? "\n" : " ";
+      }
+      i = end;
+    } else {
+      out += value[i];
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
+ * @typedef {{
+ *   line: number,
+ *   column: number,
+ *   className: string,
+ *   message: string,
+ *   severity: 'warning',
+ *   code: 'W-TAILWIND-001',
+ * }} TailwindLintDiagnostic
+ */
+
+/**
+ * Scan a source string (any text, typically a `.scrml` file) for class names
+ * inside `class="..."` attributes that look like Tailwind variant or
+ * arbitrary-value syntax. Return one diagnostic per offending (offset, class)
+ * pair. Within a single `class="..."` value duplicate offenders are reported
+ * once; across multiple `class=` attributes each occurrence is reported.
+ *
+ * `${...}` interpolation regions inside the attribute value are masked before
+ * scanning so dynamic-class expressions like `class="${cond ? 'a' : 'b'}"`
+ * do not produce false positives on the ternary's `:`.
+ *
+ * @param {string} source
+ * @returns {TailwindLintDiagnostic[]}
+ */
+export function findUnsupportedTailwindShapes(source) {
+  if (!source || typeof source !== "string") return [];
+
+  const diagnostics = [];
+  const attrRe = /\bclass="([^"]*)"/g;
+  let attrMatch;
+
+  while ((attrMatch = attrRe.exec(source)) !== null) {
+    const attrValue = attrMatch[1];
+    const attrValueStart = attrMatch.index + attrMatch[0].indexOf('"') + 1;
+
+    // Mask out ${...} interpolation regions inside the attribute value. Their
+    // contents are JS expressions that frequently include ':' (ternaries) and
+    // would otherwise produce false-positive W-TAILWIND-001 diagnostics. The
+    // mask preserves length so source offsets stay accurate.
+    const masked = maskInterpolations(attrValue);
+
+    // Walk the (masked) attribute value, recording each class name and its
+    // source offset. Classes are whitespace-separated; we need per-class
+    // offsets so messages point at the offending class, not the start of the
+    // attribute.
+    const classRe = /\S+/g;
+    let classMatch;
+    const seenInThisAttr = new Set();
+    while ((classMatch = classRe.exec(masked)) !== null) {
+      const cls = classMatch[0];
+      if (seenInThisAttr.has(cls)) continue;
+      seenInThisAttr.add(cls);
+
+      // Skip user-shaped classes (no Tailwind variant/arbitrary syntax).
+      if (!cls.includes(":") && !cls.includes("[")) continue;
+
+      // Tailwind-shape: emit W-TAILWIND-001. The full variant + arbitrary-value
+      // system is unfinished (SPEC-ISSUE-012) so we warn on shape regardless of
+      // whether the embedded engine has incidental partial support — adopters
+      // should treat all such classes as TBD until that issue closes.
+      const offset = attrValueStart + classMatch.index;
+      const { line, column } = offsetToLineCol(source, offset);
+      diagnostics.push({
+        line,
+        column,
+        className: cls,
+        message:
+          `Line ${line}: Class \`${cls}\` looks like Tailwind variant/arbitrary ` +
+          `syntax which is not yet supported in this scrml revision ` +
+          `(SPEC-ISSUE-012). The class will not produce any CSS. Use a base ` +
+          `utility class (e.g. \`p-4\` instead of \`md:p-4\`) or define your ` +
+          `own CSS rule.`,
+        severity: "warning",
+        code: "W-TAILWIND-001",
+      });
+    }
+  }
+
+  // Sort by line, then column for deterministic output (mirrors lintGhostPatterns).
+  diagnostics.sort((a, b) => a.line !== b.line ? a.line - b.line : a.column - b.column);
+  return diagnostics;
 }
 
 // ---------------------------------------------------------------------------
