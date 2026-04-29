@@ -1,9 +1,9 @@
 # SPEC.md Section Index
 
 > Auto-generated line numbers. Regenerate: `bash scripts/update-spec-index.sh`
-> Last updated: 2026-04-29 (S48 — `compiler.*` phantom closed; §22.4 amended, E-META-009 + E-META-010 backfilled to §22.11 + §34).
+> Last updated: 2026-04-29 (S49 — Tailwind 3 (§26 substantially extended: §26.3 retitled, new §26.4 arbitrary values, new §26.5 open items); W-TAILWIND-001 + E-TAILWIND-001 added to §34. Sections from §22 onward have minor accumulated drift; comprehensive realign deferred to next session-wrap.)
 
-Total lines: 20,448 | Total sections: 54 + appendices
+Total lines: 20,521 | Total sections: 54 + appendices
 
 > **Note on §49 heading format:** SPEC.md §49 uses a single `#` (H1) at line 15800 instead of the `## N.` pattern every other section uses. The regenerator script will not pick it up automatically — keep this in mind when running the script.
 
@@ -42,15 +42,15 @@ Total lines: 20,448 | Total sections: 54 + appendices
 | 23 | Foreign Code Contexts (`_{}`) | 11062-11504 | 443 | Level-marked braces, opaque passthrough, WASM sigils, sidecars |
 | 24 | HTML Spec Awareness | 11505-11530 | 26 | Element registry, shape constraints |
 | 25 | CSS Variable Syntax | 11531-11629 | 99 | Defining/using vars, hyphenated names, scoping |
-| 26 | Tailwind Utility Classes | 11630-11650 | 21 | Integration model |
-| 27 | Comment Syntax | 11651-11671 | 21 | Universal `//`, per-context native comments |
+| 26 | Tailwind Utility Classes | 11630-11721 | 92 | Integration model; **§26.3 Variant Prefixes (S49)** with W-TAILWIND-001 emission rule; **§26.4 Arbitrary Values (S49 NEW)** with §26.4.1 validation + §26.4.2 cross-feature; **§26.5 Open Items (S49)** group-*/peer-*/custom-theme deferred |
+| 27 | Comment Syntax | 11722-11742 | 21 | Universal `//`, per-context native comments |
 | 28 | Compiler Settings | 11672-11707 | 36 | html-content-model setting |
 | 29 | Vanilla File Interop | 11708-11716 | 9 | Plain JS/CSS/HTML interop |
 | 30 | Compile-Time Eval — `bun.eval()` | 11717-11747 | 31 | Scope, markup interpolation, security |
 | 31 | Dependency Graph | 11748-11771 | 24 | Purpose, construction, route analysis |
 | 32 | The `~` Keyword | 11772-11983 | 212 | Pipeline accumulator, lin variable, context boundary |
 | 33 | The `pure` Keyword | 11984-12048 | 65 | Purity constraints, **§33.6 fn ≡ pure function (S32)**, W-PURE-REDUNDANT |
-| 34 | Error Codes | 12049-12251 | 203 | All error code definitions (+6/-1 S32: E-STATE-COMPLETE, E-MACHINE-DIVERGENCE, E-STATE-SUBSTATE-*, E-STATE-TERMINAL-*; +2 S48: E-META-009, E-META-010) |
+| 34 | Error Codes | 12120-12324 | 205 | All error code definitions (+6/-1 S32: E-STATE-COMPLETE, E-MACHINE-DIVERGENCE, E-STATE-SUBSTATE-*, E-STATE-TERMINAL-*; +2 S48: E-META-009, E-META-010; +2 S49: W-TAILWIND-001, E-TAILWIND-001) |
 | 35 | Linear Types — `lin` | 12252-12713 | 462 | Declaration (exactly-once + restricted intermediate visibility), consumption, control flow, closures, lin function params (§35.2.1), cross-`${}` block lin (§35.2.2), E-LIN-005 shadowing + E-LIN-006 deferred-ctx (§35.5) |
 | 36 | Input State Types | 12714-13071 | 358 | `<keyboard>`, `<mouse>`, `<gamepad>` |
 | 37 | Server-Sent Events | 13072-13313 | 242 | `server function*` SSE generators |
