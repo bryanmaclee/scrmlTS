@@ -5,14 +5,18 @@
  * pipeline: tokenizer → AST builder → codegen.
  *
  * Coverage:
- *   §1  show=@count compiles without error (@ stripped, same as show=count)
+ *   §1  show=@count produces data-scrml-bind-show placeholder (Phase 1 — visibility-toggle directive)
  *   §2  if=@visible compiles correctly (produces data-scrml-bind-if)
- *   §3  show=count still works (no regression)
+ *   §3  show=count (no @) still produces literal HTML attribute (no regression)
  *   §4  bind:value=@var still works (no regression)
  *   §5  Tokenizer accepts @ in attribute values
  *   §6  AST builder preserves @ in variable-ref name
  *   §7  Multiple @-prefixed attributes on same element
- *   §8  @-prefixed attribute with dotted path (show=@obj.field)
+ *   §8  @-prefixed attribute with dotted path (show=@obj.field, if=@user.loggedIn)
+ *
+ * Phase 1 (2026-04-29): show=@var is now a reactive visibility-toggle directive.
+ * Previously show=@var was treated as a generic HTML attribute (@ stripped).
+ * Generic attributes other than if=/show= still strip @ (e.g., title=@name).
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
@@ -97,10 +101,10 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// §1  show=@count compiles without error (@ stripped, same as show=count)
+// §1  show=@count produces data-scrml-bind-show placeholder
 // ---------------------------------------------------------------------------
 
-describe("§1: show=@count compiles without error", () => {
+describe("§1: show=@count produces data-scrml-bind-show", () => {
   test("tokenizer accepts show=@count", () => {
     const tokens = tokenizeAttributes("<div show=@count>", 0, 1, 1, "markup");
     const identTok = tokens.find(t => t.kind === "ATTR_IDENT");
@@ -119,15 +123,16 @@ describe("§1: show=@count compiles without error", () => {
     expect(attrErrors).toHaveLength(0);
   });
 
-  test("codegen strips @ and outputs show=\"count\" (same as show=count)", () => {
+  test("codegen produces data-scrml-bind-show for reactive show=@count", () => {
     const node = makeMarkupNode("div", [varRefAttr("show", "@count")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.html).toContain('show="count"');
-    // No data-scrml-bind-show placeholder — @ was stripped
-    expect(out.html).not.toContain("data-scrml-bind-show");
+    // Phase 1: show=@var is a reactive visibility-toggle directive
+    expect(out.html).toContain("data-scrml-bind-show=");
+    // No literal show="count" attribute — the @ form is reactive
+    expect(out.html).not.toContain('show="count"');
   });
 });
 
@@ -171,7 +176,7 @@ describe("§2: if=@visible compiles correctly", () => {
 // §3  show=count still works (no regression)
 // ---------------------------------------------------------------------------
 
-describe("§3: show=count still works (no regression)", () => {
+describe("§3: show=count (no @) still produces literal HTML attribute", () => {
   test("show=count (no @) produces show=\"count\" literal", () => {
     const node = makeMarkupNode("div", [varRefAttr("show", "count")], [
       { kind: "text", value: "text", span: span(0) }
@@ -179,26 +184,32 @@ describe("§3: show=count still works (no regression)", () => {
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
     expect(out.html).toContain('show="count"');
+    // No reactive placeholder — non-@ form is still literal
+    expect(out.html).not.toContain("data-scrml-bind-show");
   });
 
-  test("show=@count and show=count produce identical output", () => {
-    // With @
+  test("show=@count (reactive) and show=count (literal) produce DIFFERENT output", () => {
+    // With @ — reactive visibility-toggle
     const nodeWith = makeMarkupNode("div", [varRefAttr("show", "@count")], [
       { kind: "text", value: "a", span: span(0) }
     ]);
     const resultWith = compile(nodeWith);
     const htmlWith = resultWith.outputs.get("/test/app.scrml").html;
+    expect(htmlWith).toContain("data-scrml-bind-show=");
 
     resetVarCounter();
 
-    // Without @
+    // Without @ — literal HTML attribute
     const nodeWithout = makeMarkupNode("div", [varRefAttr("show", "count")], [
       { kind: "text", value: "a", span: span(0) }
     ]);
     const resultWithout = compile(nodeWithout);
     const htmlWithout = resultWithout.outputs.get("/test/app.scrml").html;
+    expect(htmlWithout).toContain('show="count"');
+    expect(htmlWithout).not.toContain("data-scrml-bind-show");
 
-    expect(htmlWith).toBe(htmlWithout);
+    // Phase 1: these are now distinct directives
+    expect(htmlWith).not.toBe(htmlWithout);
   });
 });
 
@@ -285,7 +296,7 @@ describe("§6: AST builder preserves @ in variable-ref name", () => {
 // ---------------------------------------------------------------------------
 
 describe("§7: multiple @-prefixed attributes on same element", () => {
-  test("show=@x title=@y both strip @ in output", () => {
+  test("show=@x reactive, title=@y strips @ to literal", () => {
     const node = makeMarkupNode("div", [
       varRefAttr("show", "@x"),
       varRefAttr("title", "@y"),
@@ -294,11 +305,13 @@ describe("§7: multiple @-prefixed attributes on same element", () => {
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.html).toContain('show="x"');
+    // show= is a directive — reactive placeholder
+    expect(out.html).toContain("data-scrml-bind-show=");
+    // title= is a generic HTML attribute — @ stripped to literal
     expect(out.html).toContain('title="y"');
   });
 
-  test("if=@visible + show=@count — if reactive, show literal", () => {
+  test("if=@visible + show=@count — both reactive (Phase 1)", () => {
     const node = makeMarkupNode("div", [
       varRefAttr("if", "@visible"),
       varRefAttr("show", "@count"),
@@ -308,7 +321,10 @@ describe("§7: multiple @-prefixed attributes on same element", () => {
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
     expect(out.html).toContain("data-scrml-bind-if=");
-    expect(out.html).toContain('show="count"');
+    expect(out.html).toContain("data-scrml-bind-show=");
+    // Neither is a literal HTML attribute
+    expect(out.html).not.toContain('show="count"');
+    expect(out.html).not.toContain('if="visible"');
   });
 });
 
@@ -317,13 +333,15 @@ describe("§7: multiple @-prefixed attributes on same element", () => {
 // ---------------------------------------------------------------------------
 
 describe("§8: @-prefixed attribute with dotted path", () => {
-  test("show=@obj.field strips @ and outputs show=\"obj.field\"", () => {
+  test("show=@obj.field produces data-scrml-bind-show with reactive dot-path", () => {
     const node = makeMarkupNode("div", [varRefAttr("show", "@obj.field")], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.html).toContain('show="obj.field"');
+    // Phase 1: show= is a directive; dot-paths route through reactive binding
+    expect(out.html).toContain("data-scrml-bind-show=");
+    expect(out.html).not.toContain('show="obj.field"');
   });
 
   test("if=@user.loggedIn keeps @ behavior (reactive binding)", () => {

@@ -336,7 +336,7 @@ ${
 
 `class:active=@active` adds or removes the CSS class `active` based on the truthiness of `@active`. It leaves the rest of the `class` attribute alone — if you combine `class="card"` with `class:active=@expanded`, the card is either `"card"` or `"card active"` depending on `@expanded`.
 
-`onkeydown=handleKey()` passes the native event object implicitly: the handler receives it as its first argument if declared (we named it `e`). This is another area where plain HTML's string-based event attributes are extended to first-class function calls.
+`onkeydown=${(e) => handleKey(e)}` is the form to use when the handler needs the native event object. The arrow function inside `${ ... }` runs on each event, receives the event as its argument, and forwards it to your handler. The shorter `onkeydown=handleKey()` form is also valid, but it does NOT pass the event — arguments to the call expression are forwarded as-is and only those arguments reach the handler. Use the call form for argument-only handlers (`onclick=remove(item.id)`); use the arrow form when you need the event itself.
 
 Every DOM event name works the same way: `onclick`, `oninput`, `onchange`, `onsubmit`, `onkeyup`, `onkeydown`, `onfocus`, `onblur`, `onmousedown`, `onmouseup`, `onmouseover`, and so on. If the name exists in the DOM, scrml accepts the attribute. Pointer events, composition events, animation events — all wired the same way.
 
@@ -1126,7 +1126,7 @@ This pattern is worth internalizing because it scales cleanly. Servers fetch and
 
 Calling a server function from a client function is a normal call. The arguments are serialized, shipped over HTTP, and the return value is shipped back. Errors propagate normally — a thrown exception on the server becomes a rejected call on the client, which bubbles to the nearest `<errorBoundary>` (Section 3.5). The network transport is invisible to your code, but you still need to think about latency: a call that would be instant locally might take 50–500ms over the wire.
 
-> **Note:** `server function` is the declaration form. You can also mark a single function as server-only with an `@server` prefix in some older snippets; prefer the `server function` form in new code, which is the canonical spelling.
+> **Note:** `server function` is the canonical declaration form for server-only logic. There is no shorter prefix-style spelling.
 
 ### 3.4 `protect=`
 
@@ -1167,7 +1167,7 @@ Two things to note. First, `<program auth="required">` at the top requires that 
 
 You can list multiple protected columns: `protect="password_hash, totp_secret, api_key"`. Any query that pulls any of these into a client-reachable code path is rejected. Server-to-server work — hashing the password during login, for instance — can still read them freely, because that code path does not cross the client boundary.
 
-`auth="required"` interacts with the rest of the program. Inside a protected program you have access to the authenticated user's identity through a `@@user` global (the double-`@` marks it as a framework-provided reactive). A login program would write `@@user` on successful authentication; a logout would clear it. The details of what an authenticated user looks like — fields, session lifetime, refresh behavior — are covered in the SPEC; for the purposes of this tutorial, `auth="required"` is a switch you flip when the page must be behind login.
+`auth="required"` interacts with the rest of the program. Unauthenticated requests are redirected to `/login` (override with `loginRedirect="/your-path"` on `<program>`). The details of how the authenticated session is exposed to your code — the user-identity surface, fields, lifetime, refresh behavior — are covered in `SPEC.md` §40; for the purposes of this tutorial, `auth="required"` is a switch you flip when the page must be behind login.
 
 The pair of `auth=` and `protect=` gives you the two halves of web security that are easy to get wrong: who can see the page, and which fields leave the server. Both are compile-time enforced, so a refactor cannot silently violate them.
 
@@ -1529,7 +1529,7 @@ ${
   ${ @shared count = 0 }
 </>
 
-<button onclick="@count = @count + 1">Clicked ${@count} times</button>
+<button onclick=${() => @count = @count + 1}>Clicked ${@count} times</button>
 ```
 
 **Schema-driven form.** A `reflect()` call inside `^{ ... }` iterates a struct's fields, producing one input per field at compile time. The runtime handler picks up the values from a `@form` reactive whose shape matches the struct.
@@ -1639,7 +1639,7 @@ If you spot a sigil in someone else's scrml code that is not in this list, the a
 
 ## Footnotes and hazards
 
-- `lin` (linear type) was sketched in early drafts of scrml as a Rust-style affine type. The concept is **queued for redesign**; the current implementation does not match the intended semantics. Do not teach, use, or rely on `lin` until the redesign lands.
+- `lin` (linear type) is normative in `SPEC.md` §35. Approach B was ratified after the redesign; basic exactly-once semantics ship today, with cross-`${}` block usage (§35.2.2) under final implementation polish. See `examples/19-lin-token.scrml` and `docs/lin.md` for working code. The keyword is intentionally not taught in the main tutorial flow because the use cases are advanced; it earns its own appendix when the polish settles.
 - Match arm separator is `=>` (canonical per `SPEC.md` §18.2). `->` is an accepted alias; `:>` still compiles but is deprecated and should not appear in new code.
 - Derived values use `const @name = expression`. The form `~name = expression` is **not supported** — if you see it in older material, treat it as an early sketch and translate to `const @`.
 - Database access uses a **nested `<db src="...">` block**, not a `db=` attribute on `<program>`. The attribute form does not compile.

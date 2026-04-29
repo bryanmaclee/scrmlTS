@@ -506,11 +506,14 @@ export function generateHtml(
           }
         } else if (val.kind === "variable-ref") {
           const varName: string = val.name ?? "";
-          if (varName.startsWith("@") && name === "if") {
-            // §3: if=@var — reactive conditional display binding.
-            // The @-prefix is meaningful here: it marks the variable as reactive.
+          if (varName.startsWith("@") && (name === "if" || name === "show")) {
+            // §17.1 / §17.2: if=@var / show=@var — reactive conditional binding.
+            // The @-prefix marks the variable as reactive.
+            // if=  → mount/unmount semantics (Phase 2 work; today: display-toggle)
+            // show= → display-toggle semantics (Vue v-show)
             const placeholderId = genVar(`attr_${name}`);
-            parts.push(` data-scrml-bind-if="${placeholderId}"`);
+            const dataAttr = name === "show" ? "data-scrml-bind-show" : "data-scrml-bind-if";
+            parts.push(` ${dataAttr}="${placeholderId}"`);
             if (registry) {
               const ifVarName = varName.replace(/^@/, "");
               const ifBaseVar = ifVarName.split(".")[0];
@@ -518,7 +521,7 @@ export function generateHtml(
               registry.addLogicBinding({
                 placeholderId,
                 expr: `@${ifVarName}`,
-                isConditionalDisplay: true,
+                ...(name === "show" ? { isVisibilityToggle: true } : { isConditionalDisplay: true }),
                 varName: ifBaseVar,
                 ...(hasDotPath ? { dotPath: ifVarName } : {}),
                 ...(transitionEnter ? { transitionEnter } : {}),
@@ -532,14 +535,15 @@ export function generateHtml(
             parts.push(` ${name}="${escapeHtmlAttr(resolved)}"`);
           }
         } else if (val.kind === "expr") {
-          if (name === "if") {
+          if (name === "if" || name === "show") {
             const placeholderId = genVar(`attr_${name}`);
-            parts.push(` data-scrml-bind-if="${placeholderId}"`);
+            const dataAttr = name === "show" ? "data-scrml-bind-show" : "data-scrml-bind-if";
+            parts.push(` ${dataAttr}="${placeholderId}"`);
             if (registry) {
               registry.addLogicBinding({
                 placeholderId,
                 expr: val.raw,
-                isConditionalDisplay: true,
+                ...(name === "show" ? { isVisibilityToggle: true } : { isConditionalDisplay: true }),
                 condExpr: val.raw,
                 condExprNode: val.exprNode,
                 refs: val.refs,

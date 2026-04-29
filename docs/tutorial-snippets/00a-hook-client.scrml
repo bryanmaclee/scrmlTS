@@ -13,8 +13,8 @@ ${
     @draft = ""
   }
 
-  function remove(i) {
-    @items = @items.filter((_, idx) => idx != i)
+  function remove(target) {
+    @items = @items.filter((it) => it != target)
   }
 }
 
@@ -31,7 +31,7 @@ ${
       for (let item of @items) {
         lift <li class="flex justify-between p-2 border-b">
           <span>${item}</span>
-          <button onclick=remove(0) class="text-red-600">x</button>
+          <button onclick=remove(item) class="text-red-600">x</button>
         </li>
       }
     }

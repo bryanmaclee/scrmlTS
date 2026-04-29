@@ -27,9 +27,9 @@ ${
 
 <div>
   <p>Coins: ${@coins}</p>
-  <button onclick=${eat(PowerUp.Mushroom(1))}>Mushroom +1</button>
-  <button onclick=${eat(PowerUp.Flower(1))}>Flower +2</button>
-  <button onclick=${eat(PowerUp.Feather(1))}>Feather +5</button>
+  <button onclick=${() => eat(PowerUp.Mushroom(1))}>Mushroom +1</button>
+  <button onclick=${() => eat(PowerUp.Flower(1))}>Flower +2</button>
+  <button onclick=${() => eat(PowerUp.Feather(1))}>Feather +5</button>
 </div>
 
 </program>

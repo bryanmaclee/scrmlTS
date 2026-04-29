@@ -55,6 +55,7 @@ export interface LogicBinding {
   expr: string;
   reactiveRefs?: Set<string>;
   isConditionalDisplay?: boolean;
+  isVisibilityToggle?: boolean;
   varName?: string;
   condExpr?: string;
   refs?: string[];

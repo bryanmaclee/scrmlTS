@@ -25,6 +25,7 @@ interface LogicBinding {
   expr: string;
   reactiveRefs?: Set<string> | null;
   isConditionalDisplay?: boolean;
+  isVisibilityToggle?: boolean;
   varName?: string;
   condExpr?: string;
   /** Phase 3: structured ExprNode form of `condExpr`. */
@@ -343,12 +344,16 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       const { placeholderId, expr } = binding;
 
       // Conditional display (if=) — toggle element visibility
+      // Visibility toggle (show=) — same display-toggle codegen, different selector
       // With optional transition:fade/slide/fly, in:fade, out:slide directives
-      if (binding.isConditionalDisplay) {
+      // Phase 1 (2026-04-29): both flags route to display-toggle. Phase 2 will
+      // split isConditionalDisplay (if=) off to mount/unmount codegen.
+      if (binding.isConditionalDisplay || binding.isVisibilityToggle) {
         const hasTransition = binding.transitionEnter || binding.transitionExit;
+        const dataAttr = binding.isVisibilityToggle ? "data-scrml-bind-show" : "data-scrml-bind-if";
 
         lines.push(`  {`);
-        lines.push(`    const el = document.querySelector('[data-scrml-bind-if="${placeholderId}"]');`);
+        lines.push(`    const el = document.querySelector('[${dataAttr}="${placeholderId}"]');`);
         lines.push(`    if (el) {`);
 
         // Build the condition expression string used for evaluation

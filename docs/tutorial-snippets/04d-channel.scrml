@@ -17,6 +17,7 @@ ${
   </>
 
   <p>Tick: ${@tick}</p>
+  <button onclick=${() => @tick = @tick + 1}>Tick</button>
   <input type="text" bind:value=@draft/>
 </div>
 

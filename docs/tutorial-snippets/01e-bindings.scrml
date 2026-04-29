@@ -13,7 +13,7 @@ ${
 }
 
 <div>
-  <input type="text" bind:value=@text onkeydown=handleKey() placeholder="Type then Enter"/>
+  <input type="text" bind:value=@text onkeydown=${(e) => handleKey(e)} placeholder="Type then Enter"/>
   <p class:active=@active>Current: ${@text}</p>
   <button onclick=toggle()>Toggle</button>
 </div>

@@ -1,0 +1,8 @@
+// control-show-basic.scrml
+// Visibility toggle attribute on markup tag. Tests: show= attribute with reactive var.
+// show= keeps the element in the DOM and toggles its visibility via display: none.
+
+<div>
+    ${ @verbose = true }
+    <p show=@verbose>Diagnostic info: visible only when verbose is true.</>
+</div>

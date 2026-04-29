@@ -1,0 +1,11 @@
+// control-show-expr.scrml
+// Visibility toggle with parenthesized boolean expression.
+// Tests: show=(expr) form with reactive refs in the expression.
+
+<div>
+    ${
+        @count = 5
+        @enabled = true
+    }
+    <button show=(@enabled && @count > 3)>Submit</button>
+</div>

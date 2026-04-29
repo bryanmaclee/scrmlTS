@@ -8,7 +8,7 @@ ${
   type OrderState:enum = { Draft, Submitted, Paid, Shipped, Delivered, Cancelled }
 
   // The machine annotation on the reactive is what wires runtime guarding.
-  // Assignments to @order are validated against MarioMachine's rule set.
+  // Assignments to @order are validated against OrderMachine's rule set.
   @order: OrderMachine = OrderState.Draft
 
   function submit()  { @order = OrderState.Submitted }
