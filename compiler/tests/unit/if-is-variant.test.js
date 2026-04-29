@@ -167,14 +167,19 @@ describe("§2: AST builder produces expr kind from brace-block is .Variant expre
 // ---------------------------------------------------------------------------
 
 describe("§3: emit-html emits data-scrml-bind-if for is .Variant expression", () => {
-  test("if={state is .Loading} — HTML contains data-scrml-bind-if", () => {
+  test("if={state is .Loading} — HTML contains <template>+marker (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if= with `is .Variant` expression emits template +
+    // marker (the expression has no @-prefixed reactive refs, but the cleanliness
+    // gate cares about subtree shape, not condition reactivity).
     const node = makeMarkupNode("div", [exprAttr("if", "state is .Loading", [])], [
       { kind: "text", value: "Loading...", span: span(0) }
     ]);
     const registry = new BindingRegistry();
     const html = generateHtml([node], [], false, registry, null);
 
-    expect(html).toContain("data-scrml-bind-if=");
+    expect(html).toContain('<template id="');
+    expect(html).toContain("scrml-if-marker:");
+    expect(html).not.toContain("data-scrml-bind-if=");
   });
 
   test("if={state is .Loading} — binding registered in registry", () => {
@@ -184,7 +189,10 @@ describe("§3: emit-html emits data-scrml-bind-if for is .Variant expression", (
     const registry = new BindingRegistry();
     generateHtml([node], [], false, registry, null);
 
-    const binding = registry.logicBindings.find(b => b.isConditionalDisplay);
+    // Phase 2c: clean-subtree if= registers an isMountToggle binding (was
+    // isConditionalDisplay pre-Phase-2c). Both fields convey "if= controls DOM
+    // existence/visibility" — only the implementation strategy differs.
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
     expect(binding).toBeDefined();
   });
 });
@@ -194,25 +202,25 @@ describe("§3: emit-html emits data-scrml-bind-if for is .Variant expression", (
 // ---------------------------------------------------------------------------
 
 describe("§4: registry binding has condExpr for is .Variant expression", () => {
-  test("condExpr is set to raw 'state is .Loading' expression", () => {
+  test("condExpr is set to raw 'state is .Loading' expression (Phase 2c B1 binding)", () => {
     const node = makeMarkupNode("div", [exprAttr("if", "state is .Loading", [])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const registry = new BindingRegistry();
     generateHtml([node], [], false, registry, null);
 
-    const binding = registry.logicBindings.find(b => b.isConditionalDisplay);
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
     expect(binding.condExpr).toBe("state is .Loading");
   });
 
-  test("refs is empty array for non-reactive is .Variant expr", () => {
+  test("refs is empty array for non-reactive is .Variant expr (Phase 2c B1 binding)", () => {
     const node = makeMarkupNode("div", [exprAttr("if", "state is .Loading", [])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const registry = new BindingRegistry();
     generateHtml([node], [], false, registry, null);
 
-    const binding = registry.logicBindings.find(b => b.isConditionalDisplay);
+    const binding = registry.logicBindings.find(b => b.isMountToggle);
     expect(binding.refs).toEqual([]);
   });
 });
@@ -258,14 +266,18 @@ describe("§5: is .Variant compiles to === \"Variant\" in client JS", () => {
 // ---------------------------------------------------------------------------
 
 describe("§6: el.style.display emitted even when refs is empty (non-reactive is .Variant)", () => {
-  test("if={state is .Loading} — client JS contains el.style.display", () => {
+  test("if={state is .Loading} — client JS contains _scrml_mount_template (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if= emits the mount/unmount controller. The
+    // pre-Phase-2c assertion `el.style.display` is preserved on the non-clean
+    // fallback path (see if-expression.test.js §11).
     const node = makeMarkupNode("div", [exprAttr("if", "state is .Loading", [])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    expect(out.clientJs).toContain("el.style.display");
+    expect(out.clientJs).toContain("_scrml_mount_template");
+    expect(out.clientJs).not.toContain("el.style.display");
   });
 
   test("if={state is .Loading} — client JS contains _scrml_effect", () => {
@@ -278,14 +290,17 @@ describe("§6: el.style.display emitted even when refs is empty (non-reactive is
     expect(out.clientJs).toContain("_scrml_effect");
   });
 
-  test("if={state is .Loading} — client JS contains '\"none\"' for display-off branch", () => {
+  test("if={state is .Loading} — client JS contains _scrml_unmount_scope on falsy (Phase 2c B1)", () => {
+    // Phase 2c: pre-Phase-2c this asserted the literal `"none"` for the
+    // display-off branch. Post-Phase-2c the falsy branch unmounts via
+    // _scrml_unmount_scope (no display: none).
     const node = makeMarkupNode("div", [exprAttr("if", "state is .Loading", [])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    expect(out.clientJs).toContain('"none"');
+    expect(out.clientJs).toContain("_scrml_unmount_scope");
   });
 });
 
@@ -314,15 +329,16 @@ describe("§7: @state is .Variant reactive expression compiles correctly", () =>
     expect(out.clientJs).toContain('=== "Loading"');
   });
 
-  test("if={@state is .Loading} — client JS contains el.style.display toggle", () => {
+  test("if={@state is .Loading} — client JS contains mount/unmount controller (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree reactive `is .Variant` if= emits mount/unmount.
     const node = makeMarkupNode("div", [exprAttr("if", "@state is .Loading", ["state"])], [
       { kind: "text", value: "text", span: span(0) }
     ]);
     const result = compile(node);
     const out = result.outputs.get("/test/app.scrml");
 
-    expect(out.clientJs).toContain("el.style.display");
-    expect(out.clientJs).toContain('"none"');
+    expect(out.clientJs).toContain("_scrml_mount_template");
+    expect(out.clientJs).toContain("_scrml_unmount_scope");
   });
 });
 
@@ -331,7 +347,7 @@ describe("§7: @state is .Variant reactive expression compiles correctly", () =>
 // ---------------------------------------------------------------------------
 
 describe("§8: full pipeline round-trip for if={state is .Loading}", () => {
-  test("HTML placeholder and client JS wiring both emitted", () => {
+  test("HTML <template>+marker and client JS mount/unmount controller emitted (Phase 2c B1)", () => {
     const source = `<program>
 <div if={state is .Loading}>
   Loading...</>
@@ -346,9 +362,11 @@ describe("§8: full pipeline round-trip for if={state is .Loading}", () => {
     });
     const out = result.outputs.get("test.scrml");
 
-    expect(out.html).toContain("data-scrml-bind-if=");
+    // Phase 2c: HTML emits template + marker; client JS emits mount/unmount.
+    expect(out.html).toContain('<template id="');
+    expect(out.html).toContain("scrml-if-marker:");
     expect(out.clientJs).toContain('=== "Loading"');
-    expect(out.clientJs).toContain("el.style.display");
+    expect(out.clientJs).toContain("_scrml_mount_template");
   });
 });
 
@@ -357,7 +375,7 @@ describe("§8: full pipeline round-trip for if={state is .Loading}", () => {
 // ---------------------------------------------------------------------------
 
 describe("§9: full pipeline round-trip for if={@state is .Active}", () => {
-  test("HTML placeholder emitted with reactive condition", () => {
+  test("HTML <template>+marker emitted with reactive condition (Phase 2c B1)", () => {
     const source = `<program>
 <div if={@state is .Active}>
   Active content</>
@@ -372,7 +390,10 @@ describe("§9: full pipeline round-trip for if={@state is .Active}", () => {
     });
     const out = result.outputs.get("test.scrml");
 
-    expect(out.html).toContain("data-scrml-bind-if=");
+    // Phase 2c: HTML emits template + marker; reactive @state still expands to
+    // _scrml_reactive_get("state") in the controller's condition expression.
+    expect(out.html).toContain('<template id="');
+    expect(out.html).toContain("scrml-if-marker:");
     expect(out.clientJs).toContain('_scrml_reactive_get("state")');
     expect(out.clientJs).toContain('=== "Active"');
   });

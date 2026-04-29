@@ -71,11 +71,17 @@ describe("Form Validation: initial state", () => {
     expect(api.get("errors")).toEqual([]);
   });
 
-  test("success div is hidden initially", () => {
+  test("success div is unmounted initially (Phase 2c B1)", () => {
+    // Phase 2c: clean-subtree if=@submitted compiles to <template>+marker. The
+    // div is NOT in the DOM until @submitted flips truthy — querySelector(.success)
+    // returns null on initial render. Pre-Phase-2c this asserted display:none on
+    // a still-rendered div. Marker comment is present for the controller's anchor.
     loadSample("combined-003-form-validation");
-    const successDiv = document.querySelector('[data-scrml-bind-if]');
-    expect(successDiv).not.toBeNull();
-    expect(successDiv.style.display).toBe("none");
+    const successDiv = document.querySelector(".success");
+    expect(successDiv).toBeNull();
+    // The if-marker comment must be present (anchor for _scrml_mount_template).
+    const html = document.body.innerHTML;
+    expect(html).toContain("scrml-if-marker:");
   });
 });
 
@@ -101,14 +107,17 @@ describe("Form Validation: submit with empty fields", () => {
     expect(api.get("submitted")).toBe(false);
   });
 
-  test("success div stays hidden when validation fails", () => {
+  test("success div stays unmounted when validation fails (Phase 2c B1)", () => {
+    // Phase 2c: failed validation leaves @submitted=false, so the success div
+    // is never mounted — querySelector(.success) returns null. The chain
+    // wrapper / display:none assertion no longer applies.
     loadSample("combined-003-form-validation");
 
     const form = document.querySelector("[data-scrml-bind-onsubmit]");
     form.dispatchEvent(new Event("submit", { bubbles: true }));
 
-    const successDiv = document.querySelector('[data-scrml-bind-if]');
-    expect(successDiv.style.display).toBe("none");
+    const successDiv = document.querySelector(".success");
+    expect(successDiv).toBeNull();
   });
 });
 
@@ -140,7 +149,11 @@ describe("Form Validation: successful submit", () => {
     expect(api.get("errors")).toEqual([]);
   });
 
-  test("success div becomes visible after valid submit", () => {
+  test("success div mounts after valid submit (Phase 2c B1)", () => {
+    // Phase 2c: a successful submit flips @submitted=true. The reactive
+    // controller calls _scrml_mount_template, cloning the <template> content
+    // and inserting it before the marker comment. querySelector(.success)
+    // now returns the mounted div.
     const api = loadSample("combined-003-form-validation");
     api.set("name", "Bob");
     api.set("email", "bob@example.com");
@@ -148,8 +161,12 @@ describe("Form Validation: successful submit", () => {
     const form = document.querySelector("[data-scrml-bind-onsubmit]");
     form.dispatchEvent(new Event("submit", { bubbles: true }));
 
-    const successDiv = document.querySelector('[data-scrml-bind-if]');
-    expect(successDiv.style.display).toBe("");
+    const successDiv = document.querySelector(".success");
+    expect(successDiv).not.toBeNull();
+    // The mounted div should contain the inner <p> from the template.
+    const inner = successDiv.querySelector("p");
+    expect(inner).not.toBeNull();
+    expect(inner.textContent).toBe("Registration successful!");
   });
 
   test("errors are cleared on each submit attempt", () => {
