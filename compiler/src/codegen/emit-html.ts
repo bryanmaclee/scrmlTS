@@ -96,6 +96,23 @@ function isCleanIfNode(node: any): boolean {
   return true;
 }
 
+/**
+ * Strip if=/else-if=/else attributes from an if-chain branch element before
+ * emitting. The chain wrapper (data-scrml-if-chain / data-scrml-chain-branch)
+ * already drives visibility for the chain — the inner element's chain-construction
+ * attribute is AST-level metadata and would (a) leak as a meaningless HTML attr
+ * if not stripped and (b) post-Phase-2c trigger a duplicate mount/unmount
+ * controller via emit-html's early-out gate. Returns a shallow-cloned node with
+ * the chain attributes filtered out; original AST is not mutated.
+ */
+function stripChainBranchAttrs(node: any): any {
+  if (!node || typeof node !== "object" || node.kind !== "markup") return node;
+  const filtered = (node.attributes ?? node.attrs ?? []).filter(
+    (a: any) => a && a.name !== "if" && a.name !== "else-if" && a.name !== "else",
+  );
+  return { ...node, attributes: filtered, attrs: filtered };
+}
+
 // §35 Input state type elements that emit no HTML — handled by emit-reactive-wiring.js
 const INPUT_STATE_TAGS = new Set(["keyboard", "mouse", "gamepad"]);
 
@@ -166,7 +183,16 @@ export function generateHtml(
         const branch = node.branches[bIdx];
         const branchId = `${chainId}_b${bIdx}`;
         parts.push(`<div data-scrml-if-chain="${chainId}" data-scrml-chain-branch="${branchId}" style="display:none">`);
-        emitNode(branch.element);
+        // Strip if=/else-if= from the branch element before emitting. The
+        // chain wrapper drives visibility; the inner element's if=/else-if=
+        // attribute is purely AST-level metadata for chain construction.
+        // Leaving it attached would (a) emit a meaningless `if=...` HTML
+        // attribute and (b) — critically, post-Phase-2c — cause the inner
+        // if= to trigger emit-html's mount/unmount early-out, producing a
+        // <template>+marker INSIDE a chain wrapper with two reactive
+        // controllers fighting over the same DOM region. This strip closes
+        // that vector independently of the Phase 2c emission strategy.
+        emitNode(stripChainBranchAttrs(branch.element));
         parts.push(`</div>`);
         // Register the branch for event wiring
         if (registry) {
@@ -183,7 +209,8 @@ export function generateHtml(
       if (node.elseBranch) {
         const elseId = `${chainId}_else`;
         parts.push(`<div data-scrml-if-chain="${chainId}" data-scrml-chain-branch="${elseId}" style="display:none">`);
-        emitNode(node.elseBranch);
+        // Strip else= for the same reasons (see comment above).
+        emitNode(stripChainBranchAttrs(node.elseBranch));
         parts.push(`</div>`);
         if (registry) {
           registry.addLogicBinding({
