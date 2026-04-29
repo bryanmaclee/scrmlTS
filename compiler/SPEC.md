@@ -11646,6 +11646,8 @@ scrml supports Tailwind utility class names natively. No Tailwind CLI, PostCSS, 
 - Responsive and variant prefixes (e.g., `md:`, `hover:`) — TBD (SPEC-ISSUE-012)
 - Custom theme configuration — TBD (SPEC-ISSUE-012)
 
+While these features are TBD, the compiler SHALL emit W-TAILWIND-001 when a class string in source resembles their syntax (a class name in a `class="..."` attribute that contains `:` or `[`) but does not match a registered utility. The warning is non-fatal — compilation produces output regardless. `${...}` interpolation regions inside the class attribute value are masked before scanning so dynamic-class expressions like `class="${cond ? 'a' : 'b'}"` do not produce false positives on the ternary's `:`.
+
 ---
 
 ## 27. Comment Syntax
@@ -12087,6 +12089,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-FOREIGN-012 | §23.4 | Sidecar function called from a client-side code path | Error |
 | W-FOREIGN-001 | §23.2 | Level-0 `_{` used; `_={}=` recommended | Warning |
 | W-PROGRAM-001 | §4.12 | Unnamed nested `<program>` with no distinguishing attributes | Warning |
+| W-TAILWIND-001 | §26.3 | Class name in `class="..."` looks like Tailwind variant/arbitrary syntax (contains `:` or `[`) but does not match a registered utility. SPEC-ISSUE-012. | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |

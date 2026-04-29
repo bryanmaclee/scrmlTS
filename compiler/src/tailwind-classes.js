@@ -639,6 +639,7 @@ function parseClassName(className) {
   let responsive = null;
   let state = null;
   let base = parts[parts.length - 1];
+  let hasUnrecognizedPrefix = false;
 
   for (let i = 0; i < parts.length - 1; i++) {
     const prefix = parts[i];
@@ -646,10 +647,12 @@ function parseClassName(className) {
       responsive = prefix;
     } else if (STATE_PSEUDO_CLASSES[prefix]) {
       state = prefix;
+    } else {
+      hasUnrecognizedPrefix = true;
     }
   }
 
-  return { responsive, state, base };
+  return { responsive, state, base, hasUnrecognizedPrefix };
 }
 
 /**
@@ -665,7 +668,14 @@ function parseClassName(className) {
 export function getTailwindCSS(className) {
   if (!className || typeof className !== "string") return null;
 
-  const { responsive, state, base } = parseClassName(className);
+  const { responsive, state, base, hasUnrecognizedPrefix } = parseClassName(className);
+
+  // If any prefix in the chain is unrecognized (e.g. `weird:p-4`, `dark:p-4`),
+  // the class is unhandled by the embedded engine. Returning null prevents
+  // the silent-strip pattern where `weird:p-4` would otherwise produce a
+  // `.p-4 { padding: 1rem }` rule with a selector that doesn't match the
+  // source class. (Closes a silent-failure bug surfaced during S49 review.)
+  if (hasUnrecognizedPrefix) return null;
 
   // Look up the base utility
   const baseRule = registry.get(base);
@@ -746,22 +756,25 @@ export function scanClassesFromHtml(html) {
 
 // ---------------------------------------------------------------------------
 // W-TAILWIND-001: unsupported Tailwind syntax detection (SPEC §26.3,
-// SPEC-ISSUE-012). The full Tailwind variant + arbitrary-value system is
-// listed as TBD in §26.3 — when adopters write class strings using that
-// syntax the embedded engine either silently drops them (e.g.
-// `p-[1.5rem]`) or, for incidentally-handled prefixes (e.g. `md:`,
-// `hover:`), happens to emit a rule today but the spec considers the
-// feature unfinished. This pre-pass surfaces a warning on every class
-// whose shape suggests variant or arbitrary-value syntax so adopters are
-// not surprised when SPEC-ISSUE-012 closes and the semantics may shift.
+// SPEC-ISSUE-012). When adopters write class strings using Tailwind variant
+// or arbitrary-value syntax that the embedded engine doesn't handle, the
+// compiler silently emits no CSS for them. This pre-pass surfaces a warning
+// so adopters see compile-time friction instead of a silent runtime drop.
 //
 // Detection rule:
 //   1. Skip names that contain neither `:` nor `[` (look like USER classes).
-//   2. Otherwise fire — the name has Tailwind variant or arbitrary-value
-//      shape and falls under SPEC-ISSUE-012.
+//   2. Skip names the embedded engine handles (`getTailwindCSS(cls) !== null`).
+//      The engine's variant subset (5 responsive + 11 state pseudo-classes)
+//      is partially shipped; classes the engine handles produce real CSS
+//      today and aren't silent-failure cases — no warning needed.
+//   3. Otherwise fire. The class has Tailwind shape but no engine match,
+//      indicating an unsupported variant (`dark:`, `print:`, `motion-*:`,
+//      etc.) or any arbitrary value (`p-[1.5rem]`).
 //
-// False positives on user-defined classes named like `weird:name` are
-// acceptable; users can rename. Better to over-warn than to silently drop.
+// This rule is intentionally aligned with the user's S49 validation
+// principle: "if the compiler is happy, the program should be good." A
+// class the engine handles is a class the program can rely on; warning
+// on it would be the compiler being unhappy when the program is good.
 // ---------------------------------------------------------------------------
 
 /**
@@ -885,10 +898,15 @@ export function findUnsupportedTailwindShapes(source) {
       // Skip user-shaped classes (no Tailwind variant/arbitrary syntax).
       if (!cls.includes(":") && !cls.includes("[")) continue;
 
-      // Tailwind-shape: emit W-TAILWIND-001. The full variant + arbitrary-value
-      // system is unfinished (SPEC-ISSUE-012) so we warn on shape regardless of
-      // whether the embedded engine has incidental partial support — adopters
-      // should treat all such classes as TBD until that issue closes.
+      // Skip classes the embedded engine handles. `md:p-4`, `hover:bg-blue-500`,
+      // `sm:hover:bg-blue-500` and the like produce real CSS today via the
+      // partial variant subset (5 responsive + 11 state pseudo-classes); they
+      // are not silent-failure cases. Only fire on classes the engine can't
+      // match — unsupported variants (`dark:`, `print:`, `motion-*:`) or any
+      // arbitrary value (`p-[1.5rem]`).
+      if (getTailwindCSS(cls) !== null) continue;
+
+      // Tailwind-shape with no engine match: emit W-TAILWIND-001.
       const offset = attrValueStart + classMatch.index;
       const { line, column } = offsetToLineCol(source, offset);
       diagnostics.push({
@@ -897,10 +915,10 @@ export function findUnsupportedTailwindShapes(source) {
         className: cls,
         message:
           `Line ${line}: Class \`${cls}\` looks like Tailwind variant/arbitrary ` +
-          `syntax which is not yet supported in this scrml revision ` +
-          `(SPEC-ISSUE-012). The class will not produce any CSS. Use a base ` +
-          `utility class (e.g. \`p-4\` instead of \`md:p-4\`) or define your ` +
-          `own CSS rule.`,
+          `syntax that is not handled by the embedded engine (SPEC-ISSUE-012). ` +
+          `The class will not produce any CSS. Use a supported variant prefix ` +
+          `(sm/md/lg/xl/2xl, hover/focus/active/disabled/first/last/odd/even/` +
+          `visited/focus-within/focus-visible) or define your own CSS rule.`,
         severity: "warning",
         code: "W-TAILWIND-001",
       });
