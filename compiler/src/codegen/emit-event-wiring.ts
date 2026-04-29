@@ -26,6 +26,10 @@ interface LogicBinding {
   reactiveRefs?: Set<string> | null;
   isConditionalDisplay?: boolean;
   isVisibilityToggle?: boolean;
+  /** Phase 2 if/show split: mount/unmount semantics. See binding-registry.ts. */
+  isMountToggle?: boolean;
+  templateId?: string;
+  markerId?: string;
   varName?: string;
   condExpr?: string;
   /** Phase 3: structured ExprNode form of `condExpr`. */

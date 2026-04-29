@@ -388,6 +388,85 @@ function _scrml_destroy_scope(scopeId) {
 }
 
 // ---------------------------------------------------------------------------
+// §6.7.2 / §17.1 if= mount/unmount runtime (Phase 2 of if/show split)
+//
+// _scrml_create_scope:        fresh scopeId for a mount cycle
+// _scrml_mount_template:      clone <template id="..."> content, insert before
+//                             a marker comment, return the mounted root node
+// _scrml_unmount_scope:       destroy scope (LIFO cleanup, stop timers, cancel
+//                             rAF) AND remove the mounted root from the DOM
+//
+// On each false → true transition of an if= condition, a fresh scope is
+// created and the template is cloned and mounted. On each true → false,
+// the scope is destroyed and the DOM nodes are removed. This satisfies
+// SPEC §6.7.2 (scope-as-lifecycle-boundary, depth-first teardown, LIFO
+// cleanup, remount re-runs bare expressions).
+// ---------------------------------------------------------------------------
+
+let _scrml_scope_counter = 0;
+
+function _scrml_create_scope() {
+  return "if_" + (++_scrml_scope_counter);
+}
+
+/**
+ * Find the comment marker matching \`scrml-if-marker:N (HTML comment)\` in the document.
+ * Returns the Comment node, or null if not found.
+ *
+ * Implementation: a TreeWalker over comment nodes is the cheapest scan when
+ * the marker count is small. For larger documents the markers can be looked
+ * up via a compile-time-emitted Map; deferred to a later sub-phase.
+ */
+function _scrml_find_if_marker(markerId) {
+  const needle = "scrml-if-marker:" + markerId;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (node.nodeValue && node.nodeValue.trim() === needle) return node;
+  }
+  return null;
+}
+
+/**
+ * Mount: clone the template content, insert it before the marker
+ * comment, and return the inserted root element.
+ *
+ * The caller is responsible for running any per-mount wiring (event
+ * listeners, reactive subscriptions, lifecycle bare-expressions) under the
+ * given scopeId. This function does only the DOM insertion; wiring is the
+ * compile-time-emitted controller's job.
+ *
+ * @param {string} markerId — N from scrml-if-marker:N marker comment
+ * @param {string} templateId — id of the template element holding the source
+ * @returns {HTMLElement|null} — the mounted root element, or null on failure
+ */
+function _scrml_mount_template(markerId, templateId) {
+  const marker = _scrml_find_if_marker(markerId);
+  if (!marker || !marker.parentNode) return null;
+  const tpl = document.getElementById(templateId);
+  if (!tpl || !(tpl.content instanceof DocumentFragment)) return null;
+  const fragment = tpl.content.cloneNode(true);
+  // The mounted root is the first element child of the cloned fragment.
+  // The compile-time emitter is responsible for wrapping the if= element
+  // as the sole element child of the <template>.
+  const root = fragment.firstElementChild;
+  marker.parentNode.insertBefore(fragment, marker);
+  return root;
+}
+
+/**
+ * Unmount: destroy the scope (cleanup LIFO, stop timers, cancel rAF) and
+ * remove the mounted root from the DOM.
+ *
+ * @param {HTMLElement|null} root — node returned by _scrml_mount_template
+ * @param {string} scopeId — scope to destroy
+ */
+function _scrml_unmount_scope(root, scopeId) {
+  if (scopeId) _scrml_destroy_scope(scopeId);
+  if (root && root.parentNode) root.parentNode.removeChild(root);
+}
+
+// ---------------------------------------------------------------------------
 // §6.7.5 / §6.7.6 Timer and Poll runtime
 // ---------------------------------------------------------------------------
 

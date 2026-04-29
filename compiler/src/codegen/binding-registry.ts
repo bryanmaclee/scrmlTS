@@ -56,9 +56,16 @@ export interface LogicBinding {
   reactiveRefs?: Set<string>;
   isConditionalDisplay?: boolean;
   isVisibilityToggle?: boolean;
-  varName?: string;
-  condExpr?: string;
-  refs?: string[];
+  /**
+   * Phase 2 of if/show split: when set, the `if=` binding uses mount/unmount
+   * semantics (template-clone on true, scope-destroy + DOM-remove on false)
+   * instead of display-toggle. The compile-time emitter populates `templateId`
+   * and `markerId` so the runtime can locate the <template> source and the
+   * <!--scrml-if-marker:N--> insertion point.
+   */
+  isMountToggle?: boolean;
+  templateId?: string;
+  markerId?: string;
 }
 
 export class BindingRegistry {
