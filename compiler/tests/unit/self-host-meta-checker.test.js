@@ -198,11 +198,6 @@ describe("self-host parity: bodyUsesCompileTimeApis", () => {
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
-  test("detects compiler. access in bare-expr", () => {
-    const body = [makeBareExpr("compiler.registerMacro('foo', fn)")];
-    expect(bodyUsesCompileTimeApis(body)).toBe(true);
-  });
-
   test("detects bun.eval() in bare-expr", () => {
     const body = [makeBareExpr("bun.eval(`return 42`)")];
     expect(bodyUsesCompileTimeApis(body)).toBe(true);

@@ -8,7 +8,7 @@ ${
     //   1. Phase separation check (E-META-001)
     //      Detects when runtime-scoped variables are referenced inside ^{} meta
     //      contexts that are compile-time-only. Meta contexts that use compile-time
-    //      APIs (reflect, bun.eval, emit, compiler.*) execute at compile time and
+    //      APIs (reflect, bun.eval, emit) execute at compile time and
     //      cannot access runtime values. This check runs after the type system has
     //      built the scope chain, so we know which variables exist and where they
     //      were declared.
@@ -101,6 +101,12 @@ ${
         // scrml meta API
         "reflect",
         "emit",
+        // S48: `compiler` is registered here so E-META-001/E-META-005 don't pile
+        // on top of E-META-010 when a user references the reserved `compiler.*`
+        // namespace. The diagnostic of record is E-META-010 ("reserved for future
+        // use"); META_BUILTINS membership is purely to suppress the redundant
+        // "runtime variable" classification.
+        "compiler",
     ])
 
     // ---------------------------------------------------------------------------
@@ -117,7 +123,6 @@ ${
     export const COMPILE_TIME_API_PATTERNS = [
         /\breflect\s*\(/,          // reflect(TypeName)
         /\bemit\s*\(/,             // emit(...)
-        /\bcompiler\s*\./,         // compiler.registerMacro(...) etc.
         /\bbun\s*\.\s*eval\s*\(/,  // bun.eval(...)
     ]
 

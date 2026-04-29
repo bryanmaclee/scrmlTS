@@ -10458,12 +10458,14 @@ following API patterns and references no runtime-only values:
 - `reflect(TypeName)` calls
 - `emit(...)` calls
 - `emit.raw(...)` calls
-- `compiler.*` API calls
 - `bun.eval(...)` calls
 
 The compiler SHALL evaluate compile-time meta blocks during compilation and inline the result.
-Compile-time meta blocks have access to the full compiler-internal type registry and AST via
-the `compiler.*` API. Phase-separation rules (§22.8) apply to compile-time meta.
+Compile-time meta blocks have access to the type registry via `reflect()` (see §22.4.2).
+Phase-separation rules (§22.8) apply to compile-time meta.
+
+The `compiler.*` namespace is reserved for future use. A `^{}` block containing any
+`compiler.X` reference SHALL fire E-META-010 (see §22.11).
 
 #### 22.4.1 Emit Escape-Sequence Semantics
 
@@ -10975,7 +10977,7 @@ executes at program run time. These phases SHALL NOT be mixed in a single `^{}` 
 **Normative statements:**
 
 - A `^{}` block SHALL NOT reference both compile-time API patterns (e.g., `reflect()`,
-  `compiler.*`) and runtime-only values in the same block.
+  `bun.eval()`) and runtime-only values in the same block.
 - The compiler SHALL reject any `^{}` block that mixes compile-time and runtime access
   patterns (E-META-005).
 - `reflect(expr)` is the single programmer-facing API for type reflection. The compiler
@@ -11052,6 +11054,8 @@ Where:
 | E-META-006 | `lift` call inside a `^{}` block | Error |
 | E-META-007 | `?{}` SQL context inside a runtime `^{}` block | Error |
 | E-META-008 | `reflect()` called outside any `^{}` meta block | Error |
+| E-META-009 | Nested `^{}` inside a compile-time `^{}` block (not supported in this revision) | Error |
+| E-META-010 | Reference to the reserved `compiler.*` namespace inside a `^{}` block (§22.4) | Error |
 
 ---
 
@@ -12145,6 +12149,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-LIN-002 | §35.5 | `lin` variable consumed more than once | Error |
 | E-LIN-003 | §35.5 | `lin` variable consumed in some branches but not all | Error |
 | E-META-001 | §22.6 | `^{ }` block requires runtime but `meta.runtime` is `false` | Error |
+| E-META-009 | §22.11 | Nested `^{}` inside a compile-time `^{}` block | Error |
+| E-META-010 | §22.4, §22.11 | Reference to the reserved `compiler.*` namespace in a `^{}` block | Error |
 | E-PURE-001 | §33.4 | `pure` function contains a purity violation | Error |
 | E-PURE-002 | §33.4 | `pure` function calls a non-`pure` function | Error |
 | E-HTML-001 | §23.2 | Invalid attribute on known HTML element | Error |

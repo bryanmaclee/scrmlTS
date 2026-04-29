@@ -1,11 +1,11 @@
 # SPEC.md Section Index
 
 > Auto-generated line numbers. Regenerate: `bash scripts/update-spec-index.sh`
-> Last updated: 2026-04-20 (S33 open — post-S32 regen; reflects §33 reach-extension, §48 minimize, §51.15 cross-check, §54 new).
+> Last updated: 2026-04-29 (S48 — `compiler.*` phantom closed; §22.4 amended, E-META-009 + E-META-010 backfilled to §22.11 + §34).
 
-Total lines: 20,439 | Total sections: 54 + appendices
+Total lines: 20,448 | Total sections: 54 + appendices
 
-> **Note on §49 heading format:** SPEC.md §49 uses a single `#` (H1) at line 15791 instead of the `## N.` pattern every other section uses. The regenerator script will not pick it up automatically — keep this in mind when running the script.
+> **Note on §49 heading format:** SPEC.md §49 uses a single `#` (H1) at line 15800 instead of the `## N.` pattern every other section uses. The regenerator script will not pick it up automatically — keep this in mind when running the script.
 
 ## Sections
 
@@ -38,39 +38,39 @@ Total lines: 20,439 | Total sections: 54 + appendices
 | E | Appendix E: `</>` Closer Migration | 10090-10124 | 35 | Migration guide for `/` → `</>` |
 | 20 | Navigation API | 10125-10296 | 172 | navigate(), route params, session context |
 | 21 | Module and Import System | 10297-10407 | 111 | Export/import syntax, re-export, pure-type files |
-| 22 | Metaprogramming | 10408-11058 | 651 | `^{}` meta context, compile-time/runtime meta, Option D scope model |
-| 23 | Foreign Code Contexts (`_{}`) | 11059-11501 | 443 | Level-marked braces, opaque passthrough, WASM sigils, sidecars |
-| 24 | HTML Spec Awareness | 11502-11527 | 26 | Element registry, shape constraints |
-| 25 | CSS Variable Syntax | 11528-11626 | 99 | Defining/using vars, hyphenated names, scoping |
-| 26 | Tailwind Utility Classes | 11627-11647 | 21 | Integration model |
-| 27 | Comment Syntax | 11648-11668 | 21 | Universal `//`, per-context native comments |
-| 28 | Compiler Settings | 11669-11704 | 36 | html-content-model setting |
-| 29 | Vanilla File Interop | 11705-11713 | 9 | Plain JS/CSS/HTML interop |
-| 30 | Compile-Time Eval — `bun.eval()` | 11714-11744 | 31 | Scope, markup interpolation, security |
-| 31 | Dependency Graph | 11745-11768 | 24 | Purpose, construction, route analysis |
-| 32 | The `~` Keyword | 11769-11980 | 212 | Pipeline accumulator, lin variable, context boundary |
-| 33 | The `pure` Keyword | 11981-12041 | 61 | Purity constraints, **§33.6 fn ≡ pure function (S32)**, W-PURE-REDUNDANT |
-| 34 | Error Codes | 12042-12242 | 201 | All error code definitions (+6/-1 S32: E-STATE-COMPLETE, E-MACHINE-DIVERGENCE, E-STATE-SUBSTATE-*, E-STATE-TERMINAL-*) |
-| 35 | Linear Types — `lin` | 12243-12704 | 462 | Declaration (exactly-once + restricted intermediate visibility), consumption, control flow, closures, lin function params (§35.2.1), cross-`${}` block lin (§35.2.2), E-LIN-005 shadowing + E-LIN-006 deferred-ctx (§35.5) |
-| 36 | Input State Types | 12705-13062 | 358 | `<keyboard>`, `<mouse>`, `<gamepad>` |
-| 37 | Server-Sent Events | 13063-13304 | 242 | `server function*` SSE generators |
-| 38 | WebSocket Channels | 13305-13610 | 306 | `<channel>`, @shared, broadcast/disconnect |
-| 39 | Schema and Migrations | 13611-13886 | 276 | `< schema>`, column types, migration diff |
-| 40 | Middleware and Request Pipeline | 13887-14110 | 224 | Auto middleware, handle() escape hatch |
-| 41 | Import System — `use`/`import` | 14111-14315 | 205 | Capability imports, value imports, vendoring |
-| 42 | `not` — Unified Absence Value | 14316-14547 | 232 | `not` keyword, `is not`, `is some`, `(x) =>`, `T | not`, compound exprs (§42.2.4) |
-| 43 | Nested `<program>` | 14548-14630 | 83 | Execution contexts, shared-nothing, lifecycle, RPC |
-| 44 | `?{}` Multi-Database Adaptation | 14631-14686 | 56 | Bun.SQL target, driver resolution, `.get()` → `T | not` |
-| 45 | Equality Semantics | 14687-14748 | 62 | Single `==`, no `===`, structural, compiler-derived |
-| 46 | Worker Lifecycle | 14749-14795 | 47 | `when ... from <#name>`, supervision attrs |
-| 47 | Output Name Encoding | 14796-15135 | 340 | Encoded JS variable names, kind prefixes, hash scheme |
-| 48 | The `fn` Keyword — Pure Functions | 15136-15790 | 655 | Body prohibitions, return-site completeness, lift in fn, calling conventions; **S32: Layer 2 retired, §54 cross-ref** |
-| 49 | `while` and `do...while` Loops | 15791-16493 | 703 | Grammar, break/continue, labels, lift in loops, E-LOOP errors (heading uses H1, not H2) |
-| 50 | Assignment as Expression | 16494-16960 | 467 | Assign-expr syntax, semantics, type rules, fn interaction |
-| 51 | State Transition Rules / `< machine>` | 16961-18683 | 1723 | Type-level transitions, machine declarations, runtime guards, event object, `\|` alternation, payload binding, derived/projection machines, §51.11 audit clause, §51.3.2 attribute-form opener, §51.12 temporal transitions (`after Ns =>`), §51.13 auto-property-tests (`--emit-machine-tests`), **§51.15 three-sites cross-check (S32)** |
-| 52 | State Authority Declarations | 18684-19212 | 529 | Two-tier authority, server @var, sync infrastructure |
-| 53 | Inline Type Predicates | 19213-20151 | 939 | Value constraints, SPARK zones, named shapes, bind:value HTML attrs |
-| 54 | Nested Substates and State-Local Transitions | 20152-20439 | 288 | **S32 (2026-04-20).** Nested substate grammar (§54.2), state-local transitions (§54.3), field narrowing (§54.4), terminal states (§54.5), 4 new error codes (§54.6), interaction matrix (§54.7). Companion to §51.15 cross-check. |
+| 22 | Metaprogramming | 10408-11061 | 654 | `^{}` meta context, compile-time/runtime meta, Option D scope model |
+| 23 | Foreign Code Contexts (`_{}`) | 11062-11504 | 443 | Level-marked braces, opaque passthrough, WASM sigils, sidecars |
+| 24 | HTML Spec Awareness | 11505-11530 | 26 | Element registry, shape constraints |
+| 25 | CSS Variable Syntax | 11531-11629 | 99 | Defining/using vars, hyphenated names, scoping |
+| 26 | Tailwind Utility Classes | 11630-11650 | 21 | Integration model |
+| 27 | Comment Syntax | 11651-11671 | 21 | Universal `//`, per-context native comments |
+| 28 | Compiler Settings | 11672-11707 | 36 | html-content-model setting |
+| 29 | Vanilla File Interop | 11708-11716 | 9 | Plain JS/CSS/HTML interop |
+| 30 | Compile-Time Eval — `bun.eval()` | 11717-11747 | 31 | Scope, markup interpolation, security |
+| 31 | Dependency Graph | 11748-11771 | 24 | Purpose, construction, route analysis |
+| 32 | The `~` Keyword | 11772-11983 | 212 | Pipeline accumulator, lin variable, context boundary |
+| 33 | The `pure` Keyword | 11984-12048 | 65 | Purity constraints, **§33.6 fn ≡ pure function (S32)**, W-PURE-REDUNDANT |
+| 34 | Error Codes | 12049-12251 | 203 | All error code definitions (+6/-1 S32: E-STATE-COMPLETE, E-MACHINE-DIVERGENCE, E-STATE-SUBSTATE-*, E-STATE-TERMINAL-*; +2 S48: E-META-009, E-META-010) |
+| 35 | Linear Types — `lin` | 12252-12713 | 462 | Declaration (exactly-once + restricted intermediate visibility), consumption, control flow, closures, lin function params (§35.2.1), cross-`${}` block lin (§35.2.2), E-LIN-005 shadowing + E-LIN-006 deferred-ctx (§35.5) |
+| 36 | Input State Types | 12714-13071 | 358 | `<keyboard>`, `<mouse>`, `<gamepad>` |
+| 37 | Server-Sent Events | 13072-13313 | 242 | `server function*` SSE generators |
+| 38 | WebSocket Channels | 13314-13619 | 306 | `<channel>`, @shared, broadcast/disconnect |
+| 39 | Schema and Migrations | 13620-13895 | 276 | `< schema>`, column types, migration diff |
+| 40 | Middleware and Request Pipeline | 13896-14119 | 224 | Auto middleware, handle() escape hatch |
+| 41 | Import System — `use`/`import` | 14120-14326 | 207 | Capability imports, value imports, vendoring |
+| 42 | `not` — Unified Absence Value | 14327-14558 | 232 | `not` keyword, `is not`, `is some`, `(x) =>`, `T | not`, compound exprs (§42.2.4) |
+| 43 | Nested `<program>` | 14559-14641 | 83 | Execution contexts, shared-nothing, lifecycle, RPC |
+| 44 | `?{}` Multi-Database Adaptation | 14642-14697 | 56 | Bun.SQL target, driver resolution, `.get()` → `T | not` |
+| 45 | Equality Semantics | 14698-14759 | 62 | Single `==`, no `===`, structural, compiler-derived |
+| 46 | Worker Lifecycle | 14760-14806 | 47 | `when ... from <#name>`, supervision attrs |
+| 47 | Output Name Encoding | 14807-15146 | 340 | Encoded JS variable names, kind prefixes, hash scheme |
+| 48 | The `fn` Keyword — Pure Functions | 15147-15799 | 653 | Body prohibitions, return-site completeness, lift in fn, calling conventions; **S32: Layer 2 retired, §54 cross-ref** |
+| 49 | `while` and `do...while` Loops | 15800-16502 | 703 | Grammar, break/continue, labels, lift in loops, E-LOOP errors (heading uses H1, not H2) |
+| 50 | Assignment as Expression | 16503-16969 | 467 | Assign-expr syntax, semantics, type rules, fn interaction |
+| 51 | State Transition Rules / `< machine>` | 16970-18692 | 1723 | Type-level transitions, machine declarations, runtime guards, event object, `\|` alternation, payload binding, derived/projection machines, §51.11 audit clause, §51.3.2 attribute-form opener, §51.12 temporal transitions (`after Ns =>`), §51.13 auto-property-tests (`--emit-machine-tests`), **§51.15 three-sites cross-check (S32)** |
+| 52 | State Authority Declarations | 18693-19221 | 529 | Two-tier authority, server @var, sync infrastructure |
+| 53 | Inline Type Predicates | 19222-20160 | 939 | Value constraints, SPARK zones, named shapes, bind:value HTML attrs |
+| 54 | Nested Substates and State-Local Transitions | 20161-20448 | 288 | **S32 (2026-04-20).** Nested substate grammar (§54.2), state-local transitions (§54.3), field narrowing (§54.4), terminal states (§54.5), 4 new error codes (§54.6), interaction matrix (§54.7). Companion to §51.15 cross-check. |
 
 ## Quick Lookup: Topic → Section
 
@@ -113,43 +113,43 @@ Total lines: 20,439 | Total sections: 54 + appendices
 - implicit per-handler transactions → §19.10.5 (9612+)
 - navigation / navigate() → §20 (10125-10296)
 - module / import / export → §21 (10297-10407)
-- meta / ^{} → §22 (10408-11058)
-- foreign code / _{} → §23 (11059-11501)
-- WASM sigils → §23.3 (~11281-11436)
-- sidecars / use foreign: → §23.4 (~11436-11501)
-- HTML elements → §24 (11502-11527)
-- CSS variables → §25 (11528-11626)
-- comments → §27 (11648-11668)
-- compiler settings → §28 (11669-11704)
-- bun.eval() → §30 (11714-11744)
-- dependency graph → §31 (11745-11768)
-- tilde / ~ → §32 (11769-11980)
-- pure → §33 (11981-12041)
-- error codes → §34 (12042-12242)
-- linear types / lin → §35 (12243-12704)
-- lin function params → §35.2.1 (12243+)
-- keyboard / mouse / gamepad → §36 (12705-13062)
-- SSE / server function* → §37 (13063-13304)
-- WebSocket / channel → §38 (13305-13610)
-- schema / migrations → §39 (13611-13886)
-- middleware / handle() → §40 (13887-14110)
-- use / import system → §41 (14111-14315)
-- not keyword / absence → §42 (14316-14547)
-- compound is not / is some → §42.2.4 (14326+)
-- nested program / workers → §43 (14548-14630)
-- multi-database / ?{} adaptation → §44 (14631-14686)
-- equality / == → §45 (14687-14748)
-- worker lifecycle / when...from → §46 (14749-14795)
-- output name encoding → §47 (14796-15135)
-- fn keyword / pure functions → §48 (15136-15790)
-- while / do...while loops → §49 (15791-16493)
-- assignment as expression → §50 (16494-16960)
-- state transitions / machine → §51 (16961-18683)
-- §51.15 machine cross-check (S32) → §51 (~18430+)
-- state authority / server @var → §52 (18684-19212)
-- inline predicates / constraints → §53 (19213-20151)
-- nested substates / state-local transitions → §54 (20152-20439)
-- E-STATE-COMPLETE (S32) → §54.6 (20318+)
-- state-local transitions (S32) → §54.3 (20215+)
-- field narrowing on substates (S32) → §54.4 (20290+)
-- terminal states (S32) → §54.5 (20307+)
+- meta / ^{} → §22 (10408-11061)
+- foreign code / _{} → §23 (11062-11504)
+- WASM sigils → §23.3 (~11284-11439)
+- sidecars / use foreign: → §23.4 (~11439-11504)
+- HTML elements → §24 (11505-11530)
+- CSS variables → §25 (11531-11629)
+- comments → §27 (11651-11671)
+- compiler settings → §28 (11672-11707)
+- bun.eval() → §30 (11717-11747)
+- dependency graph → §31 (11748-11771)
+- tilde / ~ → §32 (11772-11983)
+- pure → §33 (11984-12048)
+- error codes → §34 (12049-12251)
+- linear types / lin → §35 (12252-12713)
+- lin function params → §35.2.1 (12252+)
+- keyboard / mouse / gamepad → §36 (12714-13071)
+- SSE / server function* → §37 (13072-13313)
+- WebSocket / channel → §38 (13314-13619)
+- schema / migrations → §39 (13620-13895)
+- middleware / handle() → §40 (13896-14119)
+- use / import system → §41 (14120-14326)
+- not keyword / absence → §42 (14327-14558)
+- compound is not / is some → §42.2.4 (14337+)
+- nested program / workers → §43 (14559-14641)
+- multi-database / ?{} adaptation → §44 (14642-14697)
+- equality / == → §45 (14698-14759)
+- worker lifecycle / when...from → §46 (14760-14806)
+- output name encoding → §47 (14807-15146)
+- fn keyword / pure functions → §48 (15147-15799)
+- while / do...while loops → §49 (15800-16502)
+- assignment as expression → §50 (16503-16969)
+- state transitions / machine → §51 (16970-18692)
+- §51.15 machine cross-check (S32) → §51 (~18439+)
+- state authority / server @var → §52 (18693-19221)
+- inline predicates / constraints → §53 (19222-20160)
+- nested substates / state-local transitions → §54 (20161-20448)
+- E-STATE-COMPLETE (S32) → §54.6 (20327+)
+- state-local transitions (S32) → §54.3 (20224+)
+- field narrowing on substates (S32) → §54.4 (20299+)
+- terminal states (S32) → §54.5 (20316+)

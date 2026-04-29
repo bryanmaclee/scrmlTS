@@ -95,9 +95,10 @@ describe("meta-checker `emit.raw` classifier (compile-time detection)", () => {
     expect(clientJs).not.toContain("_scrml_meta_effect(");
   });
 
-  test("^{ compiler.* } still classifies compile-time (regression guard)", () => {
-    // compiler.* should still be recognized via exprNodeContainsMemberAccess.
-    // Use an allowed compile-time call; a no-op form is sufficient to check classification.
+  test("^{ emit() + reflect() } still classifies compile-time (regression guard)", () => {
+    // The body of this test uses emit() and reflect() — both compile-time APIs.
+    // Originally named for `compiler.*`, but the body never invoked it; renamed
+    // for accuracy in S48 when `compiler.*` was removed from §22.4 classification.
     const src = `<program>
 \${
   type Color:enum = Red | Blue

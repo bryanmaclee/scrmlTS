@@ -9,7 +9,7 @@ import type { Span, FileAST, ASTNode, ExprNode, CallExpr, IdentExpr } from "./ty
  *   1. **Phase separation check (E-META-001)**
  *      Detects when runtime-scoped variables are referenced inside ^{} meta
  *      contexts that are compile-time-only. Meta contexts that use compile-time
- *      APIs (reflect, bun.eval, emit, compiler.*) execute at compile time and
+ *      APIs (reflect, bun.eval, emit) execute at compile time and
  *      cannot access runtime values. This check runs after the type system has
  *      built the scope chain, so we know which variables exist and where they
  *      were declared.
@@ -43,6 +43,8 @@ import type { Span, FileAST, ASTNode, ExprNode, CallExpr, IdentExpr } from "./ty
  *   E-META-005  Phase separation: ^{} block mixes compile-time and runtime references (§22.8)
  *   E-META-006  lift() call inside ^{} block (§22.9)
  *   E-META-007  ?{} SQL context inside runtime ^{} block (§22.9)
+ *   E-META-009  Nested ^{} inside a compile-time ^{} block (S23 / §22.11)
+ *   E-META-010  Reference to the reserved `compiler.*` namespace (S48 / §22.4)
  *
  * Performance budget: <= 5 ms per file.
  */
@@ -142,6 +144,12 @@ export const META_BUILTINS = new Set([
   // scrml meta API
   "reflect",
   "emit",
+  // S48: `compiler` is registered here so E-META-001/E-META-005 don't pile on
+  // top of E-META-010 when a user references the reserved `compiler.*`
+  // namespace. The diagnostic of record is E-META-010 ("reserved for future
+  // use"); META_BUILTINS membership is purely to suppress the redundant
+  // "runtime variable" classification.
+  "compiler",
 ]);
 
 // ---------------------------------------------------------------------------
@@ -165,7 +173,6 @@ export const META_BUILTINS = new Set([
 export const COMPILE_TIME_API_PATTERNS: RegExp[] = [
   /(?<!\.\s{0,10})\breflect\s*\(/,          // reflect(TypeName) — NOT meta.types.reflect()
   /(?<!\.\s{0,10})\bemit(?:\.raw)?\s*\(/,    // emit(...) or emit.raw(...) — NOT meta.emit()
-  /\bcompiler\s*\./,           // compiler.registerMacro(...) etc.
   /\bbun\s*\.\s*eval\s*\(/,    // bun.eval(...)
 ];
 
@@ -364,28 +371,6 @@ function exprNodeContainsEmitRawCall(node: ExprNode | undefined): boolean {
   return false;
 }
 
-/**
- * Walk an ExprNode tree and return true if any IdentExpr in the tree has the
- * given name. Used to detect bare references to compile-time API roots
- * (e.g. `compiler.registerMacro(...)` walks to ident "compiler").
- *
- * Phase 4d Step 8 strict (S40 follow-up): replaces the regex-string fallback
- * `/\bcompiler\s*\./` for compiler.* detection. The hybrid Step 8 used
- * exprNodeContainsMemberAccess(exprNode, ["compiler"]) which checks for
- * property name (e.g. `.compiler`), not for object name — so bare
- * `compiler.foo()` was missed by the ExprNode path and only caught by the
- * string fallback. With the fallback removed, this helper makes the ExprNode
- * detection cover the same ground.
- */
-function exprNodeContainsIdentNamed(node: ExprNode | undefined, name: string): boolean {
-  if (!node) return false;
-  let found = false;
-  forEachIdentInExprNode(node, (ident) => {
-    if (ident.name === name) found = true;
-  });
-  return found;
-}
-
 export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
   if (!Array.isArray(body)) return false;
 
@@ -394,7 +379,6 @@ export function bodyUsesCompileTimeApis(body: LogicNode[]): boolean {
     return exprNodeContainsCompileTimeReflect(exprNode)
       || exprNodeContainsCall(exprNode, "emit")
       || exprNodeContainsEmitRawCall(exprNode)
-      || exprNodeContainsIdentNamed(exprNode, "compiler")
       || exprNodeContainsMemberAccess(exprNode, ["bun", "eval"]);
   }
 
@@ -473,6 +457,81 @@ export function bodyContainsNestedMeta(body: LogicNode[]): boolean {
       if (Array.isArray(n.children) && walk(n.children as LogicNode[])) return true;
       if (Array.isArray(n.consequent) && walk(n.consequent as LogicNode[])) return true;
       if (Array.isArray(n.alternate) && walk(n.alternate as LogicNode[])) return true;
+    }
+    return false;
+  }
+
+  return walk(body);
+}
+
+/**
+ * Return true if any ExprNode in the body references the `compiler` namespace
+ * via member access (e.g. `compiler.X`, `compiler.options.Y`). Used to fire
+ * E-META-010 — the `compiler.*` namespace is reserved for future use and
+ * MUST NOT be referenced in any ^{} block in this revision.
+ *
+ * Matches a MemberExpr whose object is an IdentExpr named "compiler", at any
+ * depth in the expression tree. This catches `compiler.X`, `compiler.X.Y`,
+ * `compiler.X(...)`, etc. (S48 — close `compiler.*` phantom per recon
+ * docs/recon/compiler-dot-api-decision-2026-04-29.md.)
+ */
+export function bodyReferencesCompilerNamespace(body: LogicNode[]): boolean {
+  if (!Array.isArray(body)) return false;
+
+  function exprHasCompilerMember(node: any): boolean {
+    if (!node || typeof node !== "object") return false;
+    switch (node.kind) {
+      case "member": {
+        const obj = node.object;
+        if (obj && obj.kind === "ident" && obj.name === "compiler") return true;
+        return exprHasCompilerMember(node.object);
+      }
+      case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch": return false;
+      case "array": return (node.elements || []).some((el: any) => exprHasCompilerMember(el));
+      case "object": return (node.props || []).some((p: any) =>
+        (p.kind === "prop" && ((typeof p.key !== "string" && exprHasCompilerMember(p.key)) || exprHasCompilerMember(p.value))) ||
+        (p.kind === "spread" && exprHasCompilerMember(p.argument))
+      );
+      case "spread": return exprHasCompilerMember(node.argument);
+      case "unary": return exprHasCompilerMember(node.argument);
+      case "binary": return exprHasCompilerMember(node.left) || exprHasCompilerMember(node.right);
+      case "assign": return exprHasCompilerMember(node.target) || exprHasCompilerMember(node.value);
+      case "ternary": return exprHasCompilerMember(node.condition) || exprHasCompilerMember(node.consequent) || exprHasCompilerMember(node.alternate);
+      case "index": return exprHasCompilerMember(node.object) || exprHasCompilerMember(node.index);
+      case "call":
+      case "new": {
+        if (exprHasCompilerMember(node.callee)) return true;
+        return (node.args || []).some((a: any) => exprHasCompilerMember(a));
+      }
+      case "cast": return exprHasCompilerMember(node.expression);
+      case "match-expr": return exprHasCompilerMember(node.subject);
+      case "lambda": return false;
+      default: return false;
+    }
+  }
+
+  function walk(nodes: LogicNode[]): boolean {
+    for (const node of nodes) {
+      if (!node || typeof node !== "object") continue;
+      if (node.kind === "bare-expr") {
+        if ((node as any).exprNode && exprHasCompilerMember((node as any).exprNode)) return true;
+        // String fallback (synthetic test fixtures or AST shapes without ExprNode).
+        if ((node as any).expr && typeof (node as any).expr === "string" &&
+            /\bcompiler\s*\./.test((node as any).expr)) return true;
+      }
+      if (node.kind === "let-decl" || node.kind === "const-decl") {
+        if ((node as any).initExpr && exprHasCompilerMember((node as any).initExpr)) return true;
+        // String fallback for declarations whose init is a string only.
+        if (typeof node.init === "string" && /\bcompiler\s*\./.test(node.init)) return true;
+      }
+      // Walk nested structures (but stop at nested meta — they have their own check)
+      if (node.kind !== "meta") {
+        const n = node as Record<string, unknown>;
+        if (Array.isArray(n.body) && walk(n.body as LogicNode[])) return true;
+        if (Array.isArray(n.children) && walk(n.children as LogicNode[])) return true;
+        if (Array.isArray(n.consequent) && walk(n.consequent as LogicNode[])) return true;
+        if (Array.isArray(n.alternate) && walk(n.alternate as LogicNode[])) return true;
+      }
     }
     return false;
   }
@@ -1551,7 +1610,7 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
         allErrors.push(new MetaError(
           "E-META-005",
           `E-META-005: Phase separation violation — this ^{} block references both ` +
-          `compile-time APIs (reflect, compiler.*, emit, bun.eval) and runtime-only values. ` +
+          `compile-time APIs (reflect, emit, bun.eval) and runtime-only values. ` +
           `Split into separate compile-time and runtime ^{} blocks.`,
           metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
         ));
@@ -1570,6 +1629,22 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
           `in this revision. The outer meta-eval pass cannot recursively evaluate the ` +
           `inner ^{} before serialization. Either flatten the logic into a single ` +
           `compile-time block, or split into sibling ^{} blocks.`,
+          metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
+        ));
+      }
+
+      // S48: §22.4 — the `compiler.*` namespace is reserved for future use.
+      // Any reference (e.g. `compiler.version`, `compiler.options.X`,
+      // `compiler.registerMacro(...)`) is not implemented in this revision and
+      // would error at meta-eval as a generic ReferenceError. Surface a clean
+      // E-META-010 at checker time instead. See recon
+      // docs/recon/compiler-dot-api-decision-2026-04-29.md.
+      if (bodyReferencesCompilerNamespace(body)) {
+        allErrors.push(new MetaError(
+          "E-META-010",
+          `E-META-010: The \`compiler.*\` namespace is reserved for future use ` +
+          `and is not implemented in this revision. Remove the reference, or use ` +
+          `a different compile-time mechanism (reflect, emit, bun.eval).`,
           metaNode.span || { file: filePath, start: 0, end: 0, line: 1, col: 1 } as Span,
         ));
       }

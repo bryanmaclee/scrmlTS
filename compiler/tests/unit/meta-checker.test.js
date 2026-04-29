@@ -58,8 +58,7 @@
  *   §50 bodyUsesCompileTimeApis — returns true when reflect() is present
  *   §51 bodyUsesCompileTimeApis — returns true when bun.eval() is present
  *   §52 bodyUsesCompileTimeApis — returns true when emit() is present
- *   §53 bodyUsesCompileTimeApis — returns true when compiler.* is present
- *   §54 bodyUsesCompileTimeApis — returns false for pure runtime body
+  *   §54 bodyUsesCompileTimeApis — returns false for pure runtime body
  *   §55 checkMetaBlock — runtime meta: NO E-META-001 for @reactive var reference
  *   §56 checkMetaBlock — runtime meta: NO E-META-001 for arbitrary runtime vars
  *   §57 checkMetaBlock — compile-time meta with reflect(): E-META-001 fires for runtime vars
@@ -129,6 +128,7 @@ import {
   bodyContainsLift,
   bodyContainsSqlContext,
   bodyMixesPhases,
+  bodyReferencesCompilerNamespace,
   COMPILE_TIME_API_PATTERNS,
   isVariableIdent,
 } from "../../src/meta-checker.ts";
@@ -875,11 +875,6 @@ describe("bodyUsesCompileTimeApis", () => {
 
   test("§52 returns true when emit() is present", () => {
     const body = [makeBareExpr("emit('some-code')")];
-    expect(bodyUsesCompileTimeApis(body)).toBe(true);
-  });
-
-  test("§53 returns true when compiler.* is present", () => {
-    const body = [makeBareExpr("compiler.registerMacro('foo', () => {})")];
     expect(bodyUsesCompileTimeApis(body)).toBe(true);
   });
 
@@ -1967,6 +1962,114 @@ describe("§22.9 Interaction with other features (E-META-006, E-META-007)", () =
 
     const e007 = result.errors.filter(e => e.code === "E-META-007");
     expect(e007).toHaveLength(0);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §22.4 / S48: `compiler.*` namespace reserved (E-META-010), and
+// E-META-009 nested-meta regression guard.
+//
+// Per recon docs/recon/compiler-dot-api-decision-2026-04-29.md (Option B):
+// `compiler.*` is removed from §22.4 classification. Any reference inside
+// any ^{} block fires E-META-010 at meta-checker time.
+//
+//   §S48a runMetaChecker — E-META-010 fires for compiler.X(...) (depth 2)
+//   §S48b runMetaChecker — E-META-010 fires for compiler.options.X (depth 3)
+//   §S48c runMetaChecker — reflect/emit/bun.eval still classify compile-time (regression guard)
+//   §S48d runMetaChecker — E-META-009 fires for nested ^{} inside compile-time meta
+//   §S48e bodyReferencesCompilerNamespace — direct unit test (positive + negative)
+// ---------------------------------------------------------------------------
+
+describe("§22.4 / S48 — compiler.* phantom closed (E-META-010) + E-META-009 backfill", () => {
+  test("§S48a runMetaChecker — E-META-010 fires for compiler.X(...) (depth 2)", () => {
+    const result = runMetaChecker({
+      files: [makeFileAST({
+        nodes: [
+          makeMetaNode([makeBareExpr("emit('<p>' + compiler.version + '</p>')")]),
+        ],
+      })],
+    });
+    const e010 = result.errors.filter(e => e.code === "E-META-010");
+    expect(e010.length).toBeGreaterThanOrEqual(1);
+    expect(e010[0].message).toContain("compiler.*");
+    expect(e010[0].message.toLowerCase()).toContain("reserved");
+  });
+
+  test("§S48b runMetaChecker — E-META-010 fires for compiler.options.X (depth 3)", () => {
+    const result = runMetaChecker({
+      files: [makeFileAST({
+        nodes: [
+          makeMetaNode([makeBareExpr("emit('<p>' + compiler.options.htmlContentModel + '</p>')")]),
+        ],
+      })],
+    });
+    const e010 = result.errors.filter(e => e.code === "E-META-010");
+    expect(e010.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("§S48c runMetaChecker — reflect/emit/bun.eval still classify compile-time (regression guard)", () => {
+    // After removing the `compiler.*` regex, the remaining compile-time API
+    // classifiers (reflect, emit, bun.eval) MUST still trigger compile-time
+    // classification. This guards against accidental breakage during the
+    // deletion.
+    const reflectResult = runMetaChecker({
+      files: [makeFileAST({
+        nodes: [makeMetaNode([makeBareExpr("info = reflect(Color)")])],
+        typeDecls: [makeTypeDecl("Color", "enum", "{ Red | Blue }")],
+      })],
+    });
+    expect(reflectResult.errors.filter(e => e.code === "E-META-010")).toHaveLength(0);
+
+    const emitBody = [makeBareExpr("emit('<p>hi</p>')")];
+    expect(bodyUsesCompileTimeApis(emitBody)).toBe(true);
+
+    const bunEvalBody = [makeConstDecl("CFG", "bun.eval(`return { port: 3000 }`)")];
+    expect(bodyUsesCompileTimeApis(bunEvalBody)).toBe(true);
+
+    const reflectBody = [makeBareExpr("reflect(Color)")];
+    expect(bodyUsesCompileTimeApis(reflectBody)).toBe(true);
+  });
+
+  test("§S48d runMetaChecker — E-META-009 fires for nested ^{} inside compile-time meta", () => {
+    // E-META-009 already exists in source (meta-checker.ts:1568) but was not
+    // tabled in §22.11 / §34. This test guards the firing path.
+    const innerMeta = makeMetaNode([makeBareExpr("emit('<span>inner</span>')")], 200);
+    const outerMeta = makeMetaNode([
+      makeBareExpr("info = reflect(Color)"),
+      innerMeta,
+    ]);
+    const result = runMetaChecker({
+      files: [makeFileAST({
+        nodes: [outerMeta],
+        typeDecls: [makeTypeDecl("Color", "enum", "{ Red | Blue }")],
+      })],
+    });
+    const e009 = result.errors.filter(e => e.code === "E-META-009");
+    expect(e009.length).toBeGreaterThanOrEqual(1);
+    expect(e009[0].message.toLowerCase()).toContain("nested");
+  });
+
+  test("§S48e bodyReferencesCompilerNamespace — positive and negative cases", () => {
+    // Direct positive
+    expect(bodyReferencesCompilerNamespace([makeBareExpr("compiler.version")])).toBe(true);
+    // Inside a call argument
+    expect(bodyReferencesCompilerNamespace([makeBareExpr("emit(compiler.version)")])).toBe(true);
+    // Deep member access
+    expect(bodyReferencesCompilerNamespace([makeBareExpr("compiler.options.htmlContentModel")])).toBe(true);
+    // In a const-decl init
+    expect(bodyReferencesCompilerNamespace([makeConstDecl("v", "compiler.version")])).toBe(true);
+    // Negative: bare ident `compiler` with no member access — not flagged
+    // (the recon scopes E-META-010 to MEMBER access; a bare ident `compiler`
+    //  is most likely a user-named variable). `bodyReferencesCompilerNamespace`
+    //  detects MemberExpr.object===Ident("compiler") only.
+    expect(bodyReferencesCompilerNamespace([makeBareExpr("let compiler = 1")])).toBe(false);
+    // Negative: a property name 'compiler' on something else — also not flagged
+    expect(bodyReferencesCompilerNamespace([makeBareExpr("obj.compiler")])).toBe(false);
+    // Negative: empty body
+    expect(bodyReferencesCompilerNamespace([])).toBe(false);
+    // Negative: pure runtime expression
+    expect(bodyReferencesCompilerNamespace([makeBareExpr("@count + 1")])).toBe(false);
   });
 });
 
