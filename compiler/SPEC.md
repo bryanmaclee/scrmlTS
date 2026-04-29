@@ -11640,13 +11640,82 @@ scrml supports Tailwind utility class names natively. No Tailwind CLI, PostCSS, 
 - The compiler SHALL emit ONLY the CSS rules for classes that are actually used. Unused Tailwind utilities SHALL NOT appear in compiled output.
 - Tailwind utility classes SHALL remain globally scoped. The component-scoped CSS system (Section 24.6) SHALL NOT hash Tailwind utility class names.
 
-### 26.3 Open Items
+### 26.3 Variant Prefixes
 
-- Arbitrary values (e.g., `p-[1.5rem]`) — TBD (SPEC-ISSUE-012)
-- Responsive and variant prefixes (e.g., `md:`, `hover:`) — TBD (SPEC-ISSUE-012)
-- Custom theme configuration — TBD (SPEC-ISSUE-012)
+The compiler SHALL recognize variant prefixes preceding a Tailwind utility class name. Each prefix wraps the emitted CSS rule. Stacking is permitted (e.g. `md:hover:bg-blue-500`).
 
-While these features are TBD, the compiler SHALL emit W-TAILWIND-001 when a class string in source resembles their syntax (a class name in a `class="..."` attribute that contains `:` or `[`) but does not match a registered utility. The warning is non-fatal — compilation produces output regardless. `${...}` interpolation regions inside the class attribute value are masked before scanning so dynamic-class expressions like `class="${cond ? 'a' : 'b'}"` do not produce false positives on the ternary's `:`.
+| Prefix | Wrapping |
+|---|---|
+| `sm:`, `md:`, `lg:`, `xl:`, `2xl:` | `@media (min-width: <breakpoint>)` |
+| `hover:`, `focus:`, `active:`, `disabled:`, `visited:` | `:pseudo` selector suffix |
+| `first:`, `last:` | `:first-child`, `:last-child` |
+| `odd:`, `even:` | `:nth-child(odd)`, `:nth-child(even)` |
+| `focus-within:`, `focus-visible:` | `:focus-within`, `:focus-visible` |
+| `dark:` | `@media (prefers-color-scheme: dark)` |
+| `print:` | `@media print` |
+| `motion-safe:`, `motion-reduce:` | `@media (prefers-reduced-motion: ...)` |
+
+Stacked variants nest in this order, outermost first: responsive breakpoint → theme/feature media query → state pseudo-class. For example, `md:dark:hover:bg-red-500` emits `@media (min-width: 768px) { @media (prefers-color-scheme: dark) { .md\:dark\:hover\:bg-red-500:hover { background-color: #ef4444 } } }`.
+
+Breakpoint values for v1 are fixed to Tailwind v3 defaults (640px, 768px, 1024px, 1280px, 1536px). Custom breakpoints are deferred to v2 (Section 26.5).
+
+`group-*`, `peer-*`, and `before:` / `after:` pseudo-element variants are deferred to v2 (Section 26.5).
+
+When a class string contains a variant-prefix-shaped segment whose prefix matches NONE of the recognized prefixes above (e.g. `weird:p-4`, `group-hover:bg-blue-500`), the compiler SHALL NOT emit CSS for that class and SHALL emit W-TAILWIND-001. This prevents the silent-strip pattern where the compiler would otherwise emit a rule for the base utility under the wrong selector.
+
+### 26.4 Arbitrary Values
+
+The compiler SHALL recognize bracketed-value syntax `<utility-prefix>-[<value>]` as a request to emit a CSS rule whose property is determined by `<utility-prefix>` and whose value is `<value>`. The class name is CSS-escaped per CSS spec for use as a selector.
+
+The supported utility prefixes are:
+
+- Spacing: `p`, `px`, `py`, `pt`, `pr`, `pb`, `pl`, `m`, `mx`, `my`, `mt`, `mr`, `mb`, `ml`, `gap`, `gap-x`, `gap-y`
+- Sizing: `w`, `h`, `min-w`, `max-w`, `min-h`, `max-h`
+- Position: `top`, `right`, `bottom`, `left`, `inset`
+- Typography: `text` (font-size for length values), `leading`, `tracking`
+- Color: `text` (color), `bg` (background-color or background-image for `url(...)`), `border` (color)
+- Border: `border` (width for length values), `rounded`
+- Effects: `opacity`, `shadow` (verbatim box-shadow)
+- Layout: `z`
+
+For overloaded prefixes (`text`, `bg`, `border`), value disambiguation is heuristic per the value's parsed shape:
+
+- Hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), color function (`rgb(`, `rgba(`, `hsl(`, `hsla(`, `hwb(`, `lab(`, `lch(`, `oklab(`, `oklch(`, `color(`, `color-mix(`), or CSS keyword (`currentColor`, `transparent`) → color (`color` for `text-`, `background-color` for `bg-`, `border-color` for `border-`).
+- `<number><unit>` length → size (`font-size` for `text-`, `border-width` for `border-`, etc.).
+- `url(...)` (only valid for `bg-`) → `background-image`.
+- `var(--ident)` or `var(--ident, fallback)` → defaults to length/size for `text-`, `border-`; defaults to `background-color` for `bg-`.
+- Bare CSS keyword (`auto`, `none`, `inherit`, `initial`, `unset`, `revert`, `revert-layer`) → accepted as the property value.
+
+#### 26.4.1 Compile-time Validation
+
+The compiler SHALL validate `<value>` at compile time and reject invalid syntax with diagnostic E-TAILWIND-001. The validation rules are:
+
+- Empty `[]` → reject.
+- Whitespace inside `[]` → reject (Tailwind disallows; would also break HTML class scanning).
+- `<`, `>`, `;`, `{`, `}`, backtick → reject (CSS-injection / context-escape vectors).
+- Length values must end in a recognized CSS unit (`px`, `em`, `rem`, `%`, `vh`, `vw`, `vmin`, `vmax`, `ch`, `ex`, `lh`, `rlh`, `pt`, `pc`, `in`, `cm`, `mm`, `Q`, `fr`, `s`, `ms`, `deg`, `rad`, `grad`, `turn`, `Hz`, `kHz`, `dpi`, `dppx`, `dpcm`, `svh`, `lvh`, `dvh`, `svw`, `lvw`, `dvw`, `cqw`, `cqh`, `cqi`, `cqb`, `cqmin`, `cqmax`) or be unitless.
+- Hex colors must be 3, 4, 6, or 8 hex digits.
+- CSS function names must be one of: `rgb`, `rgba`, `hsl`, `hsla`, `hwb`, `lab`, `lch`, `oklab`, `oklch`, `color`, `color-mix`, `calc`, `min`, `max`, `clamp`, `var`, `url`. Unknown function names → reject.
+- Function arguments must have balanced parens.
+- `var()` body must start with `--` followed by a valid CSS identifier.
+- `url()` body may be unquoted, single-quoted, or double-quoted; quoted forms must have matching trailing quote.
+
+The diagnostic message includes the offending bracket content and the specific reason (e.g., "invalid CSS unit \`quux\`", "unbalanced parens in \`...\`", "unknown CSS function \`notreal\`").
+
+#### 26.4.2 Cross-feature Interaction with Variants
+
+Variant prefixes (Section 26.3) are permitted on classes with arbitrary values: `md:p-[1.5rem]`, `hover:bg-[#ff00ff]`, `md:hover:w-[200px]`, `dark:hover:bg-[#000]`. Both wrappings apply per the rules in Section 26.3.
+
+The variant-prefix `:` separator is bracket-aware: a `:` inside a `[...]` arbitrary value (e.g., `bg-[url(http://example.com)]`) is NOT treated as a variant separator.
+
+### 26.5 Open Items
+
+- Custom theme configuration (custom colors, custom breakpoints) — TBD (SPEC-ISSUE-012).
+- `group-*` and `peer-*` parent/sibling-state variants — TBD (SPEC-ISSUE-012).
+- `before:` and `after:` pseudo-element variants (require `content` property handling) — TBD (SPEC-ISSUE-012).
+- Container queries (`@container`) — TBD.
+
+For the deferred items above, when a class string in source uses one of those syntaxes (e.g. `group-hover:p-4`, custom-theme-prefix `brand:foo-bar`), the compiler SHALL emit W-TAILWIND-001. The warning is non-fatal — compilation produces output regardless. Class strings using variants and arbitrary values that ARE supported (Sections 26.3 and 26.4) compile cleanly and produce no warning. `${...}` interpolation regions inside the class attribute value are masked before scanning so dynamic-class expressions like `class="${cond ? 'a' : 'b'}"` do not produce false positives on the ternary's `:`.
 
 ---
 
@@ -12089,7 +12158,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-FOREIGN-012 | §23.4 | Sidecar function called from a client-side code path | Error |
 | W-FOREIGN-001 | §23.2 | Level-0 `_{` used; `_={}=` recommended | Warning |
 | W-PROGRAM-001 | §4.12 | Unnamed nested `<program>` with no distinguishing attributes | Warning |
-| W-TAILWIND-001 | §26.3 | Class name in `class="..."` looks like Tailwind variant/arbitrary syntax (contains `:` or `[`) but does not match a registered utility. SPEC-ISSUE-012. | Warning |
+| W-TAILWIND-001 | §26.3, §26.5 | Class name in `class="..."` uses Tailwind syntax that the embedded engine does not handle (deferred prefix like `group-hover:`, custom theme prefix, etc.). The class produces no CSS. SPEC-ISSUE-012. | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
@@ -12249,6 +12318,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-004 | §14.3 | Struct field access on non-struct type | Error |
 | E-TYPE-052 | §14.2 | InitCap algorithm: type name must be PascalCase | Error |
 | E-TYPE-080 | §19.7 | Non-exhaustive error handler: not all error variants covered | Error |
+| E-TAILWIND-001 | §26.4.1 | Invalid arbitrary value in Tailwind utility class (empty brackets, whitespace, malformed hex/unit/function, injection vector, unbalanced parens, malformed `var()` or `url()`) | Error |
 
 ---
 

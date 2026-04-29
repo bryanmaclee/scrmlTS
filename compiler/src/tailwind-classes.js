@@ -1,20 +1,30 @@
 /**
  * Tailwind Utility Classes — embedded registry for the scrml compiler.
  *
- * Per SPEC section 25, the scrml compiler embeds Tailwind utility definitions
+ * Per SPEC section 26, the scrml compiler embeds Tailwind utility definitions
  * and emits only the CSS rules for classes actually used. No Tailwind CLI,
  * PostCSS, or purge step is required.
  *
  * Exports:
- *   getTailwindCSS(className)            — returns CSS rule string or null
- *   getAllUsedCSS(classNames[])          — returns combined CSS string for all matched classes
- *   scanClassesFromHtml(html)            — extracts all class names from HTML class="" attributes
- *   findUnsupportedTailwindShapes(src)   — returns W-TAILWIND-001 diagnostics for class strings
- *                                          that look like Tailwind variant/arbitrary syntax
- *                                          (SPEC §26.3, SPEC-ISSUE-012). The full variant +
- *                                          arbitrary-value system is not yet supported, so the
- *                                          warning fires on shape regardless of whether the
- *                                          embedded engine has incidental partial support.
+ *   getTailwindCSS(className)                   — CSS rule string or null
+ *   getTailwindCSSWithDiagnostic(className)     — { css, diagnostic } pair
+ *   getAllUsedCSS(classNames[])                 — combined CSS string
+ *   getAllUsedCSSWithDiagnostics(classNames[])  — { css, diagnostics }
+ *   scanClassesFromHtml(html)                   — class names from HTML
+ *   findUnsupportedTailwindShapes(source)       — W-TAILWIND-001 diagnostics
+ *                                                 for class strings that look
+ *                                                 like Tailwind variant or
+ *                                                 arbitrary-value syntax but
+ *                                                 fail registry lookup
+ *
+ * Variant prefixes supported (per §26.3): responsive (`sm:`–`2xl:`), state
+ * pseudo-classes (`hover:`, `focus:`, `active:`, `disabled:`, `first:`,
+ * `last:`, `odd:`, `even:`, `visited:`, `focus-within:`, `focus-visible:`),
+ * `dark:`, `print:`, `motion-safe:`, `motion-reduce:`. Stacking is permitted.
+ *
+ * Arbitrary values supported (per §26.4): `<utility-prefix>-[<value>]`. The
+ * compiler validates bracket content at compile time per §26.4 and emits
+ * E-TAILWIND-001 on invalid syntax.
  */
 
 // ---------------------------------------------------------------------------
@@ -582,8 +592,24 @@ function registerLayout() {
 }
 
 // ---------------------------------------------------------------------------
-// Responsive prefixes
+// Variant prefixes (responsive, state, theme/media; per §26.3)
 // ---------------------------------------------------------------------------
+//
+// `kind` decides how the rule is wrapped:
+//   "media"      — `@media (...)` wrapper
+//   "pseudo"     — `:pseudo` selector suffix on the class itself
+//   ("media" wins outermost; "pseudo" stacks innermost.)
+//
+// Adding a new variant: register it here with its kind/value. The parser
+// (`parseClassName`) and emitter (`getTailwindCSSWithDiagnostic`) consult
+// the same registry.
+//
+// `dark:`, `print:`, `motion-safe:`, `motion-reduce:` are theme/feature
+// media queries — they share an emit slot with responsive breakpoints
+// (only one outer @media wrapper per class) but live in their own registry
+// so a class like `dark:hover:bg-red-500` emits cleanly without the user
+// also writing `md:`. Combining a responsive breakpoint and a theme query
+// (e.g. `md:dark:hover:p-4`) is permitted; the parser nests them.
 
 const RESPONSIVE_BREAKPOINTS = {
   "sm": "640px",
@@ -592,10 +618,6 @@ const RESPONSIVE_BREAKPOINTS = {
   "xl": "1280px",
   "2xl": "1536px",
 };
-
-// ---------------------------------------------------------------------------
-// State prefixes
-// ---------------------------------------------------------------------------
 
 const STATE_PSEUDO_CLASSES = {
   "hover": "hover",
@@ -611,17 +633,345 @@ const STATE_PSEUDO_CLASSES = {
   "focus-visible": "focus-visible",
 };
 
+// Theme/feature media queries (kind: "media"). Stack outside responsive.
+const THEME_MEDIA_QUERIES = {
+  "dark": "(prefers-color-scheme: dark)",
+  "print": "print",
+  "motion-safe": "(prefers-reduced-motion: no-preference)",
+  "motion-reduce": "(prefers-reduced-motion: reduce)",
+};
+
 // ---------------------------------------------------------------------------
 // CSS class name escaping
 // ---------------------------------------------------------------------------
 
 /**
  * Escape special characters in a CSS class name for use in a selector.
+ * Covers all special chars seen in arbitrary-value class names:
+ *   `.` `:` `/` `\` `%` `[` `]` `#` `(` `)` `,` `+` `*` `<space>`
+ * Unescaped, any of these would either change selector meaning or
+ * produce invalid CSS.
  * @param {string} cls
  * @returns {string}
  */
 function escapeCssClass(cls) {
-  return cls.replace(/[.:/\\%[\]#()]/g, "\\$&");
+  return cls.replace(/[.:/\\%[\]#(),+*\s]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// Arbitrary value support (per §26.4)
+// ---------------------------------------------------------------------------
+//
+// Syntax: `<utility-prefix>-[<value>]`
+//
+// `<value>` is validated at compile time against the rules in §26.4.
+// On failure, the diagnostic-bearing API returns an E-TAILWIND-001 entry
+// instead of a CSS rule. Callers that need only the rule string
+// (`getTailwindCSS`) get null on validation failure.
+//
+// To add a new utility prefix: append it to ARBITRARY_PREFIX_MAP.
+
+/**
+ * Map from utility prefix (the part before `-[`) to the CSS property
+ * to emit. A `function` value is consulted when the property depends on
+ * the value's shape (e.g., `text-` is font-size for `<num><unit>`,
+ * `color` for hex/rgb).
+ */
+const ARBITRARY_PREFIX_MAP = {
+  // Spacing
+  "p": "padding",
+  "px": ["padding-left", "padding-right"],
+  "py": ["padding-top", "padding-bottom"],
+  "pt": "padding-top",
+  "pr": "padding-right",
+  "pb": "padding-bottom",
+  "pl": "padding-left",
+  "m": "margin",
+  "mx": ["margin-left", "margin-right"],
+  "my": ["margin-top", "margin-bottom"],
+  "mt": "margin-top",
+  "mr": "margin-right",
+  "mb": "margin-bottom",
+  "ml": "margin-left",
+  "gap": "gap",
+  "gap-x": "column-gap",
+  "gap-y": "row-gap",
+  // Sizing
+  "w": "width",
+  "h": "height",
+  "min-w": "min-width",
+  "max-w": "max-width",
+  "min-h": "min-height",
+  "max-h": "max-height",
+  // Position
+  "top": "top",
+  "right": "right",
+  "bottom": "bottom",
+  "left": "left",
+  "inset": "inset",
+  // Typography
+  "leading": "line-height",
+  "tracking": "letter-spacing",
+  // Effects
+  "opacity": "opacity",
+  "shadow": "box-shadow",
+  // Layout
+  "z": "z-index",
+  // Border radius
+  "rounded": "border-radius",
+};
+
+// Overloaded prefixes — property depends on value shape.
+// Each function receives a parsed-value descriptor and returns a CSS
+// property name (or array of names) — or null if the value is not
+// acceptable for any branch (caller emits E-TAILWIND-001).
+const ARBITRARY_OVERLOADED_PREFIXES = {
+  "text": (v) => {
+    if (v.kind === "color") return "color";
+    if (v.kind === "length" || v.kind === "number") return "font-size";
+    if (v.kind === "var") return "font-size"; // default per §26.4
+    if (v.kind === "keyword") return "color";  // currentColor, transparent, inherit
+    return null;
+  },
+  "bg": (v) => {
+    if (v.kind === "color") return "background-color";
+    if (v.kind === "url") return "background-image";
+    if (v.kind === "var") return "background-color";
+    if (v.kind === "keyword") return "background-color";
+    return null;
+  },
+  "border": (v) => {
+    if (v.kind === "length" || v.kind === "number") return "border-width";
+    if (v.kind === "color") return "border-color";
+    if (v.kind === "var") return "border-width";
+    if (v.kind === "keyword") return "border-color";
+    return null;
+  },
+};
+
+// CSS length units accepted in arbitrary values. (Time/angle/freq/resolution
+// units included for completeness — `transition-duration: [200ms]` etc.)
+const VALID_CSS_UNITS = new Set([
+  "px", "em", "rem", "%", "vh", "vw", "vmin", "vmax",
+  "ch", "ex", "lh", "rlh", "pt", "pc", "in", "cm", "mm", "Q",
+  "fr", "s", "ms", "deg", "rad", "grad", "turn",
+  "Hz", "kHz", "dpi", "dppx", "dpcm",
+  "svh", "lvh", "dvh", "svw", "lvw", "dvw",
+  "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
+]);
+
+// CSS color-function names accepted in arbitrary values.
+const VALID_COLOR_FUNCTIONS = new Set([
+  "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch",
+  "oklab", "oklch", "color", "color-mix",
+]);
+
+// CSS math/utility-function names accepted in arbitrary values.
+const VALID_MATH_FUNCTIONS = new Set([
+  "calc", "min", "max", "clamp", "var",
+]);
+
+// CSS-wide keywords accepted as bare values.
+const VALID_CSS_KEYWORDS = new Set([
+  "auto", "none", "inherit", "initial", "unset", "revert", "revert-layer",
+  "currentColor", "transparent",
+]);
+
+/**
+ * Detect an arbitrary-value class shape.
+ *   `p-[1.5rem]` -> { prefix: "p", raw: "1.5rem" }
+ *   `bg-[#ff00ff]` -> { prefix: "bg", raw: "#ff00ff" }
+ *   `not-arbitrary` -> null
+ *
+ * Empty bracket content (`p-[]`) IS detected as an arbitrary-value shape;
+ * the validator (`validateArbitraryCss`) emits E-TAILWIND-001 on the
+ * empty case so callers get a diagnostic rather than a silent miss.
+ *
+ * @param {string} base
+ * @returns {{ prefix: string, raw: string } | null}
+ */
+function parseArbitraryValue(base) {
+  // The class must end with `]` and contain a `-[` separator.
+  if (typeof base !== "string" || base.length < 4) return null;
+  if (base.charCodeAt(base.length - 1) !== 0x5D /* ] */) return null;
+  const open = base.indexOf("-[");
+  if (open < 0) return null;
+  const prefix = base.slice(0, open);
+  const raw = base.slice(open + 2, base.length - 1);
+  if (!prefix) return null;
+  // Note: empty raw IS allowed at this layer so the validator can emit
+  // E-TAILWIND-001 ("empty bracket value `[]`") rather than a silent null.
+  return { prefix, raw };
+}
+
+/**
+ * Validate the bracket content of an arbitrary value at compile time.
+ * Returns a structured value descriptor on success, or a diagnostic
+ * `{ code, reason }` on failure.
+ *
+ * Accepted shapes (per §26.4):
+ *   - hex color:           `#fff`, `#ffff`, `#ffffff`, `#ffffffff`
+ *   - color function:      `rgb(...)`, `rgba(...)`, `hsl(...)`, etc.
+ *   - math function:       `calc(...)`, `min(...)`, `max(...)`, `clamp(...)`
+ *   - var() reference:     `var(--name)` or `var(--name, fallback)`
+ *   - url() reference:     `url(/foo.png)`, `url('foo')`, `url("foo")`
+ *   - length:              `1.5rem`, `42px`, `100%`, `-10px`
+ *   - bare number:         `1.5`, `42`, `-0.25`
+ *   - css keyword:         `auto`, `none`, `inherit`, `currentColor`, etc.
+ *
+ * Rejected shapes:
+ *   - empty `[]`
+ *   - whitespace inside brackets (would break HTML class scanning)
+ *   - injection-vector chars: `<`, `>`, `;`, `{`, `}`, backtick, quote
+ *     (quotes accepted only inside `url()` for compatibility)
+ *   - unbalanced parens
+ *   - unknown unit on a length value
+ *   - malformed hex
+ *   - unknown function name
+ *   - `var()` without a leading `--` ident
+ *
+ * @param {string} raw  the bracket content (no surrounding `[` `]`)
+ * @returns {{ kind: string, css: string } | { error: { code: string, reason: string } }}
+ */
+function validateArbitraryCss(raw) {
+  if (raw.length === 0) {
+    return { error: { code: "E-TAILWIND-001", reason: "empty bracket value `[]`" } };
+  }
+  // Whitespace is rejected unconditionally — Tailwind users must not
+  // write `[1.5 rem]` (and the HTML-class scanner would split on it).
+  if (/\s/.test(raw)) {
+    return { error: { code: "E-TAILWIND-001", reason: `whitespace not permitted inside [] (in \`${raw}\`)` } };
+  }
+  // Forbid CSS-injection vectors that allow escaping the property
+  // context inside the emitted rule. `;` would close the declaration;
+  // `{` `}` would open a new rule; `<` `>` are not allowed here.
+  if (/[;{}<>]/.test(raw)) {
+    return { error: { code: "E-TAILWIND-001", reason: `invalid character in arbitrary value \`${raw}\`` } };
+  }
+  // Backtick is never a CSS value.
+  if (raw.indexOf("`") >= 0) {
+    return { error: { code: "E-TAILWIND-001", reason: `invalid character (backtick) in \`${raw}\`` } };
+  }
+
+  // Function-shaped value: `name(...)`
+  const fnMatch = raw.match(/^([a-zA-Z][a-zA-Z0-9-]*)\((.*)\)$/);
+  if (fnMatch) {
+    const [, name, body] = fnMatch;
+    if (!balancedParens(body)) {
+      return { error: { code: "E-TAILWIND-001", reason: `unbalanced parens in \`${raw}\`` } };
+    }
+    const lname = name.toLowerCase();
+    if (lname === "url") {
+      // url(...) — body is a URL, possibly quoted.
+      if (!validateUrlBody(body)) {
+        return { error: { code: "E-TAILWIND-001", reason: `malformed url() in \`${raw}\`` } };
+      }
+      return { kind: "url", css: raw };
+    }
+    if (lname === "var") {
+      if (!/^--[a-zA-Z_][a-zA-Z0-9_-]*(?:,.*)?$/.test(body)) {
+        return { error: { code: "E-TAILWIND-001", reason: `malformed var() reference \`${raw}\` (must start with --identifier)` } };
+      }
+      return { kind: "var", css: raw };
+    }
+    if (VALID_COLOR_FUNCTIONS.has(lname)) {
+      return { kind: "color", css: raw };
+    }
+    if (VALID_MATH_FUNCTIONS.has(lname)) {
+      return { kind: "length", css: raw };
+    }
+    return { error: { code: "E-TAILWIND-001", reason: `unknown CSS function \`${name}\` in \`${raw}\`` } };
+  }
+
+  // Reject naked unbalanced parens (e.g., `bg-[rgb(255,0,0]` reaches here
+  // because the outer match `name(...)` requires a trailing `)`. Without
+  // it, the regex doesn't match — but the value still contains `(`.)
+  if (!balancedParens(raw)) {
+    return { error: { code: "E-TAILWIND-001", reason: `unbalanced parens in \`${raw}\`` } };
+  }
+
+  // Hex color: #RGB, #RGBA, #RRGGBB, #RRGGBBAA
+  if (raw.charCodeAt(0) === 0x23 /* # */) {
+    const hex = raw.slice(1);
+    if (!/^[0-9a-fA-F]+$/.test(hex)) {
+      return { error: { code: "E-TAILWIND-001", reason: `invalid hex color \`${raw}\` (non-hex digit)` } };
+    }
+    if (![3, 4, 6, 8].includes(hex.length)) {
+      return { error: { code: "E-TAILWIND-001", reason: `invalid hex color \`${raw}\` (length must be 3, 4, 6, or 8)` } };
+    }
+    return { kind: "color", css: raw };
+  }
+
+  // Length / number: optional sign, digits, optional fraction, optional unit
+  const lenMatch = raw.match(/^(-?\d+(?:\.\d+)?|-?\.\d+)([a-zA-Z%]*)$/);
+  if (lenMatch) {
+    const [, , unit] = lenMatch;
+    if (unit === "") {
+      return { kind: "number", css: raw };
+    }
+    if (VALID_CSS_UNITS.has(unit)) {
+      return { kind: "length", css: raw };
+    }
+    return { error: { code: "E-TAILWIND-001", reason: `invalid CSS unit \`${unit}\` in \`${raw}\`` } };
+  }
+
+  // Bare CSS keyword
+  if (VALID_CSS_KEYWORDS.has(raw)) {
+    return { kind: "keyword", css: raw };
+  }
+
+  // Identifier (e.g., `red`, `linear-gradient` if someone uses it bare —
+  // but we keep this conservative: only accept lowercase ASCII idents
+  // with hyphens as a generic "ident" value, treated as color.)
+  if (/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(raw)) {
+    return { kind: "color", css: raw };
+  }
+
+  return { error: { code: "E-TAILWIND-001", reason: `unrecognized arbitrary value \`${raw}\`` } };
+}
+
+/**
+ * Balanced-paren check on a string. Brackets and braces are not allowed
+ * (rejected upstream), so we only count `(` and `)`.
+ * @param {string} s
+ * @returns {boolean}
+ */
+function balancedParens(s) {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0x28 /* ( */) depth++;
+    else if (c === 0x29 /* ) */) {
+      depth--;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
+}
+
+/**
+ * Validate the body of a `url(...)` arbitrary value.
+ *   url(/foo)             — unquoted, OK
+ *   url('foo')            — single-quoted, OK
+ *   url("foo")            — double-quoted, OK
+ *   url(foo bar)          — whitespace upstream-rejected
+ * @param {string} body
+ * @returns {boolean}
+ */
+function validateUrlBody(body) {
+  if (body.length === 0) return false;
+  // Quoted form: leading + matching trailing quote, no embedded matching
+  // unescaped quote of the same kind.
+  const first = body.charCodeAt(0);
+  if (first === 0x27 /* ' */ || first === 0x22 /* " */) {
+    if (body.length < 2) return false;
+    const last = body.charCodeAt(body.length - 1);
+    if (last !== first) return false;
+    return true;
+  }
+  // Unquoted: any non-whitespace, non-`(`, non-`)` char (whitespace was
+  // already rejected by validateArbitraryCss).
+  return !/[()]/.test(body);
 }
 
 // ---------------------------------------------------------------------------
@@ -629,22 +979,56 @@ function escapeCssClass(cls) {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a class name into its prefix chain and base utility.
- * E.g., "sm:hover:text-red-500" -> { responsive: "sm", state: "hover", base: "text-red-500" }
+ * Split a class name on `:` only outside `[...]` brackets.
+ * `bg-[url(http://x:y)]` -> ["bg-[url(http://x:y)]"]
+ * `md:bg-[#fff]` -> ["md", "bg-[#fff]"]
+ * `md:hover:bg-[rgb(0:0:0)]` -> ["md", "hover", "bg-[rgb(0:0:0)]"]
  * @param {string} className
- * @returns {{ responsive: string|null, state: string|null, base: string }}
+ * @returns {string[]}
+ */
+function splitClassNameSegments(className) {
+  const segments = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < className.length; i++) {
+    const c = className.charCodeAt(i);
+    if (c === 0x5B /* [ */) depth++;
+    else if (c === 0x5D /* ] */) {
+      if (depth > 0) depth--;
+    } else if (c === 0x3A /* : */ && depth === 0) {
+      segments.push(className.slice(start, i));
+      start = i + 1;
+    }
+  }
+  segments.push(className.slice(start));
+  return segments;
+}
+
+/**
+ * Parse a class name into its prefix chain and base utility.
+ * E.g., "sm:hover:text-red-500" -> { breakpoint: "sm", theme: null, state: "hover", base: "text-red-500" }
+ *
+ * The split is bracket-aware so `:` characters inside an arbitrary-value
+ * `[...]` (e.g., `bg-[url(http://x:y)]`) are NOT treated as variant
+ * separators.
+ *
+ * @param {string} className
+ * @returns {{ breakpoint: string|null, theme: string|null, state: string|null, base: string }}
  */
 function parseClassName(className) {
-  const parts = className.split(":");
-  let responsive = null;
+  const parts = splitClassNameSegments(className);
+  let breakpoint = null;
+  let theme = null;
   let state = null;
-  let base = parts[parts.length - 1];
   let hasUnrecognizedPrefix = false;
+  const base = parts[parts.length - 1];
 
   for (let i = 0; i < parts.length - 1; i++) {
     const prefix = parts[i];
     if (RESPONSIVE_BREAKPOINTS[prefix]) {
-      responsive = prefix;
+      breakpoint = prefix;
+    } else if (THEME_MEDIA_QUERIES[prefix]) {
+      theme = prefix;
     } else if (STATE_PSEUDO_CLASSES[prefix]) {
       state = prefix;
     } else {
@@ -652,83 +1036,251 @@ function parseClassName(className) {
     }
   }
 
-  return { responsive, state, base, hasUnrecognizedPrefix };
+  return { breakpoint, theme, state, base, hasUnrecognizedPrefix };
+}
+
+/**
+ * Resolve an arbitrary-value base name to a CSS rule string.
+ * Returns:
+ *   { css: string, diagnostic: null }   on success
+ *   { css: null,   diagnostic: {...} }  on validation failure
+ *   null                                on "not an arbitrary value at all"
+ *
+ * The selector emitted is the FULL escaped class name (including any
+ * variant prefixes the caller may have stripped) — pass it via
+ * `escapedClassName`.
+ *
+ * @param {string} base                  the part after variant prefixes (e.g., "p-[1.5rem]")
+ * @param {string} escapedClassName     the already-escaped full class name
+ * @returns {{ css: string|null, diagnostic: { code: string, message: string }|null } | null}
+ */
+function resolveArbitraryValue(base, escapedClassName) {
+  const parsed = parseArbitraryValue(base);
+  if (!parsed) return null;
+
+  const { prefix, raw } = parsed;
+  const validated = validateArbitraryCss(raw);
+  if (validated.error) {
+    return {
+      css: null,
+      diagnostic: {
+        code: validated.error.code,
+        message: `${validated.error.code}: ${validated.error.reason}`,
+      },
+    };
+  }
+
+  // Choose property: direct map first, then overloaded resolver.
+  let prop = ARBITRARY_PREFIX_MAP[prefix];
+  if (prop === undefined) {
+    const overload = ARBITRARY_OVERLOADED_PREFIXES[prefix];
+    if (overload) {
+      prop = overload(validated);
+      if (prop === null) {
+        return {
+          css: null,
+          diagnostic: {
+            code: "E-TAILWIND-001",
+            message: `E-TAILWIND-001: arbitrary value \`${raw}\` not acceptable for utility \`${prefix}-[]\``,
+          },
+        };
+      }
+    }
+  }
+  if (prop === undefined) {
+    // Prefix not registered for arbitrary values — caller treats as miss
+    // (returns null + no diagnostic, so unknown classes still fall through
+    // to the existing "silently dropped" behavior).
+    return null;
+  }
+
+  let decl;
+  if (Array.isArray(prop)) {
+    decl = prop.map(p => `${p}: ${validated.css}`).join("; ");
+  } else {
+    decl = `${prop}: ${validated.css}`;
+  }
+  return {
+    css: `.${escapedClassName} { ${decl} }`,
+    diagnostic: null,
+  };
+}
+
+/**
+ * Build a CSS rule from a base rule + variant prefixes.
+ * The base rule is `.<some-name> { decl }` (or null for arbitrary, in
+ * which case `arbitraryDecl` is used).
+ *
+ * @param {string|null} baseRule
+ * @param {string|null} arbitraryDecl    css declaration body for arbitrary values
+ * @param {string} escapedClassName
+ * @param {{ breakpoint, theme, state }} variants
+ * @returns {string|null}
+ */
+function wrapWithVariants(baseRule, arbitraryDecl, escapedClassName, { breakpoint, theme, state }) {
+  let declaration;
+  if (arbitraryDecl !== null) {
+    declaration = arbitraryDecl;
+  } else if (baseRule) {
+    const m = baseRule.match(/^(\.[^\s{]+)\s*\{(.+)\}$/s);
+    if (!m) return baseRule;
+    declaration = m[2];
+  } else {
+    return null;
+  }
+
+  let rule;
+  if (state) {
+    const pseudo = STATE_PSEUDO_CLASSES[state];
+    rule = `.${escapedClassName}:${pseudo} {${declaration}}`;
+  } else {
+    rule = `.${escapedClassName} {${declaration}}`;
+  }
+
+  // Theme media query stacks INSIDE the responsive query so that
+  // `md:dark:hover:p-4` becomes
+  //   @media (min-width: 768px) { @media (prefers-color-scheme: dark) { .md\:dark\:hover\:p-4:hover { ... } } }
+  if (theme) {
+    const tq = THEME_MEDIA_QUERIES[theme];
+    rule = `@media ${tq} { ${rule} }`;
+  }
+  if (breakpoint) {
+    const bp = RESPONSIVE_BREAKPOINTS[breakpoint];
+    rule = `@media (min-width: ${bp}) { ${rule} }`;
+  }
+  return rule;
+}
+
+/**
+ * Get the CSS rule for a single Tailwind utility class name AND any
+ * compile-time diagnostic that arose from validating an arbitrary value.
+ *
+ * Returns `{ css, diagnostic }`:
+ *   - css: string when the class resolves
+ *   - css: null when the class is unrecognized OR validation failed
+ *   - diagnostic: null when no validation error was produced
+ *   - diagnostic: { code, message } when an arbitrary value failed validation
+ *
+ * Unrecognized non-arbitrary classes return `{ css: null, diagnostic: null }` —
+ * the caller is free to silently drop them (current `getAllUsedCSS` behavior)
+ * or emit a separate W-TAILWIND-001 (the diagnostic-warning agent's territory).
+ *
+ * @param {string} className
+ * @returns {{ css: string|null, diagnostic: { code: string, message: string }|null }}
+ */
+export function getTailwindCSSWithDiagnostic(className) {
+  if (!className || typeof className !== "string") {
+    return { css: null, diagnostic: null };
+  }
+
+  const { breakpoint, theme, state, base, hasUnrecognizedPrefix } = parseClassName(className);
+
+  // If any prefix in the chain is unrecognized (e.g. `weird:p-4`, `group-hover:p-4`),
+  // the class is unhandled by the embedded engine. Returning null prevents the
+  // silent-strip pattern where `weird:p-4` would otherwise produce a `.p-4 { ... }`
+  // rule with a selector that doesn't match the source class. The detector
+  // (`findUnsupportedTailwindShapes`) then emits W-TAILWIND-001.
+  // (Closes a silent-failure bug surfaced during S49 review; preserved across
+  // the variant-table refactor that ships dark/print/motion-* in §26.3.)
+  if (hasUnrecognizedPrefix) {
+    return { css: null, diagnostic: null };
+  }
+
+  const escapedName = escapeCssClass(className);
+
+  // Try arbitrary-value path first only if the base looks bracketed.
+  if (parseArbitraryValue(base)) {
+    const arb = resolveArbitraryValue(base, escapedName);
+    if (arb) {
+      if (arb.diagnostic) {
+        return { css: null, diagnostic: arb.diagnostic };
+      }
+      // arb.css is `.<name> { decl }` — extract decl and apply variants.
+      const m = arb.css.match(/^(\.[^\s{]+)\s*\{(.+)\}$/s);
+      const decl = m ? m[2] : null;
+      if (!breakpoint && !theme && !state) {
+        return { css: arb.css, diagnostic: null };
+      }
+      const wrapped = wrapWithVariants(null, decl, escapedName, { breakpoint, theme, state });
+      return { css: wrapped, diagnostic: null };
+    }
+  }
+
+  // Static-registry path.
+  const baseRule = registry.get(base);
+  if (!baseRule) {
+    return { css: null, diagnostic: null };
+  }
+  if (!breakpoint && !theme && !state) {
+    return { css: baseRule, diagnostic: null };
+  }
+  const wrapped = wrapWithVariants(baseRule, null, escapedName, { breakpoint, theme, state });
+  return { css: wrapped, diagnostic: null };
 }
 
 /**
  * Get the CSS rule for a single Tailwind utility class name.
- * Returns the CSS rule string or null if the class is not recognized.
+ * Returns the CSS rule string or null if the class is not recognized
+ * OR if an arbitrary value failed compile-time validation.
  *
- * Supports responsive prefixes (sm:, md:, lg:, xl:, 2xl:) and
- * state prefixes (hover:, focus:, active:, disabled:).
+ * Use `getTailwindCSSWithDiagnostic` to recover the validation message.
+ *
+ * Supports responsive prefixes (sm:, md:, lg:, xl:, 2xl:),
+ * theme/feature media queries (dark:, print:, motion-safe:, motion-reduce:),
+ * state pseudo-classes (hover:, focus:, active:, disabled:, first:, last:,
+ * odd:, even:, visited:, focus-within:, focus-visible:), and arbitrary
+ * values per §26.4.
  *
  * @param {string} className
  * @returns {string|null}
  */
 export function getTailwindCSS(className) {
-  if (!className || typeof className !== "string") return null;
+  return getTailwindCSSWithDiagnostic(className).css;
+}
 
-  const { responsive, state, base, hasUnrecognizedPrefix } = parseClassName(className);
-
-  // If any prefix in the chain is unrecognized (e.g. `weird:p-4`, `dark:p-4`),
-  // the class is unhandled by the embedded engine. Returning null prevents
-  // the silent-strip pattern where `weird:p-4` would otherwise produce a
-  // `.p-4 { padding: 1rem }` rule with a selector that doesn't match the
-  // source class. (Closes a silent-failure bug surfaced during S49 review.)
-  if (hasUnrecognizedPrefix) return null;
-
-  // Look up the base utility
-  const baseRule = registry.get(base);
-  if (!baseRule) return null;
-
-  // If no prefixes, return as-is
-  if (!responsive && !state) return baseRule;
-
-  // Build the modified rule
-  // Extract the selector and declaration from the base rule
-  const selectorMatch = baseRule.match(/^(\.[^\s{]+)\s*\{(.+)\}$/s);
-  if (!selectorMatch) return baseRule;
-
-  const [, , declaration] = selectorMatch;
-  const escapedName = escapeCssClass(className);
-
-  let rule;
-  if (state) {
-    const pseudo = STATE_PSEUDO_CLASSES[state];
-    rule = `.${escapedName}:${pseudo} {${declaration}}`;
-  } else {
-    rule = `.${escapedName} {${declaration}}`;
+/**
+ * Get combined CSS for an array of class names AND the array of
+ * compile-time diagnostics produced during arbitrary-value validation.
+ *
+ * Unknown classes are silently ignored (no diagnostic). Use the
+ * concurrent W-TAILWIND-001 detection rule to warn on those.
+ *
+ * @param {string[]} classNames
+ * @returns {{ css: string, diagnostics: Array<{ className: string, code: string, message: string }> }}
+ */
+export function getAllUsedCSSWithDiagnostics(classNames) {
+  if (!classNames || !Array.isArray(classNames)) {
+    return { css: "", diagnostics: [] };
   }
 
-  if (responsive) {
-    const bp = RESPONSIVE_BREAKPOINTS[responsive];
-    rule = `@media (min-width: ${bp}) { ${rule} }`;
+  const seen = new Set();
+  const rules = [];
+  const diagnostics = [];
+
+  for (const cls of classNames) {
+    if (!cls || seen.has(cls)) continue;
+    seen.add(cls);
+    const { css, diagnostic } = getTailwindCSSWithDiagnostic(cls);
+    if (css) rules.push(css);
+    if (diagnostic) {
+      diagnostics.push({ className: cls, code: diagnostic.code, message: diagnostic.message });
+    }
   }
 
-  return rule;
+  return { css: rules.join("\n"), diagnostics };
 }
 
 /**
  * Get combined CSS for an array of class names.
- * Unknown classes are silently ignored.
+ * Unknown classes are silently ignored, and arbitrary values that fail
+ * validation are silently dropped (use `getAllUsedCSSWithDiagnostics` to
+ * recover the diagnostics).
  *
  * @param {string[]} classNames
  * @returns {string}
  */
 export function getAllUsedCSS(classNames) {
-  if (!classNames || !Array.isArray(classNames)) return "";
-
-  const seen = new Set();
-  const rules = [];
-
-  for (const cls of classNames) {
-    if (!cls || seen.has(cls)) continue;
-    seen.add(cls);
-    const css = getTailwindCSS(cls);
-    if (css) rules.push(css);
-  }
-
-  return rules.join("\n");
+  return getAllUsedCSSWithDiagnostics(classNames).css;
 }
 
 /**
