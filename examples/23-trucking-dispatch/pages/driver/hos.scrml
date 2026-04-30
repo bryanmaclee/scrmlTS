@@ -1,0 +1,427 @@
+// Trucking Dispatch — Hours-of-Service cycle (M3).
+//
+// Route: /driver/hos. The HOS state machine in detail: current state,
+// time-in-current-state, hours-driven-today, hours-on-duty-today, plus
+// the last 24h of hos_change log entries for cycle history.
+//
+// Scoping §7 calls for a `<machine>` here. HOS is client-driven (the app
+// derives state + cumulative hours from log entries + clock); unlike
+// load.status (server-persisted), the machine fits cleanly. The state
+// transitions are simplified 11/14 FMCSA-ish:
+//   off_duty ⇄ on_duty
+//   on_duty  ⇄ driving
+//   off_duty → sleeper_berth
+//   sleeper_berth → on_duty
+//   on_duty | driving → off_duty
+//
+// NOTE: Real FMCSA rules are far more complex (30-min rest after 8h driving,
+// 60/70-hour cycle limits, sleeper-berth split-shift exceptions, etc.).
+// This is a simplified v1 per scoping §7. M6 polish may extend to layered
+// machines (per-cycle vs per-shift).
+//
+// FRICTION (F-MACHINE-001 — see FRICTION.md): `<machine for=Type>` requires
+// the type be declared IN THE SAME FILE. Imported types from schema.scrml
+// trigger E-MACHINE-004. So `DriverStatus` is RE-DECLARED locally below
+// despite being exported from schema.scrml. Same shape; small duplication.
+//
+// FRICTION (F-NULL-001 — see FRICTION.md): file with a `<machine>` block
+// + `null` literals/comparisons in client-fn bodies fires E-SYNTAX-042 in
+// GCP3 even though identical patterns compile clean elsewhere. Workaround:
+// use `is some`/`is not` for absence checks instead of `== null`/`!= null`,
+// and avoid `null` as a value in ternary returns from server fns.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward. F-RI-001
+// anchor + setError indirection on the state-change server call.
+//
+// Real-time hookpoint (M5): no real-time use here — HOS is per-driver
+// client state. Maybe broadcast HOS events to dispatch-board so dispatcher
+// sees driver-status changes in real time.
+
+${
+    // Local DriverStatus enum — duplicated from schema.scrml because
+    // `<machine for=...>` rejects imported types (F-MACHINE-001).
+    type DriverStatus:enum = {
+        OffDuty
+        OnDuty
+        Driving
+        SleeperBerth
+    }
+}
+
+< machine name=HOSMachine for=DriverStatus>
+    .OffDuty      => .OnDuty | .SleeperBerth
+    .OnDuty       => .OffDuty | .Driving
+    .Driving      => .OffDuty | .OnDuty
+    .SleeperBerth => .OnDuty | .OffDuty
+</>
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { driverStatusClasses, driverStatusLabel } from '../../components/driver-card.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, log_entries">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchHosData(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`
+                SELECT id, name, current_status, current_location
+                FROM drivers
+                WHERE user_id = ${user.id}
+            `}.get()
+            if (!driver) return { error: "No driver record." }
+
+            // 24h cycle history — hos_change entries for THIS driver from
+            // the last day. SQLite datetime("now", "-1 day") is our window.
+            const cycleEntries = ?{`
+                SELECT id, type, at, payload, load_id
+                FROM log_entries
+                WHERE driver_id = ${driver.id}
+                  AND type = 'hos_change'
+                  AND at >= datetime('now', '-1 day')
+                ORDER BY at DESC
+            `}.all()
+
+            // The most-recent hos_change anchors "time-in-current-state".
+            // If none in the 24h window, the driver hasn't changed state
+            // in a day — display the @anchorAt as "≥ 24h ago".
+            const lastChange = ?{`
+                SELECT at FROM log_entries
+                WHERE driver_id = ${driver.id}
+                  AND type = 'hos_change'
+                ORDER BY at DESC
+                LIMIT 1
+            `}.get()
+
+            // Avoid `null` literal as a value (F-NULL-001) — return empty
+            // string instead and convert in the consumer.
+            const lastAt = lastChange ? lastChange.at : ""
+
+            return {
+                user: user, driver: driver,
+                cycleEntries: cycleEntries,
+                lastChangeAt: lastAt
+            }
+        }
+
+        // HOS state change: validate transition, update drivers.current_status,
+        // emit hos_change log entry.
+        server function changeHosServer(sessionToken, newStatus) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id, current_status FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const cur = driver.current_status
+            let allowed = false
+            if (cur == "off_duty"      && newStatus == "on_duty")        { allowed = true }
+            if (cur == "off_duty"      && newStatus == "sleeper_berth")  { allowed = true }
+            if (cur == "on_duty"       && newStatus == "off_duty")       { allowed = true }
+            if (cur == "on_duty"       && newStatus == "driving")        { allowed = true }
+            if (cur == "driving"       && newStatus == "off_duty")       { allowed = true }
+            if (cur == "driving"       && newStatus == "on_duty")        { allowed = true }
+            if (cur == "sleeper_berth" && newStatus == "on_duty")        { allowed = true }
+            if (cur == "sleeper_berth" && newStatus == "off_duty")       { allowed = true }
+            if (!allowed) return { error: `Cannot transition from ${cur} to ${newStatus}.` }
+
+            ?{`UPDATE drivers SET current_status = ${newStatus} WHERE id = ${driver.id}`}.run()
+
+            const payload = `{"from":"${cur}","to":"${newStatus}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, NULL, 'hos_change', ${payload})
+            `}.run()
+
+            return { ok: true }
+        }
+
+        @user = null
+        @driver = null
+        @cycleEntries = []
+        @lastChangeAt = ""
+        @loaded = false
+        @errorMessage = ""
+
+        // Hours-driven-today / hours-on-duty-today are derived from the
+        // 24h cycle history. `computeHoursIn(target)` walks entries and
+        // sums durations where the FROM state matches `target`. The
+        // current state's run-up to "now" is tacked on at the end.
+        function computeHoursIn(target) {
+            const list = @cycleEntries
+            const len = list.length
+            const driver = @driver
+            if (!driver) return 0
+
+            if (len == 0) {
+                // No state changes in 24h; if driver is in target now,
+                // count up to 24h. Else 0.
+                if (driver.current_status == target) return 24
+                return 0
+            }
+
+            let ms = 0
+            const nowMs = Date.now()
+            const oneDayMs = 24 * 60 * 60 * 1000
+            const dayAgoMs = nowMs - oneDayMs
+            let prevMs = dayAgoMs
+
+            // Walk from oldest → newest by index = len-1 down to 0.
+            for (let i = len - 1; i >= 0; i = i - 1) {
+                const entry = list[i]
+                const fromState = parseFromPayload(entry.payload)
+                const atMs = Date.parse(entry.at)
+                if (fromState == target) {
+                    const diff = atMs - prevMs
+                    ms = ms + diff
+                }
+                prevMs = atMs
+            }
+
+            // Tail segment: most recent entry to now, in current state.
+            if (driver.current_status == target) {
+                const tail = nowMs - prevMs
+                ms = ms + tail
+            }
+
+            const hourMs = 60 * 60 * 1000
+            const hours = ms / hourMs
+            return Math.round(hours * 10) / 10
+        }
+
+        // Parses '{"from":"X","to":"Y"}' payload — naive scanner, fixed shape.
+        function parseFromPayload(payload) {
+            if (!payload) return ""
+            if (payload == "") return ""
+            const idx = payload.indexOf(`"from":"`)
+            if (idx < 0) return ""
+            const startIdx = idx + `"from":"`.length
+            const endIdx = payload.indexOf(`"`, startIdx)
+            if (endIdx < 0) return ""
+            return payload.substring(startIdx, endIdx)
+        }
+
+        function parseToPayload(payload) {
+            if (!payload) return ""
+            if (payload == "") return ""
+            const idx = payload.indexOf(`"to":"`)
+            if (idx < 0) return ""
+            const startIdx = idx + `"to":"`.length
+            const endIdx = payload.indexOf(`"`, startIdx)
+            if (endIdx < 0) return ""
+            return payload.substring(startIdx, endIdx)
+        }
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchHosData(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @driver = data.driver
+            @cycleEntries = data.cycleEntries
+            @lastChangeAt = data.lastChangeAt
+            @loaded = true
+        }
+
+        function setStatus(target) {
+            const tok = getSessionToken()
+            @errorMessage = ""
+            const result = changeHosServer(tok, target)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        // Pure: time-in-current-state, in hours, formatted "Xh Ym".
+        // anchorAt is the most-recent hos_change.at; "" means ≥24h.
+        function formatTimeInState(anchorAt) {
+            if (!anchorAt) return "≥ 24h"
+            if (anchorAt == "") return "≥ 24h"
+            const sinceMs = Date.now() - Date.parse(anchorAt)
+            const hourMs = 60 * 60 * 1000
+            const minuteMs = 60 * 1000
+            const hours = Math.floor(sinceMs / hourMs)
+            const remainAfterHours = sinceMs - hours * hourMs
+            const mins = Math.floor(remainAfterHours / minuteMs)
+            return `${hours}h ${mins}m`
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+      <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/driver" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+                <span class="text-xs uppercase tracking-wider text-slate-400">HOS</span>
+            </div>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/driver" class="hover:text-blue-300">Home</a>
+                <a href="/driver/messages" class="hover:text-blue-300">Messages</a>
+                <a href="/driver/profile" class="hover:text-blue-300">Profile</a>
+            </nav>
+        </header>
+
+        <main class="max-w-3xl mx-auto px-6 py-8">
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+            <div if=(@loaded && !@driver) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+                ${@errorMessage}
+            </div>
+
+            <div if=(@loaded && @driver) class="space-y-6">
+
+                <!-- Current state header -->
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h1 class="text-lg font-bold mb-4">Hours of Service</h1>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Current state</div>
+                            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${driverStatusClasses(@driver.current_status)}">
+                                ${driverStatusLabel(@driver.current_status)}
+                            </span>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Time in state</div>
+                            <div class="text-lg font-semibold text-slate-900">${formatTimeInState(@lastChangeAt)}</div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-200">
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Hours driving (24h)</div>
+                            <div class="text-2xl font-bold text-slate-900">${computeHoursIn("driving")}</div>
+                            <div class="text-xs text-slate-500 mt-0.5">11h cap</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Hours on duty (24h)</div>
+                            <div class="text-2xl font-bold text-slate-900">${computeHoursIn("driving") + computeHoursIn("on_duty")}</div>
+                            <div class="text-xs text-slate-500 mt-0.5">14h window</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Status transitions -->
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        Change state
+                    </h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <button
+                            onclick=setStatus("off_duty")
+                            class="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-100 disabled:opacity-50"
+                            disabled=(@driver.current_status == "off_duty")
+                        >Off duty</button>
+                        <button
+                            onclick=setStatus("on_duty")
+                            class="px-3 py-2 text-sm font-medium rounded-md border border-blue-300 text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                            disabled=(@driver.current_status == "on_duty")
+                        >On duty</button>
+                        <button
+                            onclick=setStatus("driving")
+                            class="px-3 py-2 text-sm font-medium rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                            disabled=(@driver.current_status == "driving")
+                        >Driving</button>
+                        <button
+                            onclick=setStatus("sleeper_berth")
+                            class="px-3 py-2 text-sm font-medium rounded-md border border-violet-300 text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+                            disabled=(@driver.current_status == "sleeper_berth")
+                        >Sleeper berth</button>
+                    </div>
+
+                    <div if=(@errorMessage != "") class="mt-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                        ${@errorMessage}
+                    </div>
+
+                    <p class="text-xs text-slate-500 mt-3">
+                        Simplified 11/14 — real FMCSA rules include 30-minute breaks, 60/70-hour cycle limits, and sleeper-berth splits not modeled here.
+                    </p>
+                </section>
+
+                <!-- 24h cycle history -->
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        24h cycle history
+                    </h2>
+
+                    <p if=(@cycleEntries.length == 0) class="text-sm text-slate-500">
+                        No state changes in the last 24 hours.
+                    </p>
+
+                    <ol if=(@cycleEntries.length > 0) class="space-y-2">
+                        ${
+                            for (let entry of @cycleEntries) {
+                                lift <li class="flex items-start gap-3 text-sm border-b border-slate-100 pb-2 last:border-0 last:pb-0">
+                                    <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-0.5">
+                                        ${entry.at == "" ? "" : entry.at.substring(0, 16)}
+                                    </span>
+                                    <span class="flex-1">
+                                        <span class="text-slate-700">
+                                            <strong>${driverStatusLabel(parseFromPayload(entry.payload))}</strong>
+                                            <span class="text-slate-400 mx-1">→</span>
+                                            <strong>${driverStatusLabel(parseToPayload(entry.payload))}</strong>
+                                        </span>
+                                        <span if=(entry.load_id) class="text-xs text-slate-500 block">
+                                            during Load #${entry.load_id}
+                                        </>
+                                    </span>
+                                </li>
+                            }
+                        }
+                    </ol>
+                </section>
+
+            </div>
+        </main>
+      </div>
+
+  </>
+
+</program>
