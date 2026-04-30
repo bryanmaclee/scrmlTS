@@ -229,6 +229,62 @@ The 22-multifile/app.scrml example escapes this gap because every
 `<UserBadge>` use is already wrapped in `<li>`. M2's load card / status
 badge / driver card usages all need the same wrapper or they fail.
 
+**EXPANDED + ARCHITECTURAL (2026-04-30, S50):** Triage dispatch
+discovered F-COMPONENT-001's visible failure is the **loud surface
+of a much bigger architectural defect**: cross-file component
+expansion does not work end-to-end on current scrmlTS. Three
+intersecting faults: (F1) `hasAnyComponentRefsInLogic` doesn't
+recurse into nested markup — wrapped patterns silently skip CE;
+(F2) `runCEFile` looks up `exportRegistry.get(imp.source)` by raw
+import-path string while production registries are keyed by absolute
+filesystem path — lookup always misses; (F3) CLI reads `inputFiles`
+only, never auto-gathers files reachable through imports.
+
+**The wrapper "workaround" is a silent failure.** Wrapping a
+component call in `<div>` makes the COMPILE succeed (Fault 1's
+recursion guard skips CE entirely) but the emitted JS contains
+`document.createElement("ComponentName")` — a phantom custom
+element. The browser sees an unknown HTML element and renders
+blank. Confirmed by independent reproduction:
+`examples/22-multifile/dist/app.client.js` line 12 contains
+`document.createElement("UserBadge")` (verified 2026-04-30).
+**The canonical "multi-file scrml" example is silently broken.**
+
+**Existing tests mask the bug.** `compiler/tests/unit/cross-file-components.test.js`
+synthesizes key-matched `exportRegistry`/`fileASTMap` fixtures (the
+test file's header documents this convention as "test-only key
+synthesis"); they assert "no `isComponent: true` markup remains"
+which passes when CE silently skips, AND they never diff emitted
+JS for actual template expansion. Net: a passing test suite that
+hides a P0 architectural defect.
+
+**Affected surface:**
+- `examples/22-multifile/` — silently broken, renders blank
+- `examples/23-trucking-dispatch/components/` — every imported
+  component in M2 is silently broken at runtime
+- Any future multi-file scrml app that imports components
+
+**Conservative fix is not viable.** Three rejected options
+documented in `docs/changes/f-component-001/diagnosis.md`:
+- Fix Fault 1 alone → wrapped cases START failing E-COMPONENT-020
+  (regression on canonical examples)
+- Fix Fault 2 alone → multi-stage propagation across module-resolver
+  + api.js + AST contract; not narrow
+- Silence the bare error → leaves output broken (validation-principle
+  violation reinforced)
+
+**Plan B disposition (2026-04-30, S50):**
+- Cross-file component expansion is **known-broken** until a proper
+  end-to-end deep-dive ships the architectural fix.
+- M2 dispatch app's components live in `components/` but are NOT
+  used by the consumer pages — M2's pages all inline their row
+  markup directly (helper functions imported, markup inlined). This
+  is the only pattern that actually renders correctly. Going
+  forward: kickstarter v1 + master-list note flag the gap; M3-M6
+  continue with inline-only.
+- Post-M6, dispatch a deep-dive on cross-file component expansion
+  with the full pattern catalog from M2-M6 in scope.
+
 ---
 
 ## F-COMPONENT-002 — Component prop names at call site become spurious local declarations (P1)

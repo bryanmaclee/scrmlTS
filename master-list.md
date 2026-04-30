@@ -96,6 +96,7 @@
 - [x][ ] 06-kanban-board — compiles, renders, call-ref handler fixed (S13), needs interactive verification
 - [x][ ] 03-contact-book, 07-admin-dashboard, 08-chat — need running server
 - [x][ ] 09-error-handling (Tailwind), 11-meta-programming, 12-snippets-slots, 13-worker (Tailwind) — compile clean, partial interactivity
+- [x][❌] **22-multifile/** — compiles clean BUT silently broken at runtime (S50, 2026-04-30 — F-COMPONENT-001 architectural diagnosis). Cross-file component imports emit phantom `document.createElement("UserBadge")` instead of expanding the component template. The browser sees an unknown HTML element and renders blank where components should be. Affects every multi-file scrml app that imports components. Three intersecting faults in CE/module-resolver/CLI per `docs/changes/f-component-001/diagnosis.md`. Existing `cross-file-components.test.js` passes via test-only key synthesis that bypasses the production bug. **Plan B disposition (S50):** known-broken until end-to-end deep-dive ships architectural fix; multi-file apps recommended to import types + helper fns only and inline component markup. See kickstarter v1 multi-file section + FRICTION.md §F-COMPONENT-001.
 
 ---
 

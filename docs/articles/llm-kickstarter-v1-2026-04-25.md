@@ -492,7 +492,7 @@ ${
 }
 ```
 
-For multi-file apps, `import`/`export` works across `.scrml` files (§21). A file with only `${ export ... }` blocks (no markup, no CSS) is auto-detected as a **pure-type file** and emits no HTML/CSS — only a JS module. See `examples/22-multifile/`.
+For multi-file apps, `import`/`export` works for **types and pure helper functions** across `.scrml` files (§21). A file with only `${ export ... }` blocks (no markup, no CSS) is auto-detected as a **pure-type file** and emits no HTML/CSS — only a JS module. See `examples/22-multifile/`.
 
 ```scrml
 // types.scrml — pure-type file
@@ -506,10 +506,24 @@ ${
 // app.scrml — uses the imports
 ${
   import { UserRole, badgeColor } from './types.scrml'
-  import { UserBadge }            from './components.scrml'
 }
-<UserBadge name="Ada" role=UserRole.Admin/>
+<!-- inline component markup directly -->
+<span class="badge ${badgeColor(role)}">${name}</span>
 ```
+
+> **Cross-file *components* are KNOWN-BROKEN as of 2026-04-30 (S50).**
+> Importing components (markup-shaped exports) across files compiles
+> cleanly but emits phantom `document.createElement("ComponentName")`
+> at runtime — the browser renders blank where the component should
+> be. The canonical `examples/22-multifile/app.scrml` ships the
+> phantom-element JS but appears to "work" because no test verifies
+> rendering. **Recommended adopter pattern:** import types + helper
+> functions across files; **inline component markup** directly in
+> consumer pages. Use shared CSS classes + helper functions (e.g.
+> `badgeColor(role)`) for consistency across inlined sites. A proper
+> cross-file component expansion fix is on the roadmap; until it
+> lands, treat components as file-local. Tracked: `examples/23-trucking-dispatch/FRICTION.md` §F-COMPONENT-001
+> (architectural section).
 
 ### Middleware recipe — `<program>` attrs + `handle()` (§40)
 
