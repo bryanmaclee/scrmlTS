@@ -32,12 +32,19 @@
  *
  * Error codes produced:
  *   E-RI-002  server-escalated function assigns to @reactive variable (AT_IDENT in assignment)
- *             NOTE: E-RI-002 is suppressed when (a) CPS transformation is applicable — CPS splits
- *             the function at the server/client boundary so reactive assignments stay client-side,
- *             or (b) the function has no DIRECT server triggers (it is escalated only by calling
- *             other server functions). A purely-transitively-escalated function is a client function
- *             that uses fetch stubs — it executes on the client and can mutate reactive state.
- *             E-RI-002 is only emitted when CPS cannot split AND direct triggers are present.
+ *             A function is server-escalated when it has direct triggers (own ?{} SQL, own
+ *             access to a protect= field or server-only resource, or `server` annotation) OR
+ *             when it captures a server-tainted function WITHOUT calling it (Step 5b — captures
+ *             that propagate by referencing, not by calling). Calling a server function does
+ *             NOT escalate the caller (§12 escalation rules) — the call site lowers to a fetch
+ *             stub at codegen, so a client function may freely call a server function and assign
+ *             reactive state on its result (this is the canonical Promise-chain pattern; see
+ *             tests §10 "function calling server fn with reactive in nested if-stmt").
+ *             E-RI-002 only fires when (a) the function IS server-escalated by the rules above,
+ *             AND (b) the function body contains a `@`-assignment (anywhere, including inside
+ *             if/while/for bodies — see findReactiveAssignment), AND (c) CPS cannot split the
+ *             body (analyzeCPSEligibility returns null or non-eligible). CPS-eligible patterns
+ *             include `@x = ?{...}.method()` and `@x = serverFn()` at top level.
  *   E-ROUTE-001  warning — unresolvable callee (variable-stored function ref, computed member)
  *
  * What RI does NOT do:
@@ -1380,7 +1387,9 @@ export function runRI(input: RIInput): RIOutput {
    * Resolve escalation reasons for a function node ID.
    * Returns ONLY the function's own direct triggers — does not recurse into callees.
    * A function that calls server functions stays client-side and uses fetch stubs.
-   * It can freely mutate reactive state (§12, E-RI-002 suppression rule).
+   * It can freely mutate reactive state (§12 escalation rules + the F-RI-001
+   * canonical Promise-chain pattern). Capture-based taint is layered on top by
+   * Step 5b, not here.
    */
   function resolveEscalation(fnNodeId: string): EscalationReason[] {
     const record = analysisMap.get(fnNodeId);

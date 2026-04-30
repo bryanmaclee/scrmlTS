@@ -1,0 +1,14 @@
+<div>
+    ${
+        function f(obj) {
+            // Per kickstarter §3 anti-pattern table: `is not` is the
+            // recommended replacement for `== null`. Friction reports
+            // it fails for member-access targets.
+            if (obj.error is not) {
+                return "no error"
+            }
+            return obj.error
+        }
+    }
+    <p>F-RI-001-FOLLOW</p>
+</div>
