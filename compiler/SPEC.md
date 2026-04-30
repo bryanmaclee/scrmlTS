@@ -12294,8 +12294,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-BPP-001 | §3.5 | Body pre-parser encountered unparseable logic block | Error |
 | E-BS-000 | §4 | Block splitter encountered malformed block structure | Error |
 | E-CG-001 | §47 | Codegen: unresolvable variable reference in output | Error |
-| E-CG-002 | §47 | Codegen: conflicting output paths | Error |
+| E-CG-002 | §47 | Codegen: server-boundary function has no generated route name (RI invariant violation) | Error |
 | E-CG-003 | §47 | Codegen: unsupported AST node kind in emission | Error |
+| E-CG-015 | §47.9 | Codegen: conflicting output paths — two distinct source files compute to the same dist path | Error |
 | E-COMPONENT-019 | §15.11 | Callback prop type mismatch | Error |
 | E-COMPONENT-030 | §15.12 | Component render syntax: missing required children | Error |
 | E-COMPONENT-031 | §15.12 | Component render syntax: unexpected extra content | Error |
@@ -15159,6 +15160,7 @@ The `protect=` attribute (§11.3) designates database fields that SHALL NOT be a
 | E-CG-012 | User-authored identifier matches the compiler-reserved encoded-name pattern (`_` + kind char + 8 base36 chars) | Error |
 | E-CG-013 | Encoding function received a `kind: "unknown"` type — internal invariant violation | Error |
 | E-CG-014 | Disambiguator overflow — more than 1,332 bindings of the same encoded type prefix in one scope | Error |
+| E-CG-015 | Output path collision — two distinct source files compute to the same dist path (§47.9) | Error |
 
 ---
 
@@ -15217,6 +15219,107 @@ E-CG-010: Encoded name collision detected.
 ```
 
 Compilation halts.
+
+---
+
+### 47.9 Output Path Encoding (CLI)
+
+**Added:** 2026-04-30 (S51). Resolves F-COMPILE-001 (basename collision in `scrml compile <dir>`).
+
+The CLI subcommands `scrml compile` and `scrml build` write per-source artifacts to disk in a directory tree. The output path of every artifact SHALL be deterministic, MUST NOT silently overwrite a prior write, and SHALL preserve the relative structure of the source tree.
+
+#### 47.9.1 Output Base Directory
+
+Given a non-empty list of input source files, the **output base directory** (`outputBase`) is the longest directory path that is a prefix of every input file's absolute path, segment-aligned (not character-aligned).
+
+- For a single input file `f`, `outputBase = dirname(f)`.
+- For two or more input files, `outputBase` is the deepest directory shared by every file's absolute path. The match is segment-aligned: `/a/b` IS a prefix of `/a/b/c` but is NOT a prefix of `/a/bc`.
+- If the input files share no directory other than the filesystem root, `outputBase` is the root.
+
+#### 47.9.2 Per-Artifact Output Path
+
+For each compiled source file `srcFile` with rendered artifacts (`html`, `client.js`, `server.js`, `css`, `<base>.machine.test.js`, source maps, library `.js`), the artifact output path SHALL be:
+
+```
+artifactOutputPath = join(outputDir, dirname(relative(outputBase, srcFile)), basename(srcFile, ".scrml") + suffix)
+```
+
+where `outputDir` is the user-specified `--output-dir` (or its default), and `suffix` is the per-artifact extension (e.g. `.html`, `.client.js`).
+
+- If `dirname(relative(outputBase, srcFile))` is `"."` (i.e. the source file resides at the output base directory itself), the artifact is written directly into `outputDir` (flat output).
+- Otherwise, the artifact is written into `join(outputDir, relativeDir)`, with intermediate directories created as needed.
+
+This rule reduces to the legacy flat layout for single-file invocations and for input directories whose `.scrml` files all reside at the directory root. It produces a tree-preserving layout for input directories with nested subdirectories.
+
+#### 47.9.3 Output Path Collision
+
+The compiler SHALL refuse to overwrite an output artifact written by a different source file in the same compilation. Specifically: when the per-artifact output path for source file B equals the per-artifact output path for source file A (with A ≠ B) for the same artifact suffix, the compiler SHALL emit `E-CG-015` and SHALL NOT perform the second write.
+
+After §47.9.1 + §47.9.2, this condition is unreachable through routine usage — two distinct source files cannot compute to the same `(outputBase-relative directory, basename)` pair unless they have literally identical absolute paths. `E-CG-015` is therefore a defense-in-depth backstop against future flag/refactor regressions that re-introduce flattening.
+
+#### 47.9.4 Normative statements
+
+- The compiler SHALL compute `outputBase` per §47.9.1 before any artifact is written to disk.
+- The compiler SHALL compute each artifact path per §47.9.2.
+- The compiler SHALL emit `E-CG-015` and skip the duplicate write when two distinct source files would write to the same artifact path.
+- The compiler SHALL create intermediate directories as needed when an artifact path includes nested directories.
+- The compiler SHALL NOT silently overwrite an artifact written earlier in the same compilation.
+
+#### 47.9.5 Worked example — preserve source tree
+
+Source files:
+```
+proj/app.scrml
+proj/pages/customer/home.scrml
+proj/pages/driver/home.scrml
+```
+
+`outputBase` = `proj/` (segment-aligned common prefix).
+
+With `--output-dir dist/`, the artifact paths are:
+```
+dist/app.html
+dist/app.client.js
+dist/app.server.js
+dist/pages/customer/home.html
+dist/pages/customer/home.client.js
+dist/pages/customer/home.server.js
+dist/pages/driver/home.html
+dist/pages/driver/home.client.js
+dist/pages/driver/home.server.js
+```
+
+No collision occurs. `pages/customer/home.html` and `pages/driver/home.html` are distinct dist paths.
+
+#### 47.9.6 Worked example — single-file flat invocation
+
+Source files:
+```
+proj/pages/customer/home.scrml
+```
+
+`outputBase` = `proj/pages/customer/` (single-file rule).
+
+With `--output-dir dist/`, the artifact paths are:
+```
+dist/home.html
+dist/home.client.js
+dist/home.server.js
+```
+
+The legacy flat layout is preserved for single-file invocations.
+
+#### 47.9.7 Worked example — collision (E-CG-015)
+
+If a future configuration re-introduced basename flattening across two distinct source files at `proj/pages/a/home.scrml` and `proj/pages/b/home.scrml`:
+
+Expected compiler output:
+```
+E-CG-015: conflicting output paths — `proj/pages/a/home.scrml` and `proj/pages/b/home.scrml` both compile to `dist/home.html`. Rename one of the source files or invoke the compiler on a smaller input set.
+```
+
+The first write succeeds; the second is refused.
+
 ---
 
 ## 48. The `fn` Keyword — Pure Functions
