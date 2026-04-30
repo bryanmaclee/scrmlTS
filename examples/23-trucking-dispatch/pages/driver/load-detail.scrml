@@ -46,7 +46,7 @@
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
   }
 
-  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries">
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries, lin_tokens">
 
     ${
         server function getCurrentUser(sessionToken) {
@@ -152,17 +152,66 @@
                 VALUES (${driver.id}, ${loadId}, 'hos_change', ${payload})
             `}.run()
 
-            return { ok: true }
+            // M6: lin token #2 — when load transitions dispatched → loaded,
+            // mint a BOL submission token. Driver consumes it on first BOL
+            // upload. Replayed POSTs hit the consumed_at != NULL guard and
+            // get rejected (this is the "duplicate BOL upload prevented"
+            // semantic the scoping doc calls out).
+            let mintedBolToken = ""
+            if (load.status == "dispatched" && newStatus == "loaded") {
+                mintedBolToken = `bol_${loadId}_${Date.now()}_${Math.floor(Math.random() * 100000)}`
+                ?{`
+                    INSERT INTO lin_tokens (token, load_id, kind)
+                    VALUES (${mintedBolToken}, ${loadId}, 'bol')
+                `}.run()
+            }
+            return { ok: true, mintedBolToken: mintedBolToken }
+        }
+
+        // M6: query the most recent unconsumed BOL token for this load
+        // (used by driver page to display BOL upload eligibility).
+        server function getActiveBolTokenServer(sessionToken, loadId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const row = ?{`
+                SELECT token
+                FROM lin_tokens
+                WHERE load_id = ${loadId}
+                  AND kind = 'bol'
+                  AND consumed_at IS NULL
+                ORDER BY issued_at DESC
+                LIMIT 1
+            `}.get()
+            return { token: row ? row.token : "" }
         }
 
         // BOL upload (mocked) — stores filename in log_entries.payload.
-        server function uploadBolServer(sessionToken, loadId, filename) {
+        // M6: consumes the BOL lin token. The DB-side UPDATE is the durable
+        // single-use guard. Per F-LIN-001 (M6) the SQL ?{} interpolation
+        // does NOT count as `lin` consume per §35.3 rule 1, so the workaround
+        // is to copy the lin var into a template literal first.
+        server function uploadBolServer(sessionToken, loadId, filename, lin token: string) {
             const user = getCurrentUser(sessionToken)
             if (!user || user.role != "driver") {
                 return { unauthorized: true }
             }
             const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
             if (!driver) return { error: "No driver record." }
+
+            const consumeMarker = `consume:${token}`
+            const result = ?{`
+                UPDATE lin_tokens
+                SET consumed_at = CURRENT_TIMESTAMP, consumed_by = ${user.id}
+                WHERE token = ${consumeMarker.substring(8)}
+                  AND kind = 'bol'
+                  AND load_id = ${loadId}
+                  AND consumed_at IS NULL
+            `}.run()
+            if (result.changes == 0) {
+                return { error: "BOL already submitted for this load." }
+            }
 
             const payload = `{"filename":"${filename}"}`
             ?{`
@@ -230,6 +279,10 @@
         @errorMessage = ""
         @notFound = false
 
+        // M6: BOL acceptance lin-token for this load. Empty string when no
+        // active token (load.status < loaded, or BOL already submitted).
+        @bolToken = ""
+
         // Form state for the BOL/POD/fuel/breakdown blocks.
         @bolFilename = ""
         @podFilename = ""
@@ -280,6 +333,9 @@
             @load = data.load
             @assignment = data.assignment
             @recentEntries = data.recentEntries
+            // M6: query active BOL token for the load (if any).
+            const bol = getActiveBolTokenServer(tok, loadId)
+            @bolToken = bol.token ? bol.token : ""
             @loaded = true
         }
 
@@ -317,10 +373,17 @@
                 setError("BOL filename required.")
                 return
             }
+            const bolTok = @bolToken
+            if (bolTok == "") {
+                setError("BOL submission token unavailable. Refresh the page.")
+                return
+            }
             const tok = getSessionToken()
             const loadId = @load.id
             @errorMessage = ""
-            const result = uploadBolServer(tok, loadId, filename)
+            // M6: pass the lin BOL token to the server fn. Server consumes
+            // it via the DB-side single-use guard; replays return error.
+            const result = uploadBolServer(tok, loadId, filename, bolTok)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
@@ -643,9 +706,14 @@
                   </p>
 
                   <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <!-- M6: BOL upload is gated by both load-status (loaded
+                           or later) AND an active BOL lin token. The token
+                           goes to "" after first successful upload, so the
+                           button greys out — the lin guarantee is now visible
+                           to the driver as a UI affordance. -->
                       <button
                           onclick=openForm("bol")
-                          disabled=(!isBolEligible(@load.status))
+                          disabled=(!isBolEligible(@load.status) || @bolToken == "")
                           class="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-100 disabled:opacity-50"
                       >Upload BOL</button>
                       <button

@@ -48,7 +48,7 @@
       }
   }
 
-  < db src="../../dispatch.db" protect="password_hash" tables="users, loads, customers, assignments, drivers, tractors, trailers, log_entries">
+  < db src="../../dispatch.db" protect="password_hash" tables="users, loads, customers, assignments, drivers, tractors, trailers, log_entries, lin_tokens">
 
     ${
         server function getCurrentUser(sessionToken) {
@@ -133,7 +133,46 @@
             if (!ok) return { error: `Cannot transition from ${load.status} to ${newStatus}.` }
 
             ?{`UPDATE loads SET status = ${newStatus}, updated_at = CURRENT_TIMESTAMP WHERE id = ${loadId}`}.run()
-            return { ok: true }
+
+            // M6: lin token mint #1 — when transitioning tendered → booked,
+            // mint an acceptance token. Customer redeems it on /customer/loads/:id
+            // to advance the load from booked → dispatched (i.e. "sign rate
+            // confirmation"). The lin_tokens table provides the durable
+            // single-use guard (consumed_at IS NULL → still active).
+            //
+            // Idempotency: if the load was previously tendered → booked and
+            // someone reverted, a NEW token is minted on each re-mint. The
+            // previous token remains in the table (consumed or not). The
+            // customer page always queries the most recent unconsumed
+            // acceptance token for the load.
+            let mintedToken = ""
+            if (load.status == "tendered" && newStatus == "booked") {
+                mintedToken = `acc_${loadId}_${Date.now()}_${Math.floor(Math.random() * 100000)}`
+                ?{`
+                    INSERT INTO lin_tokens (token, load_id, kind)
+                    VALUES (${mintedToken}, ${loadId}, 'acceptance')
+                `}.run()
+            }
+            return { ok: true, mintedToken: mintedToken }
+        }
+
+        // M6: query the most recent unconsumed acceptance token for a load
+        // (used by the dispatcher page to display "rate confirmation pending").
+        server function getActiveAcceptanceTokenServer(sessionToken, loadId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "dispatcher") {
+                return { unauthorized: true }
+            }
+            const row = ?{`
+                SELECT token, issued_at
+                FROM lin_tokens
+                WHERE load_id = ${loadId}
+                  AND kind = 'acceptance'
+                  AND consumed_at IS NULL
+                ORDER BY issued_at DESC
+                LIMIT 1
+            `}.get()
+            return { token: row ? row.token : "", issuedAt: row ? row.issued_at : "" }
         }
 
         server function assignServer(sessionToken, loadId, driverId, tractorId, trailerId) {
@@ -165,6 +204,8 @@
         @currentDriverId = 0
         @currentTractorId = 0
         @currentTrailerId = 0
+        // M6: acceptance token UI state — populated after refresh().
+        @acceptanceToken = ""
 
         function getSessionToken() {
             const c = document.cookie ? document.cookie : ""
@@ -209,6 +250,10 @@
             @currentDriverId  = a ? a.driver_id  : 0
             @currentTractorId = a ? a.tractor_id : 0
             @currentTrailerId = a ? a.trailer_id : 0
+            // M6: query the active acceptance token for this load (if any).
+            // Renders as "rate confirmation pending" pill when present.
+            const tokenInfo = getActiveAcceptanceTokenServer(tok, loadId)
+            @acceptanceToken = tokenInfo.token ? tokenInfo.token : ""
             @loaded = true
         }
 
@@ -429,6 +474,28 @@
 
                   <div if=(@errorMessage != "") class="mt-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
                       ${@errorMessage}
+                  </div>
+              </section>
+
+              <!-- M6: lin-token #1 (acceptance) — when load is booked + token
+                   is unconsumed, show "rate confirmation pending" pill. The
+                   customer redeems the token on /customer/loads/:id by
+                   clicking "Sign rate confirmation". The DB-side single-use
+                   guard (consumed_at IS NULL → ok; affected rows = 0 means
+                   already consumed) provides the durable lin enforcement,
+                   and at the call site each fn declares its lin parameter
+                   exactly once per §35.2.1. -->
+              <section if=(@load.status == "booked" && @acceptanceToken != "") class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div class="flex items-center justify-between text-sm">
+                      <div class="text-amber-900">
+                          <strong>Rate confirmation pending.</strong>
+                          Customer must sign on
+                          <a class="underline" href="/customer/loads/${@load.id}">/customer/loads/${@load.id}</a>
+                          to release the load to driver dispatch.
+                      </div>
+                      <div class="text-xs text-amber-700 font-mono">
+                          token <span class="bg-amber-100 px-2 py-0.5 rounded">${@acceptanceToken.substring(0, 16)}…</span>
+                      </div>
                   </div>
               </section>
 

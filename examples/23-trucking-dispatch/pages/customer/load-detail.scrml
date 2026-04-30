@@ -25,7 +25,7 @@
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
   }
 
-  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, assignments, drivers, tractors, trailers, log_entries, invoices">
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, assignments, drivers, tractors, trailers, log_entries, invoices, lin_tokens">
 
     ${
         server function getCurrentUser(sessionToken) {
@@ -100,12 +100,75 @@
                 LIMIT 1
             `}.get()
 
+            // M6: lin token #1 — most recent unconsumed acceptance token
+            // for this load. When present + load.status == 'booked', the
+            // customer sees a "Sign rate confirmation" button.
+            const acceptance = ?{`
+                SELECT token, issued_at
+                FROM lin_tokens
+                WHERE load_id = ${loadId}
+                  AND kind = 'acceptance'
+                  AND consumed_at IS NULL
+                ORDER BY issued_at DESC
+                LIMIT 1
+            `}.get()
+
             return {
                 user: user, customer: customer, load: load,
                 assignment: assignment,
                 logEntries: logEntries,
-                invoice: invoice
+                invoice: invoice,
+                acceptanceToken: acceptance ? acceptance.token : ""
             }
+        }
+
+        // M6: lin token #1 consumption — customer signs the rate confirmation.
+        // The lin_tokens row's consumed_at IS NULL → succeeds + advances load
+        // to dispatched. Concurrent / replayed clicks UPDATE rows with
+        // consumed_at NULL → 0 affected → returns "alreadyConsumed".
+        // Per §35.2.1, the `lin token` parameter is consumed exactly once
+        // in the body — passed to the SQL UPDATE through ${} interpolation
+        // (counts as a consume per §35.3 rule 1). The DB-side single-use
+        // guard is the durable backstop.
+        server function signRateConfirmationServer(sessionToken, loadId, lin token: string) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+            const customer = ?{`SELECT id FROM customers WHERE user_id = ${user.id}`}.get()
+            if (!customer) return { error: "No customer record." }
+
+            // Cross-customer guard.
+            const load = ?{`SELECT id, customer_id, status FROM loads WHERE id = ${loadId}`}.get()
+            if (!load) return { error: "Load not found." }
+            if (load.customer_id != customer.id) return { unauthorized: true }
+            if (load.status != "booked") return { error: "Load is not awaiting acceptance." }
+
+            // The lin_tokens UPDATE-with-WHERE-NULL is the durable single-use
+            // guard. If consumed_at is already non-null, no rows update and
+            // changes = 0 — the token was already consumed (replay or race).
+            //
+            // Per F-LIN-001 (M6): SQL ?{} interpolation does NOT count as
+            // a `lin` consumption event the way template-literal ${ticket}
+            // does in example 19. Workaround: copy the lin var into a
+            // template literal first to satisfy §35.3 rule 1, then use
+            // the copy in the SQL.
+            const consumeMarker = `consume:${token}`
+            const result = ?{`
+                UPDATE lin_tokens
+                SET consumed_at = CURRENT_TIMESTAMP, consumed_by = ${user.id}
+                WHERE token = ${consumeMarker.substring(8)}
+                  AND kind = 'acceptance'
+                  AND load_id = ${loadId}
+                  AND consumed_at IS NULL
+            `}.run()
+            if (result.changes == 0) {
+                return { error: "Acceptance token already used or invalid." }
+            }
+
+            // Advance the load: booked → dispatched.
+            ?{`UPDATE loads SET status = 'dispatched', updated_at = CURRENT_TIMESTAMP WHERE id = ${loadId}`}.run()
+            return { ok: true }
         }
 
         @user = null
@@ -117,6 +180,8 @@
         @loaded = false
         @notFound = false
         @errorMessage = ""
+        // M6: lin acceptance token (string). Empty string when no active token.
+        @acceptanceToken = ""
 
         function getSessionToken() {
             const c = document.cookie ? document.cookie : ""
@@ -160,7 +225,36 @@
             @assignment = data.assignment
             @logEntries = data.logEntries
             @invoice = data.invoice
+            @acceptanceToken = data.acceptanceToken ? data.acceptanceToken : ""
             @loaded = true
+        }
+
+        // M6: customer signs the rate confirmation (lin token consume).
+        // Per F-RI-001 carryforward: anchor + setError indirection.
+        function signRateConfirmation() {
+            @errorMessage = ""
+            const tok = getSessionToken()
+            const acceptance = @acceptanceToken
+            if (acceptance == "") {
+                setError("No acceptance token available.")
+                return
+            }
+            const result = signRateConfirmationServer(tok, @load.id, acceptance)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                publishLoadEvent("rate-confirmed", @load.id, "dispatched", "")
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
         }
 
         function logout() {
@@ -371,6 +465,34 @@
               <section if=(@assignment == null && @load.status != "tendered" && @load.status != "cancelled") class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
                   Carrier not yet assigned. Your dispatcher is matching equipment now.
               </section>
+
+              <!-- M6: lin token #1 consumption — when load.status == "booked"
+                   and an active acceptance token exists, the customer can
+                   sign the rate confirmation. Click consumes the lin token
+                   (single-use guard at the DB) + advances load to dispatched.
+                   Replay protection: the second click hits a row with
+                   consumed_at != NULL → server returns "already used". -->
+              <section if=(@load.status == "booked" && @acceptanceToken != "") class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div class="flex items-start justify-between gap-4">
+                      <div class="text-sm text-blue-900">
+                          <strong>Rate confirmation pending.</strong> Your dispatcher has
+                          booked this load. Sign the rate confirmation to release it
+                          for driver dispatch.
+                          <div class="text-xs text-blue-700 mt-1">
+                              Total rate: <strong>${formatRate(@load.rate_dollars)}</strong>
+                              · Pickup: ${formatPickupAt(@load.pickup_at)}
+                          </div>
+                      </div>
+                      <button
+                          onclick=signRateConfirmation()
+                          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md flex-shrink-0"
+                      >Sign rate confirmation</button>
+                  </div>
+              </section>
+
+              <div if=(@errorMessage != "") class="bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                  ${@errorMessage}
+              </div>
 
               <!-- Tendered: awaiting rate -->
               <section if=(@load.status == "tendered") class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
