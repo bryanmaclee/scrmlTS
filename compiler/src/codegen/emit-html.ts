@@ -258,7 +258,7 @@ export function generateHtml(
               markerId,
               condition: branch.condition,
               refs: branch.condition?.refs ?? (branch.condition?.name ? [branch.condition.name.replace(/^@/, "")] : []),
-            } as any);
+            });
           }
         } else {
           // Dirty branch: per-branch wrapper retained, display-toggle.
@@ -274,7 +274,7 @@ export function generateHtml(
               branchMode: "display",
               condition: branch.condition,
               refs: branch.condition?.refs ?? (branch.condition?.name ? [branch.condition.name.replace(/^@/, "")] : []),
-            } as any);
+            });
           }
         }
       }
@@ -299,7 +299,7 @@ export function generateHtml(
               branchMode: "mount",
               templateId,
               markerId,
-            } as any);
+            });
           }
         } else {
           parts.push(`<div data-scrml-chain-branch="${elseId}" style="display:none">`);
@@ -311,7 +311,7 @@ export function generateHtml(
               chainId,
               branchId: elseId,
               branchMode: "display",
-            } as any);
+            });
           }
         }
       }

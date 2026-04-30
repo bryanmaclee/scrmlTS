@@ -65,6 +65,13 @@ Append-only timestamped log.
   ```
   <div data-scrml-if-chain="_scrml_if_chain_1"><template id="_scrml_scrml_chain_tpl_2"><div>A</div></template><!--scrml-if-marker:_scrml_scrml_chain_marker_3--><template id="_scrml_scrml_chain_tpl_4"><div>B</div></template><!--scrml-if-marker:_scrml_scrml_chain_marker_5--></div>
   ```
-- [01:05] Committing Step 1.
-</content>
-</invoke>
+- [01:05] Probed mixed/all-dirty cases — confirmed dirty branches still get per-branch wrappers + display-toggle, registry sets branchMode correctly.
+- [01:06] Decision deviation from plan: pre-commit hook enforces tests-pass. Need to either (a) bundle Step 1 + Step 4-partial (else-if assertion inversions) into one commit so pre-commit passes, or (b) bypass with --no-verify (forbidden). Going with (a). Updated else-if.test.js N31 chain-shape assertions for Phase 2g (kept N31 anti-leak invariants). bun test → 6160/6160 unit + post-commit ran 8094/0f. Step 1 committed: `6bdcea8`.
+- [01:07] Step 2 — binding-registry.ts LogicBinding interface formalization:
+  - Added `kind?: "if-chain-branch" | "if-chain-else"` discriminator (optional — absent on conventional bindings, set on chain bindings).
+  - Made `placeholderId?` and `expr?` optional (chain bindings don't use them).
+  - Added chain-specific fields: `chainId?`, `branchId?`, `branchIndex?`, `branchMode?: "mount" | "display"`, `condition?`, `refs?`.
+  - Updated docstring with Phase 2g addition section explaining the discriminator + chain shape.
+  - Removed 4 `as any` casts on the chain emit sites in emit-html.ts. The 2 remaining `as any` at lines 694/696 are pre-existing Phase 2c B1 (use varName/dotPath/condExpr/condExprNode — not in scope for Phase 2g).
+  - bun test 6160/6160 unit pass. No regressions.
+- [01:08] Next: Step 3 (emit-event-wiring.ts chain controller rewrite).
