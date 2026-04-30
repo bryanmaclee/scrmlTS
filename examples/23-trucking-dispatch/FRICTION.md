@@ -39,6 +39,8 @@ doc's stress-test framing. No design change.
 
 The current behavior — silent acceptance — directly contradicts the S49 validation principle ("if the compiler accepts something but it doesn't work at runtime, that's a P0 friction finding").
 
+**UVB-W1 status (2026-04-30): SILENT-FAILURE WINDOW CLOSED.** VP-1 emits W-ATTR-002 on every `auth="role:X"` attribute on `<page>`, `<program>`, and `<channel>`. The role-gating semantics themselves remain unimplemented (this stays an ergonomic gap for a future ergonomic-completion track) — but the silent acceptance the validation principle flagged is closed: adopters now see a warning at compile time instead of silently-authorized-everyone behavior at runtime. See `compiler/SPEC.md` §52.13 + deep-dive `systemic-silent-failure-sweep-2026-04-30`.
+
 ---
 
 ## F-AUTH-002 — Cross-file server functions with SQL access are not portable (P0)
@@ -284,6 +286,9 @@ documented in `docs/changes/f-component-001/diagnosis.md`:
   continue with inline-only.
 - Post-M6, dispatch a deep-dive on cross-file component expansion
   with the full pattern catalog from M2-M6 in scope.
+
+
+**UVB-W1 status (2026-04-30): SILENT-FAILURE WINDOW CLOSED.** VP-2 (post-CE invariant) emits hard E-COMPONENT-035 on every residual `isComponent: true` markup node. Before W1, an unresolved component reference silently became `document.createElement("LoadCard")` at runtime; after W1 the compile fails loudly with the component name + a pointer to the lift+wrap workaround. The architectural fix (cross-file CE accepting bare `lift <ImportedComp/>`) is a separate W2 track; UVB-W1 closes only the silent-emission window. See `compiler/SPEC.md` §15.14 + `compiler/PIPELINE.md` Stage 3.3 + deep-dive `systemic-silent-failure-sweep-2026-04-30`.
 
 ---
 
@@ -1238,6 +1243,8 @@ drivers' events. The validation principle says: if the compiler
 accepts `<channel name="driver-${id}">`, that pattern must do what
 its name suggests, OR the compiler must reject/warn.
 
+**UVB-W1 status (2026-04-30): SILENT-FAILURE WINDOW CLOSED.** VP-3 emits hard E-CHANNEL-007 on `<channel name=>` (or `<channel topic=>`) values containing `${...}` interpolation. Before W1, the literal `${id}` was emitted as a static substring of the WebSocket URL — every per-id channel collapsed to `/_scrml_ws/driver-___id_`. After W1, this is a compile-time error with a pointer to the static-name + payload-side-filter pattern (§38.11.3). The runtime per-channel-scoping fix remains open; UVB-W1 closes only the silent-acceptance window. See `compiler/SPEC.md` §38.11.
+
 **Repro:** `/tmp/channel-name-test.scrml`, `/tmp/channel-name-test2.scrml`,
 `/tmp/channel-name-test3.scrml` (three variants, all show the same
 mangling).
@@ -1450,6 +1457,8 @@ Severity P1: workaround is the existing F-AUTH-001 server-side
 gate, which is already exercised across every page. The new wrinkle
 is the wire-level exposure for adopters who assume channel auth
 attributes work.
+
+**UVB-W1 status (2026-04-30): SILENT-FAILURE WINDOW PARTIALLY CLOSED.** VP-1 emits W-ATTR-002 on `<channel auth="role:X">` (same surface as F-AUTH-001). The wire-level enforcement remains unimplemented (this is the architectural gap covered by future runtime work); UVB-W1 closes the silent-acceptance window: adopters now see a warning instead of silent inert-attribute behavior. See `compiler/SPEC.md` §52.13.
 
 ---
 
