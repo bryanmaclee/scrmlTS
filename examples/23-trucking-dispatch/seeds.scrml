@@ -1,0 +1,370 @@
+// Trucking Dispatch — seeds (M1).
+//
+// Idempotent demo dataset. Pre-hashed passwords stored as Argon2id by
+// runSeeds() at first call; on re-run, INSERTs use ON CONFLICT DO NOTHING
+// so duplicate keys (email unique, unit_number unique, vin unique) are
+// silently skipped.
+//
+// Composition:
+//   - 3 customers + 3 customer user accounts (password = "demo")
+//   - 4 drivers + 4 driver user accounts (password = "demo")
+//   - 1 dispatcher user account (password = "demo")
+//   - 3 tractors (Peterbilt 389, Kenworth T880, Freightliner Cascadia)
+//   - 4 trailers (1 dry van, 1 reefer, 1 flatbed, 1 tanker)
+//   - 8 loads (2 tendered, 2 booked, 2 in_transit, 2 delivered)
+//
+// All users share password "demo" so the example is trivially testable.
+// Real auth out of scope — see README + scoping §10.
+//
+// IMPORTANT: This file is imported by app.scrml's `< db>` block. The
+// `?{}` SQL inside `runSeeds()` resolves against the IMPORTING file's
+// ancestor `<program db="...">` per §44 (E-SQL-004 if absent). When this
+// file is compiled standalone, E-SQL-004 fires — that's expected; the
+// file is never run standalone.
+
+${
+    import { hashPassword } from 'scrml:auth'
+
+    // -----------------------------------------------------------------------
+    // Customer seed data — 3 NE Utah oil & gas operations.
+    // -----------------------------------------------------------------------
+
+    const _customers = [
+        {
+            email:           "ops@basinenergy.example",
+            name:            "Basin Energy Services",
+            contact_name:    "Marlene Stewart",
+            contact_phone:   "(435) 555-0142",
+            billing_address: "1240 W Highway 40, Vernal, UT 84078",
+            payment_terms:   "net_30"
+        },
+        {
+            email:           "dispatch@uintahfield.example",
+            name:            "Uintah Field Logistics",
+            contact_name:    "Roy Halverson",
+            contact_phone:   "(435) 555-0188",
+            billing_address: "55 N 200 E, Roosevelt, UT 84066",
+            payment_terms:   "net_15"
+        },
+        {
+            email:           "billing@vernalops.example",
+            name:            "Vernal Operations LLC",
+            contact_name:    "Trish Yardley",
+            contact_phone:   "(435) 555-0107",
+            billing_address: "880 S 500 W, Vernal, UT 84078",
+            payment_terms:   "net_60"
+        }
+    ]
+
+    // -----------------------------------------------------------------------
+    // Driver seed data — 4 owner-operator-style drivers.
+    // -----------------------------------------------------------------------
+
+    const _drivers = [
+        {
+            email:       "doyle.briggs@dispatch.example",
+            name:        "Doyle Briggs",
+            phone:       "(435) 555-0211",
+            cdl_number:  "UT-1142098",
+            cdl_state:   "UT",
+            cdl_expires: "2027-08-15"
+        },
+        {
+            email:       "lupe.fontes@dispatch.example",
+            name:        "Lupe Fontes",
+            phone:       "(435) 555-0233",
+            cdl_number:  "UT-1187441",
+            cdl_state:   "UT",
+            cdl_expires: "2026-11-02"
+        },
+        {
+            email:       "ada.king@dispatch.example",
+            name:        "Ada King",
+            phone:       "(307) 555-0270",
+            cdl_number:  "WY-2294017",
+            cdl_state:   "WY",
+            cdl_expires: "2028-03-19"
+        },
+        {
+            email:       "moses.tate@dispatch.example",
+            name:        "Moses Tate",
+            phone:       "(970) 555-0304",
+            cdl_number:  "CO-3315582",
+            cdl_state:   "CO",
+            cdl_expires: "2026-06-30"
+        }
+    ]
+
+    // -----------------------------------------------------------------------
+    // Tractor + trailer seed data — realistic for an oil/gas owner-operator.
+    // -----------------------------------------------------------------------
+
+    const _tractors = [
+        {
+            unit_number:    "T-101",
+            year:           2021,
+            make:           "Peterbilt",
+            model:          "389",
+            vin:            "1XPWD49X1MD556720",
+            license_plate: "UT-LR-7421",
+            status:         "active"
+        },
+        {
+            unit_number:    "T-102",
+            year:           2023,
+            make:           "Kenworth",
+            model:          "T880",
+            vin:            "1XKZD49X3PJ481102",
+            license_plate: "UT-LR-7884",
+            status:         "active"
+        },
+        {
+            unit_number:    "T-103",
+            year:           2019,
+            make:           "Freightliner",
+            model:          "Cascadia",
+            vin:            "3AKJHHDR8KSKB2017",
+            license_plate: "UT-LR-6612",
+            status:         "maintenance"
+        }
+    ]
+
+    const _trailers = [
+        { unit_number: "DV-201", type: "dry_van", length_ft: 53, capacity_lbs: 45000 },
+        { unit_number: "RF-202", type: "reefer",  length_ft: 53, capacity_lbs: 44000 },
+        { unit_number: "FB-203", type: "flatbed", length_ft: 48, capacity_lbs: 48000 },
+        { unit_number: "TK-204", type: "tanker",  length_ft: 42, capacity_lbs: 50000 }
+    ]
+
+    // -----------------------------------------------------------------------
+    // Loads — 8 representative shipments.
+    // Pickup + delivery dates are ISO strings near "now" so the demo isn't
+    // anchored to historical dates that look stale.
+    // -----------------------------------------------------------------------
+
+    const _loads = [
+        {
+            customer_email:    "ops@basinenergy.example",
+            origin_address:    "Greater Natural Buttes Field",
+            origin_city:       "Vernal",
+            origin_state:      "UT",
+            destination_address: "PolyOne Processing",
+            destination_city:  "Salt Lake City",
+            destination_state: "UT",
+            pickup_at:         "2026-04-30T07:00:00",
+            deliver_by:        "2026-05-01T16:00:00",
+            commodity:         "Crude oil",
+            weight_lbs:        47000,
+            rate_dollars:      2350.00,
+            status:            "tendered"
+        },
+        {
+            customer_email:    "dispatch@uintahfield.example",
+            origin_address:    "Brundage Pad 14",
+            origin_city:       "Roosevelt",
+            origin_state:      "UT",
+            destination_address: "Williams Energy Hub",
+            destination_city:  "Rock Springs",
+            destination_state: "WY",
+            pickup_at:         "2026-05-01T05:30:00",
+            deliver_by:        "2026-05-01T18:00:00",
+            commodity:         "Frac sand",
+            weight_lbs:        46500,
+            rate_dollars:      1875.00,
+            status:            "tendered"
+        },
+        {
+            customer_email:    "billing@vernalops.example",
+            origin_address:    "Industrial Park Way",
+            origin_city:       "Duchesne",
+            origin_state:      "UT",
+            destination_address: "Cogema Plant",
+            destination_city:  "Grand Junction",
+            destination_state: "CO",
+            pickup_at:         "2026-04-30T11:00:00",
+            deliver_by:        "2026-05-01T09:00:00",
+            commodity:         "Drill pipe",
+            weight_lbs:        42000,
+            rate_dollars:      2100.00,
+            status:            "booked"
+        },
+        {
+            customer_email:    "ops@basinenergy.example",
+            origin_address:    "Bonanza CO2 Capture",
+            origin_city:       "Vernal",
+            origin_state:      "UT",
+            destination_address: "Suncor Refinery",
+            destination_city:  "Salt Lake City",
+            destination_state: "UT",
+            pickup_at:         "2026-04-30T14:00:00",
+            deliver_by:        "2026-05-01T08:00:00",
+            commodity:         "Liquid CO2",
+            weight_lbs:        49500,
+            rate_dollars:      2675.00,
+            status:            "booked"
+        },
+        {
+            customer_email:    "dispatch@uintahfield.example",
+            origin_address:    "Antelope Creek Pad",
+            origin_city:       "Roosevelt",
+            origin_state:      "UT",
+            destination_address: "BlackRock Drilling",
+            destination_city:  "Rock Springs",
+            destination_state: "WY",
+            pickup_at:         "2026-04-29T06:00:00",
+            deliver_by:        "2026-04-29T19:00:00",
+            commodity:         "Refined diesel",
+            weight_lbs:        48000,
+            rate_dollars:      2450.00,
+            status:            "in_transit"
+        },
+        {
+            customer_email:    "billing@vernalops.example",
+            origin_address:    "Lybrook Wellpad",
+            origin_city:       "Duchesne",
+            origin_state:      "UT",
+            destination_address: "Holly Frontier Refinery",
+            destination_city:  "Salt Lake City",
+            destination_state: "UT",
+            pickup_at:         "2026-04-29T08:30:00",
+            deliver_by:        "2026-04-29T17:00:00",
+            commodity:         "Crude oil",
+            weight_lbs:        47500,
+            rate_dollars:      2225.00,
+            status:            "in_transit"
+        },
+        {
+            customer_email:    "ops@basinenergy.example",
+            origin_address:    "Bluebell Field",
+            origin_city:       "Roosevelt",
+            origin_state:      "UT",
+            destination_address: "PolyOne Processing",
+            destination_city:  "Salt Lake City",
+            destination_state: "UT",
+            pickup_at:         "2026-04-27T06:30:00",
+            deliver_by:        "2026-04-28T16:00:00",
+            commodity:         "Crude oil",
+            weight_lbs:        46800,
+            rate_dollars:      2300.00,
+            status:            "delivered"
+        },
+        {
+            customer_email:    "dispatch@uintahfield.example",
+            origin_address:    "Drum Mountain Pad",
+            origin_city:       "Vernal",
+            origin_state:      "UT",
+            destination_address: "Caterpillar Service Center",
+            destination_city:  "Grand Junction",
+            destination_state: "CO",
+            pickup_at:         "2026-04-26T09:00:00",
+            deliver_by:        "2026-04-27T17:00:00",
+            commodity:         "Heavy equipment",
+            weight_lbs:        38000,
+            rate_dollars:      1950.00,
+            status:            "delivered"
+        }
+    ]
+
+    // -----------------------------------------------------------------------
+    // runSeeds() — called from app.scrml's `on mount` block.
+    //
+    // Idempotent: every INSERT uses `ON CONFLICT DO NOTHING` so re-running
+    // on warm startup is safe. The seed dispatcher account, customer
+    // accounts, and driver accounts all share password "demo".
+    // -----------------------------------------------------------------------
+
+    export function runSeeds() {
+        // server { } block — runs only on the server. The whole body
+        // is server-side because every ?{} inside requires a server
+        // execution context.
+        server {
+            const demoHash = hashPassword("demo")
+
+        // -------- dispatcher --------
+        ?{`
+            INSERT INTO users (email, password_hash, role)
+            VALUES ('dispatcher@dispatch.example', ${demoHash}, 'dispatcher')
+            ON CONFLICT(email) DO NOTHING
+        `}.run()
+
+        // -------- customers + their user rows --------
+        for (let i = 0; i < _customers.length; i = i + 1) {
+            const c = _customers[i]
+            ?{`
+                INSERT INTO users (email, password_hash, role)
+                VALUES (${c.email}, ${demoHash}, 'customer')
+                ON CONFLICT(email) DO NOTHING
+            `}.run()
+
+            const u = ?{`SELECT id FROM users WHERE email = ${c.email}`}.get()
+            if (u) {
+                ?{`
+                    INSERT INTO customers (user_id, name, contact_name, contact_email, contact_phone, billing_address, payment_terms, account_status)
+                    SELECT ${u.id}, ${c.name}, ${c.contact_name}, ${c.email}, ${c.contact_phone}, ${c.billing_address}, ${c.payment_terms}, 'active'
+                    WHERE NOT EXISTS (SELECT 1 FROM customers WHERE user_id = ${u.id})
+                `}.run()
+            }
+        }
+
+        // -------- drivers + their user rows --------
+        for (let i = 0; i < _drivers.length; i = i + 1) {
+            const d = _drivers[i]
+            ?{`
+                INSERT INTO users (email, password_hash, role)
+                VALUES (${d.email}, ${demoHash}, 'driver')
+                ON CONFLICT(email) DO NOTHING
+            `}.run()
+
+            const u = ?{`SELECT id FROM users WHERE email = ${d.email}`}.get()
+            if (u) {
+                ?{`
+                    INSERT INTO drivers (user_id, name, phone, cdl_number, cdl_state, cdl_expires, current_status, current_location)
+                    SELECT ${u.id}, ${d.name}, ${d.phone}, ${d.cdl_number}, ${d.cdl_state}, ${d.cdl_expires}, 'off_duty', NULL
+                    WHERE NOT EXISTS (SELECT 1 FROM drivers WHERE user_id = ${u.id})
+                `}.run()
+            }
+        }
+
+        // -------- tractors --------
+        for (let i = 0; i < _tractors.length; i = i + 1) {
+            const t = _tractors[i]
+            ?{`
+                INSERT INTO tractors (unit_number, year, make, model, vin, license_plate, status)
+                VALUES (${t.unit_number}, ${t.year}, ${t.make}, ${t.model}, ${t.vin}, ${t.license_plate}, ${t.status})
+                ON CONFLICT(unit_number) DO NOTHING
+            `}.run()
+        }
+
+        // -------- trailers --------
+        for (let i = 0; i < _trailers.length; i = i + 1) {
+            const tr = _trailers[i]
+            ?{`
+                INSERT INTO trailers (unit_number, type, length_ft, capacity_lbs)
+                VALUES (${tr.unit_number}, ${tr.type}, ${tr.length_ft}, ${tr.capacity_lbs})
+                ON CONFLICT(unit_number) DO NOTHING
+            `}.run()
+        }
+
+        // -------- loads --------
+        // Each load is keyed off its customer email + commodity + pickup_at
+        // for idempotency (no natural unique key on `loads`, so we use
+        // NOT EXISTS guard).
+        for (let i = 0; i < _loads.length; i = i + 1) {
+            const ld = _loads[i]
+            const cust = ?{`SELECT id FROM customers WHERE contact_email = ${ld.customer_email}`}.get()
+            if (cust) {
+                ?{`
+                    INSERT INTO loads (customer_id, origin_address, origin_city, origin_state, destination_address, destination_city, destination_state, pickup_at, deliver_by, commodity, weight_lbs, rate_dollars, status)
+                    SELECT ${cust.id}, ${ld.origin_address}, ${ld.origin_city}, ${ld.origin_state}, ${ld.destination_address}, ${ld.destination_city}, ${ld.destination_state}, ${ld.pickup_at}, ${ld.deliver_by}, ${ld.commodity}, ${ld.weight_lbs}, ${ld.rate_dollars}, ${ld.status}
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM loads
+                        WHERE customer_id = ${cust.id}
+                          AND commodity = ${ld.commodity}
+                          AND pickup_at = ${ld.pickup_at}
+                    )
+                `}.run()
+            }
+        }
+        }  // server { }
+    }
+}
