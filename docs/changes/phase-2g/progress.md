@@ -109,3 +109,71 @@ Append-only timestamped log.
   - Net change: +31 tests (chain-mount-emission.test.js) + +89 expects.
   - No regressions. No pre-existing failures masked.
 - [01:13] Phase 2g complete. Ready for merge.
+
+## Final state (READY FOR MERGE)
+
+Branch: `changes/phase-2g-chain-mount`
+
+Commits (chronological):
+1. `8522b95` — WIP(phase-2g): pre-snapshot — baseline 8094p/0f, greenlit design captured
+2. `6bdcea8` — WIP(phase-2g): Step 1 — emit-html.ts chain handler rewrite (per-branch B1 dispatch)
+3. `625f232` — WIP(phase-2g): Step 2 — binding-registry.ts LogicBinding interface for chain shape
+4. `2a02ffd` — WIP(phase-2g): Step 3 — emit-event-wiring.ts chain controller (per-branch dispatch)
+5. `bf64bb4` — test(phase-2g): Step 4 — new chain-mount-emission.test.js (31 tests, N1-N31)
+
+Files touched:
+- compiler/src/codegen/emit-html.ts (Step 1)
+- compiler/tests/unit/else-if.test.js (Step 1: assertion inversions for Phase 2g shape)
+- compiler/src/codegen/binding-registry.ts (Step 2)
+- compiler/src/codegen/emit-event-wiring.ts (Step 3)
+- compiler/tests/unit/chain-mount-emission.test.js (Step 4: NEW)
+- docs/changes/phase-2g/progress.md (this file)
+- docs/changes/phase-2g/pre-snapshot.md (baseline doc)
+
+Test counts:
+- Pre-Phase-2g baseline: 8094 pass / 40 skip / 0 fail / 28542 expects / 383 files.
+- Post-Phase-2g: 8125 pass / 40 skip / 0 fail / 28631 expects / 384 files.
+- Delta: +31 tests (chain-mount-emission.test.js), +89 expects, +1 file. No regressions.
+
+Constraints honored:
+- ✅ Approach A + W-keep-chain-only + per-branch mixed-cleanliness dispatch.
+- ✅ NO new runtime helpers. Phase 2c B1 helpers reused verbatim.
+- ✅ NO spec amendments. §17.1.1 line 7533 stays normative-by-implication.
+- ✅ NO removal of stripChainBranchAttrs (strip-precursor preserved).
+- ✅ NO scope expansion.
+- ✅ NO --no-verify on commits. All commits passed pre-commit + post-commit hooks.
+- ✅ Validation principle: chain emission gates correctly per branch, controller wiring matches HTML shape, all generated client.js syntactically valid (`node --check`).
+
+OQs surfaced mid-flight:
+- **OQ-2H-1**: pre-existing condition emission bug in chain controller for expression conditions
+  (e.g., `if=@step == 1`). Both pre-Phase-2g AND Phase 2g controllers emit
+  `_scrml_reactive_get("step")` instead of `(_scrml_reactive_get("step") == 1)`.
+  Visible in `samples/compilation-tests/gauntlet-s19-phase2-control-flow/phase2-if-else-attr-chain-017.scrml` compiled output. Phase 2g preserves the existing handling
+  verbatim — this is NOT a Phase 2g regression. Likely a TAB-stage issue:
+  `branch.condition.raw` is not being populated for `@var == literal` expression
+  conditions, so the controller falls through to the variable-ref path which only
+  encodes the variable name. Route to **Phase 2h** triage (deep-dive §7 noted
+  pre-existing fixture issues).
+
+Sample/fixture failures discovered:
+- 6 of 6 sample chains (recipe-book, blog-cms, quiz-app, api-dashboard, kanban-r11,
+  task-dashboard) fail to compile from upstream pipeline stages (BS / TAB / TS errors).
+  All pre-existing — none introduced by Phase 2g. These match the deep-dive §7 / §8
+  phase-2h pre-scope warning: "S49 attempt at a sweep test surfaced 12 pre-existing
+  fixture failures unrelated to Phase 2c. Phase 2h must triage these BEFORE running
+  mount/unmount semantic tests."
+- 3 of 4 chain-related compilation-tests fixtures compile cleanly (017, 004, 005).
+  4th fixture (099) has E-CTRL-001 — that's the EXPECTED outcome (test name and
+  comment confirm it asserts on chain-break behavior). Not a regression.
+
+Status: **READY FOR MERGE**
+
+## Tags
+#phase-2g #if-chain #mount-unmount #emit-html #emit-event-wiring #binding-registry #ready-for-merge
+
+## Links
+- Deep-dive: /home/bryan-maclee/scrmlMaster/scrml-support/docs/deep-dives/phase-2g-chain-mount-strategy-2026-04-29.md
+- Pre-snapshot: docs/changes/phase-2g/pre-snapshot.md
+- Phase 2c B1 reference: compiler/src/codegen/emit-html.ts:575-603
+- Spec: §17.1.1 — compiler/SPEC.md:7366-7619
+- Spec: §6.7.2 — compiler/SPEC.md:2551-2585
