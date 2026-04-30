@@ -75,3 +75,19 @@ Append-only timestamped log.
   - Removed 4 `as any` casts on the chain emit sites in emit-html.ts. The 2 remaining `as any` at lines 694/696 are pre-existing Phase 2c B1 (use varName/dotPath/condExpr/condExprNode — not in scope for Phase 2g).
   - bun test 6160/6160 unit pass. No regressions.
 - [01:08] Next: Step 3 (emit-event-wiring.ts chain controller rewrite).
+- [01:09] Step 3 — emit-event-wiring.ts chain controller rewrite:
+  - Extended local LogicBinding interface with Phase 2g chain fields (kind?, chainId?, branchId?, branchIndex?, branchMode?, condition?). Made placeholderId? and expr? optional (chain bindings don't use them).
+  - Rewrote `// --- §17.1.1: if-chain wiring ---` block (lines 561-610 of pre-Step-3) to emit the per-branch dispatch controller.
+  - Per-branch state declarations:
+    - mount-mode: `let _scrml_chain_<branchId>_root = null; let _scrml_chain_<branchId>_scope = null;`
+    - display-mode: `const _scrml_chain_<branchId>_wrapper = document.querySelector('[data-scrml-chain-branch="<branchId>"]');`
+  - `_update_chain_<chainId>()`:
+    - Computes `_next` branchId via condition cascade (existing logic verbatim).
+    - Idempotency guard: `if (_next === active) return;`
+    - Deactivate previous via switch on active: mount-mode → unmount + null roots; display-mode → wrapper.style.display = "none".
+    - Activate next via switch on _next: mount-mode → create_scope + mount_template; display-mode → wrapper.style.display = "".
+    - Update `active = _next`.
+  - Initial render call + `_scrml_effect(_update_chain_<chainId>)`.
+  - Probed all four cases (all-clean, mixed clean+dirty, 3-branch all-clean, all-dirty). HTML + JS shape verified. Generated JS validated with `node --check` — all four files syntactically valid.
+  - bun test: 6160 unit + 929 integration + 280 conformance = ALL pass. No regressions.
+- [01:10] Committing Step 3.
