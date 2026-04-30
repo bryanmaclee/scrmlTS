@@ -1,0 +1,265 @@
+// Trucking Dispatch — driver profile (M3).
+//
+// Route: /driver/profile. Read-only display of CDL info + editable
+// name/phone form. CDL number / state / expiration are admin-managed
+// and shown read-only — only the dispatcher can change them.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward. F-RI-001
+// anchor + setError indirection on the save mutator.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchProfile(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`
+                SELECT id, name, phone, cdl_number, cdl_state, cdl_expires
+                FROM drivers
+                WHERE user_id = ${user.id}
+            `}.get()
+            if (!driver) return { error: "No driver record." }
+
+            return { user: user, driver: driver }
+        }
+
+        server function saveProfileServer(sessionToken, name, phone) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const trimmedName = name.trim()
+            const trimmedPhone = phone.trim()
+            if (trimmedName == "") return { error: "Name required." }
+
+            ?{`
+                UPDATE drivers
+                SET name = ${trimmedName}, phone = ${trimmedPhone}
+                WHERE id = ${driver.id}
+            `}.run()
+
+            return { ok: true }
+        }
+
+        @user = null
+        @driver = null
+        @loaded = false
+        @errorMessage = ""
+        @editing = false
+        @successMessage = ""
+
+        // Form state — populated from @driver on edit click.
+        @editName = ""
+        @editPhone = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchProfile(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @driver = data.driver
+            @loaded = true
+        }
+
+        function startEdit() {
+            @editName = @driver.name
+            @editPhone = @driver.phone == "" ? "" : @driver.phone
+            @errorMessage = ""
+            @successMessage = ""
+            @editing = true
+        }
+
+        function cancelEdit() {
+            @editing = false
+            @errorMessage = ""
+        }
+
+        function saveProfile(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            const name = @editName
+            const phone = @editPhone
+            const tok = getSessionToken()
+            @errorMessage = ""
+            const result = saveProfileServer(tok, name, phone)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                @editing = false
+                announceSaved()
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function announceSaved() {
+            @successMessage = "Profile updated."
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+      <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/driver" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+                <span class="text-xs uppercase tracking-wider text-slate-400">Profile</span>
+            </div>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/driver" class="hover:text-blue-300">Home</a>
+                <a href="/driver/hos" class="hover:text-blue-300">HOS</a>
+                <a href="/driver/messages" class="hover:text-blue-300">Messages</a>
+            </nav>
+        </header>
+
+        <main class="max-w-2xl mx-auto px-6 py-8">
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+            <div if=(@loaded && !@driver) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+                ${@errorMessage}
+            </div>
+
+            <div if=(@loaded && @driver) class="space-y-4">
+
+                <header class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h1 class="text-lg font-bold mb-1">Profile</h1>
+                    <p class="text-sm text-slate-600">
+                        Account: <code class="bg-slate-100 px-1 rounded">${@user.email}</code>
+                    </p>
+                </header>
+
+                <div if=(@successMessage != "") class="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-md px-4 py-3">
+                    ${@successMessage}
+                </div>
+
+                <!-- Read-only display when not editing. -->
+                <section if=(!@editing) class="bg-white rounded-lg border border-slate-200 p-6">
+                    <div class="space-y-4">
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Name</div>
+                            <div class="text-base text-slate-900">${@driver.name}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Phone</div>
+                            <div class="text-base text-slate-900">
+                                <span if=(@driver.phone != "")>${@driver.phone}</>
+                                <span if=(@driver.phone == "") class="text-slate-400">—</>
+                            </div>
+                        </div>
+                        <div class="border-t border-slate-200 pt-4">
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">CDL number</div>
+                            <div class="text-base text-slate-900">${@driver.cdl_number}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">CDL state</div>
+                            <div class="text-base text-slate-900">${@driver.cdl_state}</div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">CDL expires</div>
+                            <div class="text-base text-slate-900">${@driver.cdl_expires}</div>
+                            <p class="text-xs text-slate-500 mt-1">
+                                CDL info is admin-managed. Contact dispatch to update.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 pt-4 border-t border-slate-200">
+                        <button onclick=startEdit() class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">
+                            Edit name &amp; phone
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Edit form. -->
+                <section if=@editing class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        Edit profile
+                    </h2>
+                    <form onsubmit=saveProfile() class="space-y-3">
+                        <div>
+                            <label for="edit-name" class="block text-xs font-medium text-slate-600 mb-1">Name</label>
+                            <input
+                                id="edit-name"
+                                type="text"
+                                bind:value=@editName
+                                class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label for="edit-phone" class="block text-xs font-medium text-slate-600 mb-1">Phone</label>
+                            <input
+                                id="edit-phone"
+                                type="tel"
+                                bind:value=@editPhone
+                                placeholder="(555) 123-4567"
+                                class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                            />
+                        </div>
+                        <div if=(@errorMessage != "") class="bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                            ${@errorMessage}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">
+                                Save
+                            </button>
+                            <button type="button" onclick=cancelEdit() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+            </div>
+        </main>
+      </div>
+
+  </>
+
+</program>
