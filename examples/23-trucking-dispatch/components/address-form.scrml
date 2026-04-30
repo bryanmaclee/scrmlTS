@@ -1,0 +1,74 @@
+// Trucking Dispatch — address form fields (M2).
+//
+// Reusable origin / destination input cluster used by /dispatch/loads/new.
+// Per scoping §1, address has 3 columns: address, city, state. The component
+// takes `bindAddress`, `bindCity`, `bindState` as @-prefixed reactive vars
+// from the parent and binds inputs to them.
+//
+// IMPORTANT: per §6.x bindings, scrml's `bind:value=@x` requires the @-var
+// to be in the rendering scope. Since component props can't be `bind:value=`
+// targets directly, the parent passes its @vars and the component just
+// accepts them positionally — but inside the component body, `bind:value=`
+// has to target a local @var. The compiler-supported pattern (per S42 A8 +
+// kickstarter §3) is for the parent to inline its inputs and import this
+// component as a layout shell only. For M2 we ship this component as a
+// **layout primitive** — it accepts the 3 string @vars as PROPS and the
+// parent owns the bind. The body uses ${} interpolation to display the
+// values; the parent inlines `<input bind:value=@x>` via slots if needed.
+//
+// Simpler alternative shipped here: the component is a pure presentational
+// fieldset with labeled `<input>` elements that receive their values via
+// `value=` and use `oninput=` callbacks. Parent owns the @vars + handlers.
+
+${
+    export const AddressForm = <fieldset class="border border-slate-200 rounded-lg p-4" props={
+        legend: string,
+        addressValue: string,
+        cityValue: string,
+        stateValue: string,
+        onAddressInput: any,
+        onCityInput: any,
+        onStateInput: any,
+        addressId: string,
+        cityId: string,
+        stateId: string,
+    }>
+        <legend class="px-2 text-sm font-semibold text-slate-700">${legend}</legend>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-slate-700 mb-1" for=addressId>Street / facility</label>
+                <input
+                    id=addressId
+                    type="text"
+                    value=addressValue
+                    oninput=onAddressInput(event)
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                />
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-slate-700 mb-1" for=cityId>City</label>
+                <input
+                    id=cityId
+                    type="text"
+                    value=cityValue
+                    oninput=onCityInput(event)
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                />
+            </div>
+
+            <div>
+                <label class="block text-xs font-medium text-slate-700 mb-1" for=stateId>State</label>
+                <input
+                    id=stateId
+                    type="text"
+                    value=stateValue
+                    oninput=onStateInput(event)
+                    maxlength="2"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md text-sm uppercase"
+                />
+            </div>
+        </div>
+    </>
+}

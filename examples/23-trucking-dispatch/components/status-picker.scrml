@@ -1,0 +1,88 @@
+// Trucking Dispatch — load.status picker (M2).
+//
+// Dispatcher control on /dispatch/loads/:id. Renders a `<select>` of valid
+// next states for the current load, plus a Cancel option. Calling code is
+// expected to wire `onChange` to a server fn that issues the UPDATE.
+//
+// State machine (per scoping §7):
+//
+//   tendered → booked → dispatched → loaded → in_transit → delivered → invoiced → paid
+//                                                                ↘ cancelled (terminal)
+//
+// `<machine>` deferred to M3 — see progress.md decision log. The transition
+// rules live as a pure helper here so the dispatcher pages can call
+// `validNextStates(currentStatus)` directly. If invalid → empty array.
+
+${
+    // Pure helper — given a current status, returns the list of valid next
+    // states. `cancelled` and `paid` are terminal (return []).
+    export fn validNextStates(current: string) -> any {
+        if (current == "tendered")   return ["booked", "cancelled"]
+        if (current == "booked")     return ["dispatched", "cancelled"]
+        if (current == "dispatched") return ["loaded", "cancelled"]
+        if (current == "loaded")     return ["in_transit", "cancelled"]
+        if (current == "in_transit") return ["delivered", "cancelled"]
+        if (current == "delivered")  return ["invoiced"]
+        if (current == "invoiced")   return ["paid"]
+        if (current == "paid")       return []
+        if (current == "cancelled")  return []
+        return []
+    }
+
+    // Pure helper — formats "in_transit" as "In transit". Mirrors the same
+    // helper in load-status-badge but kept local so the picker doesn't
+    // need to import the badge file.
+    export fn pickerLabel(s: string) -> string {
+        if (s == "in_transit") return "In transit"
+        if (s == "tendered")   return "Tendered"
+        if (s == "booked")     return "Booked"
+        if (s == "dispatched") return "Dispatched"
+        if (s == "loaded")     return "Loaded"
+        if (s == "delivered")  return "Delivered"
+        if (s == "invoiced")   return "Invoiced"
+        if (s == "paid")       return "Paid"
+        if (s == "cancelled")  return "Cancelled"
+        return s
+    }
+
+    // Pure helper — describes the verb of the transition (used in the
+    // dropdown label so dispatchers don't have to read the state machine).
+    export fn transitionVerb(target: string) -> string {
+        if (target == "booked")     return "Book"
+        if (target == "dispatched") return "Dispatch"
+        if (target == "loaded")     return "Mark loaded"
+        if (target == "in_transit") return "Start transit"
+        if (target == "delivered")  return "Mark delivered"
+        if (target == "invoiced")   return "Send invoice"
+        if (target == "paid")       return "Mark paid"
+        if (target == "cancelled")  return "Cancel"
+        return pickerLabel(target)
+    }
+
+    export const StatusPicker = <div class="flex items-center gap-3" props={
+        currentStatus: string,
+        nextStates: any,
+        onTransition: any,
+    }>
+        <span class="text-sm text-slate-500">Current:</span>
+        <span class="text-sm font-semibold text-slate-900">${pickerLabel(currentStatus)}</span>
+
+        <div if=(nextStates.length > 0) class="flex items-center gap-2 ml-2">
+            <span class="text-slate-400">→</span>
+            ${
+                for (let target of nextStates) {
+                    lift <button
+                        onclick=onTransition(target)
+                        class="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium"
+                    >
+                        ${transitionVerb(target)}
+                    </button>
+                }
+            }
+        </div>
+
+        <div if=(nextStates.length == 0) class="text-xs text-slate-400">
+            (terminal state)
+        </div>
+    </>
+}
