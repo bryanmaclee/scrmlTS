@@ -223,10 +223,6 @@
             setError(errMsg)
         }
 
-        function setError(msg) {
-            @errorMessage = msg
-        }
-
         function saveAssignment(event) {
             if (event && event.preventDefault) event.preventDefault()
             const form = event ? event.target : null
@@ -253,6 +249,11 @@
             const errMsg = result.error
             setError(errMsg)
         }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
 
         // Pure helpers — pretty labels for log entry type values.
         fn logTypeLabel(t: string) -> string {

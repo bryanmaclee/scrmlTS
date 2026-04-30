@@ -432,6 +432,108 @@ Severity P0: the canonical "call server fn, dispatch on result, update
 UI" pattern doesn't compile. Adopters cannot ship without finding the
 workaround through trial-and-error.
 
+**PARTIAL RESOLUTION (2026-04-30, S50):** F-RI-001 is more nuanced than
+the original M2 author understood AND more nuanced than the triage agent
+concluded. Three distinct findings now separate from the original entry:
+
+- **Isolated narrow patterns work** — single function calls server fn,
+  branches, assigns `@var` on error path, and is the only function in
+  the file (or has no peer functions that escalate). Triage doc-fix +
+  7 regression tests in commits `d19faab..2b3b31b` (`compiler/tests/unit/route-inference-f-ri-001.test.js`)
+  pin this case as supported.
+- **Real-app file context still fails.** Attempted revert of the M2
+  workaround in `load-detail.scrml` (transition + saveAssignment in the
+  same file) confirmed `transition` fires E-RI-002 when paired with
+  `saveAssignment` in the same file. **The fix's regression tests pass
+  in isolation but don't cover this shape.** Workaround restored;
+  `setError()` indirection + `@errorMessage = ""` anchor remain in
+  `load-detail.scrml` until a narrower fix targets file-context analysis.
+- **F-RI-001-FOLLOW** (the `is not` member-access bug) split out as a
+  separate finding below — confirmed real, still open.
+- **F-CPS-001** (architectural CPS-eligibility weakness) split out as
+  a separate finding below — confirmed real via repro, but architectural
+  (out of scope for any conservative fix).
+
+What this means: F-RI-001 is downgraded from "fully stale" to "partial".
+Adopters writing the canonical narrow pattern (one server call, branch,
+@var assignment) will succeed. Adopters writing two server-call shapes
+in one file may still hit E-RI-002 on the simpler one due to file-context
+contamination of the analysis. Severity stays P0 because the trigger is
+unpredictable from the adopter's perspective.
+
+---
+
+## F-RI-001-FOLLOW — `is not` doesn't support member-access targets (P1)
+
+**Surfaced in:** F-RI-001 triage 2026-04-30 (S50). Split out as a separate finding.
+
+**What I tried:**
+```scrml
+if (obj.error is not) { ... }    // intended: "obj.error is not assigned"
+```
+
+**What didn't work:** E-SCOPE-001 fires on `error` — the TS pass treats
+the member-access right-hand side as a free identifier rather than as a
+property name on `obj`.
+
+**Workaround used:** `if (!obj.error)` compiles clean and has the same
+semantics for nullable fields.
+
+**Repro:** `docs/changes/f-ri-001/repro-follow.scrml`.
+
+**Suggests:** Either:
+- Extend `is`/`is not` to recognize `obj.field` and `obj.path.field` as
+  valid LHS targets (would mirror the bare-identifier path through the
+  TS pass), or
+- Document `!field` as the canonical form for nullable member-access
+  presence checks; demote `is not` to identifier-only.
+
+Severity P1: workaround is one character (`!`) but the diagnostic
+points to the wrong cause (`error` is unrecognized → wrong; the issue
+is the LHS shape).
+
+---
+
+## F-CPS-001 — CPS-eligibility skips nested control-flow when finding reactive assignments (P1)
+
+**Surfaced in:** F-RI-001 triage 2026-04-30 (S50). Adjacent finding the triage agent surfaced as out-of-scope for T2.
+
+**What I tried (theoretical):**
+```scrml
+function loadAndShow() {
+    const data = ?{`SELECT * FROM users WHERE id = ${id}`}.get()
+    if (data == null) {
+        @users = []                     // nested @var assignment
+        return
+    }
+    @users = [data]                     // nested @var assignment
+}
+```
+
+**What doesn't work:** When a function has BOTH a direct server trigger
+(SQL `?{}` in body) AND a `@var` assignment buried inside an if/while/for
+body, E-RI-002 fires. The reactive-assignment finder (`findReactiveAssignment`)
+recurses into nested bodies; the CPS-eligibility analyzer
+(`analyzeCPSEligibility`) only inspects top-level statements. CPS could
+potentially split this shape, but the protocol currently carries only
+one server-side intermediate (`_scrml_server_result`).
+
+**Behavior is correct as-is** — the function IS server-bound (by the SQL
+trigger) and CAN'T mutate client reactive state directly. So E-RI-002
+firing is technically right. The friction is that CPS could potentially
+rescue this shape but doesn't.
+
+**Repro:** `docs/changes/f-ri-001/repro4.scrml`.
+
+**Suggests:** Architectural — extend the CPS protocol to carry multiple
+server-side intermediates to the client, then teach `analyzeCPSEligibility`
+to recurse into nested statement bodies. Out of scope for any conservative
+fix; would change the codegen contract.
+
+Severity P1: not blocking (workaround is to lift the assignment out of
+the conditional, or keep the flatter pattern of separate functions).
+Logged for future deep-dive consideration.
+
 ---
 
 ## F-DESTRUCT-001 — Array destructuring inside `for-of` may confuse type-scope (P2)
