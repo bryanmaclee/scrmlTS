@@ -1,0 +1,110 @@
+// Trucking Dispatch — auth helpers (M1).
+//
+// Pure-fn / pure-type file (§21.5). Exports:
+//   - SESSION_COOKIE_NAME / SESSION_TTL_SECONDS / SESSION_DB_PATH constants
+//   - readSessionCookie(cookieHeader) — pure cookie parser
+//   - checkRole(user, requiredRole)   — server-side role gate (Option A fallback)
+//   - rolePath(role)                  — UserRole → landing path
+//
+// CRITICAL — what's NOT here, and why:
+//   The login / logout / register / getCurrentUser server functions need
+//   `?{}` SQL access to the `users` and `customers` tables, which requires
+//   them to be in a file whose `<program>` has `db="./dispatch.db"` and
+//   whose `< db>` block lists those tables (§44 + E-SQL-004). Cross-file
+//   server-function-with-SQL-access doesn't have a working pattern in
+//   scrml today — exporting a server fn from `models/auth.scrml` and
+//   importing it into a page bypasses the `< db>` ancestor requirement
+//   and emits E-SQL-004.
+//
+//   So the canonical login/logout/register live INLINE in `app.scrml`'s
+//   `< db>` block (M1) and in each page that needs them. M2-M6 will
+//   either inline-duplicate or wrap them in middleware (§40 handle()).
+//
+//   Logged in FRICTION.md as F-AUTH-002.
+//
+// F-AUTH-001 (P0): `auth="role:dispatcher"` on `<page>` is silently inert.
+// `checkRole(user, role)` below is the server-side fallback every M2-M4
+// page must call. M1 doesn't exercise this since /login + /register are
+// open routes.
+
+${
+    export { UserRole } from '../schema.scrml'
+
+    // -----------------------------------------------------------------------
+    // Constants — referenced from app.scrml + page handlers.
+    // -----------------------------------------------------------------------
+
+    export const SESSION_COOKIE_NAME = "scrml_session"
+    export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60   // 7 days
+    export const SESSION_DB_PATH = "./dispatch-sessions.db"
+    export const DISPATCH_DB_PATH = "./dispatch.db"
+
+    // -----------------------------------------------------------------------
+    // Pure cookie helpers — safe in any context.
+    // -----------------------------------------------------------------------
+
+    /**
+     * Parse a cookie header for a single named cookie value.
+     * Returns the value string, or null if not found.
+     */
+    export function readCookieValue(cookieHeader, name) {
+        if (!cookieHeader) return null
+        const parts = cookieHeader.split(";")
+        for (let i = 0; i < parts.length; i = i + 1) {
+            const piece = parts[i].trim()
+            const eqIdx = piece.indexOf("=")
+            if (eqIdx < 0) continue
+            const k = piece.substring(0, eqIdx)
+            if (k == name) return piece.substring(eqIdx + 1)
+        }
+        return null
+    }
+
+    /**
+     * Convenience wrapper for the dispatch app's session cookie.
+     */
+    export function readSessionCookie(cookieHeader) {
+        return readCookieValue(cookieHeader, SESSION_COOKIE_NAME)
+    }
+
+    /**
+     * Build a Set-Cookie header value for the session.
+     * `token` may be empty/null to clear the cookie (logout flow).
+     */
+    export function buildSessionSetCookie(token) {
+        if (!token) {
+            return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+        }
+        return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`
+    }
+
+    // -----------------------------------------------------------------------
+    // Role helpers.
+    // -----------------------------------------------------------------------
+
+    /**
+     * F-AUTH-001 server-side fallback. Returns true if user has the role.
+     * Caller is responsible for the redirect side effect on false.
+     *
+     * `requiredRole` is the string spelling that lives in users.role
+     * ("dispatcher" / "driver" / "customer").
+     */
+    export function checkRole(user, requiredRole) {
+        if (!user) return false
+        return user.role == requiredRole
+    }
+
+    /**
+     * Map a role string to its landing path. Used by login() to redirect
+     * after successful authentication.
+     *
+     * Unknown role → "/" (defensive — should never happen since role is a
+     * CHECK-constrained column in the schema).
+     */
+    export function rolePath(role) {
+        if (role == "dispatcher") return "/dispatch"
+        if (role == "driver")     return "/driver"
+        if (role == "customer")   return "/customer"
+        return "/"
+    }
+}
