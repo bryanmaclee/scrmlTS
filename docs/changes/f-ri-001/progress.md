@@ -16,3 +16,4 @@ Append-only timestamped progress log per crash-recovery directive.
 - [01:00] Phase 2 — fix applied. Doc comment at L34-47 + L1387-1392 updated. New regression test file route-inference-f-ri-001.test.js with 7 tests.
 - [01:01] bun test full suite: 8172p / 40s / 0f / 385 files (baseline 8165 + 7 new tests).
 - [01:02] F-RI-001-FOLLOW confirmed (`obj.error is not` fires E-SCOPE-001) — out of scope per dispatch, surface-only.
+- [01:10] Anomaly report written: 0 anomalies, CLEAR FOR MERGE.
