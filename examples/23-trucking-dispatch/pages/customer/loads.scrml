@@ -10,8 +10,10 @@
 //
 // Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward.
 //
-// Real-time hookpoint (M5): subscribe to `customer-:id` for status
-// transitions. Not wired in M4.
+// M5: subscribes to <channel name="customer-events"> for invoice +
+// delivery notifications. Per F-CHANNEL-001 we filter by
+// payload.targetCustomerId since channel name interpolation is
+// silently inert.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -126,10 +128,35 @@
             return loadStatus == filter
         }
 
+        @lastSeenCustomerEventCount = 0
+        function ackCustomerEvents() {
+            @lastSeenCustomerEventCount = @customerEvents.length
+            refresh()
+        }
+
         on mount {
             refresh()
         }
     }
+
+    <!-- M5: customer-events broadcast — invoice-sent / invoice-paid /
+         load-delivered notifications. Customer is a subscriber here;
+         dispatcher / driver are publishers. -->
+    <channel name="customer-events">
+        ${
+            @shared customerEvents = []
+
+            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
+                customerEvents = [...customerEvents, {
+                    type: eventType,
+                    targetCustomerId: targetCustomerId,
+                    invoiceId: invoiceId,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -152,6 +179,14 @@
               <h1 class="text-2xl font-bold">My loads</h1>
 
               <div class="flex items-center gap-3">
+                  <span class="text-xs text-slate-500">
+                      Live: <strong>${@customerEvents.length}</strong>
+                  </span>
+                  <button if=(@customerEvents.length > @lastSeenCustomerEventCount)
+                      onclick=ackCustomerEvents()
+                      class="text-xs px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white font-medium">
+                      Refresh
+                  </button>
                   <a href="/customer/quote" class="text-sm px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium">
                       Request new quote
                   </a>

@@ -10,8 +10,9 @@
 //
 // Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 + F-RI-001 carryforward.
 //
-// Real-time hookpoint (M5): subscribe to `customer-:id` channel for paid
-// notifications (when dispatcher records payment instead of self-pay).
+// M5: subscribes to <channel name="customer-events"> for invoice-paid
+// + invoice-sent notifications. The customer-self-pay markPaid action
+// also publishes invoice-paid here so other tabs / dispatchers see it.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -101,6 +102,7 @@
         }
 
         @user = null
+        @customer = null
         @invoices = []
         @loaded = false
         @errorMessage = ""
@@ -144,6 +146,7 @@
                 return
             }
             @user = data.user
+            @customer = data.customer
             @invoices = data.invoices
             @highlightLoadId = readHighlightFromQuery()
             @loaded = true
@@ -159,6 +162,10 @@
                 return
             }
             if (!result.error) {
+                // M5: broadcast invoice-paid so other tabs / dispatcher's
+                // billing view update live.
+                const customerId = @customer ? @customer.id : 0
+                publishCustomerEvent("invoice-paid", customerId, invoiceId, 0)
                 refresh()
                 return
             }
@@ -182,10 +189,34 @@
             return s == filter
         }
 
+        @lastSeenCustomerEventCount = 0
+        function ackCustomerEvents() {
+            @lastSeenCustomerEventCount = @customerEvents.length
+            refresh()
+        }
+
         on mount {
             refresh()
         }
     }
+
+    <!-- M5: customer-events subscription. invoice-sent + invoice-paid
+         events appear here in real time. -->
+    <channel name="customer-events">
+        ${
+            @shared customerEvents = []
+
+            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
+                customerEvents = [...customerEvents, {
+                    type: eventType,
+                    targetCustomerId: targetCustomerId,
+                    invoiceId: invoiceId,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -208,6 +239,14 @@
               <h1 class="text-2xl font-bold">Invoices</h1>
 
               <div class="flex items-center gap-3">
+                  <span class="text-xs text-slate-500">
+                      Live: <strong>${@customerEvents.length}</strong>
+                  </span>
+                  <button if=(@customerEvents.length > @lastSeenCustomerEventCount)
+                      onclick=ackCustomerEvents()
+                      class="text-xs px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white font-medium">
+                      Refresh
+                  </button>
                   <label class="text-sm text-slate-600" for="invoice-filter">Filter:</label>
                   <select id="invoice-filter" bind:value=@filter class="text-sm px-2 py-1 border border-slate-300 rounded-md bg-white">
                       <option value="all">All invoices</option>

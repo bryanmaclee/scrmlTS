@@ -11,8 +11,10 @@
 //
 // Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward.
 //
-// Real-time hookpoint (M5): subscribe to `load-:id` channel for status
-// changes pushed by driver/dispatcher. Not wired in M4.
+// M5: subscribes to <channel name="load-events"> for status / location
+// updates pushed by driver and dispatcher. Per F-CHANNEL-001, channel
+// name interpolation does not work, so all load-events arrive on a
+// single broadcast and we filter by payload.loadId.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -199,10 +201,45 @@
             return false
         }
 
+        @lastSeenLoadEventCount = 0
+        function ackLoadEvents() {
+            @lastSeenLoadEventCount = @loadEvents.length
+            refresh()
+        }
+
+        // Per F-CHANNEL-001 filter — events arrive as one broadcast,
+        // payload.loadId tells us if it's relevant to this page.
+        fn isForThisLoad(eventLoadId, ourLoadId) -> boolean {
+            return eventLoadId == ourLoadId
+        }
+
         on mount {
             refresh()
         }
     }
+
+    <!-- M5: load-events subscription for live status updates. Driver
+         posts location pings here and status transitions; dispatcher
+         posts status changes too. Customer is a read-only subscriber. -->
+    <channel name="load-events">
+        ${
+            @shared loadEvents = []
+
+            // Subscribe-only role on this page — there's no customer-side
+            // mutation that publishes to load-events. The publish helper
+            // is declared so the @shared sync infrastructure has the
+            // server-side hook (per example 15 pattern).
+            server function publishLoadEvent(eventType, loadId, status, location) {
+                loadEvents = [...loadEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    location: location,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -221,6 +258,22 @@
       </header>
 
       <main class="max-w-4xl mx-auto px-6 py-8">
+
+          <!-- M5: live load-events indicator. Status / location updates
+               from driver and dispatcher arrive here in real time. The
+               customer can click "Refresh" to merge live state into the
+               canonical timeline. -->
+          <div class="flex items-center justify-end gap-3 mb-3 text-xs text-slate-500">
+              <span>
+                  Live load events: <strong>${@loadEvents.length}</strong>
+              </span>
+              <button if=(@loadEvents.length > @lastSeenLoadEventCount)
+                  onclick=ackLoadEvents()
+                  class="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium">
+                  Refresh tracking
+              </button>
+          </div>
+
           <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <div if=(@loaded && @notFound) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
@@ -346,6 +399,36 @@
                           View invoice
                       </a>
                   </div>
+              </section>
+
+              <!-- M5: live status updates for THIS load (filtered by loadId).
+                   Driver/dispatcher pushes appear here without reload. -->
+              <section class="bg-white rounded-lg border border-amber-200 p-6 bg-amber-50/40">
+                  <h2 class="text-sm font-semibold text-amber-800 uppercase tracking-wider mb-3">
+                      Live updates
+                  </h2>
+
+                  <p if=(@loadEvents.length == 0) class="text-sm text-slate-500">
+                      No live updates yet. Driver location and status changes will appear here.
+                  </p>
+
+                  <ul if=(@loadEvents.length > 0) class="space-y-2">
+                      ${
+                          for (let ev of @loadEvents) {
+                              if (!isForThisLoad(ev.loadId, @load.id)) continue
+                              lift <li class="flex items-start gap-3 text-sm">
+                                  <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-0.5">
+                                      ${ev.at == "" ? "" : ev.at.substring(11, 16)}
+                                  </span>
+                                  <span class="font-medium text-amber-900 w-32">${ev.type}</span>
+                                  <span class="text-slate-700 flex-1">
+                                      <span if=(ev.status != "")>Status: <strong>${ev.status}</strong></>
+                                      <span if=(ev.location != "")>Location: <strong>${ev.location}</strong></>
+                                  </span>
+                              </li>
+                          }
+                      }
+                  </ul>
               </section>
 
               <!-- Status timeline -->

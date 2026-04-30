@@ -11,8 +11,9 @@
 //
 // Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 + F-RI-001 carryforward.
 //
-// Real-time hookpoint (M5): broadcast on `dispatch-board` when the new
-// tender is inserted so the dispatcher's board updates without reload.
+// M5: publishes a `new-load` event to <channel name="dispatch-board">
+// after the tender is created so the dispatcher's board lights up
+// without reload.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -185,6 +186,8 @@
             }
             if (!result.error) {
                 const newId = result.loadId
+                // M5: broadcast new-load to dispatch-board.
+                publishBoardEvent("new-load", newId, "tendered")
                 window.location.href = `/customer/loads/${newId}`
                 return
             }
@@ -207,6 +210,22 @@
         }
     }
 
+    <!-- M5: dispatch-board broadcast on tender create. -->
+    <channel name="dispatch-board">
+        ${
+            @shared boardEvents = []
+
+            server function publishBoardEvent(eventType, loadId, status) {
+                boardEvents = [...boardEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
+
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -224,7 +243,12 @@
       </header>
 
       <main class="max-w-3xl mx-auto px-6 py-8">
-          <h1 class="text-2xl font-bold mb-2">Request rate quote</h1>
+          <div class="flex items-center justify-between mb-2">
+              <h1 class="text-2xl font-bold">Request rate quote</h1>
+              <span class="text-xs text-slate-500">
+                  Live dispatch-board: <strong>${@boardEvents.length}</strong>
+              </span>
+          </div>
           <p class="text-sm text-slate-600 mb-6">
               Submit a load tender. Your dispatcher will review and respond with a rate.
               You'll see this as a <strong>Tendered</strong> load in

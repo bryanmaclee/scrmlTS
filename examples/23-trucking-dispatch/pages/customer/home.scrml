@@ -143,6 +143,24 @@
         }
     }
 
+    <!-- M5: customer-events subscription. Home shows badge count for
+         unread invoice / delivery notifications. -->
+    <channel name="customer-events">
+        ${
+            @shared customerEvents = []
+
+            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
+                customerEvents = [...customerEvents, {
+                    type: eventType,
+                    targetCustomerId: targetCustomerId,
+                    invoiceId: invoiceId,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
+
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -152,7 +170,12 @@
           <nav class="flex items-center gap-4 text-sm">
               <a href="/customer" class="hover:text-blue-300">Home</a>
               <a href="/customer/loads" class="hover:text-blue-300">Loads</a>
-              <a href="/customer/invoices" class="hover:text-blue-300">Invoices</a>
+              <a href="/customer/invoices" class="hover:text-blue-300">
+                  Invoices
+                  <span if=(@customerEvents.length > 0) class="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold bg-amber-500 text-slate-900 rounded-full">
+                      ${@customerEvents.length}
+                  </span>
+              </a>
               <a href="/customer/profile" class="hover:text-blue-300">Profile</a>
               <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
               <button onclick=logout() class="hover:text-blue-300">Logout</button>
