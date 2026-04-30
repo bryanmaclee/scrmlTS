@@ -69,3 +69,30 @@ SQL `?{}` interpolation does NOT count as `lin` consumption per §35.3 rule 1, e
 
 ### W-DG-002 / underscore-prefix-suppress observation
 The compiler suggests prefixing unused @vars with `_` to suppress E-DG-002, but `@_acceptanceIssuedAt` still fires the warning ("Consider … prefix with `_` (e.g., `@__acceptanceIssuedAt`)" — recursion!). Workaround: just delete the unused var.
+
+## 2026-04-29 — M6 close
+
+- **Test suite:** 8196 / 40 / 0 / 385 (matches baseline)
+- **Compile:** 32 source files → 17 HTML / 28 client.js / 17 server.js (F-COMPILE-001 baseline preserved)
+- **Files modified:**
+  - `app.scrml` — schema delta + tables list
+  - `pages/dispatch/load-detail.scrml` — mint acceptance token + display pending pill
+  - `pages/customer/load-detail.scrml` — Sign rate confirmation button + consume
+  - `pages/driver/load-detail.scrml` — mint BOL token + uploadBolServer takes lin token
+  - `pages/dispatch/billing.scrml` — mint payment tokens per invoice
+  - `pages/customer/invoices.scrml` — Mark paid passes lin token; consume server-side
+  - `README.md` — final run instructions + persona walkthrough + lin semantics
+  - `FRICTION.md` — F-LIN-001 + F-DG-002-PREFIX + 5 M6 reconfirmations + final summary section
+  - `dispatch.db` — lin_tokens table bootstrapped
+  - `docs/changes/dispatch-app-m6/progress.md` — this file
+- **New findings:**
+  - F-LIN-001 (P1) — SQL `?{}` interpolation does NOT count as `lin` consume per §35.3 rule 1
+  - F-DG-002-PREFIX (P2) — `@_var` underscore-prefix doesn't suppress E-DG-002 despite warning text
+- **Commits (newest first):**
+  - `bef43d1` WIP(m6): FRICTION.md — final summary + 2 new findings + 5 reconfirmations
+  - `24dc261` WIP(m6): README — final run instructions
+  - `a643401` WIP(m6): payment lin token (use 3)
+  - `77fbc81` WIP(m6): acceptance + BOL lin tokens (uses 1+2)
+  - `2526ba5` WIP(m6): schema + bootstrap
+
+- **Status:** READY FOR MERGE.
