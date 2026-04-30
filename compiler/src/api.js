@@ -13,6 +13,9 @@ import { fileURLToPath } from "url";
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
 import { runCE } from "./component-expander.ts";
+import { runPostCEInvariant } from "./validators/post-ce-invariant.ts";
+import { runAttributeInterpolation } from "./validators/attribute-interpolation.ts";
+import { runAttributeAllowlist } from "./validators/attribute-allowlist.ts";
 
 import { runPA } from "./protect-analyzer.ts";
 import { runRI } from "./route-inference.ts";
@@ -564,6 +567,24 @@ export function compileScrml(options = {}) {
     }
     ceResults.push(...result.files);
   }
+
+  // Stage 3.3 — Post-CE Validators (Unified Validation Bundle / W1)
+  // VP-2 — post-CE invariant: residual `isComponent: true` becomes a hard
+  //        E-COMPONENT-035 instead of a silent phantom DOM emission.
+  // VP-3 — attribute interpolation: `${...}` in non-interpolating attribute
+  //        values (e.g. `<channel name=>`) becomes E-CHANNEL-007.
+  // VP-1 — attribute allowlist: unknown attributes on scrml-special elements
+  //        (or `auth="role:X"`) emit W-ATTR-001 / W-ATTR-002 (warnings).
+  // Run all three on the post-CE AST set so downstream stages see consistent
+  // diagnostics. Errors fail the run; warnings continue.
+  const postCEResult = stage("VP-2", () => runPostCEInvariant({ files: ceResults }));
+  collectErrors("VP-2", postCEResult.errors);
+
+  const attrInterpResult = stage("VP-3", () => runAttributeInterpolation({ files: ceResults }));
+  collectErrors("VP-3", attrInterpResult.errors);
+
+  const attrAllowlistResult = stage("VP-1", () => runAttributeAllowlist({ files: ceResults }));
+  collectErrors("VP-1", attrAllowlistResult.errors);
 
   // Stage 4: PA (all files)
   const _runPA = selfHostModules?.runPA ?? runPA;

@@ -26,7 +26,8 @@
  *     E-COMPONENT-035 after this pass is wired in.
  */
 
-import type { Span, FileAST, ASTNode, MarkupNode } from "../types/ast.ts";
+import type { Span, FileAST } from "../types/ast.ts";
+import { walkFileAst } from "./ast-walk.ts";
 
 // ---------------------------------------------------------------------------
 // Diagnostic shape — matches CEError shape used by the existing component
@@ -41,80 +42,12 @@ export interface PostCEInvariantError {
 }
 
 // ---------------------------------------------------------------------------
-// AST walk — collect every residual `isComponent: true` markup node.
-// ---------------------------------------------------------------------------
-
-interface MarkupWithComponentFlag extends MarkupNode {
-  isComponent?: boolean;
-}
-
-function visit(node: unknown, residuals: MarkupWithComponentFlag[]): void {
-  if (!node || typeof node !== "object") return;
-
-  // Markup node with the component flag
-  const candidate = node as { kind?: string };
-  if (candidate.kind === "markup") {
-    const m = node as MarkupWithComponentFlag;
-    if (m.isComponent === true) {
-      residuals.push(m);
-    }
-    if (Array.isArray(m.children)) {
-      for (const child of m.children) visit(child, residuals);
-    }
-    if (Array.isArray(m.attrs)) {
-      for (const a of m.attrs) {
-        // Some attribute values may carry nested expression nodes; not relevant
-        // for this pass. We only look at markup descendants.
-        if (a && typeof a === "object" && (a as { kind?: string }).kind === "markup") {
-          visit(a, residuals);
-        }
-      }
-    }
-  }
-
-  // Logic block: walk body
-  if (candidate.kind === "logic") {
-    const lb = node as { body?: unknown[] };
-    if (Array.isArray(lb.body)) {
-      for (const child of lb.body) visit(child, residuals);
-    }
-  }
-
-  // Other node kinds: walk known recursive containers.
-  // - lift expressions carry an inline target node
-  // - if/else/for/each carry branches
-  const generic = node as Record<string, unknown>;
-  if (Array.isArray(generic.children)) {
-    for (const c of generic.children as unknown[]) visit(c, residuals);
-  }
-  if (Array.isArray(generic.body)) {
-    for (const c of generic.body as unknown[]) visit(c, residuals);
-  }
-  if (Array.isArray(generic.branches)) {
-    for (const c of generic.branches as unknown[]) visit(c, residuals);
-  }
-  if (Array.isArray(generic.arms)) {
-    for (const c of generic.arms as unknown[]) visit(c, residuals);
-  }
-  if (generic.target && typeof generic.target === "object") {
-    // LiftTarget: { kind: "markup", node } | { kind: "expr", expr }
-    const t = generic.target as { kind?: string; node?: unknown };
-    if (t.kind === "markup" && t.node) visit(t.node, residuals);
-  }
-  if (generic.then && typeof generic.then === "object") visit(generic.then, residuals);
-  if (generic.else && typeof generic.else === "object") visit(generic.else, residuals);
-}
-
-// ---------------------------------------------------------------------------
 // Public entry — single file
 // ---------------------------------------------------------------------------
 
 /**
  * Run VP-2 over a single file's AST. Returns the list of residual-component
  * errors found. Does NOT mutate the AST.
- *
- * @param file { filePath, ast } — post-CE file record.
- * @returns array of PostCEInvariantError. Empty when CE resolved everything.
  */
 export function runPostCEInvariantFile(file: {
   filePath: string;
@@ -124,13 +57,13 @@ export function runPostCEInvariantFile(file: {
   const ast = file.ast;
   if (!ast) return errors;
 
-  const residuals: MarkupWithComponentFlag[] = [];
-  const nodes: ASTNode[] = ast.nodes ?? [];
-  for (const n of nodes) visit(n, residuals);
-
-  for (const r of residuals) {
-    const tag = r.tag ?? "<unknown>";
-    const span = r.span ?? { file: file.filePath, start: 0, end: 0, line: 1, col: 1 };
+  walkFileAst(ast, (node) => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { kind?: string; tag?: string; isComponent?: boolean; span?: Span };
+    if (n.kind !== "markup") return;
+    if (n.isComponent !== true) return;
+    const tag = n.tag ?? "<unknown>";
+    const span = n.span ?? { file: file.filePath, start: 0, end: 0, line: 1, col: 1 };
     errors.push({
       code: "E-COMPONENT-035",
       message:
@@ -146,7 +79,7 @@ export function runPostCEInvariantFile(file: {
       span,
       severity: "error",
     });
-  }
+  });
 
   return errors;
 }
@@ -159,8 +92,7 @@ export function runPostCEInvariant(input: {
 }): { errors: PostCEInvariantError[] } {
   const all: PostCEInvariantError[] = [];
   for (const f of input.files) {
-    const fileErrors = runPostCEInvariantFile(f);
-    all.push(...fileErrors);
+    all.push(...runPostCEInvariantFile(f));
   }
   return { errors: all };
 }

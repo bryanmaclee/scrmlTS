@@ -29,6 +29,7 @@
 
 import type { Span, FileAST, MarkupNode } from "../types/ast.ts";
 import { getElementAttrSchema, isOpenAttrPrefix } from "../attribute-registry.js";
+import { walkFileAst } from "./ast-walk.ts";
 
 // ---------------------------------------------------------------------------
 // Diagnostic shape
@@ -70,110 +71,69 @@ function valueIsRecognized(
 }
 
 // ---------------------------------------------------------------------------
-// Per-element validation
+// Per-markup-node validation
 // ---------------------------------------------------------------------------
 
-function visitMarkup(
+function validateMarkup(
   node: MarkupNode,
   filePath: string,
   warnings: AttrAllowlistWarning[]
 ): void {
   const tag = node.tag ?? "";
   if (!tag) return;
-
   const schema = getElementAttrSchema(tag);
-  if (schema) {
-    for (const attr of node.attrs ?? []) {
-      if (!attr || !attr.name) continue;
-      const name = attr.name;
+  if (!schema) return;
 
-      // Open-prefix attributes (bind:, on:, data-, aria-, etc.) are always
-      // allowed — they are runtime-special forms with open-ended names.
-      if (isOpenAttrPrefix(name)) continue;
+  for (const attr of node.attrs ?? []) {
+    if (!attr || !attr.name) continue;
+    const name = attr.name;
 
-      const spec = schema.allowedAttrs.get(name);
-      if (!spec) {
-        // W-ATTR-001 — unrecognized attribute name on a scrml-special element.
-        const span = attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-        warnings.push({
-          code: "W-ATTR-001",
-          message:
-            `W-ATTR-001: Attribute \`${name}=\` is not recognized on \`<${tag}>\`. ` +
-            `It is currently forwarded to the rendered HTML as-is and has no compile-time effect. ` +
-            `If you intended a scrml-specific behavior (auth scoping, route binding, etc.), ` +
-            `check the spelling against the documented attributes for \`<${tag}>\`. ` +
-            `If you intended a plain HTML attribute, this warning is informational.`,
-          span,
-          severity: "warning",
-        });
-        continue;
-      }
+    // Open-prefix attributes (bind:, on:, data-, aria-, etc.) are always
+    // allowed — they are runtime-special forms with open-ended names.
+    if (isOpenAttrPrefix(name)) continue;
 
-      // Recognized name — check value-shape if allowedValues is declared.
-      if (spec.allowedValues && spec.allowedValues.length > 0) {
-        const literal = attrLiteralValue(attr.value);
-        if (literal !== null) {
-          // Empty string treated as recognized (HTML boolean-attribute idiom)
-          if (literal === "") continue;
-          if (!valueIsRecognized(literal, spec.allowedValues, spec.allowSubvalueColon)) {
-            const span = attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-            const recognized = spec.allowedValues.map((v) => `"${v}"`).join(" | ");
-            warnings.push({
-              code: "W-ATTR-002",
-              message:
-                `W-ATTR-002: Value \`"${literal}"\` is not a recognized shape for ` +
-                `\`${name}=\` on \`<${tag}>\`. ` +
-                `Recognized values: ${recognized}. ` +
-                `The attribute is currently accepted as-is with no compile-time enforcement. ` +
-                (name === "auth"
-                  ? `For role-based access control, the \`role:X\` shape is documented in the dispatch ` +
-                    `app FRICTION ledger but is NOT yet implemented (see F-AUTH-001). The page is ` +
-                    `silently authorized for every authenticated user; gate roles via a server fn ` +
-                    `until the ergonomic completion lands.`
-                  : `Use one of the recognized values to ensure the attribute does what its name implies.`),
-              span,
-              severity: "warning",
-            });
-          }
-        }
-      }
+    const spec = schema.allowedAttrs.get(name);
+    if (!spec) {
+      const span = attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+      warnings.push({
+        code: "W-ATTR-001",
+        message:
+          `W-ATTR-001: Attribute \`${name}=\` is not recognized on \`<${tag}>\`. ` +
+          `It is currently forwarded to the rendered HTML as-is and has no compile-time effect. ` +
+          `If you intended a scrml-specific behavior (auth scoping, route binding, etc.), ` +
+          `check the spelling against the documented attributes for \`<${tag}>\`. ` +
+          `If you intended a plain HTML attribute, this warning is informational.`,
+        span,
+        severity: "warning",
+      });
+      continue;
+    }
+
+    if (spec.allowedValues && spec.allowedValues.length > 0) {
+      const literal = attrLiteralValue(attr.value);
+      if (literal === null) continue;
+      if (literal === "") continue; // boolean-attribute idiom — recognized.
+      if (valueIsRecognized(literal, spec.allowedValues, spec.allowSubvalueColon)) continue;
+      const span = attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+      const recognized = spec.allowedValues.map((v) => `"${v}"`).join(" | ");
+      warnings.push({
+        code: "W-ATTR-002",
+        message:
+          `W-ATTR-002: Value \`"${literal}"\` is not a recognized shape for ` +
+          `\`${name}=\` on \`<${tag}>\`. ` +
+          `Recognized values: ${recognized}. ` +
+          `The attribute is currently accepted as-is with no compile-time enforcement. ` +
+          (name === "auth"
+            ? `For role-based access control, the \`role:X\` shape is documented in the dispatch ` +
+              `app FRICTION ledger but is NOT yet implemented (see F-AUTH-001). The page is ` +
+              `silently authorized for every authenticated user; gate roles via a server fn ` +
+              `until the ergonomic completion lands.`
+            : `Use one of the recognized values to ensure the attribute does what its name implies.`),
+        span,
+        severity: "warning",
+      });
     }
   }
-
-  // Recurse into markup children
-  for (const child of node.children ?? []) visitGeneric(child, filePath, warnings);
-}
-
-function visitGeneric(node: unknown, filePath: string, warnings: AttrAllowlistWarning[]): void {
-  if (!node || typeof node !== "object") return;
-  const n = node as { kind?: string };
-  if (n.kind === "markup") {
-    visitMarkup(node as MarkupNode, filePath, warnings);
-    return;
-  }
-  if (n.kind === "logic") {
-    const lb = node as { body?: unknown[] };
-    if (Array.isArray(lb.body)) {
-      for (const c of lb.body) visitGeneric(c, filePath, warnings);
-    }
-    return;
-  }
-  const generic = node as Record<string, unknown>;
-  if (Array.isArray(generic.children)) {
-    for (const c of generic.children as unknown[]) visitGeneric(c, filePath, warnings);
-  }
-  if (Array.isArray(generic.body)) {
-    for (const c of generic.body as unknown[]) visitGeneric(c, filePath, warnings);
-  }
-  if (Array.isArray(generic.branches)) {
-    for (const c of generic.branches as unknown[]) visitGeneric(c, filePath, warnings);
-  }
-  if (generic.target && typeof generic.target === "object") {
-    const t = generic.target as { kind?: string; node?: unknown };
-    if (t.kind === "markup" && t.node) visitGeneric(t.node, filePath, warnings);
-  }
-  if (generic.then && typeof generic.then === "object") visitGeneric(generic.then, filePath, warnings);
-  if (generic.else && typeof generic.else === "object") visitGeneric(generic.else, filePath, warnings);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,13 +147,17 @@ export function runAttributeAllowlistFile(file: {
   const warnings: AttrAllowlistWarning[] = [];
   const ast = file.ast;
   if (!ast) return warnings;
-  for (const n of ast.nodes ?? []) visitGeneric(n, file.filePath, warnings);
+
+  walkFileAst(ast, (node) => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { kind?: string };
+    if (n.kind !== "markup") return;
+    validateMarkup(node as MarkupNode, file.filePath, warnings);
+  });
+
   return warnings;
 }
 
-/**
- * Run VP-1 over a multi-file set.
- */
 export function runAttributeAllowlist(input: {
   files: Array<{ filePath: string; ast: FileAST | null | undefined }>;
 }): { errors: AttrAllowlistWarning[] } {

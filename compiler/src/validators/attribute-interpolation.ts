@@ -24,12 +24,12 @@
  *   - F-CHANNEL-001 — closed silent-failure window after this pass lands.
  */
 
-import type { Span, FileAST, ASTNode, MarkupNode, AttrNode } from "../types/ast.ts";
+import type { Span, FileAST, MarkupNode } from "../types/ast.ts";
 import { getElementAttrSchema } from "../attribute-registry.js";
+import { walkFileAst } from "./ast-walk.ts";
 
 // ---------------------------------------------------------------------------
-// Diagnostic shape — matches CEError shape used by the existing component
-// expander, so api.js's collectErrors picks it up unchanged.
+// Diagnostic shape
 // ---------------------------------------------------------------------------
 
 export interface AttrInterpError {
@@ -41,17 +41,10 @@ export interface AttrInterpError {
 
 // ---------------------------------------------------------------------------
 // Per-element error code mapping
-//
-// Tag-name → error code emitted when one of its non-interpolating attrs
-// contains `${...}`. New elements that gain a non-interpolating attr should
-// register a code here so the diagnostic carries the right prefix.
 // ---------------------------------------------------------------------------
 
 const ELEMENT_ERROR_CODE = new Map<string, string>([
   ["channel", "E-CHANNEL-007"],
-  // Future: page route interpolation, machine name interpolation, etc.
-  // would each get their own code. For now, fall through to a generic
-  // E-ATTR-001 (registered below if needed).
 ]);
 
 function errorCodeFor(tag: string): string {
@@ -62,108 +55,58 @@ function errorCodeFor(tag: string): string {
 // Detection: literal containing `${`
 // ---------------------------------------------------------------------------
 
-interface StringLiteralAttrLike {
-  kind: "string-literal";
-  value: string;
-  span: Span;
-}
-
 function attrValueHasInterpolation(value: unknown): { match: boolean; raw?: string } {
   if (!value || typeof value !== "object") return { match: false };
   const v = value as { kind?: string; value?: unknown };
   if (v.kind !== "string-literal") return { match: false };
   if (typeof v.value !== "string") return { match: false };
-  // Standard scrml interpolation marker is `${`. The TAB stage preserves it
-  // verbatim in `string-literal` values for attributes that do not have
-  // dedicated reactive handling (e.g. `<channel name=>`).
   return { match: v.value.includes("${"), raw: v.value };
 }
 
 // ---------------------------------------------------------------------------
-// AST walk — visit every markup node, check its attrs against the registry.
+// Per-markup-node validation
 // ---------------------------------------------------------------------------
 
-function visitMarkup(
+function validateMarkup(
   node: MarkupNode,
   filePath: string,
   errors: AttrInterpError[]
 ): void {
   const tag = node.tag ?? "";
   if (!tag) return;
-
   const schema = getElementAttrSchema(tag);
-  if (schema) {
-    for (const attr of node.attrs ?? []) {
-      if (!attr || !attr.name) continue;
-      const spec = schema.allowedAttrs.get(attr.name);
-      // If we have no spec, it's unrecognized — VP-1's territory, skip here.
-      if (!spec) continue;
-      if (spec.supportsInterpolation === true) continue;
+  if (!schema) return;
 
-      const detection = attrValueHasInterpolation(attr.value);
-      if (detection.match) {
-        const span = attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-        errors.push({
-          code: errorCodeFor(tag),
-          message:
-            `${errorCodeFor(tag)}: Attribute \`${attr.name}=\` on \`<${tag}>\` does not support \`\${...}\` ` +
-            `interpolation. The expression is currently emitted as a literal substring of the attribute ` +
-            `value (\`${detection.raw}\`), which silently breaks any per-instance scoping the adopter ` +
-            `intended. ` +
-            (tag.toLowerCase() === "channel"
-              ? `For per-id channel scoping, use a static name + payload-side filtering: ` +
-                `\`<channel name="driver-events">\` and filter messages on \`payload.targetId\`. ` +
-                `(See F-CHANNEL-001 in examples/23-trucking-dispatch/FRICTION.md.)`
-              : `Use a static literal for this attribute.`),
-          span,
-          severity: "error",
-        });
-      }
-    }
-  }
+  for (const attr of node.attrs ?? []) {
+    if (!attr || !attr.name) continue;
+    const spec = schema.allowedAttrs.get(attr.name);
+    if (!spec) continue; // unknown attr — VP-1's territory.
+    if (spec.supportsInterpolation === true) continue;
 
-  // Recurse into markup children
-  for (const child of node.children ?? []) visitGeneric(child, filePath, errors);
-}
+    const detection = attrValueHasInterpolation(attr.value);
+    if (!detection.match) continue;
 
-function visitGeneric(node: unknown, filePath: string, errors: AttrInterpError[]): void {
-  if (!node || typeof node !== "object") return;
-  const n = node as { kind?: string };
-  if (n.kind === "markup") {
-    visitMarkup(node as MarkupNode, filePath, errors);
-    return;
+    const span = attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+    errors.push({
+      code: errorCodeFor(tag),
+      message:
+        `${errorCodeFor(tag)}: Attribute \`${attr.name}=\` on \`<${tag}>\` does not support \`\${...}\` ` +
+        `interpolation. The expression is currently emitted as a literal substring of the attribute ` +
+        `value (\`${detection.raw}\`), which silently breaks any per-instance scoping the adopter ` +
+        `intended. ` +
+        (tag.toLowerCase() === "channel"
+          ? `For per-id channel scoping, use a static name + payload-side filtering: ` +
+            `\`<channel name="driver-events">\` and filter messages on \`payload.targetId\`. ` +
+            `(See F-CHANNEL-001 in examples/23-trucking-dispatch/FRICTION.md.)`
+          : `Use a static literal for this attribute.`),
+      span,
+      severity: "error",
+    });
   }
-
-  // Logic block: walk body
-  if (n.kind === "logic") {
-    const lb = node as { body?: unknown[] };
-    if (Array.isArray(lb.body)) {
-      for (const c of lb.body) visitGeneric(c, filePath, errors);
-    }
-    return;
-  }
-
-  // Generic: walk known recursive containers
-  const generic = node as Record<string, unknown>;
-  if (Array.isArray(generic.children)) {
-    for (const c of generic.children as unknown[]) visitGeneric(c, filePath, errors);
-  }
-  if (Array.isArray(generic.body)) {
-    for (const c of generic.body as unknown[]) visitGeneric(c, filePath, errors);
-  }
-  if (Array.isArray(generic.branches)) {
-    for (const c of generic.branches as unknown[]) visitGeneric(c, filePath, errors);
-  }
-  if (generic.target && typeof generic.target === "object") {
-    const t = generic.target as { kind?: string; node?: unknown };
-    if (t.kind === "markup" && t.node) visitGeneric(t.node, filePath, errors);
-  }
-  if (generic.then && typeof generic.then === "object") visitGeneric(generic.then, filePath, errors);
-  if (generic.else && typeof generic.else === "object") visitGeneric(generic.else, filePath, errors);
 }
 
 // ---------------------------------------------------------------------------
-// Public entry — single file
+// Public entry
 // ---------------------------------------------------------------------------
 
 export function runAttributeInterpolationFile(file: {
@@ -173,13 +116,17 @@ export function runAttributeInterpolationFile(file: {
   const errors: AttrInterpError[] = [];
   const ast = file.ast;
   if (!ast) return errors;
-  for (const n of ast.nodes ?? []) visitGeneric(n, file.filePath, errors);
+
+  walkFileAst(ast, (node) => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { kind?: string };
+    if (n.kind !== "markup") return;
+    validateMarkup(node as MarkupNode, file.filePath, errors);
+  });
+
   return errors;
 }
 
-/**
- * Run VP-3 over a multi-file set.
- */
 export function runAttributeInterpolation(input: {
   files: Array<{ filePath: string; ast: FileAST | null | undefined }>;
 }): { errors: AttrInterpError[] } {
