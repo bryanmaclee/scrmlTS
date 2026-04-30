@@ -1626,3 +1626,380 @@ This is the largest validation-principle violation surfaced by the dispatch app 
 **Reconfirms:** The post-M6 deep-dive scope must include a sweep of "what does the compiler silently accept that doesn't do what its name suggests." This is at least the 4th instance of the pattern.
 
 ---
+
+## F-LIN-001 — SQL `?{}` interpolation does NOT count as `lin` consume per §35.3 (P1)
+
+**Surfaced in:** M6 first lin token integration. The 3 lin token use
+sites (acceptance / BOL / payment) all pass `lin token: string` to a
+server fn whose body needs to UPDATE `lin_tokens SET consumed_at = NOW
+WHERE token = ${token}` to consume the token via DB single-use guard.
+
+**What I tried (verbatim adopter intent — natural pattern):**
+```scrml
+server function consumeAcceptance(loadId, lin token: string) {
+    const result = ?{`
+        UPDATE lin_tokens
+        SET consumed_at = CURRENT_TIMESTAMP
+        WHERE token = ${token} AND consumed_at IS NULL
+    `}.run()
+    ...
+}
+```
+
+**What didn't work:**
+```
+error [E-LIN-001]: Linear variable `token` declared but never consumed
+before scope exit. Pass it to a function, return it, or remove the
+'lin' qualifier if single-use isn't needed.
+  stage: TS
+```
+
+The compiler's lin-tracker doesn't recognize `${token}` inside a SQL
+`?{}` block as a consumption event. Per example 19's working pattern,
+template-literal `${ticket}` in a regular backtick string DOES count
+(per §35.3 rule 1, post-A4 fix commit `330fd28`). The asymmetry:
+
+| Position of `${linVar}` | Counts as consume? |
+|---|---|
+| `\`Redeemed ticket=${ticket}\`` (template literal) | YES (§35.3 rule 1) |
+| `?{\`UPDATE ... WHERE token = ${token}\`}.run()` (SQL) | NO |
+
+**Workaround used:** Copy the lin var into a regular template literal
+first to consume it, then `.substring()` the prefix back out:
+```scrml
+server function consumeAcceptance(loadId, lin token: string) {
+    const consumeMarker = `consume:${token}`
+    const result = ?{`
+        UPDATE lin_tokens SET consumed_at = CURRENT_TIMESTAMP
+        WHERE token = ${consumeMarker.substring(8)}
+          AND consumed_at IS NULL
+    `}.run()
+    ...
+}
+```
+
+The template-literal `\`consume:${token}\`` consumes `token` per §35.3
+rule 1; the resulting string `consumeMarker` carries the original
+token value (with the 8-char `consume:` prefix), and `.substring(8)`
+strips it back out for the SQL bind. Adds 1 LOC + 1 cognitive step
+per consume site (M6 has 3 such sites: `signRateConfirmationServer`,
+`uploadBolServer`, `markPaidServer`).
+
+**Suggests:** Either:
+- Extend §35.3's consume-detection to recognize `${linVar}` inside SQL
+  `?{}` interpolation as a consume event (this is the obvious
+  generalization — SQL interpolation is template-literal-shaped at the
+  lex level). Sites that need lin tokens are precisely the sites that
+  do durable single-use guards via SQL UPDATE; the friction lands on
+  every adopter writing the canonical pattern.
+- Or document the workaround in §35.3 + the kickstarter so adopters
+  know SQL interpolation needs the workaround dance.
+
+The friction is sharp because the obvious lin use case — DB-backed
+single-use idempotency — exactly hits this gap. The example 19
+template-literal demo doesn't expose it because example 19 doesn't
+do a database write. Every real lin-token usage will need the
+workaround.
+
+Severity P1: workaround is 1 LOC + 1 cognitive step. Not P0 because
+the fix path is short once you know it. Logging because the §35.3
+post-A4 fix specifically claimed template-literal `${var}` counts —
+SQL `${var}` is a natural extension that adopters will assume works.
+
+**Repro:** any server fn taking `lin token: string` whose only intended
+consume site is inside `?{}` SQL.
+
+---
+
+## F-DG-002-PREFIX — `@_var` prefix doesn't suppress E-DG-002, despite the warning text (P2)
+
+**Surfaced in:** M6 first compile of `pages/dispatch/load-detail.scrml`
+when the page's refresh() pulls `tokenInfo.issuedAt` from the server
+fn's return but doesn't render it (the issuedAt field is included
+"for diagnostic visibility but not currently shown").
+
+**What I tried:** Followed the warning text's recommendation:
+```
+warning [E-DG-002]: Reactive variable `@acceptanceIssuedAt` is
+declared but never consumed in a render or logic context. Consider
+removing the unused variable, or prefix with `_` (e.g.,
+`@_acceptanceIssuedAt`) to suppress this warning.
+```
+So I renamed `@acceptanceIssuedAt` → `@_acceptanceIssuedAt`.
+
+**What didn't work:** The warning fires AGAIN, now recommending
+*another* underscore prefix:
+```
+warning [E-DG-002]: Reactive variable `@_acceptanceIssuedAt` is
+declared but never consumed in a render or logic context. Consider
+removing the unused variable, or prefix with `_` (e.g.,
+`@__acceptanceIssuedAt`) to suppress this warning.
+```
+
+The warning's own suppression suggestion doesn't suppress the warning.
+The compiler appears to check "is the variable referenced anywhere?"
+without an exception for the conventional `_`-prefix-means-deliberately-unused.
+
+**Workaround used:** Just delete the unused @var (the issuedAt field
+isn't rendered anywhere, so nothing's lost).
+
+**Suggests:**
+- Either the suppression mechanism (`_` prefix) should actually work,
+  matching the warning text's promise; or
+- Remove that line from the warning text — recommend only "remove the
+  unused variable" since the suppression form doesn't actually
+  suppress.
+
+Currently the warning is misleading: adopters following the
+prescribed fix path get the same warning back at infinite recursion
+depth (`@___var`, `@____var`, ...).
+
+Severity P2: workaround is "delete the var", which is fine. Logging
+because it's a small but sharp DX paper cut on what should be a
+trivial path.
+
+**Repro:** Declare `@_anyName = "value"` in any scrml file with a
+`<program>` root and don't read it in markup or logic. The warning
+fires anyway.
+
+---
+
+## F-AUTH-001 — M6 RECONFIRMATION (P0)
+
+M6 amends 5 existing pages (dispatch/load-detail, dispatch/billing,
+driver/load-detail, customer/load-detail, customer/invoices) with lin
+token mint/consume server fns. Every amended page keeps its inline
+`getCurrentUser()` + `if (!user || user.role != X)` guard pattern. No
+new pages added — just inline server-fn additions.
+
+**Cumulative reconfirmations:** 18 pages from M2-M4, 12 channel
+sites in M5, 5 lin-token amendments in M6 = 35+ exercises of the
+F-AUTH-001 inline fallback pattern across the dispatch app.
+
+No design change.
+
+---
+
+## F-AUTH-002 — M6 RECONFIRMATION (P0)
+
+M6 introduces NEW SQL-using server fns inline:
+- `getActiveAcceptanceTokenServer` (dispatch/load-detail)
+- `signRateConfirmationServer` (customer/load-detail)
+- `getActiveBolTokenServer` (driver/load-detail)
+- amended `transitionLoadServer` + `uploadBolServer` (driver/load-detail) with lin_tokens DB ops
+- amended `ensureInvoicesServer` + `fetchInvoicesServer` (dispatch/billing) with lin_tokens DB ops
+- amended `markPaidServer` + `fetchInvoicesServer` (customer/invoices) with lin_tokens DB ops
+
+All 5 amended pages had to inline their lin token mint/consume helpers
+because cross-file `?{}` portability still fails (E-SQL-004). The
+canonical refactor target — `models/lin-tokens.scrml` exporting
+`mintToken(loadId, kind)` + `consumeToken(token, kind)` helpers —
+remains blocked.
+
+Concretely the M6 lin-token integration would have been ~30 LOC if a
+`models/lin-tokens.scrml` could host the SQL. Inline, it's ~150 LOC
+spread across 5 pages.
+
+**Cumulative inline-duplication footprint M2-M6:**
+- ~126 LOC `getCurrentUser` (M2-M4)
+- ~30 LOC `if (!user || user.role != X)` guards (M2-M4)
+- ~144 LOC channel-publish helpers (M5)
+- ~150 LOC lin-token mint/consume helpers (M6)
+- **Total: ~450 LOC** of mechanical inline duplication that the
+  obvious cross-file abstraction would consolidate.
+
+No design change.
+
+---
+
+## F-COMPONENT-001 — M6 RECONFIRMATION (P0, architectural)
+
+M6 ships ZERO new cross-file component imports. The components/
+directory continues to host helper functions only; markup is inlined
+at every consumer site. The lin-token UI elements (rate-confirmation
+pill, BOL submission gate, payment token availability badge) are all
+inline at their respective pages — the obvious abstraction
+(`<LinTokenBadge token=@token kind="acceptance"/>`) cannot be
+extracted because of the architectural defect.
+
+No design change. Deep-dive on cross-file component expansion remains
+queued post-M6.
+
+---
+
+## F-COMPILE-001 — M6 RECONFIRMATION (P0)
+
+M6 adds NO new source files. Input count: 32 .scrml files (unchanged
+from M5). Output count: 17 HTML / 28 client.js / 17 server.js
+(unchanged from M5). M6's amendments to existing pages preserve the
+basename collision pattern.
+
+**Verified post-M6 (2026-04-29):**
+```
+$ find examples/23-trucking-dispatch -name '*.scrml' | wc -l
+32
+$ ls examples/23-trucking-dispatch/dist/*.html | wc -l
+17
+$ ls examples/23-trucking-dispatch/dist/*.client.js | wc -l
+28
+$ ls examples/23-trucking-dispatch/dist/*.server.js | wc -l
+17
+```
+
+15 silent overwrites preserved. The dispatch app, as compiled, still
+loses customer/home, customer/load-detail, customer/profile,
+dispatch/load-detail, driver/load-detail (whichever loses the
+basename race in iteration order). M6's lin-token additions on the
+amended pages are technically present in dist/<basename>.* — but only
+for the page that wins each basename race.
+
+No new collisions introduced by M6 (no new files).
+
+No design change. F-COMPILE-001 remains the chief blocker for
+running this app.
+
+---
+
+## F-IDIOMATIC-001 — M6 OBSERVATION (P2)
+
+M6 added ~500 LOC across 5 amended files. Quick grep:
+
+| Search | Hits |
+|---|---|
+| `is not` as operator | **0** |
+| `is some` as operator | **0** |
+
+The trend from F-IDIOMATIC-001 (zero adopter reach for canonical
+presence-guards) holds at M6. Lin token mint/consume code reaches
+exclusively for `if (!token)` and `if (token == "")` truthiness checks.
+
+The pattern is now stable across all 6 milestones:
+| Milestone | LOC range | `is not` hits | `is some` hits |
+|---|---|---|---|
+| M1 | ~850 | 0 | 0 |
+| M2 | ~2,200 | 0 | 0 |
+| M3 | ~2,260 | 0 | 0 |
+| M4 | ~1,800 | 0 | 0 |
+| M5 | ~600 | 0 | 0 |
+| M6 | ~500 | 0 | 0 |
+| **Total** | **~8,200** | **0** | **0** |
+
+Zero adopter reach across the entire dispatch app. The canonical
+syntax is dead-letter documentation in practice.
+
+No design change.
+
+---
+
+## Summary — what this exercise produced
+
+**26 friction entries logged across M1-M6:**
+- **6 P0** entries (silent failure / validation-principle violations)
+- **10 P1** entries (working but awkward)
+- **5 P2** entries (DX paper cuts)
+- **5 P2** observations / data points
+- **5 milestone reconfirmations** (M3 + M4 + M5 + M6 of existing P0s — same pattern at scale)
+- **1 partial-resolution** (F-RI-001 split into narrow + file-context + follow + CPS findings)
+
+### Severity-grouped index
+
+#### P0 — silent failure / validation-principle violation (6)
+- **F-AUTH-001** — `auth="role:X"` is silently inert; per-route role gate has no compiler effect.
+- **F-AUTH-002** — cross-file `server function` with `?{}` SQL access fails E-SQL-004; can't factor auth into a shared module.
+- **F-COMPONENT-001** — bare `lift <ImportedComponent/>` fails E-COMPONENT-020; HTML wrapper "fix" produces phantom-element silent runtime failure (architectural).
+- **F-RI-001** — server-fn return-value branching escalates wrapping client fn to server, violating canonical Promise-chain pattern. Partial fix lands isolated cases; file-context contamination remains.
+- **F-CHANNEL-001** — channel name interpolation (`<channel name="driver-${id}">`) is silently inert; per-id scoping collapses to single broadcast (privacy/auth contract silently broken).
+- **F-COMPILE-001** — `scrml compile <dir>` flattens output by basename, silently overwriting collisions. 32 source files → 17 HTML in dispatch app. 15 silent overwrites.
+
+#### P1 — working but awkward (10)
+- **F-SCHEMA-001** — `< schema>` doesn't satisfy E-PA-002; adopters must pre-create DB before compile.
+- **F-EXPORT-001** — `export server function` form is silently unrecognized; workaround is `export function name() { server { ... } }`.
+- **F-COMPONENT-002** — component prop names at call site become spurious local declarations (E-MU-001 with no source location).
+- **F-COMMENT-001** — HTML comments leak content into parser/scope checker.
+- **F-RI-001-FOLLOW** — `is not` doesn't support member-access targets; `obj.field is not` fires E-SCOPE-001.
+- **F-CPS-001** — CPS-eligibility skips nested control-flow when finding reactive assignments (architectural).
+- **F-MACHINE-001** — `<machine for=Type>` rejects imported types; "imported via 'use'" error message misleading.
+- **F-NULL-001** — files with `<machine>` reject `null` literals/comparisons in client-fn bodies (asymmetric trigger).
+- **F-NULL-002** — `!= null` / `== null` in server-fn bodies fires E-SYNTAX-042 in GCP3 with no line number; markup-side null comparisons accepted.
+- **F-CHANNEL-002 / F-CHANNEL-003 / F-CHANNEL-005** — no on-change hook for `@shared`; channels are per-page (not cross-file); per-channel auth scoping is not declarative.
+- **F-LIN-001** — SQL `?{}` interpolation does NOT count as `lin` consume per §35.3; example-19 template-literal pattern doesn't generalize to DB-backed single-use guards (NEW M6).
+
+#### P2 — DX paper cut (5)
+- **F-EQ-001** — `===` is not valid scrml (E-EQ-004 with excellent message; logging as data point).
+- **F-AUTH-003** — W-AUTH-001 fires even when `auth=` IS explicit.
+- **F-DESTRUCT-001** — array destructuring inside `for-of` may confuse type-scope (needs isolated repro).
+- **F-PAREN-001** — `a + (b - c)` paren-stripping idempotency invariant; lift sub-expressions to const bindings.
+- **F-CONSUME-001** — `@var` in attribute-string interpolation isn't recognized as consumption.
+- **F-CHANNEL-004 / F-CHANNEL-006** — channel/page scope rules undocumented; channel `@shared` decls fire E-DG-002 noise.
+- **F-DG-002-PREFIX** — `@_var` underscore-prefix doesn't suppress E-DG-002 despite the warning text saying it does (NEW M6).
+
+#### P2 observations / data points (varies)
+- **F-IDIOMATIC-001** — canonical `is not` / `is some` presence-guard syntax saw **0 adopter reach across all 6 milestones (~8,200 LOC)**. The scrml way is dead-letter documentation in practice; adopters reach for `!x` truthiness universally.
+
+### Meta-finding — systemic silent-failure pattern
+
+Across the 6-milestone exercise, **at least 5 P0 findings fit a single
+pattern**: the compiler accepts syntactically-valid input that produces
+silently-wrong output. The pattern:
+
+| Finding | Compiler accepts | Adopter expects | Actually happens |
+|---|---|---|---|
+| F-AUTH-001 | `auth="role:X"` | role-gating | nothing |
+| F-COMPONENT-001 | `<Component/>` (wrapped) | rendered component | phantom element / blank |
+| F-CHANNEL-001 | `<channel name="x-${id}">` | per-id scoping | single broadcast |
+| F-COMPILE-001 | `scrml compile <dir>` | per-file output | basename overwrites |
+| F-CPS-001 | `if (cond) { @v = x }` (with server trigger) | conditional reactive set | E-RI-002 (inverse silent — fails to compile, but adopters can't tell which arm fired) |
+
+The S49 validation principle ("if the compiler accepts X, X must do
+something — silent runtime failure is a P0 friction finding") is the
+right framing. Each individual finding is a P0; collectively they
+indicate a systemic gap in the validation-pass design that warrants a
+unified deep-dive.
+
+**Proposed deep-dive scope (post-M6):**
+- Catalog every "silently-accepted-but-inert" syntactic pattern in
+  current scrml across all element types, attributes, and stdlib
+  imports.
+- Classify by failure mode (no-op / phantom / wrong-default / silent
+  overwrite / collapse-to-broadcast / etc).
+- Propose a uniform "validation pass" or "diagnostic pass" that warns
+  on every pattern in the catalog rather than the current case-by-case
+  approach.
+- Use the dispatch app's FRICTION.md as the reference catalog seed.
+
+This unified deep-dive would address all 5 P0s above as instances of
+a single architectural principle: *the compiler should never accept
+input that produces silently-wrong output*.
+
+### LOC tally per milestone
+
+| Milestone | LOC | Files added/amended |
+|---|---|---|
+| M1 — schema + auth scaffold | ~850 | 7 new (app, schema, seeds, models/auth, pages/auth × 2, README) |
+| M2 — dispatcher slice | ~2,200 | 6 new pages + 8 components |
+| M3 — driver slice | ~2,260 | 6 new pages |
+| M4 — customer slice | ~1,800 | 6 new pages |
+| M5 — real-time integration | ~600 | 12 amended pages (4 channels × per-page redeclaration) |
+| M6 — lin tokens + README | ~500 | 5 amended pages (3 lin token use sites) + schema delta + README rewrite |
+| **Total** | **~8,200** | **33 .scrml files** + bootstrapped dispatch.db + comprehensive README + FRICTION.md |
+
+### Closing — the load-bearing artifact
+
+This **`FRICTION.md` IS the chief output of the entire 6-milestone
+exercise.** The dispatch app source code is the corpus that produced it;
+the scope, diversity, and persistence of the friction findings are the
+data the user committed 8,200+ LOC to surface.
+
+Six P0 silent-failure findings, ten P1 awkward-but-working findings,
+five P2 paper-cuts, plus zero adopter reach for the canonical
+presence-guard syntax — all collected from agents writing real scrml
+to a fixed brief, with no compiler changes during the build. The
+findings now feed into the post-M6 deep-dive and the kickstarter v2
+revision (when those scope are opened).
+
+The dispatch app will not run end-to-end as a web service until at
+least F-COMPILE-001 is resolved (and probably F-COMPONENT-001 + the
+dev-server's scrml:auth import). Until then, this file IS the value
+the build produced.
+
+---
