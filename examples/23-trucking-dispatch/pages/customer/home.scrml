@@ -1,0 +1,323 @@
+// Trucking Dispatch — customer landing (M4).
+//
+// Route: /customer. Greeting (logged-in customer name + account_status pill),
+// current-loads section (5 most recent active), recent-invoices section
+// (last 5, paid + unpaid mixed), quick action button to /customer/quote.
+// Logout link in nav.
+//
+// Per F-AUTH-001 + F-AUTH-002 carryforward: `<program auth="required">` +
+// inline getCurrentUser + per-server-fn role gate. `auth="role:customer"`
+// remains documentation-only (silently inert).
+//
+// Per F-COMPONENT-001 (architectural): no cross-file component imports.
+// Helper fns (`formatRate`, `formatPickupAt`, `statusBadgeClasses`,
+// `statusLabel`, `accountStatusLabel`, `accountStatusClasses`,
+// `invoiceStatus`, `invoiceStatusClasses`, `invoiceStatusLabel`,
+// `formatIsoDate`) imported; markup inlined.
+//
+// Read-mostly page (no mutators). Single fetch fn -> @vars; F-RI-001
+// narrow pattern. No state machine, no `null` literals in client-fn
+// bodies, so no F-NULL-001 risk.
+//
+// Real-time hookpoint (M5): `customer-:id` channel for paid-invoice
+// notifications + load arrival. Not wired in M4.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
+      import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
+      import { accountStatusLabel, accountStatusClasses } from '../../components/customer-card.scrml'
+      import { invoiceStatus, invoiceStatusClasses, invoiceStatusLabel, formatIsoDate } from '../../components/invoice-card.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, invoices">
+
+    ${
+        // F-AUTH-002 inline: cookie -> user.
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // F-AUTH-001 fallback: role gate. Returns user + their customers row +
+        // 5 most recent active loads + 5 most recent invoices.
+        server function fetchHomeData(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+
+            const customer = ?{`
+                SELECT id, name, contact_name, contact_email, contact_phone,
+                       billing_address, payment_terms, account_status
+                FROM customers
+                WHERE user_id = ${user.id}
+            `}.get()
+            if (!customer) return { error: "No customer record found for this account." }
+
+            // Active loads = anything not yet paid or cancelled. Tendered
+            // loads count as active (they're awaiting dispatcher rate).
+            const activeLoads = ?{`
+                SELECT
+                    id, origin_city, origin_state, destination_city, destination_state,
+                    pickup_at, deliver_by, commodity, weight_lbs, rate_dollars, status
+                FROM loads
+                WHERE customer_id = ${customer.id}
+                  AND status IN ('tendered', 'booked', 'dispatched', 'loaded', 'in_transit', 'delivered')
+                ORDER BY created_at DESC
+                LIMIT 5
+            `}.all()
+
+            const recentInvoices = ?{`
+                SELECT
+                    i.id, i.load_id, i.amount_dollars, i.sent_at, i.due_at,
+                    i.paid_at, i.payment_reference,
+                    l.origin_city AS load_origin_city,
+                    l.destination_city AS load_destination_city
+                FROM invoices i
+                LEFT JOIN loads l ON l.id = i.load_id
+                WHERE i.customer_id = ${customer.id}
+                ORDER BY i.sent_at DESC
+                LIMIT 5
+            `}.all()
+
+            return {
+                user: user, customer: customer,
+                activeLoads: activeLoads,
+                recentInvoices: recentInvoices
+            }
+        }
+
+        @user = null
+        @customer = null
+        @activeLoads = []
+        @recentInvoices = []
+        @loaded = false
+        @errorMessage = ""
+
+        // Today's ISO date — used by invoiceStatus() to detect overdue.
+        // Hardcoded to seed window so demo isn't anchored to a moving target.
+        const TODAY_ISO = "2026-04-29"
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchHomeData(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @customer = data.customer
+            @activeLoads = data.activeLoads
+            @recentInvoices = data.recentInvoices
+            @loaded = true
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/customer" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Customer</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/customer" class="hover:text-blue-300">Home</a>
+              <a href="/customer/loads" class="hover:text-blue-300">Loads</a>
+              <a href="/customer/invoices" class="hover:text-blue-300">Invoices</a>
+              <a href="/customer/profile" class="hover:text-blue-300">Profile</a>
+              <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
+              <button onclick=logout() class="hover:text-blue-300">Logout</button>
+          </nav>
+      </header>
+
+      <main class="max-w-4xl mx-auto px-6 py-8">
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@loaded && @customer == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              ${@errorMessage}
+          </div>
+
+          <div if=(@loaded && @customer != null) class="space-y-6">
+
+              <!-- Greeting + account status -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <div class="flex items-start justify-between">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Account</div>
+                          <h1 class="text-2xl font-bold">${@customer.name}</h1>
+                          <div class="text-sm text-slate-600 mt-1">
+                              <span if=(@customer.contact_name != null && @customer.contact_name != "")>
+                                  ${@customer.contact_name}
+                              </>
+                              <span if=(@customer.contact_email != null && @customer.contact_email != "") class="text-slate-400">
+                                  &middot; ${@customer.contact_email}
+                              </>
+                          </div>
+                      </div>
+                      <div class="text-right">
+                          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${accountStatusClasses(@customer.account_status)}">
+                              ${accountStatusLabel(@customer.account_status)}
+                          </span>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- Quick action: request a quote -->
+              <section class="bg-blue-50 rounded-lg border border-blue-200 p-5">
+                  <div class="flex items-center justify-between">
+                      <div>
+                          <h2 class="text-base font-semibold text-blue-900">Need to ship something?</h2>
+                          <p class="text-sm text-blue-800 mt-1">
+                              Request a rate quote and our dispatcher will get back to you with pricing.
+                          </p>
+                      </div>
+                      <a href="/customer/quote" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">
+                          Request rate quote
+                      </a>
+                  </div>
+              </section>
+
+              <!-- Current / recent active loads -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <header class="flex items-center justify-between mb-4">
+                      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">
+                          Current loads
+                      </h2>
+                      <a href="/customer/loads" class="text-xs text-blue-600 hover:underline">
+                          View all
+                      </a>
+                  </header>
+
+                  <p if=(@activeLoads.length == 0) class="text-sm text-slate-500">
+                      No active loads. <a class="text-blue-600 hover:underline" href="/customer/quote">Request a quote</a> to get started.
+                  </p>
+
+                  <ul if=(@activeLoads.length > 0) class="space-y-2">
+                      ${
+                          for (let l of @activeLoads) {
+                              lift <li>
+                                  <a href="/customer/loads/${l.id}" class="block bg-white border border-slate-200 rounded-lg p-3 hover:border-blue-300 hover:shadow-sm transition">
+                                      <div class="flex items-start justify-between mb-1">
+                                          <div class="text-xs text-slate-500 font-medium">
+                                              LOAD #${l.id}
+                                          </div>
+                                          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadgeClasses(l.status)}">
+                                              ${statusLabel(l.status)}
+                                          </span>
+                                      </div>
+                                      <div class="text-sm font-semibold text-slate-900 mb-1">
+                                          ${l.origin_city}, ${l.origin_state}
+                                          <span class="text-slate-400 mx-1">→</span>
+                                          ${l.destination_city}, ${l.destination_state}
+                                      </div>
+                                      <div class="text-xs text-slate-600 mb-1">
+                                          ${l.commodity}
+                                          <span if=(l.weight_lbs != null) class="text-slate-400">
+                                              · ${l.weight_lbs} lbs
+                                          </>
+                                      </div>
+                                      <div class="flex items-center justify-between text-xs">
+                                          <span class="text-slate-500">
+                                              Pickup: ${formatPickupAt(l.pickup_at)}
+                                          </span>
+                                          <span class="font-semibold text-slate-900">
+                                              ${formatRate(l.rate_dollars)}
+                                          </span>
+                                      </div>
+                                  </a>
+                              </li>
+                          }
+                      }
+                  </ul>
+              </section>
+
+              <!-- Recent invoices -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <header class="flex items-center justify-between mb-4">
+                      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">
+                          Recent invoices
+                      </h2>
+                      <a href="/customer/invoices" class="text-xs text-blue-600 hover:underline">
+                          View all
+                      </a>
+                  </header>
+
+                  <p if=(@recentInvoices.length == 0) class="text-sm text-slate-500">
+                      No invoices yet. They'll appear once a delivered load is invoiced.
+                  </p>
+
+                  <ul if=(@recentInvoices.length > 0) class="space-y-2">
+                      ${
+                          for (let inv of @recentInvoices) {
+                              lift <li class="flex items-center justify-between border-b border-slate-100 pb-2 last:border-b-0 last:pb-0">
+                                  <div class="flex-1">
+                                      <div class="flex items-center gap-3">
+                                          <a href="/customer/invoices?load=${inv.load_id}" class="text-sm font-semibold text-blue-700 hover:underline">
+                                              Load #${inv.load_id}
+                                          </a>
+                                          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${invoiceStatusClasses(invoiceStatus(inv, TODAY_ISO))}">
+                                              ${invoiceStatusLabel(invoiceStatus(inv, TODAY_ISO))}
+                                          </span>
+                                      </div>
+                                      <div class="text-xs text-slate-500 mt-0.5">
+                                          ${inv.load_origin_city == null ? "" : inv.load_origin_city}
+                                          <span if=(inv.load_origin_city != null && inv.load_destination_city != null) class="text-slate-400 mx-1">→</span>
+                                          ${inv.load_destination_city == null ? "" : inv.load_destination_city}
+                                          <span class="text-slate-400 ml-2">
+                                              Sent ${formatIsoDate(inv.sent_at)}
+                                          </span>
+                                      </div>
+                                  </div>
+                                  <div class="text-right">
+                                      <div class="text-sm font-semibold text-slate-900">
+                                          ${formatRate(inv.amount_dollars)}
+                                      </div>
+                                      <div if=(inv.paid_at != null && inv.paid_at != "") class="text-xs text-emerald-700">
+                                          Paid ${formatIsoDate(inv.paid_at)}
+                                      </div>
+                                      <div if=(inv.paid_at == null || inv.paid_at == "") class="text-xs text-amber-700">
+                                          Due ${formatIsoDate(inv.due_at)}
+                                      </div>
+                                  </div>
+                              </li>
+                          }
+                      }
+                  </ul>
+              </section>
+
+          </div>
+      </main>
+    </div>
+
+  </>
+
+</program>
