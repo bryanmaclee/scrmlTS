@@ -2010,9 +2010,57 @@ to a fixed brief, with no compiler changes during the build. The
 findings now feed into the post-M6 deep-dive and the kickstarter v2
 revision (when those scope are opened).
 
-The dispatch app will not run end-to-end as a web service until at
-least F-COMPILE-001 is resolved (and probably F-COMPONENT-001 + the
-dev-server's scrml:auth import). Until then, this file IS the value
-the build produced.
+The dispatch app will not run end-to-end as a web service until
+F-COMPONENT-001 is resolved (the bare-`lift` phantom-element bug). The
+two adjacent compiler-level blockers are now both resolved:
+F-COMPILE-001 (RESOLVED 2026-04-30 S51 W0a — output tree preservation)
+and OQ-2 (RESOLVED 2026-04-30 S51 W0b — `scrml:*` runtime resolution
+via shim bundling + import rewrite). One pre-existing codegen bug
+also surfaced during W0b smoke-test: emitted JS imports user-authored
+`./*.scrml` files by source extension instead of rewriting to the
+compiled output extension. That is **NOT OQ-2**; it is a separate gap
+in `rewriteRelativeImportPaths` (which only handles `.js`) — surfaced
+for the supervisor to scope.
+
+Until F-COMPONENT-001 is resolved, this file IS the value the build
+produced.
 
 ---
+
+## OQ-2 — `scrml:NAME` stdlib imports unresolvable at runtime (P0) — RESOLVED 2026-04-30 (S51, W0b)
+
+> **RESOLVED 2026-04-30 (S51, W0b).** Compiler now bundles a runtime
+> shim for each referenced `scrml:NAME` stdlib module into
+> `<outputDir>/_scrml/NAME.js` and rewrites emitted
+> `import { ... } from "scrml:NAME"` to a relative path
+> `import { ... } from "<rel>/_scrml/NAME.js"` (where `<rel>` is
+> computed from the file's actual location in the dist tree, so
+> nested-output files emit `../../_scrml/...`).
+>
+> Pre-fix audit on this app: every `*.server.js` and every
+> `*.client.js` that imported `scrml:auth`, `scrml:crypto`, or
+> `scrml:store` failed at `await import()` time with `Cannot find
+> package 'scrml:NAME'` (Bun has no resolution for the `scrml:`
+> scheme). Post-fix: zero `scrml:` specifiers remain in emitted JS;
+> all 3 hand-written shims (`auth.js`, `crypto.js`, `store.js`) are
+> bundled at `dist/_scrml/`; smoke tests against the previously-Class-A
+> failure files (`app.server.js`, `login.server.js`, `register.server.js`,
+> `profile.server.js`) now pass the stdlib-import phase. They surface a
+> separate, pre-existing `.scrml`-import codegen issue (out of scope —
+> see standing caveat above), but the OQ-2 stdlib path is closed.
+>
+> Why hand-written shims (not truly-compiled stdlib): stdlib `.scrml`
+> sources contain `server {}` blocks that today's compiler does not
+> lower at TS time (separate M16 gap). The shim path is the smallest
+> viable runtime artefact and can be replaced by truly-compiled output
+> once that gap is closed. Names without a hand-written shim are left
+> verbatim in emitted code so the gap surfaces as a loud runtime
+> failure rather than silent degradation.
+>
+> Fix commits: `7cdf938` (3 hand-written shims), `84b78a0` (bundling +
+> import rewrite), `56c1082` (regression test). Coverage:
+> `compiler/tests/integration/oq-2-stdlib-runtime-resolution.test.js`
+> (9 tests across 4 sections).
+
+---
+
