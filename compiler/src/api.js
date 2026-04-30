@@ -7,8 +7,9 @@
  * servers can all drive compilation without spawning a subprocess.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync, copyFileSync } from "fs";
 import { resolve, extname, dirname, basename, join, relative } from "path";
+import { fileURLToPath } from "url";
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
 import { runCE } from "./component-expander.ts";
@@ -27,6 +28,26 @@ import { lintGhostPatterns } from "./lint-ghost-patterns.js";
 import { findUnsupportedTailwindShapes } from "./tailwind-classes.js";
 import { runGauntletPhase1Checks } from "./gauntlet-phase1-checks.js";
 import { runGauntletPhase3EqChecks } from "./gauntlet-phase3-eq-checks.js";
+
+// ---------------------------------------------------------------------------
+// Stdlib runtime directory
+// ---------------------------------------------------------------------------
+//
+// Hand-written ES module shims for stdlib modules live at
+// compiler/runtime/stdlib/<name>.js. They are copied verbatim into
+// <outputDir>/_scrml/<name>.js by bundleStdlibForRun() so emitted JS can
+// `import { ... } from "./_scrml/<name>.js"` (rewritten from "scrml:<name>").
+//
+// This is the runtime-resolution bridge the compiler had been missing —
+// see docs/changes/oq-2-dev-server-bootstrap/diagnosis.md.
+//
+// Why hand-written shims (vs. compiling stdlib/<name>/*.scrml on the fly):
+// stdlib/.scrml sources contain `server {}` blocks the standard pipeline does
+// not lower at TS time today (tracked separately under M16 as the deeper
+// stdlib bring-up). The shims are the smallest viable runtime artefact and
+// can be replaced by truly-compiled output once that gap is closed.
+const __apiFile = fileURLToPath(import.meta.url);
+const STDLIB_RUNTIME_DIR = resolve(dirname(__apiFile), "..", "runtime", "stdlib");
 
 // ---------------------------------------------------------------------------
 // Directory scanner
@@ -170,7 +191,72 @@ function convertLegacyCssSource(source) {
 }
 
 // ---------------------------------------------------------------------------
-// Import path rewriting (GITI-009)
+// Stdlib bundling (OQ-2 — runtime resolution of `scrml:*` imports)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk a TAB result's import declarations and gather the unique set of
+ * `scrml:NAME` specifiers it references (anywhere — top-level or scoped).
+ *
+ * The set is the input to bundleStdlibForRun() and to rewriteStdlibImports().
+ *
+ * @param {object[]} tabResults — TAB stage outputs
+ * @returns {Set<string>} — bare module names (e.g., "auth", "crypto", "store")
+ */
+export function collectStdlibSpecifiers(tabResults) {
+  const names = new Set();
+  for (const tab of tabResults || []) {
+    const imports = tab?.ast?.imports || tab?.imports || [];
+    for (const imp of imports) {
+      const src = imp?.source;
+      if (typeof src === "string" && src.startsWith("scrml:")) {
+        const name = src.slice("scrml:".length);
+        if (name) names.add(name);
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * Copy the runtime shim for each referenced `scrml:NAME` specifier into
+ * `<outputDir>/_scrml/<name>.js` so emitted JS can `import` it via a relative
+ * path. Modules without a hand-written shim are silently skipped — emitted
+ * JS that imports them will fail loudly at runtime, which matches the
+ * pre-bundle behaviour and lets the gap surface as a finding.
+ *
+ * @param {Set<string>} names — bare stdlib names (from collectStdlibSpecifiers)
+ * @param {string} outputDir — absolute path of the user's output directory
+ * @param {(msg: string) => void} [log]
+ * @returns {Set<string>} — the subset of names that were actually bundled
+ */
+export function bundleStdlibForRun(names, outputDir, log) {
+  const bundled = new Set();
+  if (!names || names.size === 0 || !outputDir) return bundled;
+  const stdlibOut = join(outputDir, "_scrml");
+  let made = false;
+  for (const name of names) {
+    const src = join(STDLIB_RUNTIME_DIR, `${name}.js`);
+    if (!existsSync(src)) {
+      // No shim available — leave this name to fail loudly at runtime so the
+      // gap is visible. Future M16 work can replace this with truly-compiled
+      // stdlib output.
+      continue;
+    }
+    if (!made) {
+      mkdirSync(stdlibOut, { recursive: true });
+      made = true;
+    }
+    const dst = join(stdlibOut, `${name}.js`);
+    copyFileSync(src, dst);
+    bundled.add(name);
+    if (log) log(`  [STDLIB] Bundled scrml:${name} -> _scrml/${name}.js`);
+  }
+  return bundled;
+}
+
+// ---------------------------------------------------------------------------
+// Import path rewriting (GITI-009 + OQ-2)
 // ---------------------------------------------------------------------------
 
 /**
@@ -183,7 +269,8 @@ function convertLegacyCssSource(source) {
  * `dist/ui/` — so the path must be rewritten to `../../ui/repros/helper.js`.
  *
  * Only rewrites relative imports (starting with ./ or ../) that end with .js.
- * Non-relative imports (scrml:, vendor:, bare names) are left untouched.
+ * Non-relative imports (scrml:, vendor:, bare names) are left untouched —
+ * those are handled by rewriteStdlibImports().
  *
  * @param {string} jsCode — generated JS source code
  * @param {string} sourceFilePath — absolute path of the source .scrml file
@@ -207,6 +294,40 @@ export function rewriteRelativeImportPaths(jsCode, sourceFilePath, outputDir) {
       // Ensure it starts with ./ or ../
       if (!newRelPath.startsWith('.')) newRelPath = './' + newRelPath;
       return `${prefix}${quote}${newRelPath}${quote}${semi}`;
+    }
+  );
+}
+
+/**
+ * Rewrite `import { ... } from "scrml:NAME"` to a relative path under
+ * `<outputDir>/_scrml/NAME.js` for every NAME in the bundled-stdlib set.
+ *
+ * This pairs with bundleStdlibForRun() so the rewritten path always
+ * points at a real on-disk artefact. NAMES not in the bundled set are
+ * left as-is (they will fail loudly at runtime — see bundleStdlibForRun
+ * comment for rationale).
+ *
+ * @param {string} jsCode — generated JS source code
+ * @param {string} bundleDir — absolute path of the directory the file will
+ *   be written into (e.g., outputDir for top-level files)
+ * @param {string} outputDir — absolute path of the user's output directory
+ *   (where the _scrml/ subdir lives)
+ * @param {Set<string>} bundled — names actually bundled into _scrml/
+ * @returns {string}
+ */
+export function rewriteStdlibImports(jsCode, bundleDir, outputDir, bundled) {
+  if (!jsCode || !bundleDir || !outputDir || !bundled || bundled.size === 0) return jsCode;
+  const writeDir = resolve(bundleDir);
+  const outDir = resolve(outputDir);
+  const stdlibAbs = join(outDir, "_scrml");
+  return jsCode.replace(
+    /^(import\s+(?:\{[^}]*\}|[^\s]+)\s+from\s+)(["'])scrml:([A-Za-z0-9_-][A-Za-z0-9_/-]*)\2(;?)$/gm,
+    (match, prefix, quote, name, semi) => {
+      if (!bundled.has(name)) return match;
+      const target = join(stdlibAbs, `${name}.js`);
+      let rel = relative(writeDir, target);
+      if (!rel.startsWith(".")) rel = "./" + rel;
+      return `${prefix}${quote}${rel}${quote}${semi}`;
     }
   );
 }
@@ -582,6 +703,20 @@ export function compileScrml(options = {}) {
   const durationMs = parseFloat((performance.now() - pipelineStart).toFixed(1));
 
   // ---------------------------------------------------------------------------
+  // Stdlib bundling (OQ-2 — runtime resolution of `scrml:*` imports)
+  //
+  // Identify referenced stdlib specifiers from the TAB pass and copy a hand-
+  // written shim per name into <outputDir>/_scrml/<name>.js. Emitted JS is
+  // post-rewritten further down so each `import { ... } from "scrml:NAME"`
+  // becomes `import { ... } from "./_scrml/NAME.js"` (relative to the
+  // emitting file's location in the output tree).
+  // ---------------------------------------------------------------------------
+  const stdlibSpecifiers = collectStdlibSpecifiers(tabResults);
+  const bundledStdlib = (write && outputDir)
+    ? bundleStdlibForRun(stdlibSpecifiers, outputDir, verbose ? log : null)
+    : new Set();
+
+  // ---------------------------------------------------------------------------
   // Write output files
   // ---------------------------------------------------------------------------
 
@@ -647,23 +782,38 @@ export function compileScrml(options = {}) {
       }
 
       for (const [filePath, output] of cgResult.outputs) {
-        // GITI-009: rewrite relative .js import paths in server and library
-        // output so they resolve from the output directory, not the source
-        // file's directory.
+        // GITI-009 + OQ-2: post-codegen rewrites for emitted JS.
+        //   - rewriteRelativeImportPaths: ./*.js relative imports point at
+        //     the source-tree path (so output JS resolves correctly when
+        //     output dir != source dir).
+        //   - rewriteStdlibImports: scrml:NAME specifiers point at the
+        //     bundled <outputDir>/_scrml/NAME.js shim, with the relative
+        //     path computed from the file's actual targetDir (which may be
+        //     nested under outputDir per F-COMPILE-001 Option A).
         if (output.serverJs) {
-          const rewritten = rewriteRelativeImportPaths(output.serverJs, filePath, outputDir);
-          if (writeOutput(filePath, ".server.js", rewritten)) fileCount++;
+          const { targetDir } = pathFor(filePath, ".server.js");
+          let s = rewriteRelativeImportPaths(output.serverJs, filePath, outputDir);
+          s = rewriteStdlibImports(s, targetDir, outputDir, bundledStdlib);
+          if (writeOutput(filePath, ".server.js", s)) fileCount++;
         }
         if (mode === 'library') {
           // Library mode: write libraryJs as <base>.js (importable ES module)
           if (output.libraryJs) {
-            const rewritten = rewriteRelativeImportPaths(output.libraryJs, filePath, outputDir);
-            if (writeOutput(filePath, ".js", rewritten)) fileCount++;
+            const { targetDir } = pathFor(filePath, ".js");
+            let s = rewriteRelativeImportPaths(output.libraryJs, filePath, outputDir);
+            s = rewriteStdlibImports(s, targetDir, outputDir, bundledStdlib);
+            if (writeOutput(filePath, ".js", s)) fileCount++;
           }
         } else {
           // Browser mode: write clientJs as <base>.client.js + html
           if (output.clientJs) {
-            if (writeOutput(filePath, ".client.js", output.clientJs)) fileCount++;
+            // Client JS does not currently get GITI-009 relative-path rewrites
+            // (no existing test asserts that contract for client output) but
+            // it MUST get scrml:NAME rewrites — Bun fails to resolve any
+            // unresolved scrml:* in browser-loaded JS just as in server JS.
+            const { targetDir } = pathFor(filePath, ".client.js");
+            const c = rewriteStdlibImports(output.clientJs, targetDir, outputDir, bundledStdlib);
+            if (writeOutput(filePath, ".client.js", c)) fileCount++;
           }
           if (output.html) {
             if (writeOutput(filePath, ".html", output.html)) fileCount++;
