@@ -21,8 +21,8 @@ interface EventBinding {
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
 interface LogicBinding {
-  placeholderId: string;
-  expr: string;
+  placeholderId?: string;
+  expr?: string;
   reactiveRefs?: Set<string> | null;
   isConditionalDisplay?: boolean;
   isVisibilityToggle?: boolean;
@@ -40,6 +40,19 @@ interface LogicBinding {
   transitionExit?: string;
   /** Phase 3: structured ExprNode form of `expr`. */
   exprNode?: ExprNode;
+  /**
+   * Phase 2g: chain-binding fields. See binding-registry.ts and emit-html.ts
+   * chain handler. `kind` discriminates positive (`if-chain-branch`) vs else
+   * (`if-chain-else`). `branchMode` decides per-branch whether the chain
+   * controller mounts/unmounts via _scrml_mount_template/_scrml_unmount_scope
+   * (clean) or toggles wrapper.style.display (dirty fallback).
+   */
+  kind?: "if-chain-branch" | "if-chain-else";
+  chainId?: string;
+  branchId?: string;
+  branchIndex?: number;
+  branchMode?: "mount" | "display";
+  condition?: any;
 }
 
 /**
@@ -558,30 +571,61 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
     }
   }
 
-  // --- §17.1.1: if-chain wiring ---
+  // --- §17.1.1: if-chain wiring (Phase 2g per-branch mount/unmount + display dispatch) ---
+  //
+  // For each chain, the controller emits:
+  //   - Per-branch state variables (mount-mode: root + scope handles; display-mode:
+  //     wrapper element reference resolved via querySelector).
+  //   - A function `_update_chain_<id>()` that picks the active branchId by
+  //     evaluating positive branch conditions in source order, falls back to else
+  //     if present, then dispatches mount/unmount or display-toggle per branch
+  //     based on the compile-time `branchMode` field. Idempotent: if active
+  //     hasn't changed, returns early.
+  //   - Initial render call + _scrml_effect subscription for reactive updates.
+  //
+  // Reuses Phase 2c B1 helpers (_scrml_create_scope, _scrml_mount_template,
+  // _scrml_unmount_scope) verbatim. No new runtime helpers.
   if (logicBindings && logicBindings.length > 0) {
-    // Group chain branches by chainId
-    const chains = new Map<string, any[]>();
+    // Group chain branches by chainId.
+    const chains = new Map<string, LogicBinding[]>();
     for (const binding of logicBindings) {
       if (binding.kind === "if-chain-branch" || binding.kind === "if-chain-else") {
-        const chainId = binding.chainId;
+        const chainId = binding.chainId!;
         if (!chains.has(chainId)) chains.set(chainId, []);
         chains.get(chainId)!.push(binding);
       }
     }
 
     for (const [chainId, chainBindings] of chains) {
+      const chainSlug = chainId.replace(/[^a-zA-Z0-9_]/g, "_");
+      const condBranches = chainBindings.filter((b) => b.kind === "if-chain-branch");
+      const elseBranch = chainBindings.find((b) => b.kind === "if-chain-else");
+      const allBranches: LogicBinding[] = [...condBranches];
+      if (elseBranch) allBranches.push(elseBranch);
+
       lines.push("");
       lines.push(`  // if-chain: ${chainId}`);
       lines.push(`  {`);
-      lines.push(`    const _chain_branches = document.querySelectorAll('[data-scrml-if-chain="${chainId}"]');`);
-      lines.push(`    function _update_chain_${chainId.replace(/[^a-zA-Z0-9_]/g, "_")}() {`);
+      lines.push(`    let _scrml_chain_${chainSlug}_active = null;`);
 
-      // Evaluate conditions in order
-      const condBranches = chainBindings.filter((b: any) => b.kind === "if-chain-branch");
-      const elseBranch = chainBindings.find((b: any) => b.kind === "if-chain-else");
+      // Per-branch state declarations.
+      for (const branch of allBranches) {
+        const branchSlug = (branch.branchId ?? "").replace(/[^a-zA-Z0-9_]/g, "_");
+        if (branch.branchMode === "mount") {
+          lines.push(`    let _scrml_chain_${branchSlug}_root = null;`);
+          lines.push(`    let _scrml_chain_${branchSlug}_scope = null;`);
+        } else {
+          // display-mode: resolve wrapper at startup. The wrapper is the
+          // emit-html-emitted `<div data-scrml-chain-branch="<branchId>">`
+          // (Step 1 dirty-branch path).
+          lines.push(`    const _scrml_chain_${branchSlug}_wrapper = document.querySelector('[data-scrml-chain-branch="${branch.branchId}"]');`);
+        }
+      }
 
-      lines.push(`      let _active = null;`);
+      lines.push(`    function _update_chain_${chainSlug}() {`);
+      lines.push(`      let _next = null;`);
+
+      // Condition cascade — same as pre-Phase-2g shape.
       for (const branch of condBranches) {
         let condCode: string;
         if (branch.condition?.raw) {
@@ -592,19 +636,56 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
         } else {
           condCode = "true";
         }
-        lines.push(`      if (_active === null && (${condCode})) _active = "${branch.branchId}";`);
+        lines.push(`      if (_next === null && (${condCode})) _next = "${branch.branchId}";`);
       }
       if (elseBranch) {
-        lines.push(`      if (_active === null) _active = "${elseBranch.branchId}";`);
+        lines.push(`      if (_next === null) _next = "${elseBranch.branchId}";`);
       }
-      lines.push(`      for (const el of _chain_branches) {`);
-      lines.push(`        el.style.display = el.getAttribute("data-scrml-chain-branch") === _active ? "" : "none";`);
-      lines.push(`      }`);
-      lines.push(`    }`);
-      lines.push(`    _update_chain_${chainId.replace(/[^a-zA-Z0-9_]/g, "_")}();`);
 
-      // Auto-tracking effect handles all reactive deps
-      lines.push(`    _scrml_effect(_update_chain_${chainId.replace(/[^a-zA-Z0-9_]/g, "_")});`);
+      // Idempotency guard.
+      lines.push(`      if (_next === _scrml_chain_${chainSlug}_active) return;`);
+
+      // Deactivate previous active branch (if any).
+      lines.push(`      if (_scrml_chain_${chainSlug}_active !== null) {`);
+      lines.push(`        switch (_scrml_chain_${chainSlug}_active) {`);
+      for (const branch of allBranches) {
+        const branchSlug = (branch.branchId ?? "").replace(/[^a-zA-Z0-9_]/g, "_");
+        lines.push(`          case ${JSON.stringify(branch.branchId)}:`);
+        if (branch.branchMode === "mount") {
+          lines.push(`            if (_scrml_chain_${branchSlug}_root !== null) {`);
+          lines.push(`              _scrml_unmount_scope(_scrml_chain_${branchSlug}_root, _scrml_chain_${branchSlug}_scope);`);
+          lines.push(`              _scrml_chain_${branchSlug}_root = null;`);
+          lines.push(`              _scrml_chain_${branchSlug}_scope = null;`);
+          lines.push(`            }`);
+        } else {
+          lines.push(`            if (_scrml_chain_${branchSlug}_wrapper) _scrml_chain_${branchSlug}_wrapper.style.display = "none";`);
+        }
+        lines.push(`            break;`);
+      }
+      lines.push(`        }`);
+      lines.push(`      }`);
+
+      // Activate next branch.
+      lines.push(`      switch (_next) {`);
+      for (const branch of allBranches) {
+        const branchSlug = (branch.branchId ?? "").replace(/[^a-zA-Z0-9_]/g, "_");
+        lines.push(`        case ${JSON.stringify(branch.branchId)}:`);
+        if (branch.branchMode === "mount") {
+          lines.push(`          _scrml_chain_${branchSlug}_scope = _scrml_create_scope();`);
+          lines.push(`          _scrml_chain_${branchSlug}_root = _scrml_mount_template(${JSON.stringify(branch.markerId)}, ${JSON.stringify(branch.templateId)});`);
+        } else {
+          lines.push(`          if (_scrml_chain_${branchSlug}_wrapper) _scrml_chain_${branchSlug}_wrapper.style.display = "";`);
+        }
+        lines.push(`          break;`);
+      }
+      lines.push(`      }`);
+
+      lines.push(`      _scrml_chain_${chainSlug}_active = _next;`);
+      lines.push(`    }`);
+
+      // Initial render + reactive effect.
+      lines.push(`    _update_chain_${chainSlug}();`);
+      lines.push(`    _scrml_effect(_update_chain_${chainSlug});`);
       lines.push(`  }`);
     }
   }

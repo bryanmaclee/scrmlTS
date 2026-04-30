@@ -37,6 +37,17 @@
  *     When condExpr + refs are present, emit-event-wiring subscribes to all refs and
  *     evaluates the compiled expression (with @var → _scrml_reactive_get("var")).
  *     When only varName is present, uses simple single-var display toggle (backward compat).
+ *
+ *   Phase 2g addition: if-chain branches and else
+ *     Chain bindings carry a discriminator `kind`:
+ *       - "if-chain-branch" — a positive branch (if= or else-if=)
+ *       - "if-chain-else"   — the else branch
+ *     Plus chain-shared fields: chainId, branchId, branchIndex (positive branches only),
+ *     branchMode ("mount" | "display"), templateId? + markerId? (mount mode), and
+ *     condition?/refs? (positive branches; condition.raw or condition.name yields
+ *     the chain controller's per-branch test).
+ *     placeholderId/expr are NOT used by chain bindings — they remain optional on
+ *     the LogicBinding interface for backward compat with existing pre-Phase-2g bindings.
  */
 
 /** An event binding recorded by HTML gen and consumed by client JS gen. */
@@ -51,21 +62,61 @@ export interface EventBinding {
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
 export interface LogicBinding {
-  placeholderId: string;
-  expr: string;
+  /**
+   * Discriminator. Absent → conventional reactive/conditional binding (uses
+   * placeholderId + expr). "if-chain-branch" → positive chain branch. "if-chain-else" →
+   * else branch of an if-chain.
+   */
+  kind?: "if-chain-branch" | "if-chain-else";
+
+  // Conventional reactive / conditional binding fields.
+  // Required for `kind === undefined` bindings (the default).
+  // NOT used by chain bindings (kind === "if-chain-branch" | "if-chain-else").
+  placeholderId?: string;
+  expr?: string;
   reactiveRefs?: Set<string>;
   isConditionalDisplay?: boolean;
   isVisibilityToggle?: boolean;
+
   /**
-   * Phase 2 of if/show split: when set, the `if=` binding uses mount/unmount
-   * semantics (template-clone on true, scope-destroy + DOM-remove on false)
-   * instead of display-toggle. The compile-time emitter populates `templateId`
-   * and `markerId` so the runtime can locate the <template> source and the
+   * Phase 2c: when set, the `if=` binding uses mount/unmount semantics
+   * (template-clone on true, scope-destroy + DOM-remove on false) instead of
+   * display-toggle. The compile-time emitter populates `templateId` and
+   * `markerId` so the runtime can locate the <template> source and the
    * <!--scrml-if-marker:N--> insertion point.
    */
   isMountToggle?: boolean;
   templateId?: string;
   markerId?: string;
+
+  /**
+   * Phase 2g: chain-binding fields.
+   * Required when `kind === "if-chain-branch"` or `kind === "if-chain-else"`.
+   *
+   *   chainId      — stable id for the chain group (e.g. "_scrml_if_chain_3").
+   *   branchId     — stable id for this branch (e.g. "_scrml_if_chain_3_b0" or
+   *                  "_scrml_if_chain_3_else"). Used by the chain controller to
+   *                  identify the active branch and to look up its per-branch state.
+   *   branchIndex  — 0-based index of positive branches (if + else-if siblings).
+   *                  Absent on the else branch.
+   *   branchMode   — "mount" (clean — emits <template> + scrml-if-marker; controller
+   *                  mount/unmount via _scrml_mount_template / _scrml_unmount_scope) or
+   *                  "display" (dirty — emits per-branch wrapper with style="display:none";
+   *                  controller toggles wrapper.style.display).
+   *   condition    — chain branch condition AST node (variable-ref or expr). Absent on
+   *                  the else branch. The chain controller in emit-event-wiring uses
+   *                  condition.raw (expr) or condition.name (variable-ref) to emit the
+   *                  per-branch test.
+   *   refs         — reactive variable names referenced by `condition` (without @ prefix).
+   *                  Used by the chain controller for reactive subscription. Absent on
+   *                  the else branch.
+   */
+  chainId?: string;
+  branchId?: string;
+  branchIndex?: number;
+  branchMode?: "mount" | "display";
+  condition?: any;
+  refs?: string[];
 }
 
 export class BindingRegistry {
