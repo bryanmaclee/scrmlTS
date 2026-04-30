@@ -1,0 +1,215 @@
+// Trucking Dispatch — driver per-load log (M3).
+//
+// Route: /driver/loads/:id/log. Chronological list of every log entry
+// for this load — pre/post trip, BOL/POD, fuel stops, breakdowns, status
+// changes. Newest first. Each entry shows type badge, timestamp, and
+// payload summary.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward.
+//
+// Real-time hookpoint (M5): subscribe to load-:id channel — this page is
+// the perfect surface for real-time-pushed entries from dispatcher.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, log_entries">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchLogServer(sessionToken, loadId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const load = ?{`SELECT id, origin_city, origin_state, destination_city, destination_state FROM loads WHERE id = ${loadId}`}.get()
+            if (!load) return { notFound: true }
+
+            const entries = ?{`
+                SELECT le.id, le.driver_id, le.type, le.at, le.payload,
+                    d.name AS driver_name
+                FROM log_entries le
+                LEFT JOIN drivers d ON d.id = le.driver_id
+                WHERE le.load_id = ${loadId}
+                ORDER BY le.at DESC
+            `}.all()
+
+            return { user: user, load: load, entries: entries }
+        }
+
+        @user = null
+        @load = null
+        @entries = []
+        @loaded = false
+        @notFound = false
+        @errorMessage = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function getLoadId() {
+            // Path is /driver/loads/:id/log — id is the second-to-last segment.
+            const path = window.location.pathname
+            const parts = path.split("/")
+            // Drop empty trailing segment if any.
+            let lastIdx = parts.length - 1
+            if (parts[lastIdx] == "") { lastIdx = lastIdx - 1 }
+            // parts[lastIdx] is "log", parts[lastIdx-1] is the id.
+            const idStr = parts[lastIdx - 1]
+            const n = parseInt(idStr, 10)
+            return isNaN(n) ? 0 : n
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const loadId = getLoadId()
+            const data = fetchLogServer(tok, loadId)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.notFound) {
+                @notFound = true
+                @loaded = true
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @load = data.load
+            @entries = data.entries
+            @loaded = true
+        }
+
+        // Pretty label for log entry types.
+        fn logTypeLabel(t: string) -> string {
+            if (t == "pre_trip")     return "Pre-trip inspection"
+            if (t == "post_trip")    return "Post-trip inspection"
+            if (t == "bol_received") return "BOL received"
+            if (t == "pod_signed")   return "POD signed"
+            if (t == "fuel_stop")    return "Fuel stop"
+            if (t == "breakdown")    return "Breakdown"
+            if (t == "hos_change")   return "Status change"
+            return t
+        }
+
+        // Color the type badge to surface critical events visually.
+        fn logTypeBadgeClasses(t: string) -> string {
+            if (t == "pre_trip")     return "bg-slate-100 text-slate-700 border-slate-200"
+            if (t == "post_trip")    return "bg-slate-100 text-slate-700 border-slate-200"
+            if (t == "bol_received") return "bg-blue-100 text-blue-800 border-blue-200"
+            if (t == "pod_signed")   return "bg-emerald-100 text-emerald-800 border-emerald-200"
+            if (t == "fuel_stop")    return "bg-amber-100 text-amber-800 border-amber-200"
+            if (t == "breakdown")    return "bg-red-100 text-red-800 border-red-200"
+            if (t == "hos_change")   return "bg-violet-100 text-violet-800 border-violet-200"
+            return "bg-slate-100 text-slate-700 border-slate-200"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/driver" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Load log</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/driver" class="hover:text-blue-300">Home</a>
+              <a href="/driver/hos" class="hover:text-blue-300">HOS</a>
+              <a href="/driver/messages" class="hover:text-blue-300">Messages</a>
+          </nav>
+      </header>
+
+      <main class="max-w-3xl mx-auto px-6 py-8">
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@loaded && @notFound) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              Load not found.
+          </div>
+
+          <div if=(@loaded && !@notFound && @load == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              ${@errorMessage}
+          </div>
+
+          <div if=(@loaded && @load != null) class="space-y-4">
+
+              <header class="bg-white rounded-lg border border-slate-200 p-6">
+                  <div class="flex items-start justify-between">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium mb-1">LOAD #${@load.id}</div>
+                          <h1 class="text-lg font-bold text-slate-900">
+                              ${@load.origin_city}, ${@load.origin_state}
+                              <span class="text-slate-400 mx-2">→</span>
+                              ${@load.destination_city}, ${@load.destination_state}
+                          </h1>
+                          <div class="text-xs text-slate-500 mt-1">Activity log — newest first</div>
+                      </div>
+                      <a href="/driver/loads/${@load.id}" class="text-sm text-blue-600 hover:underline">
+                          ← Back to load
+                      </a>
+                  </div>
+              </header>
+
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+
+                  <p if=(@entries.length == 0) class="text-sm text-slate-500">
+                      No log entries for this load yet.
+                  </p>
+
+                  <ol if=(@entries.length > 0) class="space-y-3">
+                      ${
+                          for (let entry of @entries) {
+                              lift <li class="flex items-start gap-3 text-sm border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                                  <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-1">
+                                      ${entry.at == null ? "" : entry.at.substring(0, 16)}
+                                  </span>
+                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border w-40 flex-shrink-0 ${logTypeBadgeClasses(entry.type)}">
+                                      ${logTypeLabel(entry.type)}
+                                  </span>
+                                  <span class="flex-1">
+                                      <span class="text-slate-700">
+                                          ${entry.driver_name == null ? "—" : entry.driver_name}
+                                      </span>
+                                      <span if=(entry.payload != null && entry.payload != "") class="text-xs text-slate-500 block mt-1 break-all">
+                                          ${entry.payload}
+                                      </>
+                                  </span>
+                              </li>
+                          }
+                      }
+                  </ol>
+              </section>
+
+          </div>
+      </main>
+    </div>
+
+  </>
+
+</program>
