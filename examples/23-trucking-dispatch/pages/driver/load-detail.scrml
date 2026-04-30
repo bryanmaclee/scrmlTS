@@ -71,7 +71,7 @@
 
             const load = ?{`
                 SELECT
-                    l.id, l.origin_address, l.origin_city, l.origin_state,
+                    l.id, l.customer_id, l.origin_address, l.origin_city, l.origin_state,
                     l.destination_address, l.destination_city, l.destination_state,
                     l.pickup_at, l.deliver_by, l.commodity, l.weight_lbs,
                     l.rate_dollars, l.status,
@@ -293,10 +293,16 @@
                 return
             }
             if (!result.error) {
-                // M5: broadcast on both channels — board for dispatcher,
-                // load-events for customer + dispatcher of this load.
+                // M5: broadcast on dispatch-board + load-events.
                 publishBoardEvent("status-change", loadId, target)
                 publishLoadEvent("status", loadId, target, "")
+                // Special: delivery is also a customer-event so the
+                // customer's loads list flips to "delivered" without
+                // reload.
+                if (target == "delivered") {
+                    const customerId = @load.customer_id
+                    publishCustomerEvent("load-delivered", customerId, 0, loadId)
+                }
                 refresh()
                 return
             }
@@ -513,6 +519,25 @@
         }
     </>
 
+    <!-- M5: customer-events broadcast — driver publishes load-delivered
+         here when transitioning to delivered. The customer of the load
+         sees a notification. -->
+    <channel name="customer-events">
+        ${
+            @shared customerEvents = []
+
+            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
+                customerEvents = [...customerEvents, {
+                    type: eventType,
+                    targetCustomerId: targetCustomerId,
+                    invoiceId: invoiceId,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
+
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -535,6 +560,7 @@
               <span>
                   Board: <strong>${@boardEvents.length}</strong>
                   · Load: <strong>${@loadEvents.length}</strong>
+                  · Customer: <strong>${@customerEvents.length}</strong>
               </span>
               <button if=(@loadEvents.length > @lastSeenLoadEventCount)
                   onclick=ackLoadEvents()

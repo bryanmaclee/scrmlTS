@@ -122,7 +122,7 @@
             refresh()
         }
 
-        function markPaid(invoiceId) {
+        function markPaid(invoiceId, customerId) {
             @errorMessage = ""
             const tok = getSessionToken()
             const result = markPaidServer(tok, invoiceId)
@@ -134,7 +134,17 @@
                 setError("Could not mark invoice paid.")
                 return
             }
+            // M5: broadcast invoice-paid to customer-events so the
+            // customer's invoices view + home badge update live.
+            publishCustomerEvent("invoice-paid", customerId, invoiceId, 0)
             refresh()
+        }
+
+        // M5: dispatcher manually announces "invoice sent" to a customer.
+        // The server fn ensureInvoicesServer creates rows; this client
+        // function broadcasts to customer-events for a specific invoice.
+        function announceInvoice(invoiceId, customerId, loadId) {
+            publishCustomerEvent("invoice-sent", customerId, invoiceId, loadId)
         }
 
         function setError(msg) {
@@ -152,6 +162,24 @@
             ensureAndRefresh()
         }
     }
+
+    <!-- M5: customer-events channel for invoice-sent / invoice-paid
+         notifications to the relevant customer. -->
+    <channel name="customer-events">
+        ${
+            @shared customerEvents = []
+
+            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
+                customerEvents = [...customerEvents, {
+                    type: eventType,
+                    targetCustomerId: targetCustomerId,
+                    invoiceId: invoiceId,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -171,6 +199,9 @@
               <h1 class="text-2xl font-bold">Billing</h1>
 
               <div class="flex items-center gap-3">
+                  <span class="text-xs text-slate-500">
+                      Outbound notifications: <strong>${@customerEvents.length}</strong>
+                  </span>
                   <label class="text-sm text-slate-600" for="invoice-filter">Filter:</label>
                   <select id="invoice-filter" bind:value=@filter class="text-sm px-2 py-1 border border-slate-300 rounded-md bg-white">
                       <option value="all">All invoices</option>
@@ -229,12 +260,18 @@
                                           ${inv.payment_reference}
                                       </div>
                                   </td>
-                                  <td class="px-3 py-3 text-right">
+                                  <td class="px-3 py-3 text-right space-y-1">
                                       <button if=(!inv.paid_at)
-                                          onclick=markPaid(inv.id)
-                                          class="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium"
+                                          onclick=markPaid(inv.id, inv.customer_id)
+                                          class="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium block w-full"
                                       >
                                           Mark paid
+                                      </button>
+                                      <button if=(!inv.paid_at)
+                                          onclick=announceInvoice(inv.id, inv.customer_id, inv.load_id)
+                                          class="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium block w-full"
+                                      >
+                                          Notify customer
                                       </button>
                                       <span if=(inv.paid_at) class="text-xs text-slate-400">
                                           ${formatIsoDate(inv.paid_at)}
