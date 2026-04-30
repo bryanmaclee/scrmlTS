@@ -1,0 +1,250 @@
+// Trucking Dispatch — driver messages (M3).
+//
+// Route: /driver/messages. Server-rendered chat thread with the dispatcher.
+// Reads messages where channel_id = "driver-${driverId}" or "dispatch-board".
+// Form to send a new message → INSERT INTO messages → page reload.
+//
+// **No real-time** — pure server-render + reload pattern. M5 adds the
+// <channel name="driver-:id"> hookpoint for live dispatcher pushes.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward. F-RI-001
+// anchor pattern on the send mutator.
+//
+// Real-time hookpoint (M5): subscribe to driver-:id channel for live
+// dispatcher pushes; subscribe to dispatch-board for broadcasted updates.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, messages">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchMessages(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id, name FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const channelId = `driver-${driver.id}`
+
+            // Pull driver-:id and dispatch-board messages — joined on
+            // sender role for display.
+            const messages = ?{`
+                SELECT m.id, m.channel_id, m.from_user_id, m.body, m.at,
+                    u.email AS from_email, u.role AS from_role
+                FROM messages m
+                LEFT JOIN users u ON u.id = m.from_user_id
+                WHERE m.channel_id = ${channelId}
+                   OR m.channel_id = 'dispatch-board'
+                ORDER BY m.at ASC
+                LIMIT 200
+            `}.all()
+
+            return {
+                user: user,
+                driver: driver,
+                channelId: channelId,
+                messages: messages
+            }
+        }
+
+        server function sendMessageServer(sessionToken, body) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const trimmed = body.trim()
+            if (trimmed == "") return { error: "Message body required." }
+
+            const channelId = `driver-${driver.id}`
+            ?{`
+                INSERT INTO messages (channel_id, from_user_id, body)
+                VALUES (${channelId}, ${user.id}, ${trimmed})
+            `}.run()
+
+            return { ok: true }
+        }
+
+        @user = null
+        @driver = null
+        @channelId = ""
+        @messages = []
+        @loaded = false
+        @errorMessage = ""
+        @draft = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchMessages(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @driver = data.driver
+            @channelId = data.channelId
+            @messages = data.messages
+            @loaded = true
+        }
+
+        function sendMessage(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            if (@draft == "") {
+                setError("Type a message first.")
+                return
+            }
+            const tok = getSessionToken()
+            const body = @draft
+            @errorMessage = ""
+            const result = sendMessageServer(tok, body)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                @draft = ""
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        // Pure helper — render the sender label for a message row.
+        // Driver messages render right-aligned, dispatcher messages left.
+        fn senderLabel(role: string, email: string) -> string {
+            if (role == "dispatcher") return `Dispatcher · ${email}`
+            if (role == "driver")     return `You`
+            return email
+        }
+
+        fn isFromDriver(role: string) -> boolean {
+            return role == "driver"
+        }
+
+        fn bubbleClasses(role: string) -> string {
+            if (role == "driver") return "bg-blue-600 text-white ml-auto"
+            return "bg-slate-100 text-slate-900 mr-auto"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+      <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/driver" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+                <span class="text-xs uppercase tracking-wider text-slate-400">Messages</span>
+            </div>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/driver" class="hover:text-blue-300">Home</a>
+                <a href="/driver/hos" class="hover:text-blue-300">HOS</a>
+                <a href="/driver/profile" class="hover:text-blue-300">Profile</a>
+            </nav>
+        </header>
+
+        <main class="max-w-2xl mx-auto px-6 py-8">
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+            <div if=(@loaded && !@driver) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+                ${@errorMessage}
+            </div>
+
+            <div if=(@loaded && @driver) class="space-y-4">
+
+                <header class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h1 class="text-lg font-bold mb-1">Dispatch chat</h1>
+                    <p class="text-sm text-slate-600">
+                        Channel <code class="bg-slate-100 px-1 rounded">${@channelId}</code> + dispatch-board broadcast.
+                    </p>
+                    <p class="text-xs text-slate-500 mt-2">
+                        Messages refresh on send. Live updates ship in M5 via <code class="bg-slate-100 px-1 rounded">&lt;channel&gt;</code>.
+                    </p>
+                </header>
+
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <p if=(@messages.length == 0) class="text-sm text-slate-500 text-center py-8">
+                        No messages yet. Start a conversation with dispatch.
+                    </p>
+
+                    <div if=(@messages.length > 0) class="space-y-3">
+                        ${
+                            for (let m of @messages) {
+                                lift <div class="max-w-md rounded-lg px-4 py-2 ${bubbleClasses(m.from_role)}">
+                                    <div class="text-xs opacity-75 mb-0.5">
+                                        ${senderLabel(m.from_role, m.from_email)}
+                                        <span class="ml-2">${m.at == "" ? "" : m.at.substring(0, 16)}</span>
+                                    </div>
+                                    <div class="text-sm break-words">${m.body}</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </section>
+
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <form onsubmit=sendMessage() class="space-y-3">
+                        <label for="msg-body" class="block text-xs font-medium text-slate-600">
+                            Reply to dispatch
+                        </label>
+                        <textarea
+                            id="msg-body"
+                            bind:value=@draft
+                            rows="3"
+                            placeholder="Heading north on US-191, ETA Roosevelt 0900."
+                            class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                            required
+                        ></textarea>
+                        <div class="flex items-center justify-between">
+                            <div if=(@errorMessage != "") class="text-sm text-red-700">${@errorMessage}</div>
+                            <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">
+                                Send
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+            </div>
+        </main>
+      </div>
+
+  </>
+
+</program>
