@@ -56,3 +56,16 @@ Update `app.scrml` `< schema>` block + `< db>` tables list. Bootstrap dispatch.d
 - The `lin` keyword is a TYPE-SYSTEM enforcement — single-consumption within a function.
   The DB-side `lin_tokens` table provides the durable single-use guard
   (UPDATE ... WHERE consumed_at IS NULL — affected rows = 0 means already consumed).
+
+## 2026-04-29 — lin tokens 1, 2, 3 wired
+
+- **Schema** — lin_tokens table added to app.scrml < schema> + < db tables=> list. Bootstrapped in dispatch.db.
+- **Use 1 (acceptance)** — dispatch/load-detail mints on tendered → booked. Customer/load-detail consumes on Sign Rate Confirmation; advances load to dispatched.
+- **Use 2 (BOL)** — driver/load-detail mints on dispatched → loaded; uploadBolServer takes `lin token: string`, consumes via DB UPDATE. Upload BOL button disables post-consume.
+- **Use 3 (payment)** — dispatch/billing ensureInvoicesServer mints per new invoice. customer/invoices markPaidServer consumes via lin param. Mark Paid button disabled when no active token.
+
+### F-LIN-001 (new finding, M6)
+SQL `?{}` interpolation does NOT count as `lin` consumption per §35.3 rule 1, even though template-literal `${ticket}` does in example 19. Workaround: copy lin var into template literal first (`consume:${token}`), then `.substring(8)` back into the SQL. Adds 1 LOC + 1 cognitive step per consume site (3 sites total).
+
+### W-DG-002 / underscore-prefix-suppress observation
+The compiler suggests prefixing unused @vars with `_` to suppress E-DG-002, but `@_acceptanceIssuedAt` still fires the warning ("Consider … prefix with `_` (e.g., `@__acceptanceIssuedAt`)" — recursion!). Workaround: just delete the unused var.

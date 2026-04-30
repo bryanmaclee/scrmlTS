@@ -5,62 +5,158 @@ Built as a **language stress test** — its purpose is to surface real friction
 across scrml's full-stack feature surface (auth, schema/migrations, multi-file
 imports, real-time channels, lin tokens, state machines, role gating).
 
-> **Status: Milestone 1 of 6 (schema + auth scaffold).** M2-M6 add the
+> **Status: M1-M6 shipped.** All 6 milestones complete. Schema + auth scaffold,
 > dispatcher / driver / customer slices, real-time integration, lin tokens,
-> and polish. See `../../docs/changes/dispatch-app/scoping.md` for the full
-> roadmap.
+> README + final friction summary. See
+> `../../docs/changes/dispatch-app/scoping.md` for the original roadmap and
+> `FRICTION.md` for the load-bearing artifact: **26+ entries** logged across
+> M1-M6 documenting validation-principle violations, silent-failure patterns,
+> and DX gaps surfaced while building this app.
 
-## Scope statement (M1)
+## What this app does
 
-M1 ships the foundation only:
+Three personas share a single SQLite database (`dispatch.db`). Each persona
+has its own portal mounted under a per-role prefix:
 
-- **Schema** — all 9 tables (`users`, `customers`, `drivers`, `tractors`,
-  `trailers`, `loads`, `assignments`, `log_entries`, `invoices`, `messages`)
-  declared via `< schema>` (§39) so M2-M6 don't have to migrate.
-- **Auth scaffold** — `<program auth="required">` global gate; `/login` and
-  `/register` pages with `auth="optional"` overrides; password hashing via
-  `scrml:auth` (Argon2id); session cookie + KV store via `scrml:store`.
-- **Seeds** — 3 customers + 3 customer logins, 4 drivers + 4 driver logins,
-  1 dispatcher login, 3 tractors, 4 trailers, 8 loads in varying statuses.
-  All seeded users share password `demo`.
-- **Friction findings** — see `FRICTION.md`. M1 surfaced 6 entries
-  (4 P0/P1, 2 P2).
+- **Dispatcher** (`/dispatch/*`) — books loads, assigns drivers/tractors/
+  trailers, manages customers, runs billing.
+- **Driver** (`/driver/*`) — sees current load, advances status (loaded → in
+  transit → delivered), uploads BOL/POD, logs fuel stops + breakdowns,
+  tracks HOS.
+- **Customer** (`/customer/*`) — sees their loads + tracking + invoices,
+  signs rate confirmations, marks invoices paid.
+
+The app exercises:
+
+- **`<program auth="required">`** — global gate.
+- **`<channel>`** × 4 — real-time per-channel pub/sub (dispatch-board,
+  driver-events, load-events, customer-events).
+- **`<machine>`** × 1 — driver HOS state machine (off-duty / on-duty /
+  driving / sleeper-berth).
+- **`lin` tokens** × 3 — single-use idempotency keys for acceptance
+  (rate confirmation), BOL submission, and invoice payment.
+- **Multi-file imports** per §21 (helper fns only — see F-COMPONENT-001).
+- **`< schema>`** — 10 tables declared in `app.scrml`.
 
 ## File layout
 
 ```
 examples/23-trucking-dispatch/
 ├── README.md                  this file
-├── FRICTION.md                friction log (load-bearing output)
+├── FRICTION.md                friction log (26+ entries)
 ├── app.scrml                  <program> root + <schema> + <db> + nav shell
 ├── schema.scrml               shared enum types + DDL reference comment
 ├── seeds.scrml                runSeeds() — INSERT-with-conflict-skip dataset
+├── dispatch.db                bootstrap SQLite (schema applied, seed data ready)
 ├── models/
 │   └── auth.scrml             cookie helpers + role helpers + constants
-├── pages/
-│   └── auth/
-│       ├── login.scrml        /login form
-│       └── register.scrml     /register customer-self-signup form
-└── dispatch.db                bootstrap SQLite (schema applied, no rows)
+├── components/
+│   ├── address-form.scrml     (NOTE: components dir exists for type/helper
+│   ├── assignment-picker.scrml exports only — F-COMPONENT-001 blocks
+│   ├── customer-card.scrml    cross-file component RENDERING; consumer
+│   ├── driver-card.scrml      pages import helpers + inline markup)
+│   ├── invoice-card.scrml
+│   ├── load-card.scrml
+│   ├── load-status-badge.scrml
+│   └── status-picker.scrml
+└── pages/
+    ├── auth/
+    │   ├── login.scrml        /login
+    │   └── register.scrml     /register
+    ├── dispatch/
+    │   ├── board.scrml        /dispatch — kanban
+    │   ├── billing.scrml      /dispatch/billing
+    │   ├── customers.scrml    /dispatch/customers
+    │   ├── drivers.scrml      /dispatch/drivers
+    │   ├── load-detail.scrml  /dispatch/loads/:id
+    │   └── load-new.scrml     /dispatch/loads/new
+    ├── driver/
+    │   ├── home.scrml         /driver
+    │   ├── hos.scrml          /driver/hos
+    │   ├── load-detail.scrml  /driver/loads/:id
+    │   ├── load-log.scrml     /driver/loads/:id/log
+    │   ├── messages.scrml     /driver/messages
+    │   └── profile.scrml      /driver/profile
+    └── customer/
+        ├── home.scrml         /customer
+        ├── invoices.scrml     /customer/invoices
+        ├── load-detail.scrml  /customer/loads/:id
+        ├── loads.scrml        /customer/loads
+        ├── profile.scrml      /customer/profile
+        └── quote.scrml        /customer/quote
 ```
 
-## Run instructions
+LOC tally: ~8,200 across 33 .scrml files (M1: ~850, M2: ~2,200, M3: ~2,260,
+M4: ~1,800, M5: ~600, M6: ~500).
+
+## Setup
+
+This repo uses [bun](https://bun.sh/) — install bun first if you haven't.
 
 ```bash
-# 1. Compile the example dir to dist/
-bun ./compiler/src/cli.js compile examples/23-trucking-dispatch/
-
-# 2. Or use dev mode for hot-reload + a local server on :3000
-bun ./compiler/src/cli.js dev examples/23-trucking-dispatch/
-
-# Then visit:
-#   http://localhost:3000/login    — sign in with seeded credentials
-#   http://localhost:3000/register — self-register as a new customer
+# from the repo root
+bun install
+cd compiler && bun install && cd ..
 ```
+
+The `dispatch.db` is checked in with the schema applied — no manual
+bootstrap step needed for a fresh checkout. If you delete `dispatch.db`
+or change the schema:
+
+```bash
+# Re-bootstrap dispatch.db with the lin_tokens table + every other table.
+bun -e "
+const { Database } = require('bun:sqlite');
+const db = new Database('examples/23-trucking-dispatch/dispatch.db');
+// Run the CREATE TABLE statements from app.scrml's <schema> block here,
+// or compile the example once — the F-SCHEMA-001 workaround means the
+// compiler's PA pass needs a live DB to validate against.
+"
+```
+
+(The `< schema>` block in `app.scrml` is the canonical declaration but
+per F-SCHEMA-001, the PA pass currently requires a live DB file —
+adopters can't compile from declared schema alone. See FRICTION.md.)
+
+## Run
+
+```bash
+# Compile the example dir to dist/
+bun ./compiler/src/cli.js compile examples/23-trucking-dispatch/
+```
+
+**Expected (per scoping):** `dist/` contains an HTML/JS file per .scrml
+page.
+
+**Observed (per F-COMPILE-001 P0):** `dist/` contains only **17** HTML
+files vs **32 source .scrml files** — basename collisions (`home.scrml`
+across customer + driver, `load-detail.scrml` across all 3 personas,
+`profile.scrml` across customer + driver) silently overwrite. The
+"customer home", "customer load-detail", "customer profile", "dispatch
+load-detail" pages don't exist in the compiled output. **The dispatch
+app cannot run as advertised** until F-COMPILE-001 is fixed (preserve
+source directory structure in dist/, or hard-error on basename
+collisions).
+
+```bash
+# Dev-server mode (NOT YET WORKING — per OQ-2 below):
+bun ./compiler/src/cli.js dev examples/23-trucking-dispatch/
+# expected: app runs at http://localhost:3000
+# observed: dev-server bootstrap fails with scrml:auth import resolution error
+#           (post-M6 deep-dive will diagnose)
+```
+
+The compile-only output IS readable as static HTML for the routes that
+survive F-COMPILE-001's overwrites, but interactive flows require the
+runtime that the dev-server provides.
 
 ## Seeded credentials
 
-All seeded accounts share password `demo`:
+All seeded accounts share password `demo`. After login, users are
+redirected by role:
+- Dispatchers → `/dispatch`
+- Drivers → `/driver`
+- Customers → `/customer`
 
 | Role | Email |
 |---|---|
@@ -73,56 +169,130 @@ All seeded accounts share password `demo`:
 | Customer | `dispatch@uintahfield.example` |
 | Customer | `billing@vernalops.example` |
 
-After login, users are redirected by role:
-- Dispatchers → `/dispatch` (M2)
-- Drivers → `/driver` (M3)
-- Customers → `/customer` (M4)
+(Brief override note: scoping doc and progress refer to
+`*@dispatch.local` shorthand; actual seeds use `*@dispatch.example` /
+`*.example` per the `seeds.scrml` data above.)
 
-M2-M4 hadn't shipped at M1 close — those routes 404 until the corresponding
-milestone lands.
+The seed dataset includes:
+- 8 loads in varying statuses (tendered, booked, in_transit, delivered)
+- 3 tractors + 4 trailers
+- 1 dispatcher + 4 drivers + 3 customers
 
-## Friction surface — what M1 already showed
+## Persona walkthrough
 
-The `< schema>` + auth scaffold was the smallest possible slice that touches
-multi-file imports, schema declaration, password hashing, session storage,
-and Tailwind 3 utility CSS. Even at this scope, M1 surfaced:
+### Dispatcher
+- Login as `dispatcher@dispatch.example`.
+- `/dispatch` shows the kanban board. Click a load to open its detail page.
+- On `/dispatch/loads/:id`, advance status (e.g. tendered → booked).
+  When you book a load, an **acceptance lin-token** is minted; the
+  page shows "Rate confirmation pending" with the token's prefix.
+- `/dispatch/customers`, `/dispatch/drivers` for roster views.
+- `/dispatch/billing` shows invoices, mints **payment lin-tokens**
+  for newly-invoiced loads on first visit.
 
-- **F-AUTH-001** (P0): `auth="role:X"` is silently inert — adopters get no
-  diagnostic that the per-route role gate they wrote does nothing.
+### Driver
+- Login as any `*.dispatch.example` driver (e.g. `doyle.briggs`).
+- `/driver` shows current assignment. Click into a load.
+- On `/driver/loads/:id`, advance status (dispatched → loaded → in transit
+  → delivered). Loading a load mints a **BOL lin-token**. The "Upload BOL"
+  button is enabled only while the token is active. After first BOL
+  upload, the token is consumed and the button greys out.
+- Log fuel stops, breakdowns, POD via the inline forms.
+- `/driver/hos` for hours-of-service.
+
+### Customer
+- Login as any `*.example` customer (e.g. `ops@basinenergy.example`).
+- `/customer` shows your loads + recent invoices.
+- On `/customer/loads/:id`, when status is `booked`, click **"Sign rate
+  confirmation"**. This consumes the acceptance lin-token and advances
+  the load to `dispatched`.
+- On `/customer/invoices`, **"Mark paid"** consumes the payment
+  lin-token. The button greys out if no active token (the dispatcher
+  hasn't generated the invoice yet).
+
+## Lin token semantics — single-use idempotency
+
+The 3 lin tokens (acceptance, BOL, payment) demonstrate the canonical
+"once and only once" guarantee. Two layers cooperate:
+
+1. **Compile-time**: server fns receive `lin token: string` parameters.
+   Per §35.2.1 + §35.3, the compiler enforces the value is consumed
+   exactly once on every execution path within the function body. See
+   `examples/19-lin-token.scrml` for the canonical pattern.
+
+2. **Runtime**: the `lin_tokens` table provides the durable single-use
+   guard. The `consume` operation is `UPDATE lin_tokens SET consumed_at
+   = CURRENT_TIMESTAMP WHERE token = ? AND consumed_at IS NULL`. If
+   `changes == 0`, the token was already consumed (replay or race) and
+   the server fn returns an error.
+
+The two layers are complementary: lin gives the static guarantee
+(within one function call); the DB guard gives the durable guarantee
+(across requests, replays, browser tabs). Together they enforce true
+once-and-only-once acceptance / BOL / payment semantics.
+
+**F-LIN-001 (M6 finding):** SQL `?{}` interpolation does NOT count as a
+`lin` consume per §35.3 rule 1, even though template-literal `${var}`
+does in example 19. Workaround: copy the lin var into a regular
+template literal first (e.g. `const m = ` + "\\`consume:${token}\\`" +
+`; ?{` + "\\`UPDATE ... WHERE token = ${m.substring(8)}\\`" + `}.run()`).
+
+## Friction surface — what M1-M6 produced
+
+The dispatch app is a stress test. Its load-bearing output is
+`FRICTION.md` — **26+ entries** documenting validation-principle
+violations and DX friction encountered while writing real scrml at
+~8,200 LOC scale.
+
+Highlights (full entries with code samples in `FRICTION.md`):
+
+- **F-AUTH-001** (P0): `auth="role:X"` is silently inert; every page
+  hand-rolls the role check.
 - **F-AUTH-002** (P0): cross-file `server function` with `?{}` SQL access
-  hits E-SQL-004 — adopters can't factor login into a shared module.
+  hits E-SQL-004; ~126 LOC of duplicated `getCurrentUser` across
+  18 pages.
+- **F-RI-001** (P0): canonical "call server fn, dispatch on result,
+  update reactive" pattern doesn't always compile; specific
+  workaround pattern required.
+- **F-COMPONENT-001** (P0, architectural): cross-file component
+  rendering is silently broken end-to-end; `examples/22-multifile/`
+  demo renders blank. M2-M6 all use inline-only markup.
+- **F-CHANNEL-001** (P0): channel name interpolation
+  (`<channel name="driver-${id}">`) is silently inert; per-id channel
+  scoping collapses to a single broadcast.
+- **F-COMPILE-001** (P0): `scrml compile <dir>` flattens output by
+  basename, silently overwriting collisions. M2-M6 dispatch app loses
+  5 pages in compiled output (15 silent overwrites).
+- **F-LIN-001** (P1, new in M6): SQL `?{}` interpolation doesn't
+  satisfy `lin` consume per §35.3; the example-19 template-literal
+  pattern doesn't generalize.
+- **F-NULL-001 / F-NULL-002** (P1): `== null` / `!= null` is rejected
+  in some contexts but accepted in others; trigger is unpredictable.
 - **F-SCHEMA-001** (P1): `< schema>` doesn't satisfy E-PA-002 — adopters
-  must pre-create the DB file before the compiler will validate `?{}`
-  against the schema they declared.
-- **F-EXPORT-001** (P1): `export server function` is silently unrecognized.
-- **F-AUTH-003** (P2): W-AUTH-001 fires even when `auth=` IS explicit.
-- **F-DESTRUCT-001** (P2): array destructuring inside `for-of` may confuse
-  type-scope.
+  must pre-create the DB before compile.
 
-See `FRICTION.md` for full entries with code samples and suggested fixes.
+The full log + the **"Summary — what this exercise produced"** section
+at the end of FRICTION.md document the systemic *silent failure*
+pattern: the compiler repeatedly accepts valid-looking syntax that
+produces silently-wrong output. This is the chief architectural finding
+of the entire 6-milestone exercise.
 
 ## Constraints (per scoping doc §10)
 
 - Tailwind 3 utility classes only (no custom theme, no `class={expr}`).
 - bun:sqlite only (no Postgres) — single-file `dispatch.db` next to source.
-- Multi-file imports per §21 (working syntax only — no novel features).
+- Multi-file imports per §21 (helpers; components inline-only per
+  F-COMPONENT-001).
 - No `--no-verify` on commits (every commit passes the test suite).
 - No new compiler features during the build — work around gaps, log them.
-
-## What's next (M2-M6)
-
-| # | Slice | LOC est. |
-|---|---|---|
-| **M2** | Dispatcher routes (`/dispatch/*` — board, load detail, drivers, customers, billing) | ~1,500 |
-| **M3** | Driver routes (`/driver/*` — current load, log, HOS, messages) + HOS state machine | ~1,200 |
-| **M4** | Customer routes (`/customer/*` — landing, loads, invoices, quote) | ~1,000 |
-| **M5** | Real-time integration (`<channel>` × 4: dispatch-board, driver-:id, load-:id, customer-:id) | ~600 |
-| **M6** | Polish + lin tokens (rate confirmation, BOL submission) + final friction sweep | ~500 |
+- No real auth provider, GPS, or payment integration — all simulated.
 
 ## Links
 
-- [Scoping doc](../../docs/changes/dispatch-app/scoping.md) — full roadmap
+- [Scoping doc](../../docs/changes/dispatch-app/scoping.md) — original roadmap
 - [LLM kickstarter v1](../../docs/articles/llm-kickstarter-v1-2026-04-25.md) — required brief for any scrml-writing dispatch
 - [Multi-file precedent](../22-multifile/) — closest precedent for §21 imports
-- [Schema example](../17-schema-migrations.scrml) — `< schema>` reference
+- [Lin token reference](../19-lin-token.scrml) — canonical `lin` pattern
+- [Channel reference](../15-channel-chat.scrml) — `<channel>` reference
+- [State machine reference](../14-mario-state-machine.scrml) — `<machine>` reference
 - [Compiler SPEC.md](../../compiler/SPEC.md) — §21 imports, §35 lin, §38 channels, §39 schema, §44 SQL
