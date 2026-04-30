@@ -898,3 +898,223 @@ inline-only workaround works for app code.
 No design change.
 
 ---
+
+## F-NULL-002 — `!= null` / `== null` in server-fn bodies fires E-SYNTAX-042 (P1)
+
+**Surfaced in:** M4 `pages/customer/invoices.scrml::markPaidServer`. The
+server fn checked `if (inv.paid_at != null && inv.paid_at != "")` after a
+`SELECT i.id, i.customer_id, i.paid_at FROM invoices ...`. The compiler
+fired E-SYNTAX-042 in GCP3 with no line number.
+
+**Distinct from F-NULL-001:** F-NULL-001 documents the trigger as "file
+contains `<machine>`". F-NULL-002 reproduces in plain server-fn bodies
+with no `<machine>` block in the file (or in the project). Minimal repro:
+
+```scrml
+<program>
+${
+  server function test() {
+    const x = "hello"
+    if (x != null) return { ok: true }   // E-SYNTAX-042 fires
+    return { ok: false }
+  }
+}
+<div>test</div>
+</program>
+```
+
+Fails with `error [E-SYNTAX-042]: ... stage: GCP3` (no line/column).
+
+**Markup-side null comparisons compile fine** in the same file:
+```scrml
+<div if=(@x != null && @x != "")>${@x}</div>   // OK
+```
+
+So the GCP3 detector is asymmetric: it inspects server-fn body
+expressions but NOT markup `if=` attribute expressions or template
+interpolations. This is the inverse of F-NULL-001 (which is the
+machine-presence trigger affecting client-fn bodies).
+
+**What I tried:**
+```scrml
+server function markPaidServer(sessionToken, invoiceId) {
+    ...
+    const inv = ?{`SELECT id, customer_id, paid_at FROM invoices WHERE id = ${invoiceId}`}.get()
+    if (!inv) return { error: "Invoice not found." }
+    if (inv.customer_id != customer.id) return { unauthorized: true }
+    if (inv.paid_at != null && inv.paid_at != "") {        // ← fails here
+        return { error: "Invoice already paid." }
+    }
+    ...
+}
+```
+
+**Workaround used:** truthiness check.
+
+```scrml
+if (inv.paid_at) {
+    return { error: "Invoice already paid." }
+}
+```
+
+For a column that's TIMESTAMP (text or null in SQLite) this is fine —
+empty-string and null both coerce to falsy. For numeric or boolean
+columns the semantics may differ; in those cases the workaround is to
+test against an obvious sentinel (`if (inv.x != 0)`).
+
+**Suggests:**
+- Bring the server-fn-body GCP3 detector in line with what's allowed in
+  markup. Right now `!= null` / `== null` are accepted inside markup
+  `if=` attributes and `${ ... ? ... : ... }` interpolations but rejected
+  inside server-fn bodies. Either both should be allowed (if the language
+  position is "JS-style null checks are pragmatic") or both should be
+  rejected with a single uniform diagnostic.
+- The error has no line/column. Adopters writing the repro above with a
+  100-line server fn body will spend disproportionate time bisecting.
+
+Severity P1: workaround is mechanical (one character `!`), but the
+asymmetry between markup-OK and server-fn-not-OK is unpredictable and
+the missing source location compounds the confusion. Not P0 because the
+fix path is short once you know it.
+
+**Repro:** `/tmp/null-test.scrml` shape above. Six-line minimal. Reproduces
+in any version of the compiler that runs the GCP3 stage (every M2-M4
+build).
+
+---
+
+## F-CONSUME-001 — `@var` in attribute-string interpolation isn't recognized as consumption (P2)
+
+**Surfaced in:** M4 `pages/customer/invoices.scrml`. The page declared
+`@highlightLoadId` (read from `?load=<id>` query param) and used it in
+the row class:
+
+```scrml
+lift <tr class="border-b border-slate-200 hover:bg-slate-50 ${(inv.load_id == @highlightLoadId) ? 'bg-yellow-50' : ''}">
+```
+
+**What didn't work:** E-DG-002:
+> "Reactive variable `@highlightLoadId` is declared but never consumed
+> in a render or logic context. Consider removing the unused variable,
+> or prefix with `_` (e.g., `@_highlightLoadId`) to suppress this
+> warning."
+
+The variable IS read — inside the `${ ... ? ... : ... }` ternary embedded
+in the `class=` attribute string. The DG (declaration-graph) pass doesn't
+treat this kind of interpolation as a consumption site.
+
+**Workaround used:** lift the conditional class into a `const` binding in
+the for-loop body before the `lift`:
+
+```scrml
+${
+    for (let inv of @invoices) {
+        if (!matchesFilter(inv, @filter, TODAY_ISO)) continue
+        const rowClass = (inv.load_id == @highlightLoadId)
+            ? "border-b border-slate-200 bg-yellow-50"
+            : "border-b border-slate-200 hover:bg-slate-50"
+        lift <tr class="${rowClass}">
+            ...
+        </tr>
+    }
+}
+```
+
+The `const rowClass = ... @highlightLoadId ...` line counts as a logic-block
+read and silences the warning. The lifted `class="${rowClass}"` then drops
+to a single-variable interpolation.
+
+**Repro:** minimal:
+```scrml
+<program>
+${ @x = 0 }
+<div class="abc-${@x}">test</div>
+</program>
+```
+→ fires E-DG-002 on `@x` despite the visible read.
+
+**Suggests:**
+- The DG-pass consumption finder should walk into attribute-value
+  template-literal interpolations the same way it walks into `${}` body
+  expressions. The compile output already serializes the `@x` read in the
+  emitted JS, so the read IS happening — the false-negative is in the
+  warning logic.
+- Alternatively, document the pattern explicitly: "for `@var` reads
+  inside attribute interpolations, lift to a logic-block const first."
+
+Severity P2: the workaround is mechanical and the const-lift arguably
+improves readability. Logging because it's the third "@var read site
+that the analyzer doesn't recognize" finding (after F-RI-001's nested
+control-flow exclusion + F-CPS-001's nested-statement-body exclusion).
+
+The pattern feels load-bearing on apps that style rows / cells based on
+reactive selection state — sortable columns, expanded rows, highlighted
+search hits — so adopters will hit this near-immediately when building
+list views.
+
+---
+
+## F-AUTH-001 — M4 RECONFIRMATION (P0)
+
+All 6 customer pages use the same server-side fallback as M2 + M3: each
+page declares its own `<program auth="required">` and inline
+`getCurrentUser()` + `if (!user || user.role != "customer")` guard.
+The page-level `auth="role:customer"` attribute is documentation only;
+M4 (like M2 + M3) deliberately omits it from the `<program>` opener
+because the original `<page route= auth=>` wrapper hits multi-error
+parse cascades when nested in `< db>`.
+
+**Cumulative reconfirmations:** 18 pages (6 dispatcher + 6 driver + 6
+customer). Every server fn that needs role gating has the same 4-line
+copy-pasted guard. Across M2 + M3 + M4 the duplicated `if (!user || user.role != X)`
+guards now appear ~30+ times across the app.
+
+The friction is exercised at full scale — three slices, each persona
+consistently re-implementing the same fallback because the compiler
+attribute is silently inert.
+
+No design change.
+
+---
+
+## F-AUTH-002 — M4 RECONFIRMATION (P0)
+
+Each of the 6 customer pages duplicates the ~7-line `getCurrentUser`
+server fn body inline. Combined with M2 + M3, the cumulative inline-
+duplication is **~126 LOC across 18 pages** doing the same session →
+user-id → users-row lookup. M4 confirms F-AUTH-002 is consistently
+load-bearing on every page touching auth.
+
+The single-source-of-truth file `models/auth.scrml` exists, exports
+non-SQL helpers (`readSessionCookie`, `checkRole`, `rolePath`,
+`SESSION_DB_PATH`, `SESSION_COOKIE_NAME`, `SESSION_TTL_SECONDS`,
+`DISPATCH_DB_PATH`), but cannot host the SQL-reading `getCurrentUser`
+fn that every page actually needs. The cross-file `?{}` portability gap
+(E-SQL-004) blocks the abstraction.
+
+No design change.
+
+---
+
+## F-COMPONENT-001 — M4 RECONFIRMATION (P0, architectural)
+
+M4 ships zero cross-file component imports per kickstarter v1 + S50
+plan B. Every customer page imports helper functions (`formatRate`,
+`formatPickupAt`, `statusBadgeClasses`, `statusLabel`,
+`accountStatusClasses`, `accountStatusLabel`, `paymentTermsLabel`,
+`invoiceStatus`, `invoiceStatusClasses`, `invoiceStatusLabel`,
+`formatIsoDate`) and inlines all markup directly. Helpers refactor
+clean across files; markup must be copied or written inline at every
+consumer site.
+
+**Cumulative reconfirmations:** every M2 + M3 + M4 page (18 of 18) uses
+the inline pattern. Zero cross-file component instances ship in the
+app. The components directory exists with `LoadCard`, `LoadStatusBadge`,
+`CustomerCard`, `InvoiceCard`, `DriverCard`, `AssignmentPicker`,
+`StatusPicker`, `AddressForm`, but they are documentation / type-export
+hosts only. None render correctly when imported as components.
+
+No design change. The deep-dive on cross-file component expansion
+remains queued post-M6.
+
+---
