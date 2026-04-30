@@ -1,0 +1,302 @@
+// Trucking Dispatch — customer invoices (M4).
+//
+// Route: /customer/invoices. Table of invoices for this customer:
+// load_id, route, amount, sent_at, due_at, paid_at-or-Outstanding,
+// payment_reference. Filter dropdown (all / outstanding / paid / overdue).
+//
+// Action: "Mark paid" button (test-only) — sets paid_at + payment_reference
+// inline. Per scoping: real apps would integrate Stripe / ACH. The customer
+// self-pay model is fine for the demo.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 + F-RI-001 carryforward.
+//
+// Real-time hookpoint (M5): subscribe to `customer-:id` channel for paid
+// notifications (when dispatcher records payment instead of self-pay).
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { formatRate } from '../../components/load-card.scrml'
+      import {
+          invoiceStatus, invoiceStatusClasses, invoiceStatusLabel, formatIsoDate
+      } from '../../components/invoice-card.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, invoices, loads">
+
+    ${
+        // Today as ISO date — used for overdue detection. Hardcoded to seed
+        // window so the demo isn't anchored to a moving target.
+        const TODAY_ISO = "2026-04-29"
+
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // F-AUTH-001 fallback: role gate. Returns user + customer + invoices
+        // scoped to this customer.
+        server function fetchInvoicesServer(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+
+            const customer = ?{`SELECT id, name FROM customers WHERE user_id = ${user.id}`}.get()
+            if (!customer) return { error: "No customer record." }
+
+            const invoices = ?{`
+                SELECT
+                    i.id, i.load_id, i.amount_dollars,
+                    i.sent_at, i.due_at, i.paid_at, i.payment_reference,
+                    l.origin_city AS load_origin_city,
+                    l.destination_city AS load_destination_city,
+                    l.commodity AS load_commodity
+                FROM invoices i
+                LEFT JOIN loads l ON l.id = i.load_id
+                WHERE i.customer_id = ${customer.id}
+                ORDER BY i.sent_at DESC
+            `}.all()
+
+            return { user: user, customer: customer, invoices: invoices }
+        }
+
+        // Demo "self-pay" — sets paid_at + a synthetic payment_reference. Cross-
+        // customer guard ensures a customer can only mark THEIR OWN invoices
+        // paid (defense-in-depth — UI never shows other customers' invoices,
+        // but a malicious POST could try).
+        server function markPaidServer(sessionToken, invoiceId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+            const customer = ?{`SELECT id FROM customers WHERE user_id = ${user.id}`}.get()
+            if (!customer) return { error: "No customer record." }
+
+            // Verify ownership.
+            const inv = ?{`
+                SELECT id, customer_id, paid_at FROM invoices WHERE id = ${invoiceId}
+            `}.get()
+            if (!inv) return { error: "Invoice not found." }
+            if (inv.customer_id != customer.id) {
+                return { unauthorized: true }
+            }
+            if (inv.paid_at) {
+                return { error: "Invoice already paid." }
+            }
+
+            const ref = `SELFPAY-DEMO-${invoiceId}`
+            ?{`
+                UPDATE invoices
+                SET paid_at = CURRENT_TIMESTAMP, payment_reference = ${ref}
+                WHERE id = ${invoiceId}
+            `}.run()
+
+            return { ok: true }
+        }
+
+        @user = null
+        @invoices = []
+        @loaded = false
+        @errorMessage = ""
+        @filter = "all"
+
+        // Optional ?load=<id> query param highlights one row when navigating
+        // here from /customer/loads/:id "View invoice" links.
+        @highlightLoadId = 0
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function readHighlightFromQuery() {
+            const search = window.location.search
+            if (!search) return 0
+            const idx = search.indexOf("load=")
+            if (idx < 0) return 0
+            const tail = search.substring(idx + "load=".length)
+            const amp = tail.indexOf("&")
+            const raw = amp < 0 ? tail : tail.substring(0, amp)
+            const n = parseInt(raw, 10)
+            return isNaN(n) ? 0 : n
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchInvoicesServer(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @invoices = data.invoices
+            @highlightLoadId = readHighlightFromQuery()
+            @loaded = true
+        }
+
+        // F-RI-001 anchor + setError indirection.
+        function markPaid(invoiceId) {
+            @errorMessage = ""
+            const tok = getSessionToken()
+            const result = markPaidServer(tok, invoiceId)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        // Pure helper — does this invoice match the dropdown filter?
+        fn matchesFilter(inv: any, filter: string, today: string) -> boolean {
+            if (filter == "all") return true
+            const s = invoiceStatus(inv, today)
+            return s == filter
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/customer" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Invoices</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/customer" class="hover:text-blue-300">Home</a>
+              <a href="/customer/loads" class="hover:text-blue-300">Loads</a>
+              <a href="/customer/invoices" class="hover:text-blue-300">Invoices</a>
+              <a href="/customer/profile" class="hover:text-blue-300">Profile</a>
+              <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
+              <button onclick=logout() class="hover:text-blue-300">Logout</button>
+          </nav>
+      </header>
+
+      <main class="max-w-6xl mx-auto px-6 py-8">
+          <div class="flex items-center justify-between mb-6">
+              <h1 class="text-2xl font-bold">Invoices</h1>
+
+              <div class="flex items-center gap-3">
+                  <label class="text-sm text-slate-600" for="invoice-filter">Filter:</label>
+                  <select id="invoice-filter" bind:value=@filter class="text-sm px-2 py-1 border border-slate-300 rounded-md bg-white">
+                      <option value="all">All invoices</option>
+                      <option value="outstanding">Outstanding</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="paid">Paid</option>
+                  </select>
+              </div>
+          </div>
+
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@errorMessage != "") class="mb-4 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+              ${@errorMessage}
+          </div>
+
+          <div if=@loaded class="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <table class="w-full">
+                  <thead class="bg-slate-100 text-xs uppercase tracking-wider text-slate-600">
+                      <tr>
+                          <th class="px-3 py-2 text-left">Load</th>
+                          <th class="px-3 py-2 text-right">Amount</th>
+                          <th class="px-3 py-2 text-left">Sent</th>
+                          <th class="px-3 py-2 text-left">Due</th>
+                          <th class="px-3 py-2 text-left">Status</th>
+                          <th class="px-3 py-2 text-right">Action</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      ${
+                          for (let inv of @invoices) {
+                              if (!matchesFilter(inv, @filter, TODAY_ISO)) continue
+                              const rowClass = (inv.load_id == @highlightLoadId) ? "border-b border-slate-200 bg-yellow-50" : "border-b border-slate-200 hover:bg-slate-50"
+                              lift <tr class="${rowClass}">
+                                  <td class="px-3 py-3 text-sm">
+                                      <a class="text-blue-600 hover:underline font-medium" href="/customer/loads/${inv.load_id}">
+                                          #${inv.load_id}
+                                      </a>
+                                      <div class="text-xs text-slate-500">
+                                          ${inv.load_origin_city == null ? "" : inv.load_origin_city}
+                                          <span if=(inv.load_origin_city != null && inv.load_destination_city != null) class="text-slate-400 mx-1">→</span>
+                                          ${inv.load_destination_city == null ? "" : inv.load_destination_city}
+                                      </div>
+                                      <div class="text-xs text-slate-500">
+                                          ${inv.load_commodity == null ? "" : inv.load_commodity}
+                                      </div>
+                                  </td>
+                                  <td class="px-3 py-3 text-sm font-semibold text-slate-900 text-right">
+                                      ${formatRate(inv.amount_dollars)}
+                                  </td>
+                                  <td class="px-3 py-3 text-sm text-slate-700">${formatIsoDate(inv.sent_at)}</td>
+                                  <td class="px-3 py-3 text-sm text-slate-700">${formatIsoDate(inv.due_at)}</td>
+                                  <td class="px-3 py-3">
+                                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${invoiceStatusClasses(invoiceStatus(inv, TODAY_ISO))}">
+                                          ${invoiceStatusLabel(invoiceStatus(inv, TODAY_ISO))}
+                                      </span>
+                                      <div if=(inv.payment_reference != null && inv.payment_reference != "") class="text-xs text-slate-500 mt-1">
+                                          ${inv.payment_reference}
+                                      </div>
+                                  </td>
+                                  <td class="px-3 py-3 text-right">
+                                      <button if=(!inv.paid_at)
+                                          onclick=markPaid(inv.id)
+                                          class="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium"
+                                      >
+                                          Mark paid
+                                      </button>
+                                      <span if=(inv.paid_at) class="text-xs text-slate-400">
+                                          ${formatIsoDate(inv.paid_at)}
+                                      </>
+                                  </td>
+                              </tr>
+                          }
+                      }
+                  </tbody>
+              </table>
+
+              <p if=(@invoices.length == 0) class="px-3 py-8 text-center text-slate-500 text-sm">
+                  No invoices yet. They'll appear once a delivered load is invoiced by your dispatcher.
+              </p>
+          </div>
+
+          <p class="text-xs text-slate-500 mt-4">
+              <strong>Demo note:</strong> "Mark paid" is a self-pay shortcut for this example app. In a real system,
+              payment would route through Stripe, ACH, or your dispatcher's payment processor.
+          </p>
+      </main>
+    </div>
+
+  </>
+
+</program>
