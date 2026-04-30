@@ -8,6 +8,20 @@ Living log of friction surfaced while writing the dispatch app. Format per scopi
 
 **Surfaced in:** M1 design (scoping §5 + §11); applies to every M2-M4 role-gated page.
 
+**M2 confirmation:** All 6 dispatcher pages (board, load-new, load-detail,
+drivers, customers, billing) now use the F-AUTH-001 server-side fallback
+pattern: each page declares `<program auth="required">` and an inline
+`getCurrentUser(sessionToken)` server fn that resolves the cookie + reads
+the users row, plus a per-server-fn `if (!user || user.role != "dispatcher")
+return { unauthorized: true }` guard. The page-level `auth="role:dispatcher"`
+attribute (when written) is documentation only — no compiler effect, no
+runtime gating. M2 ships with the attribute deliberately omitted from the
+`<program>` openers (because the original `<page route= auth=>` wrapper
+hits multi-error parse cascades when it lives inside `< db>`) — the role
+check is server-side only. The result: the F-AUTH-001 friction is now
+exercised six times in the codebase, exactly as intended by the scoping
+doc's stress-test framing. No design change.
+
 **What I tried:**
 ```scrml
 <page route="/dispatch" auth="role:dispatcher">
@@ -30,6 +44,14 @@ The current behavior — silent acceptance — directly contradicts the S49 vali
 ## F-AUTH-002 — Cross-file server functions with SQL access are not portable (P0)
 
 **Surfaced in:** M1, when attempting to put `login()` / `register()` / `getCurrentUser()` in `models/auth.scrml` so multiple pages could import them.
+
+**M2 confirmation:** Each of the 6 dispatcher pages duplicates the
+~7-line `getCurrentUser(sessionToken)` server fn body inline. Total
+duplication: ~42 LOC across the 6 pages doing the same session →
+user-id → users-row lookup. Refactoring this into a shared helper file
+hits E-SQL-004 the moment the helper has a `?{}` SQL block, so the
+duplication is unavoidable. M2 confirms the friction is sharp and
+load-bearing on every multi-page scrml app touching auth.
 
 **What I tried:** Make `models/auth.scrml` a pure-fn file (§21.5) exporting `server function login(email, password)` etc., with `?{}` SQL blocks reading the `users` table.
 

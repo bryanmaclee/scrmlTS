@@ -44,9 +44,7 @@ ${
         return status
     }
 
-    export const LoadStatusBadge = <span props={ status: string }
-        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadgeClasses(status)}"
-    >
+    export const LoadStatusBadge = <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadgeClasses(status)}" props={ status: string }>
         ${statusLabel(status)}
     </>
 }
