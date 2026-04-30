@@ -1,0 +1,198 @@
+// Trucking Dispatch — dispatcher board (M2).
+//
+// Route: /dispatch — main landing for the dispatcher persona. 3-column
+// kanban view of the load pipeline, plus a top bar with "Book new load"
+// link and the logged-in dispatcher's identity.
+//
+// Per F-AUTH-001 + F-AUTH-002 (M1): the `auth="role:dispatcher"` attribute
+// on `<page>` is silently inert — we layer a server-side `checkDispatcher`
+// guard that calls getCurrentUser + checks role and redirects to /login
+// on failure. The auth helpers (getCurrentUser, checkDispatcher) are
+// INLINED here per F-AUTH-002 — cross-file `?{}`-using server fns hit
+// E-SQL-004.
+//
+// Real-time hookpoint (M5): a `<channel name="dispatch-board">` would
+// subscribe to load.status broadcasts and trigger a refetch. Not wired
+// in M2; status changes happen on submit + page reload.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      // Imports at <program> scope so component visibility works in markup
+      // (cf. F-COMPONENT-001 below — imports inside `< db>` block scope
+      // hit E-COMPONENT-020 even though the import resolves).
+      import { LoadCard } from '../../components/load-card.scrml'
+      import { readSessionCookie } from '../../models/auth.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, loads, customers, assignments, drivers">
+
+    ${
+        // F-AUTH-002 inlined: getCurrentUser walks the session store +
+        // users table. Cross-file SQL access fails E-SQL-004.
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // F-AUTH-001 fallback: dispatch the role gate ourselves. The
+        // `auth="role:dispatcher"` attribute below is documentation —
+        // does nothing at compile time.
+        server function loadBoardData(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "dispatcher") {
+                return { unauthorized: true }
+            }
+
+            const loads = ?{`
+                SELECT
+                    l.id, l.customer_id, l.origin_city, l.origin_state,
+                    l.destination_city, l.destination_state, l.commodity,
+                    l.weight_lbs, l.rate_dollars, l.pickup_at, l.deliver_by,
+                    l.status,
+                    c.name AS customer_name
+                FROM loads l
+                LEFT JOIN customers c ON c.id = l.customer_id
+                ORDER BY l.pickup_at ASC
+            `}.all()
+
+            return { user: user, loads: loads }
+        }
+
+        @user = null
+        @loads = []
+        @loaded = false
+
+        function refresh() {
+            const sessionToken = document.cookie ? document.cookie.split("scrml_session=")[1] : ""
+            const tok = sessionToken == null ? "" : sessionToken.split(";")[0]
+            const data = loadBoardData(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            @user = data.user
+            @loads = data.loads
+            @loaded = true
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        // Pure helpers — partition loads by kanban column.
+        // Left: tendered + booked
+        // Middle: dispatched + loaded + in_transit
+        // Right: delivered + invoiced + paid
+        // (cancelled is hidden from the board — visible on load-detail only)
+        fn isLeftColumn(status: string) -> boolean {
+            return status == "tendered" || status == "booked"
+        }
+        fn isMiddleColumn(status: string) -> boolean {
+            return status == "dispatched" || status == "loaded" || status == "in_transit"
+        }
+        fn isRightColumn(status: string) -> boolean {
+            return status == "delivered" || status == "invoiced" || status == "paid"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+      <!-- F-AUTH-001 carryover: the role gate runs server-side in
+           loadBoardData(); the page-level auth attribute is documentation. -->
+      <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/dispatch" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+                <span class="text-xs uppercase tracking-wider text-slate-400">Dispatcher</span>
+            </div>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/dispatch/loads/new" class="bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-md font-medium">
+                    + Book new load
+                </a>
+                <a href="/dispatch/drivers" class="hover:text-blue-300">Drivers</a>
+                <a href="/dispatch/customers" class="hover:text-blue-300">Customers</a>
+                <a href="/dispatch/billing" class="hover:text-blue-300">Billing</a>
+                <span class="text-slate-400 text-xs" if=(@user != null)>
+                    ${@user.email}
+                </span>
+                <button onclick=logout() class="hover:text-blue-300">Logout</button>
+            </nav>
+        </header>
+
+        <main class="px-6 py-8">
+            <h1 class="text-2xl font-bold mb-6">Load board</h1>
+
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+            <div if=@loaded class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- Left column: tendered + booked -->
+                <section class="bg-white rounded-lg border border-slate-200 p-4">
+                    <header class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold text-blue-800 uppercase tracking-wider">
+                            Incoming
+                        </h2>
+                        <span class="text-xs text-slate-500">tendered · booked</span>
+                    </header>
+                    <div class="space-y-3">
+                        ${
+                            for (let l of @loads) {
+                                if (!isLeftColumn(l.status)) continue
+                                lift <div><LoadCard load=l customerName=l.customer_name/></div>
+                            }
+                        }
+                    </div>
+                </section>
+
+                <!-- Middle column: dispatched + loaded + in_transit -->
+                <section class="bg-white rounded-lg border border-slate-200 p-4">
+                    <header class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold text-amber-800 uppercase tracking-wider">
+                            Active
+                        </h2>
+                        <span class="text-xs text-slate-500">dispatched · loaded · in transit</span>
+                    </header>
+                    <div class="space-y-3">
+                        ${
+                            for (let l of @loads) {
+                                if (!isMiddleColumn(l.status)) continue
+                                lift <div><LoadCard load=l customerName=l.customer_name/></div>
+                            }
+                        }
+                    </div>
+                </section>
+
+                <!-- Right column: delivered + invoiced + paid -->
+                <section class="bg-white rounded-lg border border-slate-200 p-4">
+                    <header class="flex items-center justify-between mb-3">
+                        <h2 class="text-sm font-semibold text-emerald-800 uppercase tracking-wider">
+                            Closed
+                        </h2>
+                        <span class="text-xs text-slate-500">delivered · invoiced · paid</span>
+                    </header>
+                    <div class="space-y-3">
+                        ${
+                            for (let l of @loads) {
+                                if (!isRightColumn(l.status)) continue
+                                lift <div><LoadCard load=l customerName=l.customer_name/></div>
+                            }
+                        }
+                    </div>
+                </section>
+
+            </div>
+        </main>
+      </div>
+
+  </>
+
+</program>

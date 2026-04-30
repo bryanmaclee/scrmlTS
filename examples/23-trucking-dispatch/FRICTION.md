@@ -124,6 +124,71 @@ The warning explicitly says "no explicit auth= attribute" — but `auth="optiona
 
 ---
 
+## F-COMPONENT-001 — Bare `lift <ImportedComponent/>` hits E-COMPONENT-020; HTML wrapper required (P0)
+
+**Surfaced in:** M2 first compile of `pages/dispatch/board.scrml`. Reproduces in any file that imports a component and uses it as the direct body of `lift`.
+
+**What I tried:**
+```scrml
+${
+    import { LoadCard } from '../../components/load-card.scrml'
+    ...
+}
+${
+    for (let l of @loads) {
+        lift <LoadCard load=l customerName=l.customer_name/>
+    }
+}
+```
+
+**What didn't work:**
+```
+error [E-COMPONENT-020]: Component `LoadCard` is not defined in this file.
+Define it with `const LoadCard = <element .../>` before using it, or check the
+spelling.
+  stage: CE
+```
+
+The error fires even though the `import` statement resolves cleanly (the
+referenced file exists, the export name matches, no `E-IMPORT-*` errors).
+Reproduces with the canonical `examples/22-multifile/components.scrml` shape
+when consumed in any file other than the original `app.scrml`. Confirmed
+minimal repro: copy `22-multifile/types.scrml` + `components.scrml` into a
+fresh dir, add a new file with the imports + bare `lift <UserBadge/>` —
+fails. Wrap the `<UserBadge/>` in any HTML element (e.g. `<li>`,
+`<div>`) — succeeds.
+
+**Workaround used:** Wrap every imported-component call site in a containing
+HTML element:
+```scrml
+${
+    for (let l of @loads) {
+        lift <div><LoadCard load=l customerName=l.customer_name/></div>
+    }
+}
+```
+This compiles clean. The wrapping `<div>` is semantically meaningless but
+satisfies the component-expander's lookup pass.
+
+**Suggests:** Either:
+- The component-expander pass (CE) should accept a directly-lifted
+  imported component the same way it accepts an imported component
+  embedded inside HTML markup; or
+- The error message should explain the wrapper requirement so adopters
+  don't think their import is broken.
+
+This is sharp because the failure mode (`is not defined in this file`)
+points the adopter toward the import statement, but the import is fine —
+the lookup is a markup-position issue. Severity P0: silent acceptance of
+the import + apparent-undefined at the use site is the validation-principle
+failure (S49 row 169 — *"if compiler accepts X, X must do something"*).
+
+The 22-multifile/app.scrml example escapes this gap because every
+`<UserBadge>` use is already wrapped in `<li>`. M2's load card / status
+badge / driver card usages all need the same wrapper or they fail.
+
+---
+
 ## F-DESTRUCT-001 — Array destructuring inside `for-of` may confuse type-scope (P2)
 
 **Surfaced in:** M1 first draft of `_readCookie` helper.

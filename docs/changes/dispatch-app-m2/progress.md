@@ -68,3 +68,23 @@ Per S49: silent runtime failures = P0. Watch for:
 
 ---
 
+**[2026-04-29T11:00] — Components 1-8 done + committed**
+- All 8 components compile clean: load-status-badge, load-card, driver-card, customer-card, invoice-card, status-picker, assignment-picker, address-form.
+- Components use `${ export const Name = <html-elem props={...} attrs...>...children...</> }` shape.
+- ~600 LOC across 8 files.
+
+**[2026-04-29T11:30] — F-08 (F-COMPONENT-001) found: bare lift <ImportedComponent/> fails**
+- First compile of pages/dispatch/board.scrml with `lift <LoadCard .../>` inside `${ for ... }` block hit E-COMPONENT-020 even though `import { LoadCard } from '...'` resolved cleanly.
+- Confirmed minimal repro in fresh /tmp/multitest/ — copy 22-multifile, add a new file with bare `lift <UserBadge/>` — fails. Wrap in `<div>` or `<li>` — succeeds.
+- 22-multifile/app.scrml only works because every `<UserBadge>` is already wrapped in `<li>`. The lookup pass needs HTML-wrapped components to find imported names.
+- **Workaround:** wrap every imported component call site in a meaningless `<div>`. Logged as F-COMPONENT-001 in FRICTION.md.
+
+**[2026-04-29T11:35] — `<page route=>` is not a parsed element**
+- Tried `<page route="/dispatch" auth="role:dispatcher">...</page>` per scoping §11. Compiler treats `<page>` as a generic HTML element but the BS pass lost track of opens/closes when nested inside `< db>`. After removing `<page>`, compile succeeded.
+- Even mention of `<page>` inside an HTML comment `<!-- <page>... -->` triggers BS parse errors. The comment-parser doesn't honor `<!-- ... -->` boundaries when looking for unclosed tags. Logged as a sharp paper cut (~1 line workaround: don't mention `<page>` in comments).
+- **Decision:** dispatcher pages skip the `<page>` wrapper. Each file is its own `<program db=>` per page and route inference comes from the file path (per §20.4 + the existing M1 pattern). Documenting in progress only — `<page>` is an open spec question, not strictly an M2 friction since the spec mentions it but no example uses it.
+
+**[2026-04-29T11:50] — board.scrml compiles clean (M2 P1 page complete)**
+
+
+
