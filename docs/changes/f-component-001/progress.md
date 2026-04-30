@@ -10,7 +10,9 @@
   - "Wrapped works" only works because CE early-returns (hasAnyComponentRefsInLogic doesn't recurse into lift-expr markup children)
   - Output is phantom `document.createElement("UserBadge")` in BOTH wrapped and (would-be-bare) cases
   - The bare case is "louder" because hasAnyComponentRefsInLogic checks lift's direct markup target
-- [phase 1] Restored CE backup, confirmed clean state still reproduces E-020
+- [phase 1] Restored CE backup, confirmed clean state still reproduces E-020 with no source changes
 - [phase 1] Confirmed M2 dispatch app workaround also produces phantom output (`document.createElement("LoadCard")`)
 - [phase 1] Decision: **BLOCKED — needs deep-dive.** Not narrow. Architectural across CLI / module-resolver / CE.
-- [phase 1] Writing diagnosis.md
+- [phase 1] Wrote diagnosis.md with full root-cause trace and recommended deep-dive scope
+- [phase 1] Final state: NO source changes; only artifact docs added.
+- [phase 1] Final test counts (pre-commit hook): 7447 pass / 30 skip / 0 fail / 357 files — unchanged from baseline since no source changed
