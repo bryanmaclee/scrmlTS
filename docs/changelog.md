@@ -2,7 +2,7 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-04-29 after S50 mid-session): **8,125 tests passing / 40 skipped / 0 failing** (~28,631 expects across 384 files). S50 in progress — Phase 2g (if=/else-if=/else chain branches mount/unmount) merged via per-branch B1 dispatch + W-keep-chain-only wrapper + per-branch mixed-cleanliness handling; 6 commits + 1 merge on `changes/phase-2g-chain-mount`; +31 tests in new `chain-mount-emission.test.js`; 0 regressions.
+Current baseline (2026-04-30 after S50 close): **8,196 tests passing / 40 skipped / 0 failing** (~28,749 expects across 385 files). S50 was one of the longest + most productive sessions: 4 major tracks shipped (Phase 2g compiler change + F-RI-001 triage + F-COMPONENT-001 architectural diagnosis + 6-milestone trucking dispatch app at 8,200 LOC) + 26+ FRICTION findings (6 P0, 10 P1, 5 P2, 1 observation, 5 reconfirmations, 1 partial-resolution). Net +102 tests, 0 regressions.
 
 **Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 + S45 + S46 + S47 + S48 + S49 entries below; full backfill is open content todo.
 
@@ -10,7 +10,48 @@ Current baseline (2026-04-29 after S50 mid-session): **8,125 tests passing / 40 
 
 ## Recently Landed
 
-### 2026-04-29 (S50 — Phase 2g: chain branches mount/unmount via per-branch B1 dispatch)
+### 2026-04-30 (S50 close — fat wrap; 4 tracks + 6-milestone dispatch app + 26+ findings)
+
+S50 ran 2026-04-29 → 2026-04-30 (crossed midnight during dispatch app M2). Four major tracks shipped:
+
+**Track A — Phase 2g.** Chain branches `if=`/`else-if=`/`else` mount/unmount via per-branch B1 dispatch + single chain wrapper `<div data-scrml-if-chain="N">` + per-branch mixed-cleanliness handling. Greenlit from structured 5-phase deep-dive at `scrml-support/docs/deep-dives/phase-2g-chain-mount-strategy-2026-04-29.md` (753 lines) — surfaced 2 findings the dispatch missed (§17.1.1 line 7533 normative-by-implication; mixed-cleanliness chains the DOMINANT pattern, 5/10 audited samples). User accepted all 4 OQ suggestions on first read. T2 pipeline dispatch with worktree-isolation; first dispatch timed out at 43min/68 tool calls, resumed via fresh dispatch on the existing worktree (SendMessage tool not available in this env), completed cleanly in 10min. Merged via `b362b33`. +31 tests in new `chain-mount-emission.test.js`. No new runtime helpers (Phase 2c B1 reused verbatim). No spec amendment.
+
+**Track B — F-RI-001 triage.** PARTIAL resolution. Triage agent found F-RI-001 was filed against an OLDER RI mental model (commit `7462ae0` S39 boundary-security had already removed callee-based escalation). Doc-comment fix in `route-inference.ts:34-47 + 1387-1394` to remove misleading "purely-transitively-escalated function is suppressed" wording. **7 regression tests** in new `route-inference-f-ri-001.test.js` (§A 3 narrow-canonical / §B 2 server-bound-still-fires / §C 2 CPS-applicable still splits). PA attempted to revert M2's workaround in `pages/dispatch/load-detail.scrml` post-merge — discovered `transition` STILL fires E-RI-002 in real-app file context when `saveAssignment` coexists. Workaround restored. **Two adjacent findings split:** F-RI-001-FOLLOW (P1, `obj.error is not` fails E-SCOPE-001 — `is not` doesn't support member-access targets); F-CPS-001 (P1, architectural — `analyzeCPSEligibility` doesn't recurse into nested control-flow while `findReactiveAssignment` does). F-RI-001 downgraded from STALE to PARTIAL.
+
+**Track C — F-COMPONENT-001 architectural diagnosis.** Triage dispatch refused conservative fix; surfaced as architectural BLOCKED. **Cross-file component expansion does not work end-to-end** on current scrmlTS — three intersecting faults: (F1) `hasAnyComponentRefsInLogic` doesn't recurse into nested markup (wrapped patterns silently skip CE); (F2) `runCEFile` looks up `exportRegistry.get(imp.source)` by raw path string but production registries are keyed by absolute filesystem path; (F3) CLI reads `inputFiles` only, never auto-gathers files reachable through imports. **Independent confirmation:** compiled `examples/22-multifile/`, dist/app.client.js line 12 contains `document.createElement("UserBadge")` — phantom custom element. The canonical multi-file scrml example renders blank. Existing `cross-file-components.test.js` masks the bug via test-only key synthesis that bypasses production paths. **Plan B parked** per user direction: examples/22-multifile flipped to `[x][❌]` in master-list §E; kickstarter v1 multi-file section now flags cross-file components KNOWN-BROKEN; recommends import-types+helpers+inline-markup pattern; deep-dive scheduled post-S50. Diagnosis writeup at `docs/changes/f-component-001/diagnosis.md` (322 lines).
+
+**Track D — Trucking dispatch app.** 6-milestone language stress test at `examples/23-trucking-dispatch/`. Domain matches user's actual operation (NE Utah, oil and gas, owner-operator). User locked: all-three slices integrated (load tendering + driver log + customer billing), 3 personas (dispatcher / driver / customer), real-time channels, 5,000+ LOC ceiling, **Option A `auth="role:X"` syntax** (deliberately surface the silent-inert friction; server-side fallback layered), customer self-register open. 6 sequential dispatches via Agent (general-purpose, opus, worktree-isolated):
+
+- **M1** schema + auth scaffold (1,587 LOC, 5 commits) — 9 tables, login/register flow, NE Utah seed data (Basin Energy / Uintah Field / Vernal Operations etc.). 7 friction findings.
+- **M2** dispatcher slice (2,199 LOC, 10 commits) — 6 pages + 8 components dir (latter unused after F-COMPONENT-001). 4 friction findings including the original (since-found-stale) F-RI-001 framing + F-COMPONENT-001 first surface.
+- **M3** driver slice + HOS state machine (2,259 LOC, 7 commits) — 6 pages + `<machine name=HOSMachine for=DriverStatus>` with 8 transitions (off_duty ↔ on_duty ↔ driving + sleeper_berth cycle). 3 friction findings (F-MACHINE-001 / F-NULL-001 / F-PAREN-001).
+- **M4** customer slice (1,799 LOC, 5 commits) — 6 pages + rate-quote → tendered-load flow. 2 friction findings (F-NULL-002 / F-CONSUME-001).
+- **M5** real-time channels (587 LOC net, 5 commits) — 4 channels (`dispatch-board`, `driver-events`, `load-events`, `customer-events`) wired across 12 pages. 6 friction findings (F-CHANNEL-001 P0 + 5 others).
+- **M6** lin tokens + README + final summary (343 LOC net, 6 commits) — acceptance + BOL + payment lin tokens with two-layer enforcement (compile-time `lin` parameter + DB UPDATE-with-NULL durable single-use guard). 2 friction findings (F-LIN-001 / F-DG-002-PREFIX).
+
+**26+ FRICTION findings logged** at `examples/23-trucking-dispatch/FRICTION.md` — the load-bearing artifact of the entire exercise. Severity breakdown: 6 P0 / 10 P1 / 5 P2 / 1 P2 observation / 5 reconfirmations / 1 partial-resolution.
+
+**Two user-prompted findings (high-value extras the dispatch app didn't surface autonomously):**
+
+- **F-IDIOMATIC-001 (P2 observation)** — User asked "has any code used 'is not' 'is some'?" — grep showed **zero usage as operators across 8,200 LOC** of natural scrml writing by 4 distinct general-purpose agents. Adopters reach for `!x` truthiness, `== null`, `==` instead. SPEC §42.2 + kickstarter v1 §3 document `is not`/`is some` as canonical, but it's not landing in practice. Three plausible chilling effects: familiarity bias / F-RI-001-FOLLOW chilling effect / F-NULL-001+002 chilling effect.
+
+- **F-COMPILE-001 (P0)** — User asked "are we actually compiling all code?" — audit revealed `scrml compile <dir>` flattens output by basename. **32 source .scrml → 17 HTML + 28 client.js + 17 server.js in dist/ = 15 silent overwrites.** Customer's `home.scrml` + `profile.scrml` + 2/3 of `load-detail.scrml` were silently overwritten by driver versions. Verified via grep on emitted JS (`driver-events` channel ref in `home.server.js` proves driver/home won; `cdl_number` SQL in `profile.server.js` proves driver/profile won). The "compile clean" verdict from M3-M5 dispatches was misleading — agents didn't audit input-count vs output-count. **The dispatch app cannot run as advertised** — adopters logging in as customer would see driver UI and bounce off role-checks.
+
+**The systemic silent-failure meta-finding:** scrml repeatedly accepts inputs that produce silently-wrong outputs. At least 5 distinct mechanisms violate the S49 validation principle:
+1. F-AUTH-001 — `auth="role:X"` silently inert
+2. F-CHANNEL-001 — `<channel name="dynamic-${id}">` mangles to literal underscore
+3. F-COMPONENT-001 — phantom `document.createElement("Component")` emission
+4. F-COMPILE-001 — basename collision silent overwrite
+5. F-RI-001 partial — file-context-dependent escalation
+
+Belongs in a unified post-S50 deep-dive sweep, NOT 5 independent triages.
+
+**Other sundries:**
+- Authorization scope discipline maintained per pa.md — every action explicitly authorized; "go" cadence per-action, never session-scoped.
+- Worktree-creation off stale main was recurring — every `isolation: "worktree"` dispatch needed an explicit rebase prelude in the brief. Cause: harness uses origin/main as branch base. Workaround stable across all dispatches this session.
+- Cross-machine sync hygiene clean entering S50 (both repos 0/0 origin); push at S50 close pushes 57+ commits to origin.
+
+### 2026-04-29 (S50 mid-session — Phase 2g: chain branches mount/unmount via per-branch B1 dispatch)
 
 Continued from S49 close (`a70c6aa`). Two-step session: structured deep-dive at `scrml-support/docs/deep-dives/phase-2g-chain-mount-strategy-2026-04-29.md` (753 lines) → T2 pipeline implementation. Greenlit design: **Approach A + W-keep-chain-only + per-branch mixed-cleanliness dispatch.**
 
