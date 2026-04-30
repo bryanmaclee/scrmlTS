@@ -62,6 +62,97 @@ export function scanDirectory(dirPath) {
 }
 
 // ---------------------------------------------------------------------------
+// Output path resolution (F-COMPILE-001 — Option A: preserve source tree)
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the longest common directory prefix of a set of input file paths.
+ * Used by the output write loop to preserve source-tree structure in dist/.
+ *
+ * Behavior:
+ *   0 files  → returns null
+ *   1 file   → returns dirname(file)
+ *   N files  → returns the longest directory path that is a prefix of every
+ *              file's absolute path, segment-aligned (not character-aligned)
+ *
+ * Examples:
+ *   ["/a/b/c.scrml"]                                → "/a/b"
+ *   ["/a/b/c.scrml", "/a/b/d.scrml"]                → "/a/b"
+ *   ["/a/b/c.scrml", "/a/b/sub/d.scrml"]            → "/a/b"
+ *   ["/a/b/x/c.scrml", "/a/b/y/d.scrml"]            → "/a/b"
+ *   ["/p/x.scrml", "/q/y.scrml"]                    → "/"
+ *
+ * Segment-aligned matching: "/a/b" is the prefix of "/a/b/c" but NOT of "/a/bc"
+ * (a character-wise prefix would falsely match "/a/bc").
+ *
+ * @param {string[]} inputFiles
+ * @returns {string|null}
+ */
+export function computeOutputBaseDir(inputFiles) {
+  if (!Array.isArray(inputFiles) || inputFiles.length === 0) return null;
+  if (inputFiles.length === 1) return dirname(resolve(inputFiles[0]));
+
+  const dirSegments = inputFiles.map(f => dirname(resolve(f)).split(/[\\/]/));
+  const minLen = Math.min(...dirSegments.map(s => s.length));
+  let common = 0;
+  for (; common < minLen; common++) {
+    const seg = dirSegments[0][common];
+    if (!dirSegments.every(s => s[common] === seg)) break;
+  }
+
+  // Re-join. If the first segment is empty (POSIX absolute "/a/b" splits to
+  // ["", "a", "b"]) and we kept index 0, the join yields "/a/b" naturally.
+  return dirSegments[0].slice(0, common).join("/") || "/";
+}
+
+/**
+ * Recursively find files under a directory whose names end with the given suffix.
+ * Used by build.js / dev.js to discover *.server.js files in the output tree
+ * after Option A preserved-source-tree output. (Pre-fix dist/ was always flat,
+ * but a nested input tree now produces a nested dist/ tree.)
+ *
+ * Returns absolute paths AND relative paths so callers can construct correct
+ * import specifiers (which are relative to the dist root).
+ *
+ * @param {string} dirPath — absolute directory path
+ * @param {string} suffix — filename suffix to match (e.g. ".server.js")
+ * @returns {Array<{ absPath: string, relPath: string }>} — entries sorted by relPath
+ */
+export function findOutputFiles(dirPath, suffix) {
+  const results = [];
+  const absRoot = resolve(dirPath);
+
+  function walk(dir) {
+    let entries;
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry);
+      let stat;
+      try {
+        stat = statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.endsWith(suffix)) {
+        results.push({
+          absPath: fullPath,
+          relPath: relative(absRoot, fullPath),
+        });
+      }
+    }
+  }
+
+  walk(absRoot);
+  return results.sort((a, b) => a.relPath.localeCompare(b.relPath));
+}
+
+// ---------------------------------------------------------------------------
 // Legacy CSS conversion
 // ---------------------------------------------------------------------------
 
@@ -506,53 +597,101 @@ export function compileScrml(options = {}) {
     }
 
     if (cgResult.outputs) {
-      for (const [filePath, output] of cgResult.outputs) {
-        const base = basename(filePath, ".scrml");
+      // F-COMPILE-001 Option A: preserve source-tree structure in dist/.
+      // Compute the longest common directory prefix across all input files;
+      // each output is written at outputDir + (filePath relative to that base).
+      // Single-file invocation reduces to dirname(file) → flat output (unchanged).
+      const sourcePaths = [...cgResult.outputs.keys()];
+      const outputBaseDir = computeOutputBaseDir(sourcePaths);
 
+      // F-COMPILE-001 Option B: pre-write collision detection.
+      // After Option A this is a backstop — collisions are nearly impossible
+      // unless two source files have literally identical absolute paths AND
+      // the same basename, but we still guard against it for defense-in-depth
+      // (and to catch any future flag/refactor that re-introduces flattening).
+      // E-CG-015 is the spec-reserved code (§47.9, added by F-COMPILE-001).
+      const writtenPaths = new Map(); // absDistPath → sourceFilePath that wrote it
+
+      function pathFor(filePath, suffix) {
+        // Compute the dist-relative directory + basename for this source file.
+        // outputBaseDir is guaranteed non-null here because cgResult.outputs is non-empty.
+        const base = basename(filePath, ".scrml");
+        const relDir = dirname(relative(outputBaseDir, filePath));
+        // relative() may yield "." for files at outputBaseDir itself.
+        const targetDir = (relDir === "." || relDir === "") ? outputDir : join(outputDir, relDir);
+        return { targetDir, base, fullPath: join(targetDir, `${base}${suffix}`) };
+      }
+
+      function writeOutput(filePath, suffix, contents) {
+        const { targetDir, fullPath } = pathFor(filePath, suffix);
+        const prior = writtenPaths.get(fullPath);
+        if (prior !== undefined && prior !== filePath) {
+          // Distinct source files compute to the same dist path.
+          // Hard error per §47.9 / §10.10 default. Refuse to overwrite.
+          allErrors.push({
+            stage: "CG",
+            code: "E-CG-015",
+            message:
+              `E-CG-015: conflicting output paths — ` +
+              `\`${prior}\` and \`${filePath}\` both compile to \`${fullPath}\`. ` +
+              `Rename one of the source files or invoke the compiler on a smaller input set.`,
+            file: filePath,
+            severity: "error",
+          });
+          return false;
+        }
+        mkdirSync(targetDir, { recursive: true });
+        writeFileSync(fullPath, contents);
+        writtenPaths.set(fullPath, filePath);
+        return true;
+      }
+
+      for (const [filePath, output] of cgResult.outputs) {
         // GITI-009: rewrite relative .js import paths in server and library
         // output so they resolve from the output directory, not the source
         // file's directory.
         if (output.serverJs) {
           const rewritten = rewriteRelativeImportPaths(output.serverJs, filePath, outputDir);
-          writeFileSync(join(outputDir, `${base}.server.js`), rewritten);
-          fileCount++;
+          if (writeOutput(filePath, ".server.js", rewritten)) fileCount++;
         }
         if (mode === 'library') {
           // Library mode: write libraryJs as <base>.js (importable ES module)
           if (output.libraryJs) {
             const rewritten = rewriteRelativeImportPaths(output.libraryJs, filePath, outputDir);
-            writeFileSync(join(outputDir, `${base}.js`), rewritten);
-            fileCount++;
+            if (writeOutput(filePath, ".js", rewritten)) fileCount++;
           }
         } else {
           // Browser mode: write clientJs as <base>.client.js + html
           if (output.clientJs) {
-            writeFileSync(join(outputDir, `${base}.client.js`), output.clientJs);
-            fileCount++;
+            if (writeOutput(filePath, ".client.js", output.clientJs)) fileCount++;
           }
           if (output.html) {
-            writeFileSync(join(outputDir, `${base}.html`), output.html);
-            fileCount++;
+            if (writeOutput(filePath, ".html", output.html)) fileCount++;
           }
         }
         if (output.css) {
-          writeFileSync(join(outputDir, `${base}.css`), output.css);
-          fileCount++;
+          if (writeOutput(filePath, ".css", output.css)) fileCount++;
         }
         // Source map files (only written when sourceMap:true was passed to compileScrml)
         if (output.clientJsMap) {
-          writeFileSync(join(outputDir, `${base}.client.js.map`), output.clientJsMap);
-          if (verbose) log(`  [CG] Wrote source map: ${base}.client.js.map`);
+          if (writeOutput(filePath, ".client.js.map", output.clientJsMap)) {
+            const { base } = pathFor(filePath, ".client.js.map");
+            if (verbose) log(`  [CG] Wrote source map: ${base}.client.js.map`);
+          }
         }
         if (output.serverJsMap) {
-          writeFileSync(join(outputDir, `${base}.server.js.map`), output.serverJsMap);
-          if (verbose) log(`  [CG] Wrote source map: ${base}.server.js.map`);
+          if (writeOutput(filePath, ".server.js.map", output.serverJsMap)) {
+            const { base } = pathFor(filePath, ".server.js.map");
+            if (verbose) log(`  [CG] Wrote source map: ${base}.server.js.map`);
+          }
         }
         // §51.13 — auto-generated machine property tests
         if (output.machineTestJs) {
-          writeFileSync(join(outputDir, `${base}.machine.test.js`), output.machineTestJs);
-          if (verbose) log(`  [CG] Wrote machine property tests: ${base}.machine.test.js`);
-          fileCount++;
+          if (writeOutput(filePath, ".machine.test.js", output.machineTestJs)) {
+            fileCount++;
+            const { base } = pathFor(filePath, ".machine.test.js");
+            if (verbose) log(`  [CG] Wrote machine property tests: ${base}.machine.test.js`);
+          }
         }
       }
     }
