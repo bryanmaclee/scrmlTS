@@ -1,0 +1,32 @@
+<program db="./test-fri001.db">
+  < db src="./test-fri001.db" tables="loads">
+
+    ${
+        @load = null
+        @errorMessage = ""
+
+        server function transitionStatusServer(loadId, newStatus) {
+            const load = ?{`SELECT id, status FROM loads WHERE id = ${loadId}`}.get()
+            if (!load) return { error: "Load not found." }
+            return { ok: true }
+        }
+
+        // F-RI-001 PATTERN as written in friction (no direct triggers).
+        function transition(target) {
+            const result = transitionStatusServer(@load.id, target)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (result.error) {
+                @errorMessage = result.error
+                return
+            }
+        }
+    }
+
+    <h1>Repro 1 — canonical F-RI-001</h1>
+    <button onclick=transition("loaded")>Mark Loaded</button>
+    <p>${@errorMessage}</p>
+  </>
+</program>

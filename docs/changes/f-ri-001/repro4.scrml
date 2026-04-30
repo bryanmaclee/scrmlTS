@@ -1,0 +1,32 @@
+<program db="./test-fri001.db">
+  < db src="./test-fri001.db" tables="loads">
+
+    ${
+        @load = null
+        @errorMessage = ""
+
+        // Server fn — direct trigger (?{} SQL).
+        server function checkAuth() {
+            return ?{`SELECT id FROM loads WHERE id = 1`}.get()
+        }
+
+        // CANONICAL F-RI-001 PATTERN with one direct trigger that forces
+        // escalation. The function then branches on the server-fn result and
+        // assigns @errorMessage on the error path. CPS should split this:
+        // the SQL ?{...} statement is server, everything else stays client
+        // (reactive assignment included). Currently fails E-RI-002.
+        function transition(target) {
+            const tok = ?{`SELECT 1 AS x`}.get()  // direct ?{} trigger
+            const result = checkAuth()
+            if (result.error) {
+                @errorMessage = result.error
+                return
+            }
+        }
+    }
+
+    <h1>Repro 4 — direct trigger + branched reactive</h1>
+    <button onclick=transition("loaded")>Mark Loaded</button>
+    <p>${@errorMessage}</p>
+  </>
+</program>
