@@ -1,0 +1,77 @@
+// Trucking Dispatch — load card (M2).
+//
+// Kanban-list-item shape. Renders one load row with origin → destination,
+// customer, pickup date, rate, and the LoadStatusBadge. The whole card is a
+// link to /dispatch/loads/:id.
+//
+// Used by: pages/dispatch/board.scrml (kanban columns), pages/dispatch/load-
+// detail.scrml (sidebar of related loads, future). M3-M4 may reuse with a
+// `compact=true` flag (not implemented in M2 — single shape only).
+
+${
+    import { LoadStatusBadge } from './load-status-badge.scrml'
+
+    // Pure formatter — pickup date string → human-readable. Falls through
+    // to the raw string when parsing fails, so seed dates display fine.
+    export fn formatPickupAt(at: string) -> string {
+        if (at == null || at == "") return "—"
+        // ISO datetime -> "Apr 30 7:00 AM"-ish. Keep simple: substring out.
+        const date = at.substring(0, 10)
+        const time = at.substring(11, 16)
+        return `${date} ${time}`
+    }
+
+    // Pure formatter — dollars to "$2,350".
+    export fn formatRate(dollars: number) -> string {
+        if (dollars == null) return "—"
+        const cents = Math.round(dollars * 100)
+        const whole = Math.floor(cents / 100)
+        if (whole >= 1000) {
+            const k = Math.floor(whole / 1000)
+            const r = whole - k * 1000
+            const padded = r < 10 ? `00${r}` : (r < 100 ? `0${r}` : `${r}`)
+            return `$${k},${padded}`
+        }
+        return `$${whole}`
+    }
+
+    export const LoadCard = <a class="block bg-white border border-slate-200 rounded-lg p-3 shadow-sm hover:shadow-md hover:border-blue-300 transition" props={
+        load: any,
+        customerName?: string,
+    }
+        href="/dispatch/loads/${load.id}"
+    >
+        <div class="flex items-start justify-between mb-2">
+            <div class="text-xs text-slate-500 font-medium">
+                LOAD #${load.id}
+            </div>
+            <LoadStatusBadge status=load.status/>
+        </div>
+
+        <div class="text-sm font-semibold text-slate-900 mb-1">
+            ${load.origin_city}, ${load.origin_state}
+            <span class="text-slate-400 mx-1">→</span>
+            ${load.destination_city}, ${load.destination_state}
+        </div>
+
+        <div class="text-xs text-slate-600 mb-2">
+            ${load.commodity}
+            <span if=(load.weight_lbs != null) class="text-slate-400">
+                · ${load.weight_lbs} lbs
+            </>
+        </div>
+
+        <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-500">
+                ${formatPickupAt(load.pickup_at)}
+            </span>
+            <span class="font-semibold text-slate-900">
+                ${formatRate(load.rate_dollars)}
+            </span>
+        </div>
+
+        <div if=(customerName != null) class="text-xs text-slate-500 mt-1 truncate">
+            ${customerName}
+        </div>
+    </>
+}

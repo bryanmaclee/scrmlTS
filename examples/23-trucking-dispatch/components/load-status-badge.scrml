@@ -1,0 +1,52 @@
+// Trucking Dispatch — load status pill (M2).
+//
+// Pure component. Takes a status string from `loads.status` and renders a
+// colored Tailwind pill. Used by load-card, load-detail header, board kanban
+// cards, and the customer / driver views (M3-M4) once they ship.
+//
+// Status colors follow the dispatcher mental model:
+//   tendered  / booked       → blue   (incoming work)
+//   dispatched / loaded / in_transit → amber  (in flight)
+//   delivered / invoiced / paid     → green  (revenue collected)
+//   cancelled                        → red    (terminal-bad)
+//
+// Component model per §17 + examples/22-multifile/components.scrml: declared
+// inside `${ }`, exported via `export const`, props={...} on the root element.
+
+${
+    // Pure helper — picks the Tailwind class set for a status. `fn` is the
+    // pure-function form (§48): no @reactive reads, no I/O. `match` makes
+    // adding new statuses a compile-time forcing function.
+    export fn statusBadgeClasses(status: string) -> string {
+        if (status == "tendered")    return "bg-blue-100 text-blue-800 border-blue-200"
+        if (status == "booked")      return "bg-blue-200 text-blue-900 border-blue-300"
+        if (status == "dispatched")  return "bg-amber-100 text-amber-800 border-amber-200"
+        if (status == "loaded")      return "bg-amber-200 text-amber-900 border-amber-300"
+        if (status == "in_transit")  return "bg-amber-300 text-amber-900 border-amber-400"
+        if (status == "delivered")   return "bg-emerald-100 text-emerald-800 border-emerald-200"
+        if (status == "invoiced")    return "bg-emerald-200 text-emerald-900 border-emerald-300"
+        if (status == "paid")        return "bg-emerald-300 text-emerald-900 border-emerald-400"
+        if (status == "cancelled")   return "bg-red-100 text-red-800 border-red-200"
+        return "bg-slate-100 text-slate-800 border-slate-200"
+    }
+
+    // Friendly label — turns "in_transit" into "In transit" for the pill text.
+    export fn statusLabel(status: string) -> string {
+        if (status == "in_transit") return "In transit"
+        if (status == "tendered")   return "Tendered"
+        if (status == "booked")     return "Booked"
+        if (status == "dispatched") return "Dispatched"
+        if (status == "loaded")     return "Loaded"
+        if (status == "delivered")  return "Delivered"
+        if (status == "invoiced")   return "Invoiced"
+        if (status == "paid")       return "Paid"
+        if (status == "cancelled")  return "Cancelled"
+        return status
+    }
+
+    export const LoadStatusBadge = <span props={ status: string }
+        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadgeClasses(status)}"
+    >
+        ${statusLabel(status)}
+    </>
+}
