@@ -158,8 +158,12 @@ fresh dir, add a new file with the imports + bare `lift <UserBadge/>` —
 fails. Wrap the `<UserBadge/>` in any HTML element (e.g. `<li>`,
 `<div>`) — succeeds.
 
-**Workaround used:** Wrap every imported-component call site in a containing
-HTML element:
+**Workaround used:** Wrap the imported component call site inside a
+`${ lift <wrapper>...</wrapper> }` block in markup position:
+```scrml
+${ lift <div><LoadCard load=l customerName=l.customer_name/></div> }
+```
+And inside `${ for ... }` loops:
 ```scrml
 ${
     for (let l of @loads) {
@@ -167,8 +171,12 @@ ${
     }
 }
 ```
-This compiles clean. The wrapping `<div>` is semantically meaningless but
-satisfies the component-expander's lookup pass.
+Both compile clean. **What does NOT work:**
+- Bare `lift <Component/>` (no HTML wrapper) — fails E-COMPONENT-020.
+- Direct markup `<div><Component/></div>` outside any `${ ... lift }` block — fails E-COMPONENT-020.
+- Component as direct child of `<div>` outside a `lift` context — fails.
+
+The component must be inside an HTML element AND inside a `lift` expression.
 
 **Suggests:** Either:
 - The component-expander pass (CE) should accept a directly-lifted
