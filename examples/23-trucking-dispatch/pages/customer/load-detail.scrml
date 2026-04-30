@@ -1,0 +1,389 @@
+// Trucking Dispatch — customer load detail / tracking (M4).
+//
+// Route: /customer/loads/:id. Customer-facing tracking surface for one
+// load. Header (load summary), status timeline (chronological log_entries),
+// current location of assigned driver if status is in_transit, ETA
+// (deliver_by), and a link to the related invoice if the load is invoiced
+// or paid.
+//
+// Read-only — customer cannot mutate load state. Status changes come from
+// dispatcher (M2) + driver (M3); customer just sees them.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward.
+//
+// Real-time hookpoint (M5): subscribe to `load-:id` channel for status
+// changes pushed by driver/dispatcher. Not wired in M4.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
+      import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, assignments, drivers, tractors, trailers, log_entries, invoices">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // F-AUTH-001 fallback: role gate. Verifies the customer owns this load
+        // (load.customer_id == customer.id where customer = user's customers row).
+        server function fetchLoadDetail(sessionToken, loadId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+
+            const customer = ?{`SELECT id, name FROM customers WHERE user_id = ${user.id}`}.get()
+            if (!customer) return { error: "No customer record." }
+
+            const load = ?{`
+                SELECT
+                    id, customer_id, origin_address, origin_city, origin_state,
+                    destination_address, destination_city, destination_state,
+                    pickup_at, deliver_by, commodity, weight_lbs,
+                    rate_dollars, status, created_at, updated_at
+                FROM loads
+                WHERE id = ${loadId}
+            `}.get()
+            if (!load) return { notFound: true }
+
+            // Cross-customer guard.
+            if (load.customer_id != customer.id) {
+                return { unauthorized: true }
+            }
+
+            // Active assignment (most recent unassigned_at IS NULL).
+            const assignment = ?{`
+                SELECT
+                    a.id, a.assigned_at,
+                    d.name AS driver_name, d.current_status AS driver_status,
+                    d.current_location AS driver_location,
+                    t.unit_number AS tractor_unit, t.make AS tractor_make, t.model AS tractor_model,
+                    tr.unit_number AS trailer_unit, tr.type AS trailer_type
+                FROM assignments a
+                LEFT JOIN drivers d ON d.id = a.driver_id
+                LEFT JOIN tractors t ON t.id = a.tractor_id
+                LEFT JOIN trailers tr ON tr.id = a.trailer_id
+                WHERE a.load_id = ${loadId}
+                  AND a.unassigned_at IS NULL
+                ORDER BY a.assigned_at DESC
+                LIMIT 1
+            `}.get()
+
+            // Full log timeline for this load (most recent first).
+            const logEntries = ?{`
+                SELECT
+                    le.id, le.type, le.at, le.payload,
+                    d.name AS driver_name
+                FROM log_entries le
+                LEFT JOIN drivers d ON d.id = le.driver_id
+                WHERE le.load_id = ${loadId}
+                ORDER BY le.at DESC
+            `}.all()
+
+            // Invoice for this load (if any) — used for "View invoice" link.
+            const invoice = ?{`
+                SELECT id, amount_dollars, sent_at, due_at, paid_at, payment_reference
+                FROM invoices
+                WHERE load_id = ${loadId}
+                LIMIT 1
+            `}.get()
+
+            return {
+                user: user, customer: customer, load: load,
+                assignment: assignment,
+                logEntries: logEntries,
+                invoice: invoice
+            }
+        }
+
+        @user = null
+        @customer = null
+        @load = null
+        @assignment = null
+        @logEntries = []
+        @invoice = null
+        @loaded = false
+        @notFound = false
+        @errorMessage = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function getLoadId() {
+            // route.params.id is string. parseInt to bind to numeric column.
+            const path = window.location.pathname
+            const parts = path.split("/")
+            const last = parts[parts.length - 1]
+            const n = parseInt(last, 10)
+            return isNaN(n) ? 0 : n
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const loadId = getLoadId()
+            const data = fetchLoadDetail(tok, loadId)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.notFound) {
+                @notFound = true
+                @loaded = true
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @customer = data.customer
+            @load = data.load
+            @assignment = data.assignment
+            @logEntries = data.logEntries
+            @invoice = data.invoice
+            @loaded = true
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        // Pretty label for log entry types.
+        fn logTypeLabel(t: string) -> string {
+            if (t == "pre_trip")     return "Pre-trip inspection"
+            if (t == "post_trip")    return "Post-trip inspection"
+            if (t == "bol_received") return "BOL received"
+            if (t == "pod_signed")   return "POD signed"
+            if (t == "fuel_stop")    return "Fuel stop"
+            if (t == "breakdown")    return "Breakdown reported"
+            if (t == "hos_change")   return "Status change"
+            return t
+        }
+
+        // Color class for log entry icons / badges.
+        fn logTypeIconClass(t: string) -> string {
+            if (t == "breakdown") return "bg-red-100 text-red-700 border-red-200"
+            if (t == "pod_signed")   return "bg-emerald-100 text-emerald-700 border-emerald-200"
+            if (t == "bol_received") return "bg-blue-100 text-blue-700 border-blue-200"
+            return "bg-slate-100 text-slate-700 border-slate-200"
+        }
+
+        // Whether the load is "in flight" — driver location is meaningful only
+        // while in transit.
+        fn showDriverLocation(loadStatus: string) -> boolean {
+            return loadStatus == "in_transit"
+        }
+
+        // Whether to show invoice link.
+        fn hasInvoice(loadStatus: string) -> boolean {
+            if (loadStatus == "invoiced") return true
+            if (loadStatus == "paid")     return true
+            return false
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/customer" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Load tracking</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/customer" class="hover:text-blue-300">Home</a>
+              <a href="/customer/loads" class="hover:text-blue-300">Loads</a>
+              <a href="/customer/invoices" class="hover:text-blue-300">Invoices</a>
+              <a href="/customer/profile" class="hover:text-blue-300">Profile</a>
+              <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
+              <button onclick=logout() class="hover:text-blue-300">Logout</button>
+          </nav>
+      </header>
+
+      <main class="max-w-4xl mx-auto px-6 py-8">
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@loaded && @notFound) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              Load not found, or you don't have permission to view it.
+          </div>
+
+          <div if=(@loaded && !@notFound && @load == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              ${@errorMessage}
+          </div>
+
+          <div if=(@loaded && @load != null) class="space-y-6">
+
+              <!-- Header card -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <div class="flex items-start justify-between mb-2">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium mb-1">LOAD #${@load.id}</div>
+                          <h1 class="text-xl font-bold text-slate-900">
+                              ${@load.origin_city}, ${@load.origin_state}
+                              <span class="text-slate-400 mx-2">→</span>
+                              ${@load.destination_city}, ${@load.destination_state}
+                          </h1>
+                          <div class="text-sm text-slate-600 mt-1">
+                              ${@load.commodity}
+                              <span if=(@load.weight_lbs != null)> · ${@load.weight_lbs} lbs</>
+                          </div>
+                      </div>
+                      <div class="text-right">
+                          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${statusBadgeClasses(@load.status)}">
+                              ${statusLabel(@load.status)}
+                          </span>
+                          <div class="text-lg font-bold text-slate-900 mt-2">${formatRate(@load.rate_dollars)}</div>
+                      </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 text-sm">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Pickup</div>
+                          <div class="text-slate-900 font-semibold">${formatPickupAt(@load.pickup_at)}</div>
+                          <div class="text-xs text-slate-500 mt-0.5">
+                              ${@load.origin_address == null ? "" : @load.origin_address}
+                          </div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Estimated delivery</div>
+                          <div class="text-slate-900 font-semibold">${formatPickupAt(@load.deliver_by)}</div>
+                          <div class="text-xs text-slate-500 mt-0.5">
+                              ${@load.destination_address == null ? "" : @load.destination_address}
+                          </div>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- Driver / current location (only when in transit) -->
+              <section if=(@assignment != null) class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Carrier &amp; equipment
+                  </h2>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Driver</div>
+                          <div class="text-slate-900 font-semibold">${@assignment.driver_name}</div>
+                          <div if=showDriverLocation(@load.status) class="text-xs text-slate-600 mt-1">
+                              <span if=(@assignment.driver_location != null && @assignment.driver_location != "")>
+                                  Last seen: ${@assignment.driver_location}
+                              </>
+                              <span if=(@assignment.driver_location == null || @assignment.driver_location == "") class="text-slate-400">
+                                  Location not yet reported
+                              </>
+                          </div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Tractor</div>
+                          <div class="text-slate-900 font-semibold">
+                              ${@assignment.tractor_unit == null ? "—" : @assignment.tractor_unit}
+                          </div>
+                          <div class="text-xs text-slate-500">
+                              ${@assignment.tractor_make == null ? "" : @assignment.tractor_make}
+                              ${@assignment.tractor_model == null ? "" : @assignment.tractor_model}
+                          </div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Trailer</div>
+                          <div class="text-slate-900 font-semibold">
+                              ${@assignment.trailer_unit == null ? "—" : @assignment.trailer_unit}
+                          </div>
+                          <div class="text-xs text-slate-500">
+                              ${@assignment.trailer_type == null ? "" : @assignment.trailer_type}
+                          </div>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- No-driver-yet card for pre-dispatched states -->
+              <section if=(@assignment == null && @load.status != "tendered" && @load.status != "cancelled") class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
+                  Carrier not yet assigned. Your dispatcher is matching equipment now.
+              </section>
+
+              <!-- Tendered: awaiting rate -->
+              <section if=(@load.status == "tendered") class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+                  <strong>Quote pending.</strong> The dispatcher is preparing a rate for this load.
+                  You'll see it here once it's ready.
+              </section>
+
+              <!-- Cancelled -->
+              <section if=(@load.status == "cancelled") class="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-900">
+                  This load has been cancelled.
+              </section>
+
+              <!-- Invoice link -->
+              <section if=hasInvoice(@load.status) class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                  <div class="flex items-center justify-between text-sm">
+                      <div class="text-emerald-900">
+                          <strong>Invoice ready.</strong>
+                          <span if=(@invoice != null && @invoice.paid_at == null)>
+                              Outstanding · due ${@invoice == null ? "" : (@invoice.due_at == null ? "" : @invoice.due_at.substring(0, 10))}
+                          </>
+                          <span if=(@invoice != null && @invoice.paid_at != null) class="text-emerald-700">
+                              Paid.
+                          </>
+                      </div>
+                      <a href="/customer/invoices?load=${@load.id}" class="text-sm px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium">
+                          View invoice
+                      </a>
+                  </div>
+              </section>
+
+              <!-- Status timeline -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Status timeline
+                  </h2>
+
+                  <p if=(@logEntries.length == 0) class="text-sm text-slate-500">
+                      No activity yet for this load.
+                  </p>
+
+                  <ol if=(@logEntries.length > 0) class="space-y-3">
+                      ${
+                          for (let entry of @logEntries) {
+                              lift <li class="flex items-start gap-3 text-sm">
+                                  <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-0.5">
+                                      ${entry.at == null ? "" : entry.at.substring(0, 16)}
+                                  </span>
+                                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${logTypeIconClass(entry.type)}">
+                                      ${logTypeLabel(entry.type)}
+                                  </span>
+                                  <span class="text-slate-600 flex-1">
+                                      ${entry.driver_name == null ? "" : entry.driver_name}
+                                      <span if=(entry.payload != null && entry.payload != "") class="text-xs text-slate-500 block break-all">
+                                          ${entry.payload}
+                                      </>
+                                  </span>
+                              </li>
+                          }
+                      }
+                  </ol>
+              </section>
+
+          </div>
+      </main>
+    </div>
+
+  </>
+
+</program>
