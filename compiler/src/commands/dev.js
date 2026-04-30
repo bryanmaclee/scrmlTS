@@ -17,7 +17,7 @@
 
 import { statSync, readdirSync, watch } from "fs";
 import { resolve, dirname, join } from "path";
-import { compileScrml, scanDirectory } from "../api.js";
+import { compileScrml, scanDirectory, findOutputFiles } from "../api.js";
 
 // ---------------------------------------------------------------------------
 // Help text
@@ -141,31 +141,23 @@ async function loadServerRoutes(outputDir) {
   registeredRoutes = [];
   registeredWsHandlers = null;
 
-  let entries;
-  try {
-    // Bug 1 fix: Bun.readdir() does not exist — use readdirSync from node:fs (already imported).
-    entries = readdirSync(outputDir);
-  } catch {
-    // Output dir may not exist yet on the very first run before compilation.
-    return;
-  }
-
-  const serverFiles = entries.filter(e => e.endsWith(".server.js"));
+  // F-COMPILE-001 Option A: outputDir may be a tree when sources have nested
+  // subdirectories. Walk recursively for *.server.js entries.
+  const serverFiles = findOutputFiles(outputDir, ".server.js");
   if (serverFiles.length === 0) return;
 
   const cacheBuster = Date.now();
   const allWsHandlers = [];
 
-  for (const filename of serverFiles) {
-    const filePath = join(outputDir, filename);
+  for (const { absPath, relPath } of serverFiles) {
     // Absolute file URL with cache-buster so Bun re-evaluates on each reload.
-    const fileUrl = `file://${filePath}?t=${cacheBuster}`;
+    const fileUrl = `file://${absPath}?t=${cacheBuster}`;
 
     let mod;
     try {
       mod = await import(fileUrl);
     } catch (err) {
-      console.error(`[dev] Failed to import ${filename}: ${err.message}`);
+      console.error(`[dev] Failed to import ${relPath}: ${err.message}`);
       continue;
     }
 

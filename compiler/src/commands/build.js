@@ -16,7 +16,7 @@
 
 import { statSync, readdirSync, readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve, join, basename } from "path";
-import { compileScrml, scanDirectory } from "../api.js";
+import { compileScrml, scanDirectory, findOutputFiles } from "../api.js";
 
 /** Valid deployment target identifiers. */
 const VALID_TARGETS = ["fly", "railway", "render", "static", "docker"];
@@ -120,24 +120,19 @@ export function parseArgs(args) {
  * @returns {Array<{ filename: string, routeNames: string[], wsHandlerNames: string[] }>}
  */
 export function discoverServerRoutes(outputDir) {
-  let entries;
-  try {
-    entries = readdirSync(outputDir);
-  } catch {
-    return [];
-  }
-
-  const serverFiles = entries
-    .filter(f => f.endsWith(".server.js"))
-    .sort();
+  // F-COMPILE-001 Option A: outputDir may be a tree (e.g. dist/pages/customer/home.server.js)
+  // when sources have nested subdirectories. Walk recursively and use the
+  // tree-relative path as the import specifier (the `filename` field is a
+  // relative path like "pages/customer/home.server.js", consumed by
+  // generateServerEntry as `import ... from "./${filename}";`).
+  const serverFiles = findOutputFiles(outputDir, ".server.js");
 
   const result = [];
 
-  for (const filename of serverFiles) {
-    const fullPath = join(outputDir, filename);
+  for (const { absPath, relPath } of serverFiles) {
     let source;
     try {
-      source = readFileSync(fullPath, "utf8");
+      source = readFileSync(absPath, "utf8");
     } catch {
       continue;
     }
@@ -161,7 +156,9 @@ export function discoverServerRoutes(outputDir) {
     }
 
     if (routeNames.length > 0 || wsHandlerNames.length > 0) {
-      result.push({ filename, routeNames, wsHandlerNames });
+      // `filename` carries the relative path under outputDir so the generated
+      // `_server.js` can import via `./${filename}` regardless of nesting.
+      result.push({ filename: relPath, routeNames, wsHandlerNames });
     }
   }
 
