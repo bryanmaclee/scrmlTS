@@ -18,7 +18,7 @@
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
   }
 
-  < db src="../../dispatch.db" protect="password_hash" tables="users, invoices, customers, loads">
+  < db src="../../dispatch.db" protect="password_hash" tables="users, invoices, customers, loads, lin_tokens">
 
     ${
         // Today as ISO date — used for overdue detection. Hardcoded to seed
@@ -39,13 +39,20 @@
                 return { unauthorized: true }
             }
 
+            // M6: LEFT JOIN to a derived (most-recent unconsumed payment
+            // token per load) so the dispatcher sees which invoices have
+            // an active payment lin-token vs. already-consumed.
             const invoices = ?{`
                 SELECT
                     i.id, i.load_id, i.customer_id, i.amount_dollars,
                     i.sent_at, i.due_at, i.paid_at, i.payment_reference,
                     c.name AS customer_name,
                     l.origin_city AS load_origin_city,
-                    l.destination_city AS load_destination_city
+                    l.destination_city AS load_destination_city,
+                    (SELECT COUNT(1) FROM lin_tokens lt
+                     WHERE lt.load_id = i.load_id
+                       AND lt.kind = 'payment'
+                       AND lt.consumed_at IS NULL) AS active_payment_tokens
                 FROM invoices i
                 LEFT JOIN customers c ON c.id = i.customer_id
                 LEFT JOIN loads l ON l.id = i.load_id
@@ -60,6 +67,9 @@
         // is a status that the dispatcher transitions a load INTO from M2).
         // For test purposes we synthesize one invoice per delivered/invoiced
         // load on first page mount. Idempotent: only inserts if not present.
+        //
+        // M6: also mints a payment lin-token per new invoice. The customer
+        // consumes the token on Mark Paid. Replays return error.
         server function ensureInvoicesServer(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (!user || user.role != "dispatcher") return { ok: false }
@@ -71,6 +81,29 @@
                 WHERE l.status IN ('delivered', 'invoiced', 'paid')
                   AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.load_id = l.id)
             `}.run()
+
+            // M6: mint payment tokens for any invoiced load that doesn't
+            // already have an active payment token. Idempotent.
+            const newlyInvoiced = ?{`
+                SELECT i.load_id
+                FROM invoices i
+                WHERE i.paid_at IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM lin_tokens lt
+                    WHERE lt.load_id = i.load_id
+                      AND lt.kind = 'payment'
+                      AND lt.consumed_at IS NULL
+                  )
+            `}.all()
+
+            for (let i = 0; i < newlyInvoiced.length; i = i + 1) {
+                const lid = newlyInvoiced[i].load_id
+                const t = `pay_${lid}_${Date.now()}_${Math.floor(Math.random() * 100000)}`
+                ?{`
+                    INSERT INTO lin_tokens (token, load_id, kind)
+                    VALUES (${t}, ${lid}, 'payment')
+                `}.run()
+            }
 
             return { ok: true }
         }

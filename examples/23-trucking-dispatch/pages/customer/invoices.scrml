@@ -25,7 +25,7 @@
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
   }
 
-  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, invoices, loads">
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, invoices, loads, lin_tokens">
 
     ${
         // Today as ISO date — used for overdue detection. Hardcoded to seed
@@ -42,6 +42,10 @@
 
         // F-AUTH-001 fallback: role gate. Returns user + customer + invoices
         // scoped to this customer.
+        //
+        // M6: also returns a per-load payment token (most recent unconsumed
+        // 'payment' kind row in lin_tokens). The customer page uses this to
+        // pass the lin token through markPaid().
         server function fetchInvoicesServer(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (!user || user.role != "customer") {
@@ -57,7 +61,13 @@
                     i.sent_at, i.due_at, i.paid_at, i.payment_reference,
                     l.origin_city AS load_origin_city,
                     l.destination_city AS load_destination_city,
-                    l.commodity AS load_commodity
+                    l.commodity AS load_commodity,
+                    (SELECT lt.token FROM lin_tokens lt
+                     WHERE lt.load_id = i.load_id
+                       AND lt.kind = 'payment'
+                       AND lt.consumed_at IS NULL
+                     ORDER BY lt.issued_at DESC
+                     LIMIT 1) AS payment_token
                 FROM invoices i
                 LEFT JOIN loads l ON l.id = i.load_id
                 WHERE i.customer_id = ${customer.id}
@@ -71,7 +81,12 @@
         // customer guard ensures a customer can only mark THEIR OWN invoices
         // paid (defense-in-depth — UI never shows other customers' invoices,
         // but a malicious POST could try).
-        server function markPaidServer(sessionToken, invoiceId) {
+        //
+        // M6: takes the payment lin token. Server consumes via the DB-side
+        // single-use guard (UPDATE WHERE consumed_at IS NULL). Replays
+        // and double-clicks return error. The lin keyword on the parameter
+        // gives a compile-time exactly-once-consume guarantee per §35.2.1.
+        server function markPaidServer(sessionToken, invoiceId, lin token: string) {
             const user = getCurrentUser(sessionToken)
             if (!user || user.role != "customer") {
                 return { unauthorized: true }
@@ -81,7 +96,7 @@
 
             // Verify ownership.
             const inv = ?{`
-                SELECT id, customer_id, paid_at FROM invoices WHERE id = ${invoiceId}
+                SELECT id, load_id, customer_id, paid_at FROM invoices WHERE id = ${invoiceId}
             `}.get()
             if (!inv) return { error: "Invoice not found." }
             if (inv.customer_id != customer.id) {
@@ -89,6 +104,21 @@
             }
             if (inv.paid_at) {
                 return { error: "Invoice already paid." }
+            }
+
+            // Per F-LIN-001: SQL ?{} interpolation doesn't satisfy lin
+            // consume; copy into template literal first.
+            const consumeMarker = `consume:${token}`
+            const tokRes = ?{`
+                UPDATE lin_tokens
+                SET consumed_at = CURRENT_TIMESTAMP, consumed_by = ${user.id}
+                WHERE token = ${consumeMarker.substring(8)}
+                  AND kind = 'payment'
+                  AND load_id = ${inv.load_id}
+                  AND consumed_at IS NULL
+            `}.run()
+            if (tokRes.changes == 0) {
+                return { error: "Payment token already used or invalid." }
             }
 
             const ref = `SELFPAY-DEMO-${invoiceId}`
@@ -153,10 +183,16 @@
         }
 
         // F-RI-001 anchor + setError indirection.
-        function markPaid(invoiceId) {
+        // M6: takes paymentToken — passes lin to server fn for single-use
+        // consumption. Replays / double-clicks rejected by DB guard.
+        function markPaid(invoiceId, paymentToken) {
             @errorMessage = ""
+            if (!paymentToken || paymentToken == "") {
+                setError("Payment token unavailable for this invoice.")
+                return
+            }
             const tok = getSessionToken()
-            const result = markPaidServer(tok, invoiceId)
+            const result = markPaidServer(tok, invoiceId, paymentToken)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
@@ -308,12 +344,20 @@
                                       </div>
                                   </td>
                                   <td class="px-3 py-3 text-right">
+                                      <!-- M6: Mark Paid is only enabled
+                                           when an active payment lin-token
+                                           exists. Disable when consumed
+                                           (idempotency surface). -->
                                       <button if=(!inv.paid_at)
-                                          onclick=markPaid(inv.id)
-                                          class="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium"
+                                          onclick=markPaid(inv.id, inv.payment_token)
+                                          disabled=(!inv.payment_token)
+                                          class="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                       >
                                           Mark paid
                                       </button>
+                                      <span if=(!inv.paid_at && !inv.payment_token) class="block text-xs text-slate-400 mt-1">
+                                          Token pending
+                                      </span>
                                       <span if=(inv.paid_at) class="text-xs text-slate-400">
                                           ${formatIsoDate(inv.paid_at)}
                                       </>
