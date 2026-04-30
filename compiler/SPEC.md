@@ -7070,6 +7070,63 @@ A non-`bind` prop is evaluated once when the component instantiates. To pass a r
 
 ---
 
+### 15.14 Post-CE Invariant — No Residual Component References
+
+**Added:** 2026-04-30 — UVB W1 (deep-dive `systemic-silent-failure-sweep-2026-04-30`).
+
+The Component Expansion (CE) stage MUST resolve every markup node that
+carries `isComponent: true` either by expanding it into HTML markup (the
+component's body with prop substitution) or by emitting a hard error
+(`E-COMPONENT-020`). A residual `isComponent: true` node SHALL NOT
+survive past Stage 3.3 (post-CE validation).
+
+#### 15.14.1 Why This Invariant Exists
+
+Before W1, an unresolved component reference could survive CE silently
+(by sliding through the recovery path that leaves the original node
+intact for downstream error recovery) and then be emitted as
+`document.createElement("ComponentName")` — a phantom DOM element with
+no associated definition. The runtime would render an empty custom
+element with the component's tag name, breaking any per-instance state
+the adopter had wired up.
+
+This was the F-COMPONENT-001 silent-failure window surfaced by the
+2026-03 dispatch-app build. It is closed by VP-2 (the post-CE
+invariant validation pass).
+
+#### 15.14.2 Normative Statements
+
+- After CE returns, the compiler SHALL walk the resolved AST and emit
+  `E-COMPONENT-035` for every markup node where `isComponent === true`.
+- `E-COMPONENT-035` SHALL be a hard error (severity: `error`). The
+  compilation SHALL NOT produce code outputs when this error fires.
+- The error message SHALL include the unresolved component name and a
+  pointer to the workaround pattern (wrap inside a `lift` HTML element)
+  for adopters hitting the cross-file ergonomic gap covered by W2.
+- Same-file declarations are resolved by CE before VP-2 runs and so
+  SHALL NOT trigger E-COMPONENT-035.
+
+#### 15.14.3 Relationship to E-COMPONENT-020
+
+`E-COMPONENT-020` (CE-stage) and `E-COMPONENT-035` (post-CE) are
+complementary:
+
+- `E-COMPONENT-020` fires when CE looks up a component and cannot find
+  it in either the same-file registry or the import graph. The CE pass
+  emits this error AND leaves the residual node in place for downstream
+  error recovery.
+- `E-COMPONENT-035` fires on any residual `isComponent: true` node that
+  survives CE. It catches both the recovered E-COMPONENT-020 case AND
+  any future shape where CE silently drops resolution (defensive
+  invariant).
+
+When the underlying ergonomic gap is fixed in W2, fewer cases will reach
+`E-COMPONENT-035` because more references will be expanded successfully.
+The invariant remains as a defense-in-depth check.
+
+---
+
+
 ## 16. Component Slots
 
 **Revised:** S39, 2026-04-03 — complete rewrite. The provisional whitespace-rule slot syntax (`< slotname>:(<shape>)/`) is **retired**. It created unresolvable parsing ambiguities (SPEC-ISSUE-007) and conflated slots with state object syntax. The new system treats named slots as snippet-typed props with syntactic call-site desugaring. SPEC-ISSUE-007 and SPEC-ISSUE-008 are closed by this revision.
@@ -11662,8 +11719,11 @@ Breakpoint values for v1 are fixed to Tailwind v3 defaults (640px, 768px, 1024px
 
 `group-*`, `peer-*`, and `before:` / `after:` pseudo-element variants are deferred to v2 (Section 26.5).
 
+<<<<<<< Updated upstream
 When a class string contains a variant-prefix-shaped segment whose prefix matches NONE of the recognized prefixes above (e.g. `weird:p-4`, `group-hover:bg-blue-500`), the compiler SHALL NOT emit CSS for that class and SHALL emit W-TAILWIND-001. This prevents the silent-strip pattern where the compiler would otherwise emit a rule for the base utility under the wrong selector.
 
+=======
+>>>>>>> Stashed changes
 ### 26.4 Arbitrary Values
 
 The compiler SHALL recognize bracketed-value syntax `<utility-prefix>-[<value>]` as a request to emit a CSS rule whose property is determined by `<utility-prefix>` and whose value is `<value>`. The class name is CSS-escaped per CSS spec for use as a selector.
@@ -11715,8 +11775,11 @@ The variant-prefix `:` separator is bracket-aware: a `:` inside a `[...]` arbitr
 - `group-*` and `peer-*` parent/sibling-state variants — TBD (SPEC-ISSUE-012).
 - `before:` and `after:` pseudo-element variants (require `content` property handling) — TBD (SPEC-ISSUE-012).
 - Container queries (`@container`) — TBD.
+<<<<<<< Updated upstream
 
 For the deferred items above, when a class string in source uses one of those syntaxes (e.g. `group-hover:p-4`, custom-theme-prefix `brand:foo-bar`), the compiler SHALL emit W-TAILWIND-001. The warning is non-fatal — compilation produces output regardless. Class strings using variants and arbitrary values that ARE supported (Sections 26.3 and 26.4) compile cleanly and produce no warning. `${...}` interpolation regions inside the class attribute value are masked before scanning so dynamic-class expressions like `class="${cond ? 'a' : 'b'}"` do not produce false positives on the ternary's `:`.
+=======
+>>>>>>> Stashed changes
 
 ---
 
@@ -12252,6 +12315,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-CHANNEL-002 | §38.9 | `@shared` used outside a `<channel>` scope | Error |
 | E-CHANNEL-003 | §38.9 | Duplicate channel name in same file | Error |
 | E-CHANNEL-004 | §38.9 | `broadcast()` called outside a `<channel>` scope | Error |
+| E-CHANNEL-005 | §38.9 | `onserver:message` call expression contains more than one parameter | Error |
+| E-CHANNEL-006 | §38.9 | `onclient:*` handler function declared as `server function` | Error |
+| E-CHANNEL-007 | §38.11 | `name=` (or `topic=`) attribute value contains `${...}` interpolation; static literal required | Error |
 | E-FN-001 | §48.3.1 | `?{}` SQL access inside a `fn` body | Error |
 | E-FN-002 | §48.3.2 | DOM mutation call inside a `fn` body | Error |
 | E-FN-003 | §48.3.3 | Outer-scope variable mutation inside a `fn` body, or call to a non-`pure`, non-`fn` function | Error |
@@ -12286,6 +12352,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-AUTH-004 | §52.11 | Two declarations of the same state type with conflicting `authority=` values | Error |
 | E-AUTH-005 | §52.11 | `server @var` declared inside a client-only component (no server context) | Error |
 | W-AUTH-001 | §52.11 | `server @var` has no detectable initial load pattern | Warning |
+| W-ATTR-001 | §52.13 | Attribute name not recognized on a scrml-special element (informational; attribute is forwarded to HTML as-is) | Warning |
+| W-ATTR-002 | §52.13 | Attribute value-shape not recognized (e.g. `auth="role:X"` on `<page>`) — silently accepted but has no compile-time effect | Warning |
 | E-CONTRACT-001 | §53.11 | Inline predicate violation at compile time (statically provable) | Error |
 | E-CONTRACT-001-RT | §53.11 | Inline predicate violation at runtime | Runtime |
 | E-CONTRACT-002 | §53.11 | Named shape not found in registry | Error |
@@ -12302,6 +12370,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-COMPONENT-031 | §15.12 | Component render syntax: unexpected extra content | Error |
 | E-COMPONENT-033 | §16.8 | `render` call references unknown snippet | Error |
 | E-COMPONENT-034 | §16.8 | `render` call arity mismatch with snippet declaration | Error |
+| E-COMPONENT-035 | §15.14 | Post-CE invariant: residual `isComponent: true` markup node survived component expansion | Error |
 | E-DG-001 | §31 | Dependency graph: circular dependency in reactive graph | Error |
 | E-ERROR-008 | §19.2 | Error type variant uses reserved field name | Error |
 | E-MARKUP-003 | §24.1 | Unknown attribute on known HTML element | Error |
@@ -13599,6 +13668,7 @@ The compiler emits a WebSocket upgrade route at `/_scrml_ws/<name>` and a `_scrm
 | E-CHANNEL-004 | `broadcast()` or `disconnect()` called from a function not within a `<channel>` lexical scope | Error |
 | E-CHANNEL-005 | `onserver:message` call expression contains more than one parameter | Error |
 | E-CHANNEL-006 | `onclient:*` handler function declared as `server function` | Error |
+| E-CHANNEL-007 | `name=` (or `topic=`) attribute value contains `${...}` interpolation; static literal required (§38.11) | Error |
 | W-CHANNEL-001 | `topic=` is statically proven to be `not`; `broadcast()` will always be a no-op | Warning |
 
 ### 38.10 `onclient:*` — Client-Side Lifecycle Hooks
@@ -13692,6 +13762,71 @@ The compiler generates `ws.onopen = () => { markConnected(); }` and
 - `onclient:*` hooks do not interact with `@shared` sync. `@shared` sync is suspended when the connection is closed and resumes when it reopens.
 
 ---
+
+### 38.11 Literal Name and Topic — No Interpolation Supported
+
+**Added:** 2026-04-30 — UVB W1 (deep-dive `systemic-silent-failure-sweep-2026-04-30`).
+
+The `name=` and `topic=` attributes on `<channel>` SHALL be static
+literals. `${...}` interpolation in these values is NOT supported and
+SHALL emit `E-CHANNEL-007`.
+
+#### 38.11.1 Why This Restriction Exists
+
+Channel `name=` is the WebSocket URL key — `/_scrml_ws/<name>`. The
+URL is generated at compile time and shared across every client of the
+same channel; a per-instance `name="driver-${id}"` would require
+generating one URL endpoint per id at runtime, which the compiler
+cannot do. Before W1, the literal `${id}` was emitted as a static
+substring of the URL — every "per-id" channel collapsed to a single
+broadcast topic with the URL `/_scrml_ws/driver-___id_`, silently
+breaking every adopter expectation.
+
+This was the F-CHANNEL-001 silent-failure window surfaced by the
+2026-03 dispatch-app build. It is closed by VP-3 (the
+attribute-interpolation validation pass).
+
+#### 38.11.2 Normative Statements
+
+- The compiler SHALL emit `E-CHANNEL-007` when `name=` (or `topic=`)
+  on `<channel>` contains a `${` substring in its string-literal
+  attribute value.
+- The error message SHALL include the offending literal value and
+  recommend the static-name + payload-side filter pattern (see
+  §38.11.3).
+
+#### 38.11.3 Per-Instance Scoping Pattern
+
+For per-id channel scoping, use a STATIC name and filter on the
+payload at receive time:
+
+```scrml
+<channel name="driver-events">
+  ${
+    @shared events = []
+    server function postEvent(driverId, body) {
+      broadcast({ targetDriverId: driverId, body, ts: Date.now() })
+    }
+  }
+</>
+
+// Subscriber side (client):
+${ for (let e of @events) {
+  if (e.targetDriverId == @currentDriver.id) {
+    lift <li>${e.body}</li>
+  }
+} }
+```
+
+This keeps the channel name static (one URL endpoint, one connection)
+and uses the payload `targetDriverId` to scope rendering on the
+subscriber. Wire-level: every client of the same `name=` receives every
+event; client-side rendering filters. For demo-scale traffic this is
+fine; for production scale, evaluate per-id channels at the runtime
+level (planned post-W1; see deep-dive M5 sketch).
+
+---
+
 
 ## 39. Database Schema Declaration and Migrations — `< schema>`
 
@@ -19396,6 +19531,63 @@ The following questions are not resolved by this spec section. Each is a tracked
 **SPEC-ISSUE-026** (raised by this section): When a Tier 2 `server @var` is assigned a value derived from multiple server function calls (e.g., `@cards = mergeLocalAndRemote(loadCards(), @localEdits)`), does the compiler generate optimistic update for the assignment, or does it require explicit authority handling? The spec does not currently address partial-authority expressions.
 
 **SPEC-ISSUE-027** (raised by this section): For Tier 1 state types, the compiler generates `SELECT *` for initial load. Does the developer have a way to constrain the initial load query (e.g., load only the first page, add a WHERE clause)? The current spec has no syntax for this; it may require an `on mount` override pattern analogous to §52.6.5 Pattern B.
+
+### 52.13 Recognized Attribute Values for `auth=` and `csrf=`
+
+**Added:** 2026-04-30 — UVB W1 (deep-dive `systemic-silent-failure-sweep-2026-04-30`).
+
+The `auth=` attribute on `<page>`, `<program>`, and `<channel>` accepts
+exactly three literal values:
+
+- `auth="required"` — every request to this scope SHALL be authenticated;
+  unauthenticated requests are redirected to `loginRedirect=` (default
+  `/login`).
+- `auth="optional"` — authentication is checked but not required; the
+  request proceeds either way and `getCurrentUser()` returns null when
+  no session is present.
+- `auth="none"` — no authentication check is performed (suitable for
+  public landing, login, register).
+
+The `csrf=` attribute accepts:
+
+- `csrf="auto"` — automatic CSRF token injection + verification.
+- `csrf="off"` — no CSRF check.
+
+#### 52.13.1 `auth="role:X"` — Recognized Shape, Not Yet Implemented
+
+The `role:X` value-shape (e.g. `auth="role:dispatcher"`) appears in the
+2026-03 dispatch-app FRICTION ledger as a documented but unimplemented
+ergonomic. The compiler SHALL emit `W-ATTR-002` when it sees this shape
+to surface the silent-failure window.
+
+The role-based authorization itself MUST be performed in the page's
+server functions until the ergonomic completion lands. See
+`examples/23-trucking-dispatch/FRICTION.md` F-AUTH-001.
+
+#### 52.13.2 Other Unrecognized Values
+
+Any literal value not in the recognized set SHALL emit `W-ATTR-002`.
+The attribute is currently passed through to the rendered HTML as-is;
+the warning surfaces the gap without breaking existing behavior.
+
+This is consistent with the validation principle: silent acceptance of
+attribute values that have no compile-time effect is itself a P0
+finding (see deep-dive `systemic-silent-failure-sweep-2026-04-30`,
+mechanism M1).
+
+#### 52.13.3 Open vs Closed Attribute Sets
+
+- `<page>`, `<channel>`, `<program>`, `<machine>`, `<errorBoundary>`
+  have closed attribute sets — unknown attribute names emit
+  `W-ATTR-001` (see `compiler/src/attribute-registry.js`).
+- Plain HTML elements (`<div>`, `<input>`, `<form>`, etc.) have OPEN
+  attribute sets — unknown attribute names pass through silently.
+- Open-prefix forms (`bind:*`, `on:*`, `data-*`, `aria-*`,
+  `onserver:*`, `onclient:*`, `class:*`, `style:*`) are accepted on
+  every element regardless of the per-element schema.
+
+---
+
 
 ## 53. Inline Type Predicates
 

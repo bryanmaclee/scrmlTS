@@ -123,6 +123,7 @@ maps to the per-file budgets below when running with full worker parallelism.
 | 3 | Tokenizer + AST Builder | TAB | per-file |
 | 3.1 | Module Resolver | MOD | project-wide (needs all TAB outputs) |
 | 3.2 | Component Expander | CE | per-file (after MOD complete) |
+| 3.3 | Unified Validation Bundle (VP-1, VP-2, VP-3) | UVB | per-file (after CE) |
 | 4 | protect= Analyzer | PA | project-wide (needs schema I/O) |
 | 5 | Route Inferrer | RI | project-wide |
 | 6 | Type System | TS | per-file (after PA+RI complete) |
@@ -613,7 +614,8 @@ MOD performs five steps in sequence:
     `component-def` nodes are consumed from `ast.components` and `ast.nodes` (removed).
   - No markup node with `isComponent: true` remains in the AST after a successful expansion.
     Resolved component references are replaced by expanded HTML markup subtrees. Unresolved
-    references (E-COMPONENT-020) are left in place as-is.
+    references emit E-COMPONENT-020 from CE AND are left in place for the post-CE invariant
+    check (Stage 3.3 / VP-2) to surface as E-COMPONENT-035. Either error fails the run.
   - Prop values passed at the call site are wired into the expanded subtree. Caller attributes
     become named identifiers in the component body. `${children}` placeholders receive the
     caller's child nodes.
@@ -634,10 +636,14 @@ MOD performs five steps in sequence:
     the MOD export registry.
   - `E-COMPONENT-021`: Component body failed to re-parse. The component definition's `raw`
     field could not be normalized and re-parsed as valid scrml markup.
-- Partial output: Per-component fail-soft. Components that fail with E-COMPONENT-020 or
-  E-COMPONENT-021 are left in place as-is; other components in the same file continue
-  processing. Downstream stages MUST treat any remaining `isComponent: true` markup node or
-  `component-def` node as an error.
+- Partial output: Per-component fail-soft within CE itself. Components that fail with
+  E-COMPONENT-020 or E-COMPONENT-021 are left in place as-is; other components in the same
+  file continue processing within CE. Stage 3.3 (post-CE invariant validation, VP-2) then
+  walks the resolved AST and surfaces every residual `isComponent: true` markup node as
+  E-COMPONENT-035. The hard error at Stage 3.3 closes the silent-failure window where a
+  residual reference would otherwise be silently emitted as `document.createElement("X")`.
+  See SPEC.md §15.14 (post-CE invariant) and deep-dive
+  `systemic-silent-failure-sweep-2026-04-30` §11.3 D3.
 
 **Transformation:**
 CE runs per-file. For each file, CE builds a same-file component registry from `ast.components`
@@ -665,6 +671,74 @@ After expansion, `component-def` nodes are removed from the AST.
 **Parallelism opportunity:** Yes — per-file after MOD completes.
 **Dependencies:** TAB (Stage 3) must complete for the file. MOD (Stage 3.1) must complete for
   all files (needed for cross-file component lookup).
+
+---
+
+## Stage 3.3: Unified Validation Bundle (UVB / VP-1, VP-2, VP-3)
+
+**Added:** 2026-04-30 — UVB W1. Closes silent-failure mechanisms M1, M3, M4
+identified in `docs/deep-dives/systemic-silent-failure-sweep-2026-04-30.md`.
+
+**Input contract:**
+- Type: `{ files: { filePath: string, ast: FileAST }[] }` — post-CE per-file
+  results.
+- Invariants: every file has passed TAB and CE without throwing. CE may have
+  emitted E-COMPONENT-020 / E-COMPONENT-021 errors; those are forwarded along
+  with any new errors this stage produces.
+- Source: Component Expander (CE, Stage 3.2).
+
+**Output contract:**
+- Type: `{ errors: ValidatorDiagnostic[] }` per pass (VP-1, VP-2, VP-3 each
+  return their own list).
+- Diagnostic shape: `{ code: string, message: string, span: Span, severity: "error" | "warning" }`.
+- VP-2 is mandatory and SHALL run before any downstream stage. VP-1 and VP-3
+  are also mandatory in the standard pipeline.
+- Consumer: protect= Analyzer (PA, Stage 4).
+
+**Validation passes:**
+
+- **VP-1 — Per-Element Attribute Allowlist** (`compiler/src/validators/attribute-allowlist.ts`)
+  - Walks the AST and emits warnings for unrecognized attributes on
+    scrml-special elements (those registered in
+    `compiler/src/attribute-registry.js`).
+  - W-ATTR-001: unrecognized attribute name on `<page>`, `<channel>`,
+    `<machine>`, `<errorBoundary>`, or `<program>`.
+  - W-ATTR-002: recognized attribute name with unrecognized value-shape
+    (e.g. `auth="role:dispatcher"` — see SPEC §52.13).
+  - Plain HTML elements (`<div>`, `<input>`, etc.) are NOT policed. Open-prefix
+    forms (`bind:*`, `on:*`, `data-*`, `aria-*`, `onserver:*`, `onclient:*`,
+    `class:*`, `style:*`) are accepted on every element.
+  - Severity: warning. Compilation continues; the warning surfaces
+    silent-acceptance gaps without breaking forward-compat HTML attribute
+    behaviour.
+
+- **VP-2 — Post-CE Invariant Check** (`compiler/src/validators/post-ce-invariant.ts`)
+  - Walks the AST and emits a hard error for every residual
+    `isComponent: true` markup node — i.e. a component reference that
+    survived CE without being expanded or rejected at CE time.
+  - E-COMPONENT-035: residual `isComponent: true` markup node — closes the
+    silent phantom DOM emission window (see SPEC §15.14).
+  - Severity: error. Compilation fails.
+
+- **VP-3 — Attribute Interpolation Validation** (`compiler/src/validators/attribute-interpolation.ts`)
+  - Walks the AST and emits a hard error when a `${...}` interpolation
+    appears in an attribute value where the per-element registry flags
+    `supportsInterpolation: false`.
+  - E-CHANNEL-007: `${...}` in `<channel name=>` or `<channel topic=>`
+    (see SPEC §38.11).
+  - Severity: error. Compilation fails.
+
+**Error contract:**
+- May throw: No — errors are returned as values.
+- Each pass operates independently. A given run may surface VP-1 warnings,
+  VP-2 errors, and VP-3 errors simultaneously.
+- All three passes traverse the same AST shape via the shared
+  `validators/ast-walk.ts` helper. Any new validation pass added at this
+  stage MUST use the shared walker to ensure consistent traversal.
+
+**Performance budget:** <= 1 ms per file (combined for all three passes).
+**Parallelism opportunity:** Yes — per-file after CE completes.
+**Dependencies:** CE (Stage 3.2) must complete for the file.
 
 ---
 
