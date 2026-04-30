@@ -134,9 +134,18 @@
         body:          text not null
         at:            timestamp default(CURRENT_TIMESTAMP)
     }
+
+    lin_tokens {
+        token:        text primary key
+        load_id:      integer not null references loads(id)
+        kind:         text not null
+        issued_at:    timestamp default(CURRENT_TIMESTAMP)
+        consumed_at:  timestamp
+        consumed_by:  integer references users(id)
+    }
 </>
 
-< db src="./dispatch.db" protect="password_hash" tables="users, customers, drivers, tractors, trailers, loads, assignments, log_entries, invoices, messages">
+< db src="./dispatch.db" protect="password_hash" tables="users, customers, drivers, tractors, trailers, loads, assignments, log_entries, invoices, messages, lin_tokens">
 
     ${
         import { hashPassword, verifyPassword } from 'scrml:auth'
