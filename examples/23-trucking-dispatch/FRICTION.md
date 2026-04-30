@@ -284,6 +284,50 @@ will spend 10x time hunting "what file is `currentTrailerId` in?"
 
 ---
 
+## F-COMMENT-001 — HTML comments leak content into the parser/scope checker (P1)
+
+**Surfaced in:** M2 first compiles of board.scrml + customers.scrml.
+
+**What I tried:**
+```scrml
+<!-- F-AUTH-001 carryover: `auth="role:dispatcher"` documents intent; the
+     runtime fallback in loadBoardData() does the actual gating.
+     The `<page>` wrapper hits E-COMPONENT-020 ... -->
+<div>...</div>
+```
+
+```scrml
+<!-- Inline expanded detail row, visible when this customer's id matches @expandedId -->
+${ if (c.id == @expandedId) { lift <tr>...</tr> } }
+```
+
+**What didn't work:**
+- The first comment fired E-CTX-001 and E-CTX-003 — the BS pass tracked
+  `<page>` from the comment text as if it were an open tag.
+- The second fired E-SCOPE-001 on the bare word `when` — the TS pass
+  parsed comment text as logic.
+
+**Workaround used:** Remove any HTML-tag-like content (`<page>`,
+`<for>`, etc.) and keyword-like words (`when`, `if`) from `<!-- ... -->`
+comments. Use `//` JS-style comments inside `${ ... }` blocks instead;
+they're never parsed as markup.
+
+Better practice: keep HTML comments to short single-purpose annotations
+that don't mention scrml or HTML keywords. Move documentation prose to
+file-level `//` comments at the top.
+
+**Suggests:** The lexer / BS pass should treat `<!-- ... -->` as a true
+opaque comment region. Currently it appears the comment is consumed by
+the markup-tokenizer but its content is also being lex-checked or
+scope-checked in ways the `// ... ` JS comment isn't.
+
+Severity P1: the failure mode is reliably reproducible but the error
+messages point to the wrong line (the `<div>` or `${ ... }` *after* the
+comment, not the comment itself), so adopters spend time chasing the
+wrong code.
+
+---
+
 ## F-RI-001 — Server-fn return-value branching escalates the wrapping client function to server (P0)
 
 **Surfaced in:** M2 `transition()` and `saveAssignment()` in `load-detail.scrml`.
