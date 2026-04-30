@@ -1118,3 +1118,42 @@ No design change. The deep-dive on cross-file component expansion
 remains queued post-M6.
 
 ---
+
+## F-IDIOMATIC-001 — Canonical `is not` / `is some` presence-guard syntax saw zero adopter reach (P2 — observation)
+
+**Surfaced in:** Audit at M4 close (2026-04-30, S50). User-prompted grep across all 5,650+ LOC of dispatch app code (M1+M2+M3+M4).
+
+**What I found:** Across `examples/23-trucking-dispatch/` 32 .scrml files (~5,650 LOC of natural scrml writing by 4 distinct dispatch agents working from kickstarter v1):
+
+| Search | Hits |
+|---|---|
+| `is not` as operator | **0** |
+| `is some` as operator | **0** |
+| `is not` in comments | 1 (citing F-RI-001-FOLLOW workaround) |
+| `is not` in natural English | 1 (comment "the load is not yet delivered") |
+| `is not` in string literals | 1 (UI message "Account is not active") |
+
+**What adopters reached for instead:**
+- `!x` truthiness checks for nullable refs and undefined fields (predominant)
+- `== null` / `!= null` literal comparisons (until F-NULL-001 + F-NULL-002 forced retreat to truthiness)
+- `==` / `!=` for value comparisons (predominant)
+
+**Why this matters:**
+SPEC §42.2 + kickstarter v1 §3 anti-pattern table both document `is not` / `is some` as the **canonical scrml presence-guard syntax** — the form scrml prefers over the JS-style `== null` / `!= null` nullability dance. The dispatch app was deliberately written by general-purpose agents reading the kickstarter as their primary onboarding doc, and producing realistic adopter-shaped code. **None of them reached for the canonical syntax.** They wrote `!x` instead.
+
+This is a soft observation but a real signal about which idioms actually land in practice. Three plausible reasons (not mutually exclusive):
+
+1. **Familiarity bias.** `!x` is universal across JS/TS/most languages. `is not` is scrml-specific. Adopters write what's in muscle memory.
+2. **F-RI-001-FOLLOW chilling effect.** When `obj.error is not` fails E-SCOPE-001 for member-access targets, the path of least resistance is `!obj.error`. Once an adopter learns "use `!` for member-access," they generalize to "use `!` everywhere."
+3. **F-NULL-001 + F-NULL-002 chilling effect.** Both push adopters AWAY from `== null` patterns. The fastest replacement that compiles in all contexts is `!x` truthiness, not `is not`.
+
+**Suggests:**
+- The kickstarter could promote `is not` / `is some` MORE aggressively — e.g. show it as the recommended idiom in every recipe rather than only in the §3 anti-pattern reference table.
+- F-RI-001-FOLLOW (extending `is not` to member-access) becomes more important: until member-access works, `is not` is identifier-only and adopters generalize to `!` for consistency.
+- Documentation alone may not be enough. The canonical syntax needs first-class compiler support across all positions adopters expect (member-access, nested expressions, chained checks). Without that, adopters flow toward the JS-instinct `!` and the canonical form becomes dead documentation.
+
+Severity P2: not blocking, no functional impact. But it's a long-term signal about ecosystem identity. If `is not` / `is some` is supposed to be the scrml way, it currently isn't winning adoption — including in the very example app intended to demonstrate the language.
+
+This finding doesn't have a clean fix; it's a data point worth tracking. Re-grep at M6 close to see if the trend holds.
+
+---
