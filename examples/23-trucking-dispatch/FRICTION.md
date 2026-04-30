@@ -197,6 +197,165 @@ badge / driver card usages all need the same wrapper or they fail.
 
 ---
 
+## F-COMPONENT-002 — Component prop names at call site become spurious local declarations (P1)
+
+**Surfaced in:** M2 first compile of `pages/dispatch/load-detail.scrml` consuming the `<AssignmentPicker>` component.
+
+**What I tried:**
+```scrml
+<AssignmentPicker
+    drivers=@drivers
+    tractors=@tractors
+    trailers=@trailers
+    currentDriverId=(@assignment == null ? 0 : @assignment.driver_id)
+    currentTractorId=(@assignment == null ? 0 : @assignment.tractor_id)
+    currentTrailerId=(@assignment == null ? 0 : @assignment.trailer_id)
+    onAssign=saveAssignment
+/>
+```
+
+The component declares those names in its `props={ ... }` spec. The
+expressions on the right-hand side are valid (the @vars exist).
+
+**What didn't work:**
+```
+error [E-MU-001]: Variable `currentTractorId` was declared but never used
+before this scope closes.
+error [E-MU-001]: Variable `currentTrailerId` was declared but never used
+before this scope closes.
+error [E-MU-001]: Variable `onAssign` was declared but never used before
+this scope closes.
+  stage: TS
+```
+
+The TypeScript-pass treats the prop names on the call-site as fresh
+identifier *declarations* rather than as parameter-name labels for the
+component. Since the page doesn't reference `currentTractorId` /
+`currentTrailerId` / `onAssign` again, they're flagged as unused.
+
+The errors don't even point to a file (the diagnostic emits `stage: TS`
+with no `--> path:line:col` cursor), so reproducing or tracking them
+required commenting out call sites one by one to bisect.
+
+**Workaround used:** Declare a parallel `@var` for each prop name on the
+consuming page, give it a real assignment in the `refresh()` body, and
+pass `propName=@propName` instead of an inline expression:
+```scrml
+@currentDriverId  = 0
+@currentTractorId = 0
+@currentTrailerId = 0
+
+function refresh() {
+    ...
+    const a = data.assignment
+    @currentDriverId  = a ? a.driver_id  : 0
+    @currentTractorId = a ? a.tractor_id : 0
+    @currentTrailerId = a ? a.trailer_id : 0
+}
+
+<AssignmentPicker
+    currentDriverId=@currentDriverId
+    currentTractorId=@currentTractorId
+    currentTrailerId=@currentTrailerId
+    onAssign=saveAssignment
+/>
+```
+This compiles clean. Note: I did NOT need a `@onAssign` — passing the
+client function directly works once the rest is `@`-prefixed.
+
+**Suggests:** The TS-pass should know that prop-name attributes on a
+component opener (e.g. `currentTractorId=expr`) are call-site labels,
+not new declarations. Severity P1: workaround is mechanical (~3 LOC per
+component) but every call site has to know the gap exists. The error
+without a file path makes diagnosis disproportionately hard — adopters
+will spend 10x time hunting "what file is `currentTrailerId` in?"
+
+---
+
+## F-RI-001 — Server-fn return-value branching escalates the wrapping client function to server (P0)
+
+**Surfaced in:** M2 `transition()` and `saveAssignment()` in `load-detail.scrml`.
+
+**What I tried:**
+```scrml
+function transition(target) {
+    const tok = getSessionToken()
+    const result = transitionStatusServer(tok, @load.id, target)
+    if (result.unauthorized) {
+        window.location.href = "/login?reason=unauthorized"
+        return
+    }
+    if (result.error) {
+        @errorMessage = result.error
+        return
+    }
+    refresh()
+}
+```
+
+**What didn't work:**
+```
+error [E-RI-002]: Server-escalated function `transition` assigns to a
+`@` reactive variable. Reactive state is client-side; server functions
+cannot mutate it directly. Move the reactive assignment to a client-side
+callback, or restructure the function so the reactive mutation occurs on
+the client.
+  stage: RI
+```
+
+The compiler escalated `transition` to "server" because it calls a
+server fn (`transitionStatusServer`), then complained that the same
+function reassigns `@errorMessage`. Refactoring into a separate
+`handleTransitionResult(result)` helper didn't help — that helper got
+escalated instead. The 03-contact-book pattern (call server fn → assign
+@var → done) compiles clean, but only when the server-fn return is
+NOT inspected on the client side.
+
+**Workaround used:** Restructure to:
+```scrml
+function transition(target) {
+    @errorMessage = ""                              // 1. assign first
+    const result = serverFn(tok, ...)               // 2. server call
+    if (result.unauthorized) {                      // 3. exit early
+        window.location.href = "..."
+        return
+    }
+    if (!result.error) {                            // 4. happy path
+        refresh()
+        return
+    }
+    setError(result.error)                          // 5. setError helper
+}
+
+function setError(msg) {
+    @errorMessage = msg
+}
+```
+
+Key insight: an extra `@var = ""` BEFORE the server call seems to anchor
+the function as client-side. Then the negative path delegates the @var
+assignment to `setError()` (a separate client function), keeping the
+escalation analysis happy.
+
+Also: `if (result.error == null)` and `if (result.error is not)` both
+fail (E-SYNTAX-042 + E-SCOPE-001 respectively). `if (!result.error)`
+is the form that compiles.
+
+**Suggests:**
+- The escalation rule should accept "client function calls server fn,
+  then conditionally assigns @vars" as canonical client-side. This is
+  the Promise-chain pattern every full-stack framework uses. Adopters
+  will write it 10x per app.
+- E-SYNTAX-042's prescribed replacement (`x is not`) doesn't work for
+  field access (`obj.error is not` → E-SCOPE-001). Either extend `is`
+  to support field access or document `!field` as the correct form.
+
+Severity P0: the canonical "call server fn, dispatch on result, update
+UI" pattern doesn't compile. Adopters cannot ship without finding the
+workaround through trial-and-error.
+
+---
+
 ## F-DESTRUCT-001 — Array destructuring inside `for-of` may confuse type-scope (P2)
 
 **Surfaced in:** M1 first draft of `_readCookie` helper.

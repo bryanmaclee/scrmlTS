@@ -1,0 +1,423 @@
+// Trucking Dispatch — load detail (M2).
+//
+// Route: /dispatch/loads/:id. Header (load summary), status changer, driver
+// + tractor + trailer assignment block, log timeline.
+//
+// Per F-AUTH-001 + F-AUTH-002: same auth fallback pattern. Per F-COMPONENT-001:
+// every imported component is wrapped in `${ lift <div>... }` blocks.
+//
+// `route.params.id` holds the load ID (per kickstarter §7 multi-page-routing).
+// We parse it to integer with parseInt() for the SQL bind. Per kickstarter §4
+// (the 8 questions), `route.params.*` values are string-typed.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { LoadStatusBadge } from '../../components/load-status-badge.scrml'
+      import { StatusPicker } from '../../components/status-picker.scrml'
+      import { AssignmentPicker } from '../../components/assignment-picker.scrml'
+      import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+
+      // Inlined transition validator — duplicates status-picker's validNextStates
+      // because cross-file `fn` calls inside server functions trigger
+      // server-escalation cascades on the importer (cf. F-COMPONENT-002).
+      fn _validNextStatesInline(current: string) -> any {
+          if (current == "tendered")   return ["booked", "cancelled"]
+          if (current == "booked")     return ["dispatched", "cancelled"]
+          if (current == "dispatched") return ["loaded", "cancelled"]
+          if (current == "loaded")     return ["in_transit", "cancelled"]
+          if (current == "in_transit") return ["delivered", "cancelled"]
+          if (current == "delivered")  return ["invoiced"]
+          if (current == "invoiced")   return ["paid"]
+          if (current == "paid")       return []
+          if (current == "cancelled")  return []
+          return []
+      }
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, loads, customers, assignments, drivers, tractors, trailers, log_entries">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchDetail(sessionToken, loadId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "dispatcher") {
+                return { unauthorized: true }
+            }
+
+            const load = ?{`
+                SELECT
+                    l.id, l.customer_id, l.origin_address, l.origin_city, l.origin_state,
+                    l.destination_address, l.destination_city, l.destination_state,
+                    l.pickup_at, l.deliver_by, l.commodity, l.weight_lbs,
+                    l.rate_dollars, l.status, l.created_at, l.updated_at,
+                    c.name AS customer_name, c.contact_name AS customer_contact, c.contact_phone AS customer_phone
+                FROM loads l
+                LEFT JOIN customers c ON c.id = l.customer_id
+                WHERE l.id = ${loadId}
+            `}.get()
+
+            if (!load) return { notFound: true }
+
+            // Active assignment (most recent unassigned_at IS NULL).
+            const assignment = ?{`
+                SELECT a.id, a.driver_id, a.tractor_id, a.trailer_id, a.assigned_at,
+                    d.name AS driver_name,
+                    t.unit_number AS tractor_number, t.make AS tractor_make, t.model AS tractor_model,
+                    tr.unit_number AS trailer_number, tr.type AS trailer_type
+                FROM assignments a
+                LEFT JOIN drivers d ON d.id = a.driver_id
+                LEFT JOIN tractors t ON t.id = a.tractor_id
+                LEFT JOIN trailers tr ON tr.id = a.trailer_id
+                WHERE a.load_id = ${loadId}
+                  AND a.unassigned_at IS NULL
+                ORDER BY a.assigned_at DESC
+                LIMIT 1
+            `}.get()
+
+            const drivers = ?{`SELECT id, name, current_status FROM drivers ORDER BY name`}.all()
+            const tractors = ?{`SELECT id, unit_number, make, model, status FROM tractors ORDER BY unit_number`}.all()
+            const trailers = ?{`SELECT id, unit_number, type, length_ft FROM trailers ORDER BY unit_number`}.all()
+
+            const logEntries = ?{`
+                SELECT le.id, le.driver_id, le.type, le.at, le.payload, d.name AS driver_name
+                FROM log_entries le
+                LEFT JOIN drivers d ON d.id = le.driver_id
+                WHERE le.load_id = ${loadId}
+                ORDER BY le.at DESC
+            `}.all()
+
+            return {
+                user: user, load: load,
+                assignment: assignment,
+                drivers: drivers, tractors: tractors, trailers: trailers,
+                logEntries: logEntries
+            }
+        }
+
+        server function transitionStatusServer(sessionToken, loadId, newStatus) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "dispatcher") {
+                return { unauthorized: true }
+            }
+
+            const load = ?{`SELECT id, status FROM loads WHERE id = ${loadId}`}.get()
+            if (!load) return { error: "Load not found." }
+
+            // Validate transition with the same helper the picker uses.
+            const valid = _validNextStatesInline(load.status)
+            let ok = false
+            for (let i = 0; i < valid.length; i = i + 1) {
+                if (valid[i] == newStatus) { ok = true }
+            }
+            if (!ok) return { error: `Cannot transition from ${load.status} to ${newStatus}.` }
+
+            ?{`UPDATE loads SET status = ${newStatus}, updated_at = CURRENT_TIMESTAMP WHERE id = ${loadId}`}.run()
+            return { ok: true }
+        }
+
+        server function assignServer(sessionToken, loadId, driverId, tractorId, trailerId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "dispatcher") {
+                return { unauthorized: true }
+            }
+
+            // Close any prior active assignment.
+            ?{`UPDATE assignments SET unassigned_at = CURRENT_TIMESTAMP WHERE load_id = ${loadId} AND unassigned_at IS NULL`}.run()
+
+            ?{`
+                INSERT INTO assignments (load_id, driver_id, tractor_id, trailer_id)
+                VALUES (${loadId}, ${driverId}, ${tractorId}, ${trailerId})
+            `}.run()
+
+            return { ok: true }
+        }
+
+        @user = null
+        @load = null
+        @assignment = null
+        @drivers = []
+        @tractors = []
+        @trailers = []
+        @logEntries = []
+        @loaded = false
+        @errorMessage = ""
+        @currentDriverId = 0
+        @currentTractorId = 0
+        @currentTrailerId = 0
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function getLoadId() {
+            // route.params.id is string. parseInt to bind to numeric column.
+            // Falls back to URL parsing for the demo.
+            const path = window.location.pathname
+            const parts = path.split("/")
+            const last = parts[parts.length - 1]
+            const n = parseInt(last, 10)
+            return isNaN(n) ? 0 : n
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const loadId = getLoadId()
+            const data = fetchDetail(tok, loadId)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.notFound) {
+                @errorMessage = "Load not found."
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @load = data.load
+            @assignment = data.assignment
+            @drivers = data.drivers
+            @tractors = data.tractors
+            @trailers = data.trailers
+            @logEntries = data.logEntries
+            const a = data.assignment
+            @currentDriverId  = a ? a.driver_id  : 0
+            @currentTractorId = a ? a.tractor_id : 0
+            @currentTrailerId = a ? a.trailer_id : 0
+            @loaded = true
+        }
+
+        function transition(target) {
+            const tok = getSessionToken()
+            const loadId = @load.id
+            // Set @errorMessage BEFORE the server call so the assignment is
+            // recognized as client-side. Server-fn return values can be
+            // dispatched on without re-assigning @vars on the negative path.
+            @errorMessage = ""
+            const result = transitionStatusServer(tok, loadId, target)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                refresh()
+                return
+            }
+            // Use a local var so the @assignment isn't immediately after a
+            // server fn return — works around the strict E-RI-002 escalation.
+            const errMsg = result.error
+            setError(errMsg)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        function saveAssignment(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            const form = event ? event.target : null
+            if (!form) return
+            const driverId = parseInt(form.elements["driver_id"].value, 10)
+            const tractorId = parseInt(form.elements["tractor_id"].value, 10)
+            const trailerId = parseInt(form.elements["trailer_id"].value, 10)
+            if (isNaN(driverId) || isNaN(tractorId) || isNaN(trailerId)) {
+                setError("Driver, tractor, and trailer all required.")
+                return
+            }
+            const tok = getSessionToken()
+            const loadId = @load.id
+            @errorMessage = ""
+            const result = assignServer(tok, loadId, driverId, tractorId, trailerId)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                refresh()
+                return
+            }
+            const errMsg = result.error
+            setError(errMsg)
+        }
+
+        // Pure helpers — pretty labels for log entry type values.
+        fn logTypeLabel(t: string) -> string {
+            if (t == "pre_trip")     return "Pre-trip inspection"
+            if (t == "post_trip")    return "Post-trip inspection"
+            if (t == "bol_received") return "BOL received"
+            if (t == "pod_signed")   return "POD signed"
+            if (t == "fuel_stop")    return "Fuel stop"
+            if (t == "breakdown")    return "Breakdown"
+            if (t == "hos_change")   return "HOS status change"
+            return t
+        }
+
+        // Whether the assignment block should show. Available once status >= booked.
+        fn isAssignableStatus(s: string) -> boolean {
+            if (s == "tendered")  return false
+            if (s == "cancelled") return false
+            return true
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/dispatch" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Load detail</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/dispatch" class="hover:text-blue-300">Board</a>
+              <a href="/dispatch/drivers" class="hover:text-blue-300">Drivers</a>
+              <a href="/dispatch/customers" class="hover:text-blue-300">Customers</a>
+              <a href="/dispatch/billing" class="hover:text-blue-300">Billing</a>
+          </nav>
+      </header>
+
+      <main class="max-w-5xl mx-auto px-6 py-8">
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <p if=(@loaded && @load == null) class="text-slate-500">${@errorMessage}</p>
+
+          <div if=(@loaded && @load != null) class="space-y-6">
+
+              <!-- Header card -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <div class="flex items-start justify-between">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium mb-1">LOAD #${@load.id}</div>
+                          <h1 class="text-xl font-bold text-slate-900">
+                              ${@load.origin_city}, ${@load.origin_state}
+                              <span class="text-slate-400 mx-2">→</span>
+                              ${@load.destination_city}, ${@load.destination_state}
+                          </h1>
+                          <div class="text-sm text-slate-600 mt-1">
+                              ${@load.commodity}
+                              <span if=(@load.weight_lbs != null)> · ${@load.weight_lbs} lbs</>
+                          </div>
+                      </div>
+                      <div class="text-right">
+                          ${ lift <div><LoadStatusBadge status=@load.status/></div> }
+                          <div class="text-lg font-bold text-slate-900 mt-2">${formatRate(@load.rate_dollars)}</div>
+                      </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 text-sm">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Customer</div>
+                          <div class="font-semibold text-slate-900">${@load.customer_name}</div>
+                          <div class="text-slate-600">${@load.customer_contact == null ? "" : @load.customer_contact}</div>
+                          <div class="text-slate-500 text-xs">${@load.customer_phone == null ? "" : @load.customer_phone}</div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Pickup</div>
+                          <div class="text-slate-900">${formatPickupAt(@load.pickup_at)}</div>
+                          <div class="text-xs text-slate-500">${@load.origin_address == null ? "" : @load.origin_address}</div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Deliver</div>
+                          <div class="text-slate-900">${formatPickupAt(@load.deliver_by)}</div>
+                          <div class="text-xs text-slate-500">${@load.destination_address == null ? "" : @load.destination_address}</div>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- Status changer -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Advance status
+                  </h2>
+                  ${ lift <div><StatusPicker
+                      currentStatus=@load.status
+                      nextStates=validNextStates(@load.status)
+                      onTransition=transition
+                  /></div> }
+
+                  <div if=(@errorMessage != "") class="mt-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                      ${@errorMessage}
+                  </div>
+              </section>
+
+              <!-- Assignment block -->
+              <section if=isAssignableStatus(@load.status) class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Assignment
+                  </h2>
+
+                  <div if=(@assignment != null) class="bg-emerald-50 border border-emerald-200 rounded-md p-4 mb-4 text-sm">
+                      <div class="font-semibold text-emerald-900 mb-1">Currently assigned</div>
+                      <div class="text-emerald-800">
+                          Driver: <strong>${@assignment.driver_name}</strong>
+                          · Tractor: <strong>${@assignment.tractor_number} (${@assignment.tractor_make} ${@assignment.tractor_model})</strong>
+                          · Trailer: <strong>${@assignment.trailer_number} (${@assignment.trailer_type})</strong>
+                      </div>
+                  </div>
+
+                  ${ lift <div><AssignmentPicker
+                      drivers=@drivers
+                      tractors=@tractors
+                      trailers=@trailers
+                      currentDriverId=@currentDriverId
+                      currentTractorId=@currentTractorId
+                      currentTrailerId=@currentTrailerId
+                      onAssign=saveAssignment
+                  /></div> }
+              </section>
+
+              <!-- Log timeline -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Activity log
+                  </h2>
+
+                  <p if=(@logEntries.length == 0) class="text-sm text-slate-500">
+                      No log entries for this load yet. Driver entries will appear here in M3.
+                  </p>
+
+                  <ol if=(@logEntries.length > 0) class="space-y-3">
+                      ${
+                          for (let entry of @logEntries) {
+                              lift <li class="flex items-start gap-3 text-sm">
+                                  <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-0.5">
+                                      ${entry.at == null ? "" : entry.at.substring(0, 16)}
+                                  </span>
+                                  <span class="font-medium text-slate-900 w-48 flex-shrink-0">
+                                      ${logTypeLabel(entry.type)}
+                                  </span>
+                                  <span class="text-slate-600">
+                                      ${entry.driver_name == null ? "—" : entry.driver_name}
+                                      <span if=(entry.payload != null && entry.payload != "") class="text-xs text-slate-500 block">
+                                          ${entry.payload}
+                                      </>
+                                  </span>
+                              </li>
+                          }
+                      }
+                  </ol>
+              </section>
+
+          </div>
+      </main>
+    </div>
+
+  </>
+
+</program>
