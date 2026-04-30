@@ -7,6 +7,12 @@
 // Per F-AUTH-001 + F-AUTH-002 (M1) + F-COMPONENT-001 (M2): same auth
 // fallback pattern as board.scrml, and the AddressForm component is
 // wrapped in `<div>` at every call site.
+//
+// M5: publishes a `new-load` event to `<channel name="dispatch-board">`
+// after the load is successfully created so the load board updates
+// live for any other dispatcher viewing it. Per F-CHANNEL-003, this
+// page must declare its own `<channel>` block — channels are per-file,
+// not cross-file.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -185,6 +191,10 @@
                 return
             }
 
+            // M5: publish new-load event so other dispatchers see the new
+            // tender land on their board immediately.
+            publishBoardEvent("new-load", result.loadId, "tendered")
+
             window.location.href = `/dispatch/loads/${result.loadId}`
         }
 
@@ -192,6 +202,22 @@
             refresh()
         }
     }
+
+    <!-- M5: dispatch-board channel for new-load broadcast. -->
+    <channel name="dispatch-board">
+        ${
+            @shared boardEvents = []
+
+            server function publishBoardEvent(eventType, loadId, status) {
+                boardEvents = [...boardEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -208,7 +234,12 @@
       </header>
 
       <main class="max-w-3xl mx-auto px-6 py-8">
-          <h1 class="text-2xl font-bold mb-6">Book new load</h1>
+          <div class="flex items-center justify-between mb-6">
+              <h1 class="text-2xl font-bold">Book new load</h1>
+              <span class="text-xs text-slate-500">
+                  Live channel: <strong>${@boardEvents.length}</strong> events
+              </span>
+          </div>
 
           <p if=(!@loaded) class="text-slate-500">Loading…</p>
 

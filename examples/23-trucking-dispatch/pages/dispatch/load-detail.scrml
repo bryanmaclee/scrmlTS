@@ -9,6 +9,17 @@
 // `route.params.id` holds the load ID (per kickstarter §7 multi-page-routing).
 // We parse it to integer with parseInt() for the SQL bind. Per kickstarter §4
 // (the 8 questions), `route.params.*` values are string-typed.
+//
+// M5: declares two channels:
+//   - `<channel name="dispatch-board">` — publishes status changes so the
+//     dispatcher board updates live across other dispatchers' views.
+//   - `<channel name="load-events">` — publishes status / log events for
+//     this specific load. Subscribers (driver/load-detail, customer/load-detail
+//     of the same load id) filter on payload.loadId. Per F-CHANNEL-001,
+//     channel name interpolation does NOT work — `<channel name="load-${id}">`
+//     mangles the URL — so we use one global broadcast channel + payload
+//     filter. See F-CHANNEL-002 (no on-event hook) and F-CHANNEL-003 (per-page
+//     channel duplication) for context.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -214,6 +225,9 @@
                 return
             }
             if (!result.error) {
+                // M5: broadcast the status change to both channels.
+                publishBoardEvent("status-change", loadId, target)
+                publishLoadEvent("status", loadId, target, "")
                 refresh()
                 return
             }
@@ -243,6 +257,10 @@
                 return
             }
             if (!result.error) {
+                // M5: broadcast the assignment as a load-event so the
+                // driver who got assigned + the customer of this load
+                // see "carrier assigned" notice.
+                publishLoadEvent("assignment", loadId, "", "")
                 refresh()
                 return
             }
@@ -274,10 +292,51 @@
             return true
         }
 
+        @lastSeenLoadEventCount = 0
+        function ackLoadEvents() {
+            @lastSeenLoadEventCount = @loadEvents.length
+            refresh()
+        }
+
         on mount {
             refresh()
         }
     }
+
+    <!-- M5: dispatch-board broadcast for board-level status updates. -->
+    <channel name="dispatch-board">
+        ${
+            @shared boardEvents = []
+
+            server function publishBoardEvent(eventType, loadId, status) {
+                boardEvents = [...boardEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
+
+    <!-- M5: load-events broadcast for per-load updates (driver, customer,
+         dispatcher of the same load all subscribe). Each event payload
+         carries loadId so subscribers can filter on relevance. -->
+    <channel name="load-events">
+        ${
+            @shared loadEvents = []
+
+            server function publishLoadEvent(eventType, loadId, status, location) {
+                loadEvents = [...loadEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    location: location,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -294,6 +353,22 @@
       </header>
 
       <main class="max-w-5xl mx-auto px-6 py-8">
+
+          <!-- M5: live-events badge — increments via @shared sync as drivers
+               or other dispatchers publish load-events for this load.
+               Click "Refresh" to merge live state into the page. -->
+          <div class="flex items-center justify-end gap-3 mb-3 text-xs text-slate-500">
+              <span>
+                  Board events: <strong>${@boardEvents.length}</strong>
+                  · Load events: <strong>${@loadEvents.length}</strong>
+              </span>
+              <button if=(@loadEvents.length > @lastSeenLoadEventCount)
+                  onclick=ackLoadEvents()
+                  class="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium">
+                  Refresh load
+              </button>
+          </div>
+
           <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <p if=(@loaded && @load == null) class="text-slate-500">${@errorMessage}</p>

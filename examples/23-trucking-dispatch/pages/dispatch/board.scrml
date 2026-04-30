@@ -11,9 +11,15 @@
 // INLINED here per F-AUTH-002 — cross-file `?{}`-using server fns hit
 // E-SQL-004.
 //
-// Real-time hookpoint (M5): a `<channel name="dispatch-board">` would
-// subscribe to load.status broadcasts and trigger a refetch. Not wired
-// in M2; status changes happen on submit + page reload.
+// Real-time wiring (M5): subscribes to `<channel name="dispatch-board">`.
+// Publishers (status changes from dispatch/load-detail, driver/load-detail,
+// new tenders from dispatch/load-new + customer/quote) write to
+// `@shared boardEvents`. The `boardEvents` watcher below triggers a
+// refresh() so the kanban columns reflect the new state. Per F-CHANNEL-001
+// (M5), channel names are STATIC strings — name interpolation is silently
+// taken literal — so this is a single broadcast channel scoped to all
+// dispatchers (auth-gated by the page's role check). All event payloads
+// carry { type, loadId, status?, at } so client-side handlers can dispatch.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -101,10 +107,42 @@
             return status == "delivered" || status == "invoiced" || status == "paid"
         }
 
+        @lastSeenEventCount = 0
+        function ackEvents() {
+            @lastSeenEventCount = @boardEvents.length
+            refresh()
+        }
+
         on mount {
             refresh()
         }
     }
+
+      <!-- M5: dispatch-board channel — broadcasts to every dispatcher's
+           board. Publishers in dispatch/load-detail (status changes),
+           dispatch/load-new (new tenders), driver/load-detail (driver
+           transitions), customer/quote (new tenders) all call
+           publishBoardEvent(...). The shared `boardEvents` array grows
+           on each push; subscribers watch its length and offer a
+           "Refresh" button (we do NOT auto-refresh because scrml's
+           @shared mechanism doesn't expose an on-change effect hook —
+           see F-CHANNEL-002). -->
+      <channel name="dispatch-board">
+          ${
+              @shared boardEvents = []
+
+              // Publish helper. Callers from outside the channel scope
+              // invoke this via the auto-injected client → server bridge.
+              server function publishBoardEvent(eventType, loadId, status) {
+                  boardEvents = [...boardEvents, {
+                      type: eventType,
+                      loadId: loadId,
+                      status: status,
+                      at: new Date().toISOString()
+                  }]
+              }
+          }
+      </>
 
       <!-- F-AUTH-001 carryover: the role gate runs server-side in
            loadBoardData(); the page-level auth attribute is documentation. -->
@@ -129,7 +167,23 @@
         </header>
 
         <main class="px-6 py-8">
-            <h1 class="text-2xl font-bold mb-6">Load board</h1>
+            <div class="flex items-center justify-between mb-6">
+                <h1 class="text-2xl font-bold">Load board</h1>
+
+                <!-- Live updates indicator. Increments via @shared sync as
+                     dispatchers / drivers / customers publish to dispatch-board.
+                     Click "Refresh" to merge the live state into @loads. -->
+                <div class="flex items-center gap-3 text-sm">
+                    <span class="text-slate-500">
+                        Live events: <strong>${@boardEvents.length}</strong>
+                    </span>
+                    <button if=(@boardEvents.length > @lastSeenEventCount)
+                        onclick=ackEvents()
+                        class="px-3 py-1.5 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium">
+                        New activity — Refresh
+                    </button>
+                </div>
+            </div>
 
             <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
