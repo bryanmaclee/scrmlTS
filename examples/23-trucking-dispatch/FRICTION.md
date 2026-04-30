@@ -1157,3 +1157,418 @@ Severity P2: not blocking, no functional impact. But it's a long-term signal abo
 This finding doesn't have a clean fix; it's a data point worth tracking. Re-grep at M6 close to see if the trend holds.
 
 ---
+
+## F-CHANNEL-001 — Channel name interpolation is silently inert (P0)
+
+**Surfaced in:** M5, day 1 of channel wiring. The scoping doc named four
+per-id channels (`driver-:id`, `load-:id`, `customer-:id`) plus one
+broadcast (`dispatch-board`). The natural scrml form is
+`<channel name="driver-${driverId}">`. Tested in isolation before any
+real wiring.
+
+**What I tried:**
+```scrml
+${
+  let driverId = 7
+}
+
+<channel name="driver-${driverId}">
+  ${
+    @shared events = []
+    server function postEvent(body) {
+      events = [...events, { body: body, ts: Date.now() }]
+    }
+  }
+</>
+```
+
+**What didn't work:** Compiles clean. But the emitted JS shows the
+channel name is mangled to a literal underscore-string, not the
+runtime value of `driverId`:
+
+```javascript
+// emitted (excerpt):
+const _scrml_ws_driver___driverId_ = (() => {
+  let _ws, _reconn;
+  function _connect() {
+    _ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/_scrml_ws/driver___driverId_`);
+    ...
+```
+
+Every client ends up on the same `/_scrml_ws/driver___driverId_` URL
+regardless of the value of `driverId`. **All "per-id" channels collapse
+to a single broadcast topic** — no actual scoping happens.
+
+**Tested variants:**
+- `<channel name="driver-${@driverId}">` — same, mangles `${@driverId}` to `____driverId_`.
+- `<channel name="driver-${driverId}">` (bare let) — same, mangles to `___driverId_`.
+- `<channel name="driver-events" topic="driver-${driverId}">` — `topic=` attribute
+  appears in the source comment but the WebSocket URL is built from `name=` only.
+  No filtering effect.
+
+**Workaround used:** Replace per-id channels with a single global
+broadcast channel + payload-side filtering:
+- Use `<channel name="driver-events">` (static name).
+- Every event payload carries `targetDriverId: number`.
+- Client-side, the subscriber filters: only render events where
+  `payload.targetDriverId == @driver.id`.
+- Same pattern for `load-events` (filter on `loadId`) and
+  `customer-events` (filter on `targetCustomerId`).
+
+This works but breaks the per-id channel contract from the scoping
+doc. Network-wise, every client receives every event and discards
+the irrelevant ones — fine for the demo, NOT scalable.
+
+**Suggests:**
+- Either: extend the channel-element compiler pass to evaluate
+  attribute-string interpolations at runtime so `<channel name="driver-${id}">`
+  picks up the live `id` value and the WebSocket URL becomes
+  `/_scrml_ws/driver-7` for driver 7 etc.
+- Or: document explicitly in §38 that channel names are static
+  identifiers and per-instance scoping must be done via payload
+  filter (with a recipe).
+- Or: extend the `topic=` attribute to actually filter pub/sub
+  delivery (currently it's a no-op visible only as a code comment).
+
+Severity P0: this is a SILENT failure mode — compiles clean, runs
+without error, BUT the auth/privacy contract the adopter believed
+they had ("driver 7 only sees driver-7 messages") is broken
+silently. A driver whose UI doesn't filter properly will see other
+drivers' events. The validation principle says: if the compiler
+accepts `<channel name="driver-${id}">`, that pattern must do what
+its name suggests, OR the compiler must reject/warn.
+
+**Repro:** `/tmp/channel-name-test.scrml`, `/tmp/channel-name-test2.scrml`,
+`/tmp/channel-name-test3.scrml` (three variants, all show the same
+mangling).
+
+---
+
+## F-CHANNEL-002 — `@shared` mutation does not provide an on-change effect hook (P1)
+
+**Surfaced in:** M5, designing dispatch/board.scrml to refresh the
+kanban when status changes are pushed via the `dispatch-board` channel.
+
+**What I wanted:**
+```scrml
+<channel name="dispatch-board">
+  ${
+    @shared events = []
+    on events.change {     // hypothetical
+      refresh()
+    }
+  }
+</>
+```
+
+**What scrml provides:** `@shared` syncs the value across clients (via
+WebSocket); reading `${@events.length}` in markup re-renders that part
+of the DOM when the value changes (via the auto-generated `_scrml_effect`
+wrapper). But there's no language-level "run this side-effect when
+@events grows" hook.
+
+**Workaround used:**
+1. Render `${@boardEvents.length}` somewhere in the markup so the count
+   updates live (a "Live events: N" badge).
+2. Maintain a separate `@lastSeenEventCount` reactive that the user-
+   facing "Refresh" button updates: `@lastSeenEventCount = @boardEvents.length`.
+3. The button is shown via `if=(@boardEvents.length > @lastSeenEventCount)`
+   — appearing only when new events arrive. Click triggers a manual
+   `refresh()` that re-fetches DB state.
+
+This compiles clean and demos correctly. But it's a degraded UX
+compared to "live, automatic" — the dispatcher has to click "Refresh"
+to merge live state into the visible list. Without an on-change hook,
+the only fully-automatic alternative is to put the data INSIDE the
+`@shared` array (which means turning every db state into a channel
+state — impractical for `<channel>` payloads carrying server-fetched
+table rows).
+
+**Suggests:**
+- Provide a language-level on-change hook for `@shared` (e.g.
+  `on @sharedVar.change { ... }`) that fires when the channel sync
+  pushes a new value.
+- Alternatively: provide a `useEffect`-shaped primitive that runs a
+  client-side function whenever any of its inputs change. (scrml's
+  derived-reactive `const @x = expr` re-COMPUTES but doesn't fire
+  side-effects.)
+- Or: document the manual-refresh pattern as the canonical M5+
+  recipe for "channel pushed event → refresh tab".
+
+Severity P1: workaround is mechanical and the UX gap is acceptable
+for many use-cases. The dispatch app exercises this 8 times across 8
+subscriber pages — every one has the same `@lastSeen + Refresh button`
+shape. Adopters will reach for an on-change effect within minutes
+of writing their first channel page.
+
+---
+
+## F-CHANNEL-003 — Channels are per-page, not cross-file (P1)
+
+**Surfaced in:** M5, when wiring 4 channels across 12 publishing/
+subscribing pages. Discovered F-AUTH-002-style duplication for channels.
+
+**What I tried (theoretical):** factor the channel decl into a shared
+file:
+```scrml
+// models/channels.scrml
+${
+  export <channel name="dispatch-board">
+    ...
+  </>
+}
+```
+
+**What didn't work:** there's no syntax for exporting a `<channel>`.
+Channels are bound to a `<program>` scope and the `@shared`
+declaration inside is part of that page's reactive graph.
+
+**Workaround used:** every page that wants to publish or subscribe
+to a channel MUST declare its own `<channel name="X">` block. The
+WebSocket endpoint is shared across pages BY NAME, so the broadcast
+works — but the in-source declaration is duplicated.
+
+For the dispatch app:
+- `dispatch-board` channel decl appears in: dispatch/board.scrml,
+  dispatch/load-detail.scrml, dispatch/load-new.scrml,
+  driver/load-detail.scrml, customer/quote.scrml — **5 copies**.
+- `load-events` channel decl appears in: dispatch/load-detail.scrml,
+  driver/load-detail.scrml, customer/load-detail.scrml — **3 copies**.
+- `driver-events` channel decl appears in: driver/messages.scrml,
+  driver/home.scrml — **2 copies**.
+- `customer-events` channel decl appears in: dispatch/billing.scrml,
+  driver/load-detail.scrml, customer/loads.scrml,
+  customer/invoices.scrml, customer/home.scrml — **5 copies**.
+
+Total: ~15 channel-block copies across 12 files. Each block is ~12
+LOC of identical-shape `@shared events = [] ... server function
+publishX(...) { ... }`. ~180 LOC of boilerplate on the M5 contribution.
+
+**Suggests:**
+- Allow `export <channel name="X">` and `import 'X' from './path'` so
+  the channel + its publish helper come from one source.
+- Or: treat channel names as ambient — declaring `<channel name="X">`
+  once project-wide is enough; importing pages can publish/subscribe
+  via a stdlib `channel.publish(name, payload)` / `channel.subscribe(name, handler)`
+  API without re-declaring the block.
+- Or: accept the per-page redundancy and document the canonical
+  copy-paste shape in the kickstarter.
+
+Severity P1: the friction is sharp because the obvious abstraction
+(factor a channel block into a shared file) is exactly what every
+multi-page app wants. ~180 LOC of boilerplate on a 600-LOC milestone
+is a meaningful tax.
+
+---
+
+## F-CHANNEL-004 — `<channel>` body @shared decl + page-level reactives don't share scope cleanly (P2)
+
+**Surfaced in:** M5 driver/load-detail.scrml when adding the
+sendLocationPing() helper that needs to read both `@load` (page reactive,
+declared in `< db>` block) and call `publishLoadEvent(...)` (channel-
+scope server fn).
+
+**What works:** A page-level `function` can call a channel-scope
+`server function` (e.g. `publishLoadEvent`). The compiler resolves the
+name across the channel boundary.
+
+**What's awkward:** The `@shared` reactive itself (`@loadEvents`) is
+read in the page-level markup interpolations and conditional `if=`
+attributes (`${@loadEvents.length}`, `if=(@loadEvents.length > X)`).
+This works but feels coincidental — there's no documentation
+explaining that `<channel>`-internal `@shared` vars are accessible
+as page-level reactives. The example 15 + kickstarter recipe shows
+it implicitly but doesn't state it.
+
+The reverse direction also works (channel-scope `publishX` uses
+`new Date()` etc. without explicit imports), but this asymmetry is
+not documented.
+
+**Workaround used:** none needed; the unspoken contract is that
+channel-scope is "merged" into page-scope for both directions. But
+it's a footgun the first time you assume otherwise.
+
+**Suggests:** Document explicitly in §38 (channel spec) the scope
+rules:
+- `@shared` decls inside `<channel>` body are visible as page-level
+  reactives outside (read with `@varname`).
+- Page-level `function`s can call channel-scope `server function`s
+  by name.
+- Channel-scope `server function`s can use any global JS API +
+  imported helpers + page-level `@vars`.
+
+Severity P2: not blocking, just a documentation gap. Recording for
+the §38 spec polish.
+
+---
+
+## F-CHANNEL-005 — Per-channel auth scoping is not declarative (P1)
+
+**Surfaced in:** M5 design phase. The scoping doc + kickstarter §7
+imply that channels can be auth-scoped at declaration time
+(e.g. `<channel name="dispatcher-board" auth="role:dispatcher">`).
+The dispatch app's four channels have natural auth boundaries:
+- `dispatch-board` — dispatchers only
+- `driver-events` — driver + their dispatcher
+- `load-events` — load owner (customer) + assigned driver + dispatcher
+- `customer-events` — customer + their dispatcher
+
+**What I tried:**
+```scrml
+<channel name="dispatch-board" auth="role:dispatcher">
+  ...
+</>
+```
+
+**What didn't work:** the compiler accepts the `auth=` attribute as
+a generic HTML attribute (no error, no warning), but channel runtime
+doesn't appear to enforce it. Every WebSocket client connecting to
+`/_scrml_ws/dispatch-board` is subscribed regardless of role. (Per
+F-AUTH-001 — `auth="role:X"` is silently inert across all element
+types.)
+
+**Workaround used:** Auth-scope on the SUBSCRIBE side via the page-
+level `getCurrentUser` + role check (the existing F-AUTH-001
+fallback). Each subscribing page checks the cookie + redirects to
+`/login?reason=unauthorized` if the user isn't the right role.
+The CHANNEL itself remains an open broadcast.
+
+**Network exposure risk:** any authenticated user who knows the
+WebSocket URL `/_scrml_ws/dispatch-board` could open a connection
+and receive every dispatch-board event. The page-side auth check
+doesn't prevent that. For the demo this is fine; for production
+this is a P0 security gap.
+
+**Suggests:**
+- Implement `<channel auth=...>` to actually scope subscribes (the
+  WebSocket handshake should verify cookie + role before accepting
+  the upgrade). This is a runtime change, not a codegen change.
+- Until that ships, document the gap in §38 + the kickstarter so
+  adopters know channels are open-broadcast at the wire level.
+
+Severity P1: workaround is the existing F-AUTH-001 server-side
+gate, which is already exercised across every page. The new wrinkle
+is the wire-level exposure for adopters who assume channel auth
+attributes work.
+
+---
+
+## F-CHANNEL-006 — `<channel>` body declarations not consumed → E-DG-002 noise (P2)
+
+**Surfaced in:** M5 design. Repeatedly while building the channel
+blocks I'd write a `<channel>` decl that compiles cleanly but emits
+E-DG-002 because I hadn't yet read the `@shared` value in markup.
+
+**What I tried:**
+```scrml
+<channel name="dispatch-board">
+  ${
+    @shared boardEvents = []
+    server function publishBoardEvent(...) { boardEvents = [...boardEvents, ...] }
+  }
+</>
+```
+With NO `${@boardEvents.length}` / etc. in the page markup, the
+compiler emits:
+> warning [E-DG-002]: Reactive variable `@boardEvents` is declared
+> but never consumed in a render or logic context.
+
+Even though `boardEvents` IS consumed (by the channel sync
+infrastructure that reads/writes it via WebSocket), the DG analyzer
+only looks at markup interpolations + page-level logic-block reads.
+
+**Workaround used:** add a "live events" badge in the markup:
+`<span>Live events: ${@boardEvents.length}</span>`. Every page now
+has this badge, which doubles as user feedback ("things are happening
+in real time").
+
+**Suggests:** The DG analyzer should treat a `@shared` variable's
+declaration inside a `<channel>` as a self-contained consumer (the
+channel itself is the consumer), and not require an additional
+markup read to silence E-DG-002.
+
+Severity P2: workaround is mechanical and arguably improves the UX
+(adopters get a live activity indicator for free). But the friction
+is a small cognitive tax during channel design — adopters write the
+channel block, see the warning, hunt for what's missing, and end up
+adding a probably-redundant markup read.
+
+---
+
+## F-AUTH-001 — M5 RECONFIRMATION (P0)
+
+All channel-using pages still rely on the existing F-AUTH-001 fallback
+(server-side getCurrentUser + role check). M5 adds 12 more publish/
+subscribe sites; each new page entry is gated only by the existing
+in-line `if (!user || user.role != X) return { unauthorized: true }`
+guard. The channel runtime adds NO additional auth surface — the
+WebSocket endpoint accepts any authenticated client per F-CHANNEL-005.
+
+**Cumulative reconfirmations:** 18 pages from M2-M4 + 12 channel-using
+amendments in M5. Same fallback pattern repeated ~30 times for
+authentication and ~12 times for channel publish/subscribe gates.
+F-AUTH-001 friction is now exercised across the full channel surface.
+
+No design change.
+
+---
+
+## F-AUTH-002 — M5 RECONFIRMATION (P0)
+
+M5 introduces NO new SQL-using server fns in cross-file shared
+helpers. The new channel-scope `publishXEvent(...)` server fns are
+duplicated INLINE per page (per F-CHANNEL-003 + F-AUTH-002): each
+page that publishes redeclares the same publish helper signature +
+body. ~12 inline copies of the channel-publish helper across the
+12 amended pages.
+
+The combined inline-duplication footprint of M2-M5:
+- ~126 LOC `getCurrentUser` (M2-M4, 18 pages × 7 LOC)
+- ~30 LOC `if (!user || user.role != X)` guards (M2-M4)
+- ~144 LOC channel-publish helpers (M5, 12 pages × 12 LOC) — F-CHANNEL-003
+- Total: ~300 LOC of mechanical inline duplication that the obvious
+  cross-file abstraction would consolidate.
+
+No design change.
+
+---
+
+## F-COMPONENT-001 — M5 RECONFIRMATION (P0, architectural)
+
+M5 ships ZERO new cross-file component imports. All channel-related
+markup (live event lists, badge counters, refresh buttons) is inlined
+at every consumer site. The component-as-reusable-channel-display
+pattern (e.g. an `<EventBadge>` showing live counter + ack button
+that could be shared across all 8 channel-subscribing pages) cannot
+be extracted because of the architectural defect.
+
+Repeated wiring instead: every channel-subscribing page has the same
+8-LOC pattern: `@lastSeenXEventCount = 0`, `function ackXEvents() { ... }`,
+markup `<span>Live: <strong>${@xEvents.length}</strong></span>` +
+`<button if=(...) onclick=ackXEvents()>Refresh</button>`. ~10 such
+sites.
+
+No design change. The deep-dive on cross-file component expansion
+remains queued post-M6.
+
+---
+
+## F-IDIOMATIC-001 — M5 OBSERVATION (P2)
+
+M5 added ~600 LOC. Quick grep for canonical `is not` / `is some`
+across the new code:
+
+| Search | Hits |
+|---|---|
+| `is not` as operator | **0** |
+| `is some` as operator | **0** |
+
+The trend from F-IDIOMATIC-001 holds at M5. New channel-using code
+written directly against the kickstarter v1 + example 15 reference
+exclusively uses `!x` truthiness checks. Specifically, channel
+publish guards (`if (!@load)`, `if (!@driver)`, `if (!@customer)`)
+all reach for `!x` rather than `@load is not` / `@load is some`.
+
+Re-grep at M6 close to see if the trend continues.
+
+---

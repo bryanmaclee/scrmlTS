@@ -93,3 +93,54 @@ friction findings + extra wiring on per-id channels.
 6. Final compile-clean verification.
 7. FRICTION.md updates.
 
+## 2026-04-29 — Channel name interpolation test
+
+**Result: F-CHANNEL-001 — silently inert.** `<channel name="driver-${id}">`
+compiles clean but the emitted WebSocket URL mangles the interpolation
+to a literal underscore-string. ALL "per-id" channels collapse to a
+single broadcast topic. Documented as P0 in FRICTION.
+
+Pivot: replace per-id channels with single broadcast channels +
+payload-side filtering (`targetDriverId`, `targetCustomerId`,
+`payload.loadId`).
+
+## 2026-04-29 — Wire complete
+
+- Commit `272e49a` — dispatch-board on board.scrml + load-detail +
+  load-new (publishers + subscribers).
+- Commit `5595c6b` — driver-events on driver/messages + home;
+  load-events publisher on driver/load-detail (transitions +
+  one-shot location ping).
+- Commit `f79beea` — customer-events on customer/loads, invoices,
+  home (subscribers); customer/load-detail load-events subscriber;
+  customer/quote dispatch-board publisher; customer/invoices markPaid
+  publishes invoice-paid.
+- Commit `<latest>` — billing.scrml customer-events publisher;
+  driver/load-detail customer-events publisher on delivery transition.
+
+## 2026-04-29 — Friction findings
+
+Six new entries appended to FRICTION.md:
+- **F-CHANNEL-001** (P0) — name interpolation silently inert.
+- **F-CHANNEL-002** (P1) — no on-change effect hook for @shared.
+- **F-CHANNEL-003** (P1) — channels per-page, not cross-file
+  (~180 LOC of boilerplate across 12 pages).
+- **F-CHANNEL-004** (P2) — undocumented channel-scope ↔ page-scope
+  rules.
+- **F-CHANNEL-005** (P1) — per-channel auth scoping not declarative;
+  WebSocket endpoint open-broadcast at the wire level.
+- **F-CHANNEL-006** (P2) — channel-internal @shared decls fire
+  E-DG-002 if not also read in markup.
+
+Plus reconfirmations:
+- F-AUTH-001 — same fallback pattern reused in 12 more pages.
+- F-AUTH-002 — ~144 LOC of channel-publish helpers inline-duplicated.
+- F-COMPONENT-001 — zero cross-file components in the new code.
+- F-IDIOMATIC-001 — zero `is not` / `is some` in the new code.
+
+## 2026-04-29 — Final compile + status
+
+Compile: 32/32 files clean, 13 warnings (same as baseline).
+LOC delta: +620 / -33 = +590 net (within ~600 budget).
+Test suite: baseline-preserving (no compiler changes).
+
