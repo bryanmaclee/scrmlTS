@@ -1,0 +1,196 @@
+// Trucking Dispatch — customer profile (M4).
+//
+// Route: /customer/profile. Read-only display of customer billing info:
+// name, contact_name, contact_email, contact_phone, billing_address,
+// payment_terms, account_status. Per scoping: customer cannot edit
+// billing info — managed by dispatcher (admin). Help link directs them
+// to contact dispatch.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward. Read-mostly,
+// single fetch fn — F-RI-001 narrow pattern with no mutators.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { accountStatusLabel, accountStatusClasses, paymentTermsLabel } from '../../components/customer-card.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role, created_at, last_login_at FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchProfile(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+            const customer = ?{`
+                SELECT id, name, contact_name, contact_email, contact_phone,
+                       billing_address, payment_terms, account_status, created_at
+                FROM customers
+                WHERE user_id = ${user.id}
+            `}.get()
+            if (!customer) return { error: "No customer record." }
+
+            return { user: user, customer: customer }
+        }
+
+        @user = null
+        @customer = null
+        @loaded = false
+        @errorMessage = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchProfile(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @customer = data.customer
+            @loaded = true
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+      <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="/customer" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+                <span class="text-xs uppercase tracking-wider text-slate-400">Profile</span>
+            </div>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/customer" class="hover:text-blue-300">Home</a>
+                <a href="/customer/loads" class="hover:text-blue-300">Loads</a>
+                <a href="/customer/invoices" class="hover:text-blue-300">Invoices</a>
+                <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
+                <button onclick=logout() class="hover:text-blue-300">Logout</button>
+            </nav>
+        </header>
+
+        <main class="max-w-2xl mx-auto px-6 py-8">
+            <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+            <div if=(@loaded && @customer == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+                ${@errorMessage}
+            </div>
+
+            <div if=(@loaded && @customer != null) class="space-y-4">
+
+                <header class="bg-white rounded-lg border border-slate-200 p-6">
+                    <div class="flex items-start justify-between">
+                        <div>
+                            <h1 class="text-lg font-bold mb-1">${@customer.name}</h1>
+                            <p class="text-sm text-slate-600">
+                                Account: <code class="bg-slate-100 px-1 rounded">${@user.email}</code>
+                            </p>
+                        </div>
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${accountStatusClasses(@customer.account_status)}">
+                            ${accountStatusLabel(@customer.account_status)}
+                        </span>
+                    </div>
+                </header>
+
+                <!-- Contact info (read-only). -->
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        Contact information
+                    </h2>
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Contact name</div>
+                            <div class="text-slate-900">
+                                <span if=(@customer.contact_name != null && @customer.contact_name != "")>${@customer.contact_name}</>
+                                <span if=(@customer.contact_name == null || @customer.contact_name == "") class="text-slate-400">—</>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Email</div>
+                            <div class="text-slate-900">
+                                <span if=(@customer.contact_email != null && @customer.contact_email != "")>${@customer.contact_email}</>
+                                <span if=(@customer.contact_email == null || @customer.contact_email == "") class="text-slate-400">—</>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Phone</div>
+                            <div class="text-slate-900">
+                                <span if=(@customer.contact_phone != null && @customer.contact_phone != "")>${@customer.contact_phone}</>
+                                <span if=(@customer.contact_phone == null || @customer.contact_phone == "") class="text-slate-400">—</>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Billing info (read-only). -->
+                <section class="bg-white rounded-lg border border-slate-200 p-6">
+                    <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        Billing
+                    </h2>
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Billing address</div>
+                            <div class="text-slate-900">
+                                <span if=(@customer.billing_address != null && @customer.billing_address != "")>${@customer.billing_address}</>
+                                <span if=(@customer.billing_address == null || @customer.billing_address == "") class="text-slate-400">—</>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Payment terms</div>
+                            <div class="text-slate-900">
+                                ${paymentTermsLabel(@customer.payment_terms)}
+                            </div>
+                        </div>
+                        <div>
+                            <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Customer since</div>
+                            <div class="text-slate-900">
+                                ${@customer.created_at == null ? "—" : @customer.created_at.substring(0, 10)}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Help: how to update billing info. -->
+                <section class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
+                    <strong>Need to update your billing info?</strong>
+                    Contact your dispatcher — billing details are admin-managed for security.
+                </section>
+
+            </div>
+        </main>
+      </div>
+
+  </>
+
+</program>

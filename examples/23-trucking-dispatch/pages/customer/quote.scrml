@@ -1,0 +1,336 @@
+// Trucking Dispatch — customer rate quote request (M4).
+//
+// Route: /customer/quote. Form for the customer to tender a new load:
+// origin (address+city+state), destination (address+city+state),
+// pickup_at, deliver_by, commodity, weight_lbs.
+//
+// On submit: creates a `loads` row with status='tendered',
+// customer_id=current user's customers row, rate_dollars=NULL (dispatcher
+// will fill in rate when reviewing). Per scoping: the dispatcher's
+// /dispatch board picks tendered loads up automatically.
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 + F-RI-001 carryforward.
+//
+// Real-time hookpoint (M5): broadcast on `dispatch-board` when the new
+// tender is inserted so the dispatcher's board updates without reload.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        server function fetchCustomerServer(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+            const customer = ?{`
+                SELECT id, name, account_status FROM customers WHERE user_id = ${user.id}
+            `}.get()
+            if (!customer) return { error: "No customer record." }
+            return { user: user, customer: customer }
+        }
+
+        server function createTenderServer(
+            sessionToken,
+            originAddress, originCity, originState,
+            destinationAddress, destinationCity, destinationState,
+            pickupAt, deliverBy,
+            commodity, weightLbs
+        ) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "customer") {
+                return { unauthorized: true }
+            }
+            const customer = ?{`
+                SELECT id, account_status FROM customers WHERE user_id = ${user.id}
+            `}.get()
+            if (!customer) return { error: "No customer record." }
+            if (customer.account_status != "active") {
+                return { error: "Account is not active. Contact your dispatcher." }
+            }
+
+            // Server-side validation in addition to client-side.
+            if (originCity == "" || destinationCity == "") {
+                return { error: "Origin and destination city are required." }
+            }
+            if (pickupAt == "" || deliverBy == "") {
+                return { error: "Pickup and delivery date/time are required." }
+            }
+            if (commodity == "") {
+                return { error: "Commodity is required." }
+            }
+
+            // rate_dollars left NULL — dispatcher fills it in. status=tendered.
+            ?{`
+                INSERT INTO loads (
+                    customer_id,
+                    origin_address, origin_city, origin_state,
+                    destination_address, destination_city, destination_state,
+                    pickup_at, deliver_by,
+                    commodity, weight_lbs,
+                    status
+                ) VALUES (
+                    ${customer.id},
+                    ${originAddress}, ${originCity}, ${originState},
+                    ${destinationAddress}, ${destinationCity}, ${destinationState},
+                    ${pickupAt}, ${deliverBy},
+                    ${commodity}, ${weightLbs},
+                    'tendered'
+                )
+            `}.run()
+
+            const newRow = ?{`
+                SELECT id FROM loads
+                WHERE customer_id = ${customer.id}
+                  AND commodity = ${commodity}
+                  AND pickup_at = ${pickupAt}
+                ORDER BY id DESC
+                LIMIT 1
+            `}.get()
+
+            return { ok: true, loadId: newRow ? newRow.id : 0 }
+        }
+
+        @user = null
+        @customer = null
+        @loaded = false
+        @errorMessage = ""
+        @submitting = false
+
+        // Form state.
+        @originAddress = ""
+        @originCity = ""
+        @originState = "UT"
+        @destinationAddress = ""
+        @destinationCity = ""
+        @destinationState = "UT"
+        @pickupAt = ""
+        @deliverBy = ""
+        @commodity = ""
+        @weightLbs = 0
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchCustomerServer(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @customer = data.customer
+            @loaded = true
+        }
+
+        // F-RI-001 anchor + setError indirection.
+        function submit(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            if (@submitting) return
+
+            @errorMessage = ""
+
+            // Client-side validation.
+            if (@originCity == "" || @destinationCity == "") {
+                setError("Origin and destination city are required.")
+                return
+            }
+            if (@pickupAt == "" || @deliverBy == "") {
+                setError("Pickup and delivery date/time are required.")
+                return
+            }
+            if (@commodity == "") {
+                setError("Commodity is required.")
+                return
+            }
+
+            @submitting = true
+            const tok = getSessionToken()
+            const result = createTenderServer(
+                tok,
+                @originAddress, @originCity, @originState,
+                @destinationAddress, @destinationCity, @destinationState,
+                @pickupAt, @deliverBy,
+                @commodity, @weightLbs
+            )
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                const newId = result.loadId
+                window.location.href = `/customer/loads/${newId}`
+                return
+            }
+            const err = result.error
+            @submitting = false
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/customer" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Request rate quote</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/customer" class="hover:text-blue-300">Home</a>
+              <a href="/customer/loads" class="hover:text-blue-300">Loads</a>
+              <a href="/customer/invoices" class="hover:text-blue-300">Invoices</a>
+              <a href="/customer/profile" class="hover:text-blue-300">Profile</a>
+              <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
+              <button onclick=logout() class="hover:text-blue-300">Logout</button>
+          </nav>
+      </header>
+
+      <main class="max-w-3xl mx-auto px-6 py-8">
+          <h1 class="text-2xl font-bold mb-2">Request rate quote</h1>
+          <p class="text-sm text-slate-600 mb-6">
+              Submit a load tender. Your dispatcher will review and respond with a rate.
+              You'll see this as a <strong>Tendered</strong> load in
+              <a class="text-blue-600 hover:underline" href="/customer/loads">your loads list</a> until the rate is set.
+          </p>
+
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@loaded && @customer == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              ${@errorMessage}
+          </div>
+
+          <div if=(@loaded && @customer != null && @customer.account_status != "active") class="bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-4 py-3 mb-4">
+              <strong>Account ${@customer.account_status}.</strong>
+              You cannot tender new loads until the account is reactivated by your dispatcher.
+          </div>
+
+          <form if=(@loaded && @customer != null && @customer.account_status == "active") onsubmit=submit() class="space-y-6 bg-white border border-slate-200 rounded-lg p-6">
+
+              <fieldset>
+                  <legend class="text-sm font-semibold text-slate-700 mb-2">Origin</legend>
+                  <div class="space-y-3">
+                      <div>
+                          <label for="origin-address" class="block text-xs font-medium text-slate-600 mb-1">Street address</label>
+                          <input id="origin-address" type="text" bind:value=@originAddress class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                      </div>
+                      <div class="grid grid-cols-3 gap-3">
+                          <div class="col-span-2">
+                              <label for="origin-city" class="block text-xs font-medium text-slate-600 mb-1">City</label>
+                              <input id="origin-city" type="text" bind:value=@originCity required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          </div>
+                          <div>
+                              <label for="origin-state" class="block text-xs font-medium text-slate-600 mb-1">State</label>
+                              <input id="origin-state" type="text" bind:value=@originState maxlength="2" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md uppercase"/>
+                          </div>
+                      </div>
+                  </div>
+              </fieldset>
+
+              <fieldset>
+                  <legend class="text-sm font-semibold text-slate-700 mb-2">Destination</legend>
+                  <div class="space-y-3">
+                      <div>
+                          <label for="dest-address" class="block text-xs font-medium text-slate-600 mb-1">Street address</label>
+                          <input id="dest-address" type="text" bind:value=@destinationAddress class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                      </div>
+                      <div class="grid grid-cols-3 gap-3">
+                          <div class="col-span-2">
+                              <label for="dest-city" class="block text-xs font-medium text-slate-600 mb-1">City</label>
+                              <input id="dest-city" type="text" bind:value=@destinationCity required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                          </div>
+                          <div>
+                              <label for="dest-state" class="block text-xs font-medium text-slate-600 mb-1">State</label>
+                              <input id="dest-state" type="text" bind:value=@destinationState maxlength="2" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md uppercase"/>
+                          </div>
+                      </div>
+                  </div>
+              </fieldset>
+
+              <fieldset>
+                  <legend class="text-sm font-semibold text-slate-700 mb-2">Schedule</legend>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                          <label for="pickup-at" class="block text-xs font-medium text-slate-600 mb-1">Pickup at</label>
+                          <input id="pickup-at" type="datetime-local" bind:value=@pickupAt required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                      </div>
+                      <div>
+                          <label for="deliver-by" class="block text-xs font-medium text-slate-600 mb-1">Deliver by</label>
+                          <input id="deliver-by" type="datetime-local" bind:value=@deliverBy required class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                      </div>
+                  </div>
+              </fieldset>
+
+              <fieldset>
+                  <legend class="text-sm font-semibold text-slate-700 mb-2">Cargo</legend>
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div class="md:col-span-2">
+                          <label for="commodity" class="block text-xs font-medium text-slate-600 mb-1">Commodity</label>
+                          <input id="commodity" type="text" bind:value=@commodity required placeholder="Crude oil, water, frac sand…" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                      </div>
+                      <div>
+                          <label for="weight-lbs" class="block text-xs font-medium text-slate-600 mb-1">Weight (lbs)</label>
+                          <input id="weight-lbs" type="number" bind:value=@weightLbs min="0" class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"/>
+                      </div>
+                  </div>
+              </fieldset>
+
+              <div if=(@errorMessage != "") class="bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                  ${@errorMessage}
+              </div>
+
+              <div class="flex items-center justify-between pt-3 border-t border-slate-200">
+                  <p class="text-xs text-slate-500">
+                      Rate will be set by your dispatcher and shown on the load detail page.
+                  </p>
+                  <div class="flex items-center gap-2">
+                      <a href="/customer" class="text-sm px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-md">Cancel</a>
+                      <button type="submit" disabled=@submitting class="text-sm px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                          Submit tender
+                      </button>
+                  </div>
+              </div>
+          </form>
+      </main>
+    </div>
+
+  </>
+
+</program>
