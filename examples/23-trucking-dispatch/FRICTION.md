@@ -178,6 +178,18 @@ Both compile clean. **What does NOT work:**
 
 The component must be inside an HTML element AND inside a `lift` expression.
 
+**Special case — `<tr>`-shaped components in tables:** Wrapping a `<tr>`-rooted
+component in `<div>` breaks HTML semantics (a `<table>` body must contain
+only `<tr>` rows). For `<DriverCard>`, `<CustomerCard>`, `<InvoiceCard>` —
+the M2 workaround is to **import only the helper `fn`s** from the component
+file (not the component itself), then inline the row markup at the call
+site. The helpers (`driverStatusClasses`, `paymentTermsLabel`, etc.)
+factor cleanly across files; only the markup has to be copied.
+
+This is duplicative — the same `<tr><td>...</td>...</tr>` shape appears in
+both the component file and the consuming page. The component-as-shared-row
+abstraction is exactly what every list view wants and the gap kills it.
+
 **Suggests:** Either:
 - The component-expander pass (CE) should accept a directly-lifted
   imported component the same way it accepts an imported component
