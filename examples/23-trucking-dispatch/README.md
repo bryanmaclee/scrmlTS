@@ -126,17 +126,22 @@ bun ./compiler/src/cli.js compile examples/23-trucking-dispatch/
 ```
 
 **Expected (per scoping):** `dist/` contains an HTML/JS file per .scrml
-page.
+page, in a tree mirroring the source layout.
 
-**Observed (per F-COMPILE-001 P0):** `dist/` contains only **17** HTML
-files vs **32 source .scrml files** — basename collisions (`home.scrml`
-across customer + driver, `load-detail.scrml` across all 3 personas,
-`profile.scrml` across customer + driver) silently overwrite. The
-"customer home", "customer load-detail", "customer profile", "dispatch
-load-detail" pages don't exist in the compiled output. **The dispatch
-app cannot run as advertised** until F-COMPILE-001 is fixed (preserve
-source directory structure in dist/, or hard-error on basename
-collisions).
+**Observed (post-W0a, 2026-04-30):** `dist/` is a tree-preserving layout —
+`pages/customer/home.scrml` emits to `dist/pages/customer/home.html`,
+`pages/driver/home.scrml` emits to `dist/pages/driver/home.html`, etc.
+32 source `.scrml` files produce 21 HTML / 32 client.js / 21 server.js
+across nested subdirs (`dist/pages/{auth,customer,dispatch,driver}/`,
+`dist/components/`, `dist/models/`, `dist/`). All distinct routes are
+present — F-COMPILE-001 RESOLVED (see FRICTION.md). Files without page
+shape (components, models, schema, seeds) emit only the artifacts they
+produce (typically `.client.js` only).
+
+**Backstop:** if a future flag/refactor re-introduced output flattening
+that caused two source files to compute to the same dist path, the
+compiler would emit `E-CG-015` ("conflicting output paths") rather than
+silently overwrite. See SPEC.md §47.9.
 
 ```bash
 # Dev-server mode (NOT YET WORKING — per OQ-2 below):
@@ -146,9 +151,10 @@ bun ./compiler/src/cli.js dev examples/23-trucking-dispatch/
 #           (post-M6 deep-dive will diagnose)
 ```
 
-The compile-only output IS readable as static HTML for the routes that
-survive F-COMPILE-001's overwrites, but interactive flows require the
-runtime that the dev-server provides.
+The compile-only output IS readable as static HTML now that
+F-COMPILE-001 is resolved (W0a, 2026-04-30), but interactive flows still
+require the runtime that the dev-server provides — see OQ-2 / W0b for
+the dev-server bootstrap dispatch.
 
 ## Seeded credentials
 
@@ -260,9 +266,11 @@ Highlights (full entries with code samples in `FRICTION.md`):
 - **F-CHANNEL-001** (P0): channel name interpolation
   (`<channel name="driver-${id}">`) is silently inert; per-id channel
   scoping collapses to a single broadcast.
-- **F-COMPILE-001** (P0): `scrml compile <dir>` flattens output by
-  basename, silently overwriting collisions. M2-M6 dispatch app loses
-  5 pages in compiled output (15 silent overwrites).
+- **F-COMPILE-001** (P0, RESOLVED 2026-04-30 W0a): `scrml compile <dir>`
+  used to flatten output by basename, silently overwriting collisions.
+  Now preserves source-tree structure in `dist/`; cross-source collisions
+  emit `E-CG-015` per SPEC §47.9. The 15 silent overwrites in M2-M6 are
+  no longer present; all 32 source files produce distinct outputs.
 - **F-LIN-001** (P1, new in M6): SQL `?{}` interpolation doesn't
   satisfy `lin` consume per §35.3; the example-19 template-literal
   pattern doesn't generalize.

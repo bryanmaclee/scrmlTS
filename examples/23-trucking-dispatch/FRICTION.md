@@ -1573,7 +1573,18 @@ Re-grep at M6 close to see if the trend continues.
 
 ---
 
-## F-COMPILE-001 — `scrml compile <dir>` flattens output by basename, silently overwriting collisions (P0)
+## F-COMPILE-001 — `scrml compile <dir>` flattens output by basename, silently overwriting collisions (P0) — RESOLVED 2026-04-30 (S51, W0a)
+
+> **RESOLVED 2026-04-30 (S51, W0a).** Compiler now preserves source-tree
+> structure in `dist/`. `pages/customer/home.scrml` emits to
+> `dist/pages/customer/home.html`; `pages/driver/home.scrml` emits to
+> `dist/pages/driver/home.html`. Collisions are no longer silent — `E-CG-015`
+> is emitted as a defense-in-depth backstop per SPEC.md §47.9.
+>
+> Post-fix audit on this app: 32 sources → 21 HTML / 32 client.js / 21 server.js
+> in nested dist/ tree (was 17 / 28 / 17 flat with 15 silent overwrites).
+> All 32 distinct outputs are now present. Fix commits: `05dc7fb`, `99d4909`,
+> `287c1d7`, `7776907`. SPEC normative section at §47.9.
 
 **Surfaced in:** Audit at M5 close (2026-04-30, S50). User-prompted: "are we actually compiling all code?"
 
@@ -1857,6 +1868,8 @@ No new collisions introduced by M6 (no new files).
 
 No design change. F-COMPILE-001 remains the chief blocker for
 running this app.
+
+> **RESOLVED 2026-04-30 (S51, W0a) — see top of F-COMPILE-001 entry above.**
 
 ---
 
