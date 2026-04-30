@@ -623,3 +623,278 @@ The kickstarter doesn't mention this gap. Adopters will write destructuring libe
 (Update: not 100% sure the root cause is destructuring vs. something else in my original snippet — needs an isolated repro before opening a compiler fix. Logging it here so M2-M6 watch for it.)
 
 ---
+
+## F-MACHINE-001 — `<machine for=Type>` rejects imported types (P1)
+
+**Surfaced in:** M3 `pages/driver/hos.scrml`. The HOS state machine declares
+`<machine name=HOSMachine for=DriverStatus>` where `DriverStatus` is imported
+from `schema.scrml` (where every other M3 file reads it from).
+
+**What I tried:**
+```scrml
+${
+    import { DriverStatus } from '../../schema.scrml'
+}
+
+< machine name=HOSMachine for=DriverStatus>
+    .OffDuty      => .OnDuty | .SleeperBerth
+    ...
+</>
+```
+
+**What didn't work:**
+```
+error [E-MACHINE-004]: Machine 'HOSMachine' references unknown type
+'DriverStatus'. The 'for' clause must name an enum or struct type
+declared in this file or imported via 'use'.
+  stage: TS
+```
+
+The error message says "imported via 'use'" — suggesting a capability
+import is the recognized form. But §41.2 `use scrml:X` is for stdlib
+capability imports, not for cross-file user types. There is no
+`use ./schema.scrml` syntax.
+
+**Workaround used:** Re-declare `DriverStatus` in `hos.scrml` as a local
+enum (lifted from `schema.scrml` verbatim):
+
+```scrml
+${
+    type DriverStatus:enum = {
+        OffDuty
+        OnDuty
+        Driving
+        SleeperBerth
+    }
+}
+
+< machine name=HOSMachine for=DriverStatus>
+    ...
+</>
+```
+
+The duplication is ~6 LOC. The bigger problem is conceptual: the `schema.scrml`
+file exists precisely so M2-M6 share enum spellings; the `<machine>` block
+forces a violation of that contract.
+
+**Suggests:** Either:
+- `<machine for=>` should resolve through the same import scope as logic-block
+  identifiers, accepting `import { Type } from './path.scrml'` declarations; or
+- The error message should say which import forms it WILL accept (currently
+  "imported via 'use'" is misleading for cross-file user types); or
+- Document the gap explicitly in §51 (machine spec) so adopters know the
+  type must be locally declared.
+
+This is sharp because the cross-file type abstraction is the canonical
+multi-file pattern. Severity P1: workaround is mechanical but the
+duplication breaks the "single source of truth" promise of `schema.scrml`.
+
+---
+
+## F-NULL-001 — Files containing `<machine>` reject `null` literals/comparisons in client-fn bodies (P1)
+
+**Surfaced in:** M3 `pages/driver/hos.scrml`. Client-side `function`s with
+`null` literals or `== null` / `!= null` comparisons fire E-SYNTAX-042 in
+GCP3 — but only in this file. Identical patterns in M2 dispatch pages
+(load-detail, board, drivers, customers) compile clean.
+
+**What I tried:**
+```scrml
+function computeHoursIn(target) {
+    if (@driver != null && @driver.current_status == target) return 24
+    return 0
+}
+
+function parseFromPayload(payload) {
+    if (payload == null || payload == "") return ""
+    ...
+}
+```
+
+**What didn't work:** Five E-SYNTAX-042 errors fire, all in GCP3 stage,
+none with line numbers:
+```
+error [E-SYNTAX-042]: `null` is not a scrml token — scrml uses `not` for
+absence (§42). Replace `!= null` with `x is some` (checks for presence)
+or `x is not` for absence.
+  stage: GCP3
+```
+
+The errors only appear when the file also contains a `<machine>` block.
+Removing the machine made identical null-checks compile fine. Adding the
+machine back (with a locally-declared enum, per F-MACHINE-001) brings them
+back. So the trigger is "machine present + null literals in client-fn
+bodies".
+
+**Workaround used:** Replace every `== null` / `!= null` with truthiness
+checks (`if (!x)` / `if (x)`) and avoid `null` as a value (use empty
+string sentinels for nullable strings, omit nullable fields from object
+literals where possible). Concretely:
+
+```scrml
+// before
+const lastAt = lastChange == null ? null : lastChange.at
+return { lastChangeAt: lastAt }
+
+// after
+const lastAt = lastChange ? lastChange.at : ""
+return { lastChangeAt: lastAt }
+```
+
+```scrml
+// before
+if (@driver != null && @driver.current_status == target) return 24
+
+// after
+const driver = @driver
+if (!driver) return 0
+if (driver.current_status == target) return 24
+```
+
+```scrml
+// before
+@lastChangeAt = null
+@driver = null
+
+// after — keep @driver = null at declaration (works); switch lastChangeAt
+// to empty string + truthiness instead.
+@driver = null
+@lastChangeAt = ""
+```
+
+Note `@var = null` at declaration position still works in this file.
+The trigger is specifically `null` in client-fn bodies and ternary
+expressions — not the literal anywhere.
+
+**Suggests:** Either:
+- The E-SYNTAX-042 detector should treat the file the same way regardless
+  of `<machine>` presence (and either continue to allow `== null` /
+  `!= null` everywhere, or reject it everywhere — the current asymmetry is
+  the validation-principle violation); or
+- Document in §51 that `<machine>` files have stricter null syntax rules,
+  and what the canonical alternative is.
+
+The kickstarter v1 §3 anti-pattern table doesn't mention `null` as
+forbidden. The error message recommends `is some` / `is not`, but both
+forms have their own friction (F-RI-001-FOLLOW: `is not` doesn't support
+member-access targets). The actual workaround that compiles is the truthiness
+check — which is well-established JS but isn't what the error message
+prescribes.
+
+Severity P1 because the trigger is unpredictable (file gains or loses a
+`<machine>` block and behavior of identical client-fn null-checks flips)
+and the recommended fix path doesn't quite work. Not P0 because the
+workaround is mechanical and short.
+
+**Repro:** Remove `<machine>` block from hos.scrml → null-checks compile.
+Re-add the block → the same null-checks fail. Smallest reproducible:
+a file with just `<program>` + `${ }` containing a client `function f() { if (x == null) return 0 }` and a sibling `<machine>` block.
+
+---
+
+## F-PAREN-001 — `a + (b - c)` paren-stripping idempotency invariant (P2 — data point)
+
+**Surfaced in:** M3 `pages/driver/hos.scrml` — both client-fn arithmetic
+expressions and the home.scrml `cur == X && (newStatus == Y || newStatus == Z)`
+pattern (M3 day 1).
+
+**What I tried:**
+```scrml
+ms = ms + (atMs - prevMs)        // simple addition with a parenthesized subtraction
+ms = ms + (nowMs - prevMs)
+const hours = ms / (60 * 60 * 1000)
+const mins = Math.floor((sinceMs - hours * 60 * 60 * 1000) / (60 * 1000))
+```
+
+**What didn't work:** The `compiler/tests/integration/expr-node-corpus-invariant.test.js`
+"corpus invariant" test fires per-file and asserts the round-trip parse →
+emit → reparse leaves the AST shape unchanged. My parens get stripped on
+emit, then on reparse the result is no longer the same shape.
+
+Pre-commit hook fails:
+```
+error: IDEMPOTENCY FAILURE in hos.scrml
+  Field: initExpr (string field: init)
+  AST node kind: tilde-decl
+  ExprNode kind: binary
+  Reparsed kind: binary
+  Emitted string: ms + atMs - prevMs
+```
+
+The emitted string `ms + atMs - prevMs` is semantically equivalent to
+`ms + (atMs - prevMs)` for primitive addition — but the AST shape is
+different (the parens ARE in the original ExprNode), and the invariant
+test refuses to accept the divergence.
+
+**Workaround used:** Lift sub-expressions into intermediate `const`
+bindings:
+```scrml
+const diff = atMs - prevMs
+ms = ms + diff
+
+const tail = nowMs - prevMs
+ms = ms + tail
+
+const hourMs = 60 * 60 * 1000
+const hours = ms / hourMs
+```
+
+Same calculation; no parens needed.
+
+**Suggests:** The invariant test is being faithful to the AST shape, which
+is the right thing to do. The friction is that adopters write parens for
+human-readability, not for precedence reasons, and don't expect the AST
+to record them as load-bearing. The fix path is one of:
+- The emitter should preserve trivial parens (cosmetic) so round-trip is
+  faithful; or
+- The invariant test should ignore cosmetic-only paren differences when
+  the AST normalizes to the same precedence-aware shape; or
+- Document in the kickstarter that adopters should avoid wrapping sub-
+  expressions in parens unless required for precedence.
+
+Severity P2 because the workaround (intermediate vars) is mechanical AND
+arguably improves readability anyway. Logging this as a data point for
+the future paren-handling debate. The same idempotency invariant fired
+on M3 day 1 with `cur == "off_duty" && (newStatus == "on_duty" || newStatus == "sleeper_berth")` — split into separate conjuncts there.
+
+---
+
+## F-AUTH-001 — M3 RECONFIRMATION (P0)
+
+All 6 driver pages use the same server-side fallback as M2: each page
+declares its own `<program auth="required">` and inline `getCurrentUser()`
++ `if (!user || user.role != "driver")` guard. The page-level
+`auth="role:driver"` attribute is documentation only.
+
+Total reconfirmations across M2 + M3: **12 pages** (6 dispatcher + 6
+driver). Every server fn that needs role gating has the same 4-line
+copy-pasted guard. The friction is now exercised at scale.
+
+No design change.
+
+---
+
+## F-AUTH-002 — M3 RECONFIRMATION (P0)
+
+Each of the 6 driver pages duplicates the ~7-line `getCurrentUser`
+server fn body inline. Combined with M2's 6 pages, the cumulative
+inline-duplication is ~84 LOC across 12 pages doing the same session →
+user-id → users-row lookup. M3 confirms the friction is sharp and
+load-bearing on every multi-page scrml app touching auth.
+
+No design change.
+
+---
+
+## F-COMPONENT-001 — M3 RECONFIRMATION (P0, architectural)
+
+M3 ships zero cross-file component imports per kickstarter v1 + S50 plan
+B. Every page imports helper functions (`driverStatusClasses`,
+`driverStatusLabel`, `formatRate`, `formatPickupAt`, `statusBadgeClasses`,
+`statusLabel`) and inlines the markup directly. The component-as-row
+abstraction every list/card view wants remains broken; M3 reaffirms the
+inline-only workaround works for app code.
+
+No design change.
+
+---

@@ -96,5 +96,121 @@ Use `if (!obj.error)` not `if (obj.error is not)` — F-RI-001-FOLLOW.
 
 After each file: `bun $WORKTREE_ROOT/compiler/src/cli.js compile $WORKTREE_ROOT/examples/23-trucking-dispatch/`.
 After all 6: `bun run test` to confirm 8,172 / 40 / 0 / 385.
+
+## 2026-04-29 close
+
+### Wave 1 — home.scrml
+
+- Hit corpus-invariant idempotency failure on `cur == "off_duty" && (newStatus == "on_duty" || newStatus == "sleeper_berth")` —
+  parens stripped on emit, reparse produces a different AST shape. Workaround:
+  split conjuncts into separate `if` statements (8 lines instead of 4).
+- Logged as F-PAREN-001 (data point, P2).
+- Compile clean + tests pass.
+
+### Wave 2 — load-detail.scrml
+
+- Compiled clean first try. Multiple server-call client-fns (transition,
+  submitBol, submitPod, submitFuel, submitBreakdown) all use the F-RI-001
+  anchor + setError indirection from M2's load-detail. No file-context
+  E-RI-002 escalation surfaced.
+
+### Wave 3 — load-log.scrml
+
+- Compiled clean first try. Read-only chronological list. Smallest
+  M3 page (~215 LOC).
+
+### Wave 4 — hos.scrml — F-MACHINE-001 + F-NULL-001
+
+- First attempt: `<machine for=DriverStatus>` with `import { DriverStatus }`
+  → E-MACHINE-004 ("references unknown type DriverStatus"). Re-declared
+  the enum locally → resolved.
+- Same compile run also fired 5x E-SYNTAX-042 in GCP3 stage on `== null` /
+  `!= null` checks in client-fn bodies. Identical patterns in M2 dispatch
+  pages compile clean. The trigger appears to be `<machine>` block presence
+  in the same file. Workaround: replace with truthiness checks (`!x`) and
+  empty-string sentinels.
+- Logged F-MACHINE-001 (P1, machines reject imported types) and
+  F-NULL-001 (P1, machine-file null asymmetry).
+- Also hit F-PAREN-001 idempotency failures on `ms + (atMs - prevMs)` and
+  related arithmetic. Refactored to intermediate `const` bindings.
+- After all three: compiled clean, corpus invariant clean.
+
+### Wave 5 — messages.scrml
+
+- Compiled clean first try. Server-rendered chat. M5 hookpoint comment
+  documents the `<channel name="driver-${driverId}">` migration.
+
+### Wave 6 — profile.scrml
+
+- Compiled clean first try. Read-only display + edit form. Smallest of
+  the form-heavy pages.
+
+### Final state
+
+- 6 driver pages + HOS state machine, all compiling clean.
+- 26 files in dist/ (full M3 + M2 + M1 surface).
+- `bun run test`: 8,184 / 40 / 0 / 385 (vs. 8,172 baseline — extra 12 are
+  corpus-invariant tests counting new files).
+- HOS `<machine>` outcome: USED CLEANLY (with F-MACHINE-001 workaround
+  for the imported-type rejection).
+
+### New friction findings (M3)
+
+- **F-MACHINE-001 (P1):** `<machine for=Type>` rejects imported types;
+  must redeclare locally. Documentation gap + design gap.
+- **F-NULL-001 (P1):** `<machine>`-bearing files reject `== null` /
+  `!= null` in client-fn bodies (E-SYNTAX-042 in GCP3) even though
+  identical patterns work in non-machine files. Asymmetry.
+- **F-PAREN-001 (P2):** corpus-invariant idempotency test rejects
+  cosmetic parens around sub-expressions (`a + (b - c)` → `a + b - c`
+  on emit, AST mismatch). Workaround is intermediate vars; data point
+  for future paren-handling work.
+
+### Reconfirmations of existing findings
+
+- F-AUTH-001 (P0): 6 more pages copy the server-side role-gate fallback.
+  12 pages total.
+- F-AUTH-002 (P0): 6 more pages duplicate `getCurrentUser`. ~84 LOC of
+  inline duplication across 12 pages.
+- F-COMPONENT-001 (P0, architectural): zero cross-file component
+  imports in M3; every page inlines markup. Helper functions
+  (`driverStatusClasses`, `formatRate`, etc.) imported and used.
+
+### Future-M5 hookpoints documented
+
+- `/driver` (home.scrml): subscribe to `driver-:id` for assignment
+  notifications.
+- `/driver/loads/:id` (load-detail.scrml): subscribe to `load-:id` for
+  status changes pushed by dispatcher.
+- `/driver/loads/:id/log` (load-log.scrml): subscribe to `load-:id` for
+  real-time-pushed entries.
+- `/driver/hos` (hos.scrml): broadcast HOS events to `dispatch-board` so
+  dispatcher sees driver-status changes.
+- `/driver/messages` (messages.scrml): subscribe to `driver-:id` for live
+  dispatcher pushes; subscribe to `dispatch-board` for broadcasts.
+
+### LOC accounting
+
+```
+home.scrml          382 lines
+load-detail.scrml   720 lines
+load-log.scrml      215 lines
+hos.scrml           427 lines
+messages.scrml      250 lines
+profile.scrml       265 lines
+                  -----
+                   2259 lines  (vs. ~1,200 budget — over but distributed
+                                across 6 pages with detailed comments,
+                                inline auth-fns, and HOS derivation logic)
+```
+
+The over-budget is principally:
+- inline auth fns per F-AUTH-002 (~7 LOC × 6 pages = 42 LOC of duplication);
+- HOS hours-derivation logic + payload parsing (~80 LOC client-side);
+- inline forms for BOL/POD/fuel/breakdown each take a `<section>` wrapper
+  (~40 LOC × 4 = 160 LOC);
+- detailed file headers documenting friction context.
+
+### Status: READY FOR MERGE
 </content>
 </invoke>
