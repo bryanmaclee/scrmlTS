@@ -1,0 +1,720 @@
+// Trucking Dispatch — driver load detail (M3).
+//
+// Route: /driver/loads/:id. The driver's working surface for one load:
+// load summary header, status advance buttons (dispatched → loaded → in_transit
+// → delivered), BOL upload (mocked filename), POD upload (mocked filename),
+// fuel-stop form (amount + odometer), breakdown form (description), and a
+// link to the full per-load log.
+//
+// Driver-side load.status transitions are simpler than the dispatcher's:
+//   dispatched → loaded         (after pickup)
+//   loaded     → in_transit     (when departing origin)
+//   in_transit → delivered      (after drop)
+// Each transition writes a log_entry AND updates loads.status. No
+// post-delivered transitions are driver-driven (invoiced/paid/cancelled
+// belong to dispatcher and customer).
+//
+// Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward: server-side
+// role gate, inline auth fns, helper-only imports, inline markup.
+//
+// F-RI-001 carryforward: anchor + setError indirection on every server
+// call. Multiple mutator fns in one file = file-context analysis hits
+// E-RI-002 on the simpler ones; the workaround pattern compiles.
+//
+// Real-time hookpoint (M5): subscribe to load-:id for status changes
+// pushed by dispatcher (e.g. cancellation while driver is en route).
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { driverStatusClasses, driverStatusLabel } from '../../components/driver-card.scrml'
+      import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
+      import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries">
+
+    ${
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // Fetch the load + assignment + recent entries scoped to THIS driver.
+        // Returns unauthorized if the driver isn't currently assigned to the
+        // load (loose guard — the driver should never be looking at a load
+        // they aren't assigned to).
+        server function fetchLoadDetail(sessionToken, loadId) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const load = ?{`
+                SELECT
+                    l.id, l.origin_address, l.origin_city, l.origin_state,
+                    l.destination_address, l.destination_city, l.destination_state,
+                    l.pickup_at, l.deliver_by, l.commodity, l.weight_lbs,
+                    l.rate_dollars, l.status,
+                    c.name AS customer_name, c.contact_name AS customer_contact,
+                    c.contact_phone AS customer_phone
+                FROM loads l
+                LEFT JOIN customers c ON c.id = l.customer_id
+                WHERE l.id = ${loadId}
+            `}.get()
+            if (!load) return { notFound: true }
+
+            const assignment = ?{`
+                SELECT id, driver_id, assigned_at
+                FROM assignments
+                WHERE load_id = ${loadId}
+                  AND driver_id = ${driver.id}
+                  AND unassigned_at IS NULL
+                ORDER BY assigned_at DESC
+                LIMIT 1
+            `}.get()
+
+            // Recent (5) log entries for this load.
+            const recentEntries = ?{`
+                SELECT id, type, at, payload, driver_id
+                FROM log_entries
+                WHERE load_id = ${loadId}
+                ORDER BY at DESC
+                LIMIT 5
+            `}.all()
+
+            return {
+                user: user, driver: driver, load: load,
+                assignment: assignment, recentEntries: recentEntries
+            }
+        }
+
+        // Drives status forward and inserts the matching log entry.
+        // Validates the driver is assigned and the source state allows the
+        // target. Returns ok or error.
+        server function transitionLoadServer(sessionToken, loadId, newStatus) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            // Driver must be currently assigned.
+            const assignment = ?{`
+                SELECT id FROM assignments
+                WHERE load_id = ${loadId}
+                  AND driver_id = ${driver.id}
+                  AND unassigned_at IS NULL
+                LIMIT 1
+            `}.get()
+            if (!assignment) return { error: "You are not assigned to this load." }
+
+            const load = ?{`SELECT status FROM loads WHERE id = ${loadId}`}.get()
+            if (!load) return { error: "Load not found." }
+
+            // Driver-allowed transitions only.
+            let allowed = false
+            if (load.status == "dispatched" && newStatus == "loaded")     { allowed = true }
+            if (load.status == "loaded"     && newStatus == "in_transit") { allowed = true }
+            if (load.status == "in_transit" && newStatus == "delivered")  { allowed = true }
+            if (!allowed) return { error: `Cannot transition from ${load.status} to ${newStatus}.` }
+
+            ?{`UPDATE loads SET status = ${newStatus}, updated_at = CURRENT_TIMESTAMP WHERE id = ${loadId}`}.run()
+
+            // Map the load.status transition to a log entry type. We use
+            // hos_change-shaped payload: {"from":"X","to":"Y"}. log_entries
+            // type values are PRE_TRIP/POST_TRIP/etc per scoping; for status
+            // transitions we use a free-form 'hos_change' (which doubles as
+            // "status change" — log entry types should grow in M6 polish).
+            const payload = `{"from":"${load.status}","to":"${newStatus}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, ${loadId}, 'hos_change', ${payload})
+            `}.run()
+
+            return { ok: true }
+        }
+
+        // BOL upload (mocked) — stores filename in log_entries.payload.
+        server function uploadBolServer(sessionToken, loadId, filename) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const payload = `{"filename":"${filename}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, ${loadId}, 'bol_received', ${payload})
+            `}.run()
+            return { ok: true }
+        }
+
+        // POD upload (mocked) — stores filename in log_entries.payload.
+        server function uploadPodServer(sessionToken, loadId, filename) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const payload = `{"filename":"${filename}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, ${loadId}, 'pod_signed', ${payload})
+            `}.run()
+            return { ok: true }
+        }
+
+        server function logFuelStopServer(sessionToken, loadId, amount, odometer) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const payload = `{"amount":"${amount}","odometer":"${odometer}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, ${loadId}, 'fuel_stop', ${payload})
+            `}.run()
+            return { ok: true }
+        }
+
+        server function logBreakdownServer(sessionToken, loadId, description) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            const payload = `{"description":"${description}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, ${loadId}, 'breakdown', ${payload})
+            `}.run()
+            return { ok: true }
+        }
+
+        @user = null
+        @driver = null
+        @load = null
+        @assignment = null
+        @recentEntries = []
+        @loaded = false
+        @errorMessage = ""
+        @notFound = false
+
+        // Form state for the BOL/POD/fuel/breakdown blocks.
+        @bolFilename = ""
+        @podFilename = ""
+        @fuelAmount = ""
+        @fuelOdometer = ""
+        @breakdownDescription = ""
+
+        // Which inline form is currently expanded. "" means none.
+        @openForm = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function getLoadId() {
+            const path = window.location.pathname
+            const parts = path.split("/")
+            const last = parts[parts.length - 1]
+            const n = parseInt(last, 10)
+            return isNaN(n) ? 0 : n
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const loadId = getLoadId()
+            const data = fetchLoadDetail(tok, loadId)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.notFound) {
+                @notFound = true
+                @loaded = true
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @driver = data.driver
+            @load = data.load
+            @assignment = data.assignment
+            @recentEntries = data.recentEntries
+            @loaded = true
+        }
+
+        function transition(target) {
+            const tok = getSessionToken()
+            const loadId = @load.id
+            @errorMessage = ""
+            const result = transitionLoadServer(tok, loadId, target)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function submitBol(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            const filename = @bolFilename
+            if (filename == "") {
+                setError("BOL filename required.")
+                return
+            }
+            const tok = getSessionToken()
+            const loadId = @load.id
+            @errorMessage = ""
+            const result = uploadBolServer(tok, loadId, filename)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                @bolFilename = ""
+                @openForm = ""
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function submitPod(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            const filename = @podFilename
+            if (filename == "") {
+                setError("POD filename required.")
+                return
+            }
+            const tok = getSessionToken()
+            const loadId = @load.id
+            @errorMessage = ""
+            const result = uploadPodServer(tok, loadId, filename)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                @podFilename = ""
+                @openForm = ""
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function submitFuel(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            const amount = @fuelAmount
+            const odometer = @fuelOdometer
+            if (amount == "" || odometer == "") {
+                setError("Fuel amount and odometer both required.")
+                return
+            }
+            const tok = getSessionToken()
+            const loadId = @load.id
+            @errorMessage = ""
+            const result = logFuelStopServer(tok, loadId, amount, odometer)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                @fuelAmount = ""
+                @fuelOdometer = ""
+                @openForm = ""
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function submitBreakdown(event) {
+            if (event && event.preventDefault) event.preventDefault()
+            const desc = @breakdownDescription
+            if (desc == "") {
+                setError("Breakdown description required.")
+                return
+            }
+            const tok = getSessionToken()
+            const loadId = @load.id
+            @errorMessage = ""
+            const result = logBreakdownServer(tok, loadId, desc)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                @breakdownDescription = ""
+                @openForm = ""
+                refresh()
+                return
+            }
+            const err = result.error
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        function openForm(name) {
+            @openForm = name
+        }
+
+        function closeForm() {
+            @openForm = ""
+        }
+
+        // Pretty label for log entry types.
+        fn logTypeLabel(t: string) -> string {
+            if (t == "pre_trip")     return "Pre-trip inspection"
+            if (t == "post_trip")    return "Post-trip inspection"
+            if (t == "bol_received") return "BOL received"
+            if (t == "pod_signed")   return "POD signed"
+            if (t == "fuel_stop")    return "Fuel stop"
+            if (t == "breakdown")    return "Breakdown"
+            if (t == "hos_change")   return "Status change"
+            return t
+        }
+
+        // Helpers — what's the next driver-allowed status from the current
+        // status, and the button label for advancing.
+        fn nextDriverStatus(s: string) -> string {
+            if (s == "dispatched") return "loaded"
+            if (s == "loaded")     return "in_transit"
+            if (s == "in_transit") return "delivered"
+            return ""
+        }
+
+        fn nextDriverButtonLabel(s: string) -> string {
+            if (s == "dispatched") return "Mark loaded"
+            if (s == "loaded")     return "Start trip"
+            if (s == "in_transit") return "Mark delivered"
+            return ""
+        }
+
+        fn isBolEligible(s: string) -> boolean {
+            // BOL upload happens at pickup once status >= loaded.
+            if (s == "loaded")     return true
+            if (s == "in_transit") return true
+            if (s == "delivered")  return true
+            return false
+        }
+
+        fn isPodEligible(s: string) -> boolean {
+            // POD upload only after delivered.
+            return s == "delivered"
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/driver" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Load detail</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/driver" class="hover:text-blue-300">Home</a>
+              <a href="/driver/hos" class="hover:text-blue-300">HOS</a>
+              <a href="/driver/messages" class="hover:text-blue-300">Messages</a>
+              <a href="/driver/profile" class="hover:text-blue-300">Profile</a>
+          </nav>
+      </header>
+
+      <main class="max-w-3xl mx-auto px-6 py-8">
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@loaded && @notFound) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              Load not found.
+          </div>
+
+          <div if=(@loaded && !@notFound && @load == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              ${@errorMessage}
+          </div>
+
+          <div if=(@loaded && @load != null) class="space-y-6">
+
+              <!-- Header card -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <div class="flex items-start justify-between">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium mb-1">LOAD #${@load.id}</div>
+                          <h1 class="text-xl font-bold text-slate-900">
+                              ${@load.origin_city}, ${@load.origin_state}
+                              <span class="text-slate-400 mx-2">→</span>
+                              ${@load.destination_city}, ${@load.destination_state}
+                          </h1>
+                          <div class="text-sm text-slate-600 mt-1">
+                              ${@load.commodity}
+                              <span if=(@load.weight_lbs != null)> · ${@load.weight_lbs} lbs</>
+                          </div>
+                      </div>
+                      <div class="text-right">
+                          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${statusBadgeClasses(@load.status)}">
+                              ${statusLabel(@load.status)}
+                          </span>
+                          <div class="text-lg font-bold text-slate-900 mt-2">${formatRate(@load.rate_dollars)}</div>
+                      </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 text-sm">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Customer</div>
+                          <div class="font-semibold text-slate-900">${@load.customer_name}</div>
+                          <div class="text-slate-600">${@load.customer_contact == null ? "" : @load.customer_contact}</div>
+                          <div class="text-slate-500 text-xs">${@load.customer_phone == null ? "" : @load.customer_phone}</div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Pickup</div>
+                          <div class="text-slate-900">${formatPickupAt(@load.pickup_at)}</div>
+                          <div class="text-xs text-slate-500">${@load.origin_address == null ? "" : @load.origin_address}</div>
+                      </div>
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Deliver</div>
+                          <div class="text-slate-900">${formatPickupAt(@load.deliver_by)}</div>
+                          <div class="text-xs text-slate-500">${@load.destination_address == null ? "" : @load.destination_address}</div>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- Status advance + actions -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Actions
+                  </h2>
+
+                  <!-- Status advance button when there's a valid next status. -->
+                  <div if=(nextDriverStatus(@load.status) != "") class="mb-4">
+                      <button
+                          onclick=transition(nextDriverStatus(@load.status))
+                          class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md"
+                      >${nextDriverButtonLabel(@load.status)}</button>
+                  </div>
+
+                  <p if=(nextDriverStatus(@load.status) == "") class="text-sm text-slate-500 mb-4">
+                      No driver-driven transition available from <strong>${statusLabel(@load.status)}</strong>.
+                  </p>
+
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                          onclick=openForm("bol")
+                          disabled=(!isBolEligible(@load.status))
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-100 disabled:opacity-50"
+                      >Upload BOL</button>
+                      <button
+                          onclick=openForm("pod")
+                          disabled=(!isPodEligible(@load.status))
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-100 disabled:opacity-50"
+                      >Upload POD</button>
+                      <button
+                          onclick=openForm("fuel")
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-100"
+                      >Fuel stop</button>
+                      <button
+                          onclick=openForm("breakdown")
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-red-300 text-red-800 hover:bg-red-50"
+                      >Breakdown</button>
+                  </div>
+
+                  <div if=(@errorMessage != "") class="mt-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                      ${@errorMessage}
+                  </div>
+              </section>
+
+              <!-- BOL form (inline). -->
+              <section if=(@openForm == "bol") class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Upload BOL
+                  </h2>
+                  <form onsubmit=submitBol() class="space-y-3">
+                      <div>
+                          <label for="bol-filename" class="block text-xs font-medium text-slate-600 mb-1">
+                              Filename (mocked — file picker upload comes in M6)
+                          </label>
+                          <input
+                              id="bol-filename"
+                              type="text"
+                              bind:value=@bolFilename
+                              placeholder="bol-load-${@load.id}.pdf"
+                              class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                              required
+                          />
+                      </div>
+                      <div class="flex items-center gap-2">
+                          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
+                      </div>
+                  </form>
+              </section>
+
+              <!-- POD form (inline). -->
+              <section if=(@openForm == "pod") class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Upload POD
+                  </h2>
+                  <form onsubmit=submitPod() class="space-y-3">
+                      <div>
+                          <label for="pod-filename" class="block text-xs font-medium text-slate-600 mb-1">
+                              Filename (mocked — file picker upload comes in M6)
+                          </label>
+                          <input
+                              id="pod-filename"
+                              type="text"
+                              bind:value=@podFilename
+                              placeholder="pod-load-${@load.id}.pdf"
+                              class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                              required
+                          />
+                      </div>
+                      <div class="flex items-center gap-2">
+                          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
+                      </div>
+                  </form>
+              </section>
+
+              <!-- Fuel form (inline). -->
+              <section if=(@openForm == "fuel") class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Log fuel stop
+                  </h2>
+                  <form onsubmit=submitFuel() class="space-y-3">
+                      <div class="grid grid-cols-2 gap-3">
+                          <div>
+                              <label for="fuel-amount" class="block text-xs font-medium text-slate-600 mb-1">Gallons</label>
+                              <input
+                                  id="fuel-amount"
+                                  type="text"
+                                  bind:value=@fuelAmount
+                                  placeholder="120"
+                                  class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                                  required
+                              />
+                          </div>
+                          <div>
+                              <label for="fuel-odometer" class="block text-xs font-medium text-slate-600 mb-1">Odometer</label>
+                              <input
+                                  id="fuel-odometer"
+                                  type="text"
+                                  bind:value=@fuelOdometer
+                                  placeholder="123456"
+                                  class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                                  required
+                              />
+                          </div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
+                      </div>
+                  </form>
+              </section>
+
+              <!-- Breakdown form (inline). -->
+              <section if=(@openForm == "breakdown") class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Report breakdown
+                  </h2>
+                  <form onsubmit=submitBreakdown() class="space-y-3">
+                      <div>
+                          <label for="breakdown-desc" class="block text-xs font-medium text-slate-600 mb-1">
+                              Describe what happened
+                          </label>
+                          <textarea
+                              id="breakdown-desc"
+                              bind:value=@breakdownDescription
+                              rows="3"
+                              placeholder="Tire blowout on I-80 near Rock Springs. Calling tow."
+                              class="w-full text-sm px-3 py-2 border border-slate-300 rounded-md"
+                              required
+                          ></textarea>
+                      </div>
+                      <div class="flex items-center gap-2">
+                          <button type="submit" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md">Submit</button>
+                          <button type="button" onclick=closeForm() class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-md">Cancel</button>
+                      </div>
+                  </form>
+              </section>
+
+              <!-- Recent log entries (5) + link to full log. -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <header class="flex items-center justify-between mb-3">
+                      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider">
+                          Recent activity
+                      </h2>
+                      <a href="/driver/loads/${@load.id}/log" class="text-xs text-blue-600 hover:underline">
+                          Full log
+                      </a>
+                  </header>
+
+                  <p if=(@recentEntries.length == 0) class="text-sm text-slate-500">
+                      No entries yet for this load.
+                  </p>
+
+                  <ol if=(@recentEntries.length > 0) class="space-y-2">
+                      ${
+                          for (let entry of @recentEntries) {
+                              lift <li class="flex items-start gap-3 text-sm">
+                                  <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-0.5">
+                                      ${entry.at == null ? "" : entry.at.substring(0, 16)}
+                                  </span>
+                                  <span class="font-medium text-slate-900 flex-1">
+                                      ${logTypeLabel(entry.type)}
+                                      <span if=(entry.payload != null && entry.payload != "") class="text-xs text-slate-500 block break-all">
+                                          ${entry.payload}
+                                      </>
+                                  </span>
+                              </li>
+                          }
+                      }
+                  </ol>
+              </section>
+
+          </div>
+      </main>
+    </div>
+
+  </>
+
+</program>
