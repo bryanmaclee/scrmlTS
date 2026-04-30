@@ -1,0 +1,203 @@
+// Trucking Dispatch — schema reference + shared type aliases (M1).
+//
+// IMPORTANT: scrml's declarative `< schema>` block (§39) requires a
+// `<program db="...">` sibling in the SAME file (E-SCHEMA-001). The
+// canonical schema therefore lives in `app.scrml` next to the program
+// root, NOT in this file.
+//
+// This file is a pure-type file (§21.5) — it exports the shared enum types
+// every page in the dispatch app uses (UserRole, LoadStatus, DriverStatus,
+// TrailerType, AccountStatus, PaymentTerms, LogEntryType). M2-M6 import
+// from here so the type names are spelled identically across the app.
+//
+// The schema as DDL is documented in the comment block below for adopters
+// who want to read the table shape without reading `app.scrml`.
+
+${
+    // -----------------------------------------------------------------------
+    // Shared enums — used in pages, components, server fn signatures.
+    // -----------------------------------------------------------------------
+
+    // The three personas. Drives per-route role gating.
+    export type UserRole:enum = {
+        Dispatcher
+        Driver
+        Customer
+    }
+
+    // Load status state machine. M2 (dispatcher) drives the state
+    // transitions; M3 (driver) reports loaded → in_transit → delivered;
+    // M4 (customer) sees status changes via real-time channel (M5).
+    export type LoadStatus:enum = {
+        Tendered
+        Booked
+        Dispatched
+        Loaded
+        InTransit
+        Delivered
+        Invoiced
+        Paid
+        Cancelled
+    }
+
+    // FMCSA-ish HOS status for drivers. M3 owns the state machine.
+    export type DriverStatus:enum = {
+        OffDuty
+        OnDuty
+        Driving
+        SleeperBerth
+    }
+
+    // Trailer type — drives which loads can be assigned to which trailers.
+    export type TrailerType:enum = {
+        DryVan
+        Reefer
+        Flatbed
+        Tanker
+    }
+
+    // Account status. Closed / on-hold customers cannot tender new loads.
+    export type AccountStatus:enum = {
+        Active
+        OnHold
+        Closed
+    }
+
+    // Net-N invoice payment terms.
+    export type PaymentTerms:enum = {
+        Net15
+        Net30
+        Net60
+    }
+
+    // Driver log entry types. M3 emits these on the driver pages.
+    export type LogEntryType:enum = {
+        PreTrip
+        PostTrip
+        BolReceived
+        PodSigned
+        FuelStop
+        Breakdown
+        HosChange
+    }
+}
+
+// -----------------------------------------------------------------------
+// Schema DDL reference (canonical implementation in app.scrml `< schema>`).
+//
+// 9 tables — users, customers, drivers, tractors, trailers, loads,
+// assignments, log_entries, invoices, messages.
+//
+// users {
+//     id:              integer primary key
+//     email:           text not null unique
+//     password_hash:   text not null
+//     role:            text not null               -- UserRole enum string
+//     created_at:      timestamp default(CURRENT_TIMESTAMP)
+//     last_login_at:   timestamp
+// }
+//
+// customers {
+//     id:              integer primary key
+//     user_id:         integer references users(id)
+//     name:            text not null
+//     contact_name:    text
+//     contact_email:   text
+//     contact_phone:   text
+//     billing_address: text
+//     payment_terms:   text not null               -- PaymentTerms enum
+//     account_status:  text not null               -- AccountStatus enum
+//     created_at:      timestamp default(CURRENT_TIMESTAMP)
+// }
+//
+// drivers {
+//     id:               integer primary key
+//     user_id:          integer references users(id)
+//     name:             text not null
+//     phone:            text
+//     cdl_number:       text
+//     cdl_state:        text
+//     cdl_expires:      text                       -- ISO date
+//     current_status:   text not null              -- DriverStatus enum
+//     current_location: text
+//     created_at:       timestamp default(CURRENT_TIMESTAMP)
+// }
+//
+// tractors {
+//     id:                 integer primary key
+//     unit_number:        text not null unique
+//     year:               integer
+//     make:               text
+//     model:              text
+//     vin:                text unique
+//     license_plate:      text
+//     current_driver_id:  integer references drivers(id)
+//     status:             text not null            -- active / maintenance / out_of_service
+// }
+//
+// trailers {
+//     id:                  integer primary key
+//     unit_number:         text not null unique
+//     type:                text not null           -- TrailerType enum
+//     length_ft:           integer
+//     capacity_lbs:        integer
+//     current_tractor_id:  integer references tractors(id)
+// }
+//
+// loads {
+//     id:                   integer primary key
+//     customer_id:          integer not null references customers(id)
+//     origin_address:       text
+//     origin_city:          text
+//     origin_state:         text
+//     destination_address:  text
+//     destination_city:     text
+//     destination_state:    text
+//     pickup_at:            text                   -- ISO datetime
+//     deliver_by:           text                   -- ISO datetime
+//     commodity:            text
+//     weight_lbs:           integer
+//     rate_dollars:         real
+//     status:               text not null          -- LoadStatus enum
+//     created_at:           timestamp default(CURRENT_TIMESTAMP)
+//     updated_at:           timestamp default(CURRENT_TIMESTAMP)
+// }
+//
+// assignments {
+//     id:             integer primary key
+//     load_id:        integer not null references loads(id)
+//     driver_id:      integer not null references drivers(id)
+//     tractor_id:     integer not null references tractors(id)
+//     trailer_id:     integer not null references trailers(id)
+//     assigned_at:    timestamp default(CURRENT_TIMESTAMP)
+//     unassigned_at:  timestamp
+// }
+//
+// log_entries {
+//     id:         integer primary key
+//     driver_id:  integer not null references drivers(id)
+//     load_id:    integer references loads(id)
+//     type:       text not null                    -- LogEntryType enum
+//     at:         timestamp default(CURRENT_TIMESTAMP)
+//     payload:    text                             -- JSON, varies by type
+// }
+//
+// invoices {
+//     id:                  integer primary key
+//     load_id:             integer not null references loads(id)
+//     customer_id:         integer not null references customers(id)
+//     amount_dollars:      real not null
+//     sent_at:             timestamp default(CURRENT_TIMESTAMP)
+//     due_at:              text                    -- ISO datetime
+//     paid_at:             timestamp
+//     payment_reference:   text
+// }
+//
+// messages {
+//     id:            integer primary key
+//     channel_id:    text not null                 -- e.g. dispatch-board, driver-:id
+//     from_user_id:  integer not null references users(id)
+//     body:          text not null
+//     at:            timestamp default(CURRENT_TIMESTAMP)
+// }
+// -----------------------------------------------------------------------
