@@ -21,8 +21,20 @@
 // call. Multiple mutator fns in one file = file-context analysis hits
 // E-RI-002 on the simpler ones; the workaround pattern compiles.
 //
-// Real-time hookpoint (M5): subscribe to load-:id for status changes
-// pushed by dispatcher (e.g. cancellation while driver is en route).
+// M5: declares two channels:
+//   - <channel name="dispatch-board"> — driver transitions broadcast to
+//     all dispatchers via the board.
+//   - <channel name="load-events"> — driver transitions + location pings
+//     publish to the per-load channel. The customer of this load + the
+//     dispatcher of this load both subscribe.
+// Per F-CHANNEL-001, channel name interpolation does not work, so all
+// load-events arrive on a single broadcast; subscribers filter by
+// payload.loadId.
+//
+// Location ping: published once on mount (no polling for v1 per
+// scoping §4). Driver location is mocked — the page sends @driver's
+// stored current_location string in the payload. Real GPS will need
+// a geolocation API hookup (M6).
 
 <program db="../../dispatch.db" auth="required">
 
@@ -281,6 +293,10 @@
                 return
             }
             if (!result.error) {
+                // M5: broadcast on both channels — board for dispatcher,
+                // load-events for customer + dispatcher of this load.
+                publishBoardEvent("status-change", loadId, target)
+                publishLoadEvent("status", loadId, target, "")
                 refresh()
                 return
             }
@@ -443,10 +459,59 @@
             return s == "delivered"
         }
 
-        on mount {
+        @lastSeenLoadEventCount = 0
+        function ackLoadEvents() {
+            @lastSeenLoadEventCount = @loadEvents.length
             refresh()
         }
+
+        // After mount, we send a one-shot location ping so the customer's
+        // tracking page sees a recent update. No polling.
+        function sendLocationPing() {
+            if (!@load || !@driver) return
+            const loc = @driver.current_location ? @driver.current_location : ""
+            if (loc == "") return
+            publishLoadEvent("location", @load.id, "", loc)
+        }
+
+        on mount {
+            refresh()
+            sendLocationPing()
+        }
     }
+
+    <!-- M5: dispatch-board broadcast for driver-side status updates. -->
+    <channel name="dispatch-board">
+        ${
+            @shared boardEvents = []
+
+            server function publishBoardEvent(eventType, loadId, status) {
+                boardEvents = [...boardEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
+
+    <!-- M5: load-events broadcast for per-load updates. -->
+    <channel name="load-events">
+        ${
+            @shared loadEvents = []
+
+            server function publishLoadEvent(eventType, loadId, status, location) {
+                loadEvents = [...loadEvents, {
+                    type: eventType,
+                    loadId: loadId,
+                    status: status,
+                    location: location,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -463,6 +528,21 @@
       </header>
 
       <main class="max-w-3xl mx-auto px-6 py-8">
+
+          <!-- M5: live channel events. Dispatcher-side status changes
+               (e.g. cancellation) appear here in real time. -->
+          <div class="flex items-center justify-end gap-3 mb-3 text-xs text-slate-500">
+              <span>
+                  Board: <strong>${@boardEvents.length}</strong>
+                  · Load: <strong>${@loadEvents.length}</strong>
+              </span>
+              <button if=(@loadEvents.length > @lastSeenLoadEventCount)
+                  onclick=ackLoadEvents()
+                  class="px-2 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium">
+                  Refresh
+              </button>
+          </div>
+
           <p if=(!@loaded) class="text-slate-500">Loading…</p>
 
           <div if=(@loaded && @notFound) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">

@@ -207,6 +207,25 @@
         }
     }
 
+    <!-- M5: driver-events subscription. The home page shows a badge
+         indicating new messages / assignments since arrival. -->
+    <channel name="driver-events">
+        ${
+            @shared driverEvents = []
+
+            server function publishDriverEvent(eventType, targetDriverId, fromUserId, body, loadId) {
+                driverEvents = [...driverEvents, {
+                    type: eventType,
+                    targetDriverId: targetDriverId,
+                    fromUserId: fromUserId,
+                    body: body,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
+
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -216,7 +235,12 @@
           <nav class="flex items-center gap-4 text-sm">
               <a href="/driver" class="hover:text-blue-300">Home</a>
               <a href="/driver/hos" class="hover:text-blue-300">HOS</a>
-              <a href="/driver/messages" class="hover:text-blue-300">Messages</a>
+              <a href="/driver/messages" class="hover:text-blue-300">
+                  Messages
+                  <span if=(@driverEvents.length > 0) class="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold bg-amber-500 text-slate-900 rounded-full">
+                      ${@driverEvents.length}
+                  </span>
+              </a>
               <a href="/driver/profile" class="hover:text-blue-300">Profile</a>
               <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
               <button onclick=logout() class="hover:text-blue-300">Logout</button>

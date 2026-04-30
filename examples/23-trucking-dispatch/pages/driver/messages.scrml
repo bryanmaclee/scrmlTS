@@ -1,17 +1,21 @@
-// Trucking Dispatch — driver messages (M3).
+// Trucking Dispatch — driver messages (M3 + M5).
 //
-// Route: /driver/messages. Server-rendered chat thread with the dispatcher.
-// Reads messages where channel_id = "driver-${driverId}" or "dispatch-board".
-// Form to send a new message → INSERT INTO messages → page reload.
+// Route: /driver/messages. M3 shipped this as a server-rendered chat
+// thread (INSERT + reload). M5 ADDS real-time channel hookup so messages
+// from the dispatcher appear live without reload.
 //
-// **No real-time** — pure server-render + reload pattern. M5 adds the
-// <channel name="driver-:id"> hookpoint for live dispatcher pushes.
+// Architecture:
+//   - DB persistence stays (sendMessageServer still INSERTs into messages
+//     table) so reload + history work.
+//   - <channel name="driver-events"> publishes a live event on each send.
+//   - The thread renders @messages (DB history) + @driverEvents (live
+//     since page load) merged and filtered by targetDriverId. New live
+//     messages are visible without reload.
 //
 // Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward. F-RI-001
-// anchor pattern on the send mutator.
-//
-// Real-time hookpoint (M5): subscribe to driver-:id channel for live
-// dispatcher pushes; subscribe to dispatch-board for broadcasted updates.
+// anchor pattern on the send mutator. Per F-CHANNEL-001, channel name
+// interpolation does not work, so per-driver scoping is achieved via
+// targetDriverId in the payload + client-side filter.
 
 <program db="../../dispatch.db" auth="required">
 
@@ -133,12 +137,26 @@
                 return
             }
             if (!result.error) {
+                // M5: publish to driver-events so the dispatcher sees it
+                // live. The DB write already happened inside sendMessageServer;
+                // this is the "live wire" so subscribers update without
+                // reload.
+                const driverId = @driver ? @driver.id : 0
+                const userId = @user ? @user.id : 0
+                publishDriverEvent("message", driverId, userId, body, 0)
                 @draft = ""
                 refresh()
                 return
             }
             const err = result.error
             setError(err)
+        }
+
+        // Filter live events to only messages relevant to THIS driver.
+        // Per F-CHANNEL-001 (no name interpolation) all driver-events
+        // arrive on a single broadcast; we filter by targetDriverId.
+        fn isForThisDriver(targetDriverId, ourDriverId) -> boolean {
+            return targetDriverId == ourDriverId
         }
 
         function setError(msg) {
@@ -166,6 +184,26 @@
             refresh()
         }
     }
+
+    <!-- M5: driver-events broadcast channel. Driver + their dispatcher
+         publish here. Each event payload carries targetDriverId so the
+         driver's UI filters to only their own thread. -->
+    <channel name="driver-events">
+        ${
+            @shared driverEvents = []
+
+            server function publishDriverEvent(eventType, targetDriverId, fromUserId, body, loadId) {
+                driverEvents = [...driverEvents, {
+                    type: eventType,
+                    targetDriverId: targetDriverId,
+                    fromUserId: fromUserId,
+                    body: body,
+                    loadId: loadId,
+                    at: new Date().toISOString()
+                }]
+            }
+        }
+    </>
 
       <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
         <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
@@ -213,6 +251,24 @@
                                         <span class="ml-2">${m.at == "" ? "" : m.at.substring(0, 16)}</span>
                                     </div>
                                     <div class="text-sm break-words">${m.body}</div>
+                                </div>
+                            }
+                        }
+
+                        <!-- M5: live messages section — events received via
+                             driver-events channel since page load. Filtered
+                             to this driver. The DB also has them (server
+                             persistence) but we render the live ones here
+                             so they appear without a refresh. -->
+                        ${
+                            for (let ev of @driverEvents) {
+                                if (ev.type != "message") continue
+                                if (!isForThisDriver(ev.targetDriverId, @driver.id)) continue
+                                lift <div class="max-w-md rounded-lg px-4 py-2 bg-blue-50 border border-blue-200 text-blue-900 ml-auto">
+                                    <div class="text-xs opacity-75 mb-0.5">
+                                        Live · ${ev.at == "" ? "" : ev.at.substring(11, 16)}
+                                    </div>
+                                    <div class="text-sm break-words">${ev.body}</div>
                                 </div>
                             }
                         }
