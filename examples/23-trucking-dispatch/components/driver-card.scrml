@@ -1,0 +1,84 @@
+// Trucking Dispatch — driver card (M2).
+//
+// Table-row shape used by /dispatch/drivers and /dispatch/loads/:id (driver
+// picker context). Renders the driver's name, phone, status pill, current
+// location, current assignment summary, and CDL expiration.
+//
+// Per scoping §1, driver.current_status is one of:
+//   off_duty / on_duty / driving / sleeper_berth
+// (DriverStatus enum string in users.role spelling). Color-coded pill.
+
+${
+    export fn driverStatusClasses(status: string) -> string {
+        if (status == "driving")        return "bg-amber-100 text-amber-800 border-amber-200"
+        if (status == "on_duty")        return "bg-blue-100 text-blue-800 border-blue-200"
+        if (status == "sleeper_berth")  return "bg-violet-100 text-violet-800 border-violet-200"
+        if (status == "off_duty")       return "bg-slate-100 text-slate-700 border-slate-200"
+        return "bg-slate-100 text-slate-700 border-slate-200"
+    }
+
+    export fn driverStatusLabel(status: string) -> string {
+        if (status == "off_duty")      return "Off duty"
+        if (status == "on_duty")       return "On duty"
+        if (status == "driving")       return "Driving"
+        if (status == "sleeper_berth") return "Sleeper berth"
+        return status
+    }
+
+    // Pure formatter — CDL expiration is an ISO date. We highlight if it's
+    // within ~60 days of "now". Today is hardcoded for the demo (April 2026).
+    export fn cdlExpiresClass(cdlExpires: string) -> string {
+        if (cdlExpires == null || cdlExpires == "") return "text-slate-500"
+        // Lex-compare ISO dates — works because they're zero-padded.
+        if (cdlExpires < "2026-07-01") return "text-red-600 font-semibold"
+        if (cdlExpires < "2026-12-01") return "text-amber-700"
+        return "text-slate-500"
+    }
+
+    export const DriverCard = <tr class="border-b border-slate-200 hover:bg-slate-50" props={
+        driver: any,
+        currentLoadId?: number,
+        currentLoadOriginCity?: string,
+        currentLoadDestinationCity?: string,
+    }>
+        <td class="px-3 py-3">
+            <div class="text-sm font-semibold text-slate-900">${driver.name}</div>
+            <div class="text-xs text-slate-500">${driver.cdl_number} · ${driver.cdl_state}</div>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700">${driver.phone}</td>
+
+        <td class="px-3 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${driverStatusClasses(driver.current_status)}">
+                ${driverStatusLabel(driver.current_status)}
+            </span>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700">
+            <span if=(driver.current_location != null && driver.current_location != "")>
+                ${driver.current_location}
+            </>
+            <span if=(driver.current_location == null || driver.current_location == "") class="text-slate-400">
+                —
+            </>
+        </td>
+
+        <td class="px-3 py-3 text-sm">
+            <span if=(currentLoadId != null)>
+                <a class="text-blue-600 hover:underline" href="/dispatch/loads/${currentLoadId}">
+                    Load #${currentLoadId}
+                </a>
+                <span class="text-xs text-slate-500 block">
+                    ${currentLoadOriginCity} → ${currentLoadDestinationCity}
+                </span>
+            </>
+            <span if=(currentLoadId == null) class="text-slate-400">
+                Unassigned
+            </>
+        </td>
+
+        <td class="px-3 py-3 text-sm ${cdlExpiresClass(driver.cdl_expires)}">
+            ${driver.cdl_expires == null ? "—" : driver.cdl_expires}
+        </td>
+    </>
+}

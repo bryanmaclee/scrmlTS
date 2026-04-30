@@ -1,0 +1,88 @@
+// Trucking Dispatch — invoice card (M2).
+//
+// Table-row shape used by /dispatch/billing and (M4) the customer invoices
+// page. Shows amount, sent_at, due_at, paid_at-or-Outstanding,
+// payment_reference. The "Mark paid" button is dispatcher-only.
+
+${
+    import { formatRate } from './load-card.scrml'
+
+    // Derives the visible status pill for an invoice.
+    //   paid       — paid_at present
+    //   overdue    — paid_at null AND due_at < today
+    //   outstanding — paid_at null AND due_at >= today
+    export fn invoiceStatus(inv: any, todayIso: string) -> string {
+        if (inv.paid_at != null && inv.paid_at != "") return "paid"
+        if (inv.due_at != null && inv.due_at != "" && inv.due_at < todayIso) return "overdue"
+        return "outstanding"
+    }
+
+    export fn invoiceStatusClasses(status: string) -> string {
+        if (status == "paid")        return "bg-emerald-100 text-emerald-800 border-emerald-200"
+        if (status == "overdue")     return "bg-red-100 text-red-800 border-red-200"
+        if (status == "outstanding") return "bg-amber-100 text-amber-800 border-amber-200"
+        return "bg-slate-100 text-slate-700 border-slate-200"
+    }
+
+    export fn invoiceStatusLabel(status: string) -> string {
+        if (status == "paid")        return "Paid"
+        if (status == "overdue")     return "Overdue"
+        if (status == "outstanding") return "Outstanding"
+        return status
+    }
+
+    export fn formatIsoDate(at: string) -> string {
+        if (at == null || at == "") return "—"
+        return at.substring(0, 10)
+    }
+
+    export const InvoiceCard = <tr class="border-b border-slate-200 hover:bg-slate-50" props={
+        invoice: any,
+        customerName: string,
+        loadOriginCity?: string,
+        loadDestinationCity?: string,
+        todayIso: string,
+        onMarkPaid: any,
+    }>
+        <td class="px-3 py-3 text-sm">
+            <a class="text-blue-600 hover:underline font-medium" href="/dispatch/loads/${invoice.load_id}">
+                #${invoice.load_id}
+            </a>
+            <div class="text-xs text-slate-500">
+                ${loadOriginCity == null ? "" : loadOriginCity}
+                <span if=(loadOriginCity != null && loadDestinationCity != null) class="text-slate-400 mx-1">→</span>
+                ${loadDestinationCity == null ? "" : loadDestinationCity}
+            </div>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700">${customerName}</td>
+
+        <td class="px-3 py-3 text-sm font-semibold text-slate-900 text-right">
+            ${formatRate(invoice.amount_dollars)}
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700">${formatIsoDate(invoice.sent_at)}</td>
+        <td class="px-3 py-3 text-sm text-slate-700">${formatIsoDate(invoice.due_at)}</td>
+
+        <td class="px-3 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${invoiceStatusClasses(invoiceStatus(invoice, todayIso))}">
+                ${invoiceStatusLabel(invoiceStatus(invoice, todayIso))}
+            </span>
+            <div if=(invoice.payment_reference != null && invoice.payment_reference != "") class="text-xs text-slate-500 mt-1">
+                ${invoice.payment_reference}
+            </div>
+        </td>
+
+        <td class="px-3 py-3 text-right">
+            <button if=(invoice.paid_at == null || invoice.paid_at == "")
+                onclick=onMarkPaid(invoice.id)
+                class="text-xs px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium"
+            >
+                Mark paid
+            </button>
+            <span if=(invoice.paid_at != null && invoice.paid_at != "") class="text-xs text-slate-400">
+                ${formatIsoDate(invoice.paid_at)}
+            </>
+        </td>
+    </>
+}

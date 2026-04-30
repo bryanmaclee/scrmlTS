@@ -1,0 +1,75 @@
+// Trucking Dispatch — customer card (M2).
+//
+// Table-row shape used by /dispatch/customers and (M4) the customer
+// load-detail page header.
+
+${
+    export fn accountStatusClasses(status: string) -> string {
+        if (status == "active")  return "bg-emerald-100 text-emerald-800 border-emerald-200"
+        if (status == "on_hold") return "bg-amber-100 text-amber-800 border-amber-200"
+        if (status == "closed")  return "bg-red-100 text-red-800 border-red-200"
+        return "bg-slate-100 text-slate-700 border-slate-200"
+    }
+
+    export fn accountStatusLabel(status: string) -> string {
+        if (status == "active")  return "Active"
+        if (status == "on_hold") return "On hold"
+        if (status == "closed")  return "Closed"
+        return status
+    }
+
+    export fn paymentTermsLabel(terms: string) -> string {
+        if (terms == "net_15") return "Net 15"
+        if (terms == "net_30") return "Net 30"
+        if (terms == "net_60") return "Net 60"
+        return terms
+    }
+
+    export const CustomerCard = <tr class="border-b border-slate-200 hover:bg-slate-50" props={
+        customer: any,
+        outstandingCount: number,
+        expanded: boolean,
+        onToggle: any,
+    }>
+        <td class="px-3 py-3">
+            <button onclick=onToggle(customer.id) class="text-sm font-semibold text-slate-900 hover:text-blue-700 text-left">
+                ${customer.name}
+            </button>
+            <div class="text-xs text-slate-500">
+                ${customer.contact_name == null ? "—" : customer.contact_name}
+            </div>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700">
+            <div>${customer.contact_email == null ? "—" : customer.contact_email}</div>
+            <div class="text-xs text-slate-500">
+                ${customer.contact_phone == null ? "" : customer.contact_phone}
+            </div>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700 max-w-xs">
+            <div class="truncate">
+                ${customer.billing_address == null ? "—" : customer.billing_address}
+            </div>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700">
+            ${paymentTermsLabel(customer.payment_terms)}
+        </td>
+
+        <td class="px-3 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${accountStatusClasses(customer.account_status)}">
+                ${accountStatusLabel(customer.account_status)}
+            </span>
+        </td>
+
+        <td class="px-3 py-3 text-sm text-slate-700 text-center">
+            <span if=(outstandingCount > 0) class="text-amber-700 font-semibold">
+                ${outstandingCount}
+            </>
+            <span if=(outstandingCount == 0) class="text-slate-400">
+                0
+            </>
+        </td>
+    </>
+}
