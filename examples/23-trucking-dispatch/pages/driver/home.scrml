@@ -1,0 +1,382 @@
+// Trucking Dispatch — driver landing (M3).
+//
+// Route: /driver. Greeting + HOS status pill + current location, current
+// load card (if assigned + active), HOS quick-actions (off_duty / on_duty
+// / driving / sleeper_berth), recent log entries (5 newest), logout.
+//
+// Per F-AUTH-001 + F-AUTH-002 carryforward: every driver page declares its
+// own <program db= auth=>, inlines its own getCurrentUser + role gate, and
+// the page-level auth="role:driver" attribute is documentation only.
+//
+// Per F-COMPONENT-001 (architectural): no cross-file component imports.
+// Helper fns (driverStatusClasses, etc.) imported; markup inlined.
+//
+// F-RI-001 carryforward: every multi-server-call page uses the M2
+// load-detail.scrml pattern — @errorMessage = "" anchor before the server
+// call, setError() helper indirection on the negative path, and
+// `if (!obj.error)` instead of `if (obj.error is not)`.
+//
+// Real-time hookpoint (M5): subscribe to driver-:id channel for dispatcher
+// messages and load assignment notifications. Not wired in M3.
+
+<program db="../../dispatch.db" auth="required">
+
+  ${
+      import { driverStatusClasses, driverStatusLabel } from '../../components/driver-card.scrml'
+      import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
+      import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
+      import { createSessionStore } from 'scrml:store'
+      import { SESSION_DB_PATH } from '../../models/auth.scrml'
+  }
+
+  < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries">
+
+    ${
+        // F-AUTH-002 inline: cookie → user → drivers JOIN.
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = createSessionStore(SESSION_DB_PATH)
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // F-AUTH-001 fallback: role gate. Returns the user + the driver row.
+        server function fetchHomeData(sessionToken) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+
+            const driver = ?{`
+                SELECT id, name, phone, cdl_number, cdl_state, cdl_expires,
+                       current_status, current_location
+                FROM drivers
+                WHERE user_id = ${user.id}
+            `}.get()
+            if (!driver) return { error: "No driver record found for this account." }
+
+            // Active assignment + load join. Driver is "active" when they have
+            // an open assignment AND the load is not yet delivered/closed.
+            const currentLoad = ?{`
+                SELECT
+                    l.id, l.origin_address, l.origin_city, l.origin_state,
+                    l.destination_address, l.destination_city, l.destination_state,
+                    l.pickup_at, l.deliver_by, l.commodity, l.weight_lbs,
+                    l.rate_dollars, l.status,
+                    c.name AS customer_name, c.contact_phone AS customer_phone,
+                    a.id AS assignment_id, a.assigned_at
+                FROM assignments a
+                JOIN loads l ON l.id = a.load_id
+                LEFT JOIN customers c ON c.id = l.customer_id
+                WHERE a.driver_id = ${driver.id}
+                  AND a.unassigned_at IS NULL
+                  AND l.status IN ('dispatched', 'loaded', 'in_transit')
+                ORDER BY a.assigned_at DESC
+                LIMIT 1
+            `}.get()
+
+            const recentEntries = ?{`
+                SELECT id, type, at, payload, load_id
+                FROM log_entries
+                WHERE driver_id = ${driver.id}
+                ORDER BY at DESC
+                LIMIT 5
+            `}.all()
+
+            return {
+                user: user, driver: driver,
+                currentLoad: currentLoad,
+                recentEntries: recentEntries
+            }
+        }
+
+        // Update HOS status: writes drivers.current_status + emits a
+        // hos_change log entry. Returns the (refreshed) status string.
+        server function changeHosServer(sessionToken, newStatus) {
+            const user = getCurrentUser(sessionToken)
+            if (!user || user.role != "driver") {
+                return { unauthorized: true }
+            }
+            const driver = ?{`SELECT id, current_status FROM drivers WHERE user_id = ${user.id}`}.get()
+            if (!driver) return { error: "No driver record." }
+
+            // Validate transition per HOS rules (simplified 11/14 — see hos.scrml).
+            const cur = driver.current_status
+            let allowed = false
+            if (cur == "off_duty"      && newStatus == "on_duty")        { allowed = true }
+            if (cur == "off_duty"      && newStatus == "sleeper_berth")  { allowed = true }
+            if (cur == "on_duty"       && newStatus == "off_duty")       { allowed = true }
+            if (cur == "on_duty"       && newStatus == "driving")        { allowed = true }
+            if (cur == "driving"       && newStatus == "off_duty")       { allowed = true }
+            if (cur == "driving"       && newStatus == "on_duty")        { allowed = true }
+            if (cur == "sleeper_berth" && newStatus == "on_duty")        { allowed = true }
+            if (cur == "sleeper_berth" && newStatus == "off_duty")       { allowed = true }
+            if (!allowed) return { error: `Cannot transition from ${cur} to ${newStatus}.` }
+
+            ?{`UPDATE drivers SET current_status = ${newStatus} WHERE id = ${driver.id}`}.run()
+
+            const payload = `{"from":"${cur}","to":"${newStatus}"}`
+            ?{`
+                INSERT INTO log_entries (driver_id, load_id, type, payload)
+                VALUES (${driver.id}, NULL, 'hos_change', ${payload})
+            `}.run()
+
+            return { ok: true }
+        }
+
+        @user = null
+        @driver = null
+        @currentLoad = null
+        @recentEntries = []
+        @loaded = false
+        @errorMessage = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            const idx = c.indexOf("scrml_session=")
+            if (idx < 0) return ""
+            const tail = c.substring(idx + "scrml_session=".length)
+            const semi = tail.indexOf(";")
+            return semi < 0 ? tail : tail.substring(0, semi)
+        }
+
+        function refresh() {
+            const tok = getSessionToken()
+            const data = fetchHomeData(tok)
+            if (data.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (data.error) {
+                @errorMessage = data.error
+                @loaded = true
+                return
+            }
+            @user = data.user
+            @driver = data.driver
+            @currentLoad = data.currentLoad
+            @recentEntries = data.recentEntries
+            @loaded = true
+        }
+
+        function setStatus(target) {
+            const tok = getSessionToken()
+            // F-RI-001 anchor: assign @var BEFORE the server call.
+            @errorMessage = ""
+            const result = changeHosServer(tok, target)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (!result.error) {
+                refresh()
+                return
+            }
+            // F-RI-001 indirection: setError helper isolates @var assignment.
+            const err = result.error
+            setError(err)
+        }
+
+        function setError(msg) {
+            @errorMessage = msg
+        }
+
+        function logout() {
+            document.cookie = "scrml_session=; Path=/; Max-Age=0"
+            window.location.href = "/login"
+        }
+
+        // Pretty label for log entry types — same shape as M2 dispatch
+        // load-detail.scrml's logTypeLabel helper, duplicated here per
+        // F-AUTH-002 (cross-file fns coming through server-context have
+        // their own escalation issues).
+        fn logTypeLabel(t: string) -> string {
+            if (t == "pre_trip")     return "Pre-trip inspection"
+            if (t == "post_trip")    return "Post-trip inspection"
+            if (t == "bol_received") return "BOL received"
+            if (t == "pod_signed")   return "POD signed"
+            if (t == "fuel_stop")    return "Fuel stop"
+            if (t == "breakdown")    return "Breakdown"
+            if (t == "hos_change")   return "HOS status change"
+            return t
+        }
+
+        on mount {
+            refresh()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+              <a href="/driver" class="text-xl font-bold hover:text-blue-300">Trucking Dispatch</a>
+              <span class="text-xs uppercase tracking-wider text-slate-400">Driver</span>
+          </div>
+          <nav class="flex items-center gap-4 text-sm">
+              <a href="/driver" class="hover:text-blue-300">Home</a>
+              <a href="/driver/hos" class="hover:text-blue-300">HOS</a>
+              <a href="/driver/messages" class="hover:text-blue-300">Messages</a>
+              <a href="/driver/profile" class="hover:text-blue-300">Profile</a>
+              <span class="text-slate-400 text-xs" if=(@user != null)>${@user.email}</span>
+              <button onclick=logout() class="hover:text-blue-300">Logout</button>
+          </nav>
+      </header>
+
+      <main class="max-w-3xl mx-auto px-6 py-8">
+          <p if=(!@loaded) class="text-slate-500">Loading…</p>
+
+          <div if=(@loaded && @driver == null) class="bg-red-50 border border-red-200 text-red-800 rounded-md px-4 py-3">
+              ${@errorMessage}
+          </div>
+
+          <div if=(@loaded && @driver != null) class="space-y-6">
+
+              <!-- Greeting + status -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <div class="flex items-start justify-between">
+                      <div>
+                          <div class="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Driver</div>
+                          <h1 class="text-2xl font-bold">Hi, ${@driver.name}</h1>
+                          <div class="text-sm text-slate-600 mt-1">
+                              <span if=(@driver.current_location != null && @driver.current_location != "")>
+                                  ${@driver.current_location}
+                              </>
+                              <span if=(@driver.current_location == null || @driver.current_location == "") class="text-slate-400">
+                                  Location not yet reported
+                              </>
+                          </div>
+                      </div>
+                      <div class="text-right">
+                          <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${driverStatusClasses(@driver.current_status)}">
+                              ${driverStatusLabel(@driver.current_status)}
+                          </span>
+                      </div>
+                  </div>
+              </section>
+
+              <!-- HOS quick-actions -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Change status
+                  </h2>
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                          onclick=setStatus("off_duty")
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-slate-300 hover:bg-slate-100 disabled:opacity-50"
+                          disabled=(@driver.current_status == "off_duty")
+                      >Off duty</button>
+                      <button
+                          onclick=setStatus("on_duty")
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-blue-300 text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                          disabled=(@driver.current_status == "on_duty")
+                      >On duty</button>
+                      <button
+                          onclick=setStatus("driving")
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                          disabled=(@driver.current_status == "driving")
+                      >Driving</button>
+                      <button
+                          onclick=setStatus("sleeper_berth")
+                          class="px-3 py-2 text-sm font-medium rounded-md border border-violet-300 text-violet-800 hover:bg-violet-50 disabled:opacity-50"
+                          disabled=(@driver.current_status == "sleeper_berth")
+                      >Sleeper berth</button>
+                  </div>
+
+                  <div if=(@errorMessage != "") class="mt-3 bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+                      ${@errorMessage}
+                  </div>
+
+                  <p class="text-xs text-slate-500 mt-3">
+                      See <a class="text-blue-600 hover:underline" href="/driver/hos">HOS cycle</a> for hours-driven and time-in-state.
+                  </p>
+              </section>
+
+              <!-- Current load -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Current load
+                  </h2>
+
+                  <div if=(@currentLoad == null) class="text-sm text-slate-500">
+                      No active load assignment. Check back when dispatch assigns one.
+                  </div>
+
+                  <a if=(@currentLoad != null) href="/driver/loads/${@currentLoad.id}" class="block bg-white border border-slate-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition">
+                      <div class="flex items-start justify-between mb-2">
+                          <div class="text-xs text-slate-500 font-medium">
+                              LOAD #${@currentLoad.id}
+                          </div>
+                          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusBadgeClasses(@currentLoad.status)}">
+                              ${statusLabel(@currentLoad.status)}
+                          </span>
+                      </div>
+                      <div class="text-sm font-semibold text-slate-900 mb-1">
+                          ${@currentLoad.origin_city}, ${@currentLoad.origin_state}
+                          <span class="text-slate-400 mx-1">→</span>
+                          ${@currentLoad.destination_city}, ${@currentLoad.destination_state}
+                      </div>
+                      <div class="text-xs text-slate-600 mb-2">
+                          ${@currentLoad.commodity}
+                          <span if=(@currentLoad.weight_lbs != null) class="text-slate-400">
+                              · ${@currentLoad.weight_lbs} lbs
+                          </>
+                      </div>
+                      <div class="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                          <div>
+                              <div class="text-slate-500 uppercase tracking-wider">Pickup</div>
+                              <div>${formatPickupAt(@currentLoad.pickup_at)}</div>
+                          </div>
+                          <div>
+                              <div class="text-slate-500 uppercase tracking-wider">Deliver by</div>
+                              <div>${formatPickupAt(@currentLoad.deliver_by)}</div>
+                          </div>
+                      </div>
+                      <div class="flex items-center justify-between mt-3 text-xs">
+                          <span class="text-slate-600">
+                              ${@currentLoad.customer_name == null ? "" : @currentLoad.customer_name}
+                          </span>
+                          <span class="font-semibold text-slate-900">${formatRate(@currentLoad.rate_dollars)}</span>
+                      </div>
+                  </a>
+              </section>
+
+              <!-- Recent activity -->
+              <section class="bg-white rounded-lg border border-slate-200 p-6">
+                  <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                      Recent activity
+                  </h2>
+
+                  <p if=(@recentEntries.length == 0) class="text-sm text-slate-500">
+                      No log entries yet. They'll appear as you change status or update loads.
+                  </p>
+
+                  <ol if=(@recentEntries.length > 0) class="space-y-2">
+                      ${
+                          for (let entry of @recentEntries) {
+                              lift <li class="flex items-start gap-3 text-sm">
+                                  <span class="text-xs text-slate-500 font-mono w-32 flex-shrink-0 pt-0.5">
+                                      ${entry.at == null ? "" : entry.at.substring(0, 16)}
+                                  </span>
+                                  <span class="font-medium text-slate-900 flex-1">
+                                      ${logTypeLabel(entry.type)}
+                                      <span if=(entry.load_id != null) class="text-xs text-slate-500 block">
+                                          Load #${entry.load_id}
+                                      </>
+                                      <span if=(entry.payload != null && entry.payload != "") class="text-xs text-slate-500 block break-all">
+                                          ${entry.payload}
+                                      </>
+                                  </span>
+                              </li>
+                          }
+                      }
+                  </ol>
+              </section>
+
+          </div>
+      </main>
+    </div>
+
+  </>
+
+</program>
