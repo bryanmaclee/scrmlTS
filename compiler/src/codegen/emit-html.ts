@@ -113,6 +113,32 @@ function stripChainBranchAttrs(node: any): any {
   return { ...node, attributes: filtered, attrs: filtered };
 }
 
+/**
+ * Phase 2g: per-branch cleanliness check for if-chain branches.
+ *
+ * A chain branch element ALWAYS carries one of `if=` / `else-if=` / `else`
+ * at the AST level (chain-construction metadata). Those three attributes
+ * unconditionally fail `attrIsWiringFree`, so calling `isCleanIfNode` on
+ * the raw branch would always return false. Apply the strip-precursor
+ * conceptually here (without mutating the AST), then defer to the existing
+ * `isCleanIfNode` predicate so cleanliness criteria match the single-`if=`
+ * Phase 2c path verbatim.
+ *
+ * Returns true if the branch element compiles to clean HTML — lowercase tag,
+ * no wiring-bearing attributes (after stripping if/else-if/else), and a
+ * wholly-clean descendant tree per `isCleanIfSubtree`. Clean branches go
+ * through the per-branch template+marker mount/unmount path. Dirty branches
+ * stay inline-with-display-toggle wrapped in a per-branch wrapper inside the
+ * chain wrapper (pre-Phase-2g shape, retained as the dirty-fallback shape).
+ */
+function isCleanChainBranch(branchElement: any): boolean {
+  if (!branchElement || typeof branchElement !== "object") return true;
+  if (branchElement.kind === "text" || branchElement.kind === "comment") return true;
+  if (branchElement.kind !== "markup") return false;
+  const stripped = stripChainBranchAttrs(branchElement);
+  return isCleanIfNode(stripped);
+}
+
 // §35 Input state type elements that emit no HTML — handled by emit-reactive-wiring.js
 const INPUT_STATE_TAGS = new Set(["keyboard", "mouse", "gamepad"]);
 
@@ -176,50 +202,121 @@ export function generateHtml(
       return;
     }
 
-    // §17.1.1: if-chain — render all branches, only first active is visible
+    // §17.1.1: if-chain — Phase 2g (mount/unmount per branch)
+    //
+    // Approach A + W-keep-chain-only + per-branch mixed-cleanliness dispatch:
+    //   - Single chain wrapper `<div data-scrml-if-chain="N">` retained for
+    //     adopter CSS targeting.
+    //   - Per-branch dispatch:
+    //     * Clean branch (no events / no reactive interp / no nested wiring):
+    //       emit `<template id=...><inner></template><!--scrml-if-marker:...-->`.
+    //       Per-branch wrapper DROPPED — the controller mounts/unmounts the
+    //       template into the chain wrapper directly. Honors §17.1.1 line 7533
+    //       ("only one span exists in the DOM at any time") for clean branches.
+    //     * Dirty branch (has events, bind:, transitions, components, reactive
+    //       interp, etc): retain pre-Phase-2g per-branch wrapper
+    //       `<div data-scrml-chain-branch="K" style="display:none"><inner></div>`.
+    //       Controller toggles `display` for these (today's display-toggle
+    //       behavior, scoped per branch).
+    //   - Strip-precursor (`stripChainBranchAttrs`) applies in BOTH paths to
+    //     prevent if=/else-if=/else leakage and to prevent the inner element
+    //     from re-triggering the standalone if= early-out gate at lines 575-603.
+    //   - The chain controller in emit-event-wiring.ts reads the per-branch
+    //     `branchMode` field and dispatches mount/unmount vs display-toggle
+    //     per branch on the active-branch transition.
+    //
+    // Reuses Phase 2c B1 helpers (_scrml_create_scope, _scrml_mount_template,
+    // _scrml_unmount_scope, _scrml_find_if_marker) verbatim. No new runtime
+    // helpers. No spec amendment. See deep-dive
+    // `docs/deep-dives/phase-2g-chain-mount-strategy-2026-04-29.md` §9.
     if (node.kind === "if-chain") {
       const chainId = genVar("if_chain");
+      parts.push(`<div data-scrml-if-chain="${chainId}">`);
+
       for (let bIdx = 0; bIdx < (node.branches?.length ?? 0); bIdx++) {
         const branch = node.branches[bIdx];
         const branchId = `${chainId}_b${bIdx}`;
-        parts.push(`<div data-scrml-if-chain="${chainId}" data-scrml-chain-branch="${branchId}" style="display:none">`);
-        // Strip if=/else-if= from the branch element before emitting. The
-        // chain wrapper drives visibility; the inner element's if=/else-if=
-        // attribute is purely AST-level metadata for chain construction.
-        // Leaving it attached would (a) emit a meaningless `if=...` HTML
-        // attribute and (b) — critically, post-Phase-2c — cause the inner
-        // if= to trigger emit-html's mount/unmount early-out, producing a
-        // <template>+marker INSIDE a chain wrapper with two reactive
-        // controllers fighting over the same DOM region. This strip closes
-        // that vector independently of the Phase 2c emission strategy.
-        emitNode(stripChainBranchAttrs(branch.element));
-        parts.push(`</div>`);
-        // Register the branch for event wiring
-        if (registry) {
-          registry.addLogicBinding({
-            kind: "if-chain-branch",
-            chainId,
-            branchId,
-            branchIndex: bIdx,
-            condition: branch.condition,
-            refs: branch.condition?.refs ?? (branch.condition?.name ? [branch.condition.name.replace(/^@/, "")] : []),
-          });
+        const isClean = isCleanChainBranch(branch.element);
+        const stripped = stripChainBranchAttrs(branch.element);
+
+        if (isClean) {
+          // Clean branch: <template> + <!--scrml-if-marker:...-->
+          const templateId = genVar("scrml_chain_tpl");
+          const markerId = genVar("scrml_chain_marker");
+          parts.push(`<template id="${templateId}">`);
+          emitNode(stripped);
+          parts.push(`</template>`);
+          parts.push(`<!--scrml-if-marker:${markerId}-->`);
+          if (registry) {
+            registry.addLogicBinding({
+              kind: "if-chain-branch",
+              chainId,
+              branchId,
+              branchIndex: bIdx,
+              branchMode: "mount",
+              templateId,
+              markerId,
+              condition: branch.condition,
+              refs: branch.condition?.refs ?? (branch.condition?.name ? [branch.condition.name.replace(/^@/, "")] : []),
+            } as any);
+          }
+        } else {
+          // Dirty branch: per-branch wrapper retained, display-toggle.
+          parts.push(`<div data-scrml-chain-branch="${branchId}" style="display:none">`);
+          emitNode(stripped);
+          parts.push(`</div>`);
+          if (registry) {
+            registry.addLogicBinding({
+              kind: "if-chain-branch",
+              chainId,
+              branchId,
+              branchIndex: bIdx,
+              branchMode: "display",
+              condition: branch.condition,
+              refs: branch.condition?.refs ?? (branch.condition?.name ? [branch.condition.name.replace(/^@/, "")] : []),
+            } as any);
+          }
         }
       }
+
       if (node.elseBranch) {
         const elseId = `${chainId}_else`;
-        parts.push(`<div data-scrml-if-chain="${chainId}" data-scrml-chain-branch="${elseId}" style="display:none">`);
-        // Strip else= for the same reasons (see comment above).
-        emitNode(stripChainBranchAttrs(node.elseBranch));
-        parts.push(`</div>`);
-        if (registry) {
-          registry.addLogicBinding({
-            kind: "if-chain-else",
-            chainId,
-            branchId: elseId,
-          });
+        const isClean = isCleanChainBranch(node.elseBranch);
+        const stripped = stripChainBranchAttrs(node.elseBranch);
+
+        if (isClean) {
+          const templateId = genVar("scrml_chain_tpl");
+          const markerId = genVar("scrml_chain_marker");
+          parts.push(`<template id="${templateId}">`);
+          emitNode(stripped);
+          parts.push(`</template>`);
+          parts.push(`<!--scrml-if-marker:${markerId}-->`);
+          if (registry) {
+            registry.addLogicBinding({
+              kind: "if-chain-else",
+              chainId,
+              branchId: elseId,
+              branchMode: "mount",
+              templateId,
+              markerId,
+            } as any);
+          }
+        } else {
+          parts.push(`<div data-scrml-chain-branch="${elseId}" style="display:none">`);
+          emitNode(stripped);
+          parts.push(`</div>`);
+          if (registry) {
+            registry.addLogicBinding({
+              kind: "if-chain-else",
+              chainId,
+              branchId: elseId,
+              branchMode: "display",
+            } as any);
+          }
         }
       }
+
+      parts.push(`</div>`);
       return;
     }
 

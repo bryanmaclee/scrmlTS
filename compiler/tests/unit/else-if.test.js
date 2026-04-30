@@ -158,16 +158,21 @@ describe("§17.1.1 — error codes", () => {
 //   `branch.element`. The chain wrapper drives visibility — the inner
 //   element's attribute is purely AST-level metadata. Two failure modes if
 //   not stripped:
-//     (a) TODAY (display-toggle path):  inner element renders with a
+//     (a) PRE-Phase-2g (display-toggle path):  inner element renders with a
 //         meaningless `if="..."` HTML attribute leaked into the DOM.
-//     (b) POST-Phase-2c (mount/unmount path):  inner if= triggers the
-//         `<template>+marker` early-out, producing a duplicate reactive
-//         controller fighting with the chain wrapper over the same DOM
-//         region.
+//     (b) PRE-Phase-2c (mount/unmount path):  inner if= triggers the
+//         standalone-`if=` `<template>+marker` early-out, producing a
+//         duplicate reactive controller fighting with the chain wrapper
+//         over the same DOM region.
 //
-// The strip in emit-html.ts (stripChainBranchAttrs) closes both vectors and
-// is invariant under the Phase 2c emission strategy. These tests lock in the
-// right shape today AND post-Phase-2c.
+// The strip in emit-html.ts (stripChainBranchAttrs) closes both vectors.
+// Phase 2g extends the chain handler to emit template+marker for clean
+// branches DIRECTLY (per-branch B1 dispatch via the chain handler, NOT via
+// the standalone if= early-out). The strip-precursor is still required —
+// it prevents leaked HTML attrs AND prevents the standalone-if= early-out
+// from interfering with the chain handler's per-branch decision. These
+// tests lock in the Phase 2g shape: chain wrapper + per-branch
+// template/marker (clean) or per-branch wrapper (dirty).
 // ---------------------------------------------------------------------------
 
 describe("§17.1.1 — chain branches do not leak if=/else-if=/else attributes", () => {
@@ -182,9 +187,8 @@ describe("§17.1.1 — chain branches do not leak if=/else-if=/else attributes",
       <div if=@a>A</>
       <div else>B</>
     </>`);
-    // Wrapper attributes are present (chain controller).
+    // Chain wrapper present (W-keep-chain-only).
     expect(html).toContain("data-scrml-if-chain=");
-    expect(html).toContain("data-scrml-chain-branch=");
     // Inner elements do NOT leak `if="..."` or `else=""` HTML attributes.
     expect(html).not.toMatch(/<div\b[^>]*\sif="/);
     expect(html).not.toMatch(/<div\b[^>]*\selse=/);
@@ -208,27 +212,34 @@ describe("§17.1.1 — chain branches do not leak if=/else-if=/else attributes",
     expect(html).toContain("C");
   });
 
-  test("N31: clean-subtree chain branches do NOT trigger the mount/unmount early-out", () => {
-    // Each branch's body is a static text node — would otherwise pass the
-    // cleanliness gate and go through the template+marker path. The chain
-    // branch strip prevents that — chain-wrapped elements never enter the
-    // mount/unmount emission, regardless of subtree cleanliness.
+  test("N31: clean-subtree chain branches go through Phase 2g per-branch template+marker dispatch", () => {
+    // Each branch's body is a static text node — clean per `isCleanIfNode`
+    // post-strip. Under Phase 2g, the chain handler emits per-branch
+    // `<template>` + `<!--scrml-if-marker:...-->` for clean branches,
+    // wrapped in a single chain wrapper `<div data-scrml-if-chain>`.
+    // Per-branch wrappers are DROPPED for clean branches (only the chain
+    // wrapper remains). The strip-precursor still applies — it prevents
+    // the inner if= from re-firing the standalone if= early-out gate.
     const html = compileToHtml(`<program>
       <div if=@a>plain text A</>
       <div else>plain text B</>
     </>`);
-    // No <template> element emitted inside the chain.
-    expect(html).not.toContain("<template");
-    // No mount/unmount marker comment emitted.
-    expect(html).not.toContain("scrml-if-marker");
-    // No data-scrml-bind-if attribute emitted (mount path uses marker comment instead).
+    // Single chain wrapper.
+    expect(html).toContain('data-scrml-if-chain="');
+    // Clean branches DO emit <template> + scrml-if-marker (Phase 2g).
+    expect(html).toContain("<template");
+    expect(html).toContain("scrml-if-marker");
+    // No data-scrml-bind-if attribute (chain handler uses scrml-if-marker
+    // comment instead — same shape as Phase 2c B1 single-`if=` mount).
     expect(html).not.toContain("data-scrml-bind-if=");
+    // No per-branch wrapper for clean branches (W-keep-chain-only).
+    expect(html).not.toContain("data-scrml-chain-branch=");
   });
 
   test("N31: standalone if= (no chain) is unaffected by the chain-strip", () => {
     // Sanity check: the strip ONLY applies inside chains. A standalone if=
     // element is free to take whatever emission strategy emit-html chooses
-    // (display-toggle today; mount/unmount post-Phase-2c).
+    // (display-toggle for non-clean; mount/unmount for clean per Phase 2c).
     const html = compileToHtml(`<program>
       <div if=@solo>standalone</>
       <p>next</>
