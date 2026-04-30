@@ -1572,3 +1572,57 @@ all reach for `!x` rather than `@load is not` / `@load is some`.
 Re-grep at M6 close to see if the trend continues.
 
 ---
+
+## F-COMPILE-001 — `scrml compile <dir>` flattens output by basename, silently overwriting collisions (P0)
+
+**Surfaced in:** Audit at M5 close (2026-04-30, S50). User-prompted: "are we actually compiling all code?"
+
+**What I found:** Running `bun ./compiler/src/cli.js compile examples/23-trucking-dispatch/` against 32 source `.scrml` files produces only **17 HTML / 17 CSS / 46 JS files** in `dist/`. Math: 5 HTML + 10 JS = **15 silent overwrites.**
+
+**The basename collisions:**
+
+| Basename | Source files (3 personas) | Output | Lost |
+|---|---|---|---|
+| `home.scrml` | `pages/customer/home.scrml` + `pages/driver/home.scrml` | 1× `home.html` (DRIVER won) | Customer home |
+| `load-detail.scrml` | `pages/customer/`, `pages/dispatch/`, `pages/driver/` | 1× `load-detail.html` | Two of three personas |
+| `profile.scrml` | `pages/customer/profile.scrml` + `pages/driver/profile.scrml` | 1× `profile.html` (DRIVER won — has CDL fields) | Customer profile |
+
+**Independent verification:**
+```sh
+$ find examples/23-trucking-dispatch -name '*.scrml' | wc -l
+32
+$ ls examples/23-trucking-dispatch/dist/*.html | wc -l
+17
+$ grep -m1 "driver-events" dist/home.server.js
+4 matches  # confirms driver/home.scrml won the home.* race
+$ grep -m1 "cdl_number" dist/profile.server.js
+1 match    # confirms driver/profile.scrml won the profile.* race
+```
+
+**What didn't work:** Source dir structure (`pages/customer/` vs `pages/driver/`) was discarded by the codegen step; output uses raw basename for `dist/<basename>.{html,css,client.js,server.js}`. Last file in iteration order wins; earlier files silently overwritten.
+
+**Impact:**
+- The dispatch app, as compiled, has no `/customer/home` page — dist/home.html is the driver version.
+- Customer load-detail tracking — gone.
+- Customer profile — gone.
+- Adopters running the seeded customer login (`customer-1@dispatch.local`) would see driver UI at `/customer/home`, hit role-check redirect, and experience the customer flow as broken.
+
+**The "compile clean" verdict from M3-M5 dispatches was misleading.** Each dispatch reported "32 files compiled clean" but didn't audit input-file count vs output-file count. The validation principle says: *if compile is clean, the program should be good.* Here, compile is clean and 5 pages are missing from dist.
+
+**Workaround:** Either:
+- Rename source files to unique basenames: `pages/customer/customer-home.scrml`, `pages/driver/driver-home.scrml`, etc. Massive rename + import-path churn across all M1-M5 work.
+- Compile per-subdirectory with `--out` per-dir (CLI may not support this).
+- Accept dist/ as flat and route at the server layer to the correct source — but with overwrites, only the WINNING source is in dist anyway.
+
+**Suggests:**
+- Codegen should preserve source directory structure in `dist/` — emit `dist/pages/customer/home.html` rather than `dist/home.html`. Routing then maps URL paths to dist paths cleanly.
+- OR: compiler should emit a hard error when basename collisions are detected. Silent overwrite is the worst possible behavior.
+- OR: per-subdirectory compilation should be a first-class CLI option (`scrml compile <dir> --preserve-tree`).
+
+**Severity P0 — blocking:** the example app cannot actually run as advertised. Multi-page scrml apps with any nested directory structure (which is the natural pattern for personas/sections/admin-vs-public) hit this immediately.
+
+This is the largest validation-principle violation surfaced by the dispatch app — a 15-output-collision silent failure. Compounds with F-AUTH-001 (silent attribute), F-CHANNEL-001 (silent name interpolation), and F-COMPONENT-001 (silent phantom elements) as the systemic pattern: scrml repeatedly accepts inputs that produce silently-wrong outputs.
+
+**Reconfirms:** The post-M6 deep-dive scope must include a sweep of "what does the compiler silently accept that doesn't do what its name suggests." This is at least the 4th instance of the pattern.
+
+---
