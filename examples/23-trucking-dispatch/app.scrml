@@ -1,0 +1,301 @@
+// Trucking Dispatch — root program (M1).
+//
+// Owns:
+//   - <program db="./dispatch.db" auth="required"> — global auth gate
+//   - < schema> with all 9 tables (so M2-M6 don't have to migrate)
+//   - < db> with the auth-related server fns (login/logout/register/getCurrentUser)
+//   - on mount { runSeeds() } — idempotent seed of the demo dataset
+//   - nav shell — shows logged-in role + logout, or login/register links
+//   - route-aware page rendering — /login + /register ship in M1; everything
+//     else is a 404-ish placeholder until M2-M6 wire pages in
+//
+// AUTH GATE — `<program auth="required">`:
+//   This forces login on EVERY route by default. The compiler / runtime
+//   handles the cookie check + redirect to /login automatically (§40 +
+//   §52). We add `/login` and `/register` to the public allow-list via
+//   `auth="optional"` overrides on those page wrappers below.
+//
+//   Per F-AUTH-001: the per-route ROLE gate (`auth="role:dispatcher"`)
+//   does NOT work in scrml today. Pages in M2-M4 will declare it for
+//   documentation but layer their own `checkRole()` server-side fallback.
+
+<program db="./dispatch.db" auth="required">
+
+< schema>
+    users {
+        id:             integer primary key
+        email:          text not null unique
+        password_hash:  text not null
+        role:           text not null
+        created_at:     timestamp default(CURRENT_TIMESTAMP)
+        last_login_at:  timestamp
+    }
+
+    customers {
+        id:               integer primary key
+        user_id:          integer references users(id)
+        name:             text not null
+        contact_name:     text
+        contact_email:    text
+        contact_phone:    text
+        billing_address:  text
+        payment_terms:    text not null
+        account_status:   text not null
+        created_at:       timestamp default(CURRENT_TIMESTAMP)
+    }
+
+    drivers {
+        id:                integer primary key
+        user_id:           integer references users(id)
+        name:              text not null
+        phone:             text
+        cdl_number:        text
+        cdl_state:         text
+        cdl_expires:       text
+        current_status:    text not null
+        current_location:  text
+        created_at:        timestamp default(CURRENT_TIMESTAMP)
+    }
+
+    tractors {
+        id:                 integer primary key
+        unit_number:        text not null unique
+        year:               integer
+        make:               text
+        model:              text
+        vin:                text unique
+        license_plate:      text
+        current_driver_id:  integer references drivers(id)
+        status:             text not null
+    }
+
+    trailers {
+        id:                  integer primary key
+        unit_number:         text not null unique
+        type:                text not null
+        length_ft:           integer
+        capacity_lbs:        integer
+        current_tractor_id:  integer references tractors(id)
+    }
+
+    loads {
+        id:                   integer primary key
+        customer_id:          integer not null references customers(id)
+        origin_address:       text
+        origin_city:          text
+        origin_state:         text
+        destination_address:  text
+        destination_city:     text
+        destination_state:    text
+        pickup_at:            text
+        deliver_by:           text
+        commodity:            text
+        weight_lbs:           integer
+        rate_dollars:         real
+        status:               text not null
+        created_at:           timestamp default(CURRENT_TIMESTAMP)
+        updated_at:           timestamp default(CURRENT_TIMESTAMP)
+    }
+
+    assignments {
+        id:             integer primary key
+        load_id:        integer not null references loads(id)
+        driver_id:      integer not null references drivers(id)
+        tractor_id:     integer not null references tractors(id)
+        trailer_id:     integer not null references trailers(id)
+        assigned_at:    timestamp default(CURRENT_TIMESTAMP)
+        unassigned_at:  timestamp
+    }
+
+    log_entries {
+        id:         integer primary key
+        driver_id:  integer not null references drivers(id)
+        load_id:    integer references loads(id)
+        type:       text not null
+        at:         timestamp default(CURRENT_TIMESTAMP)
+        payload:    text
+    }
+
+    invoices {
+        id:                 integer primary key
+        load_id:            integer not null references loads(id)
+        customer_id:        integer not null references customers(id)
+        amount_dollars:     real not null
+        sent_at:            timestamp default(CURRENT_TIMESTAMP)
+        due_at:             text
+        paid_at:            timestamp
+        payment_reference:  text
+    }
+
+    messages {
+        id:            integer primary key
+        channel_id:    text not null
+        from_user_id:  integer not null references users(id)
+        body:          text not null
+        at:            timestamp default(CURRENT_TIMESTAMP)
+    }
+</>
+
+< db src="./dispatch.db" protect="password_hash" tables="users, customers, drivers, tractors, trailers, loads, assignments, log_entries, invoices, messages">
+
+    ${
+        import { hashPassword, verifyPassword } from 'scrml:auth'
+        import { generateToken } from 'scrml:crypto'
+        import { createSessionStore } from 'scrml:store'
+        import { rolePath, SESSION_TTL_SECONDS, SESSION_DB_PATH } from './models/auth.scrml'
+        import { runSeeds } from './seeds.scrml'
+
+        // ---------------------------------------------------------------
+        // Session helpers — the session token is stored in a SQLite KV
+        // (separate file from dispatch.db so session writes don't compete
+        // with main app transactions).
+        // ---------------------------------------------------------------
+
+        server function _sessionStore() {
+            return createSessionStore(SESSION_DB_PATH)
+        }
+
+        // ---------------------------------------------------------------
+        // Auth server functions — INLINED here per F-AUTH-002.
+        //
+        // Cross-file `?{}` SQL access via exported server fn doesn't work
+        // (E-SQL-004) — the importing page has no `< db>` ancestor that
+        // resolves the SQL block. So login/register/logout/getCurrentUser
+        // live INSIDE this `< db>` block and are imported as server fns
+        // by the auth pages directly via the parent `<program>` scope.
+        // ---------------------------------------------------------------
+
+        server function login(email, password) {
+            const row = ?{`SELECT id, email, password_hash, role FROM users WHERE email = ${email}`}.get()
+            if (!row) return { error: "Invalid email or password" }
+
+            const ok = verifyPassword(password, row.password_hash)
+            if (!ok) return { error: "Invalid email or password" }
+
+            ?{`UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ${row.id}`}.run()
+
+            const token = generateToken(32)
+            const store = _sessionStore()
+            store.set(token, row.id, SESSION_TTL_SECONDS)
+
+            return {
+                token: token,
+                user: { id: row.id, email: row.email, role: row.role },
+                redirectTo: rolePath(row.role)
+            }
+        }
+
+        server function logout(sessionToken) {
+            if (sessionToken) {
+                const store = _sessionStore()
+                store.delete(sessionToken)
+            }
+            return { ok: true }
+        }
+
+        server function register(email, password, name, contact_phone, billing_address) {
+            const existing = ?{`SELECT id FROM users WHERE email = ${email}`}.get()
+            if (existing) return { error: "Email already registered" }
+
+            const hash = hashPassword(password)
+            ?{`INSERT INTO users (email, password_hash, role) VALUES (${email}, ${hash}, 'customer')`}.run()
+            const userRow = ?{`SELECT id, email, role FROM users WHERE email = ${email}`}.get()
+
+            ?{`
+                INSERT INTO customers (user_id, name, contact_email, contact_phone, billing_address, payment_terms, account_status)
+                VALUES (${userRow.id}, ${name}, ${email}, ${contact_phone}, ${billing_address}, 'net_30', 'active')
+            `}.run()
+
+            const token = generateToken(32)
+            const store = _sessionStore()
+            store.set(token, userRow.id, SESSION_TTL_SECONDS)
+
+            return {
+                token: token,
+                user: userRow,
+                redirectTo: "/customer"
+            }
+        }
+
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return null
+            const store = _sessionStore()
+            const userId = store.get(sessionToken)
+            if (!userId) return null
+            return ?{`SELECT id, email, role, created_at, last_login_at FROM users WHERE id = ${userId}`}.get()
+        }
+
+        // ---------------------------------------------------------------
+        // Reactive UI state.
+        //
+        // @currentUser is set by login/register flows on the page side; in
+        // M1 we don't auto-populate it from the cookie at mount because
+        // that requires a request binding the single-file demo doesn't
+        // expose. M2-M4 will use middleware (§40 handle()) to push the
+        // user into a server @var.
+        // ---------------------------------------------------------------
+
+        // NOTE: M1 doesn't materialize a `@currentUser` reactive — there's
+        // no consumer in the nav shell yet. M2 will introduce it once the
+        // dispatcher / driver / customer landing pages need to render
+        // logged-in identity. Adding it here as an unused @var triggers
+        // E-DG-002 (declared-but-unused) which is correct.
+
+        // ---------------------------------------------------------------
+        // Idempotent seed-on-mount. seeds.scrml exports runSeeds() which
+        // INSERTs the demo dataset using ON CONFLICT DO NOTHING so re-runs
+        // are safe.
+        //
+        // M2-M6 will keep this hook and add their own demo data on top.
+        // ---------------------------------------------------------------
+
+        on mount {
+            runSeeds()
+        }
+    }
+
+    <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
+        <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-xl font-bold">Trucking Dispatch</span>
+                <span class="text-xs uppercase tracking-wider text-slate-400">M1 — auth scaffold</span>
+            </div>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/login" class="hover:text-blue-300">Login</a>
+                <a href="/register" class="hover:text-blue-300">Register</a>
+            </nav>
+        </header>
+
+        <main class="max-w-3xl mx-auto px-6 py-10">
+            <h1 class="text-3xl font-bold mb-2">Welcome</h1>
+            <p class="text-slate-600 mb-6">
+                NE Utah oil &amp; gas dispatch demo. M1 ships the schema, the
+                auth scaffold, and the login / register pages. M2-M6 add the
+                dispatcher, driver, and customer slices.
+            </p>
+
+            <div class="bg-white border border-slate-200 rounded-lg p-6">
+                <h2 class="text-xl font-semibold mb-3">Get started</h2>
+                <ul class="list-disc pl-6 space-y-2 text-slate-700">
+                    <li><a class="text-blue-600 hover:underline" href="/login">Sign in</a> with a seeded account.</li>
+                    <li><a class="text-blue-600 hover:underline" href="/register">Register</a> as a new customer.</li>
+                    <li>See <code class="bg-slate-100 px-1 rounded">README.md</code> for seeded credentials.</li>
+                </ul>
+            </div>
+
+            <div class="mt-8 bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900">
+                <strong>Stress-test scope.</strong> This app exists to surface friction in scrml's
+                full-stack feature surface — auth, role-gating, multi-file imports, schema
+                migrations, real-time channels, lin tokens, state machines. See
+                <code class="bg-amber-100 px-1 rounded">FRICTION.md</code> for findings.
+            </div>
+        </main>
+    </div>
+</>
+
+#{
+  /* Scoped CSS reserved for app-level overrides. M1 styling is Tailwind 3
+     utility classes only (per scoping §10 + S49 row 184). */
+}
+
+</program>
