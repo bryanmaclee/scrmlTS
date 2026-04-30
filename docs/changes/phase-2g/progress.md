@@ -91,3 +91,21 @@ Append-only timestamped log.
   - Probed all four cases (all-clean, mixed clean+dirty, 3-branch all-clean, all-dirty). HTML + JS shape verified. Generated JS validated with `node --check` — all four files syntactically valid.
   - bun test: 6160 unit + 929 integration + 280 conformance = ALL pass. No regressions.
 - [01:10] Committing Step 3.
+- [01:11] Step 4 — Tests: new file `chain-mount-emission.test.js`:
+  - 31 tests across 8 sections (N1-N31), modeled on the proven if-mount-emission.test.js pattern.
+  - §1 HTML emission — all-clean chains (N1-N5).
+  - §2 HTML emission — all-dirty chains (today's behavior preserved) (N6-N8).
+  - §3 HTML emission — mixed-cleanliness chains (N9-N12).
+  - §4 Registry binding shape per branch (N13-N17): branchMode "mount"/"display", templateId/markerId presence, chainId stability, branchIndex 0..N-1 with else absent.
+  - §5 Client JS — all-clean controller (N18-N22): per-branch root/scope locals, mount/unmount calls, idempotency guard, _scrml_effect subscription.
+  - §6 Client JS — all-dirty controller (N23-N25): querySelector wrapper, NO mount/unmount inside chain block, display-toggle.
+  - §7 Client JS — mixed-cleanliness controller (N26-N28): both arms in same switch, per-branch local types match per-branch mode.
+  - §8 Round-trip (N29-N31): brace-balance smoke check, condition order respected, standalone if= unaffected.
+  - First N24 fix: initially used `<p if=@show>${@status}</>` + `<p else>fallback</>` which is mixed (else is clean text). Replaced both branches with reactive interp to get truly all-dirty.
+  - Final test: 31/31 pass. Total unit suite: 6191 pass / 0 fail (was 6160; +31 from new file).
+- [01:12] Final test surface:
+  - bun test (all): 8125 pass / 40 skip / 0 fail / 28631 expects / 384 files.
+  - Baseline was 8094 pass / 40 skip / 0 fail / 28542 expects / 383 files.
+  - Net change: +31 tests (chain-mount-emission.test.js) + +89 expects.
+  - No regressions. No pre-existing failures masked.
+- [01:13] Phase 2g complete. Ready for merge.
