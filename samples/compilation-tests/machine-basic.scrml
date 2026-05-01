@@ -1,5 +1,6 @@
-// machine-basic — a reactive machine-governed enum, declared via external
-// `< machine>` form (§51.5). Writes to the machine-bound reactive are
+// machine-basic — a reactive engine-governed enum, declared via external
+// `< engine>` form (§51.5; canonical keyword as of P1, 2026-04-30 — DD1
+// state-as-primary unification). Writes to the engine-bound reactive are
 // gated by the declared transitions at runtime.
 ${
     type OrderStatus:enum = { Pending, Processing, Shipped, Delivered, Cancelled }
@@ -15,7 +16,7 @@ ${
     }
 }
 
-< machine name=AdminFlow for=OrderStatus>
+< engine name=AdminFlow for=OrderStatus>
     .Pending    => .Processing | .Cancelled
     .Processing => .Shipped | .Cancelled
     .Shipped    => .Delivered

@@ -163,11 +163,11 @@ on mount {
     loadMetrics()
 }
 
-// ─── Machines — enforce the state graph at the boundary ───────────────────────
+// ─── Engines — enforce the state graph at the boundary ───────────────────────
 // Rust instinct: the state machine IS the type. Transitions that
 // aren't listed here are compile errors, not runtime surprises.
 
-< machine name=UsersController for=UsersRemote>
+< engine name=UsersController for=UsersRemote>
     .NotAsked => .Loading
     .Loading  => .Ready
     .Loading  => .Failed
@@ -175,7 +175,7 @@ on mount {
     .Failed   => .Loading
 </>
 
-< machine name=OrdersController for=OrdersRemote>
+< engine name=OrdersController for=OrdersRemote>
     .NotAsked => .Loading
     .Loading  => .Ready
     .Loading  => .Failed
@@ -183,7 +183,7 @@ on mount {
     .Failed   => .Loading
 </>
 
-< machine name=MetricsController for=MetricsRemote>
+< engine name=MetricsController for=MetricsRemote>
     .NotAsked => .Loading
     .Loading  => .Ready
     .Loading  => .Failed
@@ -191,7 +191,7 @@ on mount {
     .Failed   => .Loading
 </>
 
-< machine name=SubmitController for=OrderSubmit>
+< engine name=SubmitController for=OrderSubmit>
     .Idle      => .Saving
     .Saving    => .Committed
     .Saving    => .Failed

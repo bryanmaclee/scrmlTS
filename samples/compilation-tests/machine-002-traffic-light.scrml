@@ -1,13 +1,18 @@
-// traffic-light.scrml — §51 State Machine gauntlet
-// Tests: enum + transitions{}, < machine> declaration, match for state cycling,
+// traffic-light.scrml — §51 State Engine gauntlet
+// Tests: enum + transitions{}, < engine> declaration, match for state cycling,
 // reactive @light variable, class:name= conditional classes, #{} CSS.
 //
+// P1 (2026-04-30, state-as-primary unification): canonical keyword is now
+// `engine`. The legacy `<machine>` keyword still compiles in P1 but emits
+// W-DEPRECATED-001; dedicated regression coverage lives in
+// compiler/tests/unit/p1e-engine-keyword-regression.test.js.
+//
 // NOTE: Previously ran without a <program> wrapper due to a BS bug that caused
-// close-tag mismatch when < machine> appeared inside <program>. That bug has been
-// fixed (see docs/changes/fix-bs-machine-closer). The < machine> state block now
+// close-tag mismatch when < engine> appeared inside <program>. That bug has been
+// fixed (see docs/changes/fix-bs-machine-closer). The < engine> state block now
 // correctly uses its `/` closer without consuming the outer `</program>` tag.
 // This file intentionally stays at top-level (no <program>) to test that path;
-// machine-basic.scrml is the reference for machine-in-program behavior.
+// machine-basic.scrml is the reference for engine-in-program behavior.
 
 ${
     type TrafficLight:enum = { Red, Yellow, Green }
@@ -25,15 +30,15 @@ ${
     }
 }
 
-< machine name=TrafficController for=TrafficLight>
+< engine name=TrafficController for=TrafficLight>
     .Red    => .Green
     .Green  => .Yellow
     .Yellow => .Red
 </>
 
-// ASSUMPTION: < machine> at top level (not nested inside markup element) is the
+// ASSUMPTION: < engine> at top level (not nested inside markup element) is the
 // correct placement per machine-basic.scrml sample. Placing it inside a <div>
-// might rebind the machine scope — spec is silent on this.
+// might rebind the engine scope — spec is silent on this.
 
 <div class="traffic-app">
 
