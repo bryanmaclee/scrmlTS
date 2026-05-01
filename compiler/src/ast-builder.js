@@ -6565,6 +6565,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         selfClosing: block.closerForm === "self-closing",
         closerForm: block.closerForm,
         isComponent: block.isComponent === true,
+        openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
         span,
       };
     }
@@ -6675,6 +6676,8 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           governedType,
           rulesRaw,
           sourceVar, // §51.9: name of the source reactive var (no `@` prefix), or null
+          openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
+          legacyMachineKeyword: isLegacyMachineKeyword,
           span,
         };
       }
@@ -6723,6 +6726,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           attrs,       // any non-typed attrs (e.g., metadata)
           children,    // constructor body
           ...substateMetadata,
+          openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
           span,
         };
       }
@@ -6734,6 +6738,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         attrs,
         children,
         ...substateMetadata,
+        openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
         span,
       };
     }
