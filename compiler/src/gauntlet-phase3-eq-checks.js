@@ -49,6 +49,17 @@ class GauntletPhase3Error {
     this.message = message;
     this.span = span;
     this.severity = severity;
+    // Lift span fields into top-level error properties so the CLI formatter
+    // (compiler/src/commands/compile.js formatError) can render line/col
+    // and source context. Other stages (TAB, TS, RI) attach errors with
+    // line/column at the top level — we mirror that shape here. Closes
+    // F-NULL-002 diagnostic-quality sub-bug ("no line number") — W3.
+    if (span && typeof span === "object") {
+      this.filePath = span.file;
+      this.file = span.file;
+      this.line = span.line;
+      this.column = span.col;
+    }
   }
 }
 
@@ -254,6 +265,44 @@ function collectBindings(ast, structFnSet) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Metadata fields we never recurse into. These are leaves or non-ExprNode
+ * metadata: walking them produces no equality binaries.
+ *
+ * NOTE: "value" is NOT in this set unconditionally. On `kind: "lit"` the
+ * `value` field is a primitive scalar (skipped via inline check below).
+ * On other kinds (e.g. `kind: "prop"` for object-literal entries, or
+ * `kind: "assign"` for assignment RHS) `value` IS an ExprNode child and
+ * MUST be recursed into.
+ */
+const SKIP_KEYS = new Set([
+  "span",          // source location metadata
+  "kind",          // discriminant
+  "op",            // operator string
+  "name",          // identifier name string
+  "raw",           // literal raw text
+  "litType",       // literal subtype string
+  "estreeType",    // escape-hatch original ESTree node-type string
+  "fnStyle",       // lambda style discriminator
+  "isAsync",       // lambda async flag
+  "computed",      // member/index flag
+  "optional",      // member/index optional flag
+]);
+
+/**
+ * Generic ExprNode descent: visits every object/array-valued field except
+ * metadata, calling `onEq` on every binary `==`/`!=`/`===`/`!==` node.
+ *
+ * Replaces the prior hard-coded JS-AST key list (`test`, `arguments`,
+ * `properties`), which missed scrml-AST keys (`condition`, `args`, `props`,
+ * `subject`, `rawArms`, `body`, `index`). The hard-coded list silently
+ * skipped these subtrees, allowing `== null` / `!= null` to slip past the
+ * detector when nested inside ternary conditions, call arguments, object
+ * properties, etc.
+ *
+ * Closes the walker-incompleteness half of F-NULL-001 + F-NULL-002 paired
+ * fix (W3 — 2026-04-30; diagnosis at
+ * docs/changes/f-null-001-002/diagnosis.md).
+ *
  * @param {object|null|undefined} node
  * @param {(eqNode: object) => void} onEq — called for every binary eq node
  */
@@ -263,20 +312,21 @@ function forEachEqualityBinary(node, onEq) {
       (node.op === "==" || node.op === "!=" || node.op === "===" || node.op === "!==")) {
     onEq(node);
   }
-  // Walk every child the ExprNode discriminants may carry.
-  for (const key of ["left", "right", "argument", "callee", "object", "property",
-                     "test", "consequent", "alternate", "target", "value"]) {
-    if (node[key] && typeof node[key] === "object") forEachEqualityBinary(node[key], onEq);
-  }
-  if (Array.isArray(node.arguments)) for (const a of node.arguments) forEachEqualityBinary(a, onEq);
-  if (Array.isArray(node.elements))  for (const a of node.elements)  forEachEqualityBinary(a, onEq);
-  if (Array.isArray(node.properties)) for (const p of node.properties) {
-    if (p && typeof p === "object") {
-      forEachEqualityBinary(p.key, onEq);
-      forEachEqualityBinary(p.value, onEq);
+  for (const [key, child] of Object.entries(node)) {
+    if (SKIP_KEYS.has(key)) continue;
+    // On `kind: "lit"`, the `value` field is a primitive scalar — never
+    // an ExprNode. Skip to prevent walking primitive numbers/strings/etc.
+    if (key === "value" && node.kind === "lit") continue;
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === "object") forEachEqualityBinary(item, onEq);
+      }
+    } else if (child && typeof child === "object") {
+      forEachEqualityBinary(child, onEq);
     }
   }
 }
+
 
 // ---------------------------------------------------------------------------
 // Operand classification — resolve an operand to its type info.
@@ -306,14 +356,22 @@ function classifyOperand(operand, bindings) {
 // ---------------------------------------------------------------------------
 
 function spanFromExprNode(exprNode, fallback, filePath) {
+  // ExprNode spans (from expression-parser.ts) carry source-relative
+  // start/end (via baseOffset threading) but NOT source-relative
+  // line/col — see spanFromEstree(), which hard-codes line:1, col:1
+  // because the parser does not recompute line/col from the offset.
+  // The AST-node fallback (e.g. if-stmt.span) DOES carry correct
+  // source line/col. Therefore we prefer ExprNode for start/end (most
+  // precise byte range) and fallback for line/col (correct line).
+  // Closes F-NULL-002 diagnostic-quality sub-bug — W3.
   const sp = exprNode?.span;
   if (sp && typeof sp === "object") {
     return {
       file: filePath,
       start: sp.start ?? 0,
       end: sp.end ?? 0,
-      line: sp.line ?? (fallback?.line ?? 1),
-      col: sp.col ?? (fallback?.col ?? 1),
+      line: fallback?.line ?? sp.line ?? 1,
+      col: fallback?.col ?? sp.col ?? 1,
     };
   }
   if (fallback) {
@@ -444,6 +502,43 @@ function walkAst(ast, bindings, structFnSet, filePath, errors) {
     });
   }
 
+  /**
+   * Inspect every exprNode embedded in a markup-node attribute. Closes the
+   * F-NULL-002 silent-pass gap: previously markup `attrs[*].value.exprNode`
+   * was never visited, so `<div if=(@x != null)>` and similar attribute
+   * expressions bypassed GCP3.
+   *
+   * Per ast-builder.js, an attribute `value` may carry expressions in:
+   *   - `kind: "expr"`         — `if=(...)` or `={...}` brace expressions
+   *                              → `value.exprNode`
+   *   - `kind: "variable-ref"` — `if=@var` or `data=foo`
+   *                              → `value.exprNode`
+   *   - `kind: "call-ref"`     — `onclick=fn(arg, arg)`
+   *                              → `value.argExprNodes` (array)
+   *   - `kind: "props-block"`  — `props={...}` typed props (no exprNode)
+   *   - `kind: "string-literal"` — plain `class="..."` (no exprNode; any
+   *                                template `${...}` survives as raw text
+   *                                and is NOT covered by GCP3 — see W3.2
+   *                                follow-up dispatch)
+   *   - `kind: "absent"`       — boolean attr presence (no exprNode)
+   *
+   * The attribute's own `value.span` is preferred as the fallback for the
+   * emit, so the diagnostic points at the attribute position.
+   */
+  function inspectAttrs(attrs) {
+    if (!Array.isArray(attrs)) return;
+    for (const attr of attrs) {
+      if (!attr || typeof attr !== "object") continue;
+      const v = attr.value;
+      if (!v || typeof v !== "object") continue;
+      const fb = v.span ?? attr.span;
+      if (v.exprNode) inspectExprNode(v.exprNode, fb);
+      if (Array.isArray(v.argExprNodes)) {
+        for (const arg of v.argExprNodes) inspectExprNode(arg, fb);
+      }
+    }
+  }
+
   function walk(nodes) {
     if (!Array.isArray(nodes)) return;
     for (const n of nodes) {
@@ -454,6 +549,9 @@ function walkAst(ast, bindings, structFnSet, filePath, errors) {
       if (n.initExpr)  inspectExprNode(n.initExpr,  n.span);
       if (n.exprNode)  inspectExprNode(n.exprNode,  n.span);
       if (n.argsExpr)  inspectExprNode(n.argsExpr,  n.span);
+
+      // F-NULL-002 fix: markup-node attributes carry their own exprNodes.
+      if (Array.isArray(n.attrs)) inspectAttrs(n.attrs);
 
       // Recurse into every child container we might see.
       if (Array.isArray(n.body))       walk(n.body);
@@ -470,6 +568,7 @@ function walkAst(ast, bindings, structFnSet, filePath, errors) {
   }
   walk(topNodes);
 }
+
 
 // ---------------------------------------------------------------------------
 // Public entry point
