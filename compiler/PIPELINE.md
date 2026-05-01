@@ -121,6 +121,7 @@ maps to the per-file budgets below when running with full worker parallelism.
 | 1 | Preprocessor | PP | per-file |
 | 2 | Block Splitter | BS | per-file |
 | 3 | Tokenizer + AST Builder | TAB | per-file |
+| 3.05 | Name Resolution (PLANNED — P1 SPEC, P3 implementation) | NR | per-file (after TAB) |
 | 3.1 | Module Resolver | MOD | project-wide (needs all TAB outputs) |
 | 3.2 | Component Expander | CE | per-file (after MOD complete) |
 | 3.3 | Unified Validation Bundle (VP-1, VP-2, VP-3) | UVB | per-file (after CE) |
@@ -499,6 +500,77 @@ discriminated union tree.
 **Performance budget:** <= 20 ms per file.
 **Parallelism opportunity:** Yes — fully per-file.
 **Dependencies:** Block Splitter (BS) must complete for the file.
+
+---
+
+## Stage 3.05: Name Resolution (NR) — PLANNED
+
+**Status (2026-04-30):** P1 lands the SPEC contract (this section + SPEC §15.15)
+and the catalog entries for `W-CASE-001`, `W-WHITESPACE-001`, `W-DEPRECATED-001`.
+The NR stage *implementation* (~150 LOC per DD2 §9.1) is deferred to a follow-up
+dispatch in P2; in P1 the AST does NOT yet carry `resolvedKind` /
+`resolvedCategory` fields, and the `W-CASE-001` / `W-WHITESPACE-001` warnings
+are NOT yet emitted from a runtime stage. `W-DEPRECATED-001` is emitted from
+TAB (see ast-builder.js machine→engine handling) as a tactical home until NR
+lands. This section is the design contract that P2's implementation MUST honor.
+
+**Input contract (planned):**
+- Type: `{ filePath: string, ast: FileAST, errors: TABError[] }`
+- Invariants:
+  - `errors.length === 0`. NR runs only on TAB-clean files.
+  - `ast` is a fully-built FileAST per Stage 3 contract.
+  - The unified state-type registry (per SPEC §15.15.1) is built lazily inside
+    NR from the four sources: same-file declarations (from `ast.components`,
+    `ast.typeDecls`, and `ast.machineDecls`), imported names (from MOD's
+    `exportRegistry`, when MOD has run), built-in scrml lifecycle types
+    (compile-time table; see html-elements.js sibling), and built-in HTML
+    elements (from html-elements.js).
+- Source: TAB (or MOD when cross-file resolution is required; in shadow mode
+  NR's same-file resolution can run pre-MOD).
+
+**Output contract (planned):**
+- Type: `{ filePath: string, ast: FileAST, errors: NRError[] }`
+- Invariants (shadow mode, P1-P2):
+  - Every `MarkupElement` and `StateBlock` AST node SHALL receive
+    `resolvedKind: 'html-builtin' | 'scrml-lifecycle' | 'user-state-type' | 'user-component' | 'unknown'`
+    and
+    `resolvedCategory: 'html' | 'channel' | 'engine' | 'timer' | 'poll' | 'db' | 'schema' | 'request' | 'errorBoundary' | 'machine' | 'user-component' | 'user-state-type'`.
+  - NR SHALL NOT mutate any pre-existing AST field (additive only).
+  - NR SHALL NOT block compilation on `unknown` resolutions; downstream
+    stages (CE, MOD, TS) own the hard errors (`E-COMPONENT-020`,
+    `E-MARKUP-001`, `E-STATE-001`).
+  - When `resolvedKind` disagrees with the legacy `isComponent` flag, NR
+    SHALL log a one-shot diagnostic per source position (no spam) so the
+    P3 routing flip can be validated with confidence.
+- Invariants (authoritative mode, P3+):
+  - Downstream stages route on `resolvedKind` / `resolvedCategory`, NOT on
+    `isComponent` (legacy field deprecated).
+  - The `< machine>` opener (deprecated) and `<machine>` no-space opener
+    (planned) both resolve to `resolvedCategory: 'engine'`. The internal
+    `kind: "machine-decl"` AST shape is renamed to `engine-decl` in P3.
+
+**Error contract:**
+- Error type: `NRError { code: string, message: string, span: Span, severity: 'warning' }`
+- Error codes:
+  - `W-CASE-001`: lowercase user-declared state-type or component shadows a
+    built-in HTML element (SPEC §15.15.4).
+  - `W-WHITESPACE-001`: `< identifier>` opener uses whitespace; canonical form
+    is no-space (SPEC §15.15.5).
+- Partial output: warnings only; never blocks compilation in P1-P2.
+
+**Transformation:**
+NR walks the AST visiting every `MarkupElement` / `StateBlock`. For each opener,
+it performs a registry lookup per SPEC §15.15.2 (same-file → imported → scrml
+lifecycle → HTML built-in → unknown). The result populates the new
+`resolvedKind` / `resolvedCategory` AST fields. Diagnostics for case
+shadowing and whitespace-opener emission fire as side effects of the walk.
+
+**Performance budget:** <= 5 ms per file (planned; pure AST traversal).
+**Parallelism opportunity:** Yes — fully per-file in shadow mode (no MOD
+dependency for same-file lookups). Cross-file lookups defer to MOD's
+`exportRegistry`.
+**Dependencies:** TAB must complete; MOD optional (only required for cross-file
+lookups; same-file + lifecycle + HTML lookups run pre-MOD).
 
 ---
 

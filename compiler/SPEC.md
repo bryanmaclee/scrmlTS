@@ -17898,9 +17898,29 @@ Positional bindings match variant payload fields by declaration order; named bin
 (`FieldName: local`) match by field name. Both forms MAY mix within a single
 `binding-list`. A `_` identifier in any binding position discards that field.
 
-A machine declaration uses the `< machine` opener (space after `<` marks it as a state
-type, per §4). The machine name is a plain identifier (PascalCase by convention). The
-`for TypeName` clause names the type this machine governs.
+**Amended (Phase P1, 2026-04-30 — state-as-primary unification):** the canonical
+keyword for this state-type is now `engine`. The pre-P1 `machine` keyword continues
+to compile as a deprecated alias and emits **W-DEPRECATED-001** (warning; configurable
+to error per `compiler-warnings`). Both `< engine name=N for=T>` and `< machine name=N for=T>`
+produce identical AST shapes (internal `kind: "machine-decl"` is preserved in P1 to
+keep blast radius bounded; the internal field rename happens in P3 when downstream
+stages migrate to the new shape uniformly).
+
+```
+W-DEPRECATED-001: `<machine>` keyword is deprecated; use `<engine>` instead.
+                  Both forms compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3.
+                  Migration: rename the keyword (the rest of the declaration is unchanged).
+```
+
+The user-named identifier in `name=` (e.g. `HOSMachine`, `MarioMachine`) is unchanged
+under either keyword — only the `< machine` / `< engine` opener token is renamed. See
+DD1 deep-dive `state-as-primary-unification-2026-04-30.md` and the state-as-primary
+debate (Approach A, design-insights.md) for the full rationale.
+
+A machine declaration uses the `< engine` opener (P1 canonical) or the deprecated
+`< machine` opener. Both: a space after `<` marks the opener as a state type, per §4.
+The engine name is a plain identifier (PascalCase by convention). The
+`for TypeName` clause names the type this engine governs.
 
 **Amended:** 2026-04-08 — Radical doubt debate (Approach C). `for EnumTypeName` broadened
 to `for TypeName`. Machines may now govern struct types (for cross-field invariants) in
