@@ -605,7 +605,7 @@ export function compileScrml(options = {}) {
     if (verbose) log(`  [TAB] ${result.filePath}: ${result.ast?.nodes?.length ?? 0} nodes`);
   }
 
-  // Stage 3.05: Gauntlet Phase 1 checks (§21, §41, §7.6).
+  // Stage 3.005 (GCP1): Gauntlet Phase 1 checks (§21, §41, §7.6) — runs before NR.
   // Post-TAB checks that catch spec-violating declarations silently accepted
   // by the main pipeline. Emits E-IMPORT-001, E-IMPORT-003, E-SCOPE-010,
   // E-USE-001, E-USE-002, E-USE-005. Cross-file / npm-style E-IMPORT-005 is
@@ -616,7 +616,7 @@ export function compileScrml(options = {}) {
     collectErrors("GCP1", checkErrors);
   }
 
-  // Stage 3.06: Gauntlet Phase 3 equality checks (§45).
+  // Stage 3.006 (GCP3): Gauntlet Phase 3 equality checks (§45) — runs before NR.
   // Post-TAB checks that catch equality-operator misuses silently accepted by
   // the main pipeline. Emits E-EQ-001, E-EQ-002, E-EQ-003, E-EQ-004,
   // E-SYNTAX-042, W-EQ-001. Repros live under
