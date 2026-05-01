@@ -121,7 +121,7 @@ maps to the per-file budgets below when running with full worker parallelism.
 | 1 | Preprocessor | PP | per-file |
 | 2 | Block Splitter | BS | per-file |
 | 3 | Tokenizer + AST Builder | TAB | per-file |
-| 3.05 | Name Resolution (PLANNED — P1 SPEC, P3 implementation) | NR | per-file (after TAB) |
+| 3.05 | Name Resolution (IMPLEMENTED P1.E — shadow mode; routing flip in P2/P3) | NR | per-file (after MOD) |
 | 3.1 | Module Resolver | MOD | project-wide (needs all TAB outputs) |
 | 3.2 | Component Expander | CE | per-file (after MOD complete) |
 | 3.3 | Unified Validation Bundle (VP-1, VP-2, VP-3) | UVB | per-file (after CE) |
@@ -503,18 +503,24 @@ discriminated union tree.
 
 ---
 
-## Stage 3.05: Name Resolution (NR) — PLANNED
+## Stage 3.05: Name Resolution (NR) — IMPLEMENTED (Shadow Mode)
 
-**Status (2026-04-30):** P1 lands the SPEC contract (this section + SPEC §15.15)
-and the catalog entries for `W-CASE-001`, `W-WHITESPACE-001`, `W-DEPRECATED-001`.
-The NR stage *implementation* (~150 LOC per DD2 §9.1) is deferred to a follow-up
-dispatch in P2; in P1 the AST does NOT yet carry `resolvedKind` /
-`resolvedCategory` fields, and the `W-CASE-001` / `W-WHITESPACE-001` warnings
-are NOT yet emitted from a runtime stage. `W-DEPRECATED-001` is emitted from
-TAB (see ast-builder.js machine→engine handling) as a tactical home until NR
-lands. This section is the design contract that P2's implementation MUST honor.
+**Status (2026-04-30 P1; implementation landed P1.E same day):** NR is now
+implemented in `compiler/src/name-resolver.ts` (~410 LOC including diagnostics
+and the unified registry construction) and wired into `compiler/src/api.js`
+between MOD (Stage 3.1) and CE (Stage 3.2). The `resolvedKind` /
+`resolvedCategory` advisory fields ARE populated on every `MarkupNode`,
+`StateNode`, `StateConstructorDefNode`, and `MachineDeclNode`. The
+`W-CASE-001` and `W-WHITESPACE-001` warnings ARE emitted from NR.
+`W-DEPRECATED-001` continues to be emitted from TAB (see ast-builder.js
+machine→engine handling) — that emission point predates NR and remains
+correct because the `<machine>`-vs-`<engine>` keyword distinction is decided
+at TAB time. NR runs in **shadow mode** per SPEC §15.15.6: downstream
+stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent`
+flag; the routing flip moves to P2 (CE / TS migration) and P3 (full
+`isComponent` retirement).
 
-**Input contract (planned):**
+**Input contract:**
 - Type: `{ filePath: string, ast: FileAST, errors: TABError[] }`
 - Invariants:
   - `errors.length === 0`. NR runs only on TAB-clean files.
@@ -528,7 +534,7 @@ lands. This section is the design contract that P2's implementation MUST honor.
 - Source: TAB (or MOD when cross-file resolution is required; in shadow mode
   NR's same-file resolution can run pre-MOD).
 
-**Output contract (planned):**
+**Output contract:**
 - Type: `{ filePath: string, ast: FileAST, errors: NRError[] }`
 - Invariants (shadow mode, P1-P2):
   - Every `MarkupElement` and `StateBlock` AST node SHALL receive
@@ -565,7 +571,7 @@ lifecycle → HTML built-in → unknown). The result populates the new
 `resolvedKind` / `resolvedCategory` AST fields. Diagnostics for case
 shadowing and whitespace-opener emission fire as side effects of the walk.
 
-**Performance budget:** <= 5 ms per file (planned; pure AST traversal).
+**Performance budget:** <= 5 ms per file (verified P1.E: ~0-1ms per file in practice; pure AST traversal).
 **Parallelism opportunity:** Yes — fully per-file in shadow mode (no MOD
 dependency for same-file lookups). Cross-file lookups defer to MOD's
 `exportRegistry`.

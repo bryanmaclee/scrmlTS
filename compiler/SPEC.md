@@ -7199,6 +7199,7 @@ component name and source path; only then file a friction report.
 ### 15.15 Unified State-Type Registry and Name Resolution
 
 **Added:** 2026-04-30 — Phase P1 of the state-as-primary architectural unification (DD1 deep-dive `state-as-primary-unification-2026-04-30.md`; ratified by Approach A debate, score 93/110).
+**Status (P1.E, 2026-04-30 same day):** NR is implemented in shadow mode. The implementation lives in `compiler/src/name-resolver.ts`; the wiring is post-MOD in `compiler/src/api.js`. The W-CASE-001 / W-WHITESPACE-001 diagnostics fire from NR; W-DEPRECATED-001 continues to fire from TAB (the keyword distinction is settled at TAB time). Downstream stages still route on `isComponent` per §15.15.6 — the routing flip is a P2/P3 follow-up.
 
 This section is the authoritative reference for tag-name resolution. All `<identifier ...>` openers — whether the identifier names an HTML element, a built-in scrml lifecycle state-type, a user-declared state type, or a component reference — resolve through the same lookup at the Name Resolution stage (NR, Stage 3.05; see PIPELINE.md).
 
@@ -7264,7 +7265,12 @@ Both forms compile in P1 and P2. P3 promotes the warning to **E-WHITESPACE-001**
 
 #### 15.15.6 Shadow Mode (P1 Only)
 
-In Phase P1 the NR stage runs in **shadow mode**: it computes `resolvedKind` and `resolvedCategory` for every opener and records them on the AST node, but downstream stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent` discriminator. NR's emissions (W-CASE-001, W-WHITESPACE-001) are surfaced in P1; the routing change is deferred to P3 once the shadow-mode results have been validated against the existing flows over multiple sessions.
+In Phase P1 the NR stage runs in **shadow mode**: it computes `resolvedKind` and `resolvedCategory` for every opener and records them on the AST node, but downstream stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent` discriminator. NR's emissions (W-CASE-001, W-WHITESPACE-001) are surfaced in P1; the routing change is deferred to P2/P3 once the shadow-mode results have been validated against the existing flows over multiple sessions.
+
+**Status (P1.E, 2026-04-30):** NR's implementation lives in `compiler/src/name-resolver.ts` and is wired post-MOD in `compiler/src/api.js`. The advisory fields and warnings are live on every compile. The phased authority transition is:
+- **P1 / P1.E (now):** NR runs in shadow mode. Downstream consumers MUST continue to route on `isComponent` and `kind === "machine-decl"` etc.; consumers MAY observe `resolvedKind` / `resolvedCategory` for diagnostics but MUST NOT use them for routing decisions.
+- **P2 (planned):** CE and TS migrate to consume `resolvedKind` for component-vs-state routing. `isComponent` is retained as a derived field. Downstream stages may begin to depend on `resolvedKind` defensively.
+- **P3 (planned):** `isComponent` is retired. NR becomes the authoritative classifier; W-WHITESPACE-001 promotes to E-WHITESPACE-001; W-DEPRECATED-001 promotes to E-DEPRECATED-001; the internal `kind: "machine-decl"` shape may be renamed to `engine-decl`.
 
 NR's invariants in shadow mode:
 - Every `MarkupElement` / `StateBlock` AST node SHALL receive a `resolvedKind` and `resolvedCategory` field.
@@ -12460,9 +12466,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | W-FOREIGN-001 | §23.2 | Level-0 `_{` used; `_={}=` recommended | Warning |
 | W-PROGRAM-001 | §4.12 | Unnamed nested `<program>` with no distinguishing attributes | Warning |
 | W-TAILWIND-001 | §26.3, §26.5 | Class name in `class="..."` uses Tailwind syntax that the embedded engine does not handle (deferred prefix like `group-hover:`, custom theme prefix, etc.). The class produces no CSS. SPEC-ISSUE-012. | Warning |
-| W-CASE-001 | §15.15.4 | A user-declared state-type or component name is lowercase and shadows a built-in HTML element name. Resolution still succeeds (the user declaration takes precedence). Phase P1 of state-as-primary unification (2026-04-30). | Warning |
-| W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 in P3. Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). | Warning |
-| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). | Warning |
+| W-CASE-001 | §15.15.4 | A user-declared state-type or component name is lowercase and shadows a built-in HTML element name. Resolution still succeeds (the user declaration takes precedence). Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
+| W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 in P3. Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
+| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1):** emitted by TAB (`compiler/src/ast-builder.js` machine-decl path) — the keyword distinction is decided at TAB time, NR is not required for this diagnostic. | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
