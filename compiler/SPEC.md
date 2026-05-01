@@ -7196,6 +7196,92 @@ component name and source path; only then file a friction report.
 
 ---
 
+### 15.15 Unified State-Type Registry and Name Resolution
+
+**Added:** 2026-04-30 — Phase P1 of the state-as-primary architectural unification (DD1 deep-dive `state-as-primary-unification-2026-04-30.md`; ratified by Approach A debate, score 93/110).
+
+This section is the authoritative reference for tag-name resolution. All `<identifier ...>` openers — whether the identifier names an HTML element, a built-in scrml lifecycle state-type, a user-declared state type, or a component reference — resolve through the same lookup at the Name Resolution stage (NR, Stage 3.05; see PIPELINE.md).
+
+#### 15.15.1 The Registry
+
+The unified state-type registry maps every tag name in scope at a given source position to its `(kind, category)`:
+
+```
+RegistryEntry = {
+  name: string,                  // case-preserved as written in source
+  kind: 'html-builtin' | 'scrml-lifecycle' | 'user-state-type' | 'user-component' | 'unknown',
+  category: 'html' | 'channel' | 'engine' | 'timer' | 'poll' | 'db'
+          | 'schema' | 'request' | 'errorBoundary' | 'machine'
+          | 'user-component' | 'user-state-type',
+  source: 'builtin-html' | 'builtin-lifecycle' | 'same-file' | 'imported',
+  origin: { filePath: string | null, span: Span | null },
+}
+```
+
+The registry composes four sources, in lookup precedence:
+
+1. **Same-file declarations** — `${ const Foo = <markup/> }` and `< state type Foo>` in the current file.
+2. **Imported names** — names brought in via `import { Foo } from "..."`. Resolved via the MOD `exportRegistry`.
+3. **Built-in scrml lifecycle types** — `channel`, `engine` (canonical, P1; `machine` is the deprecated alias), `timer`, `poll`, `db`, `schema`, `request`, `errorBoundary`, plus other §6.7 lifecycle types.
+4. **Built-in HTML elements** — the registry from `compiler/src/html-elements.js` (§24).
+
+#### 15.15.2 Lookup Order
+
+NR resolves an opener `<name>` in this order:
+
+1. Same-file user declaration whose name equals `name` (case-sensitive).
+2. Imported name (case-sensitive) registered in MOD's `exportRegistry`.
+3. Built-in scrml lifecycle type (case-sensitive against the lifecycle table).
+4. Built-in HTML element (case-insensitive — HTML element names are case-insensitive per the HTML spec).
+5. Otherwise: `kind: 'unknown'`. CE / TS / MOD will surface the appropriate hard error (E-COMPONENT-020, E-MARKUP-001, E-STATE-001) downstream.
+
+#### 15.15.3 Casing
+
+Casing is irrelevant to resolution outcome. Convention is:
+- HTML elements and built-in lifecycle types: lowercase (`<div>`, `<channel>`, `<engine>`).
+- Components: PascalCase (`<UserCard>`, `<Greeting>`).
+- User state-types: PascalCase recommended (`< Order>`, `< CartState>`); lowercase permitted but emits W-CASE-001 if it shadows a built-in HTML element.
+
+#### 15.15.4 W-CASE-001 — Lowercase User State-Type Shadowing HTML Element
+
+NR emits **W-CASE-001** (warning, configurable) when:
+
+- A same-file or imported user-declared state-type or component has a lowercase name AND
+- That name matches (case-insensitively) a built-in HTML element name (e.g., `state type div { ... }`, `const button = <div>`).
+
+The diagnostic message identifies both the shadowing declaration and the shadowed HTML element. Resolution still succeeds (the user declaration takes precedence), but the warning surfaces the surprise. Suppress per `compiler-warnings` config.
+
+W-CASE-001 does NOT fire for:
+- PascalCase names regardless of HTML collision (e.g., `state type Div { ... }`).
+- Lowercase names that do not match any HTML element (e.g., `state type formresult { ... }`, `state type oder { ... }`).
+- Built-in scrml lifecycle types (they predate user code; cannot collide).
+
+#### 15.15.5 W-WHITESPACE-001 — Whitespace After `<` (Deprecated Opener Form)
+
+The block splitter's `Block.openerHadSpaceAfterLt: boolean` annotation drives **W-WHITESPACE-001**. NR (or BS, depending on implementation) emits the warning when an opener uses any whitespace between `<` and the identifier. The diagnostic recommends migration to the no-space canonical form via `scrml-migrate` (planned tooling).
+
+Both forms compile in P1 and P2. P3 promotes the warning to **E-WHITESPACE-001** (hard error).
+
+#### 15.15.6 Shadow Mode (P1 Only)
+
+In Phase P1 the NR stage runs in **shadow mode**: it computes `resolvedKind` and `resolvedCategory` for every opener and records them on the AST node, but downstream stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent` discriminator. NR's emissions (W-CASE-001, W-WHITESPACE-001) are surfaced in P1; the routing change is deferred to P3 once the shadow-mode results have been validated against the existing flows over multiple sessions.
+
+NR's invariants in shadow mode:
+- Every `MarkupElement` / `StateBlock` AST node SHALL receive a `resolvedKind` and `resolvedCategory` field.
+- NR SHALL NOT mutate any existing AST field.
+- NR SHALL NOT block compilation on `unknown` resolutions (downstream stages still own the hard errors).
+- NR's resolution disagreements with the legacy case-rule SHALL be flagged at most once per source position (no spam).
+
+#### 15.15.7 Cross-Reference
+
+- §4.3: Disambiguation rule (now advisory; resolution authority moved here).
+- §15.6, §15.8, §15.12: Component-side amendments removing the case-rule SHALL.
+- §24: HTML element registry source.
+- PIPELINE.md Stage 3.05 (NR): contract.
+- §51 (`engine`): the canonical name for the state-machine lifecycle type as of P1; `machine` continues to compile but emits W-DEPRECATED-001.
+
+---
+
 
 ## 16. Component Slots
 
@@ -12374,6 +12460,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | W-FOREIGN-001 | §23.2 | Level-0 `_{` used; `_={}=` recommended | Warning |
 | W-PROGRAM-001 | §4.12 | Unnamed nested `<program>` with no distinguishing attributes | Warning |
 | W-TAILWIND-001 | §26.3, §26.5 | Class name in `class="..."` uses Tailwind syntax that the embedded engine does not handle (deferred prefix like `group-hover:`, custom theme prefix, etc.). The class produces no CSS. SPEC-ISSUE-012. | Warning |
+| W-CASE-001 | §15.15.4 | A user-declared state-type or component name is lowercase and shadows a built-in HTML element name. Resolution still succeeds (the user declaration takes precedence). Phase P1 of state-as-primary unification (2026-04-30). | Warning |
+| W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 in P3. Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). | Warning |
+| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
