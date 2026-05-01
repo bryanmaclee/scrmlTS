@@ -5506,6 +5506,15 @@ Route names are compiler-internal. The developer SHALL NOT reference, configure,
   the server function; or re-evaluate whether the callee is genuinely client-only.
 - A function that has no client or server classification — a pure function per §32 — MAY be
   called from both server-escalated and client-only functions without restriction.
+- Route inference SHALL be per-function. The compiler SHALL classify each function based
+  on its own body and its explicit closure-capture references to other functions; it SHALL
+  NOT classify a function based on the names of identifiers that appear inside string-literal
+  contents of its body. Two functions in the same file (or across files in the same
+  compilation unit) SHALL be classified independently — the classification of one peer
+  SHALL NOT pollute the classification of another peer that does not explicitly reference
+  it. Capturing (without calling) a server-escalated function is a real reference and
+  SHALL propagate server-taint per §12.2; matching a server-fn name as a token inside a
+  string literal is NOT a reference and SHALL NOT propagate taint.
 
 ### 12.5 Server Function Return Values
 

@@ -449,7 +449,7 @@ wrong code.
 
 ---
 
-## F-RI-001 — Server-fn return-value branching escalates the wrapping client function to server (P0)
+## F-RI-001 — Server-fn return-value branching escalates the wrapping client function to server (P0, RESOLVED 2026-04-30 W4)
 
 **Surfaced in:** M2 `transition()` and `saveAssignment()` in `load-detail.scrml`.
 
@@ -531,34 +531,59 @@ Severity P0: the canonical "call server fn, dispatch on result, update
 UI" pattern doesn't compile. Adopters cannot ship without finding the
 workaround through trial-and-error.
 
-**PARTIAL RESOLUTION (2026-04-30, S50):** F-RI-001 is more nuanced than
-the original M2 author understood AND more nuanced than the triage agent
-concluded. Three distinct findings now separate from the original entry:
+**RESOLVED (2026-04-30, W4):** root cause located and fixed. The bug was
+in `compiler/src/route-inference.ts` `collectReferencedNames`, which used
+a regex `/\b[A-Za-z_$][A-Za-z0-9_$]*\b/g` against the flat-stringified
+form of each ExprNode. The regex matched identifier-shaped tokens INSIDE
+string-literal contents, polluting the function's `closureCaptures` set
+with names that happened to also be peer server-fn names. The capture-taint
+loop (Step 5b) then resolved those names against the global cross-file
+`fnNameToNodeIds` map and falsely tainted client functions.
 
-- **Isolated narrow patterns work** — single function calls server fn,
-  branches, assigns `@var` on error path, and is the only function in
-  the file (or has no peer functions that escalate). Triage doc-fix +
-  7 regression tests in commits `d19faab..2b3b31b` (`compiler/tests/unit/route-inference-f-ri-001.test.js`)
-  pin this case as supported.
-- **Real-app file context still fails.** Attempted revert of the M2
-  workaround in `load-detail.scrml` (transition + saveAssignment in the
-  same file) confirmed `transition` fires E-RI-002 when paired with
-  `saveAssignment` in the same file. **The fix's regression tests pass
-  in isolation but don't cover this shape.** Workaround restored;
-  `setError()` indirection + `@errorMessage = ""` anchor remain in
-  `load-detail.scrml` until a narrower fix targets file-context analysis.
-- **F-RI-001-FOLLOW** (the `is not` member-access bug) split out as a
-  separate finding below — confirmed real, still open.
-- **F-CPS-001** (architectural CPS-eligibility weakness) split out as
-  a separate finding below — confirmed real via repro, but architectural
-  (out of scope for any conservative fix).
+**The dispatch-app reproduction:** `transition()` in
+`pages/dispatch/load-detail.scrml` contains the string literal
+`"/login?reason=unauthorized"`. `app.scrml` declares
+`server function login(...)`. The regex extracted `login` as a "captured"
+identifier; the cross-file taint loop matched it; transition was tainted;
+E-RI-002 fired on the `@errorMessage = result.error` assignment. This bug
+only manifested in directory (multi-file) compile mode — the S50 narrow
+regression tests use single-file fixtures with no peer file declaring a
+colliding server-fn name, so they did not catch it.
 
-What this means: F-RI-001 is downgraded from "fully stale" to "partial".
-Adopters writing the canonical narrow pattern (one server call, branch,
-@var assignment) will succeed. Adopters writing two server-call shapes
-in one file may still hit E-RI-002 on the simpler one due to file-context
-contamination of the analysis. Severity stays P0 because the trigger is
-unpredictable from the adopter's perspective.
+**The W4 fix:** replace the regex-on-flat-string approach with a structural
+walk over the ExprNode tree via `forEachIdentInExprNode`
+(`compiler/src/expression-parser.ts`). The structural walker visits only
+`IdentExpr` nodes — string-literal content is not scanned, member-access
+property names are not treated as free variables, and lambda bodies are
+not descended into (they are new scopes). Test-fixture compatibility is
+preserved via a string-fallback path used only when the AST node lacks
+the structured ExprNode field (production AST always populates ExprNode).
+
+**Verification:**
+- `compiler/tests/unit/route-inference-f-ri-001-deeper.test.js` — 6 new
+  regression tests covering: (§D) cross-file string-literal tokens vs.
+  peer server-fn names; (§D negative control) bare-ident reference
+  still propagates capture-taint; (§E) per-fn analysis isolation;
+  (§F) `result.error` member access does not pollute captures.
+- M2 workaround removed from 10 dispatch-app pages (the two named files
+  + 8 M3-M6 pages: dispatch/billing.scrml, dispatch/load-detail.scrml,
+  customer/load-detail.scrml, customer/quote.scrml, customer/invoices.scrml,
+  driver/load-detail.scrml, driver/home.scrml, driver/hos.scrml,
+  driver/messages.scrml, driver/profile.scrml). Full directory compile
+  returns the same 161-error count as pre-revert (no new errors; no
+  E-RI-002 fired).
+- `bun test`: 8367 pass / 0 fail (baseline 8361 + 6 new W4 tests).
+
+**SPEC.md §12.4 amendment:** added a normative statement that route
+inference is per-function and string-literal content is not a reference.
+
+**Carryforward:**
+- F-RI-001-FOLLOW (`is not` member access) — separate finding below; W8 territory.
+- F-CPS-001 (CPS architectural limit, repro4) — separate finding below;
+  M10 deferred-indefinitely architectural.
+
+References: `docs/changes/f-ri-001-deeper/diagnosis.md`,
+`docs/changes/f-ri-001-deeper/repro-multi-fn.scrml`.
 
 ---
 
