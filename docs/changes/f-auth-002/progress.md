@@ -33,3 +33,9 @@
      a. Auto-detect pure-fn files → emit as library mode (Layer 2 — own dispatch W5a)
      b. Cross-file ?{} resolution + module-with-db-context impl (Layer 3 — own dispatch W5b, depends on W5a)
 - [DELIVERABLE] W5 ships Layer 1 + SPEC contract direction. Layers 2/3 surface to supervisor.
+
+- [FRICTION] Updated `examples/23-trucking-dispatch/FRICTION.md` F-AUTH-002 entry to **PARTIALLY RESOLVED W5**. Documented:
+  - What W5 landed (Layer 1 + SPEC §21.5.1 + §44.7.1 + tests)
+  - What's deferred to W5a (auto-detect-library) and W5b (cross-file-?{}-resolve)
+  - Why W5 stopped at Layer 1: cross-file emission pipeline broken for non-SQL pure-fn exports too — bigger than W5-medium scope.
+- [FINAL] 8374 pass / 40 skip / 0 fail / 398 files. Net delta vs pre-baseline: +13 (the new F-AUTH-002 export-modifiers tests).

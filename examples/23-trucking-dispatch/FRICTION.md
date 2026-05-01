@@ -43,7 +43,62 @@ The current behavior — silent acceptance — directly contradicts the S49 vali
 
 ---
 
-## F-AUTH-002 — Cross-file server functions with SQL access are not portable (P0)
+## F-AUTH-002 — Cross-file server functions with SQL access are not portable (P0) — **PARTIALLY RESOLVED W5 (2026-04-30)**
+
+**Resolution status (W5, 2026-04-30):**
+
+W5 landed:
+- **Layer 1** — `ast-builder.js` export-decl branch now correctly handles
+  `pure`/`server` modifier prefixes. `export server function NAME` /
+  `export pure function NAME` / `export pure server function NAME`
+  (and `fn` variants) properly register `exportedName` + `exportKind` and
+  carry `isPure` / `isServer` flags. Pre-fix, `collectExpr` stopped at
+  `function` STMT_KEYWORD after consuming `server`, leaving the export-decl
+  with raw=`"export server"` and `exportedName=null` — every cross-file
+  import of such a name fired E-IMPORT-004.
+- **SPEC §21.5.1** — formalizes the modifier-carrying export grammar with
+  normative statements on isPure/isServer flag semantics.
+- **SPEC §44.7.1** — documents the module-with-db-context contract
+  (Shape B+A from the deep-dive). Defines `E-SQL-009` for cross-file
+  pure-fn `?{}` without proper `< db>` declaration.
+- **Tests** — `tests/integration/f-auth-002-export-modifiers.test.js`
+  (13 tests, all passing). Covers all modifier permutations + module-resolver
+  registry interaction.
+
+**Still deferred to W5-FOLLOW dispatches:**
+
+The full closure of F-AUTH-002 (~450 LOC inline-duplication unblocked)
+requires two more dispatches:
+
+- **W5a (auto-detect-library):** SPEC §21.5 says "the compiler SHALL
+  recognize this pattern automatically; no special file extension or
+  pragma is required" — currently NOT IMPLEMENTED. Pure-fn files
+  compiled in browser mode produce empty `.client.js` — even simple
+  `export function helper(x) { ... }` doesn't survive cross-file. The
+  fix is to auto-detect `!hasProgramRoot && no markup && no CSS` and
+  emit library-style ES module output regardless of `--mode` flag.
+  Without this, no cross-file import from a pure-fn file works at runtime.
+
+- **W5b (cross-file-?{}-resolve):** Implement the §44.7.1
+  module-with-db-context machinery. Pure-fn files that contain a
+  top-level `< db src=>` block become db-context modules. The compiler
+  annotates the block's children with `_dbVar` (extending the existing
+  `<program db=>` annotateDbScopes pass), routes their `?{}`-containing
+  server functions, and emits a server.js that the importing page's
+  client.js fetches via the standard server-route mechanism. Hard error
+  E-SQL-009 fires when a pure-fn file uses `?{}` without a `< db>`
+  declaration. Depends on W5a.
+
+**Why W5 stopped at Layer 1:** During diagnosis, the cross-file
+emission pipeline was found to be broken even for non-SQL exports
+(`export function helper(x) { ... }` produces an empty `module.client.js`).
+This is a foundational gap in pure-fn-file emission that the W5-medium
+scope does not cover. Per the W5 brief's stop-and-surface instruction
+("If diagnosis reveals the resolution requires architectural changes
+to the import system beyond pure-fn-with-db-context"), the auto-detect
+piece is being surfaced for its own dispatch (W5a).
+
+**Original friction below:**
 
 **Surfaced in:** M1, when attempting to put `login()` / `register()` / `getCurrentUser()` in `models/auth.scrml` so multiple pages could import them.
 
