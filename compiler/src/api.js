@@ -271,7 +271,12 @@ export function bundleStdlibForRun(names, outputDir, log) {
  * output at `dist/ui/foo.server.js` needs the import to resolve from
  * `dist/ui/` — so the path must be rewritten to `../../ui/repros/helper.js`.
  *
- * Only rewrites relative imports (starting with ./ or ../) that end with .js.
+ * Only rewrites relative imports (starting with ./ or ../) that end with .js,
+ * EXCLUDING .server.js and .client.js (those are scrml-emitted output-tree
+ * artefacts — siblings of the importing file in the dist tree, NOT source-tree
+ * files; their relative paths in the output tree mirror the source tree per
+ * F-COMPILE-001 Option A, so no relocation is needed).
+ *
  * Non-relative imports (scrml:, vendor:, bare names) are left untouched —
  * those are handled by rewriteStdlibImports().
  *
@@ -289,7 +294,14 @@ export function rewriteRelativeImportPaths(jsCode, sourceFilePath, outputDir) {
 
   return jsCode.replace(
     /^(import\s+(?:\{[^}]*\}|[^\s]+)\s+from\s+)(["'])(\.\.?\/[^"']+\.js)\2(;?)$/gm,
-    (_match, prefix, quote, relPath, semi) => {
+    (match, prefix, quote, relPath, semi) => {
+      // F-COMPILE-002: skip .server.js / .client.js — these are scrml output
+      // artefacts that live in the dist tree at the same relative position as
+      // their .scrml source, so the source-relative path is already correct
+      // for the output tree (no relocation needed).
+      if (relPath.endsWith(".server.js") || relPath.endsWith(".client.js")) {
+        return match;
+      }
       // Resolve the import path from the source file's directory
       const absImportPath = resolve(sourceDir, relPath);
       // Compute the relative path from the output directory

@@ -108,15 +108,23 @@ export function generateServerJs(
   lines.push("// This file is compiler IR — not meant for direct consumption.");
   lines.push("");
 
-  // Emit JS imports from use-decl and import-decl nodes (§40)
+  // Emit JS imports from use-decl and import-decl nodes (§40).
+  // Local .scrml imports are rewritten to .server.js (compiled server output);
+  // mirrors emit-client.ts handling but targets server-side artefacts. scrml:
+  // and vendor: prefixed imports pass through unchanged — they are valid Bun
+  // module specifiers handled by rewriteStdlibImports() / Bun's vendor resolution.
   const allImports: any[] = fileAST?.ast?.imports ?? fileAST?.imports ?? [];
   for (const stmt of allImports) {
     if ((stmt.kind === "import-decl" || stmt.kind === "use-decl") && stmt.source && stmt.names?.length > 0) {
+      let jsSource: string = stmt.source;
+      if (jsSource.endsWith(".scrml")) {
+        jsSource = jsSource.replace(/\.scrml$/, ".server.js");
+      }
       const names: string = stmt.names.join(", ");
       if (stmt.isDefault) {
-        lines.push(`import ${names} from ${JSON.stringify(stmt.source)};`);
+        lines.push(`import ${names} from ${JSON.stringify(jsSource)};`);
       } else {
-        lines.push(`import { ${names} } from ${JSON.stringify(stmt.source)};`);
+        lines.push(`import { ${names} } from ${JSON.stringify(jsSource)};`);
       }
     }
   }
