@@ -1,0 +1,7 @@
+<program>
+${
+  @driver = null
+  @x = "hello"
+}
+<div>${@x}</div>
+</program>

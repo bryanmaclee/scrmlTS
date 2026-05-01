@@ -1,0 +1,10 @@
+<program>
+${
+  function computeHours(target) {
+    if (target == null) return 0
+    return 24
+  }
+  @x = "ready"
+}
+<div>test ${@x}</div>
+</program>

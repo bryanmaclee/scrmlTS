@@ -1,0 +1,10 @@
+<program>
+${
+  server function test() {
+    const x = "hello"
+    if (x != null) return { ok: true }
+    return { ok: false }
+  }
+}
+<div>test</div>
+</program>

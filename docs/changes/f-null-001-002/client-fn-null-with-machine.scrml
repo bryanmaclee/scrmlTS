@@ -1,0 +1,14 @@
+<program>
+${
+  type Status = "idle" | "active"
+  function computeHours(target) {
+    if (target == null) return 0
+    return 24
+  }
+  @x = "ready"
+}
+<machine for=Status>
+  Status.idle <- Status.active = action {}
+</machine>
+<div>test ${@x}</div>
+</program>

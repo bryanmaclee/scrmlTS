@@ -1,0 +1,6 @@
+<program>
+${
+  @x = ""
+}
+<div if=(@x != null && @x != "")>${@x}</div>
+</program>
