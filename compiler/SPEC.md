@@ -281,13 +281,19 @@ This is a state object named `button`, not an HTML element. If `button` is not a
 
 ### 4.3 The Disambiguation Rule
 
-**The single rule that drives the block splitter:**
+**Status (Phase P1, 2026-04-30 — state-as-primary unification).** The whitespace-after-`<` discriminator was the v0 disambiguator and is now **informational only**. Authoritative tag-vs-state-type resolution moves to the Name Resolution stage (NR, Stage 3.05; see §15.X) which consults the unified state-type registry. The block splitter still records whether whitespace appeared after `<` (used by W-WHITESPACE-001 diagnostics and by NR fall-back heuristics), but it no longer drives the tag/state classification at the syntactic layer.
 
-> If `<` is immediately followed by an identifier character (no whitespace), the block is an HTML element. If `<` is followed by whitespace before the identifier, the block is a state object.
+**Convention preserved (advisory):**
 
-This rule is determined entirely by the character or characters immediately following `<`. No lookahead beyond the first non-`<` character is required to make the HTML-vs-state determination.
+> If `<` is immediately followed by an identifier character (no whitespace), the canonical form is an HTML element or a component reference. If `<` is followed by whitespace before the identifier, the canonical form is a state-type instantiation.
 
-This rule SHALL be applied at the block-splitting stage, before any tokenization of attributes or content. The result SHALL be stored as the block type for all downstream passes.
+**Migration path:**
+
+- P1: both forms (`<state-type>` and `< state-type>`) compile. The space-after-`<` form emits W-WHITESPACE-001 (deprecation warning).
+- P3 (planned): the space-after-`<` form is removed; uniform `<identifier>` becomes the only legal opener (E-WHITESPACE-001).
+- The compiler resolves `<identifier>` against the unified state-type registry (§15.X) at NR (Stage 3.05). Casing is irrelevant to resolution; convention is PascalCase for components and lowercase for HTML elements / built-in scrml lifecycle types.
+
+This rule SHALL be applied at the block-splitting stage, before any tokenization of attributes or content. The whitespace-after-`<` annotation is preserved on each block (`Block.openerHadSpaceAfterLt: boolean`) for downstream diagnostics. NR uses registry lookup, not whitespace, to determine resolved kind.
 
 ### 4.4 Closer Forms
 
@@ -6411,8 +6417,12 @@ const card = <div title:String using (length > 0)>
 
 ### 15.6 Component Naming
 
-- A component name SHALL NOT be the same as a built-in HTML element name. This would cause ambiguity at use sites. Violation SHALL be a compile error (E-NAME-001).
-- A component name that misleadingly matches a different HTML element (e.g., `const div = <span>`) SHALL produce warning W-NAME-001. This warning MAY be configured to be an error.
+**Amended (Phase P1, 2026-04-30 — state-as-primary unification):** the case-rule that previously required an uppercase first letter is retired. Names of any case are accepted; the compiler resolves tag references against the unified state-type registry (§15.X) at NR (Stage 3.05). Convention remains PascalCase for components for clarity, but is no longer normative.
+
+- A component name MAY use any case. Convention is PascalCase for clarity at call sites. The compiler resolves tag names by registry lookup at NR (§15.X); resolution does not depend on casing.
+- A component name SHALL NOT shadow a built-in HTML element. Defining `const Div = <span>` (uppercase letter, no HTML collision) is permitted. Defining `const div = <span>` (lowercase shadow of `<div>`) emits W-CASE-001 (§15.X).
+- A component name that misleadingly matches a different HTML element (e.g., `const Card = <span>` rendered as if it were a `<div>`) MAY emit W-NAME-001 if the component's root element shape differs from a same-named HTML element. This warning MAY be configured to be an error.
+- The pre-P1 normative requirement that component names "SHALL begin with an uppercase letter" is retired; what was an error (E-NAME-001 on uppercase requirement) is now an advisory warning (W-CASE-001 on HTML collision).
 
 ### 15.7 The `fixed` Attribute
 
@@ -6441,7 +6451,7 @@ const card = <div class="card">
 ```
 
 - Usage syntax is identical to HTML element syntax.
-- The first character of the component name distinguishes it from HTML elements (uppercase vs. lowercase) in diagnostic output. The block splitter applies the same tag-vs-state rule (Section 4.3) for the open bracket.
+- **Amended (Phase P1, 2026-04-30):** the first-character case is no longer load-bearing. The block splitter accepts both `<identifier>` and `< identifier>` openers (the latter emits W-WHITESPACE-001 in P1; planned-error in P3). Resolution against the unified state-type registry (§15.X) is performed at NR (Stage 3.05) and is what determines the `resolvedKind` (HTML built-in vs scrml lifecycle vs user state-type vs component vs unknown). Casing is advisory, not normative.
 - Caller-provided children flow to the `${...}` unnamed children spread inside the component body (Section 16.3).
 
 ### 15.9 Inline Prop Interpolation
@@ -7018,7 +7028,7 @@ forms including bindable props, state projection props, and function-typed props
 
 Components are instantiated using their PascalCase name as an HTML-like tag: `<MyComponent prop1=value prop2=@reactive />`. The component expander (CE stage) inlines the component body at the call site, binding props to the component's declared parameters.
 
-**Name resolution:** The compiler resolves tag names by checking the first character: an uppercase initial letter indicates a component reference; a lowercase initial letter indicates an HTML element. A component name that collides with a built-in HTML element name is E-NAME-001 (§15.6).
+**Name resolution (amended Phase P1, 2026-04-30):** The compiler resolves tag names against the unified state-type registry (§15.X) at the Name Resolution stage (NR, Stage 3.05). The registry contains: built-in HTML elements (§24), built-in scrml lifecycle types (channel, engine, timer, poll, db, schema, request, errorBoundary, etc.), same-file user-declared state types and components, and cross-file imported types. Casing is irrelevant to resolution — convention is PascalCase for components and lowercase for HTML/lifecycle types, but no SHALL governs it. A user-declared state type or component whose name is lowercase AND collides with a built-in HTML element emits W-CASE-001 (advisory warning; configurable to error). The pre-P1 first-character heuristic is retired.
 
 **Prop passing:** Props are passed as attributes on the component tag. Required props (no `?` in the `props` block) must be provided; missing required props are E-COMPONENT-010. Extra undeclared props are E-COMPONENT-011. Prop values are validated against their declared types at the call site (E-TYPE-031).
 
