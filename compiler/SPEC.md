@@ -10500,6 +10500,43 @@ blocks (no markup, no CSS) is a **pure-type file**. The compiler SHALL:
 Pure-type files are identified by the absence of any markup or CSS content after
 the preprocessor pass. No pragma or special declaration is required.
 
+#### 21.5.1 Modifier-Carrying Exports — `export server function` / `export pure function`
+
+**Added:** F-AUTH-002, 2026-04-30. Source: docs/changes/f-auth-002/diagnosis.md.
+
+The `export` keyword MAY be followed by an optional modifier sequence before
+the declaration keyword:
+
+```
+export-prefix      ::= 'export' modifier-prefix?
+modifier-prefix    ::= 'pure' | 'server' | 'pure server'
+declaration        ::= 'function' identifier ... | 'fn' identifier ...
+                     | 'type' identifier ...   | 'const' identifier ...
+                     | 'let' identifier ...
+```
+
+`export server function` and `export server fn` declare a server-escalated
+function as exported. `export pure function` and `export pure fn` declare a
+pure (§33) function as exported. `export pure server function` combines both
+(allowed only when explicitly intended; equivalent to `pure server function`
+without `export`).
+
+**Normative statements:**
+
+- The parser SHALL recognize `pure`, `server`, and `pure server` as modifier
+  prefixes between `export` and the declaration keyword.
+- `server pure` SHALL NOT be a valid form — `pure` precedes `server` per §33.
+- The export-decl AST node SHALL carry `isPure: boolean` and `isServer: boolean`
+  flags reflecting the modifiers consumed. Existing `exportedName` and
+  `exportKind` fields SHALL be populated as for the unmodified form.
+- Importing such an export from another file SHALL succeed for the name
+  resolution (§21.6 E-IMPORT-004 SHALL NOT fire on a recognized name).
+- The runtime contract for a server-modifier-carrying export across files
+  (notably `?{}` SQL resolution in pure-fn files) is described in §44.7
+  E-SQL-009. Until that contract is fully implemented (see SPEC §44.7
+  + W5-FOLLOW dispatch), pure-fn files containing `?{}` server functions
+  produce a hard error so adopters do not get silent runtime failures.
+
 ### 21.6 Error Codes
 
 | Code | Trigger | Severity |
@@ -15024,11 +15061,40 @@ Deferred to SPEC-ISSUE-018. Current workaround: `^{}` meta with direct Bun.SQL `
 
 | Code | Trigger | Severity |
 |---|---|---|
-| E-SQL-004 | `?{}` has no `db=` in any ancestor `<program>` | Error |
+| E-SQL-004 | `?{}` has no `db=` in any ancestor `<program>` AND the file is not a module-with-db-context (§44.7.1) | Error |
 | E-SQL-005 | Unsupported db prefix (e.g. `mongodb:`) | Error |
 | E-SQL-006 | `.prepare()` called on `?{}` result | Error |
 | E-SQL-007 | `?{}` in a non-async context | Error |
 | E-SQL-008 | `?{` SQL block has no matching `}` — unterminated template (F-SQL-001) | Error |
+| E-SQL-009 | `export server function` containing `?{}` declared in a pure-fn file without a top-level `< db src=>` block (§21.5.1, F-AUTH-002) | Error |
+
+#### 44.7.1 Module-with-db-context (F-AUTH-002)
+
+**Added:** F-AUTH-002, 2026-04-30. Source: docs/deep-dives/systemic-silent-failure-sweep-2026-04-30.md §5.1.
+
+A pure-fn file (§21.5) MAY declare a top-level `< db src="...">` block.
+Server functions defined inside such a block resolve their `?{}` placeholders
+against the file's own `< db>` context — the file is then a
+**module-with-db-context**. The compiler treats the `< db>` block as the
+SQL-resolution scope for any `?{}` inside the block, equivalent to a
+`<program db=>` ancestor.
+
+**Normative statements:**
+
+- A pure-fn file MAY contain at most one top-level `< db src="...">` block.
+- Server functions inside that block SHALL have their `?{}` placeholders
+  resolved against the block's `src` value (per §44.2 driver classification).
+- A `<program db=>` ancestor in the importing page SHALL NOT override the
+  pure-fn module's own `< db>` context — the module owns its connection.
+- A pure-fn file that contains `?{}` AND does not declare a `< db>` block
+  SHALL be a compile error (E-SQL-009).
+- The fully-realized cross-file lifecycle (auto-detection of pure-fn files,
+  emission as ES module, server route generation, importing-page wiring)
+  is being implemented in stages. As of F-AUTH-002 W5, the export-modifier
+  parsing is implemented (§21.5.1); the cross-file emission lifecycle is
+  scheduled for follow-up dispatches (W5a auto-detect-library, W5b
+  cross-file-?{}-resolve).
+
 
 ### 44.8 Parser: Bracket-Matched `?{` Scanner (F-SQL-001)
 

@@ -19,3 +19,17 @@
 - [LAYER 1 FIX] ast-builder.js EXPORT branch: peek-and-consume optional `pure`/`server`/`pure server` modifier tokens BEFORE collectExpr. Adds `isPure`/`isServer` flags to export-decl node. Updated types/ast.ts. Updated self-host parity test to skip new fields.
 - [TEST] 8361 pass / 0 fail — baseline preserved.
 - [TEST] /tmp/f-auth-002-repro/models/auth.scrml now records `exportedName: "getUser"`, `exportKind: "function"`, `isServer: true` correctly.
+
+- [LAYER 1 EXTEND] Added test coverage: `compiler/tests/integration/f-auth-002-export-modifiers.test.js` (13 tests). All variants pass: `export {function|fn|const|let|type|re-export}`, `export server function|fn`, `export pure function|fn`, `export pure server function|fn`. Module-resolver registry test confirms downstream registration.
+- [LAYER 1 FIX 2] Tokenizer note: `pure` is IDENT (not KEYWORD); export branch now accepts either kind. `server` remains KEYWORD-only.
+- [TEST] 8374 pass / 0 fail / +13 new tests / zero regressions.
+- [SPEC] Added §21.5.1 (Modifier-Carrying Exports) describing the export-prefix grammar + isPure/isServer flags.
+- [SPEC] Added §44.7.1 (Module-with-db-context) and E-SQL-009 (placeholder for cross-file ?{} hard error). Documents the contract direction; full impl deferred to W5-FOLLOW.
+- [SCOPE-DECISION] During diagnosis I discovered that the cross-file ?{} fix requires significantly more architectural change than W5-medium scope:
+  1. Pure-fn files compile to EMPTY module.client.js in browser mode (no server.js, no body emission).
+  2. SPEC §21.5 promises auto-detection of pure-fn files but the compiler currently has no per-file mode dispatch.
+  3. Even simple `export function helper(x) { ... }` from a pure-fn file produces empty output in browser mode.
+  4. The full F-AUTH-002 fix requires:
+     a. Auto-detect pure-fn files → emit as library mode (Layer 2 — own dispatch W5a)
+     b. Cross-file ?{} resolution + module-with-db-context impl (Layer 3 — own dispatch W5b, depends on W5a)
+- [DELIVERABLE] W5 ships Layer 1 + SPEC contract direction. Layers 2/3 surface to supervisor.

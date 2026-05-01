@@ -3900,14 +3900,18 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // Allowed modifier sequences: `pure`, `server`, `pure server`.
       // (`server pure` is not a valid scrml form per §33.) We accept either
       // `pure` first OR `server` first followed by an optional companion.
-      if (peek().kind === "KEYWORD" && peek().text === "pure") {
+      // Note: `pure` tokenizes as IDENT (not KEYWORD), `server` as KEYWORD.
+      // Match either kind for `pure` (defensive against future tokenizer changes).
+      const _peekIsPure = peek().text === "pure" && (peek().kind === "IDENT" || peek().kind === "KEYWORD");
+      const _peekIsServer = peek().text === "server" && peek().kind === "KEYWORD";
+      if (_peekIsPure) {
         isPure = true;
         prefixParts.push(consume().text);
         if (peek().kind === "KEYWORD" && peek().text === "server") {
           isServer = true;
           prefixParts.push(consume().text);
         }
-      } else if (peek().kind === "KEYWORD" && peek().text === "server") {
+      } else if (_peekIsServer) {
         isServer = true;
         prefixParts.push(consume().text);
       }
