@@ -42,6 +42,12 @@ export interface ParseResult {
   error: string | null;
   /** Non-empty trailing content after the parsed expression (silent data loss detection). */
   trailingContent?: string;
+  /**
+   * F-SQL-001: structured diagnostic raised when `?{...}` SQL block scanning
+   * fails (unbalanced braces, unterminated template literal). Carries the
+   * error code so callers can surface it as a hard compile error (E-SQL-008).
+   */
+  sqlDiagnostic?: { code: string; message: string; offset: number };
 }
 
 /** Return type for rewriteReactiveRefsAST / rewriteServerReactiveRefsAST. */
@@ -120,6 +126,135 @@ function scrmlEnumPlugin(Parser: typeof acorn.Parser) {
 const ScrmlParser = acorn.Parser.extend(scrmlAtPlugin, scrmlEnumPlugin);
 
 // ---------------------------------------------------------------------------
+// SQL placeholder scanner (F-SQL-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of replaceSqlBlockPlaceholder — the rewritten string with `?{...}`
+ * SQL blocks replaced by `__scrml_sql_placeholder__`, plus an optional
+ * diagnostic if a `?{` opener was found without a matching `}`.
+ *
+ * F-SQL-001 root cause: the prior regex `/\?\{[^}]*\}/g` could not handle
+ * `?{...${expr}...}` because `[^}]*` stops at the first `}` (the inner
+ * `${}` interpolation's close brace). This function performs a proper
+ * bracket-matched scan that respects template-literal boundaries.
+ */
+interface SqlPlaceholderResult {
+  result: string;
+  /**
+   * If a `?{` opener was found without a matching `}`, this carries the
+   * source offset and a human-readable message. Surfaced as E-SQL-008
+   * by callers.
+   */
+  unbalanced?: { offset: number; message: string };
+}
+
+/**
+ * Scan `input` for `?{...}` SQL blocks and replace each with
+ * `__scrml_sql_placeholder__`. Bracket-matched: respects template-literal
+ * boundaries (backticks) and tracks `{`/`}` nesting inside the SQL block,
+ * so embedded `${expr}` interpolations are consumed correctly.
+ *
+ * @param input the source-like string passed through preprocessing
+ * @returns SqlPlaceholderResult — `result` is the rewritten string;
+ *   `unbalanced` is set if a `?{` had no matching `}`.
+ */
+function replaceSqlBlockPlaceholder(input: string): SqlPlaceholderResult {
+  let out = "";
+  let i = 0;
+  const n = input.length;
+  let unbalanced: { offset: number; message: string } | undefined;
+
+  // Mode stack — top of stack is the current lexical context.
+  //   "js"        : JS expression context. `{`/`}` track block/object depth.
+  //                 `\`` opens a template literal. `'`/`"` open quoted strings.
+  //   "template"  : template literal body. `${` opens a nested JS context;
+  //                 `\`` closes the template (back to the context one below).
+  //   "single"    : single-quoted string. `\\` escapes; `'` closes.
+  //   "double"    : double-quoted string. `\\` escapes; `"` closes.
+  //
+  // The outer `?{` SQL block is treated as a "js" context entered with depth=1.
+  // When the enclosing `js` context's depth returns to 0, the SQL block is
+  // closed.
+  type Frame = { kind: "js"; depth: number } | { kind: "template" } | { kind: "single" } | { kind: "double" };
+
+  while (i < n) {
+    const ch = input[i];
+
+    // Look for `?{` SQL block opener.
+    if (ch === "?" && input[i + 1] === "{") {
+      const sqlStart = i;
+      i += 2; // consume ?{
+      const stack: Frame[] = [{ kind: "js", depth: 1 }];
+      let closed = false;
+      while (i < n && stack.length > 0) {
+        const top = stack[stack.length - 1];
+        const c = input[i];
+
+        if (top.kind === "single") {
+          if (c === "\\") { i += 2; continue; }
+          if (c === "'") { stack.pop(); i++; continue; }
+          i++;
+          continue;
+        }
+        if (top.kind === "double") {
+          if (c === "\\") { i += 2; continue; }
+          if (c === "\"") { stack.pop(); i++; continue; }
+          i++;
+          continue;
+        }
+        if (top.kind === "template") {
+          if (c === "\\") { i += 2; continue; }
+          if (c === "`") { stack.pop(); i++; continue; }
+          if (c === "$" && input[i + 1] === "{") {
+            // Open nested JS context inside the template interpolation.
+            stack.push({ kind: "js", depth: 1 });
+            i += 2;
+            continue;
+          }
+          i++;
+          continue;
+        }
+        // top.kind === "js"
+        if (c === "`") { stack.push({ kind: "template" }); i++; continue; }
+        if (c === "'") { stack.push({ kind: "single" }); i++; continue; }
+        if (c === "\"") { stack.push({ kind: "double" }); i++; continue; }
+        if (c === "{") { top.depth++; i++; continue; }
+        if (c === "}") {
+          top.depth--;
+          i++;
+          if (top.depth === 0) {
+            stack.pop();
+            // If the popped frame was the outermost SQL `?{` js-frame,
+            // the entire SQL block is closed.
+            if (stack.length === 0) { closed = true; break; }
+          }
+          continue;
+        }
+        i++;
+      }
+      if (!closed) {
+        if (!unbalanced) {
+          unbalanced = {
+            offset: sqlStart,
+            message:
+              "E-SQL-008: `?{` SQL block has no matching `}` — unterminated SQL template " +
+              "(possibly a missing closing brace, unterminated backtick template literal, " +
+              "or unmatched `${` interpolation inside the SQL body).",
+          };
+        }
+      }
+      out += "__scrml_sql_placeholder__";
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+
+  return unbalanced ? { result: out, unbalanced } : { result: out };
+}
+
+// ---------------------------------------------------------------------------
 // Parse utilities
 // ---------------------------------------------------------------------------
 
@@ -133,13 +268,22 @@ export function parseExpression(raw: string, opts: { tolerant?: boolean } = {}):
   // Pre-process: strip scrml-specific constructs that acorn can't handle
   let processed = raw.trim();
 
-  // Handle ?{...} SQL blocks — replace with a placeholder identifier
-  processed = processed.replace(/\?\{[^}]*\}/g, "__scrml_sql_placeholder__");
+  // F-SQL-001: replace ?{...} SQL blocks with a placeholder identifier using
+  // a bracket-matched scanner (handles ?{`...${expr}...`} correctly).
+  const sqlScan = replaceSqlBlockPlaceholder(processed);
+  processed = sqlScan.result;
 
   // Handle <#id>.send() worker refs — replace with placeholder before input state refs
   processed = processed.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>\s*\.\s*send\s*\(/g, "__scrml_worker_$1__.send(");
   // Handle <#id> input state refs — replace with placeholder
   processed = processed.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>/g, "__scrml_input_$1__");
+
+  // F-SQL-001: if the SQL scanner found an unbalanced `?{` opener, surface
+  // it as a hard error (E-SQL-008). Callers (parseExprToNode, ast-builder)
+  // pick this up via ParseResult.sqlDiagnostic and convert to a TABError.
+  const sqlDiag = sqlScan.unbalanced
+    ? { code: "E-SQL-008", message: sqlScan.unbalanced.message, offset: sqlScan.unbalanced.offset }
+    : undefined;
 
   try {
     // @ts-ignore
@@ -151,9 +295,9 @@ export function parseExpression(raw: string, opts: { tolerant?: boolean } = {}):
     // Trailing-content detection: if parseExpressionAt didn't consume the full
     // string, there is content that would be silently dropped.
     const trailing = processed.slice((ast as any).end).trim();
-    return { ast, error: null, trailingContent: trailing || undefined };
+    return { ast, error: null, trailingContent: trailing || undefined, ...(sqlDiag ? { sqlDiagnostic: sqlDiag } : {}) };
   } catch (err) {
-    if (tolerant) return { ast: null, error: (err as Error).message };
+    if (tolerant) return { ast: null, error: (err as Error).message, ...(sqlDiag ? { sqlDiagnostic: sqlDiag } : {}) };
     throw err;
   }
 }
@@ -166,10 +310,16 @@ export function parseStatements(raw: string, opts: { tolerant?: boolean } = {}):
   if (!raw || typeof raw !== "string") return { ast: null, error: "empty body" };
 
   let processed = raw.trim();
-  processed = processed.replace(/\?\{[^}]*\}/g, "__scrml_sql_placeholder__");
+  // F-SQL-001: bracket-matched ?{} placeholder replacement (see replaceSqlBlockPlaceholder).
+  const sqlScan = replaceSqlBlockPlaceholder(processed);
+  processed = sqlScan.result;
   // Handle <#id>.send() worker refs — replace with placeholder before input state refs
   processed = processed.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>\s*\.\s*send\s*\(/g, "__scrml_worker_$1__.send(");
   processed = processed.replace(/<#([A-Za-z_$][A-Za-z0-9_$]*)>/g, "__scrml_input_$1__");
+
+  const sqlDiag = sqlScan.unbalanced
+    ? { code: "E-SQL-008", message: sqlScan.unbalanced.message, offset: sqlScan.unbalanced.offset }
+    : undefined;
 
   try {
     // @ts-ignore
@@ -179,9 +329,9 @@ export function parseStatements(raw: string, opts: { tolerant?: boolean } = {}):
       allowAwaitOutsideFunction: true,
       allowReturnOutsideFunction: true,
     }) as ESNode;
-    return { ast, error: null };
+    return { ast, error: null, ...(sqlDiag ? { sqlDiagnostic: sqlDiag } : {}) };
   } catch (err) {
-    if (tolerant) return { ast: null, error: (err as Error).message };
+    if (tolerant) return { ast: null, error: (err as Error).message, ...(sqlDiag ? { sqlDiagnostic: sqlDiag } : {}) };
     throw err;
   }
 }
@@ -1161,13 +1311,30 @@ export function parseExprToNode(raw: string, filePath: string, offset: number, o
   let parseError: string | null = null;
 
   let trailingContent: string | undefined;
+  let sqlDiagnostic: { code: string; message: string; offset: number } | undefined;
   try {
     const result = parseExpression(processed);
     estree = result.ast;
     parseError = result.error;
     trailingContent = result.trailingContent;
+    sqlDiagnostic = result.sqlDiagnostic;
   } catch (e) {
     parseError = (e as Error).message;
+  }
+
+  // F-SQL-001: if the SQL scanner flagged an unbalanced ?{}, surface it as a
+  // hard error by attaching it to the returned escape-hatch (ast-builder
+  // converts to a TABError). This does NOT change behaviour for well-formed
+  // ?{...${}...} blocks — those parse cleanly via the bracket-matched scanner.
+  if (sqlDiagnostic) {
+    const span: ExprSpan = { file: filePath, start: offset + sqlDiagnostic.offset, end: offset + trimmed.length, line: 1, col: 1 };
+    return {
+      kind: "escape-hatch",
+      span,
+      estreeType: "SqlPlaceholderError",
+      raw: trimmed,
+      sqlDiagnostic,
+    } as EscapeHatchExpr & { sqlDiagnostic: { code: string; message: string; offset: number } };
   }
 
   // Trailing-content guard: detect silent data loss from merged statements.
