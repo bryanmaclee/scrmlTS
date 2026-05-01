@@ -6477,7 +6477,48 @@ function _parseHandlerExpr(handler, filePath, startOffset) {
  * @param {TABError[]} errors
  * @returns {ASTNode | null}
  */
+/**
+ * P1 (uniform opener, SPEC §15.15): tag-vs-state classification gap-fill.
+ *
+ * BS classifies on whitespace (no-space → markup, with-space → state). For
+ * scrml lifecycle keywords, downstream stages expect a specific shape:
+ *
+ *   markup-shape consumers: channel, timer, poll, request, errorBoundary
+ *     (handled in emit-html.ts / emit-reactive-wiring.ts via tag === "...")
+ *   state-shape consumers:  db, schema (handled in protect-analyzer / TS via
+ *     kind === "state" && stateType === "...")
+ *   machine-decl shape:     engine, machine (handled in TS / CG via
+ *     kind === "machine-decl")
+ *
+ * When the user writes the form OPPOSITE to BS classification, we normalize
+ * here so both forms produce equivalent downstream behavior. The
+ * `openerHadSpaceAfterLt` informational flag is preserved so NR can emit
+ * W-WHITESPACE-001 correctly.
+ *
+ * Same-file user state-types (state-constructor-def with `< Name attr(Type)>`)
+ * MUST NOT be normalized — those legitimately use the state path. We only
+ * normalize when the name matches a built-in scrml lifecycle keyword.
+ */
+const _MARKUP_FORM_LIFECYCLE = new Set([
+  "channel", "timer", "poll", "request", "errorBoundary", "errorboundary",
+]);
+const _STATE_FORM_LIFECYCLE = new Set([
+  "db", "schema", "engine", "machine",
+]);
+
 function buildBlock(block, filePath, parentContextKind, counter, errors, parentStateName = null) {
+  // Uniform-opener normalization: rewrite block.type when the BS classification
+  // is the wrong half of the markup/state split for this lifecycle keyword. The
+  // raw text and openerHadSpaceAfterLt are preserved verbatim so consumers can
+  // observe the original opener form.
+  if (block && block.name) {
+    if (block.type === "state" && _MARKUP_FORM_LIFECYCLE.has(block.name)) {
+      block = { ...block, type: "markup" };
+    } else if (block.type === "markup" && _STATE_FORM_LIFECYCLE.has(block.name)) {
+      block = { ...block, type: "state" };
+    }
+  }
+
   const span = fullSpan(block.span, filePath);
 
   switch (block.type) {
