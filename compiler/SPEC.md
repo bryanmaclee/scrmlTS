@@ -7124,6 +7124,56 @@ When the underlying ergonomic gap is fixed in W2, fewer cases will reach
 `E-COMPONENT-035` because more references will be expanded successfully.
 The invariant remains as a defense-in-depth check.
 
+#### 15.14.4 Test Discipline (W2 — M17 closure)
+
+**Added:** 2026-04-30 — F-COMPONENT-001 W2 architectural fix (deep-dive
+`docs/deep-dives/f-component-001-architectural-2026-04-30.md` §8.3).
+
+Tests covering CE SHALL be of two kinds:
+
+- **Unit tests** — construct synthetic `exportRegistry`, `fileASTMap`, and
+  (post-W2) `importGraph` fixtures. The fixture keys SHALL match the
+  production canonical-key convention (absolute filesystem path) when the
+  test exercises the cross-file resolution path. A legacy fallback is
+  retained for pre-W2 fixtures that synthesized arbitrary string keys, but
+  new tests SHALL NOT use this fallback.
+- **Integration tests** — drive the full CLI compilation surface
+  end-to-end (via `compileScrml` from `api.js` or the `scrml compile`
+  binary) and assert on the emitted JS / HTML / CSS artifact contents.
+
+The unit tests SHALL NOT use synthetic key-matching conventions that
+diverge from the production absolute-path keying without an explicit
+documented justification. Integration tests are the load-bearing
+mechanism that closes the M17 meta-pattern (test-scaffolding-masks-
+production); a CE change that passes unit tests but breaks integration
+tests is a regression of the M17-closure invariant and SHALL block merge.
+
+#### 15.14.5 Relationship to Cross-File Resolution (W2)
+
+**Added:** 2026-04-30 — F-COMPONENT-001 W2 architectural fix.
+
+When CE successfully resolves a cross-file component reference (per
+§21.7 + §21.6 import validation), no `isComponent: true` node should
+remain. `E-COMPONENT-035` SHOULD NOT fire for well-formed cross-file
+imports after W2.
+
+If `E-COMPONENT-035` fires post-W2, the cause is one of:
+
+- The component name is not exported by the imported file (E-IMPORT-004
+  should have fired earlier in MOD; E-COMPONENT-035 here is
+  defense-in-depth).
+- The imported file is not in the compilation set (E-IMPORT-006 should
+  have fired earlier; or `--no-gather` was passed and the file was not
+  manually included).
+- The component body uses a feature that `parseComponentDef` cannot
+  re-parse (e.g. nested PascalCase component refs in the body — Phase 1
+  limitation per `parseComponentDef` docstring).
+- A genuinely novel CE skip pattern (file a friction report; this is a
+  regression of W2's recursion fix).
+
+Adopters seeing `E-COMPONENT-035` should first verify the imported
+component name and source path; only then file a friction report.
+
 ---
 
 
@@ -10448,6 +10498,50 @@ the preprocessor pass. No pragma or special declaration is required.
 | E-IMPORT-002 | Circular import detected | Error |
 | E-IMPORT-003 | `import` inside a function body (not file top-level) | Error |
 | E-IMPORT-004 | Imported name not found in target file's exports | Error |
+| E-IMPORT-005 | Bare npm-style import specifier (must be `./`, `scrml:`, or `vendor:`) | Error |
+| E-IMPORT-006 | Import target file does not exist on disk | Error |
+| E-IMPORT-007 | Auto-gather closure exceeded sane-limit (5000 files) — W2 §21.7 | Error |
+
+### 21.7 CLI Import-Graph Traversal (Auto-Gather)
+
+**Added:** 2026-04-30 (S51) — F-COMPONENT-001 W2 architectural completion
+(deep-dive `docs/deep-dives/f-component-001-architectural-2026-04-30.md` §9.2).
+
+The CLI subcommands `scrml compile`, `scrml dev`, and (where applicable)
+`scrml build` SHALL gather files reachable from the user-passed entry
+file(s) via import statements before invoking the rest of the
+compilation pipeline. The gather algorithm is:
+
+1. The user-passed `inputFiles` (explicit `.scrml` files OR all `.scrml`
+   files in passed directories per `scanDirectory`) form the initial
+   set, resolved to absolute filesystem paths.
+2. For each not-yet-processed file in the set, scan the source for
+   `import ... from '<spec>'` / `from "<spec>"` statements.
+3. For relative specifiers (`./` or `../`) ending in `.scrml` (or
+   resolving to `.scrml` via the extension-less fallback), call
+   `module-resolver.resolveModulePath` to compute the absolute path.
+4. If the resolved path exists on disk and is not already in the set,
+   add it; recurse.
+5. Continue until no new files are added.
+6. Cap the closure at GATHER_LIMIT (5000 files); emit `E-IMPORT-007` if
+   exceeded.
+
+The traversal uses absolute filesystem paths as the canonical key; the
+same key is used by `fileASTMap`, `exportRegistry`, and `importGraph`
+(per §15.14.4 production keying convention).
+
+The CLI flag `--no-gather` SHALL disable this traversal for single-file
+invocations; with `--no-gather`, missing transitive imports fire
+`E-IMPORT-006` (existing) instead of being auto-resolved. Directory
+invocations are unaffected by `--no-gather` (their `scanDirectory`
+already provides the full set).
+
+`.js` imports SHALL NOT be traversed by auto-gather (they follow ES
+module semantics and are resolved by the bundler/runtime, not by scrml).
+Stdlib (`scrml:`) and vendor (`vendor:`) imports SHALL NOT be traversed
+either (they are resolved by `resolveModulePath` when the importing file
+is processed, but their *consumers* are not auto-discovered through the
+graph traversal).
 
 ---
 

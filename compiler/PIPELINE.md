@@ -605,6 +605,15 @@ MOD performs five steps in sequence:
   - The `fileASTMap` (a `Map<filePath, TABResult>`) is built from all TAB outputs before CE
     runs, so CE can look up cross-file component definitions. The map uses the pre-CE ASTs
     (CE consumes `ast.components`; the cross-file lookup must not use CE-mutated ASTs).
+  - **W2 (2026-04-30):** `runCE`/`runCEFile` accept an OPTIONAL `importGraph` parameter
+    (the `Map<filePath, ImportGraphNode>` from `moduleResult.importGraph`). When provided,
+    CE resolves `imp.source` to its canonical absolute filesystem path via
+    `importGraph.get(filePath).imports.find(e => e.source === imp.source).absSource` and
+    uses that absolute path as the lookup key for `fileASTMap` and `exportRegistry`. This
+    is the production path (mirrors the TS-pass pattern at api.js:626-660 and the LSP
+    workspace pattern). When `importGraph` is omitted, CE falls back to using `imp.source`
+    directly as the lookup key (legacy fallback for unit tests with synthetic fixtures).
+    See SPEC §15.14.4 (test discipline) + §21.7 (auto-gather) + W2 deep-dive §6 (B2-b).
 - Source: Tokenizer + AST Builder (TAB) and Module Resolver (MOD, Stage 3.1)
 
 **Output contract:**
@@ -623,7 +632,13 @@ MOD performs five steps in sequence:
     unchanged. All spans are preserved.
   - Cross-file component references: if the file imports a PascalCase name from another file
     (registered as `isComponent: true` in `exportRegistry`), CE looks up the component
-    definition in `fileASTMap` and expands it. If the target file is not in `fileASTMap`,
+    definition in `fileASTMap` and expands it. The lookup uses the canonical absolute-path
+    key (when `importGraph` is provided) or the raw `imp.source` (legacy fallback).
+    The component-def is sourced from EITHER `targetTab.ast.components` (for direct
+    `${ const Name = <markup/> }` declarations) OR `targetTab.ast.exports` (for
+    `${ export const Name = <markup/> }` — W2 fix; the TAB pass classifies these as
+    `export-decl` and the markup body is recovered by stripping the `export const NAME =`
+    prefix from the export-decl `raw` field). If the target file is not in `fileASTMap`,
     E-COMPONENT-020 is emitted.
 - Consumer: protect= Analyzer (PA, Stage 4) and Route Inferrer (RI, Stage 5)
 
