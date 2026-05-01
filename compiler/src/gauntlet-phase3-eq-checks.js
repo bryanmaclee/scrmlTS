@@ -18,9 +18,22 @@
  *   E-EQ-002     — `== not` / `!= not`. Use `is not` / `is not not`. (§45)
  *                  Covers if-condition paths that bypass collectExpr.
  *
- *   E-SYNTAX-042 — `== null` / `!= null` / `== undefined` / `!= undefined`.
- *                  `null` and `undefined` are not scrml tokens — use
- *                  `is not` / `is some`. (§45)
+ *   E-SYNTAX-042 — `null` / `undefined` keywords used in scrml source.
+ *                  Per §42.7, these are not scrml tokens — use `not` for absence.
+ *                  Three sub-shapes covered:
+ *                    a) Equality operand:
+ *                       `x == null`, `x != null`, `x == undefined`, `x != undefined`
+ *                       — emitted by `checkEqNode`.
+ *                    b) Bare value-position literal (W3.1, F-NULL-003):
+ *                       `@x = null`, `return null`, `[null, ...]`, `{ k: null }`,
+ *                       `cond ? a : null`, etc. — emitted by `checkBareNullLit`
+ *                       via `forEachLitNull` walker. Excludes direct operands
+ *                       of binary == / != / === / !== (those go through (a)).
+ *                    c) String-template-interp inside attribute values (W3.2,
+ *                       F-NULL-004): `<div class="${@x == null ? a : b}">`.
+ *                       The `${...}` segments are extracted from string-literal
+ *                       attribute values and re-parsed; (a) + (b) checks then
+ *                       run on the resulting exprNode.
  *
  *   E-EQ-001     — `==` / `!=` between two primitive types that are not the
  *                  same (e.g. `number == bool`). scrml never coerces across
@@ -38,6 +51,11 @@
  * span, severity }` — and are collected into the compiler's global error
  * stream by the api.js driver.
  */
+
+// W3.2 (string-template-interp null sweep): re-parse `${...}` segments inside
+// markup attribute string-literal values so equality / bare-null detectors
+// see the embedded expressions. Closes F-NULL-004.
+import { parseExprToNode } from "./expression-parser.ts";
 
 // ---------------------------------------------------------------------------
 // Error class — matches TABError shape for uniform collection in api.js
@@ -327,6 +345,85 @@ function forEachEqualityBinary(node, onEq) {
   }
 }
 
+/**
+ * W3.1 — bare-null-literal walker.
+ *
+ * Visits every `lit{ litType: "null" | "undefined" }` (and `ident{ name:
+ * "null" | "undefined" }`) reachable from the given expression tree, calling
+ * `onLitNull` for each. Closes F-NULL-003: bare `null` / `undefined` literals
+ * in value position (declaration init, return expression, object property
+ * value, array element, ternary branch, etc.) silently passed the existing
+ * detector, which only inspected operands of binary `==`/`!=` comparisons.
+ *
+ * To avoid double-emit with `checkEqNode`, this walker SKIPS lit-null /
+ * ident-null nodes that are direct `left` or `right` operands of a binary
+ * `==` / `!=` / `===` / `!==`. Those positions are already handled by
+ * `checkEqNode` via E-SYNTAX-042 (sub-shape (a) in the file header).
+ *
+ * Subtree-suppression rationale: the suppression applies only to the DIRECT
+ * lit-null operand of a binary-eq. A null buried deeper in the eq's operand
+ * (e.g. `f(null) == 1`) is still a value-position use of `null` and IS
+ * flagged here.
+ *
+ * Per §42.7 (W3 amendment): the rejection of `null` / `undefined` SHALL
+ * apply uniformly across **every** scrml source position. W3 closed the
+ * comparison-operand path; W3.1 closes the bare value-position path.
+ *
+ * @param {object|null|undefined} node
+ * @param {(litNode: object) => void} onLitNull — called for every bare null/undef
+ */
+function forEachLitNull(node, onLitNull) {
+  if (!node || typeof node !== "object") return;
+
+  // Bare `null` / `undefined` literal — fire and stop (it's a leaf).
+  if (node.kind === "lit" && (node.litType === "null" || node.litType === "undefined")) {
+    onLitNull(node);
+    return;
+  }
+
+  // Bare `null` / `undefined` keyword surfaced as an identifier (the JS
+  // parser may emit either; mirrors classifyOperand's treatment).
+  if (node.kind === "ident" && (node.name === "null" || node.name === "undefined")) {
+    onLitNull(node);
+    return;
+  }
+
+  // Detect binary equality / is-* operators at this node — their direct
+  // lit-null / ident-null operands are SYNTHETIC (the expression-parser
+  // generates `right: lit{null}` for `is not` / `is some` / `is not not`)
+  // OR are handled by checkEqNode (for == / != / === / !==). Either way,
+  // they must be skipped here to avoid spurious E-SYNTAX-042 emits on
+  // perfectly valid scrml source like `if (x is not)`.
+  const isEq = node.kind === "binary" &&
+    (node.op === "==" || node.op === "!=" || node.op === "===" || node.op === "!==");
+  const isAbsenceOp = node.kind === "binary" &&
+    (node.op === "is-not" || node.op === "is-some" || node.op === "is-not-not");
+
+  for (const [key, child] of Object.entries(node)) {
+    if (SKIP_KEYS.has(key)) continue;
+    // On `kind: "lit"`, the `value` field is a primitive scalar (skip).
+    if (key === "value" && node.kind === "lit") continue;
+
+    // Skip direct lit-null / ident-null operands of binary-eq or absence
+    // ops. (eq: handled by checkEqNode. absence: synthesized by parser —
+    // not real source tokens.)
+    const isDirectSuppressedOperand =
+      (isEq || isAbsenceOp) && (key === "left" || key === "right") &&
+      child && typeof child === "object" &&
+      ((child.kind === "lit" && (child.litType === "null" || child.litType === "undefined")) ||
+       (child.kind === "ident" && (child.name === "null" || child.name === "undefined")));
+    if (isDirectSuppressedOperand) continue;
+
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (item && typeof item === "object") forEachLitNull(item, onLitNull);
+      }
+    } else if (child && typeof child === "object") {
+      forEachLitNull(child, onLitNull);
+    }
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // Operand classification — resolve an operand to its type info.
@@ -488,7 +585,92 @@ function checkEqNode(eqNode, bindings, structFnSet, fallbackSpan, filePath, erro
 }
 
 // ---------------------------------------------------------------------------
-// AST walker — dispatch checkEqNode over every expression site in the AST.
+// W3.1 bare-null-literal emit + W3.2 string-template-interp segment extractor
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit E-SYNTAX-042 for a bare lit-null / lit-undefined / ident-null /
+ * ident-undefined node detected in value position.
+ *
+ * Closes F-NULL-003 (W3.1): `null` / `undefined` SHALL NOT appear in any
+ * scrml source position, not just as comparison operands (§42.7).
+ *
+ * @param {object} litNode
+ * @param {object} fallbackSpan — AST-node span (preferred for line/col)
+ * @param {string} filePath
+ * @param {Array} errors
+ */
+function checkBareNullLit(litNode, fallbackSpan, filePath, errors) {
+  // Identify the offending token text — `null`, `undefined`, etc.
+  let tok;
+  if (litNode.kind === "lit") {
+    tok = litNode.litType === "null" ? "null" : "undefined";
+  } else {
+    tok = litNode.name; // ident
+  }
+  const span = spanFromExprNode(litNode, fallbackSpan, filePath);
+  errors.push(new GauntletPhase3Error(
+    "E-SYNTAX-042",
+    `E-SYNTAX-042: \`${tok}\` is not a scrml token — scrml uses \`not\` for absence (§42.7). ` +
+    `In value position, replace \`${tok}\` with \`not\` (e.g. \`@x = not\`, \`return not\`, ` +
+    `\`{ field: not }\`). For absence checks, use \`x is not\` / \`x is some\`.`,
+    span,
+  ));
+}
+
+/**
+ * Extract `${...}` interpolation segments from a string-literal attribute
+ * value's raw text. Returns an array of `{ text, offset }` where `text` is
+ * the inner expression source (without the surrounding `${` and `}`) and
+ * `offset` is the start byte offset of `text` within `raw` (so callers can
+ * translate parse errors back to source positions if desired).
+ *
+ * Closes the parsing half of F-NULL-004 (W3.2). The tactical option (b) per
+ * dispatch brief: localized re-parse of `${...}` segments inside attribute
+ * string-literal values, rather than upgrading the AST to a structured
+ * alternation of literal-text + expression nodes.
+ *
+ * Brace nesting: handles nested braces inside an interpolation (e.g.
+ * `${{ a: 1 }}`) by counting `{` / `}` after the opening `${`. Strings and
+ * template literals inside the interpolation are NOT specially handled —
+ * the segments fall back to the parser, which will correctly parse them.
+ *
+ * @param {string} raw — full string-literal value (no surrounding quotes)
+ * @returns {Array<{ text: string, offset: number }>}
+ */
+function extractTemplateInterpSegments(raw) {
+  if (typeof raw !== "string" || !raw) return [];
+  const out = [];
+  let i = 0;
+  while (i < raw.length) {
+    const idx = raw.indexOf("${", i);
+    if (idx === -1) break;
+    // Skip escaped `\${` — uncommon in attributes but defensive.
+    if (idx > 0 && raw[idx - 1] === "\\") {
+      i = idx + 2;
+      continue;
+    }
+    const inner = idx + 2;
+    let depth = 1;
+    let j = inner;
+    while (j < raw.length && depth > 0) {
+      const ch = raw[j];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      if (depth === 0) break;
+      j++;
+    }
+    if (depth !== 0) break; // unbalanced — give up
+    out.push({ text: raw.slice(inner, j), offset: inner });
+    i = j + 1;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// AST walker — dispatch checkEqNode + checkBareNullLit over every expression
+// site in the AST. Also re-parses `${...}` segments inside string-literal
+// attribute values (W3.2) so embedded expressions are not silently bypassed.
 // ---------------------------------------------------------------------------
 
 function walkAst(ast, bindings, structFnSet, filePath, errors) {
@@ -497,16 +679,22 @@ function walkAst(ast, bindings, structFnSet, filePath, errors) {
 
   function inspectExprNode(exprNode, fallbackSpan) {
     if (!exprNode) return;
+    // Sub-shape (a): equality-operand null + cross-type / asIs / fn-struct.
     forEachEqualityBinary(exprNode, (eqNode) => {
       checkEqNode(eqNode, bindings, structFnSet, fallbackSpan, filePath, errors);
+    });
+    // Sub-shape (b): bare-null literal in value position (W3.1, F-NULL-003).
+    forEachLitNull(exprNode, (litNode) => {
+      checkBareNullLit(litNode, fallbackSpan, filePath, errors);
     });
   }
 
   /**
    * Inspect every exprNode embedded in a markup-node attribute. Closes the
-   * F-NULL-002 silent-pass gap: previously markup `attrs[*].value.exprNode`
-   * was never visited, so `<div if=(@x != null)>` and similar attribute
-   * expressions bypassed GCP3.
+   * F-NULL-002 silent-pass gap (W3) and the F-NULL-004 string-literal gap
+   * (W3.2): previously markup `attrs[*].value.exprNode` was never visited,
+   * AND attributes with `kind: "string-literal"` containing `${...}`
+   * interpolation were preserved as raw text and never parsed.
    *
    * Per ast-builder.js, an attribute `value` may carry expressions in:
    *   - `kind: "expr"`         — `if=(...)` or `={...}` brace expressions
@@ -516,10 +704,10 @@ function walkAst(ast, bindings, structFnSet, filePath, errors) {
    *   - `kind: "call-ref"`     — `onclick=fn(arg, arg)`
    *                              → `value.argExprNodes` (array)
    *   - `kind: "props-block"`  — `props={...}` typed props (no exprNode)
-   *   - `kind: "string-literal"` — plain `class="..."` (no exprNode; any
-   *                                template `${...}` survives as raw text
-   *                                and is NOT covered by GCP3 — see W3.2
-   *                                follow-up dispatch)
+   *   - `kind: "string-literal"` — `class="literal text ${expr} more"`
+   *                                W3.2: extract `${...}` segments and
+   *                                re-parse each as an expression for the
+   *                                detector to inspect.
    *   - `kind: "absent"`       — boolean attr presence (no exprNode)
    *
    * The attribute's own `value.span` is preferred as the fallback for the
@@ -535,6 +723,30 @@ function walkAst(ast, bindings, structFnSet, filePath, errors) {
       if (v.exprNode) inspectExprNode(v.exprNode, fb);
       if (Array.isArray(v.argExprNodes)) {
         for (const arg of v.argExprNodes) inspectExprNode(arg, fb);
+      }
+      // W3.2 — string-literal attribute value with `${...}` interpolations.
+      // The raw value text is preserved unparsed; extract each segment,
+      // parse it as an expression, and inspect via the same path as a
+      // proper exprNode would take. Closes F-NULL-004.
+      if (v.kind === "string-literal" && typeof v.value === "string") {
+        const segments = extractTemplateInterpSegments(v.value);
+        for (const seg of segments) {
+          if (!seg.text || !seg.text.trim()) continue;
+          let segExpr = null;
+          try {
+            // parseExprToNode wants an offset; we don't have a precise
+            // source offset for the segment (the v.span covers the whole
+            // attribute value), so pass 0 and let the diagnostic fall back
+            // to the attribute span via spanFromExprNode's fallback path.
+            segExpr = parseExprToNode(seg.text, filePath, 0);
+          } catch (_e) {
+            // Parse failure — silently skip; downstream stages will report
+            // any real syntax error in the attribute. We just want to look
+            // for null tokens here.
+            continue;
+          }
+          if (segExpr) inspectExprNode(segExpr, fb);
+        }
       }
     }
   }

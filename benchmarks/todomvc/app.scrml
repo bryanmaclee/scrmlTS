@@ -14,7 +14,7 @@
         @todos = []
         @newTodoText = ""
         @filter = "all"
-        @editingId = null
+        @editingId = not
         @editText = ""
         @nextId = 1
 
@@ -99,12 +99,12 @@
             } else {
                 deleteTodo(id)
             }
-            @editingId = null
+            @editingId = not
             @editText = ""
         }
 
         function cancelEdit() {
-            @editingId = null
+            @editingId = not
             @editText = ""
         }
 

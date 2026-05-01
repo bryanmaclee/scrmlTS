@@ -91,7 +91,7 @@ beforeAll(() => {
 \${
   @result = 0
   function setup() {
-    const obj = { cb: null }
+    const obj = { cb: not }
     obj.cb = function() {
       return 42
     }
@@ -109,7 +109,7 @@ beforeAll(() => {
   @a = 0
   @b = 0
   function setup() {
-    const target = { handler: null }
+    const target = { handler: not }
     target.handler = function() {
       @a = 1
       @b = 2
@@ -126,7 +126,7 @@ beforeAll(() => {
 \${
   @v = 0
   function setup() {
-    const arr = [null]
+    const arr = [not]
     arr[0] = function() {
       @v = 7
     }
