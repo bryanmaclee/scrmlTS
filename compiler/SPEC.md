@@ -15570,6 +15570,76 @@ E-CG-015: conflicting output paths — `proj/pages/a/home.scrml` and `proj/pages
 
 The first write succeeds; the second is refused.
 
+### 47.10 Relative Import Path Rewrites
+
+**Added:** 2026-04-30 (S51). Resolves F-COMPILE-002 (`./*.scrml` imports emitted verbatim, breaking Bun runtime resolution) and the related defect in `rewriteRelativeImportPaths` for compiled-output extensions.
+
+When emitting JavaScript for a `.scrml` source, codegen MUST rewrite relative
+`./` and `../` import specifiers that target other `.scrml` source files so
+they resolve to the corresponding compiled output artefact in the dist tree.
+
+#### 47.10.1 Per-target rewrite
+
+For each `import { ... } from '<rel>'` (and `import x from '<rel>'`) where
+`<rel>` is a relative specifier ending in `.scrml`:
+
+- In **server.js** emit, the specifier SHALL be rewritten to `<rel without ".scrml"> + ".server.js"`.
+- In **client.js** emit, the specifier SHALL be rewritten to `<rel without ".scrml"> + ".client.js"`.
+- In **library.js** emit, the specifier rewrite is OUT-OF-SCOPE for §47.10 (library imports are extracted from `await import()` source text in `${...}` blocks; users author those paths directly).
+
+#### 47.10.2 Output-tree relative-path preservation
+
+Per §47.9, scrml preserves the source-tree relative structure in the output
+tree. Therefore an output artefact at `<dist>/X/foo.server.js` and its sibling
+`<dist>/X/bar.server.js` (compiled from `<src>/X/foo.scrml` and `<src>/X/bar.scrml`)
+have the same relative position in the output tree as their sources had in the
+source tree. The relative specifier `./bar.server.js` in `foo.server.js` is
+therefore correct as-emitted; relocation is unnecessary.
+
+The post-emit `rewriteRelativeImportPaths` pass (which relocates `.js` sidecar
+imports from source-tree to output-tree position) SHALL NOT modify imports
+ending in `.server.js` or `.client.js` — those are scrml output artefacts
+governed by §47.10.1, NOT user-authored sidecar JS files. Touching them
+would mis-relocate the path.
+
+#### 47.10.3 Normative statements
+
+- Codegen SHALL rewrite `.scrml` extensions on relative imports per §47.10.1 at the per-emit-target site (i.e. inside `emit-server.ts` and `emit-client.ts`), NOT in the post-emit relocation pass.
+- The post-emit relocation pass SHALL skip `.server.js` and `.client.js` extensions on relative imports; it SHALL continue to relocate `.js` extensions for source-tree sidecar files.
+- Non-relative specifiers (`scrml:NAME`, `vendor:NAME`, bare names) are out-of-scope for §47.10 and are governed by §41.4 + §47.11 (stdlib resolution) + §47.12 (server entry generation).
+
+### 47.11 Stdlib Bundling
+
+**Added:** 2026-04-29 (S50/W0b). Cross-references `compiler/runtime/stdlib/` shim modules. Implementation in `bundleStdlibForRun` + `rewriteStdlibImports` (api.js).
+
+`scrml:NAME` import specifiers are rewritten at compile time to a path
+under `<outputDir>/_scrml/NAME.js`, where the compiler bundles a hand-written
+ES-module shim from `compiler/runtime/stdlib/NAME.js`. Names with no shim
+are left as-is in the emitted JS — they will fail loudly at runtime, which
+surfaces the gap rather than silently degrading. See OQ-2 deep-dive for the
+full Shape A vs Shape B analysis.
+
+### 47.12 Server Entry Generation — Name De-duplication
+
+**Added:** 2026-04-30 (S51). Resolves F-BUILD-002 (duplicate `_scrml_session_destroy` import → SyntaxError).
+
+`scrml build` produces a single `<outputDir>/_server.js` entry that imports
+named exports from each compiled `<page>.server.js` file in the dist tree
+and registers them in a routes registry. When the same exported name appears
+in two or more compiled server.js files, the entry SHALL import that name
+from at most one source — first-importer wins.
+
+This rule applies to `_scrml_session_destroy` (boilerplate emitted by every
+auth-middleware page; identical shape across files), to `_scrml_ws_handlers`
+when channel handlers are merged, and to any other compiler-generated name
+that may be emitted across multiple files. Per-page unique names
+(`_scrml_route_<path-hash>`, etc.) are unaffected since they appear in
+exactly one server.js.
+
+The routes registry array SHALL also de-duplicate by name — registering the
+same route binding multiple times is correctness-equivalent (same path /
+method / handler) but wasteful.
+
 ---
 
 ## 48. The `fn` Keyword — Pure Functions

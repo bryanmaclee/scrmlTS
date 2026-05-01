@@ -2128,47 +2128,78 @@ produced.
 ---
 
 
-## F-COMPILE-002 — codegen does not rewrite user `./*.scrml` imports to compiled-output extension (P0) — surfaced 2026-04-30 (S51, W0b smoke-test)
+## F-COMPILE-002 — codegen does not rewrite user `./*.scrml` imports to compiled-output extension (P0) — surfaced 2026-04-30 (S51, W0b smoke-test) — RESOLVED 2026-04-30 (paired F-BUILD-002 dispatch)
 
-Surfaced as a pre-existing codegen defect during W0b's OQ-2 smoke-test
-(verified reproducible on main pre-W0a — NOT caused by W0a or W0b).
+**Status: RESOLVED.** Paired dispatch with F-BUILD-002. Branch
+`worktree-agent-aa8c40c8744a6c38d`. Two-layer fix:
 
-Emitted JS imports user-authored `.scrml` files by source extension:
-`import { rolePath } from "./models/auth.scrml"` instead of rewriting
-to the compiled output extension (`./models/auth.server.js` /
-`./models/auth.js`). The existing `rewriteRelativeImportPaths` only
-handles `.js` per its docstring; codegen never rewrites `.scrml`
-extensions on relative imports.
+1. **`compiler/src/codegen/emit-server.ts:111-127`** now rewrites local
+   `.scrml` imports to `.server.js` in-place during emit, mirroring the
+   pre-existing `emit-client.ts` pattern. After this fix, server-side
+   `import { rolePath } from './models/auth.scrml'` emits as
+   `from "./models/auth.server.js"` directly.
 
-Effect: any emitted file that imports another user `.scrml` file
-fails at `await import()` time in Bun with the source extension being
-unrecognized. **Blocks dispatch-app E2E runtime alongside
-F-COMPONENT-001.**
+2. **`compiler/src/api.js:283-308` (`rewriteRelativeImportPaths`)** now
+   skips `.server.js` and `.client.js` paths in its post-emit relocation
+   pass. These are scrml output-tree artefacts (siblings of the importing
+   file in the dist tree per §47.9 tree-preservation), NOT source-tree
+   sidecar files; relocating them mis-pointed the path back into the source
+   tree where the compiled artefact does not exist. `.js` sidecar imports
+   continue to be relocated as before (regression coverage in
+   `tests/unit/giti-009-import-rewrite.test.js` — 16/16 pass).
 
-Repro: `dist/app.server.js` (and similar) contain raw `from
-"./models/auth.scrml"` after build. Bun rejects the import.
+**SPEC §47.10 added:** Relative Import Path Rewrites — codifies the per-emit-target
+rewrite contract and the post-emit relocation skip for `.server.js` /
+`.client.js`. §47.11 documents stdlib bundling (W0b). §47.12 documents
+F-BUILD-002 server-entry deduplication.
 
-Held for separate triage per W0b dispatch boundary.
+**Tests added** (`compiler/tests/integration/f-compile-002-scrml-import-rewrite.test.js`,
+8 tests): server emit produces `.server.js` import; client emit retains
+`.client.js` rewrite (regression); rewriter skips compiled-output extensions;
+`.js` sidecar relocation regression; default-import rewrite; emitted server.js
+contains no relative `.scrml` lines.
+
+**Note** (out-of-scope of F-COMPILE-002): pure-helper `.scrml` files (e.g.
+the dispatch app's `models/auth.scrml`) currently compile to a near-empty
+`.client.js` and no `.server.js` — the imports are EXTENSION-rewritten
+correctly by F-COMPILE-002, but the IMPORTED FILE may still not provide
+the named exports at runtime. That's a separate cross-file pure-helper
+emission bug (visible in the canonical `examples/22-multifile/` test where
+`types.client.js` and `components.client.js` are also empty), to be filed
+separately.
 
 ---
 
-## F-BUILD-002 — duplicate `_scrml_session_destroy` import per server.js → SyntaxError on load (P0) — surfaced 2026-04-30 (S51, W0a smoke-test)
+## F-BUILD-002 — duplicate `_scrml_session_destroy` import per server.js → SyntaxError on load (P0) — surfaced 2026-04-30 (S51, W0a smoke-test) — RESOLVED 2026-04-30 (paired F-COMPILE-002 dispatch)
 
-`generateServerEntry` emits
-`import { _scrml_session_destroy } from "./X.server.js";` once per
-server.js module, but `_scrml_session_destroy` is exported by EVERY
-server.js with auth middleware. Multiple imports of the same name
-into a single entry module → JavaScript SyntaxError on load.
+**Status: RESOLVED.** Paired dispatch with F-COMPILE-002. Branch
+`worktree-agent-aa8c40c8744a6c38d`. Single-fix in
+`compiler/src/commands/build.js`:
 
-Confirmed reproducible on main **pre-W0a** (same bug, fewer files).
-F-COMPILE-001's tree-preservation makes it more visible (21 affected
-files vs 17 pre-fix), but the bug predates both W0a and W0b.
+`generateServerEntry` now tracks a `Set<string>` of already-imported names
+across modules. For each module, names already seen are filtered from its
+import line — first-importer wins. If a module's entire export set has
+already been imported, no import line is emitted for that module (no
+syntactically-empty `import {}` lines).
 
-Likely fix: `import * as _m1` aliasing per imported module, OR
-de-duplicated runtime exports (single canonical
-`_scrml_session_destroy` re-exported once at the entry root).
+Chose option (d) "skip the duplicate-emit" over (a) namespace imports per
+the dispatch's stated default — the imported binding is identical-shape
+across files (compiler-generated boilerplate), so no per-module disambiguation
+is needed. `_scrml_session_destroy` registers a single endpoint
+(`/_scrml/session/destroy` POST); only one binding is needed.
 
-Held for separate triage per W0a dispatch boundary.
+The routes registry array (`const routes = [...]`) is also de-duplicated;
+registering the same route binding multiple times is correctness-equivalent
+(same path / method / handler) but wasteful.
+
+**SPEC §47.12 added:** Server Entry Generation — Name De-duplication —
+codifies the first-importer-wins contract and the routes-registry dedupe.
+
+**Tests added** (`compiler/tests/integration/f-build-002-server-entry-dedup.test.js`,
+7 tests): two modules with shared name → one import line; first-importer
+wins; entry passes `node --check`; routes registry de-duplicates; WS handler
+names also dedupe; no empty `import {}` for fully-duplicated modules;
+disjoint-name regression coverage.
 
 ---
 
