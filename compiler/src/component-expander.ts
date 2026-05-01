@@ -145,6 +145,36 @@ interface TABFileRecord {
 /** Map of file path → TAB output record. */
 type FileASTMap = Map<string, TABFileRecord>;
 
+/**
+ * A single import entry produced by `module-resolver.buildImportGraph`.
+ * `absSource` is the resolved absolute filesystem path — the canonical key
+ * used by `fileASTMap` and `exportRegistry`. `source` is preserved for
+ * span-aware diagnostics. See SPEC §15.14.4 + §21.7 (W2).
+ */
+interface ImportGraphEntry {
+  names: string[];
+  source: string;
+  absSource: string;
+  isDefault?: boolean;
+  span?: unknown;
+}
+
+/** Per-file import-graph node from `module-resolver.buildImportGraph`. */
+interface ImportGraphNode {
+  imports: ImportGraphEntry[];
+}
+
+/**
+ * Import graph keyed by absolute file path, as produced by
+ * `module-resolver.resolveModules` (`moduleResult.importGraph`).
+ *
+ * When provided to CE, lookups into `exportRegistry` and `fileASTMap` use
+ * `entry.absSource` (canonical absolute-path keying). This mirrors the
+ * cross-file pattern at `api.js:626-660` (TS pass) and
+ * `lsp/workspace.js` (workspace bootstrap). See W2 deep-dive §6 (B2-b).
+ */
+type ImportGraph = Map<string, ImportGraphNode>;
+
 // ---------------------------------------------------------------------------
 // CE stage input/output shapes
 // ---------------------------------------------------------------------------
@@ -168,6 +198,15 @@ export interface CEInput {
   files: CEFileInput[];
   exportRegistry?: ExportRegistry;
   fileASTMap?: FileASTMap;
+  /**
+   * Per-file import graph as produced by `module-resolver.resolveModules`.
+   * When provided, CE uses `entry.absSource` (canonical absolute-path
+   * keying) for cross-file `exportRegistry` and `fileASTMap` lookups.
+   * If omitted (legacy callers / unit-test synthesis), CE falls back to
+   * `imp.source` keying for backward compatibility (M17 fixture path).
+   * See SPEC §15.14.4 + §21.7 + W2 deep-dive §6.
+   */
+  importGraph?: ImportGraph;
 }
 
 /** Output shape for the multi-file pipeline entry point `runCE`. */
@@ -1339,6 +1378,25 @@ function walkLogicBody(
             changed = true;
             continue;
           }
+        } else if (liftMarkup && liftMarkup.kind === "markup") {
+          // F1 (W2): the lift target is a wrapper element (e.g. <li>) — walk
+          // its subtree so any nested component references inside the wrapper
+          // get expanded. Pre-W2 the wrapper case fell through with the
+          // residual isComponent: true child intact, then surfaced as
+          // VP-2 E-COMPONENT-035 post-W1 (silent phantom DOM pre-W1).
+          const newChildren = walkAndExpand(
+            liftMarkup.children ?? [],
+            registry, filePath, counter, ceErrors
+          );
+          const childrenChanged = newChildren.length !== (liftMarkup.children ?? []).length ||
+            newChildren.some((c, i) => c !== (liftMarkup.children ?? [])[i]);
+          if (childrenChanged) {
+            const newLiftMarkup = { ...liftMarkup, children: newChildren };
+            const newNode = { ...n, expr: { kind: "markup", node: newLiftMarkup } };
+            result.push(newNode);
+            changed = true;
+            continue;
+          }
         }
       }
       // When lift target is a raw string expression (tags inside logic blocks are
@@ -1447,7 +1505,39 @@ function hasAnyComponentRefs(nodes: ASTNode[]): boolean {
 }
 
 /**
+ * Recursively walk a markup-shaped node tree, returning true when any
+ * descendant has `isComponent: true`. Used by hasAnyComponentRefsInLogic to
+ * descend into the lift target subtree (W2 F1 fix).
+ */
+function markupTreeHasComponentRef(markupNode: unknown): boolean {
+  if (!markupNode || typeof markupNode !== "object") return false;
+  const m = markupNode as Record<string, unknown>;
+  if (m.isComponent === true) return true;
+  if (Array.isArray(m.children)) {
+    for (const child of m.children as unknown[]) {
+      if (!child || typeof child !== "object") continue;
+      const c = child as Record<string, unknown>;
+      if (c.kind === "markup" || c.kind === "state") {
+        if (markupTreeHasComponentRef(child)) return true;
+      } else if (c.kind === "logic" && Array.isArray(c.body)) {
+        if (hasAnyComponentRefsInLogic(c.body as unknown[])) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Check whether any logic body node tree contains a component reference.
+ *
+ * F1 fix (W2): the lift-expr branch must recurse into the entire markup
+ * subtree of the lift target — not just check the immediate liftMarkup.
+ * Otherwise wrapped patterns (e.g. `lift <li><Comp/></li>`) silently skip
+ * CE because the lift target is `<li>` (not a component) but the nested
+ * `<Comp/>` IS a component reference. Pre-W2 this surfaced as silent
+ * phantom DOM emission (`document.createElement("Comp")`); post-W1 it
+ * surfaces as E-COMPONENT-035 from VP-2; post-W2 the gate fires and CE
+ * expands the cross-file component correctly.
  */
 function hasAnyComponentRefsInLogic(bodyNodes: unknown[]): boolean {
   for (const node of bodyNodes) {
@@ -1456,9 +1546,15 @@ function hasAnyComponentRefsInLogic(bodyNodes: unknown[]): boolean {
     if (n.kind === "lift-expr" && n.expr && typeof n.expr === "object") {
       const expr = n.expr as Record<string, unknown>;
       if (expr.kind === "markup") {
-        const liftMarkup = expr.node as Record<string, unknown>;
-        if (liftMarkup && liftMarkup.isComponent === true) return true;
+        // F1: walk the entire markup subtree, not just the root node
+        if (markupTreeHasComponentRef(expr.node)) return true;
       }
+    }
+    // component-def bodies live inside logic blocks; walk their nodes
+    if (n.kind === "component-def" && Array.isArray(n.nodes)) {
+      // Component DEFINITIONS are consumed by CE — they aren't refs themselves.
+      // We do NOT need to recurse here because the registry build pass
+      // independently picks them up. Left as a no-op for clarity.
     }
     for (const key of ["body", "consequent", "alternate"]) {
       if (Array.isArray(n[key])) {
@@ -1474,12 +1570,50 @@ function hasAnyComponentRefsInLogic(bodyNodes: unknown[]): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve `imp.source` to its canonical lookup key.
+ *
+ * When `importGraph` is provided (production path post-W2), the lookup uses
+ * `entry.absSource` — the absolute filesystem path produced by
+ * `module-resolver.buildImportGraph`. This is the same key used by
+ * `fileASTMap` and `exportRegistry` in production.
+ *
+ * When `importGraph` is NOT provided (unit tests that synthesize their own
+ * fixtures with arbitrary string keys), the function falls back to the raw
+ * `imp.source` so legacy fixtures continue to work. See SPEC §15.14.4
+ * for the production-keying invariant.
+ */
+function lookupKey(
+  filePath: string,
+  imp: ImportDeclNode,
+  importGraph?: ImportGraph
+): string {
+  if (importGraph) {
+    const node = importGraph.get(filePath);
+    if (node && Array.isArray(node.imports)) {
+      const entry = node.imports.find(
+        (e) => e.source === imp.source
+      );
+      if (entry && entry.absSource) return entry.absSource;
+    }
+  }
+  // Fallback: raw source string (legacy / synthetic-fixture path)
+  return imp.source as string;
+}
+
+/**
  * Run CE on a single TAB output record.
+ *
+ * `importGraph` (W2): when present, cross-file lookups resolve `imp.source`
+ * to its absolute path via `module-resolver.buildImportGraph` output; the
+ * same key is then used to index `exportRegistry` and `fileASTMap`. This
+ * matches the canonical-key contract from SPEC §15.14.4 + §21.7 and mirrors
+ * the TS-pass pattern at `api.js:626-660`.
  */
 export function runCEFile(
   tabOutput: CEFileInput,
   exportRegistry?: ExportRegistry,
-  fileASTMap?: FileASTMap
+  fileASTMap?: FileASTMap,
+  importGraph?: ImportGraph
 ): CEFileOutput {
   const { filePath, ast, errors: _tabErrors } = tabOutput;
 
@@ -1499,7 +1633,8 @@ export function runCEFile(
   const hasImportedComponents = exportRegistry && fileASTMap &&
     (ast.imports ?? []).some((imp: ImportDeclNode) => {
       const importExt = imp as ImportWithSpecifiers;
-      const targetExports = exportRegistry.get(imp.source as string);
+      const key = lookupKey(filePath, imp, importGraph);
+      const targetExports = exportRegistry.get(key);
       if (!targetExports) return false;
       // Normalize: AST imports use imp.names (string[]), but some paths may use
       // imp.specifiers ({imported, local}[]). Handle both shapes.
@@ -1517,14 +1652,43 @@ export function runCEFile(
   const registry = buildComponentRegistry(componentDefs, filePath, ceErrors);
 
   // Phase 2: add imported components to the registry from cross-file sources
+  //
+  // The exporting file's component-def can live in one of two shapes (W2):
+  //   (a) Same-file form — `${ const Name = <markup/> }` — TAB classifies as
+  //       `component-def` and stores in `ast.components`.
+  //   (b) Cross-file export form — `${ export const Name = <markup/> }` — TAB
+  //       classifies as `export-decl` only; the markup body lives inside the
+  //       export-decl `raw` string (e.g. `"export const Name = < markup / >"`).
+  //       `ast.components` is EMPTY for this file because the component-def
+  //       classifier in collectComponents (ast-builder) doesn't peer into
+  //       export-decls.
+  //
+  // Pre-W2, CE only checked (a). The unit-test fixtures in
+  // `tests/unit/cross-file-components.test.js` synthesized `ast.components`
+  // entries directly, masking this gap (the M17 meta-pattern). Production
+  // exports landed in (b), CE found nothing in `ast.components`, and the
+  // lookup silently failed — surfaced post-W1 as VP-2 E-COMPONENT-035.
+  //
+  // W2 fix: scan BOTH `ast.components` (path a) AND `ast.exports` (path b).
+  // For path-b matches, synthesize an ExtendedComponentDefNode by stripping
+  // the `export const NAME =` prefix from the export-decl raw to recover the
+  // markup body.
   if (exportRegistry && fileASTMap) {
     for (const imp of (ast.imports ?? [])) {
       const importExt = imp as ImportWithSpecifiers;
-      const targetExports = exportRegistry.get(imp.source as string);
+      const key = lookupKey(filePath, imp, importGraph);
+      const targetExports = exportRegistry.get(key);
       if (!targetExports) continue;
-      const targetTab = fileASTMap.get(imp.source as string);
+      const targetTab = fileASTMap.get(key);
       if (!targetTab || !targetTab.ast) continue;
       const targetComponents = (targetTab.ast.components ?? []) as ExtendedComponentDefNode[];
+      const targetExportDecls = (targetTab.ast.exports ?? []) as Array<{
+        kind: string;
+        exportedName: string | null;
+        exportKind: string | null;
+        raw: string;
+        span: Span;
+      }>;
 
       // Normalize: AST imports use imp.names (string[]), but some paths may use
       // imp.specifiers ({imported, local}[]). Handle both shapes.
@@ -1533,8 +1697,33 @@ export function runCEFile(
         const info = targetExports.get(importedName);
         if (!info || !info.isComponent) continue;
 
-        // Find the ComponentDef in the source file's pre-CE AST
-        const compDef = targetComponents.find((c: ExtendedComponentDefNode) => c.name === importedName);
+        // Path (a): direct component-def in target's ast.components
+        let compDef: ExtendedComponentDefNode | undefined =
+          targetComponents.find((c: ExtendedComponentDefNode) => c.name === importedName);
+
+        // Path (b): export-decl with markup body — synthesize a component-def
+        if (!compDef) {
+          const expDecl = targetExportDecls.find(
+            (e) => e && e.exportedName === importedName && e.exportKind === "const"
+          );
+          if (expDecl && typeof expDecl.raw === "string") {
+            // Strip `export const NAME =` prefix; tokenized form spaces around
+            // tokens so the prefix shape is consistent: `export const NAME =`.
+            const prefix = `export const ${importedName} =`;
+            const idx = expDecl.raw.indexOf(prefix);
+            if (idx !== -1) {
+              const body = expDecl.raw.slice(idx + prefix.length).trimStart();
+              compDef = {
+                kind: "component-def",
+                name: importedName,
+                raw: body,
+                span: expDecl.span,
+                defChildren: [],
+              } as ExtendedComponentDefNode;
+            }
+          }
+        }
+
         if (!compDef) continue;
 
         // Only add if not already in the same-file registry (same-file takes precedence)
@@ -1590,8 +1779,10 @@ export function runCEFile(
  * pipeline runner.
  */
 export function runCE(input: CEInput): CEOutput {
-  const { files, exportRegistry, fileASTMap } = input;
-  const processedFiles = (files || []).map((f: CEFileInput) => runCEFile(f, exportRegistry, fileASTMap));
+  const { files, exportRegistry, fileASTMap, importGraph } = input;
+  const processedFiles = (files || []).map((f: CEFileInput) =>
+    runCEFile(f, exportRegistry, fileASTMap, importGraph)
+  );
   const allErrors = processedFiles.flatMap((f: CEFileOutput) => f.errors);
   return { files: processedFiles, errors: allErrors };
 }

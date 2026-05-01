@@ -16,18 +16,30 @@
  *   - runCEFile(tabOutput, exportRegistry, fileASTMap)  — from component-expander.js
  *   - runCE({ files, exportRegistry, fileASTMap })      — from component-expander.js
  *
- * Key implementation details:
+ * Key implementation details (post-W2 — F-COMPONENT-001 architectural fix):
  *
- *   1. runCEFile looks up exportRegistry and fileASTMap by imp.source (the raw import
- *      path string from the AST import-decl), NOT by absolute path. Tests that
- *      manually construct import AST nodes must key both maps using the same source
- *      string that appears in imp.source.
+ *   1. PRODUCTION KEYING (W2 SPEC §15.14.4 / §21.7): runCEFile resolves
+ *      `imp.source` to its absolute filesystem path via the optional
+ *      `importGraph` parameter, then uses that absolute path as the canonical
+ *      key for `exportRegistry` and `fileASTMap` lookups. This mirrors the
+ *      TS-pass pattern at api.js:626-660 and the LSP workspace pattern.
  *
- *   2. The cross-file CE code reads imp.specifiers (array of { imported, local }),
+ *   2. LEGACY FALLBACK: when the unit tests below construct synthetic
+ *      fixtures WITHOUT an `importGraph` argument, runCEFile falls back to
+ *      using `imp.source` directly as the lookup key (matching whatever
+ *      string the tests put in their synthetic exportRegistry / fileASTMap).
+ *      This fallback exists to keep these tests working without rewriting
+ *      every fixture; new tests SHOULD use absolute-path keying with a
+ *      synthetic importGraph for parity with production. The
+ *      `tests/integration/cross-file-components.test.js` suite (added by
+ *      W2) drives end-to-end via real `compileScrml` and IS the
+ *      load-bearing M17-closure mechanism.
+ *
+ *   3. The cross-file CE code reads imp.specifiers (array of { imported, local }),
  *      while TAB's ast-builder produces imp.names (string[]). Manually constructed
  *      ASTs use the specifiers shape that CE expects.
  *
- *   3. KNOWN BUG — exportKind property mismatch:
+ *   4. KNOWN BUG — exportKind property mismatch (PRE-W2 nuisance, still present):
  *      buildImportGraph stores exports as { name, kind: exportKind, ... } (key: "kind"),
  *      but buildExportRegistry reads exp.exportKind (key: "exportKind"). Because
  *      exp.exportKind is always undefined for entries produced by buildImportGraph,

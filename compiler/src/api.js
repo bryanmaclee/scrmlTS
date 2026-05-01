@@ -25,7 +25,7 @@ import { runDG } from "./dependency-graph.ts";
 import { runBatchPlanner, serializeBatchPlan } from "./batch-planner.ts";
 import { runCG } from "./code-generator.js";
 import { runMetaEval } from "./meta-eval.ts";
-import { resolveModules } from "./module-resolver.js";
+import { resolveModules, resolveModulePath } from "./module-resolver.js";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
 import { lintGhostPatterns } from "./lint-ghost-patterns.js";
 import { findUnsupportedTailwindShapes } from "./tailwind-classes.js";
@@ -381,8 +381,10 @@ export function rewriteStdlibImports(jsCode, bundleDir, outputDir, bundled) {
  * }}
  */
 export function compileScrml(options = {}) {
-  const {
+  let {
     inputFiles = [],
+  } = options;
+  const {
     verbose = false,
     convertLegacyCss = false,
     embedRuntime = false,
@@ -401,6 +403,93 @@ export function compileScrml(options = {}) {
   }
 
   const allErrors = [];
+
+  // ---------------------------------------------------------------------------
+  // Auto-gather pre-pass (SPEC §21.7 — F-COMPONENT-001 W2)
+  //
+  // When `gather` is enabled (default), expand `inputFiles` to the transitive
+  // .scrml import closure. This implements the canonical-key cross-file
+  // resolution promised by SPEC §21 — without auto-gather, single-file
+  // CLI invocations like `scrml compile foo.scrml` only TAB the entry file
+  // and any imported .scrml files are silently absent from `fileASTMap` /
+  // `exportRegistry`. CE then misses cross-file lookups and either expands
+  // nothing (silent phantom DOM, pre-W1) or fires E-COMPONENT-035 (post-W1).
+  //
+  // Algorithm:
+  //   1. Initial set = explicit .scrml inputFiles (resolved to absolute paths).
+  //   2. For each not-yet-processed file, regex-extract relative imports of
+  //      `.scrml` files, resolve to absolute paths via `resolveModulePath`,
+  //      and queue any `.scrml` files not yet in the set.
+  //   3. Repeat until no new files are added.
+  //   4. Cap at GATHER_LIMIT files; emit E-IMPORT-007 if exceeded.
+  //
+  // Notes:
+  //   - `.js` imports are NOT traversed (per OQ-1 default — they follow ES
+  //     module semantics and are resolved by the bundler/runtime).
+  //   - When the user passes a directory, `commands/compile.js` already calls
+  //     `scanDirectory()` to enumerate the tree; gather adds any imports that
+  //     reach OUTSIDE that directory (e.g. ../components/foo.scrml).
+  //   - `--no-gather` (CLI flag) sets `gather: false` and disables this pass;
+  //     the user accepts the broken-artifact / E-IMPORT-006 risk.
+  // ---------------------------------------------------------------------------
+  const gatherEnabled = options.gather !== false;
+  const GATHER_LIMIT = 5000;
+  let resolvedInputFiles = inputFiles.map(f => resolve(f));
+  if (gatherEnabled && resolvedInputFiles.length > 0) {
+    const seen = new Set(resolvedInputFiles);
+    const queue = [...resolvedInputFiles];
+    let i = 0;
+    let limitExceeded = false;
+    while (i < queue.length && !limitExceeded) {
+      const filePath = queue[i++];
+      if (!filePath.endsWith(".scrml")) continue;
+      let fileSrc = "";
+      try {
+        fileSrc = readFileSync(filePath, "utf8");
+      } catch {
+        // unreadable — BS will report; skip gather for this file
+        continue;
+      }
+      // Lightweight regex scan for `import ... from '<path>'` /
+      // `from "<path>"`. The real graph is built by buildImportGraph after
+      // the canonical TAB pass; this pass only needs the file SET.
+      const importRe = /import\s+[\s\S]*?from\s+(["'])([^"']+)\1/g;
+      let m;
+      while ((m = importRe.exec(fileSrc)) !== null) {
+        const spec = m[2];
+        if (typeof spec !== "string") continue;
+        // Only follow relative imports — stdlib (scrml:) / vendor (vendor:)
+        // get pulled in by their own consumers; .js imports are not gathered.
+        if (!spec.startsWith("./") && !spec.startsWith("../")) continue;
+        if (spec.endsWith(".js")) continue;
+        const abs = resolveModulePath(spec, filePath);
+        if (!abs.endsWith(".scrml")) continue;
+        if (seen.has(abs)) continue;
+        // Skip non-existent imports — MOD's existing E-IMPORT-006 check
+        // handles them with precise span data; the gather pass's job is
+        // to expand the working file set, not to validate.
+        if (!existsSync(abs)) continue;
+        seen.add(abs);
+        queue.push(abs);
+        if (seen.size > GATHER_LIMIT) {
+          allErrors.push({
+            stage: "GATHER",
+            code: "E-IMPORT-007",
+            severity: "error",
+            message: `E-IMPORT-007: Auto-gather exceeded sane limit (${GATHER_LIMIT} files). ` +
+              `Either use \`--no-gather\` and pass an explicit file list, or pass a directory ` +
+              `root and let \`scanDirectory\` enumerate without graph traversal.`,
+          });
+          limitExceeded = true;
+          break;
+        }
+      }
+    }
+    resolvedInputFiles = [...seen];
+  }
+  // Reassign inputFiles so the existing pipeline iterates the gathered set.
+  inputFiles = resolvedInputFiles;
+
 
   function stage(name, fn) {
     const start = performance.now();
@@ -557,6 +646,7 @@ export function compileScrml(options = {}) {
       files: [tabResult],
       exportRegistry: moduleResult.exportRegistry,
       fileASTMap,
+      importGraph: moduleResult.importGraph,
     }));
     collectErrors("CE", result.errors);
     // Re-attach source text for library-mode codegen (CE creates new file objects)
@@ -888,6 +978,10 @@ export function compileScrml(options = {}) {
     outputDir: outputDir || "",
     durationMs,
     outputs: cgResult.outputs || new Map(),
+    // W2 §21.7: the full gathered .scrml file set (after auto-gather pre-pass).
+    // Equal to options.inputFiles when gather is disabled. Includes all
+    // transitively-reachable .scrml files when gather is enabled.
+    gatheredFiles: inputFiles,
     batchPlan: bpResult.batchPlan,
     batchPlanJson: () => serializeBatchPlan(bpResult.batchPlan),
   };

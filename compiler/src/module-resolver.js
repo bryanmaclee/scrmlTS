@@ -404,6 +404,8 @@ const STDLIB_ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../s
 /**
  * Resolve a module path relative to the importing file.
  *
+ * EXPORTED for use by `api.js` cross-file auto-gather pre-pass (W2 §21.7).
+ *
  * Supports three forms:
  *   - Relative: `./types.scrml`, `../shared.scrml` → resolved from importer directory
  *   - Stdlib:   `scrml:crypto`, `scrml:auth` → resolved from stdlib/ directory
@@ -413,7 +415,7 @@ const STDLIB_ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../../s
  * @param {string} importerPath — absolute path of the importing file
  * @returns {string} — absolute path of the target module
  */
-function resolveModulePath(source, importerPath) {
+export function resolveModulePath(source, importerPath) {
   if (source.startsWith("./") || source.startsWith("../")) {
     const resolved = resolve(dirname(importerPath), source);
     // Exact path exists — return it (covers explicit `.scrml`, `.js`, etc.).

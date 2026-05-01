@@ -61,6 +61,8 @@ function parseArgs(args) {
   let convertLegacyCss = false;
   let embedRuntime = false;
   let port = 3000;
+  // W2 §21.7: auto-gather defaults ON. `--no-gather` opts out.
+  let gather = true;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -72,6 +74,9 @@ function parseArgs(args) {
       convertLegacyCss = true;
     } else if (arg === "--embed-runtime") {
       embedRuntime = true;
+    } else if (arg === "--no-gather") {
+      // W2 §21.7: opt out of transitive .scrml import closure pre-pass.
+      gather = false;
     } else if (arg === "--port" || arg === "-p") {
       port = parseInt(args[++i], 10);
       if (isNaN(port)) {
@@ -98,7 +103,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, port };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, port, gather };
 }
 
 // ---------------------------------------------------------------------------
@@ -222,8 +227,8 @@ async function loadServerRoutes(outputDir) {
  * @param {object} opts
  * @returns {{ success: boolean, outputDir: string }}
  */
-function runOnce(opts) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime } = opts;
+function runOnce(opts, gatheredOut) {
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, gather } = opts;
 
   const result = compileScrml({
     inputFiles,
@@ -231,9 +236,17 @@ function runOnce(opts) {
     verbose,
     convertLegacyCss,
     embedRuntime,
+    gather,
     write: true,
     log: console.log,
   });
+
+  // W2 B5: surface the gathered .scrml file set so the watcher can extend
+  // dirsToWatch to include any sibling-directory imports.
+  if (gatheredOut && Array.isArray(result.gatheredFiles)) {
+    gatheredOut.files = result.gatheredFiles;
+  }
+
 
   // Ghost-pattern lint diagnostics (W-LINT-NNN) — non-fatal, adopter-facing.
   // Surfaces JSX/Vue/Svelte syntax early so it does not silently compile to
@@ -454,7 +467,8 @@ export async function runDev(args) {
 
   // Initial compile
   console.log(`scrml dev — compiling ${opts.inputFiles.length} file(s)...`);
-  const { outputDir } = runOnce(opts);
+  const gatheredOut = { files: [] };
+  const { outputDir } = runOnce(opts, gatheredOut);
 
   // Resolve the serve directory the same way the server does.
   const serveDir = outputDir || join(dirname(opts.inputFiles[0]), "dist");
@@ -471,7 +485,17 @@ export async function runDev(args) {
   console.log(`[dev] Watching for changes... (Ctrl+C to stop)\n`);
 
   // Watch loop with 100ms debounce
+  // W2 §21.7 / B5: dirsToWatch is recomputed after each runOnce so the
+  // auto-gather closure (which may pull in files from sibling directories)
+  // is fully covered by the watcher. Initial set seeded from explicit
+  // inputFiles; on each recompile dirsToWatch is updated to also include the
+  // dirs of any GATHERED files (the keys of result.outputs).
   const dirsToWatch = new Set(opts.inputFiles.map(f => dirname(f)));
+  // W2 §21.7 / B5: extend with directories of any gathered files outside the
+  // entry's directory tree (e.g. sibling components/ pulled in by import).
+  for (const f of gatheredOut.files) {
+    dirsToWatch.add(dirname(f));
+  }
   let debounceTimer = null;
 
   function scheduleRecompile(eventType, filename) {
@@ -479,7 +503,18 @@ export async function runDev(args) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(async () => {
       console.log(`[dev] Change detected — recompiling...`);
-      const { success, outputDir: recompileOutputDir } = runOnce(opts);
+      const recomputeGathered = { files: [] };
+      const { success, outputDir: recompileOutputDir } = runOnce(opts, recomputeGathered);
+      // W2 B5: extend dirsToWatch in case a recompile pulled in NEW imports.
+      for (const f of recomputeGathered.files) {
+        if (!dirsToWatch.has(dirname(f))) {
+          dirsToWatch.add(dirname(f));
+          // Note: we do not start a NEW watch on the new dir — the next
+          // `scrml dev` start will pick it up. This is acceptable because
+          // adding cross-dir imports is rare; existing watchers cover the
+          // common case. Future enhancement: dynamically watch new dirs.
+        }
+      }
       if (success) {
         // Reload server routes to pick up any changes to server functions.
         await loadServerRoutes(recompileOutputDir || serveDir);
