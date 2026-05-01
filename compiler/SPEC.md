@@ -14716,6 +14716,7 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 
 - `not` SHALL be the only value representing absence in scrml source.
 - `null` and `undefined` SHALL NOT be valid scrml source tokens in value position.
+- The rejection of `null` / `undefined` (E-SYNTAX-042) SHALL apply uniformly across **every** scrml source position: function bodies (server + client), markup attribute expressions (`if=`, `class=`, etc.), template-string `${...}` interpolations parsed as expressions, ternary `condition` subexpressions, call arguments, object-literal property values, and declaration initializers. The compiler SHALL NOT silently accept the same null-comparison shape in one position while rejecting it in another. (Closes the F-NULL-001 / F-NULL-002 walker-asymmetry defects fixed in W3, 2026-04-30.)
 - `x is not` SHALL be the only normative absence check.
 - `given x => body` SHALL narrow `x` from `T | not` to `T` inside `body`.
 - `given x, y => body` SHALL narrow `x` and `y` independently. The body SHALL execute only when all listed variables are not `not`.
