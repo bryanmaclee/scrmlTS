@@ -146,6 +146,7 @@ function stripIds(obj) {
     if (key === "spans") continue; // spans table uses IDs as keys, skip
     if (key === "machineDecls") continue; // §51.3: self-hosted ast.scrml doesn't collect these yet
     if (["exprNode", "initExpr", "condExpr", "iterExpr", "headerExpr", "valueExpr", "argsExpr", "callbackExpr", "fnExpr", "handlerExpr", "fileExpr", "urlExpr", "bodyExpr", "cStyleParts"].includes(key)) continue; // Phase 3/4: JS ast-builder populates ExprNode fields; self-host doesn't yet
+    if (["isPure", "isServer"].includes(key)) continue; // F-AUTH-002: JS ast-builder records pure/server modifier flags on export-decl; self-host doesn't yet
     out[key] = stripIds(obj[key]);
   }
   return out;

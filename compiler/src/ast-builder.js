@@ -3885,10 +3885,49 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // EXPORT — parse structured export data per §21.2
     if (tok.kind === "KEYWORD" && tok.text === "export") {
       const startTok = consume();
-      const { expr, span } = collectExpr();
-      const rawStr = "export " + expr;
 
-      const exportNode = { id: ++counter.next, kind: "export-decl", raw: rawStr, span, exportedName: null, exportKind: null, reExportSource: null };
+      // F-AUTH-002 fix: peek-and-consume optional `pure` / `server` /
+      // `pure server` modifier tokens BEFORE collectExpr. Without this, the
+      // expression collector stops at the first STMT_KEYWORD (`function`,
+      // `fn`) it sees AFTER consuming `server`, because parts.length > 0
+      // triggers the statement-boundary guard. The result was an
+      // export-decl with raw="export server" and exportedName=null,
+      // followed by an unmarked function-decl whose name was lost from
+      // the export registry. See docs/changes/f-auth-002/diagnosis.md.
+      let isPure = false;
+      let isServer = false;
+      const prefixParts = [];
+      // Allowed modifier sequences: `pure`, `server`, `pure server`.
+      // (`server pure` is not a valid scrml form per §33.) We accept either
+      // `pure` first OR `server` first followed by an optional companion.
+      if (peek().kind === "KEYWORD" && peek().text === "pure") {
+        isPure = true;
+        prefixParts.push(consume().text);
+        if (peek().kind === "KEYWORD" && peek().text === "server") {
+          isServer = true;
+          prefixParts.push(consume().text);
+        }
+      } else if (peek().kind === "KEYWORD" && peek().text === "server") {
+        isServer = true;
+        prefixParts.push(consume().text);
+      }
+
+      const { expr, span } = collectExpr();
+      const rawStr = prefixParts.length > 0
+        ? "export " + prefixParts.join(" ") + " " + expr
+        : "export " + expr;
+
+      const exportNode = {
+        id: ++counter.next,
+        kind: "export-decl",
+        raw: rawStr,
+        span,
+        exportedName: null,
+        exportKind: null,
+        reExportSource: null,
+        isPure,
+        isServer,
+      };
 
       // Re-export: { names } from 'source'
       const reExportMatch = expr.match(/^\s*\{\s*([^}]*)\}\s*from\s+["']([^"']+)["']/);
@@ -3898,6 +3937,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         exportNode.reExportSource = reExportMatch[2];
       } else {
         // export type Name... | export function Name... | export fn Name... | export const Name... | export let Name...
+        // F-AUTH-002: `pure`/`server` modifier(s) have already been consumed above; isPure/isServer flags carry that intent.
         const declMatch = expr.match(/^\s*(type|function|fn|const|let)\s+(\w+)/);
         if (declMatch) {
           exportNode.exportKind = declMatch[1];

@@ -15,3 +15,7 @@
 - [LAYER 3] SPEC §21.5 / §44.2 silent on cross-file ?{} resolution. Need contract for module-with-imported-db-context.
 - [STRATEGY] Shape C: minimal SPEC amendment + impl resolves at call-site by embedding pure-fn server function bodies into the importing page's server.js with the page's `_dbVar` substituted.
 - [NEXT] Commit diagnosis. Fix Layer 1 (regex). Then design and implement Layer 2 (callsite inlining or shared-state init).
+
+- [LAYER 1 FIX] ast-builder.js EXPORT branch: peek-and-consume optional `pure`/`server`/`pure server` modifier tokens BEFORE collectExpr. Adds `isPure`/`isServer` flags to export-decl node. Updated types/ast.ts. Updated self-host parity test to skip new fields.
+- [TEST] 8361 pass / 0 fail — baseline preserved.
+- [TEST] /tmp/f-auth-002-repro/models/auth.scrml now records `exportedName: "getUser"`, `exportKind: "function"`, `isServer: true` correctly.

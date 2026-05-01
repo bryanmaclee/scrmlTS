@@ -826,6 +826,10 @@ export interface ExportDeclNode extends BaseNode {
   exportKind: string | null;
   /** Re-export source path, or null. */
   reExportSource: string | null;
+  /** F-AUTH-002: `export pure` modifier present. Optional for backward compat. */
+  isPure?: boolean;
+  /** F-AUTH-002: `export server` modifier present. Optional for backward compat. */
+  isServer?: boolean;
 }
 
 /**
