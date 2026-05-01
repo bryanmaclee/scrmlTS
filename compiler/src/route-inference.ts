@@ -69,7 +69,7 @@ import type {
 } from "./types/ast.ts";
 
 import type { ProtectAnalysis } from "./protect-analyzer.ts";
-import { exprNodeCollectCallees, emitStringFromTree } from "./expression-parser.ts";
+import { exprNodeCollectCallees, emitStringFromTree, forEachIdentInExprNode } from "./expression-parser.ts";
 import type { ExprNode } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
@@ -1135,68 +1135,181 @@ function collectLocalNames(body: LogicStatement[]): Set<string> {
 
 /**
  * Collect all identifier names referenced (read or called) in a function body.
- * This includes: identifiers in bare-expr strings, init expressions, callee names,
- * and identifiers in ExprNode trees.
  *
- * Does NOT recurse into nested function bodies — those have their own scope.
+ * Implementation: structurally walks every ExprNode-bearing field via
+ * `forEachIdentInExprNode`, which:
+ *   - Visits only `IdentExpr` nodes (does NOT scan inside `LitExpr` string
+ *     content, which is what the prior regex-on-flat-string implementation did
+ *     and which caused the F-RI-001 deeper bug — a string literal containing
+ *     a token text matching a peer server-fn name was falsely capture-tainting
+ *     the function via the cross-file `fnNameToNodeIds` map).
+ *   - Skips `MemberExpr.property` (a member-access name is a static string,
+ *     not a free-variable reference).
+ *   - Does not descend into `LambdaExpr` bodies (new lin scope; identifiers
+ *     inside the lambda are not free variables of the outer fn).
+ *   - Walks template-literal `${...}` interpolations (real identifier reads).
+ *
+ * Does NOT recurse into nested function-decl bodies — those have their own scope.
+ *
+ * Filtering: reactive (`@`) and tilde (`~`) identifiers are excluded — they
+ * are not free function-name references and the closure-capture-taint loop
+ * looks for fn-name collisions only.
+ *
+ * JS keywords/builtins are also filtered (preserves prior behavior).
  */
 function collectReferencedNames(body: LogicStatement[]): Set<string> {
   const names = new Set<string>();
-  const IDENT_RE = /\b([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
 
+  function addIdent(name: string): void {
+    if (!name) return;
+    // Skip reactive (`@x`) and tilde (`~`) refs — not free fn-name references.
+    if (name[0] === "@" || name === "~") return;
+    if (JS_KEYWORDS.has(name)) return;
+    names.add(name);
+  }
+
+  function walkExpr(node: ExprNode | undefined | null): void {
+    if (!node) return;
+    forEachIdentInExprNode(node, (ident) => addIdent(ident.name));
+  }
+
+  /**
+   * Legacy string-mode fallback: used ONLY when the AST node lacks a structured
+   * ExprNode field (the production ast-builder always populates ExprNode; this
+   * fallback exists to keep hand-built test fixtures and any legacy callers
+   * working). The string-mode path can have the F-RI-001-deeper string-literal
+   * pollution issue, but production paths flow through `walkExpr` first.
+   */
+  const STR_IDENT_RE = /\b([A-Za-z_$][A-Za-z0-9_$]*)\b/g;
   function extractIdentsFromString(str: string): void {
     if (!str) return;
+    const re = new RegExp(STR_IDENT_RE.source, "g");
     let m: RegExpExecArray | null;
-    const re = new RegExp(IDENT_RE.source, "g");
     while ((m = re.exec(str)) !== null) {
-      // Skip JS keywords and common built-ins
-      if (!JS_KEYWORDS.has(m[1])) {
-        names.add(m[1]);
-      }
+      addIdent(m[1]);
+    }
+  }
+  function walkExprOrString(node: ExprNode | undefined | null, str: string | undefined): void {
+    if (node) {
+      walkExpr(node);
+      return;
+    }
+    if (typeof str === "string" && str.length > 0) {
+      extractIdentsFromString(str);
     }
   }
 
   function visitStmt(node: LogicStatement): void {
     if (!node || typeof node !== "object") return;
+    const n = node as any;
 
-    // Do NOT recurse into nested function bodies.
-    if (node.kind === "function-decl") return;
+    // Do NOT recurse into nested function bodies — they have their own scope.
+    if (n.kind === "function-decl" || n.kind === "component-def") return;
 
-    if (node.kind === "bare-expr") {
-      const expr = (node as any).exprNode
-        ? emitStringFromTree((node as any).exprNode)
-        : ((node as any).expr ?? "");
-      extractIdentsFromString(expr);
-      return;
+    switch (n.kind) {
+      // ---- Statements that carry an ExprNode in `exprNode` ----
+      case "bare-expr":
+        walkExprOrString(n.exprNode, n.expr);
+        return;
+      case "return-stmt":
+      case "throw-stmt":
+        walkExprOrString(n.exprNode, n.expr);
+        return;
+
+      // ---- Decls that carry an init in `initExpr` (or `init` legacy string) ----
+      case "let-decl":
+      case "const-decl":
+      case "tilde-decl":
+      case "lin-decl":
+      case "reactive-decl":
+      case "reactive-derived-decl":
+      case "reactive-debounced-decl":
+        walkExprOrString(n.initExpr, n.init);
+        return;
+
+      // ---- Reactive setters with structured exprs ----
+      case "reactive-nested-assign":
+        walkExprOrString(n.valueExpr, n.value);
+        return;
+      case "reactive-array-mutation":
+      case "reactive-explicit-set":
+        // Args remain raw strings on these escape-hatch nodes; nothing to
+        // walk structurally. Pre-fix code also only matched whatever the
+        // identifier-regex picked up here, so we deliberately skip them
+        // (consistent with the structural-walk principle: no string scan).
+        return;
+
+      // ---- Control flow ----
+      case "if-stmt":
+      case "if-expr":
+      case "while-stmt":
+        walkExprOrString(n.condExpr, n.condition);
+        if (Array.isArray(n.consequent)) for (const c of n.consequent) visitStmt(c);
+        if (Array.isArray(n.alternate))   for (const c of n.alternate)   visitStmt(c);
+        if (Array.isArray(n.body))        for (const c of n.body)        visitStmt(c);
+        return;
+
+      case "for-stmt":
+      case "for-expr":
+        walkExprOrString(n.iterExpr, n.iterable ?? n.iter);
+        if (n.cStyleParts) {
+          walkExpr(n.cStyleParts.initExpr);
+          walkExpr(n.cStyleParts.condExpr);
+          walkExpr(n.cStyleParts.updateExpr);
+        }
+        if (Array.isArray(n.body)) for (const c of n.body) visitStmt(c);
+        return;
+
+      case "match-stmt":
+      case "match-expr":
+        walkExprOrString(n.headerExpr, n.header);
+        if (Array.isArray(n.body)) for (const c of n.body) visitStmt(c);
+        return;
+
+      case "switch-stmt":
+        walkExprOrString(n.headerExpr, n.header);
+        if (Array.isArray(n.body)) for (const c of n.body) visitStmt(c);
+        return;
+
+      case "try-stmt":
+        if (Array.isArray(n.body)) for (const c of n.body) visitStmt(c);
+        if (n.catchNode && Array.isArray(n.catchNode.body)) {
+          for (const c of n.catchNode.body) visitStmt(c);
+        }
+        if (n.finallyNode && Array.isArray(n.finallyNode.body)) {
+          for (const c of n.finallyNode.body) visitStmt(c);
+        }
+        if (Array.isArray(n.finallyBody)) {
+          for (const c of n.finallyBody) visitStmt(c);
+        }
+        return;
+
+      case "match-arm-inline":
+        // Match arms may carry a result expression; walk if present.
+        if (n.resultExpr) walkExpr(n.resultExpr);
+        if (Array.isArray(n.body)) for (const c of n.body) visitStmt(c);
+        return;
+
+      case "lift-expr":
+      case "fail-expr":
+      case "propagate-expr":
+      case "guarded-expr":
+      case "html-fragment":
+        // These are markup/control-flow boundary nodes that don't carry free
+        // identifier references for RI capture-taint purposes. Pre-fix
+        // behavior happened to scan their string fields; structurally they
+        // contain no captures-relevant ExprNode references at this RI layer.
+        return;
     }
 
-    if (
-      node.kind === "let-decl" ||
-      node.kind === "const-decl" ||
-      node.kind === "tilde-decl" ||
-      node.kind === "lin-decl"
-    ) {
-      const init = (node as any).initExpr
-        ? emitStringFromTree((node as any).initExpr)
-        : ((node as any).init ?? "");
-      extractIdentsFromString(init);
-    }
-
-    if (
-      node.kind === "reactive-decl" ||
-      node.kind === "reactive-derived-decl" ||
-      node.kind === "reactive-debounced-decl"
-    ) {
-      const init = (node as any).initExpr
-        ? emitStringFromTree((node as any).initExpr)
-        : ((node as any).init ?? "");
-      extractIdentsFromString(init);
-    }
-
-    // Recurse into control flow bodies
-    for (const key of Object.keys(node)) {
+    // ---- Generic fallback: recurse into any LogicStatement[] children ----
+    // For statement kinds we haven't enumerated above (e.g. future additions),
+    // walk array fields for nested LogicStatement[] bodies. Do NOT walk
+    // ExprNode-bearing scalar fields here — that would re-introduce silent
+    // misses. Add the kind to the switch above when a new field is needed.
+    for (const key of Object.keys(n)) {
       if (key === "span" || key === "id" || key === "name") continue;
-      const val = (node as any)[key];
+      const val = n[key];
       if (Array.isArray(val)) {
         for (const child of val) {
           if (child && typeof child === "object" && child.kind) {
