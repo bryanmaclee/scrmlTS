@@ -20,3 +20,7 @@ Append-only timeline. `[HH:MM]` UTC.
   11. Final summary commit
 
 - [12:30] **F4 surfaced (out of W2 scope):** when a component body (same-file OR cross-file) contains nested PascalCase references (e.g. `<Card>` with `<Sub/>` inside), `parseComponentDef` → `parseComponentBody` → BS produces 0 blocks for the re-parsed body, parseComponentDef returns null silently, registry never gets the entry, and CE emits E-COMPONENT-020 + VP-2 emits E-COMPONENT-035. This affects the dispatch app's `<LoadCard>` (which has `<LoadStatusBadge>` inside). Confirmed pre-existing — fails identically in same-file. Phase 1 limitation per parseComponentDef docstring at line 350-352. NOT in F1/F2/F3 fault catalog. Surfacing per dispatch brief "STOP and surface" rule. Continuing W2 because the 22-multifile canonical example AND the integration tests all pass — F4 is a separate dispatch (W2-FOLLOW or its own ticket) for the nested-cross-file-component case.
+
+- [13:00] B6 SPEC + PIPELINE amendments committed (`2a2d52c`).
+- [13:05] B7 Plan B reversal: master-list row 99 flipped [x][❌] → [x][✅]; FRICTION.md §F-COMPONENT-001 W2-RESOLVED note appended (with F4 nested-case caveat); kickstarter v1 multi-file section: KNOWN-BROKEN flag dropped, canonical 3-file pattern + lift-bare recipe documented; F4 limitation transparently noted in kickstarter for adopter expectations.
+- [13:08] Final test count: 8290 pass / 40 skip / 0 fail / 393 files (vs baseline 8280 / 40 / 0 / 392 — +10 from new integration tests, +1 file from new test file). Zero regressions.

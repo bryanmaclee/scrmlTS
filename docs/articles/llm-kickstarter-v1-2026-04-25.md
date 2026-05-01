@@ -492,7 +492,7 @@ ${
 }
 ```
 
-For multi-file apps, `import`/`export` works for **types and pure helper functions** across `.scrml` files (§21). A file with only `${ export ... }` blocks (no markup, no CSS) is auto-detected as a **pure-type file** and emits no HTML/CSS — only a JS module. See `examples/22-multifile/`.
+For multi-file apps, `import`/`export` works for **types, helper functions, AND components** across `.scrml` files (§21 + §21.7 auto-gather). A file with only `${ export ... }` blocks (no markup, no CSS) is auto-detected as a **pure-type file** and emits no HTML/CSS — only a JS module. See `examples/22-multifile/` for the canonical 3-file pattern.
 
 ```scrml
 // types.scrml — pure-type file
@@ -503,27 +503,59 @@ ${
 ```
 
 ```scrml
-// app.scrml — uses the imports
+// components.scrml — exports a component
 ${
   import { UserRole, badgeColor } from './types.scrml'
 }
-<!-- inline component markup directly -->
-<span class="badge ${badgeColor(role)}">${name}</span>
+
+${
+  export const UserBadge = <span class="badge" props={ name: string, role: UserRole }>
+    <span class="badge-dot" style="background:${badgeColor(role)}"/>
+    <span class="badge-name">${name}</span>
+    <span class="badge-role">${role}</span>
+  </>
+}
 ```
 
-> **Cross-file *components* are KNOWN-BROKEN as of 2026-04-30 (S50).**
-> Importing components (markup-shaped exports) across files compiles
-> cleanly but emits phantom `document.createElement("ComponentName")`
-> at runtime — the browser renders blank where the component should
-> be. The canonical `examples/22-multifile/app.scrml` ships the
-> phantom-element JS but appears to "work" because no test verifies
-> rendering. **Recommended adopter pattern:** import types + helper
-> functions across files; **inline component markup** directly in
-> consumer pages. Use shared CSS classes + helper functions (e.g.
-> `badgeColor(role)`) for consistency across inlined sites. A proper
-> cross-file component expansion fix is on the roadmap; until it
-> lands, treat components as file-local. Tracked: `examples/23-trucking-dispatch/FRICTION.md` §F-COMPONENT-001
-> (architectural section).
+```scrml
+// app.scrml — imports both type and component
+${
+  import { UserRole } from './types.scrml'
+  import { UserBadge } from './components.scrml'
+}
+
+<ul>
+  ${ for (let m of team) {
+    lift <UserBadge name=m.name role=m.role/>   <!-- bare lift; works -->
+  } }
+</ul>
+```
+
+Compile with a single entry file:
+```bash
+$ scrml compile pages/app.scrml -o dist/
+# CLI auto-gathers the import closure: types.scrml, components.scrml.
+# Emits: dist/app.{html,client.js,server.js} + components/types JS modules.
+```
+
+> **W2 (2026-04-30) closes the architectural gap.** Cross-file component
+> expansion now works end-to-end via canonical-key + auto-gather +
+> recursion fix (deep-dive `f-component-001-architectural-2026-04-30`).
+> Both single-file invocations (`scrml compile entry.scrml`) and directory
+> invocations (`scrml compile examples/22-multifile/`) compile clean and
+> emit expanded markup inline — no phantom `document.createElement(...)`.
+> Use the canonical `lift <ImportedComp/>` form; wrapper-element variants
+> (`lift <li><ImportedComp/></li>`) also expand correctly. Use
+> `--no-gather` to opt out of the transitive closure when you intentionally
+> want a single-file compile.
+>
+> **Known limitation (separate dispatch):** when an exported component's
+> body contains nested PascalCase references (e.g. an exported `<LoadCard>`
+> whose body uses `<LoadStatusBadge>` inside), `parseComponentBody`'s
+> tokenizer-roundtrip step doesn't recover the body. This is a Phase 1
+> CE limitation that affects same-file too — not specific to cross-file
+> imports. Workaround: keep nested component refs out of exported
+> component bodies, or wait for the F-COMPONENT-001-FOLLOW dispatch.
 
 ### Middleware recipe — `<program>` attrs + `handle()` (§40)
 

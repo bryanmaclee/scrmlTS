@@ -290,6 +290,44 @@ documented in `docs/changes/f-component-001/diagnosis.md`:
 
 **UVB-W1 status (2026-04-30): SILENT-FAILURE WINDOW CLOSED.** VP-2 (post-CE invariant) emits hard E-COMPONENT-035 on every residual `isComponent: true` markup node. Before W1, an unresolved component reference silently became `document.createElement("LoadCard")` at runtime; after W1 the compile fails loudly with the component name + a pointer to the lift+wrap workaround. The architectural fix (cross-file CE accepting bare `lift <ImportedComp/>`) is a separate W2 track; UVB-W1 closes only the silent-emission window. See `compiler/SPEC.md` §15.14 + `compiler/PIPELINE.md` Stage 3.3 + deep-dive `systemic-silent-failure-sweep-2026-04-30`.
 
+**W2 status (2026-04-30): ARCHITECTURALLY RESOLVED for the canonical case.**
+The cross-file CE machinery now works end-to-end for the
+`examples/22-multifile/` shape (single-file or directory invocation;
+both produce expanded markup with no E-COMPONENT-035 / no phantom
+`createElement`). Three faults closed in commit `6536f7a`:
+
+- **F1** — `hasAnyComponentRefsInLogic` now walks the full markup
+  subtree of a lift target; `walkLogicBody` descends into wrapper
+  children. Wrapped form (`lift <li><Comp/></li>`) expands correctly.
+- **F2** — CE consumes `moduleResult.importGraph` for canonical
+  absolute-path lookups into `fileASTMap` / `exportRegistry`. Mirrors
+  the TS-pass pattern at `api.js:626-660` and the LSP workspace
+  pattern at `lsp/workspace.js`.
+- **F3** — `compileScrml` runs an auto-gather pre-pass before
+  BS+TAB, expanding `inputFiles` to the transitive `.scrml` import
+  closure. `--no-gather` opt-out flag plumbed through `compile.js`
+  and `dev.js`. Sane-limit guard at 5000 files (E-IMPORT-007).
+- **Bonus fix** — cross-file `${ export const X = <markup/> }` now
+  works (CE scans `ast.exports` for the markup body when
+  `ast.components` doesn't carry it; pre-W2 this was silently
+  invisible to CE because TAB classifies it as `export-decl`, not
+  `component-def`).
+
+**Out-of-scope nested case (separate dispatch needed):** when an
+exported component body contains nested PascalCase references (e.g.
+`<LoadCard>` containing `<LoadStatusBadge>`), `parseComponentBody`'s
+BS-on-tokenized-raw step produces 0 blocks (Phase 1 limitation per
+`parseComponentDef` docstring). This blocks
+`examples/23-trucking-dispatch/pages/dispatch/board.scrml`'s direct
+use of `<LoadCard>` even with W2 in place. The same-file path has
+the identical limitation. Tracked as F-COMPONENT-001-FOLLOW (or new
+ticket) — NOT a W2 regression. The dispatch app's existing
+`lift <div><LoadCard.../></div>` workaround still works.
+
+See `compiler/SPEC.md` §15.14.4 + §15.14.5 + §21.7,
+`compiler/PIPELINE.md` Stage 3.2 (W2 amendments), and
+`docs/changes/f-component-001-w2-fix/` for the full W2 trail.
+
 ---
 
 ## F-COMPONENT-002 — Component prop names at call site become spurious local declarations (P1)
