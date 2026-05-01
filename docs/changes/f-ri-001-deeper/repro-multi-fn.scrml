@@ -1,0 +1,71 @@
+<program db="./test-fri001-multi.db">
+  < db src="./test-fri001-multi.db" protect="password_hash" tables="users,loads,assignments">
+
+    ${
+        // Multi-server-fn file context. Two peer server fns. Peer client fn
+        // wraps each. M2 workaround NOT in play — direct `@errorMessage =
+        // result.error` on error path.
+
+        server function getCurrentUser(sessionToken) {
+            if (!sessionToken) return not
+            return ?{`SELECT id, email, role FROM users WHERE id = ${sessionToken}`}.get()
+        }
+
+        server function transitionStatusServer(sessionToken, loadId, newStatus) {
+            const user = getCurrentUser(sessionToken)
+            if (user is not) return { unauthorized: true }
+            const load = ?{`SELECT id, status FROM loads WHERE id = ${loadId}`}.get()
+            if (load is not) return { error: "Load not found." }
+            ?{`UPDATE loads SET status = ${newStatus} WHERE id = ${loadId}`}.run()
+            return { ok: true }
+        }
+
+        server function assignServer(sessionToken, loadId, driverId) {
+            const user = getCurrentUser(sessionToken)
+            if (user is not) return { unauthorized: true }
+            ?{`INSERT INTO assignments (load_id, driver_id) VALUES (${loadId}, ${driverId})`}.run()
+            return { ok: true }
+        }
+
+        @load = not
+        @errorMessage = ""
+
+        function getSessionToken() {
+            const c = document.cookie ? document.cookie : ""
+            return c
+        }
+
+        // F-RI-001 PROMISE-CHAIN PATTERN, NO WORKAROUND.
+        function transition(target) {
+            const tok = getSessionToken()
+            const result = transitionStatusServer(tok, @load.id, target)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (result.error) {
+                @errorMessage = result.error
+                return
+            }
+        }
+
+        function saveAssignment(driverId) {
+            const tok = getSessionToken()
+            const result = assignServer(tok, @load.id, driverId)
+            if (result.unauthorized) {
+                window.location.href = "/login?reason=unauthorized"
+                return
+            }
+            if (result.error) {
+                @errorMessage = result.error
+                return
+            }
+        }
+    }
+
+    <h1>Repro Multi-fn — F-RI-001 deeper</h1>
+    <button onclick=transition("loaded")>Mark Loaded</button>
+    <button onclick=saveAssignment(1)>Assign 1</button>
+    <p>${@errorMessage}</p>
+  </>
+</program>
