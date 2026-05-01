@@ -16,6 +16,10 @@
  *   name:        string | null                   — tag/state name; null for brace-delimited blocks
  *   closerForm:  'explicit'|'inferred'|'self-closing'|null
  *   isComponent: boolean                         — true when name starts with uppercase (component reference, not HTML element)
+ *   openerHadSpaceAfterLt: boolean               — P1 (SPEC §4.3 / §15.15.5): true when the opener used
+ *                                                  whitespace between '<' and the identifier (e.g. `< db>`).
+ *                                                  Informational only — drives W-WHITESPACE-001 from NR.
+ *                                                  Tag/state classification does NOT depend on this in P1.
  * }
  *
  * Note: `<#name>` patterns (worker refs, input state refs) are kept as raw text.
@@ -29,7 +33,8 @@
  *   E-STYLE-001 <style> blocks are not supported — use #{} for CSS
  *
  * Rules implemented:
- *   §4.1 / §4.2 / §4.3  HTML-vs-state disambiguation (no-ws = markup; ws = state)
+ *   §4.1 / §4.2 / §4.3  HTML-vs-state disambiguation (no-ws = markup; ws = state — P1: classification
+ *                        is now informational; NR (Stage 3.05) authoritatively resolves kind/category)
  *   §4.4                 Closer forms (trailing, explicit, inferred/bare)
  *   §4.6 (PA-001)        `<` suppression inside brace-delimited contexts
  *   §4.7 (PA-002)        `//` comment suppression to end of line
@@ -439,8 +444,16 @@ export function splitBlocks(filePath, source) {
     });
   }
 
-  /** Push a markup/state context frame. The tag opener (through '>') has been consumed. */
-  function pushTagContext(type, name, openPos, openLine, openCol) {
+  /**
+   * Push a markup/state context frame. The tag opener (through '>') has been consumed.
+   *
+   * `openerHadSpaceAfterLt` (P1, SPEC §4.3 / §15.15.5): records whether the opener
+   * used whitespace between `<` and the identifier. Per the state-as-primary
+   * unification this is informational only — it drives W-WHITESPACE-001
+   * diagnostics from NR. The tag/state classification is not gated on this flag
+   * by downstream stages in P1.
+   */
+  function pushTagContext(type, name, openPos, openLine, openCol, openerHadSpaceAfterLt = false) {
     stack.push({
       type,
       name,
@@ -451,6 +464,7 @@ export function splitBlocks(filePath, source) {
       startCol: openCol,
       children: [],
       braceDepth: 0,
+      openerHadSpaceAfterLt,
     });
   }
 
@@ -497,6 +511,7 @@ export function splitBlocks(filePath, source) {
       name: frame.name,
       closerForm,
       isComponent: frame.isComponent ?? false,
+      openerHadSpaceAfterLt: frame.openerHadSpaceAfterLt === true,
     });
   }
 
@@ -1058,9 +1073,10 @@ export function splitBlocks(filePath, source) {
             name: tagName,
             closerForm: "self-closing",
             isComponent: isComp,
+            openerHadSpaceAfterLt: false,
           });
         } else {
-          pushTagContext("markup", tagName, curPos, curLine, curCol);
+          pushTagContext("markup", tagName, curPos, curLine, curCol, false);
         }
         // Reset quote state - we just finished scanning a tag (attributes use local state)
         inDoubleQuote = false;
@@ -1095,8 +1111,26 @@ export function splitBlocks(filePath, source) {
         step(); // consume '<'
         while (pos < len && /\s/.test(source[pos])) step(); // skip whitespace
         const stateName = readIdent();
-        scanAttributes();
-        pushTagContext("state", stateName, curPos, curLine, curCol);
+        const { selfClosing: stateSelfClosing } = scanAttributes();
+        if (stateSelfClosing) {
+          // P1 (uniform opener, SPEC §15.15): permit `< name attr=...` /> ` self-closing
+          // for state openers — required to make state types behave uniformly with the
+          // no-space markup path. NR resolves the kind/category; W-WHITESPACE-001 is
+          // emitted because of the opener whitespace.
+          targetChildren().push({
+            type: "state",
+            raw: source.slice(curPos, pos),
+            span: { start: curPos, end: pos, line: curLine, col: curCol },
+            depth: depth(),
+            children: [],
+            name: stateName,
+            closerForm: "self-closing",
+            isComponent: isComponentName(stateName),
+            openerHadSpaceAfterLt: true,
+          });
+        } else {
+          pushTagContext("state", stateName, curPos, curLine, curCol, true);
+        }
         // Reset quote state after tag
         inDoubleQuote = false;
         inSingleQuote = false;
