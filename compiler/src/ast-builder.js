@@ -153,13 +153,25 @@ function isHtmlFragment(expr) {
  * and other module-level helpers that need ExprNode but lack access to the
  * closure-scoped safeParseExprToNode inside parseLogicBody.
  */
-function safeParseExprToNodeGlobal(expr, filePath, startOffset) {
+function safeParseExprToNodeGlobal(expr, filePath, startOffset, errors) {
   if (!expr || typeof expr !== "string" || !expr.trim()) return undefined;
   if (shouldSkipExprParse(expr)) {
     return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "SkippedExpr", raw: expr };
   }
   try {
-    return parseExprToNode(expr, filePath, startOffset ?? 0);
+    const node = parseExprToNode(expr, filePath, startOffset ?? 0);
+    // F-SQL-001: surface E-SQL-008 from unbalanced ?{} as a TABError when
+    // an errors array is in scope. Falls back to escape-hatch otherwise.
+    if (node && node.kind === "escape-hatch" && node.estreeType === "SqlPlaceholderError" && node.sqlDiagnostic) {
+      if (errors) {
+        errors.push(new TABError(
+          node.sqlDiagnostic.code || "E-SQL-008",
+          node.sqlDiagnostic.message,
+          node.span,
+        ));
+      }
+    }
+    return node;
   } catch (_e) {
     return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "ParseError", raw: expr };
   }
@@ -481,10 +493,10 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
             const argList = rawArgs.trim().length === 0
               ? []
               : splitArgs(rawArgs);
-            const _argExprNodes = argList.map(a => safeParseExprToNodeGlobal(a, filePath, valSpan?.start ?? 0)).filter(Boolean);
+            const _argExprNodes = argList.map(a => safeParseExprToNodeGlobal(a, filePath, valSpan?.start ?? 0, errors)).filter(Boolean);
             value = { kind: "call-ref", name: parsed.name, args: argList, argExprNodes: _argExprNodes.length === argList.length ? _argExprNodes : undefined, span: valSpan };
           } else if (valTok.kind === "ATTR_IDENT") {
-            value = { kind: "variable-ref", name: valTok.text, exprNode: safeParseExprToNodeGlobal(valTok.text, filePath, valSpan?.start ?? 0), span: valSpan };
+            value = { kind: "variable-ref", name: valTok.text, exprNode: safeParseExprToNodeGlobal(valTok.text, filePath, valSpan?.start ?? 0, errors), span: valSpan };
           } else if (valTok.kind === "ATTR_BLOCK") {
             if (name === "props") {
               // Brace-block attribute value: `props={...}` typed props declaration (§15.10)
@@ -500,7 +512,7 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
               while ((m = refRe.exec(raw)) !== null) {
                 if (!refs.includes(m[1])) refs.push(m[1]);
               }
-              value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0), span: valSpan };
+              value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0, errors), span: valSpan };
             }
           } else if (valTok.kind === "ATTR_EXPR") {
             // Boolean expression for if= attribute (e.g. !@var, @a === 1, @a && @b quoted).
@@ -512,7 +524,7 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
             while ((m = refRe.exec(raw)) !== null) {
               if (!refs.includes(m[1])) refs.push(m[1]);
             }
-            value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0), span: valSpan };
+            value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0, errors), span: valSpan };
           } else {
             // E-ATTR-001: unexpected token type as attribute value
             errors.push(new TABError(
@@ -1092,7 +1104,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     }
     try {
       // Automatically thread tilde context from the closure-scoped flag
-      return parseExprToNode(expr, filePath, startOffset ?? 0, _tildeActive ? { tildeActive: true } : undefined);
+      const node = parseExprToNode(expr, filePath, startOffset ?? 0, _tildeActive ? { tildeActive: true } : undefined);
+      // F-SQL-001: surface E-SQL-008 from unbalanced ?{} as a TABError.
+      if (node && node.kind === "escape-hatch" && node.estreeType === "SqlPlaceholderError" && node.sqlDiagnostic) {
+        errors.push(new TABError(
+          node.sqlDiagnostic.code || "E-SQL-008",
+          node.sqlDiagnostic.message,
+          node.span,
+        ));
+      }
+      return node;
     } catch (_e) {
       // Phase 4d: produce escape-hatch on parse failure instead of undefined
       return { kind: "escape-hatch", span: { file: filePath, start: startOffset ?? 0, end: (startOffset ?? 0) + expr.length, line: 1, col: 1 }, estreeType: "ParseError", raw: expr };
