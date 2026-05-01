@@ -6540,17 +6540,36 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
       // declarative syntactic form used everywhere else (@x: Type, as Type,
       // type Foo, < state for=X>). The pre-S25 sentence form
       // `< machine Name for Type>` is rejected with E-MACHINE-020.
-      if (block.name === "machine") {
+      //
+      // P1 (2026-04-30, state-as-primary unification): canonical keyword is now
+      // `engine` (DD1 §6.6, design-insight `state-as-primary`). The legacy
+      // `machine` keyword continues to compile but emits W-DEPRECATED-001.
+      // Both forms produce a `machine-decl` AST node — the internal naming is
+      // not renamed in P1 to keep blast radius bounded; that rename moves with
+      // P3 when downstream stages consume the renamed shape uniformly.
+      if (block.name === "machine" || block.name === "engine") {
+        const isLegacyMachineKeyword = block.name === "machine";
+        if (isLegacyMachineKeyword) {
+          errors.push(new TABError(
+            "W-DEPRECATED-001",
+            `W-DEPRECATED-001: \`<machine>\` keyword is deprecated; use \`<engine>\` instead. ` +
+            `Both forms compile in P1; \`<machine>\` becomes E-DEPRECATED-001 in P3. ` +
+            `Migration: rename the keyword (the rest of the declaration is unchanged).`,
+            span,
+          ));
+          errors[errors.length - 1].severity = "warning";
+        }
+        const keyword = block.name; // "machine" or "engine"
         const machineRaw = (block.raw || "").trim();
-        // Extract header: "< machine name=X for=Y [derived=@Z]>"
+        // Extract header: "< {keyword} name=X for=Y [derived=@Z]>"
         const firstLineEnd = machineRaw.indexOf(">");
         const headerLine = firstLineEnd >= 0
           ? machineRaw.slice(0, firstLineEnd)
           : machineRaw.split("\n")[0];
-        // Strip "< machine " prefix
+        // Strip "< {keyword} " prefix
         let header = headerLine;
-        const machineIdx = header.indexOf("machine");
-        if (machineIdx >= 0) header = header.slice(machineIdx + "machine".length).trim();
+        const machineIdx = header.indexOf(keyword);
+        if (machineIdx >= 0) header = header.slice(machineIdx + keyword.length).trim();
         // Strip trailing `/` (self-closing) or `>` fragments from the header.
         header = header.replace(/[/>]+\s*$/, "").trim();
 
