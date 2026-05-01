@@ -2203,29 +2203,41 @@ disjoint-name regression coverage.
 
 ---
 
-## F-SQL-001 — `?{}` boundary parsing failures emit `sql-ref:-1` placeholders that fail `node --check` (P0) — surfaced 2026-04-30 (S51, W0b smoke-test)
+## F-SQL-001 — `?{}` boundary parsing failures emit `sql-ref:-1` placeholders that fail `node --check` (P0) — surfaced 2026-04-30 (S51, W0b smoke-test) — RESOLVED 2026-04-30
 
-13 of 17 original dev-server failures pre-W0b were Class B parse
-failures: `billing.server.js`, `home.server.js`, `load-detail.server.js`,
-and similar files contained emitted `sql-ref:-1` placeholders inside
-SQL template-literal positions. The placeholders are syntactically
-invalid JavaScript → `node --check` rejects them.
+**Status: RESOLVED.** F-SQL-001 dispatch (T2 worktree, branch `worktree-agent-a3a8d6756b5a7af04`) replaced the defective regex `/\?\{[^}]*\}/g` in `compiler/src/expression-parser.ts` (lines 137 and 169) with a context-mode-stack scanner (`replaceSqlBlockPlaceholder`). The new scanner respects template-literal boundaries and JS-expression nesting inside `${expr}` interpolations.
 
-The bug is in BS / TAB / PA parse path for `?{}` boundary
-extraction — when the SQL template includes complex inlined
-expressions (joins, multi-clause WHERE, subqueries used in dispatch
-app billing/load-detail/home pages), the parser fails to compute a
-valid `sql-ref:N` index and emits `-1` instead of erroring at compile
-time.
+**Root cause** (diagnosis: `docs/changes/f-sql-001/diagnosis.md`):
+The dispatch's reference to `sql-ref:-1` was a slight mis-statement of the actual symptom. The real bug shape was: (a) the regex `[^}]*` non-greedy match stops at the first `}` (the inner `${}` interpolation's close brace), so any `?{...${expr}...}` template was truncated mid-stream; (b) acorn either parsed the residue as a single placeholder identifier (with the rest as silently-dropped trailing content + soft warning) or failed entirely (escape-hatch fallback). The `sql-ref:-1` sentinel exists in `expression-parser.ts:712` as a deliberate parser-stage marker (downstream codegen resolves it via `stmt.sqlNode`), not the bug itself.
 
-This is the OPPOSITE of validation principle: instead of compile-time
-error or correct compilation, the compiler emits invalid output AND
-proceeds clean. Possibly related to F-LIN-001 (also a `?{}`
-asymmetric pass behavior) but mechanistically distinct (parse-stage,
-not lin-tracker).
+**Fix shape (C):** ergonomic + hard-error (default per dispatch).
+- **(A)** ergonomic: `replaceSqlBlockPlaceholder()` walks `?{...}` with a frame stack — opening `?{` enters JS-context (depth=1), `\`` enters template, `${` inside template enters nested JS-context, etc. Single-, double-, and template-quoted strings are respected (braces inside string literals don't affect depth).
+- **(B)** hard-error: when the scanner reaches end-of-input with the outer JS-frame still open, `ParseResult.sqlDiagnostic` carries an E-SQL-008 diagnostic. `parseExprToNode` propagates this to an escape-hatch ExprNode with `sqlDiagnostic` attached. `safeParseExprToNode` (closure-scoped in `parseLogicBody`) and `safeParseExprToNodeGlobal` (in `parseAttributes`) push a TABError so the error surfaces in the standard compile error list.
 
-Held for separate triage. Out of OQ-2 (W0b) scope by dispatch
-boundary.
+**Test results:**
+- `bun test`: 8329 → 8346 (+17 new tests, 0 regressions, 0 fail).
+- Pre-fix `[scrml] warning: statement boundary not detected` count: 146 occurrences. Post-fix: 30 (all 30 are non-SQL pre-existing ASI cases; 19 unique SQL-related warning shapes eliminated).
+- `examples/23-trucking-dispatch/pages/customer/home.scrml` no longer emits the F-SQL-001 boundary warning when compiled. (The page still fails for unrelated `E-SYNTAX-042` null-token errors — out of F-SQL-001 scope.)
+
+**SPEC amendments:**
+- §44.7 error table: added `E-SQL-008`. (E-SQL-007 is `?{}` in non-async context — already reserved.)
+- §44.8 (NEW): "Parser: Bracket-Matched `?{` Scanner (F-SQL-001)" — codifies scanner semantics, failure mode (E-SQL-008), rationale.
+- §8.6 master error table: E-SQL-008 added.
+- `SPEC-INDEX.md`: §44 line range and summary updated.
+
+**Test fixtures:** `compiler/tests/integration/sql-001-bracket-matched.test.js` (17 tests):
+- 9 positive controls (simple, single interp, multi-clause + IN, JOIN + multi interp, subquery, .get(), bare, multiple, single-quoted with braces).
+- 2 parseStatements multi-statement bodies.
+- 4 E-SQL-008 hard-error cases (no matching `}`, unterminated backtick, unmatched `${`, escape-hatch surfaces sqlDiagnostic).
+- 2 end-to-end compilation tests (no SQL boundary warnings on the previously-broken patterns).
+
+**Files touched:**
+- `compiler/src/expression-parser.ts` — scanner + diagnostic plumbing.
+- `compiler/src/ast-builder.js` — TABError integration in safeParseExprToNode + safeParseExprToNodeGlobal.
+- `compiler/SPEC.md` — E-SQL-008 in two error tables; new §44.8.
+- `compiler/SPEC-INDEX.md` — §44 line range + summary.
+- `compiler/tests/integration/sql-001-bracket-matched.test.js` — new fixture file.
+- `examples/23-trucking-dispatch/FRICTION.md` — this RESOLVED note.
 
 ---
 

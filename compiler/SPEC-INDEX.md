@@ -60,7 +60,7 @@ Total lines: 20,521 | Total sections: 54 + appendices
 | 41 | Import System — `use`/`import` | 14120-14326 | 207 | Capability imports, value imports, vendoring |
 | 42 | `not` — Unified Absence Value | 14327-14558 | 232 | `not` keyword, `is not`, `is some`, `(x) =>`, `T | not`, compound exprs (§42.2.4) |
 | 43 | Nested `<program>` | 14559-14641 | 83 | Execution contexts, shared-nothing, lifecycle, RPC |
-| 44 | `?{}` Multi-Database Adaptation | 14642-14697 | 56 | Bun.SQL target, driver resolution, `.get()` → `T | not` |
+| 44 | `?{}` Multi-Database Adaptation | 14969-15055 | 87 | Bun.SQL target, driver resolution, `.get()` → `T | not`; **§44.8 bracket-matched `?{` scanner (F-SQL-001)** + E-SQL-008 hard-error |
 | 45 | Equality Semantics | 14698-14759 | 62 | Single `==`, no `===`, structural, compiler-derived |
 | 46 | Worker Lifecycle | 14760-14806 | 47 | `when ... from <#name>`, supervision attrs |
 | 47 | Output Name Encoding | 14807-15146 | 340 | Encoded JS variable names, kind prefixes, hash scheme |

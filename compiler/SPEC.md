@@ -4726,6 +4726,7 @@ read/write distinction.
 | E-SQL-005 | Unrecognized database connection string prefix in `db=` attribute | Error |
 | E-SQL-006 | `.prepare()` called on `?{}` result (removed — see §44.3) | Error |
 | E-SQL-007 | `?{}` in a non-async context (see §44.4) | Error |
+| E-SQL-008 | `?{` SQL block has no matching `}` — unterminated SQL template, unterminated backtick template literal, or unmatched `${` interpolation inside the SQL body (F-SQL-001, parser-stage hard error replacing prior silent data loss) | Error |
 | E-BATCH-001 | Explicit `transaction { }` composed with an implicit per-handler transaction (§8.9.3 / §19.10.5) | Error |
 | E-BATCH-002 | Batched `IN (...)` parameter count exceeds `SQLITE_MAX_VARIABLE_NUMBER` and chunking is not applicable | Error |
 | E-PROTECT-003 | A `BatchPlan.rowCacheColumns` entry includes a `protect` column that appears in the handler's client-visible return type (§8.10.7) | Error |
@@ -15018,6 +15019,37 @@ Deferred to SPEC-ISSUE-018. Current workaround: `^{}` meta with direct Bun.SQL `
 | E-SQL-005 | Unsupported db prefix (e.g. `mongodb:`) | Error |
 | E-SQL-006 | `.prepare()` called on `?{}` result | Error |
 | E-SQL-007 | `?{}` in a non-async context | Error |
+| E-SQL-008 | `?{` SQL block has no matching `}` — unterminated template (F-SQL-001) | Error |
+
+### 44.8 Parser: Bracket-Matched `?{` Scanner (F-SQL-001)
+
+**Added:** F-SQL-001, 2026-04-30. Source: docs/changes/f-sql-001/diagnosis.md.
+
+The scrml parser SHALL recognize `?{...}` SQL blocks using a bracket-matched
+scanner that respects template-literal boundaries and JS-expression nesting
+inside `${expr}` interpolations. Specifically:
+
+1. The opening `?{` enters a JS-expression context with brace-depth = 1.
+2. Inside that context, a backtick `` ` `` opens a template-literal context.
+3. Inside a template literal, `${` opens a nested JS-expression context with
+   its own brace-depth counter; the matching `}` returns to template mode.
+4. The outer `?{...}` ends when the original JS-context's brace-depth
+   returns to 0.
+
+Single-, double-, and template-quoted strings within the SQL body are
+respected — braces inside string literals do not affect the depth counter.
+
+**Failure mode:** If the scanner reaches end-of-input with the outer
+JS-context still open, the compiler SHALL emit `E-SQL-008` with the source
+offset of the offending `?{`.
+
+**Rationale:** Prior to F-SQL-001 the parser used a regex `/\?\{[^}]*\}/g`
+that could not handle `?{...${expr}...}` because `[^}]*` stops at the first
+`}` (the inner interpolation's close brace). This produced silent data loss:
+either the surrounding expression failed to parse (escape-hatch fallback),
+or it parsed partially with the SQL trailing content silently dropped.
+Per S49 (validation principle), silent-bad-output is unacceptable; the
+parser now either matches the full block or emits a hard error.
 
 ---
 
