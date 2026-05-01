@@ -4,7 +4,8 @@
 // time-in-current-state, hours-driven-today, hours-on-duty-today, plus
 // the last 24h of hos_change log entries for cycle history.
 //
-// Scoping §7 calls for a `<machine>` here. HOS is client-driven (the app
+// Scoping §7 calls for a `<engine>` here (canonical keyword P1+; legacy `<machine>`
+// remains a deprecated alias emitting W-DEPRECATED-001). HOS is client-driven (the app
 // derives state + cumulative hours from log entries + clock); unlike
 // load.status (server-persisted), the machine fits cleanly. The state
 // transitions are simplified 11/14 FMCSA-ish:
@@ -19,12 +20,15 @@
 // This is a simplified v1 per scoping §7. M6 polish may extend to layered
 // machines (per-cycle vs per-shift).
 //
-// FRICTION (F-MACHINE-001 — see FRICTION.md): `<machine for=Type>` requires
-// the type be declared IN THE SAME FILE. Imported types from schema.scrml
-// trigger E-MACHINE-004. So `DriverStatus` is RE-DECLARED locally below
-// despite being exported from schema.scrml. Same shape; small duplication.
+// FRICTION (F-ENGINE-001, formerly F-MACHINE-001 — see FRICTION.md): `<engine for=Type>`
+// requires the type be declared IN THE SAME FILE. Imported types from schema.scrml
+// trigger E-MACHINE-004 (now also reachable via `<engine>`; rename to E-ENGINE-004 in P3).
+// So `DriverStatus` is RE-DECLARED locally below despite being exported from
+// schema.scrml. Same shape; small duplication. Tactical fix in W6 worktree was
+// held; supersedes by P3 cross-file resolution work per state-as-primary plan.
 //
-// FRICTION (F-NULL-001 — see FRICTION.md): file with a `<machine>` block
+// FRICTION (F-NULL-001 — see FRICTION.md): file with a `<engine>` block (or
+    // `<machine>` deprecated alias)
 // + `null` literals/comparisons in client-fn bodies fires E-SYNTAX-042 in
 // GCP3 even though identical patterns compile clean elsewhere. Workaround:
 // use `is some`/`is not` for absence checks instead of `== null`/`!= null`,
@@ -39,7 +43,7 @@
 
 ${
     // Local DriverStatus enum — duplicated from schema.scrml because
-    // `<machine for=...>` rejects imported types (F-MACHINE-001).
+    // `<engine for=...>` rejects imported types (F-ENGINE-001, formerly F-MACHINE-001).
     type DriverStatus:enum = {
         OffDuty
         OnDuty
@@ -48,7 +52,7 @@ ${
     }
 }
 
-< machine name=HOSMachine for=DriverStatus>
+< engine name=HOSMachine for=DriverStatus>
     .OffDuty      => .OnDuty | .SleeperBerth
     .OnDuty       => .OffDuty | .Driving
     .Driving      => .OffDuty | .OnDuty

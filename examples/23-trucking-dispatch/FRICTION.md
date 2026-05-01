@@ -747,7 +747,13 @@ The kickstarter doesn't mention this gap. Adopters will write destructuring libe
 
 ---
 
-## F-MACHINE-001 — `<machine for=Type>` rejects imported types (P1)
+## F-ENGINE-001 (formerly F-MACHINE-001) — `<engine for=Type>` rejects imported types (P1)
+
+**Status update (2026-04-30, P1 of state-as-primary):** The keyword renamed from `<machine>` to `<engine>` (P1 commit on `changes/p1`). The friction is unchanged — `<engine for=Type>` still rejects imported types because cross-file resolution work is deferred to P3. The W6 worktree contained a tactical patch (state-as-primary deep-dive parser-disambiguation-feasibility-2026-04-30 §10) which is **held / superseded** by the architectural P3 work. In P1, adopters using `<engine for=ImportedType>` still hit E-MACHINE-004 and must redeclare the type locally. Renamed E-MACHINE-* error codes (→ E-ENGINE-*) come with the deferred SPEC §51 keyword-rewrite dispatch.
+
+The historical F-MACHINE-001 details below are preserved verbatim; substitute `<machine>` → `<engine>` mentally for current-canonical syntax (the legacy `<machine>` keyword still compiles, emitting W-DEPRECATED-001).
+
+---
 
 **Surfaced in:** M3 `pages/driver/hos.scrml`. The HOS state machine declares
 `<machine name=HOSMachine for=DriverStatus>` where `DriverStatus` is imported
@@ -2074,7 +2080,7 @@ No design change.
 - **F-COMMENT-001** — HTML comments leak content into parser/scope checker.
 - **F-RI-001-FOLLOW** — `is not` doesn't support member-access targets; `obj.field is not` fires E-SCOPE-001.
 - **F-CPS-001** — CPS-eligibility skips nested control-flow when finding reactive assignments (architectural).
-- **F-MACHINE-001** — `<machine for=Type>` rejects imported types; "imported via 'use'" error message misleading.
+- **F-ENGINE-001 (formerly F-MACHINE-001)** — `<engine for=Type>` rejects imported types; "imported via 'use'" error message misleading. Keyword renamed P1 (2026-04-30); friction itself unchanged, deferred to P3 cross-file resolution work.
 - **F-NULL-001** — files with `<machine>` reject `null` literals/comparisons in client-fn bodies (asymmetric trigger).
 - **F-NULL-002** — `!= null` / `== null` in server-fn bodies fires E-SYNTAX-042 in GCP3 with no line number; markup-side null comparisons accepted.
 - **F-CHANNEL-002 / F-CHANNEL-003 / F-CHANNEL-005** — no on-change hook for `@shared`; channels are per-page (not cross-file); per-channel auth scoping is not declarative.
