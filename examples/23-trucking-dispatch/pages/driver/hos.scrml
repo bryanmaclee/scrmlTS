@@ -258,18 +258,16 @@ ${
 
         function setStatus(target) {
             const tok = getSessionToken()
-            @errorMessage = ""
             const result = changeHosServer(tok, target)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            refresh()
         }
 
         function setError(msg) {

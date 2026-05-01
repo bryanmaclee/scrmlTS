@@ -130,26 +130,24 @@
             }
             const tok = getSessionToken()
             const body = @draft
-            @errorMessage = ""
             const result = sendMessageServer(tok, body)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                // M5: publish to driver-events so the dispatcher sees it
-                // live. The DB write already happened inside sendMessageServer;
-                // this is the "live wire" so subscribers update without
-                // reload.
-                const driverId = @driver ? @driver.id : 0
-                const userId = @user ? @user.id : 0
-                publishDriverEvent("message", driverId, userId, body, 0)
-                @draft = ""
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            // M5: publish to driver-events so the dispatcher sees it
+            // live. The DB write already happened inside sendMessageServer;
+            // this is the "live wire" so subscribers update without
+            // reload.
+            const driverId = @driver ? @driver.id : 0
+            const userId = @user ? @user.id : 0
+            publishDriverEvent("message", driverId, userId, body, 0)
+            @draft = ""
+            refresh()
         }
 
         // Filter live events to only messages relevant to THIS driver.

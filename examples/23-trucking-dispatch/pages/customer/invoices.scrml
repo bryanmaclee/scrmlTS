@@ -182,13 +182,12 @@
             @loaded = true
         }
 
-        // F-RI-001 anchor + setError indirection.
+        // F-RI-001 RESOLVED (W4) — direct @-assignment on error path.
         // M6: takes paymentToken — passes lin to server fn for single-use
         // consumption. Replays / double-clicks rejected by DB guard.
         function markPaid(invoiceId, paymentToken) {
-            @errorMessage = ""
             if (!paymentToken || paymentToken == "") {
-                setError("Payment token unavailable for this invoice.")
+                @errorMessage = "Payment token unavailable for this invoice."
                 return
             }
             const tok = getSessionToken()
@@ -197,16 +196,15 @@
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                // M5: broadcast invoice-paid so other tabs / dispatcher's
-                // billing view update live.
-                const customerId = @customer ? @customer.id : 0
-                publishCustomerEvent("invoice-paid", customerId, invoiceId, 0)
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            // M5: broadcast invoice-paid so other tabs / dispatcher's
+            // billing view update live.
+            const customerId = @customer ? @customer.id : 0
+            publishCustomerEvent("invoice-paid", customerId, invoiceId, 0)
+            refresh()
         }
 
         function setError(msg) {

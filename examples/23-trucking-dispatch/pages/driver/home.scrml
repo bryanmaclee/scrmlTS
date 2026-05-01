@@ -162,20 +162,16 @@
 
         function setStatus(target) {
             const tok = getSessionToken()
-            // F-RI-001 anchor: assign @var BEFORE the server call.
-            @errorMessage = ""
             const result = changeHosServer(tok, target)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            // F-RI-001 indirection: setError helper isolates @var assignment.
-            const err = result.error
-            setError(err)
+            refresh()
         }
 
         function setError(msg) {

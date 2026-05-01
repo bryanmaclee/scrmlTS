@@ -156,7 +156,6 @@
         }
 
         function markPaid(invoiceId, customerId) {
-            @errorMessage = ""
             const tok = getSessionToken()
             const result = markPaidServer(tok, invoiceId)
             if (result.unauthorized) {
@@ -164,7 +163,7 @@
                 return
             }
             if (!result.ok) {
-                setError("Could not mark invoice paid.")
+                @errorMessage = "Could not mark invoice paid."
                 return
             }
             // M5: broadcast invoice-paid to customer-events so the

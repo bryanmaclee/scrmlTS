@@ -116,20 +116,18 @@
             const name = @editName
             const phone = @editPhone
             const tok = getSessionToken()
-            @errorMessage = ""
             const result = saveProfileServer(tok, name, phone)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                @editing = false
-                announceSaved()
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            @editing = false
+            announceSaved()
+            refresh()
         }
 
         function announceSaved() {

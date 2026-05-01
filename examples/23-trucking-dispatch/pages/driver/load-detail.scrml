@@ -342,28 +342,26 @@
         function transition(target) {
             const tok = getSessionToken()
             const loadId = @load.id
-            @errorMessage = ""
             const result = transitionLoadServer(tok, loadId, target)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                // M5: broadcast on dispatch-board + load-events.
-                publishBoardEvent("status-change", loadId, target)
-                publishLoadEvent("status", loadId, target, "")
-                // Special: delivery is also a customer-event so the
-                // customer's loads list flips to "delivered" without
-                // reload.
-                if (target == "delivered") {
-                    const customerId = @load.customer_id
-                    publishCustomerEvent("load-delivered", customerId, 0, loadId)
-                }
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            // M5: broadcast on dispatch-board + load-events.
+            publishBoardEvent("status-change", loadId, target)
+            publishLoadEvent("status", loadId, target, "")
+            // Special: delivery is also a customer-event so the
+            // customer's loads list flips to "delivered" without
+            // reload.
+            if (target == "delivered") {
+                const customerId = @load.customer_id
+                publishCustomerEvent("load-delivered", customerId, 0, loadId)
+            }
+            refresh()
         }
 
         function submitBol(event) {
@@ -380,7 +378,6 @@
             }
             const tok = getSessionToken()
             const loadId = @load.id
-            @errorMessage = ""
             // M6: pass the lin BOL token to the server fn. Server consumes
             // it via the DB-side single-use guard; replays return error.
             const result = uploadBolServer(tok, loadId, filename, bolTok)
@@ -388,14 +385,13 @@
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                @bolFilename = ""
-                @openForm = ""
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            @bolFilename = ""
+            @openForm = ""
+            refresh()
         }
 
         function submitPod(event) {
@@ -407,20 +403,18 @@
             }
             const tok = getSessionToken()
             const loadId = @load.id
-            @errorMessage = ""
             const result = uploadPodServer(tok, loadId, filename)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                @podFilename = ""
-                @openForm = ""
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            @podFilename = ""
+            @openForm = ""
+            refresh()
         }
 
         function submitFuel(event) {
@@ -433,21 +427,19 @@
             }
             const tok = getSessionToken()
             const loadId = @load.id
-            @errorMessage = ""
             const result = logFuelStopServer(tok, loadId, amount, odometer)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                @fuelAmount = ""
-                @fuelOdometer = ""
-                @openForm = ""
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            @fuelAmount = ""
+            @fuelOdometer = ""
+            @openForm = ""
+            refresh()
         }
 
         function submitBreakdown(event) {
@@ -459,20 +451,18 @@
             }
             const tok = getSessionToken()
             const loadId = @load.id
-            @errorMessage = ""
             const result = logBreakdownServer(tok, loadId, desc)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                @breakdownDescription = ""
-                @openForm = ""
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            @breakdownDescription = ""
+            @openForm = ""
+            refresh()
         }
 
         function setError(msg) {

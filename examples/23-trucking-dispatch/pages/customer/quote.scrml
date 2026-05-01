@@ -184,16 +184,15 @@
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                const newId = result.loadId
-                // M5: broadcast new-load to dispatch-board.
-                publishBoardEvent("new-load", newId, "tendered")
-                window.location.href = `/customer/loads/${newId}`
+            if (result.error) {
+                @errorMessage = result.error
+                @submitting = false
                 return
             }
-            const err = result.error
-            @submitting = false
-            setError(err)
+            const newId = result.loadId
+            // M5: broadcast new-load to dispatch-board.
+            publishBoardEvent("new-load", newId, "tendered")
+            window.location.href = `/customer/loads/${newId}`
         }
 
         function setError(msg) {
