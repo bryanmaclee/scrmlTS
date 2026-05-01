@@ -258,28 +258,24 @@
         }
 
         function transition(target) {
+            // F-RI-001 RESOLVED (W4): the M2 anchor + setError indirection
+            // is no longer needed — RI capture-taint correctly excludes
+            // string-literal contents from closure captures.
             const tok = getSessionToken()
             const loadId = @load.id
-            // Set @errorMessage BEFORE the server call so the assignment is
-            // recognized as client-side. Server-fn return values can be
-            // dispatched on without re-assigning @vars on the negative path.
-            @errorMessage = ""
             const result = transitionStatusServer(tok, loadId, target)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                // M5: broadcast the status change to both channels.
-                publishBoardEvent("status-change", loadId, target)
-                publishLoadEvent("status", loadId, target, "")
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            // Use a local var so the @assignment isn't immediately after a
-            // server fn return — works around the strict E-RI-002 escalation.
-            const errMsg = result.error
-            setError(errMsg)
+            // M5: broadcast the status change to both channels.
+            publishBoardEvent("status-change", loadId, target)
+            publishLoadEvent("status", loadId, target, "")
+            refresh()
         }
 
         function saveAssignment(event) {
@@ -295,22 +291,20 @@
             }
             const tok = getSessionToken()
             const loadId = @load.id
-            @errorMessage = ""
             const result = assignServer(tok, loadId, driverId, tractorId, trailerId)
             if (result.unauthorized) {
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                // M5: broadcast the assignment as a load-event so the
-                // driver who got assigned + the customer of this load
-                // see "carrier assigned" notice.
-                publishLoadEvent("assignment", loadId, "", "")
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const errMsg = result.error
-            setError(errMsg)
+            // M5: broadcast the assignment as a load-event so the
+            // driver who got assigned + the customer of this load
+            // see "carrier assigned" notice.
+            publishLoadEvent("assignment", loadId, "", "")
+            refresh()
         }
 
         function setError(msg) {

@@ -230,13 +230,14 @@
         }
 
         // M6: customer signs the rate confirmation (lin token consume).
-        // Per F-RI-001 carryforward: anchor + setError indirection.
+        // F-RI-001 RESOLVED (W4): the M2 anchor + setError indirection
+        // is no longer needed — RI capture-taint correctly excludes
+        // string-literal contents from closure captures.
         function signRateConfirmation() {
-            @errorMessage = ""
             const tok = getSessionToken()
             const acceptance = @acceptanceToken
             if (acceptance == "") {
-                setError("No acceptance token available.")
+                @errorMessage = "No acceptance token available."
                 return
             }
             const result = signRateConfirmationServer(tok, @load.id, acceptance)
@@ -244,13 +245,12 @@
                 window.location.href = "/login?reason=unauthorized"
                 return
             }
-            if (!result.error) {
-                publishLoadEvent("rate-confirmed", @load.id, "dispatched", "")
-                refresh()
+            if (result.error) {
+                @errorMessage = result.error
                 return
             }
-            const err = result.error
-            setError(err)
+            publishLoadEvent("rate-confirmed", @load.id, "dispatched", "")
+            refresh()
         }
 
         function setError(msg) {
