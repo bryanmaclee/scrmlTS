@@ -197,21 +197,43 @@ export function generateServerEntry(serverModules) {
     lines.push("");
   } else {
     lines.push("// Server route modules");
+    // F-BUILD-002: de-duplicate names across modules. Each server.js with auth
+    // middleware exports its own `_scrml_session_destroy` (compiler-generated
+    // boilerplate; identical shape across files), but the entry must import
+    // each name at most once — duplicate imports are a JavaScript SyntaxError.
+    // First-importer wins (the registered route is identical regardless of
+    // source module). Per-file unique route names (`_scrml_route_<name>`) are
+    // unaffected since each appears in exactly one module.
+    const seenNames = new Set();
     for (const { filename, routeNames, wsHandlerNames } of serverModules) {
       // Import both route names and ws handler names from each server file
       const allNames = [
         ...(routeNames ?? []),
         ...(wsHandlerNames ?? []),
       ].filter(Boolean);
-      if (allNames.length > 0) {
-        lines.push(`import { ${allNames.join(", ")} } from "./${filename}";`);
+      // Drop names already imported by an earlier module
+      const uniqueNames = allNames.filter(n => !seenNames.has(n));
+      if (uniqueNames.length > 0) {
+        for (const n of uniqueNames) seenNames.add(n);
+        lines.push(`import { ${uniqueNames.join(", ")} } from "./${filename}";`);
       }
     }
     lines.push("");
   }
 
-  // Route registry — HTTP routes only (ws handlers are NOT routes)
-  const allRouteNames = serverModules.flatMap(m => m.routeNames ?? []);
+  // Route registry — HTTP routes only (ws handlers are NOT routes).
+  // F-BUILD-002: de-duplicate route names. `_scrml_session_destroy` is emitted
+  // by every auth-middleware server.js; only one entry should appear in the
+  // routes array (each entry registers the same path/method handler).
+  const seenRouteNames = new Set();
+  const allRouteNames = [];
+  for (const m of serverModules) {
+    for (const n of (m.routeNames ?? [])) {
+      if (seenRouteNames.has(n)) continue;
+      seenRouteNames.add(n);
+      allRouteNames.push(n);
+    }
+  }
 
   lines.push("// Route registry");
   if (allRouteNames.length === 0) {
