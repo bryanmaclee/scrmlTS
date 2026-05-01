@@ -696,7 +696,14 @@ duplication breaks the "single source of truth" promise of `schema.scrml`.
 
 ---
 
-## F-NULL-001 — Files containing `<machine>` reject `null` literals/comparisons in client-fn bodies (P1)
+## F-NULL-001 — Files containing `<machine>` reject `null` literals/comparisons in client-fn bodies (P1) — **RESOLVED W3 (2026-04-30)**
+
+**Resolution:** Closed as part of W3 paired fix with F-NULL-002. Diagnosis at `docs/changes/f-null-001-002/diagnosis.md` revealed the M3 "machine-context-dependent" trigger was incidental — at the post-W1 baseline, both with-machine and without-machine client-fn bodies fired E-SYNTAX-042 equally. The true root cause was an incomplete walker in `compiler/src/gauntlet-phase3-eq-checks.js`: `forEachEqualityBinary` descended through 11 hard-coded JS-AST keys (`test`, `arguments`, `properties`) and missed scrml-AST keys (`condition`, `args`, `props`); `walkAst` never visited `attrs[*].value.exprNode` on markup nodes. The fix replaces the hard-coded key list with a generic ExprNode descent and extends `walkAst` to cover attribute expressions. SPEC §42.7 amended with a uniform-rejection clause to lock the contract.
+
+---
+
+### Original report (preserved for context)
+
 
 **Surfaced in:** M3 `pages/driver/hos.scrml`. Client-side `function`s with
 `null` literals or `== null` / `!= null` comparisons fire E-SYNTAX-042 in
@@ -904,7 +911,16 @@ No design change.
 
 ---
 
-## F-NULL-002 — `!= null` / `== null` in server-fn bodies fires E-SYNTAX-042 (P1)
+## F-NULL-002 — `!= null` / `== null` in server-fn bodies fires E-SYNTAX-042 (P1) — **RESOLVED W3 (2026-04-30)**
+
+**Resolution:** Closed as part of W3 paired fix with F-NULL-001. The "no line number" diagnostic-quality sub-bug also closed: `spanFromExprNode` now prefers the AST-node fallback span for line/col (since the expression-parser hard-codes `line: 1, col: 1` per `spanFromEstree`), and `GauntletPhase3Error` lifts span fields to top-level error props so the CLI formatter renders them. Markup-side and function-body null comparisons now BOTH error E-SYNTAX-042 with proper source location. Diagnosis at `docs/changes/f-null-001-002/diagnosis.md`.
+
+**Cascade note:** Pre-existing markup-attribute null-comparison patterns in `pages/dispatch/load-detail.scrml`, `pages/driver/home.scrml`, and elsewhere previously passed silently and now correctly error. Adopters should switch to truthiness checks (`if=@x`) or `is some`/`is not` per spec §42.
+
+---
+
+### Original report (preserved for context)
+
 
 **Surfaced in:** M4 `pages/customer/invoices.scrml::markPaidServer`. The
 server fn checked `if (inv.paid_at != null && inv.paid_at != "")` after a
