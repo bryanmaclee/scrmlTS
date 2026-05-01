@@ -10512,33 +10512,95 @@ on what can cross file boundaries.
 
 ### 21.2 Export Syntax
 
-Exports are declared inside a logic context using the `export` keyword:
+Exports are declared with the `export` keyword. Two forms are recognized:
+
+**Form 1 (canonical, top-level)** — direct component grammar:
+
+```scrml
+export <UserCard attr-name="value" props={ name: string, role: UserRole }>
+  <div class="card">
+    <h2>${name}</h2>
+    <span class="role">${role}</span>
+  </div>
+</>
+```
+
+This form lives at the top level of a `.scrml` file (i.e., NOT inside a `${ }`
+logic context). It is the canonical form for exporting components introduced
+by Phase P2 of the state-as-primary unification (§15.15, 2026-04-30).
+
+**Form 2 (transitional, in-logic)** — `export` before declaration keywords:
 
 ```scrml
 ${ export type UserRole:enum = { Admin, Moderator, User, Banned } }
 ${ export type Config:struct = { timeout: number, retries: number } }
 ${ export function formatDate(ts) { ... } }
+${ export const UserCard = <div props={ name: string, role: UserRole }>
+     ...
+   </> }
 ```
 
-A component definition MAY be exported by placing `export` before `const`:
+Form 2 lives inside a `${ }` logic context. The `export const ComponentName = <markup>`
+sub-form (component-as-const) remains valid as **transitional sugar** — the compiler
+desugars the canonical Form 1 to a Form-2-equivalent AST internally so both forms
+populate the same export registry entry. A file using Form 1 produces an export
+record indistinguishable (by name, kind, and component flag) from the same
+component declared via Form 2.
+
+**Equivalence (worked example).**
+
+Both files produce the same import behaviour at every call site:
 
 ```scrml
-export const UserCard = <div props={ name: string, role: UserRole }>
-    ...
+// File A — canonical Form 1
+export <Greeting props={ name: string }>
+  <p>Hello, ${name}!</>
 </>
 ```
 
+```scrml
+// File B — transitional Form 2
+${
+  export const Greeting = <p props={ name: string }>
+    Hello, ${name}!
+  </>
+}
+```
+
+A consumer of either file writes:
+
+```scrml
+${ import { Greeting } from './a-or-b.scrml' }
+<Greeting name="Ada"/>
+```
+
+The import resolves identically regardless of which form the exporting file used.
+The exportRegistry entry has the same shape: `{ kind: "const", isComponent: true }`
+for both Form 1 and Form 2. CE locates the component by the same path; downstream
+stages observe no difference.
+
 **Normative statements:**
 
-- The `export` keyword SHALL be valid before `type`, `function`, `fn`, `const`
-  (component), and `let`/`const` (value) declarations inside a logic context.
-- `export` at the top level of a scrml page (outside a `${ }` context) SHALL be
-  a compile error (E-IMPORT-001: export must appear inside a `${ }` logic context
-  or before a component `const`).
-- A file with no markup and no CSS (only `${ export ... }` blocks) is a
-  **type/module file**. It SHALL produce no HTML or CSS output — only a JS module
-  with exported bindings. The compiler SHALL recognize this pattern automatically;
-  no special file extension or pragma is required.
+- Form 1: `export <Identifier ...>...</>` at the top level of a `.scrml` file
+  SHALL declare a component named `Identifier` and SHALL produce an export
+  record equivalent to the Form-2 declaration `export const Identifier = <markup>`.
+  The component body is the markup element following `export `.
+- Form 2: The `export` keyword inside a `${ }` logic context SHALL be valid
+  before `type`, `function`, `fn`, `const` (including component-as-const),
+  and `let` declarations.
+- The `export` keyword followed by an identifier with a non-PascalCase first
+  character (e.g. `export <foo>`) at the top level SHALL NOT be recognized as
+  Form 1; it falls through to E-IMPORT-001 (`export` outside a `${ }` context).
+  Form 1 is restricted to component declarations; non-component top-level
+  exports remain a Form-2-only construct.
+- A `.scrml` file with no markup and no CSS (only `${ export ... }` blocks)
+  is a **type/module file**. It SHALL produce no HTML or CSS output — only a
+  JS module with exported bindings. The compiler SHALL recognize this pattern
+  automatically; no special file extension or pragma is required.
+- Form 1 currently applies to **components only**. Other lifecycle state-types
+  (`<channel>`, `<engine>`, `<timer>`, etc.) are not yet exportable via Form 1
+  and remain confined to the file in which they are declared. Cross-file
+  inline-expansion of state-types is scoped to Phase P3.
 
 ### 21.3 Import Syntax
 
@@ -10643,7 +10705,7 @@ without `export`).
 
 | Code | Trigger | Severity |
 |---|---|---|
-| E-IMPORT-001 | `export` used outside a `${ }` context or component `const` | Error |
+| E-IMPORT-001 | `export` used outside a `${ }` context (exceptions: top-level `export <ComponentName ...>...</>` per §21.2 Form 1 and `export const Name = ...` per §21.2 Form 2) | Error |
 | E-IMPORT-002 | Circular import detected | Error |
 | E-IMPORT-003 | `import` inside a function body (not file top-level) | Error |
 | E-IMPORT-004 | Imported name not found in target file's exports | Error |
@@ -12511,7 +12573,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-ROUTE-001 | §12.4 | Unresolvable callee or computed member access in route analysis | Warning |
 | ~~E-RI-001~~ | — | **Retired 2026-04-21 (S37)**; `server pure` is now valid (§33.3, §48.10). | — |
 | E-RI-002 | §12 | Server-escalated function mutates `@` reactive variable | Error |
-| E-IMPORT-001 | §21.2 | `export` used outside a `${ }` context or component `const` | Error |
+| E-IMPORT-001 | §21.2 | `export` used outside a `${ }` context (exceptions: top-level `export <ComponentName ...>...</>` per §21.2 Form 1, `export const Name = ...` inside `${ }` per §21.2 Form 2) | Error |
 | E-IMPORT-002 | §21.3 | Circular import detected | Error |
 | E-IMPORT-003 | §21.3 | `import` inside a function body (not file top-level) | Error |
 | E-IMPORT-004 | §21.3 | Imported name not found in target file's exports | Error |
