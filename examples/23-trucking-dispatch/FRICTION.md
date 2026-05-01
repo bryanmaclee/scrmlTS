@@ -2089,3 +2089,115 @@ produced.
 
 ---
 
+
+## F-COMPILE-002 — codegen does not rewrite user `./*.scrml` imports to compiled-output extension (P0) — surfaced 2026-04-30 (S51, W0b smoke-test)
+
+Surfaced as a pre-existing codegen defect during W0b's OQ-2 smoke-test
+(verified reproducible on main pre-W0a — NOT caused by W0a or W0b).
+
+Emitted JS imports user-authored `.scrml` files by source extension:
+`import { rolePath } from "./models/auth.scrml"` instead of rewriting
+to the compiled output extension (`./models/auth.server.js` /
+`./models/auth.js`). The existing `rewriteRelativeImportPaths` only
+handles `.js` per its docstring; codegen never rewrites `.scrml`
+extensions on relative imports.
+
+Effect: any emitted file that imports another user `.scrml` file
+fails at `await import()` time in Bun with the source extension being
+unrecognized. **Blocks dispatch-app E2E runtime alongside
+F-COMPONENT-001.**
+
+Repro: `dist/app.server.js` (and similar) contain raw `from
+"./models/auth.scrml"` after build. Bun rejects the import.
+
+Held for separate triage per W0b dispatch boundary.
+
+---
+
+## F-BUILD-002 — duplicate `_scrml_session_destroy` import per server.js → SyntaxError on load (P0) — surfaced 2026-04-30 (S51, W0a smoke-test)
+
+`generateServerEntry` emits
+`import { _scrml_session_destroy } from "./X.server.js";` once per
+server.js module, but `_scrml_session_destroy` is exported by EVERY
+server.js with auth middleware. Multiple imports of the same name
+into a single entry module → JavaScript SyntaxError on load.
+
+Confirmed reproducible on main **pre-W0a** (same bug, fewer files).
+F-COMPILE-001's tree-preservation makes it more visible (21 affected
+files vs 17 pre-fix), but the bug predates both W0a and W0b.
+
+Likely fix: `import * as _m1` aliasing per imported module, OR
+de-duplicated runtime exports (single canonical
+`_scrml_session_destroy` re-exported once at the entry root).
+
+Held for separate triage per W0a dispatch boundary.
+
+---
+
+## F-SQL-001 — `?{}` boundary parsing failures emit `sql-ref:-1` placeholders that fail `node --check` (P0) — surfaced 2026-04-30 (S51, W0b smoke-test)
+
+13 of 17 original dev-server failures pre-W0b were Class B parse
+failures: `billing.server.js`, `home.server.js`, `load-detail.server.js`,
+and similar files contained emitted `sql-ref:-1` placeholders inside
+SQL template-literal positions. The placeholders are syntactically
+invalid JavaScript → `node --check` rejects them.
+
+The bug is in BS / TAB / PA parse path for `?{}` boundary
+extraction — when the SQL template includes complex inlined
+expressions (joins, multi-clause WHERE, subqueries used in dispatch
+app billing/load-detail/home pages), the parser fails to compute a
+valid `sql-ref:N` index and emits `-1` instead of erroring at compile
+time.
+
+This is the OPPOSITE of validation principle: instead of compile-time
+error or correct compilation, the compiler emits invalid output AND
+proceeds clean. Possibly related to F-LIN-001 (also a `?{}`
+asymmetric pass behavior) but mechanistically distinct (parse-stage,
+not lin-tracker).
+
+Held for separate triage. Out of OQ-2 (W0b) scope by dispatch
+boundary.
+
+---
+
+## F-NULL-003 — bare `null` / `undefined` literals in value position silently pass §42.7 (P1) — surfaced 2026-04-30 (S51, W3 follow-on)
+
+W3 closed `== null` / `!= null` comparisons across all source
+positions per §42.7 normative text. The deferred sub-bug: the
+detector only catches comparisons. Bare `null` / `undefined`
+literals in value position (`@x = null`, `return null`,
+`{ field: null }`, `[null, ...]`, `if (x) { ... return null; }`)
+silently pass. §42.7 prohibits null literals everywhere; the
+implementation is incomplete.
+
+Surfaces in dispatch-app pages (`@driver = null`, `@user = null`)
+extensively. Plan-B-parked, so doesn't block test suite, but
+confirms the gap.
+
+Recommended dispatch label: **W3.1 — bare-null-literal sweep**.
+Detector extension to walk every initializer / return-expression /
+object-property-value / array-element / ternary-branch and emit
+E-SYNTAX-042 on bare `null` / `undefined` literal.
+
+---
+
+## F-NULL-004 — `${...}` interpolation in attribute string-literals silently passes null comparisons (P1) — surfaced 2026-04-30 (S51, W3 follow-on)
+
+`<div class="${@x == null ? a : b}">` (and similar attribute
+template-literal interpolation) silently passes the W3 detector
+because the `${...}` segment is preserved as raw text inside
+`kind:"string-literal"` and never parsed into an `exprNode`. The
+detector visits `markup.attrs[*].value.exprNode` (W3's fix) but
+never enters string-literal interpolation segments.
+
+Closing this requires either (a) parsing interpolation segments
+inside string-literal attribute values into proper exprNodes during
+tokenization/AST-build, OR (b) a textual scan of the segment +
+re-parse + per-segment exprNode walk.
+
+Recommended dispatch label: **W3.2 — string-template-interp null
+sweep**. Likely T2-medium; requires deciding whether to upgrade
+string-literal-with-interp to a structured AST shape (architectural)
+or do a localized re-parse (tactical).
+
+---
