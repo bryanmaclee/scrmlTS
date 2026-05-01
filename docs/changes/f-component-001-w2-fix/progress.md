@@ -24,3 +24,14 @@ Append-only timeline. `[HH:MM]` UTC.
 - [13:00] B6 SPEC + PIPELINE amendments committed (`2a2d52c`).
 - [13:05] B7 Plan B reversal: master-list row 99 flipped [x][❌] → [x][✅]; FRICTION.md §F-COMPONENT-001 W2-RESOLVED note appended (with F4 nested-case caveat); kickstarter v1 multi-file section: KNOWN-BROKEN flag dropped, canonical 3-file pattern + lift-bare recipe documented; F4 limitation transparently noted in kickstarter for adopter expectations.
 - [13:08] Final test count: 8290 pass / 40 skip / 0 fail / 393 files (vs baseline 8280 / 40 / 0 / 392 — +10 from new integration tests, +1 file from new test file). Zero regressions.
+
+- [13:15] **G-gate verification:**
+  - G1 PASSED — `examples/22-multifile/app.scrml` and `examples/22-multifile/` (directory) both compile clean.
+  - G2 PASSED — emitted JS contains expanded `class="badge"` markup; ZERO `createElement("UserBadge")` phantoms.
+  - G3 PASSED (mechanically) — for-loop in client.js iterates `team` and creates the nested badge structure 5x.
+  - G4 PASSED — 10/10 integration tests passing.
+  - **G5 PARTIAL FAIL (out-of-W2-scope F4):** `examples/23-trucking-dispatch/pages/dispatch/board.scrml` still emits 3× E-COMPONENT-035 because LoadCard body contains nested `<LoadStatusBadge>` and `parseComponentDef`'s tokenizer-roundtrip on the multi-line body produces 0 BS blocks. Same-file equivalent fails identically — pre-existing Phase 1 limitation, not W2-specific. Surfaced and documented per dispatch brief.
+  - G6 PASSED (qualified) — FRICTION §F-COMPONENT-001 carries "ARCHITECTURALLY RESOLVED for the canonical case" + F4 caveat.
+
+- [13:18] Final test count: 8290 pass / 40 skip / 0 fail / 393 files. Net delta +10 from baseline (8280) — exactly the 10 new integration tests in `compiler/tests/integration/cross-file-components.test.js`. Zero regressions.
+- [13:20] Dispatch complete. Awaiting summary commit.
