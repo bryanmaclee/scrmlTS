@@ -26,6 +26,7 @@ import { runBatchPlanner, serializeBatchPlan } from "./batch-planner.ts";
 import { runCG } from "./code-generator.js";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules, resolveModulePath } from "./module-resolver.js";
+import { runNRBatch } from "./name-resolver.ts";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
 import { lintGhostPatterns } from "./lint-ghost-patterns.js";
 import { findUnsupportedTailwindShapes } from "./tailwind-classes.js";
@@ -635,6 +636,36 @@ export function compileScrml(options = {}) {
     const importCount = [...moduleResult.importGraph.values()].reduce((n, e) => n + e.imports.length, 0);
     const exportCount = [...moduleResult.exportRegistry.values()].reduce((n, e) => n + e.size, 0);
     log(`  [MOD] ${importCount} import(s), ${exportCount} export(s), order: ${moduleResult.compilationOrder.map(p => basename(p)).join(" -> ")}`);
+  }
+
+  // Stage 3.05 (NR): Name Resolution — SHADOW MODE in P1 per SPEC §15.15.6.
+  // Walks every tag-bearing AST node and stamps resolvedKind/resolvedCategory.
+  // Emits W-CASE-001 (lowercase user state-type shadowing HTML element) and
+  // W-WHITESPACE-001 (whitespace after `<` in opener). Downstream stages still
+  // route on the legacy `isComponent` discriminator in P1; the routing flip
+  // moves to P2/P3.
+  //
+  // Why post-MOD instead of post-TAB: cross-file imported names need MOD's
+  // exportRegistry to resolve. Same-file lookups would work pre-MOD too, but
+  // a single post-MOD pass is simpler and well within the <5ms/file budget.
+  const tabResultsForNR = tabResults
+    .filter(r => r && r.ast)
+    .map(r => ({ filePath: r.filePath, ast: r.ast }));
+  const nrResults = stage("NR", () => runNRBatch(
+    tabResultsForNR,
+    moduleResult.exportRegistry,
+    moduleResult.importGraph,
+  ));
+  for (const nr of nrResults) {
+    // Errors from NR are warnings (W-CASE-001, W-WHITESPACE-001) and surface in
+    // the standard warnings channel. Severity is preserved through the existing
+    // collector.
+    collectErrors("NR", nr.errors);
+  }
+  if (verbose) {
+    let totalDiag = 0;
+    for (const nr of nrResults) totalDiag += nr.errors.length;
+    log(`  [NR] ${nrResults.length} file(s), ${totalDiag} diagnostic(s) (shadow mode)`);
   }
 
   // Stage 3.2: CE — Component Expander (per-file)
