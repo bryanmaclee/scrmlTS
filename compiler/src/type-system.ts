@@ -2054,7 +2054,7 @@ function buildMachineRegistry(
         // leading uppercase run so abbreviation-style names (UI, IP, HTTP)
         // stay all-lowercase while PascalCase names (Order, OrderStatus) only
         // lose the leading capital.
-        projectedVarName: machineNameToProjectedVar(name),
+        projectedVarName: engineNameToProjectedVar(name),
         auditTarget,
       });
       continue;
@@ -2092,7 +2092,7 @@ function buildMachineRegistry(
  * Lowercases the leading uppercase run: `UI` → `ui`, `Order` → `order`,
  * `UIMode` → `uiMode`, `HTTPStatus` → `httpStatus`.
  */
-function machineNameToProjectedVar(name: string): string {
+function engineNameToProjectedVar(name: string): string {
   return name.replace(/^[A-Z]+(?=[A-Z][a-z])|^[A-Z]+$|^[A-Z]/, m => m.toLowerCase());
 }
 
@@ -2177,7 +2177,7 @@ export function validateDerivedMachines(
   errors: TSError[],
   fileSpan: Span,
 ): void {
-  for (const [machineName, machine] of machineRegistry) {
+  for (const [engineName, machine] of machineRegistry) {
     if (!machine.isDerived) continue;
     const sourceVar = machine.sourceVar!;
     const sourceMachine = reactiveBindings.get(sourceVar) ?? null;
@@ -2185,7 +2185,7 @@ export function validateDerivedMachines(
     if (!sourceMachine) {
       errors.push(new TSError(
         "E-MACHINE-004",
-        `E-MACHINE-004: Derived machine '${machineName}' references source variable ` +
+        `E-MACHINE-004: Derived machine '${engineName}' references source variable ` +
         `'@${sourceVar}', but no machine-bound reactive with that name was found in scope. ` +
         `The 'derived from @var' clause must name a reactive variable whose type is a machine (e.g., ` +
         `'@${sourceVar}: SomeMachine = ...').`,
@@ -2198,9 +2198,9 @@ export function validateDerivedMachines(
     if (sourceMachine.isDerived) {
       errors.push(new TSError(
         "E-MACHINE-004",
-        `E-MACHINE-004: Derived machine '${machineName}' derives from '@${sourceVar}', which is ` +
+        `E-MACHINE-004: Derived machine '${engineName}' derives from '@${sourceVar}', which is ` +
         `itself a projected (derived) variable. Transitive projection is not supported in this ` +
-        `revision — derive '${machineName}' directly from the underlying source machine instead.`,
+        `revision — derive '${engineName}' directly from the underlying source machine instead.`,
         fileSpan,
       ));
       continue;
@@ -2223,7 +2223,7 @@ export function validateDerivedMachines(
     for (const miss of missing) {
       errors.push(new TSError(
         "E-MACHINE-018",
-        `E-MACHINE-018: Derived machine '${machineName}' does not project variant '.${miss}' of ` +
+        `E-MACHINE-018: Derived machine '${engineName}' does not project variant '.${miss}' of ` +
         `'${(sourceEnum as EnumType).name}'. Every source variant must be mapped, or use ` +
         `'else => .Variant' for a catch-all.`,
         fileSpan,
@@ -2251,7 +2251,7 @@ export function validateDerivedMachines(
  */
 function expandAlternation(
   line: string,
-  machineName: string,
+  engineName: string,
   errors: TSError[],
   span: Span,
 ): string[] {
@@ -2330,7 +2330,7 @@ function expandAlternation(
       if (bindingSignatures[i] !== first) {
         errors.push(new TSError(
           "E-MACHINE-016",
-          `E-MACHINE-016: Machine '${machineName}' rule uses '|' alternation with mismatched variant ` +
+          `E-MACHINE-016: Machine '${engineName}' rule uses '|' alternation with mismatched variant ` +
           `payload bindings on the ${sideLabel} side. Either every alternative binds the same names, or ` +
           `none bind. Got: ${parts.join(" | ")}.`,
           span,
@@ -2439,7 +2439,7 @@ function splitRuleLines(raw: string): string[] {
 function parseMachineRules(
   raw: string,
   govType: ResolvedType,
-  machineName: string,
+  engineName: string,
   errors: TSError[],
   span: Span,
   isProjection: boolean = false,
@@ -2460,12 +2460,12 @@ function parseMachineRules(
   const dedupeSet = new Set<string>();
   for (const line of rawLines) {
     if (line.startsWith("//")) { lines.push(line); continue; }
-    for (const expanded of expandAlternation(line, machineName, errors, span)) {
+    for (const expanded of expandAlternation(line, engineName, errors, span)) {
       const key = expanded.replace(/\s+/g, " ").trim();
       if (dedupeSet.has(key)) {
         errors.push(new TSError(
           "E-MACHINE-014",
-          `E-MACHINE-014: Machine '${machineName}' has a duplicate transition rule '${key}'. ` +
+          `E-MACHINE-014: Machine '${engineName}' has a duplicate transition rule '${key}'. ` +
           `A rule cannot repeat the same from→to pair. Remove the duplicate.`,
           span,
         ));
@@ -2496,7 +2496,7 @@ function parseMachineRules(
       if (!Number.isFinite(computed) || computed < 0) {
         errors.push(new TSError(
           "E-MACHINE-021",
-          `E-MACHINE-021: Machine '${machineName}' temporal transition has an invalid duration \`${afterMatch[1]}${afterMatch[2]}\`. ` +
+          `E-MACHINE-021: Machine '${engineName}' temporal transition has an invalid duration \`${afterMatch[1]}${afterMatch[2]}\`. ` +
           `Duration must be a finite non-negative number with a unit (ms/s/m/h). Example: \`.Loading after 30s => .TimedOut\`.`,
           span,
         ));
@@ -2589,7 +2589,7 @@ function parseMachineRules(
       if (!isProjection && from !== "*" && !variantNames.has(from)) {
         errors.push(new TSError(
           "E-MACHINE-004",
-          `E-MACHINE-004: Machine '${machineName}' rule references unknown variant '${from}' ` +
+          `E-MACHINE-004: Machine '${engineName}' rule references unknown variant '${from}' ` +
           `in type '${enumType.name}'. Valid variants: ${[...variantNames].join(", ")}.`,
           span,
         ));
@@ -2597,7 +2597,7 @@ function parseMachineRules(
       if (to !== "*" && !variantNames.has(to)) {
         errors.push(new TSError(
           "E-MACHINE-004",
-          `E-MACHINE-004: Machine '${machineName}' rule references unknown variant '${to}' ` +
+          `E-MACHINE-004: Machine '${engineName}' rule references unknown variant '${to}' ` +
           `in type '${enumType.name}'. Valid variants: ${[...variantNames].join(", ")}.`,
           span,
         ));
@@ -2609,10 +2609,10 @@ function parseMachineRules(
     // `validateDerivedMachineExhaustiveness`), so we skip binding resolution
     // on the from-side here. §51.9.7 explicitly defers projection binding.
     const fromBindings = (!isProjection && fromBindingsRaw !== null)
-      ? resolveRuleBindings(fromBindingsRaw, govType, from, machineName, "from", errors, span)
+      ? resolveRuleBindings(fromBindingsRaw, govType, from, engineName, "from", errors, span)
       : null;
     const toBindings = toBindingsRaw !== null
-      ? resolveRuleBindings(toBindingsRaw, govType, to, machineName, "to", errors, span)
+      ? resolveRuleBindings(toBindingsRaw, govType, to, engineName, "to", errors, span)
       : null;
 
     // Validate self.* references for struct-governing machines
@@ -2624,7 +2624,7 @@ function parseMachineRules(
         if (!structType.fields.has(fieldName)) {
           errors.push(new TSError(
             "E-MACHINE-013",
-            `E-MACHINE-013: Machine '${machineName}' guard references undefined field 'self.${fieldName}' ` +
+            `E-MACHINE-013: Machine '${engineName}' guard references undefined field 'self.${fieldName}' ` +
             `in struct type '${(govType as StructType).name}'. Valid fields: ${[...structType.fields.keys()].join(", ")}.`,
             span,
           ));
@@ -2640,7 +2640,7 @@ function parseMachineRules(
     if (afterMs !== null && from === "*") {
       errors.push(new TSError(
         "E-MACHINE-021",
-        `E-MACHINE-021: Machine '${machineName}' temporal transition uses a wildcard \`from\`. ` +
+        `E-MACHINE-021: Machine '${engineName}' temporal transition uses a wildcard \`from\`. ` +
         `Temporal rules must name a specific \`from\` variant so the compiler knows when to ` +
         `start the timer. Either name a specific \`from\` (e.g. \`.Loading after 30s => .TimedOut\`) ` +
         `or remove the \`after\` clause.`,
@@ -2674,7 +2674,7 @@ function resolveRuleBindings(
   raw: string,
   govType: ResolvedType,
   variantName: string,
-  machineName: string,
+  engineName: string,
   side: "from" | "to",
   errors: TSError[],
   span: Span,
@@ -2692,7 +2692,7 @@ function resolveRuleBindings(
   if (variant.payload == null) {
     errors.push(new TSError(
       "E-MACHINE-015",
-      `E-MACHINE-015: Machine '${machineName}' rule binds payload on '.${variantName}' ` +
+      `E-MACHINE-015: Machine '${engineName}' rule binds payload on '.${variantName}' ` +
       `(${side}), but '.${variantName}' is a unit variant with no payload. Remove the binding-group, ` +
       `or declare payload fields on '.${variantName}'.`,
       span,
@@ -2714,7 +2714,7 @@ function resolveRuleBindings(
       if (!variant.payload.has(fieldName)) {
         errors.push(new TSError(
           "E-MACHINE-015",
-          `E-MACHINE-015: Machine '${machineName}' rule for '.${variantName}' binds field ` +
+          `E-MACHINE-015: Machine '${engineName}' rule for '.${variantName}' binds field ` +
           `'${fieldName}' which is not a field of the variant. Declared fields: ${declaredFields.join(", ")}.`,
           span,
         ));
@@ -2728,7 +2728,7 @@ function resolveRuleBindings(
       if (i >= declaredFields.length) {
         errors.push(new TSError(
           "E-MACHINE-015",
-          `E-MACHINE-015: Machine '${machineName}' rule for '.${variantName}' has more positional ` +
+          `E-MACHINE-015: Machine '${engineName}' rule for '.${variantName}' has more positional ` +
           `bindings (${parts.length}) than the variant has fields (${declaredFields.length}: ${declaredFields.join(", ")}).`,
           span,
         ));
@@ -7760,13 +7760,13 @@ function processFile(
       }
     };
     collectReactives(topNodes);
-    for (const [machineName, machine] of machineRegistry) {
+    for (const [engineName, machine] of machineRegistry) {
       const audit = machine.auditTarget;
       if (!audit) continue;
       if (!declaredReactives.has(audit)) {
         errors.push(new TSError(
           "E-MACHINE-019",
-          `E-MACHINE-019: Machine '${machineName}' audit clause references '@${audit}', ` +
+          `E-MACHINE-019: Machine '${engineName}' audit clause references '@${audit}', ` +
           `but no reactive variable with that name is declared in scope. ` +
           `Declare '@${audit} = []' before the machine, or correct the audit target name.`,
           fileSpan,
@@ -7804,9 +7804,9 @@ function processFile(
     // be M (or `replay` is operating across-machines, which §51.14.6 calls
     // semantically nonsensical).
     const auditTargetToMachine = new Map<string, string>();
-    for (const [machineName, machine] of machineRegistry) {
+    for (const [engineName, machine] of machineRegistry) {
       const at = machine.auditTarget;
-      if (at) auditTargetToMachine.set(at, machineName);
+      if (at) auditTargetToMachine.set(at, engineName);
     }
     const visited = new WeakSet<object>();
     const visitForReplay = (value: unknown): void => {
