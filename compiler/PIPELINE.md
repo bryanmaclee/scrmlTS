@@ -84,6 +84,11 @@
   - Amendment 4: Stage 3 deferred body parsing documented.
   - Amendment 5: Stage 3 error codes `E-MARKUP-001`, `E-STATE-001`, `E-REACTIVE-001`,
     `E-SCOPE-001` reassigned to Stage 6 (TS).
+  - Amendment 6 (P2 / state-as-primary unification, 2026-04-30): Stage 3 TAB
+    recognizes top-level `export <ComponentName ...>...</>` (SPEC §21.2 Form 1)
+    via `liftBareDeclarations` desugaring. The contract is unchanged — Form 1
+    produces an `export-decl` indistinguishable from the legacy
+    `${ export const Name = <markup> }` form at the AST level.
 - **0.1.0 (2026-03-25):** Initial stage contracts for all eight stages.
 
 ---
@@ -427,6 +432,17 @@ evaluation of attribute values or content expressions occurs.
   - SQL blocks carry the raw query string and any chained method calls as structured nodes.
   - `import` and `export` statements are hoisted into `FileAST.imports` and `FileAST.exports`
     regardless of where they appear in source (inline imports are valid per spec Section 21).
+  - **Amendment 6 (P2 / state-as-primary unification, 2026-04-30):** Top-level
+    `export <ComponentName ...>...</>` (SPEC §21.2 Form 1) is recognized by
+    the `liftBareDeclarations` pre-pass. The pattern (text block ending in
+    bare `export` + immediately following PascalCase markup block) is paired
+    into a single synthetic logic block of the form
+    `${ export const ComponentName = <markup-raw> }`. The resulting
+    `export-decl` carries `exportKind="const"` and `exportedName=ComponentName`,
+    matching the legacy `${ export const Name = <markup> }` form
+    byte-for-byte at the FileAST.exports level. Downstream stages (MOD, NR,
+    CE, codegen) observe no contract change. Synthetic logic nodes carry
+    advisory `_p2Form1: true` and `_p2Form1Name` markers for diagnostics.
   - `MetaBlock` nodes record the `parentContext` from which the `^{ }` was entered. This is
     the discriminant the type system uses to determine the splicing coercion rules (spec
     Section 22.4): markup parent requires markup-coercible result, CSS parent requires CSS

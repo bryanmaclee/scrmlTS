@@ -37,7 +37,7 @@ Total lines: 20,521 | Total sections: 54 + appendices
 | D | Appendix D: JS Standard Library | 10069-10089 | 21 | JS stdlib access in logic contexts |
 | E | Appendix E: `</>` Closer Migration | 10090-10124 | 35 | Migration guide for `/` → `</>` |
 | 20 | Navigation API | 10125-10296 | 172 | navigate(), route params, session context |
-| 21 | Module and Import System | 10297-10407 | 111 | Export/import syntax, re-export, pure-type files |
+| 21 | Module and Import System | 10505-10770 | 266 | Export/import syntax (incl. §21.2 Form 1 / Form 2 — P2 2026-04-30), re-export, pure-type files |
 | 22 | Metaprogramming | 10408-11061 | 654 | `^{}` meta context, compile-time/runtime meta, Option D scope model |
 | 23 | Foreign Code Contexts (`_{}`) | 11062-11504 | 443 | Level-marked braces, opaque passthrough, WASM sigils, sidecars |
 | 24 | HTML Spec Awareness | 11505-11530 | 26 | Element registry, shape constraints |
@@ -112,7 +112,8 @@ Total lines: 20,521 | Total sections: 54 + appendices
 - error handling / fail / ? / ! → §19 (9160-10031)
 - implicit per-handler transactions → §19.10.5 (9612+)
 - navigation / navigate() → §20 (10125-10296)
-- module / import / export → §21 (10297-10407)
+- module / import / export → §21 (10505-10770)
+- export <ComponentName> Form 1 / Form 2 (P2 §21.2) → §21.2 (10513-10615)
 - meta / ^{} → §22 (10408-11061)
 - foreign code / _{} → §23 (11062-11504)
 - WASM sigils → §23.3 (~11284-11439)
