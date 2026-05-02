@@ -145,6 +145,7 @@ function stripIds(obj) {
     if (key === "id") continue; // strip node IDs
     if (key === "spans") continue; // spans table uses IDs as keys, skip
     if (key === "machineDecls") continue; // §51.3: self-hosted ast.scrml doesn't collect these yet
+    if (key === "channelDecls") continue; // P3.A §38.12: self-hosted ast.scrml doesn't collect these yet
     if (["exprNode", "initExpr", "condExpr", "iterExpr", "headerExpr", "valueExpr", "argsExpr", "callbackExpr", "fnExpr", "handlerExpr", "fileExpr", "urlExpr", "bodyExpr", "cStyleParts"].includes(key)) continue; // Phase 3/4: JS ast-builder populates ExprNode fields; self-host doesn't yet
     if (["isPure", "isServer"].includes(key)) continue; // F-AUTH-002: JS ast-builder records pure/server modifier flags on export-decl; self-host doesn't yet
     if (["openerHadSpaceAfterLt", "legacyMachineKeyword"].includes(key)) continue; // P1.E (uniform opener / NR scaffolding): JS ast-builder records the opener whitespace flag and `<machine>` legacy keyword for NR's W-WHITESPACE-001 / W-DEPRECATED-001 emission; self-host doesn't yet

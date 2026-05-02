@@ -405,6 +405,25 @@ function extractOuterAttrSource(rawOpener) {
 }
 
 /**
+ * P3.A: Extract the value of `name="..."` (or `name='...'`) from a
+ * `<channel name="X" ...>` opener. Returns the string content (without
+ * surrounding quotes) or `null` if absent or non-literal.
+ *
+ * Channel names with reactive-ref values (`name=@var`) are NOT supported
+ * for export — the W6 + DD1 wire-layer-by-name design requires a
+ * compile-time-stable string identity. The TAB caller is expected to fall
+ * through to error reporting if the result is null.
+ */
+function extractChannelNameFromOpener(rawOpener) {
+  const attrSource = extractOuterAttrSource(rawOpener);
+  if (attrSource === null || attrSource === "") return null;
+  // Match `name="..."` or `name='...'` (string-literal form only).
+  const m = attrSource.match(/\bname\s*=\s*("([^"]*)"|'([^']*)')/);
+  if (!m) return null;
+  return m[2] !== undefined ? m[2] : m[3];
+}
+
+/**
  * Parse a flat list of attribute names from a raw attribute-portion string.
  * Used for conflict detection between outer attrs and body-root attrs.
  *
@@ -590,7 +609,7 @@ function shiftBlockSpans(blocks, delta, lineDelta = 0) {
  * @param {object[]} blocks  — Block[] from the Block Splitter
  * @returns {object[]}  — transformed Block[] (new array, no mutation)
  */
-function liftBareDeclarations(blocks, errors, filePath, parentType = null) {
+function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aSynthCounter = { next: 0 }) {
   const result = [];
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -599,7 +618,7 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null) {
     // are real declarations and need the same lift treatment. Pass
     // parentType="state" so a state block nested inside markup still lifts.
     if (block.type === "state") {
-      const newChildren = liftBareDeclarations(block.children || [], errors, filePath, "state");
+      const newChildren = liftBareDeclarations(block.children || [], errors, filePath, "state", _p3aSynthCounter);
       result.push({ ...block, children: newChildren });
       continue;
     }
@@ -618,7 +637,7 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null) {
       // must be passed through unchanged.
       const isProgramRoot = parentType !== "markup" && block.name === "program";
       const childContext = isProgramRoot ? "state" : "markup";
-      const newChildren = liftBareDeclarations(block.children || [], errors, filePath, childContext);
+      const newChildren = liftBareDeclarations(block.children || [], errors, filePath, childContext, _p3aSynthCounter);
       result.push({ ...block, children: newChildren });
       continue;
     }
@@ -774,6 +793,92 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null) {
         };
         result.push(synthetic);
         i += 1; // skip the markup block we just consumed
+        continue;
+      }
+      // ---------------------------------------------------------------
+      // P3.A: `export <channel name="X" attrs>{body}</>` form
+      //
+      // Mirrors the component Form 1 detection above but for channel
+      // markup blocks (block.isComponent === false, block.name === "channel").
+      // Emits:
+      //   (a) the pre-export text prefix (preserved like the component case)
+      //   (b) a synthetic logic block whose body contains an export-decl
+      //       tagged `_p3aChannelExport: <channelName>` — at TAB build time
+      //       this is rewritten to {exportKind: "channel", exportedName: <name>}
+      //       so MOD registers it with category=channel
+      //   (c) the channel markup block, tagged `_p3aIsExport: true`
+      //
+      // Per P3 deep-dive §4.1 + §6.2.
+      // ---------------------------------------------------------------
+      if (next && next.type === "markup" && next.name === "channel") {
+        const m = block.raw.match(/^([\s\S]*?)((?:^|\s)export\s*)$/);
+        const preExportRaw = m ? m[1] : "";
+        if (preExportRaw.length > 0) {
+          result.push({
+            ...block,
+            raw: preExportRaw,
+            span: { ...block.span, end: block.span.start + preExportRaw.length },
+          });
+        }
+
+        // Extract the channel's `name=` attribute value (string-literal only).
+        const channelName = extractChannelNameFromOpener(next.raw);
+        if (!channelName) {
+          // E-CHANNEL-EXPORT-001 (NEW in P3.A): channel exported without a
+          // string-literal `name=` attribute. Wire-layer identity requires
+          // a compile-time-stable name; reactive-ref forms (`name=@var`) are
+          // not supported for export.
+          errors.push(new TABError(
+            "E-CHANNEL-EXPORT-001",
+            `E-CHANNEL-EXPORT-001: \`export <channel ...>\` requires a string-literal \`name="..."\` attribute. ` +
+            `Reactive-ref forms (e.g. \`name=@var\`) are not supported for cross-file channel exports because ` +
+            `the wire-layer identity must be compile-time stable. Add \`name="topic-name"\` to the channel opener.`,
+            fullSpan(next.span, filePath),
+          ));
+          // Fail-open: emit the channel markup block as a per-page (non-export)
+          // declaration so downstream stages can still parse it. The export
+          // is dropped (the file becomes a per-page channel without a
+          // cross-file binding).
+          result.push(next);
+          i += 1;
+          continue;
+        }
+
+        // (b) Synthesize a logic block carrying the channel-export marker.
+        // The synthesized body uses a unique helper-const name to satisfy
+        // parseLogicBody's regex for export-decl recognition. After
+        // parseLogicBody runs (in buildBlock), we rewrite the export-decl's
+        // {exportKind, exportedName} to {"channel", channelName}. See the
+        // post-processing in buildBlock for type="logic" (look for
+        // `_p3aChannelExport`).
+        const synthIdx = ++_p3aSynthCounter.next;
+        const synthHelperName = `_p3a_channel_export_${synthIdx}`;
+        const synthRaw = `\${ export const ${synthHelperName} = ${JSON.stringify(channelName)} }`;
+        result.push({
+          type: "logic",
+          raw: synthRaw,
+          span: {
+            start: block.span.start,
+            end: block.span.start + synthRaw.length,
+            line: block.span.line,
+            col: block.span.col,
+          },
+          depth: block.depth,
+          children: [],
+          name: null,
+          closerForm: null,
+          isComponent: false,
+          _synthetic: true,
+          _p3aChannelExport: channelName,
+        });
+
+        // (c) Push the channel markup block, tagged with isExport flag.
+        result.push({
+          ...next,
+          _p3aIsExport: true,
+          _p3aExportName: channelName,
+        });
+        i += 1; // skip the channel markup block we just consumed
         continue;
       }
     }
@@ -7313,6 +7418,42 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         ? body.filter((_, i) => !consumedIndices.has(i))
         : body;
 
+      // P3.A: when this logic block was synthesized by liftBareDeclarations
+      // for the `export <channel name="X">` Form, rewrite the synthesized
+      // export-decl's `exportKind` to "channel" and `exportedName` to the
+      // channel's name=value (NOT the synth helper const name). This makes
+      // MOD register the export with channel semantics; CHX uses the
+      // exportedName to look up the channel-decl in the source file's
+      // ast.channelDecls.
+      if (block && block._p3aChannelExport) {
+        const channelName = block._p3aChannelExport;
+        // Walk body[] AND exports[] (both populated by parseLogicBody) and
+        // rewrite the export-decl. The synthesized helper-const decl is also
+        // dropped from `body` since it's a synth artifact, not a real decl.
+        const _rewriteExport = (n) => {
+          if (n && n.kind === "export-decl" && typeof n.exportedName === "string"
+              && n.exportedName.startsWith("_p3a_channel_export_")) {
+            n.exportKind = "channel";
+            n.exportedName = channelName;
+            n._p3aSynthExport = true;
+          }
+        };
+        for (const n of (body || [])) _rewriteExport(n);
+        for (const n of (exports || [])) _rewriteExport(n);
+        // Also drop the synthesized const-decl from body (it has no runtime
+        // effect; it was only there to give parseLogicBody an export-decl
+        // shape to recognize). The export-decl above carries the channel-
+        // name semantics; the const-decl can be removed.
+        if (Array.isArray(body)) {
+          for (let bi = body.length - 1; bi >= 0; bi--) {
+            const n = body[bi];
+            if (n && n.kind === "const-decl" && typeof n.name === "string"
+                && n.name.startsWith("_p3a_channel_export_")) {
+              body.splice(bi, 1);
+            }
+          }
+        }
+      }
       return {
         id: ++counter.next,
         kind: "logic",
@@ -7738,10 +7879,17 @@ function collectHoisted(nodes) {
   const typeDecls = [];
   const components = [];
   const machineDecls = [];
+  const channelDecls = [];
 
   function walk(nodeList) {
     for (const node of nodeList) {
       if (!node) continue;
+      // P3.A: collect <channel> markup nodes (top-level + inside <program>
+      // and other markup ancestors). channelDecls is consumed by CHX (CE
+      // phase 2) when looking up cross-file channel exports.
+      if (node.kind === "markup" && node.tag === "channel") {
+        channelDecls.push(node);
+      }
       if (node.kind === "logic") {
         // Use the pre-filtered arrays cached on the logic node — do NOT also
         // walk node.body here, which would push every import-decl twice.
@@ -7775,7 +7923,7 @@ function collectHoisted(nodes) {
   }
 
   walk(nodes);
-  return { imports, exports, typeDecls, components, machineDecls };
+  return { imports, exports, typeDecls, components, machineDecls, channelDecls };
 }
 
 // ---------------------------------------------------------------------------
@@ -7850,8 +7998,9 @@ export function buildAST(bsOutput, tokenizerOverrides) {
   // §17.1.1: Collapse if=/else-if=/else sibling chains into IfChainExpr nodes
   nodes = collapseIfChains(nodes, errors, filePath);
 
-  // Hoist imports, exports, type decls, components, machine decls from logic blocks
-  const { imports, exports, typeDecls, components, machineDecls } = collectHoisted(nodes);
+  // Hoist imports, exports, type decls, components, machine decls, channel decls
+  // from logic blocks + top-level markup.
+  const { imports, exports, typeDecls, components, machineDecls, channelDecls } = collectHoisted(nodes);
 
   // Build span table
   const spanTable = buildSpanTable(nodes);
@@ -8047,6 +8196,7 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     components,
     typeDecls,
     machineDecls,
+    channelDecls,
     spans,
     hasProgramRoot,
     authConfig,
