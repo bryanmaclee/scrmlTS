@@ -44,6 +44,8 @@
       import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channels — see SPEC §38.12.6.
+      import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries, lin_tokens">
@@ -539,21 +541,9 @@
         }
     }
 
-    <!-- M5: dispatch-board broadcast for driver-side status updates. -->
-    <channel name="dispatch-board">
-        ${
-            @shared boardEvents = []
-
-            server function publishBoardEvent(eventType, loadId, status) {
-                boardEvents = [...boardEvents, {
-                    type: eventType,
-                    loadId: loadId,
-                    status: status,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: dispatch-board channel — see channels/dispatch-board.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). -->
+    <dispatchBoard/>
 
     <!-- M5: load-events broadcast for per-load updates. -->
     <channel name="load-events">

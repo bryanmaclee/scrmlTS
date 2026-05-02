@@ -1,0 +1,30 @@
+// PURE-CHANNEL-FILE — SPEC §38.12.6.
+// Centralized declaration for the `dispatch-board` real-time channel
+// (M5). Subscribers: dispatcher pages, customer/quote (publishes
+// new tenders), driver/load-detail (publishes status transitions).
+// The shared `boardEvents` array is updated by `publishBoardEvent(...)`
+// and any client subscribed to the WebSocket route `/_scrml_ws/dispatch-board`
+// observes the change reactively.
+//
+// To consume from a page:
+//   ${ import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml' }
+//   <dispatchBoard/>
+// CHX (CE phase 2) inlines the channel body at the consumer site at compile
+// time; no runtime module is loaded.
+
+export <channel name="dispatch-board">
+    ${
+        @shared boardEvents = []
+
+        // Publish helper. Callers from outside the channel scope
+        // invoke this via the auto-injected client → server bridge.
+        server function publishBoardEvent(eventType, loadId, status) {
+            boardEvents = [...boardEvents, {
+                type: eventType,
+                loadId: loadId,
+                status: status,
+                at: new Date().toISOString()
+            }]
+        }
+    }
+</>

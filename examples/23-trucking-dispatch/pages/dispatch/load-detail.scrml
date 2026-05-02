@@ -30,6 +30,8 @@
       import { formatRate, formatPickupAt } from '../../components/load-card.scrml'
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channels — see SPEC §38.12.6.
+      import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
 
       // Inlined transition validator — duplicates status-picker's validNextStates
       // because cross-file `fn` calls inside server functions trigger
@@ -342,21 +344,9 @@
         }
     }
 
-    <!-- M5: dispatch-board broadcast for board-level status updates. -->
-    <channel name="dispatch-board">
-        ${
-            @shared boardEvents = []
-
-            server function publishBoardEvent(eventType, loadId, status) {
-                boardEvents = [...boardEvents, {
-                    type: eventType,
-                    loadId: loadId,
-                    status: status,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: dispatch-board channel — see channels/dispatch-board.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). -->
+    <dispatchBoard/>
 
     <!-- M5: load-events broadcast for per-load updates (driver, customer,
          dispatcher of the same load all subscribe). Each event payload

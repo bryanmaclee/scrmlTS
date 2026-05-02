@@ -20,6 +20,8 @@
       import { AddressForm } from '../../components/address-form.scrml'
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channel — see SPEC §38.12.6.
+      import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads">
@@ -203,21 +205,9 @@
         }
     }
 
-    <!-- M5: dispatch-board channel for new-load broadcast. -->
-    <channel name="dispatch-board">
-        ${
-            @shared boardEvents = []
-
-            server function publishBoardEvent(eventType, loadId, status) {
-                boardEvents = [...boardEvents, {
-                    type: eventType,
-                    loadId: loadId,
-                    status: status,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: dispatch-board channel — see channels/dispatch-board.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). -->
+    <dispatchBoard/>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
