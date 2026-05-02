@@ -115,21 +115,13 @@ describe("§X1 Form 1 export → standard import works", () => {
 // §X2 — Form 1 use-site verification with attributes/props
 // ---------------------------------------------------------------------------
 
-describe("§X2 Form 1 export with props → use-site error parity (Form 1 = Form 2)", () => {
+describe("§X2 Form 1 export with props → use-site success parity (Form 1 = Form 2)", () => {
   // P2-wrapper amendment (2026-04-30): Form 1 is byte-equivalent to Form 2.
-  // The previous version asserted `errors == []` for Form 1 with an interpolating
-  // prop body — which only "passed" because the OLD wrapper desugaring accidentally
-  // turned `${name}` into broken text `$ { name }` (with spaces) that no longer
-  // matched BS's `${`-pattern. With the wrapper fix, Form 1 now produces a real
-  // `${name}` logic block — exposing a pre-existing CE limitation: prop substitution
-  // does not reach into logic blocks (only text content). This affects BOTH Form 1
-  // and Form 2 equally.
-  //
-  // The test is now a parity assertion: Form 1 and Form 2 produce IDENTICAL error
-  // shapes. The body markup IS still emitted (CSS class present in output) — only
-  // the `${name}` interpolation requires future CE work to substitute into logic
-  // blocks.
-  test("Form 1 with interpolating prop body produces same errors and same body markup as Form 2", () => {
+  // F-COMPONENT-004 fix (2026-04-30): substituteProps now walks into logic-block
+  // bodies (and markup-text logic blocks parsed as LogicNode), substituting
+  // identifier references to declared props with the typed prop value.
+  // Both Form 1 and Form 2 now compile cleanly with `${name}` interpolation.
+  test("Form 1 with interpolating prop body produces SAME success as Form 2 (no errors, body markup + value)", () => {
     const ROOT = join(TMP, "x2");
     mkdirSync(ROOT, { recursive: true });
 
@@ -168,14 +160,20 @@ describe("§X2 Form 1 export with props → use-site error parity (Form 1 = Form
     const r1 = compileScrml({ inputFiles: [appF1], outputDir: join(ROOT, "d1"), write: true, log: () => {} });
     const r2 = compileScrml({ inputFiles: [appF2], outputDir: join(ROOT, "d2"), write: true, log: () => {} });
 
-    // Parity: both forms produce the SAME error code distribution.
-    const e1Codes = (r1.errors || []).map(e => e.code).sort();
-    const e2Codes = (r2.errors || []).map(e => e.code).sort();
-    expect(e1Codes).toEqual(e2Codes);
+    // Parity success: both forms produce ZERO errors.
+    expect(r1.errors || []).toEqual([]);
+    expect(r2.errors || []).toEqual([]);
 
-    // Body markup IS present in both outputs (CSS class verifies expansion).
-    expect(combinedArtifacts(join(ROOT, "d1"), "app-f1")).toContain("x2-card-f1");
-    expect(combinedArtifacts(join(ROOT, "d2"), "app-f2")).toContain("x2-card-f2");
+    // Body markup AND substituted prop value present in both outputs.
+    const c1 = combinedArtifacts(join(ROOT, "d1"), "app-f1");
+    const c2 = combinedArtifacts(join(ROOT, "d2"), "app-f2");
+    expect(c1).toContain("x2-card-f1");
+    expect(c2).toContain("x2-card-f2");
+    // The substituted prop value should appear (the literal "alpha" / "beta")
+    expect(c1).toContain("alpha");
+    expect(c1).toContain("beta");
+    expect(c2).toContain("alpha");
+    expect(c2).toContain("beta");
   });
 });
 
