@@ -10580,24 +10580,60 @@ for both Form 1 and Form 2. CE locates the component by the same path. The
 public name → component mapping (what `import { Name }` resolves to) is
 identical.
 
-**Implementation note (P2 v1, 2026-04-30).** The compiler internally desugars
-Form 1 to `${ export const ComponentName = <ComponentName attrs>{body}</> }`
-(a self-named outer wrapper). One observable consequence is that the call site
-`<ComponentName/>` for a Form-1-declared component renders the body wrapped in
-a `<ComponentName>` custom element in the emitted HTML. The body content IS
-present and reactive bindings work; the only difference from Form 2 is the
-outer custom-element wrapper. Folding the wrapper into the body root (so
-Form 1 and Form 2 produce byte-equivalent HTML) is a refinement deferred
-beyond P2; it does not affect the export record, the import resolution, or
-the cross-file gather logic. Adopters who want byte-equivalent HTML SHOULD
-continue using Form 2 until the refinement ships.
+**Implementation note (P2-wrapper, 2026-04-30).** The compiler internally
+desugars Form 1 to `${ export const ComponentName = <body-root attrs+outer>...</body-root> }`
+— the body's single root markup element absorbs the outer's attributes; the
+outer `<ComponentName>` tag itself disappears at the source level. This makes
+Form 1 **byte-equivalent** to Form 2 at the AST and rendered-HTML level for
+matching component shapes. The export record, the import resolution, the
+cross-file gather logic, and the use-site rendering produce identical output
+regardless of which form the exporting file used.
+
+The desugaring imposes one constraint that Form 2 does not: the body MUST be
+single-rooted (a single top-level markup element). This matches Form 2's
+inherent constraint (`const X = <markup>` requires `<markup>` to be one
+expression). Multi-rooted or empty bodies are E-EXPORT-002. Outer attrs whose
+names collide with body-root attr names (other than `class`, which always
+merges per §15.5) are E-EXPORT-003.
+
+For example:
+
+```scrml
+// Form 1
+export <UserBadge props={ name: string }>
+  <span class="badge">${name}</>
+</>
+
+// Equivalent to Form 2 after desugaring
+export const UserBadge = <span class="badge" props={ name: string }>${name}</>
+```
+
+```scrml
+// Form 1 with outer adding class — class-merging applies (§15.5)
+export <Card class="component" props={ title: string }>
+  <div class="card-body">${title}</>
+</>
+
+// Equivalent (after class merge)
+export const Card = <div class="card-body" class="component" props={ title: string }>${title}</>
+```
 
 **Normative statements:**
 
-- Form 1: `export <Identifier ...>...</>` at the top level of a `.scrml` file
-  SHALL declare a component named `Identifier` and SHALL produce an export
-  record equivalent to the Form-2 declaration `export const Identifier = <markup>`.
-  The component body is the markup element following `export `.
+- Form 1: `export <Identifier outerAttrs>{body}</>` at the top level of a
+  `.scrml` file SHALL declare a component named `Identifier` and SHALL produce
+  an export record byte-equivalent to the Form-2 declaration
+  `export const Identifier = <body-root bodyAttrs+outerAttrs>...</body-root>`.
+  The body's single root markup element SHALL absorb all of the outer's
+  attributes; the outer `<Identifier>` tag itself does NOT appear in the
+  emitted HTML.
+- Form 1 body SHALL be single-rooted: exactly one top-level markup element
+  (whitespace text and comments allowed; non-whitespace text or multiple
+  markup roots SHALL be E-EXPORT-002).
+- Form 1 outer attribute names SHALL NOT collide with body-root attribute
+  names (E-EXPORT-003), with one exception: `class` is allowed on both the
+  outer and the body root because scrml class-attribute merging combines
+  them (§15.5).
 - Form 2: The `export` keyword inside a `${ }` logic context SHALL be valid
   before `type`, `function`, `fn`, `const` (including component-as-const),
   and `let` declarations.
@@ -10725,6 +10761,41 @@ without `export`).
 | E-IMPORT-005 | Bare npm-style import specifier (must be `./`, `scrml:`, or `vendor:`) | Error |
 | E-IMPORT-006 | Import target file does not exist on disk | Error |
 | E-IMPORT-007 | Auto-gather closure exceeded sane-limit (5000 files) — W2 §21.7 | Error |
+| E-EXPORT-002 | Form 1 (§21.2) component body is empty, contains only text, or has more than one top-level markup root — body MUST be single-rooted markup | Error |
+| E-EXPORT-003 | Form 1 (§21.2) outer attribute name collides with the body-root's attribute name (other than `class`, which merges per §15.5) | Error |
+
+**E-EXPORT-002 example (multi-rooted body — wrap in a container):**
+
+```scrml
+// Triggers E-EXPORT-002
+export <Bad>
+  <span>one</span>
+  <span>two</span>
+</>
+
+// Fix
+export <Good>
+  <div>
+    <span>one</span>
+    <span>two</span>
+  </div>
+</>
+```
+
+**E-EXPORT-003 example (attr name collision — choose one location):**
+
+```scrml
+// Triggers E-EXPORT-003 — `title` declared on both outer and body root
+export <Bad title="outer">
+  <div title="inner">x</>
+</>
+
+// Fix — pick one location
+export <Good title="outer">
+  <div>x</>
+</>
+```
+
 
 ### 21.7 CLI Import-Graph Traversal (Auto-Gather)
 
@@ -12590,6 +12661,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-IMPORT-002 | §21.3 | Circular import detected | Error |
 | E-IMPORT-003 | §21.3 | `import` inside a function body (not file top-level) | Error |
 | E-IMPORT-004 | §21.3 | Imported name not found in target file's exports | Error |
+| E-EXPORT-002 | §21.2 | Form 1 component body is empty / text-only / multi-rooted (must be single-rooted markup) | Error |
+| E-EXPORT-003 | §21.2 | Form 1 outer attribute conflicts with body-root attribute name | Error |
 | E-COMPONENT-001 | §15.7 | Caller targets or overrides a `fixed` element | Error |
 | E-COMPONENT-002 | §16.2 | Required slot not filled at call site | Error |
 | E-COMPONENT-003 | §16.3 | Multiple `${...}` spreads in single component body | Error |
