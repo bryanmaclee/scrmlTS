@@ -19261,7 +19261,7 @@ ${
     function advance() { @order = OrderStatus.Processing }
 }
 
-< machine name=OrderFlow for=OrderStatus>
+< engine name=OrderFlow for=OrderStatus>
     .Pending    => .Processing
     .Processing => .Shipped
     .Shipped    => .Delivered
@@ -19453,7 +19453,7 @@ ${
     function start() { @fetch = Fetch.Loading }
 }
 
-< machine name=FetchMachine for=Fetch>
+< engine name=FetchMachine for=Fetch>
     .Idle                => .Loading
     .Loading             => .Done
     .Loading after 30s   => .TimedOut
@@ -19731,7 +19731,7 @@ ${
     function rewindToLatest() { replay(@order, @log) }
 }
 
-< machine name=OrderFlow for=S>
+< engine name=OrderFlow for=S>
     .Pending    => .Processing
     .Processing => .Shipped
     .Shipped    => .Delivered

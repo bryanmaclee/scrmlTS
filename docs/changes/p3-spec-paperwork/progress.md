@@ -5,9 +5,10 @@
 - [start] migration-plan.md written: 20 REPLACE / 66 KEEP.
 - [start] Baseline `bun test` (pre-commit hook scope: unit + integration + conformance, no browser): 7826 pass / 30 skip / 0 fail / 7856 tests / 397 files.
 - [classification] Conservative skip list documented: ~66 occurrences are normative concept text, deprecation policy, error-message templates, grammar rules, and section headings.
-- [batch-1] §51.3.x worked examples — 10 replacements done. `bun test` post-batch: 7826 / 30 / 0 (zero regressions). Replacements at lines 18364, 18465, 18492, 18541, 18656, 18663, 18770, 18789, 18798, 18805.
-- [batch-2] §51.9 derived/projection examples — 3 replacements done. `bun test` post-batch: 7826 / 30 / 0 (zero regressions). Replacements:
-  1. line 19085 (`< engine name=UI for=UIMode derived=@order>`)
-  2. line 19172 (`< engine name=FetchMachine for=FetchState>`)
-  3. line 19180 (`< engine name=UI for=UIFlag derived=@state>`)
-- [next] Batch 3 — §51.11/§51.12/§51.14 (audit, temporal, replay) — 3 replacements.
+- [batch-1] §51.3.x worked examples — 10 replacements. `bun test`: 7826 / 30 / 0 (zero regressions). Lines 18364, 18465, 18492, 18541, 18656, 18663, 18770, 18789, 18798, 18805.
+- [batch-2] §51.9 derived/projection examples — 3 replacements. `bun test`: 7826 / 30 / 0. Lines 19085, 19172, 19180.
+- [batch-3] §51.11 audit / §51.12 temporal / §51.14 replay worked examples — 3 replacements. `bun test`: 7826 / 30 / 0 (zero regressions). Replacements:
+  1. line 19264 (`< engine name=OrderFlow for=OrderStatus>` — §51.11.2 audit clause example)
+  2. line 19456 (`< engine name=FetchMachine for=Fetch>` — §51.12.2 temporal example)
+  3. line 19734 (`< engine name=OrderFlow for=S>` — §51.14.2 replay example)
+- [next] Batch 4 — §51.15 state-local case examples — 2 replacements.
