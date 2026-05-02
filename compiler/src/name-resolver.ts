@@ -365,6 +365,14 @@ function walk(nodes: ASTNode[], ctx: ResolutionContext, acc: WalkAccumulator): v
         if (arm && Array.isArray(arm.body)) walk(arm.body, ctx, acc);
       }
     }
+    // P3-FOLLOW: lift-expr carries an inline markup tree under expr.node.
+    // VP-2 / CE / codegen all need NR resolution stamped on those nodes —
+    // otherwise residual <ComponentRef/> inside `lift <li><ComponentRef/></li>`
+    // is invisible to NR-authoritative routing. Mirrors walkFileAst() in
+    // validators/ast-walk.ts.
+    if (kind === "lift-expr" && anyN.expr && anyN.expr.kind === "markup" && anyN.expr.node) {
+      walk([anyN.expr.node], ctx, acc);
+    }
   }
 }
 

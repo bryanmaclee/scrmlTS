@@ -18,6 +18,7 @@ import { describe, test, expect } from "bun:test";
 import { splitBlocks } from "../../src/block-splitter.js";
 import { buildAST } from "../../src/ast-builder.js";
 import { runCE } from "../../src/component-expander.ts";
+import { runNR } from "../../src/name-resolver.ts";
 import { runPostCEInvariantFile } from "../../src/validators/post-ce-invariant.ts";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,10 @@ import { runPostCEInvariantFile } from "../../src/validators/post-ce-invariant.t
 function compile(source, filePath = "/test/uvb-w1.scrml") {
   const bs = splitBlocks(filePath, source);
   const tab = buildAST(bs);
+  // P3-FOLLOW: NR runs before CE in the production pipeline (api.js stage 3.05),
+  // stamping resolvedKind/resolvedCategory on every tag-bearing node. VP-2
+  // routes on resolvedCategory === "user-component" (NR-authoritative).
+  if (tab.ast) runNR({ filePath, ast: tab.ast });
   const ce = runCE({ files: [tab] });
   const ceFile = ce.files[0];
   const errors = runPostCEInvariantFile({ filePath, ast: ceFile.ast });
