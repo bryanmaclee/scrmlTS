@@ -7201,6 +7201,11 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         closerForm: block.closerForm,
         isComponent: block.isComponent === true,
         openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
+        // P3.A: propagate the channel-export markers from liftBareDeclarations
+        // through to the AST markup node. CHX (CE phase 2) and MOD use these
+        // to distinguish per-page channel decls from cross-file exports.
+        _p3aIsExport: block._p3aIsExport === true ? true : undefined,
+        _p3aExportName: block._p3aExportName ?? undefined,
         span,
       };
     }
