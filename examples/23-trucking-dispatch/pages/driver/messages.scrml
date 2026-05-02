@@ -22,6 +22,8 @@
   ${
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channel — see SPEC §38.12.6.
+      import { "driver-events" as driverEvents } from '../../channels/driver-events.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, messages">
@@ -183,25 +185,12 @@
         }
     }
 
-    <!-- M5: driver-events broadcast channel. Driver + their dispatcher
-         publish here. Each event payload carries targetDriverId so the
-         driver's UI filters to only their own thread. -->
-    <channel name="driver-events">
-        ${
-            @shared driverEvents = []
-
-            server function publishDriverEvent(eventType, targetDriverId, fromUserId, body, loadId) {
-                driverEvents = [...driverEvents, {
-                    type: eventType,
-                    targetDriverId: targetDriverId,
-                    fromUserId: fromUserId,
-                    body: body,
-                    loadId: loadId,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: driver-events channel — see channels/driver-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). Driver + their
+         dispatcher publish here. Each event payload carries
+         targetDriverId so the driver's UI filters to only their own
+         thread. -->
+    <driverEvents/>
 
       <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
         <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">

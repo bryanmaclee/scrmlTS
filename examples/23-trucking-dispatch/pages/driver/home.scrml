@@ -27,6 +27,8 @@
       import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channel — see SPEC §38.12.6.
+      import { "driver-events" as driverEvents } from '../../channels/driver-events.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries">
@@ -203,24 +205,10 @@
         }
     }
 
-    <!-- M5: driver-events subscription. The home page shows a badge
-         indicating new messages / assignments since arrival. -->
-    <channel name="driver-events">
-        ${
-            @shared driverEvents = []
-
-            server function publishDriverEvent(eventType, targetDriverId, fromUserId, body, loadId) {
-                driverEvents = [...driverEvents, {
-                    type: eventType,
-                    targetDriverId: targetDriverId,
-                    fromUserId: fromUserId,
-                    body: body,
-                    loadId: loadId,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: driver-events channel — see channels/driver-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). The home page shows
+         a badge indicating new messages / assignments since arrival. -->
+    <driverEvents/>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
