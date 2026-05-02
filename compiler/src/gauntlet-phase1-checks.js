@@ -142,8 +142,17 @@ function checkTopLevelTextPreamble(blocks, filePath, errors) {
         nextBlock.isComponent === true &&
         typeof nextBlock.name === "string" &&
         nextBlock.name.length > 0;
-      if (trimmedTrailingExport && nextIsComponentMarkup) {
-        // P2 Form 1 — fall through to TAB. No diagnostic.
+      // P3.A: Form 1 also covers `export <channel name="X" ...>...</>`.
+      // The next block is markup with name === "channel" (lowercase, so
+      // isComponent === false). TAB's liftBareDeclarations recognizes this
+      // pattern and synthesizes a paired ExportDeclNode with
+      // exportKind: "channel".
+      const nextIsChannelMarkup =
+        nextBlock &&
+        nextBlock.type === "markup" &&
+        nextBlock.name === "channel";
+      if (trimmedTrailingExport && (nextIsComponentMarkup || nextIsChannelMarkup)) {
+        // Form 1 (P2 component / P3.A channel) — fall through to TAB. No diagnostic.
         continue;
       }
 

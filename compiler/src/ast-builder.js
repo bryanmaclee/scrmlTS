@@ -4446,13 +4446,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (namedMatch) {
         // ES `as` aliasing: `{ foo as bar }` — resolve against the original export name `foo`;
         // the local alias `bar` is remembered for scope binding.
+        // P3.A: also accept quoted import names like `{ "dispatch-board" as dispatchBoard }`
+        // — channel exports use kebab-case names that aren't valid JS identifiers, so the
+        // import syntax allows quoting. The stored name is the UNquoted form that matches
+        // the channel's `name=` attribute value (which is what MOD's exportRegistry keys on).
+        const _stripQuotes = (s) => {
+          if (typeof s !== "string" || s.length < 2) return s;
+          if ((s[0] === '"' && s[s.length - 1] === '"') ||
+              (s[0] === "'" && s[s.length - 1] === "'")) {
+            return s.slice(1, -1);
+          }
+          return s;
+        };
         importNode.names = namedMatch[1]
           .split(",")
           .map(s => s.trim())
           .filter(Boolean)
           .map(entry => {
+            // Match optional quoted-or-bareword imported name, optional ` as alias`.
+            // The imported name CAN be quoted (P3.A); the alias is always a bareword.
             const asMatch = entry.match(/^(\S+)\s+as\s+(\S+)$/);
-            return asMatch ? asMatch[1] : entry;
+            const importedRaw = asMatch ? asMatch[1] : entry;
+            return _stripQuotes(importedRaw);
           });
         importNode.source = namedMatch[2];
       } else {

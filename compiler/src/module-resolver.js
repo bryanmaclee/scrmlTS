@@ -282,10 +282,17 @@ export function topologicalSort(graph) {
 // ---------------------------------------------------------------------------
 
 /**
- * Build an export registry: Map<filePath, Map<name, {kind, isComponent}>>
+ * Build an export registry: Map<filePath, Map<name, {kind, category, isComponent}>>
+ *
+ * P3.A: each entry now carries a `category` field
+ * ("component" | "channel" | "type" | "function" | "const" | "other") that
+ * downstream stages (NR's importedRegistry, CHX's cross-file lookup) can
+ * branch on. The legacy `isComponent` boolean is retained as a derived
+ * field (`category === "component"`) for backcompat with the 75 in-tree
+ * `isComponent` references.
  *
  * @param {Map<string, object>} graph
- * @returns {Map<string, Map<string, {kind: string, isComponent: boolean}>>}
+ * @returns {Map<string, Map<string, {kind: string, category: string, isComponent: boolean}>>}
  */
 export function buildExportRegistry(graph) {
   const registry = new Map();
@@ -298,7 +305,26 @@ export function buildExportRegistry(graph) {
       // Components are const exports with PascalCase names (uppercase first letter)
       const isComponent = kind === "const" && name.length > 0 &&
         name[0] >= "A" && name[0] <= "Z";
-      names.set(name, { kind, isComponent });
+      // P3.A: derive a state-type category from the export kind. The TAB's
+      // P3.A channel-export synthesis sets `kind === "channel"`; type
+      // exports have `kind === "type"`; function exports have
+      // `kind === "function"` or `"fn"`. Component is the special-cased
+      // PascalCase const path (legacy).
+      let category;
+      if (kind === "channel") {
+        category = "channel";
+      } else if (isComponent) {
+        category = "component";
+      } else if (kind === "type") {
+        category = "type";
+      } else if (kind === "function" || kind === "fn") {
+        category = "function";
+      } else if (kind === "const") {
+        category = "const";
+      } else {
+        category = "other";
+      }
+      names.set(name, { kind, category, isComponent });
     }
     registry.set(filePath, names);
   }
