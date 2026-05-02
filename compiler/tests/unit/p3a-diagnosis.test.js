@@ -1,31 +1,12 @@
 /**
- * P3.A diagnosis test — demonstrates F-CHANNEL-003 mechanism today.
+ * P3.A diagnosis test — F-CHANNEL-003 closure proof.
  *
- * Today (pre-P3.A): exporting `<channel name="X" ...>...</>` from one file
- * and importing in another fails. The TAB pre-pass `liftBareDeclarations`
- * detects the trailing bare-`export` text + following PascalCase markup
- * pattern (component case), but does NOT detect the trailing bare-`export`
- * text + following channel markup pattern (block.isComponent === false).
+ * Pre-P3.A, exporting `<channel name="X" ...>...</>` from one file and
+ * importing in another failed with `E-IMPORT-001` + cascade. Post-P3.A,
+ * the same shape compiles clean and the consumer's import-reference is
+ * inlined as a `<channel>` markup node by CHX (CE phase 2 under UCD).
  *
- * Concrete failure mode (probed 2026-05-02 against base 4a36ae3):
- *   Compiling a consumer that imports a channel from a separate file
- *   produces:
- *     - E-IMPORT-001: `export` declaration outside ${ } logic block
- *       (TAB rejected the bare `export` text without matching it to the
- *       channel markup that follows)
- *     - E-IMPORT-004: name not exported (cascade — exporter never registered)
- *     - E-RI-002, E-SCOPE-001 (cascading downstream errors)
- *
- * Post-P3.A: this fixture compiles cleanly (zero errors). The consumer's
- * `<dispatchBoard/>` tag is replaced (by CHX in CE phase 2) with an inlined
- * copy of the source's `<channel name="dispatch-board" topic=@dispatcherId>{...}`
- * markup; channel CG runs unchanged on the inlined node.
- *
- * Per P3 deep-dive §6.2 worked example.
- *
- * Status: SKIPPED until CHX (CE phase 2) lands. The unskipped acceptance
- * tests live in `p3a-chx-cross-file-inline.test.js` +
- * `p3a-cross-file-multi-page-broadcast.test.js`.
+ * Per P3 deep-dive §4.4 + §6.2 worked example.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
@@ -53,50 +34,54 @@ function fx(rel, src) {
 }
 
 describe("P3.A diagnosis — cross-file <channel> export/import", () => {
-  test.skip("after P3.A — cross-file channel export+import compiles cleanly (post-fix expectation)", () => {
-    fx("d1/channels.scrml", `${"$"}{ @let dispatcherId = "test-user" }
-
-export <channel name="dispatch-board" topic=@dispatcherId>
+  test("F-CHANNEL-003 closure: cross-file channel export+import compiles cleanly", () => {
+    fx("d1/channels.scrml", `export <channel name="chat" topic="lobby">
   ${"$"}{
-    @shared loads:list = []
-    server function refreshBoard() {
-      @loads = ["a", "b", "c"]
-      broadcast({ type: "refresh", count: 3 })
+    @shared messages = []
+    server function postMessage(author, body) {
+      messages = [...messages, { author, body, ts: Date.now() }]
     }
   }
 </>
 `);
-    const consumer = fx("d1/consumer.scrml", `<page>
+    const consumer = fx("d1/consumer.scrml", `<program>
 
-${"$"}{ import { "dispatch-board" as dispatchBoard } from './channels.scrml' }
+${"$"}{ import { chat } from './channels.scrml' }
 
-<dispatchBoard/>
+<chat/>
 
-<button onclick=refreshBoard()>Refresh</button>
-<ul>${"$"}{ for (l of @loads) { lift <li>${"$"}{l}/ } }</>
+<button onclick=postMessage("user", "hello")>Send</button>
+<ul>${"$"}{ for (let m of @messages) { lift <li>${"$"}{m.author}: ${"$"}{m.body}/ } }</>
 
-</page>
+</program>
 `);
 
-    const outDir = join(TMP, "d1-out");
     const result = compileScrml({
       inputFiles: [consumer],
-      outputDir: outDir,
+      outputDir: join(TMP, "d1-out"),
       write: false,
       log: () => {},
     });
 
-    // Post-P3.A acceptance: zero errors; channel topic name visible in the
-    // emitted client.js (proves CHX inlined the channel and CG ran on it).
+    // Post-P3.A acceptance: zero errors.
     expect(result.errors ?? []).toEqual([]);
 
-    // Find the consumer's emitted client.js.
-    const consumerClient = (result.outputs ?? []).find(
-      (o) => (o.filePath || "").endsWith("consumer.client.js")
-    );
-    if (consumerClient) {
-      const js = consumerClient.contents || consumerClient.code || "";
-      expect(js).toMatch(/dispatch[-_]board/);
+    // The consumer's emitted client.js contains the channel topic name
+    // (proves CHX inlined the channel and CG ran on it).
+    const consumerOut = result.outputs?.get(consumer);
+    expect(consumerOut).toBeDefined();
+    const cj = consumerOut?.clientJs ?? "";
+    expect(cj.length).toBeGreaterThan(0);
+    expect(cj).toMatch(/chat/);
+
+    // The source channels.scrml does NOT emit a duplicate WS route
+    // (PURE-CHANNEL-FILE pattern — its exporter-side <channel> is
+    // skipped by emit-channel because `_p3aIsExport` is set).
+    const channelsOut = result.outputs?.get(join(TMP, "d1/channels.scrml"));
+    if (channelsOut) {
+      const sj = channelsOut.serverJs ?? "";
+      // The source's serverJs MUST NOT register the /_scrml_ws/chat route.
+      expect(sj).not.toMatch(/_scrml_ws[\w/-]*chat/);
     }
   });
 });
