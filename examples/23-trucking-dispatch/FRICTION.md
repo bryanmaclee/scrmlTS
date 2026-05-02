@@ -1540,7 +1540,7 @@ of writing their first channel page.
 
 ---
 
-## F-CHANNEL-003 — Channels are per-page, not cross-file (P1)
+## F-CHANNEL-003 — Channels are per-page, not cross-file (P1) — **ARCHITECTURALLY RESOLVED 2026-05-02 (P3.A)**
 
 **Surfaced in:** M5, when wiring 4 channels across 12 publishing/
 subscribing pages. Discovered F-AUTH-002-style duplication for channels.
@@ -1595,6 +1595,36 @@ Severity P1: the friction is sharp because the obvious abstraction
 (factor a channel block into a shared file) is exactly what every
 multi-page app wants. ~180 LOC of boilerplate on a 600-LOC milestone
 is a meaningful tax.
+
+### Resolution — P3.A (2026-05-02)
+
+**Status: ARCHITECTURALLY RESOLVED.**
+
+P3.A ships the **CHX (Channel-Expander)** mechanism — channels MAY now be
+exported via Form 1 (`export <channel name="X" attrs>{body}</>`) and
+imported by name in any consumer file. The compiler inlines the channel
+markup body at every consumer's import-reference position before codegen
+runs; the wire-layer identity (the WebSocket route `/_scrml_ws/X`) is
+shared across all importers by virtue of the `name=` attribute. See SPEC
+§38.12 for the full mechanism, worked examples, and `name=` attribute
+requirements.
+
+The architectural mechanism is shipped + 28 new tests pass + the
+`F-CHANNEL-003` synthetic fixture (cross-file `<channel>` import with the
+canonical chat pattern) compiles cleanly.
+
+The full sweep of the dispatch app's 15 channel decl sites is **deferred
+to P3.A-FOLLOW** (T1-small dispatch). This dispatch will:
+- Centralize the dispatch app's channels into `channels/<topic>.scrml`
+  pure-channel-files.
+- Replace the 15 inline `<channel>` decls with `import + use` references.
+- Eliminate ~180 LOC of inline boilerplate (5 channels × ~3 redeclarations
+  × ~12 LOC).
+
+The mechanism is ready; only the migration sweep remains.
+
+**See also:** P3 deep-dive (`scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md`),
+SPEC §38.12, PIPELINE.md Stage 3.2 Phase 2, `compiler/src/state-type-routing.ts`.
 
 ---
 
