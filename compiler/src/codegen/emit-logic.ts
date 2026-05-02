@@ -80,7 +80,7 @@ interface EmitLogicOpts {
   /** Track names declared by let-decl/const-decl so tilde-decl can detect reassignment. */
   declaredNames?: Set<string>;
   /** §51.5: Machine binding map for transition guard emission. Keyed by reactive var name. */
-  machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null;
+  machineBindings?: Map<string, { engineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null;
   /**
    * Emission boundary. "server" swaps DOM-oriented lowerings for their
    * server-context equivalents (e.g. `lift <expr>` in a server-fn body
@@ -116,7 +116,7 @@ interface LogicArm {
 // Helper: emit a guarded-expr arm body
 // ---------------------------------------------------------------------------
 
-function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null): string {
+function emitArmBody(arm: LogicArm, errVar: string, machineBindings?: Map<string, { engineName: string; tableName: string; rules: any[]; auditTarget?: string | null }> | null): string {
   const handler = (arm.handler ?? "").trim();
   if (!handler) return "";
   // Block bodies `{ @var = expr; ... }` must go through rewriteBlockBody so that
@@ -273,7 +273,7 @@ function _emitReactiveSet(encodedName: string, valueExpr: string, opts: EmitLogi
     const lookupName = rawName ?? encodedName;
     const binding = opts.machineBindings?.get(lookupName) ?? null;
     if (binding) {
-      return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.machineName, binding.rules, (binding as any).auditTarget ?? null).join("\n");
+      return emitTransitionGuard(encodedName, valueExpr, binding.tableName, binding.engineName, binding.rules, (binding as any).auditTarget ?? null).join("\n");
     }
   }
   // §51.12 — on init of a machine-bound var whose machine has temporal

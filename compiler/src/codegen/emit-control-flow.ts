@@ -67,7 +67,7 @@ interface IfOpts {
 
 // §51.5 — Machine binding info for transition guard emission in rewriteBlockBody
 interface MachineBindingInfo {
-  machineName: string;
+  engineName: string;
   tableName: string;
   rules: Array<{ from: string; to: string; guard: string | null; label: string | null; effectBody: string | null }>;
 }
@@ -962,7 +962,7 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
           name,
           valueExpr,
           binding.tableName,
-          binding.machineName,
+          binding.engineName,
           binding.rules,
           binding.auditTarget ?? null,
         );

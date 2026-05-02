@@ -209,11 +209,11 @@ interface BindPropsWiring {
  * The map is used by rewriteBlockBody to emit emitTransitionGuard instead of
  * plain _scrml_reactive_set for machine-governed reactive variable assignments.
  */
-export function buildMachineBindingsMap(fileAST: any): Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget: string | null }> | null {
+export function buildMachineBindingsMap(fileAST: any): Map<string, { engineName: string; tableName: string; rules: any[]; auditTarget: string | null }> | null {
   const machineRegistry = (fileAST as any).machineRegistry as Map<string, any> | undefined;
   if (!machineRegistry || machineRegistry.size === 0) return null;
 
-  const result = new Map<string, { machineName: string; tableName: string; rules: any[]; auditTarget: string | null }>();
+  const result = new Map<string, { engineName: string; tableName: string; rules: any[]; auditTarget: string | null }>();
 
   // Walk the AST to find reactive-decl nodes with machineBinding annotation
   const nodes: any[] = fileAST.nodes ?? fileAST.ast?.nodes ?? [];
@@ -223,12 +223,12 @@ export function buildMachineBindingsMap(fileAST: any): Map<string, { machineName
       if (node.kind === "logic" && Array.isArray(node.body)) {
         for (const child of node.body) {
           if (child && child.kind === "reactive-decl" && child.machineBinding) {
-            const machineName: string = child.machineBinding;
-            const machine = machineRegistry.get(machineName);
+            const engineName: string = child.machineBinding;
+            const machine = machineRegistry.get(engineName);
             if (machine && child.name) {
               result.set(child.name as string, {
-                machineName,
-                tableName: `__scrml_transitions_${machineName}`,
+                engineName,
+                tableName: `__scrml_transitions_${engineName}`,
                 rules: machine.rules ?? [],
                 auditTarget: (machine.auditTarget as string | null | undefined) ?? null,
               });

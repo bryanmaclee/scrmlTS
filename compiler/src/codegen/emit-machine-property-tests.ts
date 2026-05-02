@@ -240,8 +240,8 @@ function variantLiteral(variant: string): string {
 //     reads guardResults[__matchKey]; if explicitly false → returns
 //     Error("E-MACHINE-001-RT: Transition guard failed"). True/omitted → succeeds.
 //   - If matched rule is unguarded (table value is `true`): succeeds.
-function emitHarnessPrelude(machineName: string, tableName: string): string[] {
-  const varName = `__autoTest_${machineName}`;
+function emitHarnessPrelude(engineName: string, tableName: string): string[] {
+  const varName = `__autoTest_${engineName}`;
   return [
     `  // Fresh reactive var per describe — isolated from any user code.`,
     `  const VAR = ${JSON.stringify(varName)};`,
