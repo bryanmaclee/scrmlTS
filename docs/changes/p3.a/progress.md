@@ -8,3 +8,9 @@ CHX (CE phase 2 under UCD). T2-large.
 - [start] Branch created: `changes/p3.a` from `4a36ae3`. Worktree clean.
 - [start] Baseline confirmed via `bun run test`: 8512 pass / 40 skip / 0 fail / 416 files.
 - [start] Pre-snapshot written: `docs/changes/p3.a/pre-snapshot.md`.
+- [step 2] Diagnosis test added (skipped until fix lands): `compiler/tests/unit/p3a-diagnosis.test.js`.
+  Confirmed today's failure mode for the P3 dive §6.2 worked example:
+    - `E-IMPORT-001` (TAB rejects `export` outside `${ }` block — gap is in liftBareDeclarations)
+    - `E-IMPORT-004` (cascade — channel never registered as export)
+    - `E-RI-002`, `E-SCOPE-001` x2 (downstream cascade)
+  Diagnosis artifact: `docs/changes/p3.a/diagnosis.md`.
