@@ -19082,7 +19082,7 @@ projection-rule      ::= variant-ref-list '=>' variant-ref                -- map
 **Example:**
 
 ```scrml
-< machine name=UI for=UIMode derived=@order>
+< engine name=UI for=UIMode derived=@order>
     .Draft                                  => .Editable
     .Submitted | .Paid | .Shipping          => .ReadOnly
     .Delivered | .Cancelled | .Refunded     => .Terminal
@@ -19169,7 +19169,7 @@ ${
   @state: FetchMachine = FetchState.Idle
 }
 
-< machine name=FetchMachine for=FetchState>
+< engine name=FetchMachine for=FetchState>
     .Idle    => .Loading
     .Loading => .Success | .Error
     .Success | .Error => .Idle
@@ -19177,7 +19177,7 @@ ${
 
 type UIFlag:enum = { Idle, Busy, Done, Failed }
 
-< machine name=UI for=UIFlag derived=@state>
+< engine name=UI for=UIFlag derived=@state>
     .Idle              => .Idle
     .Loading           => .Busy
     .Success           => .Done
