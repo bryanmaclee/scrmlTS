@@ -6,7 +6,7 @@
  * pair per §51.13.1(c):
  *
  *   - passing: guard evaluates truthy → transition succeeds (result = null)
- *   - failing: guard evaluates falsy → throws E-MACHINE-001-RT: Transition
+ *   - failing: guard evaluates falsy → throws E-ENGINE-001-RT: Transition
  *     guard failed.
  *
  * The phase-2 harness parametrizes the guard result rather than evaluating

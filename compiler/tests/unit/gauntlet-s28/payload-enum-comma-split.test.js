@@ -9,7 +9,7 @@
  * (because `(` was present), failed the identifier regex on
  * `Pending, Success` as the "name", and skipped. Result: zero registered
  * variants. Downstream, any `< machine for=Result>` referencing a variant
- * by name fired E-MACHINE-004 "Valid variants: ." (empty list).
+ * by name fired E-ENGINE-004 "Valid variants: ." (empty list).
  *
  * Fix: split on `["\n", ","]` at top level — commas inside payload field
  * lists stay with their variant because splitTopLevel tracks `()` depth.

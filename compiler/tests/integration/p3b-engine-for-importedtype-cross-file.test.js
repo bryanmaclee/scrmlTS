@@ -4,7 +4,7 @@
  * Coverage (cross-file behaviour after P3.B TAB type-decl synthesis fix):
  *   §X1 — `<engine for=ImportedEnum>` where ImportedEnum comes from another
  *         file via `${ export type ImportedEnum:enum = {...} }`. Pre-fix:
- *         E-MACHINE-004. Post-fix: compiles cleanly, machine-decl emitted.
+ *         E-ENGINE-004. Post-fix: compiles cleanly, machine-decl emitted.
  *   §X2 — `<engine for=ImportedStruct>` cross-file resolution.
  *   §X3 — End-to-end smoke: schema.scrml exports `DriverStatus`; consumer
  *         imports it and uses `<engine for=DriverStatus>`. Mirrors the
@@ -15,7 +15,7 @@
  * cross-file seeding) → machine-validation → CG.
  *
  * Pre-P3.B state: `<engine for=ImportedType>` failed at TS with
- *   E-MACHINE-004: Machine '...' references unknown type '...'
+ *   E-ENGINE-004: Machine '...' references unknown type '...'
  * even though the import was valid.
  *
  * Post-P3.B state: TAB synthesizes a type-decl AST node from `export type X`
@@ -97,9 +97,9 @@ describe("§X1 `<engine for=ImportedEnum>` cross-file resolves cleanly", () => {
       log: () => {},
     });
 
-    // Predicted post-fix: zero compile errors. Pre-fix: E-MACHINE-004.
+    // Predicted post-fix: zero compile errors. Pre-fix: E-ENGINE-004.
     const errs = realCompileErrors(result);
-    const e_machine_004 = errs.filter(e => e.code === "E-MACHINE-004");
+    const e_machine_004 = errs.filter(e => e.code === "E-ENGINE-004");
     expect(e_machine_004).toEqual([]);
     expect(errs).toEqual([]);
   });
@@ -144,7 +144,7 @@ describe("§X2 `<engine for=ImportedStruct>` cross-file resolves cleanly", () =>
     });
 
     const errs = realCompileErrors(result);
-    const e_machine_004 = errs.filter(e => e.code === "E-MACHINE-004");
+    const e_machine_004 = errs.filter(e => e.code === "E-ENGINE-004");
     expect(e_machine_004).toEqual([]);
     expect(errs).toEqual([]);
   });
@@ -197,7 +197,7 @@ describe("§X3 dispatch-app HOS pattern (workaround removal)", () => {
     });
 
     const errs = realCompileErrors(result);
-    const e_machine_004 = errs.filter(e => e.code === "E-MACHINE-004");
+    const e_machine_004 = errs.filter(e => e.code === "E-ENGINE-004");
     expect(e_machine_004).toEqual([]);
     expect(errs).toEqual([]);
   });

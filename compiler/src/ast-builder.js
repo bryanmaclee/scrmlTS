@@ -4589,7 +4589,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       // P3.B (F-ENGINE-001): when exporting a type, ALSO synthesize a type-decl
       // AST node so cross-file machinery (api.js:768-770 importedTypesByFile +
       // type-system.ts processFile) can resolve the imported type. Without this,
-      // `<engine for=ImportedType>` failed with E-MACHINE-004 even though the
+      // `<engine for=ImportedType>` failed with E-ENGINE-004 even though the
       // import was valid. Mirrors how `export function helper() {}` produces
       // both function-decl AND export-decl. Per P3 deep-dive §5.1, §5.4.
       // The synthetic type-decl is pushed BEFORE the export-decl so collectHoisted
@@ -7245,7 +7245,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
       // the opener uses bareword-ident attribute values, matching the
       // declarative syntactic form used everywhere else (@x: Type, as Type,
       // type Foo, < state for=X>). The pre-S25 sentence form
-      // `< machine Name for Type>` is rejected with E-MACHINE-020.
+      // `< machine Name for Type>` is rejected with E-ENGINE-020.
       //
       // P1 (2026-04-30, state-as-primary unification): canonical keyword is now
       // `engine` (DD1 §6.6, design-insight `state-as-primary`). The legacy
@@ -7310,8 +7310,8 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
             sourceVar = legacyDerived[2];
           }
           errors.push(new TABError(
-            "E-MACHINE-020",
-            `E-MACHINE-020: \`< machine>\` opener uses the pre-S25 sentence form. ` +
+            "E-ENGINE-020",
+            `E-ENGINE-020: \`< machine>\` opener uses the pre-S25 sentence form. ` +
             `Use the attribute form: \`< machine name=${engineName || "MachineName"} for=${governedType || "TypeName"}${sourceVar ? ` derived=@${sourceVar}` : ""}>\`. ` +
             `The attribute form aligns with the rest of scrml's declarative syntax (@x: Type, as Type, type Foo).`,
             span,

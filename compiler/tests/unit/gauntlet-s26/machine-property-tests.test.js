@@ -12,7 +12,7 @@
  * `__scrml_transitions_<Name>` lookup shape emit-machines.ts produces and
  * runs each (from, to) pair through a small `tryTransition` harness.
  * Declared pairs must return null, undeclared pairs must return an
- * E-MACHINE-001-RT Error.
+ * E-ENGINE-001-RT Error.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -95,7 +95,7 @@ describe("S26 §51.13 — auto-generated machine property tests", () => {
     expect(machineTestJs).toContain("toBeNull()");
     // Undeclared pair → rejection assertion
     expect(machineTestJs).toContain("undeclared .Pending => .Shipped rejected");
-    expect(machineTestJs).toContain("E-MACHINE-001-RT");
+    expect(machineTestJs).toContain("E-ENGINE-001-RT");
   });
 
   test("generated test file actually passes when run against the compiled guard table", () => {

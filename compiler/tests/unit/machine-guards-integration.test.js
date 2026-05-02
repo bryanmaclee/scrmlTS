@@ -8,7 +8,7 @@
  *   §51.5-d-1  rewriteBlockBody emits transition guard structure for machine-bound var
  *   §51.5-d-2  rewriteBlockBody emits plain reactive_set for non-machine var
  *   §51.5-d-3  rewriteBlockBody with no machineBindings is backward-compatible
- *   §51.5-d-4  guard output contains E-MACHINE-001-RT error string
+ *   §51.5-d-4  guard output contains E-ENGINE-001-RT error string
  *   §51.5-d-5  guard output contains the transition lookup table variable
  *   §51.5-d-6  guard wraps assignment in validation IIFE with __prev/__next
  *   §51.5-d-7  multiple assignments in one block: only machine-bound gets guard
@@ -42,7 +42,7 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
     // Guard should emit the transition table lookup
     expect(result).toContain("__scrml_transitions_OrderStatus");
     // Guard should include runtime error for illegal transitions
-    expect(result).toContain("E-MACHINE-001-RT");
+    expect(result).toContain("E-ENGINE-001-RT");
     // Guard reads previous value
     expect(result).toContain("_scrml_reactive_get");
     // Guard writes via reactive_set as the final step (after validation)
@@ -59,7 +59,7 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
 
     // @count is not in the machine bindings — plain set, no guard
     expect(result).toContain('_scrml_reactive_set("count"');
-    expect(result).not.toContain("E-MACHINE-001-RT");
+    expect(result).not.toContain("E-ENGINE-001-RT");
     expect(result).not.toContain("__scrml_transitions");
   });
 
@@ -68,14 +68,14 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
     const result = rewriteBlockBody("@status = OrderStatus.Processing");
 
     expect(result).toContain('_scrml_reactive_set("status"');
-    expect(result).not.toContain("E-MACHINE-001-RT");
+    expect(result).not.toContain("E-ENGINE-001-RT");
     expect(result).not.toContain("__scrml_transitions");
   });
 
-  test("§51.5-d-4 guard contains E-MACHINE-001-RT error code", () => {
+  test("§51.5-d-4 guard contains E-ENGINE-001-RT error code", () => {
     const result = rewriteBlockBody("@status = OrderStatus.Shipped", orderStatusBindings);
 
-    expect(result).toContain("E-MACHINE-001-RT");
+    expect(result).toContain("E-ENGINE-001-RT");
   });
 
   test("§51.5-d-5 guard references the transition table variable", () => {
@@ -105,7 +105,7 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
     expect(result).toContain('_scrml_reactive_set("count"');
     // @status: guarded — contains guard markers
     expect(result).toContain("__scrml_transitions_OrderStatus");
-    expect(result).toContain("E-MACHINE-001-RT");
+    expect(result).toContain("E-ENGINE-001-RT");
   });
 
   test("§51.5-d-8 guard rules with guard field are passed to emitTransitionGuard", () => {
@@ -131,7 +131,7 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
 
     // null machineBindings → plain reactive_set (no guard)
     expect(result).toContain('_scrml_reactive_set("status"');
-    expect(result).not.toContain("E-MACHINE-001-RT");
+    expect(result).not.toContain("E-ENGINE-001-RT");
     expect(result).not.toContain("__scrml_transitions");
   });
 
@@ -140,7 +140,7 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
 
     // Empty map → plain reactive_set for all vars (var not in map)
     expect(result).toContain('_scrml_reactive_set("status"');
-    expect(result).not.toContain("E-MACHINE-001-RT");
+    expect(result).not.toContain("E-ENGINE-001-RT");
     expect(result).not.toContain("__scrml_transitions");
   });
 });

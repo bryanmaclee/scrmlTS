@@ -14,7 +14,7 @@
  *
  * Coverage:
  *   §A — `<machine for=ImportedEnum>` compiles + emits exactly one
- *        W-DEPRECATED-001; cross-file type resolution succeeds (no E-MACHINE-004).
+ *        W-DEPRECATED-001; cross-file type resolution succeeds (no E-ENGINE-004).
  *   §B — `<machine for=ImportedStruct>` cross-file resolution + deprecation
  *        warning works.
  *
@@ -85,9 +85,9 @@ describe("§A `<machine for=ImportedEnum>` (deprecated keyword) cross-file", () 
       log: () => {},
     });
 
-    // Cross-file type resolution succeeds: no E-MACHINE-004 in errors
+    // Cross-file type resolution succeeds: no E-ENGINE-004 in errors
     const errs = realCompileErrors(result);
-    const e_machine_004 = errs.filter(e => e.code === "E-MACHINE-004");
+    const e_machine_004 = errs.filter(e => e.code === "E-ENGINE-004");
     expect(e_machine_004).toEqual([]);
     expect(errs).toEqual([]);
 
@@ -133,7 +133,7 @@ describe("§B `<machine for=ImportedStruct>` (deprecated keyword) cross-file", (
     });
 
     const errs = realCompileErrors(result);
-    expect(errs.filter(e => e.code === "E-MACHINE-004")).toEqual([]);
+    expect(errs.filter(e => e.code === "E-ENGINE-004")).toEqual([]);
     expect(errs).toEqual([]);
 
     const dep = (result.warnings || []).filter(w => w.code === "W-DEPRECATED-001");

@@ -833,7 +833,7 @@ The kickstarter doesn't mention this gap. Adopters will write destructuring libe
 
 ## F-ENGINE-001 (formerly F-MACHINE-001) — `<engine for=Type>` rejects imported types — **RESOLVED P3.B (2026-05-02)**
 
-**Resolution:** Closed by P3.B per [P3 deep dive](../../scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md) §3.1, §5, §6.5. TAB now synthesises a `type-decl` AST node alongside the `export-decl` whenever it parses `export type X = {...}` (mirroring how `export function` already produces both `function-decl` and `export-decl`). The `api.js` cross-file `importedTypesByFile` seeding then sees the type, the TS pass registers it in `typeRegistry`, and `<engine for=ImportedType>` resolves cleanly across files. The misleading `imported via 'use'` hint in E-MACHINE-004 was also corrected to reference the actual `${ import { Type } from './path.scrml' }` form.
+**Resolution:** Closed by P3.B per [P3 deep dive](../../scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md) §3.1, §5, §6.5. TAB now synthesises a `type-decl` AST node alongside the `export-decl` whenever it parses `export type X = {...}` (mirroring how `export function` already produces both `function-decl` and `export-decl`). The `api.js` cross-file `importedTypesByFile` seeding then sees the type, the TS pass registers it in `typeRegistry`, and `<engine for=ImportedType>` resolves cleanly across files. The misleading `imported via 'use'` hint in E-ENGINE-004 was also corrected to reference the actual `${ import { Type } from './path.scrml' }` form.
 
 **Adopter integration:** `pages/driver/hos.scrml` workaround removed. The local `type DriverStatus:enum = {...}` block (~6 LOC) is replaced with `${ import { DriverStatus } from '../../schema.scrml' }`. Schema is now the single source of truth for the enum spelling. Workaround-removal commit lands alongside this resolution status.
 
@@ -863,7 +863,7 @@ ${
 
 **What didn't work:**
 ```
-error [E-MACHINE-004]: Machine 'HOSMachine' references unknown type
+error [E-ENGINE-004]: Machine 'HOSMachine' references unknown type
 'DriverStatus'. The 'for' clause must name an enum or struct type
 declared in this file or imported via 'use'.
   stage: TS

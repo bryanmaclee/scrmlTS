@@ -7,12 +7,12 @@
  *
  * Phase 1 (S26) — property (a) Exclusivity.
  *   From any reachable variant V and any variant W: declared pair succeeds,
- *   undeclared pair throws E-MACHINE-001-RT.
+ *   undeclared pair throws E-ENGINE-001-RT.
  *
  * Phase 2 (S26) — property (c) Guard coverage.
  *   Each LABELED `given` guard receives one passing test (guard truthy →
  *   transition succeeds) and one failing test (guard falsy → throws
- *   E-MACHINE-001-RT: Transition guard failed).
+ *   E-ENGINE-001-RT: Transition guard failed).
  *
  * Phase 2 harness model: tests don't evaluate the real guard expression.
  * Instead, the harness takes a per-rule guardResults map and treats the
@@ -64,7 +64,7 @@
  *   for every variant V declared on the source enum, the projection
  *   function SHALL return the target variant declared by the first
  *   matching rule. Exhaustiveness is already enforced at compile time
- *   (E-MACHINE-018), so every source variant appears as some rule's
+ *   (E-ENGINE-018), so every source variant appears as some rule's
  *   `from` — we enumerate from `rules.map(r => r.from)`. The generated
  *   suite inlines a minimal copy of the projection function (mirroring
  *   emitProjectionFunction) and calls it per variant.
@@ -163,7 +163,7 @@ function rulesForSource(variant: string, rules: TransitionRule[]): TransitionRul
 }
 
 // Phase 6: every source variant appears as some rule's `from` (§51.9
-// exhaustiveness enforced by E-MACHINE-018 at compile time). Enumerate
+// exhaustiveness enforced by E-ENGINE-018 at compile time). Enumerate
 // from the rules rather than threading a separate source-type handle.
 function collectSourceVariants(rules: TransitionRule[]): string[] {
   const s = new Set<string>();
@@ -235,10 +235,10 @@ function variantLiteral(variant: string): string {
 //   - Walks the four-step fallback chain from emitTransitionGuard:
 //     exact, then *:To, then From:*, then *:*. Tracks __matchKey so
 //     guardResults can key on the matched (possibly-wildcard) rule.
-//   - If no rule matches: returns Error("E-MACHINE-001-RT: Illegal transition").
+//   - If no rule matches: returns Error("E-ENGINE-001-RT: Illegal transition").
 //   - If matched rule is a guard rule (table value is `{ guard: true }`):
 //     reads guardResults[__matchKey]; if explicitly false → returns
-//     Error("E-MACHINE-001-RT: Transition guard failed"). True/omitted → succeeds.
+//     Error("E-ENGINE-001-RT: Transition guard failed"). True/omitted → succeeds.
 //   - If matched rule is unguarded (table value is `true`): succeeds.
 function emitHarnessPrelude(engineName: string, tableName: string): string[] {
   const varName = `__autoTest_${engineName}`;
@@ -264,12 +264,12 @@ function emitHarnessPrelude(engineName: string, tableName: string): string[] {
     `      else if (${tableName}[__anyTo] != null)   { __rule = ${tableName}[__anyTo]; __matchKey = __anyTo; }`,
     `      else if (${tableName}[__anyAny] != null)  { __rule = ${tableName}[__anyAny]; __matchKey = __anyAny; }`,
     `      if (__rule == null) {`,
-    `        return new Error("E-MACHINE-001-RT: Illegal transition");`,
+    `        return new Error("E-ENGINE-001-RT: Illegal transition");`,
     `      }`,
     `      if (typeof __rule === "object" && __rule.guard) {`,
     `        var __guardPass = guardResults.hasOwnProperty(__matchKey) ? guardResults[__matchKey] : true;`,
     `        if (!__guardPass) {`,
-    `          return new Error("E-MACHINE-001-RT: Transition guard failed");`,
+    `          return new Error("E-ENGINE-001-RT: Transition guard failed");`,
     `        }`,
     `      }`,
     `      return null;`,
@@ -305,7 +305,7 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
   // run resolveRule — it applies the same four-step fallback chain as the
   // harness and the real emitTransitionGuard. Declared pairs succeed
   // (with guardResults forcing any matched guard truthy); undeclared
-  // pairs throw E-MACHINE-001-RT.
+  // pairs throw E-ENGINE-001-RT.
   for (const v of variants) {
     if (!reachable.has(v)) continue;
     for (const w of variants) {
@@ -328,7 +328,7 @@ function emitMachineDescribe(m: MachineLike, initial: string | null): string[] {
         lines.push(`  test(${JSON.stringify(title)}, () => {`);
         lines.push(`    const result = tryTransition(${variantLiteral(v)}, ${variantLiteral(w)});`);
         lines.push(`    expect(result).toBeInstanceOf(Error);`);
-        lines.push(`    expect(result.message).toMatch(/E-MACHINE-001-RT/);`);
+        lines.push(`    expect(result.message).toMatch(/E-ENGINE-001-RT/);`);
         lines.push(`  });`);
       }
     }

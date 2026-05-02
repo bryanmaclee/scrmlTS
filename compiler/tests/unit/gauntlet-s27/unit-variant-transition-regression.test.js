@@ -6,7 +6,7 @@
  * extraction used `(__prev.variant != null ? __prev.variant : "*")`,
  * which for bare-string values returned `"*"` (since strings have no
  * `.variant` property), causing every unit-variant transition to miss
- * the table and throw E-MACHINE-001-RT. This test would have caught the
+ * the table and throw E-ENGINE-001-RT. This test would have caught the
  * regression — none of the pre-S27 tests exercised the emitted runtime.
  *
  * Fixed in emit-machines.ts alongside S27-G1 audit-shape work: fallback
@@ -62,7 +62,7 @@ function runAndInvokeAll(clientJs) {
 }
 
 describe("S27 regression — unit-variant enum transition at runtime", () => {
-  test("simple .A => .B transition actually succeeds (no E-MACHINE-001-RT)", () => {
+  test("simple .A => .B transition actually succeeds (no E-ENGINE-001-RT)", () => {
     const src = `<program>
 \${
   type S:enum = { A, B }
@@ -80,7 +80,7 @@ describe("S27 regression — unit-variant enum transition at runtime", () => {
     const { errors, clientJs } = compile(src);
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     // Executing with a unit-variant enum must NOT throw. Before the fix,
-    // this would throw E-MACHINE-001-RT because __key resolved to "*:*".
+    // this would throw E-ENGINE-001-RT because __key resolved to "*:*".
     const state = runAndInvokeAll(clientJs);
     expect(state.order).toBe("B");
     expect(state.log).toHaveLength(1);
@@ -118,7 +118,7 @@ describe("S27 regression — unit-variant enum transition at runtime", () => {
     // S28: trivially-illegal transitions are now rejected at compile time
     // per §51.5.1 (target .C has no rule in the machine — no .C in any `to`
     // and no wildcard catch-all). Pre-S28 this test ran the code and
-    // expected E-MACHINE-001-RT at runtime. The guarantee is identical
+    // expected E-ENGINE-001-RT at runtime. The guarantee is identical
     // (the assignment is refused) but the surface is now compile-time.
     const src = `<program>
 \${
@@ -135,7 +135,7 @@ describe("S27 regression — unit-variant enum transition at runtime", () => {
 </program>
 `;
     const { errors } = compile(src);
-    const machineErrors = errors.filter(e => e.severity !== "warning" && e.code === "E-MACHINE-001");
+    const machineErrors = errors.filter(e => e.severity !== "warning" && e.code === "E-ENGINE-001");
     expect(machineErrors).toHaveLength(1);
     expect(machineErrors[0].message).toContain("targets variant .C");
     expect(machineErrors[0].message).toContain("§51.5.1");

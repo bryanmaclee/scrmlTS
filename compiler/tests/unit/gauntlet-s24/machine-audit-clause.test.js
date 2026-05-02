@@ -4,12 +4,12 @@
  * Opt-in audit/replay support: attaching `audit @log` to a machine body
  * appends `{from, to, at}` entries to @log on every successful transition.
  * Rejected transitions do not produce audit entries. Duplicate clauses and
- * undeclared targets fire E-MACHINE-019.
+ * undeclared targets fire E-ENGINE-019.
  *
  * Tests exercise:
  *   - parser: audit clause attaches to the machine registry entry
  *   - codegen: transition guard emits the audit-push after state commit
- *   - validation: undeclared target + duplicate clause both fire E-MACHINE-019
+ *   - validation: undeclared target + duplicate clause both fire E-ENGINE-019
  *   - runtime-ish: generated JS shape matches the spec (we don't execute
  *     the runtime here — that's covered by happy-dom E2E in a follow-up)
  */
@@ -39,7 +39,7 @@ function compileSrc(source, testName = `s24-audit-${++tmpCounter}`) {
       : "";
     return {
       errors: result.errors ?? [],
-      m019: (result.errors ?? []).filter(e => e.code === "E-MACHINE-019"),
+      m019: (result.errors ?? []).filter(e => e.code === "E-ENGINE-019"),
       clientJs,
     };
   } finally {
@@ -90,8 +90,8 @@ describe("S24 §51.11 — audit clause parses + compiles cleanly", () => {
   });
 });
 
-describe("S24 §51.11 — E-MACHINE-019 validation", () => {
-  test("audit clause pointing at undeclared reactive → E-MACHINE-019", () => {
+describe("S24 §51.11 — E-ENGINE-019 validation", () => {
+  test("audit clause pointing at undeclared reactive → E-ENGINE-019", () => {
     const src = `<program>
 \${
   type S:enum = { A, B }
@@ -109,7 +109,7 @@ describe("S24 §51.11 — E-MACHINE-019 validation", () => {
     expect(m019[0].message).toContain("undeclaredAuditTarget");
   });
 
-  test("two audit clauses in one machine body → E-MACHINE-019", () => {
+  test("two audit clauses in one machine body → E-ENGINE-019", () => {
     const src = `<program>
 \${
   type S:enum = { A, B }
@@ -130,7 +130,7 @@ describe("S24 §51.11 — E-MACHINE-019 validation", () => {
     expect(m019[0].message).toContain("more than one");
   });
 
-  test("declared audit target → no E-MACHINE-019", () => {
+  test("declared audit target → no E-ENGINE-019", () => {
     const src = `<program>
 \${
   type S:enum = { A, B }

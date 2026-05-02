@@ -339,7 +339,7 @@ describe("S27 §51.14 — runtime behavior", () => {
     expect(env.state.order).toBe("Delivered");
     // Delivered → Pending violates the table (there's no such rule), but
     // replay must bypass the guard. If it didn't, this would throw
-    // E-MACHINE-001-RT.
+    // E-ENGINE-001-RT.
     env.userFns[env.userFnNames.find(n => n.includes("rewind"))]();
     expect(env.state.order).toBe("Pending");
   });

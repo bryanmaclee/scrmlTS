@@ -4,7 +4,7 @@
  * Slice 1 (type-system): parses `< machine name=UI for=UIMode derived=@order>`,
  * registers the derived machine with isDerived/sourceVar/projectedVarName,
  * and validates exhaustiveness over the source enum's variants
- * (E-MACHINE-018). Runtime codegen lands in a follow-up slice — these tests
+ * (E-ENGINE-018). Runtime codegen lands in a follow-up slice — these tests
  * exercise the parser + validator directly.
  */
 
@@ -109,14 +109,14 @@ describe("§51.9 slice 1 — derived-machine registration", () => {
     const errors = [];
     buildMachineRegistry([uiMachine], typeRegistry, errors, span());
     // Only the source-var resolution error (no '@order' reactive in this
-    // stripped test) should appear — not an E-MACHINE-004 on `.Draft` etc.
+    // stripped test) should appear — not an E-ENGINE-004 on `.Draft` etc.
     for (const e of errors) {
       expect(e.message).not.toContain(".Draft");
       expect(e.message).not.toContain(".Submitted");
     }
   });
 
-  test("RHS variant names ARE validated against the projection enum (E-MACHINE-004)", () => {
+  test("RHS variant names ARE validated against the projection enum (E-ENGINE-004)", () => {
     const typeRegistry = buildTypeRegistry([ORDER_ENUM, UIMODE_ENUM], [], span());
     const uiMachine = makeMachineDecl("UI", "UIMode",
       ".Draft => .Bogus",  // Bogus isn't a UIMode variant
@@ -124,13 +124,13 @@ describe("§51.9 slice 1 — derived-machine registration", () => {
     );
     const errors = [];
     buildMachineRegistry([uiMachine], typeRegistry, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-004" && e.message.includes("Bogus"));
+    const e = errors.find(e => e.code === "E-ENGINE-004" && e.message.includes("Bogus"));
     expect(e).toBeDefined();
   });
 });
 
 describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source resolution)", () => {
-  test("E-MACHINE-018: missing source-enum variant", () => {
+  test("E-ENGINE-018: missing source-enum variant", () => {
     const typeRegistry = buildTypeRegistry([ORDER_ENUM, UIMODE_ENUM], [], span());
     const orderMachine = makeMachineDecl("OrderMachine", "OrderState",
       ".Draft => .Submitted",
@@ -149,7 +149,7 @@ describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source re
     const reactiveBindings = new Map([["order", registry.get("OrderMachine")]]);
     validateDerivedMachines(registry, reactiveBindings, errors, span());
 
-    const e = errors.find(e => e.code === "E-MACHINE-018");
+    const e = errors.find(e => e.code === "E-ENGINE-018");
     expect(e).toBeDefined();
     expect(e.message).toContain("Refunded");
     expect(e.message).toContain("OrderState");
@@ -168,22 +168,22 @@ describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source re
     const registry = buildMachineRegistry([orderMachine, uiMachine], typeRegistry, errors, span());
     const reactiveBindings = new Map([["order", registry.get("OrderMachine")]]);
     validateDerivedMachines(registry, reactiveBindings, errors, span());
-    expect(errors.filter(e => e.code === "E-MACHINE-018")).toHaveLength(0);
+    expect(errors.filter(e => e.code === "E-ENGINE-018")).toHaveLength(0);
   });
 
-  test("E-MACHINE-004: source-var not bound to a machine", () => {
+  test("E-ENGINE-004: source-var not bound to a machine", () => {
     const typeRegistry = buildTypeRegistry([ORDER_ENUM, UIMODE_ENUM], [], span());
     const uiMachine = makeMachineDecl("UI", "UIMode", ".Draft => .Editable", "order");
     const errors = [];
     const registry = buildMachineRegistry([uiMachine], typeRegistry, errors, span());
     // Empty reactiveBindings — `@order` does not exist in scope.
     validateDerivedMachines(registry, new Map(), errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-004" && e.message.includes("source variable"));
+    const e = errors.find(e => e.code === "E-ENGINE-004" && e.message.includes("source variable"));
     expect(e).toBeDefined();
     expect(e.message).toContain("@order");
   });
 
-  test("E-MACHINE-004: transitive projection (deferred per §51.9.7)", () => {
+  test("E-ENGINE-004: transitive projection (deferred per §51.9.7)", () => {
     const typeRegistry = buildTypeRegistry([ORDER_ENUM, UIMODE_ENUM], [], span());
     const orderMachine = makeMachineDecl("OrderMachine", "OrderState", ".Draft => .Submitted");
     // First projection: from @order.
@@ -212,7 +212,7 @@ describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source re
     ]);
     validateDerivedMachines(registry, reactiveBindings, errors, span());
     const e = errors.find(e =>
-      e.code === "E-MACHINE-004" && e.message.includes("transitive") || e.message.includes("Transitive")
+      e.code === "E-ENGINE-004" && e.message.includes("transitive") || e.message.includes("Transitive")
     );
     expect(e).toBeDefined();
   });
@@ -234,10 +234,10 @@ describe("§51.9 slice 1 — validateDerivedMachines (exhaustiveness + source re
     const registry = buildMachineRegistry([orderMachine, uiMachine], typeRegistry, errors, span());
     const reactiveBindings = new Map([["order", registry.get("OrderMachine")]]);
     validateDerivedMachines(registry, reactiveBindings, errors, span());
-    // Either E-MACHINE-018 on .Paid (preferred) — or we accept the rule as total
+    // Either E-ENGINE-018 on .Paid (preferred) — or we accept the rule as total
     // (implementation may later prove a guard is exhaustive; for now require
     // the unguarded sibling).
-    const e = errors.find(e => e.code === "E-MACHINE-018" && e.message.includes("Paid"));
+    const e = errors.find(e => e.code === "E-ENGINE-018" && e.message.includes("Paid"));
     expect(e).toBeDefined();
   });
 });
@@ -349,20 +349,20 @@ describe("§51.9 slice 2 — emitDerivedDeclaration", () => {
   });
 });
 
-describe("§51.9 slice 2 — E-MACHINE-017 reject writes to projected vars", () => {
-  test("reactive-decl of a projected var name fires E-MACHINE-017", () => {
+describe("§51.9 slice 2 — E-ENGINE-017 reject writes to projected vars", () => {
+  test("reactive-decl of a projected var name fires E-ENGINE-017", () => {
     const projectedVars = new Map([["ui", makeDerivedMachine()]]);
     const errors = [];
     const nodes = [{ kind: "reactive-decl", name: "ui", span: span() }];
     rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
     expect(errors).toHaveLength(1);
-    expect(errors[0].code).toBe("E-MACHINE-017");
+    expect(errors[0].code).toBe("E-ENGINE-017");
     expect(errors[0].message).toContain("'@ui'");
     expect(errors[0].message).toContain("'@order'");
     expect(errors[0].message).toContain("< machine UI>");
   });
 
-  test("bare-expr `@ui = X` inside a function body fires E-MACHINE-017", () => {
+  test("bare-expr `@ui = X` inside a function body fires E-ENGINE-017", () => {
     const projectedVars = new Map([["ui", makeDerivedMachine()]]);
     const errors = [];
     const nodes = [
@@ -374,16 +374,16 @@ describe("§51.9 slice 2 — E-MACHINE-017 reject writes to projected vars", () 
       },
     ];
     rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-017");
+    const e = errors.find(e => e.code === "E-ENGINE-017");
     expect(e).toBeDefined();
   });
 
-  test("bare-expr `@ui += X` fires E-MACHINE-017 (compound assignment)", () => {
+  test("bare-expr `@ui += X` fires E-ENGINE-017 (compound assignment)", () => {
     const projectedVars = new Map([["ui", makeDerivedMachine()]]);
     const errors = [];
     const nodes = [{ kind: "bare-expr", expr: "@ui += 1", span: span() }];
     rejectWritesToDerivedVars(nodes, projectedVars, errors, span());
-    expect(errors.find(e => e.code === "E-MACHINE-017")).toBeDefined();
+    expect(errors.find(e => e.code === "E-ENGINE-017")).toBeDefined();
   });
 
   test("writes to non-projected reactives are unaffected", () => {
@@ -410,7 +410,7 @@ describe("§51.9 slice 2 — end-to-end compilation", () => {
     expect(clientJs).not.toContain("__scrml_transitions_UI");
   });
 
-  test("E-MACHINE-017: assigning `@ui = X` inside a function is rejected end-to-end", () => {
+  test("E-ENGINE-017: assigning `@ui = X` inside a function is rejected end-to-end", () => {
     // Two ${ } blocks so the pre-existing BPP statement-boundary quirk on
     // consecutive machine-typed reactive-decls doesn't drop nodes before our
     // checker sees them. The function-body assignment to @ui is the case we
@@ -418,7 +418,7 @@ describe("§51.9 slice 2 — end-to-end compilation", () => {
     // projected var from user code.
     const source = `\${\n  type OrderState:enum = { Draft, Submitted }\n  type UIMode:enum = { Editable, ReadOnly }\n  @order: OrderMachine = OrderState.Draft\n}\n\n\${\n  function badWrite() { @ui = "Editable" }\n}\n\n< machine name=OrderMachine for=OrderState>\n    .Draft => .Submitted\n</>\n\n< machine name=UI for=UIMode derived=@order>\n    .Draft => .Editable\n    .Submitted => .ReadOnly\n</>\n\n<program><p>ok</></>\n`;
     const { errors } = compileSource(source, "write-rejected.scrml");
-    const e = errors.find(e => e.code === "E-MACHINE-017");
+    const e = errors.find(e => e.code === "E-ENGINE-017");
     expect(e).toBeDefined();
   });
 });

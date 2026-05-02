@@ -5,7 +5,7 @@
  *   1. Parsing — `parseMachineRules` / `expandAlternation` recognize
  *      `.Variant(binding-list)` on either side of `=>`, resolve each
  *      binding against the variant's declared payload fields, and raise
- *      E-MACHINE-015 / E-MACHINE-016 on misuse.
+ *      E-ENGINE-015 / E-ENGINE-016 on misuse.
  *   2. Emission — `emitTransitionGuard` emits the destructuring prelude
  *      `var n = __prev.data.<field>;` inside the keyed guard block so the
  *      guard expression and effect body can reference the local name.
@@ -78,35 +78,35 @@ describe("§1b parseMachineRules — payload bindings", () => {
     expect(rule.toBindings).toEqual([{ localName: "b", fieldName: "second" }]);
   });
 
-  test("E-MACHINE-015: binding against a unit variant is a compile error", () => {
+  test("E-ENGINE-015: binding against a unit variant is a compile error", () => {
     const typeRegistry = buildTypeRegistry([CANNON_ENUM], [], span());
     const machines = [makeMachineDecl("M", "CannonState", ".Idle(x) => .Charging")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-015");
+    const e = errors.find(e => e.code === "E-ENGINE-015");
     expect(e).toBeDefined();
     expect(e.message).toContain("unit variant");
     expect(e.message).toContain("Idle");
   });
 
-  test("E-MACHINE-015: named binding of a non-existent field", () => {
+  test("E-ENGINE-015: named binding of a non-existent field", () => {
     const typeRegistry = buildTypeRegistry([CANNON_ENUM], [], span());
     const machines = [makeMachineDecl("M", "CannonState", ".Charging(bogus: x) => .Idle")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-015");
+    const e = errors.find(e => e.code === "E-ENGINE-015");
     expect(e).toBeDefined();
     expect(e.message).toContain("bogus");
     expect(e.message).toContain("Declared fields");
     expect(e.message).toContain("level");
   });
 
-  test("E-MACHINE-015: more positional bindings than declared fields", () => {
+  test("E-ENGINE-015: more positional bindings than declared fields", () => {
     const typeRegistry = buildTypeRegistry([CANNON_ENUM], [], span());
     const machines = [makeMachineDecl("M", "CannonState", ".Charging(a, b, c) => .Idle")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-015");
+    const e = errors.find(e => e.code === "E-ENGINE-015");
     expect(e).toBeDefined();
     expect(e.message).toContain("more positional bindings");
   });
@@ -141,24 +141,24 @@ describe("§1b expandAlternation — payload bindings across `|`", () => {
     expect(rules[1].fromBindings).toEqual([{ localName: "n", fieldName: "x" }]);
   });
 
-  test("E-MACHINE-016: mismatched LHS alternation bindings", () => {
+  test("E-ENGINE-016: mismatched LHS alternation bindings", () => {
     const both = makeTypeDecl("S", "enum", "{ A(x: number)\nB(y: number) }");
     const typeRegistry = buildTypeRegistry([both], [], span());
     const machines = [makeMachineDecl("M", "S", ".A(n) | .B(m) => .A given (n > 0)")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-016");
+    const e = errors.find(e => e.code === "E-ENGINE-016");
     expect(e).toBeDefined();
     expect(e.message).toContain("mismatched");
   });
 
-  test("E-MACHINE-016: some alternatives bind, others do not", () => {
+  test("E-ENGINE-016: some alternatives bind, others do not", () => {
     const both = makeTypeDecl("S", "enum", "{ A(x: number)\nB(y: number) }");
     const typeRegistry = buildTypeRegistry([both], [], span());
     const machines = [makeMachineDecl("M", "S", ".A(n) | .B => .A")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    const e = errors.find(e => e.code === "E-MACHINE-016");
+    const e = errors.find(e => e.code === "E-ENGINE-016");
     expect(e).toBeDefined();
   });
 });

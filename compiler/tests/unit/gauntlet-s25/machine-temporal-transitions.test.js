@@ -9,7 +9,7 @@
  * lin-discontinuous-scoping deep-dive's companion decision for temporal
  * semantics — matches XState).
  *
- * Duration units: ms, s, m, h. Wildcard `from` is rejected (E-MACHINE-021).
+ * Duration units: ms, s, m, h. Wildcard `from` is rejected (E-ENGINE-021).
  *
  * Deep-dive rationale: removes the three-piece hand-wire (`<timeout>` +
  * `when @var changes` + `cleanup()`) into a single declarative rule.
@@ -39,7 +39,7 @@ function compileSrc(source, testName = `s25-temporal-${++tmpCounter}`) {
     const clientJs = existsSync(clientJsPath) ? readFileSync(clientJsPath, "utf8") : "";
     return {
       errors: result.errors ?? [],
-      m021: (result.errors ?? []).filter(e => e.code === "E-MACHINE-021"),
+      m021: (result.errors ?? []).filter(e => e.code === "E-ENGINE-021"),
       clientJs,
     };
   } finally {
@@ -102,7 +102,7 @@ describe("S25 §51.12 — temporal machine transitions", () => {
     }
   });
 
-  test("wildcard from with `after` → E-MACHINE-021", () => {
+  test("wildcard from with `after` → E-ENGINE-021", () => {
     const src = `<program>
 \${
   type S:enum = { A, B }
@@ -143,7 +143,7 @@ describe("S25 §51.12 — temporal machine transitions", () => {
 </program>
 `;
     const { errors, clientJs } = compileSrc(src);
-    expect(errors.filter(e => e.severity !== "warning" && e.code !== "E-MACHINE-014")).toEqual([]);
+    expect(errors.filter(e => e.severity !== "warning" && e.code !== "E-ENGINE-014")).toEqual([]);
     // Both timer arms present in generated JS.
     expect(clientJs).toContain('1000, "B"');
     expect(clientJs).toContain('2000, "C"');
@@ -169,7 +169,7 @@ describe("S25 §51.12 — temporal machine transitions", () => {
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     expect(clientJs).toContain('30000, "TimedOut"');
     // Non-temporal rules still emit transition-guard code.
-    expect(clientJs).toContain("E-MACHINE-001-RT");
+    expect(clientJs).toContain("E-ENGINE-001-RT");
   });
 
   test("initial variant temporal arming — initial state with outgoing temporal rule arms on mount", () => {

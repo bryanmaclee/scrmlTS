@@ -101,11 +101,11 @@ describe("§51.2-c parseEnumBody — wildcard rules", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §51.2-d: E-MACHINE-010 — guard in type-level transitions
+// §51.2-d: E-ENGINE-010 — guard in type-level transitions
 // ---------------------------------------------------------------------------
 
-describe("§51.2-d E-MACHINE-010: guard in type-level transitions", () => {
-  test("emits E-MACHINE-010 when given keyword found", () => {
+describe("§51.2-d E-ENGINE-010: guard in type-level transitions", () => {
+  test("emits E-ENGINE-010 when given keyword found", () => {
     const registry = new Map(BUILTIN_TYPES);
     const errors = [];
     const { transitionRules } = parseEnumBody(
@@ -113,7 +113,7 @@ describe("§51.2-d E-MACHINE-010: guard in type-level transitions", () => {
       registry, errors, span(), "TestEnum"
     );
     expect(transitionRules).toHaveLength(1);
-    const machineErrors = errors.filter(e => e.code === "E-MACHINE-010");
+    const machineErrors = errors.filter(e => e.code === "E-ENGINE-010");
     expect(machineErrors.length).toBeGreaterThan(0);
   });
 });

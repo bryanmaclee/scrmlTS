@@ -4,7 +4,7 @@
  * When a user wrote `.Pending => . Processing` (with a stray space between
  * the dot and variant name) inside an in-enum `transitions {}` block,
  * normalizeRef in the enum-body parser stripped the `.` via slice(1) but
- * did not trim the leading space. The lookup fired E-MACHINE-004 citing
+ * did not trim the leading space. The lookup fired E-ENGINE-004 citing
  * "unknown variant ' Processing'" — a valid variant name wrapped in a
  * bad whitespace envelope.
  *
@@ -33,7 +33,7 @@ function compileSrc(source, testName = `s24-2f-${++tmpCounter}`) {
     });
     return {
       errors: result.errors ?? [],
-      m004: (result.errors ?? []).filter(e => e.code === "E-MACHINE-004"),
+      m004: (result.errors ?? []).filter(e => e.code === "E-ENGINE-004"),
     };
   } finally {
     if (existsSync(tmpInput)) rmSync(tmpInput);
@@ -42,7 +42,7 @@ function compileSrc(source, testName = `s24-2f-${++tmpCounter}`) {
 }
 
 describe("S24 §2f — in-enum transitions variant-ref whitespace trim", () => {
-  test("`. Pending` (space after dot) resolves to .Pending, no E-MACHINE-004", () => {
+  test("`. Pending` (space after dot) resolves to .Pending, no E-ENGINE-004", () => {
     const src = `<program>
 \${
   type OrderStatus:enum = {
@@ -80,7 +80,7 @@ describe("S24 §2f — in-enum transitions variant-ref whitespace trim", () => {
     expect(m004).toEqual([]);
   });
 
-  test("genuinely unknown variant still fires E-MACHINE-004", () => {
+  test("genuinely unknown variant still fires E-ENGINE-004", () => {
     const src = `<program>
 \${
   type S:enum = {

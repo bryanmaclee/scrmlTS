@@ -10,7 +10,7 @@
  * Runtime guard pattern:
  *   const __prev = _scrml_reactive_get("varName");
  *   if (!__scrml_transitions_MachineName[__prev.variant + ":" + newValue.variant]) {
- *     throw new Error("E-MACHINE-001-RT: ...");
+ *     throw new Error("E-ENGINE-001-RT: ...");
  *   }
  *   _scrml_reactive_set("varName", newValue);
  */
@@ -21,7 +21,7 @@ import { CGError } from "./errors.ts";
 // ---------------------------------------------------------------------------
 // §51.5.1 — Compile-time illegal-transition collector (S28 slice 3)
 // ---------------------------------------------------------------------------
-// Module-level buffer for E-MACHINE-001 compile errors detected during
+// Module-level buffer for E-ENGINE-001 compile errors detected during
 // transition-guard emission. Populated by the classifier when a literal RHS
 // cannot match any rule in the machine. Drained by the codegen top level
 // (index.ts) into the file's error list before returning. Cleared at the
@@ -144,7 +144,7 @@ export function emitTransitionTable(tableName: string, rules: TransitionRule[]):
  *       ?? __scrml_transitions_<Name>[(__prev?.variant ?? "*") + ":*"]
  *       ?? __scrml_transitions_<Name>["*:*"];
  *     if (!__rule) {
- *       throw new Error("E-MACHINE-001-RT: ...");
+ *       throw new Error("E-ENGINE-001-RT: ...");
  *     }
  *     _scrml_reactive_set("varName", __next);
  *   })();
@@ -269,7 +269,7 @@ export function buildBindingPreludeStmts(rule: TransitionRule): string[] {
  * Returns:
  *   - { kind: "legal", matchedKey, matchedRule }  — emit minimal side-effect-only
  *     shape (no variant extraction, no matched-key resolution, no rejection throw)
- *   - { kind: "illegal", targetVariant }           — trivially-illegal; E-MACHINE-001
+ *   - { kind: "illegal", targetVariant }           — trivially-illegal; E-ENGINE-001
  *     compile-time error (§51.5.1). Caller surfaces into the codegen error list
  *     via `_machineCodegenErrors` and emits a full guard as a safety net so the
  *     compiled JS remains syntactically valid if the caller chooses to continue.
@@ -366,7 +366,7 @@ export function classifyTransition(
   // not a performance optimization. A debug flag should not silence a
   // compile error. If NO rule in the machine has `to === target` and no
   // wildcard target-side rule exists, runtime will always throw; raise a
-  // compile-time E-MACHINE-001 instead.
+  // compile-time E-ENGINE-001 instead.
   const anyTargetCoverage = rules.some(r => r.to === targetVariant || r.to === "*");
   if (!anyTargetCoverage) {
     return { kind: "illegal", targetVariant };
@@ -520,19 +520,19 @@ export function emitTransitionGuard(
     );
   }
   // §51.5.1 (S28 slice 3) — trivially-illegal: target variant has no rule
-  // in the machine. Push E-MACHINE-001 and fall through to emit the full
+  // in the machine. Push E-ENGINE-001 and fall through to emit the full
   // guard so compilation can continue and produce a complete file; the
   // runtime throw will fire if this code ever executes, but the compile
   // error is the primary signal.
   if (triage.kind === "illegal") {
     _machineCodegenErrors.push(new CGError(
-      "E-MACHINE-001",
-      "E-MACHINE-001: Illegal transition. Assignment to @" + encodedVarName +
+      "E-ENGINE-001",
+      "E-ENGINE-001: Illegal transition. Assignment to @" + encodedVarName +
       " (governed by " + engineName + ") targets variant ." + triage.targetVariant +
       " but no rule in " + engineName + " covers that target " +
       "(no exact `X:" + triage.targetVariant + "` rule, no `*:" + triage.targetVariant + "` wildcard, " +
       "no `X:*` wildcard, no `*:*` catch-all). The runtime would always throw " +
-      "E-MACHINE-001-RT on this assignment; surfacing at compile time per §51.5.1. " +
+      "E-ENGINE-001-RT on this assignment; surfacing at compile time per §51.5.1. " +
       "To fix: add a transition rule that covers ." + triage.targetVariant +
       " or re-target the assignment.",
       {},
@@ -569,7 +569,7 @@ export function emitTransitionGuard(
   lines.push(`    : null;`);
   lines.push(`  var __rule = __matchedKey != null ? ${tableName}[__matchedKey] : null;`);
   lines.push(`  if (!__rule) {`);
-  lines.push(`    throw new Error("E-MACHINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${engineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
+  lines.push(`    throw new Error("E-ENGINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${engineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
   lines.push(`  }`);
 
   // §51.3.2 (S22) — payload-binding prelude. Before guard and effect bodies,
@@ -607,12 +607,12 @@ export function emitTransitionGuard(
         lines.push(`  if (__matchedKey === "${guardKey}") {`);
         for (const p of prelude) lines.push(`    ${p}`);
         lines.push(`    if (!(${guardJs})) {`);
-        lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${engineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
+        lines.push(`      throw new Error("E-ENGINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${engineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`    }`);
         lines.push(`  }`);
       } else {
         lines.push(`  if (__matchedKey === "${guardKey}" && !(${guardJs})) {`);
-        lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${engineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
+        lines.push(`    throw new Error("E-ENGINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${engineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`  }`);
       }
     }

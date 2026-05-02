@@ -3,7 +3,7 @@
  *
  * Added S21: `.A | .B => .C | .D` desugars to N single-pair rules before the
  * type checker. Reduces line count on dense fan-in/fan-out machines.
- * Duplicate (from, to) pairs — within a line or across lines — emit E-MACHINE-014.
+ * Duplicate (from, to) pairs — within a line or across lines — emit E-ENGINE-014.
  */
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
@@ -100,7 +100,7 @@ describe("Machine rule | alternation (§51.3)", () => {
     }
   });
 
-  test("duplicate from→to pair across lines fires E-MACHINE-014", () => {
+  test("duplicate from→to pair across lines fires E-ENGINE-014", () => {
     const source = `\${
   type S:enum = { A, B, C }
   @s: M = S.A
@@ -111,11 +111,11 @@ describe("Machine rule | alternation (§51.3)", () => {
 </>
 <p>\${@s}</>`;
     const { fatalErrors } = compileSource(source, "dup-cross.scrml");
-    const e014 = fatalErrors.filter((e) => e.code === "E-MACHINE-014");
+    const e014 = fatalErrors.filter((e) => e.code === "E-ENGINE-014");
     expect(e014.length).toBeGreaterThanOrEqual(1);
   });
 
-  test("duplicate from→to pair within one line fires E-MACHINE-014", () => {
+  test("duplicate from→to pair within one line fires E-ENGINE-014", () => {
     const source = `\${
   type S:enum = { A, B }
   @s: M = S.A
@@ -125,7 +125,7 @@ describe("Machine rule | alternation (§51.3)", () => {
 </>
 <p>\${@s}</>`;
     const { fatalErrors } = compileSource(source, "dup-within.scrml");
-    const e014 = fatalErrors.filter((e) => e.code === "E-MACHINE-014");
+    const e014 = fatalErrors.filter((e) => e.code === "E-ENGINE-014");
     expect(e014.length).toBeGreaterThanOrEqual(1);
   });
 

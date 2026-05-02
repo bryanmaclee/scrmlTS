@@ -16,7 +16,7 @@
  *
  * Tests exercise:
  *   - guarded wildcard rule with truthy guard → transition succeeds
- *   - guarded wildcard rule with falsy guard → throws E-MACHINE-001-RT
+ *   - guarded wildcard rule with falsy guard → throws E-ENGINE-001-RT
  *   - guarded wildcard rule with label → error message includes label
  *   - effect on wildcard rule fires for every matched source variant
  *   - exact rule still wins over wildcard when both declared
@@ -98,7 +98,7 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
     expect(env.state.state).toBe("Panic");
   });
 
-  test("guarded `* => .X` with falsy guard throws E-MACHINE-001-RT with label", () => {
+  test("guarded `* => .X` with falsy guard throws E-ENGINE-001-RT with label", () => {
     const src = `<program>
 \${
   type S:enum = { Safe, Danger }
@@ -115,7 +115,7 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     const env = buildEnv(clientJs);
     const pullLever = env.userFns[env.userFnNames.find(n => n.includes("pullLever"))];
-    expect(() => pullLever()).toThrow(/E-MACHINE-001-RT: Transition guard failed \[alarmCheck\]/);
+    expect(() => pullLever()).toThrow(/E-ENGINE-001-RT: Transition guard failed \[alarmCheck\]/);
     // State must not have changed since the guard rejected.
     expect(env.state.state).toBe("Safe");
   });
@@ -139,11 +139,11 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
     const env = buildEnv(clientJs);
     // Start → A should fail guard.
     const toA = env.userFns[env.userFnNames.find(n => n.includes("toA"))];
-    expect(() => toA()).toThrow(/E-MACHINE-001-RT: Transition guard failed \[readyCheck\]/);
+    expect(() => toA()).toThrow(/E-ENGINE-001-RT: Transition guard failed \[readyCheck\]/);
     expect(env.state.state).toBe("Start");
     // Start → B should also fail guard (same wildcard rule keys on Start:*).
     const toB = env.userFns[env.userFnNames.find(n => n.includes("toB"))];
-    expect(() => toB()).toThrow(/E-MACHINE-001-RT: Transition guard failed \[readyCheck\]/);
+    expect(() => toB()).toThrow(/E-ENGINE-001-RT: Transition guard failed \[readyCheck\]/);
   });
 
   test("exact rule still wins over wildcard when both declared", () => {
@@ -230,6 +230,6 @@ describe("S27 — guarded wildcard rule fires its guard at runtime", () => {
     // Q → S1: no exact rule, no *:S1, no Q:*, falls back to *:*.
     // Its guard is false → throws with label.
     const jump = env.userFns[env.userFnNames.find(n => n.includes("jump"))];
-    expect(() => jump()).toThrow(/E-MACHINE-001-RT: Transition guard failed \[catchAll\]/);
+    expect(() => jump()).toThrow(/E-ENGINE-001-RT: Transition guard failed \[catchAll\]/);
   });
 });

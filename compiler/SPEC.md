@@ -8,9 +8,9 @@
 > **Amendments applied:** 2026-04-08 — Self-hosting gauntlet R1 findings: §48 relaxed `fn` from "state factory" to "pure function, any return type." §7.3.1 nested function declarations. §7.3.2 default parameter values. §14.3.1 optional struct fields (`= not`). Appendix D: JS standard library access in logic contexts.
 > **Amendments applied:** 2026-04-07 — §49 added: `while`, `do...while`, `break`, `continue` with labeled control flow (E-LOOP-001..E-LOOP-007).
 > **Amendments applied:** 2026-04-07 — §50 added: Assignment as Expression (W-ASSIGN-001, E-ASSIGN-001..E-ASSIGN-004).
-> **Amendments applied:** 2026-04-08 — §51 added: State Transition Rules and `< machine>` state type (E-MACHINE-001..E-MACHINE-012, E-MACHINE-001-RT). §14.4 amended: `transitions {}` block grammar. §6.1 amended: machine-bound reactive variable declaration.
+> **Amendments applied:** 2026-04-08 — §51 added: State Transition Rules and `< machine>` state type (E-ENGINE-001..E-ENGINE-012, E-ENGINE-001-RT). §14.4 amended: `transitions {}` block grammar. §6.1 amended: machine-bound reactive variable declaration.
 > **Amendments applied:** 2026-04-08 — §52 added: State Authority Declarations. Two-tier authority model (`server @var` Tier 2, `authority=` on `< Type>` Tier 1), compiler-generated sync infrastructure. §6.1.2 added: `server @var` grammar. §11.3.5 added: `protect=` / `authority=` relationship. E-AUTH-001..E-AUTH-005, W-AUTH-001.
-> **Amendments applied:** 2026-04-08 — §51 revised: `for EnumTypeName` → `for TypeName` (machines govern structs too). `self.*` in guards, `[label]` named clauses, `* => *` wildcard rules, E-MACHINE-013. Radical doubt debate Approach C.
+> **Amendments applied:** 2026-04-08 — §51 revised: `for EnumTypeName` → `for TypeName` (machines govern structs too). `self.*` in guards, `[label]` named clauses, `* => *` wildcard rules, E-ENGINE-013. Radical doubt debate Approach C.
 > **Amendments applied:** 2026-04-09 — §4.4 rewritten: three closer forms → two (`</tagname>` explicit, `</>` inferred). §4.8 deleted (bare `/` disambiguation no longer needed). §3.1 table updated. §3.2 E-CTX-002 wording updated. §4.5, §4.9 updated. §34 error codes updated. Appendix E added: migration guide. All examples updated throughout.
 > **Amendments applied:** 2026-04-08 — §53 added: Inline Type Predicates. Stateless value constraints (`number(>0 && <10000)`, `string(email)`), three-zone SPARK enforcement, named shape registry, `bind:value` HTML attribute generation. E-CONTRACT-001..E-CONTRACT-004-WARN.
 
@@ -554,7 +554,7 @@ distinction is intentional and load-bearing:
   unsatisfiability of guards, totality-with-guards over the source enum, and transition
   safety proofs. This preserves the scrml commitment (ratified 2026-04-08, see
   design-insights.md §machine/contract unification) to static analysis in the
-  `E-MACHINE-*` family, which is what separates machines from the runtime-`if`
+  `E-ENGINE-*` family, which is what separates machines from the runtime-`if`
   vocabulary.
 
 `given` SHALL NOT be used outside machine rule bodies. `if` SHALL NOT be used as a rule
@@ -5975,7 +5975,7 @@ is backwards-compatible.
 - The `transitions {}` block, when present, SHALL appear after all variant declarations and
   SHALL be the last item in the enum body.
 - An enum type that has a `transitions {}` block SHALL NOT permit a `given` guard inside
-  that block. Guards require a `< machine>` declaration (§51.3, E-MACHINE-010).
+  that block. Guards require a `< machine>` declaration (§51.3, E-ENGINE-010).
 - An enum type without a `transitions {}` block is unrestricted. The absence of the block
   SHALL NOT generate any warning or error.
 
@@ -18218,7 +18218,7 @@ The enforcement model is:
 **Core invariant:** The compiler SHALL treat any assignment to a machine-bound reactive
 variable as a transition request. An assignment to `@x: MachineName` that does not
 correspond to a declared `From => To` rule in `MachineName` — and is statically provable
-as illegal — SHALL be rejected at compile time with E-MACHINE-001.
+as illegal — SHALL be rejected at compile time with E-ENGINE-001.
 
 **Amended 2026-04-20 (S32).** Transition authoring in scrml has three legal sites:
 
@@ -18260,20 +18260,20 @@ When a `transitions {}` block is present:
 - Variants not listed as a source in any rule are **terminal** — they have no legal
   outgoing transitions in the default graph.
 - An assignment from a terminal variant SHALL be a compile error when the source is
-  statically known (E-MACHINE-001), or a runtime error when it is not.
+  statically known (E-ENGINE-001), or a runtime error when it is not.
 
 **Normative statements:**
 
 - The `transitions {}` block inside an enum declaration SHALL contain only structural
   `VariantRef => VariantRef` rules. A `given` guard inside a type-level `transitions {}`
-  block SHALL be a compile error (E-MACHINE-010: guards are not permitted in type-level
+  block SHALL be a compile error (E-ENGINE-010: guards are not permitted in type-level
   `transitions` blocks; use `< machine>` for contextual transitions).
 - Effect blocks inside a type-level `transitions {}` block SHALL be valid. An effect block
   on a transition SHALL execute every time the transition fires, regardless of which
   machine (if any) is governing the assignment.
 - Type-level effect blocks SHALL NOT reference `@reactive` variables declared outside the
   enum's file scope. Cross-file reactive references in type-level effect blocks SHALL be a
-  compile error (E-MACHINE-011).
+  compile error (E-ENGINE-011).
 
 #### 51.2.2 Semantics
 
@@ -18288,7 +18288,7 @@ When an enum has a `transitions {}` block:
    time, it validates the move against the declared rules.
 3. If the prior value is not statically known, the compiler emits a runtime guard in the
    generated output. The runtime guard checks the move before applying it and throws
-   E-MACHINE-001-RT if the move is illegal.
+   E-ENGINE-001-RT if the move is illegal.
 4. Effect blocks on matching transitions execute after the assignment is applied.
 
 The effect block receives an implicit `event` object with the following shape:
@@ -18348,14 +18348,14 @@ type OrderStatus:enum = {
 @status = OrderStatus.Delivered
 
 ${ function reopen() {
-    @status = OrderStatus.Pending   // E-MACHINE-001: illegal transition .Delivered => .Pending;
+    @status = OrderStatus.Pending   // E-ENGINE-001: illegal transition .Delivered => .Pending;
                                      // no rule permits this move
 } }
 ```
 
 Expected compiler output:
 ```
-E-MACHINE-001: Illegal transition.
+E-ENGINE-001: Illegal transition.
   Variable: @status (type: OrderStatus)
   Move: .Delivered => .Pending
   OrderStatus has no transition rule from .Delivered.
@@ -18458,7 +18458,7 @@ state types (`< db>`, `< timer>`, `< poll>`, `< request>`, `< timeout>`,
 `< errorBoundary>`). `name=` and `for=` SHALL be bareword-identifier attribute values
 (§5.1 unquoted-identifier form); quoted-string values SHALL be a compile error.
 Rule-body grammar, `given` guards (§4.11.4), and `[label]` suffix are unchanged. The
-pre-S25 sentence form `< machine Name for Type>` is rejected with E-MACHINE-020 —
+pre-S25 sentence form `< machine Name for Type>` is rejected with E-ENGINE-020 —
 the error message names the required attribute form for straightforward rewriting.
 
 ```scrml
@@ -18471,7 +18471,7 @@ the error message names the required attribute form for straightforward rewritin
 
 Expands to 8 single-pair rules (`Small=>Big`, `Small=>Fire`, ..., `Cape=>Small`). Duplicate
 `(from, to)` pairs — whether produced by alternation within one line or by repetition
-across lines — SHALL be a compile error: **E-MACHINE-014** — `Machine '{name}' has a
+across lines — SHALL be a compile error: **E-ENGINE-014** — `Machine '{name}' has a
 duplicate transition rule '{rule}'. A rule cannot repeat the same from→to pair. Remove the
 duplicate.`
 
@@ -18505,13 +18505,13 @@ binds to the post-transition `Reloading.reason`. The effect block may reference 
 **Relationship to `event.from` / `event.to`:** Bindings are syntactic sugar over
 `event.from.data` and `event.to.data` field access, but they enable static type resolution
 (guard and effect see typed locals) and catch typos at compile time — an invalid field
-name in a binding is **E-MACHINE-015**: `Machine '{name}' rule for '.{Variant}' binds
+name in a binding is **E-ENGINE-015**: `Machine '{name}' rule for '.{Variant}' binds
 field '{name}' which is not a field of the variant. Declared fields: {list}.`
 
 **Relationship to `|` alternation.** When `binding-group`s appear on an alternated
 `variant-ref-list`, every alternative SHALL declare an identically-named binding set, or
 no bindings at all — mixed shapes in a single list are a compile error:
-**E-MACHINE-016** — `Machine '{name}' rule uses '|' alternation with mismatched variant
+**E-ENGINE-016** — `Machine '{name}' rule uses '|' alternation with mismatched variant
 payload bindings. Either every alternative binds the same names, or none bind. Got:
 {list}.`
 
@@ -18531,8 +18531,8 @@ map to declared field order; named bindings (`field: local`) name the field dire
 `var <local> = __prev.data.<field>;` (from-side) or `var <local> = __next.data.<field>;`
 (to-side) **inside the keyed `if (__key === "From:To") { ... }` block**, so each
 rule's locals are only visible within that rule's guard and effect body — never
-leaking across sibling rules. Bindings against unit variants emit E-MACHINE-015
-at compile time; mismatched bindings across `|` alternatives emit E-MACHINE-016.
+leaking across sibling rules. Bindings against unit variants emit E-ENGINE-015
+at compile time; mismatched bindings across `|` alternatives emit E-ENGINE-016.
 
 When governing a **struct type**, a machine's rules use `* => *` wildcard syntax with
 `given` guards that reference fields via `self.*`:
@@ -18547,7 +18547,7 @@ When governing a **struct type**, a machine's rules use `* => *` wildcard syntax
 
 Struct-governing machines fire their guards after every mutation to any field of a bound
 instance. The `self` keyword inside a guard refers to the post-mutation state of the
-struct. If any guard evaluates to false, the mutation is rejected with E-MACHINE-001-RT
+struct. If any guard evaluates to false, the mutation is rejected with E-ENGINE-001-RT
 and the clause label (if present) is included in the error message.
 
 A machine declaration is a top-level declaration. It SHALL NOT be nested inside a function,
@@ -18558,22 +18558,22 @@ loop, or conditional. It MAY be declared inside a `${}` logic block at file scop
 - `< machine name=Name for=TypeName>` SHALL declare a named machine governing variables of type
   `TypeName`. `TypeName` may be an enum type or a struct type.
 - The machine name SHALL be unique within the file scope. Duplicate machine names in the
-  same file SHALL be a compile error (E-MACHINE-003).
+  same file SHALL be a compile error (E-ENGINE-003).
 - `TypeName` SHALL resolve to an enum type or struct type declared in the same file or
   brought into scope by an `${ import { TypeName } from './path.scrml' }` declaration
   (§21.3). Referencing an unknown type or a primitive type SHALL be a compile error
-  (E-MACHINE-004). Primitive value constraints use inline predicates (§53), not machines.
+  (E-ENGINE-004). Primitive value constraints use inline predicates (§53), not machines.
   See §51.16 for the cross-file resolution mechanism.
 - When governing a struct type, `self.*` references in `given` guards SHALL resolve to
-  fields of the struct. Referencing an undefined field SHALL be E-MACHINE-013.
+  fields of the struct. Referencing an undefined field SHALL be E-ENGINE-013.
 - A `given` clause MAY include a `[label]` suffix. The label is a plain identifier used in
-  error messages. When a labeled guard fails at runtime, E-MACHINE-001-RT SHALL include
+  error messages. When a labeled guard fails at runtime, E-ENGINE-001-RT SHALL include
   the label text.
 - A machine body SHALL NOT be empty. A machine with no transition rules serves no purpose
-  and SHALL be a compile error (E-MACHINE-005: empty machine body). **Amended 2026-04-20 (S32):** this rule is narrowed — a machine body SHALL NOT be empty UNLESS the governed state type has one or more state-local transition declarations (§54.3). When state-local transitions exist for the governed type, an empty machine body is a legal marker for aggregated-derived mode (§51.15.1) and SHALL NOT trigger E-MACHINE-005.
+  and SHALL be a compile error (E-ENGINE-005: empty machine body). **Amended 2026-04-20 (S32):** this rule is narrowed — a machine body SHALL NOT be empty UNLESS the governed state type has one or more state-local transition declarations (§54.3). When state-local transitions exist for the governed type, an empty machine body is a legal marker for aggregated-derived mode (§51.15.1) and SHALL NOT trigger E-ENGINE-005.
 - `given` guards are permitted in machine rules. A `given` clause SHALL be a boolean
   expression. The guard is evaluated at the moment of the transition attempt. If the guard
-  evaluates to false, the transition is rejected with E-MACHINE-001-RT at runtime.
+  evaluates to false, the transition is rejected with E-ENGINE-001-RT at runtime.
 - `given` guards in machine rules SHALL be permitted to reference reactive `@variables`,
   server-derived values, and other runtime state. This is the distinguishing capability of
   machines over type-level transitions.
@@ -18581,9 +18581,9 @@ loop, or conditional. It MAY be declared inside a `${}` logic block at file scop
   expose the variant's payload fields as typed local names. `From`-side bindings expose
   pre-transition payload; `To`-side bindings expose post-transition payload. Guards and
   effect blocks SHALL see the bindings in scope. An invalid field name SHALL be
-  E-MACHINE-015. Mismatched bindings across an alternated list SHALL be E-MACHINE-016.
+  E-ENGINE-015. Mismatched bindings across an alternated list SHALL be E-ENGINE-016.
 - A `binding-group` on a unit variant (no payload) SHALL be a compile error: reuse
-  E-MACHINE-015 with the message form `Variant '.{Variant}' is a unit variant and has
+  E-ENGINE-015 with the message form `Variant '.{Variant}' is a unit variant and has
   no fields to bind`.
 
 #### 51.3.3 Machine Binding — `@var: MachineName`
@@ -18617,7 +18617,7 @@ A machine-bound variable obeys the following rules:
   compiler SHALL emit E-TYPE-001 (type mismatch) before any machine validation occurs.
 - A machine-bound variable SHALL NOT be rebound to a different machine after declaration.
   Reassigning the machine binding (e.g., by shadowing with a new declaration) SHALL be a
-  compile error (E-MACHINE-006).
+  compile error (E-ENGINE-006).
 - An unbound variable (no `: MachineName` annotation) whose type is an enum with a
   `transitions {}` block is governed by the type-level transitions. Machine binding is not
   required for type-level transition enforcement.
@@ -18682,14 +18682,14 @@ type Column:enum = {
 Transition attempt by regular user:
 ```scrml
 ${ @cardColumn = Column.InProgress }  // legal — .Todo => .InProgress in UserFlow
-${ @cardColumn = Column.Todo }        // E-MACHINE-001: no rule .InProgress => .Todo in UserFlow
+${ @cardColumn = Column.Todo }        // E-ENGINE-001: no rule .InProgress => .Todo in UserFlow
 ```
 
 Transition attempt by admin:
 ```scrml
 ${ @adminColumn = Column.Done }       // legal — .InProgress => .Done in AdminFlow
 ${ @adminColumn = Column.Todo }       // runtime check: .Done => .Todo given @currentUser.isAdmin
-                                       // If isAdmin is false: E-MACHINE-001-RT at runtime
+                                       // If isAdmin is false: E-ENGINE-001-RT at runtime
 ```
 
 **Example 2 — Order fulfillment with type-level transitions and effects:**
@@ -18755,13 +18755,13 @@ type AuthState:enum = {
 @authState = AuthState.Locked
 
 ${ function unlockAccount() {
-    @authState = AuthState.Anonymous   // E-MACHINE-001: .Locked is terminal in AuthState
+    @authState = AuthState.Anonymous   // E-ENGINE-001: .Locked is terminal in AuthState
 } }
 ```
 
 Expected compiler output:
 ```
-E-MACHINE-001: Illegal transition.
+E-ENGINE-001: Illegal transition.
   Variable: @authState (type: AuthState, governed by: type-level transitions)
   Move: .Locked => .Anonymous
   AuthState has no transition rule from .Locked.
@@ -18837,7 +18837,7 @@ The compiler SHALL perform static transition analysis when:
 2. The target variant (`To`) is a literal variant expression (not a variable).
 
 In these cases, if no transition rule covers `From => To`, the compiler SHALL emit
-E-MACHINE-001 as a compile error and halt compilation.
+E-ENGINE-001 as a compile error and halt compilation.
 
 The compiler SHALL perform data-flow analysis to determine the statically known variant set
 at each assignment site. This analysis is conservative: if the compiler cannot determine
@@ -18854,9 +18854,9 @@ The generated runtime guard:
 1. Reads the current value of the reactive variable before applying the assignment.
 2. Looks up the `(currentValue, targetValue)` pair in the machine's compiled transition
    table (a constant object generated at compile time).
-3. If no rule matches, throws a runtime transition error (E-MACHINE-001-RT).
+3. If no rule matches, throws a runtime transition error (E-ENGINE-001-RT).
 4. If a `given` guard is attached to the matching rule, evaluates the guard expression. If
-   it returns false, throws E-MACHINE-001-RT with the guard expression source text included
+   it returns false, throws E-ENGINE-001-RT with the guard expression source text included
    in the message.
 5. If validation passes, applies the assignment and runs any attached effect blocks.
 
@@ -18902,10 +18902,10 @@ type TransitionEvent = struct {
 - `event.to` — the value of the variable after the transition (the target value).
 
 `event` is read-only inside an effect block. Assigning to `event.from` or `event.to` SHALL
-be a compile error (E-MACHINE-007: `event` is read-only in transition effect blocks).
+be a compile error (E-ENGINE-007: `event` is read-only in transition effect blocks).
 
 The `event` object is valid only inside an effect block. Referencing `event` outside an
-effect block SHALL be a compile error (E-MACHINE-008: `event` is not in scope here).
+effect block SHALL be a compile error (E-ENGINE-008: `event` is not in scope here).
 
 ---
 
@@ -18953,7 +18953,7 @@ consumed, not transitioned). This is a degenerate case.
 **Normative statement:**
 
 - Binding a `lin` variable to a machine (`lin @x: MachineName = val`) SHALL be a compile
-  error (E-MACHINE-009: linear variables cannot be machine-bound; a `lin` variable is
+  error (E-ENGINE-009: linear variables cannot be machine-bound; a `lin` variable is
   consumed exactly once and undergoes no transitions).
 
 #### 51.7.4 Interaction with Struct Fields
@@ -18974,7 +18974,7 @@ for that field access path).
 
 Machine binding on struct fields is deferred to a future spec revision. The current version
 supports machine binding only on `@reactive` variables declared with `@var: MachineName`.
-Struct field machine binding SHALL produce E-MACHINE-012 (not yet supported: machine
+Struct field machine binding SHALL produce E-ENGINE-012 (not yet supported: machine
 binding on struct fields; bind the enclosing `@var` to a machine instead).
 
 ---
@@ -18983,30 +18983,30 @@ binding on struct fields; bind the enclosing `@var` to a machine instead).
 
 | Code | Condition | Phase |
 |------|-----------|-------|
-| E-MACHINE-001 | Illegal transition: no rule permits `From => To` in the governing machine or type-level transitions block | Compile (static) |
-| E-MACHINE-001-RT | Illegal transition at runtime: no rule permits `From => To`, or `given` guard evaluated to false | Runtime |
-| E-MACHINE-003 | Duplicate machine name in the same file scope | Compile |
-| E-MACHINE-004 | Machine `for` clause references an unknown type or a primitive type (enum and struct types are valid `for` targets) | Compile |
-| E-MACHINE-005 | Machine body is empty (no transition rules declared) AND the governed state type has no state-local transitions (§54.3). Amended 2026-04-20 (S32) — see §51.15.1. | Compile |
-| E-MACHINE-006 | Machine rebinding: attempt to shadow a machine-bound variable with a different machine | Compile |
-| E-MACHINE-007 | Assignment to `event.from` or `event.to` inside an effect block (`event` is read-only) | Compile |
-| E-MACHINE-008 | Reference to `event` outside an effect block (`event` is not in scope) | Compile |
-| E-MACHINE-009 | Machine binding on a `lin` variable (incompatible with linear type semantics) | Compile |
-| E-MACHINE-010 | `given` guard inside a type-level `transitions {}` block (guards require `< machine>`) | Compile |
-| E-MACHINE-011 | Type-level effect block references a reactive variable outside the enum's file scope | Compile |
-| E-MACHINE-012 | Machine binding on a struct field (not yet supported; bind the enclosing `@var` instead) | Compile |
-| E-MACHINE-013 | `self.fieldName` in a struct-governing machine guard references an undefined field | Compile |
-| E-MACHINE-014 | Duplicate `(from, to)` transition pair in a machine body (including pairs produced by `\|` alternation) | Compile |
-| E-MACHINE-015 | Machine rule binds a variant field that doesn't exist (or binds a field on a unit variant) | Compile |
-| E-MACHINE-016 | Machine rule uses `\|` alternation with mismatched variant payload bindings | Compile |
-| E-MACHINE-017 | Assignment to a derived-machine projected variable (§51.9 — projections are read-only) | Compile |
-| E-MACHINE-018 | Derived machine's projection rules are not exhaustive over the source enum's variants | Compile |
-| E-MACHINE-019 | Machine `audit @varName` clause references an undeclared reactive, or the clause appears more than once per machine (§51.11) | Compile |
+| E-ENGINE-001 | Illegal transition: no rule permits `From => To` in the governing machine or type-level transitions block | Compile (static) |
+| E-ENGINE-001-RT | Illegal transition at runtime: no rule permits `From => To`, or `given` guard evaluated to false | Runtime |
+| E-ENGINE-003 | Duplicate machine name in the same file scope | Compile |
+| E-ENGINE-004 | Machine `for` clause references an unknown type or a primitive type (enum and struct types are valid `for` targets) | Compile |
+| E-ENGINE-005 | Machine body is empty (no transition rules declared) AND the governed state type has no state-local transitions (§54.3). Amended 2026-04-20 (S32) — see §51.15.1. | Compile |
+| E-ENGINE-006 | Machine rebinding: attempt to shadow a machine-bound variable with a different machine | Compile |
+| E-ENGINE-007 | Assignment to `event.from` or `event.to` inside an effect block (`event` is read-only) | Compile |
+| E-ENGINE-008 | Reference to `event` outside an effect block (`event` is not in scope) | Compile |
+| E-ENGINE-009 | Machine binding on a `lin` variable (incompatible with linear type semantics) | Compile |
+| E-ENGINE-010 | `given` guard inside a type-level `transitions {}` block (guards require `< machine>`) | Compile |
+| E-ENGINE-011 | Type-level effect block references a reactive variable outside the enum's file scope | Compile |
+| E-ENGINE-012 | Machine binding on a struct field (not yet supported; bind the enclosing `@var` instead) | Compile |
+| E-ENGINE-013 | `self.fieldName` in a struct-governing machine guard references an undefined field | Compile |
+| E-ENGINE-014 | Duplicate `(from, to)` transition pair in a machine body (including pairs produced by `\|` alternation) | Compile |
+| E-ENGINE-015 | Machine rule binds a variant field that doesn't exist (or binds a field on a unit variant) | Compile |
+| E-ENGINE-016 | Machine rule uses `\|` alternation with mismatched variant payload bindings | Compile |
+| E-ENGINE-017 | Assignment to a derived-machine projected variable (§51.9 — projections are read-only) | Compile |
+| E-ENGINE-018 | Derived machine's projection rules are not exhaustive over the source enum's variants | Compile |
+| E-ENGINE-019 | Machine `audit @varName` clause references an undeclared reactive, or the clause appears more than once per machine (§51.11) | Compile |
 
-**Error message format — E-MACHINE-001:**
+**Error message format — E-ENGINE-001:**
 
 ```
-E-MACHINE-001: Illegal transition.
+E-ENGINE-001: Illegal transition.
   Variable: @<name> (type: <EnumType>, governed by: <MachineName or "type-level transitions">)
   Move: .<From> => .<To>
   <EnumType or MachineName> has no transition rule from .<From> to .<To>.
@@ -19090,7 +19090,7 @@ projection-rule      ::= variant-ref-list '=>' variant-ref                -- map
 
 @order: OrderMachine = OrderState.Draft
 // No @ui declaration required — the compiler synthesizes it from the derived machine.
-// Reading @ui: resolves via the projection. Writing @ui: compile error (E-MACHINE-017).
+// Reading @ui: resolves via the projection. Writing @ui: compile error (E-ENGINE-017).
 ```
 
 The arrow direction matches §51.3: `.From => .To` reads as "when source is `From`,
@@ -19105,12 +19105,12 @@ never the reverse.
 - The projected variable (`@ui` in the example) is **synthesized by the compiler** — the
   developer does NOT declare it explicitly. It appears as a normal reactive variable to
   readers: `${@ui}` in markup, `match @ui { ... }` in logic.
-- Writes to the projected variable SHALL be a compile error: **E-MACHINE-017** — `Cannot
+- Writes to the projected variable SHALL be a compile error: **E-ENGINE-017** — `Cannot
   assign to '@{name}' — it is a derived projection of '@{source}' (see < machine
   {MachineName}>). Assign to the source instead.`
 - The projection SHALL be total: every variant of the source type MUST be covered by the
   projection rules (directly or via alternation). Non-exhaustive projections SHALL be
-  **E-MACHINE-018** — `Derived machine '{name}' does not project variant '.{Variant}' of
+  **E-ENGINE-018** — `Derived machine '{name}' does not project variant '.{Variant}' of
   '{SourceType}'. Every source variant must be mapped, or use 'else => .Variant' for a
   catch-all.`
 - The projection MAY use `given` guards that reference runtime state beyond the source
@@ -19128,12 +19128,12 @@ difference:
 
 | | `~derived` match | `< machine derived>` |
 |---|---|---|
-| Enforces exhaustiveness? | Yes (§18) | Yes (E-MACHINE-018) |
+| Enforces exhaustiveness? | Yes (§18) | Yes (E-ENGINE-018) |
 | Integrates with machine runtime guards? | No | Yes (shares machine event wiring) |
 | Appears in type system as a machine? | No | Yes — `@ui: UI` is machine-governed |
 | Supports `given` on runtime state? | Via `if` inside match body | First-class `given` clause |
 | Supports `@ui: UI = ...` external bindings? | N/A | Yes, for introspection / tooling |
-| Reserves the binding name against writes? | No | Yes (E-MACHINE-017) |
+| Reserves the binding name against writes? | No | Yes (E-ENGINE-017) |
 
 A `~derived` variable can be reassigned by a later `~` reassignment; a derived machine
 guarantees the projection is the only source of truth. For trivial string-to-string
@@ -19196,8 +19196,8 @@ The four shadow booleans collapse to one projection. Never-drift by construction
   run lowercased (`UI` → `@ui`, `OrderStatus` → `@orderStatus`, `HTTPStatus` →
   `@httpStatus`) — SHALL be synthesized by the compiler. The developer SHALL NOT
   write an explicit `@var: Name = ...` declaration for a projected variable.
-- Writes to a projected variable SHALL be a compile error: E-MACHINE-017.
-- The projection rules SHALL be exhaustive over the source enum's variants: E-MACHINE-018.
+- Writes to a projected variable SHALL be a compile error: E-ENGINE-017.
+- The projection rules SHALL be exhaustive over the source enum's variants: E-ENGINE-018.
 - A `projection-rule` RHS SHALL be a single `variant-ref` (no alternation, no binding
   group in this revision).
 - Projection rules MAY include `given` guards evaluated at read time. The first matching
@@ -19276,14 +19276,14 @@ ${
 #### 51.11.3 Semantics
 
 - The referenced `@varName` SHALL be a declared reactive variable (§6.1).
-  Referencing an undeclared name SHALL be a compile error **E-MACHINE-019**:
+  Referencing an undeclared name SHALL be a compile error **E-ENGINE-019**:
   `Machine '{name}' audit clause references '@{target}', but no reactive
   variable with that name is declared in scope.`
 - The audit target SHALL NOT be a derived (projected) variable (§51.9) — those
-  are read-only (E-MACHINE-017). Pointing an audit clause at one is a compile
+  are read-only (E-ENGINE-017). Pointing an audit clause at one is a compile
   error under the same rule.
 - Multiple audit clauses in a single machine body SHALL be a compile error
-  (same **E-MACHINE-019** — message form: `Machine '{name}' has more than one
+  (same **E-ENGINE-019** — message form: `Machine '{name}' has more than one
   'audit' clause.`).
 - After a successful transition (guard passed, state committed, effect block
   executed), the compiler SHALL append a fresh entry to the audit target
@@ -19291,7 +19291,7 @@ ${
   `push` is NOT used — the audit var is reactive, so subscribers must see a
   fresh array identity each transition.
 - **Rejected transitions are NOT audited.** A guard that fails fires
-  E-MACHINE-001-RT before any state commit or audit push. Applications that
+  E-ENGINE-001-RT before any state commit or audit push. Applications that
   want rejected-transition logging may wire a separate `!{}` error boundary.
 - The audit target's type is the user's declaration. For best ergonomics
   declare it as an array (`@auditLog = []` or `@auditLog: Array<...> = []`).
@@ -19361,9 +19361,9 @@ existing fields SHALL NOT be renamed or retyped.
 #### 51.11.6 Normative Statements
 
 - `< machine>` bodies MAY contain an `audit @varName` clause.
-- `@varName` SHALL be a declared non-derived reactive variable (E-MACHINE-019
+- `@varName` SHALL be a declared non-derived reactive variable (E-ENGINE-019
   for violations).
-- The clause SHALL appear at most once per machine (E-MACHINE-019 for
+- The clause SHALL appear at most once per machine (E-ENGINE-019 for
   duplicates).
 - On every successful transition (table lookup + guards both pass + state
   commits + effects run), the compiler SHALL append a new entry
@@ -19386,12 +19386,12 @@ existing fields SHALL NOT be renamed or retyped.
 The following questions are not resolved by this section. They SHALL become tracked spec
 issues before §51 is considered fully ratified.
 
-1. **Machine binding on struct fields** — The current text defers this (E-MACHINE-012).
+1. **Machine binding on struct fields** — The current text defers this (E-ENGINE-012).
    The spec needs a resolution: either define the syntax (`@cards[i].column: UserFlow`) or
    officially defer with a milestone target. See §51.7.4.
 
 2. **Effect block variable capture** — Type-level effect blocks currently prohibit
-   cross-file `@variable` references (E-MACHINE-011). Machine-level effect blocks should
+   cross-file `@variable` references (E-ENGINE-011). Machine-level effect blocks should
    explicitly permit capture of any in-scope reactive variable. The rule should be made
    explicit in a future revision.
 
@@ -19493,7 +19493,7 @@ A temporal rule MAY carry a `given` guard and/or an `effect-block`. When
 the timer fires:
 
 1. The transition-table lookup runs (§51.3). An `* => *` or matching
-   `from => to` rule must exist; otherwise **E-MACHINE-001-RT** fires.
+   `from => to` rule must exist; otherwise **E-ENGINE-001-RT** fires.
 2. The `given` guard, if present, is evaluated. If it returns false,
    the transition is rejected.
 3. The `effect-block`, if present, runs after the state commits.
@@ -19506,7 +19506,7 @@ mirroring §51.9 rule-precedence semantics.
 
 #### 51.12.6 Error Conditions
 
-**E-MACHINE-021: Invalid or unsupported temporal rule.**
+**E-ENGINE-021: Invalid or unsupported temporal rule.**
 
 Two subcases:
 
@@ -19524,8 +19524,8 @@ Two subcases:
 - The `duration` SHALL be a non-negative number followed by one of `ms`,
   `s`, `m`, `h`. The compiler SHALL convert to integer milliseconds.
 - A temporal rule with a wildcard `from` SHALL be a compile error
-  **E-MACHINE-021**. A temporal rule with an invalid duration SHALL be a
-  compile error **E-MACHINE-021**.
+  **E-ENGINE-021**. A temporal rule with an invalid duration SHALL be a
+  compile error **E-ENGINE-021**.
 - When the machine-bound variable commits a transition that lands on a
   variant with outgoing temporal rules, the compiler SHALL arm a timer that
   fires the corresponding transition after the specified duration.
@@ -19610,13 +19610,13 @@ the same phase-2-style comment.
 - **(a) Exclusivity.** For every reachable variant V and every variant W in
   the governed enum: if `(V → W)` is not a declared rule, an attempted write
   of `.W` to a variable whose current value is `.V` SHALL throw
-  `E-MACHINE-001-RT`. Declared rules must succeed (no throw).
+  `E-ENGINE-001-RT`. Declared rules must succeed (no throw).
 - **(b) Terminal rejection.** A reachable variant with zero outgoing rules
   SHALL reject every transition out of it. (Consequence of (a); emitted as
   a distinct test for clarity.)
 - **(c) Guard coverage.** Each labeled `given` guard SHALL receive one
   passing test (guard evaluates truthy → transition succeeds) and one
-  failing test (guard evaluates falsy → `E-MACHINE-001-RT` thrown).
+  failing test (guard evaluates falsy → `E-ENGINE-001-RT` thrown).
   Unlabeled guards SHALL cause the enclosing machine to be skipped so
   that every guarded rule in a generated suite has a human-readable
   identifier in its test title.
@@ -19625,7 +19625,7 @@ the same phase-2-style comment.
   result rather than evaluating the real guard expression. The passing
   test invokes the harness with `{"From:To": true}`; the failing test
   invokes it with `{"From:To": false}`. The harness's failure path
-  throws `E-MACHINE-001-RT: Transition guard failed`, matching the
+  throws `E-ENGINE-001-RT: Transition guard failed`, matching the
   message shape emitted by `emitTransitionGuard` (§51.5). This tests
   the enforcement wiring described by property (c) — "guard falsy
   implies rejection" — without coupling the generated test to the
@@ -19640,7 +19640,7 @@ the same phase-2-style comment.
   minimal copy of the projection function (mirroring
   `emitProjectionFunction`) and emits tests per source variant.
   Source variants are enumerated from `rules.map(r => r.from)` —
-  §51.9's compile-time exhaustiveness guarantee (E-MACHINE-018)
+  §51.9's compile-time exhaustiveness guarantee (E-ENGINE-018)
   ensures every source variant appears. Projection guards
   (`given`-qualified projection rules) are covered under phase 7 via
   the same `guardResults` parametrization used for transition-machine
@@ -19866,7 +19866,7 @@ When a `< machine name=Name for=StateType>` declaration targets a state type tha
 
 **Precise definition of "empty body":** a machine body is empty for mode-detection purposes when it contains zero `machine-rule` productions (per §51.3.2 grammar). Comments, whitespace, and attached-feature clauses (`audit @log`, `replay from=...`) do NOT count as rules; a body containing only these remains empty. Placeholder/commented-out rules like `// .Draft => .Validated` also do NOT count.
 
-**Cross-reference to E-MACHINE-005 amendment:** the existing §51 rule "A machine body SHALL NOT be empty" was amended in the same S32 amendment to permit empty bodies when state-local transitions exist. See §51.3.2 normative list (line amended 2026-04-20).
+**Cross-reference to E-ENGINE-005 amendment:** the existing §51 rule "A machine body SHALL NOT be empty" was amended in the same S32 amendment to permit empty bodies when state-local transitions exist. See §51.3.2 normative list (line amended 2026-04-20).
 
 No attribute is required or permitted to mark the mode. The absence of transition rules IS the marker.
 
@@ -19975,7 +19975,7 @@ validation completes normally.
    same-file `typeDecls` plus `importedTypes`. The imported type now appears
    in the registry. Unchanged from P1.
 5. **Engine validation** (`type-system.ts`): `typeRegistry.get(govName)`
-   succeeds; E-MACHINE-004 is not raised; emit proceeds.
+   succeeds; E-ENGINE-004 is not raised; emit proceeds.
 
 #### 51.16.3 Worked Example
 
@@ -20005,7 +20005,7 @@ ${ import { DriverStatus } from '../../schema.scrml' }
 </>
 ```
 
-Pre-P3.B, this combination raised E-MACHINE-004 with the misleading
+Pre-P3.B, this combination raised E-ENGINE-004 with the misleading
 "imported via 'use'" hint. Post-P3.B, both files compile cleanly. The
 engine resolves `DriverStatus` via the import graph; the `<engine>` body
 validates against the imported variant set.
@@ -20036,7 +20036,7 @@ promotion remains a P3-FOLLOW concern.
 - An imported type SHALL be made available for `for=` resolution if and
   only if its source file emits a `type-decl` AST node into `FileAST.typeDecls`
   (per §21.2 normative for `export type X = {...}`).
-- Failure to resolve `Type` SHALL emit E-MACHINE-004. The diagnostic SHALL
+- Failure to resolve `Type` SHALL emit E-ENGINE-004. The diagnostic SHALL
   reference the `${ import { Type } from './path.scrml' }` form as the
   cross-file resolution mechanism.
 - The deprecation warning W-DEPRECATED-001 (§51.3.2 / P1) SHALL fire on
@@ -21093,7 +21093,7 @@ When both an inline predicate and a machine guard govern the same mutation, the 
 SHALL be:
 
 1. **Field-level inline predicate evaluated** (stateless, fast — `E-CONTRACT-*`)
-2. If the field check passes, **struct machine guard evaluated** (contextual — `E-MACHINE-*`)
+2. If the field check passes, **struct machine guard evaluated** (contextual — `E-ENGINE-*`)
 3. If both checks pass, **assignment applied**
 4. `when @var changes {}` reactive effects fire
 

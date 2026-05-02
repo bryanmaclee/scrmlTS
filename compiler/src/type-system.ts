@@ -57,8 +57,8 @@
  *   E-CONTRACT-001  §53 Inline predicate constraint violated at compile time
  *   E-CONTRACT-002  §53 Named shape not found in registry
  *   E-CONTRACT-003  §53 Predicate references external reactive variable
- *   E-MACHINE-010  §51.2 'given' guard in type-level transitions block (not permitted)
- *   E-MACHINE-004  §51.2 Transition rule references unknown variant name
+ *   E-ENGINE-010  §51.2 'given' guard in type-level transitions block (not permitted)
+ *   E-ENGINE-004  §51.2 Transition rule references unknown variant name
  *
  * What TS does NOT do (this file):
  *   - No code generation.
@@ -277,7 +277,7 @@ interface MachineType {
   // body. When set, every successful transition appends an audit entry
   // (shape: {from, to, at}) to the named reactive variable. The name is
   // stored WITHOUT the leading `@` to match how other @-refs are keyed.
-  // Validated at registration time (E-MACHINE-019) against the set of
+  // Validated at registration time (E-ENGINE-019) against the set of
   // declared reactives — resolution happens in the caller's post-pass
   // since @-decl registration isn't complete at buildMachineRegistry time.
   auditTarget?: string | null;
@@ -298,7 +298,7 @@ interface RuleBinding {
 interface TransitionRule {
   from: string;         // variant name (without leading dot/::), or "*" for wildcard
   to: string;           // variant name (without leading dot/::), or "*" for wildcard
-  guard: string | null; // type-level: always null (guards → E-MACHINE-010)
+  guard: string | null; // type-level: always null (guards → E-ENGINE-010)
   label: string | null; // optional [label] suffix
   effectBody: string | null; // raw effect block body (Phase 3B+)
   // §51.3.2 (S22) — payload bindings resolved against the governed enum type.
@@ -1000,7 +1000,7 @@ function parseStructBody(raw: string, typeRegistry: Map<string, ResolvedType>): 
  *
  * @param raw        — full enum body string including outer braces
  * @param typeRegistry — type registry for payload type resolution
- * @param errors     — error accumulator; receives E-MACHINE-010 if guard found in type-level rule
+ * @param errors     — error accumulator; receives E-ENGINE-010 if guard found in type-level rule
  * @param fileSpan   — span for error reporting
  * @param typeName   — enum type name for error messages
  */
@@ -1076,7 +1076,7 @@ function parseEnumBody(
   // split on "\n" only; payload variants comma-separated on one line
   // collapsed into a single malformed entry (`name` containing a comma
   // fails the identifier regex) and the enum registered zero variants —
-  // surfaced as E-MACHINE-004 "Valid variants: ." when referenced from
+  // surfaced as E-ENGINE-004 "Valid variants: ." when referenced from
   // a `< machine for=Enum>` binding.
   const lines = splitTopLevel(variantsSection, ["\n", ","]);
 
@@ -1164,14 +1164,14 @@ function parseEnumBody(
     const cleanRule = (commentIdx !== -1 ? trimmedRule.slice(0, commentIdx) : trimmedRule).trim();
     if (!cleanRule) continue;
 
-    // E-MACHINE-010: guard in type-level transition block
+    // E-ENGINE-010: guard in type-level transition block
     // Check for ` given ` keyword (space-bounded to avoid false matches in variant names).
     const givenIdx = cleanRule.search(/\bgiven\b/);
     if (givenIdx !== -1) {
       if (errors && fileSpan) {
         errors.push(new TSError(
-          "E-MACHINE-010",
-          "E-MACHINE-010: 'given' guard is not permitted in a type-level 'transitions {}' block. " +
+          "E-ENGINE-010",
+          "E-ENGINE-010: 'given' guard is not permitted in a type-level 'transitions {}' block. " +
           "Type-level transitions are structural rules only (VariantRef => VariantRef). " +
           "Use a '< machine>' declaration to add contextual guards. " +
           (typeName ? "Enum: " + typeName + ". " : "") +
@@ -1208,7 +1208,7 @@ function parseEnumBody(
     // Normalize variant refs: strip leading '.' or '::', then trim any
     // whitespace between the prefix and the variant name (e.g. `. Pending` →
     // `Pending`). Without the trim, a user-authored space after the dot
-    // leaks into the variant-name lookup and fires E-MACHINE-004 against
+    // leaks into the variant-name lookup and fires E-ENGINE-004 against
     // a valid variant.
     const normalizeRef = (ref: string): string => {
       if (ref.startsWith("::")) return ref.slice(2).trim();
@@ -1224,8 +1224,8 @@ function parseEnumBody(
     // Validate from/to variant names (wildcards "*" are always valid)
     if (fromName !== "*" && !knownVariantNames.has(fromName) && errors && fileSpan) {
       errors.push(new TSError(
-        "E-MACHINE-004",
-        "E-MACHINE-004: Transition rule references unknown variant '." + fromName + "'. " +
+        "E-ENGINE-004",
+        "E-ENGINE-004: Transition rule references unknown variant '." + fromName + "'. " +
         (typeName ? "Enum '" + typeName + "' " : "The enum ") +
         "has no variant named '" + fromName + "'. " +
         "Available variants: " + Array.from(knownVariantNames).map(n => "." + n).join(", ") + ".",
@@ -1235,8 +1235,8 @@ function parseEnumBody(
 
     if (toName !== "*" && !knownVariantNames.has(toName) && errors && fileSpan) {
       errors.push(new TSError(
-        "E-MACHINE-004",
-        "E-MACHINE-004: Transition rule references unknown variant '." + toName + "'. " +
+        "E-ENGINE-004",
+        "E-ENGINE-004: Transition rule references unknown variant '." + toName + "'. " +
         (typeName ? "Enum '" + typeName + "' " : "The enum ") +
         "has no variant named '" + toName + "'. " +
         "Available variants: " + Array.from(knownVariantNames).map(n => "." + n).join(", ") + ".",
@@ -1247,12 +1247,12 @@ function parseEnumBody(
     transitionRules.push({
       from: fromName,
       to: toName,
-      guard: null,   // type-level guards are not permitted (E-MACHINE-010)
+      guard: null,   // type-level guards are not permitted (E-ENGINE-010)
       label: null,
       effectBody,
       fromBindings: null,
       toBindings: null,
-      afterMs: null, // type-level: temporal transitions are machine-only (E-MACHINE-021)
+      afterMs: null, // type-level: temporal transitions are machine-only (E-ENGINE-021)
     });
   }
 
@@ -1977,31 +1977,31 @@ function buildMachineRegistry(
       // Guard against multiple audit clauses — catch the second and error.
       if (auditClauseRe.test(rulesRaw)) {
         errors.push(new TSError(
-          "E-MACHINE-019",
-          `E-MACHINE-019: Machine '${name}' has more than one 'audit' clause. ` +
+          "E-ENGINE-019",
+          `E-ENGINE-019: Machine '${name}' has more than one 'audit' clause. ` +
           `Only one audit target is permitted per machine.`,
           span,
         ));
       }
     }
 
-    // E-MACHINE-003: duplicate machine name
+    // E-ENGINE-003: duplicate machine name
     if (registry.has(name)) {
       errors.push(new TSError(
-        "E-MACHINE-003",
-        `E-MACHINE-003: Duplicate machine name '${name}'. ` +
+        "E-ENGINE-003",
+        `E-ENGINE-003: Duplicate machine name '${name}'. ` +
         `A machine with this name is already declared in this file.`,
         span,
       ));
       continue;
     }
 
-    // E-MACHINE-004: governed type must exist and be enum or struct
+    // E-ENGINE-004: governed type must exist and be enum or struct
     const govType = typeRegistry.get(govName) ?? null;
     if (!govType) {
       errors.push(new TSError(
-        "E-MACHINE-004",
-        `E-MACHINE-004: Machine '${name}' references unknown type '${govName}'. ` +
+        "E-ENGINE-004",
+        `E-ENGINE-004: Machine '${name}' references unknown type '${govName}'. ` +
         `The 'for' clause must name an enum or struct type declared in this file, ` +
         `or use a \`\${ import { ${govName} } from './path.scrml' }\` declaration to bring \`${govName}\` into scope.`,
         span,
@@ -2010,8 +2010,8 @@ function buildMachineRegistry(
     }
     if (govType.kind !== "enum" && govType.kind !== "struct") {
       errors.push(new TSError(
-        "E-MACHINE-004",
-        `E-MACHINE-004: Machine '${name}' references type '${govName}' which is a ${govType.kind}, not an enum or struct. ` +
+        "E-ENGINE-004",
+        `E-ENGINE-004: Machine '${name}' references type '${govName}' which is a ${govType.kind}, not an enum or struct. ` +
         `Machines can only govern enum or struct types. For primitive value constraints, use inline predicates (§53).`,
         span,
       ));
@@ -2034,8 +2034,8 @@ function buildMachineRegistry(
       const projectionRules = parseMachineRules(rulesRaw, govType, name, errors, span, /*isProjection=*/true);
       if (projectionRules.length === 0) {
         errors.push(new TSError(
-          "E-MACHINE-005",
-          `E-MACHINE-005: Derived machine '${name}' has no projection rules. ` +
+          "E-ENGINE-005",
+          `E-ENGINE-005: Derived machine '${name}' has no projection rules. ` +
           `Add at least one rule mapping source variants to projection variants.`,
           span,
         ));
@@ -2063,11 +2063,11 @@ function buildMachineRegistry(
     // Parse the rules from rulesRaw
     const rules = parseMachineRules(rulesRaw, govType, name, errors, span);
 
-    // E-MACHINE-005: empty machine body
+    // E-ENGINE-005: empty machine body
     if (rules.length === 0) {
       errors.push(new TSError(
-        "E-MACHINE-005",
-        `E-MACHINE-005: Machine '${name}' has no transition rules. ` +
+        "E-ENGINE-005",
+        `E-ENGINE-005: Machine '${name}' has no transition rules. ` +
         `A machine with an empty body serves no purpose. Add at least one rule.`,
         span,
       ));
@@ -2097,7 +2097,7 @@ function engineNameToProjectedVar(name: string): string {
 }
 
 /**
- * §51.9 — E-MACHINE-017: detect writes to a projected (derived) variable.
+ * §51.9 — E-ENGINE-017: detect writes to a projected (derived) variable.
  * The user must not declare `@ui: UI = ...` or assign `@ui = ...` when `ui`
  * is the synthesized projection of a derived machine. Walks the AST looking
  * for reactive-decls whose name matches a projected var AND for bare-expr
@@ -2116,8 +2116,8 @@ export function rejectWritesToDerivedVars(
   function report(varName: string, span: Span): void {
     const machine = projectedVars.get(varName)!;
     errors.push(new TSError(
-      "E-MACHINE-017",
-      `E-MACHINE-017: Cannot assign to '@${varName}' — it is a derived projection of ` +
+      "E-ENGINE-017",
+      `E-ENGINE-017: Cannot assign to '@${varName}' — it is a derived projection of ` +
       `'@${machine.sourceVar}' (see < machine ${machine.name}>). Assign to the source instead.`,
       span,
     ));
@@ -2159,12 +2159,12 @@ export function rejectWritesToDerivedVars(
  * This runs after the main TS walk has annotated reactive-decl nodes. It:
  *   1. For each derived machine, looks up its `sourceVar` among the file's
  *      machine-bound reactive declarations. If the source var is unknown or
- *      isn't machine-bound, emits a diagnostic (reuses E-MACHINE-004 family —
+ *      isn't machine-bound, emits a diagnostic (reuses E-ENGINE-004 family —
  *      "references unknown source variable").
  *   2. Rejects transitive projections (source itself a derived machine) —
  *      §51.9.7 defers this.
  *   3. Checks that every variant of the source enum has at least one rule
- *      whose `from` covers it. Emits E-MACHINE-018 per missing variant.
+ *      whose `from` covers it. Emits E-ENGINE-018 per missing variant.
  *
  * @param machineRegistry — populated derived machine entries
  * @param reactiveBindings — map of reactive-var-name → bound MachineType
@@ -2184,8 +2184,8 @@ export function validateDerivedMachines(
 
     if (!sourceMachine) {
       errors.push(new TSError(
-        "E-MACHINE-004",
-        `E-MACHINE-004: Derived machine '${engineName}' references source variable ` +
+        "E-ENGINE-004",
+        `E-ENGINE-004: Derived machine '${engineName}' references source variable ` +
         `'@${sourceVar}', but no machine-bound reactive with that name was found in scope. ` +
         `The 'derived from @var' clause must name a reactive variable whose type is a machine (e.g., ` +
         `'@${sourceVar}: SomeMachine = ...').`,
@@ -2197,8 +2197,8 @@ export function validateDerivedMachines(
     // §51.9.7 — transitive projection is deferred.
     if (sourceMachine.isDerived) {
       errors.push(new TSError(
-        "E-MACHINE-004",
-        `E-MACHINE-004: Derived machine '${engineName}' derives from '@${sourceVar}', which is ` +
+        "E-ENGINE-004",
+        `E-ENGINE-004: Derived machine '${engineName}' derives from '@${sourceVar}', which is ` +
         `itself a projected (derived) variable. Transitive projection is not supported in this ` +
         `revision — derive '${engineName}' directly from the underlying source machine instead.`,
         fileSpan,
@@ -2222,8 +2222,8 @@ export function validateDerivedMachines(
     const missing = variantNames.filter(v => !coveredUnguarded.has(v));
     for (const miss of missing) {
       errors.push(new TSError(
-        "E-MACHINE-018",
-        `E-MACHINE-018: Derived machine '${engineName}' does not project variant '.${miss}' of ` +
+        "E-ENGINE-018",
+        `E-ENGINE-018: Derived machine '${engineName}' does not project variant '.${miss}' of ` +
         `'${(sourceEnum as EnumType).name}'. Every source variant must be mapped, or use ` +
         `'else => .Variant' for a catch-all.`,
         fileSpan,
@@ -2243,9 +2243,9 @@ export function validateDerivedMachines(
  *
  * §51.3.2 (S22) — payload-binding support:
  *   `.Charging(n) | .Firing(n) => .Idle given (n > 0)` is valid (both alternatives
- *   bind `n`). Mixed bindings (`.A(x) | .B(y)` or `.A(x) | .B`) emit E-MACHINE-016.
+ *   bind `n`). Mixed bindings (`.A(x) | .B(y)` or `.A(x) | .B`) emit E-ENGINE-016.
  *   Alternatives with bindings against unit variants are caught by
- *   resolveRuleBindings later with E-MACHINE-015.
+ *   resolveRuleBindings later with E-ENGINE-015.
  *
  * Lines without `|` (including `* => *` and plain `.A => .B`) pass through unchanged.
  */
@@ -2316,7 +2316,7 @@ function expandAlternation(
   const rhsParts = splitTopLevelPipe(rhsVariants);
   if (lhsParts.length === 0 || rhsParts.length === 0) return [line];
 
-  // §51.3.2 (S22) — E-MACHINE-016: when a side has multiple alternatives and at
+  // §51.3.2 (S22) — E-ENGINE-016: when a side has multiple alternatives and at
   // least one carries a binding, ALL alternatives on that side must declare an
   // identically-named binding set. We check the raw binding text here — name
   // resolution is tolerant of order, but the spec requires identical-name sets.
@@ -2324,13 +2324,13 @@ function expandAlternation(
     if (parts.length < 2) return;
     const bindingSignatures = parts.map(extractBindingSignature);
     // signatures are a sorted, comma-joined string of `local` or `field:local`
-    // tokens — empty string when no binding group. Mismatch → E-MACHINE-016.
+    // tokens — empty string when no binding group. Mismatch → E-ENGINE-016.
     const first = bindingSignatures[0];
     for (let i = 1; i < bindingSignatures.length; i++) {
       if (bindingSignatures[i] !== first) {
         errors.push(new TSError(
-          "E-MACHINE-016",
-          `E-MACHINE-016: Machine '${engineName}' rule uses '|' alternation with mismatched variant ` +
+          "E-ENGINE-016",
+          `E-ENGINE-016: Machine '${engineName}' rule uses '|' alternation with mismatched variant ` +
           `payload bindings on the ${sideLabel} side. Either every alternative binds the same names, or ` +
           `none bind. Got: ${parts.join(" | ")}.`,
           span,
@@ -2358,7 +2358,7 @@ function expandAlternation(
  * ".Firing(shot: s)". Returns `""` when no binding group is present.
  *
  * The signature is used only to compare two alternatives' binding shapes for
- * E-MACHINE-016 — it does not need to match runtime semantics.
+ * E-ENGINE-016 — it does not need to match runtime semantics.
  */
 function extractBindingSignature(variantRef: string): string {
   const parenIdx = variantRef.indexOf("(");
@@ -2464,8 +2464,8 @@ function parseMachineRules(
       const key = expanded.replace(/\s+/g, " ").trim();
       if (dedupeSet.has(key)) {
         errors.push(new TSError(
-          "E-MACHINE-014",
-          `E-MACHINE-014: Machine '${engineName}' has a duplicate transition rule '${key}'. ` +
+          "E-ENGINE-014",
+          `E-ENGINE-014: Machine '${engineName}' has a duplicate transition rule '${key}'. ` +
           `A rule cannot repeat the same from→to pair. Remove the duplicate.`,
           span,
         ));
@@ -2495,8 +2495,8 @@ function parseMachineRules(
       const computed = Math.round(n * multiplier);
       if (!Number.isFinite(computed) || computed < 0) {
         errors.push(new TSError(
-          "E-MACHINE-021",
-          `E-MACHINE-021: Machine '${engineName}' temporal transition has an invalid duration \`${afterMatch[1]}${afterMatch[2]}\`. ` +
+          "E-ENGINE-021",
+          `E-ENGINE-021: Machine '${engineName}' temporal transition has an invalid duration \`${afterMatch[1]}${afterMatch[2]}\`. ` +
           `Duration must be a finite non-negative number with a unit (ms/s/m/h). Example: \`.Loading after 30s => .TimedOut\`.`,
           span,
         ));
@@ -2588,16 +2588,16 @@ function parseMachineRules(
       const variantNames = new Set(enumType.variants.map(v => v.name));
       if (!isProjection && from !== "*" && !variantNames.has(from)) {
         errors.push(new TSError(
-          "E-MACHINE-004",
-          `E-MACHINE-004: Machine '${engineName}' rule references unknown variant '${from}' ` +
+          "E-ENGINE-004",
+          `E-ENGINE-004: Machine '${engineName}' rule references unknown variant '${from}' ` +
           `in type '${enumType.name}'. Valid variants: ${[...variantNames].join(", ")}.`,
           span,
         ));
       }
       if (to !== "*" && !variantNames.has(to)) {
         errors.push(new TSError(
-          "E-MACHINE-004",
-          `E-MACHINE-004: Machine '${engineName}' rule references unknown variant '${to}' ` +
+          "E-ENGINE-004",
+          `E-ENGINE-004: Machine '${engineName}' rule references unknown variant '${to}' ` +
           `in type '${enumType.name}'. Valid variants: ${[...variantNames].join(", ")}.`,
           span,
         ));
@@ -2623,8 +2623,8 @@ function parseMachineRules(
         const fieldName = ref.slice(5); // strip "self."
         if (!structType.fields.has(fieldName)) {
           errors.push(new TSError(
-            "E-MACHINE-013",
-            `E-MACHINE-013: Machine '${engineName}' guard references undefined field 'self.${fieldName}' ` +
+            "E-ENGINE-013",
+            `E-ENGINE-013: Machine '${engineName}' guard references undefined field 'self.${fieldName}' ` +
             `in struct type '${(govType as StructType).name}'. Valid fields: ${[...structType.fields.keys()].join(", ")}.`,
             span,
           ));
@@ -2639,8 +2639,8 @@ function parseMachineRules(
     // timer from.
     if (afterMs !== null && from === "*") {
       errors.push(new TSError(
-        "E-MACHINE-021",
-        `E-MACHINE-021: Machine '${engineName}' temporal transition uses a wildcard \`from\`. ` +
+        "E-ENGINE-021",
+        `E-ENGINE-021: Machine '${engineName}' temporal transition uses a wildcard \`from\`. ` +
         `Temporal rules must name a specific \`from\` variant so the compiler knows when to ` +
         `start the timer. Either name a specific \`from\` (e.g. \`.Loading after 30s => .TimedOut\`) ` +
         `or remove the \`after\` clause.`,
@@ -2662,7 +2662,7 @@ function parseMachineRules(
  *   raw="level: l"   variantName="Charging"  — named, binds .data.level
  *   raw="_, h"       variantName="Rect"      — discard first, bind second
  *
- * Emits E-MACHINE-015 if:
+ * Emits E-ENGINE-015 if:
  *   - the target variant is a unit variant (has no payload at all)
  *   - a named field doesn't exist on the variant
  *   - a positional binding runs past the variant's field list
@@ -2691,8 +2691,8 @@ function resolveRuleBindings(
   // Binding on a unit variant — the variant has no payload to destructure.
   if (variant.payload == null) {
     errors.push(new TSError(
-      "E-MACHINE-015",
-      `E-MACHINE-015: Machine '${engineName}' rule binds payload on '.${variantName}' ` +
+      "E-ENGINE-015",
+      `E-ENGINE-015: Machine '${engineName}' rule binds payload on '.${variantName}' ` +
       `(${side}), but '.${variantName}' is a unit variant with no payload. Remove the binding-group, ` +
       `or declare payload fields on '.${variantName}'.`,
       span,
@@ -2713,8 +2713,8 @@ function resolveRuleBindings(
       const localName = part.slice(colonIdx + 1).trim();
       if (!variant.payload.has(fieldName)) {
         errors.push(new TSError(
-          "E-MACHINE-015",
-          `E-MACHINE-015: Machine '${engineName}' rule for '.${variantName}' binds field ` +
+          "E-ENGINE-015",
+          `E-ENGINE-015: Machine '${engineName}' rule for '.${variantName}' binds field ` +
           `'${fieldName}' which is not a field of the variant. Declared fields: ${declaredFields.join(", ")}.`,
           span,
         ));
@@ -2727,8 +2727,8 @@ function resolveRuleBindings(
       if (part === "_") continue;
       if (i >= declaredFields.length) {
         errors.push(new TSError(
-          "E-MACHINE-015",
-          `E-MACHINE-015: Machine '${engineName}' rule for '.${variantName}' has more positional ` +
+          "E-ENGINE-015",
+          `E-ENGINE-015: Machine '${engineName}' rule for '.${variantName}' has more positional ` +
           `bindings (${parts.length}) than the variant has fields (${declaredFields.length}: ${declaredFields.join(", ")}).`,
           span,
         ));
@@ -7714,7 +7714,7 @@ function processFile(
 
   // §51.9 — After annotation, collect the reactive → machine bindings that
   // `annotateNodes` attached to reactive-decl nodes and validate every
-  // derived machine's source-var reference + exhaustiveness (E-MACHINE-018).
+  // derived machine's source-var reference + exhaustiveness (E-ENGINE-018).
   {
     const reactiveBindings = new Map<string, MachineType>();
     const collectReactiveBindings = (nodes: ASTNodeLike[]): void => {
@@ -7737,12 +7737,12 @@ function processFile(
     collectReactiveBindings(topNodes);
     validateDerivedMachines(machineRegistry, reactiveBindings, errors, fileSpan);
 
-    // §51.11 — E-MACHINE-019: validate every machine's audit target against
+    // §51.11 — E-ENGINE-019: validate every machine's audit target against
     // the set of declared reactive variables. Collect every reactive name
     // (machine-bound or plain) by walking top-level reactive-decl / derived-
     // decl / debounced-decl nodes. An audit clause referencing an unknown
-    // @var fires E-MACHINE-019; pointing at a derived (projected) var also
-    // errors since those are read-only (§51.9, E-MACHINE-017 family).
+    // @var fires E-ENGINE-019; pointing at a derived (projected) var also
+    // errors since those are read-only (§51.9, E-ENGINE-017 family).
     const declaredReactives = new Set<string>();
     const collectReactives = (nodes: ASTNodeLike[]): void => {
       for (const n of nodes) {
@@ -7765,8 +7765,8 @@ function processFile(
       if (!audit) continue;
       if (!declaredReactives.has(audit)) {
         errors.push(new TSError(
-          "E-MACHINE-019",
-          `E-MACHINE-019: Machine '${engineName}' audit clause references '@${audit}', ` +
+          "E-ENGINE-019",
+          `E-ENGINE-019: Machine '${engineName}' audit clause references '@${audit}', ` +
           `but no reactive variable with that name is declared in scope. ` +
           `Declare '@${audit} = []' before the machine, or correct the audit target name.`,
           fileSpan,
@@ -7774,7 +7774,7 @@ function processFile(
       }
     }
 
-    // §51.9 — E-MACHINE-017: reject writes to projected vars. Build a lookup
+    // §51.9 — E-ENGINE-017: reject writes to projected vars. Build a lookup
     // from projected-var-name → derived-machine so error messages can name
     // the source var + machine in the message.
     const projectedVars = new Map<string, MachineType>();

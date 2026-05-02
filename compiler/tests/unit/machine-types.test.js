@@ -64,10 +64,10 @@ describe("§51.3-a buildMachineRegistry — basic", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §51.3-b: E-MACHINE-003 — duplicate machine name
+// §51.3-b: E-ENGINE-003 — duplicate machine name
 // ---------------------------------------------------------------------------
 
-describe("§51.3-b E-MACHINE-003: duplicate machine name", () => {
+describe("§51.3-b E-ENGINE-003: duplicate machine name", () => {
   test("emits error for duplicate machine name", () => {
     const typeDecls = [makeTypeDecl("Status", "enum", "{ A\nB }")];
     const typeRegistry = buildTypeRegistry(typeDecls, [], span());
@@ -77,44 +77,44 @@ describe("§51.3-b E-MACHINE-003: duplicate machine name", () => {
     ];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    expect(errors.some(e => e.code === "E-MACHINE-003")).toBe(true);
+    expect(errors.some(e => e.code === "E-ENGINE-003")).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §51.3-c: E-MACHINE-004 — unknown or invalid governed type
+// §51.3-c: E-ENGINE-004 — unknown or invalid governed type
 // ---------------------------------------------------------------------------
 
-describe("§51.3-c E-MACHINE-004: governed type validation", () => {
-  test("unknown type → E-MACHINE-004", () => {
+describe("§51.3-c E-ENGINE-004: governed type validation", () => {
+  test("unknown type → E-ENGINE-004", () => {
     const typeRegistry = new Map(BUILTIN_TYPES);
     const machines = [makeMachineDecl("Flow", "Nonexistent", ".A => .B")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    expect(errors.some(e => e.code === "E-MACHINE-004")).toBe(true);
+    expect(errors.some(e => e.code === "E-ENGINE-004")).toBe(true);
   });
 
-  test("primitive type → E-MACHINE-004", () => {
+  test("primitive type → E-ENGINE-004", () => {
     const typeRegistry = new Map(BUILTIN_TYPES);
     const machines = [makeMachineDecl("Flow", "number", ".A => .B")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    expect(errors.some(e => e.code === "E-MACHINE-004")).toBe(true);
+    expect(errors.some(e => e.code === "E-ENGINE-004")).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
-// §51.3-d: E-MACHINE-005 — empty machine body
+// §51.3-d: E-ENGINE-005 — empty machine body
 // ---------------------------------------------------------------------------
 
-describe("§51.3-d E-MACHINE-005: empty machine body", () => {
-  test("machine with no rules → E-MACHINE-005", () => {
+describe("§51.3-d E-ENGINE-005: empty machine body", () => {
+  test("machine with no rules → E-ENGINE-005", () => {
     const typeDecls = [makeTypeDecl("Status", "enum", "{ A\nB }")];
     const typeRegistry = buildTypeRegistry(typeDecls, [], span());
     const machines = [makeMachineDecl("Flow", "Status", "")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    expect(errors.some(e => e.code === "E-MACHINE-005")).toBe(true);
+    expect(errors.some(e => e.code === "E-ENGINE-005")).toBe(true);
   });
 });
 
@@ -136,17 +136,17 @@ describe("§51.3-e machine rules with guards", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §51.3-f: E-MACHINE-004 — invalid variant in machine rule
+// §51.3-f: E-ENGINE-004 — invalid variant in machine rule
 // ---------------------------------------------------------------------------
 
-describe("§51.3-f E-MACHINE-004: invalid variant in rule", () => {
-  test("unknown from variant → E-MACHINE-004", () => {
+describe("§51.3-f E-ENGINE-004: invalid variant in rule", () => {
+  test("unknown from variant → E-ENGINE-004", () => {
     const typeDecls = [makeTypeDecl("Status", "enum", "{ A\nB }")];
     const typeRegistry = buildTypeRegistry(typeDecls, [], span());
     const machines = [makeMachineDecl("Flow", "Status", ".X => .B")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    expect(errors.some(e => e.code === "E-MACHINE-004" && e.message.includes("X"))).toBe(true);
+    expect(errors.some(e => e.code === "E-ENGINE-004" && e.message.includes("X"))).toBe(true);
   });
 });
 
@@ -170,13 +170,13 @@ describe("§51.3-g struct-governing machine", () => {
     expect(m.rules[0].label).toBe("valid_range");
   });
 
-  test("E-MACHINE-013: undefined field in self.* → error", () => {
+  test("E-ENGINE-013: undefined field in self.* → error", () => {
     const typeDecls = [makeTypeDecl("Booking", "struct", "{ start: number, end: number }")];
     const typeRegistry = buildTypeRegistry(typeDecls, [], span());
     const machines = [makeMachineDecl("Bad", "Booking", "* => * given (self.bogus > 0)")];
     const errors = [];
     buildMachineRegistry(machines, typeRegistry, errors, span());
-    expect(errors.some(e => e.code === "E-MACHINE-013")).toBe(true);
+    expect(errors.some(e => e.code === "E-ENGINE-013")).toBe(true);
   });
 });
 

@@ -110,7 +110,7 @@ ${
 // §51.9 — derived machine. LHS variants are MarioState; RHS variants are
 // HealthRisk. `@healthMachine` (projected var name — machine name with
 // leading uppercase run lowercased) is read-only; writing to it is rejected
-// at compile time (E-MACHINE-017). Writing to `@marioState` dirty-propagates
+// at compile time (E-ENGINE-017). Writing to `@marioState` dirty-propagates
 // to `@healthMachine` automatically.
 < engine name=HealthMachine for=HealthRisk derived=@marioState>
     .Small               => .AtRisk

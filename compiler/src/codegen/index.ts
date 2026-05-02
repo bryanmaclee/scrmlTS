@@ -631,7 +631,7 @@ export function runCG(input: CgInput): CgOutput {
 
   const runtimeJs = embedRuntime ? null : SCRML_RUNTIME;
 
-  // §51.5.1 (S28 slice 3) — drain E-MACHINE-001 compile errors accumulated
+  // §51.5.1 (S28 slice 3) — drain E-ENGINE-001 compile errors accumulated
   // by emit-machines during this compile.
   const machineErrors = drainMachineCodegenErrors();
   if (machineErrors.length > 0) errors.push(...machineErrors);

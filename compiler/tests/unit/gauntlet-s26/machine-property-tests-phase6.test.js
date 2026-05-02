@@ -206,7 +206,7 @@ describe("S26 §51.13 phase 6 — generateMachineTestJs projection contract", ()
   test("first-match-wins: duplicate from-variant only tests the first target", () => {
     // Projection rules are evaluated top-to-bottom, first-match-wins.
     // If .A appears twice (unguarded duplicate), the first rule's target
-    // wins. (In real scrml E-MACHINE-018/014 would flag this, but the
+    // wins. (In real scrml E-ENGINE-018/014 would flag this, but the
     // generator shouldn't crash on it.)
     const registry = new Map();
     registry.set("Proj", {

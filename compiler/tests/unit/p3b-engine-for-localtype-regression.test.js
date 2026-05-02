@@ -8,7 +8,7 @@
  *
  * Pre-fix invariant (must continue to hold):
  *   - `<engine for=LocalType>` where `LocalType` is declared in the same file
- *     compiles cleanly (no E-MACHINE-004).
+ *     compiles cleanly (no E-ENGINE-004).
  *   - This is the dispatch app's existing pattern at pages/driver/hos.scrml.
  *
  * Post-fix invariant (must hold after P3.B):

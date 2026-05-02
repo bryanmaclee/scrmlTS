@@ -7,10 +7,10 @@
  *   unguarded wildcard rule covering the target variant. Payload data is
  *   carried through the state commit unchanged.
  *
- * Slice 3 (Cat 2.f): trivially-illegal → E-MACHINE-001 compile error.
+ * Slice 3 (Cat 2.f): trivially-illegal → E-ENGINE-001 compile error.
  *   An assignment whose literal target has NO covering rule (no exact, no
  *   wildcard-target, no wildcard-source, no *:*) is rejected at compile
- *   time per §51.5.1. The compiler emits E-MACHINE-001 into the codegen
+ *   time per §51.5.1. The compiler emits E-ENGINE-001 into the codegen
  *   errors list and continues to produce a file (with the full guard
  *   still present as a runtime safety net if the user ignores the error).
  *
@@ -140,7 +140,7 @@ describe("S28 slice 2 — payload-variant literal RHS elision (Cat 2.d)", () => 
     expect(code).toContain("§51.5 elided transition");
     expect(code).toContain('_scrml_reactive_set("r_shape", Shape.Circle(10))');
     expect(code).not.toContain("__matchedKey");
-    expect(code).not.toContain("E-MACHINE-001-RT");
+    expect(code).not.toContain("E-ENGINE-001-RT");
   });
 
   test("runtime parity: payload data survives the elided commit", () => {
@@ -202,7 +202,7 @@ describe("S28 slice 2 — payload-variant literal RHS elision (Cat 2.d)", () => 
 });
 
 // ---------------------------------------------------------------------------
-// Slice 3 — trivially-illegal → E-MACHINE-001 compile error
+// Slice 3 — trivially-illegal → E-ENGINE-001 compile error
 // ---------------------------------------------------------------------------
 
 describe("S28 slice 3 — trivially-illegal transitions (Cat 2.f, §51.5.1)", () => {
@@ -251,7 +251,7 @@ describe("S28 slice 3 — trivially-illegal transitions (Cat 2.f, §51.5.1)", ()
     expect(t.targetVariant).toBe("Success");
   });
 
-  test("end-to-end: illegal unit assignment produces E-MACHINE-001 at compile time", () => {
+  test("end-to-end: illegal unit assignment produces E-ENGINE-001 at compile time", () => {
     const src = `<program>
 \${
   type S:enum = { A, B, Quantum }
@@ -265,7 +265,7 @@ describe("S28 slice 3 — trivially-illegal transitions (Cat 2.f, §51.5.1)", ()
 </program>
 `;
     const { errors } = compileSrc(src);
-    const machineErrors = errors.filter(e => e.code === "E-MACHINE-001");
+    const machineErrors = errors.filter(e => e.code === "E-ENGINE-001");
     expect(machineErrors.length).toBeGreaterThan(0);
     expect(machineErrors[0].message).toContain("targets variant .Quantum");
     expect(machineErrors[0].message).toContain("no rule in M covers");
@@ -287,7 +287,7 @@ describe("S28 slice 3 — trivially-illegal transitions (Cat 2.f, §51.5.1)", ()
 </program>
 `;
     const { errors } = compileSrc(src);
-    const machineErrors = errors.filter(e => e.code === "E-MACHINE-001");
+    const machineErrors = errors.filter(e => e.code === "E-ENGINE-001");
     expect(machineErrors.length).toBeGreaterThan(0);
     expect(machineErrors[0].message).toContain("targets variant .Quantum");
   });
@@ -307,7 +307,7 @@ describe("S28 slice 3 — trivially-illegal transitions (Cat 2.f, §51.5.1)", ()
 </program>
 `;
     const { errors } = compileSrc(src);
-    expect(errors.filter(e => e.code === "E-MACHINE-001")).toEqual([]);
+    expect(errors.filter(e => e.code === "E-ENGINE-001")).toEqual([]);
   });
 
   test("runtime RHS (not a literal) is NOT flagged — can only be checked at runtime", () => {
@@ -326,7 +326,7 @@ describe("S28 slice 3 — trivially-illegal transitions (Cat 2.f, §51.5.1)", ()
 `;
     const { errors } = compileSrc(src);
     // Return-value RHS is non-literal → unknown → full guard → no compile error.
-    expect(errors.filter(e => e.code === "E-MACHINE-001")).toEqual([]);
+    expect(errors.filter(e => e.code === "E-ENGINE-001")).toEqual([]);
   });
 });
 
@@ -393,6 +393,6 @@ describe("S28 slice 4 — --no-elide debug knob", () => {
     // No elision marker — full guard emitted.
     expect(clientJs).not.toContain("§51.5 elided transition");
     expect(clientJs).toContain("__matchedKey");
-    expect(clientJs).toContain("E-MACHINE-001-RT");
+    expect(clientJs).toContain("E-ENGINE-001-RT");
   });
 });

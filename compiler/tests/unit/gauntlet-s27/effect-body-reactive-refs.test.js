@@ -87,7 +87,7 @@ describe("S27 — effect-body reactive refs compile + run correctly", () => {
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
     // No literal @-tokens leaked into the compiled output for the effect body.
     // (Scope the check to the effect block; the audit/guard sections use `@`
-    // only inside string literals like "E-MACHINE-001-RT: ...", which is safe.)
+    // only inside string literals like "E-ENGINE-001-RT: ...", which is safe.)
     expect(clientJs).toContain('_scrml_reactive_set("started"');
     const env = buildEnv(clientJs);
     expect(env.state.started).toBe(false);

@@ -12,7 +12,7 @@
  *   NEW: `< machine name=Name for=Type derived=@Source>`
  *
  * Attribute values SHALL be bareword identifiers (not quoted strings).
- * The sentence form now fires E-MACHINE-020.
+ * The sentence form now fires E-ENGINE-020.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -36,7 +36,7 @@ function compileSrc(source, testName = `s25-opener-${++tmpCounter}`) {
     });
     return {
       errors: result.errors ?? [],
-      m020: (result.errors ?? []).filter(e => e.code === "E-MACHINE-020"),
+      m020: (result.errors ?? []).filter(e => e.code === "E-ENGINE-020"),
     };
   } finally {
     if (existsSync(tmpInput)) rmSync(tmpInput);
@@ -103,7 +103,7 @@ describe("S25 §51.3.2 — machine opener attribute form", () => {
     expect(errors.filter(e => e.severity !== "warning")).toEqual([]);
   });
 
-  test("pre-S25 sentence form → E-MACHINE-020", () => {
+  test("pre-S25 sentence form → E-ENGINE-020", () => {
     const src = `<program>
 \${
   type Color:enum = { Red, Green, Blue }
@@ -123,7 +123,7 @@ describe("S25 §51.3.2 — machine opener attribute form", () => {
     expect(m020[0].message).toContain("for=Color");
   });
 
-  test("pre-S25 sentence form with derived-from clause → E-MACHINE-020 and suggests derived=", () => {
+  test("pre-S25 sentence form with derived-from clause → E-ENGINE-020 and suggests derived=", () => {
     const src = `<program>
 \${
   type Order:enum = { Pending, Shipped }
@@ -142,7 +142,7 @@ describe("S25 §51.3.2 — machine opener attribute form", () => {
 </program>
 `;
     const { m020 } = compileSrc(src);
-    // Both sentence-form openers should trip E-MACHINE-020.
+    // Both sentence-form openers should trip E-ENGINE-020.
     expect(m020.length).toBe(2);
     const derivedMsg = m020.find(e => e.message.includes("derived="));
     expect(derivedMsg).toBeTruthy();

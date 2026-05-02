@@ -1,11 +1,11 @@
 // Conformance tests for: SPEC §51.3.2 / §51.15 amendments (S32, 2026-04-20)
 //
-// S32 narrowed E-MACHINE-005 to permit empty machine bodies when the
+// S32 narrowed E-ENGINE-005 to permit empty machine bodies when the
 // governed state type has state-local transitions, and added §51.15
 // (machine ↔ state-local cross-check + E-STATE-MACHINE-DIVERGENCE).
 //
 // STATUS: ALL TESTS SKIPPED — spec-only amendment as of commit 1d1c49d.
-// Compiler implementation of the cross-check and the narrowed E-MACHINE-005
+// Compiler implementation of the cross-check and the narrowed E-ENGINE-005
 // has NOT landed. These tests are gating tests for the implementer.
 
 import { describe, test, expect } from "bun:test";
@@ -16,9 +16,9 @@ function diagnose(/* source */) {
 }
 
 describe("S32-008: §51.3.2 — empty machine body is legal when state-local transitions exist", () => {
-  test.skip("CONF-S32-008a: empty `< machine>` body does NOT emit E-MACHINE-005 when substates declare transitions", () => {
+  test.skip("CONF-S32-008a: empty `< machine>` body does NOT emit E-ENGINE-005 when substates declare transitions", () => {
     // Expected: §51.15.1 aggregated-derived mode. An empty body IS the marker;
-    // E-MACHINE-005 SHALL NOT fire.
+    // E-ENGINE-005 SHALL NOT fire.
     const src = `
       < Submission>
           id: string
@@ -32,10 +32,10 @@ describe("S32-008: §51.3.2 — empty machine body is legal when state-local tra
       < machine name=SubmissionFlow for=Submission ></>
     `;
     const { errors } = diagnose(src);
-    expect(errors.some((e) => e.code === "E-MACHINE-005")).toBe(false);
+    expect(errors.some((e) => e.code === "E-ENGINE-005")).toBe(false);
   });
 
-  test.skip("CONF-S32-008b: empty `< machine>` body STILL emits E-MACHINE-005 when governed type has NO state-local transitions", () => {
+  test.skip("CONF-S32-008b: empty `< machine>` body STILL emits E-ENGINE-005 when governed type has NO state-local transitions", () => {
     // Expected: the pre-S32 rule still applies in the no-state-local case.
     const src = `
       < enum Status>
@@ -45,7 +45,7 @@ describe("S32-008: §51.3.2 — empty machine body is legal when state-local tra
       < machine name=StatusFlow for=Status ></>
     `;
     const { errors } = diagnose(src);
-    expect(errors.some((e) => e.code === "E-MACHINE-005")).toBe(true);
+    expect(errors.some((e) => e.code === "E-ENGINE-005")).toBe(true);
   });
 });
 

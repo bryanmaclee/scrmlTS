@@ -209,7 +209,7 @@ describe("S28 emitTransitionGuard — elided shape", () => {
     expect(code).not.toContain("__prevVariant");
     expect(code).not.toContain("__matchedKey");
     expect(code).not.toContain("__rule");
-    expect(code).not.toContain("E-MACHINE-001-RT");
+    expect(code).not.toContain("E-ENGINE-001-RT");
     // No IIFE wrapper for the minimal collapse
     expect(code).not.toContain("(function()");
   });
@@ -232,7 +232,7 @@ describe("S28 emitTransitionGuard — elided shape", () => {
     expect(code).toContain("Object.freeze");
     // Validation surface absent
     expect(code).not.toContain("__matchedKey");
-    expect(code).not.toContain("E-MACHINE-001-RT");
+    expect(code).not.toContain("E-ENGINE-001-RT");
   });
 
   test("effect body baked in unconditionally (matched rule is compile-time known)", () => {
@@ -296,7 +296,7 @@ describe("S28 emitTransitionGuard — elided shape", () => {
     expect(code).not.toContain("§51.5 elided transition");
     // Full guard emits
     expect(code).toContain("__matchedKey");
-    expect(code).toContain("E-MACHINE-001-RT");
+    expect(code).toContain("E-ENGINE-001-RT");
   });
 
   test("guarded rule present anywhere → full guard fallthrough", () => {

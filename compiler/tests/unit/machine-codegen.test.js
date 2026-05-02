@@ -63,7 +63,7 @@ describe("§51.5-b emitTransitionGuard", () => {
 
     expect(code).toContain("_scrml_reactive_get");
     expect(code).toContain("_scrml_reactive_set");
-    expect(code).toContain("E-MACHINE-001-RT");
+    expect(code).toContain("E-ENGINE-001-RT");
     expect(code).toContain("__scrml_transitions_OrderStatus");
     expect(code).toContain("r_status");
   });
