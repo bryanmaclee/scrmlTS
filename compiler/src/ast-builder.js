@@ -46,6 +46,7 @@ import {
 } from "./tokenizer.ts";
 
 import { parseExprToNode } from "./expression-parser.ts";
+import { splitBlocks as _splitBlocksForP2Form1 } from "./block-splitter.js";
 
 /**
  * Bug 1 fix: re-emit a string literal's raw inner text as a valid JS string
@@ -462,6 +463,32 @@ function spliceAttrsIntoBodyRoot(bodyRootRaw, outerAttrSource) {
   return before + sep + outerAttrSource + after;
 }
 
+/**
+ * Recursively shift all span.start/span.end values in a block tree by `delta`.
+ * Used to re-anchor blocks produced by re-invoking splitBlocks on a synthesized
+ * source fragment. After shifting, the block's spans match where the synthesized
+ * fragment lives in the original source's coordinate system.
+ *
+ * Mutates blocks in place (acceptable because they are freshly produced by
+ * splitBlocks and not shared with anything else).
+ */
+function shiftBlockSpans(blocks, delta, lineDelta = 0) {
+  for (const b of blocks) {
+    if (b && b.span) {
+      b.span = {
+        ...b.span,
+        start: b.span.start + delta,
+        end: b.span.end + delta,
+        line: b.span.line + lineDelta,
+      };
+    }
+    if (b && b.children && b.children.length > 0) {
+      shiftBlockSpans(b.children, delta, lineDelta);
+    }
+  }
+}
+
+
 
 /**
  * Walk a block tree and convert text blocks that start with a bare declaration
@@ -628,24 +655,54 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null) {
           continue;
         }
 
+        // Build the synthesized logic-body source string and re-invoke
+        // splitBlocks on it to obtain the proper block tree (with nested
+        // ${...}/?{...}/etc. as flat children of the top-level logic block,
+        // matching how Form 2 (`${ export const NAME = <markup> }`) is parsed).
+        const synthFullRaw = "${ export const " + compName + " = " + splicedRaw + " }";
+        const reBs = _splitBlocksForP2Form1(filePath || "<p2-form1>", synthFullRaw);
+        const reBlocks = reBs.blocks || [];
+        // Find the logic block produced (should be reBlocks[0]; defensive lookup).
+        const reLogic = reBlocks.find(b => b && b.type === "logic");
+        if (!reLogic) {
+          // Defensive: re-parsing failed. Fall through to a minimal synthesis
+          // that at least preserves export-decl visibility (no proper children).
+          result.push({
+            type: "logic",
+            raw: synthFullRaw,
+            span: {
+              start: block.span.start,
+              end: next.span.end,
+              line: block.span.line,
+              col: block.span.col,
+            },
+            depth: block.depth,
+            children: [],
+            name: null,
+            closerForm: null,
+            isComponent: false,
+            _synthetic: true,
+            _p2Form1: true,
+            _p2Form1Name: compName,
+            _p2Form1BodyRoot: bodyRoot.name,
+          });
+          i += 1;
+          continue;
+        }
+        // Shift spans of the re-parsed logic block (and all descendants) so
+        // they map into the original source's coordinate system. Anchor the
+        // synthesized logic block at the original text-block start.
+        const delta = block.span.start - reLogic.span.start;
+        const lineDelta = block.span.line - reLogic.span.line;
+        shiftBlockSpans([reLogic], delta, lineDelta);
+        // Tag the re-parsed logic block with P2 Form 1 markers.
         const synthetic = {
-          type: "logic",
-          raw: "${ export const " + compName + " = " + splicedRaw + " }",
-          span: {
-            start: block.span.start,
-            end: next.span.end,
-            line: block.span.line,
-            col: block.span.col,
-          },
+          ...reLogic,
           depth: block.depth,
-          children: [],
-          name: null,
-          closerForm: null,
-          isComponent: false,
           _synthetic: true,
-          _p2Form1: true,           // diagnostic marker — desugared from §21.2 Form 1
-          _p2Form1Name: compName,   // ditto — for tests
-          _p2Form1BodyRoot: bodyRoot.name, // tag name of body root that absorbed outer attrs
+          _p2Form1: true,
+          _p2Form1Name: compName,
+          _p2Form1BodyRoot: bodyRoot.name,
         };
         result.push(synthetic);
         i += 1; // skip the markup block we just consumed
