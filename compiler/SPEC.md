@@ -7377,10 +7377,11 @@ Both forms compile in P1 and P2. P3 promotes the warning to **E-WHITESPACE-001**
 
 In Phase P1 the NR stage runs in **shadow mode**: it computes `resolvedKind` and `resolvedCategory` for every opener and records them on the AST node, but downstream stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent` discriminator. NR's emissions (W-CASE-001, W-WHITESPACE-001) are surfaced in P1; the routing change is deferred to P2/P3 once the shadow-mode results have been validated against the existing flows over multiple sessions.
 
-**Status (P1.E, 2026-04-30):** NR's implementation lives in `compiler/src/name-resolver.ts` and is wired post-MOD in `compiler/src/api.js`. The advisory fields and warnings are live on every compile. The phased authority transition is:
-- **P1 / P1.E (now):** NR runs in shadow mode. Downstream consumers MUST continue to route on `isComponent` and `kind === "machine-decl"` etc.; consumers MAY observe `resolvedKind` / `resolvedCategory` for diagnostics but MUST NOT use them for routing decisions.
-- **P2 (planned):** CE and TS migrate to consume `resolvedKind` for component-vs-state routing. `isComponent` is retained as a derived field. Downstream stages may begin to depend on `resolvedKind` defensively.
-- **P3 (planned):** `isComponent` is retired. NR becomes the authoritative classifier; W-WHITESPACE-001 promotes to E-WHITESPACE-001; W-DEPRECATED-001 promotes to E-DEPRECATED-001; the internal `kind: "machine-decl"` shape may be renamed to `engine-decl`.
+**Status (P3.A, 2026-05-02):** NR's implementation lives in `compiler/src/name-resolver.ts` and is wired post-MOD in `compiler/src/api.js`. The advisory fields and warnings are live on every compile. The phased authority transition is:
+- **P1 / P1.E:** NR runs in shadow mode. Downstream consumers route on `isComponent` and `kind === "machine-decl"` etc.; consumers MAY observe `resolvedKind` / `resolvedCategory` for diagnostics but MUST NOT use them for routing decisions.
+- **P2:** Form 1 `export <ComponentName ...>...</>` lands; component routing remains `isComponent`-based. CE phase 1 was unchanged.
+- **P3.A (now, 2026-05-02):** `<channel>` routing becomes **NR-authoritative**. CHX (CE phase 2 under UCD) consumes `info.category === "channel"` from MOD's exportRegistry to identify cross-file channel imports. Component routing remains `isComponent`-based (CE phase 1 untouched, zero risk to the 75 in-tree `isComponent` references). The transitional state is documented in `compiler/src/state-type-routing.ts` (the category-routing-table) per OQ-P3-2 default (b).
+- **P3-FOLLOW (planned, T2-medium):** the 75 `isComponent` references migrate to NR-authoritative routing. The category-routing-table is deleted; `isComponent` is retired. W-WHITESPACE-001 promotes to E-WHITESPACE-001; W-DEPRECATED-001 promotes to E-DEPRECATED-001; the internal `kind: "machine-decl"` shape may be renamed to `engine-decl`.
 
 NR's invariants in shadow mode:
 - Every `MarkupElement` / `StateBlock` AST node SHALL receive a `resolvedKind` and `resolvedCategory` field.
@@ -10767,10 +10768,26 @@ export const Card = <div class="card-body" class="component" props={ title: stri
   is a **type/module file**. It SHALL produce no HTML or CSS output — only a
   JS module with exported bindings. The compiler SHALL recognize this pattern
   automatically; no special file extension or pragma is required.
-- Form 1 currently applies to **components only**. Other lifecycle state-types
-  (`<channel>`, `<engine>`, `<timer>`, etc.) are not yet exportable via Form 1
-  and remain confined to the file in which they are declared. Cross-file
-  inline-expansion of state-types is scoped to Phase P3.
+- **Form 1 extends to `<channel>`** (P3.A, 2026-05-02). The form
+  `export <channel name="X" attrs>{body}</>` at the top level of a `.scrml`
+  file declares an exported channel whose wire-layer identity (the
+  WebSocket route `/_scrml_ws/X`) is the channel's `name=` attribute
+  value. Cross-file consumers import the channel by its `name=` value
+  (kebab-case names quoted: `import { "X" as alias } from './path.scrml'`)
+  and reference it as a markup tag (`<alias/>`); CHX (CE phase 2 under
+  UCD) inlines the channel's body at the consumer's reference position
+  before codegen runs. See §38.12 for the full mechanism, worked
+  examples, and `name=` attribute requirements for export.
+- Form 1 also covers `<channel>` declarations that are NOT exported
+  (per-page channels) — the existing `<channel name="X">` pattern from
+  §38 is unchanged. Only the `export <channel ...>` prefix activates the
+  cross-file inline-expansion path.
+- Other lifecycle state-types (`<engine>`, `<timer>`, `<poll>`,
+  `<request>`, `<errorBoundary>`) are not yet exportable via Form 1 and
+  remain confined to the file in which they are declared. The
+  wrapping-component idiom (DD4 §8.2) provides cross-file engine sharing
+  via a containing component. Cross-file inline-expansion of additional
+  state-types is scoped to future P3 follow-ups.
 
 ### 21.3 Import Syntax
 
@@ -14339,6 +14356,213 @@ subscriber. Wire-level: every client of the same `name=` receives every
 event; client-side rendering filters. For demo-scale traffic this is
 fine; for production scale, evaluate per-id channels at the runtime
 level (planned post-W1; see deep-dive M5 sketch).
+
+---
+
+### 38.12 Cross-File Channel Inline-Expansion
+
+**Added:** 2026-05-02 — P3.A (deep-dive `p3-cross-file-inline-expansion-2026-05-02.md`).
+**Closes:** F-CHANNEL-003 (FRICTION.md). **Removes:** Concession C7 (DD1 §3 catalog).
+
+A `<channel>` declaration MAY be exported from one file and imported into
+many. The compiler implements this via **CHX (Channel-Expander)** —
+phase 2 of the unified state-type expander pass (CE phase 2 under UCD,
+PIPELINE.md Stage 3.2). At the consumer site, every cross-file channel
+reference is replaced by a deep-cloned copy of the source's channel
+markup body **before codegen runs**. Channel codegen consumes only the
+inlined node; no per-importer runtime infrastructure is added.
+
+#### 38.12.1 Why Inline Expansion (Not Runtime Sharing)
+
+The wire-layer identity (WebSocket route `/_scrml_ws/<name>`) is shared
+across importers by virtue of the channel's `name=` attribute value.
+Every consumer that imports the same channel subscribes to the same
+topic; broadcasts from any consumer reach all consumers via the
+WebSocket pub/sub layer. Each consumer has its own local `@shared`
+mirror, kept in sync by the wire layer.
+
+Compile-time inline expansion is the simplest mechanism that yields this
+behaviour:
+
+- **No runtime changes.** The channel CG (`/_scrml_ws/<name>` route, IIFE,
+  `@shared` mirror, server function) is identical to the per-page case.
+- **No new scope-variable identity.** The `@shared` mirror is per-importer;
+  the wire layer is the canonical store. Phoenix Channels validates this
+  pattern (see [Phoenix Channels documentation](https://hexdocs.pm/phoenix/channels.html)).
+- **Backcompat.** Per-page `<channel name="X">` declarations (the existing
+  pattern from §38.2) continue to compile unchanged. Form 1
+  `export <channel name="X" ...>...</>` is purely additive.
+
+#### 38.12.2 Mechanism (CHX Algorithm)
+
+```
+For each consumer file F in compilationOrder:
+  Build aliasMap from F.imports + exportRegistry:
+    For each import { imported as local } from source:
+      If exportRegistry[source][imported].category === "channel":
+        aliasMap[local] = { imported, sourceKey }
+        // E-CHANNEL-008: detect collisions across imports
+
+  Walk F.ast.nodes:
+    For each markup node M with M.tag in aliasMap:
+      sourceFile = fileASTMap[aliasMap[M.tag].sourceKey]
+      decl = sourceFile.ast.channelDecls.find(c =>
+        c._p3aExportName === aliasMap[M.tag].imported)
+      Replace M with deepClone(decl) (fresh node IDs; preserve attrs/children)
+      Mark cloned node `_p3aInlinedFrom: sourceKey` for diagnostics
+
+  After expansion: F's AST contains channel markup nodes that match the
+  shape of locally-declared channels exactly. Channel CG runs unchanged.
+```
+
+#### 38.12.3 Per-Importer `@shared` Mirror (Default)
+
+Per OQ-DD1-4 default (a) — ratified by debate at S52 — each importer has
+its own local `@shared` mirror, kept in sync via the wire layer. Writing
+to `@count = 1` in importer A broadcasts to the WebSocket topic; importer
+B's `_scrml_ws_<name>` IIFE receives the broadcast and writes the synced
+value to importer B's local mirror. The "single shared scope" property
+emerges from the wire-layer identity — no global runtime state, no
+cross-page reactive memory.
+
+#### 38.12.4 Worked Example — Cross-File + Multi-Page Broadcast
+
+```scrml
+// channels/dispatch.scrml — PURE-CHANNEL-FILE (see §38.12.6)
+export <channel name="chat" topic="lobby">
+  ${
+    @shared messages = []
+    server function postMessage(author, body) {
+      messages = [...messages, { author, body, ts: Date.now() }]
+    }
+  }
+</>
+```
+
+```scrml
+// pages/page-a.scrml — page A
+<program>
+${ import { chat } from '../channels/dispatch.scrml' }
+<chat/>
+<button onclick=postMessage("user-a", "hello")>Send</button>
+<ul>${ for (let m of @messages) { lift <li>${m.author}: ${m.body}/ } }</>
+</program>
+```
+
+```scrml
+// pages/page-b.scrml — page B (independent consumer)
+<program>
+${ import { chat } from '../channels/dispatch.scrml' }
+<chat/>
+<ul>${ for (let m of @messages) { lift <li>${m.author}: ${m.body}/ } }</>
+</program>
+```
+
+After compilation: `pages/page-a.scrml` and `pages/page-b.scrml` BOTH
+register the WebSocket route `/_scrml_ws/chat` and subscribe to the
+topic `lobby`. Page A's `postMessage` broadcasts to topic `lobby`; page
+B's local `@messages` updates reactively because the WebSocket message
+dispatch on page B writes the synced value to page B's local mirror.
+
+The source `channels/dispatch.scrml` is a **pure-channel-file** — it
+contains only `export <channel>` declarations and no top-level markup or
+CSS. The compiler emits no per-channel artifacts for this file (see
+§38.12.6).
+
+#### 38.12.5 Import Syntax for Channel Names
+
+Channel `name=` values are typically kebab-case (e.g. `"dispatch-board"`)
+to match the WebSocket route convention. Kebab-case names are NOT valid
+JS identifiers, so the import specifier MAY quote the imported name:
+
+```scrml
+${ import { "dispatch-board" as dispatchBoard } from './channels.scrml' }
+<dispatchBoard/>
+```
+
+The local alias (here `dispatchBoard`) is the tag name written in the
+markup. The wire-layer identity is the original `name=` value
+(`"dispatch-board"`).
+
+For PascalCase / camelCase channel names, the quoting is unnecessary:
+
+```scrml
+${ import { chat } from './channels.scrml' }
+<chat/>
+```
+
+#### 38.12.6 PURE-CHANNEL-FILE Pattern
+
+A `.scrml` file that contains only `export <channel>` declarations and
+no top-level markup other than logic blocks is a **pure-channel-file**.
+The compiler SHALL recognize this pattern automatically (analogous to
+§21.5 PURE-TYPE-FILE). For such files:
+
+- The exporter file's `<channel>` markup nodes carry `_p3aIsExport: true`.
+  The codegen channel-collector (`collectChannelNodes`) filters these
+  out so the exporter file emits NO per-channel artifacts.
+- Codegen happens at the inlined-consumer site (every consumer file's
+  CG produces the WebSocket route, IIFE, and server function).
+- This eliminates duplicate WebSocket route registrations that would
+  otherwise occur if both the exporter and the consumer emitted the
+  same `/_scrml_ws/<name>` route.
+
+The pattern requires no special pragma or file extension. Any file with
+ONLY `export <channel>` declarations qualifies automatically.
+
+#### 38.12.7 Normative Statements
+
+- The compiler SHALL recognize `export <channel name="X" attrs>{body}</>`
+  at the top level of a `.scrml` file as a Form-1 channel declaration
+  (§21.2). The form SHALL NOT appear inside a `${ }` logic context.
+- The TAB SHALL synthesize an `export-decl` AST node with
+  `exportKind: "channel"` and `exportedName: <name-attribute-value>`,
+  paired with the channel's surviving `<channel>` markup node. The
+  markup node SHALL carry `_p3aIsExport: true` and `_p3aExportName: <X>`.
+- The MOD `exportRegistry` SHALL register the channel export with
+  `category: "channel"`. The legacy `isComponent` boolean SHALL be
+  `false` for channel exports.
+- CHX (CE phase 2) SHALL replace each consumer's import-reference markup
+  node (a markup node whose `tag` matches an imported alias from a
+  channel-category export) with a deep-cloned copy of the source file's
+  `_p3aIsExport: true` channel markup node. The cloned copy SHALL carry
+  fresh node IDs and SHALL be tagged `_p3aInlinedFrom: <sourceKey>` for
+  diagnostics.
+- The exporter file's `_p3aIsExport: true` channel markup nodes SHALL NOT
+  be emitted by codegen. `collectChannelNodes` SHALL filter them out.
+- Importers MAY use a kebab-case channel `name=` via quoted-name import
+  syntax: `import { "X" as alias } from './path.scrml'`. The stored
+  imported name in the import-decl SHALL be the unquoted form.
+- Cross-file `name=` collisions across distinct source files in the same
+  consumer file SHALL emit `E-CHANNEL-008` (§38.12.8).
+- Per-page `<channel name="X">` declarations (without `export`) SHALL
+  continue to compile identically to pre-P3.A behaviour. CHX SHALL NOT
+  modify same-file channel decls.
+
+#### 38.12.8 Error Codes (P3.A additions)
+
+Append to §38.9:
+
+| Code | Trigger | Severity |
+|---|---|---|
+| E-CHANNEL-008 | Two cross-file channel imports from different source files in the same consumer share the same `name=` attribute value (would conflict on the same WebSocket route) | Error |
+| E-CHANNEL-EXPORT-001 | `export <channel ...>` declared without a string-literal `name=` attribute (reactive-ref forms not supported because wire identity must be compile-time stable) | Error |
+| E-CHANNEL-EXPORT-002 | Internal — channel declared as exported in MOD's exportRegistry but the corresponding `<channel>` markup node was not collected in `ast.channelDecls` | Error |
+
+#### 38.12.9 Interaction with `?{}` SQL inside Channel Server Functions
+
+Per OQ-P3-8 default (b): channels MAY contain `?{}` server functions
+that depend on the consumer's `<page>` ancestor. CHX inlines the channel
+body verbatim into each consumer; the consumer's `<page db=>` (or
+sibling `<db>` block) satisfies the existing `<db>` resolution rule.
+F-AUTH-002's hard error fires only on pure-fn files (no enclosing
+`<page>`); imported-channel files inlined into pages are not pure-fn at
+the consumer site, so the error does not fire.
+
+For a pure-channel-file (no `<page>` ancestor) whose exported channel
+body contains `?{}`, the consumer's enclosing `<page>` provides the
+ancestor `<db>` automatically. The exporter file itself emits no
+artifacts (per §38.12.6) and so does not trigger E-SQL-009.
 
 ---
 

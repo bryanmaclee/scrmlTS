@@ -800,6 +800,87 @@ After expansion, `component-def` nodes are removed from the AST.
 
 ---
 
+### Stage 3.2 — Phase 2: Channel Expansion (CHX)
+
+**Added:** P3.A (2026-05-02), per deep-dive `p3-cross-file-inline-expansion-2026-05-02.md`.
+
+Under **UCD (Unified Category-Dispatch)** — ratified per OQ-P3-1 default (a) — the
+state-type expander runs in two phases:
+
+- **Phase 1: Component Expansion** (existing path, documented above).
+  Routes via `node.isComponent === true` and `info.isComponent === true`. CE phase 1 is
+  unchanged from pre-P3.A behaviour; the 75 in-tree `isComponent` references remain
+  intact (per OQ-P3-2 default (b)).
+- **Phase 2: Channel Expansion (CHX)** (NEW).
+  Routes via `info.category === "channel"` (NR-authoritative for channels). Walks the
+  consumer's AST after Phase 1 completes; for each markup node whose `tag` matches a
+  cross-file channel import alias, replaces the node with a deep-cloned copy of the
+  source file's `<channel>` markup body. The cloned copy carries fresh node IDs and is
+  tagged `_p3aInlinedFrom: <sourceKey>` for diagnostics.
+
+**Algorithm:**
+
+```
+Build aliasMap: Map<localAlias, { imported, sourceKey }>
+  For each import { imported as local } from source:
+    If exportRegistry[sourceKey][imported].category === "channel":
+      aliasMap.set(local, { imported, sourceKey })
+      // E-CHANNEL-008: detect cross-file `name=` collisions
+
+Walk consumer.ast.nodes recursively:
+  For each markup node M with M.tag in aliasMap:
+    sourceTab = fileASTMap[aliasMap[M.tag].sourceKey]
+    decl = sourceTab.ast.channelDecls.find(c =>
+      c._p3aExportName === aliasMap[M.tag].imported)
+    Replace M with deepClone(decl); fresh IDs from CE's counter
+```
+
+**Routing-table contract.**
+The transitional category-routing-table lives in
+`compiler/src/state-type-routing.ts`:
+
+```ts
+const ROUTING: Record<ResolvedCategory, "isComponent-legacy" | "resolvedCategory-new"> = {
+  "channel":         "resolvedCategory-new",   // CHX (Phase 2)
+  "user-component":  "isComponent-legacy",     // CE Phase 1 (unchanged)
+  // ... built-ins + other state-types route via legacy paths in P3.A
+};
+```
+
+P3-FOLLOW (T2-medium, planned) migrates the 75 `isComponent` sites; the routing table
+is then deleted.
+
+**Error contract (P3.A additions):**
+- `E-CHANNEL-008`: Two cross-file channel imports from different source files in the same
+  consumer share the same `name=` attribute value (would conflict on the same
+  WebSocket route). Mirrors the existing E-CHANNEL-003 (same-file duplicate) extended
+  to cross-file.
+- `E-CHANNEL-EXPORT-001`: `export <channel ...>` declared without a string-literal
+  `name=` attribute. Wire-layer identity must be compile-time stable; reactive-ref
+  forms (`name=@var`) are not supported for cross-file channel exports.
+- `E-CHANNEL-EXPORT-002`: Internal — channel declared as exported in MOD's exportRegistry
+  but the corresponding `<channel>` markup node was not collected in `ast.channelDecls`.
+  Indicates a TAB-vs-MOD inconsistency.
+
+**PURE-CHANNEL-FILE recognition:**
+A `.scrml` file containing only `export <channel>` declarations and no top-level markup
+other than logic blocks is a **pure-channel-file** (analogous to §21.5 PURE-TYPE-FILE).
+The exporter file's `<channel>` markup nodes carry `_p3aIsExport: true`; codegen's
+`collectChannelNodes` filters them out so the exporter file emits no per-channel
+artifacts. Codegen happens at the inlined-consumer site. See SPEC §38.12.6.
+
+**Backcompat:**
+Per-page `<channel name="X">` declarations (without `export`) compile identically to
+pre-P3.A behaviour. CHX SHALL NOT modify same-file channel decls.
+
+**Performance budget:** <= 1 ms per file (most files have zero channel imports;
+those with imports add a single AST walk + Map lookup per markup node).
+**Parallelism opportunity:** Yes — per-file after MOD + Phase 1 complete.
+**Dependencies:** Phase 1 (component expansion) must complete; CHX runs on the
+post-Phase-1 AST.
+
+---
+
 ## Stage 3.3: Unified Validation Bundle (UVB / VP-1, VP-2, VP-3)
 
 **Added:** 2026-04-30 — UVB W1. Closes silent-failure mechanisms M1, M3, M4
