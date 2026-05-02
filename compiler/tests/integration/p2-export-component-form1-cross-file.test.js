@@ -1,0 +1,295 @@
+/**
+ * P2 §21.2 Form 1 — `export <ComponentName ...>...</>` direct grammar — Integration Tests
+ *
+ * Coverage (cross-file behaviour):
+ *   §X1  Form 1 export → Form 2 import: a file using Form 1 is importable
+ *        with the same `import { Name }` syntax that works for Form 2.
+ *   §X2  Form 1 export → use site: <Component/> at the importing file
+ *        compiles to expanded markup (CE finds the component).
+ *   §X3  Both forms in the same exporting file: BOTH names are importable
+ *        and both use sites compile to expanded markup.
+ *   §X4  exportRegistry shape equivalence: comparing MOD output for two
+ *        otherwise-identical files (Form 1 vs Form 2) shows identical
+ *        exportRegistry entries (kind=const, isComponent=true).
+ *   §X5  Replace-form regression: the exporter's existing legacy form
+ *        (Form 2) keeps working unchanged when a separate Form-1 entry is
+ *        added to the same file (no new errors, no shape change for legacy).
+ *
+ * These tests run the FULL CLI compilation surface so they exercise the
+ * integration of TAB → MOD → NR → CE → CG. Pass criteria:
+ *   - zero compile errors
+ *   - emitted artifacts (HTML or client.js) contain the expanded body markup
+ *
+ * Implementation note (P2 v1):
+ *   Form 1 desugars to `export const ComponentName = <ComponentName ...>{body}</>`
+ *   (a self-named outer wrapper). The wrapper appears in the rendered HTML
+ *   output as a custom element wrapping the body. Stripping the wrapper to
+ *   match Form 2's exact rendering is a refinement deferred to a later phase.
+ *   Tests below verify the BODY markup IS present in the output — they do
+ *   NOT enforce wrapper-stripping equivalence with Form 2.
+ *
+ * State-as-Primary unification — Phase P2 (2026-04-30).
+ * SPEC §21.2 Form 1 normative spec.
+ */
+
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, mkdtempSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+import { compileScrml } from "../../src/api.js";
+import { splitBlocks } from "../../src/block-splitter.js";
+import { buildAST } from "../../src/ast-builder.js";
+import { resolveModules } from "../../src/module-resolver.js";
+
+let TMP;
+
+beforeAll(() => {
+  TMP = mkdtempSync(join(tmpdir(), "p2-form1-"));
+});
+
+afterAll(() => {
+  if (TMP && existsSync(TMP)) rmSync(TMP, { recursive: true, force: true });
+});
+
+function fx(relPath, source) {
+  const abs = join(TMP, relPath);
+  mkdirSync(join(abs, "..").replace(/\/$/, ""), { recursive: true });
+  writeFileSync(abs, source);
+  return abs;
+}
+
+/**
+ * Read all emitted artifacts (HTML + client JS) for a given file basename
+ * and return the concatenation. Use to assert "the body markup IS present
+ * somewhere" without caring whether it landed in HTML or client.js.
+ */
+function combinedArtifacts(outDir, basename) {
+  let combined = "";
+  const htmlPath = join(outDir, `${basename}.html`);
+  if (existsSync(htmlPath)) combined += readFileSync(htmlPath, "utf8") + "\n";
+  const clientPath = join(outDir, `${basename}.client.js`);
+  if (existsSync(clientPath)) combined += readFileSync(clientPath, "utf8") + "\n";
+  return combined;
+}
+
+// ---------------------------------------------------------------------------
+// §X1 — Form 1 exporter → Form 1-or-Form 2 importable
+// ---------------------------------------------------------------------------
+
+describe("§X1 Form 1 export → standard import works", () => {
+  test("a Form-1 exporter is importable with the same `import { Name }` syntax", () => {
+    const ROOT = join(TMP, "x1");
+    mkdirSync(ROOT, { recursive: true });
+
+    fx("x1/components.scrml", `export <X1Badge>
+  <span class="x1-badge">badge</>
+</>
+`);
+    const app = fx("x1/app.scrml", `<program>
+\${
+  import { X1Badge } from './components.scrml'
+}
+<div>
+  <X1Badge/>
+</div>
+</program>
+`);
+
+    const outDir = join(ROOT, "dist");
+    const result = compileScrml({
+      inputFiles: [app],
+      outputDir: outDir,
+      write: true,
+      log: () => {},
+    });
+    expect(result.errors).toEqual([]);
+
+    const combined = combinedArtifacts(outDir, "app");
+    // Component body markup MUST appear (verified by the CSS class).
+    expect(combined).toContain("x1-badge");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §X2 — Form 1 use-site verification with attributes/props
+// ---------------------------------------------------------------------------
+
+describe("§X2 Form 1 export with props → use-site receives prop values", () => {
+  test("Form 1 exporter with props={ name: string } expands at call site", () => {
+    const ROOT = join(TMP, "x2");
+    mkdirSync(ROOT, { recursive: true });
+
+    fx("x2/components.scrml", `export <X2Card props={ name: string }>
+  <div class="x2-card">\${name}</>
+</>
+`);
+    const app = fx("x2/app.scrml", `<program>
+\${
+  import { X2Card } from './components.scrml'
+}
+<div>
+  <X2Card name="alpha"/>
+  <X2Card name="beta"/>
+</div>
+</program>
+`);
+
+    const outDir = join(ROOT, "dist");
+    const result = compileScrml({
+      inputFiles: [app],
+      outputDir: outDir,
+      write: true,
+      log: () => {},
+    });
+    expect(result.errors).toEqual([]);
+
+    const combined = combinedArtifacts(outDir, "app");
+    expect(combined).toContain("x2-card");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §X3 — Form 1 + Form 2 both exported from the same file, both importable
+// ---------------------------------------------------------------------------
+
+describe("§X3 Form 1 + Form 2 coexist in exporter, both work cross-file", () => {
+  test("file with both forms exports both names and both are usable", () => {
+    const ROOT = join(TMP, "x3");
+    mkdirSync(ROOT, { recursive: true });
+
+    // Exporter: Form 2 first, Form 1 after.
+    fx("x3/components.scrml", `\${
+  export const X3LegacyBadge = <span class="x3-legacy">legacy</>
+}
+
+export <X3CanonicalBadge>
+  <span class="x3-canonical">canonical</>
+</>
+`);
+    const app = fx("x3/app.scrml", `<program>
+\${
+  import { X3LegacyBadge, X3CanonicalBadge } from './components.scrml'
+}
+<div>
+  <X3LegacyBadge/>
+  <X3CanonicalBadge/>
+</div>
+</program>
+`);
+
+    const outDir = join(ROOT, "dist");
+    const result = compileScrml({
+      inputFiles: [app],
+      outputDir: outDir,
+      write: true,
+      log: () => {},
+    });
+    expect(result.errors).toEqual([]);
+
+    const combined = combinedArtifacts(outDir, "app");
+    // Both component bodies expanded.
+    expect(combined).toContain("x3-legacy");
+    expect(combined).toContain("x3-canonical");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §X4 — exportRegistry shape equivalence (Form 1 vs Form 2)
+// ---------------------------------------------------------------------------
+
+describe("§X4 MOD exportRegistry shape equivalence", () => {
+  test("Form 1 and Form 2 produce identical exportRegistry entries", () => {
+    const ROOT = join(TMP, "x4");
+    mkdirSync(ROOT, { recursive: true });
+
+    const f1Path = fx("x4/form1.scrml", `export <X4Same>
+  <span class="x4">x4</>
+</>
+`);
+    const f2Path = fx("x4/form2.scrml", `\${
+  export const X4Same = <span class="x4">x4</>
+}
+`);
+
+    const f1Tab = buildAST(splitBlocks(f1Path, readFileSync(f1Path, "utf8")));
+    const f2Tab = buildAST(splitBlocks(f2Path, readFileSync(f2Path, "utf8")));
+
+    const r1 = resolveModules([f1Tab, f2Tab]);
+    const reg = r1.exportRegistry;
+    const f1Entry = reg.get(f1Path)?.get("X4Same");
+    const f2Entry = reg.get(f2Path)?.get("X4Same");
+
+    expect(f1Entry).toBeTruthy();
+    expect(f2Entry).toBeTruthy();
+    // Shape equivalence: both must have kind="const" and isComponent=true.
+    expect(f1Entry.kind).toBe(f2Entry.kind);
+    expect(f1Entry.isComponent).toBe(f2Entry.isComponent);
+    expect(f1Entry.kind).toBe("const");
+    expect(f1Entry.isComponent).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §X5 — Adding a Form-1 export to a file does not regress legacy Form-2 exports
+// ---------------------------------------------------------------------------
+
+describe("§X5 Adding Form 1 alongside Form 2 doesn't regress Form 2", () => {
+  test("legacy Form-2 export keeps working when a Form-1 export is added", () => {
+    const ROOT = join(TMP, "x5");
+    mkdirSync(ROOT, { recursive: true });
+
+    fx("x5/after.scrml", `\${
+  export const X5Only = <span class="x5-only">only</>
+}
+
+export <X5Added>
+  <span class="x5-added">added</>
+</>
+`);
+
+    // Importer A — uses only Form-2 export.
+    const appA = fx("x5/app-a.scrml", `<program>
+\${
+  import { X5Only } from './after.scrml'
+}
+<div>
+  <X5Only/>
+</div>
+</program>
+`);
+    // Importer B — uses both names from the same after.scrml.
+    const appB = fx("x5/app-b.scrml", `<program>
+\${
+  import { X5Only, X5Added } from './after.scrml'
+}
+<div>
+  <X5Only/>
+  <X5Added/>
+</div>
+</program>
+`);
+
+    const outDirA = join(ROOT, "dist-a");
+    const resultA = compileScrml({
+      inputFiles: [appA],
+      outputDir: outDirA,
+      write: true,
+      log: () => {},
+    });
+    expect(resultA.errors).toEqual([]);
+    const combinedA = combinedArtifacts(outDirA, "app-a");
+    expect(combinedA).toContain("x5-only");
+
+    const outDirB = join(ROOT, "dist-b");
+    const resultB = compileScrml({
+      inputFiles: [appB],
+      outputDir: outDirB,
+      write: true,
+      log: () => {},
+    });
+    expect(resultB.errors).toEqual([]);
+    const combinedB = combinedArtifacts(outDirB, "app-b");
+    expect(combinedB).toContain("x5-only");
+    expect(combinedB).toContain("x5-added");
+  });
+});

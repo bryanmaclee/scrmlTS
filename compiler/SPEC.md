@@ -10576,8 +10576,21 @@ ${ import { Greeting } from './a-or-b.scrml' }
 
 The import resolves identically regardless of which form the exporting file used.
 The exportRegistry entry has the same shape: `{ kind: "const", isComponent: true }`
-for both Form 1 and Form 2. CE locates the component by the same path; downstream
-stages observe no difference.
+for both Form 1 and Form 2. CE locates the component by the same path. The
+public name → component mapping (what `import { Name }` resolves to) is
+identical.
+
+**Implementation note (P2 v1, 2026-04-30).** The compiler internally desugars
+Form 1 to `${ export const ComponentName = <ComponentName attrs>{body}</> }`
+(a self-named outer wrapper). One observable consequence is that the call site
+`<ComponentName/>` for a Form-1-declared component renders the body wrapped in
+a `<ComponentName>` custom element in the emitted HTML. The body content IS
+present and reactive bindings work; the only difference from Form 2 is the
+outer custom-element wrapper. Folding the wrapper into the body root (so
+Form 1 and Form 2 produce byte-equivalent HTML) is a refinement deferred
+beyond P2; it does not affect the export record, the import resolution, or
+the cross-file gather logic. Adopters who want byte-equivalent HTML SHOULD
+continue using Form 2 until the refinement ships.
 
 **Normative statements:**
 
