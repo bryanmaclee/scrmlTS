@@ -181,7 +181,7 @@ ${ function reopen() {
 If the prior value is statically known to be `Delivered`, the compiler refuses the assignment:
 
 ```
-E-MACHINE-001: Illegal transition.
+E-ENGINE-001: Illegal transition.
   Variable: @status (type: OrderStatus)
   Move: .Delivered => .Pending
   OrderStatus has no transition rule from .Delivered.
@@ -190,7 +190,7 @@ E-MACHINE-001: Illegal transition.
         is intended, or bind @status to a < machine> that permits this move.
 ```
 
-The error is a flat compile failure. If the prior value isn't statically known, the compiler emits a single runtime guard at the assignment site (`E-MACHINE-001-RT`). One guard. Not a wrapping XState machine, not a hand-rolled `switch`. A compiler-emitted check that runs once, at the write, where the language already needed to be.
+The error is a flat compile failure. If the prior value isn't statically known, the compiler emits a single runtime guard at the assignment site (`E-ENGINE-001-RT`). One guard. Not a wrapping XState machine, not a hand-rolled `switch`. A compiler-emitted check that runs once, at the write, where the language already needed to be.
 
 The deeper feature, `< machine>` blocks, lets you scope a transition graph to a context (a different set of legal moves for an admin vs. a customer view) and attach effects on transition. That belongs to its own piece. The point for *this* article is: state-machine transitions are a write-time contract, enforced by the type system, not a separate library bolted to the side.
 
