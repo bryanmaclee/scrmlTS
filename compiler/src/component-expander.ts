@@ -44,7 +44,7 @@
 
 import { splitBlocks } from "./block-splitter.js";
 import { buildAST } from "./ast-builder.js";
-import { exprNodeMatchesIdent, exprNodeContainsCall, emitStringFromTree } from "./expression-parser.ts";
+import { exprNodeMatchesIdent, exprNodeContainsCall, emitStringFromTree, parseExprToNode } from "./expression-parser.ts";
 import type {
   Span,
   FileAST,
@@ -57,6 +57,57 @@ import type {
   ImportDeclNode,
   TABErrorInfo,
   ExprNode,
+  ExprSpan,
+  IdentExpr,
+  LitExpr,
+  ArrayExpr,
+  ObjectExpr,
+  SpreadExpr,
+  UnaryExpr,
+  BinaryExpr,
+  AssignExpr,
+  TernaryExpr,
+  MemberExpr,
+  IndexExpr,
+  CallExpr,
+  NewExpr,
+  LambdaExpr,
+  CastExpr,
+  MatchExpr,
+  EscapeHatchExpr,
+  LogicStatement,
+  LetDeclNode,
+  ConstDeclNode,
+  TildeDeclNode,
+  LinDeclNode,
+  ReactiveDeclNode,
+  ReactiveDerivedDeclNode,
+  ReactiveDebouncedDeclNode,
+  ReactiveNestedAssignNode,
+  FunctionDeclNode,
+  IfStmtNode,
+  IfExprNode,
+  ForExprNode,
+  ForStmtNode,
+  WhileStmtNode,
+  ReturnStmtNode,
+  ThrowStmtNode,
+  SwitchStmtNode,
+  TryStmtNode,
+  MatchStmtNode,
+  MatchArmInlineNode,
+  BareExprNode,
+  PropagateExprNode,
+  GuardedExprNode,
+  WhenEffectNode,
+  WhenMessageNode,
+  CleanupRegistrationNode,
+  DebounceCallNode,
+  ThrottleCallNode,
+  UploadCallNode,
+  TransactionBlockNode,
+  MetaNode,
+  LiftExprNode,
 } from "./types/ast.ts";
 
 // ---------------------------------------------------------------------------
@@ -553,9 +604,694 @@ function applyPropSubstitutions(text: string, props: Map<string, string>): strin
 }
 
 /**
- * Substitute props recursively through a cloned AST node tree.
+ * F-COMPONENT-004: Build a parallel map of prop name → ExprNode form of the prop value.
+ *
+ * For each caller-side attribute value:
+ *  - string-literal `name="Alice"` → LitExpr { litType: "string", value: "Alice", raw: "\"Alice\"" }
+ *  - variable-ref `name=@user`     → IdentExpr { name: "@user" } (parsed from the raw text)
+ *  - declared default (raw text)   → parseExprToNode(default)
+ *  - "null" optional default       → LitExpr { litType: "null" }
+ *
+ * The ExprNode form is used by `substitutePropsInExprNode` to replace IdentExpr
+ * references inside logic-block bodies with the typed prop value (rather than
+ * raw text substitution, which would mangle string values into bare identifiers).
  */
-function substituteProps(node: ASTNode, props: Map<string, string>): ASTNode {
+function buildPropExprMap(
+  props: Map<string, string>,
+  callerAttrs: AttrNode[],
+  propsDecl: PropDecl[] | null,
+  filePath: string,
+  fallbackSpan: Span,
+): Map<string, ExprNode> {
+  const out = new Map<string, ExprNode>();
+  if (props.size === 0) return out;
+
+  const exprSpan: ExprSpan = {
+    file: filePath,
+    start: fallbackSpan.start ?? 0,
+    end: fallbackSpan.end ?? 0,
+    line: 1,
+    col: 1,
+  };
+
+  // Index attrs by name for type lookup
+  const attrByName = new Map<string, AttrNode>();
+  for (const a of callerAttrs ?? []) {
+    if (a && a.name) attrByName.set(a.name, a);
+  }
+
+  for (const [name, value] of props.entries()) {
+    const attr = attrByName.get(name);
+    if (attr && attr.value) {
+      if (attr.value.kind === "string-literal") {
+        // Treat as a JS string literal
+        out.set(name, {
+          kind: "lit",
+          span: exprSpan,
+          raw: JSON.stringify(value),
+          value: value,
+          litType: "string",
+        } satisfies LitExpr);
+        continue;
+      }
+      if (attr.value.kind === "variable-ref") {
+        // Use the prebuilt ExprNode if present, else synthesize an IdentExpr
+        const pre = (attr.value as { exprNode?: ExprNode }).exprNode;
+        if (pre) {
+          out.set(name, pre);
+        } else {
+          out.set(name, {
+            kind: "ident",
+            span: exprSpan,
+            name: value,
+          } satisfies IdentExpr);
+        }
+        continue;
+      }
+      if (attr.value.kind === "expr") {
+        const pre = (attr.value as { exprNode?: ExprNode }).exprNode;
+        if (pre) {
+          out.set(name, pre);
+          continue;
+        }
+        // Fall through to parse-the-text path
+      }
+    }
+    // Default-value path or fallback: parse the raw text as an expression
+    if (value === "null") {
+      out.set(name, {
+        kind: "lit",
+        span: exprSpan,
+        raw: "null",
+        value: null,
+        litType: "null",
+      } satisfies LitExpr);
+      continue;
+    }
+    try {
+      const parsed = parseExprToNode(value, filePath, exprSpan.start);
+      out.set(name, parsed);
+    } catch (_e) {
+      // Worst case: treat as opaque escape-hatch (the caller-side text)
+      out.set(name, {
+        kind: "escape-hatch",
+        span: exprSpan,
+        estreeType: "PropDefaultParseFailure",
+        raw: value,
+      } satisfies EscapeHatchExpr);
+    }
+  }
+  return out;
+}
+
+/**
+ * F-COMPONENT-004: Walk an ExprNode tree and substitute identifier references
+ * to declared props with their typed ExprNode form. Returns a new tree.
+ *
+ * Shadowing rules:
+ *  - LambdaExpr: parameter names shadow props inside the lambda body.
+ *  - LambdaExpr block body: local declarations shadow props from that point on.
+ *  - The `shadowed` set is a copy-on-grow Set tracked through scope boundaries.
+ *
+ * MemberExpr: only the leftmost identifier is a candidate; `name.length`
+ * substitutes `name` (the object) but leaves `.length` (the property string) alone.
+ *
+ * EscapeHatchExpr: not walked (opaque). Templates may carry interpolations as
+ * EscapeHatchExpr (TemplateLiteral) — we re-parse via parseExprToNode if it
+ * appears to contain a `${...}` segment referencing a prop, but keep the original
+ * tree if re-parse fails.
+ */
+function substitutePropsInExprNode(
+  node: ExprNode,
+  propExprMap: Map<string, ExprNode>,
+  shadowed: Set<string>,
+): ExprNode {
+  if (!node) return node;
+  switch (node.kind) {
+    case "ident": {
+      const ident = node as IdentExpr;
+      if (shadowed.has(ident.name)) return ident;
+      const sub = propExprMap.get(ident.name);
+      if (sub) return sub;
+      return ident;
+    }
+    case "lit": {
+      const lit = node as LitExpr;
+      // Template literals may contain `${...}` interpolations referencing props.
+      // We re-parse the raw template text with prop-name substitutions applied
+      // to identifier references inside each `${...}` segment.
+      if (lit.litType === "template" && typeof lit.raw === "string" && lit.raw.includes("${")) {
+        const rewritten = rewriteTemplateInterpolations(lit.raw, propExprMap, shadowed);
+        if (rewritten !== lit.raw) {
+          return { ...lit, raw: rewritten } satisfies LitExpr;
+        }
+      }
+      return lit;
+    }
+    case "sql-ref":
+    case "input-state-ref":
+      return node;
+    case "escape-hatch": {
+      const eh = node as EscapeHatchExpr;
+      // Template-literal-shaped escape hatches: rewrite interpolations
+      if (eh.estreeType === "TemplateLiteral" && typeof eh.raw === "string" && eh.raw.includes("${")) {
+        const rewritten = rewriteTemplateInterpolations(eh.raw, propExprMap, shadowed);
+        if (rewritten !== eh.raw) {
+          return { ...eh, raw: rewritten } satisfies EscapeHatchExpr;
+        }
+      }
+      return eh;
+    }
+    case "array": {
+      const n = node as ArrayExpr;
+      const newEls = n.elements.map((el) => substitutePropsInExprNode(el as ExprNode, propExprMap, shadowed) as (ExprNode | SpreadExpr));
+      return { ...n, elements: newEls } satisfies ArrayExpr;
+    }
+    case "object": {
+      const n = node as ObjectExpr;
+      const newProps = n.props.map((prop) => {
+        if (prop.kind === "prop") {
+          const newKey = typeof prop.key === "string"
+            ? prop.key
+            : substitutePropsInExprNode(prop.key as ExprNode, propExprMap, shadowed);
+          const newValue = substitutePropsInExprNode(prop.value, propExprMap, shadowed);
+          return { ...prop, key: newKey, value: newValue };
+        }
+        if (prop.kind === "shorthand") {
+          // Shorthand `{ x }` is both key and value reference. If `x` is a prop,
+          // expand to `{ x: <propValue> }`.
+          if (!shadowed.has(prop.name) && propExprMap.has(prop.name)) {
+            return {
+              kind: "prop",
+              key: prop.name,
+              value: propExprMap.get(prop.name) as ExprNode,
+              computed: false,
+              span: prop.span,
+            } as typeof prop & { kind: "prop" };
+          }
+          return prop;
+        }
+        if (prop.kind === "spread") {
+          return { ...prop, argument: substitutePropsInExprNode(prop.argument, propExprMap, shadowed) };
+        }
+        return prop;
+      });
+      return { ...n, props: newProps } satisfies ObjectExpr;
+    }
+    case "spread": {
+      const n = node as SpreadExpr;
+      return { ...n, argument: substitutePropsInExprNode(n.argument, propExprMap, shadowed) } satisfies SpreadExpr;
+    }
+    case "unary": {
+      const n = node as UnaryExpr;
+      return { ...n, argument: substitutePropsInExprNode(n.argument, propExprMap, shadowed) } satisfies UnaryExpr;
+    }
+    case "binary": {
+      const n = node as BinaryExpr;
+      return {
+        ...n,
+        left: substitutePropsInExprNode(n.left, propExprMap, shadowed),
+        right: substitutePropsInExprNode(n.right, propExprMap, shadowed),
+      } satisfies BinaryExpr;
+    }
+    case "assign": {
+      const n = node as AssignExpr;
+      return {
+        ...n,
+        target: substitutePropsInExprNode(n.target, propExprMap, shadowed),
+        value: substitutePropsInExprNode(n.value, propExprMap, shadowed),
+      } satisfies AssignExpr;
+    }
+    case "ternary": {
+      const n = node as TernaryExpr;
+      return {
+        ...n,
+        condition: substitutePropsInExprNode(n.condition, propExprMap, shadowed),
+        consequent: substitutePropsInExprNode(n.consequent, propExprMap, shadowed),
+        alternate: substitutePropsInExprNode(n.alternate, propExprMap, shadowed),
+      } satisfies TernaryExpr;
+    }
+    case "member": {
+      const n = node as MemberExpr;
+      // Only walk `object`; `property` is a static name string (not a binding).
+      return { ...n, object: substitutePropsInExprNode(n.object, propExprMap, shadowed) } satisfies MemberExpr;
+    }
+    case "index": {
+      const n = node as IndexExpr;
+      return {
+        ...n,
+        object: substitutePropsInExprNode(n.object, propExprMap, shadowed),
+        index: substitutePropsInExprNode(n.index, propExprMap, shadowed),
+      } satisfies IndexExpr;
+    }
+    case "call": {
+      const n = node as CallExpr;
+      return {
+        ...n,
+        callee: substitutePropsInExprNode(n.callee, propExprMap, shadowed),
+        args: n.args.map((a) => substitutePropsInExprNode(a as ExprNode, propExprMap, shadowed) as (ExprNode | SpreadExpr)),
+      } satisfies CallExpr;
+    }
+    case "new": {
+      const n = node as NewExpr;
+      return {
+        ...n,
+        callee: substitutePropsInExprNode(n.callee, propExprMap, shadowed),
+        args: n.args.map((a) => substitutePropsInExprNode(a as ExprNode, propExprMap, shadowed) as (ExprNode | SpreadExpr)),
+      } satisfies NewExpr;
+    }
+    case "lambda": {
+      const n = node as LambdaExpr;
+      // Parameter shadowing: extend shadowed set with all param names for the lambda body.
+      // Default values evaluate in the OUTER scope (not shadowed by params).
+      const newParams = n.params.map((p) => {
+        if (p.defaultValue) {
+          return { ...p, defaultValue: substitutePropsInExprNode(p.defaultValue, propExprMap, shadowed) };
+        }
+        return p;
+      });
+      const innerShadowed = new Set(shadowed);
+      for (const p of n.params) innerShadowed.add(p.name);
+      let newBody: LambdaExpr["body"];
+      if (n.body.kind === "expr") {
+        newBody = { kind: "expr", value: substitutePropsInExprNode(n.body.value, propExprMap, innerShadowed) };
+      } else {
+        newBody = { kind: "block", stmts: substitutePropsInLogicStmts(n.body.stmts, propExprMap, innerShadowed) };
+      }
+      return { ...n, params: newParams, body: newBody } satisfies LambdaExpr;
+    }
+    case "cast": {
+      const n = node as CastExpr;
+      return { ...n, expression: substitutePropsInExprNode(n.expression, propExprMap, shadowed) } satisfies CastExpr;
+    }
+    case "match-expr": {
+      const n = node as MatchExpr;
+      // Walk subject. Arms are raw strings (Phase 1) — cannot structurally substitute.
+      return { ...n, subject: substitutePropsInExprNode(n.subject, propExprMap, shadowed) } satisfies MatchExpr;
+    }
+    default: {
+      // TypeScript exhaustiveness check.
+      return node;
+    }
+  }
+}
+
+/**
+ * F-COMPONENT-004: Rewrite the contents of `${...}` interpolations inside a
+ * raw template-literal source text, applying prop-name substitutions to
+ * identifier references. The substitution is text-level for simplicity
+ * (templates carry raw text); we replace bare identifier reads only.
+ *
+ * Heuristic: for each `${...}` segment, we apply a regex-based substitution
+ * that replaces identifier-shaped tokens matching declared props with the
+ * emitStringFromTree() of the substituted ExprNode. This is a best-effort
+ * rewrite — complex expressions inside `${...}` (e.g. with their own lambdas
+ * and shadowing) are not perfectly handled; the substitution is conservative
+ * and only replaces bare identifier reads not preceded by `.` (member access).
+ */
+function rewriteTemplateInterpolations(
+  raw: string,
+  propExprMap: Map<string, ExprNode>,
+  shadowed: Set<string>,
+): string {
+  if (propExprMap.size === 0) return raw;
+  // Walk the string, finding `${...}` segments at the top brace level.
+  // For each, rewrite identifier references that match props (and are not shadowed,
+  // not preceded by `.`).
+  const out: string[] = [];
+  let i = 0;
+  const n = raw.length;
+  while (i < n) {
+    const ch = raw.charCodeAt(i);
+    if (ch === 92 /* \ */) {
+      // Escaped char in template — copy 2 chars.
+      out.push(raw.slice(i, Math.min(i + 2, n)));
+      i += 2;
+      continue;
+    }
+    if (ch === 36 /* $ */ && i + 1 < n && raw.charCodeAt(i + 1) === 123 /* { */) {
+      // Find matching `}` respecting nested braces and strings.
+      const start = i + 2;
+      let depth = 1;
+      let j = start;
+      while (j < n && depth > 0) {
+        const c = raw.charCodeAt(j);
+        if (c === 92) { j += 2; continue; }
+        if (c === 123) { depth++; j++; continue; }
+        if (c === 125) { depth--; j++; continue; }
+        if (c === 39 || c === 34) {
+          const quote = c;
+          j++;
+          while (j < n) {
+            const sc = raw.charCodeAt(j);
+            if (sc === 92) { j += 2; continue; }
+            if (sc === quote) { j++; break; }
+            j++;
+          }
+          continue;
+        }
+        j++;
+      }
+      const exprText = raw.slice(start, Math.max(start, j - 1));
+      const rewritten = rewriteIdentsInRawExpr(exprText, propExprMap, shadowed);
+      out.push("${" + rewritten + "}");
+      i = j;
+      continue;
+    }
+    out.push(raw[i]);
+    i++;
+  }
+  return out.join("");
+}
+
+/**
+ * Rewrite identifier references in a raw expression-text fragment. Replaces
+ * bare identifier tokens matching declared props (and not shadowed, not
+ * preceded by `.`) with the emit-string form of the substituted ExprNode.
+ * This is a token-level pass suitable for template-interpolation contents
+ * where re-parse-and-re-emit would risk altering whitespace and semantics.
+ */
+function rewriteIdentsInRawExpr(
+  text: string,
+  propExprMap: Map<string, ExprNode>,
+  shadowed: Set<string>,
+): string {
+  if (!text) return text;
+  // \b(name)\b but ensure not preceded by `.` (member access) and not inside a string.
+  // For safety we use a simple regex pass; templates inside `${...}` rarely
+  // contain string literals containing prop names, but we attempt to skip
+  // string contents.
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const ch = text[i];
+    // Skip string literals
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const q = ch;
+      out += ch;
+      i++;
+      while (i < n) {
+        const c = text[i];
+        if (c === "\\") { out += text.slice(i, Math.min(i + 2, n)); i += 2; continue; }
+        out += c;
+        i++;
+        if (c === q) break;
+      }
+      continue;
+    }
+    // Identifier start (incl. @ for reactive vars)
+    if (/[A-Za-z_$@]/.test(ch)) {
+      let j = i;
+      // Allow leading @ then ident chars
+      if (ch === "@") j++;
+      while (j < n && /[A-Za-z0-9_$]/.test(text[j])) j++;
+      const word = text.slice(i, j);
+      // Check predecessor: skip if preceded by `.` (member access)
+      let k = out.length - 1;
+      while (k >= 0 && /\s/.test(out[k])) k--;
+      const precededByDot = k >= 0 && out[k] === ".";
+      if (!precededByDot && !shadowed.has(word) && propExprMap.has(word)) {
+        const sub = propExprMap.get(word) as ExprNode;
+        out += emitStringFromTree(sub);
+      } else {
+        out += word;
+      }
+      i = j;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * F-COMPONENT-004: Walk a list of LogicStatements and substitute prop refs.
+ * Tracks local declarations as shadowing entries from the point of declaration onward.
+ */
+function substitutePropsInLogicStmts(
+  stmts: LogicStatement[],
+  propExprMap: Map<string, ExprNode>,
+  shadowed: Set<string>,
+): LogicStatement[] {
+  // Use a local mutable copy of `shadowed` so declarations persist for subsequent stmts.
+  const localShadowed = new Set(shadowed);
+  const out: LogicStatement[] = [];
+  for (const stmt of stmts) {
+    out.push(substitutePropsInLogicStmt(stmt, propExprMap, localShadowed));
+  }
+  return out;
+}
+
+/**
+ * F-COMPONENT-004: Substitute prop refs inside a single LogicStatement. Mutates
+ * `shadowed` to add any names declared by this statement (so subsequent stmts
+ * in the same scope see the shadowing).
+ */
+function substitutePropsInLogicStmt(
+  stmt: LogicStatement,
+  propExprMap: Map<string, ExprNode>,
+  shadowed: Set<string>,
+): LogicStatement {
+  if (!stmt || typeof stmt !== "object") return stmt;
+  const subInExpr = (e: ExprNode | undefined) =>
+    e ? substitutePropsInExprNode(e, propExprMap, shadowed) : e;
+  const subInStmts = (ss: LogicStatement[] | undefined | null) =>
+    ss ? substitutePropsInLogicStmts(ss, propExprMap, shadowed) : ss;
+  switch (stmt.kind) {
+    case "let-decl":
+    case "const-decl":
+    case "tilde-decl":
+    case "lin-decl":
+    case "reactive-decl":
+    case "reactive-derived-decl":
+    case "reactive-debounced-decl": {
+      const n = stmt as LetDeclNode | ConstDeclNode | TildeDeclNode | LinDeclNode | ReactiveDeclNode | ReactiveDerivedDeclNode | ReactiveDebouncedDeclNode;
+      const newInit = subInExpr(n.initExpr);
+      const newNode = { ...n, initExpr: newInit } as typeof n;
+      // After this declaration, the name shadows any same-named prop for subsequent stmts.
+      // Reactive vars use @-prefix; we add both forms to be safe (if prop name is `count`,
+      // a `@count` reactive declaration shadows further refs).
+      if (n.name) {
+        if (n.kind === "reactive-decl" || n.kind === "reactive-derived-decl" || n.kind === "reactive-debounced-decl") {
+          shadowed.add("@" + n.name);
+        } else {
+          shadowed.add(n.name);
+        }
+      }
+      return newNode;
+    }
+    case "reactive-nested-assign": {
+      const n = stmt as ReactiveNestedAssignNode;
+      return { ...n, valueExpr: subInExpr(n.valueExpr) } as ReactiveNestedAssignNode;
+    }
+    case "function-decl": {
+      const n = stmt as FunctionDeclNode;
+      // Function params shadow props inside the body.
+      const innerShadowed = new Set(shadowed);
+      for (const p of n.params ?? []) {
+        // Param strings may be "name" or "name: Type" or "name = default"
+        const m = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(p);
+        if (m) innerShadowed.add(m[1]);
+      }
+      const newBody = substitutePropsInLogicStmts(n.body, propExprMap, innerShadowed);
+      // The function name shadows props in subsequent statements.
+      if (n.name) shadowed.add(n.name);
+      return { ...n, body: newBody } satisfies FunctionDeclNode;
+    }
+    case "if-stmt":
+    case "if-expr": {
+      const n = stmt as IfStmtNode | IfExprNode;
+      return {
+        ...n,
+        condExpr: subInExpr(n.condExpr),
+        consequent: subInStmts(n.consequent) as LogicStatement[],
+        alternate: n.alternate ? (subInStmts(n.alternate) as LogicStatement[]) : null,
+      } as typeof n;
+    }
+    case "for-expr":
+    case "for-stmt": {
+      const n = stmt as ForExprNode | ForStmtNode;
+      // Loop variable shadows props inside the body.
+      const innerShadowed = new Set(shadowed);
+      if ((n as ForStmtNode).variable) innerShadowed.add((n as ForStmtNode).variable);
+      const cStyle = (n as ForStmtNode).cStyleParts;
+      const newCStyle = cStyle ? {
+        initExpr: substitutePropsInExprNode(cStyle.initExpr, propExprMap, shadowed),
+        condExpr: substitutePropsInExprNode(cStyle.condExpr, propExprMap, innerShadowed),
+        updateExpr: substitutePropsInExprNode(cStyle.updateExpr, propExprMap, innerShadowed),
+      } : undefined;
+      const result: any = {
+        ...n,
+        iterExpr: (n as ForStmtNode).iterExpr ? substitutePropsInExprNode((n as ForStmtNode).iterExpr as ExprNode, propExprMap, shadowed) : (n as ForStmtNode).iterExpr,
+        body: substitutePropsInLogicStmts(n.body, propExprMap, innerShadowed),
+      };
+      if (newCStyle) result.cStyleParts = newCStyle;
+      return result;
+    }
+    case "while-stmt": {
+      const n = stmt as WhileStmtNode;
+      return {
+        ...n,
+        condExpr: subInExpr(n.condExpr),
+        body: substitutePropsInLogicStmts(n.body, propExprMap, shadowed),
+      } satisfies WhileStmtNode;
+    }
+    case "return-stmt": {
+      const n = stmt as ReturnStmtNode;
+      return { ...n, exprNode: subInExpr(n.exprNode) } satisfies ReturnStmtNode;
+    }
+    case "throw-stmt": {
+      const n = stmt as ThrowStmtNode;
+      return { ...n, exprNode: subInExpr(n.exprNode) } satisfies ThrowStmtNode;
+    }
+    case "switch-stmt": {
+      const n = stmt as SwitchStmtNode;
+      return {
+        ...n,
+        headerExpr: subInExpr(n.headerExpr),
+        body: substitutePropsInLogicStmts(n.body, propExprMap, shadowed),
+      } satisfies SwitchStmtNode;
+    }
+    case "try-stmt": {
+      const n = stmt as TryStmtNode;
+      return {
+        ...n,
+        body: substitutePropsInLogicStmts(n.body, propExprMap, shadowed),
+        catchNode: n.catchNode ? {
+          ...n.catchNode,
+          body: substitutePropsInLogicStmts(n.catchNode.body, propExprMap, shadowed),
+        } : undefined,
+        finallyNode: n.finallyNode ? {
+          ...n.finallyNode,
+          body: substitutePropsInLogicStmts(n.finallyNode.body, propExprMap, shadowed),
+        } : undefined,
+      } satisfies TryStmtNode;
+    }
+    case "match-stmt": {
+      const n = stmt as MatchStmtNode;
+      return {
+        ...n,
+        headerExpr: subInExpr(n.headerExpr),
+        body: substitutePropsInLogicStmts(n.body, propExprMap, shadowed),
+      } satisfies MatchStmtNode;
+    }
+    case "match-arm-inline": {
+      const n = stmt as MatchArmInlineNode;
+      // Extend shadowed with the arm's binding (if any) for the result expression.
+      const armShadowed = n.binding ? new Set([...shadowed, n.binding]) : shadowed;
+      return {
+        ...n,
+        resultExpr: n.resultExpr ? substitutePropsInExprNode(n.resultExpr, propExprMap, armShadowed) : n.resultExpr,
+      } satisfies MatchArmInlineNode;
+    }
+    case "bare-expr": {
+      const n = stmt as BareExprNode;
+      return { ...n, exprNode: subInExpr(n.exprNode) } satisfies BareExprNode;
+    }
+    case "lift-expr": {
+      const n = stmt as LiftExprNode;
+      // LiftTarget can be inline markup or an expression; we only walk the expr case.
+      // Markup target case is handled by recursion into MarkupNode children via substituteProps.
+      const tgt = (n as any).expr;
+      if (tgt && typeof tgt === "object" && tgt.kind && (tgt.kind === "ident" || tgt.kind === "lit" || tgt.kind === "binary" || tgt.kind === "call" || tgt.kind === "member" || tgt.kind === "lambda" || tgt.kind === "ternary")) {
+        return { ...n, expr: substitutePropsInExprNode(tgt as ExprNode, propExprMap, shadowed) } as LiftExprNode;
+      }
+      // Otherwise recurse via substituteProps for the markup-target case
+      if (tgt && typeof tgt === "object" && tgt.kind === "markup") {
+        // We need access to the (string) props for markup recursion; the caller
+        // (substituteProps) will handle this case via its array-walk fallback.
+      }
+      return n;
+    }
+    case "propagate-expr": {
+      const n = stmt as PropagateExprNode;
+      // Binding (if present) shadows props in subsequent statements.
+      if (n.binding) shadowed.add(n.binding);
+      return { ...n, exprNode: subInExpr(n.exprNode) } satisfies PropagateExprNode;
+    }
+    case "guarded-expr": {
+      const n = stmt as GuardedExprNode;
+      return {
+        ...n,
+        guardedNode: substitutePropsInLogicStmt(n.guardedNode, propExprMap, shadowed),
+      } satisfies GuardedExprNode;
+    }
+    case "when-effect": {
+      const n = stmt as WhenEffectNode;
+      return { ...n, bodyExpr: subInExpr(n.bodyExpr) } satisfies WhenEffectNode;
+    }
+    case "when-message": {
+      const n = stmt as WhenMessageNode;
+      // The binding name shadows props inside the body
+      if (n.bodyExpr) {
+        const inner = new Set(shadowed);
+        if (n.binding) inner.add(n.binding);
+        return { ...n, bodyExpr: substitutePropsInExprNode(n.bodyExpr, propExprMap, inner) } satisfies WhenMessageNode;
+      }
+      return n;
+    }
+    case "cleanup-registration": {
+      const n = stmt as CleanupRegistrationNode;
+      return { ...n, callbackExpr: subInExpr(n.callbackExpr) } satisfies CleanupRegistrationNode;
+    }
+    case "debounce-call": {
+      const n = stmt as DebounceCallNode;
+      return { ...n, fnExpr: subInExpr(n.fnExpr) } satisfies DebounceCallNode;
+    }
+    case "throttle-call": {
+      const n = stmt as ThrottleCallNode;
+      return { ...n, fnExpr: subInExpr(n.fnExpr) } satisfies ThrottleCallNode;
+    }
+    case "upload-call": {
+      const n = stmt as UploadCallNode;
+      return {
+        ...n,
+        fileExpr: subInExpr(n.fileExpr),
+        urlExpr: subInExpr(n.urlExpr),
+      } satisfies UploadCallNode;
+    }
+    case "transaction-block": {
+      const n = stmt as TransactionBlockNode;
+      return {
+        ...n,
+        body: substitutePropsInLogicStmts(n.body, propExprMap, shadowed),
+      } satisfies TransactionBlockNode;
+    }
+    case "markup":
+      // Defer to substituteProps for markup nodes that appear as logic-body children.
+      // We do not have the (string) props map here — return as-is; the outer
+      // substituteProps walker will descend into markup via its array-walk fallback.
+      return stmt;
+    case "meta": {
+      const n = stmt as MetaNode;
+      return {
+        ...n,
+        body: substitutePropsInLogicStmts(n.body, propExprMap, shadowed),
+      } satisfies MetaNode;
+    }
+    default:
+      // import-decl, export-decl, type-decl, fail-expr, html-fragment, sql, css-inline,
+      // error-effect, reactive-array-mutation, reactive-explicit-set, component-def,
+      // use-decl — none of these contain ExprNode subtrees that need prop substitution
+      // (or carry only raw strings that we leave unchanged).
+      return stmt;
+  }
+}
+
+/**
+ * Substitute props recursively through a cloned AST node tree.
+ *
+ * F-COMPONENT-004: extended to accept an optional `propExprMap` (typed prop
+ * values keyed by name) used by `substitutePropsInExprNode` to substitute
+ * IdentExpr references inside logic-block bodies.
+ */
+function substituteProps(
+  node: ASTNode,
+  props: Map<string, string>,
+  propExprMap?: Map<string, ExprNode>,
+): ASTNode {
   if (!node || typeof node !== "object") return node;
   if (props.size === 0) return node;
 
@@ -586,8 +1322,42 @@ function substituteProps(node: ASTNode, props: Map<string, string>): ASTNode {
       });
     }
     if (Array.isArray(cloned.children)) {
-      cloned.children = (cloned.children as ASTNode[]).map((child: ASTNode) => substituteProps(child, props));
+      cloned.children = (cloned.children as ASTNode[]).map((child: ASTNode) => substituteProps(child, props, propExprMap));
     }
+    return cloned as unknown as ASTNode;
+  }
+
+  // F-COMPONENT-004: Logic blocks — walk body statements and substitute prop refs
+  // inside ExprNode subtrees. Without this, identifier references to props inside
+  // logic-block bodies would error at TS as undeclared.
+  if (cloned.kind === "logic" && propExprMap && Array.isArray(cloned.body)) {
+    const newBody = substitutePropsInLogicStmts(
+      cloned.body as LogicStatement[],
+      propExprMap,
+      new Set<string>(),
+    );
+    cloned.body = newBody;
+    // Also recurse into any markup children embedded as body items (e.g. lift target markup)
+    cloned.body = (cloned.body as LogicStatement[]).map((item: any) => {
+      if (item && typeof item === "object" && (item.kind === "markup" || item.kind === "state")) {
+        return substituteProps(item as ASTNode, props, propExprMap) as LogicStatement;
+      }
+      // Lift-expr with markup target: descend into the markup
+      if (item && item.kind === "lift-expr" && item.expr && typeof item.expr === "object" && (item.expr.kind === "markup" || item.expr.kind === "state")) {
+        return { ...item, expr: substituteProps(item.expr as ASTNode, props, propExprMap) } as LogicStatement;
+      }
+      return item;
+    });
+    return cloned as unknown as ASTNode;
+  }
+
+  // F-COMPONENT-004: Meta blocks share the LogicStatement[] body shape.
+  if (cloned.kind === "meta" && propExprMap && Array.isArray(cloned.body)) {
+    cloned.body = substitutePropsInLogicStmts(
+      cloned.body as LogicStatement[],
+      propExprMap,
+      new Set<string>(),
+    );
     return cloned as unknown as ASTNode;
   }
 
@@ -597,7 +1367,7 @@ function substituteProps(node: ASTNode, props: Map<string, string>): ASTNode {
     if (Array.isArray(cloned[key])) {
       cloned[key] = (cloned[key] as unknown[]).map((item: unknown) => {
         if (item && typeof item === "object" && (item as Record<string, unknown>).kind) {
-          return substituteProps(item as ASTNode, props);
+          return substituteProps(item as ASTNode, props, propExprMap);
         }
         return item;
       });
@@ -871,8 +1641,13 @@ function expandComponentNode(
     }
   }
 
+  // F-COMPONENT-004: Build the typed-ExprNode form of each prop value for
+  // logic-block substitution. The string-form `props` map is still used for
+  // markup-text and string-literal-attr substitution.
+  const propExprMap = buildPropExprMap(props, callerAttrs, def.propsDecl, filePath ?? (node.span?.file ?? ""), node.span ?? { file: filePath ?? "", start: 0, end: 0, line: 1, col: 1 });
+
   // Clone and substitute props into the definition's primary root node
-  let expanded = substituteProps(defNode, props) as MarkupNode;
+  let expanded = substituteProps(defNode, props, propExprMap) as MarkupNode;
 
   // Merge class attribute:
   // Find the base class on the definition root element
@@ -973,7 +1748,7 @@ function expandComponentNode(
 
   // Expand secondary root nodes: prop substitution only, no attr/class/children merging
   const secondaryNodes: MarkupNode[] = extraDefNodes.map((extraNode: MarkupNode) => ({
-    ...(substituteProps(extraNode, props) as MarkupNode),
+    ...(substituteProps(extraNode, props, propExprMap) as MarkupNode),
     id: ++counter.next,
     isComponent: false,
     _expandedFrom: componentName,
