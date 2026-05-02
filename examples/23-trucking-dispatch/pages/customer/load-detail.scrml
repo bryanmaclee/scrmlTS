@@ -23,6 +23,8 @@
       import { statusBadgeClasses, statusLabel } from '../../components/load-status-badge.scrml'
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channel — see SPEC §38.12.6.
+      import { "load-events" as loadEvents } from '../../channels/load-events.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, assignments, drivers, tractors, trailers, log_entries, invoices, lin_tokens">
@@ -312,28 +314,10 @@
         }
     }
 
-    <!-- M5: load-events subscription for live status updates. Driver
-         posts location pings here and status transitions; dispatcher
-         posts status changes too. Customer is a read-only subscriber. -->
-    <channel name="load-events">
-        ${
-            @shared loadEvents = []
-
-            // Subscribe-only role on this page — there's no customer-side
-            // mutation that publishes to load-events. The publish helper
-            // is declared so the @shared sync infrastructure has the
-            // server-side hook (per example 15 pattern).
-            server function publishLoadEvent(eventType, loadId, status, location) {
-                loadEvents = [...loadEvents, {
-                    type: eventType,
-                    loadId: loadId,
-                    status: status,
-                    location: location,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: load-events channel — see channels/load-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). Customer is a
+         read-only subscriber here; driver / dispatcher are publishers. -->
+    <loadEvents/>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">

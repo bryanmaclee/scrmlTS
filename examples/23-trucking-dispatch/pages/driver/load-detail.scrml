@@ -47,6 +47,7 @@
       // M5: centralized real-time channels — see SPEC §38.12.6.
       import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
       import { "customer-events" as customerEvents } from '../../channels/customer-events.scrml'
+      import { "load-events" as loadEvents } from '../../channels/load-events.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries, lin_tokens">
@@ -546,22 +547,9 @@
          Inlined at compile time by CHX (SPEC §38.12). -->
     <dispatchBoard/>
 
-    <!-- M5: load-events broadcast for per-load updates. -->
-    <channel name="load-events">
-        ${
-            @shared loadEvents = []
-
-            server function publishLoadEvent(eventType, loadId, status, location) {
-                loadEvents = [...loadEvents, {
-                    type: eventType,
-                    loadId: loadId,
-                    status: status,
-                    location: location,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: load-events channel — see channels/load-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). -->
+    <loadEvents/>
 
     <!-- M5: customer-events channel — see channels/customer-events.scrml.
          Inlined at compile time by CHX (SPEC §38.12). Driver publishes

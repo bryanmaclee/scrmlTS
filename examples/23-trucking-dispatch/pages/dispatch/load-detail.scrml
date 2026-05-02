@@ -32,6 +32,7 @@
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
       // M5: centralized real-time channels — see SPEC §38.12.6.
       import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
+      import { "load-events" as loadEvents } from '../../channels/load-events.scrml'
 
       // Inlined transition validator — duplicates status-picker's validNextStates
       // because cross-file `fn` calls inside server functions trigger
@@ -348,24 +349,11 @@
          Inlined at compile time by CHX (SPEC §38.12). -->
     <dispatchBoard/>
 
-    <!-- M5: load-events broadcast for per-load updates (driver, customer,
-         dispatcher of the same load all subscribe). Each event payload
+    <!-- M5: load-events channel — see channels/load-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). Driver / customer /
+         dispatcher of the same load all subscribe. Each event payload
          carries loadId so subscribers can filter on relevance. -->
-    <channel name="load-events">
-        ${
-            @shared loadEvents = []
-
-            server function publishLoadEvent(eventType, loadId, status, location) {
-                loadEvents = [...loadEvents, {
-                    type: eventType,
-                    loadId: loadId,
-                    status: status,
-                    location: location,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <loadEvents/>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
