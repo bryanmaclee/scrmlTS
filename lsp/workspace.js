@@ -2,7 +2,8 @@
  * scrml LSP — workspace cache (L2 "See the workspace").
  *
  * Owns the multi-file state needed by cross-file features:
- *   - exportRegistry  Map<absPath, Map<exportName, { kind, isComponent }>>
+ *   - exportRegistry  Map<absPath, Map<exportName, { kind, category, isComponent }>>
+ *                     P3-FOLLOW: category is NR-authoritative; isComponent is a derived legacy field.
  *   - fileASTMap      Map<absPath, { filePath, ast, errors, _sourceText }>
  *   - importGraph     Map<absPath, { imports: [...], exports: [...] }>
  *   - moduleErrors    Map<absPath, ModuleError[]>  (E-IMPORT-* per importer)
@@ -61,7 +62,7 @@ import { resolveModules } from "../compiler/src/module-resolver.js";
  * @returns {{
  *   rootPath: string|null,
  *   fileASTMap: Map<string, object>,
- *   exportRegistry: Map<string, Map<string, {kind:string, isComponent:boolean}>>,
+ *   exportRegistry: Map<string, Map<string, {kind:string, category?:string, isComponent:boolean}>>,
  *   importGraph: Map<string, {imports: object[], exports: object[]}>,
  *   moduleErrors: Map<string, object[]>,
  *   sourceTextByPath: Map<string, string>,

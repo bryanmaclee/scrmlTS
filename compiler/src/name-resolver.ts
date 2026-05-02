@@ -13,9 +13,11 @@
  *                   | 'user-component' | 'user-state-type' | 'unknown'
  *
  * Phase P1 — SHADOW MODE.  NR runs and emits diagnostics, but downstream
- * stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent`
- * discriminator. The new fields are advisory in P1; the routing flip moves
- * to P2/P3 once shadow-mode results have been validated.
+ * stages (CE, MOD, TS, codegen) initially routed on the legacy `isComponent`
+ * discriminator. The routing flip happened in P3-FOLLOW: NR is now authoritative
+ * — `resolvedKind` / `resolvedCategory` drive routing in CE, TS, validators,
+ * and LSP. The legacy `isComponent` boolean is retained as a derived field
+ * for AST shape backcompat but is no longer the authoritative signal.
  *
  * Diagnostics emitted by NR:
  *   W-CASE-001       Lowercase user-declared state-type/component shadowing
@@ -383,9 +385,11 @@ function walk(nodes: ASTNode[], ctx: ResolutionContext, acc: WalkAccumulator): v
 export interface NRInput {
   filePath: string;
   ast: FileAST;
-  /** MOD's exportRegistry (Map<filePath, Map<name, {kind, isComponent}>>). Optional;
-   *  when absent NR runs same-file-only resolution. */
-  exportRegistry?: Map<string, Map<string, { kind: string; isComponent: boolean }>>;
+  /** MOD's exportRegistry. Optional; when absent NR runs same-file-only
+   *  resolution. P3-FOLLOW: each entry carries `category` (NR-authoritative,
+   *  matches NR's resolvedCategory vocabulary) plus the legacy `isComponent`
+   *  derived field. NR prefers `category` for kind/category derivation. */
+  exportRegistry?: Map<string, Map<string, { kind: string; isComponent: boolean; category?: string }>>;
   /** MOD's importGraph (per-file imports). When provided alongside exportRegistry,
    *  NR resolves imported names that match an opener tag. */
   importGraph?: Map<string, { imports: Array<{ names: string[]; absSource: string }> }>;
@@ -412,9 +416,23 @@ export function runNR(input: NRInput): NRResult {
         for (const importedName of imp.names ?? []) {
           const exported = targetExports.get(importedName);
           if (!exported) continue;
-          const local: LocalDecl = exported.isComponent
-            ? { kind: "user-component", category: "user-component" }
-            : { kind: "user-state-type", category: "user-state-type" };
+          // P3-FOLLOW: prefer info.category (NR-authoritative); fall back
+          // to legacy info.isComponent for older registry entries that lack
+          // the category field. The two paths produce equivalent LocalDecl.
+          let local: LocalDecl;
+          if (exported.category === "user-component") {
+            local = { kind: "user-component", category: "user-component" };
+          } else if (exported.category != null) {
+            // Non-component category from registry (e.g. "type", "function",
+            // "channel"). For NR's local-decl purposes treat as user-state-type
+            // (same as legacy non-component branch).
+            local = { kind: "user-state-type", category: "user-state-type" };
+          } else if (exported.isComponent) {
+            // Fallback: legacy registry entry without category.
+            local = { kind: "user-component", category: "user-component" };
+          } else {
+            local = { kind: "user-state-type", category: "user-state-type" };
+          }
           // Same-file declarations win over imports.
           if (!sameFileRegistry.has(importedName)) {
             importedRegistry.set(importedName, local);
@@ -457,7 +475,7 @@ export function runNR(input: NRInput): NRResult {
  */
 export function runNRBatch(
   tabResults: Array<{ filePath: string; ast: FileAST }>,
-  exportRegistry?: Map<string, Map<string, { kind: string; isComponent: boolean }>>,
+  exportRegistry?: Map<string, Map<string, { kind: string; isComponent: boolean; category?: string }>>,
   importGraph?: Map<string, { imports: Array<{ names: string[]; absSource: string }> }>,
 ): NRResult[] {
   const out: NRResult[] = [];

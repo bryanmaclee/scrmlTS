@@ -1923,7 +1923,12 @@ export function buildImportCompletions(text, offset, analysis, workspace) {
   const items = [];
   for (const [name, info] of exports) {
     if (ctx.prefix && !name.startsWith(ctx.prefix)) continue;
-    const kind = info?.isComponent
+    // P3-FOLLOW: prefer info.category (NR-authoritative); fall back to
+    // info.isComponent for older registry entries.
+    const isComp =
+      info?.category === "user-component" ||
+      (info?.category == null && info?.isComponent === true);
+    const kind = isComp
       ? CompletionItemKind.Class
       : info?.kind === "type"
         ? CompletionItemKind.TypeParameter
@@ -1961,7 +1966,12 @@ export function listImportedCrossFileComponents(workspace, importerPath) {
     if (!targetExports) continue;
     for (const importedName of imp.names || []) {
       const info = targetExports.get(importedName);
-      if (info?.isComponent) {
+      // P3-FOLLOW: prefer info.category (NR-authoritative); fall back to
+      // info.isComponent for older registry entries.
+      const isComp =
+        info?.category === "user-component" ||
+        (info?.category == null && info?.isComponent === true);
+      if (isComp) {
         out.push({ name: importedName, sourcePath: targetPath });
       }
     }
