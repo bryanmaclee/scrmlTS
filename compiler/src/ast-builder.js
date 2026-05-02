@@ -7285,12 +7285,12 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         const forMatch = header.match(new RegExp(`\\bfor\\s*=\\s*(${IDENT.source})\\b`));
         const derivedMatch = header.match(new RegExp(`\\bderived\\s*=\\s*@(${IDENT.source})\\b`));
 
-        let machineName = "";
+        let engineName = "";
         let governedType = "";
         let sourceVar = null;
 
         if (nameMatch) {
-          machineName = nameMatch[1];
+          engineName = nameMatch[1];
           if (forMatch) governedType = forMatch[1];
           if (derivedMatch) sourceVar = derivedMatch[1];
         } else {
@@ -7299,10 +7299,10 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           // a hard error so the file fails to compile.
           const forIdx = header.indexOf(" for ");
           if (forIdx >= 0) {
-            machineName = header.slice(0, forIdx).trim();
+            engineName = header.slice(0, forIdx).trim();
             governedType = header.slice(forIdx + 5).trim();
           } else {
-            machineName = header.trim();
+            engineName = header.trim();
           }
           const legacyDerived = governedType.match(/^(.*?)\s+derived\s+from\s+@([A-Za-z_$][A-Za-z0-9_$]*)\s*$/);
           if (legacyDerived) {
@@ -7312,7 +7312,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
           errors.push(new TABError(
             "E-MACHINE-020",
             `E-MACHINE-020: \`< machine>\` opener uses the pre-S25 sentence form. ` +
-            `Use the attribute form: \`< machine name=${machineName || "MachineName"} for=${governedType || "TypeName"}${sourceVar ? ` derived=@${sourceVar}` : ""}>\`. ` +
+            `Use the attribute form: \`< machine name=${engineName || "MachineName"} for=${governedType || "TypeName"}${sourceVar ? ` derived=@${sourceVar}` : ""}>\`. ` +
             `The attribute form aligns with the rest of scrml's declarative syntax (@x: Type, as Type, type Foo).`,
             span,
           ));
@@ -7336,7 +7336,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         return {
           id: ++counter.next,
           kind: "machine-decl",
-          machineName,
+          machineName: engineName,
           governedType,
           rulesRaw,
           sourceVar, // §51.9: name of the source reactive var (no `@` prefix), or null
