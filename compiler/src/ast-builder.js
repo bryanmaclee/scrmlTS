@@ -6881,6 +6881,9 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         typeDecls,
         components,
         span,
+        // P2 §21.2 Form 1 marker — preserved from synthetic logic block
+        // produced by liftBareDeclarations when desugaring `export <Foo>...</>`.
+        ...(block._p2Form1 ? { _p2Form1: true, _p2Form1Name: block._p2Form1Name } : {}),
       };
     }
 
