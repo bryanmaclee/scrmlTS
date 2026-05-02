@@ -42,6 +42,16 @@ interface ChannelHandlers {
 
 /**
  * Walk an AST node tree and collect all `<channel>` markup nodes.
+ *
+ * P3.A: channels marked `_p3aIsExport: true` are EXPORTER-side declarations
+ * that have been inlined into every consumer by CHX (CE phase 2). Including
+ * them in this file's emit set would duplicate the WS routes and `@shared`
+ * mirrors. Per P3 dive §6.2 step 9 (PURE-CHANNEL-FILE recognition), the
+ * exporter file emits no per-channel artifacts; codegen happens at the
+ * inlined-consumer site. We filter exported channels here so the rest of
+ * the channel emit pipeline (`emitChannelClientJs`, `emitChannelServerJs`,
+ * `emitChannelWsHandlers`) sees only locally-declared (per-page) channels
+ * AND the inlined copies that landed in consumer files via CHX.
  */
 export function collectChannelNodes(nodes: any[]): any[] {
   const result: any[] = [];
@@ -52,7 +62,11 @@ export function collectChannelNodes(nodes: any[]): any[] {
 
       if (node.kind === "markup") {
         if ((node.tag ?? "") === "channel") {
-          result.push(node);
+          // P3.A: skip the exporter's own channel emit; consumers' inlined
+          // copies (which lack the _p3aIsExport flag) emit the WS layer.
+          if (node._p3aIsExport !== true) {
+            result.push(node);
+          }
         }
         if (Array.isArray(node.children)) {
           visit(node.children);
