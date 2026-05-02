@@ -19888,7 +19888,7 @@ Mismatches emit **E-STATE-MACHINE-DIVERGENCE**.
 
 ```scrml
 @sub: Submission = < Draft> ...</>
-bind @sub -> < machine SubmissionFlow>
+bind @sub -> < engine SubmissionFlow>
 @sub = @sub.validate(now)
 ```
 
@@ -19909,7 +19909,7 @@ The state-local transition body runs. No machine rules apply. The assignment is 
 
 ```scrml
 @sub: Submission = < Draft> ...</>
-bind @sub -> < machine SubmissionFlow>
+bind @sub -> < engine SubmissionFlow>
 @sub = < Validated> id=..., title=..., body=..., validatedAt=now </>
 ```
 
