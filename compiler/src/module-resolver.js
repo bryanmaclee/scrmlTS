@@ -284,12 +284,17 @@ export function topologicalSort(graph) {
 /**
  * Build an export registry: Map<filePath, Map<name, {kind, category, isComponent}>>
  *
- * P3.A: each entry now carries a `category` field
- * ("component" | "channel" | "type" | "function" | "const" | "other") that
- * downstream stages (NR's importedRegistry, CHX's cross-file lookup) can
- * branch on. The legacy `isComponent` boolean is retained as a derived
- * field (`category === "component"`) for backcompat with the 75 in-tree
- * `isComponent` references.
+ * P3.A: each entry carries a `category` field that downstream stages
+ * (NR's importedRegistry, CE's cross-file lookup, CHX's channel inlining)
+ * branch on.
+ *
+ * P3-FOLLOW: category vocabulary aligned with NR's `resolvedCategory`. The
+ * value set is now:
+ *   ("user-component" | "channel" | "type" | "function" | "const" | "other")
+ * Components use "user-component" (matching NR's resolvedCategory). The
+ * legacy `isComponent` boolean is retained as a derived field
+ * (`category === "user-component"`) for backwards compatibility with
+ * non-routing consumers.
  *
  * @param {Map<string, object>} graph
  * @returns {Map<string, Map<string, {kind: string, category: string, isComponent: boolean}>>}
@@ -310,11 +315,17 @@ export function buildExportRegistry(graph) {
       // exports have `kind === "type"`; function exports have
       // `kind === "function"` or `"fn"`. Component is the special-cased
       // PascalCase const path (legacy).
+      // P3-FOLLOW: align category vocabulary with NR (`resolvedCategory`).
+      // NR uses "user-component" for resolved component references; this
+      // registry now uses the same name so cross-file CE routing reads from
+      // a single canonical category. The legacy "component" category name
+      // is gone (was used only here and in doc comments — no other
+      // consumers per `grep -rn "category === \"component\""`).
       let category;
       if (kind === "channel") {
         category = "channel";
       } else if (isComponent) {
-        category = "component";
+        category = "user-component";
       } else if (kind === "type") {
         category = "type";
       } else if (kind === "function" || kind === "fn") {

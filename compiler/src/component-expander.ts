@@ -3,7 +3,7 @@
  *
  * Runs after TAB (Stage 3) and Module Resolution, before BPP (Stage 3.5).
  * For each file, builds a component registry from `component-def` nodes
- * in `ast.components`, then replaces all `isComponent: true` markup nodes
+ * in `ast.components`, then replaces all markup nodes resolved to a user-component
  * with expanded copies of the component's root element.
  *
  * Phase 1 scope:
@@ -20,9 +20,9 @@
  * Output contract:
  *   { filePath: string, ast: FileAST, errors: CEError[] }
  *   — `component-def` nodes are consumed from ast.components and ast.nodes (removed)
- *   — `isComponent: true` markup nodes are replaced by expanded HTML markup nodes
+ *   — markup nodes with `resolvedKind === "user-component"` are replaced by expanded HTML markup nodes
  *   — No node at any depth of the AST retains kind === "component-def"
- *   — No markup node with isComponent: true remains (resolved ones are expanded;
+ *   — No markup node with `resolvedKind === "user-component"` remains (resolved ones are expanded;
  *     unresolved ones produce E-COMPONENT-020 and are left in place as-is)
  *
  * Error codes:
@@ -185,6 +185,33 @@ type ImportWithSpecifiers = ImportDeclNode & {
 interface ExportInfo {
   isComponent: boolean;
   category?: string;
+}
+
+
+// ---------------------------------------------------------------------------
+// P3-FOLLOW: NR-authoritative user-component predicate
+// ---------------------------------------------------------------------------
+//
+// Returns true when a markup node represents a user-component reference.
+// The predicate prefers NR's resolvedKind (authoritative when NR has run);
+// when resolvedKind is absent (unit-test paths that call runCE without first
+// running runNR), it falls back to BS's legacy isComponent boolean. The
+// fallback preserves backwards compatibility for direct CE callers; in
+// production (api.js) NR always runs before CE so the resolvedKind path
+// dominates. When NR ran AND classified the tag as something else
+// (html-builtin, user-state-type, etc.) the predicate refuses to call it
+// a component reference — NR wins over the BS heuristic.
+//
+// NOTE: cross-file imports use info.category === "user-component" on the
+// exportRegistry record (also NR-authoritative); see lookupImportedComponent
+// helpers further below.
+function isUserComponentMarkup(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
+  const m = node as { kind?: string; resolvedKind?: string; isComponent?: boolean };
+  if (m.kind !== "markup") return false;
+  if (m.resolvedKind === "user-component") return true;
+  if (m.resolvedKind == null && m.isComponent === true) return true;
+  return false;
 }
 
 /** Cross-file export registry: source-path → (name → ExportInfo). */
@@ -1405,7 +1432,7 @@ function mergeClasses(baseClass: string | null, callerClass: string | null): str
 /**
  * Expand a single component reference node.
  *
- * Replaces `node` (an isComponent: true markup node) with the component's
+ * Replaces `node` (a markup node resolved as user-component) with the component's
  * root elements, merging attributes and substituting props.
  *
  * For multi-root components:
@@ -2003,11 +2030,15 @@ function walkAndExpand(
     }
 
     // Expand component reference nodes
-    if (node.kind === "markup" && (node as MarkupNode).isComponent === true) {
+    // P3-FOLLOW: route via isUserComponentMarkup() — NR-authoritative when
+    // resolvedKind is set, falls back to legacy isComponent when NR was bypassed.
+    if (isUserComponentMarkup(node)) {
       const expandedNodes = expandComponentNode(node as MarkupNode, registry, filePath, counter, ceErrors);
-      // For each expanded node: if expansion succeeded (isComponent: false), recurse into children
+      // For each expanded node: if expansion succeeded the synthesized HTML is no
+      // longer a user-component reference. The post-CE invariant (VP-2) catches
+      // any residual user-component nodes.
       for (const expanded of expandedNodes) {
-        if (expanded && expanded !== node && expanded.isComponent !== true) {
+        if (expanded && expanded !== node && !isUserComponentMarkup(expanded)) {
           const expandedChildren = walkAndExpand(
             expanded.children ?? [],
             registry, filePath, counter, ceErrors
@@ -2145,7 +2176,8 @@ function walkLogicBody(
       const expr = n.expr as Record<string, unknown>;
       if (expr.kind === "markup") {
         const liftMarkup = expr.node as MarkupNode;
-        if (liftMarkup && liftMarkup.kind === "markup" && liftMarkup.isComponent === true) {
+        // P3-FOLLOW: route via isUserComponentMarkup().
+        if (liftMarkup && liftMarkup.kind === "markup" && isUserComponentMarkup(liftMarkup)) {
           const expandedNodes = expandComponentNode(liftMarkup, registry, filePath, counter, ceErrors);
           // For lift-expr: take the first expanded node (Phase 2 for full multi-root lift)
           const expanded = expandedNodes[0];
@@ -2159,7 +2191,7 @@ function walkLogicBody(
           // F1 (W2): the lift target is a wrapper element (e.g. <li>) — walk
           // its subtree so any nested component references inside the wrapper
           // get expanded. Pre-W2 the wrapper case fell through with the
-          // residual isComponent: true child intact, then surfaced as
+          // residual user-component child intact, then surfaced as
           // VP-2 E-COMPONENT-035 post-W1 (silent phantom DOM pre-W1).
           const newChildren = walkAndExpand(
             liftMarkup.children ?? [],
@@ -2187,10 +2219,14 @@ function walkLogicBody(
           // For bare refs, construct a minimal markup node directly without re-parsing.
           const isBareRef = /^<\s*[A-Z][A-Za-z0-9_]*\s*>?\s*$/.test(rawExpr);
           if (isBareRef) {
+            // P3-FOLLOW: stamp NR-authoritative routing fields alongside the
+            // legacy isComponent boolean (kept for AST shape backcompat).
             const bareMarkup = {
               kind: "markup" as const,
               tag: tagMatch[1],
               isComponent: true,
+              resolvedKind: "user-component" as const,
+              resolvedCategory: "user-component" as const,
               attributes: [],
               children: [],
               id: ++counter.next,
@@ -2219,7 +2255,14 @@ function walkLogicBody(
             const bsResult = splitBlocks(filePath, normalized);
             const tabResult = buildAST(bsResult, null);
             const reparsedNodes = tabResult?.ast?.nodes ?? [];
-            // Find the first markup node with isComponent
+            // Find the first markup node that is a component reference.
+            // P3-FOLLOW note: this re-parse path runs on a freshly-constructed
+            // mini-AST (BS+TAB only — no NR), so resolvedKind is not yet stamped.
+            // The legacy isComponent boolean is BS's syntactic uppercase-first-char
+            // predicate, which is exactly what we need on a raw-string re-parse.
+            // isUserComponentMarkup() falls back to isComponent in this case, so
+            // it's safe to use here too — but the direct read is clearer about
+            // intent (this is a syntactic check, not a routing decision).
             const markupNode = reparsedNodes.find(
               (rn: MarkupNode) => rn && rn.kind === "markup" && rn.isComponent === true
             ) as MarkupNode | undefined;
@@ -2264,13 +2307,14 @@ function walkLogicBody(
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether any node in an AST node array has isComponent: true.
+ * Check whether any node in an AST node array is a user-component reference (NR-authoritative).
  * Used to skip CE processing on files with no component references.
  */
 function hasAnyComponentRefs(nodes: ASTNode[]): boolean {
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
-    if (node.kind === "markup" && (node as MarkupNode).isComponent === true) return true;
+    // P3-FOLLOW: route via isUserComponentMarkup().
+    if (isUserComponentMarkup(node)) return true;
     if ((node.kind === "markup" || node.kind === "state") && Array.isArray((node as MarkupNode).children)) {
       if (hasAnyComponentRefs((node as MarkupNode).children ?? [])) return true;
     }
@@ -2283,13 +2327,14 @@ function hasAnyComponentRefs(nodes: ASTNode[]): boolean {
 
 /**
  * Recursively walk a markup-shaped node tree, returning true when any
- * descendant has `isComponent: true`. Used by hasAnyComponentRefsInLogic to
+ * descendant is a user-component (`resolvedKind === "user-component"`). Used by hasAnyComponentRefsInLogic to
  * descend into the lift target subtree (W2 F1 fix).
  */
 function markupTreeHasComponentRef(markupNode: unknown): boolean {
   if (!markupNode || typeof markupNode !== "object") return false;
   const m = markupNode as Record<string, unknown>;
-  if (m.isComponent === true) return true;
+  // P3-FOLLOW: route via isUserComponentMarkup().
+  if (isUserComponentMarkup(m)) return true;
   if (Array.isArray(m.children)) {
     for (const child of m.children as unknown[]) {
       if (!child || typeof child !== "object") continue;
@@ -2418,7 +2463,12 @@ export function runCEFile(
       const names = importExt.specifiers ? importExt.specifiers.map((s) => s.imported) : (imp.names ?? []);
       return names.some((name: string) => {
         const info = targetExports.get(name);
-        return info && info.isComponent;
+        // P3-FOLLOW: prefer info.category (NR-authoritative); fall back to
+        // info.isComponent for backwards compatibility with older registry
+        // entries that haven't been re-stamped with category.
+        if (info && info.category === "user-component") return true;
+        if (info && info.category == null && info.isComponent === true) return true;
+        return false;
       });
     });
 
@@ -2486,7 +2536,13 @@ export function runCEFile(
       const importedNames = importExt.specifiers ? importExt.specifiers.map((s) => s.imported) : (imp.names ?? []);
       for (const importedName of importedNames) {
         const info = targetExports.get(importedName);
-        if (!info || !info.isComponent) continue;
+        // P3-FOLLOW: prefer info.category (NR-authoritative); fall back to
+        // info.isComponent for older registry entries.
+        if (!info) continue;
+        const isUserComponent =
+          info.category === "user-component" ||
+          (info.category == null && info.isComponent === true);
+        if (!isUserComponent) continue;
 
         // Path (a): direct component-def in target's ast.components
         let compDef: ExtendedComponentDefNode | undefined =
@@ -2560,9 +2616,10 @@ export function runCEFile(
   // kind: "markup", tag: "channel" so codegen runs unchanged.
   //
   // Per the dive §8.4 routing-table: channel routing is NR-authoritative
-  // (resolvedCategory === "channel"); component routing stays
-  // isComponent-routed (Phase 1 above). The 75 isComponent-site migration
-  // is deferred to P3-FOLLOW.
+  // (resolvedCategory === "channel"). P3-FOLLOW: component routing in
+  // Phase 1 above is now also NR-authoritative — the gate uses the helper
+  // isUserComponentMarkup() which prefers resolvedKind === "user-component"
+  // and falls back to legacy isComponent only when NR has not run.
   // -------------------------------------------------------------------------
   let phase2Nodes = expandedNodes;
   if (exportRegistry && fileASTMap) {
@@ -2587,7 +2644,7 @@ export function runCEFile(
   }
 
   // Produce updated AST:
-  // - nodes: expanded (component-defs consumed from logic bodies, isComponent refs replaced;
+  // - nodes: expanded (component-defs consumed from logic bodies, user-component refs replaced;
   //          P3.A: cross-file channel refs inlined as <channel> markup nodes)
   // - components: cleared (all definitions have been processed)
   // - channelDecls: re-collected after inlining so downstream stages see the inlined channels

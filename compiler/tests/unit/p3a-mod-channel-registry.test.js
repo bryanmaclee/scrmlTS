@@ -90,8 +90,9 @@ export <channel name="ticker">
     expect(exports).toBeDefined();
     // ticker → channel
     expect(exports.get("ticker").category).toBe("channel");
-    // Card → component (PascalCase const)
-    expect(exports.get("Card").category).toBe("component");
+    // Card → user-component (PascalCase const)
+    // P3-FOLLOW: category vocabulary aligned with NR's resolvedCategory.
+    expect(exports.get("Card").category).toBe("user-component");
     expect(exports.get("Card").isComponent).toBe(true);
     // helper → function
     expect(exports.get("helper").category).toBe("function");
