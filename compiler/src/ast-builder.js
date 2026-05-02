@@ -233,6 +233,236 @@ const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function
  */
 const BARE_EXPORT_AT_END_RE = /(^|\s)export\s*$/;
 
+// ---------------------------------------------------------------------------
+// P2 Form 1 desugaring helpers — body-root absorbs outer attrs (SPEC §21.2)
+//
+// Goal: make `export <Name outerAttrs>{body}</Name>` produce an AST byte-
+// equivalent to `export const Name = <bodyRoot bodyAttrs+outerAttrs>...</bodyRoot>`,
+// i.e. drop the outer self-named wrapper. The body's single root markup
+// element absorbs all of the outer's attributes; the outer tag itself
+// disappears at the source level.
+//
+// Strategy: pure source-string manipulation on the BS-produced raw slices.
+// The outer `next.raw` is `<Name outerAttrs>{children-text-and-blocks}</Name>`.
+// We:
+//   1. Extract the outer's opener-attrs portion (everything between the tag
+//      name and the closing `>` of the opener).
+//   2. Locate the single markup body root in `next.children` (skipping
+//      whitespace text + comments). Multi-rooted / empty bodies trigger
+//      E-EXPORT-002.
+//   3. Compare attribute names between outer attrs and body-root attrs.
+//      Conflicts trigger E-EXPORT-003.
+//   4. Splice the outer attrs into the body root's opener `>`, producing a
+//      new raw `<bodyTag bodyAttrs outerAttrs>...</bodyTag>` that downstream
+//      TAB parses identically to the legacy `export const Name = <markup>` RHS.
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan an opener tag (`<TagName ...>` or `<TagName ... />`) starting at
+ * position `start` in `raw`. Returns metadata about the opener:
+ *   { attrStart, openerEnd, selfClosing, tagName }
+ * where `attrStart` is the offset right after the tag name, and `openerEnd`
+ * is the offset of the closing `>` (or the `/` of `/>` if self-closing).
+ *
+ * Mirrors block-splitter.scanAttributes in respecting:
+ *   - Quote escaping ("..." and '...')
+ *   - Brace nesting (sigil-prefixed ${, ?{, #{, !{, ^{, ~{ and bare {)
+ *   - Paren nesting ((expr))
+ *
+ * Returns null if `raw` is malformed (no closing `>`).
+ */
+function scanOpenerForAttrs(raw, start) {
+  const len = raw.length;
+  if (start >= len || raw[start] !== "<") return null;
+  let pos = start + 1;
+  // Skip optional whitespace per §15.15 uniform opener
+  while (pos < len && /\s/.test(raw[pos])) pos++;
+  const nameStart = pos;
+  while (pos < len && /[A-Za-z0-9_-]/.test(raw[pos])) pos++;
+  const tagName = raw.slice(nameStart, pos);
+  if (!tagName) return null;
+  const attrStart = pos;
+  let inDouble = false, inSingle = false;
+  let braceDepth = 0, parenDepth = 0;
+  let selfClosing = false;
+  let openerEnd = -1;
+  while (pos < len) {
+    const c = raw[pos];
+    if (braceDepth > 0) {
+      if (c === "{") braceDepth++;
+      else if (c === "}") braceDepth--;
+      pos++;
+      continue;
+    }
+    if (parenDepth > 0) {
+      if (c === "(") parenDepth++;
+      else if (c === ")") parenDepth--;
+      pos++;
+      continue;
+    }
+    if (!inDouble && !inSingle) {
+      if (c === ">") { openerEnd = pos; break; }
+      if (c === "/" && raw[pos + 1] === ">") {
+        selfClosing = true;
+        openerEnd = pos;
+        break;
+      }
+      if ((c === "$" || c === "?" || c === "#" || c === "!" || c === "^" || c === "~") && raw[pos + 1] === "{") {
+        braceDepth = 1;
+        pos += 2;
+        continue;
+      }
+      if (c === "{") { braceDepth++; pos++; continue; }
+      if (c === "(") { parenDepth++; pos++; continue; }
+      if (c === '"') { inDouble = true; pos++; continue; }
+      if (c === "'") { inSingle = true; pos++; continue; }
+    } else if (inDouble && c === '"') { inDouble = false; pos++; continue; }
+    else if (inSingle && c === "'") { inSingle = false; pos++; continue; }
+    else if (c === "\\") { pos += 2; continue; }
+    pos++;
+  }
+  if (openerEnd === -1) return null;
+  return { attrStart, openerEnd, selfClosing, tagName };
+}
+
+/**
+ * Extract the trimmed attribute-portion source of an outer markup block.
+ * Returns "" if no attrs, or null if malformed.
+ */
+function extractOuterAttrSource(rawOpener) {
+  const scan = scanOpenerForAttrs(rawOpener, 0);
+  if (!scan) return null;
+  return rawOpener.slice(scan.attrStart, scan.openerEnd).trim();
+}
+
+/**
+ * Parse a flat list of attribute names from a raw attribute-portion string.
+ * Used for conflict detection between outer attrs and body-root attrs.
+ *
+ * For typed-prop syntax `name:type`, the conflict-relevant identifier is the
+ * bare `name` (before `:`). For directives like `bind:value`, the full
+ * `bind:value` is kept so it doesn't collide with `value`.
+ *
+ * Returns an array of `{ name, fullName, span: { start, end } }` (offsets
+ * relative to attrSource).
+ */
+function parseAttrNames(attrSource) {
+  const names = [];
+  const len = attrSource.length;
+  let pos = 0;
+  while (pos < len) {
+    while (pos < len && /\s/.test(attrSource[pos])) pos++;
+    if (pos >= len) break;
+    const nameStart = pos;
+    while (pos < len && /[A-Za-z0-9_:\-.@]/.test(attrSource[pos])) pos++;
+    if (pos === nameStart) { pos++; continue; }
+    const fullName = attrSource.slice(nameStart, pos);
+    let nameForCompare = fullName;
+    const colonIdx = fullName.indexOf(":");
+    if (colonIdx > 0) {
+      const prefix = fullName.slice(0, colonIdx);
+      const DIRECTIVE_PREFIXES = new Set([
+        "bind", "on", "class", "use", "style", "transition", "in", "out", "animate",
+      ]);
+      if (!DIRECTIVE_PREFIXES.has(prefix)) {
+        nameForCompare = prefix;
+      }
+    }
+    names.push({ name: nameForCompare, fullName, span: { start: nameStart, end: pos } });
+    while (pos < len && /\s/.test(attrSource[pos])) pos++;
+    if (pos < len && attrSource[pos] === "=") {
+      pos++;
+      while (pos < len && /\s/.test(attrSource[pos])) pos++;
+      if (pos >= len) break;
+      const c = attrSource[pos];
+      if (c === '"' || c === "'") {
+        const quote = c;
+        pos++;
+        while (pos < len && attrSource[pos] !== quote) {
+          if (attrSource[pos] === "\\" && pos + 1 < len) { pos += 2; continue; }
+          pos++;
+        }
+        if (pos < len) pos++;
+        continue;
+      }
+      if (c === "{" || ((c === "$" || c === "?" || c === "#" || c === "!" || c === "^" || c === "~") && attrSource[pos + 1] === "{")) {
+        if (c !== "{") pos++;
+        let depth = 0;
+        while (pos < len) {
+          const ch = attrSource[pos];
+          if (ch === "{") depth++;
+          else if (ch === "}") { depth--; if (depth === 0) { pos++; break; } }
+          pos++;
+        }
+        continue;
+      }
+      if (c === "(") {
+        let depth = 0;
+        while (pos < len) {
+          const ch = attrSource[pos];
+          if (ch === "(") depth++;
+          else if (ch === ")") { depth--; if (depth === 0) { pos++; break; } }
+          pos++;
+        }
+        continue;
+      }
+      while (pos < len && !/\s/.test(attrSource[pos])) pos++;
+    }
+  }
+  return names;
+}
+
+/**
+ * Find the single root markup block in `children`. Whitespace-only text
+ * blocks and comment blocks are skipped. Returns:
+ *   { ok: true, root }
+ *   { ok: false, reason: "empty" | "multi-rooted", offendingBlocks }
+ */
+function findSingleBodyRoot(children) {
+  const markupChildren = [];
+  const textNonWs = [];
+  for (const child of children) {
+    if (!child) continue;
+    if (child.type === "comment") continue;
+    if (child.type === "text") {
+      if (child.raw.trim().length === 0) continue;
+      textNonWs.push(child);
+      continue;
+    }
+    if (child.type === "markup" || child.type === "state") {
+      markupChildren.push(child);
+      continue;
+    }
+    textNonWs.push(child);
+  }
+  if (markupChildren.length === 0 && textNonWs.length === 0) {
+    return { ok: false, reason: "empty", offendingBlocks: [] };
+  }
+  if (markupChildren.length !== 1 || textNonWs.length > 0) {
+    return { ok: false, reason: "multi-rooted", offendingBlocks: [...markupChildren, ...textNonWs] };
+  }
+  return { ok: true, root: markupChildren[0] };
+}
+
+/**
+ * Splice the outer's attribute-source into the body root's opener.
+ * Given body root's `raw` and the outer attr source, produces a new raw
+ * with the outer attrs appended after the body root's existing attrs.
+ *
+ * Returns the spliced raw string, or null if the body root's opener is
+ * malformed.
+ */
+function spliceAttrsIntoBodyRoot(bodyRootRaw, outerAttrSource) {
+  if (!outerAttrSource) return bodyRootRaw;
+  const scan = scanOpenerForAttrs(bodyRootRaw, 0);
+  if (!scan) return null;
+  const before = bodyRootRaw.slice(0, scan.openerEnd);
+  const after = bodyRootRaw.slice(scan.openerEnd);
+  const sep = /\s$/.test(before) ? "" : " ";
+  return before + sep + outerAttrSource + after;
+}
+
+
 /**
  * Walk a block tree and convert text blocks that start with a bare declaration
  * keyword into synthetic logic blocks.
@@ -265,7 +495,7 @@ const BARE_EXPORT_AT_END_RE = /(^|\s)export\s*$/;
  * @param {object[]} blocks  — Block[] from the Block Splitter
  * @returns {object[]}  — transformed Block[] (new array, no mutation)
  */
-function liftBareDeclarations(blocks, parentType = null) {
+function liftBareDeclarations(blocks, errors, filePath, parentType = null) {
   const result = [];
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
@@ -274,7 +504,7 @@ function liftBareDeclarations(blocks, parentType = null) {
     // are real declarations and need the same lift treatment. Pass
     // parentType="state" so a state block nested inside markup still lifts.
     if (block.type === "state") {
-      const newChildren = liftBareDeclarations(block.children || [], "state");
+      const newChildren = liftBareDeclarations(block.children || [], errors, filePath, "state");
       result.push({ ...block, children: newChildren });
       continue;
     }
@@ -293,7 +523,7 @@ function liftBareDeclarations(blocks, parentType = null) {
       // must be passed through unchanged.
       const isProgramRoot = parentType !== "markup" && block.name === "program";
       const childContext = isProgramRoot ? "state" : "markup";
-      const newChildren = liftBareDeclarations(block.children || [], childContext);
+      const newChildren = liftBareDeclarations(block.children || [], errors, filePath, childContext);
       result.push({ ...block, children: newChildren });
       continue;
     }
@@ -304,8 +534,19 @@ function liftBareDeclarations(blocks, parentType = null) {
     // where the text content does not match the bare-export trailer.
     //
     // Pattern detected: text containing trailing bare `export ` followed
-    // by markup block <ComponentName ...>...
-    // Synthesizes: ${ export const ComponentName = <markup-raw> }
+    // by markup block <ComponentName ...>...</ComponentName>
+    //
+    // Per SPEC §21.2 (P2-wrapper amendment): desugar to a synthetic logic
+    // block whose body is `export const NAME = <body-root attrs+outer-attrs>...</body-root>`
+    // — i.e. the OUTER self-named tag is dropped at the source level and
+    // the body's single root markup element absorbs all of the outer's
+    // attributes. This makes Form 1 byte-equivalent to Form 2's RHS:
+    //   Form 1: `export <Card title:string><div>${title}</div></Card>`
+    //   Form 2: `export const Card = <div title:string>${title}</div>`
+    //
+    // Failure modes:
+    //   E-EXPORT-002 — body is empty or has more than one root markup element
+    //   E-EXPORT-003 — outer attr conflicts with body-root attr (same name)
     if (
       block.type === "text" &&
       parentType !== "markup" &&
@@ -313,31 +554,83 @@ function liftBareDeclarations(blocks, parentType = null) {
     ) {
       const next = blocks[i + 1];
       if (next && next.type === "markup" && next.isComponent === true && next.name) {
-        // Strip the trailing `export` (and any preceding whitespace) from the
-        // text block. Anything before that token (comments, prose, etc.) is
-        // preserved as a separate text block — emit it first if non-empty.
         const m = block.raw.match(/^([\s\S]*?)((?:^|\s)export\s*)$/);
         const preExportRaw = m ? m[1] : "";
         if (preExportRaw.length > 0) {
-          // Preserve any leading content as a sibling text block (rare, but
-          // possible for ` // doc comment\nexport <Foo>`).
           result.push({
             ...block,
             raw: preExportRaw,
             span: { ...block.span, end: block.span.start + preExportRaw.length },
           });
         }
-        // Synthesize the desugared logic block. The raw payload becomes the
-        // body of the `${ }` block (parseLogicBody slices off the first 2 and
-        // last 1 chars). We construct it as a string consisting of:
-        //   `export const NAME = <markup-raw>`
-        // The markup raw is the verbatim source slice from BS, so embedding
-        // it preserves attributes, body, and closer form.
         const compName = next.name;
-        const markupRaw = next.raw;
+
+        // Step 1: extract the outer's attribute portion.
+        const outerAttrSource = extractOuterAttrSource(next.raw);
+        // outerAttrSource === null is unreachable for a well-formed BS markup
+        // block (BS itself parses the opener), but defensively handle it by
+        // falling through to the legacy synthesis path.
+
+        // Step 2: locate the single root markup body.
+        const bodyResult = findSingleBodyRoot(next.children || []);
+        if (!bodyResult.ok) {
+          // E-EXPORT-002 — body is empty or multi-rooted
+          const reason = bodyResult.reason;
+          const message = reason === "empty"
+            ? `E-EXPORT-002: Component \`${compName}\` declared with \`export <${compName}>\` form must have a non-empty single-rooted body. Wrap the body in a container element such as \`<div>...</>\`.`
+            : `E-EXPORT-002: Component \`${compName}\` declared with \`export <${compName}>\` form must be single-rooted; wrap multiple elements in a container such as \`<div>...</>\`.`;
+          errors.push(new TABError("E-EXPORT-002", message, fullSpan(next.span, filePath)));
+          // Fail-open: do not emit a synthetic export-decl. The next block is
+          // consumed (advance i) so we don't re-process it as orphan markup.
+          i += 1;
+          continue;
+        }
+        const bodyRoot = bodyResult.root;
+
+        // Step 3: detect attr-name conflicts between outer and body root.
+        let bodyAttrSource = "";
+        if (bodyRoot.type === "markup" || bodyRoot.type === "state") {
+          const bodyOpenerScan = scanOpenerForAttrs(bodyRoot.raw, 0);
+          if (bodyOpenerScan) {
+            bodyAttrSource = bodyRoot.raw.slice(bodyOpenerScan.attrStart, bodyOpenerScan.openerEnd).trim();
+          }
+        }
+        const outerNames = outerAttrSource ? parseAttrNames(outerAttrSource) : [];
+        const bodyNames = bodyAttrSource ? parseAttrNames(bodyAttrSource) : [];
+        const bodyNameSet = new Set(bodyNames.map(n => n.name));
+        // §15.5 class-merging exception: `class` may legitimately appear on
+        // both the outer and the body root because scrml class-attr merging
+        // combines them. Only flag conflicts for non-class names.
+        const conflicts = outerNames.filter(n => n.name !== "class" && bodyNameSet.has(n.name));
+        if (conflicts.length > 0) {
+          const c = conflicts[0];
+          errors.push(new TABError(
+            "E-EXPORT-003",
+            `E-EXPORT-003: Component \`${compName}\` declaration conflicts with body root attr \`${c.name}\`; choose one location for this attribute.`,
+            fullSpan(next.span, filePath),
+          ));
+          i += 1;
+          continue;
+        }
+
+        // Step 4: splice outer attrs into body root opener, producing the
+        // RHS markup raw for `export const NAME = <body-root mergedAttrs>...</body-root>`.
+        const splicedRaw = spliceAttrsIntoBodyRoot(bodyRoot.raw, outerAttrSource || "");
+        if (splicedRaw === null) {
+          // Defensive: body root's opener is malformed (BS would have caught
+          // this already, but if it slipped through, fall back to E-EXPORT-002).
+          errors.push(new TABError(
+            "E-EXPORT-002",
+            `E-EXPORT-002: Component \`${compName}\` body root markup element is malformed.`,
+            fullSpan(next.span, filePath),
+          ));
+          i += 1;
+          continue;
+        }
+
         const synthetic = {
           type: "logic",
-          raw: "${ export const " + compName + " = " + markupRaw + " }",
+          raw: "${ export const " + compName + " = " + splicedRaw + " }",
           span: {
             start: block.span.start,
             end: next.span.end,
@@ -350,8 +643,9 @@ function liftBareDeclarations(blocks, parentType = null) {
           closerForm: null,
           isComponent: false,
           _synthetic: true,
-          _p2Form1: true,        // diagnostic marker — desugared from §21.2 Form 1
-          _p2Form1Name: compName, // ditto — for tests
+          _p2Form1: true,           // diagnostic marker — desugared from §21.2 Form 1
+          _p2Form1Name: compName,   // ditto — for tests
+          _p2Form1BodyRoot: bodyRoot.name, // tag name of body root that absorbed outer attrs
         };
         result.push(synthetic);
         i += 1; // skip the markup block we just consumed
@@ -7401,7 +7695,7 @@ export function buildAST(bsOutput, tokenizerOverrides) {
   // Lift bare top-level declarations (type, fn, function, server fn/function)
   // into synthetic logic blocks before building the AST. This allows users to
   // write them without an explicit ${ } wrapper.
-  const liftedBlocks = liftBareDeclarations(blocks);
+  const liftedBlocks = liftBareDeclarations(blocks, errors, filePath);
 
   // Build each top-level block into an ASTNode
   let nodes = liftedBlocks.map(block => buildBlock(block, filePath, null, counter, errors)).filter(Boolean);
