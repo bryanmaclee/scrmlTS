@@ -47,3 +47,12 @@
 - [continuation:t0+35m] Wrote /tmp/pipeline_stage3.py — added Amendment 7 (P3.B) to Stage 3 invariants list + bumped PIPELINE.md to version 0.6.1 with corresponding change-log entry.
 - [continuation:t0+40m] Ran full bun test: 8512 pass / 40 skip / 0 fail / 416 files. 0 regressions from SPEC/PIPELINE changes.
 - [continuation:t0+42m] Next: commit SPEC + PIPELINE amendments (single commit), then move to adopter integration.
+- [continuation:t0+45m] SPEC commit landed — 57c7093.
+- [continuation:t0+50m] Located dispatch-app workaround in examples/23-trucking-dispatch/pages/driver/hos.scrml lines 44-53 (local DriverStatus enum block) and FRICTION comment block lines 23-28.
+- [continuation:t0+52m] Verified canonical DriverStatus is exported from schema.scrml:44 (`export type DriverStatus:enum = { OffDuty OnDuty Driving SleeperBerth }`); shape identical to local re-declaration.
+- [continuation:t0+55m] Wrote /tmp/hos_workaround_remove.py — replaced local type block with `${ import { DriverStatus } from "../../schema.scrml" }`; updated FRICTION comment block at top of file to reflect resolution.
+- [continuation:t0+58m] Verified workaround removal: compiled hos.scrml directly via CLI. Same 4 errors as pre-change baseline (all F-NULL-001 / pre-existing `null` literals throughout the file). NO E-MACHINE-004 — engine cross-file resolution works. Pre-existing F-NULL-001 errors are documented in FRICTION but NOT what P3.B promised to close; their persistence is not a regression.
+- [continuation:t0+60m] Ran integration test tests/integration/p3b-engine-for-importedtype-cross-file.test.js: 4/4 pass.
+- [continuation:t0+62m] Ran full bun test: 8512 pass / 40 skip / 0 fail / 416 files. 0 regressions.
+- [continuation:t0+65m] Wrote /tmp/friction_update.py — marked F-ENGINE-001 RESOLVED in dispatch-app FRICTION.md (header status block + master-list entry near line 2167). Removed redundant horizontal rule that was orphaned by the new resolution heading.
+- [continuation:t0+68m] Ready to commit adopter integration (FRICTION + hos.scrml).

@@ -831,13 +831,19 @@ The kickstarter doesn't mention this gap. Adopters will write destructuring libe
 
 ---
 
-## F-ENGINE-001 (formerly F-MACHINE-001) — `<engine for=Type>` rejects imported types (P1)
+## F-ENGINE-001 (formerly F-MACHINE-001) — `<engine for=Type>` rejects imported types — **RESOLVED P3.B (2026-05-02)**
 
-**Status update (2026-04-30, P1 of state-as-primary):** The keyword renamed from `<machine>` to `<engine>` (P1 commit on `changes/p1`). The friction is unchanged — `<engine for=Type>` still rejects imported types because cross-file resolution work is deferred to P3. The W6 worktree contained a tactical patch (state-as-primary deep-dive parser-disambiguation-feasibility-2026-04-30 §10) which is **held / superseded** by the architectural P3 work. In P1, adopters using `<engine for=ImportedType>` still hit E-MACHINE-004 and must redeclare the type locally. Renamed E-MACHINE-* error codes (→ E-ENGINE-*) come with the deferred SPEC §51 keyword-rewrite dispatch.
+**Resolution:** Closed by P3.B per [P3 deep dive](../../scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md) §3.1, §5, §6.5. TAB now synthesises a `type-decl` AST node alongside the `export-decl` whenever it parses `export type X = {...}` (mirroring how `export function` already produces both `function-decl` and `export-decl`). The `api.js` cross-file `importedTypesByFile` seeding then sees the type, the TS pass registers it in `typeRegistry`, and `<engine for=ImportedType>` resolves cleanly across files. The misleading `imported via 'use'` hint in E-MACHINE-004 was also corrected to reference the actual `${ import { Type } from './path.scrml' }` form.
 
-The historical F-MACHINE-001 details below are preserved verbatim; substitute `<machine>` → `<engine>` mentally for current-canonical syntax (the legacy `<machine>` keyword still compiles, emitting W-DEPRECATED-001).
+**Adopter integration:** `pages/driver/hos.scrml` workaround removed. The local `type DriverStatus:enum = {...}` block (~6 LOC) is replaced with `${ import { DriverStatus } from '../../schema.scrml' }`. Schema is now the single source of truth for the enum spelling. Workaround-removal commit lands alongside this resolution status.
+
+**Spec changes:** SPEC §21.2 normative addition (export type produces both nodes); SPEC §51.16 NEW (Cross-File Type Resolution for `<engine for=ImportedType>`); SPEC §51.3.2 normative bullet corrected; PIPELINE.md Stage 3 Amendment 7 + version 0.6.1.
+
+**Tests added (P3.B):** TAB type-decl synthesis across all 4 type kinds (enum, struct, tuple, map); local-type regression pinning; cross-file `<engine for=ImportedEnum>` + `<engine for=ImportedStruct>`; deprecated `<machine for=ImportedType>` + W-DEPRECATED-001 cross-file path. Test count delta 8491 → 8512 (+21, 0 regressions).
 
 ---
+
+### Original report (preserved for context)
 
 **Surfaced in:** M3 `pages/driver/hos.scrml`. The HOS state machine declares
 `<machine name=HOSMachine for=DriverStatus>` where `DriverStatus` is imported
@@ -2164,7 +2170,7 @@ No design change.
 - **F-COMMENT-001** — HTML comments leak content into parser/scope checker.
 - **F-RI-001-FOLLOW** — `is not` doesn't support member-access targets; `obj.field is not` fires E-SCOPE-001.
 - **F-CPS-001** — CPS-eligibility skips nested control-flow when finding reactive assignments (architectural).
-- **F-ENGINE-001 (formerly F-MACHINE-001)** — `<engine for=Type>` rejects imported types; "imported via 'use'" error message misleading. Keyword renamed P1 (2026-04-30); friction itself unchanged, deferred to P3 cross-file resolution work.
+- **F-ENGINE-001 (formerly F-MACHINE-001)** — RESOLVED P3.B (2026-05-02). TAB now synthesises `type-decl` alongside `export-decl` for `export type X = {...}`; cross-file `<engine for=ImportedType>` works; misleading `imported via 'use'` error message corrected. `pages/driver/hos.scrml` workaround removed. Tests +21, 0 regressions.
 - **F-NULL-001** — files with `<machine>` reject `null` literals/comparisons in client-fn bodies (asymmetric trigger).
 - **F-NULL-002** — `!= null` / `== null` in server-fn bodies fires E-SYNTAX-042 in GCP3 with no line number; markup-side null comparisons accepted.
 - **F-CHANNEL-002 / F-CHANNEL-003 / F-CHANNEL-005** — no on-change hook for `@shared`; channels are per-page (not cross-file); per-channel auth scoping is not declarative.

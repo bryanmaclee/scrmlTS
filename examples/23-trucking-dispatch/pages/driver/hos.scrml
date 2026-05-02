@@ -20,12 +20,10 @@
 // This is a simplified v1 per scoping §7. M6 polish may extend to layered
 // machines (per-cycle vs per-shift).
 //
-// FRICTION (F-ENGINE-001, formerly F-MACHINE-001 — see FRICTION.md): `<engine for=Type>`
-// requires the type be declared IN THE SAME FILE. Imported types from schema.scrml
-// trigger E-MACHINE-004 (now also reachable via `<engine>`; rename to E-ENGINE-004 in P3).
-// So `DriverStatus` is RE-DECLARED locally below despite being exported from
-// schema.scrml. Same shape; small duplication. Tactical fix in W6 worktree was
-// held; supersedes by P3 cross-file resolution work per state-as-primary plan.
+// F-ENGINE-001 RESOLVED (P3.B, 2026-05-02 — SPEC §51.16). `<engine for=Type>`
+// now resolves `Type` cross-file via TAB type-decl synthesis (SPEC §21.2 normative
+// for `export type X = {...}`). `DriverStatus` is imported from schema.scrml
+// directly; the local re-declaration workaround has been removed.
 //
 // FRICTION (F-NULL-001 — see FRICTION.md): file with a `<engine>` block (or
     // `<machine>` deprecated alias)
@@ -42,14 +40,11 @@
 // sees driver-status changes in real time.
 
 ${
-    // Local DriverStatus enum — duplicated from schema.scrml because
-    // `<engine for=...>` rejects imported types (F-ENGINE-001, formerly F-MACHINE-001).
-    type DriverStatus:enum = {
-        OffDuty
-        OnDuty
-        Driving
-        SleeperBerth
-    }
+    // F-ENGINE-001 RESOLVED (P3.B, 2026-05-02 — SPEC §51.16).
+    // `<engine for=ImportedType>` now resolves cross-file via TAB type-decl
+    // synthesis, so we import `DriverStatus` from schema.scrml instead of
+    // re-declaring it locally.
+    import { DriverStatus } from '../../schema.scrml'
 }
 
 < engine name=HOSMachine for=DriverStatus>
