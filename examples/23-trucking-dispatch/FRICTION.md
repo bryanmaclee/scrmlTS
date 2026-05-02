@@ -460,6 +460,90 @@ will spend 10x time hunting "what file is `currentTrailerId` in?"
 
 ---
 
+## F-COMPONENT-004 — Prop refs inside component-body logic blocks fire E-SCOPE-001 (P1) — **RESOLVED S52 (2026-04-30)**
+
+**Resolution:** S52 dispatch on top of P2-wrapper baseline (`966a493`). The fix
+extends `substituteProps` in `compiler/src/component-expander.ts` to walk into
+ExprNode subtrees of LogicNode bodies (and MetaNode bodies). A new helper
+`substitutePropsInExprNode` clones the ExprNode tree and replaces every
+non-shadowed `IdentExpr` reference whose name matches a declared prop with
+the typed prop value. A parallel `propsExprMap` is built alongside the
+existing string-form `props` map: string-literal caller attrs become LitExpr
+nodes (e.g. `"Alice"`); variable-ref attrs become IdentExpr nodes
+(e.g. `@globalUser`); declared defaults are parsed via `parseExprToNode` once.
+
+Shadowing tracking covers: lambda parameters (within lambda body), local
+declarations (`let`, `const`, `tilde`, `lin`, `@reactive`, `function`)
+appearing earlier in the same scope, for-stmt loop variables, match-arm
+bindings, when-message bindings, propagate-expr bindings.
+
+Member-access expressions only substitute the leftmost identifier:
+`name.length` substitutes `name` (the object) and leaves `.length` alone.
+Template-literal interpolations are rewritten in raw text by walking
+top-level `${...}` segments and substituting matching identifiers in the
+interpolation contents.
+
+SPEC §15.10.1 added (normative paragraph + worked examples).
+Tests at `compiler/tests/unit/f-component-004-substituteProps-logic-block.test.js`
+and `compiler/tests/integration/f-component-004-form1-form2-parity.test.js`.
+The earlier `p2-export-component-form1-cross-file.test.js` §X2 parity test
+was updated to assert SAME success (instead of SAME errors) — both Form 1
+and Form 2 now compile cleanly with `${name}` body interpolation.
+
+---
+
+### Original report (preserved for context)
+
+**Surfaced in:** S52 P2-wrapper dispatch (`966a493`). When `export <Name ...>`
+(Form 1) is byte-equivalent to `export const Name = <element ...>` (Form 2),
+component bodies that interpolate prop references inside `${ ... }` logic
+blocks fire E-SCOPE-001 — even though the props are declared.
+
+**What I tried:**
+```scrml
+// Form 1
+export <UserCard name:string role:UserRole>
+  <div class="card">
+    <h2>${name}</h2>
+    ${
+      const greeting = `Hello ${name}, you are a ${role}`
+    }
+    <p>${greeting}</p>
+  </div>
+</UserCard>
+
+// Form 2
+export const UserCard = <div class="card" name:string role:UserRole>
+  <h2>${name}</h2>
+  ${
+    const greeting = `Hello ${name}, you are a ${role}`
+  }
+  <p>${greeting}</p>
+</div>
+```
+
+Both forms hit E-SCOPE-001 on `name` and `role` inside the logic block.
+The markup-text `${name}` (in `<h2>`) ALSO fires the same error because
+TAB parses `${name}` in markup text as a LogicNode with body
+`[BareExprNode { exprNode: IdentExpr "name" }]` — and the existing
+substituteProps walker recursed through the LogicNode but never descended
+into the BareExprNode's `exprNode` field.
+
+**What didn't work:** Pre-fix, the existing `substituteProps` only handled
+text-node `value` and markup attr string-literal text. Its fallback for
+"other node kinds" walked only top-level array fields with `kind` items,
+which meant LogicNode.body entries were visited but their ExprNode
+subtrees were never inspected. Identifier references to props remained
+unresolved.
+
+**Workaround used (pre-fix):** Manually pull the prop into a local binding
+via a wrapper `<div data-name=name>` then re-extract via `getAttribute`.
+Ugly and not scalable.
+
+**Suggests:** Pre-fix triage classified this as pre-existing CE territory
+exposed by P2 (not introduced). Severity P1 (architectural) until S52 fix
+landed. Now P0-RESOLVED.
+
 ## F-COMMENT-001 — HTML comments leak content into the parser/scope checker (P1)
 
 **Surfaced in:** M2 first compiles of board.scrml + customers.scrml.

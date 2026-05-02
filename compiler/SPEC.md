@@ -6567,6 +6567,116 @@ Error E-COMPONENT-011: Component `Badge` does not declare prop `icon`.
 | E-COMPONENT-011 | Extra prop at call site not declared in `props` block | Error |
 | E-COMPONENT-012 | Same prop name declared in both `props` block and as bare attribute | Error |
 
+### 15.10.1 Prop Substitution into Logic-Block Bodies
+
+Prop references SHALL be substituted not only in markup text and attribute values
+(§15.9) but also inside `${ ... }` logic-block bodies and any nested expression
+trees within them. The compiler SHALL replace every identifier reference that
+matches a declared prop name with the caller-side value at expansion time
+(component-expander stage).
+
+**Substitution form:**
+
+- A prop bound to a `string-literal` caller attribute value (e.g. `name="Alice"`)
+  SHALL be substituted as a string-literal expression (`"Alice"`), not as a bare
+  identifier. This preserves the caller-side type and prevents the substituted
+  identifier from being interpreted as an undeclared variable.
+- A prop bound to a `variable-ref` caller attribute value (e.g. `user=@globalUser`)
+  SHALL be substituted as that variable reference (`@globalUser`).
+- A prop with a declared default value SHALL be substituted as the parsed
+  expression form of the default (parsed once at expansion time).
+- An optional prop omitted at the call site with no default SHALL be substituted
+  as the null-literal expression (`null`).
+
+**Walked positions:**
+
+The substitution SHALL apply at every ExprNode position reachable from a
+logic-block body, including:
+
+- Variable initializers (`let x = name`, `const y = name.length`)
+- Function/lambda return expressions, condition expressions, switch headers,
+  ternary branches, binary operands, function arguments, array elements, object
+  property values
+- Template-literal interpolation segments (`` `Hello ${name}` ``) — identifier
+  references inside `${ ... }` template segments SHALL be substituted
+- Nested logic blocks inside markup inside logic blocks SHALL be walked
+  recursively
+
+**Shadowing:**
+
+Prop substitution SHALL be shadowing-aware. A prop reference SHALL NOT be
+substituted when:
+
+- A `lambda` parameter with the same name is in scope. Inside the lambda body,
+  the parameter shadows the prop.
+- A local `let`, `const`, `tilde`, `lin`, `@`, or function declaration with
+  the same name appears earlier in the same lexical scope. From the point of
+  declaration onward in the same scope, the local binding shadows the prop.
+- A `for-stmt` loop variable, `match-arm` binding, `when message(binding)`
+  parameter, or `propagate-expr` binding shadows props within their respective
+  scopes.
+
+Member-access expressions SHALL substitute only the leftmost identifier:
+`name.length` substitutes `name` (the object) but leaves `.length` (the static
+property name) unchanged. This matches standard scope-aware substitution
+semantics.
+
+**Worked example — substitution into logic block:**
+
+```scrml
+const Greeter = <div props={ name: string }>
+    ${
+      const greeting = "Hello, " + name + "!"
+    }
+    <p>${greeting}</p>
+</>
+
+// Call site
+<Greeter name="Ada">
+```
+
+After expansion, the body's logic block becomes:
+```
+${
+  const greeting = "Hello, " + "Ada" + "!"
+}
+```
+
+**Worked example — lambda shadowing:**
+
+```scrml
+const Wrapper = <div props={ name: string }>
+    ${
+      const fn = (name) => name + "!"
+    }
+</>
+```
+
+Inside the lambda body, `name` refers to the parameter (NOT the prop). After
+expansion, the lambda is unchanged: `(name) => name + "!"`.
+
+**Worked example — local shadowing:**
+
+```scrml
+const Demo = <div props={ name: string }>
+    ${
+      const name = "shadow"
+      const greeting = name      // refers to local, not prop
+    }
+</>
+```
+
+After expansion: `const name = "shadow"; const greeting = name`. Neither
+identifier reference is substituted because the local `const name` shadows
+the prop from its declaration onward.
+
+**Rationale:** Prop substitution into logic-block bodies makes prop references
+inside a component body work uniformly regardless of whether they appear in
+markup text, attribute values, or logic statements. Without this rule, prop
+references in logic blocks would error at scope-resolution time as undeclared
+identifiers, despite being valid prop references. Shadowing-awareness preserves
+standard lexical scoping intuitions.
+
 ### 15.11 Callback Props
 
 scrml components communicate child-to-parent using two mechanisms that together handle all
