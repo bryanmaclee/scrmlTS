@@ -2570,7 +2570,8 @@ export function runCEFile(
       filePath,
       ast.imports ?? [],
       exportRegistry,
-      importGraph
+      importGraph,
+      ceErrors
     );
     if (importedChannelAliases.size > 0) {
       phase2Nodes = expandChannels(
@@ -2612,9 +2613,35 @@ function buildImportedChannelAliases(
   filePath: string,
   imports: ImportDeclNode[],
   exportRegistry: ExportRegistry,
-  importGraph?: ImportGraph
+  importGraph: ImportGraph | undefined,
+  errors: CEError[]
 ): Map<string, { imported: string; sourceKey: string }> {
   const result = new Map<string, { imported: string; sourceKey: string }>();
+  // P3.A: track imported `name=` values so we can detect cross-file collisions.
+  // Map<importedName, sourceKey-of-first-import>
+  const importedByName = new Map<string, string>();
+
+  const _checkCollision = (
+    importedName: string,
+    sourceKey: string,
+    span: Span | null | undefined
+  ): boolean => {
+    const existingSource = importedByName.get(importedName);
+    if (existingSource && existingSource !== sourceKey) {
+      // Same channel-name imported from TWO different source files.
+      errors.push(makeCEError(
+        "E-CHANNEL-008",
+        `E-CHANNEL-008: Channel \`${importedName}\` is imported from both \`${existingSource}\` and \`${sourceKey}\` in the same file. ` +
+        `Cross-file channel imports must have distinct \`name=\` attribute values; two channels sharing the same wire-name from different source files would conflict on the same WebSocket route. ` +
+        `Rename the channel in one of the source files or import only one of them.`,
+        (span ?? { file: existingSource ?? sourceKey, start: 0, end: 0, line: 1, col: 1 }) as Span
+      ));
+      return true;
+    }
+    importedByName.set(importedName, sourceKey);
+    return false;
+  };
+
   for (const imp of imports) {
     const importExt = imp as ImportWithSpecifiers;
     const sourceKey = lookupKey(filePath, imp, importGraph);
@@ -2625,6 +2652,10 @@ function buildImportedChannelAliases(
       for (const spec of importExt.specifiers) {
         const info = targetExports.get(spec.imported);
         if (info && info.category === "channel") {
+          if (_checkCollision(spec.imported, sourceKey, imp.span)) {
+            // Continue — record the second alias too so downstream
+            // processing has both. The error is already emitted.
+          }
           result.set(spec.local, { imported: spec.imported, sourceKey });
         }
       }
@@ -2632,6 +2663,9 @@ function buildImportedChannelAliases(
       for (const name of imp.names) {
         const info = targetExports.get(name);
         if (info && info.category === "channel") {
+          if (_checkCollision(name, sourceKey, imp.span)) {
+            // Continue — see above.
+          }
           // No alias info available — use the imported name as both keys.
           result.set(name, { imported: name, sourceKey });
         }
