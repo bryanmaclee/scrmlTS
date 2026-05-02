@@ -46,6 +46,7 @@
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
       // M5: centralized real-time channels — see SPEC §38.12.6.
       import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml'
+      import { "customer-events" as customerEvents } from '../../channels/customer-events.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries, lin_tokens">
@@ -562,24 +563,11 @@
         }
     </>
 
-    <!-- M5: customer-events broadcast — driver publishes load-delivered
-         here when transitioning to delivered. The customer of the load
-         sees a notification. -->
-    <channel name="customer-events">
-        ${
-            @shared customerEvents = []
-
-            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
-                customerEvents = [...customerEvents, {
-                    type: eventType,
-                    targetCustomerId: targetCustomerId,
-                    invoiceId: invoiceId,
-                    loadId: loadId,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: customer-events channel — see channels/customer-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). Driver publishes
+         load-delivered here when transitioning to delivered; the customer
+         of the load sees a notification. -->
+    <customerEvents/>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">

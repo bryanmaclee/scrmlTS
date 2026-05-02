@@ -31,6 +31,8 @@
       import { invoiceStatus, invoiceStatusClasses, invoiceStatusLabel, formatIsoDate } from '../../components/invoice-card.scrml'
       import { createSessionStore } from 'scrml:store'
       import { SESSION_DB_PATH } from '../../models/auth.scrml'
+      // M5: centralized real-time channel — see SPEC §38.12.6.
+      import { "customer-events" as customerEvents } from '../../channels/customer-events.scrml'
   }
 
   < db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, invoices">
@@ -143,23 +145,10 @@
         }
     }
 
-    <!-- M5: customer-events subscription. Home shows badge count for
-         unread invoice / delivery notifications. -->
-    <channel name="customer-events">
-        ${
-            @shared customerEvents = []
-
-            server function publishCustomerEvent(eventType, targetCustomerId, invoiceId, loadId) {
-                customerEvents = [...customerEvents, {
-                    type: eventType,
-                    targetCustomerId: targetCustomerId,
-                    invoiceId: invoiceId,
-                    loadId: loadId,
-                    at: new Date().toISOString()
-                }]
-            }
-        }
-    </>
+    <!-- M5: customer-events channel — see channels/customer-events.scrml.
+         Inlined at compile time by CHX (SPEC §38.12). Home shows badge
+         count for unread invoice / delivery notifications. -->
+    <customerEvents/>
 
     <div class="min-h-screen bg-slate-50 text-slate-900 font-sans">
       <header class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
