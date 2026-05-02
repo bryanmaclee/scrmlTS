@@ -152,7 +152,7 @@ export function emitTransitionTable(tableName: string, rules: TransitionRule[]):
  * @param encodedVarName — the encoded reactive variable name
  * @param newValueExpr — the JS expression for the new value
  * @param tableName — the transition table variable name
- * @param machineName — machine or enum name for error messages
+ * @param engineName — machine or enum name for error messages
  * @param guardRules — rules that have guards (for runtime guard evaluation)
  * @returns lines of JS code
  */
@@ -429,7 +429,7 @@ export function classifyTransition(
 function emitElidedTransition(
   encodedVarName: string,
   newValueExpr: string,
-  machineName: string,
+  engineName: string,
   matchedKey: string,
   matchedRule: TransitionRule,
   rules: TransitionRule[],
@@ -445,7 +445,7 @@ function emitElidedTransition(
   const hasTemporal = temporalRules.length > 0;
 
   const lines: string[] = [];
-  lines.push(`// §51.5 elided transition: ${encodedVarName} (${machineName}) — matched ${matchedKey} at compile time`);
+  lines.push(`// §51.5 elided transition: ${encodedVarName} (${engineName}) — matched ${matchedKey} at compile time`);
 
   // Minimal collapse: no audit / no effect / no temporal → bare set.
   if (!hasEffect && !hasAudit && !hasTemporal) {
@@ -501,7 +501,7 @@ export function emitTransitionGuard(
   encodedVarName: string,
   newValueExpr: string,
   tableName: string,
-  machineName: string,
+  engineName: string,
   rules: TransitionRule[],
   auditTarget: string | null = null,
 ): string[] {
@@ -512,7 +512,7 @@ export function emitTransitionGuard(
     return emitElidedTransition(
       encodedVarName,
       newValueExpr,
-      machineName,
+      engineName,
       triage.matchedKey,
       triage.matchedRule,
       rules,
@@ -528,8 +528,8 @@ export function emitTransitionGuard(
     _machineCodegenErrors.push(new CGError(
       "E-MACHINE-001",
       "E-MACHINE-001: Illegal transition. Assignment to @" + encodedVarName +
-      " (governed by " + machineName + ") targets variant ." + triage.targetVariant +
-      " but no rule in " + machineName + " covers that target " +
+      " (governed by " + engineName + ") targets variant ." + triage.targetVariant +
+      " but no rule in " + engineName + " covers that target " +
       "(no exact `X:" + triage.targetVariant + "` rule, no `*:" + triage.targetVariant + "` wildcard, " +
       "no `X:*` wildcard, no `*:*` catch-all). The runtime would always throw " +
       "E-MACHINE-001-RT on this assignment; surfacing at compile time per §51.5.1. " +
@@ -541,7 +541,7 @@ export function emitTransitionGuard(
 
   const lines: string[] = [];
 
-  lines.push(`// §51 transition guard: ${encodedVarName} (${machineName})`);
+  lines.push(`// §51 transition guard: ${encodedVarName} (${engineName})`);
   lines.push(`(function() {`);
   lines.push(`  var __prev = _scrml_reactive_get("${encodedVarName}");`);
   lines.push(`  var __next = ${newValueExpr};`);
@@ -569,7 +569,7 @@ export function emitTransitionGuard(
   lines.push(`    : null;`);
   lines.push(`  var __rule = __matchedKey != null ? ${tableName}[__matchedKey] : null;`);
   lines.push(`  if (!__rule) {`);
-  lines.push(`    throw new Error("E-MACHINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${machineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
+  lines.push(`    throw new Error("E-MACHINE-001-RT: Illegal transition. Variable: ${encodedVarName}, governed by: ${engineName}. Move: " + (__prev != null && __prev.variant != null ? "." + __prev.variant : String(__prev)) + " => " + (__next != null && __next.variant != null ? "." + __next.variant : String(__next)) + ". No rule permits this transition.");`);
   lines.push(`  }`);
 
   // §51.3.2 (S22) — payload-binding prelude. Before guard and effect bodies,
@@ -607,12 +607,12 @@ export function emitTransitionGuard(
         lines.push(`  if (__matchedKey === "${guardKey}") {`);
         for (const p of prelude) lines.push(`    ${p}`);
         lines.push(`    if (!(${guardJs})) {`);
-        lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
+        lines.push(`      throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${engineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`    }`);
         lines.push(`  }`);
       } else {
         lines.push(`  if (__matchedKey === "${guardKey}" && !(${guardJs})) {`);
-        lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${machineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
+        lines.push(`    throw new Error("E-MACHINE-001-RT: Transition guard failed${label}. Variable: ${encodedVarName}, governed by: ${engineName}. Move: .${rule.from} => .${rule.to}. Guard: ${guardDiag}");`);
         lines.push(`  }`);
       }
     }
