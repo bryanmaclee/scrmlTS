@@ -29,8 +29,8 @@ function makeTypeDecl(name, kind, raw) {
   return { kind: "type-decl", name, typeKind: kind, raw, span: span() };
 }
 
-function makeMachineDecl(machineName, governedType, rulesRaw) {
-  return { kind: "machine-decl", machineName, governedType, rulesRaw, span: span() };
+function makeMachineDecl(engineName, governedType, rulesRaw) {
+  return { kind: "engine-decl", engineName, governedType, rulesRaw, span: span() };
 }
 
 const ENUM_ABC = makeTypeDecl("S", "enum", "{ A, B, C }");

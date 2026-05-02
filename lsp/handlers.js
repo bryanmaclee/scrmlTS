@@ -327,7 +327,7 @@ export function extractAnalysisInfo(ast, analysis) {
   if (Array.isArray(ast.machineDecls)) {
     for (const md of ast.machineDecls) {
       analysis.machines.push({
-        name: md.machineName,
+        name: md.engineName,
         span: md.span,
         governedType: md.governedType || "",
         sourceVar: md.sourceVar || null,
@@ -368,7 +368,7 @@ export function extractAnalysisInfo(ast, analysis) {
           if (Array.isArray(node.children)) walkNodes(node.children, node.stateType);
           break;
         }
-        case "machine-decl":
+        case "engine-decl":
           break; // already captured via ast.machineDecls
         case "logic": {
           if (Array.isArray(node.body)) walkLogicNodes(node.body, parentStateType);
@@ -542,7 +542,7 @@ export function formatFunctionSignature(fn) {
  * Symbol mapping:
  *   - <state> block (e.g. < db>)        → Module    (children = nested decls)
  *   - state-constructor-def              → Class     (children = constructor body)
- *   - machine-decl                       → Class
+ *   - engine-decl                       → Class
  *   - type-decl  (typeKind=enum)         → Enum
  *   - type-decl  (typeKind=struct)       → Struct
  *   - type-decl  (other)                 → Interface
@@ -603,13 +603,13 @@ export function buildDocumentSymbols(ast, text) {
         }
         return sym;
       }
-      case "machine-decl":
+      case "engine-decl":
         return {
-          name: node.machineName,
+          name: node.engineName,
           detail: `machine for ${node.governedType}${node.sourceVar ? ` (derived @${node.sourceVar})` : ""}`,
           kind: SymbolKind.Class,
           range: spanToRange(node.span, text),
-          selectionRange: nameRange(node.span, node.machineName, text),
+          selectionRange: nameRange(node.span, node.engineName, text),
           children: [],
         };
       case "logic": {

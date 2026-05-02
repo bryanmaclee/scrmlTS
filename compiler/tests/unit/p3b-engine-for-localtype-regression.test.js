@@ -52,8 +52,8 @@ describe("§A engine for=LocalType — non-exported same-file types", () => {
     expect(td.typeKind).toBe("enum");
     expect(td.fromExport).toBeUndefined();
 
-    // machine-decl present
-    const md = tab.ast.machineDecls.find(m => m.machineName === "Flow");
+    // engine-decl present
+    const md = tab.ast.machineDecls.find(m => m.engineName === "Flow");
     expect(md).toBeTruthy();
     expect(md.governedType).toBe("Status");
     expect(md.legacyMachineKeyword).toBe(false);
@@ -78,7 +78,7 @@ describe("§A engine for=LocalType — non-exported same-file types", () => {
     expect(td.typeKind).toBe("struct");
     expect(td.fromExport).toBeUndefined();
 
-    const md = tab.ast.machineDecls.find(m => m.machineName === "PersonFlow");
+    const md = tab.ast.machineDecls.find(m => m.engineName === "PersonFlow");
     expect(md).toBeTruthy();
     expect(md.governedType).toBe("Person");
   });
@@ -106,7 +106,7 @@ describe("§A engine for=LocalType — non-exported same-file types", () => {
     expect(td).toBeTruthy();
     expect(td.typeKind).toBe("enum");
 
-    const md = tab.ast.machineDecls.find(m => m.machineName === "HOSMachine");
+    const md = tab.ast.machineDecls.find(m => m.engineName === "HOSMachine");
     expect(md).toBeTruthy();
     expect(md.governedType).toBe("DriverStatus");
   });
@@ -127,7 +127,7 @@ describe("§B legacy `<machine for=LocalType>` continues to compile + emit W-DEP
     const dep = (tab.errors || []).filter(e => e.code === "W-DEPRECATED-001");
     expect(dep.length).toBe(1);
 
-    const md = tab.ast.machineDecls.find(m => m.machineName === "LegacyFlow");
+    const md = tab.ast.machineDecls.find(m => m.engineName === "LegacyFlow");
     expect(md).toBeTruthy();
     expect(md.governedType).toBe("LegacyStatus");
     expect(md.legacyMachineKeyword).toBe(true);
@@ -146,7 +146,7 @@ describe("§B legacy `<machine for=LocalType>` continues to compile + emit W-DEP
     const dep = (tab.errors || []).filter(e => e.code === "W-DEPRECATED-001");
     expect(dep.length).toBe(1);
 
-    const md = tab.ast.machineDecls.find(m => m.machineName === "LegacyShapeFlow");
+    const md = tab.ast.machineDecls.find(m => m.engineName === "LegacyShapeFlow");
     expect(md).toBeTruthy();
     expect(md.governedType).toBe("LegacyShape");
   });

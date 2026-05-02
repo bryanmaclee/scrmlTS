@@ -51,25 +51,25 @@ describe("P1.E.A: uniform opener — schema", () => {
 });
 
 describe("P1.E.A: uniform opener — engine + machine", () => {
-  test("`<engine name=Foo for=Bar>` (no-space) produces machine-decl AST", () => {
+  test("`<engine name=Foo for=Bar>` (no-space) produces engine-decl AST", () => {
     const ast = build("<engine name=AdminFlow for=OrderStatus>\n  .Pending => .Done\n</>");
-    expect(ast.nodes[0].kind).toBe("machine-decl");
-    expect(ast.nodes[0].machineName).toBe("AdminFlow");
+    expect(ast.nodes[0].kind).toBe("engine-decl");
+    expect(ast.nodes[0].engineName).toBe("AdminFlow");
     expect(ast.nodes[0].governedType).toBe("OrderStatus");
   });
 
-  test("`< engine name=Foo for=Bar>` (with-space) produces same machine-decl AST", () => {
+  test("`< engine name=Foo for=Bar>` (with-space) produces same engine-decl AST", () => {
     const ast = build("< engine name=AdminFlow for=OrderStatus>\n  .Pending => .Done\n</>");
-    expect(ast.nodes[0].kind).toBe("machine-decl");
-    expect(ast.nodes[0].machineName).toBe("AdminFlow");
+    expect(ast.nodes[0].kind).toBe("engine-decl");
+    expect(ast.nodes[0].engineName).toBe("AdminFlow");
     expect(ast.nodes[0].governedType).toBe("OrderStatus");
   });
 
-  test("`<machine name=Foo for=Bar>` (no-space) also produces machine-decl AST AND emits W-DEPRECATED-001", () => {
+  test("`<machine name=Foo for=Bar>` (no-space) also produces engine-decl AST AND emits W-DEPRECATED-001", () => {
     const bs = splitBlocks("test.scrml", "<machine name=AdminFlow for=OrderStatus>\n  .Pending => .Done\n</>");
     const tab = buildAST(bs);
-    expect(tab.ast.nodes[0].kind).toBe("machine-decl");
-    expect(tab.ast.nodes[0].machineName).toBe("AdminFlow");
+    expect(tab.ast.nodes[0].kind).toBe("engine-decl");
+    expect(tab.ast.nodes[0].engineName).toBe("AdminFlow");
     const codes = tab.errors.map(e => e.code);
     expect(codes).toContain("W-DEPRECATED-001");
   });

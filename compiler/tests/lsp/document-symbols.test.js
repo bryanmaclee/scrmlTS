@@ -97,7 +97,7 @@ describe("LSP L1 — buildDocumentSymbols", () => {
     expect(card.detail).toBe("component");
   });
 
-  it("emits Class symbols for machine-decl with governedType detail", () => {
+  it("emits Class symbols for engine-decl with governedType detail", () => {
     // Note: the machine body is empty here; the AST builder records the
     // declaration regardless and PA reports a separate W-MACHINE-005 warning,
     // which is fine for this test — we only assert the symbol shape.

@@ -10,7 +10,7 @@
  *
  * Invariants:
  *   - `< engine name=N for=T>` parses identically to `< machine name=N for=T>`.
- *     Both produce kind: "machine-decl" AST nodes with the same machineName,
+ *     Both produce kind: "engine-decl" AST nodes with the same engineName,
  *     governedType, rulesRaw, sourceVar (in P1; internal kind rename is P3).
  *   - `< machine ...>` continues to compile but emits W-DEPRECATED-001 (severity
  *     'warning'). `< engine ...>` does NOT emit W-DEPRECATED-001.
@@ -21,8 +21,8 @@
  *
  * Forward-looking:
  *   - In P3, the AST kind is planned to rename to "engine-decl" and the
- *     internal field `machineName` to `engineName`. This test file deliberately
- *     asserts the P1 wire shape (`machine-decl` + `machineName`) to fail loudly
+ *     internal field `engineName` to `engineName`. This test file deliberately
+ *     asserts the P1 wire shape (`engine-decl` + `engineName`) to fail loudly
  *     when that rename lands without explicit migration.
  */
 
@@ -41,7 +41,7 @@ function findMachineDecls(result) {
     if (!nodes) return;
     for (const n of nodes) {
       if (!n) continue;
-      if (n.kind === "machine-decl") found.push(n);
+      if (n.kind === "engine-decl") found.push(n);
       if (n.children) walk(n.children);
     }
   }
@@ -55,7 +55,7 @@ function findMachineDecls(result) {
 }
 
 describe("P1 engine keyword — equivalence with deprecated machine keyword", () => {
-  test("< engine name=M for=T> produces machine-decl AST node (P1 wire shape)", () => {
+  test("< engine name=M for=T> produces engine-decl AST node (P1 wire shape)", () => {
     const src = `<program>
 < engine name=OrderEngine for=Order>
   .Pending => .Confirmed
@@ -66,8 +66,8 @@ describe("P1 engine keyword — equivalence with deprecated machine keyword", ()
     const decls = findMachineDecls(result);
     expect(decls.length).toBe(1);
     const decl = decls[0];
-    expect(decl.kind).toBe("machine-decl"); // P1 wire shape (rename in P3)
-    expect(decl.machineName).toBe("OrderEngine");
+    expect(decl.kind).toBe("engine-decl"); // P1 wire shape (rename in P3)
+    expect(decl.engineName).toBe("OrderEngine");
     expect(decl.governedType).toBe("Order");
     expect(decl.rulesRaw).toContain(".Pending => .Confirmed");
     expect(decl.rulesRaw).toContain(".Confirmed => .Shipped");
@@ -98,7 +98,7 @@ describe("P1 engine keyword — equivalence with deprecated machine keyword", ()
     expect(warnings[0].message).toContain("<engine>");
   });
 
-  test("< machine ...> still compiles to machine-decl AST node", () => {
+  test("< machine ...> still compiles to engine-decl AST node", () => {
     const src = `<program>
 < machine name=Foo for=Bar>
   .X => .Y
@@ -107,12 +107,12 @@ describe("P1 engine keyword — equivalence with deprecated machine keyword", ()
     const result = parseSnippet(src);
     const decls = findMachineDecls(result);
     expect(decls.length).toBe(1);
-    expect(decls[0].kind).toBe("machine-decl");
-    expect(decls[0].machineName).toBe("Foo");
+    expect(decls[0].kind).toBe("engine-decl");
+    expect(decls[0].engineName).toBe("Foo");
     expect(decls[0].governedType).toBe("Bar");
   });
 
-  test("< engine ...> and < machine ...> produce structurally identical machine-decl nodes (modulo W-DEPRECATED-001)", () => {
+  test("< engine ...> and < machine ...> produce structurally identical engine-decl nodes (modulo W-DEPRECATED-001)", () => {
     const engineSrc = `<program>
 < engine name=Same for=T>
   .A => .B
@@ -130,7 +130,7 @@ describe("P1 engine keyword — equivalence with deprecated machine keyword", ()
     const eDecl = findMachineDecls(eR)[0];
     const mDecl = findMachineDecls(mR)[0];
     expect(eDecl.kind).toBe(mDecl.kind);
-    expect(eDecl.machineName).toBe(mDecl.machineName);
+    expect(eDecl.engineName).toBe(mDecl.engineName);
     expect(eDecl.governedType).toBe(mDecl.governedType);
     expect(eDecl.rulesRaw).toBe(mDecl.rulesRaw);
     expect(eDecl.sourceVar).toBe(mDecl.sourceVar);
@@ -147,7 +147,7 @@ describe("P1 engine keyword — equivalence with deprecated machine keyword", ()
     const decls = findMachineDecls(result);
     expect(decls.length).toBe(1);
     expect(decls[0].sourceVar).toBe("orderState");
-    expect(decls[0].machineName).toBe("HealthEngine");
+    expect(decls[0].engineName).toBe("HealthEngine");
   });
 
   test("multiple < machine ...> openers each emit W-DEPRECATED-001 once", () => {
@@ -176,6 +176,6 @@ describe("P1 engine keyword — equivalence with deprecated machine keyword", ()
 </program>`;
     const result = parseSnippet(src);
     const decls = findMachineDecls(result);
-    expect(decls[0].machineName).toBe("HealthMachine");
+    expect(decls[0].engineName).toBe("HealthMachine");
   });
 });

@@ -7146,8 +7146,8 @@ function _parseHandlerExpr(handler, filePath, startOffset) {
  *     (handled in emit-html.ts / emit-reactive-wiring.ts via tag === "...")
  *   state-shape consumers:  db, schema (handled in protect-analyzer / TS via
  *     kind === "state" && stateType === "...")
- *   machine-decl shape:     engine, machine (handled in TS / CG via
- *     kind === "machine-decl")
+ *   engine-decl shape:     engine, machine (handled in TS / CG via
+ *     kind === "engine-decl")
  *
  * When the user writes the form OPPOSITE to BS classification, we normalize
  * here so both forms produce equivalent downstream behavior. The
@@ -7250,7 +7250,7 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
       // P1 (2026-04-30, state-as-primary unification): canonical keyword is now
       // `engine` (DD1 §6.6, design-insight `state-as-primary`). The legacy
       // `machine` keyword continues to compile but emits W-DEPRECATED-001.
-      // Both forms produce a `machine-decl` AST node — the internal naming is
+      // Both forms produce a `engine-decl` AST node — the internal naming is
       // not renamed in P1 to keep blast radius bounded; that rename moves with
       // P3 when downstream stages consume the renamed shape uniformly.
       if (block.name === "machine" || block.name === "engine") {
@@ -7335,8 +7335,8 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
 
         return {
           id: ++counter.next,
-          kind: "machine-decl",
-          machineName: engineName,
+          kind: "engine-decl",
+          engineName: engineName,
           governedType,
           rulesRaw,
           sourceVar, // §51.9: name of the source reactive var (no `@` prefix), or null
@@ -7927,8 +7927,8 @@ function collectHoisted(nodes) {
         typeDecls.push(...(node.typeDecls || []));
         components.push(...(node.components || []));
       }
-      // §51.3: machine-decl nodes are children of markup (program), not logic
-      if (node.kind === "machine-decl") {
+      // §51.3: engine-decl nodes are children of markup (program), not logic
+      if (node.kind === "engine-decl") {
         machineDecls.push(node);
       }
       if (node.kind === "markup" || node.kind === "state") {

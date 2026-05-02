@@ -1,10 +1,10 @@
 /**
  * §51.3 Phase 3B — Machine Declaration Parsing and Type Registry
- * Consolidated test file for impl-machine-declarations.
+ * Consolidated test file for impl-engine-declarations.
  *
  * Covers:
- *   - < machine name=M for=MyEnum> produces machine-decl AST node
- *   - AST node has correct machineName, governedType, rulesRaw fields
+ *   - < machine name=M for=MyEnum> produces engine-decl AST node
+ *   - AST node has correct engineName, governedType, rulesRaw fields
  *   - Multiple rules all parsed correctly
  *   - Machine governing a struct type (§51.3.2 Amendment 1)
  *   - Machine registered in type registry as MachineType (kind: "machine")
@@ -42,7 +42,7 @@ function findMachineDecls(result) {
     if (!nodes) return;
     for (const n of nodes) {
       if (!n) continue;
-      if (n.kind === "machine-decl") found.push(n);
+      if (n.kind === "engine-decl") found.push(n);
       if (n.children) walk(n.children);
     }
   }
@@ -64,16 +64,16 @@ function makeTypeDecl(name, kind, raw) {
   return { kind: "type-decl", name, typeKind: kind, raw, span: span() };
 }
 
-function makeMachineDecl(machineName, governedType, rulesRaw) {
-  return { kind: "machine-decl", machineName, governedType, rulesRaw, span: span() };
+function makeMachineDecl(engineName, governedType, rulesRaw) {
+  return { kind: "engine-decl", engineName, governedType, rulesRaw, span: span() };
 }
 
 // ---------------------------------------------------------------------------
-// §51.3-AST-1: < machine name=M for=MyEnum> produces machine-decl AST node
+// §51.3-AST-1: < machine name=M for=MyEnum> produces engine-decl AST node
 // ---------------------------------------------------------------------------
 
-describe("§51.3 — machine-decl AST node production", () => {
-  test("< machine name=M for=MyEnum> produces kind: machine-decl", () => {
+describe("§51.3 — engine-decl AST node production", () => {
+  test("< machine name=M for=MyEnum> produces kind: engine-decl", () => {
     const src = `<program>
 < machine name=M for=MyEnum>
   .A => .B
@@ -82,10 +82,10 @@ describe("§51.3 — machine-decl AST node production", () => {
     const ast = parseSnippet(src);
     const decls = findMachineDecls(ast);
     expect(decls.length).toBeGreaterThanOrEqual(1);
-    expect(decls[0].kind).toBe("machine-decl");
+    expect(decls[0].kind).toBe("engine-decl");
   });
 
-  test("machine-decl node has correct machineName", () => {
+  test("engine-decl node has correct engineName", () => {
     const src = `<program>
 < machine name=TrafficLight for=LightColor>
   .Red => .Green
@@ -93,10 +93,10 @@ describe("§51.3 — machine-decl AST node production", () => {
 </program>`;
     const ast = parseSnippet(src);
     const decls = findMachineDecls(ast);
-    expect(decls[0].machineName).toBe("TrafficLight");
+    expect(decls[0].engineName).toBe("TrafficLight");
   });
 
-  test("machine-decl node has correct governedType (forType)", () => {
+  test("engine-decl node has correct governedType (forType)", () => {
     const src = `<program>
 < machine name=TrafficLight for=LightColor>
   .Red => .Green
@@ -107,7 +107,7 @@ describe("§51.3 — machine-decl AST node production", () => {
     expect(decls[0].governedType).toBe("LightColor");
   });
 
-  test("machine-decl rulesRaw contains all rule text", () => {
+  test("engine-decl rulesRaw contains all rule text", () => {
     const src = `<program>
 < machine name=Flow for=Status>
   .Pending => .Active
@@ -148,7 +148,7 @@ describe("§51.3 — machine-decl AST node production", () => {
 // ---------------------------------------------------------------------------
 
 describe("§51.3 — machine governing a struct type", () => {
-  test("< machine name=DateRange for=Booking> produces machine-decl node", () => {
+  test("< machine name=DateRange for=Booking> produces engine-decl node", () => {
     // Guard uses >= to avoid ambiguity: BS treats bare < as a tag opener
     const src = `<program>
 < machine name=DateRange for=Booking>
@@ -158,7 +158,7 @@ describe("§51.3 — machine governing a struct type", () => {
     const ast = parseSnippet(src);
     const decls = findMachineDecls(ast);
     expect(decls.length).toBeGreaterThanOrEqual(1);
-    expect(decls[0].machineName).toBe("DateRange");
+    expect(decls[0].engineName).toBe("DateRange");
     expect(decls[0].governedType).toBe("Booking");
   });
 

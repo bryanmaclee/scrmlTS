@@ -510,9 +510,9 @@ function findDeclarationInFile(ast, name) {
     if (c.name === name) return { span: c.span, kind: "component" };
   }
 
-  // 3. Hoisted machineDecls (machineName === name).
+  // 3. Hoisted machineDecls (engineName === name).
   for (const md of ast.machineDecls || []) {
-    if (md.machineName === name) return { span: md.span, kind: "machine" };
+    if (md.engineName === name) return { span: md.span, kind: "machine" };
   }
 
   // 4. Walk logic blocks for functions / reactive decls.

@@ -47,17 +47,17 @@ describe("P1.E.E: W-DEPRECATED-001 — `<machine>` keyword (with-space form)", (
 
   test("`<machine>` continues to compile (P1 phase — both forms compile, becomes E-DEPRECATED-001 in P3)", () => {
     const tab = build("< machine name=Foo for=Bar>\n  .a => .b\n</>");
-    expect(tab.ast.nodes[0].kind).toBe("machine-decl");
-    expect(tab.ast.nodes[0].machineName).toBe("Foo");
+    expect(tab.ast.nodes[0].kind).toBe("engine-decl");
+    expect(tab.ast.nodes[0].engineName).toBe("Foo");
     expect(tab.ast.nodes[0].governedType).toBe("Bar");
   });
 
-  test("`<machine>` and `<engine>` produce structurally identical machine-decl ASTs (modulo legacyMachineKeyword flag)", () => {
+  test("`<machine>` and `<engine>` produce structurally identical engine-decl ASTs (modulo legacyMachineKeyword flag)", () => {
     const m = build("< machine name=Foo for=Bar>\n  .a => .b\n</>").ast.nodes[0];
     const e = build("< engine name=Foo for=Bar>\n  .a => .b\n</>").ast.nodes[0];
-    expect(m.kind).toBe("machine-decl");
-    expect(e.kind).toBe("machine-decl");
-    expect(m.machineName).toBe(e.machineName);
+    expect(m.kind).toBe("engine-decl");
+    expect(e.kind).toBe("engine-decl");
+    expect(m.engineName).toBe(e.engineName);
     expect(m.governedType).toBe(e.governedType);
     expect(m.rulesRaw).toBe(e.rulesRaw);
     expect(m.legacyMachineKeyword).toBe(true);

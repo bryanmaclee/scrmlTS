@@ -27,7 +27,7 @@ import { rewriteBlockBody } from "../../src/codegen/emit-control-flow.ts";
 describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
   const orderStatusBindings = new Map([
     ["status", {
-      machineName: "OrderStatus",
+      engineName: "OrderStatus",
       tableName: "__scrml_transitions_OrderStatus",
       rules: [
         { from: "Pending", to: "Processing", guard: null, label: null, effectBody: null },
@@ -111,7 +111,7 @@ describe("§51.5-d rewriteBlockBody machine guard wiring", () => {
   test("§51.5-d-8 guard rules with guard field are passed to emitTransitionGuard", () => {
     const bindingsWithGuard = new Map([
       ["status", {
-        machineName: "OrderStatus",
+        engineName: "OrderStatus",
         tableName: "__scrml_transitions_OrderStatus",
         rules: [
           { from: "Pending", to: "Processing", guard: "@isAdmin", label: "admin_only", effectBody: null },

@@ -4,7 +4,7 @@
  * Coverage (cross-file behaviour after P3.B TAB type-decl synthesis fix):
  *   §X1 — `<engine for=ImportedEnum>` where ImportedEnum comes from another
  *         file via `${ export type ImportedEnum:enum = {...} }`. Pre-fix:
- *         E-ENGINE-004. Post-fix: compiles cleanly, machine-decl emitted.
+ *         E-ENGINE-004. Post-fix: compiles cleanly, engine-decl emitted.
  *   §X2 — `<engine for=ImportedStruct>` cross-file resolution.
  *   §X3 — End-to-end smoke: schema.scrml exports `DriverStatus`; consumer
  *         imports it and uses `<engine for=DriverStatus>`. Mirrors the

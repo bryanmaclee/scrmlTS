@@ -50,7 +50,7 @@ describe("LSP L1 — extractAnalysisInfo (regression: canonical AST kinds)", () 
     expect(analysis.types.find(t => t.name === "Foo").typeKind).toBe("enum");
   });
 
-  it("collects machine-decls into analysis.machines with governedType", () => {
+  it("collects engine-decls into analysis.machines with governedType", () => {
     const src = [
       "<program>",
       "${",

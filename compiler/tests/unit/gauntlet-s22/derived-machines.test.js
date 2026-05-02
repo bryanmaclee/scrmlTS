@@ -50,8 +50,8 @@ function makeTypeDecl(name, kind, raw) {
   return { kind: "type-decl", name, typeKind: kind, raw, span: span() };
 }
 
-function makeMachineDecl(machineName, governedType, rulesRaw, sourceVar = null) {
-  return { kind: "machine-decl", machineName, governedType, rulesRaw, sourceVar, span: span() };
+function makeMachineDecl(engineName, governedType, rulesRaw, sourceVar = null) {
+  return { kind: "engine-decl", engineName, governedType, rulesRaw, sourceVar, span: span() };
 }
 
 // Shared: a source machine + a projection enum used across the tests.

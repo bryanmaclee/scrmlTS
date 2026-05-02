@@ -33,7 +33,7 @@ function findTag(nodes, tagOrType) {
     if (!n) continue;
     if (n.kind === "markup" && n.tag === tagOrType) return n;
     if ((n.kind === "state" || n.kind === "state-constructor-def") && n.stateType === tagOrType) return n;
-    if (n.kind === "machine-decl" && (tagOrType === "engine" || tagOrType === "machine")) return n;
+    if (n.kind === "engine-decl" && (tagOrType === "engine" || tagOrType === "machine")) return n;
     const inChildren = findTag(n.children ?? [], tagOrType);
     if (inChildren) return inChildren;
     const inBody = findTag(n.body ?? [], tagOrType);

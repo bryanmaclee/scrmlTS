@@ -2,7 +2,7 @@
  * §51.3 Machine Declaration Parsing — AST Builder Unit Tests
  *
  * Tests that `< machine MachineName for TypeName { rules } />` produces
- * kind: "machine-decl" AST nodes with correct machineName, governedType,
+ * kind: "engine-decl" AST nodes with correct engineName, governedType,
  * and rulesRaw fields.
  */
 
@@ -17,14 +17,14 @@ function parseSnippet(source) {
   return result;
 }
 
-// Helper: find machine-decl nodes in AST (walks the full tree)
+// Helper: find engine-decl nodes in AST (walks the full tree)
 function findMachineDecls(result) {
   const results = [];
   function walk(nodes) {
     if (!nodes) return;
     for (const node of nodes) {
       if (!node) continue;
-      if (node.kind === "machine-decl") results.push(node);
+      if (node.kind === "engine-decl") results.push(node);
       if (node.children) walk(node.children);
     }
   }
@@ -34,8 +34,8 @@ function findMachineDecls(result) {
   return results;
 }
 
-describe("§51.3 machine-decl parsing", () => {
-  test("< machine> produces machine-decl AST node", () => {
+describe("§51.3 engine-decl parsing", () => {
+  test("< machine> produces engine-decl AST node", () => {
     const source = `<program>
 < machine name=UserFlow for=Column>
     .Todo => .InProgress
@@ -45,8 +45,8 @@ describe("§51.3 machine-decl parsing", () => {
     const ast = parseSnippet(source);
     const machines = findMachineDecls(ast);
     expect(machines).toHaveLength(1);
-    expect(machines[0].kind).toBe("machine-decl");
-    expect(machines[0].machineName).toBe("UserFlow");
+    expect(machines[0].kind).toBe("engine-decl");
+    expect(machines[0].engineName).toBe("UserFlow");
     expect(machines[0].governedType).toBe("Column");
   });
 
@@ -76,7 +76,7 @@ describe("§51.3 machine-decl parsing", () => {
     expect(machines[0].rulesRaw).toContain("given");
   });
 
-  test("multiple machines produce multiple machine-decl nodes", () => {
+  test("multiple machines produce multiple engine-decl nodes", () => {
     const source = `<program>
 < machine name=UserFlow for=Status>
     .A => .B
@@ -89,7 +89,7 @@ describe("§51.3 machine-decl parsing", () => {
     const ast = parseSnippet(source);
     const machines = findMachineDecls(ast);
     expect(machines).toHaveLength(2);
-    expect(machines[0].machineName).toBe("UserFlow");
-    expect(machines[1].machineName).toBe("AdminFlow");
+    expect(machines[0].engineName).toBe("UserFlow");
+    expect(machines[1].engineName).toBe("AdminFlow");
   });
 });

@@ -3,7 +3,7 @@
  *
  * The `<machine>` keyword is deprecated as of P1 (W-DEPRECATED-001 emitted at
  * TAB time). Both `<machine>` and `<engine>` continue to compile in P1+; both
- * forms produce structurally identical machine-decl AST nodes (modulo the
+ * forms produce structurally identical engine-decl AST nodes (modulo the
  * legacyMachineKeyword flag).
  *
  * P3.B introduces TAB type-decl synthesis for `export type X = {...}`. This

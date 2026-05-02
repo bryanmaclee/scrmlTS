@@ -337,8 +337,8 @@ function walk(nodes: ASTNode[], ctx: ResolutionContext, acc: WalkAccumulator): v
           acc,
         );
       }
-    } else if (kind === "machine-decl" && (anyN.machineName || anyN.governedType)) {
-      // machine-decl is a state-form lifecycle (the keyword `engine` or `machine`)
+    } else if (kind === "engine-decl" && (anyN.engineName || anyN.governedType)) {
+      // engine-decl is a state-form lifecycle (the keyword `engine` or `machine`)
       // — resolved category is always "engine" (canonical) or "machine" (legacy).
       const category: ResolvedCategory = anyN.legacyMachineKeyword === true ? "machine" : "engine";
       anyN.resolvedKind = "scrml-lifecycle";

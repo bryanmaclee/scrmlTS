@@ -1940,10 +1940,10 @@ function getStateType(registry: Map<string, ResolvedType>, name: string): Resolv
 // ---------------------------------------------------------------------------
 
 /**
- * Build a machine registry from machine-decl AST nodes.
+ * Build a machine registry from engine-decl AST nodes.
  * Validates each machine against the type registry and emits errors.
  *
- * @param machineDecls — machine-decl AST nodes from the file
+ * @param machineDecls — engine-decl AST nodes from the file
  * @param typeRegistry — the file's type registry (enums, structs)
  * @param errors — error accumulator
  * @param fileSpan — span for error reporting
@@ -1957,7 +1957,7 @@ function buildMachineRegistry(
   const registry = new Map<string, MachineType>();
 
   for (const decl of machineDecls) {
-    const name = decl.machineName as string;
+    const name = decl.engineName as string;
     const govName = decl.governedType as string;
     let rulesRaw = (decl.rulesRaw as string) || "";
     const span = (decl.span as Span) || fileSpan;
@@ -7660,7 +7660,7 @@ function processFile(
   // TS-B Step 1.5: Build the state type registry.
   const stateTypeRegistry = buildStateTypeRegistry();
 
-  // §51.3: Build the machine registry from machine-decl AST nodes.
+  // §51.3: Build the machine registry from engine-decl AST nodes.
   // CE output shape nests data under fileAST.ast — use dual-shape fallback.
   const machineDecls = (fileAST.machineDecls as ASTNodeLike[] | undefined)
     ?? ((fileAST.ast as FileAST | undefined)?.machineDecls as ASTNodeLike[] | undefined)
