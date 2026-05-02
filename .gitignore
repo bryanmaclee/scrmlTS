@@ -12,3 +12,6 @@ editors/vscode/bun.lock
 
 # SEO-LAUNCH.md — local marketing draft; not tracked. 10 sessions stale at S32 wrap.
 docs/SEO-LAUNCH.md
+
+# Per-dispatch agent scratchpad — not tracked
+.tmp/

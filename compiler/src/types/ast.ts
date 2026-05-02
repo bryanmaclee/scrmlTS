@@ -822,7 +822,7 @@ export interface ExportDeclNode extends BaseNode {
   raw: string;
   /** Exported name(s), or null. */
   exportedName: string | null;
-  /** Export kind: "type", "function", "fn", "const", "let", "re-export", or null. */
+  /** Export kind: "type", "function", "fn", "const", "let", "channel", "re-export", or null. */
   exportKind: string | null;
   /** Re-export source path, or null. */
   reExportSource: string | null;
@@ -844,6 +844,40 @@ export interface TypeDeclNode extends BaseNode {
   /** Raw type body expression. */
   raw: string;
 }
+
+/**
+ * P3.A: A `<channel>` declaration AST node.
+ *
+ * The TAB does not introduce a new node `kind` for channels — channel decls
+ * remain `MarkupNode` with `tag: "channel"`. This interface is a structural
+ * alias (a TypeScript view) that documents the channel-decl shape and the
+ * optional P3.A annotations that may appear on a channel markup node.
+ *
+ * Codegen consumes channel decls via the existing `MarkupNode` path
+ * (`node.kind === "markup" && node.tag === "channel"`); CG was unchanged
+ * by P3.A — the cross-file inline-expansion (CHX, in CE phase 2) replaces
+ * the consumer's import-reference markup node with a deep copy of the
+ * exporter's channel markup body, leaving the rest of the pipeline alone.
+ *
+ * The `name=` attribute carries the channel's logical (wire-layer) name,
+ * which doubles as the `exportedName` on the paired `ExportDeclNode` for
+ * cross-file lookup.
+ */
+export interface ChannelDeclNode extends MarkupNode {
+  /** Always "channel" for the channel-decl shape. */
+  tag: "channel";
+  /** P3.A: true when the channel was declared at top level via
+   *  `export <channel name="X" ...>...</>`. Used by MOD to distinguish
+   *  exported channel decls from per-page (local) channel decls. */
+  isExport?: boolean;
+  /** P3.A: when CHX inlined this channel from another file, this records
+   *  the source file path for diagnostics + (future) dedupe. */
+  _p3aInlinedFrom?: string;
+  /** P3.A: when CHX inlined this channel, the source file's channel-decl
+   *  span (the original declaration site). */
+  _p3aSourceSpan?: Span;
+}
+
 
 // -- Transaction --
 
@@ -1059,6 +1093,11 @@ export interface FileAST {
   components: ComponentDefNode[];
   /** All type declarations hoisted from logic blocks. */
   typeDecls: TypeDeclNode[];
+  /** P3.A: All `<channel>` declaration markup nodes (hoisted from `<program>`
+   *  children + top-level nodes) — both per-page (local) channel decls and
+   *  exported (top-level `export <channel>`) decls. Used by CHX to look up
+   *  cross-file channel exports during inline-expansion. */
+  channelDecls?: ChannelDeclNode[];
   /** Span table: maps node ID to its source span. */
   spans: Record<number, Span>;
   /** True if the file has a `<program>` root element. */

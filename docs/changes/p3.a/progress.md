@@ -14,3 +14,7 @@ CHX (CE phase 2 under UCD). T2-large.
     - `E-IMPORT-004` (cascade — channel never registered as export)
     - `E-RI-002`, `E-SCOPE-001` x2 (downstream cascade)
   Diagnosis artifact: `docs/changes/p3.a/diagnosis.md`.
+- [step 3] Type system additions: `ChannelDeclNode` interface + `FileAST.channelDecls` field
+  + `ExportDeclNode.exportKind` doc updated to mention `"channel"`. `.gitignore` updated to
+  exclude `.tmp/` (per-dispatch scratchpad). Type-only changes; tests still 8512p/41s/0f
+  (the 41st skip is the diagnosis pin).
