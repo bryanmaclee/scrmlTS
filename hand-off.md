@@ -1,617 +1,619 @@
-# scrmlTS — Session 51 (CLOSED — fat wrap, push authorized)
+# scrmlTS — Session 52 (OPEN, mid-flight at hand-off pre-save)
 
-**Date opened:** 2026-04-30 (machine-A, post-S50 close)
-**Date closed:** 2026-04-30 (same day; long single-day session)
-**Previous:** `handOffs/hand-off-52.md` (S50 close — fat wrap; pre-saved at S50 close).
-**Baseline entering S51:** scrmlTS at `3dab098` (S50 close); clean / **8,196 pass / 40 skip / 0 fail / 385 files**. scrml-support clean / 0/0 origin.
-**State at S51 close:** scrmlTS at `56b80ad` (67 commits ahead of origin); scrml-support at `e83c993` + 4 untracked deep-dives (to be committed at close). Tests **8,380 pass / 40 skip / 0 fail / 400 files**. **Net delta: +184 tests, +15 files, 0 regressions.**
+**Date opened:** 2026-04-30 (machine-A, post-S51 close — same calendar day as S51)
+**Date at this hand-off pre-save:** 2026-05-02 (session crossed midnight TWICE; long architectural session)
+**Previous:** `handOffs/hand-off-53.md` (S51 close — fat wrap, 12 dispatches, +184 tests)
+**Pre-save reason:** Mid-flight bookkeeping while F-COMPONENT-004 fix re-dispatch runs in background. Pre-save protects against crash/timeout. If session continues, this gets updated at close. If next session opens fresh, this is the pickup state.
+
+**Baseline entering S52:**
+- scrmlTS at `3338377` (S51 close, pushed) / clean / 8,380 pass / 40 skip / 0 fail / 400 files
+- scrml-support at `2687e48` (S51 close, pushed) / clean / 0/0 with origin
+
+**State at this hand-off pre-save:**
+- scrmlTS at `966a493` (P2-wrapper merged) / `M hand-off.md` (this file mid-write) / **8,519 pass / 40 skip / 0 fail / 410 files** (+139 from S52 start, +8 + 96 + 17 + 35 across phases — see §3 timeline)
+- scrml-support at `2687e48` + 5 untracked deep-dive files (DD1 + DD2 + DD4 + 2 progress logs) — to be committed at session close
+- **F-COMPONENT-004 fix in flight** (re-dispatched after stale-base halt; estimate ~2-4h)
+- Origin: scrmlTS ~30 commits behind, scrml-support 0 ahead (untracked files only)
 
 ---
 
-## 0. The big shape of S51
+## 0. The big shape of S52
 
-**The systemic silent-failure sweep session.** Single-day session that opened the systemic-silent-failure deep-dive (parent), executed 8 fix dispatches + 1 child architectural deep-dive, and closed 6 of 6 original S50 P0s (one partially) + 3 newly-surfaced P0s + many P1/P2s. **+184 tests, +67 commits, 0 regressions, all main commits FF-merged.** Dispatch app went from "compiles clean but cannot run" to "compiles correctly with most architectural gaps closed."
+**The architectural-pivot session.** Triggered by the user's S52 verbatim statement (see §7) calling out that scrml has been "drifting from the language I envisioned" — identifying PascalCase-as-discriminator as the first concession and proposing **state-as-primary unification** (markup as a subset of state with display attributes). Day 1 of multi-day work.
 
-The architectural through-line: **realize the S49 validation principle mechanically across every distinct silent-failure mechanism.** The user's directive was *"anywhere, we're fixing everything"* — and the deep-dive prioritization gave us the order to fix it in.
+The W6 dispatch (carry-over from S51 plan) shipped Layer 1 of F-CHANNEL-003 + F-MACHINE-001 with a §21.2 SHALL NOT against `export <markup>` — and the user immediately identified that as "basically unacceptable." That single rejection triggered the entire architectural pivot.
 
-### Track A — Systemic silent-failure deep-dive (parent)
+### Track A — W6 dispatch (consequential, not merged)
 
-User directive: *"lets deep dive with everrything first"* — broad-scope research dispatch covering every open architectural defect from S50.
+T2-medium dispatch via scrml-dev-pipeline (worktree-isolated). Carry-over from S51's queue.
 
-Output: `scrml-support/docs/deep-dives/systemic-silent-failure-sweep-2026-04-30.md` (1,026 lines). Cataloged 35 items across 16 mechanisms (5 P0-bearing from S50 hand-off + 11 expanded). Discovered M17 (test-scaffolding-masks-production) shared by F-COMPONENT-001 + F-RI-001. Recommended **Unified Validation Bundle (UVB)** — 4 validation passes (VP-1..4) shipped as one focused T2 dispatch. Critical path to "validation principle holds across the dispatch app": 3 dispatches (W0a F-COMPILE-001 + W0b OQ-2 + W1 UVB).
+- **F-MACHINE-001 fully RESOLVED** — TAB synthesizes sibling `type-decl` for `export type X:kind = {...}`; cross-file `<machine for=ImportedType>` now works. E-MACHINE-004 message corrected. SPEC §51.3.2.5 + §41.2 amendments.
+- **F-CHANNEL-003 PARTIAL (Layer 1 only)** — Agent unilaterally chose to ship a SHALL NOT against `export <markup>` (E-EXPORT-001) instead of the diagnosis's recommended inline-expansion approach. The §38.4.1 carveout documents the deferral.
 
-12 OQs surfaced; user accepted defaults via "go go go" / "green" cadence. Fed into: W0a, W0b, W1, then triggered W2 child deep-dive.
+User reviewed and **identified the §21.2 SHALL NOT as unacceptable** — locks in the wrap-in-const concession permanently. **W6 worktree PARKED.** Branch lives at `worktree-agent-a566c25e34a40eb59` / `changes/w6` (10 commits ahead of S51 close baseline, never merged). F-MACHINE-001 fix in W6 is salvageable but redundant once P3 ships cross-file resolution architecturally.
 
-### Track B — W0a (F-COMPILE-001) + W0b (OQ-2) parallel critical-path
+### Track B — Three parallel deep-dives
 
-Both worktree-isolated T2 dispatches. **First dispatch attempt aborted** because PA's cwd was scrml-support, not scrmlTS — harness created worktrees in the wrong repo. Both agents correctly halted at startup-verification. PA cd'd to scrmlTS, re-dispatched. Second attempt: W0a completed cleanly; W0b crashed mid-implementation at tool_use 184 with `API Error: ConnectionRefused`.
+User direction: *"deep dive. start multiple if its worth it"*. PA dispatched 3 parallel scrml-deep-dive agents.
 
-**W0a (F-COMPILE-001) shipped:**
-- Option A (preserve source-tree in dist) + Option B (E-CG-015 hard-error on basename collision)
-- 7 commits, +17 tests
-- Dispatch app outputs went 32 sources → 17 HTML / 47 distinct (15 collisions) → 21 HTML / 74 distinct (0 collisions)
-- SPEC §47.9 amendment (output path encoding) + new error code E-CG-015
-- W0a discovered 3 deferred items: F-BUILD-002 candidate (`_scrml_session_destroy` duplicate import), E-CG-002 vs E-CG-015 spec/impl drift (E-CG-002 was already taken by `emit-server.ts:76`; SPEC row corrected), backwards-incompatible dist layout messaging
+- **DD1 — State-as-Primary Architectural Unification** (master conceptual, T3) — output 1170+ lines at `scrml-support/docs/deep-dives/state-as-primary-unification-2026-04-30.md`. Recommends Approach A (full unification). Scores Approach A 51/60 vs W6-shipped C 28/60 on 12-dimension matrix. Catalogs **8 historical concessions** Approach A removes (PascalCase, wrap-in-const, whitespace-after-`<`, separate state/markup categories, dual naming patterns, §21.2 SHALL NOT, §38.4.1 channel carveout, F-AUTH-002 modifier prefix asymmetry). Convergent dev-agent signal: 3 friction reports independently reach for Approach A-shaped fixes.
+- **DD2 — Parser Disambiguation Feasibility** (T2-large) — output 700+ lines at `scrml-support/docs/deep-dives/parser-disambiguation-feasibility-2026-04-30.md`. Verdict **FEASIBLE-WITH-COST**. T2-large × 3 phases (~2-3 weeks). Built on existing W2 canonical-key infrastructure already in LSP. Eliminates Approach B (name-table-at-parse breaks per-file parallelism, lexer-hack risk).
+- **DD3 — Prior Art Survey** (T2-large) — **FAILED at 600s agent stall**. PA decided to skip re-launch (DD1 §7 had 14-system catalog autonomously). Progress file remains as untracked artifact in scrml-support.
 
-**W0b (OQ-2) — RESUMED via fresh dispatch on the existing worktree:**
-- Hand-written runtime shims for `auth`, `crypto`, `store` at `compiler/runtime/stdlib/`
-- `bundleStdlibForRun()` + `rewriteStdlibImports()` in api.js (rewrite `from "scrml:auth"` → `from "<rel>/_scrml/auth.js"`; nested-output files emit `../../_scrml/...` correctly)
-- 5 commits (2 pre-rebase: pre-snapshot+repro+diagnosis, runtime shims; 3 post-rebase: bundling+rewrite, regression test, final summary)
-- Rebase against post-W0a main resolved 3 conflict regions in api.js (preserved both W0a's pathFor()/writeOutput()/writtenPaths AND W0b's stdlib bundling)
-- +9 tests; full smoke-test passes (zero `scrml:*` residue in emitted JS)
-- W0b discovered 2 deferred items: F-COMPILE-002 candidate (codegen `.scrml` extension imports not rewritten), SQL Class B parse failures (13 of 17 dev-server failures emit `sql-ref:-1`)
+Both DD1 and DD2 agents delivered as inline messages instead of writing to disk. PA had to manually persist them. Pattern noted; future deep-dive briefs include explicit "WRITE to disk" instruction.
 
-### Track C — W1 (Unified Validation Bundle)
+### Track C — DD4 (state-type body grammar)
 
-T2 dispatch via scrml-dev-pipeline. 4 validation passes:
-- **VP-1**: per-element attribute allowlist → W-ATTR-001 (unrecognized name) + W-ATTR-002 (unrecognized value-shape) — closes F-AUTH-001 + F-CHANNEL-005 + F-EXPORT-001 silent-acceptance windows at warn level
-- **VP-2**: post-CE invariant → E-COMPONENT-035 on residual `isComponent: true` — closes F-COMPONENT-001 silent phantom-DOM-emission window at error level
-- **VP-3**: attribute-interpolation validation → E-CHANNEL-007 on `${...}` in `<channel name=>`/`<channel topic=>` — closes F-CHANNEL-001 silent-inert window at error level
-- **VP-4**: subsumed by W0a's E-CG-015
+User-floated questions about `<machine>` body restriction ("feels bolted on and unnatural") and engine rename. Decided: bodies should be **uniform with extension points**. PA dispatched DD4 with that as pre-decided direction.
 
-10 commits, +44 tests. New `compiler/src/attribute-registry.js` (per-element schema for scrml-special elements). New `compiler/src/validators/` directory (4 files + AST walker). SPEC §15.14 + §38.11 + §52.13 amendments. PIPELINE Stage 3.3 added (post-CE invariant section).
+- **DD4 — State-Type Body Grammar Uniform-with-Extensions** (T2-large) — 1,187 lines at `scrml-support/docs/deep-dives/state-type-body-grammar-uniform-extensions-2026-04-30.md`. Confirmed reusability hypothesis (uniform bodies INCREASE reusability). **Killer finding:** SPEC §54.2-§54.3 (Nested Substate Declarations + State-Local Transition Declarations) ALREADY ships the extension-point pattern for type-with-body. DD4 is GENERALIZING existing scrml shape, not inventing.
+- Recommended phasing: T1+T2 (~10-13 days dispatch) opens machine/channel/lifecycle bodies to base trio (markup + `${...}` logic + nested state-types) + per-state-type extension registration. `<schema>` stays compile-time-only (principled exception). `<formResult>` default-rendering deferred to T3.
+- DD4 wrote to disk correctly (the agent followed the explicit "WRITE this to disk" brief).
 
-Smoke-test confirmed:
-- `examples/22-multifile/app.scrml` → fails E-COMPONENT-035 (was silently passing)
-- `examples/23-trucking-dispatch/pages/dispatch/board.scrml` → fails 3× E-COMPONENT-035 (was silently emitting phantom)
+### Track D — Debate (A vs B, "for shits and giggles")
 
-### Track D — W2 architectural deep-dive
+User direction: *"lets debate for shits and giggles"* — even though the technical case for A was already strong, debate ceremony preserves deliberation record.
 
-User directive: dispatch deep-dive in parallel with continuing fixes. Output: `scrml-support/docs/deep-dives/f-component-001-architectural-2026-04-30.md` (1,093 lines).
+debate-curator dispatched with full pipeline (research + experts + judge + record insight). 6 panelists:
+- **A camp:** scrml-dev-elixir, scrml-dev-htmx, racket-hash-lang-expert
+- **B camp:** scrml-dev-react, scrml-dev-typescript, scrml-dev-vue
 
-**Killer finding:** the LSP at `lsp/workspace.js` already ships canonical-key + auto-gather. CE is the outlier among 4 cross-file consumers. Compresses parent's T3 estimate to T2-large. Trade-off matrix decisive: Approach B (unified canonical-key + recursion + auto-gather) leads by 11 over A, 13 over D, 17 over C. **No debate needed.**
+**Verdict: Approach A wins 93/110 vs Approach B's 71.5/110** (extended 11-dimension rubric).
 
-6 OQs surfaced. Defaults accepted: `.scrml`-only auto-gather (defer .js); sane-limit guard YES; `--no-gather` opt-out flag YES; F-COMPONENT-002 fold-in NO; dispatch-app components refactor NO (separate W2-FOLLOW); no edition gate.
+Largest spreads favoring A: Paradigm fit (+7), Idiomaticity to user vision (+5.5), Cross-file architectural cleanup (+5), Spec coherence (+4.5).
+Largest spread favoring B: Compiler complexity (+3) — A is ~4x the implementation cost.
 
-### Track E — W2 architectural fix
+Tie-breaker: convergent dev-agent signal (3 independent friction reports reaching for A-shaped fixes).
 
-T2-large dispatch via scrml-dev-pipeline. Approach B (canonical-key + recursion + auto-gather):
+Honest minority position from B camp (TypeScript + React experts) on per-category type distinctness — informs implementation: A's `StateTypeDeclNode` must carry strong `category` discriminator. DD4's already-shipped `StateTypeRegistration` (§54.2-§54.3) does this.
 
-- **F1 (CE recursion):** `hasAnyComponentRefsInLogic` now walks nested markup. Wrapped patterns no longer skip CE.
-- **F2 (canonical key):** `runCEFile` consumes `importGraph` directly (per B2-b sub-decision); resolves `imp.source` → `absSource` via importGraph + looks up `fileASTMap.get(absSource)` and `exportRegistry.get(absSource)`. Mirrors LSP's `lsp/workspace.js` pattern + TS-pass pattern at `api.js:626-660`.
-- **F3 (auto-gather):** CLI builds transitive `.scrml` import closure starting from inputs. `--no-gather` opt-out flag plumbed through compile/dev/build commands. Sane-limit guard with new error code E-IMPORT-007.
+Design insight appended to `/home/bryan-maclee/.claude/design-insights.md` (under heading "## State-as-Primary Architectural Unification — scrml Approach A vs B").
 
-**Bonus discovery (not in deep-dive's F1/F2/F3 catalog):** TAB classifies `${ export const X = <markup/> }` as `export-decl` not `component-def`, so cross-file `ast.components` was empty for export-const components. CE now ALSO scans `ast.exports` and synthesizes a component-def by stripping the `export const NAME =` prefix.
+### Track E — User ratification + 7 OQ defaults + engine rename
 
-5 commits, +10 tests. New `compiler/tests/integration/cross-file-components.test.js` (10 tests; canonical real-fixture path closes the M17 scaffolding-mask gap). SPEC §15.14.4 + §15.14.5 + §21.6 (E-IMPORT-005/006/007) + §21.7 amendments. PIPELINE Stage 3.2 input/output contract amendments.
+User: *"ratify yes. engine yes . other qs default. go"*
 
-**G-gate verification (per deep-dive §10):**
-- G1 (22-multifile compiles clean): ✅
-- G2 (emitted JS contains expanded markup, no phantoms): ✅ (5 setAttribute calls, 0 createElement)
-- G3 (browser renders 5 badges): ✅ (mechanically; full nested `<li><span class="badge">` 5x in app.client.js loop)
-- G4 (integration tests pass): ✅ (10/10)
-- G5 (dispatch-app `board.scrml` works): ⚠️ PARTIAL — F4 surfaced (nested-PascalCase Phase-1 limitation in `parseComponentBody`; same-file fails identically; **pre-existing not W2-caused**)
-- G6 (FRICTION status flip): ✅ (with F4 caveat)
+Ratified:
+- **Approach A** (state-as-primary unification) — go
+- **Engine rename** (machine → engine) — DO IT in P1 (overrode DD4's "defer" recommendation)
+- All 7 unanswered OQs at defaults (lowercase warn on HTML collision; export-const transitional sugar kept; per-importer channel store identity; §52 authority preserved as attribute; F-AUTH-002 modifier+attribute both; formResult default-rendering deferred to T3; debate ratified Approach A)
 
-`examples/22-multifile/` master-list row flipped `[x][❌]` → `[x][✅]`. Kickstarter v1 multi-file section dropped KNOWN-BROKEN flag, restored canonical 3-file pattern recipe. **F-COMPONENT-003 candidate** surfaced for nested-PascalCase Phase-1 limitation.
+### Track F — P1 dispatch (case-soften + whitespace warn + engine rename)
 
-### Track F — W3 (F-NULL-001 + F-NULL-002 paired)
+T2-large via scrml-dev-pipeline (worktree-isolated). Lowest-risk first commit per DD1 §9.1.
 
-T2-medium dispatch.
+**Status: PARTIAL but adequate.** 8 commits, +8 tests (8380→8388), 0 regressions. Merged FF.
 
-**Diagnostic finding:** F-NULL-001's "machine-context-dependent" trigger was incidental. At post-W1 baseline, both with-machine and without-machine client-fn bodies fired E-SYNTAX-042 equally. The true root cause was a generic walker-incompleteness defect in GCP3 affecting every markup-attribute and ternary-condition position, regardless of machine presence.
+Shipped:
+- SPEC §4.3, §15.6, §15.8, §15.12 case-rule softening (SHALL → MAY)
+- SPEC §15.15 NEW — unified state-type registry section
+- 3 new warning codes catalogued: W-CASE-001, W-WHITESPACE-001, W-DEPRECATED-001
+- TAB recognizes both `<engine>` and `<machine>` keywords
+- W-DEPRECATED-001 runtime emission on `<machine>` (8 tests)
+- 2 examples migrated to `<engine>`: mario, dispatch app hos.scrml
+- SPEC §51.3.2 engine canonical
+- PIPELINE Stage 3.05 NameRes design contract (no implementation yet)
 
-F-NULL-002 was the same defect manifested differently: the detector's `walkAst` inspected `condExpr/initExpr/exprNode/argsExpr` but never visited `markup.attrs[*].value.exprNode`. Server-fn bodies routed through `if-stmt.condExpr` (visited); markup-attr expressions lived at `attrs[*].value.exprNode` (unreached). Plus a separate diagnostic-quality bug: `spanFromEstree` hard-coded `line:1, col:1`.
+Deferred to P1.E:
+- NameRes Stage 3.05 implementation
+- Uniform opener
+- W-CASE-001 + W-WHITESPACE-001 runtime emission
+- W-WHITESPACE-001 noisiness problem (every `< db>` opener would warn — flood without uniform opener)
 
-7 commits, +15 tests. SPEC §42.7 amendment (uniform rejection across all source positions).
+Deferred to separate dispatches:
+- Internal compiler rename `machineName→engineName` (~350 refs)
+- Full SPEC §51 keyword sweep + worked example rewrites
+- E-MACHINE-* → E-ENGINE-* rename
 
-**`--no-verify` violation:** Commit `7d2c4e7` (TDD red intermediate) bypassed pre-commit hook. Next commit (`09cca5e`, fix+tests both green) was clean. **Per pa.md this needs explicit auth; agent did it without asking.** Surfaced for next-session attention. Future TDD work should single-commit fix+tests OR get explicit auth for red commits.
+### Track G — P1.E dispatch (NameRes + uniform opener + warning emissions)
 
-### Track G — W3.1 + W3.2 paired (null follow-on)
+T2-medium via scrml-dev-pipeline (worktree-isolated). Builds on P1 baseline.
 
-T2-medium dispatch.
+**Status: DONE.** 12 commits, +56 tests (8388→8444 post-pretest, 8484 pre-pretest), 0 regressions. Merged FF.
 
-- **W3.1 (F-NULL-003):** bare `null`/`undefined` literals in value position (declaration init, return, object property, array element, ternary branch, default param) silently passed pre-W3.1. Fix: `forEachLitNull` walker visits every exprNode subtree + emits E-SYNTAX-042 on lit-null nodes. Suppression for `is-not`/`is-some`/`is-not-not` synthetic operands.
-- **W3.2 (F-NULL-004):** string-template `${...}` interpolation in attribute string-literals never parsed into exprNodes. Fix shape (b) tactical: `extractTemplateInterpSegments` scans for `${...}` with brace-depth tracking; each segment re-parsed via existing `parseExprToNode`; resulting exprNode fed back through `inspectExprNode`.
+Shipped:
+- **NameRes Stage 3.05** at `compiler/src/name-resolver.ts` (~410 LOC, bigger than 150 estimate). Wired post-MOD. Walks tag-bearing nodes; stamps `resolvedKind` + `resolvedCategory`. Shadow mode (advisory; downstream still routes on `isComponent`).
+- **Uniform opener:** both `<id>` and `< id>` produce equivalent AST for db, schema, engine, machine, channel, timer, poll, request, errorBoundary
+- W-CASE-001 + W-WHITESPACE-001 runtime emission live (NR-driven)
+- Samples migrated to `<engine>` (machine-basic, machine-002-traffic-light, rust-dev-debate-dashboard) — 0 remaining `<machine>` keyword sites
+- Dedicated W-DEPRECATED-001 regression tests (replaced incidental sample-based coverage)
+- SPEC §15.15 + §34 + PIPELINE Stage 3.05 flipped from "documented" to "implemented (shadow mode)"
+- Performance within 10% (14.45-15.91s vs 14.51 baseline)
+- Wart: agent renamed gauntlet stage labels in api.js (3.05/3.06 → 3.005/3.006) to avoid clash with NR. Defensible.
 
-6 commits, +39 tests (26 W3.1 + 13 W3.2). SPEC §42.7 enumerated 3 rejection categories + suppression rule. Cascade fixture updates: TodoMVC `app.scrml` (3 sites) + `fn-expr-member-assign.test.js` (3 fixtures) — both used `null` as semantically-equivalent placeholders for `not`; updated to spec-compliant `not` within the same commit as the detector. **No deferrals** — the agent stayed within scope. Diagnostic-quality limitation: W3.2 segments parsed with `offset=0` (no precise byte offset); spans fall back to attribute's `value.span` line/col.
+New finding (informational): 60 new W-WHITESPACE-001 warnings firing on `samples/compilation-tests/` — pre-existing samples use `< db>` style. Not a bug; deprecation warning doing its job. Migration is its own dispatch (or P4 `scrml-migrate`).
 
-### Track H — Bookkeeping commit (FRICTION)
+### Track H — P2 dispatch (`export <ComponentName>` direct grammar)
 
-After Tracks B-G shipped, PA-side bookkeeping commit (`8dddd27`) added 5 new findings to dispatch-app FRICTION.md:
-- F-COMPILE-002 (P0, pre-existing) — codegen `.scrml` extension imports not rewritten
-- F-BUILD-002 (P0, pre-existing) — `_scrml_session_destroy` duplicate import
-- F-SQL-001 (P0, formerly "SQL Class B") — `?{}` parser emits `sql-ref:-1` placeholders
-- F-NULL-003 (P1, W3 follow-on) — bare null literals silently pass §42.7
-- F-NULL-004 (P1, W3 follow-on) — string-template attr interp null silently pass
+T2-medium-to-large via scrml-dev-pipeline (worktree-isolated). The user-visible win.
 
-### Track I — F-COMPILE-002 + F-BUILD-002 paired
+**Status: DONE on `changes/p2`.** 8 commits, +18 tests, 0 regressions. **NOT merged immediately** — semantic gap surfaced (see Track I).
 
-T2-medium dispatch.
+Shipped (on the branch):
+- SPEC §21.2 amendment — Form 1 (`export <ComponentName attrs>{body}</>`) + Form 2 (legacy `export const Name = <markup>`) both documented
+- TAB recognizes `export <Identifier ...>` at top level
+- MOD exportRegistry shape-equivalent for both forms
+- Cross-file imports work for the new form
+- Both forms coexist
+- Performance: ~11.13s (faster than 14.47s baseline; warm cache)
 
-**F-COMPILE-002 root cause:** Two-layer bug. (1) `emit-server.ts:111-122` emitted `stmt.source` verbatim (no `.scrml` rewrite), unlike `emit-client.ts` which had it. (2) Post-emit `rewriteRelativeImportPaths` (api.js:283) treated `.server.js`/`.client.js` as source-tree files and would mis-relocate them back into the source tree.
+**The wrapper gap:** Agent shipped Form 1 by desugaring `export <UserBadge attrs>{body}</UserBadge>` to `export const UserBadge = <UserBadge attrs>{body}</>` — i.e., **the body gets wrapped in a `<UserBadge>` custom-element shell at render time.** Use-site `<UserBadge name="Alice"/>` renders as `<UserBadge name="Alice"><span class="badge">Alice</span></UserBadge>` with extra outer custom element. Agent documented as "deferred refinement" — adopters told to use Form 2 if they want byte-equivalent HTML.
 
-**F-BUILD-002 root cause:** Single-source bug. `emit-server.ts:166` emits `_scrml_session_destroy` from EVERY auth-middleware server.js. `generateServerEntry` (build.js:200-209) imports each module's exports under name → N copies → SyntaxError. Fix shape: option (d) skip-duplicate (first-importer-wins).
+User-facing impact: defeats the unification intent. PA surfaced; user chose option (a) — block merge, fix the wrapper before shipping.
 
-6 commits, +15 tests (8 F-COMPILE-002 + 7 F-BUILD-002). SPEC §47.10 + §47.11 + §47.12 amendments.
+### Track I — P2 wrapper fix dispatch
 
-**Deferred:** F-COMPILE-003 candidate surfaced — pure-helper `.scrml` files compile to near-empty `.client.js` and no `.server.js`. Extension rewrite works but imported file lacks named exports at runtime. Visible in `examples/22-multifile/`. Filed for separate triage (later partly addressed by W5).
+T1-medium follow-up via scrml-dev-pipeline. Builds on `changes/p2` (worktree at startup merges P2 in).
 
-### Track J — F-SQL-001
+**Status: DONE on `changes/p2-wrapper`.** 7 new commits on top of P2's 8 (15 total ahead of P1.E), +17 tests (8462→8479), 0 regressions. Merged FF post-completion.
 
-T2-medium dispatch.
+Shipped:
+- TAB desugaring fixed — body's root element absorbs outer attrs (typed-prop declarations + non-typed attrs)
+- E-EXPORT-002 (body must be single-rooted) + E-EXPORT-003 (outer/inner attr name conflict) emit
+- SPEC §21.2 caveat dropped — byte-equivalence is now normative
+- SPEC §21.6 — new error codes catalogued
+- 14 unit tests (AST equivalence) + 3 integration tests (HTML byte-equivalence) verify Form 1 + Form 2 are equivalent
 
-**Diagnosis:** The regex `/\?\{[^}]*\}/g` in `compiler/src/expression-parser.ts:137,169` cannot handle `?{...${expr}...}` — `[^}]*` non-greedy stops at the first `}`, which in real SQL templates is the closing brace of a `${}` interpolation. Acorn then sees a truncated input and either parses just the placeholder identifier with the rest as silent trailing content (warning fires from line 1182, no hard error) or fails entirely (escape-hatch fallback). The dispatch's reference to `sql-ref:-1` was a slight mis-statement of the actual symptom; real bug was regex truncation; `sql-ref:-1` is a deliberate parser-stage marker.
+**New finding (pre-existing, not P2-introduced) — F-COMPONENT-004:** `substituteProps` in CE walks markup text + attr values but NOT into logic-block bodies (ExprNodes inside `${...}` blocks within component bodies). So component bodies with logic-block prop refs error at TS as undeclared identifiers. Affects both Form 1 and Form 2 equally (parity test the agent left correctly asserts SAME errors). User chose option 2 — fix now in a small dispatch.
 
-Fix shape (C): both ergonomic and hard-error.
-- **(A) Ergonomic:** `replaceSqlBlockPlaceholder()` — context-mode-stack scanner (frames: `js{depth}`, `template`, `single`, `double`). `?{` enters JS-context; `` ` `` enters template; `${` inside template enters nested JS-context; pops back correctly. Single-/double-quoted strings respected.
-- **(B) Hard-error:** when scanner reaches end-of-input with outer JS-frame still open, `ParseResult.sqlDiagnostic` carries E-SQL-008. `parseExprToNode` returns escape-hatch ExprNode with `sqlDiagnostic`. `safeParseExprToNode`/`safeParseExprToNodeGlobal` push TABError → standard compile error list.
+### Track J — F-COMPONENT-004 fix (IN FLIGHT at hand-off pre-save)
 
-E-SQL-007 was already taken (`?{}` in non-async context); allocated **E-SQL-008**.
+T1-medium-to-T2-small dispatch via scrml-dev-pipeline. First attempt **HALTED at startup verification** — harness gave the worktree a stale base (S51 close `3338377` instead of current main `966a493`). Agent correctly halted per startup-verification protocol; clean exit, no damage.
 
-7 commits, +17 tests. SPEC §44.8 + E-SQL-008 amendments.
+**Re-dispatched** with explicit stale-base recovery prelude (`git reset --hard main` + symlink check + pretest regen). Currently running.
 
-**Smoke-test wins:** dispatch app billing/home/invoices/load-detail F-SQL-001 boundary warning count went from many → 0. Aggregate trailing-content warning count: 146 → 30 (eliminated 116; 30 remaining are pre-existing non-SQL ASI cases).
+Scope:
+- `substituteProps` extended to walk into logic-block bodies (ExprNodes)
+- Shadowing-aware: lambda parameters, local declarations, template literals, nested logic blocks
+- New helper `substitutePropsInExprNode(node, propMap, shadowedSet)`
+- Tests: basic, member, lambda shadowing, local shadowing, template literal, nested
+- Form 1 + Form 2 parity test updated from "same errors" → "same success"
+- SPEC + FRICTION updates
 
-**Deferred:** 30 remaining trailing-content warnings — F-PARSER-ASI-* / F-PARSER-MARKUP-FRAG-* candidates (samples/compilation-tests/ files + dispatch-app driver/home + driver/hos). Separate triage.
+**State at pre-save:** dispatched; will notify when complete. If F-COMPONENT-004 lands clean, next move is decide: merge + dispatch next (P3 cross-file inline-expansion? Internal compiler rename? SPEC §51 sweep?) — OR wrap session.
 
-### Track K — W4 (F-RI-001 deeper)
+### Track K — Bookkeeping (this hand-off + master-list + changelog + scrml-support deep-dive commits + user-voice append)
 
-T2-large dispatch.
-
-**Diagnostic finding (the most surprising of the session):** `compiler/src/route-inference.ts` `collectReferencedNames` extracted identifier names via a regex applied to flat-stringified ExprNodes. The regex matched identifier-shaped tokens **inside string-literal contents**. The capture-taint loop (Step 5b) then resolved those bogus names against the global cross-file `fnNameToNodeIds` map. In the dispatch app, `transition()`'s `"/login?reason=unauthorized"` string literal collided with `app.scrml`'s `server function login`, false-tainting `transition`, firing E-RI-002 on the @-assignment — but only in directory (multi-file) compile mode, which is why the S50 single-file regression tests didn't catch it.
-
-Fix: replace regex-on-flat-string with structural walk over ExprNode tree via existing `forEachIdentInExprNode` (visits only `IdentExpr` nodes, skips `LitExpr` content, skips `MemberExpr.property`, skips `LambdaExpr` bodies). Test-fixture compat preserved via `walkExprOrString` string-fallback for hand-built ASTs.
-
-8 commits, +6 tests. SPEC §12.4 amendment (per-fn analysis invariant).
-
-**M2 workaround removed across 10 dispatch-app pages:** `dispatch/load-detail.scrml`, `dispatch/billing.scrml`, `customer/load-detail.scrml`, `customer/quote.scrml`, `customer/invoices.scrml`, `driver/load-detail.scrml`, `driver/home.scrml`, `driver/hos.scrml`, `driver/messages.scrml`, `driver/profile.scrml`. Pattern reverted: removed `@errorMessage = ""` anchor + replaced `setError(errMsg)` server-error-path indirection with direct `if (result.error) { @errorMessage = result.error; return }`.
-
-**F-RI-001 went from PARTIAL → FULLY RESOLVED.** No E-RI-002 fired anywhere on the dispatch app post-fix.
-
-### Track L — W5 (F-AUTH-002 — partial)
-
-T2-medium dispatch. **Partial fix only — Layer 1 of 3.**
-
-**Diagnosis (3 layers):**
-- **Layer 1:** `ast-builder.js` EXPORT branch's regex was blind to `pure`/`server` modifier tokens. `collectExpr` stopped at `function` STMT_KEYWORD after consuming `server`, leaving `exportedName=null` and breaking cross-file imports of `export server function NAME` with E-IMPORT-004.
-- **Layer 2:** Pure-fn files in browser mode produce empty `.client.js` regardless of exports. SPEC §21.5's "auto-detect" promise is unimplemented.
-- **Layer 3:** The actual `?{}` resolution in pure-fn server functions has no spec contract today.
-
-**Shape implemented:** Layer 1 only — modifier parsing fix + SPEC contract direction (§21.5.1 + §44.7.1 + E-SQL-009).
-
-**Layers 2 + 3 deferred as W5a (pure-fn library auto-emit) + W5b (cross-file `?{}` resolve).** W5a is prerequisite for W5b. Architectural cross-file emission gap is broader than F-AUTH-002 (also affects non-SQL pure-fn exports).
-
-6 commits, +13 tests. SPEC §21.5.1 + §44.7.1 + E-SQL-009 amendments.
-
-**F-AUTH-002 went from OPEN → PARTIALLY RESOLVED (W5 Layer 1).**
+In progress at this pre-save. The session is so large that bookkeeping needs attention before more code lands.
 
 ---
 
-## 1. Commits this session — scrmlTS (67 commits ahead of origin)
+## 1. Commits this session — scrmlTS (30 commits ahead of origin at pre-save)
 
 ```
-56b80ad fix(f-auth-002): pure/server export modifier handling + SPEC contract
-f656668 WIP(f-auth-002): FRICTION — F-AUTH-002 PARTIALLY RESOLVED (Layer 1 + SPEC)
-d96e7c3 WIP(f-auth-002): SPEC §21.5.1 + §44.7.1 + integration tests
-181b6be WIP(f-auth-002): ast-builder export-decl recognizes pure/server modifiers
-7095f5c WIP(f-auth-002): diagnosis — root cause for E-SQL-004 in cross-file ?{}
-bd876a2 WIP(f-auth-002): pre-snapshot — baseline 8361p/0f, branch created
-474cce0 fix(f-ri-001-deeper): RI per-fn scoping; multi-server-fn file context no longer false-escalates
-a7ee3ac WIP(f-ri-001-deeper): SPEC §12.4 + FRICTION — F-RI-001 RESOLVED, normative per-fn invariant
-a898afb WIP(f-ri-001-deeper): revert M2 workaround in remaining 8 dispatch-app pages (M3-M6 sweep)
-efb723c WIP(f-ri-001-deeper): revert M2 workaround in dispatch + customer load-detail.scrml
-b1d2406 WIP(f-ri-001-deeper): tests — §D + §E + §F regression coverage for cross-file string-literal capture-taint
-26c987f WIP(f-ri-001-deeper): route-inference.ts — structural ExprNode walk in collectReferencedNames
-a8989ab WIP(f-ri-001-deeper): diagnosis — capture-taint regex matches identifiers inside string literals
-6360c94 WIP(f-ri-001-deeper): pre-snapshot — baseline 8361p/0f, multi-fn repro coming next
-5c35618 fix(f-sql-001): ?{} parser handles complex shapes; hard-error on unhandled
-255b48d WIP(f-sql-001): SPEC §44.8 + E-SQL-008 + FRICTION RESOLVED
-d24f15a WIP(f-sql-001): integration tests — bracket-matched + E-SQL-008
-9928267 WIP(f-sql-001): hard-error E-SQL-008 path through ast-builder TABError
-1b4b67a WIP(f-sql-001): bracket-matched ?{} scanner + E-SQL-008 hard-error path
-5ce0f9b WIP(f-sql-001): diagnosis — regex /\?\{[^}]*\}/g cannot match nested braces
-d810b34 WIP(f-sql-001): pre-snapshot — baseline 8329p/0f, root cause located
-9ac3731 fix(f-compile-002+f-build-002): codegen .scrml-extension rewrite + entry-import deduplication
-176de58 WIP(f-compile-002+f-build-002): SPEC + FRICTION updates
-2585a36 WIP(f-compile-002+f-build-002): integration tests
-0b5695e WIP(f-build-002): generateServerEntry deduplication
-32d0c02 WIP(f-compile-002+f-build-002): diagnosis — root cause for both bugs
-b0838ae WIP(f-compile-002+f-build-002): pre-snapshot — baseline 8329p/0f, repros captured
-e69ecac fix(w3.1+w3.2): bare-null + string-template-interp null sweeps complete §42.7
-071122f WIP(w3.1+w3.2): FRICTION — F-NULL-003 + F-NULL-004 RESOLVED
-b71ead3 WIP(w3.1+w3.2): SPEC §42.7 — explicit value-position + interpolation enumeration
-4f7c430 WIP(w3.1+w3.2): tests — bare-null + string-template-interp coverage
-422a9d0 WIP(w3.1+w3.2): bare-null + string-template-interp detectors + cascade fixture updates
-528f664 WIP(w3.1+w3.2): pre-snapshot — baseline 8280p/0f, branch created
-1f4430d WIP(w2): final progress — G-gate verification + 8290p/0f/+10 net delta
-e5cb448 WIP(w2): Plan B reversal — master-list/FRICTION/kickstarter flip-back
-2a2d52c docs(w2): SPEC §15.14.4 + §15.14.5 + §21.7 + PIPELINE Stage 3.2
-6536f7a feat(w2): F-COMPONENT-001 architectural fix — canonical-key + recursion + auto-gather
-1df02e9 WIP(w2): pre-snapshot — baseline 8280p/40s/0f/392 files
-8dddd27 docs(s51): FRICTION — 5 new findings logged (F-COMPILE-002, F-BUILD-002, F-SQL-001, F-NULL-003, F-NULL-004)
-37c9f8d fix(f-null): GCP3 detector consistent null treatment across markup + fn-body contexts
-49b2ab4 WIP(f-null): FRICTION + progress — F-NULL-001 + F-NULL-002 RESOLVED
-78ce9dd WIP(f-null): SPEC §42.7 — uniform rejection across all source positions
-09cca5e WIP(f-null): GCP3 detector + tests — consistent null treatment
-7d2c4e7 WIP(f-null): tests — F-NULL-001/002 + ternary-condition coverage (TDD)   ← --no-verify VIOLATION
-7f5c16f WIP(f-null): diagnosis — root cause for both asymmetries identified
-37914cc WIP(f-null): pre-snapshot — baseline 8265p/0f, repros captured, diagnosis
-1f640d5 feat(uvb-w1): unified validation bundle — VP-1 attr allowlist + VP-2 post-CE invariant + VP-3 attr interp
-61eda35 WIP(uvb-w1): FRICTION.md — F-AUTH-001 / F-COMPONENT-001 / F-CHANNEL-001 / F-CHANNEL-005 silent-failure-window-closed
-bde823e WIP(uvb-w1): SPEC.md + PIPELINE.md amendments
-d670831 WIP(uvb-w1): tests — VP-1 + VP-2 + VP-3 unit + pipeline integration
-53f9c56 WIP(uvb-w1): wire VP-1/VP-2/VP-3 into pipeline post-CE; add shared AST walker
-cacb344 WIP(uvb-w1): VP-1 + VP-2 + VP-3 validator passes (not yet wired)
-d7576bf WIP(uvb-w1): attribute-registry.js — per-element attr schema for scrml-special elements
-622804e WIP(uvb-w1): design notes — code namespace, architecture, pipeline placement
-51316cc WIP(uvb-w1): pre-snapshot — baseline 8221p/0f at 70eb995
-70eb995 fix(oq-2): dev server bootstrap — bundle scrml:* runtime shims + rewrite imports
-56c1082 WIP(oq-2): regression test — stdlib bundling + import rewrite + Bun loadability
-84b78a0 WIP(oq-2): bundling + import-rewrite — collectStdlibSpecifiers, bundleStdlibForRun, rewriteStdlibImports
-7cdf938 WIP(oq-2): runtime shims for scrml:auth, scrml:crypto, scrml:store
-58cb308 WIP(oq-2): pre-snapshot + repro + diagnosis
-268f190 fix(f-compile-001): preserve dist/ source-tree; E-CG-015 on basename collision
-cb5622b WIP(f-compile-001): FRICTION.md F-COMPILE-001 RESOLVED + README updated
-7776907 WIP(f-compile-001): SPEC.md §47.9 + E-CG-015 — output path encoding
-287c1d7 WIP(f-compile-001): tests — output-tree preservation + collision contract (17 tests)
-99d4909 WIP(f-compile-001): build.js + dev.js — recursive *.server.js discovery
-05dc7fb WIP(f-compile-001): api.js — Option A preserve source tree + Option B E-CG-015
-0373552 WIP(f-compile-001): pre-snapshot — baseline 8196p/0f, repro confirmed
-3dab098 (S50 close baseline)
+966a493 fix(p2-wrapper): Form 1 byte-equivalent to Form 2; E-EXPORT-002 + E-EXPORT-003
+fb70f7e WIP(p2-wrapper): update prior P2 cross-file test header — drop deferred-refinement note
+509e42a WIP(p2-wrapper): SPEC §21.2 + §21.6 — drop deferred-refinement caveat; new error codes
+d4b68a7 WIP(p2-wrapper): tests — AST equivalence + HTML equivalence + new error emissions
+dc095c9 WIP(p2-wrapper): re-invoke BS on synthesized raw — preserve nested logic blocks
+ed629f7 WIP(p2-wrapper): ast-builder desugaring — body-root absorbs outer attrs
+e347173 WIP(p2-wrapper): pre-snapshot — verified P2 baseline 8462p/0f/40s, branch created
+e02f0e1 fix(p2): state-as-primary Phase P2 — export <ComponentName> direct grammar
+2b234b3 WIP(p2): SPEC-INDEX + PIPELINE updates if contracts changed
+7b9244b WIP(p2-tests): use-site verification (CE finds component regardless of export form)
+908103e WIP(p2-tests): cross-file integration — new form, legacy form, both coexisting
+03044a9 WIP(p2-tests): new-form parsing + AST shape verification
+451d24e WIP(p2-tab): block-splitter + ast-builder recognize export <Identifier ...> at top level
+6a59a13 WIP(p2): SPEC §21.2 — export <ComponentName> canonical form normative paragraph + worked examples
+7cb18e7 WIP(p2): pre-snapshot — baseline 8444p/0f, branch created
+1a89e84 fix(p1.e): NameRes shadow mode + uniform opener + W-CASE-001/W-WHITESPACE-001 emission + samples — 8388→8444, 0 regressions
+3f580e8 WIP(p1.e-docs): rename gauntlet check stage labels in api.js (3.05/3.06 → 3.005/3.006) — avoid clash with NR
+c53a1bd WIP(p1.e-docs): SPEC §15.15 + §34 + PIPELINE Stage 3.05 — implementation-status updates
+513c4d5 WIP(p1.e-samples): migrate machine-basic + traffic-light + rust-dev-debate-dashboard to <engine>
+a916fcb WIP(p1.e-samples): dedicated W-DEPRECATED-001 regression tests
+7ba5f05 WIP(p1.e-nr): tests — per-category resolution + W-CASE-001/W-WHITESPACE-001 emission + cross-file
+41028de WIP(p1.e-nr): name-resolver.ts shadow-mode implementation + wired into pipeline post-MOD
+2281710 WIP(p1.e-bs): propagate openerHadSpaceAfterLt to AST nodes; self-host parity test strips new fields
+db47b2d WIP(p1.e-bs): tests — opener-form equivalence across lifecycle keywords
+b6b6204 WIP(p1.e-bs): ast-builder uniform-opener gap-fill (lifecycle markup<->state normalization)
+38737b2 WIP(p1.e-bs): block-splitter records openerHadSpaceAfterLt; permits self-closing < id/>
+6f97329 WIP(p1.e): pre-snapshot — baseline 8388p/0f, branch created
+0334942 fix(p1): state-as-primary Phase P1 partial + engine rename — 8388p/0f, 0 regressions
+6271387 WIP(p1): SPEC §51.3.2 + PIPELINE Stage 3.05 — engine canonical + NR design contract
+e943045 WIP(p1-er-cascade): dispatch-app hos.scrml + FRICTION.md → engine keyword
+7c416ff WIP(p1-er): tests — engine keyword equivalence + W-DEPRECATED-001 emission
+7990df4 WIP(p1-er): ast-builder accepts <engine> + emits W-DEPRECATED-001 on <machine>
+24013c7 WIP(p1): SPEC §15.15 + §34 catalog — unified registry + 3 new W- codes
+8b03730 WIP(p1): SPEC §4.3 + §15.6 + §15.8 + §15.12 — case-rule softening
+ea89552 WIP(p1): pre-snapshot — baseline 8380p/0f, branch created
+3338377 (S51 close baseline)
 ```
 
-Plus the wrap commits landing at session close (this hand-off + master-list + changelog refresh + FRICTION cleanup if needed).
+Plus wrap commits at session close (this hand-off, master-list refresh, changelog refresh, FRICTION cleanup if F-COMPONENT-004 lands).
 
-## 2. Commits this session — scrml-support (4 untracked files at S51 close)
+## 2. Worktrees alive at pre-save
 
-scrml-support has 4 untracked files (deep-dive output + 2 progress logs):
-```
-docs/deep-dives/systemic-silent-failure-sweep-2026-04-30.md (1,026 lines — parent deep-dive)
-docs/deep-dives/progress-systemic-silent-failure-sweep-2026-04-30.md
-docs/deep-dives/f-component-001-architectural-2026-04-30.md (1,093 lines — child deep-dive)
-docs/deep-dives/progress-f-component-001-architectural-2026-04-30.md
-```
+| Branch | Worktree | Status |
+|---|---|---|
+| `changes/w6` | `agent-a566c25e34a40eb59` | PARKED (10 commits; F-MACHINE-001 fix + §21.2 SHALL NOT user-rejected) |
+| `changes/p1` | `agent-adb1e9fcff0438c67` | MERGED (clean up at session close) |
+| `changes/p1.e` | `agent-ab3e556bd7b2c54e7` | MERGED (clean up at session close) |
+| `changes/p2` | `agent-a8ef6c464e352adea` | MERGED via p2-wrapper (clean up) |
+| `changes/p2-wrapper` | `agent-a1a5ade61ee6b2c5e` | MERGED (clean up) |
+| `changes/f-component-004` (1st attempt) | `agent-a62ec1989b2f7298a` | HALTED (stale base; clean up — no work done) |
+| `changes/f-component-004` (2nd attempt) | `agent-a2eda9e889fd5ccef` | IN FLIGHT |
 
-To be committed at S51 close + push.
-
-User-voice S51 entry to be appended to `user-voice-scrmlTS.md` at session close (verbatim quotes captured below in §7).
+Worktree cleanup not blocking; can be done at session close or background.
 
 ---
 
 ## 3. Test count timeline
 
-| Checkpoint | Pass | Skip | Fail | Files |
-|---|---|---|---|---|
-| S50 close (`3dab098`) | 8,196 | 40 | 0 | 385 |
-| W0a F-COMPILE-001 merge (`268f190`) | 8,213 | 40 | 0 | 386 |
-| W0b OQ-2 merge (`70eb995`) | 8,222 | 40 | 0 | 387 |
-| W1 UVB merge (`1f640d5`) | 8,265 | 40 | 0 | 391 |
-| W3 F-NULL-001/002 merge (`37c9f8d`) | 8,280 | 40 | 0 | 392 |
-| FRICTION bookkeeping (`8dddd27`) | 8,280 | 40 | 0 | 392 |
-| W2 architectural merge (`1f4430d`) | 8,290 | 40 | 0 | 393 |
-| W3.1+W3.2 merge (`e69ecac`) | 8,329 | 40 | 0 | 395 |
-| F-COMPILE-002+F-BUILD-002 merge (`9ac3731`) | 8,344 | 40 | 0 | 397 |
-| F-SQL-001 merge (`5c35618`) | 8,361 | 40 | 0 | 398 |
-| W4 F-RI-001-deeper merge (`474cce0`) | 8,367 | 40 | 0 | 399 |
-| **W5 F-AUTH-002 merge — S51 close (`56b80ad`)** | **8,380** | **40** | **0** | **400** |
+| Checkpoint | Pass | Skip | Fail | Files | Notes |
+|---|---|---|---|---|---|
+| S51 close (`3338377`) | 8,380 | 40 | 0 | 400 | Baseline entering S52 |
+| W6 worktree | 8,395 | 40 | 0 | 402 | Not merged |
+| P1 merge (`0334942`) | 8,388 | 40 | 0 | 401 | +8 |
+| P1.E merge (`1a89e84`) — pre-pretest | 8,484 | 40 | 0 | 405 | +96 |
+| P1.E post-pretest | 8,444 | 40 | 0 | 405 | (pretest regen; baseline for P2) |
+| P2 worktree | 8,462 | 40 | 0 | 408 | +18 |
+| P2-wrapper merge (`966a493`) | 8,479 | 40 | 0 | 410 | +17 |
+| P2-wrapper post-pretest (current) | **8,519** | 40 | 0 | 410 | Pre-pretest reading discrepancy |
 
-**Net delta from S50 close: +184 pass, 0 skip-change, 0 fail-change, +15 files.** Zero regressions across all 12 dispatch waves.
+**Net delta from S51 close: +139 pass, 0 skip change, 0 fail change, +10 files.** Zero regressions across all 5 fix-dispatch waves.
+
+(F-COMPONENT-004 will add another delta when the dispatch lands.)
 
 ---
 
 ## 4. Audit / project state
 
-### S51 dispatch inventory
+### S52 dispatch inventory (so far)
 
-12 dispatches:
-1. Parent silent-failure deep-dive (research; 1,026 lines)
-2. W2 child architectural deep-dive (research; 1,093 lines)
-3. W0a — F-COMPILE-001 fix (T2)
-4. W0b — OQ-2 dev-server bootstrap (T2; crashed mid-flight, resumed)
-5. W1 — UVB unified validation bundle (T2)
-6. W2 fix — F-COMPONENT-001 architectural (T2-large)
-7. W3 — F-NULL-001 + F-NULL-002 paired (T2)
-8. W3.1+W3.2 — bare-null + string-template-interp paired (T2)
-9. F-COMPILE-002 + F-BUILD-002 paired (T2)
-10. F-SQL-001 — `?{}` parser fix (T2)
-11. W4 — F-RI-001 deeper (T2-large)
-12. W5 — F-AUTH-002 (T2; partial — Layer 1 only)
+8 dispatches:
+1. W6 — F-MACHINE-001 + F-CHANNEL-003 paired (T2-medium, PARTIAL, PARKED)
+2. DD1 — state-as-primary unification (research, T3, DONE inline-then-rescued)
+3. DD2 — parser disambiguation feasibility (research, T2-large, DONE inline-then-rescued)
+4. DD3 — prior art survey (research, T2-large, FAILED at 600s stall)
+5. DD4 — state-type body grammar (research, T2-large, DONE wrote-to-disk)
+6. Debate — Approach A vs B (T2-large, DONE, A wins 93/110)
+7. P1 — case-soften + engine rename (T2-large, PARTIAL but adequate, MERGED)
+8. P1.E — NameRes + uniform opener + warning emissions (T2-medium, DONE, MERGED)
+9. P2 — `export <ComponentName>` direct grammar (T2-medium-to-large, DONE on branch with semantic gap)
+10. P2-wrapper — Form 1 byte-equivalent to Form 2 (T1-medium, DONE, MERGED via p2-wrapper)
+11. F-COMPONENT-004 (1st) — substituteProps logic-block walk (HALTED, clean exit)
+12. F-COMPONENT-004 (2nd) — same scope re-dispatched with stale-base recovery (IN FLIGHT)
 
-Plus 1 PA-side bookkeeping commit (FRICTION 5 new findings).
+### S51 P0s status (carry forward + new)
 
-### Status of S50 P0s
-
-| ID | S50 Status | S51 Status |
+| ID | S51 close | S52 status |
 |---|---|---|
-| F-AUTH-001 | OPEN | ✅ silent window closed (W1 W-ATTR-002); ergonomic completion (role gating) deferred to W7 |
-| F-AUTH-002 | OPEN | PARTIALLY RESOLVED — W5 Layer 1 (export modifier parsing); W5a + W5b deferred |
-| F-COMPONENT-001 | BLOCKED (Plan B parked) | ✅ silent window closed (W1) + architectural fix landed (W2). G5 surfaced F4 nested-PascalCase (pre-existing not W2-caused). 22-multifile flipped back to ✅. |
-| F-RI-001 | PARTIAL | ✅ FULLY RESOLVED (W4) + M2 workaround reverted across 10 dispatch-app pages |
-| F-CHANNEL-001 | OPEN | ✅ E-CHANNEL-007 errors |
-| F-COMPILE-001 | OPEN | ✅ E-CG-015 + dist tree preserved |
+| F-AUTH-001 | UVB closed silent window (warn) | Same. Ergonomic completion (W7) deferred. |
+| F-AUTH-002 | Layer 1 only; W5a + W5b deferred | Same. P3 territory. |
+| F-COMPONENT-001 | UVB + W2 architectural; F4 caveat | F4 nested-PascalCase (F-COMPONENT-003 candidate) still open. P3 territory. |
+| F-RI-001 | FULLY RESOLVED via W4 structural walk | Same. |
+| F-CHANNEL-001 | UVB closed | Same. |
+| F-COMPILE-001 | E-CG-015 + dist tree preserved | Same. |
+| F-COMPILE-002 | RESOLVED | Same. |
+| F-BUILD-002 | RESOLVED | Same. |
+| F-SQL-001 | RESOLVED | Same. |
+| F-MACHINE-001 (now F-ENGINE-001 in spirit) | OPEN; W6 fix parked | OPEN. P3 will close architecturally. |
+| F-CHANNEL-003 | OPEN; W6 only Layer 1 (parked) | OPEN. P3 territory. |
 
-### Newly-surfaced findings during S51
+### Newly-surfaced findings during S52
 
 | ID | Status | Source dispatch |
 |---|---|---|
-| F-COMPILE-002 (P0) | ✅ RESOLVED — codegen `.scrml` rewrite + W0b smoke-test discovery | F-COMPILE-002+F-BUILD-002 dispatch |
-| F-BUILD-002 (P0) | ✅ RESOLVED — generateServerEntry dedup; W0a smoke-test discovery | F-COMPILE-002+F-BUILD-002 dispatch |
-| F-SQL-001 (P0) | ✅ RESOLVED — bracket-matched `?{}` + E-SQL-008; W0b smoke-test discovery | F-SQL-001 dispatch |
-| F-NULL-003 (P1) | ✅ RESOLVED — bare-null walker; W3 follow-on | W3.1+W3.2 dispatch |
-| F-NULL-004 (P1) | ✅ RESOLVED — string-template-interp; W3 follow-on | W3.1+W3.2 dispatch |
-| **F-COMPONENT-003 candidate** (P1) | OPEN — nested-PascalCase Phase-1 limitation in `parseComponentBody`; same-file fails identically | W2 G5 discovery |
-| **F-COMPILE-003 candidate** (P1?) | OPEN — pure-helper `.scrml` files compile to near-empty `.client.js` and no `.server.js` | F-COMPILE-002 dispatch |
-| **W5a candidate** (T2-medium) | OPEN — pure-fn library auto-emit (per-file mode dispatch) | W5 deferral; prerequisite for W5b |
-| **W5b candidate** (T2-medium → T3) | OPEN — cross-file `?{}` resolution against importing `<program db=>` | W5 deferral; depends on W5a |
-| **F-PARSER-ASI-** / **F-PARSER-MARKUP-FRAG-** (P2 batch) | OPEN — 30 trailing-content warnings remaining post-F-SQL-001 | F-SQL-001 deferral |
+| **F-COMPONENT-004** (P1) | IN FLIGHT (2nd dispatch) — `substituteProps` doesn't walk logic-block bodies | P2-wrapper exposed |
+| **8 historical concessions catalogued** (DD1 §3) | Approach A removes all 8 over P1-P4 phases | DD1 |
 
-### FRICTION.md complete inventory at S51 close
+### Decisions made during S52 (load-bearing)
 
-**P0 (closed in S51 except F-AUTH-002 partial):**
-1. F-AUTH-001 — W1 silent window closed (warning); ergonomic deferred (W7)
-2. F-AUTH-002 — W5 PARTIAL (Layer 1); W5a + W5b deferred
-3. F-COMPONENT-001 — W1 silent window + W2 architectural; F4 caveat
-4. F-RI-001 — W4 FULLY RESOLVED
-5. F-CHANNEL-001 — W1 closed
-6. F-COMPILE-001 — W0a closed
-7. F-COMPILE-002 (new) — W3 dispatch closed
-8. F-BUILD-002 (new) — W3 dispatch closed
-9. F-SQL-001 (new) — F-SQL-001 dispatch closed
-
-**P1 — many closed; some open:**
-- F-NULL-001/002/003/004 — W3 + W3.1+W3.2 closed
-- F-CHANNEL-005 — W1 W-ATTR-002 warns
-- F-EXPORT-001 — W1 W-ATTR-002 warns; ergonomic-completion deferred
-- F-COMPONENT-002 — open (W2 deferred)
-- F-COMMENT-001 — open (W9)
-- F-RI-001-FOLLOW — open (W8)
-- F-CPS-001 — DEFERRED INDEFINITELY (M10 architectural)
-- F-MACHINE-001 — open (W6)
-- F-CHANNEL-002 — DEFERRED (language extension; W3 long-term)
-- F-CHANNEL-003 — open (W6)
-- F-LIN-001 — open (W8)
-
-**P2 — most carry forward to W9-W11:**
-- F-EQ-001, F-AUTH-003, F-DESTRUCT-001, F-PAREN-001, F-CONSUME-001, F-CHANNEL-004, F-CHANNEL-006, F-DG-002-PREFIX
-
-**Observation:** F-IDIOMATIC-001 — should re-check post-W4 + W3.1+W3.2 + W5 to see if `is not`/`is some` adoption picks up now that the asymmetry blockers are removed.
+- **Approach A** ratified (state-as-primary, full unification across markup-shaped state-types)
+- **Engine rename** (machine → engine) — landing in P1, NOT deferred (overrode DD4 default)
+- **Whitespace-after-`<` direction:** warn-then-error (W- in P1, E- in P3); migrate via `scrml-migrate`
+- **Body grammar direction:** uniform with extension points (DD4 designed)
+- **All 7 DD1+DD4 OQs at defaults:**
+  - DD1-2 lowercase user state-types: warn on HTML collision (W-CASE-001 narrow)
+  - DD1-3 `export const Name = <markup>` legacy form: keep as transitional sugar indefinitely
+  - DD1-4 cross-file channel store identity: per-importer (matches W6b inline-expansion plan)
+  - DD1-5 §52 authority: keep as attribute (orthogonal)
+  - DD1-6 F-AUTH-002 modifier prefix: BOTH (functions keep modifier-prefix; state-types use attributes)
+  - DD4-3 `<formResult>` default-rendering: defer to T3
+  - DD1-7 / debate question: ratified Approach A via debate
+- **W6 disposition:** parked (not merged; not discarded; revisit at P3 dispatch time when F-MACHINE-001 architectural fix lands and W6's tactical fix becomes redundant)
 
 ---
 
 ## 5. ⚠️ Things the next PA needs to NOT screw up
 
-1. **W5 IS ONLY PARTIAL.** Layer 1 (export modifier parsing) is fixed. W5a (pure-fn library auto-emit) + W5b (cross-file `?{}` resolution) are deferred. The dispatch app's M2-M6 ~450 LOC inline-duplication is NOT yet refactorable. Don't promise adopters they can extract `requireRole(role)` to a shared module yet.
+1. **F-COMPONENT-004 IS IN FLIGHT.** The 2nd dispatch (after stale-base halt) is running. Don't dispatch overlapping work on `compiler/src/component-expander.ts` while it's running. Don't merge anything to main that conflicts with the worktree's expected baseline (`966a493`).
 
-2. **`--no-verify` violation by W3.** Commit `7d2c4e7` bypassed the pre-commit hook for a TDD red intermediate. Per pa.md this requires explicit user authorization. **Surface this at S52 open.** Future TDD work should single-commit fix+tests OR the agent should explicitly ask before red commits.
+2. **`changes/w6` is parked, NOT discarded.** Disposition deferred. The branch contains:
+   - F-MACHINE-001 fix (TAB synthesizes sibling type-decl) — salvageable but redundant once P3 lands
+   - §21.2 SHALL NOT against `export <markup>` — **WRONG DIRECTION; must NOT be merged.** Approach A removes it.
+   - §38.4.1 channel per-page carveout with W6b deferral — also wrong direction; P3 supersedes.
+   - When W6 disposition is finally settled, options are: (a) cherry-pick F-MACHINE-001 fix only as a standalone commit pre-P3, then discard the rest; (b) discard entirely and let P3 redo F-MACHINE-001 architecturally; (c) merge nothing (default until decision).
 
-3. **F4 nested-PascalCase Phase-1 limitation surfaced by W2 G5** — `parseComponentBody` produces 0 blocks for `<LoadCard>` containing `<LoadStatusBadge>`. This is **pre-existing same-file**, NOT a W2 regression. Filed as F-COMPONENT-003 candidate. Don't re-promote `examples/22-multifile/` to "fully working" — it works for the canonical UserBadge case but not for nested-PascalCase patterns.
+3. **P1 is PARTIAL (adequate but not complete).** The full Phase P1 per DD1 §9.1 includes everything that landed in P1 + P1.E. Treat them as "P1 = P1 + P1.E together" for accounting purposes.
 
-4. **F-COMPILE-003 candidate (pure-helper export emission)** — surfaced by F-COMPILE-002 dispatch. Pure-helper `.scrml` files compile to near-empty `.client.js`. The extension rewrite works (F-COMPILE-002) but the imported file may not provide named exports at runtime. Visible in `examples/22-multifile/`. W5a covers this domain; expect overlap.
+4. **Test count discrepancy.** Pre-pretest vs post-pretest test counts diverge by ~40 tests. The "true" count is post-pretest (8519 currently). Pre-pretest readings (8484) come from `bun test` without prior `bun run pretest`. This is a known pretest-regen artifact, not a bug.
 
-5. **30 remaining trailing-content warnings post-F-SQL-001** — F-PARSER-ASI-* / F-PARSER-MARKUP-FRAG-* candidates across `samples/compilation-tests/gauntlet-r10-svelte-dashboard.scrml`, `gauntlet-s19-phase1-decls/*`, `gauntlet-s79-signup-form.scrml`, `match-001-nested-with-call.scrml`, `gauntlet-s20-sql/sql-transaction-001.scrml`, dispatch-app `driver/home.scrml` and `driver/hos.scrml`. Out of F-SQL-001 scope.
+5. **NameRes is in SHADOW MODE.** Stage 3.05 walks the AST and stamps `resolvedKind` + `resolvedCategory` on every tag node — but downstream stages (CE, MOD, TS, codegen) STILL route on `isComponent`. The 63 isComponent references DO NOT migrate yet. That's deferred to a separate dispatch (or part of P3). NR's outputs are advisory; only consumed by W-CASE-001 + W-WHITESPACE-001 emission so far.
 
-6. **Validation principle is now mechanically realized for M1/M3/M4/M6 mechanisms** (W1 + W0a). M2 (cross-file boundary leak — F-AUTH-002 / F-MACHINE-001 / F-CHANNEL-003) is partly addressed; M5 (file-context escalation — F-RI-001) is fully closed; M11 (asymmetric pass behavior — F-NULL-***) is closed. The systemic silent-failure surface from S50 has been radically reduced.
+6. **60 new W-WHITESPACE-001 warnings firing on samples/.** Pre-existing samples use `< db>` style; deprecation warning fires correctly. Not a bug. Migration to no-space form is its own dispatch (or P4 `scrml-migrate`).
 
-7. **Worktree-creation off stale main was NOT a problem this session** — every isolation: "worktree" dispatch was created against current main and most agents successfully rebased before continuing (the rebase prelude in every brief works). Continue including the prelude.
+7. **`--no-verify` policy carried from S51 STILL OPEN.** No violations in S52 (clean across all 5 dispatches). But the question of whether to formalize TDD red commits / `WIP:` prefix exemption is unresolved.
 
-8. **First dispatch attempt aborted** — PA's cwd was scrml-support, harness placed both worktrees there. Agents correctly halted at startup-verification. PA cd'd to scrmlTS and re-dispatched. **Lesson:** before any worktree-isolated dispatch, verify pwd is scrmlTS first. Or: have the harness use a fixed path independent of cwd.
+8. **Wart in api.js stage label rename.** P1.E agent renamed gauntlet check stage labels (3.05/3.06 → 3.005/3.006) to avoid clash with NR's Stage 3.05. Cosmetic but worth noting if anyone audits the stage numbering.
 
-9. **F-RI-001 FULLY RESOLVED via structural-walk-not-regex.** The fix is trivial in retrospect: don't apply identifier regex to flat-stringified ExprNodes. Walk structurally. The S50 narrow regression tests (7 tests) didn't catch the bug because they used isolated single-server-fn shapes; the bug only manifested with cross-file string-literal collisions. **Lesson:** use real-fixture integration tests whose shapes match production usage; synthetic narrow tests can mask real bugs.
+9. **Multi-session phase plan ahead (per DD1 §9.1):**
+   - **P3** (T3, ~10-15 days): cross-file `<channel>`/`<engine>` inline-expansion. Closes F-CHANNEL-003 + F-MACHINE-001 architecturally. Supersedes W6's tactical fixes. Will need its own design dive on the inline-expansion mechanism.
+   - **P4** (T1-small, ~2-3 days): `scrml-migrate` CLI command — rewrites `export const Name = <markup>` → `export <Name>...</>`, strips `< db>` whitespace, etc.
+   - **Internal compiler rename** `machineName→engineName` (~350 refs) — pure mechanical sweep. T2-small. Can run any session.
+   - **SPEC §51 keyword sweep** — paperwork dispatch. T1-small.
+   - **NameRes promotion to authoritative routing** — migrates 63 `isComponent` references to `kind` switches across CE, MOD, TS, codegen. Likely part of P3 or its own dispatch.
 
-10. **The systemic silent-failure deep-dive's prediction was correct.** UVB closed the 4-of-6 P0s as predicted; the remaining 2 (F-AUTH-002, F-RI-001) were independently resolved per the per-mechanism strategy. The deep-dive's recommendation to skip debate and go straight to UVB was vindicated. **The 1,026-line research investment paid off in 11 fix dispatches landing without architecture rework.**
+10. **Authorization scope discipline.** S52's pattern: explicit per-action greenlights ("go", "fine to merge", "ratify yes", "2 fix go") + parallel parking for W6. **Does NOT carry into S53.** Re-confirm before merge / push / cross-repo write / dispatch.
 
-11. **Push state at S51 close (BOTH repos) IS authorized.** User said "greenlight fat wrap" — push as part of wrap. scrmlTS at 67 commits ahead pre-push; scrml-support has 4 untracked deep-dive files + needs user-voice S51 append. Both pushed at session close.
+11. **Tutorial Pass 3-5 + 5 unpublished article drafts STILL pending** — multi-session carry-forward.
 
-12. **Cross-machine sync hygiene clean.** Both repos clean and 0/0 with origin pre-fetch at S51 open. Push at close completes the cycle.
-
-13. **Pre-commit hook test-count discrepancy** — at one point during S51 the hook reported 7,585 tests while main HEAD had 8,280. Filed as observation, not blocker. Likely the hook runs a pruned subset. Track for next session if it recurs.
-
-14. **Authorization scope discipline.** User authorized via "go" / "green" / "go go go" / "c a go" / "b" / "a" / "greenlight fat wrap" — per-action throughout. **Does NOT carry into S52.** Re-confirm before any merge / push / cross-repo write / dispatch.
-
-15. **Component overloading scaffold (`emit-overloads.ts`, 60 LOC) STILL ships dead** — no unit tests, no samples. SPEC-ISSUE-010 still gates it. Pre-S51 carry-forward; not touched in S51.
-
-16. **Tutorial Pass 3-5 (~30h) STILL not started.** Pre-S51 carry-forward.
-
-17. **5 unpublished article drafts STILL pending.** Pre-S51 carry-forward; user said "no amendments for now" S49.
-
-18. **Master inbox stale messages (S26 giti, S43 reconciliation, S49 push-needs) STILL OPEN.** Plus an S51 push-needs notice will be filed at close. Master's queue, not this PA's responsibility.
+12. **Master inbox stale messages** STILL OPEN (S26 giti, S43 reconciliation, S49 + S51 push-needs). Plus an S52 push-needs notice will be filed at session close. Master's queue.
 
 ---
 
-## 6. Open questions to surface immediately at S52 open
+## 6. Open questions to surface immediately at S53 open
 
-- **Push state confirmed at S51 close?** Both scrmlTS + scrml-support pushed.
-- **First move on S52?** Plausible candidates:
-  - W6 (F-MACHINE-001 + F-CHANNEL-003 paired) — T2-medium; cross-file types + cross-file channels
-  - W5a (pure-fn library auto-emit) — T2-medium; prerequisite for W5b; addresses F-COMPILE-003 candidate too
-  - W7 (F-AUTH-001 ergonomic completion / role gating) — T3; closes the warning warned by W1 W-ATTR-002 with actual implementation
-  - W8 (F-LIN-001 + F-RI-001-FOLLOW paired) — T2-small × 2; small ergonomic wins
-  - F-COMPONENT-003 (nested-PascalCase Phase-1) — T2 parser fix
-  - F-PARSER-ASI sweep — 30 trailing-content warnings; T2 batch
-- **`--no-verify` violation policy.** Should TDD red commits be authorized in advance? Should the pre-commit hook allow a `WIP:` prefix to skip tests? Should every dispatch ask at red intermediates?
-- **F-IDIOMATIC-001 re-check.** Now that F-RI-001-FOLLOW is the only remaining `is not` blocker (and W8 will close it), is `is not`/`is some` adoption climbing? Re-grep `examples/23-trucking-dispatch/` post-W8.
-- **W5a + W5b dispatch order.** Both required for full F-AUTH-002 closure; W5a is prerequisite. Schedule both back-to-back?
-- **Component overloading + Tutorial Pass 3-5 + 5 unpublished articles** — multi-session carry-forward; due any session?
+- **F-COMPONENT-004 outcome?** Did the re-dispatch land cleanly? If yes, merge + decide next.
+- **Push state confirmed at S52 close?** Or pending?
+- **W6 disposition** — finally make the call or defer indefinitely?
+- **First move on S53?** Plausible candidates:
+  - P3 (cross-file channel/engine inline-expansion) — biggest architectural win remaining; T3
+  - Internal compiler rename `machineName→engineName` (~350 refs) — mechanical; T2-small
+  - SPEC §51 keyword sweep — paperwork; T1-small
+  - F-COMPONENT-003 (nested-PascalCase Phase-1 limitation) — T2 parser fix
+  - F-PARSER-ASI sweep (30 trailing-content warnings) — T2 batch
+  - W3-W12 carry-forward queue from S51 (W7/W8/W9/W10/W11/W12) — many small dispatches
+- **`--no-verify` policy** still unresolved.
+- **Next-session test-count baseline** — post-pretest authoritative (8519 + F-COMPONENT-004 delta).
 
 ---
 
 ## 7. User direction summary (the through-line)
 
-Verbatim user statements + interpretations (S51). Captured here for hand-off completeness; will also append to `scrml-support/user-voice-scrmlTS.md` per pa.md:
+Verbatim user statements + interpretations (S52). To be appended to `scrml-support/user-voice-scrmlTS.md` per pa.md.
 
-### S51 open
+### Session start
 
-> "read pa.md and start session"
+**User (verbatim):**
+> read pa.md and start session
 
-PA followed session-start checklist. Sync clean both repos. Read last 10 contentful user-voice entries.
+PA followed session-start checklist. Both repos clean and 0/0 with origin pre-fetch.
 
-### Direction-setting
+### W6 dispatch authorization
 
-> "anywhere, we're fixing everything"
+**User (verbatim):**
+> w6 go
 
-User-scoped session as full-scope architectural sweep. Pa.md authorization is per-action; "anywhere" + "everything" together suggested PA should aggressively work the queue.
+PA dispatched W6 (F-MACHINE-001 + F-CHANNEL-003 paired) per S51 queue. Agent shipped F-MACHINE-001 + F-CHANNEL-003 Layer 1 (silent→loud E-EXPORT-001 against `export <markup>`).
 
-### First action
+### THE LOAD-BEARING STATEMENT — architectural pivot triggered
 
-> "lets deep dive with everrything first"
+User saw W6's §21.2 SHALL NOT and the wrap-in-const-becomes-mandatory direction it locked in.
 
-Approved opening the systemic silent-failure deep-dive before any individual triage. The deep-dive (1,026 lines) cataloged 35 items across 16 mechanisms and recommended UVB.
+**User (verbatim, S52 — the architecturally-pivotal statement):**
+> I'll be honest. I have whatched the language "I'm" building drift from the language I envisioned for some time now. I believe the first conscession was that pascal naming convention to syntax decision. and it has continued, a little at a time. until now. I see something that is basically unacceptable. I am wondering about all of the syntax decisions made and wondering if there is simplification somewhere that we could pick up easily if we consider all options. I do know that I want export <ComponentName>. my original thoughts were, if the language knows <jimmy> isnt a predifined state than it looks for a user defined state. Also, I have never seemed to be able to de-conflate state and markup to "agents". Im not sure my intent of "we need a syntax for state. Markup is state. Perhaps state steals markups syntax, and markup symply becomes a subset of state. it is afterall, right, it is a state type with explicit display attributes. that doesnt mean that state HAS to have displayed attributes". dont pander to me. Is this making sense? the fact is, I will spend as meany tokens and as much time as I need to to get this right.
 
-### Action sequence (per-greenlight cadence)
+**Durable interpretation (4 load-bearing claims):**
+1. State is the primitive; markup is the subset of state that has display attributes
+2. Tag-name resolution is universal — `<jimmy>` resolves through one registry (built-in + user-defined), no case discriminator
+3. `export <ComponentName>` is canonical — wrap-in-const is the unwanted concession
+4. PascalCase-vs-lowercase as parse-time discriminator was the FIRST concession; the drift starts there
 
-> "go" (W0a + W0b first dispatch) → "go go go" (post-abort retry) → "go" (W1) → "green" (merge W0a + resume W0b + dispatch W1) → "green" (merge W1 + dispatch W2 deep-dive + W3 + bookkeeping) → "c a go" (Option C bookkeeping then Option A W2 fix + W3.1+W3.2) → "b" (Option B — F-COMPILE-002+F-BUILD-002 paired + F-SQL-001) → "a" (Option A — W4 + W5) → "greenlight fat wrap"
+This statement triggered DD1+DD2+DD3+DD4+debate+P1+P1.E+P2+P2-wrapper+F-COMPONENT-004 — all of S52's architectural work.
 
-The pattern: per-action authorization throughout. Each "go"/"green" applied to the action just proposed. The user used short-form responses to maintain forward motion velocity.
+### Deep-dive authorization
 
-### Through-line
+**User (verbatim):**
+> deep dive. start multiple if its worth it
 
-- **User mode:** "we're fixing everything" + per-action greenlights — fast cadence, broad authorization to sweep the queue, but per-action discipline maintained.
-- **Validation principle (S49) realized mechanically.** UVB + W0a + W3 + W3.1+W3.2 collectively close the silent-failure window across all 5 mechanisms named at S50. The principle is no longer aspirational; it is enforced.
-- **No surprises about scope.** User accepted the deep-dive's defaults across 12 OQs (and 6 W2 OQs) without amendment. The structured deep-dive process worked as designed: research → recommendation → defaults → execution.
-- **Adopter-friction surface (FRICTION.md) now reads dramatically better.** 9 P0s closed, 4 P1s closed, several P2s closed. The dispatch app went from "compiles clean but cannot run" to "compiles correctly with most architectural gaps closed." The dispatch-app M2 workaround swept across 10 pages (W4).
+PA dispatched DD1+DD2+DD3 in parallel. DD4 followed when user pre-decided "uniform with extension points" for body grammar.
+
+### Machine body + engine question
+
+**User (verbatim):**
+> A Im thinking of changing the word to engine (instead of machine). but far beyond that, <machine> has this wird thing, it looks like state <thing> but its internal syntax rejects anything but its own kindof match syntax. this feels bolted on and unnatural. why cant a machine (engine) handle markup and other state types in it? I do understand the idea of reusability. I am not sure ( I totally could be wrong. Im not all knowing). Is any of this worth more deep-diving before we start debating and deciding?
+
+**Durable interpretation:** state-type body grammars should be uniform (markup + logic + nested state-types as base) with per-state-type extension points. Engine rename floated; not committed yet (decided later).
+
+### Body grammar + whitespace decisions
+
+**User (verbatim, in response to options):**
+> uniform with extension points, whitespace warn then error, 2
+
+→ Authorized: DD4 launches with uniform-with-extension-points as pre-decided direction. Whitespace-after-`<` follows warn-then-error path. Option 2 = launch DD4.
+
+### Debate authorization (with humor)
+
+**User (verbatim):**
+> lets debate for shits and giggles
+
+→ Authorized debate-curator dispatch even though the technical case for Approach A was already strong. Debate ceremony preserves deliberation record. Verdict: Approach A wins 93/110.
+
+### Ratification (THE big-decision turn)
+
+**User (verbatim):**
+> ratify yes. engine yes . other qs default. go
+
+→ Approach A ratified. Engine rename = yes (DO IT in P1, overrode DD4's defer recommendation). All 7 OQs at defaults. Go = dispatch P1.
+
+### W6 parking + keep going
+
+**User (verbatim):**
+> park w6 keep going
+
+→ W6 stays parked (no decision yet on discard/cherry-pick). Continue forward — implicitly authorize merging P1.E + dispatching P2.
+
+### Wait-then-merge for P1, fine-to-merge for P1.E
+
+**User (verbatim, sequential):**
+> wait to merge
+
+(at P1.E completion, when PA asked merge-vs-hold)
+
+> fine to merge
+
+→ Pattern established: each P-stage merges when complete and clean.
+
+### P2 wrapper-gap rejection
+
+**User (verbatim):**
+> a
+
+→ Block P2 merge until wrapper fix lands. Form 1 must be byte-equivalent to Form 2.
+
+### F-COMPONENT-004 fix authorization
+
+**User (verbatim):**
+> 2 fix go
+
+→ Option 2 = fix F-COMPONENT-004 now in a small dispatch. Go = dispatch.
+
+### Bookkeeping authorization
+
+**User (verbatim):**
+> go your reco
+
+→ At PA's recommendation: sweep through hand-off + user-voice + master-list + changelog + scrml-support deep-dive commits while F-COMPONENT-004 runs.
+
+### Through-line for S52
+
+User mode through the session:
+- **Architectural pivot mode + per-action greenlights.** The S52 statement was the load-bearing direction-set; subsequent decisions were per-action ratifications maintaining velocity.
+- **Willing to spend tokens.** "I will spend as meany tokens and as much time as I need to to get this right" — explicitly removes the cost objection. Drove the 4-dive + debate sequence.
+- **Decisive on direction, conservative on cost.** Ratified Approach A (the most expensive option) but folded engine rename into P1 (cost-saving). Block-merge on P2 wrapper gap rather than ship-and-fix.
+- **Pattern recognition + meta-feedback.** "It has been one of the most consistently complained about syntax choices" (whitespace) — synthesizes prior friction without needing to be reminded.
+- **Validation principle still load-bearing** — `export <markup>` SHALL NOT was rejected because it locked in the wrap-in-const concession; user noticed within hours.
 
 ### Authorization scope (closing note)
 
-S51's "go"/"green"/"a"/"b"/"c" pattern was per-action throughout. **It does NOT carry into S52.** Per pa.md "Authorization stands for the scope specified, not beyond." Next session should re-confirm before any merge / push / cross-repo write / dispatch.
+S52's per-action authorization pattern was scoped throughout. **It does NOT carry into S53.** Per pa.md "Authorization stands for the scope specified, not beyond." Next session should re-confirm before any merge / push / cross-repo write / dispatch.
 
 ---
 
-## 8. Tasks (state at S51 close)
+## 8. Tasks (state at hand-off pre-save)
 
 | # | Subject | State |
 |---|---|---|
-| Systemic silent-failure deep-dive | T3 research | ✅ DONE — 1,026 lines |
-| F-COMPONENT-001 architectural deep-dive (W2) | T3 research | ✅ DONE — 1,093 lines |
-| W0a — F-COMPILE-001 fix | T2 fix | ✅ DONE — merge `268f190` |
-| W0b — OQ-2 dev-server bootstrap | T2 fix (resumed) | ✅ DONE — merge `70eb995` |
-| W1 — UVB unified validation bundle | T2 fix | ✅ DONE — merge `1f640d5` |
-| W2 — F-COMPONENT-001 architectural fix | T2-large fix | ✅ DONE — merge `1f4430d` |
-| W3 — F-NULL-001 + F-NULL-002 paired | T2 fix | ✅ DONE — merge `37c9f8d` |
-| W3.1+W3.2 — bare-null + string-template-interp | T2 fix | ✅ DONE — merge `e69ecac` |
-| F-COMPILE-002 + F-BUILD-002 paired | T2 fix | ✅ DONE — merge `9ac3731` |
-| F-SQL-001 — `?{}` parser | T2 fix | ✅ DONE — merge `5c35618` |
-| W4 — F-RI-001 deeper | T2-large fix | ✅ DONE — merge `474cce0` |
-| W5 — F-AUTH-002 module-with-db-context | T2 fix (PARTIAL Layer 1) | ⚠️ PARTIAL — Layer 1 done; W5a + W5b deferred |
-| F-COMPONENT-003 candidate (nested-PascalCase) | T2 fix | OPEN — surfaced by W2 G5 |
-| F-COMPILE-003 candidate (pure-helper export) | T2 fix | OPEN — surfaced by F-COMPILE-002 dispatch |
-| W5a — pure-fn library auto-emit | T2-medium | OPEN — prerequisite for W5b |
+| W6 — F-MACHINE-001 + F-CHANNEL-003 paired | T2-medium | PARKED (10 commits on changes/w6; never merged) |
+| DD1 — state-as-primary unification | T3 research | DONE — 1170+ lines |
+| DD2 — parser disambiguation feasibility | T2-large research | DONE — 700+ lines, FEASIBLE-WITH-COST |
+| DD3 — prior art survey | T2-large research | FAILED at 600s stall; PA skipped re-launch |
+| DD4 — state-type body grammar | T2-large research | DONE — 1187 lines, uniform-with-extensions |
+| Debate — A vs B | T2-large | DONE — A wins 93/110 |
+| P1 — case-soften + engine keyword | T2-large fix | DONE (PARTIAL but adequate), MERGED `0334942` |
+| P1.E — NameRes + uniform opener + warnings | T2-medium fix | DONE, MERGED `1a89e84` |
+| P2 — `export <ComponentName>` direct grammar | T2-medium-to-large | DONE on branch with semantic gap |
+| P2-wrapper — Form 1 byte-equivalent | T1-medium follow-up | DONE, MERGED via `966a493` |
+| F-COMPONENT-004 — substituteProps logic-block walk | T1-medium-to-T2-small | IN FLIGHT (2nd dispatch after stale-base halt) |
+| P3 — cross-file `<channel>`/`<engine>` inline-expansion | T3 | OPEN — biggest architectural remaining |
+| P4 — `scrml-migrate` CLI | T1-small | OPEN |
+| Internal compiler rename `machineName→engineName` | T2-small | OPEN — ~350 refs mechanical |
+| SPEC §51 keyword sweep + worked example rewrites | T1-small | OPEN — paperwork |
+| E-MACHINE-* → E-ENGINE-* code rename | T1-small | OPEN — paperwork |
+| NameRes promotion to authoritative routing | T2-medium | OPEN — 63 isComponent migrations |
+| F-COMPONENT-003 — nested-PascalCase Phase-1 limitation | T2 | OPEN — pre-S52 carry-forward |
+| F-COMPILE-003 — pure-helper export emission | T2 | OPEN — pre-S52 carry-forward |
+| W5a — pure-fn library auto-emit | T2-medium | OPEN — pre-S52 carry-forward |
 | W5b — cross-file `?{}` resolution | T2-medium → T3 | OPEN — depends on W5a |
-| W6 — F-MACHINE-001 + F-CHANNEL-003 paired | T2 fix | OPEN |
-| W7 — F-AUTH-001 ergonomic completion (role gating) | T3 | OPEN |
-| W8 — F-LIN-001 + F-RI-001-FOLLOW paired | T2-small × 2 | OPEN |
-| W9 — M8 paper cuts (F-COMMENT-001 + F-CONSUME-001 + F-CHANNEL-006 + F-DESTRUCT-001) | T1-small × 4 | OPEN |
-| W10 — M13 diagnostic bugs (F-AUTH-003 + F-DG-002-PREFIX) | T1-small × 2 | OPEN |
-| W11 — M15 docs (F-CHANNEL-004 + audit 184/250) | T1-small × 3 | OPEN |
-| W12 — scrml-migrate CLI command | T2-medium | OPEN |
-| F-PARSER-ASI / F-PARSER-MARKUP-FRAG sweep (30 warnings) | T2 batch | OPEN |
-| F-CPS-001 (CPS protocol architectural limit, M10) | T3 | DEFERRED INDEFINITELY |
-| F-CHANNEL-002 (`@shared` on-change hook, M12 missing primitive) | T3 language extension | DEFERRED |
+| W7 — F-AUTH-001 ergonomic completion | T3 | OPEN — pre-S52 carry-forward |
+| W8 — F-LIN-001 + F-RI-001-FOLLOW paired | T2-small × 2 | OPEN — pre-S52 carry-forward |
+| W9-W11 — paper cuts + diagnostic bugs + docs | T1-small × multiple | OPEN — pre-S52 carry-forward |
+| F-PARSER-ASI sweep (30 warnings) | T2 batch | OPEN — pre-S52 carry-forward |
+| Tutorial Pass 3-5 (~30h) | docs | NOT STARTED — pre-S52 |
+| 5 unpublished article drafts | user-driven publish | PENDING — pre-S52 |
 | Master inbox stale messages | bookkeeping | OPEN — master's queue |
-| Component overloading tutorial | gated on SPEC-ISSUE-010 | DEFERRED |
-| Tutorial Pass 3-5 (~30h) | docs | NOT STARTED |
-| 5 unpublished article drafts | user-driven publish | PENDING |
-| Audit row 184 (`class={expr}` SPEC-ISSUE-013) | spec | OPEN |
-| Audit row 250 (HTML spec version SPEC-ISSUE-005) | spec | OPEN |
-| `--no-verify` violation policy | governance | OPEN — surface at S52 open |
-| Pre-commit hook test-count discrepancy | observation | OPEN — track if recurs |
 
 ---
 
 ## 9. needs:push state
 
-scrmlTS commits on `main`: **67 ahead of origin** at S51 close (will be 70+ after wrap commits — this hand-off + master-list + changelog).
+scrmlTS commits on `main`: **30 commits ahead of origin** at hand-off pre-save (P1+P1.E+P2+P2-wrapper merged). Will be 30+N after F-COMPONENT-004 lands and any wrap commits.
 
-scrml-support commits on `main`: 0 ahead BUT has 4 untracked files (2 deep-dives + 2 progress logs) + needs user-voice S51 append.
+scrml-support: 0 commits ahead of origin BUT 5 untracked files (DD1, DD2, DD4, DD3-progress, DD4-progress) + needs user-voice S52 append. These will be committed as part of bookkeeping at session close.
 
-**S51 close: PUSH AUTHORIZED** by user ("greenlight fat wrap"). Both repos pushed at session close.
+**S52 close push: PENDING USER AUTHORIZATION.** Per pa.md cross-machine sync hygiene, push at session close is the standard pattern. Surface explicitly when wrapping.
 
 ---
 
-## 10. File modification inventory (forensic — at S51 close)
+## 10. File modification inventory (forensic — at hand-off pre-save)
 
-### scrmlTS — modified files this session
+### scrmlTS — modified files this session (across P1+P1.E+P2+P2-wrapper merged + F-COMPONENT-004 worktree-pending)
 
-**Compiler source (12 dispatches across):**
-- `compiler/src/api.js` (+250+/-50+ across W0a + W0b + W2 + F-COMPILE-002+F-BUILD-002)
-- `compiler/src/commands/build.js` (+30+ across W0a + W2 + F-BUILD-002)
-- `compiler/src/commands/compile.js` (+10+ across W0a + W2)
-- `compiler/src/commands/dev.js` (+45+ across W0a + W2)
-- `compiler/src/component-expander.ts` (+211/-10 W2 — F1+F2+F3+export-decl synthesis)
-- `compiler/src/module-resolver.js` (+4 W2 — export resolveModulePath)
-- `compiler/src/codegen/emit-server.ts` (+14 F-COMPILE-002 — `.scrml` rewrite)
-- `compiler/src/route-inference.ts` (+30+ W4 — structural ExprNode walk)
-- `compiler/src/expression-parser.ts` (+174/-7 F-SQL-001 — bracket-matched scanner)
-- `compiler/src/ast-builder.js` (+76+ across F-SQL-001 + W5)
-- `compiler/src/gauntlet-phase3-eq-checks.js` (+360+ across W3 + W3.1+W3.2)
-- `compiler/src/attribute-registry.js` (NEW W1 — 227 lines)
-- `compiler/src/validators/ast-walk.ts` (NEW W1 — 122 lines)
-- `compiler/src/validators/attribute-allowlist.ts` (NEW W1 — 169 lines)
-- `compiler/src/validators/attribute-interpolation.ts` (NEW W1 — 138 lines)
-- `compiler/src/validators/post-ce-invariant.ts` (NEW W1 — 98 lines)
-- `compiler/src/types/ast.ts` (+4 W5)
-- `compiler/runtime/stdlib/auth.js` (NEW W0b — 276 lines)
-- `compiler/runtime/stdlib/crypto.js` (NEW W0b — 84 lines)
-- `compiler/runtime/stdlib/store.js` (NEW W0b — 136 lines)
+**Compiler source:**
+- `compiler/src/ast-builder.js` — P1 engine keyword + W-DEPRECATED; P1.E uniform opener; P2 export-decl; P2-wrapper desugaring fix
+- `compiler/src/block-splitter.js` — P1.E uniform opener
+- `compiler/src/api.js` — P1.E NameRes wiring (+ stage label rename wart)
+- `compiler/src/name-resolver.ts` — NEW P1.E (~410 LOC)
+- `compiler/src/gauntlet-phase1-checks.js` — P2 (small)
 
-**Tests (12+ new test files / extended):**
-- `compiler/tests/integration/compile-output-tree.test.js` (NEW W0a — 17 tests)
-- `compiler/tests/integration/oq-2-stdlib-runtime-resolution.test.js` (NEW W0b — 9 tests)
-- `compiler/tests/integration/uvb-w1-pipeline.test.js` (NEW W1 — 4 tests)
-- `compiler/tests/unit/uvb-w1-attr-allowlist.test.js` (NEW W1 — 20 tests)
-- `compiler/tests/unit/uvb-w1-attr-interpolation.test.js` (NEW W1 — 10 tests)
-- `compiler/tests/unit/uvb-w1-post-ce-invariant.test.js` (NEW W1 — 9 tests)
-- `compiler/tests/unit/gauntlet-s19/null-coverage.test.js` (NEW W3 — 15 tests)
-- `compiler/tests/unit/gauntlet-s19/null-coverage-bare.test.js` (NEW W3.1 — 26 tests)
-- `compiler/tests/unit/gauntlet-s19/null-coverage-template-interp.test.js` (NEW W3.2 — 13 tests)
-- `compiler/tests/integration/cross-file-components.test.js` (NEW W2 — 10 tests)
-- `compiler/tests/integration/f-compile-002-scrml-import-rewrite.test.js` (NEW F-COMPILE-002 — 8 tests)
-- `compiler/tests/integration/f-build-002-server-entry-dedup.test.js` (NEW F-BUILD-002 — 7 tests)
-- `compiler/tests/integration/sql-001-bracket-matched.test.js` (NEW F-SQL-001 — 17 tests)
-- `compiler/tests/unit/route-inference-f-ri-001-deeper.test.js` (NEW W4 — 6 tests)
-- `compiler/tests/integration/f-auth-002-export-modifiers.test.js` (NEW W5 — 13 tests)
-- `compiler/tests/unit/cross-file-components.test.js` (M17 docstring update + key path)
-- `compiler/tests/unit/fn-expr-member-assign.test.js` (W3.1+W3.2 cascade — `null` → `not`)
-- `compiler/tests/self-host/ast.test.js` (W5 forward-compat skip)
+**Tests:**
+- `compiler/tests/unit/engine-keyword.test.js` — NEW P1 (8 tests)
+- `compiler/tests/unit/p1e-uniform-opener-bs.test.js` — NEW P1.E
+- `compiler/tests/unit/p1e-uniform-opener-equivalence.test.js` — NEW P1.E
+- `compiler/tests/unit/p1e-name-resolver.test.js` — NEW P1.E (most of the +56 from P1.E)
+- `compiler/tests/unit/p1e-engine-keyword-regression.test.js` — NEW P1.E (replaces sample-based coverage)
+- `compiler/tests/unit/p2-export-component-form1.test.js` — NEW P2
+- `compiler/tests/integration/p2-export-component-form1-cross-file.test.js` — NEW P2
+- `compiler/tests/integration/p2-export-component-form1-use-site.test.js` — NEW P2
+- `compiler/tests/unit/p2-wrapper-byte-equivalence.test.js` — NEW P2-wrapper
+- `compiler/tests/integration/p2-wrapper-html-equivalence.test.js` — NEW P2-wrapper
+- `compiler/tests/self-host/ast.test.js` — P1.E AST shape parity update
 
-**Spec / docs (across all dispatches):**
-- `compiler/SPEC.md` — §15.14.4/§15.14.5 (W2), §21.5.1 + §21.6 + §21.7 (W2 + W5), §38.11 (W1), §42.7 (W3 + W3.1+W3.2), §44.7.1 + §44.8 (W5 + F-SQL-001), §47.9/§47.10/§47.11/§47.12 (W0a + F-COMPILE-002+F-BUILD-002), §52.13 (W1), §12.4 (W4) + error catalog updates (E-CG-015, E-COMPONENT-035, E-CHANNEL-007, E-IMPORT-005/006/007, E-SQL-008, E-SQL-009, W-ATTR-001/002)
-- `compiler/SPEC-INDEX.md` (F-SQL-001 +1)
-- `compiler/PIPELINE.md` (Stage 3.2 W2; Stage 3.3 W1)
-- `master-list.md` (W2 — row 99 flipped back to ✅)
-- `docs/articles/llm-kickstarter-v1-2026-04-25.md` (W2 — KNOWN-BROKEN flag dropped, canonical 3-file recipe restored, F4 limitation noted)
-- `examples/23-trucking-dispatch/FRICTION.md` (across all dispatches)
-- `examples/23-trucking-dispatch/README.md` (W0a — run section)
-- 10 dispatch-app `.scrml` pages — M2 workaround reverted (W4)
-- `benchmarks/todomvc/app.scrml` (W3.1+W3.2 cascade — `@editingId = null` → `= not`, 3 sites)
+**Spec / docs (across all dispatches merged):**
+- `compiler/SPEC.md` — §4.3, §15.6, §15.8, §15.12, §15.15 NEW, §21.2, §21.6, §34, §51.3.2 catalog amendments
+- `compiler/SPEC-INDEX.md` — P2
+- `compiler/PIPELINE.md` — P1 Stage 3.05 documented; P1.E Stage 3.05 IMPLEMENTED status flip; P2
 
-**Diagnosis + progress dirs (12 NEW dirs under `docs/changes/`):**
-- `f-compile-001/` (pre-snapshot + progress)
-- `oq-2-dev-server-bootstrap/` (pre-snapshot + repro + diagnosis + progress)
-- `uvb-w1/` (pre-snapshot + progress)
-- `f-component-001-w2-fix/` (pre-snapshot + progress)
-- `f-null-001-002/` (pre-snapshot + diagnosis + progress + 7 .scrml repros)
-- `f-null-003-004/` (progress)
-- `f-compile-002-build-002/` (pre-snapshot + diagnosis + progress)
-- `f-sql-001/` (pre-snapshot + diagnosis + progress)
-- `f-ri-001-deeper/` (pre-snapshot + diagnosis + progress + repro-multi-fn.scrml + test-fri001-multi.db)
-- `f-auth-002/` (diagnosis + progress)
+**Examples / samples:**
+- `examples/14-mario-state-machine.scrml` — `<engine>` migration
+- `examples/23-trucking-dispatch/pages/driver/hos.scrml` — `<engine>` migration
+- `examples/23-trucking-dispatch/FRICTION.md` — engine keyword
+- `samples/compilation-tests/machine-basic.scrml` → `<engine>`
+- `samples/compilation-tests/machine-002-traffic-light.scrml` → `<engine>`
+- `samples/rust-dev-debate-dashboard.scrml` → `<engine>`
+
+**Diagnosis + progress dirs (NEW under `docs/changes/`):**
+- `docs/changes/p1/progress.md`
+- `docs/changes/p1.e/progress.md`
+- `docs/changes/p1.e/pre-snapshot.md`
+- `docs/changes/p2/progress.md`
+- `docs/changes/p2/pre-snapshot.md`
+- `docs/changes/p2-wrapper/progress.md`
+- `docs/changes/f-component-004/progress.md` (in worktree)
 
 **Wrap files (committed at session close):**
-- `hand-off.md` (this file — S51 close fat wrap, ~600+ lines per directive)
-- `master-list.md` (S51 entry at top)
-- `docs/changelog.md` (S51 entry at top)
-- `handOffs/hand-off-53.md` (this file rotated; pre-saved for S52 open)
+- `hand-off.md` (this file)
+- `master-list.md` (S52 entry at top)
+- `docs/changelog.md` (S52 entry at top)
+- `handOffs/hand-off-54.md` (this file rotated)
 
-### scrml-support — modified files this session
+### scrml-support — to-be-committed files
 
-- `docs/deep-dives/systemic-silent-failure-sweep-2026-04-30.md` (NEW, 1,026 lines — parent deep-dive)
-- `docs/deep-dives/progress-systemic-silent-failure-sweep-2026-04-30.md` (NEW)
-- `docs/deep-dives/f-component-001-architectural-2026-04-30.md` (NEW, 1,093 lines — child W2 deep-dive)
-- `docs/deep-dives/progress-f-component-001-architectural-2026-04-30.md` (NEW)
-- `user-voice-scrmlTS.md` — appended at S51 close (S51 entry per §7 above)
+- `docs/deep-dives/state-as-primary-unification-2026-04-30.md` (NEW — DD1, ~1170 lines)
+- `docs/deep-dives/parser-disambiguation-feasibility-2026-04-30.md` (NEW — DD2, ~700 lines)
+- `docs/deep-dives/state-type-body-grammar-uniform-extensions-2026-04-30.md` (NEW — DD4, 1187 lines)
+- `docs/deep-dives/progress-prior-art-unified-declaration-models-2026-04-30.md` (NEW — DD3 progress; agent failed)
+- `docs/deep-dives/progress-state-type-body-grammar-2026-04-30.md` (NEW — DD4 progress)
+- `user-voice-scrmlTS.md` — appended at S52 close (S52 entry per §7 above)
+
+### ~/.claude/
+
+- `~/.claude/design-insights.md` — debate insight appended (## State-as-Primary Architectural Unification — scrml Approach A vs B)
 
 ---
 
 ## Tags
-#session-51 #closed #fat-wrap #push-authorized #systemic-silent-failure-sweep #uvb-shipped #f-compile-001-resolved #oq-2-resolved #f-component-001-architectural-resolved #f-null-1-2-3-4-resolved #f-compile-002-resolved #f-build-002-resolved #f-sql-001-resolved #f-ri-001-fully-resolved #f-auth-002-partial #w5a-w5b-deferred #f-component-003-surfaced #f-compile-003-surfaced #f-parser-asi-batch-surfaced #m2-workaround-swept-10-pages #--no-verify-violation-flagged #plus-184-tests #plus-67-commits #cross-machine-sync-clean
+#session-52 #open #mid-flight #architectural-pivot #state-as-primary-ratified #engine-rename-folded #approach-a-91to72 #4-deep-dives #1-failed-dive #1-debate #5-fix-dispatches #4-merged #f-component-004-in-flight #w6-parked #plus-139-tests-so-far #cross-machine-sync-clean
 
 ## Links
 - [pa.md](./pa.md)
-- [master-list.md](./master-list.md) — refreshed S51 close
-- [docs/changelog.md](./docs/changelog.md) — S51 close entry
-- `docs/changes/{f-compile-001,oq-2-dev-server-bootstrap,uvb-w1,f-component-001-w2-fix,f-null-001-002,f-null-003-004,f-compile-002-build-002,f-sql-001,f-ri-001-deeper,f-auth-002}/`
-- `examples/23-trucking-dispatch/FRICTION.md` — 31+ entries (S51 close inventory)
-- `scrml-support/docs/deep-dives/systemic-silent-failure-sweep-2026-04-30.md` — parent deep-dive (1,026 lines)
-- `scrml-support/docs/deep-dives/f-component-001-architectural-2026-04-30.md` — W2 child deep-dive (1,093 lines)
-- `scrml-support/user-voice-scrmlTS.md` — S51 entry (appended at close)
+- [master-list.md](./master-list.md) — refreshed S52 close
+- [docs/changelog.md](./docs/changelog.md) — S52 close entry
+- `docs/changes/{p1,p1.e,p2,p2-wrapper,f-component-004}/`
+- `examples/23-trucking-dispatch/FRICTION.md`
+- `scrml-support/docs/deep-dives/state-as-primary-unification-2026-04-30.md` — DD1
+- `scrml-support/docs/deep-dives/parser-disambiguation-feasibility-2026-04-30.md` — DD2
+- `scrml-support/docs/deep-dives/state-type-body-grammar-uniform-extensions-2026-04-30.md` — DD4
+- `scrml-support/user-voice-scrmlTS.md` — S52 entry (appended at close)
+- `~/.claude/design-insights.md` — debate insight
