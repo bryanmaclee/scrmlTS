@@ -20,13 +20,14 @@
  *   - zero compile errors
  *   - emitted artifacts (HTML or client.js) contain the expanded body markup
  *
- * Implementation note (P2 v1):
- *   Form 1 desugars to `export const ComponentName = <ComponentName ...>{body}</>`
- *   (a self-named outer wrapper). The wrapper appears in the rendered HTML
- *   output as a custom element wrapping the body. Stripping the wrapper to
- *   match Form 2's exact rendering is a refinement deferred to a later phase.
- *   Tests below verify the BODY markup IS present in the output — they do
- *   NOT enforce wrapper-stripping equivalence with Form 2.
+ * Implementation note (P2-wrapper, 2026-04-30):
+ *   Form 1 desugars to `export const ComponentName = <body-root attrs+outer>...</body-root>`
+ *   — the body's single root markup element absorbs the outer's attributes;
+ *   the outer `<ComponentName>` tag does NOT appear in the rendered HTML.
+ *   Form 1 is byte-equivalent to Form 2 at the AST and rendered-HTML level
+ *   for matching component shapes. New constraints: body must be single-rooted
+ *   (E-EXPORT-002); outer attrs cannot collide with body-root attrs
+ *   (E-EXPORT-003), with `class` as the documented exception (§15.5 merge).
  *
  * State-as-Primary unification — Phase P2 (2026-04-30).
  * SPEC §21.2 Form 1 normative spec.
