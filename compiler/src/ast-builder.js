@@ -178,6 +178,74 @@ function safeParseExprToNodeGlobal(expr, filePath, startOffset, errors) {
   }
 }
 
+/**
+ * P3.B helper (F-ENGINE-001) — parse an exported type's expression body
+ * captured by collectExpr() and reconstruct the (typeKind, raw-body) pair
+ * that the type-decl AST node needs. Mirrors the construction performed
+ * inline by the type-decl parser path (~line 4400) for non-exported types.
+ *
+ * Inputs (examples):
+ *   "type Foo : enum = { OffDuty , OnDuty }"        ->  {typeKind: "enum",   raw: "{ OffDuty , OnDuty }"}
+ *   "type Config : struct = { timeout : number }"   ->  {typeKind: "struct", raw: "{ timeout : number }"}
+ *   "type Pair : tuple = { a , b }"                 ->  {typeKind: "tuple",  raw: "{ a , b }"}
+ *   "type Foo : enum"                               ->  {typeKind: "enum",   raw: ""}
+ *   "type Alias = number"                           ->  {typeKind: "",       raw: "number"}
+ *   "type Alias = number | string"                  ->  {typeKind: "",       raw: "number | string"}
+ *   (alternate form)
+ *   "type : enum Foo { OffDuty }"                   ->  {typeKind: "enum",   raw: "{ OffDuty }"}
+ *
+ * The function tolerates the same syntax surface the type-decl parser path
+ * already accepts. Whitespace from collectExpr() is preserved in the raw body.
+ */
+function parseExportedTypeBody(expr) {
+  // Default result for malformed / nameless / kindless input.
+  const empty = { typeKind: "", raw: "" };
+  if (typeof expr !== "string") return empty;
+
+  // Try alternate form first: "type : kind Name [{ body }]" (matches existing
+  // ast-builder type-decl path's alternate form).
+  let m = expr.match(/^\s*type\s*:\s*(\w+)\s+\w+\s*(.*)$/s);
+  let typeKind = "";
+  let rest = "";
+  if (m) {
+    typeKind = m[1] || "";
+    rest = (m[2] || "").trim();
+  } else {
+    // Standard form: "type Name [: kind] [= body]"
+    m = expr.match(/^\s*type\s+\w+\s*(?::\s*(\w+))?\s*(?:=\s*(.*))?$/s);
+    if (!m) return empty;
+    typeKind = m[1] || "";
+    rest = (m[2] || "").trim();
+  }
+
+  // rest is the post-"=" body (or post-name body for the alternate form).
+  if (!rest) return { typeKind, raw: "" };
+
+  // Brace-bounded body: take everything between the OUTER `{` and its matching `}`.
+  if (rest.startsWith("{")) {
+    let depth = 0;
+    for (let i = 0; i < rest.length; i++) {
+      const c = rest[i];
+      if (c === "{") depth++;
+      else if (c === "}") {
+        depth--;
+        if (depth === 0) {
+          // Reconstruct the raw body in the same shape as the existing
+          // type-decl path: "{ " + inner + " }" (with the existing path's
+          // exact spacing). Inner is rest.slice(1, i) — anything between
+          // braces. Trim leading/trailing whitespace for stability.
+          const inner = rest.slice(1, i).trim();
+          return { typeKind, raw: "{ " + inner + " }" };
+        }
+      }
+    }
+    // Unbalanced — fall through, treat as inline.
+  }
+
+  // Inline body (alias / union / etc.) — preserved verbatim.
+  return { typeKind, raw: rest };
+}
+
 // Module-level tokenizer references — overridable by buildAST(bsOutput, tokenizerOverrides)
 let tokenizeAttributes = _defaultTokenizeAttributes;
 let tokenizeLogic = _defaultTokenizeLogic;
@@ -4387,6 +4455,28 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           exportNode.exportKind = declMatch[1];
           exportNode.exportedName = declMatch[2];
         }
+      }
+
+      // P3.B (F-ENGINE-001): when exporting a type, ALSO synthesize a type-decl
+      // AST node so cross-file machinery (api.js:768-770 importedTypesByFile +
+      // type-system.ts processFile) can resolve the imported type. Without this,
+      // `<engine for=ImportedType>` failed with E-MACHINE-004 even though the
+      // import was valid. Mirrors how `export function helper() {}` produces
+      // both function-decl AND export-decl. Per P3 deep-dive §5.1, §5.4.
+      // The synthetic type-decl is pushed BEFORE the export-decl so collectHoisted
+      // and the logic-block typeDecls filter pick it up in source order.
+      if (exportNode.exportKind === "type" && exportNode.exportedName) {
+        const parsed = parseExportedTypeBody(expr);
+        nodes.push({
+          id: ++counter.next,
+          kind: "type-decl",
+          name: exportNode.exportedName,
+          typeKind: parsed.typeKind,
+          raw: parsed.raw,
+          span,
+          // Mark synthesized-from-export for downstream awareness.
+          fromExport: true,
+        });
       }
 
       nodes.push(exportNode);
