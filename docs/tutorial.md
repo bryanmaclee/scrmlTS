@@ -960,7 +960,7 @@ ${
 
 Two pieces wire the machine to a reactive. The enum (`OrderState`) lists the states. The `< machine name=OrderMachine for=OrderState>` block lists the legal transitions — each rule has a *from* variant on the left and one or more *to* variants on the right, separated by `=>`. The `|` alternation on the right lets a single from-state fan out to several legal destinations. Finally, the reactive's type annotation (`@order: OrderMachine`) is what binds the two together: writes to `@order` go through the machine guard instead of the default setter.
 
-Try the example. `.Draft → .Paid` will be rejected at runtime — it is not in the rule set. `.Draft → .Submitted` succeeds. The rules themselves are also enforced by the type system: misspelling a variant (`.Draftt => .Submitted`) is a compile-time E-MACHINE-004, not a silent wrong-path at runtime.
+Try the example. `.Draft → .Paid` will be rejected at runtime — it is not in the rule set. `.Draft → .Submitted` succeeds. The rules themselves are also enforced by the type system: misspelling a variant (`.Draftt => .Submitted`) is a compile-time E-ENGINE-004, not a silent wrong-path at runtime.
 
 **Why machines over plain enum state?** Three wins over raw `@state = Status.X` writes. First, the compiler tells you exactly what the legal transitions are, in one block, where you'd otherwise have to hunt through every write site to reason about state flow. Second, the runtime guards against a whole class of sequencing bugs (the cancelled order that somehow gets shipped, the draft post that appears published without going through review). Third, once the machine exists, it is the single source of truth for "what are the next legal actions?", which is often exactly what the UI wants to ask ("which buttons should be enabled right now?").
 
@@ -971,7 +971,7 @@ Try the example. `.Draft → .Paid` will be rejected at runtime — it is not in
 ```scrml
 // 02l — Derived (projection) machine. A derived machine projects one enum
 // onto another at read time. Writes to the projected reactive are rejected
-// at compile time (E-MACHINE-017) — the projection is read-only and
+// at compile time (E-ENGINE-017) — the projection is read-only and
 // auto-updates whenever the source changes.
 
 <program>
@@ -1001,7 +1001,7 @@ ${
 </program>
 ```
 
-The derived machine `UI` projects the source `@order` into `UIMode` variants. The projected reactive's name is derived from the machine name with the leading uppercase run lowercased — `UI` → `@ui`, `OrderStatus` → `@orderStatus`. You never declare `@ui` directly; the compiler materializes it for you, and writes to it are rejected at compile time (`E-MACHINE-017` — "projected variables are read-only"). Whenever `@order` changes, the runtime marks `@ui` dirty and re-evaluates on the next read; the markup interpolation `${@ui}` re-renders automatically.
+The derived machine `UI` projects the source `@order` into `UIMode` variants. The projected reactive's name is derived from the machine name with the leading uppercase run lowercased — `UI` → `@ui`, `OrderStatus` → `@orderStatus`. You never declare `@ui` directly; the compiler materializes it for you, and writes to it are rejected at compile time (`E-ENGINE-017` — "projected variables are read-only"). Whenever `@order` changes, the runtime marks `@ui` dirty and re-evaluates on the next read; the markup interpolation `${@ui}` re-renders automatically.
 
 **When to reach for each.** A plain enum plus match is enough when the state is small and every write site is obviously in the same few functions. Add a `< machine>` once the transition story matters — to document legal paths, to gate invalid ones, or to ask "what's next from here?" programmatically. Add a `derived` machine once the UI (or any other downstream reactive) has a derivable view of a state machine's output: it is cheaper than a manual `const @` derivation, and it gives you a single named enum type to match on in the UI instead of a chain of conditions over the source.
 
