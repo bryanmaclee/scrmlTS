@@ -1,6 +1,6 @@
 // 02l — Derived (projection) machine. A derived machine projects one enum
 // onto another at read time. Writes to the projected reactive are rejected
-// at compile time (E-MACHINE-017) — the projection is read-only and
+// at compile time (E-ENGINE-017) — the projection is read-only and
 // auto-updates whenever the source changes.
 
 <program>
