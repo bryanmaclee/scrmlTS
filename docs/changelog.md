@@ -10,7 +10,7 @@ Current baseline (2026-04-30 after S51 close): **8,380 tests passing / 40 skippe
 
 ## Recently Landed
 
-### 2026-05-02 (S52 mid-flight pre-save — architectural pivot; state-as-primary unification ratified; 4 deep-dives + debate + 5 fix dispatches; +139 tests, 0 regressions)
+### 2026-05-02 (S52 CLOSED — fat wrap, push complete; architectural pivot; state-as-primary unification ratified; 4 deep-dives + debate + 5 fix dispatches + 1 P3 design dive; +111 tests, 0 regressions)
 
 S52 ran 2026-04-30 → 2026-05-02 (long session crossed midnight twice, machine-A) following S51 close (8,380p baseline). **The architectural-pivot session.** Triggered by a single user observation that scrml has been silently capitulating to JSX conventions for years; resulted in ratification of state-as-primary unification (Approach A, 93/110 vs B 71.5/110 in 6-expert debate), engine rename (machine→engine) folded into P1, whitespace warn-then-error decided, body grammar uniform-with-extension-points decided.
 
@@ -57,7 +57,7 @@ The catalyst was the W6 dispatch (carry-over from S51 plan): it shipped a §21.2
 
 **Authorization scope (closing note):** S52's per-action greenlights ("go", "fine to merge", "ratify yes", "2 fix go", "park w6", "go your reco") were per-action throughout. Does NOT carry into S53. Per pa.md "Authorization stands for the scope specified, not beyond." Re-confirm before any merge / push / cross-repo write / dispatch.
 
-**Push state:** scrmlTS 30 commits ahead of origin pre-wrap (P1+P1.E+P2+P2-wrapper merged). scrml-support 5 untracked files (3 deep-dives + 2 progress logs) + needs user-voice S52 append (queued for session-close commit). **Push pending user authorization.**
+**Track K-M close additions (post-mid-flight):** F-COMPONENT-004 fix landed (substituteProps walks logic-block bodies; shadowing-aware; SPEC §15.10.1; FRICTION RESOLVED; +12 tests; merge `e95aa87`). Bookkeeping commit `6e2aa4c` mid-flight. Both repos pushed (scrmlTS `3338377..6e2aa4c` 32 commits; scrml-support `2687e48..f016dad` 1 commit). P3 design dive completed and on disk at `scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md` (1029 lines). P3 recommendations: channel via CHX/UCD; engine via Tier 1 TAB type-decl synthesis (W6 Option A pattern preserved); UCD over SP (51/60 vs 46/60); per-category NR promotion; 75 isComponent migration to P3-FOLLOW; W6 worktree disposition = discard entirely. P3.B first (T2-medium), P3.A second (T2-large), P3-FOLLOW third (T2-medium). **Push state at S52 close:** scrmlTS pushed clean to origin (33 commits past S51 close including final wrap commit); scrml-support pushed clean (P3 dive + progress committed in this wrap). **Push complete via "do it fat" wrap directive.**
 
 ### 2026-04-30 (S51 close — fat wrap; systemic silent-failure sweep, 12 dispatches, +184 tests, 0 regressions)
 
