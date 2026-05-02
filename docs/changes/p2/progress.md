@@ -8,3 +8,10 @@ State-as-Primary Phase P2 — `export <ComponentName ...>...</>` direct grammar.
   Ran `bun run pretest` to compile dist fixtures.
 - [2026-05-01T23:52Z] Baseline measured: 8444 pass / 40 skip / 0 fail / 405 files / ~14.47s.
   (Task header expected 8484p but commit message records 8444p as P1.E ship state — using actual.)
+- [2026-05-02T00:00Z] SPEC §21.2 amendment landed (commit 6a59a13).
+  Added Form 1 (canonical, top-level) and Form 2 (transitional, in-${}).
+  Worked equivalence example. Both E-IMPORT-001 entries updated.
+- [2026-05-02T00:00Z] Plan: TAB block-pairing in `liftBareDeclarations`.
+  Pair text "export " with following PascalCase markup → synthetic logic
+  `${ export const Name = <markup-raw> }`. GCP1 phase-1 check also needs to
+  skip E-IMPORT-001 when this pattern is detected.

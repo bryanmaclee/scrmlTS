@@ -223,6 +223,17 @@ function preprocessWorkerAndStateRefs(raw) {
 const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w)/;
 
 /**
+ * P2: regex matching a text block whose only meaningful content is the bare
+ * `export` keyword. Used to detect the `export <ComponentName ...>...</>`
+ * pattern (text "export " block followed by a PascalCase markup block).
+ *
+ * Allows a leading text payload (e.g. comments, whitespace) but requires the
+ * trailing portion of the text block to be `export` with optional surrounding
+ * whitespace — the markup that follows is the component body.
+ */
+const BARE_EXPORT_AT_END_RE = /(^|\s)export\s*$/;
+
+/**
  * Walk a block tree and convert text blocks that start with a bare declaration
  * keyword into synthetic logic blocks.
  *
@@ -241,17 +252,31 @@ const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function
  * Only text blocks whose trimmed content STARTS with a bare declaration keyword
  * are lifted. Plain whitespace-only text or markup content is left as-is.
  *
+ * P2 (state-as-primary unification, 2026-04-30): Also pairs a top-level text
+ * block ending in bare `export` with the immediately following PascalCase
+ * markup block into a single synthetic logic block of the form
+ * `${ export const ComponentName = <markup-raw> }`. This makes
+ * `export <ComponentName ...>...</>` (canonical Form 1, SPEC §21.2) parse
+ * identically to the legacy `${ export const Name = <markup> }` (Form 2):
+ * both produce the same export-decl shape and the same exportRegistry entry
+ * downstream. The pairing happens BEFORE buildBlock so all downstream
+ * stages (TAB body parser, MOD, NR, CE, codegen) see Form 2 internals.
+ *
  * @param {object[]} blocks  — Block[] from the Block Splitter
  * @returns {object[]}  — transformed Block[] (new array, no mutation)
  */
 function liftBareDeclarations(blocks, parentType = null) {
-  return blocks.map(block => {
+  const result = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+
     // Recurse into state children — server fns inside <db>/state contexts
     // are real declarations and need the same lift treatment. Pass
     // parentType="state" so a state block nested inside markup still lifts.
     if (block.type === "state") {
       const newChildren = liftBareDeclarations(block.children || [], "state");
-      return { ...block, children: newChildren };
+      result.push({ ...block, children: newChildren });
+      continue;
     }
 
     // Recurse into markup children with a context flag. The lift transform
@@ -269,14 +294,76 @@ function liftBareDeclarations(blocks, parentType = null) {
       const isProgramRoot = parentType !== "markup" && block.name === "program";
       const childContext = isProgramRoot ? "state" : "markup";
       const newChildren = liftBareDeclarations(block.children || [], childContext);
-      return { ...block, children: newChildren };
+      result.push({ ...block, children: newChildren });
+      continue;
+    }
+
+    // P2: Pair a top-level text block ending in bare `export` with the
+    // immediately following PascalCase markup block. Suppressed inside
+    // non-program markup (parentType === "markup") and inside any context
+    // where the text content does not match the bare-export trailer.
+    //
+    // Pattern detected: text containing trailing bare `export ` followed
+    // by markup block <ComponentName ...>...
+    // Synthesizes: ${ export const ComponentName = <markup-raw> }
+    if (
+      block.type === "text" &&
+      parentType !== "markup" &&
+      BARE_EXPORT_AT_END_RE.test(block.raw)
+    ) {
+      const next = blocks[i + 1];
+      if (next && next.type === "markup" && next.isComponent === true && next.name) {
+        // Strip the trailing `export` (and any preceding whitespace) from the
+        // text block. Anything before that token (comments, prose, etc.) is
+        // preserved as a separate text block — emit it first if non-empty.
+        const m = block.raw.match(/^([\s\S]*?)((?:^|\s)export\s*)$/);
+        const preExportRaw = m ? m[1] : "";
+        if (preExportRaw.length > 0) {
+          // Preserve any leading content as a sibling text block (rare, but
+          // possible for ` // doc comment\nexport <Foo>`).
+          result.push({
+            ...block,
+            raw: preExportRaw,
+            span: { ...block.span, end: block.span.start + preExportRaw.length },
+          });
+        }
+        // Synthesize the desugared logic block. The raw payload becomes the
+        // body of the `${ }` block (parseLogicBody slices off the first 2 and
+        // last 1 chars). We construct it as a string consisting of:
+        //   `export const NAME = <markup-raw>`
+        // The markup raw is the verbatim source slice from BS, so embedding
+        // it preserves attributes, body, and closer form.
+        const compName = next.name;
+        const markupRaw = next.raw;
+        const synthetic = {
+          type: "logic",
+          raw: "${ export const " + compName + " = " + markupRaw + " }",
+          span: {
+            start: block.span.start,
+            end: next.span.end,
+            line: block.span.line,
+            col: block.span.col,
+          },
+          depth: block.depth,
+          children: [],
+          name: null,
+          closerForm: null,
+          isComponent: false,
+          _synthetic: true,
+          _p2Form1: true,        // diagnostic marker — desugared from §21.2 Form 1
+          _p2Form1Name: compName, // ditto — for tests
+        };
+        result.push(synthetic);
+        i += 1; // skip the markup block we just consumed
+        continue;
+      }
     }
 
     // Convert text blocks that start with a bare declaration keyword.
     // Suppressed when parentType === "markup" (i.e. inside non-program
     // markup) — text there is prose content, not a declaration.
     if (block.type === "text" && parentType !== "markup" && BARE_DECL_RE.test(block.raw)) {
-      return {
+      result.push({
         type: "logic",
         raw: "${" + block.raw + "}",
         span: block.span,
@@ -286,11 +373,13 @@ function liftBareDeclarations(blocks, parentType = null) {
         closerForm: null,
         isComponent: false,
         _synthetic: true,   // diagnostic marker
-      };
+      });
+      continue;
     }
 
-    return block;
-  });
+    result.push(block);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------

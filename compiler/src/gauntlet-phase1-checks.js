@@ -104,7 +104,8 @@ function keywordSpan(block, filePath) {
 function checkTopLevelTextPreamble(blocks, filePath, errors) {
   let sawMarkup = false;
 
-  for (const block of blocks) {
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
     if (!block) continue;
 
     if (block.type === "markup") {
@@ -118,8 +119,34 @@ function checkTopLevelTextPreamble(blocks, filePath, errors) {
     const trimmed = raw.replace(/^\s+/, "");
     if (trimmed.length === 0) continue;
 
-    // E-IMPORT-001 — `export` outside ${ } logic
+    // E-IMPORT-001 — `export` outside ${ } logic.
+    //
+    // P2 (state-as-primary unification, 2026-04-30) — SPEC §21.2 Form 1:
+    //   `export <ComponentName ...>...</>` at top level is a valid CANONICAL
+    //   form. The Block Splitter emits this as two sibling blocks:
+    //     1. text  "export "        (this block)
+    //     2. markup <ComponentName>  (next block, isComponent === true)
+    //   When the trailing token of the text block is a bare `export` AND the
+    //   next sibling is a PascalCase markup, suppress E-IMPORT-001 — TAB's
+    //   liftBareDeclarations pairs them into a synthetic logic block of the
+    //   form `${ export const ComponentName = <markup-raw> }`, which is
+    //   parsed and exported normally.
     if (/^export\b/.test(trimmed)) {
+      // Test the Form-1 pairing: text block trailing token is bare `export`,
+      // next block is markup whose name starts uppercase.
+      const trimmedTrailingExport = /(^|\s)export\s*$/.test(raw);
+      const nextBlock = blocks[i + 1];
+      const nextIsComponentMarkup =
+        nextBlock &&
+        nextBlock.type === "markup" &&
+        nextBlock.isComponent === true &&
+        typeof nextBlock.name === "string" &&
+        nextBlock.name.length > 0;
+      if (trimmedTrailingExport && nextIsComponentMarkup) {
+        // P2 Form 1 — fall through to TAB. No diagnostic.
+        continue;
+      }
+
       errors.push(new GauntletError(
         "E-IMPORT-001",
         `E-IMPORT-001: \`export\` declaration is placed outside a \`\${ }\` logic block. ` +
