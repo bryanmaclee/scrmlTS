@@ -56,3 +56,66 @@
 - [continuation:t0+62m] Ran full bun test: 8512 pass / 40 skip / 0 fail / 416 files. 0 regressions.
 - [continuation:t0+65m] Wrote /tmp/friction_update.py — marked F-ENGINE-001 RESOLVED in dispatch-app FRICTION.md (header status block + master-list entry near line 2167). Removed redundant horizontal rule that was orphaned by the new resolution heading.
 - [continuation:t0+68m] Ready to commit adopter integration (FRICTION + hos.scrml).
+
+- [continuation:t0+72m] Adopter integration commit landed — ab429b3.
+
+---
+
+## FINAL SUMMARY — 2026-05-02
+
+### Outcome
+F-ENGINE-001 RESOLVED. Cross-file `<engine for=ImportedType>` works end-to-end.
+Workaround removed from dispatch app. SPEC + PIPELINE paperwork complete.
+
+### Commits on changes/p3.b (in order)
+1. 8001e3e — WIP(p3.b): pre-snapshot — baseline 8491p/0f/40s, branch created
+2. f20e2c9 — WIP(p3.b): diagnosis — TAB type-decl synthesis gap
+3. 280dab1 — WIP(p3.b-tab): emit type-decl alongside export-decl for export type [+90 LOC ast-builder.js]
+4. 91a991c — WIP(p3.b-tab): tests — type-decl synthesis across 4 type kinds
+5. 1c1d7ac — WIP(p3.b-tab): tests — local-type regression pinning
+6. 9b3a8d1 — WIP(p3.b-cf): tests — cross-file engine for=ImportedType integration
+7. 20e15e7 — WIP(p3.b-deprecated): tests — <machine for=ImportedType> + W-DEPRECATED-001
+8. 57c7093 — WIP(p3.b-spec): SPEC §51.3.2 + §51.16 NEW + §21.2 + PIPELINE Stage 3 (continuation)
+9. ab429b3 — WIP(p3.b-app): pages/driver/hos.scrml workaround removed; FRICTION updated (continuation)
+
+### Files modified
+
+**Compiler:**
+- compiler/src/ast-builder.js (+90 LOC, primary)
+- compiler/src/type-system.ts (E-MACHINE-004 message corrected, continuation)
+
+**Tests (new, all by primary dispatch):**
+- compiler/tests/unit/p3b-tab-export-type-decl-synthesis.test.js
+- compiler/tests/unit/p3b-tab-engine-for-localtype.test.js
+- compiler/tests/integration/p3b-engine-for-importedtype-cross-file.test.js
+- compiler/tests/unit/p3b-machine-for-importedtype-deprecated.test.js
+
+**SPEC + PIPELINE (continuation):**
+- compiler/SPEC.md — §21.2 normative bullet (NEW), §51.3.2 normative bullet (corrected), §51.16 NEW subsection
+- compiler/PIPELINE.md — Stage 3 Amendment 7, version 0.6.1 with change-log entry
+
+**Dispatch app (continuation):**
+- examples/23-trucking-dispatch/pages/driver/hos.scrml — local DriverStatus enum workaround REPLACED by import from schema.scrml
+- examples/23-trucking-dispatch/FRICTION.md — F-ENGINE-001 marked RESOLVED
+
+**Artifacts:**
+- docs/changes/p3.b/pre-snapshot.md
+- docs/changes/p3.b/diagnosis.md
+- docs/changes/p3.b/progress.md (this file)
+
+### Test count
+Baseline (pre-P3.B): 8491 pass / 40 skip / 0 fail / 412 files
+Final (post-P3.B):   8512 pass / 40 skip / 0 fail / 416 files
+Delta: +21 tests, +4 test files, 0 regressions
+
+### Verification
+- bun test full suite: 8512 pass / 0 fail
+- Targeted P3.B integration test: 4/4 pass
+- Direct CLI compile of pages/driver/hos.scrml after workaround removal: 4 pre-existing F-NULL-001 errors (documented FRICTION; not regressions). NO E-MACHINE-004 — cross-file engine resolution works.
+
+### Branch state
+- Branch: changes/p3.b
+- HEAD: ab429b3 (will be superseded by final summary commit)
+- 9 commits ahead of main (eb0ec11)
+- Working tree clean
+- Ready for FF-merge to main
