@@ -3414,7 +3414,10 @@ function annotateNodes(
         }
 
         // §35 Attribute validation
-        if (stateTypeRegistry && n.name && !n.isComponent) {
+        // P3-FOLLOW: route on NR's resolvedCategory (authoritative), not the legacy
+        // isComponent boolean. State-type validation skips user-component nodes —
+        // those are handled by CE Phase 1, not by state-type attribute validation.
+        if (stateTypeRegistry && n.name && n.resolvedCategory !== "user-component") {
           const stateType = stateTypeRegistry.get(n.name as string) as StateType | undefined;
           if (stateType) {
             validateMarkupAttributes(n, stateType, errors, filePath);
