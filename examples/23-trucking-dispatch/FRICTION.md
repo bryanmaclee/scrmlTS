@@ -1540,7 +1540,7 @@ of writing their first channel page.
 
 ---
 
-## F-CHANNEL-003 — Channels are per-page, not cross-file (P1) — **ARCHITECTURALLY RESOLVED 2026-05-02 (P3.A)**
+## F-CHANNEL-003 — Channels are per-page, not cross-file (P1) — **FULLY RESOLVED 2026-05-02 (P3.A + P3.A-FOLLOW)**
 
 **Surfaced in:** M5, when wiring 4 channels across 12 publishing/
 subscribing pages. Discovered F-AUTH-002-style duplication for channels.
@@ -1613,15 +1613,48 @@ The architectural mechanism is shipped + 28 new tests pass + the
 `F-CHANNEL-003` synthetic fixture (cross-file `<channel>` import with the
 canonical chat pattern) compiles cleanly.
 
-The full sweep of the dispatch app's 15 channel decl sites is **deferred
-to P3.A-FOLLOW** (T1-small dispatch). This dispatch will:
-- Centralize the dispatch app's channels into `channels/<topic>.scrml`
-  pure-channel-files.
-- Replace the 15 inline `<channel>` decls with `import + use` references.
-- Eliminate ~180 LOC of inline boilerplate (5 channels × ~3 redeclarations
-  × ~12 LOC).
+### Sweep — P3.A-FOLLOW (2026-05-02)
 
-The mechanism is ready; only the migration sweep remains.
+**Status: FULLY RESOLVED — 4 of 4 channels migrated; 0 channels left per-page; 15 channel decl sites swept.**
+
+The dispatch app's channels were centralized into `examples/23-trucking-dispatch/channels/`
+pure-channel-files (one file per topic, per SPEC §38.12.6):
+
+| Channel | Pages migrated | Path |
+|---|---|---|
+| `dispatch-board` | 5 (dispatch/board, dispatch/load-new, dispatch/load-detail, customer/quote, driver/load-detail) | `channels/dispatch-board.scrml` |
+| `customer-events` | 5 (customer/home, customer/loads, customer/invoices, dispatch/billing, driver/load-detail) | `channels/customer-events.scrml` |
+| `load-events` | 3 (customer/load-detail, dispatch/load-detail, driver/load-detail) | `channels/load-events.scrml` |
+| `driver-events` | 2 (driver/home, driver/messages) | `channels/driver-events.scrml` |
+
+Each consumer page now `import`s the channel via the kebab-case quoted-name
+form and references the alias as a markup tag:
+
+```scrml
+${ import { "dispatch-board" as dispatchBoard } from '../../channels/dispatch-board.scrml' }
+<dispatchBoard/>
+```
+
+CHX (CE phase 2) inlines the channel markup body at every consumer's tag
+reference before codegen runs. The wire-layer identity (the WebSocket route
+`/_scrml_ws/<name>`) is shared across all importers; each importer has its
+own local `@shared` mirror, kept in sync via the wire layer.
+
+**Net delta:** 15 channel decls (~205 LOC of inline `<channel>...@shared
+events = []...server function publishX(...)</>`) replaced with 4 canonical
+files (~30 LOC each, including comments) plus 17 import lines + 15 alias-tag
+calls in consumer pages. Roughly **−205 LOC of inline boilerplate eliminated.**
+
+**Test impact:** 8539 → 8547 (+8 from new expression-audit checks against
+the 4 channel files; 0 regressions). bun test compiler/tests/ remains clean.
+
+No channels were skipped — every channel in the dispatch app had at least
+2 redeclarations and zero consumer-scope-bound `topic=` references that
+would have required leaving them per-page (per the SPEC §38.12 worked-example
+scoping caveat documented in the kickstarter). The dispatch app uses the
+default `topic=name` semantics throughout, which is the safe path.
+
+**Branch:** `changes/p3.a-follow`. Artifacts under `docs/changes/p3.a-follow/`.
 
 **See also:** P3 deep-dive (`scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md`),
 SPEC §38.12, PIPELINE.md Stage 3.2 Phase 2, `compiler/src/state-type-routing.ts`.
