@@ -18361,7 +18361,7 @@ E-MACHINE-001: Illegal transition.
   OrderStatus has no transition rule from .Delivered.
   .Delivered is a terminal variant.
   Hint: add `.Delivered => .Pending` to OrderStatus.transitions if this move is intended,
-        or bind @status to a < machine> that permits this move.
+        or bind @status to a < engine> that permits this move.
 ```
 
 ---
@@ -18462,7 +18462,7 @@ pre-S25 sentence form `< machine Name for Type>` is rejected with E-MACHINE-020 
 the error message names the required attribute form for straightforward rewriting.
 
 ```scrml
-< machine name=MarioMachine for=MarioState>
+< engine name=MarioMachine for=MarioState>
     .Small        => .Big | .Fire | .Cape
     .Big          => .Fire | .Cape | .Small
     .Fire | .Cape => .Small
@@ -18489,7 +18489,7 @@ type CannonState:enum = {
     Reloading(reason: string)
 }
 
-< machine name=CannonMachine for=CannonState>
+< engine name=CannonMachine for=CannonState>
     .Idle               => .Charging(level: l) given (l >= 0)
     .Charging(n)        => .Firing(shot: s)    given (n >= 50)
     .Charging(n)        => .Idle               given (n < 10)
@@ -18538,7 +18538,7 @@ When governing a **struct type**, a machine's rules use `* => *` wildcard syntax
 `given` guards that reference fields via `self.*`:
 
 ```scrml
-< machine name=DateRange for=Booking> {
+< engine name=DateRange for=Booking> {
     * => * given (self.start < self.end) [valid_date_range]
     * => * given (self.nights > 0 && self.nights < 365) [valid_nights]
 }
@@ -18653,14 +18653,14 @@ type Column:enum = {
 }
 
 // Default machine: forward-only, no reopening
-< machine name=UserFlow for=Column> {
+< engine name=UserFlow for=Column> {
     .Todo       => .InProgress
     .InProgress => .Done
 }
 </>
 
 // Admin machine: full flexibility
-< machine name=AdminFlow for=Column> {
+< engine name=AdminFlow for=Column> {
     .Todo       => .InProgress
     .InProgress => .Done
     .InProgress => .Todo
@@ -18767,7 +18767,7 @@ E-MACHINE-001: Illegal transition.
   AuthState has no transition rule from .Locked.
   .Locked is a terminal variant — no outgoing transitions are declared.
   Hint: to permit unlocking, add `.Locked => .Anonymous` to AuthState.transitions,
-        or create a < machine name=AdminUnlock for=AuthState> with this rule.
+        or create a < engine name=AdminUnlock for=AuthState> with this rule.
 ```
 
 ---
@@ -18786,7 +18786,7 @@ type TaskStatus:enum = {
     Rejected
 }
 
-< machine name=DeveloperFlow for=TaskStatus> {
+< engine name=DeveloperFlow for=TaskStatus> {
     .Backlog  => .Active
     .Active   => .InReview
     .InReview => .Active    // reviewer requests changes
@@ -18795,14 +18795,14 @@ type TaskStatus:enum = {
 }
 </>
 
-< machine name=QAFlow for=TaskStatus> {
+< engine name=QAFlow for=TaskStatus> {
     .InReview => .Done
     .InReview => .Rejected
     .Done     => .InReview  given @currentUser.role === "qa"  // QA can reopen Done
 }
 </>
 
-< machine name=PMFlow for=TaskStatus> {
+< engine name=PMFlow for=TaskStatus> {
     .Backlog  => .Active
     .Active   => .Backlog    // PM deprioritizes
     .Done     => .Active     // PM reopens
