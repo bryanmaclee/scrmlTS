@@ -21079,7 +21079,7 @@ type Booking:struct = {
     nights: number(>0 && <365)     // inline predicate on the field
 }
 
-< machine name=ValidBooking for=Booking> {
+< engine name=ValidBooking for=Booking> {
     * => * given (self.start < self.end)   // machine governing the struct
 }
 </>

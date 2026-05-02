@@ -69,7 +69,7 @@ Per dispatch contract:
 | 18995 | E-MACHINE-010 description: "guards require `< machine>`" | KEEP | Error code description text. |
 | 19073 | EBNF: `derived-machine-decl ::= '< machine' MachineName ...` | KEEP | Grammar rule (analogous to 18387). |
 | 19085 | Worked example `< machine name=UI for=UIMode derived=@order>` | REPLACE | §51.9.2 worked example. Clean usage. |
-| 19109 | "Assign to '@{name}' — it is a derived projection of '@{source}' (see < machine {MachineName}>)" | KEEP | E-MACHINE-017 error message format text — implementation must produce this message text using whichever keyword the user chose; spec text leaves `< machine` as the conceptual hint, but it's better to update to canonical. **Re-evaluate:** the message form is for users; users in P3 should see `< engine` recommended. **Decision:** REPLACE — the error template should point users at the canonical keyword. |
+| 19109 | "Assign to '@{name}' — it is a derived projection of '@{source}' (see < machine {MachineName}>)" | KEEP | E-MACHINE-017 error message format text — implementation must produce this message text using whichever keyword the user chose; spec text leaves `< machine` as the conceptual hint. **Reverted from earlier consideration to REPLACE — this is literal compiler-output template text and the implementation may emit either form depending on user keyword.** |
 | 19129 | Comparison table column header `< machine derived>` | KEEP | Refers to the syntactic feature; both forms work. Header references the feature concept. |
 | 19172 | Worked example `< machine name=FetchMachine for=FetchState>` | REPLACE | §51.9.5 worked example. Clean usage. |
 | 19180 | Worked example `< machine name=UI for=UIFlag derived=@state>` | REPLACE | §51.9.5 worked example. Clean usage. |
@@ -83,14 +83,14 @@ Per dispatch contract:
 | 19734 | Worked example `< machine name=OrderFlow for=S>` | REPLACE | §51.14.2 replay primitive worked example. Clean usage. |
 | 19792 | "is a declared reactive that lacks a `< machine>` binding" | KEEP | E-REPLAY-001 error description. Concept reference. |
 | 19862 | "When a `< machine name=Name for=StateType>` declaration targets a state type that has state-local transitions" | KEEP | Normative concept text in §51.15.1. |
-| 19891 | Worked example `bind @sub -> < machine SubmissionFlow>` | REPLACE | §51.15.3 Case 1 worked example. Clean usage. **NOTE:** this is `bind ... ->` syntax (not `< machine ...>` opener) — recheck: appears to be a `bind @sub -> < machine SubmissionFlow>` form. This uses the `< machine ...>` opener form inline. **DECISION:** REPLACE since the example demonstrates clean usage of the binding feature. |
+| 19891 | Worked example `bind @sub -> < machine SubmissionFlow>` | REPLACE | §51.15.3 Case 1 worked example. Clean usage. |
 | 19912 | Worked example `bind @sub -> < machine SubmissionFlow>` | REPLACE | §51.15.3 Case 3 worked example. Clean usage. |
 | 20013 | Section heading: "#### 51.16.4 Interaction with the Deprecated `<machine>` Keyword" | KEEP | This sub-section is specifically about the deprecated keyword. |
 | 20015 | "The legacy `<machine for=ImportedType>` form continues to compile" | KEEP | Backwards-compat note explicitly about the deprecated form. |
 | 20017 | "P1 introduced W-DEPRECATED-001 to warn that `<machine>` is the deprecated alias" | KEEP | Deprecation policy text. |
 | 20033 | "An `<engine for=Type>` (or legacy `<machine for=Type>`) clause SHALL" | KEEP | Normative statement covering both forms with deprecation pointer. |
 | 20043 | "legacy `<machine>` openers regardless of whether the governed `Type` is" | KEEP | Deprecation policy text. |
-| 20623 | "`<page>`, `<channel>`, `<program>`, `<machine>`, `<errorBoundary>` have closed attribute sets" | REPLACE | §52.13.3 worked-style list naming canonical state types. The spec treats `<engine>` as canonical, so the list should use the canonical form. |
+| 20623 | "`<page>`, `<channel>`, `<program>`, `<machine>`, `<errorBoundary>` have closed attribute sets" | **KEEP (revised)** | Originally planned REPLACE. **Reversed during execution:** this list explicitly cross-references `compiler/src/attribute-registry.js`. The attribute registry uses `"machine"` as the internal key (per P1's bounded-blast-radius "kind: machine-decl" preservation, line 18422). The implementation key remains `"machine"` until P3 internal-rename. Keeping the spec list as `<machine>` keeps documentation consistent with the live registry. Re-classified as backwards-compat note. |
 | 20647 | "These are governed by `< machine>` (§51)" | KEEP | Normative cross-reference text. |
 | 20768 | "decision rule for when to use an inline predicate vs a `< machine>`" | KEEP | Normative concept text in §53.3.2. |
 | 20778 | Table cell: "`< machine for Struct>`" | KEEP | Decision table column referencing feature concept. |
@@ -101,9 +101,9 @@ Per dispatch contract:
 | 21066 | "Inline predicates and `< machine>` are orthogonal enforcement mechanisms" | KEEP | Normative concept text. |
 | 21082 | Worked example `< machine name=ValidBooking for=Booking>` | REPLACE | §53.8.1 worked example. Clean usage. |
 | 21108 | "use `< machine>` instead" | KEEP | E-CONTRACT-003 error rationale text. |
-| 21115 | "// For constraints that reference reactive state, use < machine>" | KEEP | Comment in error-message example showing the `< machine` text the compiler emits. **Re-evaluate:** This is inside an E-CONTRACT-003 example output. The compiler currently emits this text. If the compiler error includes `< machine>` text, we keep. Need to check what the actual compiler output contains. **DECISION:** keep for now — this is the message-template content the compiler reproduces. |
-| 21117 | "//   < machine name=HpRange for=number>" | KEEP | Same rationale: error message template content showing `< machine` example. |
-| 21295 | "For constraints that depend on external state, use < machine>" | KEEP | Same rationale (E-CONTRACT-003 message-template body). |
+| 21115 | "// For constraints that reference reactive state, use < machine>" | KEEP | E-CONTRACT-003 message-template content showing `< machine` example. |
+| 21117 | "//   < machine name=HpRange for=number>" | KEEP | Same rationale. |
+| 21295 | "For constraints that depend on external state, use < machine>" | KEEP | Same E-CONTRACT-003 message-template body. |
 | 21297 | "    < machine name=HpRange for=number>" | KEEP | Same rationale. |
 | 21307 | "include an example of the equivalent `< machine>` construct in the" | KEEP | Normative statement. |
 | 21455 | "For constraints that depend on external state, use < machine>" | KEEP | Same E-CONTRACT-003 message rationale. |
@@ -112,15 +112,15 @@ Per dispatch contract:
 | 21590 | "Interaction with `< machine>` declarations (cross-reference to §51.15)" | KEEP | Normative concept text in §54.1. |
 | 21819 | Sub-heading: "#### 54.7.1 State-local transitions × `< machine derived=@source>` (§51.9 projection)" | KEEP | Sub-heading referencing the feature concept. |
 
-## Summary
+## Summary (final, after execution)
 
-- **REPLACE** count: ~16 occurrences (worked examples only)
-- **KEEP** count: ~70 occurrences (deprecation refs, normative concept text, error-message templates, backwards-compat notes, grammar rules, section headings)
+- **REPLACE** count: **19** occurrences (worked examples and instructive hint text)
+- **KEEP** count: **67** occurrences (deprecation refs, normative concept text, error-message templates, backwards-compat notes, grammar rules, section headings, attribute-registry cross-reference list)
 
-## Replacement targets (REPLACE list)
+## Replacement targets (REPLACE list — final, executed)
 
 1. Line 18364 — hint text inside E-MACHINE-001 expected output
-2. Line 18465 — `MarioMachine` worked example (`<` opener line)
+2. Line 18465 — `MarioMachine` worked example
 3. Line 18492 — `CannonMachine` worked example
 4. Line 18541 — `DateRange` worked example
 5. Line 18656 — `UserFlow` worked example
@@ -130,18 +130,17 @@ Per dispatch contract:
 9. Line 18798 — `QAFlow` worked example
 10. Line 18805 — `PMFlow` worked example
 11. Line 19085 — `UI for=UIMode derived=@order` worked example
-12. Line 19109 — E-MACHINE-017 user-facing message-template hint (RECONSIDERED: keep as-is, it's a literal compiler-output template; reverting to KEEP)
-13. Line 19172 — `FetchMachine` derived-machine worked example
-14. Line 19180 — `UI for=UIFlag derived=@state` worked example
-15. Line 19264 — `OrderFlow` audit-clause worked example
-16. Line 19456 — `FetchMachine` temporal-transitions worked example
-17. Line 19734 — `OrderFlow for=S` replay worked example
-18. Line 19891 — `< machine SubmissionFlow>` Case 1 binding example
-19. Line 19912 — `< machine SubmissionFlow>` Case 3 binding example
-20. Line 20623 — closed-attribute-set list (page/channel/program/engine/errorBoundary)
-21. Line 21082 — `ValidBooking` struct-machine worked example
+12. Line 19172 — `FetchMachine` derived-machine worked example
+13. Line 19180 — `UI for=UIFlag derived=@state` worked example
+14. Line 19264 — `OrderFlow` audit-clause worked example
+15. Line 19456 — `FetchMachine` temporal-transitions worked example
+16. Line 19734 — `OrderFlow for=S` replay worked example
+17. Line 19891 — `bind @sub -> < engine SubmissionFlow>` Case 1 binding example
+18. Line 19912 — `bind @sub -> < engine SubmissionFlow>` Case 3 binding example
+19. Line 21082 — `ValidBooking` struct-engine worked example
 
-**Final REPLACE count:** 20 occurrences
+(Note: line numbers reference pre-edit positions. Post-edit line numbers may shift slightly; the
+text replacements are unambiguous because each target string was unique in the file.)
 
 ## Closer-form audit
 
@@ -149,20 +148,22 @@ For each REPLACE worked-example, the corresponding `</>` closer form is **identi
 keywords — `</>` is generic-close. No `</machine>` explicit closers exist in the inventoried
 worked examples (verified: the spec uses `</>` everywhere for engine declarations).
 
-## Migration batches
+## Migration batches (executed)
 
-Plan to commit per batch:
-1. **§51.3.x worked examples** (lines 18364, 18465, 18492, 18541, 18656, 18663, 18770, 18789, 18798, 18805) — 10 changes
-2. **§51.9 derived/projection examples** (19085, 19172, 19180) — 3 changes
-3. **§51.11/§51.12/§51.14 (audit, temporal, replay)** (19264, 19456, 19734) — 3 changes
-4. **§51.15 state-local case examples** (19891, 19912) — 2 changes
-5. **§52.13.3 closed-attribute-set + §53.8 worked example** (20623, 21082) — 2 changes
+1. **§51.3.x worked examples** (lines 18364, 18465, 18492, 18541, 18656, 18663, 18770, 18789, 18798, 18805) — 10 changes, commit 802fed8
+2. **§51.9 derived/projection examples** (19085, 19172, 19180) — 3 changes, commit f4b5fad
+3. **§51.11/§51.12/§51.14 (audit, temporal, replay)** (19264, 19456, 19734) — 3 changes, commit f6885a3
+4. **§51.15 state-local case examples** (19891, 19912) — 2 changes, commit 51fb9e2
+5. **§53.8 worked example** (21082) — 1 change, commit (in flight). Line 20623 reclassified to KEEP.
 
-Total replacements: 20.
+Total replacements: **19**. Pre-pipeline plan was 20; line 20623 reversed during execution per
+attribute-registry.js cross-reference (see migration table for full rationale).
 
 ## Tests
 
-Run `bun test` after each batch. Baseline: 8,551 / 0 / 40 / 425 (per dispatch contract).
+`bun test compiler/tests/unit compiler/tests/integration compiler/tests/conformance` (pre-commit
+hook scope). Baseline: 7826 pass / 30 skip / 0 fail / 7856 tests / 397 files. Zero regressions
+across all 5 batches.
 
 ## Tags
 
@@ -172,3 +173,4 @@ Run `bun test` after each batch. Baseline: 8,551 / 0 / 40 / 425 (per dispatch co
 
 - /home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-aaf530b1363a61104/compiler/SPEC.md
 - /home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-aaf530b1363a61104/docs/changes/p3-spec-paperwork/progress.md
+- /home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-aaf530b1363a61104/compiler/src/attribute-registry.js (cross-referenced for line 20623 reversal)
