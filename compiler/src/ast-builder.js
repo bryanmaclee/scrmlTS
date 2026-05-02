@@ -4439,7 +4439,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const rawStr = "import " + expr;
 
       // Parse structured import: `{ Name1, Name2 } from './path'` or `Name from './path'`
-      const importNode = { id: ++counter.next, kind: "import-decl", raw: rawStr, span, names: [], source: null, isDefault: false };
+      const importNode = { id: ++counter.next, kind: "import-decl", raw: rawStr, span, names: [], specifiers: [], source: null, isDefault: false };
 
       // Match: { names } from 'source' or "source"
       const namedMatch = expr.match(/^\s*\{\s*([^}]*)\}\s*from\s+["']([^"']+)["']/);
@@ -4458,17 +4458,26 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           }
           return s;
         };
-        importNode.names = namedMatch[1]
+        const _entries = namedMatch[1]
           .split(",")
           .map(s => s.trim())
-          .filter(Boolean)
-          .map(entry => {
-            // Match optional quoted-or-bareword imported name, optional ` as alias`.
-            // The imported name CAN be quoted (P3.A); the alias is always a bareword.
-            const asMatch = entry.match(/^(\S+)\s+as\s+(\S+)$/);
-            const importedRaw = asMatch ? asMatch[1] : entry;
-            return _stripQuotes(importedRaw);
-          });
+          .filter(Boolean);
+        importNode.names = _entries.map(entry => {
+          const asMatch = entry.match(/^(\S+)\s+as\s+(\S+)$/);
+          const importedRaw = asMatch ? asMatch[1] : entry;
+          return _stripQuotes(importedRaw);
+        });
+        // P3.A: also record full {imported, local} specifiers so consumers
+        // (CHX, future cross-file passes) can map an alias back to the
+        // original imported name.
+        importNode.specifiers = _entries.map(entry => {
+          const asMatch = entry.match(/^(\S+)\s+as\s+(\S+)$/);
+          if (asMatch) {
+            return { imported: _stripQuotes(asMatch[1]), local: asMatch[2] };
+          }
+          const bare = _stripQuotes(entry);
+          return { imported: bare, local: bare };
+        });
         importNode.source = namedMatch[2];
       } else {
         // Match: defaultName from 'source'

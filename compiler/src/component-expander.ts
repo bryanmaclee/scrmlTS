@@ -180,9 +180,11 @@ type ImportWithSpecifiers = ImportDeclNode & {
   specifiers?: Array<{ imported: string; local: string }>;
 };
 
-/** Per-component export info stored in the export registry. */
+/** Per-component / per-state-type export info stored in the export registry.
+ *  P3.A: extended with `category` for state-type-aware routing. */
 interface ExportInfo {
   isComponent: boolean;
+  category?: string;
 }
 
 /** Cross-file export registry: source-path → (name → ExportInfo). */
@@ -2420,7 +2422,21 @@ export function runCEFile(
       });
     });
 
-  if (!hasComponentDefs && !hasComponentRefs && !hasImportedComponents) {
+  // P3.A: also short-circuit-skip if there are no channel imports.
+  const hasImportedChannels = exportRegistry && fileASTMap &&
+    (ast.imports ?? []).some((imp: ImportDeclNode) => {
+      const importExt = imp as ImportWithSpecifiers;
+      const key = lookupKey(filePath, imp, importGraph);
+      const targetExports = exportRegistry.get(key);
+      if (!targetExports) return false;
+      const names = importExt.specifiers ? importExt.specifiers.map((s) => s.imported) : (imp.names ?? []);
+      return names.some((name: string) => {
+        const info = targetExports.get(name);
+        return !!(info && info.category === "channel");
+      });
+    });
+
+  if (!hasComponentDefs && !hasComponentRefs && !hasImportedComponents && !hasImportedChannels) {
     return { filePath, ast, errors: ceErrors };
   }
 
@@ -2533,17 +2549,234 @@ export function runCEFile(
   // Walk the AST and expand all component references
   const expandedNodes = walkAndExpand(ast.nodes ?? [], registry, filePath, counter, ceErrors);
 
+  // -------------------------------------------------------------------------
+  // P3.A — CHX (Channel-Expander) Phase 2
+  //
+  // Inlines cross-file channel imports per the W6 source pattern (P3 dive
+  // §4.4). For each markup node M whose tag matches a local alias in the
+  // consumer's importedChannelAliases map, we look up the source file's
+  // ast.channelDecls, find the matching exported channel-decl by name, and
+  // replace M with a deep-cloned copy. The inlined copy retains
+  // kind: "markup", tag: "channel" so codegen runs unchanged.
+  //
+  // Per the dive §8.4 routing-table: channel routing is NR-authoritative
+  // (resolvedCategory === "channel"); component routing stays
+  // isComponent-routed (Phase 1 above). The 75 isComponent-site migration
+  // is deferred to P3-FOLLOW.
+  // -------------------------------------------------------------------------
+  let phase2Nodes = expandedNodes;
+  if (exportRegistry && fileASTMap) {
+    const importedChannelAliases = buildImportedChannelAliases(
+      filePath,
+      ast.imports ?? [],
+      exportRegistry,
+      importGraph
+    );
+    if (importedChannelAliases.size > 0) {
+      phase2Nodes = expandChannels(
+        expandedNodes,
+        importedChannelAliases,
+        fileASTMap,
+        filePath,
+        counter,
+        ceErrors,
+        importGraph
+      );
+    }
+  }
+
   // Produce updated AST:
-  // - nodes: expanded (component-defs consumed from logic bodies, isComponent refs replaced)
+  // - nodes: expanded (component-defs consumed from logic bodies, isComponent refs replaced;
+  //          P3.A: cross-file channel refs inlined as <channel> markup nodes)
   // - components: cleared (all definitions have been processed)
+  // - channelDecls: re-collected after inlining so downstream stages see the inlined channels
   const updatedAst: FileAST = {
     ...ast,
-    nodes: expandedNodes,
+    nodes: phase2Nodes,
     components: [], // component-def nodes are consumed by this stage
   };
 
   return { filePath, ast: updatedAst, errors: ceErrors };
 }
+
+// ---------------------------------------------------------------------------
+// P3.A — CHX helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a map of {local-alias → {imported-name, source-key}} for all
+ * cross-file channel imports in this file. Returns an empty Map when no
+ * channel imports exist (the caller short-circuits CHX in that case).
+ */
+function buildImportedChannelAliases(
+  filePath: string,
+  imports: ImportDeclNode[],
+  exportRegistry: ExportRegistry,
+  importGraph?: ImportGraph
+): Map<string, { imported: string; sourceKey: string }> {
+  const result = new Map<string, { imported: string; sourceKey: string }>();
+  for (const imp of imports) {
+    const importExt = imp as ImportWithSpecifiers;
+    const sourceKey = lookupKey(filePath, imp, importGraph);
+    const targetExports = exportRegistry.get(sourceKey);
+    if (!targetExports) continue;
+    // Use specifiers if available (preserves alias); fall back to names.
+    if (importExt.specifiers && importExt.specifiers.length > 0) {
+      for (const spec of importExt.specifiers) {
+        const info = targetExports.get(spec.imported);
+        if (info && info.category === "channel") {
+          result.set(spec.local, { imported: spec.imported, sourceKey });
+        }
+      }
+    } else if (Array.isArray(imp.names)) {
+      for (const name of imp.names) {
+        const info = targetExports.get(name);
+        if (info && info.category === "channel") {
+          // No alias info available — use the imported name as both keys.
+          result.set(name, { imported: name, sourceKey });
+        }
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Walk the AST and replace each markup node whose tag matches a local
+ * channel alias with a deep-cloned copy of the source file's channel-decl.
+ *
+ * Returns a new nodes array (no in-place mutation).
+ */
+function expandChannels(
+  nodes: ASTNode[],
+  aliases: Map<string, { imported: string; sourceKey: string }>,
+  fileASTMap: FileASTMap,
+  filePath: string,
+  counter: NodeCounter,
+  errors: CEError[],
+  _importGraph?: ImportGraph
+): ASTNode[] {
+  const out: ASTNode[] = [];
+  for (const node of nodes) {
+    out.push(_expandChannelNode(node, aliases, fileASTMap, filePath, counter, errors));
+  }
+  return out;
+}
+
+function _expandChannelNode(
+  node: ASTNode,
+  aliases: Map<string, { imported: string; sourceKey: string }>,
+  fileASTMap: FileASTMap,
+  filePath: string,
+  counter: NodeCounter,
+  errors: CEError[]
+): ASTNode {
+  if (!node || typeof node !== "object") return node;
+
+  // Markup node — first check for cross-file channel match
+  if (node.kind === "markup") {
+    const m = node as MarkupNode;
+    const alias = aliases.get(m.tag);
+    if (alias) {
+      // Look up source file's channelDecls
+      const targetTab = fileASTMap.get(alias.sourceKey);
+      const channelDecls: any[] = (targetTab?.ast as any)?.channelDecls ?? [];
+      const sourceDecl = channelDecls.find((c: any) =>
+        c && c._p3aExportName === alias.imported
+      );
+      if (!sourceDecl) {
+        errors.push(makeCEError(
+          "E-CHANNEL-EXPORT-002",
+          `E-CHANNEL-EXPORT-002: Channel \`${alias.imported}\` is declared as exported in ${alias.sourceKey} but the channel markup body could not be located. ` +
+          `This is an internal error — the export-decl was registered but the corresponding <channel> markup node was not collected. ` +
+          `Verify that the source file's TAB output includes the channel in ast.channelDecls.`,
+          m.span
+        ));
+        return node;
+      }
+      // Deep-clone the source channel-decl with fresh IDs and updated span.
+      const inlined = _cloneChannelDecl(sourceDecl, counter, alias.sourceKey, m.span);
+      return inlined;
+    }
+    // Not a cross-file channel ref — recurse into children
+    const newChildren = m.children
+      ? m.children.map((c) => _expandChannelNode(c, aliases, fileASTMap, filePath, counter, errors))
+      : m.children;
+    if (newChildren !== m.children) {
+      return { ...m, children: newChildren };
+    }
+    return node;
+  }
+
+  // State node — recurse into children
+  if (node.kind === "state") {
+    const s = node as any;
+    if (Array.isArray(s.children)) {
+      const newChildren = s.children.map((c: any) => _expandChannelNode(c, aliases, fileASTMap, filePath, counter, errors));
+      if (newChildren.some((nc: any, i: number) => nc !== s.children[i])) {
+        return { ...s, children: newChildren };
+      }
+    }
+    return node;
+  }
+
+  // Logic node — recurse into body where markup may live (BLOCK_REF inlined nodes)
+  if (node.kind === "logic") {
+    const l = node as LogicNode;
+    if (Array.isArray(l.body)) {
+      const newBody = l.body.map((stmt: any) => _expandChannelNode(stmt, aliases, fileASTMap, filePath, counter, errors));
+      if (newBody.some((nb: any, i: number) => nb !== l.body[i])) {
+        return { ...l, body: newBody as any };
+      }
+    }
+    return node;
+  }
+
+  return node;
+}
+
+/**
+ * Deep-clone a channel-decl AST node with fresh IDs assigned by `counter`.
+ * Preserves attrs / children / annotations. Marks the clone with
+ * _p3aInlinedFrom + _p3aSourceSpan for diagnostics.
+ */
+function _cloneChannelDecl(
+  source: any,
+  counter: NodeCounter,
+  sourceKey: string,
+  refSpan: Span
+): MarkupNode {
+  const clone = _deepCloneAst(source, counter);
+  // Tag with inline-source diagnostics; clear the export marker since the
+  // inlined copy lives in the consumer's AST as a per-page-shape decl.
+  clone._p3aInlinedFrom = sourceKey;
+  clone._p3aSourceSpan = source.span;
+  // The inlined copy retains its original span info but carries the
+  // consumer's reference span as `_p3aRefSpan` for downstream diagnostics.
+  clone._p3aRefSpan = refSpan;
+  // Inlined channel is no longer "exported" at the consumer site (the
+  // consumer might not be exporting anything).
+  clone._p3aIsExport = undefined;
+  return clone as MarkupNode;
+}
+
+function _deepCloneAst(node: any, counter: NodeCounter): any {
+  if (node === null || node === undefined) return node;
+  if (Array.isArray(node)) {
+    return node.map((e) => _deepCloneAst(e, counter));
+  }
+  if (typeof node !== "object") return node;
+  const out: any = {};
+  for (const key of Object.keys(node)) {
+    if (key === "id") {
+      out.id = ++counter.next;
+      continue;
+    }
+    out[key] = _deepCloneAst(node[key], counter);
+  }
+  return out;
+}
+
 
 // ---------------------------------------------------------------------------
 // Public entry point — multi-file (pipeline contract)
