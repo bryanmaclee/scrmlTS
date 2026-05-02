@@ -221,8 +221,19 @@ export interface MarkupNode extends BaseNode {
   selfClosing: boolean;
   /** Closer form from the block splitter. */
   closerForm: string;
-  /** True if this is a component call site (uppercase tag name). */
+  /** True if this is a component call site (uppercase tag name).
+   *  P3-FOLLOW: derived backcompat field. NR's `resolvedKind === "user-component"`
+   *  is the authoritative routing source. `isComponent` is still stamped (by BS,
+   *  ast-builder) for AST-shape backcompat with serialization, snapshot tests,
+   *  and direct unit-test consumers that bypass NR. Stages should call the helper
+   *  isUserComponentMarkup() in component-expander.ts (NR-prefer-with-fallback)
+   *  rather than reading this field directly for routing decisions. */
   isComponent: boolean;
+  /** P3-FOLLOW: NR-stamped resolution kind. Authoritative for routing.
+   *  May be undefined on ASTs that did not have NR run (some unit-test paths). */
+  resolvedKind?: 'html-builtin' | 'scrml-lifecycle' | 'user-state-type' | 'user-component' | 'unknown';
+  /** P3-FOLLOW: NR-stamped resolution category. Authoritative for routing. */
+  resolvedCategory?: 'html' | 'channel' | 'engine' | 'timer' | 'poll' | 'db' | 'schema' | 'request' | 'errorBoundary' | 'machine' | 'user-component' | 'user-state-type' | 'unknown';
   // Auth/middleware fields added by buildAST when tag === "program":
   auth?: string;
   loginRedirect?: string;
