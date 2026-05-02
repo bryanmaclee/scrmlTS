@@ -6,6 +6,7 @@
  *   scrml compile <file.scrml|dir> [options]
  *   scrml dev <file.scrml|dir> [options]
  *   scrml build <dir> [options]
+ *   scrml migrate <file|dir> [options]
  *   scrml --help
  *   scrml --version
  *
@@ -39,6 +40,7 @@ Usage:
   scrml dev <file.scrml|dir> [options]       Compile + watch + serve
   scrml build <dir> [options]                Build production server
   scrml serve [options]                      Start persistent compiler server
+  scrml migrate <file|dir> [options]         Apply automated source rewrites for deprecated patterns
 
 Options (compile / dev):
   --output-dir, -o <dir>  Output directory (default: dist/ next to input)
@@ -61,6 +63,13 @@ Options (serve):
   --port <n>            HTTP port for compiler server (default: 3100, or SCRML_PORT env)
   --verbose, -v         Log per-stage timing for each compilation
 
+Options (migrate):
+  --dry-run             Print unified diff to stdout without writing
+  --check               Exit non-zero if any file would be modified (CI-friendly)
+  --include=<glob>      File pattern (default: '*.scrml')
+  --exclude=<glob>      Additional exclude pattern (substring match)
+  --no-default-excludes Disable built-in samples/ + tests/ exclusions
+
 Options (global):
   --help, -h            Show this message
   --version             Print version
@@ -78,7 +87,7 @@ let subcommand = args[0];
 let subArgs = args.slice(1);
 
 // Fall through: if first arg is a .scrml file or a directory, treat as compile
-if (subcommand !== "compile" && subcommand !== "dev" && subcommand !== "build" && subcommand !== "serve" && subcommand !== "init") {
+if (subcommand !== "compile" && subcommand !== "dev" && subcommand !== "build" && subcommand !== "serve" && subcommand !== "init" && subcommand !== "migrate") {
   // Check if it looks like a file or directory rather than a subcommand
   const looksLikeInput = subcommand.endsWith(".scrml") || (() => {
     try { return statSync(subcommand).isDirectory(); } catch { return false; }
@@ -110,4 +119,7 @@ if (subcommand === "init") {
 } else if (subcommand === "serve") {
   const { runServe } = await import("./commands/serve.js");
   await runServe(subArgs);
+} else if (subcommand === "migrate") {
+  const { runMigrate } = await import("./commands/migrate.js");
+  await runMigrate(subArgs);
 }
