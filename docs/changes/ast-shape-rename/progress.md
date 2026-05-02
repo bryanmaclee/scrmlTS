@@ -41,11 +41,11 @@ Renamed `kind: "machine-decl"` → `kind: "engine-decl"` and `.machineName` → 
 - `compiler/tests/lsp/analysis.test.js`
 - `compiler/tests/integration/p3b-engine-for-importedtype-cross-file.test.js`
 
-Tests after migration: 8576 / 0 / 40 / 426 — exact baseline match, zero regressions.
+Source + tests committed together as `bd48d14` (atomic — pre-commit hook gates on tests).
 
 ## Step 4: SPEC + PIPELINE doc updates
 
-Doc references to `kind: "machine-decl"` updated:
+Doc references to `kind: "machine-decl"` updated. Commit `3966459`.
 
 - `compiler/PIPELINE.md` line 610 — note that AST shape rename was deferred → updated to historical note that rename happened in S53.
 - `compiler/SPEC.md` line 7383 — historical "P1 / P1.E" subsection annotated to indicate the AST node was later renamed (S53).
@@ -53,9 +53,28 @@ Doc references to `kind: "machine-decl"` updated:
 - `compiler/SPEC.md` line 18422 — canonical AST shape note in §51.3.2 "Amended (Phase P1)" — updated from "deferred to P3" to current `kind: "engine-decl"` / `engineName` shape.
 - `compiler/SPEC.md` lines 18387, 19073 — grammar productions `machine-decl ::=` and `derived-machine-decl ::=` — LEFT AS-IS. These are user-source-text grammar nonterminal labels (not AST kind strings), and the user-source keyword `<machine>` remains a deprecated alias.
 
-## Acceptance verification
+## Acceptance verification (final)
 
 - `grep -rln "'machine-decl'\|\"machine-decl\"" compiler/src/ lsp/` → empty (zero matches).
 - `grep -rno '\bmachineName\b' compiler/src/ lsp/` → empty (zero matches).
 - Remaining `"machine-decl"` strings in SPEC.md/PIPELINE.md are explicit historical references describing the prior shape.
 - `bun test`: 8576 pass / 0 fail / 40 skip / 426 files. Zero regressions.
+- Pre-commit + post-commit hooks pass on every commit.
+
+## Outcome
+
+Mechanical refactor — final piece of the engine rename arc:
+- AST kind literal `"machine-decl"` → `"engine-decl"`.
+- AST node field `node.machineName` → `node.engineName`.
+
+Combined with prior arc landings (P1 keyword aliasing, P3-RENAME local-vars, P3-ERROR-RENAME error codes), the engine vocabulary is now uniform from source-form through codegen.
+
+## Tags
+`ast-shape-rename`, `engine-decl`, `engineName`, `T2-medium`, `mechanical-refactor`, `S53`, `engine-rename-arc-final`
+
+## Links
+- Branch: `changes/ast-shape-rename`
+- Commits: `b9009c1` (inventory), `bd48d14` (source + tests), `3966459` (SPEC + PIPELINE)
+- Predecessors: P1 (keyword aliasing), P3-RENAME (local vars), P3-ERROR-RENAME (error codes)
+- Migration plan: `docs/changes/ast-shape-rename/migration-plan.md`
+- Final status: 8576 / 0 / 40 / 426 — zero regressions, baseline match
