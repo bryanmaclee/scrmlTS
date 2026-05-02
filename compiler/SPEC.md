@@ -7309,7 +7309,7 @@ component name and source path; only then file a friction report.
 ### 15.15 Unified State-Type Registry and Name Resolution
 
 **Added:** 2026-04-30 — Phase P1 of the state-as-primary architectural unification (DD1 deep-dive `state-as-primary-unification-2026-04-30.md`; ratified by Approach A debate, score 93/110).
-**Status (P1.E, 2026-04-30 same day):** NR is implemented in shadow mode. The implementation lives in `compiler/src/name-resolver.ts`; the wiring is post-MOD in `compiler/src/api.js`. The W-CASE-001 / W-WHITESPACE-001 diagnostics fire from NR; W-DEPRECATED-001 continues to fire from TAB (the keyword distinction is settled at TAB time). Downstream stages still route on `isComponent` per §15.15.6 — the routing flip is a P2/P3 follow-up.
+**Status (P3-FOLLOW, 2026-05-02):** NR is the authoritative source for state-type / component routing. The implementation lives in `compiler/src/name-resolver.ts`; the wiring is post-MOD in `compiler/src/api.js`. The W-CASE-001 / W-WHITESPACE-001 diagnostics fire from NR; W-DEPRECATED-001 continues to fire from TAB (the keyword distinction is settled at TAB time). Downstream stages (CE, MOD, TS, validators, codegen, LSP) all route on NR's `resolvedKind` / `resolvedCategory` per §15.15.6.
 
 This section is the authoritative reference for tag-name resolution. All `<identifier ...>` openers — whether the identifier names an HTML element, a built-in scrml lifecycle state-type, a user-declared state type, or a component reference — resolve through the same lookup at the Name Resolution stage (NR, Stage 3.05; see PIPELINE.md).
 
@@ -7373,21 +7373,39 @@ The block splitter's `Block.openerHadSpaceAfterLt: boolean` annotation drives **
 
 Both forms compile in P1 and P2. P3 promotes the warning to **E-WHITESPACE-001** (hard error).
 
-#### 15.15.6 Shadow Mode (P1 Only)
+#### 15.15.6 NameRes Authority (Post-P3-FOLLOW)
 
-In Phase P1 the NR stage runs in **shadow mode**: it computes `resolvedKind` and `resolvedCategory` for every opener and records them on the AST node, but downstream stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent` discriminator. NR's emissions (W-CASE-001, W-WHITESPACE-001) are surfaced in P1; the routing change is deferred to P2/P3 once the shadow-mode results have been validated against the existing flows over multiple sessions.
+The NR stage (Stage 3.05) is the **AUTHORITATIVE** source of state-type and component routing for every downstream stage in the pipeline. NR computes `resolvedKind` and `resolvedCategory` for every opener and records them on the AST node, and downstream stages (CE, MOD, TS, validators, codegen, LSP) consume those fields directly.
 
-**Status (P3.A, 2026-05-02):** NR's implementation lives in `compiler/src/name-resolver.ts` and is wired post-MOD in `compiler/src/api.js`. The advisory fields and warnings are live on every compile. The phased authority transition is:
-- **P1 / P1.E:** NR runs in shadow mode. Downstream consumers route on `isComponent` and `kind === "machine-decl"` etc.; consumers MAY observe `resolvedKind` / `resolvedCategory` for diagnostics but MUST NOT use them for routing decisions.
-- **P2:** Form 1 `export <ComponentName ...>...</>` lands; component routing remains `isComponent`-based. CE phase 1 was unchanged.
-- **P3.A (now, 2026-05-02):** `<channel>` routing becomes **NR-authoritative**. CHX (CE phase 2 under UCD) consumes `info.category === "channel"` from MOD's exportRegistry to identify cross-file channel imports. Component routing remains `isComponent`-based (CE phase 1 untouched, zero risk to the 75 in-tree `isComponent` references). The transitional state is documented in `compiler/src/state-type-routing.ts` (the category-routing-table) per OQ-P3-2 default (b).
-- **P3-FOLLOW (planned, T2-medium):** the 75 `isComponent` references migrate to NR-authoritative routing. The category-routing-table is deleted; `isComponent` is retired. W-WHITESPACE-001 promotes to E-WHITESPACE-001; W-DEPRECATED-001 promotes to E-DEPRECATED-001; the internal `kind: "machine-decl"` shape may be renamed to `engine-decl`.
+**Status (P3-FOLLOW, 2026-05-02):** NR's implementation lives in `compiler/src/name-resolver.ts` and is wired post-MOD in `compiler/src/api.js`. The advisory fields and warnings are live on every compile, and downstream routing reads from them.
 
-NR's invariants in shadow mode:
-- Every `MarkupElement` / `StateBlock` AST node SHALL receive a `resolvedKind` and `resolvedCategory` field.
-- NR SHALL NOT mutate any existing AST field.
-- NR SHALL NOT block compilation on `unknown` resolutions (downstream stages still own the hard errors).
-- NR's resolution disagreements with the legacy case-rule SHALL be flagged at most once per source position (no spam).
+**Phased authority transition (history):**
+- **P1 / P1.E (2026-04-30):** NR ran in *shadow mode*. The advisory fields were stamped but downstream stages routed on the legacy `isComponent` discriminator and `kind === "machine-decl"` shape.
+- **P2 (2026-05-01):** Form 1 `export <ComponentName ...>...</>` landed; component routing remained `isComponent`-based. CE phase 1 was unchanged.
+- **P3.A (2026-05-02):** `<channel>` routing became NR-authoritative. CHX (CE phase 2 under UCD) consumed `info.category === "channel"` from MOD's exportRegistry. Component routing remained legacy. The transitional split was documented in the (now-deleted) `compiler/src/state-type-routing.ts` category-routing-table per OQ-P3-2 default (b).
+- **P3-FOLLOW (2026-05-02):** ALL routing decisions migrated to NR-authoritative reads. The transitional `state-type-routing.ts` file was deleted (single canonical path now). The category vocabulary in MOD's exportRegistry was aligned with NR's (`info.category === "user-component"` matches `resolvedCategory: "user-component"`). The legacy `isComponent` boolean is retained on AST markup nodes and on registry entries as a *derived backcompat field* — it is no longer the authoritative routing signal but is still stamped (by BS, ast-builder, MOD) for AST-shape backcompat with serialization, snapshot tests, and direct unit-test consumers that bypass NR.
+
+**NR's invariants (post-P3-FOLLOW):**
+- Every tag-bearing AST node (`MarkupElement`, `StateBlock`, `MachineDecl`, etc.) SHALL receive `resolvedKind` and `resolvedCategory` fields when NR runs.
+- NR SHALL NOT mutate any existing AST field; it adds only the two advisory fields.
+- NR SHALL NOT block compilation on `unknown` resolutions; downstream stages own the hard errors (E-COMPONENT-020, E-MARKUP-001, E-STATE-001, etc.).
+- W-CASE-001 / W-WHITESPACE-001 SHALL fire at most once per source position (no spam).
+- NR's walker SHALL traverse `lift-expr.expr.node` (markup nested inside `lift <wrapper>...<Component/></wrapper>`) so the resolved fields stamp every reachable tag (P3-FOLLOW closed this gap; without it VP-2 could not detect residual components inside lift wrappers).
+
+**Routing read pattern (post-P3-FOLLOW):**
+Downstream stages consume NR's fields. Where backwards-compatibility with direct-unit-test paths matters, the read pattern is:
+
+```
+isUserComponentRef(node) :=
+  node.resolvedKind === "user-component"
+  OR (node.resolvedKind === undefined AND node.isComponent === true)
+```
+
+The first arm is NR-authoritative. The second arm is the legacy fallback, used only when NR has not run (unit-test paths that call e.g. `runCE` directly without first calling `runNR`). When NR ran AND classified the tag as something else (`html-builtin`, `user-state-type`), the predicate refuses to call it a component — NR wins.
+
+For routing decisions made before NR runs (e.g. block-splitter, ast-builder, gauntlet pre-checks), the legacy `isComponent` boolean is the correct syntactic predicate; NR's fields are not yet stamped at that point.
+
+For VP-2 (post-CE invariant, residual-component detection), the predicate also includes the case `resolvedKind === "unknown"` with an uppercase-first-char tag — that catches the F-COMPONENT-001 silent-failure pattern where BS classified an unresolved tag as a component reference but NR could not resolve it (no same-file decl, no import).
 
 #### 15.15.7 Cross-Reference
 
@@ -20001,10 +20019,10 @@ deprecation policy — both keywords resolve `for=` against the same
 `importedTypes` registry. Cross-file resolution and the deprecation warning
 are independent concerns; both fire when applicable.
 
-#### 51.16.5 Interaction with NameRes Shadow Mode (§15.15.6)
+#### 51.16.5 Interaction with NameRes (§15.15.6)
 
 P3.B's resolution mechanism is purely a TAB-shape fix and does not depend on
-NameRes Stage 3.05 (which is in shadow mode per §15.15.6 P1.E). The engine's
+NameRes Stage 3.05 (which is the authoritative source per §15.15.6 post-P3-FOLLOW). The engine's
 `for=` clause names a TYPE identifier, not a tag identifier; it resolves
 through the `typeRegistry` populated by `api.js` cross-file seeding, NOT
 through the NR `importedRegistry` of tag categories. NR's authoritative

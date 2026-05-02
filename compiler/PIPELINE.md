@@ -536,22 +536,43 @@ discriminated union tree.
 
 ---
 
-## Stage 3.05: Name Resolution (NR) — IMPLEMENTED (Shadow Mode)
+## Stage 3.05: Name Resolution (NR) — AUTHORITATIVE
 
-**Status (2026-04-30 P1; implementation landed P1.E same day):** NR is now
-implemented in `compiler/src/name-resolver.ts` (~410 LOC including diagnostics
-and the unified registry construction) and wired into `compiler/src/api.js`
-between MOD (Stage 3.1) and CE (Stage 3.2). The `resolvedKind` /
-`resolvedCategory` advisory fields ARE populated on every `MarkupNode`,
-`StateNode`, `StateConstructorDefNode`, and `MachineDeclNode`. The
-`W-CASE-001` and `W-WHITESPACE-001` warnings ARE emitted from NR.
-`W-DEPRECATED-001` continues to be emitted from TAB (see ast-builder.js
-machine→engine handling) — that emission point predates NR and remains
-correct because the `<machine>`-vs-`<engine>` keyword distinction is decided
-at TAB time. NR runs in **shadow mode** per SPEC §15.15.6: downstream
-stages (CE, MOD, TS, codegen) continue to route on the legacy `isComponent`
-flag; the routing flip moves to P2 (CE / TS migration) and P3 (full
-`isComponent` retirement).
+**Status (P3-FOLLOW, 2026-05-02):** NR is the authoritative source of
+state-type / component routing for all downstream stages. The implementation
+lives in `compiler/src/name-resolver.ts` (~470 LOC including diagnostics,
+the unified registry construction, and the lift-expr walker extension) and
+is wired into `compiler/src/api.js` between MOD (Stage 3.1) and CE (Stage
+3.2). The `resolvedKind` / `resolvedCategory` advisory fields ARE populated
+on every `MarkupNode`, `StateNode`, `StateConstructorDefNode`, and
+`MachineDeclNode`. The `W-CASE-001` and `W-WHITESPACE-001` warnings ARE
+emitted from NR. `W-DEPRECATED-001` continues to be emitted from TAB (the
+`<machine>`-vs-`<engine>` keyword distinction is decided at TAB time).
+
+**P3-FOLLOW changes:**
+- Downstream stages (CE Phase 1, type-system §35 attribute validation,
+  validators/post-ce-invariant.ts VP-2, name-resolver's own
+  importedRegistry derivation, lsp/handlers.js cross-file completion) now
+  route on `resolvedKind` / `resolvedCategory` directly. The legacy
+  `isComponent` boolean is retained on AST markup nodes and on MOD's
+  `exportRegistry` entries as a *derived backcompat field* (no longer the
+  authoritative routing signal).
+- MOD's exportRegistry vocabulary aligned with NR: components are
+  `category: "user-component"` (was `"component"`).
+- The transitional `compiler/src/state-type-routing.ts` (P3.A
+  category-routing-table) is deleted.
+- NR's walker traverses `lift-expr.expr.node` (markup nested inside `lift
+  <wrapper>...<Component/></wrapper>`) — closes a coverage gap that
+  prevented VP-2 from detecting residual components inside lift wrappers.
+
+**Phased history:**
+- **P1 / P1.E (2026-04-30):** NR ran in shadow mode; downstream routed on
+  legacy `isComponent`.
+- **P2 (2026-05-01):** Form 1 export landed; component routing remained
+  legacy.
+- **P3.A (2026-05-02):** `<channel>` routing became NR-authoritative;
+  components stayed legacy.
+- **P3-FOLLOW (2026-05-02):** ALL routing migrated to NR-authoritative.
 
 **Input contract:**
 - Type: `{ filePath: string, ast: FileAST, errors: TABError[] }`
@@ -569,24 +590,25 @@ flag; the routing flip moves to P2 (CE / TS migration) and P3 (full
 
 **Output contract:**
 - Type: `{ filePath: string, ast: FileAST, errors: NRError[] }`
-- Invariants (shadow mode, P1-P2):
-  - Every `MarkupElement` and `StateBlock` AST node SHALL receive
+- Invariants (authoritative mode, P3-FOLLOW+):
+  - Every tag-bearing AST node (`MarkupElement`, `StateBlock`,
+    `StateConstructorDefNode`, `MachineDeclNode`) SHALL receive
     `resolvedKind: 'html-builtin' | 'scrml-lifecycle' | 'user-state-type' | 'user-component' | 'unknown'`
     and
-    `resolvedCategory: 'html' | 'channel' | 'engine' | 'timer' | 'poll' | 'db' | 'schema' | 'request' | 'errorBoundary' | 'machine' | 'user-component' | 'user-state-type'`.
+    `resolvedCategory: 'html' | 'channel' | 'engine' | 'timer' | 'poll' | 'db' | 'schema' | 'request' | 'errorBoundary' | 'machine' | 'user-component' | 'user-state-type' | 'unknown'`.
   - NR SHALL NOT mutate any pre-existing AST field (additive only).
   - NR SHALL NOT block compilation on `unknown` resolutions; downstream
     stages (CE, MOD, TS) own the hard errors (`E-COMPONENT-020`,
     `E-MARKUP-001`, `E-STATE-001`).
-  - When `resolvedKind` disagrees with the legacy `isComponent` flag, NR
-    SHALL log a one-shot diagnostic per source position (no spam) so the
-    P3 routing flip can be validated with confidence.
-- Invariants (authoritative mode, P3+):
-  - Downstream stages route on `resolvedKind` / `resolvedCategory`, NOT on
-    `isComponent` (legacy field deprecated).
+  - NR's walker SHALL traverse `lift-expr.expr.node` so resolved fields
+    stamp every reachable tag (P3-FOLLOW closed this gap).
+  - Downstream stages route on `resolvedKind` / `resolvedCategory` (NR-
+    authoritative). The legacy `isComponent` boolean is retained as a
+    derived backcompat field but is no longer the routing signal.
   - The `< machine>` opener (deprecated) and `<machine>` no-space opener
-    (planned) both resolve to `resolvedCategory: 'engine'`. The internal
-    `kind: "machine-decl"` AST shape is renamed to `engine-decl` in P3.
+    both resolve to `resolvedCategory: 'engine'`. The internal
+    `kind: "machine-decl"` AST shape rename to `engine-decl` is deferred
+    to a separate change.
 
 **Error contract:**
 - Error type: `NRError { code: string, message: string, span: Span, severity: 'warning' }`
@@ -605,9 +627,8 @@ lifecycle → HTML built-in → unknown). The result populates the new
 shadowing and whitespace-opener emission fire as side effects of the walk.
 
 **Performance budget:** <= 5 ms per file (verified P1.E: ~0-1ms per file in practice; pure AST traversal).
-**Parallelism opportunity:** Yes — fully per-file in shadow mode (no MOD
-dependency for same-file lookups). Cross-file lookups defer to MOD's
-`exportRegistry`.
+**Parallelism opportunity:** Yes — fully per-file (same-file lookups have
+no MOD dependency). Cross-file lookups defer to MOD's `exportRegistry`.
 **Dependencies:** TAB must complete; MOD optional (only required for cross-file
 lookups; same-file + lifecycle + HTML lookups run pre-MOD).
 
@@ -808,9 +829,10 @@ Under **UCD (Unified Category-Dispatch)** — ratified per OQ-P3-1 default (a) �
 state-type expander runs in two phases:
 
 - **Phase 1: Component Expansion** (existing path, documented above).
-  Routes via `node.isComponent === true` and `info.isComponent === true`. CE phase 1 is
-  unchanged from pre-P3.A behaviour; the 75 in-tree `isComponent` references remain
-  intact (per OQ-P3-2 default (b)).
+  Routes via NR-authoritative `node.resolvedKind === "user-component"` (with a legacy
+  `isComponent === true` fallback for unit-test paths that bypass NR) and the cross-file
+  registry's `info.category === "user-component"`. P3-FOLLOW migrated CE phase 1 from
+  the legacy `isComponent`-only path to the unified NR-authoritative routing.
 - **Phase 2: Channel Expansion (CHX)** (NEW).
   Routes via `info.category === "channel"` (NR-authoritative for channels). Walks the
   consumer's AST after Phase 1 completes; for each markup node whose `tag` matches a
@@ -835,20 +857,26 @@ Walk consumer.ast.nodes recursively:
     Replace M with deepClone(decl); fresh IDs from CE's counter
 ```
 
-**Routing-table contract.**
-The transitional category-routing-table lives in
-`compiler/src/state-type-routing.ts`:
+**Routing contract (post-P3-FOLLOW).**
+The transitional `compiler/src/state-type-routing.ts` category-routing-table
+introduced in P3.A has been deleted (P3-FOLLOW). All routing is now uniform:
+downstream stages consume NR's `resolvedKind` / `resolvedCategory` directly,
+and MOD's exportRegistry exposes `info.category` (matching NR's vocabulary).
+The legacy `isComponent` boolean and `info.isComponent` field are retained
+as derived backcompat fields for AST shape tests and direct unit-test
+consumers that bypass NR — they are no longer the routing source.
 
-```ts
-const ROUTING: Record<ResolvedCategory, "isComponent-legacy" | "resolvedCategory-new"> = {
-  "channel":         "resolvedCategory-new",   // CHX (Phase 2)
-  "user-component":  "isComponent-legacy",     // CE Phase 1 (unchanged)
-  // ... built-ins + other state-types route via legacy paths in P3.A
-};
+The routing predicate used by stages where backcompat with NR-bypassing
+unit-test paths matters:
+
+```
+resolvedKind === "user-component"
+  OR (resolvedKind === undefined AND isComponent === true)
 ```
 
-P3-FOLLOW (T2-medium, planned) migrates the 75 `isComponent` sites; the routing table
-is then deleted.
+The first arm is NR-authoritative. The second arm is the legacy fallback
+for tests that don't run NR; in production (api.js) the first arm always
+applies.
 
 **Error contract (P3.A additions):**
 - `E-CHANNEL-008`: Two cross-file channel imports from different source files in the same
