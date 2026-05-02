@@ -7380,7 +7380,7 @@ The NR stage (Stage 3.05) is the **AUTHORITATIVE** source of state-type and comp
 **Status (P3-FOLLOW, 2026-05-02):** NR's implementation lives in `compiler/src/name-resolver.ts` and is wired post-MOD in `compiler/src/api.js`. The advisory fields and warnings are live on every compile, and downstream routing reads from them.
 
 **Phased authority transition (history):**
-- **P1 / P1.E (2026-04-30):** NR ran in *shadow mode*. The advisory fields were stamped but downstream stages routed on the legacy `isComponent` discriminator and `kind === "machine-decl"` shape.
+- **P1 / P1.E (2026-04-30):** NR ran in *shadow mode*. The advisory fields were stamped but downstream stages routed on the legacy `isComponent` discriminator and the then-current `kind === "machine-decl"` shape (the AST node was later renamed to `kind: "engine-decl"` / `engineName` in S53 by `ast-shape-rename`).
 - **P2 (2026-05-01):** Form 1 `export <ComponentName ...>...</>` landed; component routing remained `isComponent`-based. CE phase 1 was unchanged.
 - **P3.A (2026-05-02):** `<channel>` routing became NR-authoritative. CHX (CE phase 2 under UCD) consumed `info.category === "channel"` from MOD's exportRegistry. Component routing remained legacy. The transitional split was documented in the (now-deleted) `compiler/src/state-type-routing.ts` category-routing-table per OQ-P3-2 default (b).
 - **P3-FOLLOW (2026-05-02):** ALL routing decisions migrated to NR-authoritative reads. The transitional `state-type-routing.ts` file was deleted (single canonical path now). The category vocabulary in MOD's exportRegistry was aligned with NR's (`info.category === "user-component"` matches `resolvedCategory: "user-component"`). The legacy `isComponent` boolean is retained on AST markup nodes and on registry entries as a *derived backcompat field* — it is no longer the authoritative routing signal but is still stamped (by BS, ast-builder, MOD) for AST-shape backcompat with serialization, snapshot tests, and direct unit-test consumers that bypass NR.
@@ -12770,7 +12770,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | W-TAILWIND-001 | §26.3, §26.5 | Class name in `class="..."` uses Tailwind syntax that the embedded engine does not handle (deferred prefix like `group-hover:`, custom theme prefix, etc.). The class produces no CSS. SPEC-ISSUE-012. | Warning |
 | W-CASE-001 | §15.15.4 | A user-declared state-type or component name is lowercase and shadows a built-in HTML element name. Resolution still succeeds (the user declaration takes precedence). Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
 | W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 in P3. Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
-| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1):** emitted by TAB (`compiler/src/ast-builder.js` machine-decl path) — the keyword distinction is decided at TAB time, NR is not required for this diagnostic. | Warning |
+| W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1):** emitted by TAB (`compiler/src/ast-builder.js` engine-decl path) — the keyword distinction is decided at TAB time, NR is not required for this diagnostic. | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
@@ -18419,9 +18419,9 @@ Positional bindings match variant payload fields by declaration order; named bin
 keyword for this state-type is now `engine`. The pre-P1 `machine` keyword continues
 to compile as a deprecated alias and emits **W-DEPRECATED-001** (warning; configurable
 to error per `compiler-warnings`). Both `< engine name=N for=T>` and `< machine name=N for=T>`
-produce identical AST shapes (internal `kind: "machine-decl"` is preserved in P1 to
-keep blast radius bounded; the internal field rename happens in P3 when downstream
-stages migrate to the new shape uniformly).
+produce identical AST shapes. The AST node uses `kind: "engine-decl"` with a
+`engineName` field (the P1 `kind: "machine-decl"` / `machineName` shape was renamed
+in S53 by `ast-shape-rename`).
 
 ```
 W-DEPRECATED-001: `<machine>` keyword is deprecated; use `<engine>` instead.

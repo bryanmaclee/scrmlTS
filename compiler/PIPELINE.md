@@ -606,9 +606,9 @@ emitted from NR. `W-DEPRECATED-001` continues to be emitted from TAB (the
     authoritative). The legacy `isComponent` boolean is retained as a
     derived backcompat field but is no longer the routing signal.
   - The `< machine>` opener (deprecated) and `<machine>` no-space opener
-    both resolve to `resolvedCategory: 'engine'`. The internal
-    `kind: "machine-decl"` AST shape rename to `engine-decl` is deferred
-    to a separate change.
+    both resolve to `resolvedCategory: 'engine'`. The internal AST shape
+    is `kind: "engine-decl"` with field `engineName` (renamed from the
+    P1 `kind: "machine-decl"` / `machineName` in S53 by `ast-shape-rename`).
 
 **Error contract:**
 - Error type: `NRError { code: string, message: string, span: Span, severity: 'warning' }`
