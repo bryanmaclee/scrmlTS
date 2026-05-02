@@ -2002,7 +2002,8 @@ function buildMachineRegistry(
       errors.push(new TSError(
         "E-MACHINE-004",
         `E-MACHINE-004: Machine '${name}' references unknown type '${govName}'. ` +
-        `The 'for' clause must name an enum or struct type declared in this file or imported via 'use'.`,
+        `The 'for' clause must name an enum or struct type declared in this file, ` +
+        `or use a \`\${ import { ${govName} } from './path.scrml' }\` declaration to bring \`${govName}\` into scope.`,
         span,
       ));
       continue;

@@ -10747,6 +10747,17 @@ export const Card = <div class="card-body" class="component" props={ title: stri
 - Form 2: The `export` keyword inside a `${ }` logic context SHALL be valid
   before `type`, `function`, `fn`, `const` (including component-as-const),
   and `let` declarations.
+- A Form 2 `export type X:kind = {...}` declaration SHALL produce both a
+  `type-decl` AST node (with parsed `name`, `typeKind`, and body) AND an
+  `export-decl` AST node (with `exportKind="type"` and `exportedName=X`).
+  The two nodes are siblings; the `type-decl` SHALL be appended to
+  `FileAST.typeDecls` so that downstream stages (TS, codegen) and cross-file
+  consumers (`api.js` `importedTypesByFile` seeding) can resolve `X` in the
+  same way as a non-exported type. This mirrors how `export function f() {...}`
+  produces both a `function-decl` and an `export-decl`. **Amended P3.B
+  (2026-05-02)** — closes F-ENGINE-001, enabling `<engine for=ImportedType>`
+  to resolve `ImportedType` across files (§51.16). Predicate behaviour
+  for the `export-decl` node is unchanged.
 - The `export` keyword followed by an identifier with a non-PascalCase first
   character (e.g. `export <foo>`) at the top level SHALL NOT be recognized as
   Form 1; it falls through to E-IMPORT-001 (`export` outside a `${ }` context).
@@ -18307,8 +18318,10 @@ loop, or conditional. It MAY be declared inside a `${}` logic block at file scop
 - The machine name SHALL be unique within the file scope. Duplicate machine names in the
   same file SHALL be a compile error (E-MACHINE-003).
 - `TypeName` SHALL resolve to an enum type or struct type declared in the same file or
-  imported via `use`. Referencing an unknown type or a primitive type SHALL be a compile
-  error (E-MACHINE-004). Primitive value constraints use inline predicates (§53), not machines.
+  brought into scope by an `${ import { TypeName } from './path.scrml' }` declaration
+  (§21.3). Referencing an unknown type or a primitive type SHALL be a compile error
+  (E-MACHINE-004). Primitive value constraints use inline predicates (§53), not machines.
+  See §51.16 for the cross-file resolution mechanism.
 - When governing a struct type, `self.*` references in `given` guards SHALL resolve to
   fields of the struct. Referencing an undefined field SHALL be E-MACHINE-013.
 - A `given` clause MAY include a `[label]` suffix. The label is a plain identifier used in
@@ -19675,6 +19688,119 @@ E-STATE-MACHINE-DIVERGENCE: machine 'SubmissionFlow' declares edge < Validated> 
   or remove the edge from SubmissionFlow if it should not be reachable.
   (Temporal edges 'after Ns =>' and wildcards '* =>' are exempt from this cross-check.)
 ```
+
+---
+
+### 51.16 Cross-File Type Resolution for `<engine for=ImportedType>`
+
+**Added:** 2026-05-02 (P3.B; closes F-ENGINE-001). Resolves the cross-file
+engine `for=` clause by reusing the existing same-file type-resolution path.
+Replaces the W6 deferral notice (never landed). See P3 deep dive
+`scrml-support/docs/deep-dives/p3-cross-file-inline-expansion-2026-05-02.md`
+§3.1, §5.1, §5.4 for the design rationale.
+
+#### 51.16.1 Motivation
+
+An `<engine>` declaration takes a `for=Type` clause that names the enum or
+struct type whose variants the engine governs. Prior to P3.B, `Type` was
+required to be declared in the same `.scrml` file. This forced adopters to
+duplicate type declarations whenever an engine consumer page imported the
+schema's type from a separate file — the canonical example being the HOS
+(Hours of Service) machine in a fleet-dispatch app, where `DriverStatus`
+is declared in `schema.scrml` but the engine lives in `pages/driver/hos.scrml`.
+Adopters worked around the constraint by re-declaring the enum locally
+(see FRICTION.md §F-ENGINE-001 in dispatch-app prior art).
+
+P3.B closes this friction by recognising that the cross-file machinery already
+works for components and functions; only the TAB stage was failing to emit
+the required `type-decl` AST node when it parsed `export type X = {...}`.
+Once TAB synthesises the `type-decl` alongside the `export-decl` (§21.2),
+the existing `api.js` `importedTypesByFile` seeding succeeds and the engine
+validation completes normally.
+
+#### 51.16.2 Mechanism
+
+1. **TAB** (Stage 3): when the parser sees `export type X:kind = {...}`,
+   it emits BOTH a `type-decl` node (parsed body) AND an `export-decl` node
+   (`exportKind="type"`, `exportedName=X`). Per §21.2.
+2. **MOD** (Stage 3.1): registers `X` in the source file's export registry.
+   Unchanged from P1.
+3. **`api.js`** cross-file seeding: walks the import graph; for every file
+   importing `X`, looks up `depFile.ast.typeDecls`; finds the synthesised
+   `type-decl`; registers it in the importing file's `importedTypes`.
+   Unchanged from P1; was previously yielding empty arrays for type imports.
+4. **TS** (Stage 6): `processFile` builds the per-file `typeRegistry` from
+   same-file `typeDecls` plus `importedTypes`. The imported type now appears
+   in the registry. Unchanged from P1.
+5. **Engine validation** (`type-system.ts`): `typeRegistry.get(govName)`
+   succeeds; E-MACHINE-004 is not raised; emit proceeds.
+
+#### 51.16.3 Worked Example
+
+```scrml
+// schema.scrml
+${
+  export type DriverStatus:enum = {
+    OffDuty
+    OnDuty
+    Driving
+    SleeperBerth
+  }
+}
+```
+
+```scrml
+// pages/driver/hos.scrml
+${ import { DriverStatus } from '../../schema.scrml' }
+
+@status: DriverStatus = .OffDuty
+
+< engine name=HOSMachine for=DriverStatus>
+  .OffDuty      => .OnDuty | .SleeperBerth
+  .OnDuty       => .Driving | .OffDuty
+  .Driving      => .OnDuty | .OffDuty
+  .SleeperBerth => .OffDuty
+</>
+```
+
+Pre-P3.B, this combination raised E-MACHINE-004 with the misleading
+"imported via 'use'" hint. Post-P3.B, both files compile cleanly. The
+engine resolves `DriverStatus` via the import graph; the `<engine>` body
+validates against the imported variant set.
+
+#### 51.16.4 Interaction with the Deprecated `<machine>` Keyword
+
+The legacy `<machine for=ImportedType>` form continues to compile under the
+same cross-file resolution path. P1 introduced W-DEPRECATED-001 to warn that
+`<machine>` is the deprecated alias for `<engine>`. P3.B does not change the
+deprecation policy — both keywords resolve `for=` against the same
+`importedTypes` registry. Cross-file resolution and the deprecation warning
+are independent concerns; both fire when applicable.
+
+#### 51.16.5 Interaction with NameRes Shadow Mode (§15.15.6)
+
+P3.B's resolution mechanism is purely a TAB-shape fix and does not depend on
+NameRes Stage 3.05 (which is in shadow mode per §15.15.6 P1.E). The engine's
+`for=` clause names a TYPE identifier, not a tag identifier; it resolves
+through the `typeRegistry` populated by `api.js` cross-file seeding, NOT
+through the NR `importedRegistry` of tag categories. NR's authoritative
+promotion remains a P3-FOLLOW concern.
+
+#### 51.16.6 Normative Statements
+
+- An `<engine for=Type>` (or legacy `<machine for=Type>`) clause SHALL
+  resolve `Type` against the union of the file's same-file `typeDecls`
+  and the file's `importedTypes` (cross-file via §21.3 imports).
+- An imported type SHALL be made available for `for=` resolution if and
+  only if its source file emits a `type-decl` AST node into `FileAST.typeDecls`
+  (per §21.2 normative for `export type X = {...}`).
+- Failure to resolve `Type` SHALL emit E-MACHINE-004. The diagnostic SHALL
+  reference the `${ import { Type } from './path.scrml' }` form as the
+  cross-file resolution mechanism.
+- The deprecation warning W-DEPRECATED-001 (§51.3.2 / P1) SHALL fire on
+  legacy `<machine>` openers regardless of whether the governed `Type` is
+  resolved same-file or cross-file. Cross-file resolution does not suppress
+  the deprecation warning.
 
 ---
 

@@ -1,11 +1,16 @@
 # scrml Compiler Pipeline — Stage Contracts
 
-**Version:** 0.6.0
-**Date:** 2026-04-02
+**Version:** 0.6.1
+**Date:** 2026-05-02
 **Owner:** scrml Integration Pipeline Reviewer
 **Status:** Authoritative — no stage integration proceeds without a reviewed contract here.
 
 **Change log:**
+- **0.6.1 (2026-05-02):** Stage 3 (TAB) Amendment 7 added. Form 2
+  `export type X = {...}` now produces both a `type-decl` and an `export-decl`
+  (P3.B; closes F-ENGINE-001). Mirrors `export function`'s dual-node emission.
+  Per SPEC §21.2 normative + §51.16 (NEW). Purely additive change to Stage 3
+  output; no downstream contract change.
 - **0.6.0 (2026-04-02):** Pipeline restructured to reflect actual implementation. Changes in this version:
   - Stage 3.5 (BPP — Body Pre-Parser) removed. BPP was a registered no-op stage with no
     active implementation. It is removed from all contracts, cross-references, and the stage
@@ -443,6 +448,18 @@ evaluation of attribute values or content expressions occurs.
     byte-for-byte at the FileAST.exports level. Downstream stages (MOD, NR,
     CE, codegen) observe no contract change. Synthetic logic nodes carry
     advisory `_p2Form1: true` and `_p2Form1Name` markers for diagnostics.
+  - **Amendment 7 (P3.B / cross-file engine resolution, 2026-05-02):** A
+    Form 2 `export type X:kind = {...}` declaration SHALL produce BOTH a
+    `type-decl` AST node (parsed `name`, `typeKind`, body) AND an `export-decl`
+    AST node (`exportKind="type"`, `exportedName=X`). The `type-decl` SHALL
+    be appended to `FileAST.typeDecls` so that downstream stages and cross-file
+    consumers (notably `api.js` `importedTypesByFile` seeding) can resolve `X`
+    in the same way as a non-exported type. This mirrors the existing dual-node
+    behaviour for `export function f() {...}` (which produces both `function-decl`
+    and `export-decl`). Closes F-ENGINE-001 by enabling `<engine for=ImportedType>`
+    to resolve `ImportedType` across files. Per SPEC §21.2 normative addition
+    and §51.16. Predicate behaviour for the `export-decl` node is unchanged;
+    the change is purely additive.
   - `MetaBlock` nodes record the `parentContext` from which the `^{ }` was entered. This is
     the discriminant the type system uses to determine the splicing coercion rules (spec
     Section 22.4): markup parent requires markup-coercible result, CSS parent requires CSS
