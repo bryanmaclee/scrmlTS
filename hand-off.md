@@ -360,11 +360,45 @@ scrmlTS at `ab589b3` (**30 commits past S52 close `eb0ec11`**, push pending afte
 
 ### Open queue post-this-checkpoint
 
-- **P3-RENAME** (T2-small) — internal compiler `machineName→engineName` (~350 refs mechanical). Per dive §13.4 deferred until after P3.A+P3.B+P3-FOLLOW. **Now eligible.**
-- **P3-SPEC-PAPERWORK** (T1-small) — SPEC §51 keyword sweep + worked example rewrites. **Now eligible.**
-- **P3-ERROR-RENAME** (T1-small) — E-MACHINE-* → E-ENGINE-* code rename. **Now eligible.**
-- **P4** (T1-small) — `scrml-migrate` CLI.
-- F-COMPONENT-003, F-COMPILE-003, W5a/W5b, F-PARSER-ASI sweep, W7-W12 carry-forward.
+- **P4** (T1-small) — `scrml-migrate` CLI for `< db>` whitespace + legacy `export const Name = <markup>` rewrites.
+- F-COMPONENT-003 (nested-PascalCase Phase-1, T2)
+- F-COMPILE-003 (pure-helper export emission, T2)
+- W5a/W5b (cross-file `?{}` SQL resolution)
+- F-PARSER-ASI sweep (30 trailing warnings, T2 batch)
+- User-facing docs E-MACHINE-* → E-ENGINE-* refresh (T1-small, flagged by P3-ERROR-RENAME): docs/tutorial.md (3 refs), docs/articles/mutability-contracts-devto-2026-04-29.md, docs/tutorial-snippets/02l-derived-machine.scrml, compiler/SPEC-INDEX.md (E-MACHINE-DIVERGENCE shorthand). Note: hand-off + handOffs/* + docs/changes/* historical artifacts stay as-is (preserve what was emitted at that time).
+- W7-W12 carry-forward queue from S51
+
+### Three mechanical paperwork dispatches MERGED (post-P3-FOLLOW)
+
+T1-small × 3 dispatched in parallel; all completed clean.
+
+| # | Subject | Tier | Outcome |
+|---|---|---|---|
+| **P3-RENAME** | T1-medium (estimate was T2-small but actual count lower than dive's ~350; was 68→58 internal renames in 8 files) | **MERGED + push pending** — `7a575c0`. 6 commits, 0 regressions. Internal `machineName→engineName` identifier rename across compiler/src/. Inventory delta vs estimate: 58 internal renames, 11 references preserved (AST field name `machineName` on AST node + 2 reads + 8 user-visible-text placeholders in JSDoc/error messages). Future "AST shape rename" dispatch will handle `kind: "machine-decl"` literal + AST field name. |
+| **P3-SPEC-PAPERWORK** | T1-small | **MERGED + push pending** — `7c0468e`. 6 commits, 0 regressions. SPEC.md worked-example sweep `<machine>` → `<engine>`. **19 replacements, 67 kept** (deprecation references, normative concept text, error-message templates, grammar rules, section headings, attribute-registry cross-reference list). Plan revision during execution: line 20623 (§52.13.3 closed-attribute-set list) reversed from REPLACE to KEEP because it cross-references `compiler/src/attribute-registry.js`'s internal `"machine"` key. |
+| **P3-ERROR-RENAME** | T1-small | **MERGED + push pending** — `b302ede` (post-rebase + 3-file conflict resolution). 3 commits, 0 regressions. **20 codes renamed** E-MACHINE-* → E-ENGINE-*. 367 occurrences across 34 files (compiler/src 5 files + SPEC.md + tests 26 files + examples 2). Surprising finding: naive `s/E-MACHINE-/E-ENGINE-/g` is unsafe — `E-STATE-MACHINE-DIVERGENCE` contains `E-MACHINE-` as substring; agent adopted negative-lookbehind regex `(?<![A-Za-z0-9])E-MACHINE-`. |
+
+**Conflict resolution at P3-ERROR-RENAME merge:** 3 files (`ast-builder.js`, `codegen/emit-machines.ts`, `type-system.ts`) had conflicts where P3-RENAME's `engineName` and P3-ERROR-RENAME's `E-ENGINE-*` changed adjacent lines. PA resolution: `git checkout --ours` (took main's post-P3-RENAME state with `engineName` + old `E-MACHINE-*`), then re-applied `E-MACHINE-*` → `E-ENGINE-*` substitution via Python (4 + 12 + 75 = 91 replacements). Combined result is the union: `engineName + E-ENGINE-*` everywhere. Rebase completed, FF-merged.
+
+### S53 cumulative state at this checkpoint (push pending)
+
+scrmlTS at `b302ede` (**31 commits past S52 close `eb0ec11`** counting the post-rebase chain).
+- **8,551 pass / 40 skip / 0 fail / 425 files**
+- **+60 tests vs S52 close baseline** (+21 P3.B + +27 P3.A + +8 P3.A-FOLLOW + +4 P3-FOLLOW + 0 from 3 mechanical dispatches as expected)
+- **Zero regressions across all 7 fix dispatches**
+
+### S53 dispatch summary (all merged; push pending for last batch)
+
+| # | Subject | Status |
+|---|---|---|
+| W6 worktree disposition | DONE — discarded |
+| **P3.B (combined)** | **PUSHED** |
+| **P3.A** | **PUSHED** |
+| **P3.A-FOLLOW** | **PUSHED** |
+| **P3-FOLLOW** | **PUSHED** |
+| **P3-SPEC-PAPERWORK** | **MERGED — push pending** |
+| **P3-RENAME** | **MERGED — push pending** |
+| **P3-ERROR-RENAME** | **MERGED — push pending** |
 
 ---
 
