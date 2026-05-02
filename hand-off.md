@@ -233,7 +233,138 @@ Post-merge `bun test`: pending sanity confirm. Push pending after this hand-off 
 | W6 worktree disposition | PA | DONE — discarded | (cleanup) |
 | P3.B primary | T2-medium | CRASHED — partial | 7 commits, +21 tests |
 | P3.B continuation | T1-small | DONE | +4 commits, finalized |
-| **P3.B (combined)** | — | **MERGED** | **11 commits, +21 tests, 0 regressions, F-ENGINE-001 RESOLVED** |
+| **P3.B (combined)** | — | **MERGED + PUSHED** | **11 commits, +21 tests, 0 regressions, F-ENGINE-001 RESOLVED** |
+| **P3.A** | T2-large | **MERGED + PUSHED** | **15 commits, +27 tests, 0 regressions, F-CHANNEL-003 ARCHITECTURALLY RESOLVED** |
+| P3-FOLLOW | T2-medium | RUNNING (background, agent `aba4ab44f8623f76d`) | — |
+| P3.A-FOLLOW | T1-small | RUNNING (background, agent `a692492972b80f528`) | — |
+
+### User direction post-P3.B merge
+
+**User (verbatim, on next dispatch):**
+> 1
+
+→ Authorized P3.A as next dispatch (Option 1 from PA's recommendation).
+
+**User (verbatim, on P3.A merge):**
+> auth to merge, then lets go on as much as we can
+
+→ Authorized FF-merge of P3.A + push, AND authorized continuing into next dispatches with maximum velocity.
+
+**User (verbatim, mid-P3.A-merge):**
+> this is fixit session. we go go go.
+
+→ Reinforces velocity directive. Per-action confirmations relaxed for forward motion within authorized scope.
+
+**User (verbatim, post-dispatch of P3-FOLLOW + P3.A-FOLLOW):**
+> keep going on what ever you have answers for or seems obvious
+
+→ Authorizes PA-side bookkeeping + housekeeping while background agents run.
+
+### P3.A merge details
+
+FF-merge `4a36ae3..00c533a`. 15 commits, 23 files changed, +2,243 / -33 LOC. Push validation (full bun test + TodoMVC gauntlet) green. Pushed to origin. Sanity test on main post-merge: **8,539 / 0 / 40 / 424** confirmed.
+
+### P3-FOLLOW dispatch (in flight)
+
+T2-medium via scrml-dev-pipeline, worktree-isolated, model: opus, agent ID `aba4ab44f8623f76d`.
+
+**Scope:** Migrate all ~75 `isComponent` boolean references to NR-authoritative `resolvedKind` / `resolvedCategory` routing. Delete or re-purpose `state-type-routing.ts` (transitional).
+
+**Files in scope (per dive §9.1):** block-splitter.js (~6), ast-builder.js (~10), module-resolver.js (~3), component-expander.ts (~12), type-system.ts (~5), codegen/* (~15), validators/post-ce-invariant.ts (~3), lsp/handlers.js (~6), lsp/workspace.js (~3), misc + tests (~12).
+
+**SPEC:** §15.15.6 update from "shadow mode" to "AUTHORITATIVE."
+**PIPELINE:** Stage 3.05 NR contract update.
+
+**Predicted outcome:** ~250 LOC compiler refactor, ~150 LOC tests, 0 regressions.
+
+### P3.A-FOLLOW dispatch (in flight)
+
+T1-small via scrml-dev-pipeline, worktree-isolated, model: opus, agent ID `a692492972b80f528`.
+
+**Scope:** Sweep dispatch app's ~15 per-page channel decls into centralized `examples/23-trucking-dispatch/channels/<topic>.scrml` PURE-CHANNEL-FILE pattern. ~5 redeclared channels × ~3 redeclarations = ~180 LOC reduction target per FRICTION.
+
+**Briefs include:** the §6.2 worked-example scoping bug flagged by P3.A — `topic=@var` referring to consumer-side scope vars won't naturally inline; channels with this shape must be skipped or restructured.
+
+**Adopter integration only:** no compiler/SPEC/PIPELINE changes.
+
+### Parallel safety
+
+P3-FOLLOW touches compiler/src/, compiler/tests/, SPEC.md (§15.15.6), PIPELINE.md.
+P3.A-FOLLOW touches examples/23-trucking-dispatch/ (channels + page imports + FRICTION).
+**Zero overlap.** Both can FF-merge to main when complete.
+
+### S53 net cumulative state (post-P3.A merge, mid-flight)
+
+scrmlTS at `00c533a` (16 commits past S52 close `eb0ec11`, all pushed).
+- 8,539 pass / 40 skip / 0 fail / 424 files
+- +48 tests vs S52 close baseline (+21 P3.B + +27 P3.A)
+- Zero regressions across both fix dispatches
+
+### P3.A-FOLLOW completed clean — MERGED (FF, 6 commits)
+
+T1-small via scrml-dev-pipeline, agent ID `a692492972b80f528`. **+8 tests, 0 regressions, 4 channels migrated.**
+
+**Final commit:** `32a330b` — `fix(p3.a-follow): dispatch-app channel sweep — 4 channels centralized, ~205 LOC reduction; F-CHANNEL-003 FULLY RESOLVED — 8539→8547, 0 regressions`
+
+**Migrated channels (4 of 4 — none skipped):**
+- `dispatch-board` — 5 pages, ~60 LOC
+- `customer-events` — 5 pages, ~70 LOC
+- `load-events` — 3 pages, ~45 LOC
+- `driver-events` — 2 pages, ~30 LOC
+
+4 PURE-CHANNEL-FILE exports created under `examples/23-trucking-dispatch/channels/`. 12 consumer pages updated. FRICTION marks F-CHANNEL-003 → FULLY RESOLVED.
+
+### P3-FOLLOW completed clean — MERGED (FF after rebase, 9 commits)
+
+T2-medium via scrml-dev-pipeline, agent ID `aba4ab44f8623f76d`. **+4 tests, 0 regressions, 25 routing reads migrated.**
+
+**Final commit (post-rebase):** `ab589b3` — `fix(p3-follow): NR-authoritative routing — 25 isComponent reads migrated; state-type-routing.ts disposed; SPEC §15.15.6 + PIPELINE Stage 3.05 updated to AUTHORITATIVE — 8539→8543, 0 regressions`
+
+**Disposition outcomes:**
+- `compiler/src/state-type-routing.ts` **DELETED** (transitional file disposed)
+- SPEC §15.15.6 → "NameRes Authority (Post-P3-FOLLOW)"
+- PIPELINE Stage 3.05 → "AUTHORITATIVE"
+- 25 routing reads flipped to `resolvedKind` / `resolvedCategory`
+- 78 remaining `isComponent` references in compiler/src/ are write-side stamps + intra-stage syntactic predicates + doc comments — bounded by new allowlist test `p3-follow-no-isComponent-routing.test.js`
+
+**5 surprising findings flagged by agent:**
+1. **Vocabulary divergence between NR and module-resolver** — NR used `resolvedCategory: "user-component"`, MR used `category: "component"`. Now unified to `"user-component"` end-to-end. P3.A `p3a-mod-channel-registry.test.js` updated.
+2. **NR walker did not traverse lift-expr expressions** — coverage gap closed; mirrors VP-2's lift-expr handling.
+3. **VP-2 semantic widening** — gate widened to `resolvedKind === "user-component" OR (resolvedKind === "unknown" AND uppercase-first-char tag)` to preserve F-COMPONENT-001 silent-failure detection.
+4. **NR-prefer-with-fallback pattern** — `resolvedKind === "user-component" OR (resolvedKind === undefined AND isComponent === true)`. NR wins when present; legacy fallback for unit-test paths that bypass NR. Avoids breaking 105+ tests.
+5. **Dive's ~75-reference estimate was low.** Actual: 103 in compiler/src/ + 154 in compiler/tests/. Read-site count (the actual migration scope) is closer to ~25.
+
+**Deferred items:**
+- Phase 2.6 codegen migration (`emit-html.ts`, `emit-bindings.ts`, `emit-client.ts`) — verified no `isComponent` reads via grep. **NO-OP confirmed.**
+- `kind: "machine-decl"` rename to `engine-decl` — separate change.
+- W-WHITESPACE-001 / W-DEPRECATED-001 promotions to errors — separate change.
+
+### S53 net cumulative state (post-all-merges, push pending)
+
+scrmlTS at `ab589b3` (**30 commits past S52 close `eb0ec11`**, push pending after this bookkeeping commit).
+- **8,551 pass / 40 skip / 0 fail / 425 files**
+- **+60 tests vs S52 close baseline** (+21 P3.B + +27 P3.A + +8 P3.A-FOLLOW + +4 P3-FOLLOW)
+- **Zero regressions across all 4 fix dispatches**
+
+### S53 dispatch summary (closed except for push)
+
+| # | Subject | Tier | Status | Net delta |
+|---|---|---|---|---|
+| W6 worktree disposition | PA | DONE — discarded | (cleanup) |
+| **P3.B (combined)** | T2-medium + T1-small | **MERGED + PUSHED** | 11 commits, +21 tests, F-ENGINE-001 RESOLVED |
+| **P3.A** | T2-large | **MERGED + PUSHED** | 15 commits, +27 tests, F-CHANNEL-003 ARCHITECTURALLY RESOLVED |
+| **P3.A-FOLLOW** | T1-small | **MERGED — push pending** | 6 commits, +8 tests, 4 channels migrated, ~205 LOC reduction, F-CHANNEL-003 FULLY RESOLVED |
+| **P3-FOLLOW** | T2-medium | **MERGED — push pending** | 9 commits, +4 tests, 25 routing reads migrated, state-type-routing.ts disposed, NR AUTHORITATIVE |
+
+**Test count timeline this session:** 8,491 (S52 close) → 8,512 (P3.B) → 8,539 (P3.A) → 8,547 (P3.A-FOLLOW) → **8,551 (P3-FOLLOW)**.
+
+### Open queue post-this-checkpoint
+
+- **P3-RENAME** (T2-small) — internal compiler `machineName→engineName` (~350 refs mechanical). Per dive §13.4 deferred until after P3.A+P3.B+P3-FOLLOW. **Now eligible.**
+- **P3-SPEC-PAPERWORK** (T1-small) — SPEC §51 keyword sweep + worked example rewrites. **Now eligible.**
+- **P3-ERROR-RENAME** (T1-small) — E-MACHINE-* → E-ENGINE-* code rename. **Now eligible.**
+- **P4** (T1-small) — `scrml-migrate` CLI.
+- F-COMPONENT-003, F-COMPILE-003, W5a/W5b, F-PARSER-ASI sweep, W7-W12 carry-forward.
 
 ---
 
