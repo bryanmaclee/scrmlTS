@@ -2,7 +2,7 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-02 mid-S53): **8,551 tests passing / 40 skipped / 0 failing** (~29,721 expects across 425 files). Seven fix dispatches landed in S53 (4 architectural + 3 mechanical paperwork); +60 tests, 0 regressions across all seven; F-ENGINE-001 RESOLVED + F-CHANNEL-003 FULLY RESOLVED + NR AUTHORITATIVE post-P3-FOLLOW + engine rename complete (internal `machineName→engineName` + SPEC `<machine>→<engine>` worked examples + E-MACHINE-* → E-ENGINE-* error codes). 31 commits past S52 close. Push pending for last 3 mechanical merges. S51 was the systemic silent-failure sweep session: 12 dispatches (2 deep-dives + 10 fix dispatches) shipped in a single day, closing 9 P0s + many P1/P2s. Net +184 tests, 0 regressions across all dispatch waves. The validation principle (S49) is now mechanically realized for M1/M3/M4/M5/M6/M11 mechanisms; UVB (Unified Validation Bundle) closed 4 silent-failure mechanisms in one focused dispatch.
+Current baseline (2026-05-03 after S53 close): **8,576 tests passing / 40 skipped / 0 failing** (~29,789 expects across 426 files). Eleven dispatches landed in S53 (4 architectural fixes + 4 mechanical paperwork + DOC-E-RENAME + P4 CLI + AST-SHAPE-RENAME); **+85 tests vs S52 close, 0 regressions across all 11 dispatches**. F-ENGINE-001 RESOLVED + F-CHANNEL-003 FULLY RESOLVED + NR AUTHORITATIVE + state-type-routing.ts disposed + engine rename arc COMPLETE (keyword + TAB type-decl synthesis + internal vars + SPEC worked examples + error codes + user-facing docs + AST shape) + `scrml migrate` CLI shipped (Migrations 1+2). 44 commits past S52 close, all pushed. S51 was the systemic silent-failure sweep session: 12 dispatches (2 deep-dives + 10 fix dispatches) shipped in a single day, closing 9 P0s + many P1/P2s. Net +184 tests, 0 regressions across all dispatch waves. The validation principle (S49) is now mechanically realized for M1/M3/M4/M5/M6/M11 mechanisms; UVB (Unified Validation Bundle) closed 4 silent-failure mechanisms in one focused dispatch.
 
 **Backfill note:** S40, S41, S42 entries are missing from this log — captured in hand-offs + git log. S43 + S44 + S45 + S46 + S47 + S48 + S49 entries below; full backfill is open content todo.
 
@@ -10,7 +10,7 @@ Current baseline (2026-05-02 mid-S53): **8,551 tests passing / 40 skipped / 0 fa
 
 ## Recently Landed
 
-### 2026-05-02 (S53 IN FLIGHT — fixit session "go go go"; P3.B + P3.A architectural fixes merged & pushed; +48 tests, 0 regressions; P3-FOLLOW + P3.A-FOLLOW dispatched in parallel)
+### 2026-05-03 (S53 CLOSED — fixit session, fat wrap, push complete; engine rename arc complete + 4 architectural fixes; 11 dispatches landed, +85 tests, 0 regressions)
 
 S53 opened on the same calendar day as S52 close (2026-05-02). User direction: *"P3 recos good, go"* + *"this is fixit session. we go go go."* + *"keep going on what ever you have answers for or seems obvious."* — high-velocity per-action greenlights, P3 dive recommendations ratified across the board.
 
