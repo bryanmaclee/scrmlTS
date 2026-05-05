@@ -13,9 +13,10 @@
 > **Amendments applied:** 2026-04-08 — §51 revised: `for EnumTypeName` → `for TypeName` (machines govern structs too). `self.*` in guards, `[label]` named clauses, `* => *` wildcard rules, E-ENGINE-013. Radical doubt debate Approach C.
 > **Amendments applied:** 2026-04-09 — §4.4 rewritten: three closer forms → two (`</tagname>` explicit, `</>` inferred). §4.8 deleted (bare `/` disambiguation no longer needed). §3.1 table updated. §3.2 E-CTX-002 wording updated. §4.5, §4.9 updated. §34 error codes updated. Appendix E added: migration guide. All examples updated throughout.
 > **Amendments applied:** 2026-04-08 — §53 added: Inline Type Predicates. Stateless value constraints (`number(>0 && <10000)`, `string(email)`), three-zone SPARK enforcement, named shape registry, `bind:value` HTML attribute generation. E-CONTRACT-001..E-CONTRACT-004-WARN.
+> **Amendments applied:** 2026-05-04 (S56, Dispatch 1) — v0.next foundation rewrite: §1.1 bullet 4 updated; §1.4 markup-as-value pillar added; §1.5 north star + Tier 0/1/2 ladder added; §1.6 V5-strict access model added; §3 V5-strict-per-context table added; §6 major rewrite (V5-strict access model, three RHS shapes, Variant C compound state, render-by-tag, derived `const <x>`, default=/reset, hoisting, pinned, auto-synthesized validity stub, §11-fold); §11 folded into §6.12 stub; §34 +9 new error codes (E-NAME-COLLIDES-STATE, E-DERIVED-WRITE, E-STATE-PINNED-FORWARD-REF, E-CELL-NO-RENDER-SPEC, E-CELL-RENDER-SPEC-NOT-BINDABLE, E-RESERVED-IDENTIFIER, E-SYNTHESIZED-WRITE, E-RESET-NO-ARG, W-LIFECYCLE-CANDIDATE).
 
-**Version:** 0.5.2-draft
-**Date:** 2026-04-03
+**Version:** 0.6.0-draft (v0.next foundation)
+**Date:** 2026-05-04
 **Status:** Draft — reconstructed 2026-03-28 from update docs after truncation; §4.10-4.11 added 2026-03-25; §10.4-10.5 updated 2026-03-25; §10.5.5 added 2026-03-27 resolving SPEC-ISSUE-007; §14.8 added 2026-03-26 resolving SPEC-PA-017; §18 rewritten 2026-03-27 (588 lines, all 11 blocking issues resolved); §31/§33/§34 written 2026-03-27; §5.4/§15.10/§18.16/§20.3-20.4/§21 added 2026-03-27; §6.6 inserted 2026-03-30 — derived reactive values (const @name, lazy pull, dirty flags); §8 updated 2026-03-30 — bound parameter rules, deduplication, null-coalescing WHERE pattern; §6.5 written 2026-03-31 — reactive array mutation, mutating method interception, keyed iteration; §19 rewritten 2026-04-01 — complete error handling spec, resolves SPEC-ISSUE-011 (built-in types catalog, throw syntax), adds reactive error state, server boundary interaction, protect= audit (E-ERROR-001..005, W-ERROR-001..002)
 
 ---
@@ -23,8 +24,12 @@
 ## Table of Contents
 
 1. [Overview](#1-overview)
+   - [1.4 Markup-as-First-Class-Value (Pillar)](#14-markup-as-first-class-value-pillar)
+   - [1.5 The North Star + Tier 0/1/2 Ladder](#15-the-north-star--tier-012-ladder)
+   - [1.6 V5-Strict Access Model (The Access Principle)](#16-v5-strict-access-model-the-access-principle)
 2. [File Format and Compilation Model](#2-file-format-and-compilation-model)
 3. [Context Model](#3-context-model)
+   - [3.4 V5-Strict Access Form Per Context](#34-v5-strict-access-form-per-context)
 4. [Block Grammar — Tags, States, and Closer Forms](#4-block-grammar--tags-states-and-closer-forms)
    - [4.6 Rule: `<` Suppression Inside Brace-Delimited Contexts (PA-001)](#46-rule--suppression-inside-brace-delimited-contexts-pa-001)
    - [4.7 Rule: `//` Comment Suppression at Block-Splitter Level (PA-002)](#47-rule--comment-suppression-at-block-splitter-level-pa-002)
@@ -34,7 +39,7 @@
 5. [Attribute Quoting Semantics](#5-attribute-quoting-semantics)
    - [5.4 Two-Way Binding — The `bind:` Prefix](#54-two-way-binding--the-bind-prefix)
    - [5.5 Dynamic Class Binding](#55-dynamic-class-binding)
-6. [Reactivity — The `@` Sigil](#6-reactivity--the--sigil)
+6. [Reactivity and the V5-Strict Access Model](#6-reactivity-and-the-v5-strict-access-model)
    - [6.5 Reactive Array Mutation](#65-reactive-array-mutation)
    - [6.6 Derived Reactive Values — `const @name`](#66-derived-reactive-values--const-name)
    - [6.7 Lifecycle and Timing Model](#67-lifecycle-and-timing-model)
@@ -112,7 +117,7 @@ scrml is a compiled language that takes `.scrml` source files and produces HTML,
 - **One file type.** `.scrml` is the only source format. Logic, markup, and style intermingle in a single file. The compiler decomposes them.
 - **Progressive detail.** Standard behavior is implicit. A developer spells out specifics only when non-standard behavior is required. Simple things SHALL look simple.
 - **Types are the primary unit of work.** A type carries validation rules, rendering intent, and behavioral rules.
-- **State is a first-class type.** State implies a side effect: a render update, a database write, or an external API call. A trivial in-memory variable that is rendered to the user MAY be reactive without being a state object. A server-persisted value IS state and SHALL be declared inside a state block.
+- **State is the declaration primitive.** Reactive state cells (`<x> = value`) are the atomic unit of application state. Everything declared as state is reactive by default. Markup is a first-class value type — the subset of state that has display attributes. See §1.4.
 - **The compiler owns the wiring.** Server functions, routes, fetch calls, serialization, DOM wiring, async scheduling, and reactive dependency tracking are compiler concerns. The developer SHALL NOT write boilerplate for any of these.
 - **Exhaustive pattern matching.** Rust-style enums with exhaustive match are a core construct. Rust's verbosity and ownership semantics are NOT adopted.
 - **Not modeled after TypeScript.** The scrml type system is an independent design, developed progressively.
@@ -120,6 +125,67 @@ scrml is a compiled language that takes `.scrml` source files and produces HTML,
 ### 1.2 Runtime
 
 The scrml compiler SHALL run on Bun. The compiler is a Bun program. Compiled output is plain JavaScript suitable for execution in any JavaScript runtime. The compiler MAY use `bun.eval()`, Bun's SQLite module, and other Bun-specific APIs at compile time. Generated output SHALL NOT contain compile-time-only Bun calls.
+
+### 1.4 Markup-as-First-Class-Value (Pillar)
+
+**Markup is a first-class value type in scrml.** Markup elements may sit anywhere expressions sit — passed as function arguments, stored in reactive state cells, returned from functions, on the right-hand side of `=` declarations.
+
+This pillar has been held since the scrml8 era. It was explicitly articulated in S56 deliberations after surfacing in the context of decl-coupled-with-render-spec (`<name req> = <input/>`) — the question of whether a markup RHS is a "special literal" or the language working normally. The answer: the language working normally, because markup and values are the same category.
+
+**Downstream consequences:**
+
+- `<name req> = <input/>` (decl-coupled-with-render-spec) is natural, not aggressive. The category already exists.
+- `<varname/>` render-by-tag invokes the cell's declared render-form. This is the natural follow-on: if decls carry render-specs, calling `<varname/>` invokes them.
+- Markup-typed function parameters and return values are first-class. A snippet that takes `(label, cell, hint)` where some or all are markup values is standard, not exceptional.
+- Components-as-values, render-as-data extend through the whole markup-touching surface.
+- `const <badge> = <span class="badge">${@userName}</span>` is a valid markup-typed derived cell.
+
+**This pillar does NOT mandate that markup should sit everywhere it can.** Standard idioms (`${@var}` interpolation as the canonical value-render form, `bind:value=@x` as the canonical two-way binding form) remain the default. The pillar enables additional shapes where they are natural.
+
+**Cross-references:** §3 (context model — markup-as-value rules per locus), §6.2 (three RHS shapes for state declarations), §6.4 (render-by-tag semantics), §7 (markup-as-expression in logic contexts), §10 (lift), §15 (components as markup values), §50 (assignment-as-expression).
+
+### 1.5 The North Star + Tier 0/1/2 Ladder
+
+**The UI of a scrml application SHOULD be a fully-handled state machine.** In scrml's vocabulary that machine is called an **engine**. This is not aspiration — it is design intent. **The structural shape of the UI tree IS the structural shape of the application's state.**
+
+**The process clause:** apps do not START at the north star; they EVOLVE toward it. Booleans-as-lifecycle in early sketch code are not language violations; they are in-progress pins. The compiler nudges via `W-LIFECYCLE-CANDIDATE` lint but does not enforce. Forcing the north star would punish the prototyping phase.
+
+Every major v0.next feature serves this north star:
+
+- §6.1 (V5-strict access) — every state touch is visually marked; the prover and reader can see where state is in play
+- §51 (engines with state-children + structural transitions) — transitions become structural, exhaustiveness becomes checkable
+- §18 (match block Tier 1) — structural exhaustiveness without full commitment to transitions
+- §17 (if= attribute Tier 0) — prototype tier on the easy-street ladder
+- `W-LIFECYCLE-CANDIDATE` — booleans-that-gate-many-things become enum-engines
+
+**The Tier 0/1/2 commitment ladder for case analysis on enums:**
+
+| Tier | Form | Commitment | Notes |
+|---|---|---|---|
+| 0 | `<element if=(@phase == .Loading)>...</>` chains or `${ if (...) { lift ... } }` blocks | None (prototype) | No exhaustiveness check. Lint `W-LIFECYCLE-CANDIDATE` nudges promotion when boolean count grows. Cross-ref §17. |
+| 1 | `<match for=Type [on=expr]>` block | Structural exhaustiveness; no transition enforcement | Rules MAY be present as forward-looking annotation — inert at this tier. Lint `W-MATCH-RULE-INERT` warns on rules inside match. Cross-ref §18. |
+| 2 | `<engine for=Type initial=...>` | Full deal: exhaustiveness + active rules + transition handlers | Rules ENFORCE. `effect=` and `<onTransition>` are LEGAL. Cross-ref §51. |
+
+**Promotion is mechanical and additive.** State-children carry forward verbatim from Tier 1 to Tier 2; the wrapper swap (`<match>` → `<engine>`) is the commitment moment. No separate structural refactoring required.
+
+**Cross-references:** §17 (Tier 0 — control flow), §18 (Tier 1 — match block), §51 (Tier 2 — engines), §6.1 (V5-strict access model).
+
+### 1.6 V5-Strict Access Model (The Access Principle)
+
+scrml has **two access forms** for reactive state cells:
+
+| Form | Role | Where it appears |
+|---|---|---|
+| `<varname>` | **Structural** | Declaration site (`<count> = 0`), engine state-child tags (`<Small>...</>`), render-by-tag in markup (`<userName/>`) |
+| `@varname` | **Canonical expression access** | Reads (`if (@count > 0)`), writes (`@count = @count + 1`), compound assignments (`@count++`, `@count += 1`) |
+
+**Bare names in expressions (`count` without `<>` or `@`) are LOCAL identifiers only.** They do NOT resolve to reactive state. If a file declares `<count> = 0` and you later write `let count = 5`, the compiler emits `E-NAME-COLLIDES-STATE` — local names cannot shadow registered state names.
+
+**Rationale:** `@` makes every state touch visually distinguishable from local-variable touch. The reader can scan a function body and instantly count "how many state cells does this function read or mutate." This is load-bearing for the exhaustiveness goal: the prover and the human reader can both see, structurally, where state is in play.
+
+**`@` is NOT a JS-framework concession.** It is the canonical, semantically-required marker for reactive-cell-touch. The fact that other frameworks converged on similar sigils does not make `@` unprincipled; it makes the convergence correct. The historical framing of `@` as "sugar" or "concession" (pre-S55) is superseded.
+
+**Cross-references:** §3 (per-context rules table), §6 (full V5-strict treatment), §6.1 (the two forms in detail), §7 (bare names = locals in logic contexts).
 
 ---
 
@@ -201,6 +267,26 @@ When a logic context `${ }` exits and the parent context is markup, the value pr
 When a logic context exits and the parent context is a style context `#{ }`, the compiler expects the yielded type to be `cssClass[]`. If the yielded type is not a CSS class array, this SHALL be a compile error (E-TYPE-011).
 
 When a logic context exits and the parent context is another logic context, no coercion is applied and the result passes through as a plain value.
+
+### 3.4 V5-Strict Access Form Per Context
+
+The V5-strict access model (§1.6, §6.1) defines which access form is valid in each context locus. This table is the per-context reference; §6.1 provides the full normative treatment.
+
+| Context | Declaration form | Read form | Write form | Notes |
+|---|---|---|---|---|
+| Logic (`${...}`) | `<x> = init` | `@x` | `@x = newval` | Bare names = locals only. Cannot shadow registered state names (E-NAME-COLLIDES-STATE). |
+| Markup body | (declarations not permitted) | `${@x}` interpolation | (writes via event handlers in markup attributes) | `<x/>` render-by-tag legal only when cell has a render-spec (§6.4). |
+| Attribute value | (declarations not permitted) | `=@x` after `=` (reactive bind); `${@x}` for interpolated string | (writes via event handlers) | Bare strings without `@` are literal values, not reactive reads. |
+| Engine state-child tag | `<Variant ...>` | matched against engine variable by name | set via direct write or `.advance()` inside logic block | Tag name must match an enum variant of the engine's type (§51). |
+| Channel body | `<x> = init` | `@x` | `@x = newval` | Channel body uses V5-strict same as logic context. State declared inside auto-syncs (§38). |
+
+**Key invariants:**
+
+- In any expression context (logic block, attribute value, interpolation), a name without `@` is a LOCAL identifier, never reactive state.
+- `<x>` in markup body (without `/`) with no `=` following is render-by-tag — invokes the cell's render-spec. Only valid when the cell has a render-spec declared (Shape 2 from §6.2).
+- Event handler attributes (`onclick=`, `onsubmit=`, etc.) accept ONE inline form: a bare call, a bare assignment, or a bare single-expression (§5.2.2 / L19). Multi-statement handlers must be named functions.
+
+**Cross-references:** §1.6 (the access principle), §6.1 (full V5-strict treatment), §6.2 (three RHS shapes), §6.4 (render-by-tag semantics), §5.2.2 (event handler binding restrictions), §38 (channel body), §51 (engine state-children).
 
 ---
 
