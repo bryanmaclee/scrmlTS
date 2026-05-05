@@ -527,7 +527,7 @@ describe("self-host parity: collectRuntimeVars", () => {
     expect(vars.has("count")).toBe(true);
   });
 
-  test("collects reactive-decl and @name form", () => {
+  test("collects state-decl and @name form", () => {
     const fileAST = {
       filePath: "test.scrml",
       nodes: [

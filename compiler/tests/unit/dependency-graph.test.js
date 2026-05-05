@@ -66,7 +66,7 @@ function makeLiftExpr(spanStart = 0, file = "/test/app.scrml") {
 }
 
 /**
- * Build a reactive-decl AST node.
+ * Build a state-decl AST node.
  */
 function makeReactiveDecl(name, init = "", spanStart = 0, file = "/test/app.scrml") {
   return {
@@ -1268,9 +1268,9 @@ describe("T15 — derived value (const @var = expr) dependency tracking", () => 
   // BUG-META-6: false E-DG-002 for @vars consumed inside runtime ^{} blocks
   // ---------------------------------------------------------------------------
 
-  test("BUG-META-6: @var assigned via reactive-decl in runtime meta body counts as consumed", () => {
+  test("BUG-META-6: @var assigned via state-decl in runtime meta body counts as consumed", () => {
     // In a runtime ^{} meta block, `@message = "changed"` is parsed as a
-    // reactive-decl AST node (name: "message", init: '"changed"'). The DG's
+    // state-decl AST node (name: "message", init: '"changed"'). The DG's
     // sweepNodeForAtRefs function must treat this as consumption of @message,
     // not just as a bare assignment. Otherwise E-DG-002 fires falsely.
     const counter = makeReactiveDecl("counter", "0", 0);
@@ -1291,9 +1291,9 @@ describe("T15 — derived value (const @var = expr) dependency tracking", () => 
     const metaNode = {
       kind: "meta",
       body: [
-        // @message = "changed" — parsed as reactive-decl in meta body
+        // @message = "changed" — parsed as state-decl in meta body
         { kind: "state-decl", name: "message", init: '"changed"', span: span(60) },
-        // @theme = "light" — parsed as reactive-decl in meta body
+        // @theme = "light" — parsed as state-decl in meta body
         { kind: "state-decl", name: "theme", init: '"light"', span: span(70) },
       ],
       span: span(55),

@@ -438,7 +438,7 @@ function collectAllFunctions(fileAST: FileAST): FunctionDeclNode[] {
 }
 
 /**
- * Collect all reactive-decl nodes from a file AST.
+ * Collect all state-decl nodes from a file AST.
  */
 function collectAllReactiveDecls(fileAST: FileAST): ReactiveDeclNode[] {
   const nodeList = fileAST.nodes;
@@ -660,7 +660,7 @@ function hasLiftAfter(
     // A function-decl or sql block also acts as a server-call boundary
     if (stmt.kind === "sql") return false;
 
-    // Another operation node (function-decl, reactive-decl, reactive-derived-decl) stops the scan
+    // Another operation node (function-decl, state-decl, reactive-derived-decl) stops the scan
     if (stmt.kind === "function-decl" || stmt.kind === "state-decl" || stmt.kind === "reactive-derived-decl") {
       return false;
     }
@@ -861,7 +861,7 @@ export function runDG(input: DGInput): DGOutput {
       }
     }
 
-    // Collect reactive-decl nodes
+    // Collect state-decl nodes
     const reactiveDecls = collectAllReactiveDecls(fileAST);
     for (const rNode of reactiveDecls) {
       const nodeId = makeNodeId(filePath, rNode.span, "reactive");
@@ -1148,7 +1148,7 @@ export function runDG(input: DGInput): DGOutput {
             }
           }
 
-          // reactive-decl in function body = write
+          // state-decl in function body = write
           if (bodyNode.kind === "state-decl" && bodyNode.name) {
             const reactiveNodeId = reactiveVarNodeIds.get(bodyNode.name);
             if (reactiveNodeId) {
@@ -1507,9 +1507,9 @@ export function runDG(input: DGInput): DGOutput {
         if (Array.isArray(metaBody)) {
           for (const child of metaBody as ASTNode[]) {
             const c = child as Record<string, unknown>;
-            // BUG-META-6 fix: reactive-decl nodes inside runtime ^{} meta blocks
+            // BUG-META-6 fix: state-decl nodes inside runtime ^{} meta blocks
             // represent @var assignments (e.g. `@message = "changed"` is parsed as
-            // reactive-decl with name="message"). The name field is not in exprFields
+            // state-decl with name="message"). The name field is not in exprFields
             // so sweepNodeForAtRefs misses it. Treat the name as an @var consumption.
             if (c.kind === "state-decl" && typeof c.name === "string") {
               creditReader(c.name as string);

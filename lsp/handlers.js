@@ -309,7 +309,7 @@ function pushError(diagnostics, e, text, fallbackCode) {
  * Walk the AST and populate analysis.{reactiveVars, functions, types, ...}.
  *
  * NOTE: AST node `kind` is lowercase-kebab in the canonical AST shape
- * (`function-decl`, `reactive-decl`, etc).
+ * (`function-decl`, `state-decl`, etc).
  */
 export function extractAnalysisInfo(ast, analysis) {
   if (!ast) return;
@@ -549,7 +549,7 @@ export function formatFunctionSignature(fn) {
  *   - function-decl (server)             → Method
  *   - function-decl (client)             → Function
  *   - component-def                      → Class
- *   - reactive-decl / -derived / -debounced → Variable
+ *   - state-decl / -derived / -debounced → Variable
  *   - tilde-decl                         → Variable
  *   - lin-decl                           → Variable
  */

@@ -4,7 +4,7 @@
  * This module provides shared utilities for emitting §53 predicate enforcement:
  *
  *   1. emitRuntimeCheck(predicate, varName, label) — emit a runtime boundary check
- *      (E-CONTRACT-001-RT). Called from emit-logic.ts for let-decl / reactive-decl nodes
+ *      (E-CONTRACT-001-RT). Called from emit-logic.ts for let-decl / state-decl nodes
  *      that the TS stage classified as boundary zone.
  *
  *   2. emitServerParamCheck(paramName, predicate, label) — emit a server-side boundary

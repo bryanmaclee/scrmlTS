@@ -345,7 +345,7 @@ describe("logic blocks", () => {
     expect(decl).toBeDefined();
   });
 
-  test("reactive @name produces reactive-decl node", () => {
+  test("reactive @name produces state-decl node", () => {
     const node = firstNode("${ @counter = 0 }");
     const decl = node.body.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
@@ -2120,7 +2120,7 @@ describe("nested reactive assignments", () => {
     expect(decl.args).toContain("@obj");
   });
 
-  test("simple @name = expr still produces reactive-decl", () => {
+  test("simple @name = expr still produces state-decl", () => {
     const node = firstNode('${ @count = 0 }');
     const decl = node.body.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();

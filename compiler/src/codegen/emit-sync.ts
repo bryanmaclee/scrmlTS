@@ -40,7 +40,7 @@
  * ```
  *
  * @param varName  - reactive variable name (no `@` prefix)
- * @param initExpr - raw initializer expression from the reactive-decl node
+ * @param initExpr - raw initializer expression from the state-decl node
  */
 export function emitInitialLoad(varName: string, initExpr: string): string[] {
   // If no function call detected in initExpr, no initial load is generated.

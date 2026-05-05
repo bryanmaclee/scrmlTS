@@ -298,7 +298,7 @@ function exportSetsEqual(a, b) {
  *
  * Walks the importer's import declarations; for each import that names
  * `symbolName`, the target file's AST is searched for a matching declaration
- * (export-decl, type-decl, component-def, function-decl, reactive-decl).
+ * (export-decl, type-decl, component-def, function-decl, state-decl).
  *
  * Returns { filePath, span, kind, sourceText } on hit; null on miss.
  *
@@ -492,7 +492,7 @@ function synthesizeFunctionFromExportRaw(raw, name) {
 /**
  * Search a file's AST for a top-level declaration of `name`. Looks at
  * hoisted typeDecls, components, and the export list, plus walks logic
- * bodies for function-decl / reactive-decl.
+ * bodies for function-decl / state-decl.
  *
  * Returns the first matching node's { span, kind } or null.
  */

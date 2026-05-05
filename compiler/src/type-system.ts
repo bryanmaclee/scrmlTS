@@ -2100,7 +2100,7 @@ function engineNameToProjectedVar(name: string): string {
  * §51.9 — E-ENGINE-017: detect writes to a projected (derived) variable.
  * The user must not declare `@ui: UI = ...` or assign `@ui = ...` when `ui`
  * is the synthesized projection of a derived machine. Walks the AST looking
- * for reactive-decls whose name matches a projected var AND for bare-expr
+ * for state-decls whose name matches a projected var AND for bare-expr
  * nodes whose text starts with `@name = ...` where name matches.
  */
 export function rejectWritesToDerivedVars(
@@ -2154,9 +2154,9 @@ export function rejectWritesToDerivedVars(
 }
 
 /**
- * §51.9 — Validate derived machines once reactive-decl annotations are known.
+ * §51.9 — Validate derived machines once state-decl annotations are known.
  *
- * This runs after the main TS walk has annotated reactive-decl nodes. It:
+ * This runs after the main TS walk has annotated state-decl nodes. It:
  *   1. For each derived machine, looks up its `sourceVar` among the file's
  *      machine-bound reactive declarations. If the source var is unknown or
  *      isn't machine-bound, emits a diagnostic (reuses E-ENGINE-004 family —
@@ -2893,7 +2893,7 @@ const LOGIC_SCOPE_GLOBAL_ALLOWLIST: ReadonlySet<string> = new Set([
  * Walk every identifier in a logic-context ExprNode and emit E-SCOPE-001 for
  * any bare ident that cannot be resolved against:
  *   - the current ScopeChain (covers function params, let/const locals,
- *     reactive-decls, function-decls, type-decls via the `kind: "type"`
+ *     state-decls, function-decls, type-decls via the `kind: "type"`
  *     binding added in case "type-decl"),
  *   - the type registry (covers user-declared types referenced in expressions,
  *     e.g. `Status.Todo` — the base name `Status` is looked up here),
@@ -2955,10 +2955,10 @@ function checkLogicExprIdents(
     // the per-function walk). Covers self-recursion / forward refs that
     // were previously hidden inside template literals.
     if (knownFnNames && knownFnNames.has(base)) return;
-    // Scope chain — covers function-decls, params, let/const, reactive-decls,
+    // Scope chain — covers function-decls, params, let/const, state-decls,
     // type-decls (bound under kind: "type" at declaration site), imports.
     //
-    // F5 (S31): reactive-decl double-binds the bare name (`count`) in addition
+    // F5 (S31): state-decl double-binds the bare name (`count`) in addition
     // to the sigil form (`@count`) to support a handful of fallback lookup
     // sites. That bare bind silently absorbs `${count}` / `count + 1` / etc.
     // in logic context, letting undefined-in-JS references compile clean.
@@ -4064,7 +4064,7 @@ function annotateNodes(
           }
         }
 
-        // §2a — E-SCOPE-001 on undeclared idents in the reactive-decl init.
+        // §2a — E-SCOPE-001 on undeclared idents in the state-decl init.
         // Same shape as the let/const handling above. Runs before the @name
         // bind so a self-reference (`@x = x`) is treated as a forward ref.
         {
@@ -4508,7 +4508,7 @@ function annotateNodes(
           checkLogicExprIdents(dbInitExpr, dbSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
         }
         if (n.name) {
-          // Same double-bind as reactive-decl / reactive-derived-decl.
+          // Same double-bind as state-decl / reactive-derived-decl.
           scopeChain.bind(`@${n.name as string}`, { kind: "reactive", resolvedType: tAsIs() });
           scopeChain.bind(n.name as string, { kind: "reactive", resolvedType: tAsIs() });
         }
@@ -4756,7 +4756,7 @@ function annotateNodes(
         }
         if (n.name) {
           // `const @x = expr` creates both a @-form reference (`@x`) and
-          // a bare-name reference (`x`), same as reactive-decl above.
+          // a bare-name reference (`x`), same as state-decl above.
           scopeChain.bind(`@${n.name as string}`, { kind: "reactive", resolvedType: tAsIs() });
           scopeChain.bind(n.name as string, { kind: "reactive", resolvedType: tAsIs() });
         }
@@ -4970,7 +4970,7 @@ function annotateNodes(
         ));
       } else if (entry.kind === "reactive" && !baseName.startsWith("@")) {
         // F5 (S31): `class=count` / `value=count` where `@count` is declared.
-        // The reactive-decl's bare-name bind absorbs the lookup; the attr
+        // The state-decl's bare-name bind absorbs the lookup; the attr
         // would otherwise compile silently to an unwired attribute value.
         errors.push(new TSError(
           "E-SCOPE-001",
@@ -6839,7 +6839,7 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     // Walk ExprNode-form fields for must-use variable references.
     const exprNodeFields: unknown[] = [
       nodeAny.exprNode,    // bare-expr, return-stmt, throw-stmt
-      nodeAny.initExpr,    // let-decl, const-decl, lin-decl, tilde-decl, reactive-decl, etc.
+      nodeAny.initExpr,    // let-decl, const-decl, lin-decl, tilde-decl, state-decl, etc.
       nodeAny.condExpr,    // if-stmt, if-expr, while-loop, for-loop (condition)
       nodeAny.valueExpr,   // reactive-nested-assign
       nodeAny.iterExpr,    // for-stmt (iterable expression)
@@ -7068,7 +7068,7 @@ function checkLinear(body: ASTNodeLike[], errors: TSError[], opts: CheckLinearOp
     // All ExprNode parallel fields defined in the Phase 1 convention (ast.ts §4.4).
     const exprNodeFields: unknown[] = [
       nodeAny.exprNode,    // bare-expr, return-stmt, throw-stmt
-      nodeAny.initExpr,    // let-decl, const-decl, lin-decl, tilde-decl, reactive-decl, etc.
+      nodeAny.initExpr,    // let-decl, const-decl, lin-decl, tilde-decl, state-decl, etc.
       nodeAny.condExpr,    // if-stmt, if-expr, while-loop, for-loop (condition)
       nodeAny.valueExpr,   // reactive-nested-assign
       nodeAny.iterExpr,    // for-stmt (iterable expression)
@@ -7713,7 +7713,7 @@ function processFile(
   );
 
   // §51.9 — After annotation, collect the reactive → machine bindings that
-  // `annotateNodes` attached to reactive-decl nodes and validate every
+  // `annotateNodes` attached to state-decl nodes and validate every
   // derived machine's source-var reference + exhaustiveness (E-ENGINE-018).
   {
     const reactiveBindings = new Map<string, MachineType>();
@@ -7739,7 +7739,7 @@ function processFile(
 
     // §51.11 — E-ENGINE-019: validate every machine's audit target against
     // the set of declared reactive variables. Collect every reactive name
-    // (machine-bound or plain) by walking top-level reactive-decl / derived-
+    // (machine-bound or plain) by walking top-level state-decl / derived-
     // decl / debounced-decl nodes. An audit clause referencing an unknown
     // @var fires E-ENGINE-019; pointing at a derived (projected) var also
     // errors since those are read-only (§51.9, E-ENGINE-017 family).
@@ -8365,13 +8365,13 @@ function checkFnBodyProhibitions(
       }
 
       // E-FN-003: Reactive variable writes inside fn body (§48.3.3)
-      // @var is always declared in outer scope (reactive-decl is program-level).
+      // @var is always declared in outer scope (state-decl is program-level).
       // Writing to @var inside fn is an outer-scope mutation.
       // Catches both forms:
-      //   - kind=reactive-decl (parsed as `@x = value` — declaration form)
+      //   - kind=state-decl (parsed as `@x = value` — declaration form)
       //   - kind=bare-expr with assign ExprNode (parsed as `@x += value` — compound assignment)
       {
-        // reactive-decl inside fn body = writing to an @var (always outer-scope)
+        // state-decl inside fn body = writing to an @var (always outer-scope)
         if (stmt.kind === "state-decl") {
           const varName = "@" + ((stmt.name as string) || "unknown");
           errors.push(new TSError(

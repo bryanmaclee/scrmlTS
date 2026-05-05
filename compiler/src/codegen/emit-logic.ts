@@ -569,7 +569,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       // to the legacy emitter which emits the long-standing pre-existing
       // sql-ref placeholder — a sibling bug out of scope for this fix.)
       // This branch covers the rare case where a server function has a
-      // non-CPS-final `@x = ?{...}` reactive-decl statement (the CPS-final
+      // non-CPS-final `@x = ?{...}` state-decl statement (the CPS-final
       // stmt is intercepted by emit-server.ts:600/684 directly without
       // reaching emit-logic).
       // Mirrors emit-logic case "return-stmt" + case "lift-expr" SQL handling.
@@ -588,7 +588,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         return _emitReactiveSet(encodedName2, sqlExpr, opts, node.name, isInit2);
       }
       // fix-cg-mounthydrate-sql-ref-placeholder (S40 follow-up): on the CLIENT
-      // boundary a SQL-init reactive-decl (`@x = ?{...}` at top level or in a
+      // boundary a SQL-init state-decl (`@x = ?{...}` at top level or in a
       // client logic block) cannot be evaluated — `_scrml_sql` is server-only
       // (E-CG-006). Falling through to the legacy emitter below would produce
       // `_scrml_reactive_set("name", )` (empty arg, parses but ugly) because
@@ -610,13 +610,13 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       if (node.sqlNode && node.sqlNode.kind === "sql") {
         return `// SQL-init for @${node.name} — client cannot evaluate _scrml_sql (E-CG-006); declare as \`server @${node.name}\` for mount-hydration (§8.11).`;
       }
-      // Legacy fallthrough for non-SQL reactive-decl initializers.
+      // Legacy fallthrough for non-SQL state-decl initializers.
       const initStr: string = node.init ?? "undefined";
       const ctx = opts.encodingCtx;
       const encodedName = ctx ? ctx.encode(node.name) : node.name;
-      // Historically reactive-decl was treated as the initial declaration
+      // Historically state-decl was treated as the initial declaration
       // site and the machine transition guard was skipped. But the AST
-      // builder emits reactive-decl for EVERY `@name = expr` it parses,
+      // builder emits state-decl for EVERY `@name = expr` it parses,
       // including re-assignments inside function bodies. Discriminate:
       // a genuine declaration site carries a `typeAnnotation` (and sets
       // `machineBinding`), while a bare reassignment has neither. When

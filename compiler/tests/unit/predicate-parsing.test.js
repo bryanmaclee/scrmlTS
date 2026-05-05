@@ -3,7 +3,7 @@
  *
  * Tests for type annotation parsing in ast-builder.js (TAB stage).
  * Covers:
- *   §1  @name: Type(pred) = expr  → reactive-decl with typeAnnotation
+ *   §1  @name: Type(pred) = expr  → state-decl with typeAnnotation
  *   §2  @name: string(named_shape) = expr  → named-shape predicate
  *   §3  @name: Type(complex && pred) = expr  → balanced parens in predicate
  *   §4  @name: Type(.prop predicate) = expr  → property predicate
@@ -11,7 +11,7 @@
  *   §6  @name = expr (no annotation)  → backward compat — no typeAnnotation
  *   §7  server @name: Type(pred) = expr  → isServer + typeAnnotation
  *   §8  function calc(x: Type(pred)) {}  → param with typeAnnotation
- *   §9  Regression: existing reactive-decl tests unaffected
+ *   §9  Regression: existing state-decl tests unaffected
  *   §10 Regression: server @var without annotation still works
  *   §11 Multiple params: some typed, some not
  *   §12 parseLogicBody path (block-level while loop) — type annotation
@@ -66,12 +66,12 @@ function findFunctionDecls(ast) {
 }
 
 // ---------------------------------------------------------------------------
-// §1: @name: Type(pred) = expr → reactive-decl with typeAnnotation
+// §1: @name: Type(pred) = expr → state-decl with typeAnnotation
 // ---------------------------------------------------------------------------
 
 describe("§53 Inline Type Predicates — AST Parsing", () => {
 
-  test("§1  @amount: number(>0) = 5 → reactive-decl with typeAnnotation 'number(>0)'", () => {
+  test("§1  @amount: number(>0) = 5 → state-decl with typeAnnotation 'number(>0)'", () => {
     const nodes = parseTopLogic("${ @amount: number(>0) = 5 }");
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
@@ -140,7 +140,7 @@ describe("§53 Inline Type Predicates — AST Parsing", () => {
   // §6: Backward compat — @name = expr with no annotation
   // ---------------------------------------------------------------------------
 
-  test("§6  @cards = [] → reactive-decl WITHOUT typeAnnotation (backward compat)", () => {
+  test("§6  @cards = [] → state-decl WITHOUT typeAnnotation (backward compat)", () => {
     const nodes = parseTopLogic("${ @cards = [] }");
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
@@ -182,7 +182,7 @@ describe("§53 Inline Type Predicates — AST Parsing", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // §9: Regression — existing reactive-decl tests
+  // §9: Regression — existing state-decl tests
   // ---------------------------------------------------------------------------
 
   test("§9  @count = 0 still works (regression)", () => {

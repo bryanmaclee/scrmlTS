@@ -698,7 +698,7 @@ export function bodyMixesPhases(
       if (!node || typeof node !== "object") continue;
       if (node.kind === "meta") continue;
 
-      // S23 bug 2b: reactive-decl nodes inside a meta body represent `@var =
+      // S23 bug 2b: state-decl nodes inside a meta body represent `@var =
       // value` runtime writes (see BUG-META-6 comment in dependency-graph.ts).
       // sql nodes and similar runtime-only constructs are unambiguously runtime.
       // These were previously invisible to the phase-mixing check because the
@@ -1578,7 +1578,7 @@ export function runMetaChecker(input: MetaCheckerInput): MetaCheckerOutput {
 
     // Collect top-level `const` declarations as compile-time-safe outer references.
     // In scrml, `const` at program scope is assigned once and cannot be reactive
-    // (reactive variables use `reactive-decl` AST kind). They are safe to reference
+    // (reactive variables use `state-decl` AST kind). They are safe to reference
     // inside compile-time ^{} blocks — the compiler has their value at compile time.
     const outerCompileTimeConsts = new Set<string>(
       [...runtimeVars.entries()]

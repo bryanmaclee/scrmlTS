@@ -94,3 +94,26 @@ Base: `d28f6f7` (Step 2 head)
 
 **Test results after Sub-pass A:** **8,745 pass / 43 skip / 0 fail / 8,788 tests** — exactly matching baseline. 0 regressions.
 
+### [09:21] Sub-pass B+C — backtick + bare-text rename in source comments
+
+Combined sub-pass to rename remaining 260 occurrences (6 backtick code-spans + 254 bare-text refs in comments / test names / single doc-comment per file).
+
+**Strategy:** Per-file `Edit replace_all: true` — same as Sub-pass A. Pre-Edit context check on each file to identify and preserve any historical references.
+
+**Files modified:** 53 files (source comments + test descriptions + 1 sample comment).
+
+**Historical reference preserved:** `compiler/src/ast-builder.js` line 2870 contains `from \`reactive-decl\` in Step 3` — intentional retention. This is a Step-2 comment that Step 3 updated to indicate the rename has landed (i.e., "kind is `state-decl` (renamed from `reactive-decl` in Step 3)"). The mention of the old name is load-bearing context. Handled with surgical `Edit replace_all: false` on every other ast-builder occurrence first, leaving line 2870 alone for the bare-text replace_all.
+
+**Edge case files renamed:**
+- `compiler/tests/unit/gauntlet-s25/reactive-decl-typed-boundary.test.js` — content renamed (3 comment refs); **filename NOT renamed** per Step 3 prompt risk note (renaming a test file destabilizes test discovery + git history).
+- `samples/compilation-tests/gauntlet-s19-phase1-decls/phase1-reactive-typed-002.scrml` line 1 — comment about §7.5 renamed.
+- `compiler/src/codegen/emit-logic.ts` had multiple bare-text refs in comments about parser behavior — all updated.
+
+**Defensive check:** post-Sub-pass C source-file grep for `reactive-decl`:
+```
+compiler/src/ast-builder.js:2870:   * from `reactive-decl` in Step 3). Step 4 will add the `shape` discriminant
+```
+Exactly 1 match — the intentional historical reference. ZERO other source occurrences.
+
+**Test results after Sub-pass B+C:** **8,745 pass / 43 skip / 0 fail / 8,788 tests** — exact baseline match. 0 regressions.
+

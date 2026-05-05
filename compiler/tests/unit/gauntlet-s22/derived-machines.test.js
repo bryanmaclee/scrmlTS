@@ -350,7 +350,7 @@ describe("§51.9 slice 2 — emitDerivedDeclaration", () => {
 });
 
 describe("§51.9 slice 2 — E-ENGINE-017 reject writes to projected vars", () => {
-  test("reactive-decl of a projected var name fires E-ENGINE-017", () => {
+  test("state-decl of a projected var name fires E-ENGINE-017", () => {
     const projectedVars = new Map([["ui", makeDerivedMachine()]]);
     const errors = [];
     const nodes = [{ kind: "state-decl", name: "ui", span: span() }];
@@ -412,7 +412,7 @@ describe("§51.9 slice 2 — end-to-end compilation", () => {
 
   test("E-ENGINE-017: assigning `@ui = X` inside a function is rejected end-to-end", () => {
     // Two ${ } blocks so the pre-existing BPP statement-boundary quirk on
-    // consecutive machine-typed reactive-decls doesn't drop nodes before our
+    // consecutive machine-typed state-decls doesn't drop nodes before our
     // checker sees them. The function-body assignment to @ui is the case we
     // actually care about — the user attempting to write through the
     // projected var from user code.

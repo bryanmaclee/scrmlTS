@@ -1902,7 +1902,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               if (tok.kind === "IDENT" && lastPart !== "." && lastPart !== "=" && lastPart !== ":") break;
             }
             // S25 — S22 §6 bug fix: `@name :` at depth 0 always begins a
-            // typed reactive-decl (§53). Without this guard, an untyped
+            // typed state-decl (§53). Without this guard, an untyped
             // `@x = 1` followed by `@y: Type = expr` in the same logic
             // block silently swallows the typed decl — collectExpr kept
             // consuming because `@y` wasn't followed by `=`. The `:`
@@ -2793,12 +2793,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
-   * fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when a reactive-decl
+   * fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when a state-decl
    * initializer (RHS of `@x = …`, `server @x = …`, `@shared x = …`,
    * `@x: T = …`) is a SQL `?{}` BLOCK_REF — possibly with a chained
    * `.all()/.get()/.run()` — build the structured SQL child node, consume
    * the chain, and return it. Caller attaches the returned node as
-   * `sqlNode` on the reactive-decl AST node and sets `init: ""` /
+   * `sqlNode` on the state-decl AST node and sets `init: ""` /
    * omits `initExpr` so downstream consumers (batch-planner string scanner,
    * emit-server CPS path, emit-logic case "state-decl") opt into the
    * structured form instead of the broken sql-ref placeholder comment
@@ -2866,10 +2866,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
    * if the lookahead does not match — caller MUST fall through to existing
    * dispatch (markup-tag/html-fragment paths) without tokens consumed.
    *
-   * Per AST-CONTRACTS-AND-DECOMPOSITION §1.1: kind stays `reactive-decl`
-   * pre-Step-3 rename. Step 3 will rename to `state-decl`. Step 4 will add
-   * the `shape` discriminant (`"plain"` / `"derived"`) once all RHS shapes
-   * are recognized.
+   * Per AST-CONTRACTS-AND-DECOMPOSITION §1.1: kind is `state-decl` (renamed
+   * from `reactive-decl` in Step 3). Step 4 will add the `shape` discriminant
+   * (`"plain"` / `"derived"`) once all RHS shapes are recognized.
    */
   function tryParseStructuralDecl(startTok, isConst) {
     // peek() must be `<` (PUNCT). If not, decline.
@@ -3113,7 +3112,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       return { id: ++counter.next, kind: "bare-expr", expr: _be1, exprNode: safeParseExprToNode(_be1, 0), span: spanOf(startTok, peek()) };
     }
 
-    // server MODIFIER: `server @varName = expr` → reactive-decl with isServer: true (§52.4)
+    // server MODIFIER: `server @varName = expr` → state-decl with isServer: true (§52.4)
     // Guard: only consume `server` when the next token is AT_IDENT.
     // This ensures `server function` and `server fn` fall through to their own handlers.
     if (tok.kind === "KEYWORD" && tok.text === "server" && peek(1)?.kind === "AT_IDENT") {
@@ -3142,7 +3141,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       return { id: ++counter.next, kind: "bare-expr", expr: _be2, exprNode: safeParseExprToNode(_be2, 0), span: spanOf(startTok, peek()) };
     }
 
-    // @shared MODIFIER: `@shared varName = expr` → reactive-decl with isShared: true (§37.4)
+    // @shared MODIFIER: `@shared varName = expr` → state-decl with isShared: true (§37.4)
     if (tok.kind === "AT_IDENT" && tok.text === "@shared") {
       const startTok = consume(); // consume `@shared`
       // Expect: IDENT or KEYWORD (varName), then =, then expr
@@ -4870,7 +4869,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // server MODIFIER: `server @varName = expr` → reactive-decl with isServer: true (§52.4)
+    // server MODIFIER: `server @varName = expr` → state-decl with isServer: true (§52.4)
     // Guard: only consume `server` when the next token is AT_IDENT.
     // This ensures `server function` and `server fn` fall through to their own handlers.
     if (tok.kind === "KEYWORD" && tok.text === "server" && peek(1)?.kind === "AT_IDENT") {
@@ -4902,7 +4901,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // @shared MODIFIER: `@shared varName = expr` → reactive-decl with isShared: true (§37.4)
+    // @shared MODIFIER: `@shared varName = expr` → state-decl with isShared: true (§37.4)
     if (tok.kind === "AT_IDENT" && tok.text === "@shared") {
       const startTok = consume(); // consume `@shared`
       // Expect: IDENT or KEYWORD (varName), then =, then expr

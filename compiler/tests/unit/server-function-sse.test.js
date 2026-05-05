@@ -307,7 +307,7 @@ describe("§6 RI: non-generator server function still gets POST / isSSE=false", 
 // ---------------------------------------------------------------------------
 
 describe("§7 RI: generator server function body with reactive assignment does not produce E-RI-002", () => {
-  test("reactive-decl in generator body does not trigger E-RI-002", () => {
+  test("state-decl in generator body does not trigger E-RI-002", () => {
     const fn = makeFunctionDecl({
       name: "streamUpdates",
       isServer: true,

@@ -24,7 +24,7 @@ describe("LSP L1 — extractAnalysisInfo (regression: canonical AST kinds)", () 
     expect(firstParamName).toBe("x");
   });
 
-  it("populates analysis.reactiveVars for `reactive-decl`", () => {
+  it("populates analysis.reactiveVars for `state-decl`", () => {
     const src = "<program>\n${\n  @count = 0\n  @name = \"\"\n}\n</program>\n";
     const { analysis } = analyzeText("/t.scrml", src);
     const names = analysis.reactiveVars.map(v => v.name);

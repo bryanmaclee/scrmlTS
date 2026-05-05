@@ -37,8 +37,8 @@ interface Attr {
  * Build a map from reactive variable name → enum type name by:
  *   1. Collecting all enum type declarations from fileAST.typeDecls.
  *   2. Building a set of all known variant names per enum type.
- *   3. Walking all logic block bodies to find reactive-decl nodes.
- *   4. For each reactive-decl, checking if the init expression matches a known
+ *   3. Walking all logic block bodies to find state-decl nodes.
+ *   4. For each state-decl, checking if the init expression matches a known
  *      enum variant (handles `.Light`, `::Light`, and bare `Light`).
  *
  * This enables bind:value on <select> to auto-coerce via the generated
@@ -71,7 +71,7 @@ function buildEnumVarMap(fileAST: any): Map<string, string> {
 
   if (variantToEnum.size === 0) return result;
 
-  // Step 2: walk all nodes in the file to find reactive-decl nodes inside logic blocks
+  // Step 2: walk all nodes in the file to find state-decl nodes inside logic blocks
   const topNodes: any[] = fileAST.nodes ?? (fileAST.ast ? fileAST.ast.nodes : []);
   walkForReactiveDecls(topNodes, variantToEnum, result);
 
@@ -80,7 +80,7 @@ function buildEnumVarMap(fileAST: any): Map<string, string> {
 
 /**
  * Recursively walk nodes, descend into logic block bodies, and collect
- * reactive-decl nodes whose init expression matches a known enum variant.
+ * state-decl nodes whose init expression matches a known enum variant.
  */
 function walkForReactiveDecls(
   nodes: any[],
@@ -153,7 +153,7 @@ function collectEnumVariantNames(decl: any): string[] {
 
 /**
  * Build a map from reactive variable name → { typeAnnotation, tag } by walking
- * logic block bodies and finding reactive-decl nodes.
+ * logic block bodies and finding state-decl nodes.
  * Used to detect predicated types for bind:value runtime validation (§53.7.2).
  */
 function buildReactiveTypeMap(fileAST: any): Map<string, string> {

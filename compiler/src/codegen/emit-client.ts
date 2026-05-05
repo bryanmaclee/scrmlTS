@@ -79,7 +79,7 @@ function hasRuntimeMetaBlocks(fileAST: any): boolean {
 //   meta          meta node
 //   transitions   logic binding or event binding with transitionEnter/transitionExit
 //   input         markup tag "keyboard", "mouse", or "gamepad"
-//   deep_reactive reactive-decl (uses _scrml_deep_reactive), when-effect, bind: directives,
+//   deep_reactive state-decl (uses _scrml_deep_reactive), when-effect, bind: directives,
 //                 CSS variable bridge with reactive refs, bind-props wiring
 //   equality      match-stmt with enum arms, == / != binary ops (uses _scrml_structural_eq)
 // ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
         chunks.add("lift");
         break;
 
-      // reactive-decl — @x = value. Uses _scrml_deep_reactive for object/array wrapping.
+      // state-decl — @x = value. Uses _scrml_deep_reactive for object/array wrapping.
       case "state-decl":
         chunks.add("deep_reactive");
         break;

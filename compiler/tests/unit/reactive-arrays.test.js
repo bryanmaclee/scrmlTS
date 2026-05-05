@@ -6,8 +6,8 @@
  * generate immutable copies, and reactive array length expressions wire correctly.
  *
  * Coverage:
- *   §1  AST: reactive-decl nodes produced for @arr = [] declarations
- *   §2  AST: reactive-decl init field holds the array expression for spread-replace
+ *   §1  AST: state-decl nodes produced for @arr = [] declarations
+ *   §2  AST: state-decl init field holds the array expression for spread-replace
  *   §3  Codegen: _scrml_reactive_set emitted for reactive array declaration
  *   §4  Codegen: spread-replace in init expression rewrites @refs to _scrml_reactive_get()
  *   §5  Codegen: reactive-array-mutation push generates spread copy
@@ -48,7 +48,7 @@ function parse(source, filePath = "/test/reactive-arrays.scrml") {
  * produces ast.nodes = [markup(div, children=[logic(...)])]).
  *
  * Note: When multiple @var declarations appear in a single logic block, the scrml
- * tokenizer may merge them into a single reactive-decl node with a compound init
+ * tokenizer may merge them into a single state-decl node with a compound init
  * string (e.g., "@isActive = false @loading = false" in one init). This is by design —
  * emit-logic.js uses splitMergedStatements() to split them at codegen time.
  */
@@ -160,18 +160,18 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// §1: AST — reactive-decl nodes produced for @arr = [] declarations
+// §1: AST — state-decl nodes produced for @arr = [] declarations
 // ---------------------------------------------------------------------------
 
-describe("reactive-arrays §1: AST — reactive-decl produced for @arr = []", () => {
-  test("@items = [] produces reactive-decl node with name 'items'", () => {
+describe("reactive-arrays §1: AST — state-decl produced for @arr = []", () => {
+  test("@items = [] produces state-decl node with name 'items'", () => {
     const { ast } = parse(`<div>\${ @items = [] }</div>`);
     const nodes = collectAllLogicNodes(ast);
     const decl = nodes.find(n => n.kind === "state-decl" && n.name === "items");
     expect(decl).toBeDefined();
   });
 
-  test("reactive-decl init field contains array brackets for empty array", () => {
+  test("state-decl init field contains array brackets for empty array", () => {
     const { ast } = parse(`<div>\${ @items = [] }</div>`);
     const nodes = collectAllLogicNodes(ast);
     const decl = nodes.find(n => n.kind === "state-decl" && n.name === "items");
@@ -181,11 +181,11 @@ describe("reactive-arrays §1: AST — reactive-decl produced for @arr = []", ()
     expect(decl.init).toMatch(/\]/);
   });
 
-  test("multiple @var declarations in one block: first produces reactive-decl", () => {
+  test("multiple @var declarations in one block: first produces state-decl", () => {
     // Scrml tokenizer merges multiple @var declarations in a single block into a
-    // compound reactive-decl where later declarations are embedded in the init string.
+    // compound state-decl where later declarations are embedded in the init string.
     // Codegen splits them via splitMergedStatements(). This test verifies the first
-    // declaration is always found as a reactive-decl node.
+    // declaration is always found as a state-decl node.
     const source = `<div>\${
       @todos = []
       @count = 0
@@ -196,7 +196,7 @@ describe("reactive-arrays §1: AST — reactive-decl produced for @arr = []", ()
     expect(todosDecl).toBeDefined();
   });
 
-  test("@items = [1, 2, 3] produces reactive-decl with non-empty init", () => {
+  test("@items = [1, 2, 3] produces state-decl with non-empty init", () => {
     const { ast } = parse(`<div>\${ @items = [1, 2, 3] }</div>`);
     const nodes = collectAllLogicNodes(ast);
     const decl = nodes.find(n => n.kind === "state-decl" && n.name === "items");
@@ -236,11 +236,11 @@ describe("reactive-arrays §1: AST — reactive-decl produced for @arr = []", ()
 });
 
 // ---------------------------------------------------------------------------
-// §2: AST — reactive-decl init holds spread-replace expression
+// §2: AST — state-decl init holds spread-replace expression
 // ---------------------------------------------------------------------------
 
-describe("reactive-arrays §2: AST — spread-replace expression in reactive-decl init", () => {
-  test("@items = [...@items, item] inside function produces reactive-decl", () => {
+describe("reactive-arrays §2: AST — spread-replace expression in state-decl init", () => {
+  test("@items = [...@items, item] inside function produces state-decl", () => {
     const source = `<div>\${
       @items = []
       function addItem() {
@@ -293,7 +293,7 @@ describe("reactive-arrays §2: AST — spread-replace expression in reactive-dec
 // ---------------------------------------------------------------------------
 
 describe("reactive-arrays §3: codegen — _scrml_reactive_set for array decl", () => {
-  test("reactive-decl with [] init emits _scrml_reactive_set call", () => {
+  test("state-decl with [] init emits _scrml_reactive_set call", () => {
     const result = compile([
       makeLogicBlock([
         { kind: "state-decl", name: "items", init: "[ ]", span: span(0), id: 2 },
@@ -323,7 +323,7 @@ describe("reactive-arrays §3: codegen — _scrml_reactive_set for array decl", 
 // ---------------------------------------------------------------------------
 
 describe("reactive-arrays §4: codegen — spread-replace @ref rewriting", () => {
-  test("reactive-decl with spread init compiles without errors", () => {
+  test("state-decl with spread init compiles without errors", () => {
     // When the full pipeline runs, @items gets rewritten to _scrml_reactive_get("items")
     // in the init expression. This tests the codegen step with an already-rewritten init.
     const result = compile([
@@ -345,7 +345,7 @@ describe("reactive-arrays §4: codegen — spread-replace @ref rewriting", () =>
     expect(out.clientJs).toContain("_scrml_reactive_get");
   });
 
-  test("reactive-decl with @items in init rewrites @items to reactive_get in output", () => {
+  test("state-decl with @items in init rewrites @items to reactive_get in output", () => {
     // This tests the full pipeline rewrite via compile() with an AST that has raw @ref
     const result = compile([
       makeLogicBlock([
@@ -604,7 +604,7 @@ describe("reactive-arrays §9: codegen — @items.length emits reactive get", ()
     expect(out.clientJs).toContain('_scrml_reactive_get("items")');
   });
 
-  test("reactive-decl for items followed by length expression compiles without error", () => {
+  test("state-decl for items followed by length expression compiles without error", () => {
     const result = compile([
       makeLogicBlock([
         { kind: "state-decl", name: "items", init: "[ ]", span: span(0), id: 2 },
@@ -614,7 +614,7 @@ describe("reactive-arrays §9: codegen — @items.length emits reactive get", ()
     expect(result.errors).toHaveLength(0);
   });
 
-  test("@items.length in a reactive-decl init is rewritten to reactive_get", () => {
+  test("@items.length in a state-decl init is rewritten to reactive_get", () => {
     // Verifies that when items.length is used in another reactive variable init,
     // it gets rewritten correctly
     const result = compile([

@@ -103,7 +103,7 @@ export function extractReactiveDeps(
 /**
  * Collect all reactive variable names declared in a fileAST.
  *
- * Walks logic blocks for reactive-decl nodes and returns their names.
+ * Walks logic blocks for state-decl nodes and returns their names.
  * This gives a fast lookup set for use with extractReactiveDeps filtering.
  *
  * @param fileAST
@@ -114,7 +114,7 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
   const nodes = getNodes(fileAST);
 
   // §51.9 — projected vars from derived machines are not declared via
-  // reactive-decl; they're synthesized at runtime in _scrml_derived_fns.
+  // state-decl; they're synthesized at runtime in _scrml_derived_fns.
   // Without them in this set, extractReactiveDeps filters out @ui references
   // in markup interpolations, and emit-event-wiring never wraps the DOM
   // binding in _scrml_effect — so writes to the source @order don't flow to

@@ -2,7 +2,7 @@
  * §53.4 Three-Zone SPARK Enforcement — Unit Tests
  *
  * Tests for classifyPredicateZone, predicateImplies, extractInitLiteral,
- * and the assignment-site enforcement wired into let-decl and reactive-decl
+ * and the assignment-site enforcement wired into let-decl and state-decl
  * processing in compiler/src/type-system.ts.
  *
  * Coverage:
@@ -468,7 +468,7 @@ describe("§22 Boundary zone attaches predicateCheck metadata to AST node concep
     const errors = [];
     const zone = classifyPredicateZone(target, { kind: "unconstrained" }, span(), errors);
     expect(zone).toBe("boundary");
-    // The caller (let-decl/reactive-decl case in annotateNodes) attaches
+    // The caller (let-decl/state-decl case in annotateNodes) attaches
     // n.predicateCheck = { predicate, zone: "boundary" } based on this result
   });
 });

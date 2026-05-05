@@ -15,8 +15,8 @@ function run(src) {
   return buildAST(bsOut);
 }
 
-describe("CONF-TAB-019: @variable assignment produces reactive-decl node", () => {
-  test("@counter = 0 inside a logic block produces reactive-decl node", () => {
+describe("CONF-TAB-019: @variable assignment produces state-decl node", () => {
+  test("@counter = 0 inside a logic block produces state-decl node", () => {
     const { ast } = run("${ @counter = 0; }");
     const logic = ast.nodes[0];
     const rNode = logic.body.find((n) => n.kind === "state-decl");
@@ -25,7 +25,7 @@ describe("CONF-TAB-019: @variable assignment produces reactive-decl node", () =>
     expect(rNode.name).toBe("counter");
   });
 
-  test("reactive-decl carries the initial value as a string in `init`", () => {
+  test("state-decl carries the initial value as a string in `init`", () => {
     const { ast } = run("${ @count = 0; }");
     const logic = ast.nodes[0];
     const rNode = logic.body.find((n) => n.kind === "state-decl");
@@ -35,7 +35,7 @@ describe("CONF-TAB-019: @variable assignment produces reactive-decl node", () =>
     expect(rNode.init.trim()).toBe("0");
   });
 
-  test("reactive-decl has name without the @ sigil", () => {
+  test("state-decl has name without the @ sigil", () => {
     const { ast } = run("${ @myVar = 42; }");
     const logic = ast.nodes[0];
     const rNode = logic.body.find((n) => n.kind === "state-decl");
@@ -44,7 +44,7 @@ describe("CONF-TAB-019: @variable assignment produces reactive-decl node", () =>
     expect(rNode.name).not.toContain("@");
   });
 
-  test("reactive-decl carries a valid span", () => {
+  test("state-decl carries a valid span", () => {
     const { ast } = run("${ @x = 1; }");
     const logic = ast.nodes[0];
     const rNode = logic.body.find((n) => n.kind === "state-decl");
@@ -52,7 +52,7 @@ describe("CONF-TAB-019: @variable assignment produces reactive-decl node", () =>
     expect(typeof rNode.span.start).toBe("number");
   });
 
-  test("multiple reactive declarations each produce a reactive-decl node", () => {
+  test("multiple reactive declarations each produce a state-decl node", () => {
     const { ast } = run("${ @a = 1; @b = 2; @c = 3; }");
     const logic = ast.nodes[0];
     const rNodes = logic.body.filter((n) => n.kind === "state-decl");

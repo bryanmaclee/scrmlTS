@@ -467,7 +467,7 @@ describe("§12: onclose handler emits auto-reconnect", () => {
 
 describe("§13: @shared variables emit reactive sync subscriptions", () => {
   test("syncShared helper is emitted when @shared vars exist", () => {
-    // Create a channel node with a reactive-decl child marked isShared
+    // Create a channel node with a state-decl child marked isShared
     const sharedDecl = {
       kind: "state-decl",
       name: "count",

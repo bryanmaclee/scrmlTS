@@ -449,7 +449,7 @@ ${
                 }
             }
 
-            // Collect reactive-decl nodes
+            // Collect state-decl nodes
             const reactiveDecls = collectAllReactiveDecls(fileAST)
             for (const rNode of reactiveDecls) {
                 const nodeId = makeNodeId(filePath, rNode.span, "reactive")

@@ -174,7 +174,7 @@ describe("S24 §2a — E-SCOPE-001 on undeclared ident in let/const init", () =>
     expect(scope001.some(e => /\bx\b/.test(e.message))).toBe(false);
   });
 
-  test("undeclared ident in reactive-decl init → E-SCOPE-001", () => {
+  test("undeclared ident in state-decl init → E-SCOPE-001", () => {
     const src = `<program>
 \${
   @x = undeclaredReactiveInit + 1
@@ -200,7 +200,7 @@ describe("S24 §2a — E-SCOPE-001 on undeclared ident in let/const init", () =>
     expect(scope001).toEqual([]);
   });
 
-  test("reactive-decl init referring to a later-declared @var still errors", () => {
+  test("state-decl init referring to a later-declared @var still errors", () => {
     const src = `<program>
 \${
   @a = @nonexistent + 1

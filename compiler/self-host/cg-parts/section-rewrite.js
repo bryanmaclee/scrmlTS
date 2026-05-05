@@ -74,7 +74,7 @@ export function extractReactiveDeps(expr, knownReactiveVars = null) {
 /**
  * Collect all reactive variable names declared in a fileAST.
  *
- * Walks logic blocks for reactive-decl nodes and returns their names.
+ * Walks logic blocks for state-decl nodes and returns their names.
  * This gives a fast lookup set for use with extractReactiveDeps filtering.
  */
 export function collectReactiveVarNames(fileAST) {

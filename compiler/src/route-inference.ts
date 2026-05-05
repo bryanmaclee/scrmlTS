@@ -632,7 +632,7 @@ export function walkBodyForTriggers(
     }
 
     if (node.kind === "state-decl") {
-      // @name = expr — reactive-decl IS an assignment to an @-prefixed identifier.
+      // @name = expr — state-decl IS an assignment to an @-prefixed identifier.
       // Also scan the init for server-only resources and callees.
       // Phase 4d: ExprNode-first, string fallback
       const init = (node as any).initExpr ? emitStringFromTree((node as any).initExpr) : ((node as any).init ?? "");
@@ -697,7 +697,7 @@ export function walkBodyForTriggers(
 
 /**
  * Check whether a function body directly contains an assignment to an @-prefixed
- * identifier (reactive-decl nodes) or an AT_IDENT in assignment position in a bare-expr.
+ * identifier (state-decl nodes) or an AT_IDENT in assignment position in a bare-expr.
  *
  * Per §12.7: "RI walks the parsed function body for assignment expressions where the
  * left-hand side is an AT_IDENT token in assignment position."
@@ -706,7 +706,7 @@ function findReactiveAssignment(body: LogicStatement[]): LogicStatement | null {
   function visitNode(node: LogicStatement): LogicStatement | null {
     if (!node || typeof node !== "object") return null;
 
-    // reactive-decl is the canonical AT_IDENT assignment form.
+    // state-decl is the canonical AT_IDENT assignment form.
     if (node.kind === "state-decl") {
       return node;
     }
@@ -775,7 +775,7 @@ export function analyzeCPSEligibility(
 
   const serverIndices: number[] = [];
   const reactiveIndices: number[] = [];
-  const reactiveServerIndices: number[] = []; // reactive-decls whose init calls a server fn
+  const reactiveServerIndices: number[] = []; // state-decls whose init calls a server fn
   const mixedIndices: number[] = []; // bare-expr statements that are BOTH server + reactive
 
   for (let i = 0; i < body.length; i++) {
@@ -793,7 +793,7 @@ export function analyzeCPSEligibility(
       importedServerFnNames,
     );
 
-    // Special case: reactive-decl with server function call OR server-only
+    // Special case: state-decl with server function call OR server-only
     // resource in init — CPS-eligible.
     const isReactiveServer =
       isReactive &&
@@ -853,7 +853,7 @@ export function analyzeCPSEligibility(
 }
 
 /**
- * Check if a reactive-decl node's init expression calls a server-escalated function.
+ * Check if a state-decl node's init expression calls a server-escalated function.
  */
 function hasServerCallInInit(
   node: LogicStatement,
@@ -875,7 +875,7 @@ function hasServerCallInInit(
 }
 
 /**
- * Check if a reactive-decl node's init expression contains a server-only
+ * Check if a state-decl node's init expression contains a server-only
  * resource: SQL sigil (?{`), Bun.* APIs, process.env, env(), etc.
  */
 function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
@@ -980,8 +980,8 @@ function isServerTriggerStatement(
     }
   }
 
-  // NOTE: reactive-decl nodes are NOT checked for server triggers here.
-  // A reactive-decl like `@data = serverCall()` is CPS-eligible.
+  // NOTE: state-decl nodes are NOT checked for server triggers here.
+  // A state-decl like `@data = serverCall()` is CPS-eligible.
   // The only truly ineligible case is when a bare-expr contains BOTH
   // a reactive @-assignment AND server access in the same expression string.
 
@@ -1559,7 +1559,7 @@ export function runRI(input: RIInput): RIOutput {
 
   // Also collect all reactive variable names declared at file scope —
   // if a function captures a server @var, it needs server context.
-  // (Currently server @var produces server-tainted reactive-decl nodes,
+  // (Currently server @var produces server-tainted state-decl nodes,
   // which are not function nodes. For now, capture of @var names does
   // not propagate taint — the @var is accessed via _scrml_reactive_get
   // which is a runtime call, not a compile-time boundary concern.

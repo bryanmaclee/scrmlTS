@@ -186,7 +186,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
           }
           serverCallEmitted = true;
         }
-        // BUG-R14-007 fix: if this server statement is a reactive-decl whose init
+        // BUG-R14-007 fix: if this server statement is a state-decl whose init
         // was extracted to the server, emit the reactive_set on the client using
         // the server result. This handles `@entries = ?{SELECT...}` where the SQL
         // runs on the server and the result is passed back via the fetch response.

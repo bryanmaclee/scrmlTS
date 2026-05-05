@@ -128,7 +128,7 @@ function makeLetDecl(name, init, spanStart = 30, file = "/test/app.scrml") {
 }
 
 /**
- * Build a reactive-decl LogicNode (@name = init).
+ * Build a state-decl LogicNode (@name = init).
  *
  * @param {string} name   — without the @ prefix
  * @param {string} init
@@ -609,9 +609,9 @@ describe("§5 — trigger 1: server-only resource access", () => {
     expect(route.boundary).toBe("server");
   });
 
-  test("reactive-decl with SQL init escalates to server (BUG-REACTIVE-SERVER-LEAK)", () => {
+  test("state-decl with SQL init escalates to server (BUG-REACTIVE-SERVER-LEAK)", () => {
     // @users = ?{`SELECT * FROM users`} inside a function body must escalate to server.
-    // Previously, walkBodyForTriggers skipped detectServerOnlyResource for reactive-decl
+    // Previously, walkBodyForTriggers skipped detectServerOnlyResource for state-decl
     // nodes, leaving the function as client-boundary and causing E-CG-006.
     const fn = makeFunctionDecl({
       name: "loadUsers",
@@ -628,7 +628,7 @@ describe("§5 — trigger 1: server-only resource access", () => {
     expect(route.escalationReasons[0].resourceType).toBe("sql-query");
   });
 
-  test("reactive-decl without SQL in init stays client-boundary", () => {
+  test("state-decl without SQL in init stays client-boundary", () => {
     // @count = 0 has no server trigger — must stay client.
     const fn = makeFunctionDecl({
       name: "resetCount",
@@ -835,7 +835,7 @@ describe("§8 — direct-only escalation: cycle detection (no infinite loop)", (
 // ---------------------------------------------------------------------------
 
 describe("§10 — E-RI-002: server-escalated function assigns to @reactive variable", () => {
-  test("server function with reactive-decl assignment produces E-RI-002", () => {
+  test("server function with state-decl assignment produces E-RI-002", () => {
     const fn = makeFunctionDecl({
       name: "updateCount",
       isServer: true,
@@ -1996,9 +1996,9 @@ describe("§22 — ?{} SQL sigil in let-decl/const-decl escalates to server (BUG
     expect(route.escalationReasons[0].resourceType).toBe("sql-query");
   });
 
-  test("let-decl with ?{} SQL in init + reactive-decl — CPS splits correctly, no E-RI-002", () => {
+  test("let-decl with ?{} SQL in init + state-decl — CPS splits correctly, no E-RI-002", () => {
     // The full BUG-R13-002 pattern: a function has a let-decl containing SQL and a reactive
-    // assignment. CPS should split: SQL let-decl is server-side, reactive-decl is client-side.
+    // assignment. CPS should split: SQL let-decl is server-side, state-decl is client-side.
     // Without the fix, the let-decl was not recognized as a server trigger and E-CG-006 fired.
     const fn = makeFunctionDecl({
       name: "sendMessage",

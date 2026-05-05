@@ -10,7 +10,7 @@
  *   §4  meta block with @reactive var is NOT compile-time evaluated
  *   §5  emit() without ^{} has no effect
  *   §6  bodyReferencesReactiveVars detects @var in bare-expr
- *   §7  bodyReferencesReactiveVars detects reactive-decl nodes
+ *   §7  bodyReferencesReactiveVars detects state-decl nodes
  *   §8  bodyReferencesReactiveVars returns false for clean body
  *   §9  serializeBody serializes bare-expr nodes
  *   §10 serializeBody serializes let-decl and const-decl
@@ -207,10 +207,10 @@ describe("meta-eval", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // §7 bodyReferencesReactiveVars detects reactive-decl nodes
+  // §7 bodyReferencesReactiveVars detects state-decl nodes
   // ---------------------------------------------------------------------------
 
-  test("§7 bodyReferencesReactiveVars detects reactive-decl", () => {
+  test("§7 bodyReferencesReactiveVars detects state-decl", () => {
     const body = [
       { kind: "state-decl", name: "count", init: "0" },
     ];

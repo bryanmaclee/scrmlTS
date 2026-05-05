@@ -242,7 +242,7 @@ describe("splitMergedStatements", () => {
     expect(result).toContain('_scrml_reactive_set("count", 0);');
   });
 
-  test("reactive-decl also uses _scrml_reactive_set", () => {
+  test("state-decl also uses _scrml_reactive_set", () => {
     const result = splitMergedStatements("count", "0", "state-decl");
     expect(result).toContain('_scrml_reactive_set("count", 0);');
   });

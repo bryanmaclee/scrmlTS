@@ -42,12 +42,12 @@ function makeLogicBlock(body = [], s = span(0)) {
   return { kind: "logic", body, span: s };
 }
 
-/** Create a plain reactive-decl (no server modifier). */
+/** Create a plain state-decl (no server modifier). */
 function makeReactiveDecl(name, init, s = span(0)) {
   return { kind: "state-decl", name, init, span: s };
 }
 
-/** Create a server @var reactive-decl (isServer: true). */
+/** Create a server @var state-decl (isServer: true). */
 function makeServerReactiveDecl(name, init, s = span(0)) {
   return { kind: "state-decl", name, init, isServer: true, span: s };
 }

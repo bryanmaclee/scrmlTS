@@ -1,5 +1,5 @@
 /**
- * reactive-decl + SQL Chained-Call Codegen — Regression Tests
+ * state-decl + SQL Chained-Call Codegen — Regression Tests
  * (S40 follow-up: fix-cg-cps-return-sql-ref-placeholder)
  *
  * Reproducer (pre-fix): combined-007-crud.scrml shape, e.g.
@@ -7,7 +7,7 @@
  *     @users = ?{`SELECT id, name, email FROM users`}
  *   }
  *
- * Pre-fix emitted server JS (CPS-rewritten — last reactive-decl becomes
+ * Pre-fix emitted server JS (CPS-rewritten — last state-decl becomes
  * the continuation):
  *   const _scrml_cps_return = /_* sql-ref:-1 *_/;   // SYNTAX ERROR
  *   return _scrml_cps_return;
@@ -19,7 +19,7 @@
  *   const _scrml_cps_return = await _scrml_sql.unsafe("SELECT id, name, email FROM users");
  *   return _scrml_cps_return;
  *
- * Root cause: the reactive-decl's RHS `?{...}` was captured as part of the
+ * Root cause: the state-decl's RHS `?{...}` was captured as part of the
  * `init` string, then `safeParseExprToNode` preprocessed `?{...}` to the
  * sentinel `__scrml_sql_placeholder__`, which `emit-expr.ts:403` rendered as
  * a `(slash-star) sql-ref:N (star-slash)` comment in expression position.
@@ -27,14 +27,14 @@
  * Fix mirrors the parent commit `2a05585` (return-stmt path) and the lift
  * fix in `4074ea3..baccf56`:
  *
- *   - ast-builder.js: when the RHS of `=` in a reactive-decl is a SQL
+ *   - ast-builder.js: when the RHS of `=` in a state-decl is a SQL
  *     BLOCK_REF, build the SQL child, consume the chained method calls
  *     via consumeSqlChainedCalls, and attach as `sqlNode` on the
- *     reactive-decl. `init` is "" and `initExpr` is omitted so the
+ *     state-decl. `init` is "" and `initExpr` is omitted so the
  *     batch-planner string scanner doesn't double-count and downstream
  *     consumers fall through to the structured path.
  *
- *   - emit-server.ts (both CPS sites): when the CPS-return reactive-decl
+ *   - emit-server.ts (both CPS sites): when the CPS-return state-decl
  *     has `sqlNode`, recurse into emitLogicNode(sqlNode, { boundary: server })
  *     and strip trailing `;` before composing `const _scrml_cps_return = …;`.
  *
@@ -46,16 +46,16 @@
  *   - route-inference.ts: extend `hasServerOnlyResourceInInit()` and the
  *     trigger-1 visitor in `collectStmtTriggers()` to recognize the
  *     structured `sqlNode` field. Without this, CPS eligibility detection
- *     misses SQL-init reactive-decls and routes are dropped (or E-RI-002
+ *     misses SQL-init state-decls and routes are dropped (or E-RI-002
  *     fires on what should be a CPS-split function).
  *
  * Coverage:
- *   §1  AST shape — `@x = ?{...}` produces reactive-decl with sqlNode
+ *   §1  AST shape — `@x = ?{...}` produces state-decl with sqlNode
  *       (kind:"sql"); init is "" and initExpr is undefined.
  *   §2  AST shape — chained .all()/.get()/.run() captured as KEYWORD methods.
- *   §3  AST shape — backwards compat (non-SQL reactive-decl still uses
+ *   §3  AST shape — backwards compat (non-SQL state-decl still uses
  *       initExpr; bare `?{}` still works).
- *   §4  AST shape — typed reactive-decl, server modifier, @shared modifier.
+ *   §4  AST shape — typed state-decl, server modifier, @shared modifier.
  *   §5  E2E — CPS server function with `@x = ?{...}` as final stmt
  *       compiles to `const _scrml_cps_return = await _scrml_sql\`…\`;`.
  *   §6  E2E — Bare `@x = ?{...}` (no chained call) inside CPS-final stmt
@@ -64,7 +64,7 @@
  *       and emits `(await _scrml_sql\`… \${id}…\`)[0] ?? null;`.
  *   §8  E2E — combined-007-crud.scrml shape compiles cleanly (zero
  *       sql-ref placeholders in the server.js output).
- *   §9  batch-planner — single SQL-init reactive-decl is NOT double-counted.
+ *   §9  batch-planner — single SQL-init state-decl is NOT double-counted.
  *  §10  E-RI-002 — CPS-split detection still works for SQL-init reactive
  *       decls (no false-positive).
  */
@@ -108,7 +108,7 @@ function compileSource(scrmlSource, testName) {
 }
 
 function runAst(src) {
-  const bs = splitBlocks("reactive-decl-sql.scrml", src);
+  const bs = splitBlocks("state-decl-sql.scrml", src);
   return buildAST(bs).ast;
 }
 
@@ -153,11 +153,11 @@ function parseServerJs(js) {
 }
 
 // ---------------------------------------------------------------------------
-// §1  AST shape — `@x = ?{...}` produces reactive-decl with sqlNode
+// §1  AST shape — `@x = ?{...}` produces state-decl with sqlNode
 // ---------------------------------------------------------------------------
 
-describe("§1 AST shape — @x = ?{...} produces sqlNode-bearing reactive-decl", () => {
-  test("reactive-decl with bare ?{...} initializer attaches sqlNode", () => {
+describe("§1 AST shape — @x = ?{...} produces sqlNode-bearing state-decl", () => {
+  test("state-decl with bare ?{...} initializer attaches sqlNode", () => {
     const src = `<program>
 \${
   server function refreshList() {
@@ -181,7 +181,7 @@ describe("§1 AST shape — @x = ?{...} produces sqlNode-bearing reactive-decl",
     expect(decl.initExpr).toBeFalsy();
   });
 
-  test("reactive-decl with chained .all() init attaches sqlNode + chainedCalls", () => {
+  test("state-decl with chained .all() init attaches sqlNode + chainedCalls", () => {
     const src = `<program>
 \${
   server function loadAll() {
@@ -202,7 +202,7 @@ describe("§1 AST shape — @x = ?{...} produces sqlNode-bearing reactive-decl",
 // §2  AST shape — .get() (KEYWORD-tokenized) and .run() chains preserved
 // ---------------------------------------------------------------------------
 
-describe("§2 AST shape — .get() and .run() chains attached to reactive-decl sqlNode", () => {
+describe("§2 AST shape — .get() and .run() chains attached to state-decl sqlNode", () => {
   test(".get() chained call captured (KEYWORD-tokenized method)", () => {
     const src = `<program>
 \${
@@ -238,8 +238,8 @@ describe("§2 AST shape — .get() and .run() chains attached to reactive-decl s
 // §3  AST shape — backwards compat
 // ---------------------------------------------------------------------------
 
-describe("§3 Backwards compat — non-SQL reactive-decl still uses initExpr", () => {
-  test("reactive-decl with plain expr still produces initExpr without sqlNode", () => {
+describe("§3 Backwards compat — non-SQL state-decl still uses initExpr", () => {
+  test("state-decl with plain expr still produces initExpr without sqlNode", () => {
     const src = `<program>
 \${
   function plain() {
@@ -255,7 +255,7 @@ describe("§3 Backwards compat — non-SQL reactive-decl still uses initExpr", (
     expect(decl.init).toBe("42");
   });
 
-  test("reactive-decl with @ref expr still produces initExpr without sqlNode", () => {
+  test("state-decl with @ref expr still produces initExpr without sqlNode", () => {
     const src = `<program>
 \${
   function copy() {
@@ -276,7 +276,7 @@ describe("§3 Backwards compat — non-SQL reactive-decl still uses initExpr", (
 // ---------------------------------------------------------------------------
 
 describe("§4 AST shape — typed + server + @shared modifiers each attach sqlNode", () => {
-  test("typed reactive-decl @x: T = ?{...}.all() — sqlNode + typeAnnotation", () => {
+  test("typed state-decl @x: T = ?{...}.all() — sqlNode + typeAnnotation", () => {
     // Use a primitive type that the type-system will accept for an array-of-rows.
     const src = `<program>
 \${
@@ -320,11 +320,11 @@ describe("§4 AST shape — typed + server + @shared modifiers each attach sqlNo
 });
 
 // ---------------------------------------------------------------------------
-// §5  emit-logic — server-boundary reactive-decl + sqlNode emits valid set
+// §5  emit-logic — server-boundary state-decl + sqlNode emits valid set
 // ---------------------------------------------------------------------------
 
-describe("§5 emit-logic — reactive-decl + sqlNode (server boundary) wraps sql in reactive_set", () => {
-  test("synthetic reactive-decl + sqlNode {.all()} emits _scrml_reactive_set with await sql`...`", () => {
+describe("§5 emit-logic — state-decl + sqlNode (server boundary) wraps sql in reactive_set", () => {
+  test("synthetic state-decl + sqlNode {.all()} emits _scrml_reactive_set with await sql`...`", () => {
     const node = {
       kind: "state-decl",
       name: "rows",
@@ -343,7 +343,7 @@ describe("§5 emit-logic — reactive-decl + sqlNode (server boundary) wraps sql
     expect(out).not.toContain("sql-ref:");
   });
 
-  test("synthetic reactive-decl + sqlNode {.get()} emits singleton-or-null wrap", () => {
+  test("synthetic state-decl + sqlNode {.get()} emits singleton-or-null wrap", () => {
     const node = {
       kind: "state-decl",
       name: "user",
@@ -361,7 +361,7 @@ describe("§5 emit-logic — reactive-decl + sqlNode (server boundary) wraps sql
 });
 
 // ---------------------------------------------------------------------------
-// §6  E2E — CPS-final reactive-decl with bare ?{...} compiles cleanly
+// §6  E2E — CPS-final state-decl with bare ?{...} compiles cleanly
 // ---------------------------------------------------------------------------
 
 describe("§6 E2E — CPS-final @x = ?{...} compiles to valid server JS", () => {
@@ -392,7 +392,7 @@ describe("§6 E2E — CPS-final @x = ?{...} compiles to valid server JS", () => 
 // ---------------------------------------------------------------------------
 
 describe("§7 E2E — `@x = ?{…\${id}…}.get()` — singleton-or-null tagged template", () => {
-  test("reactive-decl with .get() and template param emits tagged sql + singleton wrap", () => {
+  test("state-decl with .get() and template param emits tagged sql + singleton wrap", () => {
     const src = `<program db="./test.db">
 \${
   server function loadOne(id) {
@@ -445,10 +445,10 @@ describe("§8 E2E — combined-007-crud.scrml shape compiles without sql-ref lea
 });
 
 // ---------------------------------------------------------------------------
-// §9  batch-planner — single SQL-init reactive-decl is NOT double-counted
+// §9  batch-planner — single SQL-init state-decl is NOT double-counted
 // ---------------------------------------------------------------------------
 
-describe("§9 batch-planner — SQL-init reactive-decl counted exactly once", () => {
+describe("§9 batch-planner — SQL-init state-decl counted exactly once", () => {
   test("single `@x = ?{}.get()` does not trigger Tier-1 coalescing", async () => {
     const tag = "single-rdsql-batch";
     const tmpDir = resolve(testDir, `_tmp_rdsql_${tag}`);
@@ -480,10 +480,10 @@ describe("§9 batch-planner — SQL-init reactive-decl counted exactly once", ()
 });
 
 // ---------------------------------------------------------------------------
-// §10  RI — CPS-split detection still works for SQL-init reactive-decls
+// §10  RI — CPS-split detection still works for SQL-init state-decls
 // ---------------------------------------------------------------------------
 
-describe("§10 RI — CPS-split detection for SQL-init reactive-decl still works", () => {
+describe("§10 RI — CPS-split detection for SQL-init state-decl still works", () => {
   test("server fn whose only stmt is `@x = ?{...}` is recognized as CPS-eligible (no E-RI-002)", () => {
     const src = `<program db="./test.db">
 \${
@@ -510,7 +510,7 @@ describe("§10 RI — CPS-split detection for SQL-init reactive-decl still works
 // ---------------------------------------------------------------------------
 
 describe("§11 CG client — bare @x = ?{...} suppresses empty-arg reactive_set", () => {
-  test("synthetic reactive-decl + sqlNode (client boundary) emits comment, NOT _scrml_reactive_set", () => {
+  test("synthetic state-decl + sqlNode (client boundary) emits comment, NOT _scrml_reactive_set", () => {
     const node = {
       kind: "state-decl",
       name: "rows",
@@ -529,7 +529,7 @@ describe("§11 CG client — bare @x = ?{...} suppresses empty-arg reactive_set"
     expect(out).toContain("§8.11");
   });
 
-  test("synthetic reactive-decl + sqlNode {.all()} (client boundary) — same suppression", () => {
+  test("synthetic state-decl + sqlNode {.all()} (client boundary) — same suppression", () => {
     const node = {
       kind: "state-decl",
       name: "users",
@@ -545,7 +545,7 @@ describe("§11 CG client — bare @x = ?{...} suppresses empty-arg reactive_set"
     expect(out).toContain("// SQL-init for @users");
   });
 
-  test("synthetic reactive-decl + sqlNode (no boundary in opts) — defaults to client suppression path", () => {
+  test("synthetic state-decl + sqlNode (no boundary in opts) — defaults to client suppression path", () => {
     // When opts.boundary is undefined we fall through past the server check.
     // The client-side suppression should still fire because the sqlNode short-circuit
     // is placed at the top of the post-server fallthrough.
@@ -560,7 +560,7 @@ describe("§11 CG client — bare @x = ?{...} suppresses empty-arg reactive_set"
     expect(out).toContain("// SQL-init for @x");
   });
 
-  test("non-SQL reactive-decl is unaffected — legacy emitter still fires (no regression)", () => {
+  test("non-SQL state-decl is unaffected — legacy emitter still fires (no regression)", () => {
     // Sanity: `@count = 0` must continue to emit `_scrml_reactive_set("count", 0);`.
     const src = `<program>
 \${

@@ -86,7 +86,7 @@ const exampleFiles = discoverScrmlFiles(examplesDir);
 // Parallel ExprNode field pairs to check
 //
 // Field pairs confirmed from ast-builder.js safeParseExprToNode calls:
-//   initExpr / init       -- let-decl, reactive-decl, const-decl, tilde-decl,
+//   initExpr / init       -- let-decl, state-decl, const-decl, tilde-decl,
 //                            reactive-derived-decl, reactive-debounced-decl
 //   exprNode / expr       -- bare-expr
 //   condExpr / condition  -- if-stmt, while-stmt, do-while-stmt
@@ -580,7 +580,7 @@ describe("ExprNode corpus invariant -- examples/ audit", () => {
     // Multi-statement init findings (Phase 2 flag)
     lines.push("## Multi-Statement Init Fields (Phase 2 flag)");
     lines.push("");
-    lines.push("Two reactive-decl nodes in 08-chat.scrml and 14-mario-state-machine.scrml");
+    lines.push("Two state-decl nodes in 08-chat.scrml and 14-mario-state-machine.scrml");
     lines.push("have `init` fields containing multiple JS statements concatenated by");
     lines.push("joinWithNewlines. These are NOT idempotency failures (parse only sees the");
     lines.push("first expression and both checks pass), but they indicate collectExpr");

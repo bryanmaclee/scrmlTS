@@ -73,7 +73,7 @@ type TypeRegistry = Record<string, unknown>;
 // ---------------------------------------------------------------------------
 // Check if a meta block references runtime reactive variables (@var).
 //
-// A meta block body that contains any reactive-decl node, or any bare-expr /
+// A meta block body that contains any state-decl node, or any bare-expr /
 // initializer string referencing @someVar, is NOT compile-time eligible.
 // ---------------------------------------------------------------------------
 

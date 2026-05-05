@@ -5,9 +5,9 @@
  * (TAB stage). The `server` modifier marks an instance-level reactive variable
  * as server-authoritative.
  *
- * §1  AST: `server @cards = []` → reactive-decl with isServer: true, name: 'cards'
- * §2  AST: `server @count = 0` → reactive-decl with isServer: true, name: 'count', init: '0'
- * §3  AST: `@cards = []` (no server) → reactive-decl WITHOUT isServer (backward compat)
+ * §1  AST: `server @cards = []` → state-decl with isServer: true, name: 'cards'
+ * §2  AST: `server @count = 0` → state-decl with isServer: true, name: 'count', init: '0'
+ * §3  AST: `@cards = []` (no server) → state-decl WITHOUT isServer (backward compat)
  * §4  AST: `server @data = loadData()` with function call init → isServer: true, init has 'loadData'
  * §5  AST: `server @var` inside a logic body block (parseLogicBody block-loop path)
  * §6  AST: `server @count` in separate logic blocks mixed with non-server vars
@@ -16,7 +16,7 @@
  * §9  AST: `server` without AT_IDENT next (falls through — not consumed as authority modifier)
  *
  * NOTE on multi-statement blocks: scrml merges multiple statements in a single ${}
- * block into the first node's init string (compound reactive-decl). For tests with
+ * block into the first node's init string (compound state-decl). For tests with
  * multiple distinct declarations, use separate ${} blocks.
  */
 
@@ -75,31 +75,31 @@ function findFunctionDecls(ast) {
 }
 
 // ---------------------------------------------------------------------------
-// §1: server @cards = [] → reactive-decl with isServer: true, name: 'cards'
+// §1: server @cards = [] → state-decl with isServer: true, name: 'cards'
 // ---------------------------------------------------------------------------
 
-describe("state-authority §1: server @cards = [] → reactive-decl isServer: true", () => {
-  test("produces a reactive-decl node", () => {
+describe("state-authority §1: server @cards = [] → state-decl isServer: true", () => {
+  test("produces a state-decl node", () => {
     const nodes = parseLogicBlock(`\${ server @cards = [] }`);
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
   });
 
-  test("reactive-decl has isServer: true", () => {
+  test("state-decl has isServer: true", () => {
     const nodes = parseLogicBlock(`\${ server @cards = [] }`);
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
     expect(decl.isServer).toBe(true);
   });
 
-  test("reactive-decl name is 'cards' (not 'server')", () => {
+  test("state-decl name is 'cards' (not 'server')", () => {
     const nodes = parseLogicBlock(`\${ server @cards = [] }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isServer === true);
     expect(decl).toBeDefined();
     expect(decl.name).toBe("cards");
   });
 
-  test("reactive-decl init contains '[]'", () => {
+  test("state-decl init contains '[]'", () => {
     const nodes = parseLogicBlock(`\${ server @cards = [] }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isServer === true);
     expect(decl).toBeDefined();
@@ -109,11 +109,11 @@ describe("state-authority §1: server @cards = [] → reactive-decl isServer: tr
 });
 
 // ---------------------------------------------------------------------------
-// §2: server @count = 0 → reactive-decl with isServer: true, init: '0'
+// §2: server @count = 0 → state-decl with isServer: true, init: '0'
 // ---------------------------------------------------------------------------
 
-describe("state-authority §2: server @count = 0 → reactive-decl isServer: true, init: '0'", () => {
-  test("produces reactive-decl with isServer: true", () => {
+describe("state-authority §2: server @count = 0 → state-decl isServer: true, init: '0'", () => {
+  test("produces state-decl with isServer: true", () => {
     const nodes = parseLogicBlock(`\${ server @count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isServer === true);
     expect(decl).toBeDefined();
@@ -135,18 +135,18 @@ describe("state-authority §2: server @count = 0 → reactive-decl isServer: tru
 });
 
 // ---------------------------------------------------------------------------
-// §3: @cards = [] (no server) → reactive-decl WITHOUT isServer (backward compat)
+// §3: @cards = [] (no server) → state-decl WITHOUT isServer (backward compat)
 // ---------------------------------------------------------------------------
 
-describe("state-authority §3: @cards = [] → reactive-decl WITHOUT isServer (backward compat)", () => {
-  test("regular reactive-decl has no isServer property", () => {
+describe("state-authority §3: @cards = [] → state-decl WITHOUT isServer (backward compat)", () => {
+  test("regular state-decl has no isServer property", () => {
     const nodes = parseLogicBlock(`\${ @cards = [] }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.name === "cards");
     expect(decl).toBeDefined();
     expect(decl.isServer).toBeUndefined();
   });
 
-  test("regular reactive-decl name and init are correct", () => {
+  test("regular state-decl name and init are correct", () => {
     const nodes = parseLogicBlock(`\${ @count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.name === "count");
     expect(decl).toBeDefined();
@@ -154,7 +154,7 @@ describe("state-authority §3: @cards = [] → reactive-decl WITHOUT isServer (b
     expect(decl.init).toContain("0");
   });
 
-  test("regular reactive-decl does not have isServer: true", () => {
+  test("regular state-decl does not have isServer: true", () => {
     const nodes = parseLogicBlock(`\${ @data = [] }`);
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
@@ -167,7 +167,7 @@ describe("state-authority §3: @cards = [] → reactive-decl WITHOUT isServer (b
 // ---------------------------------------------------------------------------
 
 describe("state-authority §4: server @data = loadData() → isServer: true, init has 'loadData'", () => {
-  test("reactive-decl has isServer: true", () => {
+  test("state-decl has isServer: true", () => {
     const nodes = parseLogicBlock(`\${ server @data = loadData() }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isServer === true);
     expect(decl).toBeDefined();
@@ -270,7 +270,7 @@ describe("state-authority §7: regression — server function not affected by se
     expect(fn.isServer).toBe(true);
   });
 
-  test("server function returns function-decl, NOT reactive-decl", () => {
+  test("server function returns function-decl, NOT state-decl", () => {
     const source = `<program>
 \${ server function save() { return true } }
 </>`;
@@ -279,7 +279,7 @@ describe("state-authority §7: regression — server function not affected by se
     const fn = fnDecls.find(n => n.name === "save");
     expect(fn).toBeDefined();
     expect(fn.kind).toBe("function-decl");
-    // No reactive-decl for "save" should exist
+    // No state-decl for "save" should exist
     const allDecls = findReactiveDecls(ast);
     const wrongDecl = allDecls.find(n => n.name === "save");
     expect(wrongDecl).toBeUndefined();
@@ -327,7 +327,7 @@ describe("state-authority §9: server without AT_IDENT next — not consumed as 
     expect(serverFn.isServer).toBe(true);
   });
 
-  test("server @userProfile = not → reactive-decl with isServer: true (§52.4.3 — not placeholder)", () => {
+  test("server @userProfile = not → state-decl with isServer: true (§52.4.3 — not placeholder)", () => {
     // `not` as initial value is valid per §52.4.3
     const nodes = parseLogicBlock(`\${ server @userProfile = not }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isServer === true);

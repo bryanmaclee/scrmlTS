@@ -8,7 +8,7 @@
  *   3. encoding: true + runtime meta blocks — decode table + reflect emitted
  *   4. encoding: true, no meta blocks — decode table NOT emitted (tree-shaking)
  *   5. encoding: { enabled: true, debug: true } — encoded names contain $ suffix
- *   6. Encoded reactive-decl names appear in _scrml_reactive_set calls
+ *   6. Encoded state-decl names appear in _scrml_reactive_set calls
  */
 
 import { describe, test, expect } from "bun:test";
@@ -49,7 +49,7 @@ function makeDepGraph() {
 }
 
 /**
- * Build a logic block containing reactive-decl nodes.
+ * Build a logic block containing state-decl nodes.
  */
 function makeReactiveLogicBlock(reactiveDecls) {
   return {
@@ -143,7 +143,7 @@ describe("§1: encoding disabled by default", () => {
 // ---------------------------------------------------------------------------
 
 describe("§2: encoding enabled — reactive vars get encoded names", () => {
-  test("reactive-decl names are encoded in _scrml_reactive_set calls", () => {
+  test("state-decl names are encoded in _scrml_reactive_set calls", () => {
     const nodeTypes = new Map();
     nodeTypes.set("count", { kind: "asIs", constraint: null });
 
@@ -341,7 +341,7 @@ describe("§5: debug mode encoding", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §6: Encoded reactive-decl names in _scrml_reactive_set calls
+// §6: Encoded state-decl names in _scrml_reactive_set calls
 // ---------------------------------------------------------------------------
 
 describe("§6: encoded names in reactive_set calls", () => {

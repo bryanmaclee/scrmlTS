@@ -12,14 +12,14 @@
  *
  * Fix: emit-server.js wraps all emitLogicNode() output in serverRewriteEmitted(), which
  * replaces _scrml_reactive_get("x") and _scrml_derived_get("x") with _scrml_body["x"].
- * Direct expression rewrites (e.g. for reactive-decl init) use rewriteServerExpr().
+ * Direct expression rewrites (e.g. for state-decl init) use rewriteServerExpr().
  *
  * Coverage:
  *   SR1  bare-expr with @var: uses _scrml_body, not _scrml_reactive_get
  *   SR2  bare-expr with @var: no _scrml_reactive_get in server JS
  *   SR3  SQL call using @var param: uses _scrml_body, not _scrml_reactive_get
  *   SR4  let-decl with @var init: uses _scrml_body in server JS
- *   SR5  CPS-split server stmt: @var in reactive-decl init uses _scrml_body
+ *   SR5  CPS-split server stmt: @var in state-decl init uses _scrml_body
  *   SR6  non-server (client) function still uses _scrml_reactive_get (no regression)
  *   SR7  multiple @var refs in same expression all rewritten to _scrml_body
  *   SR8  @var inside SQL ?{} param: uses _scrml_body, not _scrml_reactive_get
@@ -217,12 +217,12 @@ describe("SR4: let-decl @var init uses _scrml_body in server context", () => {
 });
 
 // ---------------------------------------------------------------------------
-// SR5: CPS-split server stmt with reactive-decl init uses _scrml_body
+// SR5: CPS-split server stmt with state-decl init uses _scrml_body
 // ---------------------------------------------------------------------------
 
-describe("SR5: CPS-split reactive-decl init uses _scrml_body", () => {
-  test("@var in reactive-decl init rewritten to _scrml_body when in serverStmtIndices", () => {
-    // Simulate a CPS split: stmt at index 0 is the reactive-decl with server init,
+describe("SR5: CPS-split state-decl init uses _scrml_body", () => {
+  test("@var in state-decl init rewritten to _scrml_body when in serverStmtIndices", () => {
+    // Simulate a CPS split: stmt at index 0 is the state-decl with server init,
     // the returnVarName is "result".
     const { serverJs } = makeServerHandler("submitForm", [
       makeReactiveDecl("result", '@formData + "-saved"', span(110)),

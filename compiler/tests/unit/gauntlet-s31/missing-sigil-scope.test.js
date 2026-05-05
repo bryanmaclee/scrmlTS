@@ -2,7 +2,7 @@
  * S31 F5 — E-SCOPE-001 on bare identifier that references a reactive variable
  * without its `@` sigil. The single most common adopter typo.
  *
- * Before this fix, reactive-decl double-bound the bare name (`count`) in
+ * Before this fix, state-decl double-bound the bare name (`count`) in
  * addition to the sigil form (`@count`) for a handful of fallback lookup
  * sites (ref= narrowing, match-subject resolution). That bare bind silently
  * absorbed every bare-ident lookup in logic expressions and attribute values:

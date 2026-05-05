@@ -215,7 +215,7 @@ export function buildMachineBindingsMap(fileAST: any): Map<string, { engineName:
 
   const result = new Map<string, { engineName: string; tableName: string; rules: any[]; auditTarget: string | null }>();
 
-  // Walk the AST to find reactive-decl nodes with machineBinding annotation
+  // Walk the AST to find state-decl nodes with machineBinding annotation
   const nodes: any[] = fileAST.nodes ?? fileAST.ast?.nodes ?? [];
   function walk(nodeList: any[]): void {
     for (const node of nodeList) {
@@ -258,7 +258,7 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     : { encodingCtx, ...(machineBindings ? { machineBindings } : {}) };
 
   // Step 4a: Generate transition lookup tables for enums with transitions{} and machines (§51.5).
-  // These must be emitted BEFORE top-level logic statements because reactive-decl
+  // These must be emitted BEFORE top-level logic statements because state-decl
   // initializers with machine bindings emit transition guard IIFEs that reference
   // the table variables.
   const machineRegistry = (fileAST as any).machineRegistry as Map<string, any> | undefined;

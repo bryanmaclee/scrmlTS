@@ -296,7 +296,7 @@ describe("§A — F-RI-001 canonical pattern: client fn → server fn → branch
 // ---------------------------------------------------------------------------
 
 describe("§B — security boundary: genuine E-RI-002 must still fire", () => {
-  test("server-annotated function with top-level reactive-decl produces E-RI-002", () => {
+  test("server-annotated function with top-level state-decl produces E-RI-002", () => {
     // A function with an explicit `server` annotation that also assigns
     // @reactive at the top level. CPS cannot split this (no client-side
     // statements between server triggers and the reactive). E-RI-002
@@ -346,7 +346,7 @@ describe("§B — security boundary: genuine E-RI-002 must still fire", () => {
 
 describe("§C — CPS still splits the canonical reactive-server pattern", () => {
   test("@data = serverFn() at top level produces a CPS split", () => {
-    // The classical CPS-eligible pattern: a single reactive-decl whose
+    // The classical CPS-eligible pattern: a single state-decl whose
     // init calls a server fn. RI must produce a non-null cpsSplit on the
     // function's RouteMap entry.
     //

@@ -138,11 +138,11 @@ describe("EncodingContext", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §2 emitLogicNode integration — reactive-decl
+// §2 emitLogicNode integration — state-decl
 // ---------------------------------------------------------------------------
 
 describe("emitLogicNode with EncodingContext", () => {
-  test("reactive-decl uses encoded name when ctx is enabled", () => {
+  test("state-decl uses encoded name when ctx is enabled", () => {
     const ctx = new EncodingContext({ enabled: true });
     const encoded = ctx.register("count", NUMBER_TYPE);
 
@@ -153,13 +153,13 @@ describe("emitLogicNode with EncodingContext", () => {
     expect(output).not.toContain('"count"');
   });
 
-  test("reactive-decl uses original name when ctx is null", () => {
+  test("state-decl uses original name when ctx is null", () => {
     const node = { kind: "state-decl", name: "count", init: "0" };
     const output = emitLogicNode(node);
     expect(output).toContain('"count"');
   });
 
-  test("reactive-decl uses original name when ctx is disabled", () => {
+  test("state-decl uses original name when ctx is disabled", () => {
     const ctx = new EncodingContext({ enabled: false });
     const node = { kind: "state-decl", name: "count", init: "0" };
     const output = emitLogicNode(node, { encodingCtx: ctx });
@@ -257,7 +257,7 @@ describe("emitLogicNode with EncodingContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("emitReactiveWiring with EncodingContext", () => {
-  test("top-level reactive-decl uses encoded name", () => {
+  test("top-level state-decl uses encoded name", () => {
     const ctx = new EncodingContext({ enabled: true });
     const encoded = ctx.register("score", NUMBER_TYPE);
 
@@ -425,7 +425,7 @@ describe("emitEventWiring with EncodingContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("Encoding consistency", () => {
-  test("reactive-decl set key matches subscribe key in wiring", () => {
+  test("state-decl set key matches subscribe key in wiring", () => {
     const ctx = new EncodingContext({ enabled: true });
     const encoded = ctx.register("value", STRING_TYPE);
 

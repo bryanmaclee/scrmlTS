@@ -216,8 +216,8 @@ function classifyTypeAnnotation(annot, structFnSet) {
  * innermost seen binding (last-write-wins).
  *
  * Recognized binding shapes:
- *   let / const / reactive-decl with literal init   → inferred from init
- *   let / const / reactive-decl with typeAnnotation → classified from annot
+ *   let / const / state-decl with literal init   → inferred from init
+ *   let / const / state-decl with typeAnnotation → classified from annot
  *
  * @param {object} ast
  * @param {Set<string>} structFnSet

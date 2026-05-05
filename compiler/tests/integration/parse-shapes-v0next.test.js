@@ -8,7 +8,7 @@
  * Step 2 is the foundational V5-strict parser pass that unblocks Shapes 2/4-6
  * (deferred to Steps 5-11). Per AST-CONTRACTS-AND-DECOMPOSITION §7, every
  * positive test asserts BOTH:
- *   1. The expected `reactive-decl` AST node exists with correct fields.
+ *   1. The expected `state-decl` AST node exists with correct fields.
  *   2. NO `html-fragment` node contains the source text — the deceptive-
  *      success pattern anti-test (PARSER-AUDIT §C.1 / §G.1). Without this
  *      anti-assertion, a "compile-clean but wrong AST" regression would
@@ -108,7 +108,7 @@ describe("parser emits E-RESERVED-IDENTIFIER for `reset` as function name", () =
  */
 describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () => {
   // Case 1: literal int — the central case from PARSER-AUDIT §F1c
-  test("Case 1: <count> = 0 produces reactive-decl with structuralForm:true (anti-fragment)", () => {
+  test("Case 1: <count> = 0 produces state-decl with structuralForm:true (anti-fragment)", () => {
     const src = `<program>\${ <count> = 0 }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -122,7 +122,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
   });
 
   // Case 2: string literal init
-  test("Case 2: <name> = \"\" produces reactive-decl (anti-fragment)", () => {
+  test("Case 2: <name> = \"\" produces state-decl (anti-fragment)", () => {
     const src = `<program>\${ <name> = "" }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -133,7 +133,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
   });
 
   // Case 3: array literal init
-  test("Case 3: <items> = [] produces reactive-decl (anti-fragment)", () => {
+  test("Case 3: <items> = [] produces state-decl (anti-fragment)", () => {
     const src = `<program>\${ <items> = [] }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -144,7 +144,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
   });
 
   // Case 4: object literal init
-  test("Case 4: <config> = {a:1} produces reactive-decl (anti-fragment)", () => {
+  test("Case 4: <config> = {a:1} produces state-decl (anti-fragment)", () => {
     const src = `<program>\${ <config> = {a:1} }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -155,7 +155,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
   });
 
   // Case 5: computed expression — confirms initExpr parses through existing acorn path
-  test("Case 5: <doubled> = compute(input) produces reactive-decl with parsed initExpr", () => {
+  test("Case 5: <doubled> = compute(input) produces state-decl with parsed initExpr", () => {
     const src = `<program>\${ <doubled> = compute(input) }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -168,7 +168,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
   });
 
   // Case 6: no-whitespace form — `<count>=0` (tokenizer fuses >= into one OPERATOR token)
-  test("Case 6: <count>=0 (no whitespace, fused >=) produces reactive-decl", () => {
+  test("Case 6: <count>=0 (no whitespace, fused >=) produces state-decl", () => {
     const src = `<program>\${ <count>=0 }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -178,8 +178,8 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
     assertNoHtmlFragmentMatching(ast, /<\s*count\s*>/);
   });
 
-  // Case 7: multiple decls in one block — both produce separate reactive-decls
-  test("Case 7: multiple <a>=0; <b>=1 produces two distinct reactive-decls", () => {
+  // Case 7: multiple decls in one block — both produce separate state-decls
+  test("Case 7: multiple <a>=0; <b>=1 produces two distinct state-decls", () => {
     const src = `<program>\${ <a> = 0; <b> = 1 }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -191,7 +191,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
     assertNoHtmlFragmentMatching(ast, /<\s*b\s*>/);
   });
 
-  // Case 8: mixed @-form and structural — old form keeps producing reactive-decl
+  // Case 8: mixed @-form and structural — old form keeps producing state-decl
   // WITHOUT structuralForm; new form gets structuralForm:true.
   test("Case 8: mixed @x=0; <y>=1 — legacy and structural coexist", () => {
     const src = `<program>\${ @x = 0; <y> = 1 }</program>`;
@@ -212,7 +212,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
 
 describe("A1a Step 2 — V5-strict const <NAME>=expr derived (Shape 3)", () => {
   // Case 9: single dependency
-  test("Case 9: const <doubled> = @count * 2 produces reactive-decl with isConst:true", () => {
+  test("Case 9: const <doubled> = @count * 2 produces state-decl with isConst:true", () => {
     const src = `<program>\${ <count> = 0; const <doubled> = @count * 2 }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -227,7 +227,7 @@ describe("A1a Step 2 — V5-strict const <NAME>=expr derived (Shape 3)", () => {
   });
 
   // Case 10: multi-dependency
-  test("Case 10: const <name> = @first + @last (multi-dep) produces reactive-decl", () => {
+  test("Case 10: const <name> = @first + @last (multi-dep) produces state-decl", () => {
     const src = `<program>\${ <first> = ""; <last> = ""; const <name> = @first + " " + @last }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -248,7 +248,7 @@ describe("A1a Step 2 — Negative guards", () => {
   test("Case 11: if (a < b) {...} — bare < is comparison, not decl", () => {
     const src = `<program>\${ function f(a, b) { if (a < b) { @count = 1 } } }</program>`;
     const { ast, errors } = parse(src);
-    // No reactive-decl named `a` or `b` should be created (those are JS locals
+    // No state-decl named `a` or `b` should be created (those are JS locals
     // in the function param list — not state cells).
     const decls = findKind(ast, "state-decl");
     const a = decls.find((d) => d.name === "a");
@@ -265,7 +265,7 @@ describe("A1a Step 2 — Negative guards", () => {
   test("Case 12: lift <span>hello</span> — markup, not decl", () => {
     const src = `<program>\${ function f() { lift <span>hello</span> } }</program>`;
     const { ast } = parse(src);
-    // No reactive-decl with name "span" should appear.
+    // No state-decl with name "span" should appear.
     const decls = findKind(ast, "state-decl");
     const spanDecl = decls.find((d) => d.name === "span");
     expect(spanDecl).toBeUndefined();
@@ -296,7 +296,7 @@ describe("A1a Step 2 — Negative guards", () => {
   // Case 14: less-than with complex RHS — `if (count > 0)` — must NOT trigger.
   // This guards against false-positive on `<` followed by IDENT followed by something
   // that looks like `>`-then-`=` but really isn't.
-  test("Case 14: comparison chain a < b > c — no reactive-decl produced", () => {
+  test("Case 14: comparison chain a < b > c — no state-decl produced", () => {
     const src = `<program>\${ function f(a, b, c) { return (a < b) && (b > c) } }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");
@@ -304,7 +304,7 @@ describe("A1a Step 2 — Negative guards", () => {
   });
 
   // Case 15: legacy @-form decl + reads work end-to-end (regression baseline)
-  test("Case 15: legacy @count=0 still produces reactive-decl (baseline preserved)", () => {
+  test("Case 15: legacy @count=0 still produces state-decl (baseline preserved)", () => {
     const src = `<program>\${ @count = 0 }</program>`;
     const { ast } = parse(src);
     const decls = findKind(ast, "state-decl");

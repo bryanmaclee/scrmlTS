@@ -7,16 +7,16 @@
  * connected WebSocket clients.
  *
  * §1  Tokenizer: `@shared count = 0` produces AT_IDENT "@shared" then IDENT "count"
- * §2  AST: `@shared count = 0` in a logic block produces reactive-decl with isShared: true
+ * §2  AST: `@shared count = 0` in a logic block produces state-decl with isShared: true
  * §3  AST: name field is "count" (not "shared"), init is "0"
- * §4  AST: non-shared `@count = 0` produces reactive-decl WITHOUT isShared: true
+ * §4  AST: non-shared `@count = 0` produces state-decl WITHOUT isShared: true
  * §5  AST: multiple declarations — @shared and non-shared mix parsed correctly (separate blocks)
  * §6  AST: @shared with string init → isShared: true, init is the string value
  * §7  Integration: full pipeline parse of <channel> body → extractSharedVars finds the variable
- * §8  AST: @shared outside channel still produces reactive-decl with isShared: true (TAB is context-free)
+ * §8  AST: @shared outside channel still produces state-decl with isShared: true (TAB is context-free)
  *
  * NOTE on multi-statement blocks: scrml merges multiple statements in a single ${}
- * block into the first node's init string (compound reactive-decl). For tests with
+ * block into the first node's init string (compound state-decl). For tests with
  * multiple distinct declarations, use separate ${} blocks. This is the same behavior
  * documented in reactive-arrays.test.js.
  */
@@ -151,31 +151,31 @@ describe("shared-tab §1: tokenizer — @shared produces AT_IDENT '@shared' + ID
 });
 
 // ---------------------------------------------------------------------------
-// §2–§3: AST — @shared count = 0 → reactive-decl with isShared: true
+// §2–§3: AST — @shared count = 0 → state-decl with isShared: true
 // ---------------------------------------------------------------------------
 
-describe("shared-tab §2–3: @shared count = 0 → reactive-decl isShared: true, name: 'count'", () => {
-  test("produces a reactive-decl node", () => {
+describe("shared-tab §2–3: @shared count = 0 → state-decl isShared: true, name: 'count'", () => {
+  test("produces a state-decl node", () => {
     const nodes = parseLogicBlock(`\${ @shared count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
   });
 
-  test("reactive-decl has isShared: true", () => {
+  test("state-decl has isShared: true", () => {
     const nodes = parseLogicBlock(`\${ @shared count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl");
     expect(decl).toBeDefined();
     expect(decl.isShared).toBe(true);
   });
 
-  test("reactive-decl name is 'count' (not 'shared')", () => {
+  test("state-decl name is 'count' (not 'shared')", () => {
     const nodes = parseLogicBlock(`\${ @shared count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isShared === true);
     expect(decl).toBeDefined();
     expect(decl.name).toBe("count");
   });
 
-  test("reactive-decl init contains '0'", () => {
+  test("state-decl init contains '0'", () => {
     const nodes = parseLogicBlock(`\${ @shared count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.isShared === true);
     expect(decl).toBeDefined();
@@ -187,7 +187,7 @@ describe("shared-tab §2–3: @shared count = 0 → reactive-decl isShared: true
 // §4: Non-shared @count = 0 is unchanged — no isShared flag
 // ---------------------------------------------------------------------------
 
-describe("shared-tab §4: non-shared @count = 0 → reactive-decl WITHOUT isShared", () => {
+describe("shared-tab §4: non-shared @count = 0 → state-decl WITHOUT isShared", () => {
   test("regular reactive decl has no isShared property", () => {
     const nodes = parseLogicBlock(`\${ @count = 0 }`);
     const decl = nodes.find(n => n.kind === "state-decl" && n.name === "count");
@@ -208,13 +208,13 @@ describe("shared-tab §4: non-shared @count = 0 → reactive-decl WITHOUT isShar
 // §5: Multiple @shared and non-shared declarations
 //
 // NOTE: scrml merges multiple statements in a SINGLE ${}  block into the first
-// node's init string (compound reactive-decl). To test independent declarations,
+// node's init string (compound state-decl). To test independent declarations,
 // use SEPARATE ${}  blocks. This is documented behavior in reactive-arrays.test.js.
 // ---------------------------------------------------------------------------
 
 describe("shared-tab §5: @shared and non-shared declarations in separate blocks", () => {
   test("@shared title and non-shared @count in separate blocks parse correctly", () => {
-    // Use separate ${} blocks to avoid compound reactive-decl merging
+    // Use separate ${} blocks to avoid compound state-decl merging
     const { ast } = parseSource(`<div>\${ @shared title = "hello" }\${ @count = 0 }</div>`);
     const decls = findReactiveDecls(ast);
     const shared = decls.find(n => n.name === "title");
@@ -298,7 +298,7 @@ describe("shared-tab §7: integration — <channel> with @shared → extractShar
     expect(sharedVars).toHaveLength(0);
   });
 
-  test("reactive-decl in channel body has isShared: true after full parse", () => {
+  test("state-decl in channel body has isShared: true after full parse", () => {
     const source = `<program>
 <div>
 <channel name="chat">
@@ -355,8 +355,8 @@ describe("shared-tab §7: integration — <channel> with @shared → extractShar
 // §8: @shared outside channel — TAB is context-free for this modifier
 // ---------------------------------------------------------------------------
 
-describe("shared-tab §8: @shared in non-channel context → reactive-decl isShared: true", () => {
-  test("@shared in plain div logic block → reactive-decl with isShared: true", () => {
+describe("shared-tab §8: @shared in non-channel context → state-decl isShared: true", () => {
+  test("@shared in plain div logic block → state-decl with isShared: true", () => {
     // The compiler does not enforce E-CHANNEL-002 at TAB stage (parse-time).
     // E-CHANNEL-002 is a codegen-time check. The AST builder always produces
     // isShared: true for any @shared decl, regardless of enclosing context.

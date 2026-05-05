@@ -20,7 +20,7 @@
  *   §7  Meta body with bare-expr is emitted
  *   §8  Multi-statement meta body — all statements emitted
  *   §9  Null/undefined meta node returns empty string
- *   §10 Meta body with reactive-decl (@var = value) is emitted
+ *   §10 Meta body with state-decl (@var = value) is emitted
  *   §11 Meta body indentation — each body line indented inside the function body
  *   §12 meta object is provided by runtime (NOT injected by codegen)
  *   §13 scopeId is passed as first argument to _scrml_meta_effect
@@ -266,11 +266,11 @@ describe("emit-logic meta §9: null/undefined input", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §10: reactive-decl in meta body
+// §10: state-decl in meta body
 // ---------------------------------------------------------------------------
 
-describe("emit-logic meta §10: reactive-decl", () => {
-  test("reactive-decl inside meta body is emitted as reactive set call", () => {
+describe("emit-logic meta §10: state-decl", () => {
+  test("state-decl inside meta body is emitted as reactive set call", () => {
     const node = makeMetaNode([makeReactiveDecl("count", "0")], 1);
     const output = emitLogicNode(node);
     expect(output).toContain('_scrml_reactive_set("count", 0)');

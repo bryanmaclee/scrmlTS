@@ -761,7 +761,7 @@ function buildEnumVarMap(fileAST) {
 
   if (variantToEnum.size == 0) return result;
 
-  // Step 2: walk all nodes in the file to find reactive-decl nodes inside logic blocks
+  // Step 2: walk all nodes in the file to find state-decl nodes inside logic blocks
   const topNodes = fileAST.nodes ?? (fileAST.ast ? fileAST.ast.nodes : []);
   walkForReactiveDecls(topNodes, variantToEnum, result);
 
@@ -770,7 +770,7 @@ function buildEnumVarMap(fileAST) {
 
 /**
  * Recursively walk nodes, descend into logic block bodies, and collect
- * reactive-decl nodes whose init expression matches a known enum variant.
+ * state-decl nodes whose init expression matches a known enum variant.
  */
 function walkForReactiveDecls(nodes, variantToEnum, result) {
   for (const node of nodes) {

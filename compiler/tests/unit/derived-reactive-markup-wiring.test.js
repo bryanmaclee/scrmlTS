@@ -2,7 +2,7 @@
  * Bug 4 — Named derived reactive references in markup get DOM wiring
  *
  * Root cause: `collectReactiveVarNames` in reactive-deps.ts collected
- * `reactive-decl` (`@x = ...`) and `tilde-decl` with reactive deps, but did
+ * `state-decl` (`@x = ...`) and `tilde-decl` with reactive deps, but did
  * NOT collect `reactive-derived-decl` (`const @isInsert = ...`). That set is
  * used as a filter by `extractReactiveDeps`, so markup interpolations like
  * `${@isInsert}` had their `reactiveRefs` computed as empty. emit-event-wiring

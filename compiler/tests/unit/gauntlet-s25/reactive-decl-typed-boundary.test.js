@@ -1,10 +1,10 @@
 /**
  * S25 gauntlet — statement-boundary fix for untyped-then-typed
- * reactive-decl ordering (pre-existing S22 §6 parser bug).
+ * state-decl ordering (pre-existing S22 §6 parser bug).
  *
  * Before this fix, collectExpr in ast-builder.js recognized
  * `@name =` as a statement-boundary at depth 0 (so `@x = 1; @y = 2`
- * parsed as two separate reactive-decls) but did NOT recognize
+ * parsed as two separate state-decls) but did NOT recognize
  * `@name :` as a boundary. The consequence: an untyped declaration
  * followed by a typed one in the same ${} block caused the first
  * decl's collectExpr to greedily consume the typed decl as part of
@@ -18,7 +18,7 @@
  *
  * Fix: add an `AT_IDENT :` depth-0 boundary guard alongside the
  * existing `AT_IDENT =` guard. `@name :` at depth 0 always begins a
- * typed reactive-decl (§53); it cannot appear mid-expression without
+ * typed state-decl (§53); it cannot appear mid-expression without
  * either `{` (object-literal, depth > 0) or a misuse of `?:` (uses
  * `?` not `:` after identifier).
  */
@@ -54,7 +54,7 @@ function compileSrc(source, testName = `s25-boundary-${++tmpCounter}`) {
   }
 }
 
-describe("S25 §6 — untyped-then-typed reactive-decl boundary", () => {
+describe("S25 §6 — untyped-then-typed state-decl boundary", () => {
   test("untyped @x then typed @y: T = ... → both reactives emit", () => {
     const src = `<program>
 \${

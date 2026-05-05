@@ -9,7 +9,7 @@
  *   §3  extractReactiveDeps — escaped characters inside strings
  *   §4  extractReactiveDeps — knownReactiveVars filtering
  *   §5  extractReactiveDeps — edge cases (empty, null, no @vars)
- *   §6  collectReactiveVarNames — reactive-decl collection from AST
+ *   §6  collectReactiveVarNames — state-decl collection from AST
  */
 
 import { describe, test, expect } from "bun:test";
@@ -169,7 +169,7 @@ describe("extractReactiveDeps — edge cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("collectReactiveVarNames", () => {
-  test("collects reactive-decl names from top-level logic", () => {
+  test("collects state-decl names from top-level logic", () => {
     const fileAST = {
       nodes: [
         {

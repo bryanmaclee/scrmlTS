@@ -1,4 +1,4 @@
-// @reactive with type annotation per §7.5 reactive-decl grammar
+// @reactive with type annotation per §7.5 state-decl grammar
 ${
     @count: number = 0
     @label: string = "items"

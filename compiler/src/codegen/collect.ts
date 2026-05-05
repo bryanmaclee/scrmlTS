@@ -418,7 +418,7 @@ export function isServerOnlyNode(node: unknown): boolean {
     );
   }
 
-  // Catch inline ?{} SQL sigil in let-decl / const-decl / reactive-decl init strings.
+  // Catch inline ?{} SQL sigil in let-decl / const-decl / state-decl init strings.
   // Phase 4d: ExprNode-first, string fallback
   if (n.kind === "let-decl" || n.kind === "const-decl" || n.kind === "state-decl") {
     const init = (n as any).initExpr ? emitStringFromTree((n as any).initExpr) : (typeof n.init === "string" ? n.init : "");
@@ -442,7 +442,7 @@ export function isServerOnlyNode(node: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Walk the file AST and return all `server @var` reactive-decl nodes found inside
+ * Walk the file AST and return all `server @var` state-decl nodes found inside
  * logic-block bodies. Shared by emit-reactive-wiring (client) and emit-server
  * (synthetic __mountHydrate route emission).
  */
