@@ -262,6 +262,51 @@ export function runCG(input: CgInput): CgOutput {
       }
     }
 
+    // §40.7 documentary-attrs-on-nested-program detection (Phase A1a, 2026-05-05).
+    // Walk all <program> nodes; the FIRST top-level <program> is the document
+    // root (its documentary attrs emit head metadata in the head-emission pass
+    // below). Any deeper <program> with one of the five documentary attrs
+    // (title, description, version, author, license) emits W-PROGRAM-TITLE-NESTED.
+    // Runs BEFORE extractWorkerPrograms() so worker-program nodes are still in
+    // tree and discoverable.
+    const DOC_ATTR_NAMES = ["title", "description", "version", "author", "license"];
+    function detectNestedDocAttrs(parentChildren: any[], depth: number): void {
+      for (const node of parentChildren) {
+        if (!node || typeof node !== "object") continue;
+        if (node.kind === "markup" && node.tag === "program") {
+          if (depth >= 1) {
+            // Nested <program> — check for documentary attrs
+            const attrs: any[] = node.attributes ?? node.attrs ?? [];
+            const offending = attrs.filter((a: any) =>
+              DOC_ATTR_NAMES.includes(a.name) &&
+              a.value && a.value.kind === "string-literal" &&
+              typeof a.value.value === "string" && a.value.value !== ""
+            );
+            for (const a of offending) {
+              const span = (a.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 0, col: 0 });
+              errors.push(new CGError(
+                "W-PROGRAM-TITLE-NESTED",
+                `W-PROGRAM-TITLE-NESTED: Documentary attribute \`${a.name}=\` on a nested ` +
+                `<program> has no effect — workers have no DOM <head>. Move \`${a.name}=\` to ` +
+                `the top-level <program> or remove it. (§40.7)`,
+                { file: filePath, start: span.start ?? 0, end: span.end ?? 0, line: span.line ?? 0, col: span.col ?? 0 },
+                "warning",
+              ));
+            }
+          }
+          // Recurse into nested program children at the next depth
+          if (Array.isArray(node.children)) {
+            detectNestedDocAttrs(node.children, depth + 1);
+          }
+          continue;
+        }
+        if (node.kind === "markup" && Array.isArray(node.children) && node.children.length > 0) {
+          detectNestedDocAttrs(node.children, depth);
+        }
+      }
+    }
+    detectNestedDocAttrs(nodes, 0);
+
     extractWorkerPrograms(nodes);
 
     if (workerDefs.size > 0) {
@@ -528,6 +573,50 @@ export function runCG(input: CgInput): CgOutput {
     }
 
     const base = basename(filePath, ".scrml");
+
+    // §40.7 — extract documentary attributes from the top-level <program>
+    // (Phase A1a, 2026-05-05). The five attributes (title, description,
+    // version, author, license) emit standard HTML head tags. Empty-string
+    // values are treated as absent. Non-string-literal values are silently
+    // ignored — head metadata is static, not reactive.
+    const topLevelProgram = (nodes as any[]).find(
+      (n: any) => n && n.kind === "markup" && n.tag === "program",
+    );
+    function getDocAttr(name: string): string | null {
+      if (!topLevelProgram) return null;
+      const attrs: any[] = topLevelProgram.attributes ?? topLevelProgram.attrs ?? [];
+      const a = attrs.find((x: any) => x.name === name);
+      if (!a || !a.value) return null;
+      if (a.value.kind !== "string-literal") return null;
+      const v = a.value.value;
+      if (typeof v !== "string" || v === "") return null;
+      return v;
+    }
+    const docTitle = getDocAttr("title");
+    const docDescription = getDocAttr("description");
+    const docVersion = getDocAttr("version");
+    const docAuthor = getDocAttr("author");
+    const docLicense = getDocAttr("license");
+
+    // Detect author-written <title> in the source — any <title> markup node
+    // anywhere under the top-level <program>. When present, it suppresses
+    // both the documentary title= AND the default basename <title>.
+    function hasAuthorTitle(children: any[] | undefined): boolean {
+      if (!Array.isArray(children)) return false;
+      for (const c of children) {
+        if (!c || typeof c !== "object") continue;
+        if (c.kind === "markup" && c.tag === "title") return true;
+        if (c.kind === "markup" && Array.isArray(c.children) && hasAuthorTitle(c.children)) return true;
+        // The top-level <program>'s children are the document body — recurse
+        // through state nodes too (state-typed openers that wrap markup).
+        if (c.kind === "state" && Array.isArray(c.children) && hasAuthorTitle(c.children)) return true;
+      }
+      return false;
+    }
+    const authorTitlePresent = topLevelProgram
+      ? hasAuthorTitle(topLevelProgram.children)
+      : hasAuthorTitle(nodes as any[]);
+
     let html: string | null = null;
     if (htmlBody) {
       const docParts: string[] = [];
@@ -536,7 +625,31 @@ export function runCG(input: CgInput): CgOutput {
       docParts.push("<head>");
       docParts.push("  <meta charset=\"UTF-8\">");
       docParts.push("  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">");
-      docParts.push(`  <title>${escapeHtmlAttr(base)}</title>`);
+      // <title> emission rule (§40.7):
+      //   1. Author-written <title> → no compiler-emitted <title>
+      //      (the author <title> renders via htmlBody itself)
+      //   2. Documentary title= and no author <title> → emit documentary <title>
+      //   3. Neither → fall back to default basename <title>
+      if (!authorTitlePresent) {
+        if (docTitle !== null) {
+          docParts.push(`  <title>${escapeHtmlAttr(docTitle)}</title>`);
+        } else {
+          docParts.push(`  <title>${escapeHtmlAttr(base)}</title>`);
+        }
+      }
+      // Documentary <meta> tags (§40.7) — fixed emission order.
+      if (docDescription !== null) {
+        docParts.push(`  <meta name="description" content="${escapeHtmlAttr(docDescription)}">`);
+      }
+      if (docVersion !== null) {
+        docParts.push(`  <meta name="application-version" content="${escapeHtmlAttr(docVersion)}">`);
+      }
+      if (docAuthor !== null) {
+        docParts.push(`  <meta name="author" content="${escapeHtmlAttr(docAuthor)}">`);
+      }
+      if (docLicense !== null) {
+        docParts.push(`  <meta name="license" content="${escapeHtmlAttr(docLicense)}">`);
+      }
       if (css) {
         docParts.push(`  <link rel="stylesheet" href="${base}.css">`);
       }
