@@ -2360,7 +2360,7 @@ non-conformant extension.
 
 ---
 
-### 6.6 Derived Reactive Values — `const @name`
+### 6.6 Derived Reactive Values — `const <name>`
 
 **Debate verdict:** Lazy pull with dirty flags (Approach C) wins 49.5/60. This section
 encodes that verdict as normative spec. The previous TODO stub and the `_scrml_reactive_derived`
@@ -2371,29 +2371,31 @@ section.
 
 #### 6.6.1 Syntax
 
-A derived reactive value is declared with `const` applied to an `@`-prefixed identifier:
+A derived reactive value is declared with `const` applied to a `<>`-wrapped identifier
+(declaration site uses structural `<>` syntax per V5-strict L15; reads use `@name`):
 
 ```
-derived-decl ::= 'const' '@' identifier '=' expression
+derived-decl ::= 'const' '<' identifier '>' '=' expression
 ```
 
 **Examples:**
 
 ```scrml
-const @total   = @price * @quantity
-const @taxed   = @total * 1.08
-const @display = @taxed > 0 ? @taxed.toFixed(2) : "0.00"
+const <total>   = @price * @quantity
+const <taxed>   = @total * 1.08
+const <display> = @taxed > 0 ? @taxed.toFixed(2) : "0.00"
 ```
 
-The `const` keyword signals immutability of the binding. The `@` sigil signals that the
-value is reactive — it is re-evaluated when any `@`-prefixed upstream dependency changes.
+The `const` keyword signals immutability of the binding. The `<>` declaration form signals
+that the value is reactive — it is re-evaluated when any upstream `@`-read dependency
+changes. Read sites for the derived cell use `@name` exactly as for any other reactive cell.
 
 **Normative statements:**
 
-- The `const @name = expr` form SHALL be the sole declaration syntax for derived reactive
+- The `const <name> = expr` form SHALL be the sole declaration syntax for derived reactive
   values. The form `@derived name = expr` (an alternative considered during design) SHALL
   NOT be recognized. Any use of `@derived` as a keyword SHALL be a compile error
-  (E-REACTIVE-001) with a hint suggesting `const @name = expr`.
+  (E-REACTIVE-001) with a hint suggesting `const <name> = expr`.
 - A derived reactive value declaration SHALL be valid anywhere a `const-decl` is valid:
   at file top-level, inside a logic context `${ }`, and at the top of a state block.
 - The right-hand side expression SHALL be evaluated lazily (see §6.6.3). The compiler
@@ -2406,12 +2408,12 @@ value is reactive — it is re-evaluated when any `@`-prefixed upstream dependen
 | Form | Behavior |
 |---|---|
 | `const total = @price * @quantity` | Static snapshot. Captures the value of `@price` and `@quantity` at declaration time. Does NOT update when either changes. |
-| `const @total = @price * @quantity` | Derived reactive. Re-evaluates when `@price` or `@quantity` changes, per the lazy pull + dirty flag semantics of §6.6.3. |
+| `const <total> = @price * @quantity` | Derived reactive. Re-evaluates when `@price` or `@quantity` changes, per the lazy pull + dirty flag semantics of §6.6.3. |
 
 - `const total = expr` (no `@` on the left-hand side) produces a static value at declaration
   time. It is not tracked by the reactive system. Subsequent changes to any `@variable`
   read in `expr` do NOT propagate to `total`.
-- `const @total = expr` (with `@` on the left-hand side) is a derived reactive value. The
+- `const <total> = expr` (with `<>` on the left-hand side) is a derived reactive value. The
   compiler SHALL register it with the reactive dependency graph and emit dirty-propagation
   and re-evaluation wiring.
 
@@ -2422,12 +2424,12 @@ value is reactive — it is re-evaluated when any `@`-prefixed upstream dependen
 The evaluation strategy is **lazy pull with dirty flags**. This is the normative evaluation
 model. Eager push (recomputing immediately on every write) and runtime auto-tracking (used
 by SolidJS) are rejected for static dependency contexts; they are not conformant evaluation
-strategies for `const @name = expr` outside of `^{}` meta blocks.
+strategies for `const <name> = expr` outside of `^{}` meta blocks.
 
 **The three-phase model:**
 
 **Phase 1 — Static graph construction (compile time).** The compiler walks the expression
-on the right-hand side of every `const @name = expr` and extracts all `@variable` references
+on the right-hand side of every `const <name> = expr` and extracts all `@variable` references
 as static dependency edges. The result is a directed acyclic graph (or an error — see §6.6.10
 for cycle detection). The compiler emits `_scrml_derived_subscribe` calls that wire each
 derived node to its upstream dependencies. This wiring is a static artifact in the compiled
@@ -2448,7 +2450,7 @@ microtask flush.
 
 **Normative statements:**
 
-- The compiler SHALL emit the complete subscription graph for all `const @name = expr`
+- The compiler SHALL emit the complete subscription graph for all `const <name> = expr`
   declarations as static calls in compiled output. The subscription graph SHALL NOT be
   discovered at runtime by tracking expression evaluation.
 - When an upstream `@variable` is written, the runtime SHALL eagerly propagate dirty flags
@@ -2465,7 +2467,7 @@ microtask flush.
   first read of any derived value triggers its initial evaluation.
 - The compiler SHALL track reactive dependencies transitively through function calls that
   appear in reactive positions. A reactive position is any of: a markup interpolation
-  `${expr}`, a `const @name = expr` derived declaration, or a `when` dep-list entry. If
+  `${expr}`, a `const <name> = expr` derived declaration, or a `when` dep-list entry. If
   a function `f()` is called in a reactive position and `f`'s body (as seen by the
   compiler's static call graph) reads one or more `@variable`s, those `@variable`s SHALL
   be recorded as dependencies of the enclosing reactive expression, exactly as if the
@@ -2488,9 +2490,9 @@ and a third derived value depends on both of them:
 @price    = 10
 @quantity = 3
 
-const @subtotal  = @price * @quantity         // depends on @price and @quantity
-const @discount  = @price * 0.05              // depends on @price only
-const @total     = @subtotal - @discount      // depends on both @subtotal and @discount
+const <subtotal> = @price * @quantity         // depends on @price and @quantity
+const <discount> = @price * 0.05              // depends on @price only
+const <total>    = @subtotal - @discount      // depends on both @subtotal and @discount
 ```
 
 When `@price` changes, both `@subtotal` and `@discount` are marked dirty (Phase 2). When
@@ -2559,7 +2561,7 @@ Inside `^{}` meta blocks (§22), the dependency graph of a derived expression is
 dynamically resolved functions, and reference values whose identity is only known at
 runtime.
 
-For `const @name = expr` expressions whose right-hand side contains a `^{}` block, the
+For `const <name> = expr` expressions whose right-hand side contains a `^{}` block, the
 compiler SHALL use **runtime auto-tracking** instead of static graph construction. The
 runtime auto-tracking implementation:
 
@@ -2569,10 +2571,10 @@ runtime auto-tracking implementation:
 
 **Normative statements:**
 
-- For `const @name = expr` where `expr` does NOT contain a `^{}` block, the compiler SHALL
+- For `const <name> = expr` where `expr` does NOT contain a `^{}` block, the compiler SHALL
   use static subscription graph construction (§6.6.3). Runtime auto-tracking SHALL NOT be
   used.
-- For `const @name = expr` where `expr` DOES contain a `^{}` block, the compiler SHALL use
+- For `const <name> = expr` where `expr` DOES contain a `^{}` block, the compiler SHALL use
   runtime auto-tracking. Static subscription graph construction SHALL NOT be attempted for
   `^{}` sub-expressions, as their dependency sets are unknowable at compile time.
 - The choice between static and runtime tracking is made per derived declaration by the
@@ -2585,7 +2587,7 @@ runtime auto-tracking implementation:
 
 #### 6.6.7 Compiler-Emitted Code Shape
 
-For a declaration `const @total = @price * @quantity`, the compiler SHALL emit code
+For a declaration `const <total> = @price * @quantity`, the compiler SHALL emit code
 equivalent to the following (simplified for clarity; actual encoded variable names may
 differ per §2 output conventions):
 
@@ -2610,12 +2612,12 @@ behavior (evaluate once, never re-evaluate) is superseded and non-conformant.
 
 **Normative statements:**
 
-- The compiler SHALL emit one `_scrml_derived_declare` call per `const @name = expr`
+- The compiler SHALL emit one `_scrml_derived_declare` call per `const <name> = expr`
   declaration.
 - The compiler SHALL emit one `_scrml_derived_subscribe` call per upstream `@variable`
   reference found in `expr` during static graph construction. If `expr` reads `@price` and
   `@quantity`, two subscribe calls are emitted.
-- The compiler SHALL NOT emit `_scrml_reactive_derived` for `const @name = expr`
+- The compiler SHALL NOT emit `_scrml_reactive_derived` for `const <name> = expr`
   declarations. The old stub function name is retired; the runtime SHALL provide
   `_scrml_derived_declare` and `_scrml_derived_subscribe` instead.
 
@@ -2623,11 +2625,11 @@ behavior (evaluate once, never re-evaluate) is superseded and non-conformant.
 
 #### 6.6.8 Assignment to a Derived Value — E-REACTIVE-002
 
-A `const @name` binding is immutable. The compiler SHALL reject any attempt to assign a
+A `const <name>` binding is immutable. The compiler SHALL reject any attempt to assign a
 new value to a derived reactive variable after its declaration.
 
 ```scrml
-const @total = @price * @quantity
+const <total> = @price * @quantity
 
 ${ function reset() {
     @total = 0    // Error E-REACTIVE-002
@@ -2636,10 +2638,10 @@ ${ function reset() {
 
 **Normative statements:**
 
-- The compiler SHALL reject any assignment to a `const @name` identifier after its
+- The compiler SHALL reject any assignment to a `const <name>` identifier after its
   declaration site. This applies regardless of the enclosing context (top-level, function
   body, logic block, or event handler).
-- E-REACTIVE-002 SHALL be: "Assignment to derived reactive value `@total`. `const @`
+- E-REACTIVE-002 SHALL be: "Assignment to derived reactive value `@total`. `const <name>`
   bindings are immutable. To reset the value, modify one of its upstream dependencies
   (`@price`, `@quantity`)."
 - The error message SHALL list the upstream dependencies of the target derived value, to
@@ -2653,38 +2655,38 @@ Derived reactive values are client-side constructs. Their dirty flag, cache, and
 subscription graph live in the browser. A server-escalated function (§12) runs in the Bun
 process, not in the browser, and has no access to the client-side reactive graph.
 
-**Declaring** a `const @name = expr` at file top-level is always valid. The compiler
+**Declaring** a `const <name> = expr` at file top-level is always valid. The compiler
 generates the derived node on the client. The derived value is client-resident.
 
-**Reading** a `const @name` value inside a server-escalated function is a compile error
+**Reading** a `const <name>` (read site `@name`) value inside a server-escalated function is a compile error
 (E-REACTIVE-003), because the server function cannot access the client-side reactive state
 at the time of execution.
 
 **Normative statements:**
 
-- A `const @name = expr` declaration SHALL always be a client-side declaration. The
+- A `const <name> = expr` declaration SHALL always be a client-side declaration. The
   compiler SHALL generate the derived node and its subscription graph in the client JS
   output, regardless of where in the source file the declaration appears.
-- A server-escalated function body that reads a `const @name` derived reactive value SHALL
+- A server-escalated function body that reads a `const <name>` derived reactive value SHALL
   be a compile error (E-REACTIVE-003): "Derived reactive value `@total` is a client-side
   construct and cannot be read inside a server-escalated function. Pass the value as a
   function argument instead."
 - The error message SHALL suggest the fix: pass the current value as a parameter from the
   call site, where it is available as a client-side value.
-- Reading a mutable `@variable` (not `const @`) inside a server-escalated function is
+- Reading a mutable `@variable` (not a `const <name>` derived) inside a server-escalated function is
   governed by E-RI-002 (§12), which is a separate error code and a separate condition.
-  E-REACTIVE-003 is specific to `const @` derived values.
+  E-REACTIVE-003 is specific to `const <name>` derived values.
 
 ---
 
 #### 6.6.10 Circular Derived Dependencies — E-REACTIVE-005
 
-The compiler constructs the static dependency graph for all `const @name = expr`
+The compiler constructs the static dependency graph for all `const <name> = expr`
 declarations during graph construction (§31). A cycle in this graph is a compile error.
 
 ```scrml
-const @a = @b + 1    // @a depends on @b
-const @b = @a + 1    // @b depends on @a — cycle!
+const <a> = @b + 1    // @a depends on @b
+const <b> = @a + 1    // @b depends on @a — cycle!
 ```
 
 The dependency graph is directed. A cycle exists when any node is reachable from itself by
@@ -2699,21 +2701,21 @@ code generation begins.
 
 - The compiler SHALL detect all cycles in the derived reactive dependency graph during
   Stage 7.
-- A cycle involving any `const @name` declarations SHALL be a compile error
+- A cycle involving any `const <name>` declarations SHALL be a compile error
   (E-REACTIVE-005).
 - The error message SHALL identify all nodes in the cycle and the dependency edges that
   form it.
 - E-REACTIVE-005 SHALL block code generation. A file with a circular derived dependency
   SHALL NOT produce compiled output.
-- Direct self-reference (`const @x = @x + 1`) is a degenerate one-node cycle and SHALL
+- Direct self-reference (`const <x> = @x + 1`) is a degenerate one-node cycle and SHALL
   trigger E-REACTIVE-005 with the message identifying `@x` as both the source and the
   target of the cycle edge.
 
 **Worked example — invalid (two-node cycle):**
 
 ```scrml
-const @a = @b + 1
-const @b = @a + 1
+const <a> = @b + 1
+const <b> = @a + 1
 ```
 
 Expected compiler output:
@@ -2729,7 +2731,7 @@ by introducing a mutable @variable as an intermediate value.
 **Worked example — invalid (self-reference):**
 
 ```scrml
-const @counter = @counter + 1
+const <counter> = @counter + 1
 ```
 
 Expected compiler output:
@@ -2744,7 +2746,7 @@ inside a function body?
 
 #### 6.6.11 No-Dependency Derived Value — W-DERIVED-001
 
-A `const @name = expr` where `expr` contains no `@variable` references is a derived value
+A `const <name> = expr` where `expr` contains no `@variable` references is a derived value
 with no dependencies. Its value never changes after initial evaluation. This is not an
 error but is almost certainly a mistake.
 
