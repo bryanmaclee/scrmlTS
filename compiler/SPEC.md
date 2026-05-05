@@ -2751,12 +2751,12 @@ with no dependencies. Its value never changes after initial evaluation. This is 
 error but is almost certainly a mistake.
 
 ```scrml
-const @x = 5 + 3    // W-DERIVED-001: no reactive dependencies; this is equivalent to const x = 8
+const <x> = 5 + 3    // W-DERIVED-001: no reactive dependencies; this is equivalent to const x = 8
 ```
 
 **Normative statements:**
 
-- The compiler SHALL emit W-DERIVED-001 when a `const @name = expr` declaration contains
+- The compiler SHALL emit W-DERIVED-001 when a `const <name> = expr` declaration contains
   no `@variable` references in `expr`.
 - The compiler SHALL still compile the declaration as a `const` (non-reactive) in the
   output, since there are no dependencies to subscribe to. The reactive overhead is elided.
@@ -2770,11 +2770,11 @@ const @x = 5 + 3    // W-DERIVED-001: no reactive dependencies; this is equivale
 
 | Code | Trigger | Severity |
 |---|---|---|
-| E-REACTIVE-002 | Assignment to a `const @name` derived reactive value after declaration | Error |
-| E-REACTIVE-003 | Reading a `const @name` derived value inside a server-escalated function | Error |
+| E-REACTIVE-002 | Assignment to a `const <name>` derived reactive value after declaration | Error |
+| E-REACTIVE-003 | Reading a `const <name>` derived value inside a server-escalated function | Error |
 | E-REACTIVE-004 | `flush()` called inside a derived expression | Error |
 | E-REACTIVE-005 | Circular dependency in the derived reactive graph | Error |
-| W-DERIVED-001 | `const @name = expr` has no `@variable` references; value never re-evaluates | Warning |
+| W-DERIVED-001 | `const <name> = expr` has no `@variable` references; value never re-evaluates | Warning |
 
 ---
 
@@ -2786,7 +2786,7 @@ const @x = 5 + 3    // W-DERIVED-001: no reactive dependencies; this is equivale
 <program>
     @price    = 10
     @quantity = 3
-    const @total = @price * @quantity
+    const <total> = @price * @quantity
 
     <p>Total: ${@total}</>
     <input type="number" bind:value=@price>
@@ -2815,9 +2815,9 @@ _scrml_derived_subscribe("total", "quantity");
     @price    = 100
     @quantity = 2
 
-    const @subtotal = @price * @quantity          // depends on @price, @quantity
-    const @discount = @price * 0.1                // depends on @price only
-    const @total    = @subtotal - @discount        // depends on @subtotal, @discount
+    const <subtotal> = @price * @quantity          // depends on @price, @quantity
+    const <discount> = @price * 0.1                // depends on @price only
+    const <total>    = @subtotal - @discount        // depends on @subtotal, @discount
 
     <p>Subtotal: ${@subtotal}</>
     <p>Discount: ${@discount}</>
@@ -2867,7 +2867,7 @@ _scrml_derived_subscribe("total", "discount");
 ```scrml
 @price    = 10
 @quantity = 3
-const @total = @price * @quantity
+const <total> = @price * @quantity
 
 ${ function clearCart() {
     @total = 0    // Error E-REACTIVE-002
@@ -2875,7 +2875,7 @@ ${ function clearCart() {
 ```
 
 ```
-Error E-REACTIVE-002: Assignment to derived reactive value `@total`. `const @` bindings
+Error E-REACTIVE-002: Assignment to derived reactive value `@total`. `const <name>` bindings
 are immutable. To change the displayed total, modify one of its upstream dependencies:
 @price, @quantity.
 ```
@@ -2883,8 +2883,8 @@ are immutable. To change the displayed total, modify one of its upstream depende
 **Invalid — circular dependency (E-REACTIVE-005):**
 
 ```scrml
-const @a = @b * 2
-const @b = @a + 1
+const <a> = @b * 2
+const <b> = @a + 1
 ```
 
 ```
@@ -2898,7 +2898,7 @@ Cycle: @a → @b → @a
 
 ```scrml
 @price = 10
-const @total = @price * 3
+const <total> = @price * 3
 
 ${ server function saveOrder() {
     let amount = @total    // Error E-REACTIVE-003
@@ -2919,7 +2919,7 @@ argument instead:
 
 #### 6.6.14 Interaction Notes
 
-- **§6.3 (Reactive Semantics):** A `const @name` derived value is a reactive binding. All
+- **§6.3 (Reactive Semantics):** A `const <name>` derived value is a reactive binding. All
   normative statements in §6.3 about dependents re-evaluating when an upstream `@variable`
   changes apply to derived values. §6.6 specifies the mechanism (lazy pull, dirty flags);
   §6.3 specifies the intent.
@@ -2938,22 +2938,22 @@ argument instead:
   `bind:` system and the derived system are orthogonal; no special interaction exists.
 
 - **§12 (Route Inference):** Derived reactive values are always client-side. The route
-  inference pass SHALL classify any function that reads a `const @name` derived value as a
+  inference pass SHALL classify any function that reads a `const <name>` derived value as a
   client-side function, not a server candidate. If that function also accesses server
   resources, E-REACTIVE-003 fires.
 
-- **§34 (`lin`):** A `const @name` derived value is not a `lin` variable. It may be read
-  any number of times without consuming it. The `lin` keyword and `const @` are orthogonal.
+- **§34 (`lin`):** A `const <name>` derived value is not a `lin` variable. It may be read
+  any number of times without consuming it. The `lin` keyword and `const <name>` are orthogonal.
 
 #### 6.6.15 Developer Summary — Canonical Pattern
 
-> **Canonical pattern for derived reactive state:** `const @name = expr`
+> **Canonical pattern for derived reactive state:** `const <name> = expr`
 
-A `const @name = expr` declaration where `expr` reads one or more `@var` references SHALL be lazily memoized. The expression re-evaluates only when a referenced `@var` changes. The result is cached between evaluations; reading `@name` multiple times between upstream changes returns the cached result without re-evaluating the expression.
+A `const <name> = expr` declaration where `expr` reads one or more `@var` references SHALL be lazily memoized. The expression re-evaluates only when a referenced `@var` changes. The result is cached between evaluations; reading `@name` multiple times between upstream changes returns the cached result without re-evaluating the expression.
 
 **Normative statements:**
 
-- A `const @name = expr` derived declaration SHALL cache the last computed value. Between upstream `@var` changes, any number of reads SHALL return the cached value without re-evaluating.
+- A `const <name> = expr` derived declaration SHALL cache the last computed value. Between upstream `@var` changes, any number of reads SHALL return the cached value without re-evaluating.
 - The cache SHALL be invalidated exactly when any upstream `@var` in the dependency graph is assigned a new value via `_scrml_reactive_set`.
 - The compiler SHALL NOT emit re-evaluation code for reads of `@name` while the cache is clean.
 
@@ -2987,7 +2987,7 @@ ${ let label = @signup.displayName }
 **Normative statements:**
 
 - `const <derived> = expr` inside a compound block SHALL be valid when `expr` references other fields of the same compound (e.g., `@signup.name`) or any in-scope reactive cell.
-- The derived value SHALL re-evaluate when any referenced cell changes, using the same lazy-pull-with-dirty-flags semantics as top-level `const @x` (§6.6.3).
+- The derived value SHALL re-evaluate when any referenced cell changes, using the same lazy-pull-with-dirty-flags semantics as top-level `const <x>` (§6.6.3).
 - The derived value SHALL be read-only. Any write attempt SHALL emit E-DERIVED-WRITE.
 - The derived value IS part of the compound's observable surface: `@signup.displayName` is valid from outside the block.
 - In-compound derived values SHALL NOT have render-specs. They are value-typed (or markup-typed — see below), not input-typed.
@@ -2998,10 +2998,10 @@ ${ let label = @signup.displayName }
 
 #### 6.6.17 Markup-Typed Derived Cells
 
-Both top-level `const @name` and in-compound `const <name>` may have markup on the right-hand side. The result is a markup-typed derived cell: a reactive cell whose value IS a markup expression.
+Both top-level `const <name>` and in-compound `const <name>` may have markup on the right-hand side. The result is a markup-typed derived cell: a reactive cell whose value IS a markup expression.
 
 ```scrml
-const @badge   = <span class="badge">${@signup.name}</span>
+const <badge>  = <span class="badge">${@signup.name}</span>
 
 // In-compound:
 <signup>
@@ -3019,7 +3019,7 @@ const @badge   = <span class="badge">${@signup.name}</span>
 
 **Normative statements:**
 
-- A `const @name = <markup-expr>` or `const <name> = <markup-expr>` SHALL be valid. The right-hand side markup expression is treated as a reactive markup value.
+- A `const <name> = <markup-expr>` (top-level or in-compound) SHALL be valid. The right-hand side markup expression is treated as a reactive markup value.
 - The cell's value type IS the markup expression's type. Reads return the (recomputed, reactively updated) markup tree.
 - `${@derivedMarkupCell}` in markup body SHALL expand the markup tree at that position — the same as interpolating any markup value.
 - `<derivedMarkupCell/>` as a tag SHALL be E-CELL-NO-RENDER-SPEC regardless of whether the cell is markup-typed. The tag form is for Shape 2 cells (decl-coupled-with-render-spec) only; derived cells do not have render-specs.
