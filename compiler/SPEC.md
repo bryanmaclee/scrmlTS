@@ -7957,6 +7957,57 @@ A non-`bind` prop is evaluated once when the component instantiates. To pass a r
 - `bind:` props SHALL maintain a live two-way reactive link between the parent `@var` and the component prop (§15.11.1).
 - A component that references `@var` from its enclosing scope SHALL establish a subscriber on `@var` during the component expansion phase, torn down at component unmount.
 
+#### 15.13.5 Components stay distinct from engines (Stage 0b D4 — M20)
+
+**Added:** 2026-05-04 — formalises Move 20 (S55 deliberation): components and engines remain distinct vehicles for distinct multiplicities. They are NOT collapsible into a single primitive.
+
+**The distinction.**
+
+| | Engine (§51) | Component (§15) |
+|---|---|---|
+| Multiplicity | SINGLETON-by-design | MULTI-INSTANCE |
+| Declaration shape | `<engine for=Type initial=...>...state-children...</>` | `const Card = <article props={...}>...</>` |
+| Render position | At decl position (cross-file mount via `<EngineName/>`) | At every use-site of the tag (`<Card/>`, `<Card/>`, ...) |
+| State lifetime | One state cell, app-lifecycle (or component-instance lifecycle if scoped to a component body) | Fresh state per instance — every `<Card/>` use-site has its own state |
+| Use case | "If you want ONE of them" — the central state machine, the active-rule contract, lifecycle effects | "If you want MANY of them" — repeated UI, parametric markup, slot composition |
+
+**Normative statements:**
+
+- An engine declaration `<engine for=T initial=.X>` is a singleton in its declaring scope. Cross-file use of the engine via `<EngineName/>` mounts the SAME singleton at the use-site (cross-ref §21.X — cross-file engine import).
+- A component definition `const Card = <article ...>...</>` is a multi-instance vehicle. Each `<Card/>` tag instantiates a fresh component with its own internal state (`@var` declared inside the component body is per-instance).
+- A component body SHALL NOT instantiate an engine. Instantiating an engine inside a component body conflicts with the singleton-vs-instance multiplicity guarantee — every component instance would need its own engine instance, but engines are singletons. This is `E-COMPONENT-ENGINE-SCOPE` (§34, also cross-ref §51.0.K).
+- A component MAY be passed an engine's variant value as a prop (`<StatePill state=@phase/>`) — that's value passing, not engine instantiation. The engine's singleton lives outside the component; the component receives the variant value at each render.
+- An engine state-child body MAY use components (`<Card/>` instances inside `<Loading>`) — that's component instantiation inside engine state-children, which composes correctly (the engine has one state-child body active at a time; the component is multi-instance within that body).
+
+**The slogan (from S55):** "If you want many of them, use a component. If you want one, use an engine."
+
+**Why distinct:** collapsing engines and components into a single primitive forces ONE of the multiplicities to lose. If you collapse to multi-instance, the engine's compile-time exhaustiveness and singleton-state-machine guarantees evaporate. If you collapse to singleton, components can no longer be reused — every `<Card/>` use-site would share state. Keeping them distinct keeps both guarantees.
+
+**Cross-references:**
+- §51.0.K — engine-side statement of the same distinction.
+- §15.13.4 — component reactive scope (multi-instance per-component-state semantics).
+- §21 — cross-file engine import (M18) and cross-file component import (the same `import { ... }` syntax serves both vehicles).
+
+**Error code:** `E-COMPONENT-ENGINE-SCOPE` (§34) — engine declaration appears inside a component body.
+
+#### 15.13.6 Component reactive scope under V5-strict (Stage 0b D4)
+
+**Added:** 2026-05-04 — reaffirms §15.13's reactive scope under the V5-strict access model (§6.1).
+
+Under V5-strict (§6.1), the access form for reactive state is:
+
+- `<x>` — structural form, used at declaration sites and for render-by-tag in markup.
+- `@x` — canonical expression access, used for reads, writes, and compound assignments.
+
+The §15.13 reactive scope rules apply uniformly:
+
+- A component body's `@var` references from the enclosing scope establish reactive subscriptions per §15.13.1.
+- A component body MAY declare its own state cells (`<localCell> = init`) — these are per-instance per V5-strict's structural-form rule.
+- Bare names in component body expressions are LOCALS only (§6.1) — they are NOT shorthand for cell access. To read a cell from the enclosing scope, write `@cellName`.
+- The `bind:` prefix on a component prop (§15.11.1) operates exactly as it does for HTML elements (§5.4) — a two-way reactive link via the V5-strict `=@var` form.
+
+This subsection is a NORMATIVE composition note; it adds nothing new beyond what §6.1 (V5-strict) and §15.13 (component reactive scope) already say. It exists to head off the question "does V5-strict change anything for components?" — the answer is no.
+
 ---
 
 ### 15.14 Post-CE Invariant — No Residual Component References
