@@ -85,6 +85,23 @@ When the user says "wrap" (or PA proposes wrap), execute ALL of:
 
 If the user says just "wrap" without further context, default to executing all 8 steps. If the user says "wrap and push" — same plus authorize step 7. If the user says "wrap, no push" — execute 1-6 + 8, leave 7 explicit-pending.
 
+## Context budget — when to suggest wrap (PERMANENT)
+
+**This PA runs on Opus 4.7 with a 1M-token context window.** Wrap-suggestion timing must reflect that, not earlier-Claude-era 200k-context heuristics.
+
+User verbatim (S56, the directive):
+> the pa starts suggesting wrapping when ctx is between 15 - 20 %. I would like the pa.md to reflect that this is a 1m token ctx and we can easily hit 500000 tokens before wrapping is necessary, if there is a real good reason then maybe suggest slighty earlier.
+
+**Standing rule:**
+- **Do NOT suggest wrap based on context % alone above ~50% of total context (i.e., above 500k tokens used / below 50% remaining).** Long deep-dive sessions, multi-thread deliberations, and full-doc rewrites are the kind of work the 1M context exists to enable — premature wrap-suggestion squanders that.
+- **Default wrap-suggestion threshold:** ~15-20% remaining (~800k+ tokens used). At this point the next-session pickup advantage of a fat hand-off outweighs continuing the current thread.
+- **Wrap operation itself costs ~5-7% context** (per S56 user observation). Plan accordingly — if you're at 18% remaining, wrap will land you at ~10-13% and that's fine.
+- **Earlier wrap-suggestion is allowed only with a real reason**: a natural stopping point (cluster closed, deliberation ratified, dispatch about to launch), a user signal that they want to break, or context-density actually degrading (e.g., the recent thread is no longer load-bearing for what's coming). Surface the reason explicitly when proposing early wrap.
+- **The user actively tracks context budget as a session-pacing tool** (per S56). Treat user-supplied budget signals (e.g., "we're at 31%", "fine to push to 60%") as authoritative; PA should NOT override with conservative wrap-suggestion when the user has said push on.
+- **Empirically validated:** S56 ran ~50% context on a single deliberation thread that produced 20 locks + full kickstarter v2 rewrite + comprehensive Stage 0a impact assessment. Premature wrap at 15-20% used would have squandered the second half of that work.
+
+This rule supersedes any prior wrap-suggestion heuristic carried in PA training data or earlier convention.
+
 ## Human-verified examples log
 
 `examples/VERIFIED.md` is a sibling to `examples/README.md` that tracks which examples the **user has personally verified** end-to-end (compiled, run, output checked). Each verification is a USER action; PA can compile-test and check format compliance, but "human verified" means the user has actually run and confirmed correct behavior.
