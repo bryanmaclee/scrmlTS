@@ -1982,6 +1982,43 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             (tok.kind === "KEYWORD" && !STMT_KEYWORDS.has(tok.text))
           );
           if (lastEndsValue && tokStartsStmt) break;
+          // Phase A1a Step 11.0b — newline-as-statement-separator for state-decls.
+          // When a newline crosses, lastTok ends a value, and the current token
+          // is `<` PUNCT followed by IDENT, peek further to see if this opens a
+          // state-decl (Shape 1/2/3 plain or Variant C compound). If so, treat
+          // the newline as a statement boundary.
+          //
+          // This generalizes ASI-NEWLINE (above) to recognize state-decl
+          // openers — which start with `<` PUNCT, not IDENT or KEYWORD. The
+          // shape lookahead is delegated to `scanStructuralDeclLookahead`,
+          // the same helper used by `tryParseStructuralDecl` to confirm a
+          // state-decl pattern. It returns null on decline, so a stray `<`
+          // followed by IDENT but not shaped like a state-decl will not
+          // trigger a false break.
+          //
+          // Critical disambiguation:
+          //   - `<x> = a < b ? 1 : 2`  — same line; newline gate suppresses,
+          //     no break (existing behavior preserved).
+          //   - `<x> = @a +\n@b`       — `+` does not end a value (lastEndsValue
+          //     false), no break. Multi-line legitimate expressions preserved.
+          //   - `<x> = <input\n type/>` — at the `<input` token we are inside
+          //     markup-RHS handled by `parseLiftTag`, not collectExpr. When we
+          //     re-enter collectExpr after parseLiftTag (or for plain Shape
+          //     1/3 RHS), `angleDepth === 0` ensures markup nesting is
+          //     respected.
+          //   - `compute(\na,b\n)\n<count>=0` — after `)`, lastEndsValue=true,
+          //     newline crossed, `<count>` shape matches → break.
+          if (
+            lastEndsValue &&
+            tok.kind === "PUNCT" && tok.text === "<" &&
+            peek(1) && peek(1).kind === "IDENT"
+          ) {
+            // scanStructuralDeclLookahead is a closure over `i`; it expects
+            // peek(0) === `<` and peek(1) === IDENT. Returns null if the
+            // shape does not match a state-decl (Shape 1/2/3 or Variant C).
+            const declShape = scanStructuralDeclLookahead();
+            if (declShape) break;
+          }
         }
         // Phase A1a Step 11.0a — compound-body child boundary.
         // When collecting the RHS of a child state-decl inside a Variant C

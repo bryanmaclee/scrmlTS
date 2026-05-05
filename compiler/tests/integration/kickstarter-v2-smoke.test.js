@@ -27,11 +27,14 @@
  *     The two anti-test memorials previously marked TODO[step-11.0a] are
  *     flipped to positive assertions in §K11.1A.
  *
- *   §K11.X-DIVERGENCE-2 — Multi-decl using newlines as separators (sibling
- *     state-decls) is STILL NOT recognized today: `<a>=0\n<b>=1` parses as
- *     a single state-decl `a` with `init = "0\n< b > = 1"`. Semicolons work;
- *     newlines don't. **TODO[step-11.0b]** — newline-as-statement-separator
- *     in `parseLogicBody` for state-decl RHS.
+ *   §K11.2A — Multi-decl using newlines as separators RECOGNIZED (resolved by
+ *     Step 11.0b). Prior to 11.0b the form `<a>=0\n<b>=1` parsed as a single
+ *     state-decl with the second decl eaten as raw text in `init`. The
+ *     `collectExpr` ASI-NEWLINE branch was extended to detect a state-decl
+ *     shape opener (`<` PUNCT + IDENT + state-decl lookahead) at the start
+ *     of a new line as a statement boundary. The 1 anti-test memorial
+ *     previously marked TODO[step-11.0b] is flipped to positive assertion in
+ *     §K11.2A.
  *
  *   §K11.X-DIVERGENCE-3 — Typed-decl `<x>: T = expr` and Tier 3 positional
  *     `<userInfo>: UserInfo = (...)` are STILL NOT recognized. Falls through
@@ -91,10 +94,9 @@ function assertNoHtmlFragmentMatching(ast, regex) {
 // =============================================================================
 //
 // Distilled cluster: `<count> = 0` declaration + `inc`/`clear` functions
-// reading and writing `@count`. The kickstarter source uses newline-only
-// separators between functions, which works (decl-then-fn separation works);
-// what does NOT work is sibling state-decl-then-state-decl with newline
-// separator (see §K11.X-DIVERGENCE-2 below).
+// reading and writing `@count`. Step 11.0b extended newline-as-separator
+// to sibling state-decls; the original kickstarter v2 §3 multi-decl form
+// is now exercised positively in §K11.2A.
 //
 // We exercise the working semicolon-separated form here for ALL three
 // statements + an extra `function describe()` body that includes a `let count`
@@ -148,9 +150,8 @@ describe("Kickstarter v2 §3 K11.1 — V5-strict access cluster", () => {
 // =============================================================================
 //
 // kickstarter v2 §3.1 shows the three RHS shapes side-by-side. We split into
-// per-shape single-decl probes (because newline-separated multi-decl breaks
-// today, see §K11.X-DIVERGENCE-2). The per-shape single-decl form IS the
-// minimal smoke that confirms each kickstarter §3.1 example shape is parseable.
+// per-shape single-decl probes for clarity. Step 11.0b enables newline-only
+// multi-decl separation; §K11.2A exercises the positive form.
 // =============================================================================
 
 describe("Kickstarter v2 §3.1 K11.2 — three RHS shapes", () => {
@@ -297,8 +298,8 @@ describe("Kickstarter v2 §3.1 K11.2 — three RHS shapes", () => {
 //   const items = [{name: "apple"}]                // plain JS const, bare-name
 //   const <filteredItems> = items.filter(...)      // reactive derived cell, @-access
 //
-// Single-decl-per-block is needed (newline-separation between siblings broken,
-// §K11.X-DIVERGENCE-2). Semicolon mode is the canonical working form.
+// Single-decl-per-block is illustrated; Step 11.0b also enables the
+// newline-separated multi-decl form (see §K11.2A).
 // =============================================================================
 
 describe("Kickstarter v2 §3.1 K11.2i — plain JS const vs reactive derived", () => {
@@ -508,22 +509,24 @@ describe("Kickstarter v2 §3 K11.1A — Variant C compound recognized", () => {
 });
 
 // =============================================================================
-// §K11.X-DIVERGENCE-2 — Multi-decl with newline-only separator NOT recognized
+// §K11.2A — Multi-decl with newline-only separator RECOGNIZED (Step 11.0b)
 // =============================================================================
 //
-// `<a>=0\n<b>=1` produces ONE state-decl `a` with `init = "0\n< b > = 1"` —
-// the second decl gets eaten into the first's init. Semicolon-separated
-// works, but the kickstarter v2 §3 corpus uses newline-only separation
-// extensively. The `parseOneStatement` recognizer does NOT treat newlines
-// as statement boundaries when scanning the RHS of a state-decl init.
+// Step 11.0b extended `collectExpr`'s ASI-NEWLINE branch (in `ast-builder.js`)
+// to recognize state-decl shape openers (`<` PUNCT + IDENT + state-decl
+// lookahead) at the start of a new line as statement boundaries. Newline +
+// state-decl-shape-ahead AND lastTok ends a value → break.
 //
-// **TODO[step-11.0b]:** introduce newline-as-statement-separator support
-// inside `tryParseStructuralDecl` RHS-collection logic. When fixed, this
-// test MUST be inverted to assert two distinct state-decls.
+// Critical invariants preserved:
+//   - Same-line `a < b` comparisons NOT broken (newline-gated).
+//   - Multi-line legitimate expressions like `<x> = @a +\n@b` NOT truncated
+//     (`+` is not an value-ending token, `lastEndsValue` is false).
+//   - Shape 2 markup-RHS multi-line (`<x> = <input\n type="text"/>`)
+//     NOT regressed (parseLiftTag handles markup, angleDepth tracking).
 // =============================================================================
 
-describe("Kickstarter v2 K11.X-DIVERGENCE-2 — multi-decl newline separator (DEFERRED)", () => {
-  test("§K11.X-D2: TODO[step-11.0b] — `<a>=0\\n<b>=1` (newline-only) eats sibling decl into init", () => {
+describe("Kickstarter v2 §3 K11.2A — multi-decl newline separator (Step 11.0b)", () => {
+  test("§K11.2A: `<a>=0\\n<b>=1` (newline-only) produces TWO state-decls, no eaten sibling", () => {
     const src = `<program>\${
       <a> = 0
       <b> = 1
@@ -531,14 +534,22 @@ describe("Kickstarter v2 K11.X-DIVERGENCE-2 — multi-decl newline separator (DE
     const { ast, errors } = parse(src);
     expect(errors.length).toBe(0);
     const decls = findKind(ast, "state-decl");
-    // TODAY: only ONE state-decl recognized; sibling eaten as raw text in init
-    expect(decls.length).toBe(1);
-    expect(decls[0].name).toBe("a");
-    expect(decls[0].init).toContain("< b > = 1"); // SIC — second decl as raw text
-    // When fixed, INVERT to assert decls.length === 2 with names ['a','b'].
+    expect(decls.length).toBe(2);
+    const names = decls.map((d) => d.name).sort();
+    expect(names).toEqual(["a", "b"]);
+    // Each decl carries its own init; sibling is NOT eaten.
+    const aDecl = decls.find((d) => d.name === "a");
+    const bDecl = decls.find((d) => d.name === "b");
+    expect(aDecl.init).toBe("0");
+    expect(bDecl.init).toBe("1");
+    // Both should be Shape 1 plain.
+    expect(aDecl.shape).toBe("plain");
+    expect(bDecl.shape).toBe("plain");
+    // Anti-deceptive-success: no html-fragment carrying the eaten raw text.
+    assertNoHtmlFragmentMatching(ast, /<\s*a\s*>|<\s*b\s*>/);
   });
 
-  test("§K11.X-D2b: working baseline — semicolon separator DOES work today", () => {
+  test("§K11.2A-b: working baseline — semicolon separator DOES work today", () => {
     const src = `<program>\${ <a> = 0; <b> = 1 }</program>`;
     const { ast, errors } = parse(src);
     expect(errors.length).toBe(0);
@@ -546,11 +557,10 @@ describe("Kickstarter v2 K11.X-DIVERGENCE-2 — multi-decl newline separator (DE
     expect(decls.length).toBe(2);
     const names = decls.map((d) => d.name).sort();
     expect(names).toEqual(["a", "b"]);
-    // This test is the working sibling — it confirms the failing newline test
-    // above isn't a recognizer bug, it's a separator-detection gap.
+    // Semicolon mode preserved alongside newline mode.
   });
 
-  test("§K11.X-D2c: working baseline — newline DOES separate decl-from-fn (legacy)", () => {
+  test("§K11.2A-c: working baseline — newline separates decl-from-fn (legacy preserved)", () => {
     const src = `<program>\${
       <count> = 0
       function inc() { @count = @count + 1 }
@@ -560,8 +570,8 @@ describe("Kickstarter v2 K11.X-DIVERGENCE-2 — multi-decl newline separator (DE
     const decls = findKind(ast, "state-decl");
     const fns = findKind(ast, "function-decl");
     // The legacy newline-as-separator handling between a state-decl and a
-    // function-decl works because `function` is a keyword-anchored statement
-    // start. The gap is specifically state-decl-then-state-decl.
+    // function-decl still works (function is a keyword-anchored statement
+    // start). Step 11.0b complements that for state-decl-then-state-decl.
     expect(fns.length).toBe(1);
     expect(fns[0].name).toBe("inc");
     // outer state-decl should be present and clean (no eaten sibling)
