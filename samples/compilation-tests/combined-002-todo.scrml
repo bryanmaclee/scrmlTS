@@ -3,8 +3,8 @@
 
 <div class="todo-app">
     ${
-        @todos = []
-        @inputText = ""
+        <todos> = []
+        <inputText> = ""
 
         function addTodo() {
             let text = @inputText

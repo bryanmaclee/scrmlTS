@@ -4,12 +4,12 @@
 
 <div>
     ${
-        @username = ""
-        @age = 0
-        @country = "us"
-        @agreed = false
-        @size = "medium"
-        @profile = { city: "" }
+        <username> = ""
+        <age> = 0
+        <country> = "us"
+        <agreed> = false
+        <size> = "medium"
+        <profile> = { city: "" }
     }
 
     // Text input: bind:value syncs @username on "input" event

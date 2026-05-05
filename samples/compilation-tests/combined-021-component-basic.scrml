@@ -4,10 +4,10 @@
 
 <div class="card featured">
     ${
-        @title = "My Card"
-        @status = "active"
-        @author = "Admin"
-        @rating = 5
+        <title> = "My Card"
+        <status> = "active"
+        <author> = "Admin"
+        <rating> = 5
     }
     <h2>${@title}</>
     <span class="badge small">${@status}</>

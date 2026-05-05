@@ -5,10 +5,10 @@
 
 <div>
     ${
-        @isActive = false
-        @loading = false
-        @hasError = false
-        @theme = "dark"
+        <isActive> = false
+        <loading> = false
+        <hasError> = false
+        <theme> = "dark"
     }
 
     <div id="toggle-target" class:active=@isActive>

@@ -3,7 +3,7 @@
 
 <div class="counter-app">
     ${
-        @count = 0
+        <count> = 0
         function increment() {
             @count = @count + 1
         }

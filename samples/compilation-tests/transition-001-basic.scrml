@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @visible = true
+        <visible> = true
     }
     <p if=@visible transition:fade>Fading content</>
     <p if=@visible in:slide>Slide-in only</>

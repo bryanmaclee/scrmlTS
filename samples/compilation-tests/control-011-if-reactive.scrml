@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @loggedIn = true
+        <loggedIn> = true
         if (@loggedIn) {
             let greeting = "Welcome back!"
         }

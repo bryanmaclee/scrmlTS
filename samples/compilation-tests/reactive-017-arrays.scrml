@@ -4,9 +4,9 @@
 
 <div>
     ${
-        @items = []
-        @nextId = 1
-        @filter = ""
+        <items> = []
+        <nextId> = 1
+        <filter> = ""
 
         function addItem() {
             @items = [...@items, { id: @nextId, name: "Item " + @nextId }]

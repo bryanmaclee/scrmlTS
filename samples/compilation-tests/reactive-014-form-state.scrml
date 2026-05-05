@@ -3,10 +3,10 @@
 
 <div>
     ${
-        @formName = ""
-        @formEmail = ""
-        @isSubmitting = false
-        @hasError = false
+        <formName> = ""
+        <formEmail> = ""
+        <isSubmitting> = false
+        <hasError> = false
     }
     <form>
         <input type="text" name="name" placeholder="Name"/>

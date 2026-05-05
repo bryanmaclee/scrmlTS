@@ -3,10 +3,10 @@
 
 <div class="registration-form">
     ${
-        @name = ""
-        @email = ""
-        @submitted = false
-        @errors = []
+        <name> = ""
+        <email> = ""
+        <submitted> = false
+        <errors> = []
 
         function validateAndSubmit() {
             @errors = []
