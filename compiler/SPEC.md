@@ -14595,13 +14595,55 @@ Each item sends a named `activity` event with an ID. On reconnect, the browser s
 
 ## 38. WebSocket Channels — `<channel>`
 
-### 38.1 Overview
+**Major rewrite 2026-05-04 (S57 Stage 0b D3, M19).** Channels are now a **file-level structural element** — siblings of `<program>`, never children. The `@shared` modifier is REMOVED in v0.next; reactive variables declared inside a channel body are auto-synchronized across every connected client by virtue of being declared inside the channel body. The channel body is parsed under the V5-strict access model (cross-ref §6) — `<x> = init` declares; `@x` reads/writes; bare names are LOCALS only.
 
-A `<channel>` is a WebSocket state type that provides persistent bidirectional communication between client and server. Like `<timer>` and `<poll>`, it is a **lifecycle markup element** — it emits no HTML. The compiler generates the full WebSocket infrastructure: a client-side connection manager and a server-side upgrade route.
+### 38.1 Overview — file-level placement
 
-**Design principle:** `<channel>` follows the same lifecycle element pattern as `<timer>` and `<poll>`. The channel name identifies the endpoint, scopes the reactive namespace, and controls Bun pub/sub topic routing. No WebSocket or Bun-specific API appears in the scrml source.
+A `<channel>` is a **file-level structural element** that provides persistent bidirectional communication between client and server. The compiler generates the full WebSocket infrastructure: a client-side connection manager and a server-side upgrade route at `/_scrml_ws/<name>`. Channels emit no HTML.
 
-### 38.2 Syntax
+**Design principle:** the channel is a peer of `<program>`, not a child. A `.scrml` file MAY contain zero or more file-level `<channel>` declarations alongside its `<program>` element. Channel state lives at file scope and is reachable from inside `<program>` via canonical `@` access.
+
+```scrml
+<channel name="chat" topic="lobby">
+  <messages> = []                            // V5-strict declaration; auto-syncs across clients
+
+  server function postMessage(author, body) {
+    @messages = [...@messages, { author, body, ts: Date.now() }]
+  }
+</>
+
+<program>
+  ${
+    <username> = ""
+    <draft>    = ""
+
+    function send() {
+      if (@username.trim() == "" || @draft.trim() == "") return
+      postMessage(@username, @draft)
+      @draft = ""
+    }
+  }
+
+  <input bind:value=@username placeholder="Your name"/>
+  <ul>
+    ${ for (let m of @messages) { lift <li><strong>${m.author}</strong>: ${m.body}</li> } }
+  </ul>
+  <form onsubmit=send()>
+    <input bind:value=@draft placeholder="Message"/>
+    <button type="submit">Send</button>
+  </form>
+</program>
+```
+
+**Key invariants of the v0.next channel:**
+
+1. **File-level placement.** A `<channel>` declaration appears at file top-level only, alongside (not inside) `<program>`. A `<channel>` element nested inside `<program>` SHALL emit `E-CHANNEL-INSIDE-PROGRAM`.
+2. **Auto-sync from body placement, not from a modifier.** Reactive cells declared inside a channel body are auto-synchronized across every connected client. The synchronization comes from being declared inside the channel body — there is no `@shared` modifier in v0.next. Use of `@shared` SHALL emit `E-CHANNEL-SHARED-MODIFIER`.
+3. **V5-strict body.** The channel body parses under the V5-strict access model (§6). State declarations use `<name> = init`; reads/writes use `@name`; bare identifiers are LOCALS only.
+4. **Cross-scope read.** Channel-declared state is reachable from within `<program>` via canonical `@` access. The same machinery that makes engine-auto-declared variables visible across the file applies (§51.0.D, §6.9 hoisting model).
+5. **Auto-injected scope.** Server functions and `onserver:*` handlers declared inside the channel body see `broadcast(data)` and `disconnect()` auto-injected — same as v1 (§38.6 below).
+
+### 38.2 Syntax — file-level structural form
 
 ```scrml
 <channel name="chat"
@@ -14614,17 +14656,44 @@ A `<channel>` is a WebSocket state type that provides persistent bidirectional c
          onclient:open=onConnected()
          onclient:close=onDisconnected()
          onclient:error=onError(err)>
-  ${
-    @shared count = 0
+
+  <count> = 0                              // V5-strict declaration; auto-syncs across clients
+  <messages> = []
+
+  server function postMessage(body) {
+    @messages = [...@messages, { body, ts: Date.now() }]
   }
 </>
+
+<program>
+  <!-- ... uses @count, @messages, postMessage -->
+</program>
 ```
+
+**Grammar (informal):**
+
+```
+file-element       ::= channel-decl | program-decl | other-top-level
+channel-decl       ::= '<channel' attribute* '>' channel-body '</>'
+channel-body       ::= ( state-decl | logic-block | server-fn-decl | <onTransition> ... )*
+```
+
+A channel body MAY contain V5-strict state declarations (`<x> = init`), `${ }` logic blocks, `server function` declarations, and any other constructs legal at file-scope. It SHALL NOT contain markup that emits HTML — the channel produces no DOM.
+
+**Normative statements:**
+
+- A `<channel>` element SHALL appear at file top level only. A `<channel>` nested inside `<program>` (or any other element) SHALL emit `E-CHANNEL-INSIDE-PROGRAM` (§34).
+- A channel body SHALL be parsed under the V5-strict access model (§6). State declarations use `<name> = init`; reads/writes use `@name`; bare identifiers are LOCALS only.
+- The `@shared` modifier SHALL NOT appear inside any channel body in v0.next. Any occurrence SHALL emit `E-CHANNEL-SHARED-MODIFIER` (§34). The auto-sync behavior is BUILT-IN to the channel body and requires no modifier.
+- Channel-declared state cells SHALL be reachable from within `<program>` and from any logic context in the same file via canonical `@name` access.
 
 ### 38.3 Attributes
 
+A `<channel>` element accepts the following attributes. All apply identically whether the channel is declared in a single file or imported from another file via §38.12 cross-file inline expansion.
+
 | Attribute | Required | Type | Description |
 |---|---|---|---|
-| `name` | **Yes** | string | Unique channel identifier. Sets WS URL: `/_scrml_ws/<name>`. |
+| `name` | **Yes** | string | Unique channel identifier. Sets WS URL: `/_scrml_ws/<name>`. Static literal only — no `${...}` interpolation (§38.11). |
 | `topic` | No | string or `@var` | Pub/sub topic. Defaults to `name`. When the value is `not`, the channel connects but subscribes to no topic (see §38.6.2). |
 | `protect` | No | string | Auth check on upgrade request. |
 | `reconnect` | No | integer (ms) | Auto-reconnect delay. Default: 2000ms. 0 = disabled. |
@@ -14635,11 +14704,52 @@ A `<channel>` is a WebSocket state type that provides persistent bidirectional c
 | `onclient:close` | No | function call | Invoked client-side when the WS connection closes. Does not involve the server (see §38.10). |
 | `onclient:error` | No | function call | Invoked client-side when the WS encounters an error. The parameter name in the call expression is bound to the error object (see §38.10). |
 
-### 38.4 Reactive Sync — `@shared`
+### 38.4 Reactive Sync — V5-strict channel body (auto-sync from placement)
 
-Reactive variables declared with the `@shared` modifier inside a `<channel>` body are **automatically synchronized across all connected clients**. On every local write, the compiler emits a sync message via WebSocket. The sync wire format is: `{ __type: "__sync", __key: "<varName>", __val: <value> }`.
+Reactive variables declared inside a `<channel>` body are **automatically synchronized across all connected clients** by virtue of being declared inside the channel body. There is no `@shared` modifier in v0.next — the synchronization comes from placement, not from a marker.
 
-**E-CHANNEL-002:** `@shared` used outside a `<channel>` scope emits a compile error.
+```scrml
+<channel name="chat" topic="lobby">
+  <messages> = []                            // auto-synced — declared inside channel body
+  <count>    = 0                             // auto-synced
+
+  server function postMessage(body) {
+    @messages = [...@messages, { body, ts: Date.now() }]
+    @count    = @count + 1
+  }
+</>
+```
+
+On every local write to a channel-declared cell, the compiler emits a sync message via WebSocket. The sync wire format is: `{ __type: "__sync", __key: "<varName>", __val: <value> }`. The receiving end (server-side router for client-originated writes; client-side IIFE for server-originated writes) updates the corresponding cell.
+
+**Normative statements (V5-strict body):**
+
+- A state declaration inside a channel body SHALL use the V5-strict structural form `<name> = init` (§6.1, §6.2).
+- The compiler SHALL emit sync wire-format messages on every write to a channel-declared cell. The wire-format SHALL be `{ __type: "__sync", __key: <name>, __val: <value> }`.
+- Cells declared inside a channel body SHALL be reachable from within `<program>` and from any logic context in the same file via canonical `@name` access — the same machinery that makes engine auto-declared variables visible across the file (§51.0.D, §6.9 hoisting model).
+- LOCALS declared inside a channel body's logic blocks (`let x = ...`, `const x = ...`) SHALL NOT auto-sync. Only V5-strict structural-decl cells (`<x> = init`) are synced.
+- The `@shared` modifier SHALL NOT appear in any v0.next source. Use SHALL emit `E-CHANNEL-SHARED-MODIFIER`.
+
+**Cross-ref §6.1** for the V5-strict two-form access model. **Cross-ref §6.2** for the three RHS shapes for state declarations (Shape 1 plain cell, Shape 2 form-coupled, Shape 3 derived). All three shapes are legal inside a channel body; Shape-2 form-coupled cells inside a channel body are legal (the form input lives in `<program>`, the state cell lives in the channel — the auto-sync continues to apply).
+
+**Worked example — channel state read from `<program>`:**
+
+```scrml
+<channel name="chat">
+  <messages> = []
+</>
+
+<program>
+  ${
+    function send() {
+      const count = @messages.length             // canonical @ read across scopes
+      console.log(`There are ${count} messages`)
+    }
+  }
+</program>
+```
+
+The cell `@messages` is declared inside the channel body and read from inside the `<program>` body via canonical `@` access. No import is required; channel declarations are visible at file scope.
 
 ### 38.5 protect= Integration
 
