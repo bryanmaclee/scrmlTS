@@ -13423,7 +13423,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-SSE-001 | §37.9 | `yield` used inside a non-generator `server function` body | Error |
 | W-SSE-001 | §37.9 | `server function*` body contains no `yield` statements | Warning |
 | E-CHANNEL-001 | §38.9 | `<channel>` missing required `name=` attribute | Error |
-| E-CHANNEL-002 | §38.9 | `@shared` used outside a `<channel>` scope | Error |
+| ~~E-CHANNEL-002~~ | §38.9 | **Retired 2026-05-04 (D3 / M19).** `@shared` modifier removed in v0.next; replaced by `E-CHANNEL-SHARED-MODIFIER`. | — |
 | E-CHANNEL-003 | §38.9 | Duplicate channel name in same file | Error |
 | E-CHANNEL-004 | §38.9 | `broadcast()` called outside a `<channel>` scope | Error |
 | E-CHANNEL-005 | §38.9 | `onserver:message` call expression contains more than one parameter | Error |
@@ -13528,6 +13528,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-COMPONENT-ENGINE-SCOPE | §51.0.K | A component declaration body contains an `<engine>` element. Engines are singletons; instantiating a component multiple times would produce multiple "singletons", violating the invariant. Use plain reactive cells inside components, or define the engine outside the component. | Error |
 | E-VALIDATOR-CIRCULAR-DEP | §55.11 | Two or more validators reference each other via cross-field predicate args (e.g., `<a eq(@b)>` and `<b eq(@a)>`). The validator dependency graph is a DAG; cycles are forbidden. | Error |
 | E-DERIVED-WITH-VALIDATORS | §55.14 | Validators applied to a derived cell (`const <x ...>`). Derived cells are read-only; validators imply gating which is incoherent on a computed value. Use a refinement type instead (`const <x>: number(>=0) = ...`). | Error |
+| E-CHANNEL-INSIDE-PROGRAM | §38.1 | A `<channel>` element appears as a descendant of `<program>` rather than at file top level. v0.next channels are file-level (M19); migrate the declaration to be a sibling of `<program>`. | Error |
+| E-CHANNEL-SHARED-MODIFIER | §38.4 | The `@shared` modifier is used in the source. The modifier is removed in v0.next (M19); reactive cells declared inside a channel body auto-sync by virtue of being declared in the channel body. Remove the `@shared` keyword and use `<name> = init` (V5-strict). | Error |
 
 ---
 
@@ -14751,6 +14753,20 @@ On every local write to a channel-declared cell, the compiler emits a sync messa
 
 The cell `@messages` is declared inside the channel body and read from inside the `<program>` body via canonical `@` access. No import is required; channel declarations are visible at file scope.
 
+### 38.4.1 Migration note — v1 → v0.next
+
+For readers familiar with v1 channels: v1 channels lived inside `<program>` and used the `@shared` modifier on reactive variables. Both shapes change in v0.next:
+
+| v1 (pre-S57) | v0.next (canonical) |
+|---|---|
+| `<channel>` nested inside `<program>` | `<channel>` at file top level, sibling of `<program>` |
+| `${ @shared count = 0 }` inside channel body | `<count> = 0` inside channel body (V5-strict) |
+| `@count = ...` reads/writes (after `@shared` decl) | `@count = ...` reads/writes (canonical V5-strict) |
+
+The wire layer (WebSocket route, sync wire format, broadcast/disconnect built-ins, server function escalation, `protect=` cookie check) is UNCHANGED. Only the source-level shape of declarations and placement moved. There is no backward compatibility shim — v0.next is scrml; v1 is a prior iteration.
+
+The compiler emits `E-CHANNEL-INSIDE-PROGRAM` on a channel descended from `<program>` and `E-CHANNEL-SHARED-MODIFIER` on any `@shared` occurrence — these errors guide adopters of pre-S57 source to the v0.next shape.
+
 ### 38.5 protect= Integration
 
 The `protect=` attribute maps to a session cookie check in the upgrade handler. When present, the compiler injects an `_scrml_auth_check(req)` call before `server.upgrade()` is called.
@@ -14772,13 +14788,11 @@ The `protect=` attribute maps to a session cookie check in the upgrade handler. 
 
 ```scrml
 <channel name="chat" topic=@room>
-  ${
-    @shared count = 0
+  <count> = 0                                 // V5-strict; auto-synced
 
-    server function sendMessage(text) {
-      ?{`INSERT INTO messages (body) VALUES (${text})`}.run()
-      broadcast({ type: "new_message", body: text })
-    }
+  server function sendMessage(text) {
+    ?{`INSERT INTO messages (body) VALUES (${text})`}.run()
+    broadcast({ type: "new_message", body: text })
   }
 </>
 ```
@@ -14858,7 +14872,7 @@ When `topic=@var` and `@var` evaluates to `not`, the `<channel>` element behaves
 1. **The WebSocket connection remains open.** The HTTP upgrade handshake completes normally. `not` does not suppress connection establishment.
 2. **The channel subscribes to no topic.** No pub/sub subscription is created on the server.
 3. **`broadcast()` is a no-op.** Calling `broadcast()` while the topic is `not` has no effect — no message is sent to any client.
-4. **`@shared` variables sync only with self.** Writes to `@shared` variables are still reflected locally in the client that made the write, but are not transmitted to any peer.
+4. **Channel-scoped cells sync only with self.** Writes to channel-declared cells (V5-strict structural decls in the channel body — see §38.4) are still reflected locally in the client that made the write, but are not transmitted to any peer.
 5. **Topic subscription is dynamic.** When `@var` transitions from `not` to a non-`not` value, the channel subscribes to that value as the new topic. When `@var` transitions from a non-`not` value back to `not`, the channel unsubscribes from the old topic.
 
 **Normative statements:**
@@ -14870,19 +14884,20 @@ When `topic=@var` and `@var` evaluates to `not`, the `<channel>` element behaves
 **Worked example — valid (dynamic topic, transitions through `not`):**
 
 ```scrml
-@let selectedRoom = not
-
 <channel name="chat" topic=@selectedRoom reconnect=2000>
-  ${
-    // When @selectedRoom is `not`:
-    //   - WS is connected but subscribed to no topic
-    //   - broadcast() is a no-op (W-CHANNEL-001 suppressed: dynamic)
-    //   - @shared vars reflect local writes only
-    // When @selectedRoom transitions to "room-42":
-    //   - channel subscribes to "room-42"
-    //   - @shared vars begin syncing with all clients on "room-42"
-  }
+  // When @selectedRoom is `not`:
+  //   - WS is connected but subscribed to no topic
+  //   - broadcast() is a no-op (W-CHANNEL-001 suppressed: dynamic)
+  //   - channel-scoped cells reflect local writes only
+  // When @selectedRoom transitions to "room-42":
+  //   - channel subscribes to "room-42"
+  //   - channel-scoped cells begin syncing with all clients on "room-42"
 </>
+
+<program>
+  ${ <selectedRoom> = not }
+  <!-- ... user picks a room, sets @selectedRoom = "room-42" ... -->
+</program>
 ```
 
 **Worked example — warning (static `not`):**
@@ -14897,7 +14912,7 @@ When `topic=@var` and `@var` evaluates to `not`, the `<channel>` element behaves
 
 ### 38.7 Client JS Output
 
-The compiler emits a client-side IIFE: `const _scrml_ws_<safeName>`. It manages connect, reconnect (with exponential backoff), message dispatch, `@shared` sync, and cleanup registration.
+The compiler emits a client-side IIFE: `const _scrml_ws_<safeName>`. It manages connect, reconnect (with exponential backoff), message dispatch, channel-scoped cell sync (the auto-sync wire layer for cells declared in the channel body — §38.4), and cleanup registration.
 
 The IIFE registers `onclient:open`, `onclient:close`, and `onclient:error` event listeners when those attributes are present on the `<channel>` element (see §38.10). These listeners are registered directly on the `WebSocket` instance created inside the IIFE and do not involve any server round-trip.
 
@@ -14910,12 +14925,14 @@ The compiler emits a WebSocket upgrade route at `/_scrml_ws/<name>` and a `_scrm
 | Code | Trigger | Severity |
 |---|---|---|
 | E-CHANNEL-001 | `<channel>` missing required `name=` attribute | Error |
-| E-CHANNEL-002 | `@shared` used outside a `<channel>` scope | Error |
+| ~~E-CHANNEL-002~~ | **Retired 2026-05-04 (D3 / M19).** `@shared` is removed from v0.next; channel-scoped sync comes from being declared inside a channel body. Replaced by `E-CHANNEL-SHARED-MODIFIER` (§34) which fires on any `@shared` modifier occurrence. | — |
 | E-CHANNEL-003 | Duplicate channel name in the same file | Error |
 | E-CHANNEL-004 | `broadcast()` or `disconnect()` called from a function not within a `<channel>` lexical scope | Error |
 | E-CHANNEL-005 | `onserver:message` call expression contains more than one parameter | Error |
 | E-CHANNEL-006 | `onclient:*` handler function declared as `server function` | Error |
 | E-CHANNEL-007 | `name=` (or `topic=`) attribute value contains `${...}` interpolation; static literal required (§38.11) | Error |
+| E-CHANNEL-INSIDE-PROGRAM | `<channel>` element appears as a descendant of `<program>` rather than at file top level. **D3 / M19.** See §38.1, §34. | Error |
+| E-CHANNEL-SHARED-MODIFIER | `@shared` modifier used inside (or outside) a channel body. The modifier is removed in v0.next; auto-sync comes from being declared inside a channel body. **D3 / M19.** See §38.4, §34. | Error |
 | W-CHANNEL-001 | `topic=` is statically proven to be `not`; `broadcast()` will always be a no-op | Warning |
 
 ### 38.10 `onclient:*` — Client-Side Lifecycle Hooks
@@ -14947,27 +14964,27 @@ If the call expression contains no parameter (e.g., `onclient:open=handleOpen()`
 **Valid — connection status indicator:**
 
 ```scrml
-@let connectionStatus = "connecting"
-
 <channel name="chat"
          topic=@room
          onclient:open=handleOpen(e)
          onclient:close=handleClose(e)
          onclient:error=handleError(err)>
-  ${
-    function handleOpen(e) {
-      @connectionStatus = "connected"
-    }
-    function handleClose(e) {
-      @connectionStatus = "disconnected"
-    }
-    function handleError(err) {
-      @connectionStatus = "error"
-    }
+  <connectionStatus> = "connecting"            // V5-strict; auto-synced
+
+  function handleOpen(e) {
+    @connectionStatus = "connected"
+  }
+  function handleClose(e) {
+    @connectionStatus = "disconnected"
+  }
+  function handleError(err) {
+    @connectionStatus = "error"
   }
 </>
 
-<p>Status: {@connectionStatus}</>
+<program>
+  <p>Status: ${@connectionStatus}</p>
+</program>
 ```
 
 The three `onclient:*` attributes compile to `ws.onopen`, `ws.onclose`, and `ws.onerror`
@@ -15006,7 +15023,7 @@ The compiler generates `ws.onopen = () => { markConnected(); }` and
 - `onclient:*` hooks fire for each reconnect attempt, not just the initial connection. When `reconnect=` is set, `onclient:open` fires on every successful reconnect and `onclient:close` fires on every drop.
 - `onclient:close` fires before the reconnect timer starts. A developer who wants to distinguish "clean close" from "unexpected drop" can inspect `e.wasClean` on the CloseEvent.
 - `onclient:error` fires before `onclient:close` on error-induced disconnections (browser WebSocket model).
-- `onclient:*` hooks do not interact with `@shared` sync. `@shared` sync is suspended when the connection is closed and resumes when it reopens.
+- `onclient:*` hooks do not interact with channel-cell sync. Sync of channel-scoped cells (§38.4) is suspended when the connection is closed and resumes when it reopens.
 
 ---
 
@@ -15049,20 +15066,20 @@ payload at receive time:
 
 ```scrml
 <channel name="driver-events">
-  ${
-    @shared events = []
-    server function postEvent(driverId, body) {
-      broadcast({ targetDriverId: driverId, body, ts: Date.now() })
-    }
+  <events> = []                              // V5-strict; auto-synced
+  server function postEvent(driverId, body) {
+    broadcast({ targetDriverId: driverId, body, ts: Date.now() })
   }
 </>
 
-// Subscriber side (client):
-${ for (let e of @events) {
-  if (e.targetDriverId == @currentDriver.id) {
-    lift <li>${e.body}</li>
-  }
-} }
+<program>
+  <!-- Subscriber side (client): -->
+  ${ for (let e of @events) {
+    if (e.targetDriverId == @currentDriver.id) {
+      lift <li>${e.body}</li>
+    }
+  } }
+</program>
 ```
 
 This keeps the channel name static (one URL endpoint, one connection)
@@ -15093,19 +15110,21 @@ The wire-layer identity (WebSocket route `/_scrml_ws/<name>`) is shared
 across importers by virtue of the channel's `name=` attribute value.
 Every consumer that imports the same channel subscribes to the same
 topic; broadcasts from any consumer reach all consumers via the
-WebSocket pub/sub layer. Each consumer has its own local `@shared`
-mirror, kept in sync by the wire layer.
+WebSocket pub/sub layer. Each consumer has its own local channel-cell
+mirror (the local copy of channel-scoped V5-strict cells — see §38.4),
+kept in sync by the wire layer.
 
 Compile-time inline expansion is the simplest mechanism that yields this
 behaviour:
 
 - **No runtime changes.** The channel CG (`/_scrml_ws/<name>` route, IIFE,
-  `@shared` mirror, server function) is identical to the per-page case.
-- **No new scope-variable identity.** The `@shared` mirror is per-importer;
+  channel-cell mirror, server function) is identical to the per-page case.
+- **No new scope-variable identity.** The channel-cell mirror is per-importer;
   the wire layer is the canonical store. Phoenix Channels validates this
   pattern (see [Phoenix Channels documentation](https://hexdocs.pm/phoenix/channels.html)).
-- **Backcompat.** Per-page `<channel name="X">` declarations (the existing
-  pattern from §38.2) continue to compile unchanged. Form 1
+- **Backcompat within v0.next.** Per-file `<channel name="X">` declarations
+  at file top level (the canonical pattern from §38.2) continue to compile
+  identically across exporter and consumer. Form 1
   `export <channel name="X" ...>...</>` is purely additive.
 
 #### 38.12.2 Mechanism (CHX Algorithm)
@@ -15130,46 +15149,50 @@ For each consumer file F in compilationOrder:
   shape of locally-declared channels exactly. Channel CG runs unchanged.
 ```
 
-#### 38.12.3 Per-Importer `@shared` Mirror (Default)
+#### 38.12.3 Per-Importer Channel-Cell Mirror (Default)
 
 Per OQ-DD1-4 default (a) — ratified by debate at S52 — each importer has
-its own local `@shared` mirror, kept in sync via the wire layer. Writing
+its own local channel-cell mirror, kept in sync via the wire layer. Writing
 to `@count = 1` in importer A broadcasts to the WebSocket topic; importer
 B's `_scrml_ws_<name>` IIFE receives the broadcast and writes the synced
 value to importer B's local mirror. The "single shared scope" property
 emerges from the wire-layer identity — no global runtime state, no
 cross-page reactive memory.
 
+(In pre-v0.next vocabulary, this mirror was the `@shared` mirror; v0.next
+removes the `@shared` modifier — the auto-sync behaviour now derives from
+being declared inside a channel body, see §38.4.)
+
 #### 38.12.4 Worked Example — Cross-File + Multi-Page Broadcast
 
 ```scrml
 // channels/dispatch.scrml — PURE-CHANNEL-FILE (see §38.12.6)
 export <channel name="chat" topic="lobby">
-  ${
-    @shared messages = []
-    server function postMessage(author, body) {
-      messages = [...messages, { author, body, ts: Date.now() }]
-    }
+  <messages> = []                              // V5-strict; auto-synced via channel body
+  server function postMessage(author, body) {
+    @messages = [...@messages, { author, body, ts: Date.now() }]
   }
 </>
 ```
 
 ```scrml
 // pages/page-a.scrml — page A
-<program>
 ${ import { chat } from '../channels/dispatch.scrml' }
 <chat/>
-<button onclick=postMessage("user-a", "hello")>Send</button>
-<ul>${ for (let m of @messages) { lift <li>${m.author}: ${m.body}/ } }</>
+
+<program>
+  <button onclick=postMessage("user-a", "hello")>Send</button>
+  <ul>${ for (let m of @messages) { lift <li>${m.author}: ${m.body}</li> } }</ul>
 </program>
 ```
 
 ```scrml
 // pages/page-b.scrml — page B (independent consumer)
-<program>
 ${ import { chat } from '../channels/dispatch.scrml' }
 <chat/>
-<ul>${ for (let m of @messages) { lift <li>${m.author}: ${m.body}/ } }</>
+
+<program>
+  <ul>${ for (let m of @messages) { lift <li>${m.author}: ${m.body}</li> } }</ul>
 </program>
 ```
 
