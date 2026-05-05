@@ -1,202 +1,112 @@
-# scrmlTS — Session 58 (CLOSED — Stage 0b COMPLETE: D3 + D4 + scrml:oauth + const-form sweep + F4 addendum)
+# scrmlTS — Session 59 (OPEN — A1a dispatched, in flight)
 
-**Date opened:** 2026-05-04
-**Date closed:** 2026-05-04 (same day; long execution arc — 47 commits to main)
-**Previous:** `handOffs/hand-off-58.md` (S57 close — heavy-execution, D1+D2 SPEC + 3 stdlib tiers + article + primer + agent-file fix)
-**This file (close snapshot):** rotated to `handOffs/hand-off-58.md` at S58 close as next-session pickup target
-
-**Baseline entering S58:** scrmlTS at `46751b0` then `9cb123c` (S57 close). 8,658 / 47 / 0 / 430. scrml-support at `48170b1`. Both repos clean+pushed. Inbox empty.
-
-**State at S58 close:** scrmlTS at `b140cc1` (PUSHED). 8,720 pre-commit / 43 / 0 / 432 (full suite 8,763 / 43 / 0). **+47 commits, +62 net pre-commit pass tests, +2 net files** vs S57 close. Working trees clean both repos. Inbox empty.
+**Date opened:** 2026-05-05
+**Previous:** `handOffs/hand-off-58.md` (S58 close — Stage 0b COMPLETE)
 
 ---
 
-## 0. The big shape of S58 — STAGE 0b COMPLETE
+## Session-start checklist (executed)
 
-S58 was the session where Stage 0b transitioned from "two of four landed" to **complete**. Plus a 16th stdlib module (oauth). Plus a two-phase const-form sweep that brought SPEC.md to zero `const @x` declaration-form instances. Plus a pa.md F4 addendum after a near-miss path-discipline finding.
+- [x] Read pa.md
+- [x] Read PA-SCRML-PRIMER.md
+- [x] Read S58 close hand-off
+- [x] Verified both repos in sync with origin
+- [x] Inbox empty
+- [x] Read user-voice S58 entries
 
-**Stage 0b 4-of-4 dispatches landed.** The v0.next spec is the engineering target. Compiler does not yet implement engines / match-block / validators / V5-strict / channels-file-level / shared-core-validator-vocabulary. That's Phase A1+ — opens at S59.
+## What landed S59 so far
 
-**The scope this session covered:**
+### L21 lock — `E-DERIVED-VALUE-MUTATE` FORBIDDEN + sibling rename E-REACTIVE-002 → E-DERIVED-WRITE
 
-1. **D3 (channels + schema + predicates + `not`)** — `compiler/SPEC.md` §38/§39/§42/§53/§34. ~14 min wall, 7 commits.
-2. **scrml:oauth NEW** (16th stdlib module) — OAuth 2.0 + PKCE + 4 provider presets. ~11 min wall, 5 commits, +58 tests.
-3. **D4 (cleanup + PIPELINE.md + SPEC-INDEX final regen)** — 13 Tier 8 small-edit sections + 4 Tier 10 reviews + §34 +7 codes + PIPELINE.md per-stage v0.next addenda + SPEC-INDEX final regen. ~35 min wall, 23 commits.
-4. **§6 + cross-section `const @x` → `const <x>` sweep** — two-phase. §6 worktree dispatch (62 edits, 6 commits) + cross-section follow-up (14 edits, manual + halted-agent corrections).
-5. **pa.md F4 addendum** — absolute-WORKTREE_ROOT-paths-only mandate after relative-path leak finding; bun-install-at-startup as recurring-infra workaround.
-6. **PA-SCRML-PRIMER.md updated** for D3 + D4 — §9 rewritten LANDED, §10 oauth row, §11 +3 anti-pattern rows, §12 size + sweep + recurring-infra notes.
-7. **Article rules-inert framing** added to tier-ladder-promotion (Tier 1 section + ladder diagram).
-8. **Permissions whitelist** in `.claude/settings.local.json` for cross-repo Read access.
-9. **Bun upgraded** locally (user-driven mid-session).
+S56 outcomes ledger §3.14 open-Q resolved. PA presented case + 5 sub-decisions; user ratified in single 7-word turn ("forbidden, error severity, rename to E-DERIVED-WRITE, L21, go ahead").
 
----
+**SPEC.md edits (commit `1217b41`):**
+- §6.6.18 NEW (~100 lines): in-place mutation of `const`-derived cells forbidden. Covers (a) array mutating methods on derived array (`.push`, `.pop`, `.splice`, `.sort`, etc.); (b) property assignment / compound-assignment / `delete` on derived object; (c) in-compound derived sub-cells. Distinguished from siblings (E-DERIVED-WRITE, E-SYNTHESIZED-WRITE, E-DERIVED-WITH-VALIDATORS). Worked examples (invalid + valid-fix-pattern).
+- §6.6.8 renamed E-REACTIVE-002 → E-DERIVED-WRITE; inline rename note left.
+- §6.5.1 added note pointing to §6.6.18 / E-DERIVED-VALUE-MUTATE.
+- §34 new entry; E-DERIVED-WRITE entry expanded.
 
-## 1. The S58 commit ledger (47 commits, all pushed at `b140cc1`)
+**Cross-cutting docs (commit `8e5e459`):**
+- IMPLEMENTATION-ROADMAP.md: open-Q + risk-table + Phase A2 §7 question all RESOLVED with cross-ref.
+- DISPATCH-2-BRIEF.md: §3.6 + §7 entries marked LOCKED.
+- PA-SCRML-PRIMER.md: §13 +L21 row; §11 anti-patterns +1 row; header date bumped.
+- changelog.md: S59 entry added.
 
-```
-b140cc1 spec(s34-s52-cleanup): finish const <x> alignment + pa.md F4 addendum
-65bda05 + 6 const-sweep WIPs + summary  c905b2b   §6 sweep (worktree dispatch)
-f116483 docs(pa): F4 addendum — bun install in fresh worktree at startup
-e45a683 docs(primer): update for D4 — Stage 0b complete
-0cf5d9b docs(s58-d4-landed): hand-off + roadmap §8.6 follow-ups for D4 findings
-cded613 + 21 D4 WIPs  spec(dispatch-4): cleanup + PIPELINE.md + SPEC-INDEX final regen
-90aa2f3 docs(s58-mid): article rules-inert + roadmap oauth deferrals + hand-off bookkeeping
-acdd9b9 docs(s58-mid): hand-off + primer update for D3 + oauth landing
-15dd6ff WIP(stdlib-oauth): pkce.scrml — recovered post-cherry-pick (ordering quirk)
-b55834a + 6 D3 WIPs  spec(dispatch-3): channels + schema + predicates + not keyword
-446c6bd + 4 oauth commits  stdlib(oauth): scrml:oauth — OAuth 2.0 + PKCE + 4 presets
-```
+**scrml-support cross-repo (commit `9772c0f`):**
+- Outcomes ledger §3.14 marked RESOLVED with cross-ref to scrmlTS commit.
+- user-voice-scrmlTS.md S59 entries (verbatim user authorization + small-deliberation methodology note).
 
-(Full per-commit log via `git log --oneline 9cb123c..b140cc1`.)
+**Both repos pushed.** scrmlTS at `44afa5d`. scrml-support at `9772c0f`.
 
-scrml-support: 1 append to `user-voice-scrmlTS.md` (S58 entries — rules-inert quote, plan-C, D4 dispositions, F4 finding, Stage-0b-complete marker). Will be committed + pushed at session close.
+### Phase A1 entry plan ratified
 
----
+User authorized **split (b)** — three sequential dispatches:
+- **A1a — lex+parse** (this dispatch, in flight)
+- **A1b — resolve+type** (next, depends on A1a landing)
+- **A1c — codegen + PIPELINE.md prose pass** (last, depends on A1b)
 
-## 2. Stage 0b status — COMPLETE
+Other A1 decisions (all PA-recommended, user-authorized):
+- Agent persona: `scrml-dev-pipeline` (T2 tier, opus model, post-S57 fix has Edit + Grep + Bash)
+- Test rewrite: pre-authorized per S56 destructive-ops directive; single CHANGELOG enumeration at close
+- AST strategy: ADDITIVE — extend existing node types (option a)
+- Snapshot tests location: `compiler/tests/integration/parse-shapes-v0next.test.js`
+- PIPELINE.md prose pass: folded into A1c (NOT touched by A1a)
+- Branch name: `phase-a1a-lex-parse`
 
-| Dispatch | Status | Result commit |
-|---|---|---|
-| D1 (foundation) | ✅ S57 | `8ac5f3e`, `37f46ca` |
-| D2 (engines/match/validators) | ✅ S57 | `af86fc2`, `5f59594` |
-| D3 (channels/schema/predicates/not) | ✅ S58 | `b55834a` |
-| D4 (cleanup + PIPELINE.md + INDEX final) | ✅ S58 | `cded613` |
+### A1a dispatch brief committed (44afa5d)
 
-Plus follow-ups landed S58:
-- **§6 sweep** (small standalone per S58 user disposition #1) — `c905b2b` worktree summary; integrated `c729a0f..c905b2b` (6 commits)
-- **s34-s52 cross-section cleanup** — `b140cc1` (manual + 5 leak-fixes accepted)
-- **pa.md F4 addendum** — folded into `b140cc1`
-
-**Phase A1+ opens at S59.** v0.next spec is the engineering target. Compiler doesn't yet implement.
+Brief at `docs/changes/phase-a1a-lex-parse/DISPATCH-A1A-BRIEF.md` (~352 lines, 12 sections). Covers spec authority (§1/§3/§6/§11/§34), subsystems touched with file paths + LOC (tokenizer.ts 1,340 / ast-builder.js 8,270 / expression-parser.ts 2,559), all v0.next shapes, ~50-60 new snapshot tests, validation gates, F4 startup-verification block, crash-recovery discipline, T2 classification, final commit message template.
 
 ---
 
-## 3. Stdlib state (16 user-facing modules)
+## A1a dispatch outcome — DECOMPOSED into 11 sub-dispatches
 
-`auth`, `crypto`, `data`, `format`, `fs`, `http`, `path`, `process`, `router`, `store`, `test`, `time`, `redis`, `cron`, `regex`, **`oauth` (NEW S58)**.
+Three successive A1a dispatches landed iterative findings:
 
-Position: ~88-90% of typical-app npm needs (was ~80% pre-oauth). Real remaining gaps: JWKS verify, OIDC discovery (RFC 8414), niche utilities. JWKS + OIDC discovery deferred to v0.3.0+ (logged roadmap §8.5).
+1. **rev-1 (agent `a193907...`):** halted at startup-verification — brief gave full-suite baseline (8,720) but worktree had empty `samples/compilation-tests/dist/` (gitignored). Result: ~130 ECONNREFUSED. Halt was correct; root cause was missing `bun run pretest` step in brief.
+2. **rev-2 (agent `a0fe9e1...`):** halted on a 2-fail FIRST run that resolved cleanly on runs 2-3 (happy-dom timing flake). Halt was over-cautious; protocol amendment needed.
+3. **rev-3 (agent `a07452d...`):** baseline cleared via flake protocol. Then agent invoked its system-prompt PHASE 0.5 doctrine (Pitfall 4 — Context Overflow) and decomposed the dispatch into 11 sequential sub-steps rather than running monolithic across 12k LOC × 11-19h. Produced two durable artifacts:
+   - `docs/changes/phase-a1a-lex-parse/AST-CONTRACTS-AND-DECOMPOSITION.md` (143 lines) — A1b/A1c-facing AST interface contracts + lexer contracts + 11-step plan with file/line pointers.
+   - `docs/changes/phase-a1a-lex-parse/progress.md` — append-only timestamped log.
 
----
+**PA assessment:** the agent's call was correct. The brief was over-scoped for monolithic single-shot. Decomposition is the right path. Cherry-picked both commits to main as `3787086` + `a463b7a`. Branch `phase-a1a-lex-parse` retains the same two commits as ancestors; next sub-agent dispatches build on it.
 
-## 4. Tests posture
+**Three iteration findings now permanent:**
+- `pa.md` F4 step 5 — `bun run pretest` mandate at fresh worktree startup.
+- Brief §7.1 step 6 — flake-handling protocol (≤3 fails on run-1 + clean run-2 = stable).
+- Brief was wrong on `reset` keyword status (agent verified: NOT in tokenizer's KEYWORDS set despite brief saying "already partially recognized"). Step 1 of decomposition addresses this.
 
-| Snapshot | Pre-commit (no browser) | Full | Files |
-|---|---|---|---|
-| S57 close | 8,658 / 47 / 0 | 8,705 / 47 / 0 | 430 |
-| **S58 close** | **8,720 / 43 / 0** | **8,763 / 43 / 0** | **432** |
-| Delta | +62 pre-commit pass, -4 skip | +58 full pass, -4 skip | +2 files |
+## Next move — dispatch Step 1 (lexer: reserve `reset`)
 
-**0 fails throughout.** Spec-vs-code drift continues (engines / validators / V5-strict / channels-file-level not yet implemented in compiler — Phase A1+ work). Pre-commit suite passes because it doesn't exercise the new SPEC sections beyond shape tests.
+Per AST-CONTRACTS-AND-DECOMPOSITION.md §3 row 1: ~1h scope.
+- Files: `compiler/src/tokenizer.ts` lines 55-85 (add `reset` to KEYWORDS); new test file `compiler/tests/unit/tokenizer-reset-keyword.test.js` (4-6 cases).
+- Sub-agent dispatch: `scrml-dev-pipeline`, worktree-isolated, branch `phase-a1a-lex-parse` (continuing).
+- PRE-BRIEF should reference: tokenizer.ts:55-85, AST-CONTRACTS-AND-DECOMPOSITION.md §2.1 (lexer contract), test file location.
 
----
-
-## 5. ⚠️ S59 first moves
-
-S58 didn't fix a forward direction; the natural lift is **Phase A1 entry planning** (per IMPLEMENTATION-ROADMAP.md). The engineering target is set; the implementation work is sequential compiler-source dispatches.
-
-**S59 PA's ready-to-go checklist:**
-
-1. **Phase A1 entry plan** — IMPLEMENTATION-ROADMAP.md §1-§7 has the Phase A1-A4 + B1-B5 + C1-C2 outline. A1 (storage model = source-canonical, ratified S57) is the first compiler-source dispatch sequence: typically engines + match-block + validators + V5-strict implementation. Need a plan with sub-dispatches.
-2. **`E-DERIVED-VALUE-MUTATE` formal lock** — still hanging from S56. D2.8 + D4 brushed past it (§55.14 in D2.8). Resolve via small deliberation pass before A1 starts implementing derivations.
-3. **PIPELINE.md prose pass** (roadmap §8.6 #2) — fold into next natural PIPELINE.md edit (Phase A1 will touch it).
-4. **Article drop timing** — `tier-ladder-promotion-devto-2026-05-04.md` still `published: false`. User-controlled.
-
-Suggested S59 launch:
-- Read primer + hand-off + user-voice tail (~5-10 min)
-- Confirm tests baseline (8,720 / 43 / 0 / 432)
-- Discuss Phase A1 entry strategy: sub-dispatch plan, scope, parallel vs serial, T1/T2/T3 tier classification (compiler source = real T-tier work, NOT general-purpose fallback territory)
-- OR resolve `E-DERIVED-VALUE-MUTATE` first if user wants the deliberation closed first
+Subsequent steps follow the 11-step ladder; PA dispatches each.
 
 ---
 
-## 6. Open questions to surface immediately at S59 open
+## Open threads
 
-1. **Push posture.** Last commit `b140cc1` pushed. Nothing pending in scrmlTS. **scrml-support has the S58 user-voice append uncommitted** at session close — needs commit + push before S59 work begins (or wrap that into S59 first move).
-2. **`E-DERIVED-VALUE-MUTATE`** — formally lock vs implement-and-discover. PA leans formally lock first via small deliberation; A1 implementer will read §55 and that error code is part of the surface.
-3. **Phase A1 sub-dispatch plan** — scope, ordering, parallel vs serial. PA leans serial within A1 (engines → match → validators → V5-strict) since they have lock-step dependencies; B-track work (examples / samples / stdlib) parallel to A1.
-4. **Article drop timing** — user-controlled.
-
----
-
-## 7. ⚠️ Things S59 PA needs to NOT screw up
-
-1. **Read PA-SCRML-PRIMER.md FIRST** (step 2 of session-start, after pa.md). Per S58 update reflects post-Stage-0b state. If PA finds itself confused about scrml syntax / mindset / error model, the primer answer is in there.
-2. **try/catch is NOT in scrml.** Use `function f() ! ErrorType { ... }` + `let x = f() !{ | ::Variant arg -> {...} }`. Primer §6.
-3. **No generics in scrml.** Primer §10.
-4. **Channels are file-level.** No `@shared`. Primer §9.1.
-5. **Shared-core vocabulary is ADDITIVE in schemas.** SQL-mirror remains canonical. Primer §9.2.
-6. **`is some` ≠ `req`.** Primer §9.4.
-7. **`const <derived>` is canonical** (not `const @derived`). SPEC.md fully aligned post-S58 sweep. PIPELINE.md / kickstarter / primer all clean. If you see `const @x` in any S58-or-later canonical doc, it's a regression — surface immediately.
-8. **F4 path discipline (S58 addendum):** dispatched agents MUST use absolute `$WORKTREE_ROOT/...` paths for Write/Edit. Relative paths can resolve against `Additional working directories` and leak to main. Hit S58 in s34-s52-cleanup. Now mandated in pa.md.
-9. **`bun install` at worktree startup** — recurring infra. Now in pa.md F4 step 4. Bun upgraded locally S58 mid-session, fresh worktrees inherit.
-10. **SPEC.md is ~24,382 lines** post-D4. Edit's diff-form scales fine. Per-section split queued v0.3.0+.
-11. **PIPELINE.md prose pass deferred.** D4 left addendum-style stitches, not re-flowed prose. Roadmap §8.6 #2.
-12. **Phase A1 is COMPILER-SOURCE work.** Different from S57-S58's spec-text-only dispatches. T1/T2/T3 tier classification is load-bearing. `scrml-dev-pipeline` agent persona matters; do NOT default-fallback to `general-purpose` for compiler source. (general-purpose was a valid fallback for SPEC-text-only dispatches in S57 D2.8 and D4 — different scope.)
+1. **A1a in flight.** When agent completes: read `docs/changes/phase-a1a-lex-parse/progress.md` first, review test-rewrite enumeration, decide cherry-pick or branch-merge strategy, integrate, push.
+2. **A1b dispatch brief pending.** PA writes after A1a integration — needs A1a's actual AST-shape contracts as input.
+3. **A1c dispatch brief pending.** Includes PIPELINE.md prose pass per S59 fold-in decision.
+4. **Phase B-track work** (examples / samples / stdlib audits) can run parallel — not yet authorized.
 
 ---
 
-## 8. State as of close (verified)
+## State as of hand-off creation
 
-- **scrmlTS HEAD:** `b140cc1` (pushed; 0/0 vs origin)
-- **scrml-support HEAD:** `48170b1` then **uncommitted append to `user-voice-scrmlTS.md`** at session close — needs commit + push at S59 first move (or fold into wrap-final-commit if user authorizes for this session)
-- **Tests:** 8,720 / 43 / 0 / 432 (pre-commit) — baseline for S59
-- **Working tree both repos:** scrmlTS clean post-final-commit; scrml-support has user-voice append uncommitted
-- **Inbox:** empty
-- **Worktrees:** S58's are still around (D3, oauth, D4, §6-sweep, halted s34-s52); auto-cleanup if no changes; otherwise dispose at convenience. None block.
-- **Primer:** at `docs/PA-SCRML-PRIMER.md`, mandated by pa.md, updated for D3 + D4 + oauth + sweep
-- **Bun:** upgraded locally S58 mid-session
-- **Permissions whitelist:** `.claude/settings.local.json` `additionalDirectories` includes both `scrmlTS/` and `scrml-support/`. Effective S59.
+- scrmlTS HEAD: `44afa5d` (pushed)
+- scrml-support HEAD: `9772c0f` (pushed)
+- Tests: 8,720 / 43 / 0 / 432 (pre-commit; full 8,763 / 43 / 0)
+- Working trees: both clean
+- Inbox: empty
+- A1a worktree: created by harness at `.claude/worktrees/agent-a193907a0e18d1210/` (or similar; agent reports actual path in `pwd` at startup)
 
 ---
 
-## 9. Files written / modified S58 (forensic inventory)
+## Tags
 
-### scrmlTS (this repo, 47 commits)
-
-| Action | Files |
-|---|---|
-| MAJOR REWRITE | `compiler/SPEC.md` (+1,376 lines: D3 + D4 + sweep cleanup), `compiler/PIPELINE.md` (+439 lines: D4 per-stage v0.next addenda + Integration Failure Mode Catalog), `compiler/SPEC-INDEX.md` (+95 lines structural regen) |
-| NEW | `stdlib/oauth/{index,pkce,google,github,microsoft,discord}.scrml` (6), `compiler/tests/unit/stdlib-oauth.test.js`, `compiler/tests/unit/stdlib-oauth-presets.test.js`, `docs/changes/stdlib-oauth/progress.md`, `docs/changes/v0next-spec-impact/progress-dispatch-3.md`, `docs/changes/v0next-spec-impact/progress-dispatch-4.md`, `docs/changes/s6-const-sweep/progress.md` |
-| EXTENDED | `docs/articles/llm-kickstarter-v2-2026-05-04.md` (oauth §9 + §11.2.1), `docs/articles/tier-ladder-promotion-devto-2026-05-04.md` (rules-inert), `docs/PA-SCRML-PRIMER.md` (D3+D4+oauth+sweep), `docs/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md` (§8.5 oauth deferrals + §8.6 follow-ups), `pa.md` (F4 addendum) |
-| UPDATED | `master-list.md` (S58 close header), `docs/changelog.md` (S58 entry), `hand-off.md` (this file), `handOffs/hand-off-58.md` (rotated S58 close snapshot), `.claude/settings.local.json` (additionalDirectories whitelist) |
-
-### scrml-support (cross-repo write target)
-
-- `user-voice-scrmlTS.md` — S58 entries (rules-inert reminder, plan-C cherry-pick discipline, D4 dispositions, F4 finding, Stage-0b-complete marker) — **uncommitted at S58 close**
-
----
-
-## 10. Cross-references
-
-- **S58 outcomes embedded in:** SPEC.md (§38/§39/§42/§53/§34 D3 + 13 Tier-8 sections D4), PIPELINE.md (per-stage v0.next addenda + Integration Failure Mode Catalog), SPEC-INDEX.md (final regen + 22 D4 Quick Lookup entries), PA-SCRML-PRIMER.md (canon snapshot through S58)
-- **S57 outcomes ledger:** `handOffs/hand-off-58.md` (this rotation's predecessor, NOT the S57 close one — that's `handOffs/hand-off-57.md`)
-- **S56 outcomes ledger (L1-L20):** `../scrml-support/docs/deep-dives/v0next-s56-deliberation-outcomes-2026-05-04.md`
-- **S55 outcomes ledger (M1-M20):** `../scrml-support/docs/deep-dives/v0next-s55-deliberation-outcomes-2026-05-04.md`
-- **Implementation roadmap:** `docs/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md` (§8.5 v0.3.0+ candidates + §8.6 Stage-0b follow-ups)
-- **PA scrml expert primer (READ FIRST):** `docs/PA-SCRML-PRIMER.md`
-- **PA directives:** `pa.md`
-- **User-voice S58 entries:** `../scrml-support/user-voice-scrmlTS.md` §"Session 58"
-
----
-
-## 11. Tags
-
-#session-58 #closed #stage-0b-complete #d3-landed #d4-landed #scrml-oauth-shipped #const-form-sweep-complete #f4-addendum #pa-md-bun-install-step #16-stdlib-modules #phase-a1-opens-s59
-
----
-
-## 12. The seamless-transition guarantee
-
-S59 PA, on opening, should:
-
-1. **Read pa.md** (already done by definition — session-start step 1)
-2. **Read PA-SCRML-PRIMER.md in full** (mandated step 2; updated S58 — Stage 0b LANDED state)
-3. **Read this hand-off** (covers everything material from S58)
-4. **Read last ~10 contentful user-voice entries** (will pick up S58's rules-inert quote, plan-C discipline, D4 dispositions, F4 finding, Stage-0b-complete marker)
-5. **Confirm scrml-support user-voice append is committed + pushed** (was uncommitted at S58 close; this is the FIRST move, or fold into S59 wrap)
-6. **Discuss Phase A1 entry plan** OR get user direction on alternate priority
-
-If S59 PA finds itself searching for "what does this scrml syntax mean" or "is `const @x` allowed?" — THE PRIMER FAILED ITS PURPOSE. Surface that gap immediately.
-
-The implementation phase entry conditions are met. Stage 0b done. Spec is the engineering target. Phase A1+ opens.
+#session-59 #open #l21-locked #phase-a1a-in-flight #stage-0b-landed
