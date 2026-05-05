@@ -7031,6 +7031,87 @@ A `snippet`-typed value is invoked with the `render` keyword. `render` is valid 
 | E-TYPE-072 | `render` invocation arity mismatch | Error |
 | E-TYPE-073 | Optional snippet invoked without null guard | Error |
 
+### 14.10 Bare-variant inference (Stage 0b D4 — M9)
+
+**Added:** 2026-05-04 — formalises the v0.next bare-variant inference rule for enum values. When the type at the LHS or parameter position is statically known, the RHS variant qualifier MAY be omitted.
+
+**The shape:** instead of writing `marioState = MarioState.Big`, the writer writes `marioState = .Big` and the compiler completes the qualifier from the LHS type.
+
+```scrml
+type MarioState:enum = { Small, Big, Fire, Cape, Tanooki }
+
+<marioState>: MarioState = .Small      // bare variant — LHS type fixes the qualifier
+@marioState = .Big                     // bare variant — cell type fixes the qualifier
+
+function applyMushroom(state: MarioState) -> MarioState {
+    if (state == .Small) return .Big   // bare variant — return type fixes the qualifier
+    return state
+}
+
+applyMushroom(.Small)                   // bare variant — parameter type fixes the qualifier
+```
+
+**Normative statements:**
+
+- A bare variant reference is the form `.VariantName` with no preceding type qualifier.
+- A bare variant reference SHALL be resolved by the compiler when the type at the position can be inferred from one of: a type annotation on the LHS (`<x>: T = .V`), a previously-declared cell or local with a known type (`@cell = .V` where `@cell: T`), a function parameter type (`fn(.V)` where the parameter is typed `T`), a function return type (`return .V` where the return is typed `T`), a match on-expression type (`<match for=T> | .V => ...`), an engine `for=T` qualifier (`<engine for=T initial=.V>`), or any other position where the type is fixed by the surrounding declaration.
+- A bare variant reference SHALL fail with `E-VARIANT-AMBIGUOUS` when the position's type is a union or otherwise ambiguous (e.g., `let x = .Small` with no annotation; the compiler cannot pick which enum has a `.Small` variant).
+- A bare variant reference IS NOT supported in expression positions where no type context exists (top-level expressions, `let`/`const` without annotation in untyped contexts).
+- The fully-qualified form (`MarioState.Small`, `MarioState::Small`) remains legal everywhere bare variants are legal. Writers may always be explicit.
+- Bare variants and the `::` qualifier (cross-ref §18.5) are interchangeable in match arm patterns where the matched type is statically known: `| .Small => ...` and `| MarioState::Small => ...` are equivalent.
+
+**Cross-references:**
+- §6.2 — three RHS shapes (the `: T = .V` form composes with bare-variant inference).
+- §18.0.3 — bare-variant inference in match arm patterns (the same rule applied at match-arm grammar).
+- §51.0.B — engine `initial=.Variant` is the canonical bare-variant locus.
+
+**Error code:** `E-VARIANT-AMBIGUOUS` (§34) — bare variant reference where the position type is ambiguous (union type with multiple enums sharing the variant name, or no type context at all).
+
+### 14.11 Positional binding for predefined-shape compound state (Stage 0b D4 — M10)
+
+**Added:** 2026-05-04 — formalises tuple-positional binding for compound state whose shape is fixed by a predefined type. This is a NARROW affordance — it applies only when the compound's structure is locked at the type level.
+
+**The shape:**
+
+```scrml
+type UserInfo:struct = { name: string, age: number, active: boolean }
+<userInfo>: UserInfo = ("alice", 30, true)        // positional — type fixes the field order
+```
+
+The positional initialiser `("alice", 30, true)` binds positionally to the struct's declared field order: `name = "alice"`, `age = 30`, `active = true`.
+
+**Normative statements:**
+
+- Positional binding is legal ONLY when the LHS has a predefined struct type annotation (a `type ... :struct = {...}` declared shape). Without the annotation, the RHS is parsed as a tuple value (cross-ref §14.X tuples) — the compiler does NOT auto-infer a struct from a positional literal.
+- The positional initialiser SHALL provide values in the field-declaration order. Field count mismatch is `E-TYPE-001` (positional-arity error). Per-position type mismatch is `E-TYPE-001` (positional-type error).
+- The named-initialiser form remains canonical for ad-hoc compound state (Variant C, §6.3). Positional binding is the SUGAR for predefined-shape (Tier 3 in the compound-state ladder).
+- Positional binding does NOT extend to nested structs. A struct field whose type is itself a struct must be initialised by name (or by a positional sub-tuple, which the compiler will treat as ambiguous).
+- The Variant C ad-hoc compound form (§6.3) does NOT accept positional binding — the structural-children declaration form is the canonical syntax for ad-hoc compounds, and a positional tuple has no field names to bind to.
+
+**Worked example — predefined-shape positional:**
+
+```scrml
+type Point:struct = { x: number, y: number }
+<origin>: Point = (0, 0)
+@origin.x  // 0
+@origin.y  // 0
+```
+
+**Worked example — Variant C ad-hoc (positional NOT legal):**
+
+```scrml
+<formRes>
+    <name>  = ""
+    <email> = ""
+</>
+// <formRes> = ("", "")  // E-TYPE-001 — Variant C compound has no positional form
+```
+
+**Cross-references:**
+- §6.3 — Variant C ad-hoc compound state (the named-only path).
+- §14.3 — struct types and field declaration order.
+- §14.10 — bare-variant inference (a different M9 affordance; both are M-moves about reducing redundancy when the type is known).
+
 ---
 
 ## 15. Component System
