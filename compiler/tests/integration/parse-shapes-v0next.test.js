@@ -108,6 +108,7 @@ describe("parser emits E-RESERVED-IDENTIFIER for `reset` as function name", () =
  */
 describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () => {
   // Case 1: literal int — the central case from PARSER-AUDIT §F1c
+  // Step 4 update: isConst is now always set (true|false), not undefined.
   test("Case 1: <count> = 0 produces state-decl with structuralForm:true (anti-fragment)", () => {
     const src = `<program>\${ <count> = 0 }</program>`;
     const { ast } = parse(src);
@@ -116,7 +117,7 @@ describe("A1a Step 2 — V5-strict <NAME>=expr decl recognition (Shape 1)", () =
     expect(decls[0].name).toBe("count");
     expect(decls[0].init).toBe("0");
     expect(decls[0].structuralForm).toBe(true);
-    expect(decls[0].isConst).toBeUndefined();
+    expect(decls[0].isConst).toBe(false);
     // Deceptive-success-pattern anti-test
     assertNoHtmlFragmentMatching(ast, /<\s*count\s*>/);
   });

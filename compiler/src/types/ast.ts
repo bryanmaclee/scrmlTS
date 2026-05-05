@@ -428,7 +428,7 @@ export interface LinDeclNode extends BaseNode {
 
 // -- Reactive Declarations --
 
-/** A reactive declaration: `@name = expr`. */
+/** A reactive declaration: `@name = expr` (legacy @-form) or `<name> = expr` (structural). */
 export interface ReactiveDeclNode extends BaseNode {
   kind: "state-decl";
   /** Reactive variable name (without `@`). */
@@ -439,6 +439,22 @@ export interface ReactiveDeclNode extends BaseNode {
   isShared?: boolean;
   /** Structured ExprNode form of the initializer. Always populated by ast-builder. */
   initExpr?: ExprNode;
+  /**
+   * Phase A1a Step 4 — discriminant per AST-CONTRACTS-AND-DECOMPOSITION §1.1.
+   * `"plain"` ↔ mutable cell with initExpr; `"derived"` ↔ const-derived cell;
+   * `"decl-with-spec"` ↔ Shape 2 with renderSpec (deferred to Step 5).
+   */
+  shape?: "plain" | "decl-with-spec" | "derived";
+  /**
+   * Phase A1a Step 4 — true iff `<name>` form, false iff `@name` form (legacy).
+   * Always set by ast-builder.
+   */
+  structuralForm?: boolean;
+  /**
+   * Phase A1a Step 4 — true iff `const <name> = expr` derived form.
+   * Always set by ast-builder.
+   */
+  isConst?: boolean;
 }
 
 /** A derived reactive declaration: `const @name = expr`. */

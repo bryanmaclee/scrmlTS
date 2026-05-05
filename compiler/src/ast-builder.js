@@ -2919,6 +2919,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // BLOCK_REF, or EOF — same boundary rules as the legacy `@NAME = init` path).
     const { expr } = collectExpr();
 
+    // Phase A1a Step 4 — `shape` discriminant per AST-CONTRACTS-AND-DECOMPOSITION
+    // §1.1. For tryParseStructuralDecl: `<NAME> = expr` is Shape 1 (`shape: "plain"`,
+    // `isConst: false`); `const <NAME> = expr` is Shape 3 (`shape: "derived"`,
+    // `isConst: true`). `shape: "decl-with-spec"` is deferred to Step 5 (renderSpec
+    // lands then). `isConst` is set unconditionally (true|false) for explicitness;
+    // pre-Step-4 only set `isConst: true` (true-branch only).
     const node = {
       id: ++counter.next,
       kind: "state-decl",
@@ -2926,9 +2932,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       init: expr,
       initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
       structuralForm: true,
+      isConst: !!isConst,
+      shape: isConst ? "derived" : "plain",
       span: spanOf(startTok, peek()),
     };
-    if (isConst) node.isConst = true;
     return node;
   }
 
@@ -3124,14 +3131,15 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         // fix-cg-cps-return-sql-ref-placeholder: detect `server @x = ?{...}.method()`.
+        // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
         const _sqlInit = tryConsumeSqlInit();
         if (_sqlInit) {
-          const node = { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, isServer: true, span: spanOf(startTok, peek()) };
+          const node = { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, isServer: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
           if (typeAnnotation) node.typeAnnotation = typeAnnotation;
           return node;
         }
         const { expr } = collectExpr();
-        const node = { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, span: spanOf(startTok, peek()) };
+        const node = { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
         if (typeAnnotation) node.typeAnnotation = typeAnnotation;
         return node;
       }
@@ -3149,12 +3157,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const nameTok = consume(); // consume varName
         consume(); // consume `=`
         // fix-cg-cps-return-sql-ref-placeholder: detect `@shared x = ?{...}.method()`.
+        // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
         const _sqlInit = tryConsumeSqlInit();
         if (_sqlInit) {
-          return { id: ++counter.next, kind: "state-decl", name: nameTok.text, init: "", sqlNode: _sqlInit, isShared: true, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "state-decl", name: nameTok.text, init: "", sqlNode: _sqlInit, isShared: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
         }
         const { expr } = collectExpr();
-        return { id: ++counter.next, kind: "state-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "state-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
       }
       // Malformed @shared — emit as bare-expr
       const { expr } = collectExpr();
@@ -3236,6 +3245,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
 
       // Type annotation: @name: Type(predicate) = expr  (§53)
+      // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
       if (peek().text === ":") {
         const typeAnnotation = collectTypeAnnotation();
         if (peek().text === "=" && peek(1)?.text !== "=") {
@@ -3243,15 +3253,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           // fix-cg-cps-return-sql-ref-placeholder: detect `@x: T = ?{...}.method()`.
           const _sqlInit = tryConsumeSqlInit();
           if (_sqlInit) {
-            return { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, typeAnnotation, span: spanOf(startTok, peek()) };
+            return { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, typeAnnotation, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
           }
           const { expr } = collectExpr();
-          return { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), typeAnnotation, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), typeAnnotation, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
         }
         // Malformed — fall through to bare-expr
       }
 
       // Simple reactive decl: @name = expr
+      // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
         // fix-cg-cps-return-sql-ref-placeholder: detect `@x = ?{...}.method()`.
@@ -3261,10 +3272,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // `/* sql-ref:-1 */` — broken in both server CPS and client init contexts.
         const _sqlInit = tryConsumeSqlInit();
         if (_sqlInit) {
-          return { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, span: spanOf(startTok, peek()) };
+          return { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
         }
         const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), span: spanOf(startTok, peek()) };
+        return { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
       }
 
       // @set(@obj, "path", value) — explicit escape hatch
@@ -4881,15 +4892,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         // fix-cg-cps-return-sql-ref-placeholder: detect `server @x = ?{...}.method()`.
+        // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
         const _sqlInit = tryConsumeSqlInit();
         if (_sqlInit) {
-          const node = { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, isServer: true, span: spanOf(startTok, peek()) };
+          const node = { id: ++counter.next, kind: "state-decl", name, init: "", sqlNode: _sqlInit, isServer: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
           if (typeAnnotation) node.typeAnnotation = typeAnnotation;
           nodes.push(node);
           continue;
         }
         const { expr } = collectExpr();
-        const node = { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, span: spanOf(startTok, peek()) };
+        const node = { id: ++counter.next, kind: "state-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isServer: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) };
         if (typeAnnotation) node.typeAnnotation = typeAnnotation;
         nodes.push(node);
         continue;
@@ -4909,13 +4921,14 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         const nameTok = consume(); // consume varName
         consume(); // consume `=`
         // fix-cg-cps-return-sql-ref-placeholder: detect `@shared x = ?{...}.method()`.
+        // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
         const _sqlInit = tryConsumeSqlInit();
         if (_sqlInit) {
-          nodes.push({ id: ++counter.next, kind: "state-decl", name: nameTok.text, init: "", sqlNode: _sqlInit, isShared: true, span: spanOf(startTok, peek()) });
+          nodes.push({ id: ++counter.next, kind: "state-decl", name: nameTok.text, init: "", sqlNode: _sqlInit, isShared: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) });
           continue;
         }
         const { expr } = collectExpr();
-        nodes.push({ id: ++counter.next, kind: "state-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, span: spanOf(startTok, peek()) });
+        nodes.push({ id: ++counter.next, kind: "state-decl", name: nameTok.text, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), isShared: true, shape: "plain", structuralForm: false, isConst: false, span: spanOf(startTok, peek()) });
         continue;
       }
       // Malformed @shared — emit as bare-expr
@@ -5004,6 +5017,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
 
       // Type annotation: @name: Type(predicate) = expr  (§53)
+      // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
       if (peek().text === ":") {
         const typeAnnotation = collectTypeAnnotation();
         if (peek().text === "=" && peek(1)?.text !== "=") {
@@ -5018,6 +5032,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               init: "",
               sqlNode: _sqlInit,
               ...(typeAnnotation ? { typeAnnotation } : {}),
+              shape: "plain",
+              structuralForm: false,
+              isConst: false,
               span: spanOf(startTok, peek()),
             });
             continue;
@@ -5030,6 +5047,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             init: expr,
             initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
             ...(typeAnnotation ? { typeAnnotation } : {}),
+            shape: "plain",
+            structuralForm: false,
+            isConst: false,
             span: spanOf(startTok, peek()),
           });
           continue;
@@ -5038,6 +5058,7 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
 
       // Simple reactive decl: @name = expr
+      // Phase A1a Step 4 — `shape: "plain"`, `structuralForm: false`, `isConst: false` for legacy @-form.
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume(); // consume `=`
         // fix-cg-cps-return-sql-ref-placeholder: detect `@x = ?{...}.method()`.
@@ -5053,6 +5074,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             name,
             init: "",
             sqlNode: _sqlInit,
+            shape: "plain",
+            structuralForm: false,
+            isConst: false,
             span: spanOf(startTok, peek()),
           });
           continue;
@@ -5064,6 +5088,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           name,
           init: expr,
           initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
+          shape: "plain",
+          structuralForm: false,
+          isConst: false,
           span: spanOf(startTok, peek()),
         });
         continue;
