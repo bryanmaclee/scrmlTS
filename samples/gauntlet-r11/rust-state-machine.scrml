@@ -103,7 +103,7 @@ ${
         return "Record 42: {name: Alice, score: 99}"
     }
 
-    function reset() {
+    function resetMachine() {
         @errorMessage = ""
         @lastResult = ""
         @history = []
@@ -182,7 +182,7 @@ ${
     // --- Transition buttons ---
     <div class="controls">
         <button class="btn btn--load" onclick=startLoad()>Load</>
-        <button class="btn btn--reset" onclick=reset()>Reset</>
+        <button class="btn btn--reset" onclick=resetMachine()>Reset</>
     </div>
 
     // --- History log ---

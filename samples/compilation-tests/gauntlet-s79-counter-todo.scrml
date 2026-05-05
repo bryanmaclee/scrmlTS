@@ -134,7 +134,7 @@ ${
         }
     }
 
-    function reset() {
+    function clearAll() {
         @count = 0
         @todos = []
     }
@@ -199,5 +199,5 @@ ${
 
 // --- reset ---
 <div class="btn-row">
-    <button class="btn btn-danger" onclick=reset()>Reset everything</>
+    <button class="btn btn-danger" onclick=clearAll()>Reset everything</>
 </div>

@@ -10,11 +10,11 @@
         function decrement() {
             @count = @count - 1
         }
-        function reset() {
+        function clearCount() {
             @count = 0
         }
     }
     <button onclick=increment()>+</>
     <button onclick=decrement()>-</>
-    <button onclick=reset()>Reset</>
+    <button onclick=clearCount()>Reset</>
 </div>

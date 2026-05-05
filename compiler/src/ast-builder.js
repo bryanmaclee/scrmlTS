@@ -3642,7 +3642,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         consume(); // consume `*`
       }
       let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
+      let nameTok = null;
+      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+        nameTok = peek();
+        name = consume().text;
+      }
+      // §6.8: `reset` is a reserved identifier — declaring `function reset() {}` shadows the keyword.
+      if (nameTok && nameTok.kind === "KEYWORD" && name === "reset") {
+        errors.push(new TABError(
+          "E-RESERVED-IDENTIFIER",
+          `E-RESERVED-IDENTIFIER: \`function reset() {...}\` shadows the reserved \`reset\` keyword (§6.8). Rename the function (e.g., \`clearCount\`) or use \`reset(@cell)\` instead.`,
+          tokenSpan(nameTok, filePath),
+        ));
+      }
       const params = parseParamList();
       let canFail = false;
       if (peek().text === "!") {
@@ -5288,7 +5300,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
 
       let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
+      let nameTok = null;
+      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+        nameTok = peek();
+        name = consume().text;
+      }
+      // §6.8: `reset` is a reserved identifier — declaring `function reset() {}` shadows the keyword.
+      if (nameTok && nameTok.kind === "KEYWORD" && name === "reset") {
+        errors.push(new TABError(
+          "E-RESERVED-IDENTIFIER",
+          `E-RESERVED-IDENTIFIER: \`function reset() {...}\` shadows the reserved \`reset\` keyword (§6.8). Rename the function (e.g., \`clearCount\`) or use \`reset(@cell)\` instead.`,
+          tokenSpan(nameTok, filePath),
+        ));
+      }
 
       const params = parseParamList();
 
@@ -5435,7 +5459,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       consume(); // consume `fn`
 
       let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
+      let nameTok = null;
+      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+        nameTok = peek();
+        name = consume().text;
+      }
+      // §6.8: `reset` is a reserved identifier — declaring `fn reset {...}` shadows the keyword.
+      if (nameTok && nameTok.kind === "KEYWORD" && name === "reset") {
+        errors.push(new TABError(
+          "E-RESERVED-IDENTIFIER",
+          `E-RESERVED-IDENTIFIER: \`fn reset {...}\` shadows the reserved \`reset\` keyword (§6.8). Rename the function (e.g., \`clearCount\`) or use \`reset(@cell)\` instead.`,
+          tokenSpan(nameTok, filePath),
+        ));
+      }
 
       // fn can optionally have a param list
       let params = [];

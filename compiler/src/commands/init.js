@@ -62,7 +62,7 @@ const APP_SCRML = `// app.scrml — starter scrml app
         }
     }
 
-    function reset() {
+    function clearCount() {
         @count = 0
     }
 }
@@ -74,7 +74,7 @@ const APP_SCRML = `// app.scrml — starter scrml app
 
     <div class="controls">
         <button onclick=decrement()>-</>
-        <button onclick=reset()>Reset</>
+        <button onclick=clearCount()>Reset</>
         <button onclick=increment()>+</>
     </>
 
