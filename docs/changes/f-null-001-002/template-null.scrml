@@ -1,6 +1,0 @@
-<program>
-${
-  @lastChange = "active"
-}
-<div>${@lastChange == null ? "none" : @lastChange}</div>
-</program>
