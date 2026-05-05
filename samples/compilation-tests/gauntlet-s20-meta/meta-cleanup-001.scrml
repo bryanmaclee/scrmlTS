@@ -3,7 +3,7 @@
 
 <program>
 ${
-  @interval = 1000
+  <interval> = 1000
 }
 
 <div>

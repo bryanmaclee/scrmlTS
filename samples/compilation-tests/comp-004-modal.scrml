@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @isOpen = false
+        <isOpen> = false
         function openModal() {
             @isOpen = true
         }

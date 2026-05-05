@@ -3,10 +3,10 @@
 
 <div class="login-page">
     ${
-        @username = ""
-        @password = ""
-        @error = ""
-        @loggedIn = false
+        <username> = ""
+        <password> = ""
+        <error> = ""
+        <loggedIn> = false
 
         function handleLogin() {
             if (@username.length == 0) {

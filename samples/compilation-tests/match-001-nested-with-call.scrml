@@ -1,8 +1,8 @@
 ${
     type PowerUp:enum = { Mushroom, Flower, Feather }
     type MarioState:enum = { Small, Big, Fire, Cape }
-    @state = MarioState.Small
-    @label = "Small"
+    <state> = MarioState.Small
+    <label> = "Small"
 
     function updateLabel() {
         @label = match @state { .Small => "Small" .Big => "Big" .Fire => "Fire" .Cape => "Cape" }

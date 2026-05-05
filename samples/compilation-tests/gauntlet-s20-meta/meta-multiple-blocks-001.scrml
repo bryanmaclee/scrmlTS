@@ -3,8 +3,8 @@
 
 <program>
 ${
-  @count = 0
-  @label = "Hello"
+  <count> = 0
+  <label> = "Hello"
 }
 
 <div>

@@ -5,7 +5,7 @@
 ${
     type OrderStatus:enum = { Pending, Processing, Shipped, Delivered, Cancelled }
 
-    @status: AdminFlow = OrderStatus.Pending
+    <status>: AdminFlow = OrderStatus.Pending
 
     function advance() {
         @status = OrderStatus.Processing

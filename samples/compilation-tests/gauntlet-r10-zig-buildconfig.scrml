@@ -52,14 +52,14 @@ ${
     // to @platform. The dependency graph is implicit. In Zig, a change to a field
     // triggers nothing -- you call the render function yourself. The hidden subscriber
     // model is the primary point of friction from a "I can see everything" perspective.
-    @platform = "WASM"
-    @optLevel = "Debug"
-    @stripDebug = false
-    @enableLTO = false
-    @enableSingleThreaded = false
-    @enableSanitizeThread = false
-    @enableEmitDocs = false
-    @saveStatus = "Idle"
+    <platform> = "WASM"
+    <optLevel> = "Debug"
+    <stripDebug> = false
+    <enableLTO> = false
+    <enableSingleThreaded> = false
+    <enableSanitizeThread> = false
+    <enableEmitDocs> = false
+    <saveStatus> = "Idle"
 
     // Dependencies list -- reactive array
     // FRICTION NOTE (Zig developer): @deps is a reactive array. But what triggers
@@ -69,8 +69,8 @@ ${
     // Here, the re-render is silent. I cannot see who re-renders on @deps mutation.
     // Also: does @deps = @deps.concat([newDep]) trigger one re-render or two?
     // The answer is "one" (batching), but nothing in the source makes that visible.
-    @deps = ["std", "build_runner"]
-    @newDepInput = ""
+    <deps> = ["std", "build_runner"]
+    <newDepInput> = ""
 
     // POSITIVE SIGNAL: const @derived is the strongest feature I have encountered from
     // a Zig perspective. This is compile-time DAG construction -- the compiler statically

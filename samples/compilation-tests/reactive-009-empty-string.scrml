@@ -4,8 +4,8 @@
 
 <div>
     ${
-        @searchQuery = ""
-        @errorMessage = not
+        <searchQuery> = ""
+        <errorMessage> = not
     }
     <input type="text" placeholder="Search..."/>
 </div>

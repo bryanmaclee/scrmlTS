@@ -3,6 +3,6 @@
 // show= keeps the element in the DOM and toggles its visibility via display: none.
 
 <div>
-    ${ @verbose = true }
+    ${ <verbose> = true }
     <p show=@verbose>Diagnostic info: visible only when verbose is true.</>
 </div>

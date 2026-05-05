@@ -3,7 +3,7 @@
 
 <div class="dropdown">
     ${
-        @isOpen = false
+        <isOpen> = false
         function toggle() {
             @isOpen = !@isOpen
         }

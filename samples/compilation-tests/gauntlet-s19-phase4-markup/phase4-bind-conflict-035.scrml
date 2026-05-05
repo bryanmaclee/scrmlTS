@@ -1,7 +1,7 @@
 // bind:value and explicit oninput on same element → E-ATTR-012.
 <program>
     ${
-        @name = ""
+        <name> = ""
         function log() { let _ = 1 }
     }
     <input type="text" bind:value=@name oninput=log()/>

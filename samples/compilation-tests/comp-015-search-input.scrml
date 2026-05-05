@@ -3,7 +3,7 @@
 
 <div class="search-wrapper">
     ${
-        @query = ""
+        <query> = ""
         function clearSearch() {
             @query = ""
         }

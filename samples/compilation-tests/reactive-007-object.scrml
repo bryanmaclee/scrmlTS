@@ -2,6 +2,6 @@
 // Reactive object variable. Tests: @ with object values.
 
 <div>
-    ${ @user = { name: "Alice", email: "alice@example.com" } }
+    ${ <user> = { name: "Alice", email: "alice@example.com" } }
     <p>User loaded</>
 </div>

@@ -2,8 +2,8 @@
 // §38 channel-basic.scrml — minimal WebSocket channel sample.
 // See gauntlet-s20-channels/channel-basic-001.scrml for the gauntlet variant.
 ${
-  @messages = []
-  @status = "disconnected"
+  <messages> = []
+  <status> = "disconnected"
 }
 
 <div>

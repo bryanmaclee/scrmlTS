@@ -2,6 +2,6 @@
 // Conditional attribute on markup tag. Tests: if= attribute with reactive var.
 
 <div>
-    ${ @showBanner = true }
+    ${ <showBanner> = true }
     <div class="banner" if=@showBanner>Welcome to our site!</>
 </div>

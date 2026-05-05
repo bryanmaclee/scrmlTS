@@ -1,6 +1,6 @@
 // if= / else-if= / else chain on markup (§17.1.1)
 ${
-    @step: number = 2
+    <step>: number = 2
 }
 <program>
     <div class="wizard">

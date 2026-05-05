@@ -8,12 +8,12 @@
 
 <div class="stripe-mini-dashboard">
     ${
-        @payments = [{ id: "pay_001", amount: 49.99, customer: "Alice" }, { id: "pay_002", amount: 129.00, customer: "Bob" }]
-        @selectedPayment = not
-        @showRefundModal = false
-        @refundAmount = ""
-        @searchQuery = ""
-        @statusMessage = ""
+        <payments> = [{ id: "pay_001", amount: 49.99, customer: "Alice" }, { id: "pay_002", amount: 129.00, customer: "Bob" }]
+        <selectedPayment> = not
+        <showRefundModal> = false
+        <refundAmount> = ""
+        <searchQuery> = ""
+        <statusMessage> = ""
 
         function selectPayment(paymentId) {
             @selectedPayment = paymentId

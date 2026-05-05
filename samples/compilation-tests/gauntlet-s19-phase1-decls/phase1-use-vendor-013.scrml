@@ -5,5 +5,5 @@ use vendor:my-date-picker { DatePicker }
     <DatePicker value=@d/>
 </>
 ${
-    @d = "2026-01-01"
+    <d> = "2026-01-01"
 }

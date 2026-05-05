@@ -1,7 +1,7 @@
 // partial match but all variants covered — W-MATCH-003
 ${
     type Status:enum = { Active, Pending }
-    @status: Status = .Active
+    <status>: Status = .Active
     function handle() {
         partial match @status {
             .Active  => log("a")

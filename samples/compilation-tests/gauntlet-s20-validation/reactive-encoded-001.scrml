@@ -2,8 +2,8 @@
 // Verify @var compiles to _scrml_s_<hash> pattern.
 
 ${
-  @items = ["one", "two", "three"]
-  @selected = 0
+  <items> = ["one", "two", "three"]
+  <selected> = 0
 }
 
 <ul>

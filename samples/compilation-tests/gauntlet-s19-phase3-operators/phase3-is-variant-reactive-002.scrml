@@ -1,7 +1,7 @@
 // `is` on a reactive enum variable
 ${
     type Tab:enum = { Overview, Activity, Settings }
-    @tab:Tab = .Overview
+    <tab>:Tab = .Overview
 }
 <program>
     <span if=(@tab is .Overview)>Overview</>

@@ -4,8 +4,8 @@
 <div>
     ${
         let defaultName = "World"
-        @greeting = "Hello, " + defaultName
-        @count = 0
+        <greeting> = "Hello, " + defaultName
+        <count> = 0
         let maxCount = 100
     }
     <p>Mixed declarations</>

@@ -52,35 +52,35 @@ ${
     // ---- Reactive UI state ----
     // In Go I'd have a struct holding all this. Here it's flat reactive vars.
     // That's fine for a small app. Scales poorly — no namespacing.
-    @contacts = []
-    @searchQuery = ""
-    @filterCategory = ""
+    <contacts> = []
+    <searchQuery> = ""
+    <filterCategory> = ""
 
     // Form state for adding a new contact
-    @formName = ""
-    @formEmail = ""
-    @formPhone = ""
-    @formCategory = "Other"
-    @showAddForm = false
+    <formName> = ""
+    <formEmail> = ""
+    <formPhone> = ""
+    <formCategory> = "Other"
+    <showAddForm> = false
 
     // Edit state — which contact is being edited inline
-    @editingId = not
-    @editName = ""
-    @editEmail = ""
-    @editPhone = ""
-    @editCategory = "Other"
+    <editingId> = not
+    <editName> = ""
+    <editEmail> = ""
+    <editPhone> = ""
+    <editCategory> = "Other"
 
     // Delete confirmation state
-    @pendingDeleteId = not
-    @pendingDeleteName = ""
+    <pendingDeleteId> = not
+    <pendingDeleteName> = ""
 
     // Error / feedback state
     // FRICTION: This is the Go developer's biggest concern. There is no (val, err)
     // return. Errors from server functions and SQL queries have no explicit propagation
     // model I can trace through the spec (§19 !{} exists but feels experimental/incomplete).
     // I'm using a @errorMsg string as a poor man's error channel — the Go pattern.
-    @errorMsg = ""
-    @successMsg = ""
+    <errorMsg> = ""
+    <successMsg> = ""
 }
 
 ${

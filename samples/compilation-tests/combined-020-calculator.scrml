@@ -3,9 +3,9 @@
 
 <div class="calculator">
     ${
-        @display = "0"
-        @current = 0
-        @operator = ""
+        <display> = "0"
+        <current> = 0
+        <operator> = ""
 
         function pressDigit(d) {
             if (@display == "0") {

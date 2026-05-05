@@ -1,7 +1,7 @@
 // Reactive prop passed to component (bare @var, no braces).
 <program>
     ${
-        @title = "Hello"
+        <title> = "Hello"
         const Card = <div class="card" props={
             label: string,
         }>

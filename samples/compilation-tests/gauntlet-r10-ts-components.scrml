@@ -230,8 +230,8 @@ ${
 // This is actually ACCEPTABLE -- scrml's reactivity model is file-scoped anyway.
 
 ${
-    @toasts = []
-    @nextToastId = 1
+    <toasts> = []
+    <nextToastId> = 1
 
     function addToast(message, severity) {
         const id = @nextToastId
@@ -253,10 +253,10 @@ ${
 // The gap is: prop values that are wrong TYPE are not caught without generics.
 
 ${
-    @showModal = false
-    @activeTab = "tab1"
-    @selectedDropdownValue = ""
-    @selectedDropdownValue2 = ""
+    <showModal> = false
+    <activeTab> = "tab1"
+    <selectedDropdownValue> = ""
+    <selectedDropdownValue2> = ""
 
     let tabList = [
         { id: "tab1", label: "Overview" },

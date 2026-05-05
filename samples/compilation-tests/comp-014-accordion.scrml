@@ -3,7 +3,7 @@
 
 <div class="accordion">
     ${
-        @openSection = 0
+        <openSection> = 0
         function toggleSection(idx) {
             @openSection = idx
         }

@@ -17,16 +17,16 @@
 // In scrml: this is client memory. Server knows nothing about @currentRoom or @userName
 // unless we explicitly pass them in server function calls.
 ${
-    @currentRoomId = 1
-    @currentRoomName = "general"
-    @userName = ""
-    @messageText = ""
-    @messages = []
-    @rooms = []
-    @isTyping = false
-    @typingUsers = []
-    @isSending = false
-    @hasJoined = false
+    <currentRoomId> = 1
+    <currentRoomName> = "general"
+    <userName> = ""
+    <messageText> = ""
+    <messages> = []
+    <rooms> = []
+    <isTyping> = false
+    <typingUsers> = []
+    <isSending> = false
+    <hasJoined> = false
 }
 
 // ---- Enum: message kind ----

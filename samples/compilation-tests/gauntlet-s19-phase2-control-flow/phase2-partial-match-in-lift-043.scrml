@@ -1,7 +1,7 @@
 // partial match in lift context — E-TYPE-081
 ${
     type Status:enum = { Active, Inactive }
-    @status: Status = .Active
+    <status>: Status = .Active
 }
 <program>
     <div>

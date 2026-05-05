@@ -3,10 +3,10 @@
 
 < db src="./test.db" tables="users">
     ${
-        @users = ?{`SELECT id, name, email FROM users`}
-        @editingId = not
-        @newName = ""
-        @newEmail = ""
+        <users> = ?{`SELECT id, name, email FROM users`}
+        <editingId> = not
+        <newName> = ""
+        <newEmail> = ""
 
         function createUser() {
             ?{`INSERT INTO users (name, email) VALUES ('New', 'new@example.com')`}

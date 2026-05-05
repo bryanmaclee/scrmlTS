@@ -3,7 +3,7 @@
 
 <program>
 ${
-  @theme = "dark"
+  <theme> = "dark"
 }
 
 <div>

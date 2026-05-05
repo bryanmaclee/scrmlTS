@@ -153,20 +153,20 @@ ${
     type Theme:enum = { Light, Dark, System }
 
     // reactive defaults
-    @theme = Theme.Light
-    @fontSize = 16
-    @username = ""
+    <theme> = Theme.Light
+    <fontSize> = 16
+    <username> = ""
 
     // derive background color from current theme — used in preview section
     // assumption: match as expression assigned to @var works inline here
-    @bgColor = match @theme {
+    <bgColor> = match @theme {
         .Light  => "#ffffff"
         .Dark   => "#1a1a1a"
         .System => "#f0f0f0"
     }
 
     // derive a human-readable theme label — needed in summary
-    @themeLabel = match @theme {
+    <themeLabel> = match @theme {
         .Light  => "Light"
         .Dark   => "Dark"
         .System => "System"

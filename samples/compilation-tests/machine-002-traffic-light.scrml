@@ -17,7 +17,7 @@
 ${
     type TrafficLight:enum = { Red, Yellow, Green }
 
-    @light: TrafficController = TrafficLight.Red
+    <light>: TrafficController = TrafficLight.Red
 
     // cycle() advances through Red → Green → Yellow → Red
     // match arms use => (canonical per §51, not :>)

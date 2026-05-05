@@ -8,8 +8,8 @@
             List
             Compact
         }
-        @currentView = ViewMode.Grid
-        @itemsPerPage = 20
+        <currentView> = ViewMode.Grid
+        <itemsPerPage> = 20
     }
     <p>View settings</>
 </div>

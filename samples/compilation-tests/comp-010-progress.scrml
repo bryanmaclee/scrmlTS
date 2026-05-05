@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @progress = 65
+        <progress> = 65
         function updateProgress(val) {
             @progress = val
         }

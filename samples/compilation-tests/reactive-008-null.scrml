@@ -2,6 +2,6 @@
 // Reactive variable initialized to not (absence value). Tests: @ with not.
 
 <div>
-    ${ @selectedItem = not }
+    ${ <selectedItem> = not }
     <p>No item selected</>
 </div>

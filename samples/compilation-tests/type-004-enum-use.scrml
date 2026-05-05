@@ -8,7 +8,7 @@
             Green
             Blue
         }
-        @selectedColor = Color.Red
+        <selectedColor> = Color.Red
     }
     <p>Color enum used</>
 </div>

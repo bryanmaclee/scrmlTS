@@ -3,7 +3,7 @@
 
 <div class="gallery">
     ${
-        @currentIndex = 0
+        <currentIndex> = 0
         let images = ["photo1.jpg", "photo2.jpg", "photo3.jpg", "photo4.jpg"]
 
         function next() {

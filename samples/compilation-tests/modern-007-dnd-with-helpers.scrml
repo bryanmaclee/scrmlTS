@@ -7,7 +7,7 @@
 ${
   import { useDraggable, useDropZone } from './helpers/dnd-setup.scrml'
 
-  @items = [
+  <items> = [
     { id: 1, text: "Task A", zone: "todo" },
     { id: 2, text: "Task B", zone: "todo" },
     { id: 3, text: "Task C", zone: "done" },

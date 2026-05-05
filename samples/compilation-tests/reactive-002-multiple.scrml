@@ -3,9 +3,9 @@
 
 <div>
     ${
-        @name = "Guest"
-        @loggedIn = false
-        @itemCount = 0
+        <name> = "Guest"
+        <loggedIn> = false
+        <itemCount> = 0
     }
     <p>State initialized</>
 </div>

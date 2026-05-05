@@ -1,7 +1,7 @@
 // match directly in markup (outside ${}) — E-TYPE-026
 ${
     type Status:enum = { On, Off }
-    @s: Status = .On
+    <s>: Status = .On
 }
 <program>
     <div>

@@ -59,7 +59,7 @@ ${
     // a createStore() for fine-grained per-index reactivity.
     // scrml has no reactive store / per-key reactive object. All 25 cells share
     // one @cells signal. Editing any cell makes the entire array "changed."
-    @cells = ["", "", "", "", "",
+    <cells> = ["", "", "", "", "",
               "", "", "", "", "",
               "", "", "", "", "",
               "", "", "", "", "",
@@ -72,14 +72,14 @@ ${
     // use .map() with a function that reads other @variables inside it.
     // There is no createMemo equivalent for derived arrays.
     // Workaround: @values is a mutable @var re-computed in evaluateAll().
-    @values = ["", "", "", "", "",
+    <values> = ["", "", "", "", "",
                "", "", "", "", "",
                "", "", "", "", "",
                "", "", "", "", "",
                "", "", "", "", ""]
 
     // Currently selected cell (flat index 0-24)
-    @selectedCell = 0
+    <selectedCell> = 0
 
     // [F7] FRICTION: @formulaBar should be a derived value:
     //   const @formulaBar = @cells[@selectedCell]
@@ -89,15 +89,15 @@ ${
     // scrml cannot express this. @formulaBar must be manually kept in sync
     // at every write site (selectCell, updateCell). Two update paths instead
     // of one source of truth.
-    @formulaBar = ""
+    <formulaBar> = ""
 
     // [F3] FRICTION: To show/hide editing UI, Solid would use:
     //   <Show when={selectedCell() >= 0}>
     // scrml uses if= on a boolean @var. The condition @selectedCell >= 0 is
     // always true (0-24 range) so we don't need it here, but for conditional
     // sections like "show error state" we need a separate @showError boolean.
-    @hasError = false
-    @errorMessage = ""
+    <hasError> = false
+    <errorMessage> = ""
 }
 
 ${

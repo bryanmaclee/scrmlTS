@@ -3,13 +3,13 @@
 
 <div>
     ${
-        @settings = {
+        <settings> = {
             theme: "light",
             fontSize: 16,
             notifications: true
         }
-        @history = []
-        @activeTab = "general"
+        <history> = []
+        <activeTab> = "general"
     }
     <p>Settings initialized</>
 </div>

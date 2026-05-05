@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @selected = ""
+        <selected> = ""
         function selectItem(name) {
             @selected = name
         }

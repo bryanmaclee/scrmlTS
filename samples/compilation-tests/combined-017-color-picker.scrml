@@ -3,7 +3,7 @@
 
 <div class="color-picker">
     ${
-        @selectedColor = "red"
+        <selectedColor> = "red"
         function pickColor(color) {
             @selectedColor = color
         }

@@ -90,18 +90,28 @@ function classifyFile(filePath, agg) {
   let source;
   try { source = readFileSync(filePath, "utf8"); }
   catch (e) { agg.readErr.push({ filePath, err: e.message }); return; }
-  let ast;
-  try { ast = buildAST(splitBlocks(filePath, source)); }
+  let astOut;
+  try { astOut = buildAST(splitBlocks(filePath, source)); }
   catch (e) { agg.parseErr.push({ filePath, err: e.message }); return; }
+  const ast = astOut.ast || astOut;
 
   const topLevelDecls = findTopLevelDecls(source);
   for (const [name, info] of topLevelDecls) {
     agg.topLevelBlocked.push({ filePath, name, line: info.line, col: info.col, snippet: info.snippet });
   }
 
+  // Names with a structural decl (already V5-strict) — any subsequent legacy
+  // @-form write of the same name is NOT a re-decl. Critical for files that
+  // are mid-rewrite (mixed structural + legacy decls of the same name).
+  const allStateDecls = findKind(ast, "state-decl");
+  const namesWithStructuralDecl = new Set();
+  for (const d of allStateDecls) {
+    if (d.structuralForm === true) namesWithStructuralDecl.add(d.name);
+  }
+
   // Two-pass over AST decls so LEGACY-COMPLEX names register as "decl-seen"
   // ahead of any later plain @-form writes of the same name.
-  const allDecls = findKind(ast, "state-decl").filter((d) => d.structuralForm === false);
+  const allDecls = allStateDecls.filter((d) => d.structuralForm === false);
   allDecls.sort((a, b) => (a.span?.start ?? 0) - (b.span?.start ?? 0));
 
   // Pass 1: identify all names that have ANY decl (modifier, plain, etc.) in scope.
@@ -129,6 +139,9 @@ function classifyFile(filePath, agg) {
       bucket = agg.legacyComplex;
     } else if (topLevelDecls.has(d.name)) {
       // Already decl'd at top-level; this is a write.
+      bucket = agg.write;
+    } else if (namesWithStructuralDecl.has(d.name)) {
+      // Name has a V5-strict structural decl; this is a legacy-form write.
       bucket = agg.write;
     } else if (namesWithModifierDecl.has(d.name)) {
       // Name is decl'd via a modifier form elsewhere (server/shared/const);

@@ -12,31 +12,31 @@
             return ?{`SELECT id, name, department, role, salary, active FROM employees ORDER BY name ASC`}.all()
         }
         // Initialize empty; populated via loadInitialData() below
-        @employees = []
+        <employees> = []
 
         // Sorting state
         // In Vue: ref("name") and ref("asc")
-        @sortCol = "name"
-        @sortDir = "asc"
+        <sortCol> = "name"
+        <sortDir> = "asc"
 
         // Search/filter state
         // In Vue: v-model on the search input. In scrml: bind:value + @searchTerm
-        @searchTerm = ""
+        <searchTerm> = ""
 
         // Selection state
         // In Vue: ref([]) + computed set for O(1) lookup
-        @selectedIds = []
+        <selectedIds> = []
 
         // Pagination state
-        @currentPage = 1
-        @pageSize = 10
+        <currentPage> = 1
+        <pageSize> = 10
 
         // Modal state
-        @showModal = false
-        @newName = ""
-        @newDepartment = ""
-        @newRole = ""
-        @newSalary = ""
+        <showModal> = false
+        <newName> = ""
+        <newDepartment> = ""
+        <newRole> = ""
+        <newSalary> = ""
 
         // --- Derived state ---
         // In Vue: computed(() => ...) with automatic dep tracking.

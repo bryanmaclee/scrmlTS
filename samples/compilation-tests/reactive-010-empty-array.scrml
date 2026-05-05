@@ -2,7 +2,7 @@
 // Reactive variable initialized to empty array. Tests: @ with [].
 
 <div>
-    ${ @todos = [] }
+    ${ <todos> = [] }
     <ul>
         <li>No items yet</>
     </ul>

@@ -28,20 +28,20 @@
         // --- Reactive UI state ---
         // HTMX COMMENT: In HTMX I wouldn't have any of this. The server owns it.
         // But scrml's model requires I declare state for every piece of UI feedback.
-        @submitted = false
-        @submitting = false
-        @errorMsg = ""
-        @fieldErrors = {}
+        <submitted> = false
+        <submitting> = false
+        <errorMsg> = ""
+        <fieldErrors> = {}
 
         // --- Form field values ---
         // These mirror the form inputs so server fn can read them.
         // FRICTION: FormData access inside server functions is not specified. I am
         // forced to use @reactive vars as the data carrier from client to server.
         // In HTMX: the form just POSTs. All fields go automatically.
-        @feedbackText = ""
-        @rating = 0
-        @selectedChoice = ""
-        @contactEmail = ""
+        <feedbackText> = ""
+        <rating> = 0
+        <selectedChoice> = ""
+        <contactEmail> = ""
 
         // --- Server function: validate and persist ---
         // HTMX EQUIVALENT: hx-post="/api/feedback" — the endpoint does this work

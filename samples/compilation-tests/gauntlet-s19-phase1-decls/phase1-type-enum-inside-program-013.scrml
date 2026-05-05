@@ -2,7 +2,7 @@
 <program>
     ${
         type Theme:enum = { Light, Dark, System }
-        @theme = .Light
+        <theme> = .Light
     }
     <p>${@theme}</>
 </>

@@ -24,7 +24,7 @@ ${
 }
 
 ${
-    @items = [
+    <items> = [
         { id: 1, label: "First"  },
         { id: 2, label: "Second" },
         { id: 3, label: "Third"  },

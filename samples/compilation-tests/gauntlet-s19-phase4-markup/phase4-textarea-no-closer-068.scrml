@@ -1,5 +1,5 @@
 // Ghost-pattern: self-closed <textarea/> without closer.
 <program>
-    ${ @x = "" }
+    ${ <x> = "" }
     <textarea bind:value=@x/>
 </program>

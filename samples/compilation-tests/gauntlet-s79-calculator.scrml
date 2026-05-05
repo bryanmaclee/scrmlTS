@@ -110,10 +110,10 @@
 
 // --- state and logic ---
 ${
-    @display = "0"
-    @current = 0
-    @previous = 0
-    @operator = ""
+    <display> = "0"
+    <current> = 0
+    <previous> = 0
+    <operator> = ""
 
     function pressDigit(d) {
         if (@display == "0") {

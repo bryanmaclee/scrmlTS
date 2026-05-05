@@ -100,12 +100,24 @@ function findTopLevelDecls(source) {
  * where start/end are byte offsets of the `@<name>` token to be replaced.
  */
 function collectRewriteSites(filePath, source) {
-  let ast;
-  try { ast = buildAST(splitBlocks(filePath, source)); }
+  let astOut;
+  try { astOut = buildAST(splitBlocks(filePath, source)); }
   catch (e) { return { sites: [], error: e.message }; }
+  const ast = astOut.ast || astOut;
 
   const topLevelDecls = findTopLevelDecls(source);
-  const allDecls = findKind(ast, "state-decl").filter((d) => d.structuralForm === false);
+
+  // CRITICAL: include ALL state-decls (both structural + legacy) when
+  // computing "names already decl'd in scope". A file mid-rewrite may have
+  // a structural `<x> = init` at the decl site and a legacy `@x = newval`
+  // write later; the latter must NOT be re-classified as DECL-CANDIDATE.
+  const allStateDecls = findKind(ast, "state-decl");
+  const namesWithStructuralDecl = new Set();
+  for (const d of allStateDecls) {
+    if (d.structuralForm === true) namesWithStructuralDecl.add(d.name);
+  }
+
+  const allDecls = allStateDecls.filter((d) => d.structuralForm === false);
   allDecls.sort((a, b) => (a.span?.start ?? 0) - (b.span?.start ?? 0));
 
   const namesWithModifierDecl = new Set();
@@ -121,6 +133,9 @@ function collectRewriteSites(filePath, source) {
     if (d.isServer || d.isShared || d.isConst || (d.shape && d.shape !== "plain")) continue;
     if (topLevelDecls.has(d.name)) continue;
     if (namesWithModifierDecl.has(d.name)) continue;
+    // If a structural-form decl exists for this name (already V5-strict),
+    // any subsequent legacy @-form is a write, not a re-decl.
+    if (namesWithStructuralDecl.has(d.name)) continue;
     if (seenPlainNames.has(d.name)) continue;
     seenPlainNames.add(d.name);
 

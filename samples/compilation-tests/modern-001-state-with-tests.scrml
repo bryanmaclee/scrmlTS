@@ -3,7 +3,7 @@
 
 < counter label(string) initial(number = 0)>
     ${
-        @count = initial
+        <count> = initial
         function increment() { @count = @count + 1 }
         function decrement() { @count = @count - 1 }
     }

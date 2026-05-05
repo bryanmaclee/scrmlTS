@@ -3,7 +3,7 @@
 
 <program>
 ${
-  @debug = true
+  <debug> = true
 }
 
 <div>

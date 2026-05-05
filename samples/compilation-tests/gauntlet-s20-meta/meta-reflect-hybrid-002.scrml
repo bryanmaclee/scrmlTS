@@ -13,7 +13,7 @@ type Admin:struct = {
 }
 
 ${
-  @selectedType = "User"
+  <selectedType> = "User"
 }
 
 <div>

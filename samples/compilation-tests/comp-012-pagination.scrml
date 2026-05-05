@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @currentPage = 1
+        <currentPage> = 1
         let totalPages = 5
         function goToPage(page) {
             @currentPage = page

@@ -1,7 +1,7 @@
 // property access on reactive struct
 ${
     type User:struct = { name: string, age: number }
-    @user:User = { name: "alice", age: 30 }
+    <user>:User = { name: "alice", age: 30 }
 }
 <program>
     <p>${@user.name}</>

@@ -3,9 +3,9 @@
 
 <div class="search-page">
     ${
-        @query = ""
-        @results = []
-        @loading = false
+        <query> = ""
+        <results> = []
+        <loading> = false
 
         function doSearch() {
             @loading = true

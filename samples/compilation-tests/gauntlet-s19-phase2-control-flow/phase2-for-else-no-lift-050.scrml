@@ -1,6 +1,6 @@
 // for with else but no lift — E-CTRL-010 (§17.4a)
 ${
-    @items: string[] = []
+    <items>: string[] = []
     for (let item of @items) {
         log(item)
     } else {

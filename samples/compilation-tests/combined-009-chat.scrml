@@ -3,8 +3,8 @@
 
 <div class="chat-app">
     ${
-        @messages = []
-        @inputMsg = ""
+        <messages> = []
+        <inputMsg> = ""
 
         function sendMessage() {
             let text = @inputMsg

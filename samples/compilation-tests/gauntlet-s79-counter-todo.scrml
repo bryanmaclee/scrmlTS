@@ -112,9 +112,9 @@
 
 // --- state ---
 ${
-    @count = 0
-    @newTodo = ""
-    @todos = []
+    <count> = 0
+    <newTodo> = ""
+    <todos> = []
 
     function increment() {
         @count = @count + 1

@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @showTip = false
+        <showTip> = false
     }
     <div class="tooltip-wrapper">
         <button>Hover me</>

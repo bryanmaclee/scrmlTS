@@ -2,7 +2,7 @@
 // Should compile clean with validation wiring.
 
 ${
-  @age: number(>0 && <150) = 25
+  <age>: number(>0 && <150) = 25
 }
 
 <div>

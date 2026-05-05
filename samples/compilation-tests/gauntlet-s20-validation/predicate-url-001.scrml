@@ -2,7 +2,7 @@
 // Should compile clean.
 
 ${
-  @website: string(url) = ""
+  <website>: string(url) = ""
 }
 
 <div>

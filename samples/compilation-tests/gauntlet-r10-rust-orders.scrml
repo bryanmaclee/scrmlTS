@@ -34,15 +34,15 @@ ${
     // In Rust this would be a Vec<Order> behind Arc<RwLock<>> for thread safety.
     // scrml's @reactive is simpler: single-threaded reactive JS model.
     // No lifetimes, no borrowing — just reactive assignment.
-    @orders = [
+    <orders> = [
         { id: 1, customer: "Alice Chen", item: "Mechanical Keyboard", status: "Pending", history: ["Created: Pending"] },
         { id: 2, customer: "Bob Nguyen", item: "USB-C Hub", status: "Processing", history: ["Created: Pending", "Moved: Processing"] },
         { id: 3, customer: "Carol Davis", item: "Monitor Stand", status: "Shipped", history: ["Created: Pending", "Moved: Processing", "Moved: Shipped"] }
     ]
-    @selectedOrderId = 0
-    @nextId = 4
-    @newCustomer = ""
-    @newItem = ""
+    <selectedOrderId> = 0
+    <nextId> = 4
+    <newCustomer> = ""
+    <newItem> = ""
 
     // --- State machine: valid transitions ---
     // In Rust this would be a method on the enum:

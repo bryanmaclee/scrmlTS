@@ -3,7 +3,7 @@
 
 <div class="dashboard">
     ${
-        @activePanel = "overview"
+        <activePanel> = "overview"
         function setPanel(name) {
             @activePanel = name
         }

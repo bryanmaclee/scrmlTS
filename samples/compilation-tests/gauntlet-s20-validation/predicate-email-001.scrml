@@ -2,7 +2,7 @@
 // Should compile clean with validation wiring.
 
 ${
-  @email: string(email) = ""
+  <email>: string(email) = ""
 }
 
 <div>

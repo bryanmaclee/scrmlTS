@@ -3,8 +3,8 @@
 
 <div class="timer">
     ${
-        @seconds = 0
-        @running = false
+        <seconds> = 0
+        <running> = false
 
         function start() {
             @running = true

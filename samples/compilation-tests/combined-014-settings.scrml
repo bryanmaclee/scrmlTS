@@ -8,9 +8,9 @@
             Privacy
             Notifications
         }
-        @activeTab = "General"
-        @notifications = true
-        @darkMode = false
+        <activeTab> = "General"
+        <notifications> = true
+        <darkMode> = false
 
         function switchTab(tab) {
             @activeTab = tab

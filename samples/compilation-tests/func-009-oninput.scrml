@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @searchText = ""
+        <searchText> = ""
         function onSearch() {
             let query = @searchText
         }

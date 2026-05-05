@@ -1,6 +1,6 @@
 // method call in attribute value — event handler
 ${
-    @count = 0
+    <count> = 0
     function inc() { @count = @count + 1 }
 }
 <program>

@@ -1,6 +1,6 @@
 // arithmetic producing iterable for `for` loop in markup
 ${
-    @items: number[] = [1, 2, 3]
+    <items>: number[] = [1, 2, 3]
 }
 <program>
     <ul>

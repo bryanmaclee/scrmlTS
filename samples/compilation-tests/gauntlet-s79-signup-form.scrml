@@ -5,18 +5,18 @@
 ${
     type FormState:enum = { Editing, Submitting, Success }
 
-    @username = ""
-    @email = ""
-    @password = ""
-    @confirmPassword = ""
-    @formState = FormState.Editing
+    <username> = ""
+    <email> = ""
+    <password> = ""
+    <confirmPassword> = ""
+    <formState> = FormState.Editing
 
     // Validation flags — computed reactively on each keystroke via bind:value
-    @usernameError = ""
-    @emailError = ""
-    @passwordError = ""
-    @confirmError = ""
-    @isValid = false
+    <usernameError> = ""
+    <emailError> = ""
+    <passwordError> = ""
+    <confirmError> = ""
+    <isValid> = false
 
     function validate() {
         @usernameError = ""

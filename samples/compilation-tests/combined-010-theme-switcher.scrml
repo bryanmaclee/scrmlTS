@@ -8,7 +8,7 @@
             Dark
             Auto
         }
-        @currentTheme = "Light"
+        <currentTheme> = "Light"
 
         function setTheme(theme) {
             @currentTheme = theme

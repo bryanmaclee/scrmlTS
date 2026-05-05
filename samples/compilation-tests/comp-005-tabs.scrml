@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @activeTab = "general"
+        <activeTab> = "general"
         function setTab(tab) {
             @activeTab = tab
         }

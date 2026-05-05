@@ -12,7 +12,7 @@
 // beyond raw emit position).
 
 ${
-  @log = []
+  <log> = []
 
   function recordPhase(label: string) {
     @log = [...@log, label]

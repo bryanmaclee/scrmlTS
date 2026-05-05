@@ -2,6 +2,6 @@
 // Reactive number variable. Tests: @ with numeric values.
 
 <div>
-    ${ @temperature = 72.5 }
+    ${ <temperature> = 72.5 }
     <p>Temperature set</>
 </div>

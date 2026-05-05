@@ -3,8 +3,8 @@
 
 <div class="shop">
     ${
-        @cart = []
-        @total = 0
+        <cart> = []
+        <total> = 0
 
         function addToCart(name, price) {
             @cart = [...@cart, { name: name, price: price }]

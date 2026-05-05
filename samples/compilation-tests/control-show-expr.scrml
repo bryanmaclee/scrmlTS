@@ -4,8 +4,8 @@
 
 <div>
     ${
-        @count = 5
-        @enabled = true
+        <count> = 5
+        <enabled> = true
     }
     <button show=(@enabled && @count > 3)>Submit</button>
 </div>

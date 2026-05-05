@@ -1,8 +1,8 @@
 // Nested when — E-LIFECYCLE-016
 <program>
     ${
-        @a: number = 0
-        @b: number = 0
+        <a>: number = 0
+        <b>: number = 0
         when @a changes {
             when @b changes {
                 @a = 2

@@ -1,7 +1,7 @@
 // for/lift over objects with no key — W-KEY-001
 ${
     type Card:struct = { id: number, title: string }
-    @cards: Card[] = [{id:1, title:"a"}]
+    <cards>: Card[] = [{id:1, title:"a"}]
 }
 <program>
     <div>

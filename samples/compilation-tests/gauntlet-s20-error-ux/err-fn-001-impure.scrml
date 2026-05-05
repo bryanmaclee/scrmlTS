@@ -2,7 +2,7 @@
 // EXPECTED: E-FN-* errors with helpful messages
 
 ${
-  @counter = 0
+  <counter> = 0
 
   fn pureAdd(a, b) {
     @counter += 1

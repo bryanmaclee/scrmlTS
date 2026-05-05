@@ -5,9 +5,9 @@
 // as "declared but never consumed".
 
 ${
-  @counter = 0
-  @message = "hello"
-  @theme = "dark"
+  <counter> = 0
+  <message> = "hello"
+  <theme> = "dark"
 }
 
 <div>

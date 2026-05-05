@@ -1,6 +1,6 @@
 // `is not` on a reactive variable
 ${
-    @user: string | not = not
+    <user>: string | not = not
 }
 <program>
     <p if=(@user is not)>no user</>

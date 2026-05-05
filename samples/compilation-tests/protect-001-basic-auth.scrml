@@ -7,9 +7,9 @@
 
 < db src="auth.db" protect="password_hash" tables="users">
     ${
-        @email    = ""
-        @password = ""
-        @error    = ""
+        <email>    = ""
+        <password> = ""
+        <error>    = ""
 
         // authenticate touches password_hash — compiler escalates to server.
         // Approach D: server function returns error message or null (not assigns @error).

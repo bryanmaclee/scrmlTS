@@ -3,7 +3,7 @@
 
 <div>
     ${
-        @showAlert = true
+        <showAlert> = true
         function dismiss() {
             @showAlert = false
         }

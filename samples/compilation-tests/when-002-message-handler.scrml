@@ -14,8 +14,8 @@
 </>
 
 ${
-    @input  = 21
-    @result = not
+    <input>  = 21
+    <result> = not
 
     function runDoubler() {
         <#doubler>.send({ value: @input })

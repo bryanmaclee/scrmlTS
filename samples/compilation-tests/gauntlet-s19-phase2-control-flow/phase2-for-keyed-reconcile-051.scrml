@@ -1,7 +1,7 @@
 // for/lift with key header (§17.4b)
 ${
     type Card:struct = { id: number, title: string }
-    @cards: Card[] = [{id:1, title:"a"}, {id:2, title:"b"}]
+    <cards>: Card[] = [{id:1, title:"a"}, {id:2, title:"b"}]
 }
 <program>
     <div>

@@ -3,8 +3,8 @@
 
 <div>
     ${
-        @isVisible = true
-        @isDarkMode = false
+        <isVisible> = true
+        <isDarkMode> = false
     }
     <p>Flags set</>
 </div>

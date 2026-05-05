@@ -13,7 +13,7 @@
             role: string
             email: string
         }
-        @currentUser = not
+        <currentUser> = not
         function setRole(role) {
             let updated = role
         }

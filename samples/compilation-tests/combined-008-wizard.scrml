@@ -3,10 +3,10 @@
 
 <div class="wizard">
     ${
-        @step = 1
-        @name = ""
-        @email = ""
-        @plan = "basic"
+        <step> = 1
+        <name> = ""
+        <email> = ""
+        <plan> = "basic"
 
         function nextStep() {
             @step = @step + 1

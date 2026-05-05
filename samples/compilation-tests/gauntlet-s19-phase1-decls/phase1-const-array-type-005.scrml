@@ -8,5 +8,5 @@ ${
     </>
 </ul>
 ${
-    @items = items
+    <items> = items
 }

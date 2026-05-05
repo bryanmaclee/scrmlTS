@@ -3,7 +3,7 @@
 
 ${
   let debugTest = "value"
-  @debugReactive = 42
+  <debugReactive> = 42
 }
 
 <p>${debugTest}: ${@debugReactive}</>

@@ -12,7 +12,7 @@ type Role:enum = { Admin, Editor, Viewer }
 type Permission:union = Admin | Editor | Viewer
 
 ${
-  @selectedType = "User"
+  <selectedType> = "User"
 }
 
 <div>

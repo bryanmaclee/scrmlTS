@@ -1,8 +1,8 @@
 // onsubmit on a form with args.
 <program>
     ${
-        @email = ""
-        @password = ""
+        <email> = ""
+        <password> = ""
         function authenticate(e: string, p: string) { let _ = e }
     }
     <form onsubmit=authenticate(@email, @password)>

@@ -3,8 +3,8 @@
 
 <div class="notification-center">
     ${
-        @notifications = []
-        @nextId = 1
+        <notifications> = []
+        <nextId> = 1
 
         function addNotification(msg) {
             @notifications = [...@notifications, { id: @nextId, text: msg }]

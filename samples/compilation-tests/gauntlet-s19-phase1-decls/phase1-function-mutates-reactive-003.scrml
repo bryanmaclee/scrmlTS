@@ -1,6 +1,6 @@
 // function freely mutates reactive @var (legal — only fn forbids it)
 ${
-    @count = 0
+    <count> = 0
     function bump() {
         @count = @count + 1
     }

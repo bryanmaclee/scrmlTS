@@ -6,7 +6,7 @@
         server function getUsers() {
             return ?{`SELECT id, name, email FROM users`}
         }
-        @users = []
+        <users> = []
     }
     <h1>User Directory</>
     <div class="user-list">

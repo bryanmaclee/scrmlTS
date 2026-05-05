@@ -8,28 +8,28 @@
 
 ${
     // --- Step tracking ---
-    @currentStep = 1
+    <currentStep> = 1
     const totalSteps = 3
 
     // --- Step 1 state: Personal Info ---
-    @firstName = ""
-    @lastName = ""
-    @email = ""
+    <firstName> = ""
+    <lastName> = ""
+    <email> = ""
 
     // --- Step 2 state: Preferences ---
-    @selectedPlan = "free"
-    @emailUpdates = false
-    @smsAlerts = false
-    @newsletter = false
+    <selectedPlan> = "free"
+    <emailUpdates> = false
+    <smsAlerts> = false
+    <newsletter> = false
 
     // --- Step 3 / submission state ---
-    @isSubmitting = false
-    @submitError = ""
-    @submitted = false
+    <isSubmitting> = false
+    <submitError> = ""
+    <submitted> = false
 
     // --- Validation errors per step ---
-    @step1Errors = []
-    @step2Errors = []
+    <step1Errors> = []
+    <step2Errors> = []
 
     // --- Validation functions ---
     function validateStep1() {

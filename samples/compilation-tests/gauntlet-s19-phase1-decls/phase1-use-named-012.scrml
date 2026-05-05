@@ -5,5 +5,5 @@ use scrml:chart { LineChart, BarChart }
     <LineChart data=@chartData/>
 </>
 ${
-    @chartData = []
+    <chartData> = []
 }

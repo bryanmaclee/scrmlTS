@@ -21,7 +21,7 @@ ${
     //   children: FileNode[], expanded: boolean }
 
     // Root file tree -- static initial data
-    @tree = [
+    <tree> = [
         {
             id: 1,
             name: "src",
@@ -118,17 +118,17 @@ ${
     ]
 
     // UI state
-    @selectedId = not
-    @selectedNode = not
-    @breadcrumb = ["root"]
-    @searchQuery = ""
-    @searchResults = []
-    @isSearching = false
-    @showCreateFolder = false
-    @newFolderName = ""
-    @renamingId = not
-    @renameValue = ""
-    @detailsOpen = true
+    <selectedId> = not
+    <selectedNode> = not
+    <breadcrumb> = ["root"]
+    <searchQuery> = ""
+    <searchResults> = []
+    <isSearching> = false
+    <showCreateFolder> = false
+    <newFolderName> = ""
+    <renamingId> = not
+    <renameValue> = ""
+    <detailsOpen> = true
 
     // ========================================
     // TREE OPERATIONS

@@ -1,8 +1,8 @@
 // when @x changes — single dep (§6.7.4)
 <program>
     ${
-        @query: string = ""
-        @page: number = 1
+        <query>: string = ""
+        <page>: number = 1
         when @query changes {
             @page = 1
         }
