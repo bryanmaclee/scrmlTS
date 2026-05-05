@@ -940,6 +940,87 @@ BS enters the `tabPanel` attribute value at `{`. It scans:
 
 TAB receives the entire lambda as a single `ExprAttrValue`.
 
+### 4.14 The `:`-shorthand body form (Stage 0b D4 — M15, L20)
+
+**Added:** 2026-05-04 — formalised at the block-grammar layer for v0.next; full behavioural rules live at §51.0.I (engine state-children) and §18.0.1 (match block-form arms). This subsection registers the form in the universal block grammar so the block splitter and tokenizer can recognise it uniformly across every locus where it is legal.
+
+**Three legitimate body forms.** Every tag opener (HTML element, state-type, scrml-defined structural element — see §4.15) admits exactly three closer + body shapes:
+
+| Form | Shape | Body |
+|---|---|---|
+| Self-closing | `<Tag attrs/>` | none |
+| Bare-body | `<Tag attrs>...children...</>` | full block — children, text, nested logic, etc. |
+| `:`-shorthand | `<Tag attrs : single-expression>` | exactly one expression, terminated by the opener's `>` |
+
+**Normative statements:**
+
+- The `:`-shorthand body opens with a single `:` token preceded by at least one whitespace character following the last attribute (or the tag name if there are no attributes), and runs through to the `>` that terminates the opener. There is NO closer (`</>`, `/`, or `/>`).
+- The `:`-shorthand SHALL contain exactly one scrml expression. The expression follows logic-context grammar — bare identifiers, calls, member access, literals, and markup-as-value (cross-ref §1.4) are all legal as the single-expression body.
+- A `:`-shorthand body SHALL NOT contain a statement, multiple semicolon-separated expressions, or a block. Multi-statement intent forces the bare-body form (cross-ref §5.2.2 multi-statement event-handler restriction; the same shape rule applies here).
+- The closer-presence override: if a tag uses `:`-shorthand, the absence of any closer is REQUIRED. If a writer accidentally writes `<Tag : expr></>`, this is `E-CLOSER-001` (closer present on `:`-shorthand body — choose one form).
+- Mandatory whitespace separates the last attribute (or the tag name) from the `:`. `<Tag:expr>` (no whitespace) is `E-PARSE-001` — the tokenizer treats no-space colon as part of an identifier or as a `bind:` / `class:` / `on:` namespace separator.
+- The `:`-shorthand's `>` terminator is the standard tag-closer `>`. The `angleDepth` rule (§4.13) applies inside the expression — embedded markup is handled by tracking angle depth.
+
+**Loci where `:`-shorthand is legal in v0.next:**
+
+- Engine state-children (§51.0.I): `<Idle : startGame()>` — single-expression body for a state-child arm.
+- Match block-form arms (§18.0.1): `<.Variant : expr>` — single-expression match arm body.
+- Other state-types and HTML elements MAY accept `:`-shorthand where doing so is meaningful; the universal grammar registers the form, and per-element rules (in their owning sections) say whether each element accepts it.
+
+**Worked example — engine state-child with `:`-shorthand:**
+
+```scrml
+<engine for=Phase initial=.Idle>
+    <Idle : startGame()>
+    <Loading rule="onResult.ok(n) -> Success(n)" : <p>Loading...</>>
+    <Success count : <p>Got it: ${count}</>>
+</>
+```
+
+**What is NOT legal under `:`-shorthand:**
+
+- Multi-statement: `<Idle : startGame(); track()>` — `E-MULTI-STATEMENT-HANDLER` (cross-ref §5.2.2). Use bare-body.
+- Block expressions: `<Idle : { startGame(); track() }>` — `E-PARSE-001`. Use bare-body.
+- Closer present alongside `:`-shorthand: see `E-CLOSER-001` above.
+
+### 4.15 Scrml-defined structural elements (registered at the block-grammar layer)
+
+**Added:** 2026-05-04 — registers the four v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics.
+
+**The four registered structural elements:**
+
+| Element | Owning section | Attribute slots (parse-time) | Body form |
+|---|---|---|---|
+| `<engine>` | §51.0 | `for=Type` (required), `initial=.Variant`, `var=name`, `derived=expr` | bare-body (state-children) |
+| `<match>` | §18.0.1 | `for=Type` (required), `on=expr` | bare-body (variant arms) |
+| `<errors>` | §55.8 | `of=expr` (required), `all` (boolean) | optional bare-body (override template) |
+| `<onTransition>` | §51.0.H | `to=Variant`, `from=Variant`, `once` (boolean), `if=expr` | bare-body (effect statements) or `:`-shorthand |
+
+**Normative statements:**
+
+- The block splitter SHALL classify openers `<engine`, `<match>`, `<errors`, and `<onTransition` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
+- These four element names SHALL NOT be treated as HTML elements. The HTML element registry (§24) excludes them; the scrml structural-element registry includes them.
+- Attribute slots listed above are recognised at parse time. Unknown attributes on these elements emit `W-ATTR-001` (attribute allowlist warning, §3.3 / VP-1) and may escalate to error in stricter modes.
+- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `errors`, or `onTransition` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
+- These element names are ONLY recognised in their owning loci; e.g., `<onTransition>` is grammatical only as a child of `<engine>`. Use outside the owning locus is `E-STRUCTURAL-ELEMENT-MISPLACED` (the specific code is documented in the owning section's error list).
+
+**Cross-references:**
+
+- `<engine>` shape, attributes, semantics: §51.0 (full behavioural definition).
+- `<match>` shape and Tier 1 semantics: §18.0.1.
+- `<errors>` shape, default rendering, body override: §55.8.
+- `<onTransition>` shape, attribute legality, firing rules: §51.0.H.
+
+### 4.16 M7 — multi-close shorthand `<///>` is NOT a part of scrml (negative-space)
+
+**Status:** never introduced. v0.next preserves this stance.
+
+A multi-close shorthand of the form `<///>` (closing N nested elements at once with N slashes) was floated during the S55 deliberation arc and **was withdrawn** before any spec text landed. The form is not legal scrml grammar.
+
+**Normative statement:** `<///>` (or any number-of-slashes `<///...>` close form) SHALL be rejected at the block-splitter level. The token sequence `<` followed by two or more `/` characters is `E-PARSE-001`. Each closer closes exactly one open tag — either `</>` (bare close-innermost), `</tagname>` (explicit close), or `/>` / trailing `/` (self-closing forms). There is no syntax for closing more than one element with a single closer.
+
+This subsection exists as a negative-space anchor — without it, model writers reflexively reach for the form because compact multi-close looks ergonomic. The decision is closed.
+
 ---
 
 ## 5. Attribute Quoting Semantics
