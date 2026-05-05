@@ -560,6 +560,46 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
     }
 
     case "state-decl": {
+      // Phase A1a Step 11.5 — fold of `reactive-derived-decl`. When the
+      // state-decl is the legacy `const @x = expr` form (post-fold:
+      // shape:"derived" + isConst:true + structuralForm:false), route to
+      // the dedicated derived-cell emitter (`_scrml_derived_declare`) below.
+      // Shape 3 V5-strict (`const <x> = expr`, structuralForm:true) is NOT
+      // routed here — that path remains on the legacy `_scrml_reactive_set`
+      // emitter (a pre-existing latent gap, deferred to A1c). Step 11.5's
+      // contract per BRIEF §2.2 is byte-output preservation for `const @x =
+      // expr` ONLY.
+      if (
+        (node as any).shape === "derived" &&
+        (node as any).isConst === true &&
+        (node as any).structuralForm === false
+      ) {
+        // Mirrors the legacy `case "reactive-derived-decl":` body that
+        // remains below for compat (sweep deferred to WIP 5).
+        const derivedInit: string = node.init ?? "";
+        const reactiveDepsFound = node.initExpr
+          ? extractReactiveDepsFromExprNode(node.initExpr)
+          : extractReactiveDeps(derivedInit);
+        const hasReactiveDeps = reactiveDepsFound.size > 0;
+
+        if (!hasReactiveDeps) {
+          const derivedRhs = emitExprField(node.initExpr, derivedInit, _makeExprCtx(opts));
+          return `/* W-DERIVED-001: const @${node.name} has no reactive dependencies — treating as const */ const ${node.name} = ${derivedRhs};`;
+        }
+
+        const rewrittenBody = emitExprField(node.initExpr, derivedInit, { ..._makeExprCtx(opts), derivedNames });
+        const ctxDerived = opts.encodingCtx;
+        const encodedDerivedDeclName = ctxDerived ? ctxDerived.encode(node.name) : node.name;
+
+        const derivedLines: string[] = [];
+        derivedLines.push(`_scrml_derived_declare(${JSON.stringify(encodedDerivedDeclName)}, () => ${rewrittenBody});`);
+        for (const dep of reactiveDepsFound) {
+          const encodedDep = ctxDerived ? ctxDerived.encode(dep) : dep;
+          derivedLines.push(`_scrml_derived_subscribe(${JSON.stringify(encodedDerivedDeclName)}, ${JSON.stringify(encodedDep)});`);
+        }
+        return derivedLines.join("\n");
+      }
+
       // fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when the
       // initializer was `?{...}.method()` (or bare `?{...}`), the AST
       // builder attached a structured `sqlNode` and set `init: ""` /

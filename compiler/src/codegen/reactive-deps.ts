@@ -150,6 +150,11 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
       if (n.kind === "reactive-derived-decl" && n.name) {
         names.add(n.name as string);
       }
+      // Phase A1a Step 11.5 — fold: state-decl with shape:"derived" is the
+      // post-fold representation of legacy `const @x = expr`. Same handling.
+      if (n.kind === "state-decl" && (n as any).shape === "derived" && n.name) {
+        names.add(n.name as string);
+      }
       // Tilde-decl with reactive deps compiles to a derived reactive
       // Phase 4d: ExprNode-first — check initExpr for @-prefixed idents, string fallback
       if (n.kind === "tilde-decl" && n.name) {
@@ -218,6 +223,11 @@ export function collectDerivedVarNames(fileAST: Record<string, unknown>): Set<st
       if (!node || typeof node !== "object") continue;
       const n = node as ASTNode;
       if (n.kind === "reactive-derived-decl" && n.name) {
+        names.add(n.name as string);
+      }
+      // Phase A1a Step 11.5 — fold: state-decl with shape:"derived" is the
+      // post-fold representation of legacy `const @x = expr`. Same handling.
+      if (n.kind === "state-decl" && (n as any).shape === "derived" && n.name) {
         names.add(n.name as string);
       }
       if (n.kind === "logic" && Array.isArray(n.body)) {

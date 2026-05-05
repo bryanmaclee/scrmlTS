@@ -463,21 +463,41 @@ function collectAllReactiveDecls(fileAST: FileAST): ReactiveDeclNode[] {
 }
 
 /**
- * Collect all reactive-derived-decl nodes from a file AST.
- * These are `const @var = expr` declarations.
+ * Collect all derived-shape state-decl nodes from a file AST.
+ * These are `const @var = expr` declarations (legacy expression-form).
+ *
+ * Phase A1a Step 11.5 — fold of `reactive-derived-decl` into `state-decl`.
+ * Pre-fold this collected `kind: "reactive-derived-decl"` nodes; post-fold
+ * it collects `kind: "state-decl"` with `shape === "derived"` AND
+ * `structuralForm === false` (the legacy `@`-form). The function name is
+ * preserved for blame-traceability; semantically it now collects the
+ * post-fold representation. Pre-fold `reactive-derived-decl` nodes are
+ * still recognized for transitional compat (will be cleaned in WIP 5).
+ *
+ * Note: Shape 3 V5-strict (`const <x> = expr`, structuralForm:true) is
+ * NOT collected — its codegen path (latent gap) is left untouched per
+ * BRIEF §2.2. The plain state-decl loop in `nodes.set` covers it.
  */
 function collectAllReactiveDerivedDecls(fileAST: FileAST): ReactiveDerivedDeclNode[] {
   const nodeList = fileAST.nodes;
   const result: ReactiveDerivedDeclNode[] = [];
+
+  function isLegacyDerivedFold(n: ASTNode): boolean {
+    if (n.kind !== "state-decl") return false;
+    const sd = n as Record<string, unknown>;
+    return sd.shape === "derived" && sd.structuralForm === false;
+  }
 
   function visit(list: ASTNode[]): void {
     for (const node of list) {
       if (node.kind === "logic" && Array.isArray(node.body)) {
         for (const child of node.body) {
           if (child.kind === "reactive-derived-decl") result.push(child as ReactiveDerivedDeclNode);
+          else if (isLegacyDerivedFold(child)) result.push(child as unknown as ReactiveDerivedDeclNode);
         }
       }
       if (node.kind === "reactive-derived-decl") result.push(node as ReactiveDerivedDeclNode);
+      else if (isLegacyDerivedFold(node)) result.push(node as unknown as ReactiveDerivedDeclNode);
       if ("children" in node && Array.isArray((node as MarkupNode).children)) {
         visit((node as MarkupNode).children as ASTNode[]);
       }
@@ -1126,7 +1146,14 @@ export function runDG(input: DGInput): DGOutput {
 
           // bare-expr / reactive-derived-decl: check for @varName references
           // Prefer ExprNode walk; fall back to string regex.
-          if (bodyNode.kind === "bare-expr" || bodyNode.kind === "reactive-derived-decl") {
+          // Phase A1a Step 11.5 — fold: also treat state-decl with
+          // shape:"derived" + structuralForm:false as a read (legacy
+          // const @x = expr in a function body).
+          const _isFoldedDerived =
+            bodyNode.kind === "state-decl" &&
+            bodyNode.shape === "derived" &&
+            bodyNode.structuralForm === false;
+          if (bodyNode.kind === "bare-expr" || bodyNode.kind === "reactive-derived-decl" || _isFoldedDerived) {
             const exprRefs = collectReactiveRefsFromExprNode(bodyNode as Record<string, unknown>);
             const refs = exprRefs.length > 0 ? exprRefs : (() => {
               const field = bodyNode.exprNode
@@ -1149,7 +1176,10 @@ export function runDG(input: DGInput): DGOutput {
           }
 
           // state-decl in function body = write
-          if (bodyNode.kind === "state-decl" && bodyNode.name) {
+          // Phase A1a Step 11.5 — fold: skip the legacy `const @x = expr`
+          // form (shape:"derived", structuralForm:false) which the upper
+          // branch already handles as a READ.
+          if (bodyNode.kind === "state-decl" && bodyNode.name && !_isFoldedDerived) {
             const reactiveNodeId = reactiveVarNodeIds.get(bodyNode.name);
             if (reactiveNodeId) {
               edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "writes" });

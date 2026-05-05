@@ -154,8 +154,18 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
         break;
 
       // state-decl — @x = value. Uses _scrml_deep_reactive for object/array wrapping.
+      // Phase A1a Step 11.5 — fold: state-decl with shape:"derived" AND
+      // structuralForm:false is the post-fold representation of legacy
+      // `const @x = expr` (formerly reactive-derived-decl). Triggers the
+      // `derived` chunk in addition to `deep_reactive`.
       case "state-decl":
         chunks.add("deep_reactive");
+        if (
+          (node as any).shape === "derived" &&
+          (node as any).structuralForm === false
+        ) {
+          chunks.add("derived");
+        }
         break;
 
       // timers — <timer> and <poll> markup elements
