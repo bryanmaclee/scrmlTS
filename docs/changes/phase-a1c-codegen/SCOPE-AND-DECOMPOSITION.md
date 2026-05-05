@@ -357,6 +357,10 @@ Wave 6 (docs): C23 anytime after Wave 4 lands (so PIPELINE prose reflects engine
 - **A1b → A1c handoff gaps** — A1b records decorations on the AST; if a decoration is missing, A1c can't emit. Mitigation: each B-step DoD includes "A1c can read this decoration via field X" as a stated invariant.
 - **Self-host parity** — currently deferred per the carry-forward A1a/A1b policy. A1c-COMPLETE marks the natural restoration point: once the TS compiler emits v0.next end-to-end, self-host parity becomes a separate phase (likely Phase A2's substrate work).
 
+### §6.4 Carry-forward gaps from A1a (deferred to A1c)
+
+- **Shape 3 V5-strict codegen gap** — surfaced S61 during Step 11.5 (FOLD `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}`). Latent from Step 4 (`shape:"derived"` populated in AST but not honored by `emit-logic.ts`). Specifically: V5-strict structural derived form `const <x> = expr` emits `_scrml_reactive_set` (the plain-cell helper) instead of `_scrml_derived_declare` / `_scrml_derived_subscribe` (the derived-cell helpers). The legacy `const @x = expr` path post-fold uses the correct derived helpers via the gating predicate `shape === "derived" && isConst === true && structuralForm === false`. Fix: extend the gating predicate (or the case-discrimination logic in `emit-logic.ts`) to also fire on `structuralForm === true` for the V5-strict shape, OR refactor the dispatch on the `shape` discriminator alone. Documented in Step 11.5 progress.md. **A1c step assignment:** likely C-codegen-derived (whichever C-step touches `emit-logic.ts` derived-helper invocations).
+
 ---
 
 ## §7 Test invariant strengthening

@@ -2,9 +2,9 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS, plus the **v0.2.0 migration dashboard**. Current truth only. Historical session-by-session detail lives in `docs/changelog.md`; deep-dives live in `scrml-support/docs/deep-dives/`.
 
-**Last updated:** 2026-05-05 (S60 close — A1a 14/17 done; A1b + A1c FULLY RATIFIED; ADR Option A FOLD ratified)
+**Last updated:** 2026-05-05 (S61 — A1a 15/17 done; Step 11.5 FOLD landed; SPEC head broken-path cleanup landed)
 
-**Tests (current):** 8,874 pass / 43 skip / 0 fail / 8,917 across 439 files (post A1a Steps 6 + 7 + 9 + 10 + 11 + 11.0a + 11.0b + 11.0c; S60 close baseline). Pre-commit subset ~8,144 / 33 / 0.
+**Tests (current):** **8,878 pass / 44 skip / 0 fail / 8,922 across 439 files** (post A1a Step 11.5; S61 baseline; +4 pass / +1 skip vs S60 close). The +1 skip is a deferred self-host parity test catching up at next bootstrap regen. Pre-commit subset ~8,149 / 33 / 0.
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
@@ -27,7 +27,7 @@
 | Stage 0a | Impact assessment | done | ✅ | `IMPACT-ASSESSMENT.md` (446 lines) |
 | Stage 0b | SPEC + PIPELINE + INDEX rewrite | 70-127h | ✅ | D1+D2 (S57) + D3+D4 (S58) all landed |
 | Stage 0b+ | L21 lock E-DERIVED-VALUE-MUTATE | done | ✅ | S59 commit `1217b41` |
-| **A1 — Foundational lex/parse (A1a + A1b + A1c three-phase split)** | `<NAME> = RHS` decl recognition + Shapes 1/2/3 + Variant C; resolve+type; codegen+runtime+PIPELINE prose | **A1a 35-50h + A1b 85-120h + A1c 96-136h** | **🟡 A1a 14/17 done** | **A1a (lex+parse) 14/17 done at S60 close (~7.5-13.5h remaining):** Steps 1-11 + 11.0a + 11.0b + 11.0c all landed. Steps remaining: 11.5 (FOLD reactive-derived-decl, ~3-5h, BRIEF), 12 (existing-test deltas, ~4-8h, BRIEF), 13 (final CHANGELOG, 0.5h, BRIEF). **A1b (resolve+type) RATIFIED S60** (`docs/changes/phase-a1b-resolve-type/SCOPE-AND-DECOMPOSITION.md`): 22 steps B1-B22, 5 waves; sequence ratified as 11.0b → 11.0c → 11.5 → 12 → 13 → A1b; selective parallel Wave 5 cap 2-3 agents; refinement-zone subset; new `validators.ts` file (final call deferred to B9 survey). **A1c (codegen+runtime) RATIFIED S60** (`docs/changes/phase-a1c-codegen/SCOPE-AND-DECOMPOSITION.md`): **24 steps** C0-C23 (C0 added by Q3 ratification — feature-usage analyzer for compile-time elision), 6 waves; **runtime library Option C compile-time elision** (per-app feature-usage bitmap powers per-step emission); refinement-zone subset; Postgres+SQLite+MySQL only. **ADR ratified S60:** `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}` Option A FOLD as Step 11.5. |
+| **A1 — Foundational lex/parse (A1a + A1b + A1c three-phase split)** | `<NAME> = RHS` decl recognition + Shapes 1/2/3 + Variant C; resolve+type; codegen+runtime+PIPELINE prose | **A1a 35-50h + A1b 85-120h + A1c 96-136h** | **🟡 A1a 15/17 done** | **A1a (lex+parse) 15/17 done at S61 (~4.5-8.5h remaining):** Steps 1-11 + 11.0a + 11.0b + 11.0c + 11.5 all landed. Steps remaining: 12 (existing-test deltas, ~4-8h, BRIEF + SURVEY pre-staged S61), 13 (final CHANGELOG, 0.5h, BRIEF). **Step 11.5 (FOLD `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}`)** landed S61 (`a020ea1`, T2 tier, +4 pass / +1 skip; byte-output preserved; 1 hidden coupling resolved; pre-existing Shape 3 V5-strict codegen gap deferred to A1c). **Step 12 SURVEY pre-staged S61** with Q1 + Q2 ratified: Q1 transition-decl tests OUT-OF-SCOPE (owned by P3 + A2); Q2 legacy `@x = init` decl form REWRITE to V5-strict canon. **A1b (resolve+type) RATIFIED S60** (`docs/changes/phase-a1b-resolve-type/SCOPE-AND-DECOMPOSITION.md`): 22 steps B1-B22, 5 waves; sequence ratified as 11.0b → 11.0c → 11.5 → 12 → 13 → A1b; selective parallel Wave 5 cap 2-3 agents; refinement-zone subset; new `validators.ts` file (final call deferred to B9 survey). **A1c (codegen+runtime) RATIFIED S60** (`docs/changes/phase-a1c-codegen/SCOPE-AND-DECOMPOSITION.md`): **24 steps** C0-C23 (C0 added by Q3 ratification — feature-usage analyzer for compile-time elision), 6 waves; **runtime library Option C compile-time elision**; refinement-zone subset; Postgres+SQLite+MySQL only. **ADR ratified S60 + LANDED S61:** `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}` Option A FOLD landed as Step 11.5. |
 | A2 — Structural elements | `<engine>`, `<match>` block, `<channel>`, `<errors>`, `<onTransition>` | 25-40h | ⏸️ pending A1 | |
 | A3 — Validators + synth surface | bareword validator scan + auto-synth + `<errors of=…/>` | 20-35h | ⏸️ pending A2 | |
 | A4 — Schema + refinement + pinned | shared-core in schema; refinement-type predicates; pinned on imports | 15-25h | ⏸️ pending A3 | |
@@ -64,36 +64,38 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 - **`reactive-decl` rename to `state-decl`** — RESOLVED + LANDED in Step 3 (commit `8fa26e1`). ~514 changes across ~120 file updates. 0 regressions.
 - **Depth-of-survey discount pattern** (S59 captured) — see `scrml-support/design-insights.md` "Depth-of-survey discount" entry. Three confirmed occurrences (S51 W2, S52 DD4, S59 Step 2). PA-SCRML-PRIMER §12 has the session-start pointer + mitigation checklist.
 
-### §0.5 A1a 13-step status (rev 2 decomposition)
+### §0.5 A1a 17-step status (rev 3 decomposition — incl. 11.0a/b/c + 11.5)
 
 | # | Step | Status |
 |---|---|---|
-| 1 | Lexer: reserve `reset` | ✅ `9cd7779` |
-| **2** | **Foundational: `<NAME>` decl-site recognition** | ✅ `d28f6f7` (depth-of-survey discount: ~21min vs 10-15h estimate) |
-| **3** | **AST kind rename `reactive-decl` → `state-decl`** | ✅ `8fa26e1` (~514 changes / ~120 files / 0 regressions) |
-| 4 | Parser: state-decl `shape` discriminant for Shapes 1 + 3 | ✅ `96dbe92` (17 sites + self-host parity; surfaced `reactive-derived-decl` divergence — see §0.6) |
-| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | ✅ `505531f` (single helper extension; brief-locus correction: W-ATTR-001 only fires on markup not state-decl, so attribute-registry registration unnecessary; validator args collected as `string[]`, A1b converts to ExprNode[]; `is some` deferred — two-token form. +15 tests; §S4.10 invariant relaxed to admit `"decl-with-spec"`.) |
-| 6 | Parser: `default=` + `pinned` on state-decl | ⏸ |
-| 7 | Parser: `pinned` on import items | ⏸ |
-| 8 | E-RESERVED-IDENTIFIER trigger | ✅ `af4a0da` |
-| 9 | Expression parser: `reset(@cell)` keyword + E-RESET-NO-ARG | ⏸ |
-| 10 | Expression parser: MemberCall/MemberAssignment/UnaryDelete shape verification | ⏸ |
-| 11 | Variant C compound verification + render-by-tag verification + kickstarter v2 §3 smoke | ⏸ |
-| 12 | Existing-test deltas: rewrite + drop | ⏸ |
+| 1 | Lexer: reserve `reset` | ✅ S59 `9cd7779` |
+| **2** | **Foundational: `<NAME>` decl-site recognition** | ✅ S59 `d28f6f7` (depth-of-survey discount #5) |
+| **3** | **AST kind rename `reactive-decl` → `state-decl`** | ✅ S59 `8fa26e1` |
+| 4 | Parser: state-decl `shape` discriminant for Shapes 1 + 3 | ✅ S59 `96dbe92` (surfaced `reactive-derived-decl` divergence → ADR / Step 11.5) |
+| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | ✅ S59 `505531f` (validator args `string[]` deferred to A1b B9) |
+| 6 | Parser: `default=` + `pinned` on state-decl | ✅ S60 `2754940` |
+| 7 | Parser: `pinned` on import items | ✅ S60 `556de93` |
+| 8 | E-RESERVED-IDENTIFIER trigger | ✅ S59 `af4a0da` |
+| 9 | Expression parser: `reset(@cell)` keyword + E-RESET-NO-ARG | ✅ S60 `fded36a` |
+| 10 | Expression parser: MemberCall/MemberAssignment/UnaryDelete shape | ✅ S60 `226a2dd` (Discount #8 — zero source) |
+| 11 | Variant C compound + render-by-tag + kickstarter v2 §3 smoke | ✅ S60 `bcca1e6` (escalation surfaced 11.0a/b/c) |
+| 11.0a | Variant C compound recognizer | ✅ S60 `6d51d00` |
+| 11.0b | Newline-as-statement-separator | ✅ S60 `a7dd96a` |
+| 11.0c | Typed-decl recognizer | ✅ S60 `92af2ca` |
+| **11.5** | **FOLD `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}`** | ✅ **S61 `a020ea1`** (T2 tier; +4 pass / +1 skip; byte-output preserved; 1 hidden coupling resolved at emit-logic.ts; 1 dep-graph dedup resolved with `isFoldedDerived` filter; pre-existing Shape 3 V5-strict codegen gap deferred to A1c; self-host parity test marked `test.skip` per Steps 4-7 policy — catches up at next bootstrap regen) |
+| 12 | Existing-test deltas: rewrite + drop | ⏸ (BRIEF + SURVEY pre-staged S61; Q1+Q2 ratified) |
 | 13 | Final commit + CHANGELOG draft | ⏸ |
 
-**7/13 done at S59 close** (Steps 1, 2, 3, 4, 5, 8 landed + program-attrs side feature). Remaining: ~18-30h focused work across Steps 6, 7, 9, 10, 11, 12, 13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
+**15/17 done at S61.** Remaining: ~4.5-8.5h across Steps 12, 13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
 
 **Side landings during A1a (parallel work):**
 - Documentary `<program>` attributes (`title=`, `description=`, `version=`, `author=`, `license=`) — SPEC §40.7 + emit-html.ts head injection + tier-ladder article update. Commit `4620290`.
 
 ### §0.6 Surfaced divergences / queued follow-ups
 
-**`reactive-derived-decl` AST kind (S59 Step 4 surfaced):** Step 3's rename swept `reactive-decl` → `state-decl`. But `const @NAME = expr` (legacy derived-cell decl) produces a SEPARATE AST kind: `kind: "reactive-derived-decl"`, NOT `state-decl`. Verified S59 Step 4 via probe. ~20 consumer sites across compiler (component-expander, reactive-deps, dependency-graph, route-inference, emit-bindings, emit-logic, type-system, types/ast.ts). **Folding `reactive-derived-decl` into `state-decl` (with `isConst: true` discriminant) is queued as a future small standalone step.** Estimated ~3-5h. Schedulable any time. Until then, the AST has two kinds for state declarations:
-- `state-decl` — `@NAME = init` (mutable) + `<NAME> = init` (Step 2) + `const <NAME> = expr` (Step 2; structural derived).
-- `reactive-derived-decl` — `const @NAME = expr` (legacy derived; unchanged path).
+**`reactive-derived-decl` AST kind divergence (S59 Step 4 surfaced; FOLDED S61 Step 11.5):** RESOLVED. The legacy `const @NAME = expr` parser path now produces `state-decl{shape:"derived",isConst:true,structuralForm:false}` per ADR Option A. ~20 consumer sites swept; AST kind enum cleaned. Single-walker model for L21 enforcement substrate. Spec coherence with §6.6 restored. Final commit `a020ea1` (S61). 6 self-host files still contain literal `reactive-derived-decl` references; catches up at next bootstrap regen.
 
-A1b/A1c work touching derived cells must handle BOTH kinds until the merge.
+**Pre-existing Shape 3 V5-strict codegen gap (S61 Step 11.5 surfaced):** Surfaced during 11.5 emit-logic.ts work. Shape 3 V5-strict `const <x> = expr` declarations emit `_scrml_reactive_set` instead of `_scrml_derived_declare`. Out-of-scope for 11.5 per BRIEF §2.2; **deferred to A1c codegen pass.** Documented in 11.5 progress.md.
 
 **§S4.10 discriminant invariant test (Step 5 dependency):** RESOLVED — Step 5 (`505531f`) relaxed the assertion. Now admits `shape ∈ {"plain","derived","decl-with-spec"}`.
 
