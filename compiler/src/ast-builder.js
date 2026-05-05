@@ -1967,7 +1967,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           const lastKind = lastTok.kind;
           const lastText = lastTok.text;
           // lastTok ends an expression if it's a value-producing token
-          const VALUE_KEYWORDS = new Set(["true", "false", "null", "undefined", "this"]);
+          // Phase A1a Step 11.0e — `not` (SPEC §42.1) is the absence-value
+          // primitive: "both a value and a type." It is value-producing in
+          // RHS position (`<x> = not`, `let x = not`) and as the trailing
+          // token of `is not` operator. SPEC §42.6 E-TYPE-045 explicitly
+          // forbids `not` in prefix position, so it never opens a new
+          // statement. Without this entry, `<x> = not\n<y> = 0` failed
+          // ASI-NEWLINE (`lastEndsValue=false`), and Step 11.0b's universal
+          // `<` IDENT boundary (below) never fired — sibling `<y>` got
+          // greedily consumed into the init string. (P-FUP-2 from Step 12.)
+          const VALUE_KEYWORDS = new Set(["true", "false", "null", "undefined", "this", "not"]);
           const lastEndsValue = (
             lastKind === "IDENT" ||
             lastKind === "NUMBER" ||
