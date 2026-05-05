@@ -248,3 +248,27 @@ compiled JS bit-for-bit identical to pre-Step-9.
   - Dependency-graph integration (the `default=` expression's reactive
     dependencies, per §6.8.1's "evaluated AT RESET TIME, not at declaration
     time").
+
+## Tags
+
+#phase-a1a #step-9 #reset-keyword #expression-parser #E-RESET-NO-ARG
+#reset-expr #ast-contract-1.3 #spec-6.8.2 #spec-34 #ast-types
+
+## Links
+
+- Brief: `docs/changes/phase-a1a-step-9-reset-keyword/BRIEF.md`
+- AST contract: `docs/changes/phase-a1a-lex-parse/AST-CONTRACTS-AND-DECOMPOSITION.md` §1.3
+- SPEC §6.8.2: `compiler/SPEC.md` lines 4843-4871 (reset(@cell) keyword)
+- SPEC §34 entry: `compiler/SPEC.md` line 14199 (E-RESET-NO-ARG)
+- Step 1 predecessor (lexer): commit `9cd7779` — `reset` added to KEYWORDS
+- Step 8 predecessor (decl-shadow): commit `af4a0da` — E-RESERVED-IDENTIFIER on
+  `function reset` / `fn reset`
+- Source modified:
+  - `compiler/src/types/ast.ts` (ResetExpr interface)
+  - `compiler/src/expression-parser.ts` (parser branch, walker, exhaustive
+    switches)
+  - `compiler/src/ast-builder.js` (diagnostic surfacing)
+  - `compiler/src/codegen/emit-expr.ts` (conservative pass-through emit)
+  - `compiler/src/component-expander.ts` (substitute walker case)
+  - `compiler/src/meta-checker.ts` (compiler-namespace walker case)
+- Tests added: `compiler/tests/integration/parse-reset-keyword.test.js`
