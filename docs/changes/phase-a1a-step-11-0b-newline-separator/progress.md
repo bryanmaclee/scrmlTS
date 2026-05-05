@@ -137,9 +137,167 @@ Top-level Shape 1 (plain) RHS collection: fixed. parseOneStatement
 
 ## Implementation log
 
-(to be filled in)
+[step-11-0b impl-collectExpr-extension] Edit
+`compiler/src/ast-builder.js` `collectExpr` (around L1985, immediately
+after the existing ASI-NEWLINE branch). New branch fires on:
+  - `lastEndsValue` (set by the existing ASI-NEWLINE block above)
+  - tok is `<` PUNCT followed by IDENT
+  - `scanStructuralDeclLookahead()` returns non-null (state-decl shape)
+On match → break. Implementation: ~30 LOC + extensive comments
+explaining disambiguation cases.
+
+The lookahead delegate `scanStructuralDeclLookahead()` handles:
+  - Shape 1/2/3 (`<NAME validators? default? pinned?> =`)
+  - Variant C compound (`<NAME>` + `<` IDENT or `</`)
+  - Fused `<NAME>=` (no-whitespace form)
+
+Net change: 1 file modified, ~30 LOC added in `collectExpr`. NO change
+to call sites or `tryParseStructuralDecl` — fix is universal across
+all `collectExpr` callers.
+
+[step-11-0b impl-test-status] After source change, probes confirm:
+  - 7 of 7 target failure shapes from survey now produce expected
+    multi-decl AST shapes.
+  - 5 of 5 regression cases (Shape 2 multi-line, multi-line legit
+    expr, same-line `a < b`, etc.) preserved.
+  - Pre-existing limitation: compound-child Shape 1 RHS with same-line
+    `a < b` comparison still declines (Step 11.0a's compoundBody flag
+    has a same-line gate, not changed by 11.0b). Not in scope.
+
+[step-11-0b impl-flip-memorial] Flipped `§K11.X-D2 →
+§K11.2A` (1 anti-test memorial in `kickstarter-v2-smoke.test.js`).
+Baseline `§K11.X-D2b` and `§K11.X-D2c` renamed to `§K11.2A-b` and
+`§K11.2A-c`. Top-of-file divergence comment block updated to mark
+§K11.2A as RESOLVED. Three internal comment refs to
+`§K11.X-DIVERGENCE-2` updated to point to `§K11.2A`.
+
+After flip: kickstarter smoke 23/23 pass; full bun test 8853/8896
+(no delta because flipped memorial replaces the old test 1:1).
+
+[step-11-0b impl-positive-cases] Added 11 new positive + regression
+cases to `parse-shapes-v0next.test.js` in a new
+`A1a Step 11.0b — newline-as-statement-separator` describe block:
+  - §S11B.1: 2 Shape 1 decls newline-separated (kickstarter §3 form)
+  - §S11B.2: 4-decl block mixing Shape 1 + Shape 3 derived
+  - §S11B.3: mixed `;` + newline separators
+  - §S11B.4: REGRESSION — Shape 2 markup-RHS multi-line preserved
+  - §S11B.5: REGRESSION — multi-line legit expr `@a +\n@b` preserved
+  - §S11B.6: REGRESSION — same-line `a < b` comparison preserved
+  - §S11B.7: Shape 1 with array-literal init + sibling decl
+  - §S11B.8: Shape 1 with multiline call init + sibling decl
+  - §S11B.9: REGRESSION — single Shape 1 plain decl unchanged
+  - §S11B.10: Shape 2 + validators + newline + Shape 1 sibling
+  - §S11B.11: let-decl + state-decl newline (broader ASI-fix benefit)
+
+Every positive case fires `assertNoHtmlFragmentMatching` per BRIEF §5
+DoD §6.
+
+[step-11-0b impl-full-test-run] `bun run test` after all changes:
+**8,864 pass / 43 skip / 0 fail / 8,907 across 439 files**. Delta
+from baseline 8,853 → 8,864 = **+11 pass**. Composition:
+  - 1 anti-test memorial FLIPPED (count stayed at 23 in kickstarter
+    smoke — in-place edit, not new). The flipped test now ALSO has
+    additional positive assertions (init values, shape, anti-html-
+    fragment guard), so its expect() count went from 4 → 8.
+  - 11 NEW positive cases added (S11B.1-S11B.11 in parse-shapes).
+  - 0 regressions, 0 fails, 43 skip stable.
+
+Within BRIEF target of +6-10 pass + memorial flips (slightly above).
+
+## Final summary
+
+**Files modified (1 source + 2 tests):**
+  - `compiler/src/ast-builder.js` — `collectExpr` ASI-NEWLINE
+    state-decl-shape boundary extension (~30 LOC).
+  - `compiler/tests/integration/kickstarter-v2-smoke.test.js` — 1
+    anti-test memorial flipped to positive assertion (renamed
+    `§K11.X-D2/D2b/D2c` → `§K11.2A/A-b/A-c`); top-of-file divergence
+    comment block updated; 3 in-file comment refs updated.
+  - `compiler/tests/integration/parse-shapes-v0next.test.js` — 11
+    new positive + regression cases (§S11B.1-§S11B.11) in a new
+    §S11B describe block.
+  - `docs/changes/phase-a1a-step-11-0b-newline-separator/progress.md`
+    — survey + implementation log + final summary.
+
+**Tier classification:** T2 (single-subsystem, parser-internal,
+behavior change tied to AST shape — extends statement-boundary
+detection in `collectExpr`).
+
+**Survey verdict — depth-of-survey discount #9 status:** **NOT a
+Discount.** Survey confirmed the boundary extension genuinely needed
+source code; the existing `compoundBody` flag (Step 11.0a) covered
+only inside-compound-body recursive calls — top-level `${...}` body
+state-decl RHS collection had NO boundary on `<` IDENT after newline.
+The fix landed at ~30 LOC source + ~225 LOC tests.
+
+**Step 11.0a interaction:** `compoundBody` flag (Step 11.0a) and
+`ASI-NEWLINE state-decl shape extension` (Step 11.0b) coexist and
+do not overlap. compoundBody fires same-line, no newline gate, ONLY
+inside compound bodies. The new ASI-NEWLINE extension fires only
+across newlines, EVERYWHERE, gated on `lastEndsValue`. The two are
+complementary — together they cover compound and top-level decl
+boundaries.
+
+**Multi-line legitimate expression preservation:** confirmed via
+§S11B.5 (`<x> = @a +\n@b` remains ONE decl). The `+` operator does
+not satisfy `lastEndsValue`, so the new boundary check does not
+fire.
+
+**Markup-RHS angleDepth preservation:** confirmed via §S11B.4 (Shape
+2 `<x> = <input\n type="text"/>` remains ONE decl-with-spec). Markup
+is parsed by `parseLiftTag`, not `collectExpr`; the parser correctly
+handles multi-line markup attributes.
+
+**Memorial flips:** 1 `TODO[step-11.0b]` marker flipped in
+`kickstarter-v2-smoke.test.js`. The marker's positional anti-test
+became a positional positive assertion + 4 added behavioral checks +
+anti-html-fragment guard. The 4 remaining `TODO[step-11.0c]` markers
+(D3a/D3b for typed-decl recognizer) stay as memorials — Step 11.0c
+territory.
+
+**Self-host parity:** N/A — no codegen change. The state-decl AST
+shape is unchanged (init field still strings, all existing fields
+preserved). Compiled JS output for any sample using only semicolon
+separators is identical. Samples using newline separators previously
+had subsequent decls eaten as text — now they parse to multiple
+state-decl AST nodes, which downstream stages handle uniformly.
+
+**Path-discipline near-misses:** None. All Reads/Writes/Edits used
+absolute paths under
+`/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-ac614d408e5dac169/...`.
+Three `_probe_*.mjs` files were created in worktree root for AST
+shape verification, then deleted before any commit included them.
+
+## Branch + commit hygiene
+
+WIP commits on `phase-a1a-step-11-0b-newline-separator`:
+  - `dc74cb3` — WIP: survey notes (collectExpr ASI-NEWLINE extension)
+  - `cad7e8a` — WIP: collectExpr ASI-NEWLINE state-decl boundary +
+    flip K11.X-D2 memorial
+  - (next) — WIP: §S11B positive + regression cases (11 tests)
+  - (next) — final: compile(a1a-step-11-0b) — newline-as-stmt-sep
+    for state-decls
 
 ## Tags
 
 #phase-a1a #step-11-0b #newline-separator #collectExpr #ASI-NEWLINE
-#parser-only #t2 #not-discount-9
+#parser-only #t2 #not-discount-9 #flipped-anti-test
+#step-11-escalation #kickstarter-v2-§3
+
+## Links
+
+- Brief: `docs/changes/phase-a1a-step-11-0b-newline-separator/BRIEF.md`
+- Step 11 escalation context: `docs/changes/phase-a1a-step-11-compound-render-smoke/progress.md` lines 105-213
+- Step 11.0a predecessor: `docs/changes/phase-a1a-step-11-0a-compound-recognizer/progress.md`
+- AST contract §1.1: `docs/changes/phase-a1a-lex-parse/AST-CONTRACTS-AND-DECOMPOSITION.md` lines 18-46
+- SPEC §6.1 V5-strict: `compiler/SPEC.md`
+- SPEC §6.3 Variant C compound: `compiler/SPEC.md` lines 1828-1894
+- Kickstarter v2 §3: `docs/articles/llm-kickstarter-v2-2026-05-04.md` lines 132-249
+- Touchpoint — boundary extension: `compiler/src/ast-builder.js`
+  `collectExpr` at L1784 (ASI-NEWLINE branch around L1985-2030)
+- Touchpoint — lookahead reuse: `compiler/src/ast-builder.js`
+  `scanStructuralDeclLookahead` at L3203
+- Tests flipped: `compiler/tests/integration/kickstarter-v2-smoke.test.js`
+  §K11.2A + §K11.2A-b + §K11.2A-c (was §K11.X-D2/D2b/D2c)
+- Tests added: `compiler/tests/integration/parse-shapes-v0next.test.js`
+  §S11B.1-§S11B.11
