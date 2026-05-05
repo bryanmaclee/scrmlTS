@@ -1,6 +1,6 @@
 # A1c — Codegen + Runtime + PIPELINE prose: scope and per-step decomposition (DRAFT)
 
-**Status:** DRAFT (S60, 2026-05-05). Awaiting user ratification of approach + step-count.
+**Status:** RATIFIED 2026-05-05 (S60). All 8 open Qs ratified. User verbatim: "Q3. C is what i want, the rest are ratified". Q3 selected Option (c) compile-time elision — adds usage-analysis pass; see §11 + new step C0.
 **Predecessor:** A1b (resolve+type) — see `docs/changes/phase-a1b-resolve-type/SCOPE-AND-DECOMPOSITION.md`. A1c begins after A1b-COMPLETE (final B-step wraps).
 **Successor:** Phase A2 (engines), then A3-A6 (per the v0.2.0 inventory). A1c-COMPLETE marks v0.next "compiler implements the new shapes end-to-end" — the milestone that unblocks downstream phase work.
 **Authority:** SPEC v0.next (post-D4 + L21). A1c emits JavaScript for every AST shape A1a produced (Steps 1-13 + 11.5) and every annotation A1b decorated.
@@ -172,6 +172,12 @@ A1b records zone decisions per type-annotation; A1c emits the runtime predicates
 
 23 steps total, ~93-131 h focused work, 6 waves. Each step is a per-step branch with PA cherry-pick to main, mirroring A1a + A1b.
 
+### §4.0 Foundational usage-analysis pass (Step C0) — ~3-5 h
+
+| # | Step | Files | Est | Notes |
+|---|---|---|---|---|
+| **C0** | **Feature-usage analysis pass** — walk A1b's annotated AST, produce a usage bitmap recording which v0.next features the app actually touches (validators-by-predicate-name, engines-yes/no, refinement-types-yes/no, channels-yes/no, derived-cells, validity-surface, render-spec, reset, etc.). Bitmap is consumed by every downstream runtime-emission step. | `compiler/src/codegen/usage-analyzer.ts` (NEW) | **3-5 h** | INSERTED S60 ratification (Q3 Option C). Foundational; all Wave 1-5 steps that emit runtime helpers consult the bitmap. False-negatives = runtime crashes; false-positives = bloat. Soundness-over-completeness; conservative inclusion when in doubt. |
+
 ### §4.1 Foundational state-decl emission (Steps C1-C4) — ~15-20 h
 
 | # | Step | Files | Est | Notes |
@@ -225,7 +231,7 @@ A1b records zone decisions per type-annotation; A1c emits the runtime predicates
 |---|---|---|---|---|
 | C23 | **PIPELINE.md prose pass** — stage descriptions per v0.next; lock-firing locus per stage; validity-surface synthesis as new (sub-)stage; Integration Failure Mode Catalog extended | `compiler/PIPELINE.md` | 5-8 h | Independent of code changes; can run in parallel with any later wave |
 
-**Total: ~93-131 h** focused work across 23 steps.
+**Total: ~96-136 h** focused work across **24 steps** (C0 + C1-C23). C0 added by Q3 ratification.
 
 ### §4.7 Step-to-lock + step-to-error-code mapping
 
@@ -376,27 +382,25 @@ A1a established the **anti-html-fragment guard**. A1b extended with **anti-folkl
 
 ---
 
-## §9 Open questions for ratification (ranked)
+## §9 Ratified decisions (S60 — user verbatim "Q3. C is what i want, the rest are ratified")
 
-1. **[BLOCKING] A1b completion before A1c starts** — strict dependency; cannot start A1c without A1b's annotated AST. Confirm same-shape ratification model (A1c starts immediately after A1b's final B-step wraps)?
+1. **[RATIFIED] A1b completion before A1c starts** — strict dependency; A1c needs A1b's annotated AST. A1c begins immediately after A1b's final B-step wraps.
 
-2. **[HIGH] Wave 5 parallelism scope** — proposed C16-C22 mostly parallel; PA leans waves of 2-3. **Cap:** does the user want PA to dispatch up to N concurrent agents at peak Wave 5, or strict serial throughout? (S59 user verbatim "do not pause on sub-step dispatches" suggests parallel is acceptable.)
+2. **[RATIFIED] Wave parallelism scope** — selective parallel within Wave 5 (C16-C22) where file-touch independence is verified. **Cap: 2-3 concurrent agents.** Wave 4 (engines, C12-C15) strictly serial. Other waves dependency-locked. Mirrors A1b ratification.
 
-3. **[HIGH] Runtime library policy** — `dist/scrml-runtime.js` will grow substantially with v0.next runtime additions. Options:
-   - (a) Single `dist/scrml-runtime.js` carries everything (simpler bundling, larger uncached load)
-   - (b) Split per-feature (`dist/scrml-runtime/validators.js`, `.../engine.js`, etc.; tree-shakable)
-   - (c) Compile-time elision based on compiled-app's actual feature use (smallest output; most complexity)
-   PA leans (a) for v0.2.0; (b) or (c) is post-A1c optimization.
+3. **[RATIFIED — Option C COMPILE-TIME ELISION]** — runtime library is emitted per-app based on actual feature usage. **Adds a foundational feature-usage analysis pass (NEW step C0) at the start of A1c.** All downstream runtime-emission steps (C6, C12, C16, C18, C21, etc.) consult the usage bitmap and emit only the runtime helpers the app actually touches. **Consequence:** smallest output per app; most complexity in A1c (the elision logic must be sound — false-negatives crash apps at runtime, false-positives only bloat). Worth it per user direction.
 
-4. **[MEDIUM] PIPELINE.md prose timing** — proposed C23 anytime after Wave 4. Could also dispatch BEFORE Wave 4 to set up doc structure, then update with Wave 4 details. PA leans after Wave 4 (one update, not two).
+4. **[RATIFIED] PIPELINE.md prose timing** — C23 lands after Wave 4 (engines), before/parallel-with Wave 5. Engine-emit details need to be accurate before prose; one update pass not two.
 
-5. **[MEDIUM] Step count** — proposed 23 (C1-C23). Acceptable, or compress? PA: 23 is right-sized; some pairs (C9+C10, C13+C14) could merge but keeping them separate gives cleaner per-step DoD.
+5. **[RATIFIED] Step count** — 23 + 1 (NEW C0 from Q3 ratification) = **24 steps total**. Per-step focus preserved; compression declined.
 
-6. **[MEDIUM] Refinement-type three-zone scope (C16)** — full SPARK three-zone, or subset? PA leans subset for A1c: static-zone elision + boundary-zone hook; trusted-zone elision deferred to post-A1c optimization (~+5h saved).
+6. **[RATIFIED] Refinement-type three-zone scope (C16)** — subset for A1c: static-zone elision + boundary-zone hook emission. Trusted-zone elision deferred to v0.3.0 (consistent with A1b's deferral chain). Saves ~+5h C16. **Consequence:** trusted-zone is fully out of v0.2.0; values pay boundary-check cost on every traversal until v0.3.0 lands trusted-zone elision.
 
-7. **[LOW] Schema lowering driver matrix (C17)** — Postgres `~`, SQLite/MySQL `REGEXP`. Other drivers (e.g., MSSQL, Oracle) explicitly not in v0.2.0 scope per current stdlib catalog. Confirm deferral to post-v0.2.0?
+7. **[RATIFIED] Schema lowering driver matrix (C17)** — Postgres + SQLite + MySQL ONLY for v0.2.0 (matches stdlib's existing driver coverage). MSSQL, Oracle, others deferred to post-v0.2.0.
 
-8. **[LOW] Output-byte-shape regression policy (§7)** — propose ≤5% regression budget on critical paths. Acceptable threshold, or tighter / looser?
+8. **[RATIFIED] Output-byte-shape regression policy** — ≤5% regression budget on critical paths (TodoMVC sample, kickstarter v2 §3 corpus) as the spot-check threshold. Higher regressions get **surfaced for triage**, not auto-blocked. Codegen quality is one signal among many.
+
+---
 
 ---
 
@@ -408,23 +412,55 @@ A1a established the **anti-html-fragment guard**. A1b extended with **anti-folkl
 
 ---
 
-## §11 Runtime library growth policy
+## §11 Runtime library growth policy — RATIFIED Option C (compile-time elision)
+
+**Ratified 2026-05-05 (S60).** User direction: Q3 Option (c) — compile-time elision based on per-app feature usage.
 
 **Current state:** `dist/scrml-runtime.js` is a single shared runtime emitted alongside compiled app output.
 
-**v0.next additions:**
-- Validator predicate catalog (~3-5 KB minified, 14 functions)
-- Validity surface synthesis helpers (~1-2 KB, derived computation glue)
-- Engine state-machine helper (~2-3 KB, transition table + onTransition hooks)
-- Zone runtime (~1 KB, boundary check helper)
-- Channel client (~2-3 KB, WebSocket subscription)
+**v0.next runtime additions (per-feature, all elidable):**
+- Validator predicate catalog (~3-5 KB minified, 14 functions; **per-predicate elidable** — only emit `req` if app uses `req`, etc.)
+- Validity surface synthesis helpers (~1-2 KB; **elidable if app has no compound-with-validators**)
+- Engine state-machine helper (~2-3 KB; **elidable if app has no engine**)
+- Zone runtime (~1 KB; **elidable if app has no refinement-type predicates**)
+- Channel client (~2-3 KB; **elidable if app has no channels**)
 
-**Total v0.next runtime growth estimate:** +9-14 KB minified.
+**Total v0.next runtime growth (worst case, app uses everything):** +9-14 KB minified.
+**Total v0.next runtime growth (typical app — counter + form, no engine, no channels):** +1-3 KB minified (just the validators it uses).
 
-**Policy for v0.2.0:** single bundled runtime (Option (a) above). Tree-shaking deferred. Open Q3 covers this.
+### §11.1 Mechanism — feature-usage bitmap
+
+C0 (foundational step) walks A1b's annotated AST and produces a `FeatureUsage` bitmap:
+- `validators: { req: bool, length: bool, pattern: bool, ... }` — per-predicate flags
+- `engines: bool`
+- `derivedEngines: bool`
+- `channels: bool`
+- `refinementTypes: bool`
+- `validitySurface: bool` (any compound-with-validators?)
+- `renderSpec: bool` (any Shape 2 cells?)
+- `markupTypedDerived: bool`
+- `reset: bool` (any `reset(@cell)` call sites?)
+- ... etc.
+
+Downstream runtime-emission steps (C6, C8, C12, C16, C18, etc.) consult the bitmap and emit ONLY the helpers needed.
+
+### §11.2 Soundness vs completeness
+
+**Soundness:** if a feature is USED, the bitmap MUST include it (false-negative = runtime crash). C0 is conservative — when in doubt, include.
+
+**Completeness:** if a feature is NOT used, the bitmap MAY exclude it. False-positive = bloat (~bytes), not crash. Acceptable.
+
+**Trade-off ordering:** soundness > completeness > minimal-output-size. Conservative inclusion is the right default for v0.2.0; refinement of the analysis (more aggressive elision) is post-v0.2.0 optimization.
+
+### §11.3 Risk surface
+
+- **C0 must walk the FULL annotated AST** including imports + transitively-imported modules. Importing a module that uses engines means the importer's bitmap has `engines: true` even if the importer's own code doesn't.
+- **Cross-file imports** (M18 cross-file engines) require import-graph traversal at C0 time. Caching the per-module bitmap is the right shape.
+- **Validator catalog elision** — `req` is the most-used predicate; `pattern` next. The 14-predicate catalog will likely retain ~6-8 predicates in typical apps, eliding the rest. Modest savings but adds up.
+- **Worst-case test fixture** — TodoMVC and kickstarter v2 §3 corpus should both exercise feature-usage detection. Add at C0's DoD: bitmap output for each is documented.
 
 ---
 
 ## §12 Tags
 
-#phase-a1c #scope-doc #codegen #runtime #pipeline-prose #decomposition #23-steps #93-131h #awaiting-ratification #6-waves
+#phase-a1c #scope-doc #codegen #runtime #pipeline-prose #decomposition #24-steps #96-136h #ratified-s60 #6-waves #compile-time-elision-option-c #C0-usage-analyzer #refinement-zone-subset #postgres-sqlite-mysql-only
