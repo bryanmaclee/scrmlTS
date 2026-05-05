@@ -22,4 +22,7 @@ Append-only timestamped log.
 - [T4] github.scrml — githubConfig (classic OAuth Apps; revocationUrl unset, documented).
 - [T5] microsoft.scrml — microsoftConfig (tenant-scoped; offline_access for refresh).
 - [T6] discord.scrml — discordConfig (identify+email default).
-- [T7] Committing all 5 module files together (next).
+- [T7] Committed all 5 module files (dc6f0c6).
+- [T8] stdlib-oauth.test.js — 38 tests, all pass first run, including RFC 7636 Appendix B vector (verifier `dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk` -> challenge `E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM`).
+- [T9] stdlib-oauth-presets.test.js — 20 tests, all pass first run.
+- [T10] Committing tests next.
