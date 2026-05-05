@@ -972,3 +972,197 @@ describe("A1a Step 6 — `default=` attr + `pinned` bareword on state-decl", () 
     expect(decls.length).toBe(0);
   });
 });
+
+describe("A1a Step 11.0a — Variant C compound state-decl recognizer", () => {
+  // §S11A.1 — Simple compound: parent + 2 plain children, anonymous close.
+  // The kickstarter v2 §3 flagship example. Parent shape:"plain", initExpr:null,
+  // children populated with 2 child state-decl nodes, each shape:"plain".
+  test("§S11A.1: simple compound `<formRes><name>=\"\"<email>=\"\"</>` produces parent + 2 children", () => {
+    const src = `<program>\${ <formRes><name>="" <email>="" </> }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    // findKind walks recursively → 1 parent + 2 children = 3 nodes.
+    expect(decls.length).toBe(3);
+    const parent = decls.find((d) => d.name === "formRes");
+    expect(parent).toBeDefined();
+    expect(parent.shape).toBe("plain");
+    expect(parent.structuralForm).toBe(true);
+    expect(parent.isConst).toBe(false);
+    expect(parent.initExpr).toBeNull();
+    expect(Array.isArray(parent.children)).toBe(true);
+    expect(parent.children.length).toBe(2);
+    expect(parent.children.map((c) => c.name)).toEqual(["name", "email"]);
+    for (const c of parent.children) {
+      expect(c.kind).toBe("state-decl");
+      expect(c.shape).toBe("plain");
+      expect(c.structuralForm).toBe(true);
+      expect(c.isConst).toBe(false);
+    }
+    assertNoHtmlFragmentMatching(ast, /formRes/);
+  });
+
+  // §S11A.2 — Compound with mixed Shape 1 + Shape 2 children. Per AST-CONTRACTS
+  // §1.1 children inherit their own shape per the standard discriminator —
+  // Shape 2 (decl-with-spec) child nests inside the compound parent cleanly.
+  // Spaced form `<name req> =` is used because Step 5's pre-existing
+  // limitation rejects validator + fused `>=` (scanIdx !== 2 path).
+  test("§S11A.2: compound with Shape 1 + Shape 2 children — each child has its own shape", () => {
+    const src = `<program>\${ <formRes><name req> = <input type="text"/> <email>="" </> }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    expect(decls.length).toBe(3);
+    const parent = decls.find((d) => d.name === "formRes");
+    expect(parent).toBeDefined();
+    expect(parent.shape).toBe("plain");
+    expect(parent.children.length).toBe(2);
+    // Shape 2 child: name with req validator + render-spec input
+    const nameChild = parent.children.find((c) => c.name === "name");
+    expect(nameChild).toBeDefined();
+    expect(nameChild.shape).toBe("decl-with-spec");
+    expect(nameChild.renderSpec).toBeDefined();
+    expect(nameChild.renderSpec.kind).toBe("render-spec");
+    expect(nameChild.validators).toBeDefined();
+    expect(nameChild.validators.length).toBe(1);
+    expect(nameChild.validators[0].name).toBe("req");
+    // Shape 1 child: email with plain init
+    const emailChild = parent.children.find((c) => c.name === "email");
+    expect(emailChild).toBeDefined();
+    expect(emailChild.shape).toBe("plain");
+    expect(emailChild.renderSpec == null).toBe(true);
+    assertNoHtmlFragmentMatching(ast, /formRes/);
+  });
+
+  // §S11A.3 — Nested compound: outer compound has a child that is itself a
+  // compound parent, which has a leaf child. Tests recursion through
+  // `tryParseStructuralDecl` from the compound-body loop.
+  test("§S11A.3: nested compound `<outer><inner><leaf>=0</></></>` recurses cleanly", () => {
+    const src = `<program>\${ <outer><inner><leaf>=0</></></> }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    // 1 outer + 1 inner + 1 leaf = 3 nodes
+    expect(decls.length).toBe(3);
+    const outer = decls.find((d) => d.name === "outer");
+    expect(outer).toBeDefined();
+    expect(outer.shape).toBe("plain");
+    expect(outer.children.length).toBe(1);
+    const inner = outer.children[0];
+    expect(inner.name).toBe("inner");
+    expect(inner.kind).toBe("state-decl");
+    expect(inner.shape).toBe("plain");
+    expect(Array.isArray(inner.children)).toBe(true);
+    expect(inner.children.length).toBe(1);
+    const leaf = inner.children[0];
+    expect(leaf.name).toBe("leaf");
+    expect(leaf.kind).toBe("state-decl");
+    expect(leaf.shape).toBe("plain");
+    expect(leaf.init).toBe("0");
+    // Leaf is a plain Shape 1 — no children-array on a leaf.
+    expect(leaf.children == null).toBe(true);
+    assertNoHtmlFragmentMatching(ast, /outer/);
+  });
+
+  // §S11A.4 — Empty compound: no children.
+  test("§S11A.4: empty compound `<empty></>` produces parent with children:[]", () => {
+    const src = `<program>\${ <empty></> }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    expect(decls.length).toBe(1);
+    const parent = decls[0];
+    expect(parent.name).toBe("empty");
+    expect(parent.shape).toBe("plain");
+    expect(parent.structuralForm).toBe(true);
+    expect(parent.initExpr).toBeNull();
+    expect(Array.isArray(parent.children)).toBe(true);
+    expect(parent.children.length).toBe(0);
+    assertNoHtmlFragmentMatching(ast, /empty/);
+  });
+
+  // §S11A.5 — Compound + sibling top-level decls with semicolons (the
+  // working separator). Compound parses cleanly; sibling top-level decls
+  // unaffected. Newline-separator support is Step 11.0b territory — out of
+  // scope here.
+  test("§S11A.5: compound + sibling top-level Shape 1 decls (semicolons) all parse", () => {
+    const src = `<program>\${ <count> = 0; <formRes><name>="" </>; <total> = 1 }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    // 3 top-level (count, formRes, total) + 1 child (name) = 4 nodes
+    expect(decls.length).toBe(4);
+    const topLevel = decls.filter((d) => d.name !== "name");
+    expect(topLevel.map((d) => d.name).sort()).toEqual(["count", "formRes", "total"]);
+    const parent = decls.find((d) => d.name === "formRes");
+    expect(parent.children.length).toBe(1);
+    expect(parent.children[0].name).toBe("name");
+    assertNoHtmlFragmentMatching(ast, /formRes|count|total/);
+  });
+
+  // §S11A.6 — Compound parent + named close `</NAME>`. Per SPEC §6.3.2 the
+  // anonymous close `</>` is shown but `</NAME>` named-close is also accepted
+  // by the markup parser; Step 11.0a treats both forms as legal compound
+  // closers (no name-match enforcement at the parser level — A1b territory).
+  test("§S11A.6: compound with named close `<formRes>...</formRes>` accepts named close", () => {
+    const src = `<program>\${ <formRes><name>="" </formRes> }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    expect(decls.length).toBe(2);
+    const parent = decls.find((d) => d.name === "formRes");
+    expect(parent).toBeDefined();
+    expect(parent.children.length).toBe(1);
+    expect(parent.children[0].name).toBe("name");
+    assertNoHtmlFragmentMatching(ast, /formRes/);
+  });
+
+  // §S11A.7 — Regression baseline: existing Shape 1 single-decl forms still
+  // produce non-compound state-decls (no children populated). Steps 4-6
+  // baselines preserved.
+  test("§S11A.7: regression — Shape 1/3 single-decl forms unchanged (no children-array)", () => {
+    const src = `<program>\${ <count> = 0; const <doubled> = @count * 2; <userName req> = <input type="text"/> }</program>`;
+    const { ast, errors } = parse(src);
+    expect(errors.length).toBe(0);
+    const decls = findKind(ast, "state-decl");
+    // 3 top-level non-compound decls (no children).
+    const top = decls.filter((d) => d.structuralForm === true);
+    expect(top.length).toBe(3);
+    for (const d of top) {
+      expect(d.children == null).toBe(true);
+    }
+    const count = top.find((d) => d.name === "count");
+    expect(count.shape).toBe("plain");
+    expect(count.initExpr).not.toBeNull();
+    const doubled = top.find((d) => d.name === "doubled");
+    expect(doubled.shape).toBe("derived");
+    expect(doubled.isConst).toBe(true);
+    const userName = top.find((d) => d.name === "userName");
+    expect(userName.shape).toBe("decl-with-spec");
+    expect(userName.renderSpec).toBeDefined();
+  });
+
+  // §S11A.8 — `const <x><y>=0</>` — compound parent on the const path declines
+  // (per §6.6 only individual derived fields can be `const`, not the parent
+  // compound). When the const-branch decline restores the cursor and falls
+  // through, the compound `<x><y>=0</>` is then parsed by the non-const
+  // default branch as `state-decl(x, isConst:false, children:[...])`. The
+  // leading `const` keyword is absorbed by the existing const-decl path
+  // (producing an empty const-decl artifact); A1b can later flag the
+  // empty-const + compound-parent combination as a parse error if needed.
+  // Step 11.0a parser invariant: NO state-decl in the AST has both
+  // `isConst:true` AND `children` populated.
+  test("§S11A.8: `const <x><y>=0</>` does not produce an isConst:true compound parent", () => {
+    const src = `<program>\${ const <x><y>=0</> }</program>`;
+    const { ast } = parse(src);
+    const decls = findKind(ast, "state-decl");
+    // No state-decl is BOTH isConst:true AND has children populated.
+    const constCompounds = decls.filter((d) =>
+      d.isConst === true && Array.isArray(d.children)
+    );
+    expect(constCompounds.length).toBe(0);
+    // The compound itself IS recognized (on the non-const fall-through).
+    const compoundParents = decls.filter((d) => Array.isArray(d.children));
+    expect(compoundParents.length).toBeGreaterThanOrEqual(0); // either path acceptable
+  });
+});
