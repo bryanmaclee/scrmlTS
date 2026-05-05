@@ -11986,6 +11986,75 @@ either (they are resolved by `resolveModulePath` when the importing file
 is processed, but their *consumers* are not auto-discovered through the
 graph traversal).
 
+### 21.8 Cross-file engine import (Stage 0b D4 — M18)
+
+**Added:** 2026-05-04 — formalises Move 18: cross-file engine sharing happens via `import`, with the importing file's `<EngineName/>` use-site mounting the imported singleton at that position. This is the ONLY use-site form for engines (same-file engines render at decl position; the use-site tag form does not exist for same-file engines per §51.0.D).
+
+**Pattern:**
+
+```scrml
+// engines.scrml — declares + exports
+${
+  type Phase:enum = { Idle, Loading, Success(count: int), Empty, Error(msg: string) }
+}
+
+export <engine for=Phase initial=.Idle var=appPhase>
+    <Idle : <button rule="load -> Loading">Load</>>
+    <Loading : <p>...</>>
+    <Success count : <p>Got ${count}</>>
+    <Empty   : <p>No data</>>
+    <Error   msg : <p>${msg}</>>
+</>
+```
+
+```scrml
+// app.scrml — imports + mounts
+${
+  import { Phase } from './engines.scrml'
+  // The engine is auto-imported alongside its type when the consumer references the engine's variable.
+  // Explicit form (also legal): import { Phase, appPhase } from './engines.scrml'
+}
+
+<program>
+    <h1>Loader</h1>
+    <appPhase/>     // mounts the imported singleton at this position
+</>
+```
+
+**Normative statements:**
+
+- A file MAY `export` a `<engine for=T ...>` declaration. The export entry registers the engine's auto-declared variable (or `var=`-overridden variable) name in the file's `exportRegistry` with `category: "engine"` (cross-ref Stage 3.05 NR / Stage 3.1 MOD; the routing is NR-authoritative).
+- An importing file references the engine via `<engineVarName/>` at the desired mount position. This is the ONLY use-site form for cross-file engines.
+- The mounted engine is the SAME singleton across all use-sites in all importing files. Engines are singleton-by-design (§51.0.A); a cross-file import does NOT create a new instance per importer.
+- A use-site tag for an imported engine SHALL accept no attribute slots — the engine's declaration controls all attributes (`for=`, `initial=`, `var=`, `derived=`, state-children). The use-site is purely a mount marker.
+- The compiler resolves `<engineVarName/>` against the unified registry (§15.15) — same path as cross-file component resolution. The category-routing decision (engine vs component vs HTML) is made at NR.
+- Importing a non-exported engine is `E-IMPORT-004` (imported name not found in target file's exports) per the standard import-validation rule (§21.6).
+- Re-exporting an imported engine is legal via the standard re-export form (§21.4).
+
+#### 21.8.1 `pinned` on imports
+
+**Added:** 2026-05-04 — composes `pinned` (§6.10) with the import system.
+
+The `pinned` modifier (§6.10) on an imported engine or imported state cell makes the cell's identity-stability into a hard contract for the importing file:
+
+```scrml
+import { appPhase pinned } from './engines.scrml'
+// or
+import { Phase, appPhase pinned } from './engines.scrml'
+```
+
+**Normative statements:**
+
+- A `pinned` modifier on an imported name applies the §6.10 rules to that import's binding in the importing file's scope.
+- A `pinned` import behaves identically to a same-file `pinned` declaration at the file scope: forward-references through the `pinned` cell are `E-STATE-PINNED-FORWARD-REF` (§34); identity is hard-stable.
+- `pinned` on a non-engine non-state-cell import (e.g., `pinned` on a regular function) is `E-IMPORT-PINNED-INVALID` (§34) — `pinned` is only meaningful for cell-typed and engine-typed names.
+
+**Cross-references:**
+- §51.0.A — engines as singleton-by-design.
+- §51.0.D — engine mount position (decl=mount; cross-file singleton via use-site tag).
+- §15.15 — unified state-type registry (the resolution path for cross-file tags).
+- §6.10 — `pinned` keyword.
+
 ---
 
 ## 22. Metaprogramming
