@@ -16,7 +16,7 @@
 
 **Version:** 0.5.2-draft
 **Date:** 2026-04-03
-**Status:** Draft — reconstructed 2026-03-28 from update docs after truncation; §4.10-4.11 added 2026-03-25; §10.4-10.5 updated 2026-03-25; §10.5.5 added 2026-03-27 resolving SPEC-ISSUE-007; §14.8 added 2026-03-26 resolving SPEC-PA-017; §18 rewritten 2026-03-27 (588 lines, all 11 blocking issues resolved); §31/§33/§34 written 2026-03-27; §5.4/§15.10/§18.16/§20.3-20.4/§21 added 2026-03-27; §6.6 inserted 2026-03-30 — derived reactive values (const @name, lazy pull, dirty flags); §8 updated 2026-03-30 — bound parameter rules, deduplication, null-coalescing WHERE pattern; §6.5 written 2026-03-31 — reactive array mutation, mutating method interception, keyed iteration; §19 rewritten 2026-04-01 — complete error handling spec, resolves SPEC-ISSUE-011 (built-in types catalog, throw syntax), adds reactive error state, server boundary interaction, protect= audit (E-ERROR-001..005, W-ERROR-001..002)
+**Status:** Draft — reconstructed 2026-03-28 from update docs after truncation; §4.10-4.11 added 2026-03-25; §10.4-10.5 updated 2026-03-25; §10.5.5 added 2026-03-27 resolving SPEC-ISSUE-007; §14.8 added 2026-03-26 resolving SPEC-PA-017; §18 rewritten 2026-03-27 (588 lines, all 11 blocking issues resolved); §31/§33/§34 written 2026-03-27; §5.4/§15.10/§18.16/§20.3-20.4/§21 added 2026-03-27; §6.6 inserted 2026-03-30 — derived reactive values (const <name>, lazy pull, dirty flags); §8 updated 2026-03-30 — bound parameter rules, deduplication, null-coalescing WHERE pattern; §6.5 written 2026-03-31 — reactive array mutation, mutating method interception, keyed iteration; §19 rewritten 2026-04-01 — complete error handling spec, resolves SPEC-ISSUE-011 (built-in types catalog, throw syntax), adds reactive error state, server boundary interaction, protect= audit (E-ERROR-001..005, W-ERROR-001..002)
 
 ---
 
@@ -6179,7 +6179,7 @@ Route names are compiler-internal. The developer SHALL NOT reference, configure,
 - A server-escalated function (whether inferred per §12.2 or explicitly annotated per §11.4)
   SHALL NOT call a function that the compiler has classified as client-only. A client-only
   function is any function determined by route analysis to execute exclusively on the client
-  — for example, a function that reads a `const @name` derived reactive value, accesses
+  — for example, a function that reads a `const <name>` derived reactive value, accesses
   any DOM API, or references a client-only import. The compiler SHALL emit E-ROUTE-002 if a
   server-escalated function's static call graph contains a direct or transitive call to a
   client-only function.
@@ -12993,7 +12993,7 @@ character to the nested program for invocation.
 
     ${ extern g computeFFT(data: number[]) -> number[] }
 
-    ${ const @spectrum = g{ computeFFT(@audioData) } }
+    ${ const <spectrum> = g{ computeFFT(@audioData) } }
 </>
 ```
 
@@ -13039,7 +13039,7 @@ generate WASM binding glue (type marshaling, WASM memory management, result dese
     @brightness = 1.0
     @imageData = []
 
-    ${ const @filtered = r{ applyFilter({ brightness: @brightness, contrast: 1.0, saturation: 1.0 }, @imageData) } }
+    ${ const <filtered> = r{ applyFilter({ brightness: @brightness, contrast: 1.0, saturation: 1.0 }, @imageData) } }
 </>
 ```
 
@@ -13085,7 +13085,7 @@ generate WASM binding glue (type marshaling, WASM memory management, result dese
     @brightness = 1.0
     @rawPixels = []
 
-    ${ const @filtered = r{ applyFilter(@brightness, @rawPixels) } }
+    ${ const <filtered> = r{ applyFilter(@brightness, @rawPixels) } }
 
     <input type="range" bind:value=@brightness min=0 max=2 step=0.1/>
     <canvas width=800 height=600/>
@@ -13944,8 +13944,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-SCOPE-011 | §20.4 | Access to undeclared route parameter name | Error |
 | E-SCOPE-012 | §20.5 | `session` accessed in non-server-escalated function | Error |
 | E-REACTIVE-001 | §6.2 | `@variable` used before declaration | Error |
-| E-REACTIVE-002 | §6.6.8 | Assignment to a `const @name` derived reactive value | Error |
-| E-REACTIVE-003 | §6.6.9 | Reading a `const @name` derived value inside a server-escalated function | Error |
+| E-REACTIVE-002 | §6.6.8 | Assignment to a `const <name>` derived reactive value | Error |
+| E-REACTIVE-003 | §6.6.9 | Reading a `const <name>` derived value inside a server-escalated function | Error |
 | E-REACTIVE-004 | §6.6.5 | `flush()` called inside a derived expression | Error |
 | E-REACTIVE-005 | §6.6.10 | Circular dependency in the derived reactive graph | Error |
 | E-LIFT-001 | §10.5.2 | Concurrent `lift` calls in same logic block | Error |
@@ -13998,7 +13998,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | W-LIN-001 | §35.7 | `lin` variable passed to server-escalated function; guarantee does not extend to server copy | Warning |
 | W-MATCH-001 | §18.6 | Unreachable default `else` arm (all variants already covered) | Warning |
 | W-MATCH-002 | §18.16 | Non-exhaustive literal match (string/number/boolean without `_` arm) | Warning |
-| W-DERIVED-001 | §6.6.11 | `const @name = expr` has no `@variable` references; value never re-evaluates | Warning |
+| W-DERIVED-001 | §6.6.11 | `const <name> = expr` has no `@variable` references; value never re-evaluates | Warning |
 | E-ERROR-001 | §19.3.3 | `fail` used in non-`!` function | Error |
 | E-ERROR-002 | §19.4.3 | `!` function result not handled (no match, `?`, `!{}`, or boundary) | Error |
 | E-ERROR-003 | §19.5.4 | `?` propagation used in non-`!` function | Error |
@@ -14089,7 +14089,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-080 | §19.7 | Non-exhaustive error handler: not all error variants covered | Error |
 | E-TAILWIND-001 | §26.4.1 | Invalid arbitrary value in Tailwind utility class (empty brackets, whitespace, malformed hex/unit/function, injection vector, unbalanced parens, malformed `var()` or `url()`) | Error |
 | E-NAME-COLLIDES-STATE | §6.1 | Local identifier declaration uses the same name as a registered state cell in scope. Local names cannot shadow state names. Example: `<count> = 0; ... let count = 5`. | Error |
-| E-DERIVED-WRITE | §6.6 | Write to a `const`-derived reactive cell. Derived cells are read-only; assignment is not permitted. Example: `const @displayName = @name.toUpperCase(); @displayName = "x"`. | Error |
+| E-DERIVED-WRITE | §6.6 | Write to a `const`-derived reactive cell. Derived cells are read-only; assignment is not permitted. Example: `const <displayName> = @name.toUpperCase(); @displayName = "x"`. | Error |
 | E-STATE-PINNED-FORWARD-REF | §6.10 | Read of a `pinned` state declaration before its declaration site in source order. `pinned` opts the declaration out of hoisting; forward reads are therefore unsafe. | Error |
 | E-CELL-NO-RENDER-SPEC | §6.4 | `<varname/>` used as render-by-tag in markup, but the cell has no render-spec (Shape 1 plain cell or Shape 3 non-markup derived). Use `${@varname}` interpolation to display the value. | Error |
 | E-CELL-RENDER-SPEC-NOT-BINDABLE | §6.2 | Shape 2 declaration (`<name req> = <markup>`) where the RHS markup element is not bindable (e.g., `<div>`, `<span>`). Shape 2 requires a bindable form element. Use `const <name>` (Shape 3) for display-only markup cells. | Error |
@@ -22144,7 +22144,7 @@ ${
 
     // Derived values (§6.6) are always local and always consistent with the
     // server-authoritative source they derive from.
-    const @todoCards = @cards.filter(c => c.column == Column.Todo)
+    const <todoCards> = @cards.filter(c => c.column == Column.Todo)
 
     server function createCard(title, desc, col) {
         ?{`INSERT INTO cards (title, description, column_name, position)
@@ -22300,7 +22300,7 @@ ${
     @addingToColumn = "Todo"
 
     // Derived values are local by definition.
-    const @todoCards = @cards.filter(c => c.column == "Todo")
+    const <todoCards> = @cards.filter(c => c.column == "Todo")
 
     server function loadCards() {
         return ?{`SELECT * FROM cards ORDER BY position ASC`}.all()
@@ -22386,7 +22386,7 @@ E-AUTH-002: 'server @doubleCount' is declared server-authoritative, but its init
 | `server @var = expr` | Server | Load + optimistic update + rollback | Yes | Allowed (inside server fn) |
 | `<Type> @var` where `Type.authority = "server"` | Server | Load + optimistic update + rollback | Yes | Allowed (inside server fn) |
 | `<Type> @var` where `Type.authority = "local"` | Local | None | No | Blocked (E-AUTH-001) |
-| `const @derived = expr` | Derived (always local) | None (derived from source) | Only if source is server | Read-only (cannot be persisted) |
+| `const <derived> = expr` | Derived (always local) | None (derived from source) | Only if source is server | Read-only (cannot be persisted) |
 | `<input>` / `<form>` fields | Form (ephemeral) | None | No | Not applicable |
 
 ### 52.6 Compiler-Generated Sync Infrastructure
@@ -22500,7 +22500,7 @@ The authority model directly controls which state is pre-rendered during SSR.
 
 **Client-local variables** SHALL NOT be pre-rendered. They use their declared initial value until client-side hydration runs.
 
-**Derived values (`const @derived`)** are pre-rendered only if all their source variables are server-authoritative. If any source is client-local, the derived value is client-only.
+**Derived values (`const <derived>`)** are pre-rendered only if all their source variables are server-authoritative. If any source is client-local, the derived value is client-only.
 
 **Form state** is never pre-rendered; it is ephemeral.
 
@@ -22508,7 +22508,7 @@ The authority model directly controls which state is pre-rendered during SSR.
 
 - The compiler SHALL include all server-authoritative reactive variables in the SSR output.
 - The compiler SHALL NOT include client-local reactive variables in the SSR output.
-- The compiler SHALL pre-render a derived value (`const @derived`) if and only if all of its reactive dependencies are server-authoritative.
+- The compiler SHALL pre-render a derived value (`const <derived>`) if and only if all of its reactive dependencies are server-authoritative.
 
 ### 52.9 Interaction with `<request>` (§6.7.7)
 

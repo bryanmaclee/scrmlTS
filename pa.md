@@ -240,15 +240,23 @@ If ANY check fails: DO NOT proceed. Report the mismatch and exit.
 
 ## Path discipline (enforce on EVERY Read/Write/Edit call)
 
-- For Read: relative paths or paths under WORKTREE_ROOT are safe. Reading
-  from main via absolute path will give you the wrong file content (main
-  may be AHEAD of your worktree, with parallel-different in-flight work).
-- For Write/Edit: ONLY use paths under WORKTREE_ROOT. NEVER use absolute
-  paths starting with the main repo root directly — those point to main and
-  will leak your work product into main's working tree.
+- For Read: paths under WORKTREE_ROOT are safe (absolute or relative).
+  Reading from main via absolute path will give you the wrong file content
+  (main may be AHEAD of your worktree, with parallel-different in-flight
+  work).
+- For Write/Edit: **ALWAYS use ABSOLUTE paths under WORKTREE_ROOT.** Do
+  NOT use relative paths like `compiler/SPEC.md` — the harness resolves
+  relative paths against an `Additional working directories` list that
+  may include the main repo, causing silent writes to main's working tree.
+  Hit S58 in the s34-s52-const-cleanup dispatch: agent passed
+  `compiler/SPEC.md`, Edit reported success, but the change landed in
+  main's working tree, not the worktree.
+- NEVER use absolute paths starting with the main repo root directly —
+  those point to main and will leak your work product into main's working
+  tree.
 - If an intake doc / hand-off doc / conversation context references a path
   like `/home/bryan-maclee/scrmlMaster/scrmlTS/foo/bar.ts`, translate it to
-  `$WORKTREE_ROOT/foo/bar.ts` (or the relative equivalent) before writing.
+  `$WORKTREE_ROOT/foo/bar.ts` before writing.
 
 If you find yourself about to write to a path starting with the main repo
 root, STOP. Re-derive the path from WORKTREE_ROOT.

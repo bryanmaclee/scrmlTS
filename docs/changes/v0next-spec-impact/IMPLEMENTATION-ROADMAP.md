@@ -473,17 +473,19 @@ Both deferrals are documented inline in `stdlib/oauth/index.scrml` source commen
 
 Surfaced from D4 final report (S58). Both are spec-side cleanups, not Phase A1+ implementation work. Should ship in their own small dispatches before or alongside Phase A1.
 
-### Follow-up #1 — §6 Shape 3 `const @x` → `const <x>` sweep
+### Follow-up #1 — §6 Shape 3 `const @x` → `const <x>` sweep — ✅ DONE (S58)
 
 **Source:** D4 final finding #1.
 
 D1 landed §6 with 99 instances of the older `const @x = ...` form for derived cells, vs only 27 instances of the canonical structural form `const <x> = ...`. Per L15 + S56 alignment the structural form (declaration-site uses `<>` syntax) is canonical. D4 brief explicitly forbade modifying §6 (Dispatch 1 territory), so the inconsistency was preserved rather than fixed mid-flight.
 
-**Status:** Pre-D4 state preserved. NOT a regression — the inconsistency predates D4.
+**Resolution (S58):** Two-phase cleanup landed.
+- **Phase 1 — §6 sweep** (worktree dispatch, branch `changes/s6-const-sweep`, summary commit `c905b2b`): 62 edits inside §6 itself.
+- **Phase 2 — cross-section follow-up** (PA direct edits + 5 fixes that landed via worktree path-leak that were correct on inspection): 13 additional edits across §11, §12, §22, §23, §34, §52.
 
-**Disposition:** **Small standalone dispatch** — single-target sweep of §6 (and any §6 cross-refs) replacing `const @x` declaration form with `const <x>`. ~99 mechanical edits + cross-ref check. Estimated 1-3 hours of focused work.
+**Final state:** SPEC.md has zero `const @x` declaration-form instances. Read-site `@x` access remains canonical. PIPELINE.md and kickstarter v2 verified clean as part of the spot-check.
 
-**Trigger:** Schedulable any time before Phase A1 stabilizes (the implementation work will read these declarations as canonical examples; consistent canon matters more there than in spec-only Stage 0b).
+**Side-finding:** the Phase 2 worktree dispatch surfaced a subtle F4 path-discipline gap — relative paths in dispatched-agent Edit calls can resolve against the harness's `Additional working directories` list rather than worktree cwd, leaking writes to main. Documented in `pa.md` F4 addendum (S58).
 
 ### Follow-up #2 — PIPELINE.md prose pass
 
