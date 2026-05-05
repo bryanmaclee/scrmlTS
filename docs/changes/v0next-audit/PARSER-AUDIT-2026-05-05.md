@@ -1,6 +1,6 @@
 # v0.next parser audit — 2026-05-05 (S59)
 
-> **Note (Step 3 / 2026-05-05):** when this audit was written, the AST kind was `"state-decl"`. Phase A1a Step 3 renamed it to `"state-decl"`. References in this document that previously read `kind: "state-decl"` have been mass-renamed to `kind: "state-decl"` for forward-consistency. The historical name is preserved in this banner only.
+> **Note (Step 3 / 2026-05-05):** when this audit was written, the AST kind was `"reactive-decl"`. Phase A1a Step 3 (commit `8fa26e1`) renamed it to `"state-decl"`. References below have been mass-renamed to `kind: "state-decl"` for forward-consistency. The historical name `"reactive-decl"` is preserved in this banner only. (The rename also swept this banner originally — fixed in a follow-up commit.)
 
 **Status:** diagnostic snapshot of compiler/src/ parser support for v0.next language features as of HEAD `92ef014`. Driven by Phase A1a re-decomposition after rev-3 dispatch surfaced a fundamental parser-vs-spec mismatch.
 
