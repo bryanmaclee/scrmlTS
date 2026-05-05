@@ -75,6 +75,7 @@ import type {
   CastExpr,
   MatchExpr,
   EscapeHatchExpr,
+  ResetExpr,
   LogicStatement,
   LetDeclNode,
   ConstDeclNode,
@@ -917,6 +918,12 @@ function substitutePropsInExprNode(
       const n = node as MatchExpr;
       // Walk subject. Arms are raw strings (Phase 1) — cannot structurally substitute.
       return { ...n, subject: substitutePropsInExprNode(n.subject, propExprMap, shadowed) } satisfies MatchExpr;
+    }
+    case "reset-expr": {
+      const n = node as ResetExpr;
+      // §6.8.2 — substitute prop-name references inside the reset target.
+      // Diagnostic field is preserved verbatim (parse-time annotation).
+      return { ...n, target: substitutePropsInExprNode(n.target, propExprMap, shadowed) } satisfies ResetExpr;
     }
     default: {
       // TypeScript exhaustiveness check.

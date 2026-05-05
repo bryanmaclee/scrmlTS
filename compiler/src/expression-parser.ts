@@ -2490,6 +2490,71 @@ export function forEachCallInExprNode(node: ExprNode, cb: (call: CallExpr) => vo
 }
 
 /**
+ * Walk an ExprNode tree and invoke `cb` once per `ResetExpr` encountered.
+ *
+ * §6.8.2 (Step 9, Phase A1a) — used by ast-builder to surface parse-time
+ * `E-RESET-NO-ARG` diagnostics that the expression-parser attached to
+ * malformed `reset(...)` calls. Mirrors the F-SQL-001 pattern but recurses
+ * the full tree (a malformed reset can appear nested inside any larger
+ * expression — e.g. `if (cond) reset()`).
+ */
+export function forEachResetExprInExprNode(node: ExprNode, cb: (resetNode: ResetExpr) => void): void {
+  if (!node) return;
+  switch (node.kind) {
+    case "reset-expr": {
+      const n = node as ResetExpr;
+      cb(n);
+      forEachResetExprInExprNode(n.target, cb);
+      return;
+    }
+    case "ident": case "lit": case "sql-ref": case "input-state-ref": case "escape-hatch": return;
+    case "array": { for (const el of (node as ArrayExpr).elements) forEachResetExprInExprNode(el as ExprNode, cb); return; }
+    case "object": {
+      for (const p of (node as ObjectExpr).props) {
+        if (p.kind === "prop") { if (typeof p.key !== "string") forEachResetExprInExprNode(p.key as ExprNode, cb); forEachResetExprInExprNode(p.value, cb); }
+        else if (p.kind === "spread") forEachResetExprInExprNode(p.argument, cb);
+      }
+      return;
+    }
+    case "spread": forEachResetExprInExprNode((node as SpreadExpr).argument, cb); return;
+    case "unary": forEachResetExprInExprNode((node as UnaryExpr).argument, cb); return;
+    case "binary": { const n = node as BinaryExpr; forEachResetExprInExprNode(n.left, cb); forEachResetExprInExprNode(n.right, cb); return; }
+    case "assign": { const n = node as AssignExpr; forEachResetExprInExprNode(n.target, cb); forEachResetExprInExprNode(n.value, cb); return; }
+    case "ternary": { const n = node as TernaryExpr; forEachResetExprInExprNode(n.condition, cb); forEachResetExprInExprNode(n.consequent, cb); forEachResetExprInExprNode(n.alternate, cb); return; }
+    case "member": forEachResetExprInExprNode((node as MemberExpr).object, cb); return;
+    case "index": { const n = node as IndexExpr; forEachResetExprInExprNode(n.object, cb); forEachResetExprInExprNode(n.index, cb); return; }
+    case "call": {
+      const n = node as CallExpr;
+      forEachResetExprInExprNode(n.callee, cb);
+      for (const a of n.args) forEachResetExprInExprNode(a as ExprNode, cb);
+      return;
+    }
+    case "new": {
+      const n = node as NewExpr;
+      forEachResetExprInExprNode(n.callee, cb);
+      for (const a of n.args) forEachResetExprInExprNode(a as ExprNode, cb);
+      return;
+    }
+    case "lambda": {
+      // Walk default values (outer scope). Body is a fresh scope, but a
+      // malformed reset() inside a lambda body should still be surfaced —
+      // unlike free-identifier capture, parse-time syntax errors don't
+      // respect scope boundaries.
+      const n = node as LambdaExpr;
+      for (const p of n.params) {
+        if (p.defaultValue) forEachResetExprInExprNode(p.defaultValue, cb);
+      }
+      if (n.body.kind === "expr") forEachResetExprInExprNode(n.body.value, cb);
+      // Block bodies are EscapeHatchExpr in Phase 1; cannot recurse structurally.
+      return;
+    }
+    case "cast": forEachResetExprInExprNode((node as CastExpr).expression, cb); return;
+    case "match-expr": forEachResetExprInExprNode((node as MatchExpr).subject, cb); return;
+    default: { const _never: never = node; return; }
+  }
+}
+
+/**
  * Return true if the ExprNode tree contains any IdentExpr whose name
  * starts with `@` (reactive variable reference).
  *

@@ -84,6 +84,19 @@ export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
     case "sql-ref":     return emitSqlRef(node, ctx);
     case "input-state-ref": return emitInputStateRef(node);
     case "escape-hatch": return emitEscapeHatch(node, ctx);
+    case "reset-expr": {
+      // §6.8.2 — Step 9 (Phase A1a) lifts `reset(<expr>)` into a structurally
+      // distinct ExprNode kind. Step 9 does NOT yet replace the codegen
+      // lowering — that is A1c's responsibility (the runtime call wired to
+      // `default=` evaluation per §6.8.1). Until A1c lands, emit the same
+      // call shape as before so any existing samples / fixtures keep their
+      // pre-Step-9 JS output bit-for-bit identical:
+      //   reset(<target-as-emitted>)
+      // The emitted string is a function-call to a name that isn't yet
+      // defined as a runtime function — same situation as before Step 9.
+      // No new gauntlet/E2E behavior at this stage.
+      return `reset(${emitExpr(node.target, ctx)})`;
+    }
     default: {
       // Exhaustiveness guard — if a new kind is added and not handled,
       // TypeScript will flag this at compile time.

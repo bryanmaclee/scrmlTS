@@ -505,6 +505,7 @@ export function bodyReferencesCompilerNamespace(body: LogicNode[]): boolean {
       }
       case "cast": return exprHasCompilerMember(node.expression);
       case "match-expr": return exprHasCompilerMember(node.subject);
+      case "reset-expr": return exprHasCompilerMember(node.target);
       case "lambda": return false;
       default: return false;
     }

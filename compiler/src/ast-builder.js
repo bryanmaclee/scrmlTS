@@ -45,7 +45,7 @@ import {
   tokenizePassthrough as _defaultTokenizePassthrough,
 } from "./tokenizer.ts";
 
-import { parseExprToNode } from "./expression-parser.ts";
+import { parseExprToNode, forEachResetExprInExprNode } from "./expression-parser.ts";
 import { splitBlocks as _splitBlocksForP2Form1 } from "./block-splitter.js";
 
 /**
@@ -171,6 +171,21 @@ function safeParseExprToNodeGlobal(expr, filePath, startOffset, errors) {
           node.span,
         ));
       }
+    }
+    // §6.8.2 (Step 9, Phase A1a) — surface E-RESET-NO-ARG diagnostics
+    // attached by the expression-parser when `reset(...)` is malformed
+    // (zero-arg, multi-arg, or spread). Walks the full ExprNode tree so
+    // a malformed reset nested inside a larger expression is still caught.
+    if (node && errors) {
+      forEachResetExprInExprNode(node, (resetNode) => {
+        if (resetNode.diagnostic) {
+          errors.push(new TABError(
+            resetNode.diagnostic.code || "E-RESET-NO-ARG",
+            resetNode.diagnostic.message,
+            resetNode.span,
+          ));
+        }
+      });
     }
     return node;
   } catch (_e) {
@@ -1725,6 +1740,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           node.sqlDiagnostic.message,
           node.span,
         ));
+      }
+      // §6.8.2 (Step 9, Phase A1a) — surface E-RESET-NO-ARG from malformed
+      // reset(...) calls. Walks the full ExprNode tree (a malformed reset
+      // can appear nested inside any larger expression).
+      if (node) {
+        forEachResetExprInExprNode(node, (resetNode) => {
+          if (resetNode.diagnostic) {
+            errors.push(new TABError(
+              resetNode.diagnostic.code || "E-RESET-NO-ARG",
+              resetNode.diagnostic.message,
+              resetNode.span,
+            ));
+          }
+        });
       }
       return node;
     } catch (_e) {

@@ -109,3 +109,59 @@ an attached `diagnostic: { code: "E-RESET-NO-ARG", message: "..." }` field, and
 appended `ResetExpr` to the `ExprNode` union. Diagnostic-on-the-node mirrors
 F-SQL-001's pattern (EscapeHatchExpr.sqlDiagnostic). Cross-references: §6.8.2,
 §34, AST-CONTRACTS-AND-DECOMPOSITION.md §1.3.
+
+[12:35 step-9 parser-branch] `compiler/src/expression-parser.ts` — added Step 9's
+"reset KEYWORD primary-expression" branch in `esTreeToExprNode`'s CallExpression
+case, immediately after the `__scrml_match__` placeholder branch. Logic:
+  - When `callee.type === "Identifier" && callee.name === "reset"`:
+    - Zero-arg → emit `reset-expr` with synthesized `undefined` target +
+      diagnostic `E-RESET-NO-ARG` (zero-arg variant message).
+    - Multi-arg or spread → emit `reset-expr` with first non-spread arg as
+      target + diagnostic `E-RESET-NO-ARG` (arity-specific or spread message).
+    - Single-arg → emit `reset-expr` with target = arg conversion (no diag).
+  - Member calls (`obj.reset(x)`) bypass: callee.type !== "Identifier".
+  - Step 8's E-RESERVED-IDENTIFIER decl-site path is unaffected.
+
+  Updated all ExprNode-kind switches in expression-parser.ts to handle
+  `reset-expr`:
+    - emitStringFromTree: emits `reset(<target>)` round-trip stable.
+    - deepEqualExprNode: structural equality on target; diagnostic ignored
+      (parse-time annotation, not part of node identity).
+    - forEachIdentInExprNode: recurses into target (so e.g. dep-graph picks up
+      `@cell` reads inside the target).
+    - exprNodeContainsCall, forEachCallInExprNode, exprNodeContainsAssignment,
+      exprNodeContainsMemberAccess: recurse into target (no special call-style
+      treatment — `reset-expr` is structurally a keyword expression, not a call).
+
+  Smoke-tested via `bun -e ...`: all five canonical forms parse correctly:
+    `reset(@count)` → reset-expr, target = ident "@count"
+    `reset()`        → reset-expr + diagnostic E-RESET-NO-ARG
+    `reset(a, b)`    → reset-expr + diagnostic E-RESET-NO-ARG (multi-arg)
+    `reset(@form.email)` → reset-expr, target = MemberExpr (compound)
+    `reset(@count + 1)` → reset-expr, target = BinaryExpr (clean parse)
+    `limiter.reset("x")` → unchanged `kind: "call"` (member callee bypass).
+
+[12:40 step-9 walker] `compiler/src/expression-parser.ts` — added
+`forEachResetExprInExprNode` walker (parallels `forEachCallInExprNode`).
+Recurses through every ExprNode kind and yields each `ResetExpr` to the
+callback. Used by ast-builder for diagnostic surfacing.
+
+[12:42 step-9 ast-builder-surface] `compiler/src/ast-builder.js` — extended
+both `safeParseExprToNodeGlobal` (module-level) and `safeParseExprToNode`
+(closure-scoped, inside `parseLogicBody`) to walk every parsed ExprNode and
+push a TABError(code, message, span) for each `ResetExpr.diagnostic` found.
+Mirrors the F-SQL-001 surfacing pattern but uses tree walking instead of
+root-only check (a malformed reset can be nested in a larger expression).
+
+[12:43 step-9 cross-file-walkers] Updated three other-file ExprNode walkers:
+  - `compiler/src/codegen/emit-expr.ts` — case "reset-expr" emits
+    `reset(<target>)` (preserves pre-Step-9 JS output bit-for-bit; A1c will
+    replace this with the proper runtime lowering).
+  - `compiler/src/component-expander.ts` — case "reset-expr" recurses
+    `substitutePropsInExprNode` into `target`, preserves diagnostic.
+  - `compiler/src/meta-checker.ts` — case "reset-expr" recurses
+    `exprHasCompilerMember` into `target`.
+
+[12:45 step-9 test-baseline-recheck] `bun run test` after all source changes:
+8,804 pass / 43 skip / 0 fail / 8,847 across 436 files (one ECONNREFUSED flake
+on first run, clean rerun). NO regressions introduced.
