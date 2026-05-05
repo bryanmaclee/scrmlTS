@@ -51,31 +51,31 @@
         // View mode: which "page" are we on
         // Rails: routes + controllers give you pages for free.
         // scrml: manage view state manually with @vars + if= attributes.
-        <currentView> = "list"       // "list" | "new" | "edit" | "show"
-        <currentPostId> = not
+        @currentView = "list"       // "list" | "new" | "edit" | "show"
+        @currentPostId = not
 
         // Form fields — Rails: strong_params / form_with. scrml: manual @vars.
         // Friction: no form builder, no csrf_meta_tag, no field_with_errors.
-        <formTitle> = ""
-        <formBody> = ""
-        <formPublished> = false
-        <formError> = ""
+        @formTitle = ""
+        @formBody = ""
+        @formPublished = false
+        @formError = ""
 
         // Tag management state
-        <newTagName> = ""
-        <activeTagFilter> = not     // not = "All posts"
+        @newTagName = ""
+        @activeTagFilter = not     // not = "All posts"
 
         // Delete confirmation state
-        <confirmDeleteId> = not
+        @confirmDeleteId = not
 
         // Tag input for post form (comma-separated string approach)
-        <formTagInput> = ""
+        @formTagInput = ""
 
         // Loaded data — server fetches populate these
-        <posts> = []
-        <allTags> = []
-        <currentPost> = not
-        <currentPostTags> = []
+        @posts = []
+        @allTags = []
+        @currentPost = not
+        @currentPostTags = []
     }
 
     // ========================================
