@@ -146,13 +146,37 @@ Held since the doc commit at `acdd9b9`:
 
 (Already committed/pushed today: hand-off.md, handOffs/hand-off-58.md, docs/PA-SCRML-PRIMER.md at `acdd9b9`. Not staged again — wait for next cluster.)
 
-## 8.1 D4 status (background dispatch)
+## 8.1 D4 status (LANDED)
 
-Agent `a3219027b50e48f08`, branch `changes/v0next-spec-impact-d4` from `acdd9b9`.
+Agent `a3219027b50e48f08`, branch `changes/v0next-spec-impact-d4` from `acdd9b9`. ~35 min wall, 23 commits.
 
-Last check (early in session): 6 commits, ~5/25 plan items — through §13.5 RemoteData cross-ref. Pace healthy, no anomalies, pre-commit clean each WIP. PIPELINE.md rewrite is the bulk and hasn't started yet (Tier 11 is later in plan).
+**Cherry-picked clean** to main as `90aa2f3..cded613` (post-held-cluster commit `90aa2f3`). Pre-commit passed every WIP.
 
-Will check again or wait for completion notification.
+| Artifact | Delta |
+|---|---|
+| `compiler/SPEC.md` | +688 lines (23,694 → 24,382) |
+| `compiler/PIPELINE.md` | +439 lines (1,941 → 2,380; 22.6% rewrite) |
+| `compiler/SPEC-INDEX.md` | structural regen + 50 net lines |
+| Tests | 7,991 / 37 / 0 (unchanged — D4 is spec-only) |
+
+**Surface added:** 13 Tier 8 small-edit sections + 4 Tier 10 reviews (§28 +4 lint configs) + §34 +7 codes + PIPELINE.md per-stage v0.next addenda (TAB / NR / MOD / UVB / TS / DG / CG) + 11-entry Integration Failure Mode Catalog + SPEC-INDEX final regen with 22 D4 Quick Lookup entries.
+
+**Stage 0b: 4-of-4 complete.** Spec-engineering target is finalized; Phase A1+ implementation phase opens.
+
+## 8.2 Open questions resolved this session-mid
+
+- ✅ "Rules-inert framing missing from article" — closed; both inline paragraph and ladder diagram updated.
+
+## 8.3 Stage 0b follow-ups logged (D4 findings, deferred)
+
+Both logged in `docs/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md` §8.6.
+
+1. **§6 Shape 3 `const @x` → `const <x>` sweep** — small standalone dispatch (~99 mechanical edits in §6, 1-3 hr). Schedulable before Phase A1 stabilizes. Pre-D4 state preserved (NOT a regression — predates D4).
+2. **PIPELINE.md prose pass** — follow-up prose pass to smooth D4 addenda into integrated stage descriptions (4-8 hr). Defer until next natural PIPELINE.md edit (Phase A1 will touch it anyway).
+
+## 8.4 Recurring infra finding
+
+**`bun install` required in every fresh worktree** — node_modules doesn't inherit from main; pre-commit `bun test` fails with "cannot find package 'acorn'" until install. Hit by D2.8, D3, oauth, AND D4. Worth a pa.md F4 note OR a worktree-setup hook. Not blocking; logged here for next session's consideration.
 
 ## 8.2 Open questions resolved this session-mid
 

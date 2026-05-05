@@ -469,6 +469,36 @@ Both deferrals are documented inline in `stdlib/oauth/index.scrml` source commen
 
 ---
 
+## §8.6 Stage 0b follow-ups (S58 close — small standalone dispatches)
+
+Surfaced from D4 final report (S58). Both are spec-side cleanups, not Phase A1+ implementation work. Should ship in their own small dispatches before or alongside Phase A1.
+
+### Follow-up #1 — §6 Shape 3 `const @x` → `const <x>` sweep
+
+**Source:** D4 final finding #1.
+
+D1 landed §6 with 99 instances of the older `const @x = ...` form for derived cells, vs only 27 instances of the canonical structural form `const <x> = ...`. Per L15 + S56 alignment the structural form (declaration-site uses `<>` syntax) is canonical. D4 brief explicitly forbade modifying §6 (Dispatch 1 territory), so the inconsistency was preserved rather than fixed mid-flight.
+
+**Status:** Pre-D4 state preserved. NOT a regression — the inconsistency predates D4.
+
+**Disposition:** **Small standalone dispatch** — single-target sweep of §6 (and any §6 cross-refs) replacing `const @x` declaration form with `const <x>`. ~99 mechanical edits + cross-ref check. Estimated 1-3 hours of focused work.
+
+**Trigger:** Schedulable any time before Phase A1 stabilizes (the implementation work will read these declarations as canonical examples; consistent canon matters more there than in spec-only Stage 0b).
+
+### Follow-up #2 — PIPELINE.md prose pass
+
+**Source:** D4 final finding #2.
+
+D4's PIPELINE.md rewrite landed at 22.6% (1,941 → 2,380 lines), under the brief's 30-40% target. Agent chose addendum-style additions to each affected stage rather than rewriting unchanged-stage prose. Engineering content is complete (every v0.next-affected stage has its addendum), but the prose is stitched-on rather than re-flowed.
+
+**Status:** Engineering substance ✅ complete. Prose cohesion: stitched, not re-flowed.
+
+**Disposition:** **Follow-up prose pass** — read-through of PIPELINE.md, smooth the addenda into the surrounding stage descriptions, eliminate "v0.next addendum" framing in favor of integrated prose where natural, refresh the per-stage opening paragraphs to reflect post-v0.next responsibilities. Estimated 4-8 hours.
+
+**Trigger:** Defer until natural — when next major PIPELINE.md edit happens (Phase A1 implementation will modify pipeline anyway), fold this prose pass in. Standalone if it becomes a felt readability problem.
+
+---
+
 ## §9 Cross-references
 
 - **Master plan (Stage 0a):** `IMPACT-ASSESSMENT.md`
