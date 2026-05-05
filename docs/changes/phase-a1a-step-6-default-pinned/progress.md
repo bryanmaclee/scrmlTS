@@ -19,3 +19,35 @@
   - Return value: extend the result object with `defaultExpr` (raw text or null) + `pinned` (boolean).
   - In `tryParseStructuralDecl`: parse rawText to ExprNode via `safeParseExprToNode`; populate `defaultExpr` + `pinned` on all three return shapes (Shape 1, Shape 2, Shape 3).
 - [06:09 step-6 implementation in progress] Beginning code edits.
+- [06:10 step-6 implementation — scanner extension] Modified `scanStructuralDeclLookahead` (ast-builder.js). Added: (a) new locals `defaultExprRaw`, `defaultExprSpan`, `pinned`. (b) BEFORE the generic IDENT validator branch, a guard for IDENT `pinned` not followed by `(` → set flag, advance, do NOT add to validators[]. (c) BEFORE the closer-stop check, a new branch for KEYWORD `default` followed by PUNCT `=` → run a state-machine collector that depth-tracks paren/bracket/brace, stops at top-level `>` or top-level IDENT/KEYWORD when `expectingExpr === false` (next-attribute boundary). (d) Result object extended with `defaultExprRaw`, `defaultExprSpan`, `pinned`. Returned from all 3 exit points (PUNCT `>` closer, fused `>=`, and decline paths preserved).
+- [06:11 step-6 implementation — caller wiring] `tryParseStructuralDecl`: added `defaultExpr = scan.defaultExprRaw ? safeParseExprToNode(...) : null` and `pinnedFlag = !!scan.pinned`. Both fields populated on Shape 2 return, Shape 1, and Shape 3 (the `node` literal at the bottom of the function). Field name is `defaultExpr` (ExprNode | null) per AST-CONTRACTS §1.1. `pinned` always boolean.
+- [06:12 step-6 implementation — types/ast.ts] Extended `ReactiveDeclNode` with `defaultExpr?: ExprNode | null` and `pinned?: boolean`. Both optional in TS for fixture/back-compat assignability; runtime contract is they're always set on structuralForm:true state-decls.
+- [06:13 step-6 probe — first sanity] Probed BRIEF cases §6.1-§6.6: 3/6 worked first try (Shape 3 + pinned, Shape 1 + pinned + default=0, Shape 2 multi-validator + default + pinned). Two failures: `default=""` produced `defaultExpr: null` because STRING tokens have their quotes stripped by the tokenizer (`vt.text` = `""`) — empty raw → null parse. Fix: when joining token text into `defaultExprRaw`, wrap STRING-kind tokens with `JSON.stringify(vt.text)` to restore quotes. Third probe issue: AT_IDENT (`@taxRate`) not in the state-machine's "primary" list (would have left expectingExpr stuck at true). Fix: added AT_IDENT to the primary-token branch.
+- [06:14 step-6 self-host parity check] `compiler/self-host/ast.scrml` has NO `tryParseStructuralDecl` or `scanStructuralDeclLookahead` counterpart. Step 5 didn't add one, so Step 6 doesn't need one either. **No self-host changes required.** Self-host parity tests remain at baseline.
+- [06:15 step-6 tests added] Added new describe block `"A1a Step 6 — default= attr + pinned bareword on state-decl"` to `compiler/tests/integration/parse-shapes-v0next.test.js` with **10 cases (§S6.1-§S6.10)**:
+  - §S6.1: Shape 1 + `default=null` → defaultExpr ExprNode (lit, value=null), pinned:false.
+  - §S6.2: Shape 2 + `req` + `default=""` → validators:[req], defaultExpr lit value="", pinned:false.
+  - §S6.3: Shape 3 (`const`) + `pinned` (no default) → shape:derived, pinned:true, defaultExpr:null.
+  - §S6.4: Shape 1 with both `pinned` AND `default=0` → defaultExpr value=0, pinned:true.
+  - §S6.5: Shape 2 multi-validator + default + pinned → validators only [req,length] (NOT default, NOT pinned).
+  - §S6.6: Regression baseline — `<count>=0` produces defaultExpr:null + pinned:false.
+  - §S6.7: pinned-only on Shape 1 (`<flag pinned> = false`) — pinned:true, validators absent/empty.
+  - §S6.8: `default=@taxRate` on Shape 2 — defaultExpr non-null ExprNode (cell-ref form).
+  - §S6.9: **Discriminant invariant extension** — battery of 9 fixtures (legacy + structural × all combos) asserts every structuralForm:true state-decl has `typeof pinned === "boolean"` AND `defaultExpr === null || (defaultExpr && typeof defaultExpr === "object")`. Legacy @-form decls excluded from the runtime-contract assertion.
+  - §S6.10: Negative — `<x default> = 0` (default with no `=`) declines structural-decl path (KEYWORD followed by `>` not `=`).
+  - All positive tests carry `assertNoHtmlFragmentMatching` anti-fragment guard.
+- [06:16 step-6 isolated test] `bun test compiler/tests/integration/parse-shapes-v0next.test.js`: 56 pass / 0 fail / 368 expect calls / 81ms. Delta from prior 46 → 56 = +10 new (matches added cases).
+- [06:17 step-6 full suite] `bun run test`: **8794 pass / 43 skip / 0 fail / 8837 across 435 files**. Run-1 had 1 ECONNREFUSED flake (same shape as baseline); rerun was clean. Delta from baseline 8784→8794 = exactly +10. 0 regressions on existing 8784. Pre-commit hook green throughout.
+- [06:18 step-6 §S4.10 invariant] §S4.10 invariant test (parse-shapes-v0next.test.js:469) was NOT modified. Rationale: it asserts `shape ∈ {plain,derived,decl-with-spec}` which Step 6 does not change. The new Step 6 invariants (`typeof pinned === "boolean"`, `defaultExpr === null || object`) are tested as a NEW dedicated test §S6.9 with broader fixture battery. Cleaner separation than overloading §S4.10.
+- [06:19 step-6 path-discipline] No near-misses. All Read/Write/Edit calls used absolute paths under WORKTREE_ROOT (`/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-a46a9b41839b6cf69/...`). No writes to main's working tree.
+- [06:20 step-6 done] All DoD gates green:
+  1. ✅ ast-builder.js extended — single function `tryParseStructuralDecl` + helper `scanStructuralDeclLookahead`.
+  2. ✅ types/ast.ts extended with `defaultExpr` + `pinned` fields.
+  3. ✅ Self-host parity: not needed (no counterpart in self-host/ast.scrml).
+  4. ✅ parse-shapes-v0next.test.js extended with 10 new cases (§S6.1-§S6.10).
+  5. ✅ §S4.10 invariant test left intact; Step 6 invariants in new §S6.9.
+  6. ✅ Pre-commit hook green; full `bun run test` 8794/43/0/8837.
+  7. ✅ Delta: +10 tests, 0 regressions.
+  8. ✅ Branch clean. No `--no-verify`.
+- [06:21 step-6 hand-off for Step 7+] `pinned` on import items is Step 7 (separate dispatch). `default=expr` semantic validation (Const-ness, type-compat) is A1b. `reset(@cell)` lowering is Step 9 + A1c. `defaultExpr` field is now populated; A1c codegen consumers can reach for `decl.defaultExpr?.kind === "lit"` and similar shapes.
+
