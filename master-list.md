@@ -4,7 +4,7 @@
 
 **Last updated:** 2026-05-05 (S59 in-flight — major-restructure session post-parser-audit)
 
-**Tests (current):** 8,769 pass / 43 skip / 0 fail / 8,812 across 435 files (post A1a Steps 1 + 2 + 3 + 4 + 8 + program-attrs feature). Pre-commit subset ~8,042 / 33 / 0.
+**Tests (current):** 8,784 pass / 43 skip / 0 fail / 8,827 across 435 files (post A1a Steps 1 + 2 + 3 + 4 + 5 + 8 + program-attrs feature; S59 close baseline). Pre-commit subset ~8,055 / 33 / 0.
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
@@ -72,7 +72,7 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 | **2** | **Foundational: `<NAME>` decl-site recognition** | ✅ `d28f6f7` (depth-of-survey discount: ~21min vs 10-15h estimate) |
 | **3** | **AST kind rename `reactive-decl` → `state-decl`** | ✅ `8fa26e1` (~514 changes / ~120 files / 0 regressions) |
 | 4 | Parser: state-decl `shape` discriminant for Shapes 1 + 3 | ✅ `96dbe92` (17 sites + self-host parity; surfaced `reactive-derived-decl` divergence — see §0.6) |
-| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | 🟡 NEXT (will need to relax §S4.10 invariant test to admit `"decl-with-spec"` shape) |
+| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | ✅ `505531f` (single helper extension; brief-locus correction: W-ATTR-001 only fires on markup not state-decl, so attribute-registry registration unnecessary; validator args collected as `string[]`, A1b converts to ExprNode[]; `is some` deferred — two-token form. +15 tests; §S4.10 invariant relaxed to admit `"decl-with-spec"`.) |
 | 6 | Parser: `default=` + `pinned` on state-decl | ⏸ |
 | 7 | Parser: `pinned` on import items | ⏸ |
 | 8 | E-RESERVED-IDENTIFIER trigger | ✅ `af4a0da` |
@@ -82,7 +82,7 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 | 12 | Existing-test deltas: rewrite + drop | ⏸ |
 | 13 | Final commit + CHANGELOG draft | ⏸ |
 
-**5/13 done.** (Wait — 6/13 done with Step 4 just landed.) Remaining: ~22-35h focused work across Steps 5-7 + 9-13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
+**7/13 done at S59 close** (Steps 1, 2, 3, 4, 5, 8 landed + program-attrs side feature). Remaining: ~18-30h focused work across Steps 6, 7, 9, 10, 11, 12, 13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
 
 **Side landings during A1a (parallel work):**
 - Documentary `<program>` attributes (`title=`, `description=`, `version=`, `author=`, `license=`) — SPEC §40.7 + emit-html.ts head injection + tier-ladder article update. Commit `4620290`.
@@ -95,7 +95,13 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 
 A1b/A1c work touching derived cells must handle BOTH kinds until the merge.
 
-**§S4.10 discriminant invariant test (Step 5 dependency):** `parse-shapes-v0next.test.js` §S4.10 asserts `shape ∈ {"plain","derived"}` AND `shape !== "decl-with-spec"`. Step 5 introduces `"decl-with-spec"`; will need to relax that assertion to admit the new shape.
+**§S4.10 discriminant invariant test (Step 5 dependency):** RESOLVED — Step 5 (`505531f`) relaxed the assertion. Now admits `shape ∈ {"plain","derived","decl-with-spec"}`.
+
+**Path-discipline leak (S59 close anomaly):** Step 5's agent leaked progress.md content directly to main's working tree (not just to its worktree). Recovered via `git checkout -- progress.md` then proper cherry-pick. No code damage. **Still investigating root cause.** Hypothesis: agent ran `Edit` against an absolute path that collided with main when isolated worktree's relative-path resolution slipped. Surfaced for next session: extend pa.md F4 path-discipline check to include progress.md edits; consider mandating `git status --short` in main repo BEFORE cherry-pick (to detect leaks earlier).
+
+**Validator args representation (Step 5 deferral):** Step 5 collected validator call-form args as `string[]` (raw text). AST-CONTRACTS §1.1 final shape says `ExprNode[]`. **A1b converts string args to ExprNode[] when validator typing lands** (Step 9-ish or A2 territory). Documented at progress.md §[05:05].
+
+**`is some` two-word predicate (Step 5 scope deferral):** `is some` tokenizes as KEYWORD `is` + IDENT `some`. Step 5's bareword scan rejects KEYWORDS (only plain IDENTs are barewords). Detailed two-word predicate parsing deferred. Surface area is small; can land in any subsequent step or as standalone.
 
 ---
 
