@@ -2,7 +2,18 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-04 after S58 close): **8,720 pass / 43 skip / 0 fail / 432 files** (pre-commit hook excluding browser; full suite 8,763 / 43 / 0). **Stage 0b COMPLETE** — D3 + D4 landed, scrml:oauth shipped, const-form sweep complete, F4 path-discipline addendum live. 47 commits past S57 close, all pushed. Phase A1+ implementation phase opens at S59.
+Current baseline (2026-05-05, S59 in flight): **8,720 pass / 43 skip / 0 fail / 432 files** unchanged. S59 opened with the L21 small-deliberation lock — `E-DERIVED-VALUE-MUTATE` ratified FORBIDDEN + sibling rename §6.6.8 E-REACTIVE-002 → E-DERIVED-WRITE landed in the same edit. SPEC text only; tests baseline unaffected.
+
+Previous baseline (2026-05-04 after S58 close): **8,720 pass / 43 skip / 0 fail / 432 files** (pre-commit hook excluding browser; full suite 8,763 / 43 / 0). **Stage 0b COMPLETE** — D3 + D4 landed, scrml:oauth shipped, const-form sweep complete, F4 path-discipline addendum live. 47 commits past S57 close, all pushed. Phase A1+ implementation phase opens at S59.
+
+### 2026-05-05 (S59 — small-deliberation lock L21 + sibling-error rename)
+
+S59 opened with one outstanding deliberation from the S56 outcomes ledger (queued open-Q on `E-DERIVED-VALUE-MUTATE`). Lock ratified by user; SPEC + cross-cutting docs updated in a single targeted edit. Phase A1+ entry planning to follow.
+
+- **Lock L21 — `E-DERIVED-VALUE-MUTATE` FORBIDDEN.** SPEC.md §6.6.18 NEW (~100 lines): in-place mutation of a `const`-derived cell is forbidden. Covers (a) array mutating methods on a derived array (`.push`, `.pop`, `.shift`, `.unshift`, `.splice`, `.reverse`, `.sort`, `.fill`, `.copyWithin`); (b) property assignment / compound-assignment / `delete` on a derived object; (c) in-compound derived sub-cells (`@form.derivedField.push(x)`). Distinguished from sibling errors E-DERIVED-WRITE (reassignment), E-SYNTHESIZED-WRITE (validity surface), E-DERIVED-WITH-VALIDATORS. §34 entry added with rich error-message guidance ("mutate the upstream cell instead — `@items = [...@items, x]`").
+- **Sibling rename §6.6.8.** `E-REACTIVE-002` → `E-DERIVED-WRITE` to align with §34 (already on the new name), §6.2 cross-refs, and the `E-DERIVED-*` family naming. Inline rename note left in §6.6.8.
+- **§6.5.1 note added.** Mutating-method rewrite applies to mutable reactive cells; on derived cells, see §6.6.18 / E-DERIVED-VALUE-MUTATE.
+- **Cross-cutting doc updates.** `IMPLEMENTATION-ROADMAP.md` open-Q + risk row + Phase A2 Q resolved with commit cross-ref. `DISPATCH-2-BRIEF-engines-match-validators.md` §3.6 + §7 entries marked LOCKED. `PA-SCRML-PRIMER.md` §13 locks table extended L21; §11 anti-patterns table got the corresponding row. Single SPEC commit `1217b41`.
 
 Previous baseline (2026-05-04 after S57 close): **8,658 tests passing / 47 skipped / 0 failing / 430 files** (pre-commit hook excluding browser; full suite 8,705/47/0). **+807 pre-commit pass / +129 full pass vs S56 close.** S57 was a heavy-execution session — Stage 0b D1 + D2 SPEC rewrites complete, three stdlib tiers shipped, tier-ladder article drafted + voice-scrubbed, PA scrml expert primer created with pa.md mandating its session-start read, Bun audit complete (already on Bun.SQL; pin ≥1.3.13), agent-file fixed, kickstarter reconciliations + canonical-pattern fold. Stage 0b half done — D3 + D4 pre-written, dispatch-ready S58.
 

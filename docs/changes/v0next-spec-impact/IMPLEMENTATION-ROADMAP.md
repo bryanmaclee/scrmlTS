@@ -124,7 +124,7 @@ A* = compiler tracks (sequential). B* = parallel tracks (run alongside A*). C* =
 3. Auto-synthesized validity surface read-only tests green (E-SYNTHESIZED-WRITE).
 4. Tier-promotion path mechanical: a hand-written Tier 1 `<match>` → swap to `<engine initial=>` → add `<onTransition>` blocks works without other edits. Verified via test or sample.
 
-**Open Q to resolve here:** `E-DERIVED-VALUE-MUTATE` on `@filteredItems.push(x)` (PA leans forbidden). Resolve during this phase OR explicit user decision.
+**~~Open Q to resolve here~~ RESOLVED 2026-05-05 (S59 lock L21, commit `1217b41`):** `E-DERIVED-VALUE-MUTATE` is FORBIDDEN. Spec landed at SPEC.md §6.6.18 + §34. Implementation in this phase: AST check on `MemberCall` / `MemberAssignment` / `UnaryDelete` whose receiver chain begins at a `const <name>` cell reference. Same pass that already runs E-DERIVED-WRITE (the reassignment form, §6.6.8 — also renamed from `E-REACTIVE-002` in S59).
 
 **Suggested dispatch shape:** 2-3 dispatches probably — engines is large, validators is large, match is medium. Could split: A2a engines + match; A2b validators + auto-synth validity; A2c substates + control-flow polish. Decide at A1-close based on context-density.
 
@@ -362,13 +362,13 @@ All phases follow pa.md cross-machine sync hygiene. Fetch-pull at session start;
 | Sample drop authorization friction | B2 | L | Batch drop proposals to user; one auth covers a list |
 | Editor support drifts mid-phase | B5 | L | Pin editor work to A3-stable; refresh once per phase only |
 | Kickstarter v2 contradictions surface mid-spec-rewrite | Stage 0b | M | Surface to user; align spec to kickstarter (kickstarter is the ratified anchor) |
-| `E-DERIVED-VALUE-MUTATE` decision drifts | A2 | L | Force decision at A2 entry; document in spec |
+| ~~`E-DERIVED-VALUE-MUTATE` decision drifts~~ RESOLVED S59 (L21) | ~~A2~~ | ~~L~~ | ~~Force decision at A2 entry; document in spec~~ Spec landed §6.6.18 + §34 |
 
 ---
 
 ## §7 Open questions for the implementation phase
 
-1. **`E-DERIVED-VALUE-MUTATE`** — `@filteredItems.push(x)` on a `const`-derived array: error or allowed? PA leans forbidden. Resolve at A2 entry.
+1. ~~**`E-DERIVED-VALUE-MUTATE`** — `@filteredItems.push(x)` on a `const`-derived array: error or allowed? PA leans forbidden. Resolve at A2 entry.~~ **RESOLVED 2026-05-05 (S59 lock L21, commit `1217b41`)** — FORBIDDEN; covers array mutating methods, object property writes / compound-assignment / `delete`, in-compound derived sub-cells. SPEC.md §6.6.18 + §34. E-DERIVED-WRITE (§6.6.8, formerly E-REACTIVE-002) renamed in the same edit.
 2. **Components props/slots/lifecycle internals** — designed AS components are implemented (sub-thread under Move 20). Probably surfaces during B1 examples rewrite or a dedicated mid-phase deliberation.
 3. **Self-host stage2 fixed-point definition** — exact-byte equality or AST-equivalence? Decide at B4 start.
 4. **Drop list for samples curate** — one batch decision or per-sample? Suggest batch with categorized drop reasons.

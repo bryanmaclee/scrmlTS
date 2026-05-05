@@ -653,7 +653,7 @@ Add the following error/warning codes (in §34's existing format):
 **Validator-related:**
 - `E-SYNTHESIZED-WRITE` — assignment to auto-synthesized property (e.g., `@signup.isValid = false`). Reference §55.5.
 - `E-VALIDATOR-CIRCULAR-DEP` — circular dependency via cross-field predicate args. Reference §55.11.
-- `E-DERIVED-VALUE-MUTATE` — value-mutation on result of `const <derived>` (e.g., `@filteredItems.push(x)`). PA-recommended lock per S56 alignment Q&A; if controversial, escalate to user. Reference §6.6.
+- `E-DERIVED-VALUE-MUTATE` — value-mutation on result of `const <derived>` (e.g., `@filteredItems.push(x)`). **LOCKED FORBIDDEN S59 (L21, commit `1217b41`).** Spec landed at §6.6.18 + §34. Reference §6.6.18.
 
 **Component/engine-interaction:**
 - `E-COMPONENT-ENGINE-SCOPE` — component body instantiates an engine (PA-recommended forbid per impact assessment §7.7). Reference §15 + §51. Escalate to user if controversial during rewrite.
@@ -751,8 +751,8 @@ Per L11 Edge B — synthesize anyway; `errors` is empty array; rendering produce
 ### §7.4 `<errors of=expr/>` body override syntax
 The body uses arrow-function-shaped expression `${(err) => <span>...</>}`. Verify this composes with §15 (component bodies) and §16 (slot bodies) for consistency. If a different shape is needed, surface in progress.md.
 
-### S56 alignment Q&A — `E-DERIVED-VALUE-MUTATE`
-PA-leans-forbidden per outcomes ledger §3.14. This dispatch's §34 lists it. If during rewrite you find evidence the mutation should be allowed, surface to user — DO NOT silently flip it.
+### S56 alignment Q&A — `E-DERIVED-VALUE-MUTATE` — RESOLVED S59 (L21)
+~~PA-leans-forbidden per outcomes ledger §3.14. This dispatch's §34 lists it. If during rewrite you find evidence the mutation should be allowed, surface to user — DO NOT silently flip it.~~ **Locked FORBIDDEN 2026-05-05 (S59, commit `1217b41`).** SPEC.md §6.6.18 NEW + §34 entry; sibling rename §6.6.8 E-REACTIVE-002 → E-DERIVED-WRITE.
 
 ---
 

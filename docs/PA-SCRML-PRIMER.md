@@ -4,7 +4,7 @@
 
 **Status:** living document. Updated when SPEC changes, when locks land, when patterns emerge. Treat as the canon snapshot at the listed date.
 
-**Last updated:** 2026-05-04 (S58 close; reflects post-D1+D2+D3+D4 SPEC state — Stage 0b complete, all S57 stdlib work + scrml:oauth, locks L1-L20)
+**Last updated:** 2026-05-05 (S59; reflects post-D1+D2+D3+D4 SPEC + L21 small-deliberation lock — Stage 0b complete, all S57 stdlib work + scrml:oauth, locks L1-L21)
 
 **Word of caution:** if this primer disagrees with `compiler/SPEC.md` or `docs/articles/llm-kickstarter-v2-2026-05-04.md`, the SPEC + kickstarter are authoritative. Surface the contradiction.
 
@@ -386,6 +386,7 @@ What LLMs reflexively reach for + the scrml form:
 | Inline multi-statement event handler `onclick={ doA(); doB() }` | inline form is bare-call/bare-assignment/bare-single-expression only | E-MULTI-STATEMENT-HANDLER; extract to a named function and call it |
 | Importing across files without `pinned` when forward-ref is needed | forward-references through imports require `pinned` to lift the cycle | E-IMPORT-PINNED-INVALID; add `pinned` modifier to the import |
 | Engine instantiated inside a component body | components are multi-instance, engines are singleton — they don't compose | E-COMPONENT-ENGINE-SCOPE; declare the engine at file/program scope and mount via `<EngineName/>` |
+| `@derivedArr.push(x)` / `@derivedObj.foo = x` on a `const`-derived cell | derived cells are value-immutable from the developer's perspective; the mutation would be silently clobbered next time upstream deps fire | E-DERIVED-VALUE-MUTATE (§6.6.18); mutate the upstream cell instead (`@items = [...@items, x]`) or declare a separate mutable cell |
 
 ---
 
@@ -429,6 +430,7 @@ Captured in full at `scrml-support/docs/deep-dives/v0next-s56-deliberation-outco
 | L18 | `reset(@cell)` keyword + `default=` attribute (γ semantics) — supersedes L10 |
 | L19 | Multi-statement event handlers force named function |
 | L20 | `derived=expr` engine attribute (any reactive expression of engine's type) |
+| L21 | `E-DERIVED-VALUE-MUTATE` — in-place mutation of a `const`-derived cell forbidden (array mutating methods, object property writes / compound-assignment / `delete`, in-compound derived sub-cells). Sibling rename: §6.6.8 reassignment code E-REACTIVE-002 → E-DERIVED-WRITE. Spec at §6.6.18 + §34. (S59 small-deliberation lock, 2026-05-05.) |
 
 ---
 
