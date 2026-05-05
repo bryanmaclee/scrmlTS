@@ -221,6 +221,22 @@ ${
 }
 ```
 
+**On the meaning of `const` with `<>`:** scrml's `const <x>` does NOT mean "value-frozen JS-const." It means **the binding is read-only from the developer's perspective; the cell may reactively recompute its value based on its RHS's dependencies.**
+
+- **Reference-immutable** — `@x = newval` is `E-DERIVED-WRITE`. You cannot reassign a derived cell.
+- **Value behavior depends on RHS deps:**
+  - If the RHS references reactive cells (`@count * 2`), the value RECOMPUTES whenever those deps change.
+  - If the RHS is a pure literal or has no reactive deps (`3.14159`), the value never changes — effectively frozen.
+
+For a **truly non-reactive frozen constant**, drop the `<>` entirely:
+
+```scrml
+${
+  const items = [{name: "apple"}, {name: "banana"}]    // plain JS const — non-reactive, bare-name access
+  const <filteredItems> = items.filter(...)            // reactive derived cell — @filteredItems access
+}
+```
+
 **Optional `default=` attribute** — any state cell may declare an explicit default that's used by `reset(@cell)` instead of re-evaluating the init expression:
 
 ```scrml
