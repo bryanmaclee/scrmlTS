@@ -2,9 +2,9 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS, plus the **v0.2.0 migration dashboard**. Current truth only. Historical session-by-session detail lives in `docs/changelog.md`; deep-dives live in `scrml-support/docs/deep-dives/`.
 
-**Last updated:** 2026-05-05 (S60 close — A1a 12/17 done; A1b + A1c scope docs landed; ADR ratified Option A FOLD)
+**Last updated:** 2026-05-05 (S60 close — A1a 14/17 done; A1b + A1c FULLY RATIFIED; ADR Option A FOLD ratified)
 
-**Tests (current):** 8,853 pass / 43 skip / 0 fail / 8,896 across 439 files (post A1a Steps 6 + 7 + 9 + 10 + 11 + 11.0a; S60 close baseline). Pre-commit subset ~8,123 / 33 / 0.
+**Tests (current):** 8,874 pass / 43 skip / 0 fail / 8,917 across 439 files (post A1a Steps 6 + 7 + 9 + 10 + 11 + 11.0a + 11.0b + 11.0c; S60 close baseline). Pre-commit subset ~8,144 / 33 / 0.
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
@@ -27,7 +27,7 @@
 | Stage 0a | Impact assessment | done | ✅ | `IMPACT-ASSESSMENT.md` (446 lines) |
 | Stage 0b | SPEC + PIPELINE + INDEX rewrite | 70-127h | ✅ | D1+D2 (S57) + D3+D4 (S58) all landed |
 | Stage 0b+ | L21 lock E-DERIVED-VALUE-MUTATE | done | ✅ | S59 commit `1217b41` |
-| **A1 — Foundational lex/parse (A1a + A1b + A1c three-phase split)** | `<NAME> = RHS` decl recognition + Shapes 1/2/3 + Variant C; resolve+type; codegen+runtime+PIPELINE prose | **A1a 35-50h + A1b 85-120h + A1c 93-131h** | **🟡 A1a 12/17 done** | **A1a (lex+parse) 12/17 done at S60 close (~13-22h remaining):** Steps 1-11 + 11.0a all landed. Steps remaining: 11.0b (newline-separator, ~1-2h, BRIEF), 11.0c (typed-decl, ~2-3h, BRIEF), 11.5 (FOLD reactive-derived-decl, ~3-5h, BRIEF), 12 (existing-test deltas, ~4-8h, BRIEF), 13 (final CHANGELOG, 0.5h, BRIEF). **A1b (resolve+type) scope drafted** (`docs/changes/phase-a1b-resolve-type/SCOPE-AND-DECOMPOSITION.md`): 22 steps B1-B22, 5 waves, 7 ranked open Qs. **A1c (codegen+runtime) scope drafted** (`docs/changes/phase-a1c-codegen/SCOPE-AND-DECOMPOSITION.md`): 23 steps C1-C23, 6 waves, 8 ranked open Qs. **ADR ratified S60:** `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}` Option A FOLD as Step 11.5. |
+| **A1 — Foundational lex/parse (A1a + A1b + A1c three-phase split)** | `<NAME> = RHS` decl recognition + Shapes 1/2/3 + Variant C; resolve+type; codegen+runtime+PIPELINE prose | **A1a 35-50h + A1b 85-120h + A1c 96-136h** | **🟡 A1a 14/17 done** | **A1a (lex+parse) 14/17 done at S60 close (~7.5-13.5h remaining):** Steps 1-11 + 11.0a + 11.0b + 11.0c all landed. Steps remaining: 11.5 (FOLD reactive-derived-decl, ~3-5h, BRIEF), 12 (existing-test deltas, ~4-8h, BRIEF), 13 (final CHANGELOG, 0.5h, BRIEF). **A1b (resolve+type) RATIFIED S60** (`docs/changes/phase-a1b-resolve-type/SCOPE-AND-DECOMPOSITION.md`): 22 steps B1-B22, 5 waves; sequence ratified as 11.0b → 11.0c → 11.5 → 12 → 13 → A1b; selective parallel Wave 5 cap 2-3 agents; refinement-zone subset; new `validators.ts` file (final call deferred to B9 survey). **A1c (codegen+runtime) RATIFIED S60** (`docs/changes/phase-a1c-codegen/SCOPE-AND-DECOMPOSITION.md`): **24 steps** C0-C23 (C0 added by Q3 ratification — feature-usage analyzer for compile-time elision), 6 waves; **runtime library Option C compile-time elision** (per-app feature-usage bitmap powers per-step emission); refinement-zone subset; Postgres+SQLite+MySQL only. **ADR ratified S60:** `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}` Option A FOLD as Step 11.5. |
 | A2 — Structural elements | `<engine>`, `<match>` block, `<channel>`, `<errors>`, `<onTransition>` | 25-40h | ⏸️ pending A1 | |
 | A3 — Validators + synth surface | bareword validator scan + auto-synth + `<errors of=…/>` | 20-35h | ⏸️ pending A2 | |
 | A4 — Schema + refinement + pinned | shared-core in schema; refinement-type predicates; pinned on imports | 15-25h | ⏸️ pending A3 | |
