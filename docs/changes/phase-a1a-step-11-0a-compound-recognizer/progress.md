@@ -159,3 +159,64 @@ moderate (~50-80 LOC) but well-bounded.
 7. Add ~5-8 NEW positive cases (S11A.1 through S11A.7 per BRIEF §4) at the
    end of `parse-shapes-v0next.test.js`.
 8. Run pre-commit + bun test → confirm 0 regressions + delta +12 to +15.
+
+## Implementation log
+
+[13:32 step-11-0a impl-recognizer-extension] Edit `scanStructuralDeclLookahead`
+at L2912+: add Variant C compound branch in the `>` closer. When post-`>` is
+`<` PUNCT followed by IDENT (sibling decl) or `/` PUNCT (compound close), and
+no validators / default / pinned were collected (compound parents have NO
+attrs per spec), return `{compoundBody: true, consumeUntil: i+scanIdx+1}` —
+caller consumes through `>` only.
+
+Edit `tryParseStructuralDecl` at L2912: add compound-body branch immediately
+after the consumeUntil consumption. Body loop:
+  - Anonymous close `</>` (3 tokens) — consume + break.
+  - Named close `</NAME>` (4 tokens) — consume + break.
+  - Sibling decl `<NAME>...` — recurse via `tryParseStructuralDecl` with
+    `inCompoundBody: true` flag.
+  - Anything else — decline (restore cursor).
+
+Reject `const <x><y>=...</>` (compound parent can't be const per §6.6).
+
+[13:34 step-11-0a impl-collectExpr-flag] First implementation pass FAILED:
+recognizer fired but children's `init` strings ate sibling-decl tokens. Root
+cause: `collectExpr` at depth-0 angleDepth-0 with `prevEndsValue` (e.g. STRING
+`""` for empty-init) consumes the next `<` as a less-than, NOT entering markup
+mode but NOT breaking. Sibling tokens leak into the first child's init.
+
+Fix: add `opts.compoundBody` flag to `collectExpr`. When set + parts.length > 0
++ angleDepth === 0, break on `<` IDENT (sibling-decl boundary) or `</`
+(compound close). Threaded via `tryParseStructuralDecl(opts.inCompoundBody)`
+parameter; caller in compound-body loop sets it.
+
+After the fix, probe confirms:
+  - `<formRes><name>=""<email>=""<error>=""</>` → 4 state-decls (1 parent, 3
+    children); children=3 on parent; no html-fragment.
+  - Multi-line variant → 2 state-decls (1 parent + 1 child); no html-fragment.
+
+[13:35 step-11-0a impl-test-status] After source change, parse-shapes-v0next
+(56) all pass; kickstarter-v2 smoke (23) shows 21 pass + **2 fail** (exactly
+the §K11.X-D1 + §K11.X-D1b memorials, now invalidated by the working
+recognizer). Memorial flip ready.
+
+[13:36 step-11-0a impl-flip-memorials] Flipped 2 anti-test memorials in
+`kickstarter-v2-smoke.test.js`:
+  - `§K11.X-D1` → renamed to `§K11.1A`. Old: assert `decls.length === 0` +
+    fragment includes "formRes". New: assert 4 state-decls (1 parent +
+    3 children); parent.shape === "plain", initExpr === null, children.length
+    === 3, child names ["name","email","error"], each child state-decl with
+    shape:"plain", structuralForm:true, isConst:false. Anti-html-fragment guard.
+  - `§K11.X-D1b` → renamed to `§K11.1A-b`. Old: assert decls.length === 0.
+    New: assert 2 state-decls (parent + 1 child for multi-line variant).
+  - Updated top-of-file divergence comment block: §K11.1A noted RESOLVED;
+    §K11.X-DIVERGENCE-2 (newline-separator) and §K11.X-DIVERGENCE-3
+    (typed-decl) remain TODO[step-11.0b/c].
+
+[13:37 step-11-0a impl-types-update] Edit `compiler/src/types/ast.ts`
+`ReactiveDeclNode` interface: added `children?: ReactiveDeclNode[]` field with
+SPEC §6.3.2 reference + AST-CONTRACTS §1.1 reference. Mutually-exclusive note
+re: initExpr / renderSpec.
+
+After flip + types: kickstarter smoke 23/23 pass; parse-shapes 56/56 pass.
+Ready for new positive cases + full test run.

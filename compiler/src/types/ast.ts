@@ -485,6 +485,20 @@ export interface ReactiveDeclNode extends BaseNode {
    * for forward-reference legality; A1c hoists pinned declarations.
    */
   pinned?: boolean;
+  /**
+   * Phase A1a Step 11.0a — Variant C compound state children (SPEC §6.3.2).
+   * Populated on a compound parent state-decl; each child is itself a
+   * state-decl (Shape 1/2/3). Per AST-CONTRACTS-AND-DECOMPOSITION §1.1,
+   * the parent carries `shape:"plain"`, `initExpr: null`, `structuralForm:
+   * true`, `isConst: false`. Empty array `[]` is a legal empty compound.
+   *
+   * Mutually exclusive with `initExpr` and `renderSpec`: when `children` is
+   * present, the cell's value is the structural compound, not an init expr
+   * or a render-spec.
+   *
+   * Undefined on non-compound state-decls.
+   */
+  children?: ReactiveDeclNode[];
 }
 
 /**

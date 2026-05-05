@@ -1781,7 +1781,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     return result;
   }
 
-  function collectExpr(stopAt = null) {
+  function collectExpr(stopAt = null, opts = null) {
+    // Phase A1a Step 11.0a — when called from inside a Variant C compound
+    // body, the RHS of a child state-decl must terminate at the next
+    // `<NAME>` opener (sibling decl) or `</` (compound close). Without
+    // this, `collectExpr` greedily consumes sibling-decl tokens into the
+    // child's init string. The `compoundBody` flag enables that boundary.
+    const inCompoundBody = !!(opts && opts.compoundBody);
     const parts = [];
     const partLines = []; // parallel array: source line number for each part
     const startTok = peek();
@@ -1976,6 +1982,22 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             (tok.kind === "KEYWORD" && !STMT_KEYWORDS.has(tok.text))
           );
           if (lastEndsValue && tokStartsStmt) break;
+        }
+        // Phase A1a Step 11.0a — compound-body child boundary.
+        // When collecting the RHS of a child state-decl inside a Variant C
+        // compound body, stop at the next sibling decl opener `<NAME>` (`<`
+        // IDENT) or compound close `</`. This must fire AFTER at least one
+        // RHS token has been consumed — i.e., parts.length > 0 — so the
+        // first `<` is the leading ChildName opener that the caller has
+        // already consumed past, not a leading-`<` of an incoming sibling.
+        if (inCompoundBody && parts.length > 0 && angleDepth === 0) {
+          if (tok.kind === "PUNCT" && tok.text === "<") {
+            const t1 = peek(1);
+            // Sibling decl: `<` IDENT (peek(1) is IDENT — the field name).
+            if (t1 && t1.kind === "IDENT") break;
+            // Compound close: `<` `/` (peek(1) is PUNCT `/`).
+            if (t1 && t1.kind === "PUNCT" && t1.text === "/") break;
+          }
         }
       }
       // Track brace / paren depth
@@ -2909,7 +2931,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
    * `renderSpec` sub-node (kind: "render-spec" wrapping the markup AST), and
    * `validators[]` field carrying bareword/call-form validator entries.
    */
-  function tryParseStructuralDecl(startTok, isConst) {
+  function tryParseStructuralDecl(startTok, isConst, opts = null) {
+    // Phase A1a Step 11.0a — when called recursively from inside a Variant C
+    // compound body, the child's RHS-collection must stop at the next
+    // sibling-decl opener or compound close. The `inCompoundBody` flag is
+    // forwarded to `collectExpr`. Top-level calls leave it false.
+    const inCompoundBody = !!(opts && opts.inCompoundBody);
     // peek() must be `<` (PUNCT). If not, decline.
     const lt = peek();
     if (!(lt && lt.kind === "PUNCT" && lt.text === "<")) return null;
@@ -2940,10 +2967,114 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     const scan = scanStructuralDeclLookahead();
     if (!scan) return null;
 
-    // Pattern matched. Consume tokens through the `=` (or fused `>=`).
+    // Pattern matched. Consume tokens through the `=` (or fused `>=`, or just
+    // through `>` for the Variant C compound branch).
+    const cursorBeforeConsume = i;
     while (i < scan.consumeUntil) consume();
 
     const name = nameTok.text;
+
+    // ─── Phase A1a Step 11.0a — Variant C compound state-decl ───
+    //
+    // SPEC §6.3.2 Tier 2 (ad-hoc compound). The opener `<NAME>` is followed by
+    // structural-children (each child a state-decl in its own right) and a
+    // closer `</>` (anonymous) or `</NAME>` (named, no name-match enforcement
+    // at this level — A1b can validate later if needed).
+    //
+    // Per AST-CONTRACTS-AND-DECOMPOSITION §1.1: parent state-decl carries
+    //   shape:"plain", initExpr:null, structuralForm:true, isConst:false,
+    //   children:[...child state-decl nodes].
+    //
+    // Per §6.6, parent compound CANNOT be `const` (only individual derived
+    // fields are const). If `isConst` is true on a compound parent, decline.
+    if (scan.compoundBody) {
+      if (isConst) {
+        // `const <x><y>=...</>` is not legal per §6.6. Restore cursor and
+        // decline — caller falls through to html-fragment / next-statement.
+        i = cursorBeforeConsume;
+        return null;
+      }
+      // Loop: parse zero or more child state-decls, terminate on close tag.
+      // Recursive: each child enters tryParseStructuralDecl, which itself
+      // can compound — supporting nested compound `<o><i><leaf>=0</></></>`.
+      const children = [];
+      while (true) {
+        // Skip COMMENT tokens defensively (the tokenizer may emit some
+        // even though logic-block usually strips).
+        while (peek().kind === "COMMENT") consume();
+        const t = peek();
+        // Anonymous close `</>` or named close `</NAME>`. Both are
+        // recognized; if NAME differs from parent, no error here.
+        if (t && t.kind === "PUNCT" && t.text === "<") {
+          const tNext = peek(1);
+          if (tNext && tNext.kind === "PUNCT" && tNext.text === "/") {
+            // It's a close tag. Two forms:
+            //   `</>`     → `<` `/` `>`
+            //   `</NAME>` → `<` `/` IDENT `>`
+            const tNext2 = peek(2);
+            if (tNext2 && tNext2.kind === "PUNCT" && tNext2.text === ">") {
+              // Anonymous close `</>` — consume `<` `/` `>`
+              consume(); consume(); consume();
+              break;
+            }
+            if (
+              tNext2 && tNext2.kind === "IDENT" &&
+              peek(3) && peek(3).kind === "PUNCT" && peek(3).text === ">"
+            ) {
+              // Named close `</NAME>` — consume `<` `/` IDENT `>`
+              consume(); consume(); consume(); consume();
+              break;
+            }
+            // Malformed close — decline whole compound, restore cursor.
+            i = cursorBeforeConsume;
+            return null;
+          }
+          // Sibling decl — recurse via tryParseStructuralDecl with the
+          // `inCompoundBody` flag so the child's RHS-collection stops at
+          // the next sibling boundary (sibling `<NAME>` or `</`).
+          // The recursive call sees the new `<` opener at peek().
+          const childCursor = i;
+          const childNode = tryParseStructuralDecl(t, false, { inCompoundBody: true });
+          if (!childNode) {
+            // Child couldn't be parsed as a state-decl. Decline entire
+            // compound (per §6.3.2: body must be structural-children only).
+            i = cursorBeforeConsume;
+            return null;
+          }
+          // Defensive: ensure recursive call advanced the cursor. If not,
+          // it's an infinite loop — decline.
+          if (i === childCursor) {
+            i = cursorBeforeConsume;
+            return null;
+          }
+          children.push(childNode);
+          continue;
+        }
+        // EOF or unexpected token inside compound body — decline.
+        if (!t || t.kind === "EOF") {
+          i = cursorBeforeConsume;
+          return null;
+        }
+        // Any other token (numbers, strings, IDENT-not-after-`<`, etc.)
+        // is not a structural-child — decline whole compound.
+        i = cursorBeforeConsume;
+        return null;
+      }
+      return {
+        id: ++counter.next,
+        kind: "state-decl",
+        name,
+        init: "",
+        initExpr: null,
+        structuralForm: true,
+        isConst: false,
+        shape: "plain",
+        defaultExpr: null,
+        pinned: false,
+        children,
+        span: spanOf(startTok, peek()),
+      };
+    }
 
     // ─── Step 5 — RHS branch: markup-RHS (Shape 2) or expression-RHS (Shapes 1/3) ───
     //
@@ -3020,7 +3151,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
 
     // Collect the RHS expression (stops at `;`, unbalanced `}`, STMT_KEYWORDS,
     // BLOCK_REF, or EOF — same boundary rules as the legacy `@NAME = init` path).
-    const { expr } = collectExpr();
+    // Phase A1a Step 11.0a — when this call is recursive inside a compound
+    // body, also stop at the next sibling-decl opener or compound close.
+    const { expr } = collectExpr(null, inCompoundBody ? { compoundBody: true } : null);
 
     // Phase A1a Step 4 — `shape` discriminant per AST-CONTRACTS-AND-DECOMPOSITION
     // §1.1. Step 5 adds `validators` field when present (Shape 1/3 with validators
@@ -3085,10 +3218,41 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const t = tokens[i + scanIdx];
       if (!t || t.kind === "EOF") return null;
 
-      // Closer: PUNCT `>`. Must be followed by PUNCT `=` for state-decl.
+      // Closer: PUNCT `>`. Must be followed by PUNCT `=` for Shape 1/2/3
+      // state-decl, OR by `<` IDENT / `</` for Variant C compound state-decl
+      // (Phase A1a Step 11.0a — kickstarter v2 §3 / SPEC §6.3.2).
       if (t.kind === "PUNCT" && t.text === ">") {
-        const eqTok = tokens[i + scanIdx + 1];
-        if (!eqTok || eqTok.kind !== "PUNCT" || eqTok.text !== "=") return null;
+        const next1 = tokens[i + scanIdx + 1];
+        // Variant C compound: `<NAME>` followed by sibling-decl `<NAME>` or
+        // anonymous close `</`. The sibling-decl shape is `<` PUNCT, then
+        // IDENT (the field name). The anonymous close is `<` PUNCT, then
+        // `/` PUNCT. Either way, after `>` we see PUNCT `<`. We disambiguate
+        // by peeking peek(2) — the token after `<`.
+        //
+        // NOTE: validators (scan path with non-zero validator count) are not
+        // permitted on a Variant C parent — only on Shape 2 fields (children).
+        // The parent opener is just `<NAME>` with no attrs. So if validators
+        // is non-empty, the compound branch is closed off.
+        if (
+          next1 && next1.kind === "PUNCT" && next1.text === "<" &&
+          validators.length === 0 && defaultExprRaw === null && !pinned
+        ) {
+          const next2 = tokens[i + scanIdx + 2];
+          const isSiblingDecl = next2 && next2.kind === "IDENT";
+          const isCompoundClose = next2 && next2.kind === "PUNCT" && next2.text === "/";
+          if (isSiblingDecl || isCompoundClose) {
+            return {
+              consumeUntil: i + scanIdx + 1, // past `>` only — compound body parser will consume the rest
+              validators,
+              defaultExprRaw,
+              defaultExprSpan,
+              pinned,
+              fusedGtEq: false,
+              compoundBody: true,
+            };
+          }
+        }
+        if (!next1 || next1.kind !== "PUNCT" || next1.text !== "=") return null;
         // Tighten: reject `>==` (would mean compound `==`) — eqTok.text === "="
         // standalone PUNCT is the canonical assignment-equals shape.
         return {

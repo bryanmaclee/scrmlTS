@@ -18,23 +18,24 @@
  * also fires the `assertNoHtmlFragmentMatching` anti-test guard (the
  * deceptive-success pattern from PARSER-AUDIT §C.1 / §G.1).
  *
- * **Two MAJOR divergences detected during Step 11 survey** (see progress.md):
+ * **Step 11 survey divergences — status updates:**
  *
- *   §K11.X-DIVERGENCE-1 — Variant C compound `<formRes><name>=""<email>=""</>`
- *     parses as `html-fragment` text today. Step 2 progress.md lines 93-98
- *     + 223-228 deferred compound-block recognition to Step 11, but the BRIEF
- *     for Step 11 (drafted earlier) said "verification only — no source
- *     changes expected." The actual recognizer extension lives in a follow-up
- *     step PA owns. This file MEMORIALIZES today's broken behavior via an
- *     anti-test with a TODO marker — when the recognizer lands, this test
- *     MUST be inverted (positive shape assertion) and the TODO removed.
+ *   §K11.1A — Variant C compound RECOGNIZED (resolved by Step 11.0a). Prior
+ *     to 11.0a the form `<formRes><name>=""<email>=""</>` collapsed to
+ *     `html-fragment`; the recognizer extension produces a compound state-decl
+ *     parent with `children: [...child state-decls]` per AST-CONTRACTS §1.1.
+ *     The two anti-test memorials previously marked TODO[step-11.0a] are
+ *     flipped to positive assertions in §K11.1A.
  *
  *   §K11.X-DIVERGENCE-2 — Multi-decl using newlines as separators (sibling
- *     state-decls) is NOT recognized today: `<a>=0\n<b>=1` parses as a single
- *     state-decl `a` with `init = "0\n< b > = 1"`. Semicolons work; newlines
- *     don't. The kickstarter v2 §3 corpus uses newlines extensively. This
- *     file MEMORIALIZES today's broken behavior via an anti-test; when fixed,
- *     it MUST be inverted.
+ *     state-decls) is STILL NOT recognized today: `<a>=0\n<b>=1` parses as
+ *     a single state-decl `a` with `init = "0\n< b > = 1"`. Semicolons work;
+ *     newlines don't. **TODO[step-11.0b]** — newline-as-statement-separator
+ *     in `parseLogicBody` for state-decl RHS.
+ *
+ *   §K11.X-DIVERGENCE-3 — Typed-decl `<x>: T = expr` and Tier 3 positional
+ *     `<userInfo>: UserInfo = (...)` are STILL NOT recognized. Falls through
+ *     to html-fragment. **TODO[step-11.0c]** — typed-decl recognizer.
  *
  * **Render-by-tag (BRIEF §1.2) WORKS today.** Parser produces a markup AST
  * node tagged with the cell name. The actual render-spec EXPANSION (rewriting
@@ -443,49 +444,50 @@ describe("Kickstarter v2 §3 K11.5 — compound field-write", () => {
 });
 
 // =============================================================================
-// §K11.X-DIVERGENCE-1 — Variant C compound NOT recognized today (DEFERRED)
+// §K11.1A — Variant C compound recognized (Step 11.0a — kickstarter v2 §3)
 // =============================================================================
 //
 // The flagship kickstarter v2 §3 example `<formRes><name>=""<email>=""</>` is
-// a Variant C compound declaration. Today's parser does NOT recognize this
-// form — it falls through to html-fragment per Step 2 progress.md lines
-// 93-98 + 223-228 ("Variant C compound block opener `>` followed by `<sib>`
-// is DEFERRED to Step 11").
+// a Variant C compound declaration (SPEC §6.3.2 Tier 2). Step 11.0a extended
+// `tryParseStructuralDecl` to recognize this form: parent state-decl with
+// `children: [...child state-decl nodes]`, parent `shape:"plain"`,
+// `initExpr:null`, `structuralForm:true`, `isConst:false`.
 //
-// This anti-test memorializes today's broken behavior. **TODO[step-11.0a]:**
-// when the recognizer extension lands (a follow-up PA-owned step), this test
-// MUST be inverted to assert the positive shape:
-//
-//   - state-decl parent (formRes), shape:"plain", initExpr:null, structuralForm:true
-//   - children: [state-decl(name), state-decl(email), state-decl(error)] — each
-//     with shape:"plain", structuralForm:true, isConst:false
+// History: prior to Step 11.0a these two tests were anti-test memorials of
+// today's broken html-fragment fallback. With the recognizer extension landed,
+// they assert the positive AST shape per AST-CONTRACTS-AND-DECOMPOSITION §1.1.
 // =============================================================================
 
-describe("Kickstarter v2 §3 K11.X-DIVERGENCE-1 — Variant C compound (DEFERRED)", () => {
-  test("§K11.X-D1: TODO[step-11.0a] — `<formRes><name>=\"\" </>` currently parses as html-fragment (deceptive-success)", () => {
+describe("Kickstarter v2 §3 K11.1A — Variant C compound recognized", () => {
+  test("§K11.1A: `<formRes><name>=\"\" <email>=\"\" <error>=\"\" </>` produces compound parent + 3 children", () => {
     const src = `<program>\${ <formRes><name>="" <email>="" <error>="" </> }</program>`;
     const { ast, errors } = parse(src);
     expect(errors.length).toBe(0);
     const decls = findKind(ast, "state-decl");
-    const fragments = findKind(ast, "html-fragment");
-    // TODAY: zero state-decl produced; the entire compound collapses to html-fragment
-    expect(decls.length).toBe(0);
-    expect(fragments.length).toBeGreaterThanOrEqual(1);
-    const compoundFragment = fragments.find((f) =>
-      (f.content || "").includes("formRes")
-    );
-    expect(compoundFragment).toBeDefined();
-    // Per BRIEF + AST-CONTRACTS §1.1: when fixed, compound parent should be
-    //   state-decl(name="formRes", shape:"plain", initExpr:null, children:[
-    //     state-decl(name="name", shape:"plain", init:"\"\""),
-    //     state-decl(name="email", shape:"plain", init:"\"\""),
-    //     state-decl(name="error", shape:"plain", init:"\"\""),
-    //   ])
-    // Once the recognizer extension lands, INVERT this test (assert
-    // decls.length === 4 with the parent + 3 children shape).
+    // 1 parent + 3 children = 4 state-decl nodes (findKind walks recursively)
+    expect(decls.length).toBe(4);
+    // Locate parent — it has children populated.
+    const parent = decls.find((d) => d.name === "formRes");
+    expect(parent).toBeDefined();
+    expect(parent.shape).toBe("plain");
+    expect(parent.structuralForm).toBe(true);
+    expect(parent.isConst).toBe(false);
+    expect(parent.initExpr).toBe(null);
+    expect(Array.isArray(parent.children)).toBe(true);
+    expect(parent.children.length).toBe(3);
+    const childNames = parent.children.map((c) => c.name);
+    expect(childNames).toEqual(["name", "email", "error"]);
+    for (const c of parent.children) {
+      expect(c.kind).toBe("state-decl");
+      expect(c.shape).toBe("plain");
+      expect(c.structuralForm).toBe(true);
+      expect(c.isConst).toBe(false);
+    }
+    // Anti-html-fragment guard — no fragment carries the compound source text.
+    assertNoHtmlFragmentMatching(ast, /formRes/);
   });
 
-  test("§K11.X-D1b: TODO[step-11.0a] — multi-line compound `<formRes>\\n  <name>=\"\"\\n</>` also parses as html-fragment", () => {
+  test("§K11.1A-b: multi-line compound `<formRes>\\n  <name>=\"\"\\n</>` produces compound parent + 1 child", () => {
     const src = `<program>\${
       <formRes>
         <name> = ""
@@ -494,9 +496,14 @@ describe("Kickstarter v2 §3 K11.X-DIVERGENCE-1 — Variant C compound (DEFERRED
     const { ast, errors } = parse(src);
     expect(errors.length).toBe(0);
     const decls = findKind(ast, "state-decl");
-    expect(decls.length).toBe(0);
-    const fragments = findKind(ast, "html-fragment");
-    expect(fragments.length).toBeGreaterThanOrEqual(1);
+    expect(decls.length).toBe(2); // parent + 1 child
+    const parent = decls.find((d) => d.name === "formRes");
+    expect(parent).toBeDefined();
+    expect(parent.shape).toBe("plain");
+    expect(parent.children.length).toBe(1);
+    expect(parent.children[0].name).toBe("name");
+    expect(parent.children[0].shape).toBe("plain");
+    assertNoHtmlFragmentMatching(ast, /formRes/);
   });
 });
 
