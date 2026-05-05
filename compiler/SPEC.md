@@ -8071,7 +8071,42 @@ SHALL be accepted in all versions implementing this spec.
 
 ## 17. Control Flow
 
+### 17.0 The easy-street ladder for case analysis
+
+scrml offers three tiers of structured case analysis on state, differing in what the compiler
+can verify and how much state-machine commitment they require. Promotion between tiers is
+**mechanical and additive** — state-children carry forward verbatim; only the wrapper changes.
+
+| Tier | Form | Guarantee | Cost of adoption |
+|---|---|---|---|
+| **0 — this section** | `if=` attribute; `${ if (...) lift ... }` | None. Prototype-friendly; no exhaustiveness check; no state-shape commitment. | Zero. |
+| **1 — §18** | `<match for=Type [on=expr]>` block-form | Structural exhaustiveness: compiler verifies every variant of `Type` has a case arm. | Define the enum; swap the wrapper. |
+| **2 — §51** | `<engine for=Type initial=.Variant>` | Full deal: exhaustiveness + active transition rules + transition handlers + auto-declared variable. | Promote from Tier 1 by swapping the opening tag. |
+
+**The promotion moment is the wrapper swap.** A Tier-0 `if=` region becomes Tier-1 by wrapping
+it in `<match for=Type>`. A Tier-1 `<match>` becomes Tier-2 by changing the opener to
+`<engine for=Type initial=.Variant>`. No interior content changes required.
+
+The north star (§1.5): the UI of a scrml application SHOULD be a fully-handled state machine.
+The tier ladder is the implementation path toward that goal.
+
+**W-LIFECYCLE-CANDIDATE lint (§34):** When a `<program>` body, component body, or file scope
+has more than 2 reactive boolean cells gating the same UI region, the compiler emits
+`W-LIFECYCLE-CANDIDATE` suggesting promotion to Tier 1 (`<match>`) or Tier 2 (`<engine>`).
+The lint teaches; turning it off is the developer's prerogative.
+
+**Cross-references:**
+- §1.5 — North star + the tier ladder (overview)
+- §18 — Tier 1: `<match for=Type>` block-form (structural exhaustiveness)
+- §51 — Tier 2: `<engine for=Type>` (full state machine commitment)
+- §34 — W-LIFECYCLE-CANDIDATE (lint code definition)
+
+---
+
 ### 17.1 `if=` Attribute
+
+**Tier 0 form for conditional rendering.** Use `if=` on any element to conditionally include
+it in the DOM. No exhaustiveness guarantee. See §17.0 for the promotion ladder.
 
 The `if=` attribute is a structural boolean conditional.
 
