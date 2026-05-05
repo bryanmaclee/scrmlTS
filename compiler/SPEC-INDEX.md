@@ -3,7 +3,7 @@
 > Auto-generated line numbers. Regenerate: `bash scripts/update-spec-index.sh`
 > Last updated: 2026-04-29 (S49 — Tailwind 3 (§26 substantially extended: §26.3 retitled, new §26.4 arbitrary values, new §26.5 open items); W-TAILWIND-001 + E-TAILWIND-001 added to §34. Sections from §22 onward have minor accumulated drift; comprehensive realign deferred to next session-wrap.)
 
-Total lines: 20,521 | Total sections: 54 + appendices
+Total lines: 22,253 | Total sections: 54 + appendices
 
 > **Note on §49 heading format:** SPEC.md §49 uses a single `#` (H1) at line 15800 instead of the `## N.` pattern every other section uses. The regenerator script will not pick it up automatically — keep this in mind when running the script.
 
@@ -12,17 +12,17 @@ Total lines: 20,521 | Total sections: 54 + appendices
 | § | Section | Lines | Size | Summary |
 |---|---------|-------|------|---------|
 | — | Table of Contents | 23-105 | 83 | Section listing |
-| 1 | Overview | 106-125 | 20 | Design principles, Bun runtime |
+| 1 | Overview | 106-187 | 82 | Design principles, Bun runtime, markup-as-value (§1.4), north-star ladder (§1.5), V5-strict access (§1.6) |
 | 2 | File Format and Compilation Model | 126-166 | 41 | Source files, output, entry point, perf target |
-| 3 | Context Model | 167-206 | 40 | Contexts, stack rules, coercion |
+| 3 | Context Model | 229-288 | 60 | Contexts, stack rules, coercion, V5-strict access form per locus (§3.4) |
 | 4 | Block Grammar | 207-856 | 650 | Tags, states, closer forms, PA rules, keywords, angleDepth (PA-005) |
 | 5 | Attribute Quoting Semantics | 857-1374 | 518 | Three forms, bind:, dynamic class, event handler binding (§5.2.2) |
-| 6 | Reactivity — The `@` Sigil | 1375-4186 | 2812 | Declaration, placement, arrays (§6.5 mutation), derived, lifecycle, `<timeout>` (§6.7.8) |
+| 6 | Reactivity and the V5-Strict Access Model | 1463-4697 | 3235 | V5-strict two forms (§6.1), three RHS shapes (§6.2), compound state (§6.3), render-by-tag (§6.4), arrays (§6.5), derived+in-compound (§6.6+§6.6.16-17), lifecycle (§6.7), default+reset (§6.8), hoisting (§6.9), pinned (§6.10), validity stub (§6.11), §11 inheritance (§6.12) |
 | 7 | Logic Contexts | 4187-4360 | 174 | `{}` syntax, function forms, markup-as-expr, type annotations, file-level scope (§7.6) |
 | 8 | SQL Contexts | 4361-4907 | 547 | `?{}` syntax, bound params, chaining, WHERE, INSERT/UPDATE/DELETE, **§8.9 per-handler coalescing, §8.10 N+1 loop hoist, §8.11 mount hydration** |
 | 9 | CSS Contexts | 4908-4950 | 43 | Inline CSS (§9.1), style block, CSS files |
 | 10 | The `lift` Keyword | 4951-5329 | 379 | Semantics, coercion, syntax forms, ordering, value-lift, accumulation (§10.8) |
-| 11 | State Objects and `protect=` | 5330-5473 | 144 | State declaration, schema reading, protect types, authority relationship |
+| 11 | State Objects and `protect=` (Reserved — Folded) | 5831-5852 | 22 | Content distributed: state declarations → §6; protect=, schema, authority → §52 |
 | 12 | Route Inference | 5474-5560 | 87 | Default placement, escalation triggers, generated infra, server return (§12.5) |
 | 13 | Async Model | 5561-5829 | 269 | Developer-visible syntax, compiler-managed async, RemoteData enum (§13.5) |
 | 14 | Type System | 5830-6352 | 523 | Structs (§14.3.2 enum fields), enums, pattern matching, asIs, schema types, snippet type |
@@ -78,12 +78,25 @@ Total lines: 20,521 | Total sections: 54 + appendices
 - bind:value → §5 (~954-1090)
 - event handler binding → §5.2.2 (~877-910)
 - dynamic class → §5 (1090-1374)
-- reactive declaration → §6 (1375-1441)
-- reactive arrays → §6 (~1489-1901)
-- reactive array mutation → §6.5 (1489+)
-- derived values → §6 (~1901-2501)
-- lifecycle / cleanup → §6 (~2501-4186)
-- timeout / single-shot timer → §6.7.8 (~3311-3581)
+- reactive declaration → §6.1-§6.2 (1463+) (V5-strict two forms + three RHS shapes)
+- V5-strict access → §6.1 (1465+) + §1.6 (169+) + §3.4 (267+)
+- three RHS shapes for state declarations → §6.2 (1552+)
+- Variant C compound state → §6.3 (1615+)
+- render-by-tag semantics → §6.4 (1683+)
+- default= attribute → §6.8 (4504+)
+- reset keyword → §6.8 (4504+)
+- hoisting model → §6.9 (4562+)
+- pinned keyword → §6.10 (4604+)
+- validity surface (auto-synthesized) → §6.11 (4644+) + §55
+- markup-as-value pillar → §1.4 (126+)
+- north star + Tier ladder → §1.5 (145+)
+- in-compound derived values → §6.6.16 (~2748+)
+- markup-typed derived cells → §6.6.17 (~2785+)
+- reactive arrays → §6.5 (~1733+)
+- reactive array mutation → §6.5 (1733+)
+- derived values → §6.6 + §6.6.16-17 (~2151+)
+- lifecycle / cleanup → §6.7 (~2748+)
+- timeout / single-shot timer → §6.7.8 (~3562+)
 - logic context → §7 (4187-4360)
 - file-level scope sharing → §7.6 (4337+)
 - SQL / ?{} → §8 (4361-4907)
@@ -94,7 +107,7 @@ Total lines: 20,521 | Total sections: 54 + appendices
 - CSS inline block → §9.1 (4912+)
 - lift → §10 (4951-5329)
 - lift accumulation order → §10.8 (5294+)
-- state objects / protect= → §11 (5330-5473)
+- state objects / protect= → §11 (5831-5852) (reserved stub; see §6.12 and §52)
 - route inference → §12 (5474-5560)
 - server function return values → §12.5 (5520+)
 - async → §13 (5561-5829)

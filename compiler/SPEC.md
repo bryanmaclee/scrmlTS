@@ -13,10 +13,9 @@
 > **Amendments applied:** 2026-04-08 — §51 revised: `for EnumTypeName` → `for TypeName` (machines govern structs too). `self.*` in guards, `[label]` named clauses, `* => *` wildcard rules, E-ENGINE-013. Radical doubt debate Approach C.
 > **Amendments applied:** 2026-04-09 — §4.4 rewritten: three closer forms → two (`</tagname>` explicit, `</>` inferred). §4.8 deleted (bare `/` disambiguation no longer needed). §3.1 table updated. §3.2 E-CTX-002 wording updated. §4.5, §4.9 updated. §34 error codes updated. Appendix E added: migration guide. All examples updated throughout.
 > **Amendments applied:** 2026-04-08 — §53 added: Inline Type Predicates. Stateless value constraints (`number(>0 && <10000)`, `string(email)`), three-zone SPARK enforcement, named shape registry, `bind:value` HTML attribute generation. E-CONTRACT-001..E-CONTRACT-004-WARN.
-> **Amendments applied:** 2026-05-04 (S56, Dispatch 1) — v0.next foundation rewrite: §1.1 bullet 4 updated; §1.4 markup-as-value pillar added; §1.5 north star + Tier 0/1/2 ladder added; §1.6 V5-strict access model added; §3 V5-strict-per-context table added; §6 major rewrite (V5-strict access model, three RHS shapes, Variant C compound state, render-by-tag, derived `const <x>`, default=/reset, hoisting, pinned, auto-synthesized validity stub, §11-fold); §11 folded into §6.12 stub; §34 +9 new error codes (E-NAME-COLLIDES-STATE, E-DERIVED-WRITE, E-STATE-PINNED-FORWARD-REF, E-CELL-NO-RENDER-SPEC, E-CELL-RENDER-SPEC-NOT-BINDABLE, E-RESERVED-IDENTIFIER, E-SYNTHESIZED-WRITE, E-RESET-NO-ARG, W-LIFECYCLE-CANDIDATE).
 
-**Version:** 0.6.0-draft (v0.next foundation)
-**Date:** 2026-05-04
+**Version:** 0.5.2-draft
+**Date:** 2026-04-03
 **Status:** Draft — reconstructed 2026-03-28 from update docs after truncation; §4.10-4.11 added 2026-03-25; §10.4-10.5 updated 2026-03-25; §10.5.5 added 2026-03-27 resolving SPEC-ISSUE-007; §14.8 added 2026-03-26 resolving SPEC-PA-017; §18 rewritten 2026-03-27 (588 lines, all 11 blocking issues resolved); §31/§33/§34 written 2026-03-27; §5.4/§15.10/§18.16/§20.3-20.4/§21 added 2026-03-27; §6.6 inserted 2026-03-30 — derived reactive values (const @name, lazy pull, dirty flags); §8 updated 2026-03-30 — bound parameter rules, deduplication, null-coalescing WHERE pattern; §6.5 written 2026-03-31 — reactive array mutation, mutating method interception, keyed iteration; §19 rewritten 2026-04-01 — complete error handling spec, resolves SPEC-ISSUE-011 (built-in types catalog, throw syntax), adds reactive error state, server boundary interaction, protect= audit (E-ERROR-001..005, W-ERROR-001..002)
 
 ---
@@ -24,12 +23,8 @@
 ## Table of Contents
 
 1. [Overview](#1-overview)
-   - [1.4 Markup-as-First-Class-Value (Pillar)](#14-markup-as-first-class-value-pillar)
-   - [1.5 The North Star + Tier 0/1/2 Ladder](#15-the-north-star--tier-012-ladder)
-   - [1.6 V5-Strict Access Model (The Access Principle)](#16-v5-strict-access-model-the-access-principle)
 2. [File Format and Compilation Model](#2-file-format-and-compilation-model)
 3. [Context Model](#3-context-model)
-   - [3.4 V5-Strict Access Form Per Context](#34-v5-strict-access-form-per-context)
 4. [Block Grammar — Tags, States, and Closer Forms](#4-block-grammar--tags-states-and-closer-forms)
    - [4.6 Rule: `<` Suppression Inside Brace-Delimited Contexts (PA-001)](#46-rule--suppression-inside-brace-delimited-contexts-pa-001)
    - [4.7 Rule: `//` Comment Suppression at Block-Splitter Level (PA-002)](#47-rule--comment-suppression-at-block-splitter-level-pa-002)
@@ -39,7 +34,7 @@
 5. [Attribute Quoting Semantics](#5-attribute-quoting-semantics)
    - [5.4 Two-Way Binding — The `bind:` Prefix](#54-two-way-binding--the-bind-prefix)
    - [5.5 Dynamic Class Binding](#55-dynamic-class-binding)
-6. [Reactivity and the V5-Strict Access Model](#6-reactivity-and-the-v5-strict-access-model)
+6. [Reactivity — The `@` Sigil](#6-reactivity--the--sigil)
    - [6.5 Reactive Array Mutation](#65-reactive-array-mutation)
    - [6.6 Derived Reactive Values — `const @name`](#66-derived-reactive-values--const-name)
    - [6.7 Lifecycle and Timing Model](#67-lifecycle-and-timing-model)
@@ -117,7 +112,7 @@ scrml is a compiled language that takes `.scrml` source files and produces HTML,
 - **One file type.** `.scrml` is the only source format. Logic, markup, and style intermingle in a single file. The compiler decomposes them.
 - **Progressive detail.** Standard behavior is implicit. A developer spells out specifics only when non-standard behavior is required. Simple things SHALL look simple.
 - **Types are the primary unit of work.** A type carries validation rules, rendering intent, and behavioral rules.
-- **State is the declaration primitive.** Reactive state cells (`<x> = value`) are the atomic unit of application state. Everything declared as state is reactive by default. Markup is a first-class value type — the subset of state that has display attributes. See §1.4.
+- **State is a first-class type.** State implies a side effect: a render update, a database write, or an external API call. A trivial in-memory variable that is rendered to the user MAY be reactive without being a state object. A server-persisted value IS state and SHALL be declared inside a state block.
 - **The compiler owns the wiring.** Server functions, routes, fetch calls, serialization, DOM wiring, async scheduling, and reactive dependency tracking are compiler concerns. The developer SHALL NOT write boilerplate for any of these.
 - **Exhaustive pattern matching.** Rust-style enums with exhaustive match are a core construct. Rust's verbosity and ownership semantics are NOT adopted.
 - **Not modeled after TypeScript.** The scrml type system is an independent design, developed progressively.
@@ -126,68 +121,69 @@ scrml is a compiled language that takes `.scrml` source files and produces HTML,
 
 The scrml compiler SHALL run on Bun. The compiler is a Bun program. Compiled output is plain JavaScript suitable for execution in any JavaScript runtime. The compiler MAY use `bun.eval()`, Bun's SQLite module, and other Bun-specific APIs at compile time. Generated output SHALL NOT contain compile-time-only Bun calls.
 
-### 1.4 Markup-as-First-Class-Value (Pillar)
+---
 
-**Markup is a first-class value type in scrml.** Markup elements may sit anywhere expressions sit — passed as function arguments, stored in reactive state cells, returned from functions, on the right-hand side of `=` declarations.
+### 1.4 Markup-as-First-Class-Value (pillar)
 
-This pillar has been held since the scrml8 era. It was explicitly articulated in S56 deliberations after surfacing in the context of decl-coupled-with-render-spec (`<name req> = <input/>`) — the question of whether a markup RHS is a "special literal" or the language working normally. The answer: the language working normally, because markup and values are the same category.
+scrml treats markup as a first-class value type. Markup elements may sit anywhere expressions sit — passed as function arguments, stored in reactive state cells, returned from functions, and placed on the right-hand side of `=` declarations.
 
-**Downstream consequences:**
+This is not a rendering shortcut or a JSX-style convenience. Markup IS a value. A cell may hold a `<span>` element as its current value; a derived cell may compute a `<div>` from reactive inputs; a function may accept a markup argument and return a transformed markup tree.
 
-- `<name req> = <input/>` (decl-coupled-with-render-spec) is natural, not aggressive. The category already exists.
-- `<varname/>` render-by-tag invokes the cell's declared render-form. This is the natural follow-on: if decls carry render-specs, calling `<varname/>` invokes them.
-- Markup-typed function parameters and return values are first-class. A snippet that takes `(label, cell, hint)` where some or all are markup values is standard, not exceptional.
-- Components-as-values, render-as-data extend through the whole markup-touching surface.
-- `const <badge> = <span class="badge">${@userName}</span>` is a valid markup-typed derived cell.
+**Held since:** the scrml8 era; explicitly pinned in S56 deliberations (S56, Lock L1).
 
-**This pillar does NOT mandate that markup should sit everywhere it can.** Standard idioms (`${@var}` interpolation as the canonical value-render form, `bind:value=@x` as the canonical two-way binding form) remain the default. The pillar enables additional shapes where they are natural.
+**Touchpoints (cross-references):**
+- §3 — Context Model: markup-as-value rules per locus (where markup values may appear)
+- §6.2 — Three RHS shapes: Shape 2 (decl-coupled-with-render-spec) and Shape 3 (markup-typed derived cell) are direct applications of this pillar
+- §6.4 — Render-by-tag semantics: how the compiler expands a markup-valued cell at render time
+- §7 — Logic contexts: markup-as-expression in logic positions (`lift`, conditional markup)
+- §10 — The `lift` keyword: value-lift of markup expressions
+- §15 — Component system: components-as-markup-values (props carrying markup)
+- §50 — Assignment as expression: markup on RHS of assignment
 
-**Cross-references:** §3 (context model — markup-as-value rules per locus), §6.2 (three RHS shapes for state declarations), §6.4 (render-by-tag semantics), §7 (markup-as-expression in logic contexts), §10 (lift), §15 (components as markup values), §50 (assignment-as-expression).
+---
 
-### 1.5 The North Star + Tier 0/1/2 Ladder
+### 1.5 The North Star + Tier 0/1/2 Commitment Ladder
 
-**The UI of a scrml application SHOULD be a fully-handled state machine.** In scrml's vocabulary that machine is called an **engine**. This is not aspiration — it is design intent. **The structural shape of the UI tree IS the structural shape of the application's state.**
+The UI of a scrml application SHOULD be a fully-handled state machine — an `<engine>`, in scrml's vocabulary. The structural shape of the UI tree IS the structural shape of the application's state. Every visible UI region maps to a named state; every transition between states is explicit.
 
-**The process clause:** apps do not START at the north star; they EVOLVE toward it. Booleans-as-lifecycle in early sketch code are not language violations; they are in-progress pins. The compiler nudges via `W-LIFECYCLE-CANDIDATE` lint but does not enforce. Forcing the north star would punish the prototyping phase.
-
-Every major v0.next feature serves this north star:
-
-- §6.1 (V5-strict access) — every state touch is visually marked; the prover and reader can see where state is in play
-- §51 (engines with state-children + structural transitions) — transitions become structural, exhaustiveness becomes checkable
-- §18 (match block Tier 1) — structural exhaustiveness without full commitment to transitions
-- §17 (if= attribute Tier 0) — prototype tier on the easy-street ladder
-- `W-LIFECYCLE-CANDIDATE` — booleans-that-gate-many-things become enum-engines
+Applications do NOT start at the north star; they evolve toward it. Reactive booleans gating UI regions in early sketch code are valid in-progress pins. The compiler nudges via a lint warning (`W-LIFECYCLE-CANDIDATE`) but does not enforce promotion. Promotion is always the developer's decision.
 
 **The Tier 0/1/2 commitment ladder for case analysis on enums:**
 
-| Tier | Form | Commitment | Notes |
-|---|---|---|---|
-| 0 | `<element if=(@phase == .Loading)>...</>` chains or `${ if (...) { lift ... } }` blocks | None (prototype) | No exhaustiveness check. Lint `W-LIFECYCLE-CANDIDATE` nudges promotion when boolean count grows. Cross-ref §17. |
-| 1 | `<match for=Type [on=expr]>` block | Structural exhaustiveness; no transition enforcement | Rules MAY be present as forward-looking annotation — inert at this tier. Lint `W-MATCH-RULE-INERT` warns on rules inside match. Cross-ref §18. |
-| 2 | `<engine for=Type initial=...>` | Full deal: exhaustiveness + active rules + transition handlers | Rules ENFORCE. `effect=` and `<onTransition>` are LEGAL. Cross-ref §51. |
+| Tier | Construct | Exhaustiveness | Transition enforcement | Cross-ref |
+|---|---|---|---|---|
+| 0 | `if=` chains / `${ if (...) lift ... }` blocks | None (prototype) | None | §17 |
+| 1 | `<match for=Type [on=expr]>` block | Structural (all variants must appear) | None (rules legal but inert) | §18 |
+| 2 | `<engine for=Type initial=...>` | Full (exhaustiveness + active rules) | Enforced (transition handlers, guard rules) | §51 |
 
-**Promotion is mechanical and additive.** State-children carry forward verbatim from Tier 1 to Tier 2; the wrapper swap (`<match>` → `<engine>`) is the commitment moment. No separate structural refactoring required.
+**Promotion is mechanical and additive.** State-children carry forward verbatim when promoting from Tier 1 to Tier 2; the wrapper swap (`<match>` → `<engine>`) is the commitment moment. No behavioral code needs to change at promotion time.
 
-**Cross-references:** §17 (Tier 0 — control flow), §18 (Tier 1 — match block), §51 (Tier 2 — engines), §6.1 (V5-strict access model).
-
-### 1.6 V5-Strict Access Model (The Access Principle)
-
-scrml has **two access forms** for reactive state cells:
-
-| Form | Role | Where it appears |
-|---|---|---|
-| `<varname>` | **Structural** | Declaration site (`<count> = 0`), engine state-child tags (`<Small>...</>`), render-by-tag in markup (`<userName/>`) |
-| `@varname` | **Canonical expression access** | Reads (`if (@count > 0)`), writes (`@count = @count + 1`), compound assignments (`@count++`, `@count += 1`) |
-
-**Bare names in expressions (`count` without `<>` or `@`) are LOCAL identifiers only.** They do NOT resolve to reactive state. If a file declares `<count> = 0` and you later write `let count = 5`, the compiler emits `E-NAME-COLLIDES-STATE` — local names cannot shadow registered state names.
-
-**Rationale:** `@` makes every state touch visually distinguishable from local-variable touch. The reader can scan a function body and instantly count "how many state cells does this function read or mutate." This is load-bearing for the exhaustiveness goal: the prover and the human reader can both see, structurally, where state is in play.
-
-**`@` is NOT a JS-framework concession.** It is the canonical, semantically-required marker for reactive-cell-touch. The fact that other frameworks converged on similar sigils does not make `@` unprincipled; it makes the convergence correct. The historical framing of `@` as "sugar" or "concession" (pre-S55) is superseded.
-
-**Cross-references:** §3 (per-context rules table), §6 (full V5-strict treatment), §6.1 (the two forms in detail), §7 (bare names = locals in logic contexts).
+**Touchpoints:**
+- §17 — Control Flow: `if=` and `show=` (Tier 0 tooling)
+- §18 — Pattern Matching and Enums: `<match>` block (Tier 1)
+- §51 — State Transition Rules / `<engine>`: full engine semantics (Tier 2)
+- §34 — Error Codes: `W-LIFECYCLE-CANDIDATE` definition
 
 ---
+
+### 1.6 V5-Strict Access Model (the access principle)
+
+scrml has TWO access forms for reactive state cells:
+
+| Form | Syntax | Where it appears | What it does |
+|---|---|---|---|
+| Structural form | `<varname>` (tag-like) | Declaration site; render-by-tag in markup; engine state-child tags | Declares the cell; renders its bound markup at use site |
+| Canonical expression access | `@varname` | Inside `${ }` logic contexts; attribute value positions | Reads the cell's current value; assignment writes to it |
+
+**Bare names in expressions are LOCAL identifiers only.** They do NOT resolve to reactive state cells. Local names cannot shadow registered state names — attempting to declare a local variable with the same name as a registered state cell is `E-NAME-COLLIDES-STATE` (see §34, §6.1).
+
+**Why two forms?** Every state touch is visually distinguishable. A prover (or a reader) can see at a glance where state is in play. The structural/expression split also supports the exhaustiveness goal (§1.5): `<engine>` bodies use the structural form for state-child tags, which is the syntactic basis for exhaustiveness checks.
+
+**Touchpoints:**
+- §6 — Reactivity and the V5-Strict Access Model: full treatment of both forms, all RHS shapes, hoisting, derived cells
+- §3 (§3.4) — Context Model: V5-strict access form per locus (table)
+- §34 — Error Codes: `E-NAME-COLLIDES-STATE`
+
 
 ## 2. File Format and Compilation Model
 
@@ -270,23 +266,23 @@ When a logic context exits and the parent context is another logic context, no c
 
 ### 3.4 V5-Strict Access Form Per Context
 
-The V5-strict access model (§1.6, §6.1) defines which access form is valid in each context locus. This table is the per-context reference; §6.1 provides the full normative treatment.
+The V5-strict access model (§1.6) applies differently in each context locus. This table is the normative per-locus reference; full treatment of each form is in §6.
 
-| Context | Declaration form | Read form | Write form | Notes |
-|---|---|---|---|---|
-| Logic (`${...}`) | `<x> = init` | `@x` | `@x = newval` | Bare names = locals only. Cannot shadow registered state names (E-NAME-COLLIDES-STATE). |
-| Markup body | (declarations not permitted) | `${@x}` interpolation | (writes via event handlers in markup attributes) | `<x/>` render-by-tag legal only when cell has a render-spec (§6.4). |
-| Attribute value | (declarations not permitted) | `=@x` after `=` (reactive bind); `${@x}` for interpolated string | (writes via event handlers) | Bare strings without `@` are literal values, not reactive reads. |
-| Engine state-child tag | `<Variant ...>` | matched against engine variable by name | set via direct write or `.advance()` inside logic block | Tag name must match an enum variant of the engine's type (§51). |
-| Channel body | `<x> = init` | `@x` | `@x = newval` | Channel body uses V5-strict same as logic context. State declared inside auto-syncs (§38). |
+| Context locus | Structural form `<varname>` | Canonical form `@varname` | Notes |
+|---|---|---|---|
+| Logic (`${ ... }`) | `<x> = init` — declares a reactive cell at this scope | `@x` reads; `@x = val` writes; `@x += n` compound-assigns | Bare names = local identifiers only; cannot shadow registered state names (E-NAME-COLLIDES-STATE) |
+| Markup body | Not applicable (declarations not in markup body directly) | `${@x}` — interpolation reads the cell value | `<x/>` — render-by-tag if cell has render-spec (Shape 2); see §6.4 |
+| Attribute value position | Not applicable | `=@x` after `=` (direct binding); `="${@x}"` in interpolated string | Bare strings without `@` are literal values |
+| Engine state-child tag | `<Variant ...>...</>` — declares/renders the engine state body for that variant | The engine variable is read by the compiler to select the active variant; writes via `.advance()` or direct assignment to the engine variable | Match-by-name to enum variants |
+| Compound state body | `<field> = init` — declares a field within the compound cell | `@parent.field` — reads the field; `@parent.field = val` — writes | Within the compound block, field declarations use structural form; access from outside uses canonical dot-path |
 
-**Key invariants:**
-
-- In any expression context (logic block, attribute value, interpolation), a name without `@` is a LOCAL identifier, never reactive state.
-- `<x>` in markup body (without `/`) with no `=` following is render-by-tag — invokes the cell's render-spec. Only valid when the cell has a render-spec declared (Shape 2 from §6.2).
-- Event handler attributes (`onclick=`, `onsubmit=`, etc.) accept ONE inline form: a bare call, a bare assignment, or a bare single-expression (§5.2.2 / L19). Multi-statement handlers must be named functions.
-
-**Cross-references:** §1.6 (the access principle), §6.1 (full V5-strict treatment), §6.2 (three RHS shapes), §6.4 (render-by-tag semantics), §5.2.2 (event handler binding restrictions), §38 (channel body), §51 (engine state-children).
+**Cross-references:**
+- §1.6 — The V5-strict access principle (foundational statement)
+- §6.1 — Full V5-strict treatment: both forms, invariants, E-NAME-COLLIDES-STATE
+- §6.2 — Three RHS shapes for state declarations (explains render-spec and which cells get render-by-tag)
+- §6.3 — Compound state (Variant C): compound body declarations
+- §6.4 — Render-by-tag semantics: when `<varname/>` in markup is valid vs. E-CELL-NO-RENDER-SPEC
+- §1.4 — Markup-as-first-class-value: the pillar underlying Shape 2 and markup-typed derived cells
 
 ---
 
@@ -1464,121 +1460,279 @@ Component-scoped CSS (§24.6) interacts with class binding as follows:
 
 ---
 
-## 6. Reactivity — The `@` Sigil
+## 6. Reactivity and the V5-Strict Access Model
 
-### 6.1 Declaration
+### 6.1 V5-Strict Access — The Two Forms
 
-A reactive variable is declared by prefixing an assignment with `@`.
+scrml has exactly two access forms for reactive state cells. Every state touch uses exactly one of these forms; there is no third option.
 
-**Syntax:**
+#### 6.1.1 The Structural Form — `<varname>`
+
+The structural form uses tag syntax. It appears in three distinct positions:
+
+1. **Declaration site** — where the cell is created and given its initial value:
+   ```scrml
+   <count> = 0
+   <name>  = ""
+   <items> = []
+   ```
+
+2. **Render-by-tag in markup** — when the cell has a render-spec (see §6.2 Shape 2), using the tag causes the compiler to expand it into the bound element with reactive wiring:
+   ```scrml
+   <userName req length(>=2)> = <input type="text"/>
+
+   // In markup body:
+   <label>Username:</>
+   <userName/>   // expands to <input type="text" bind:value=@userName/>
+   ```
+
+3. **Engine state-child tags** — inside `<engine>` bodies, each state child is declared with tag syntax matching the enum variant names:
+   ```scrml
+   <engine for=FormState initial=Idle>
+     <Idle>...</>
+     <Submitting>...</>
+     <Done>...</>
+   </>
+   ```
+
+#### 6.1.2 The Canonical Form — `@varname`
+
+The canonical form uses the `@` sigil. It appears in expression positions — inside `${ }` logic contexts and in attribute value positions.
+
+- **Read:** `@varname` evaluates to the cell's current value
+- **Write:** `@varname = newValue` sets the cell's value and triggers reactive updates
+- **Compound assignment:** `@varname += 1`, `@varname -= delta`, etc.
+
 ```scrml
-@variableName = initialValue
+${ function increment() { @count = @count + 1 } }
+${ if (@count > 10) { ... } }
 ```
 
-#### 6.1.1 Machine-Bound Declaration
-
-**Added:** 2026-04-08 — §51 cross-reference.
-
-A reactive variable may be bound to a `< machine>` state type at declaration time:
-
+In attribute positions:
 ```scrml
-@variableName: MachineName = initialValue
+<input value=@count/>         // direct binding: =@varname
+<div class="count-${@count}"> // interpolated: ${@varname}
 ```
 
-The `: MachineName` annotation names the machine that governs this variable. All subsequent
-assignments to `@variableName` are transition requests validated against `MachineName`'s
-rules (§51.3).
+#### 6.1.3 Bare Names Are Local Only
 
-The initial value `initialValue` is the seed state. It is not a transition from a prior
-value and is not validated against the machine's rules.
+Bare names in expressions are LOCAL identifiers. They do NOT resolve to reactive state cells.
 
-The `: MachineName` annotation and the `: TypeName` annotation share the same syntactic
-position. The compiler disambiguates: if the name resolves to a `< machine>` declaration,
-it is a machine binding; if it resolves to a type, it is a type annotation. If the name
-does not resolve to either, the compiler emits E-TYPE-001 (unresolved type or machine name).
-
-**Normative statements:**
-
-- `@var: MachineName = initValue` SHALL be valid when `MachineName` resolves to a
-  `< machine>` declaration in scope.
-- The initial value `initValue` SHALL be of the enum type governed by `MachineName`. A
-  type mismatch SHALL be E-TYPE-001.
-- The machine binding is immutable for the lifetime of the variable. It cannot be changed
-  after declaration.
-- `@var: MachineName` and `@var: TypeName` are disambiguated by name resolution. If the
-  name resolves to a `< machine>` declaration, it is a machine binding; otherwise, it is a
-  type annotation.
-
-#### 6.1.2 `server @var` — Server-Authoritative Reactive Declarations
-
-**Added:** 2026-04-08 — §52 cross-reference.
-
-A reactive variable MAY be prefixed with the `server` modifier to declare it as server-authoritative.
-
-**Syntax:**
 ```scrml
-server @variableName = initialValue
+<count> = 0
+
+${ function example() {
+    let count = 5      // ERROR: E-NAME-COLLIDES-STATE
+                       // 'count' is a registered state name; cannot use as local
+    let x = count      // ERROR: E-NAME-COLLIDES-STATE (same reason)
+    let x = @count     // CORRECT: canonical form reads the cell
+} }
 ```
 
-The `server` modifier is syntactically placed before the `@` sigil. The initial value is the client-side placeholder displayed while the server fetch is in flight. It is not the authoritative value.
+**E-NAME-COLLIDES-STATE** (compile error): A local identifier declaration uses the same name as a registered state cell in scope. Local names cannot shadow state names. See §34.
 
-A `server @var` declaration is subject to all existing placement and scoping rules for `@var` declarations (§6.2), with the following additions:
+#### 6.1.4 Why Two Forms?
 
-- The `server` modifier is valid at file top-level and inside logic contexts `${ }`.
-- The `server` modifier is NOT valid inside a function body. Authority is declared at the scope that owns the variable, not inside a function.
-- A `server @var` SHALL NOT be declared inside a client-only component (a component with no server context). The compiler SHALL emit E-AUTH-005 if this is attempted.
+The two-form discipline exists for three reasons:
 
-See §52 (State Authority Declarations) for full semantics, sync infrastructure generation, and error codes.
+1. **Visual distinguishability.** Every state touch is visible at a glance. A reader (or a prover) can scan a logic block and see exactly which variables are reactive state vs. pure local computation.
 
-### 6.2 Placement Rules
+2. **Structural exhaustiveness.** The structural form `<Variant>` in engine bodies is syntactically the same pattern as state declarations — this is not coincidence. It makes exhaustiveness checks mechanical: every variant of the enum must appear as a structural child.
 
-- `@variable` declarations SHALL be valid anywhere a value assignment is valid: at file top-level, at the top of a state block, inside a logic context `${ }`, and inside a function body.
-- Scoping follows the nearest enclosing block. A `@variable` declared at file top-level is file-scoped. A `@variable` declared inside `${ }` is scoped to that logic block.
-- A `@variable` SHALL be declared before its first use within its scope. Assigning to an undeclared `@variable` inside a function body SHALL be a compile error (E-REACTIVE-001) with a message pointing to the scope level where the declaration should appear.
-- Implicit reactive variable creation on first assignment SHALL NOT be supported. The compiler SHALL require an explicit declaration.
-- File-scope `@variable` declarations SHALL be hoisted by the compiler. A `@variable`
-  declared at file top-level — whether directly in the file body or inside a file-level
-  `${ }` block — is visible to all markup expressions and logic blocks in the same file,
-  regardless of document order. The compiler SHALL collect all file-scope `@variable`
-  declarations before resolving references, exactly as JavaScript hoists `var` declarations
-  to function scope. A `@variable` declared inside a function body or inside a `${ }` block
-  that is itself nested inside a function is NOT hoisted; those obey the existing
-  declaration-before-use rule (E-REACTIVE-001).
+3. **Parser clarity.** The `@` sigil allows unambiguous parsing of reactive reads in expression positions without context-dependent symbol table lookups at parse time.
 
-### 6.3 Reactive Semantics
+**Cross-references:**
+- §1.6 — V5-strict access principle (foundational statement of this design)
+- §3.4 — V5-strict access form per context locus (table)
+- §6.2 — Three RHS shapes (which cells get render-by-tag vs. plain `@varname` access)
+- §34 — E-NAME-COLLIDES-STATE definition
 
-- Dependents of a `@variable` re-evaluate when the `@variable`'s value changes.
-- A plain (non-`@`) variable assignment captures the value at the point of definition and does not create a reactive binding. Subsequent changes to the source value do NOT propagate.
-- `@variable` bindings for client-only reactive state SHALL be valid at any scope level. A client-rendered counter that reads a `@variable` does NOT require a state block wrapper.
-- The `< db>` and `< statename>` state block wrapper is for state that involves server resources. A `@variable` alone is sufficient for client-only reactive state.
-- Server call results that must propagate reactively SHALL be assigned to `@variables`. The compiler MAY automatically assign server call results to `@variables` when the result is used in a reactive context; this inference is described in Section 30 (Dependency Graph).
+---
 
-### 6.4 Worked Examples
+### 6.2 Three RHS Shapes for State Declarations
 
-**Valid — file-level reactive variable:**
+A state cell declaration (`<name> = ...`) has three possible right-hand-side shapes. The shape determines what `@name` returns and whether `<name/>` in markup is legal.
+
+#### Shape 1 — Plain Reactive Cell
+
+The RHS is a literal, expression, or constructor call. No render-spec.
+
 ```scrml
-@counter = 0
-<button onclick=increment()>Count: ${@counter}</>
-${ function increment() { @counter = @counter + 1 } }
+<count> = 0
+<name>  = ""
+<items> = []
+<flags> = { active: false, loading: false }
 ```
 
-**Valid — state-block-level reactive variable:**
+- `@count` reads the cell's value (a number, string, array, object, etc.)
+- `<count/>` in markup is **E-CELL-NO-RENDER-SPEC** — this cell has no render-spec; use `${@count}` interpolation to display the value.
+
+#### Shape 2 — Declaration Coupled With Render-Spec
+
+The RHS is bindable markup — an `<input>`, `<select>`, `<textarea>`, or other form element to which the cell's value should be bound.
+
 ```scrml
-< db src="db.sql" tables="users">
-    @errorMessage = ""
-    ${ if (@errorMessage) { lift <div class="error">${@errorMessage}/ } }
+<userName req length(>=2)>       = <input type="text"/>
+<agree    req>                   = <input type="checkbox"/>
+<birthDate req>                  = <input type="date"/>
+<status>                         = <select>
+                                     <option value="active">Active</>
+                                     <option value="inactive">Inactive</>
+                                   </>
+```
+
+Validators (e.g., `req`, `length(>=2)`, `pattern(...)`) are bare attributes on the declaration tag. They constrain the bound value and contribute to the auto-synthesized validity surface (§6.11).
+
+`<userName/>` in markup expands to the bound input with full reactive wiring (§5 bind: dispatch table). This is the markup-as-first-class-value pillar (§1.4) in action: the markup IS the cell's render-spec, evaluated and inserted at use.
+
+**E-CELL-RENDER-SPEC-NOT-BINDABLE** (compile error): The RHS markup is a non-input element (e.g., `<div>`, `<span>`). Shape 2 requires bindable markup. Use Shape 3 (`const <derived>`) for display-only markup cells. See §34.
+
+#### Shape 3 — Derived (Read-Only)
+
+The RHS is an expression marked with `const`. The cell recomputes whenever its dependencies change. It is read-only.
+
+```scrml
+const @doubled    = @count * 2
+const @greeting   = "Hello, " + @userName
+const @badge      = <span class="badge">${@userName}</span>    // markup-typed derived
+```
+
+- `@doubled`, `@greeting`, `@badge` read the current derived value.
+- Writes to a derived cell (`@doubled = 5`) are **E-DERIVED-WRITE** (compile error). See §34.
+- `<doubled/>` in markup is **E-CELL-NO-RENDER-SPEC** for numeric/string derived cells — use `${@doubled}`.
+- For markup-typed derived cells (`const @badge = <span>...`), `${@badge}` expands the markup value at read time. This is the markup-as-value pillar (§1.4) applied to derived cells.
+
+**Cross-references:**
+- §6.1 — The two access forms
+- §6.4 — Render-by-tag semantics (full rules for when `<varname/>` is legal)
+- §6.6 — Derived values: `const @x` and `const <x>` (in-compound form)
+- §6.8 — The `default=` attribute and `reset(@cell)` keyword (optional attribute on any shape)
+- §6.11 — Auto-synthesized validity surface (from Shape 2 validators)
+- §34 — E-CELL-NO-RENDER-SPEC, E-CELL-RENDER-SPEC-NOT-BINDABLE, E-DERIVED-WRITE
+
+---
+
+### 6.3 Compound State — Variant C
+
+A reactive cell may hold structured (compound) state. The structural form uses nested child declarations inside the cell's tag body.
+
+#### 6.3.1 Tier 1 — Plain Cell (Degenerate)
+
+```scrml
+<count> = 0       // single-value cell; no fields
+```
+
+Access: `@count` reads the value. No field access.
+
+#### 6.3.2 Tier 2 — Ad-Hoc Compound (Variant C Structural Children)
+
+```scrml
+<formRes>
+  <name>  = ""
+  <email> = ""
+  <error> = ""
 </>
 ```
 
-**Invalid — undeclared reactive variable:**
+The cell `formRes` has three fields declared as structural children. Each field is itself a reactive cell scoped inside the compound.
+
+**Field access via canonical dot navigation:**
 ```scrml
-${ function loadItems() {
-    @loading = true    // Error: @loading not declared in scope
-} }
+@formRes.name     // reads the 'name' field
+@formRes.error    // reads the 'error' field
+@formRes.name = "Alice"   // writes to 'name'
 ```
-Error E-REACTIVE-001: `@loading` is not declared. Declare it at the enclosing scope before first use.
+
+**Structural form for field declarations:** inside the compound body, each field uses the structural form `<fieldName> = init`.
+
+**The compound block's own canonical form:** `@formRes` without a field path reads the entire compound object (equivalent to `{ name: @formRes.name, email: @formRes.email, error: @formRes.error }`).
+
+**In-compound derived values:** see §6.6 for `const <derived> = expr` inside compound blocks. These are accessed at `@parent.derivedName`.
+
+#### 6.3.3 Tier 3 — Predefined-Shape Compound
+
+When the compound cell's shape is fixed by a predefined type, positional binding sugar is legal:
+
+```scrml
+type UserInfo:struct = { name: string, age: number, active: boolean }
+
+<userInfo>: UserInfo = ("alice", 30, true)    // positional sugar
+```
+
+**Tier ladder rule:** positional binding `<x> = (a, b, c)` is legal ONLY when the structure is fixed by a predefined type. Ad-hoc compound state MUST use the structural-children form (Tier 2).
+
+#### 6.3.4 Tier 4 — Engine-Typed State
+
+When a cell is typed by an engine (state machine), its shape is determined by the engine's enum variants. See §51 for full engine semantics.
+
+#### 6.3.5 V5-Strict Composition in Compound Cells
+
+The V5-strict access forms apply at every level of the compound hierarchy:
+
+- `<formRes><name/></>` would be valid render-by-tag for `name` if `name` has a render-spec — this is the structural form at the nested level.
+- `@formRes.name` is canonical expression access.
+- Bare `formRes.name` (no `@`) is a local identifier lookup — **there is no local called `formRes`**, so this is a scope error.
+
+**Cross-references:**
+- §6.6 — Derived values in-compound (`const <derived>` form)
+- §14 — Type system (Tier 3 predefined types)
+- §51 — Engines / state machines (Tier 4)
+
+---
+
+### 6.4 Render-By-Tag Semantics
+
+Render-by-tag is the mechanism by which `<varname/>` in markup expands to a cell's render-spec. This section defines exactly when render-by-tag is legal and what it produces.
+
+#### 6.4.1 When Is `<varname/>` Legal in Markup?
+
+| Cell kind | `<varname/>` legal? | What it produces |
+|---|---|---|
+| Shape 1 plain cell | NO — E-CELL-NO-RENDER-SPEC | Use `${@varname}` for value interpolation |
+| Shape 2 decl-with-render-spec | YES | Expands to the bound input element with reactive wiring (bind: dispatch per §5) |
+| Shape 3 numeric/string derived | NO — E-CELL-NO-RENDER-SPEC | Use `${@varname}` for interpolation |
+| Shape 3 markup-typed derived | YES (via `${@varname}`) | The markup IS the cell's value; interpolation inserts it |
+
+#### 6.4.2 Shape 2 Expansion
+
+When `<userName/>` appears in markup and `userName` is a Shape 2 cell with render-spec `<input type="text"/>`:
+
+1. The compiler looks up `userName`'s render-spec.
+2. It emits the render-spec markup.
+3. It wires the appropriate bind: attribute (bind:value for text inputs, bind:checked for checkboxes, etc.) per the §5 dispatch table.
+4. Any validators declared on the cell are wired as HTML attributes and connected to the validity surface (§6.11).
+
+The developer cannot override the render-spec at a particular use site. If alternate renderings are needed:
+- Use `${@x}` interpolation for raw-value text rendering.
+- Use a component that accepts the value as a prop: `<MyDisplay value=@x/>`.
+- Declare a second `const <derived>` cell with a different render-form.
+
+#### 6.4.3 Markup-Typed Derived Cell Access
+
+For Shape 3 cells with markup RHS:
+```scrml
+const @badge = <span class="badge">${@userName}</span>
+```
+
+`${@badge}` in markup interpolates the markup value at read time. The markup recomputes reactively when `@userName` changes. `<badge/>` as a tag in markup is NOT supported (use interpolation).
+
+#### 6.4.4 No Runtime Overrides
+
+There is no syntax to override a cell's render-spec at a particular render site. The render-spec is a declaration-site property. This is intentional: the render-spec is the cell's authoritative rendering contract; overriding it at use sites would require the reader to track per-site overrides and would defeat the purpose of declaring it centrally.
+
+**Cross-references:**
+- §1.4 — Markup-as-first-class-value (pillar underlying this mechanism)
+- §5 — Attribute Quoting Semantics: bind: dispatch table
+- §6.2 — The three RHS shapes (where render-specs come from)
+- §6.11 — Auto-synthesized validity surface
+- §16 — Component Slots: multi-render via component slots
+- §34 — E-CELL-NO-RENDER-SPEC, E-CELL-RENDER-SPEC-NOT-BINDABLE
+
+---
 
 ### 6.5 Reactive Array Mutation
+
+
 
 A reactive array is declared with `@` exactly like any other reactive variable:
 
@@ -2588,6 +2742,79 @@ A `const @name = expr` declaration where `expr` reads one or more `@var` referen
 - A `const @name = expr` derived declaration SHALL cache the last computed value. Between upstream `@var` changes, any number of reads SHALL return the cached value without re-evaluating.
 - The cache SHALL be invalidated exactly when any upstream `@var` in the dependency graph is assigned a new value via `_scrml_reactive_set`.
 - The compiler SHALL NOT emit re-evaluation code for reads of `@name` while the cache is clean.
+
+---
+
+#### 6.6.16 In-Compound Derived Values — `const <derived>`
+
+**Added:** S56, Lock L15.
+
+Derived reactive values may be declared INSIDE a compound state block using the structural form `const <derived> = expr`. These are scoped to the compound and accessed via the parent's canonical dot-path.
+
+**Syntax:**
+```scrml
+<signup>
+  <name req>  = <input type="text"/>
+  <email req> = <input type="email"/>
+  const <displayName> = @signup.name.toUpperCase()
+  const <isReady>     = @signup.name.length >= 2 && @signup.email.includes("@")
+</>
+```
+
+**Access from outside:**
+```scrml
+${ if (@signup.isReady) { ... } }
+${ let label = @signup.displayName }
+```
+
+**Read via:** `@parent.derivedName` — canonical dot-path form.
+**Write attempt:** `@signup.displayName = "x"` is **E-DERIVED-WRITE** (compile error; see §34).
+
+**Normative statements:**
+
+- `const <derived> = expr` inside a compound block SHALL be valid when `expr` references other fields of the same compound (e.g., `@signup.name`) or any in-scope reactive cell.
+- The derived value SHALL re-evaluate when any referenced cell changes, using the same lazy-pull-with-dirty-flags semantics as top-level `const @x` (§6.6.3).
+- The derived value SHALL be read-only. Any write attempt SHALL emit E-DERIVED-WRITE.
+- The derived value IS part of the compound's observable surface: `@signup.displayName` is valid from outside the block.
+- In-compound derived values SHALL NOT have render-specs. They are value-typed (or markup-typed — see below), not input-typed.
+
+**Interaction with §6.3 Variant C:** in-compound `const <derived>` fields are syntactically children of the compound block, just like regular `<field>` declarations. They participate in the structural form of the compound.
+
+---
+
+#### 6.6.17 Markup-Typed Derived Cells
+
+Both top-level `const @name` and in-compound `const <name>` may have markup on the right-hand side. The result is a markup-typed derived cell: a reactive cell whose value IS a markup expression.
+
+```scrml
+const @badge   = <span class="badge">${@signup.name}</span>
+
+// In-compound:
+<signup>
+  <name req> = <input type="text"/>
+  const <nameTag> = <span class="name-tag">${@signup.name}</span>
+</>
+```
+
+**Using markup-typed derived cells:**
+- `${@badge}` — interpolation inserts the markup value at read time. The markup recomputes reactively when dependencies change.
+- `${@signup.nameTag}` — same for in-compound form.
+- `<badge/>` as a bare tag in markup is **E-CELL-NO-RENDER-SPEC** — use interpolation `${@badge}` instead.
+
+**Why this is valid (§1.4):** Markup is a first-class value type. A derived cell may hold any value type, including markup. The markup-typed derived cell recomputes reactively like any other derived cell; its "value" happens to be a markup tree.
+
+**Normative statements:**
+
+- A `const @name = <markup-expr>` or `const <name> = <markup-expr>` SHALL be valid. The right-hand side markup expression is treated as a reactive markup value.
+- The cell's value type IS the markup expression's type. Reads return the (recomputed, reactively updated) markup tree.
+- `${@derivedMarkupCell}` in markup body SHALL expand the markup tree at that position — the same as interpolating any markup value.
+- `<derivedMarkupCell/>` as a tag SHALL be E-CELL-NO-RENDER-SPEC regardless of whether the cell is markup-typed. The tag form is for Shape 2 cells (decl-coupled-with-render-spec) only; derived cells do not have render-specs.
+
+**Cross-references:**
+- §1.4 — Markup-as-first-class-value (the pillar underlying markup-typed derived cells)
+- §6.2 — Shape 3 (derived cells); Shape 2 (render-spec cells, distinct from markup-typed derived)
+- §6.4 — Render-by-tag semantics: why `<varname/>` is not valid for markup-typed derived
+- §34 — E-DERIVED-WRITE, E-CELL-NO-RENDER-SPEC
 
 ---
 
@@ -4274,6 +4501,198 @@ when @connected changes {
 
 ---
 
+### 6.8 The `default=` Attribute and `reset(@cell)` Keyword
+
+#### 6.8.1 The `default=` Attribute
+
+Any state-cell declaration (Shape 1, Shape 2, or Shape 3 derived) MAY carry an optional `default=` attribute. This attribute specifies the value the cell should revert to when `reset(@cell)` is called.
+
+```scrml
+<startTime default=null>   = Date.now()
+<retries   default=0>      = nextRetryCount()
+<token     default=null>   = generateUUID()
+<query     default="">     = ""
+```
+
+When `default=` is absent, calling `reset(@cell)` re-evaluates the init expression and sets the cell to the result.
+
+When `default=` is present, calling `reset(@cell)` evaluates the `default=` expression at reset time and sets the cell to that result.
+
+**The `default=` attribute accepts arbitrary expressions**, including cross-cell references (e.g., `default=@otherCell` — evaluated at reset time, not at declaration time).
+
+**Normative statements:**
+
+- `default=` SHALL be an optional attribute on any state-cell declaration (`<name ...> = init`).
+- The `default=` expression SHALL be evaluated AT RESET TIME, not at declaration time. The attribute stores the expression, not a snapshot.
+- If `default=` is absent, `reset(@cell)` SHALL re-evaluate the init expression at reset time and write the result to the cell.
+- `default=` on a `const` derived declaration is **E-DERIVED-WRITE** (assigning to a derived cell is always a write error; reset on derived cells is also an error for the same reason).
+
+#### 6.8.2 The `reset(@cell)` Keyword
+
+`reset` is a LANGUAGE KEYWORD — not a standard library function and not an import.
+
+**Syntax:**
+```scrml
+reset(@cell)              // reset a top-level cell
+reset(@compound.field)    // reset a field within a compound cell
+reset(@compound)          // reset all fields of a compound cell
+```
+
+**Behavior:**
+
+1. If the cell has a `default=` attribute, evaluate that expression and write the result.
+2. If the cell has no `default=` attribute, re-evaluate the original init expression and write the result.
+
+**Compound reset semantics:**
+
+- `reset(@compound.field)` applies the rule above to the named field only.
+- `reset(@compound)` applies the rule above to every field of the compound (in declaration order).
+
+**`reset` is a RESERVED IDENTIFIER** — declaring a local function `function reset() { ... }` or `fn reset { ... }` is **E-RESERVED-IDENTIFIER** (compile error; see §34).
+
+**Explicit cell argument REQUIRED** — `reset()` with no argument is **E-RESET-NO-ARG** (compile error; see §34).
+
+**Cross-references:**
+- §6.2 — Three RHS shapes (which cells support `default=`)
+- §6.3 — Compound state (compound reset semantics)
+- §34 — E-RESERVED-IDENTIFIER, E-RESET-NO-ARG
+
+---
+
+### 6.9 Hoisting Model
+
+State declarations hoist to their nearest enclosing structural scope.
+
+#### 6.9.1 Structural Scopes
+
+The following are structural scopes for the purposes of hoisting:
+
+- File top-level
+- `<program>` body
+- Engine body (inside `<engine for=Type initial=...>`)
+- Channel body (inside `<channel name=...>`)
+- Schema body (inside `< schema>`)
+
+State declarations inside a logic context `${ }` do NOT hoist beyond the `${ }` block. They follow declaration-before-use rules within their block.
+
+#### 6.9.2 Hoisting Rules
+
+Within a structural scope, ALL state cell declarations (`<name> = init`) are collected before any reactive read or render in that scope can fire. This means:
+
+- Reads inside that scope can refer to declarations that appear later in source order.
+- The compiler topologically sorts initialization so all state declarations initialize before any reactive expression that depends on them.
+- There is no user-visible TDZ (temporal dead zone) window; reads are guaranteed safe at point-of-evaluation.
+
+**Example (hoisting within file scope):**
+```scrml
+// Read before declaration in source order — VALID at file scope
+${ function greet() { return "Hello, " + @name } }
+
+<name> = "world"    // declared after use but hoisted to file scope
+```
+
+#### 6.9.3 Interaction With `pinned`
+
+The `pinned` keyword (§6.10) opts a declaration OUT of hoisting. A `pinned` declaration is not collected during the scope's hoisting pass; forward references to it are **E-STATE-PINNED-FORWARD-REF** (compile error).
+
+**Cross-references:**
+- §6.10 — The `pinned` keyword (opt-out of hoisting)
+- §34 — E-STATE-PINNED-FORWARD-REF
+
+---
+
+### 6.10 The `pinned` Keyword
+
+The `pinned` keyword is a per-declaration attribute that opts a state declaration OUT of the hoisting model. It is used to force a specific initialization order.
+
+#### 6.10.1 Syntax
+
+```scrml
+<count pinned> = 0
+<result pinned> = computeExpensiveThing()
+```
+
+#### 6.10.2 Semantics
+
+A `pinned` declaration:
+- Is NOT collected during the scope's hoisting pass.
+- Is initialized exactly at its source position.
+- Any forward reference (reading `@count` before the `<count pinned> = 0` declaration site) is **E-STATE-PINNED-FORWARD-REF** (compile error; see §34).
+
+#### 6.10.3 Engine Declarations
+
+On `<engine>` declarations, `pinned` covers BOTH the engine identifier AND its auto-declared variable. See §51 for engine declaration semantics.
+
+#### 6.10.4 Import Declarations
+
+`pinned` on imports: `import { MarioMachine pinned } from './engines.scrml'` — signals that `MarioMachine` should not be hoisted but initialized at import position. See §21 for import hoisting rules.
+
+#### 6.10.5 Lint Policy
+
+The compiler applies a lint rule: reads of a `pinned` declaration before its declaration site emit **E-STATE-PINNED-FORWARD-REF** (a compile error, not a warning). This is intentional — if you mark something `pinned`, forward reads are guaranteed wrong and must be caught.
+
+The `pinned` keyword itself embodies the lint policy principle (S55): "lint rules teach people the scrml way; turning them off is the developer's prerogative." `pinned` is the per-declaration form of "force the lint to error on me."
+
+**Cross-references:**
+- §6.9 — Hoisting model (the default behavior `pinned` overrides)
+- §21 — Module and Import System (import `pinned` semantics)
+- §51 — State Transition Rules / `<engine>` (engine `pinned` semantics)
+- §34 — E-STATE-PINNED-FORWARD-REF
+
+---
+
+### 6.11 Auto-Synthesized Validity Surface (stub — see §55)
+
+When a compound state declaration contains one or more fields with validator attributes (`req`, `length(>=N)`, `pattern(...)`, `min=`, `max=`, etc.), the compiler auto-synthesizes a reactive validity surface accessible at two levels:
+
+**Compound rollup:** `@signup.isValid` — `true` when ALL fields pass their validators.
+
+**Per-field validity:** `@signup.name.isValid`, `@signup.email.isValid` — `true` when that field passes its validators.
+
+Additional synthesized properties:
+
+| Property | Type | Description |
+|---|---|---|
+| `@x.isValid` | `boolean` | All fields valid |
+| `@x.errors` | `string[]` | List of validation error messages |
+| `@x.touched` | `boolean` | User has interacted with any field |
+| `@x.submitted` | `boolean` | Form has been submitted at least once |
+| `@x.field.isValid` | `boolean` | Per-field validity |
+| `@x.field.error` | `string \| not` | Per-field error message |
+| `@x.field.touched` | `boolean` | User has interacted with this field |
+
+All synthesized properties are **READ-ONLY**. Writing to them is **E-SYNTHESIZED-WRITE** (compile error; see §34).
+
+**Full treatment: §55 (forthcoming).** This section is a forward stub. §55 covers the complete validator grammar, error message synthesis, `<errors of=expr/>` display helpers, and interaction with the bind: dispatch table.
+
+**Cross-references:**
+- §6.2 — Shape 2 (decl-with-render-spec): where validators appear
+- §34 — E-SYNTHESIZED-WRITE
+- §55 — Inline Type Predicates (full validator specification; forthcoming)
+
+---
+
+### 6.12 State Object Content Inherited From §11
+
+This subsection captures content from the former §11 (State Objects and `protect=`) that is not subsumed by §6.1-§6.10. §11 has been folded; its content is distributed to this subsection (cell-declaration-related content) and §52 (authority-related content).
+
+#### 6.12.1 `protect=` on `< db>` State Blocks
+
+The `protect=` attribute on `< db>` state blocks is a field-level access-control mechanism. It governs which fields of a state type are visible to client-side code.
+
+`protect=` is DISTINCT from the V5-strict cell declarations in §6.1-§6.3. It applies to database-backed state types (the `< db>` state block) and operates at the type system level, not at the reactive cell level.
+
+For the full `protect=` specification, see **§52** (State Authority Declarations), which covers:
+- §52.x — Client-visible type vs. full type (the `protect=` split)
+- §52.x — Server-escalated functions and full-type access
+- §52.x — The `server` annotation as security escape hatch
+- §52.x — `protect=` + `authority=` interaction
+
+**Cross-references:**
+- §52 — State Authority Declarations (full `protect=` treatment)
+- §11 — (Reserved — content folded into §6 and §52)
+
+---
 
 
 ## 7. Logic Contexts
@@ -5409,149 +5828,27 @@ The compiler does not require both branches to contain `lift`.
 
 ---
 
-## 11. State Objects and `protect=`
+## 11. State Objects and `protect=` (Reserved — Content Folded)
 
-### 11.1 State Object Declaration
+**This section has been folded.** Its content has been distributed to:
 
-A state object is declared using state syntax (Section 4.2). The `db` state type is a built-in state object backed by a SQLite database.
+- **§6.12** — State declaration-related content: cell declarations, structural form, canonical form. See §6 (Reactivity and the V5-Strict Access Model) for the complete treatment of state declarations, field access, and compound state.
 
-**Syntax:**
-```scrml
-< db src="path/to/db.sql" protect="field1, field2" tables="tablename">
-    content
-</>
-```
+- **§52** — Authority-related content: `protect=` field-level access control, compile-time schema reading (`< db>` state blocks), server-escalated function access to protected fields, the explicit `server` function annotation, and the `protect=` + `authority=` interaction.
 
-Attributes on `< db>`:
-- `src=` — path to the SQLite database file. SHALL be a quoted string.
-- `protect=` — comma-separated list of column names to protect. SHALL be a quoted string. (See Section 11.3.)
-- `tables=` — comma-separated list of table names to bring into scope. SHALL be a quoted string.
+### Fold Decision Log
 
-### 11.2 Compile-Time Schema Reading
+| §11 Subsection | Disposition | New Location |
+|---|---|---|
+| §11.1 State Object Declaration | Subsumed by §6.1-§6.3 (V5-strict cell declarations) | §6 |
+| §11.2 Compile-Time Schema Reading | Authority-domain | §52 (State Authority Declarations) |
+| §11.3 `protect=` — Type System and Routing Semantics | Authority-domain | §52 |
+| §11.3.5 Relationship to State Authority | Authority-domain | §52 |
+| §11.4 Explicit `server` Annotation | Authority-domain | §52 |
 
-When the compiler encounters a `< db>` state block, it SHALL:
-
-1. Open the database file specified by `src=` at compile time using Bun's SQLite module.
-2. Read the schema for all tables listed in `tables=`.
-3. Infer a type for each table based on the column names and types in the schema.
-4. Apply `protect=` field exclusions to the client-visible type (Section 11.3).
-5. Make the resulting types available to all code inside the state block.
-
-### 11.3 `protect=` — Type System and Routing Semantics
-
-The `protect=` attribute names fields that SHALL NOT be accessible to client-side code.
-
-#### 11.3.1 Client-visible type
-
-For each table in scope of a `< db>` state block with a `protect=` list, the compiler SHALL construct two distinct types:
-
-1. **Client type:** The table type with all protected fields OMITTED. Protected fields do not exist on this type.
-2. **Full type:** The complete table type including all protected fields.
-
-#### 11.3.2 Default type assignment
-
-- All code in the state block SHALL use the **client type** by default.
-- Accessing a protected field on the client type SHALL be a compile error (E-PROTECT-001): the field does not exist on the type.
-
-#### 11.3.3 Server-escalated functions — full type access
-
-A function that is server-escalated (either by compiler inference per Section 12.1 or by explicit `server` annotation per Section 11.4) and that executes within the lexical scope of a `< db>` state block SHALL receive the **full type**, including all protected fields.
-
-**This is the only correct interpretation.** `protect=` is intended for authentication, access control, and data privacy use cases. If protected fields were excluded even from server-side functions in the same state block, writing authentication logic inside scrml would be impossible. `protect=` protects fields from the client; it does not prevent the server from reading them.
-
-**Normative statements:**
-
-- A server-escalated function inside the enclosing `< db>` state block's lexical scope SHALL have the full database type (including protected fields) in scope.
-- A non-server-escalated function inside the same state block SHALL have only the client type in scope.
-- The compiler SHALL verify at compile time that no function accessing protected fields executes on the client. Any code path that accesses a protected field and could run client-side SHALL be a compile error (E-PROTECT-002).
-- The type distinction (client type vs. full type) SHALL be determined by the compiler's route analysis (Section 12), not by any developer annotation, except where the developer uses an explicit `server` annotation (Section 11.4).
-
-**Worked example — valid:**
-```scrml
-< db src="auth.sql" protect="passwordHash" tables="users">
-    <form onsubmit=authenticate(email, password)>
-        <input type="email" name="email"/>
-        <input type="password" name="password"/>
-        <button>Login</>
-    </form>
-    ${ function authenticate(email, password) {
-        // This function touches passwordHash — compiler escalates to server route.
-        // Inside this server-escalated function, the FULL type is in scope,
-        // including users.passwordHash.
-        let user = ?{`SELECT passwordHash FROM users WHERE email = ${email}`}.get();
-        if (!verifyHash(password, user.passwordHash)) {
-            throw AuthError("Invalid credentials");
-        }
-        navigate("/dashboard");
-    } }
-</>
-```
-
-**Worked example — invalid (accessing protected field on client type):**
-```scrml
-< db src="auth.sql" protect="passwordHash" tables="users">
-    ${ function displayUser(userId) {
-        // This function does NOT touch any server resource other than a plain SELECT.
-        // Compiler determines it can run client-side.
-        // Client type does NOT include passwordHash.
-        let user = ?{`SELECT passwordHash FROM users WHERE id = ${userId}`}.get();
-        // ^ Error E-PROTECT-001: field 'passwordHash' does not exist on the client type.
-        // The compiler will NOT silently escalate this — it is a type error.
-        // To access passwordHash, this function must be server-escalated.
-    } }
-</>
-```
-
-Note: A plain `SELECT passwordHash` in a client-inferred function will fail the type check because `passwordHash` is not on the client type. The correct resolution is either to use the `server` annotation or to restructure so the password access is inside a server-escalated function.
-
-#### 11.3.5 Relationship to State Authority
-
-**Added:** 2026-04-08 — §52 cross-reference.
-
-`protect=` is a field-level access control mechanism. It governs which fields of a state type are visible to client-side code.
-
-State authority (§52) governs the source of truth for a state instance. It determines whether the database or the client is authoritative for the variable's value.
-
-The two mechanisms are complementary. A state type MAY declare both:
-
-```scrml
-< User authority="server" table="users" protect="passwordHash">
-    id: number
-    email: string
-    passwordHash: string
-</>
-```
-
-In this case:
-- `authority="server"` triggers sync infrastructure for `<User>` instances.
-- `protect="passwordHash"` excludes `passwordHash` from client-visible types and optimistic update payloads.
-- The protected field is accessible to server functions per §11.3.3.
-
-See §52.7 for the full specification of how `protect=` and `authority=` interact.
-
-### 11.4 Explicit `server` Annotation
-
-A developer MAY annotate a function with `server` to explicitly force server-side execution regardless of compiler inference.
-
-**Syntax:**
-```scrml
-server function name() { ... }
-server fn name { ... }
-```
-
-**Security rationale:** Compiler inference is not guaranteed to be complete. Inference can fail to detect that a function touches protected data in cases involving derived values, dynamically constructed queries, or compiler analysis gaps. When inference fails, the compiler's default is client-side execution — which means protected data would be silently exposed to the client. The `server` annotation exists as a security escape hatch precisely because the consequences of an inference failure in the `protect=` context are a security vulnerability, not merely a performance or correctness issue.
-
-Developers who write functions that handle authentication, authorization, or access-controlled data SHOULD always annotate those functions with `server` regardless of whether the compiler would infer it. The `server` annotation is an explicit correctness declaration, not a fallback.
-
-**Normative statements:**
-
-- A `server`-annotated function SHALL always be compiled to a server route, regardless of whether the compiler's inference rules would require it.
-- A `server`-annotated function inside a `< db>` state block's lexical scope SHALL receive the full type (including protected fields).
-- The compiler SHALL emit a warning when a function touches a protected field but is not server-escalated by inference AND does not have a `server` annotation. This warning SHALL suggest adding the `server` annotation. (W-PROTECT-001)
-- The `server` annotation is a security escape hatch. It does not replace the compiler's inference. Both mechanisms SHALL work together.
-- The `server` annotation MAY be used on any function, not only functions accessing protected fields. It is valid as a general "force server" directive.
-
----
+**Cross-references:**
+- §6.12 — Cell-declaration content inherited from §11
+- §52 — Full `protect=` and `< db>` state block specification
 
 ## 12. Route Inference
 
@@ -9782,7 +10079,7 @@ This ensures that `?` never silently drops error information.
 
 #### 19.6.1 Overview
 
-`< errorBoundary>` is a **pre-defined state type** (§11) that catches errors from `!` function calls within its markup content. It is the markup-context counterpart to `match` in logic context.
+`< errorBoundary>` is a **pre-defined state type** (§11 → §6, §52) that catches errors from `!` function calls within its markup content. It is the markup-context counterpart to `match` in logic context.
 
 #### 19.6.2 Syntax
 
@@ -10469,7 +10766,7 @@ In this example:
 | `transaction` | Auto-rollback on `fail`; syntactic sugar over BEGIN/COMMIT/ROLLBACK |
 | `pure` (§33) | `pure` and `!` coexist; pure functions can fail without side effects |
 | `lin` (§35) | `lin` variables inside `!` functions follow normal linear rules; `fail` is a scope exit that must consume `lin` variables |
-| `< state>` types (§11) | `< errorBoundary>` is a pre-defined state type |
+| `< state>` types (§11 → §6, §52) | `< errorBoundary>` is a pre-defined state type |
 
 ## Appendix B: Superseded Spec Text
 
@@ -13027,6 +13324,15 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-052 | §14.2 | InitCap algorithm: type name must be PascalCase | Error |
 | E-TYPE-080 | §19.7 | Non-exhaustive error handler: not all error variants covered | Error |
 | E-TAILWIND-001 | §26.4.1 | Invalid arbitrary value in Tailwind utility class (empty brackets, whitespace, malformed hex/unit/function, injection vector, unbalanced parens, malformed `var()` or `url()`) | Error |
+| E-NAME-COLLIDES-STATE | §6.1 | Local identifier declaration uses the same name as a registered state cell in scope. Local names cannot shadow state names. Example: `<count> = 0; ... let count = 5`. | Error |
+| E-DERIVED-WRITE | §6.6 | Write to a `const`-derived reactive cell. Derived cells are read-only; assignment is not permitted. Example: `const @displayName = @name.toUpperCase(); @displayName = "x"`. | Error |
+| E-STATE-PINNED-FORWARD-REF | §6.10 | Read of a `pinned` state declaration before its declaration site in source order. `pinned` opts the declaration out of hoisting; forward reads are therefore unsafe. | Error |
+| E-CELL-NO-RENDER-SPEC | §6.4 | `<varname/>` used as render-by-tag in markup, but the cell has no render-spec (Shape 1 plain cell or Shape 3 non-markup derived). Use `${@varname}` interpolation to display the value. | Error |
+| E-CELL-RENDER-SPEC-NOT-BINDABLE | §6.2 | Shape 2 declaration (`<name req> = <markup>`) where the RHS markup element is not bindable (e.g., `<div>`, `<span>`). Shape 2 requires a bindable form element. Use `const <name>` (Shape 3) for display-only markup cells. | Error |
+| E-RESERVED-IDENTIFIER | §6.8 | Local identifier shadows a reserved language keyword. Specific case: `function reset() {...}` or `fn reset {...}` shadows the `reset` keyword. | Error |
+| E-SYNTHESIZED-WRITE | §6.11 | Assignment to an auto-synthesized property (e.g., `@signup.isValid = false`). Synthesized validity surface properties are read-only. See §55 for full validity surface specification. | Error |
+| E-RESET-NO-ARG | §6.8 | `reset()` called with no argument. The `reset` keyword requires an explicit cell argument: `reset(@cell)` or `reset(@compound.field)`. | Error |
+| W-LIFECYCLE-CANDIDATE | §1.5 | A `<program>` body, component body, or file scope has more than 2 reactive boolean cells gating the same UI region. Consider promoting to a `<match>` block (Tier 1) or `<engine>` (Tier 2) for structural exhaustiveness. | Warning |
 
 ---
 
@@ -14681,7 +14987,7 @@ scrml provides a `< schema>` state block for declaring the desired database sche
 
 **Design principle:** The schema is code. The developer declares what the database SHOULD look like. The compiler figures out what it takes to get there. The developer never writes `ALTER TABLE` by hand.
 
-This section extends §11 (`< db>` state blocks) and §8 (`?{}` SQL contexts). A `< schema>` block is a sibling construct to `< db>`: both are state blocks that reference the database; `< db>` scopes SQL queries, `< schema>` declares structure.
+This section extends §11 (→ §6.12, §52; `< db>` state blocks) and §8 (`?{}` SQL contexts). A `< schema>` block is a sibling construct to `< db>`: both are state blocks that reference the database; `< db>` scopes SQL queries, `< schema>` declares structure.
 
 ### 39.2 Syntax
 
@@ -17092,7 +17398,7 @@ E-FN-007: `fn buildEntity` returns `Product` at line 7 and `Category` at line 12
 
 - **§7.3 (Function Declaration Forms)** — `fn` is no longer a `function` alias. Table row updated by §48.11.
 - **§10 (lift)** — `lift` inside `fn` hoists to `fn`-body scope only. E-SYNTAX-002 ("lift inside a named function") is superseded for `fn` by E-FN-008 (scope-boundary violation) when the lift targets an outer `~`. E-SYNTAX-002 continues to apply to `function`-declared bodies only.
-- **§11 (State Objects)** — Field phase tracking in §48.4 extends the state object model. `<state>` declarations remain the source of truth for field names and types; the `fn` compiler pass reads field lists from the state type registry.
+- **§11 (→ §6, §52; State Objects)** — Field phase tracking in §48.4 extends the state cell model. State declarations (`<x> = init`) remain the source of truth for field names and types; the `fn` compiler pass reads field lists from the state type registry.
 - **§33 (pure)** — `pure fn` is valid but redundant (W-PURE-REDUNDANT, §33.4). `fn` and `pure function` enforce the same purity contract (§33.3, §48.9). `pure` adds optimizer permissions (memoization, compile-time evaluation) independent of the body prohibitions.
 - **§35 (lin)** — `lin` declarations are valid inside `fn` bodies and follow the standard linear type rules (§35.3–35.5). A `lin` variable inside `fn` must be consumed exactly once within the `fn` body; it cannot be returned as unconsumed.
 - **§47 (Output Name Encoding)** — The kind marker `f` (§47.1.2) applies to both `fn`-declared and `function`-declared callables. The encoding does not distinguish between them at the name-encoding level.
@@ -20557,7 +20863,7 @@ on mount {
 
 If neither pattern is present on a `server @var`, the compiler SHALL emit a warning (W-AUTH-001) indicating that no initial load was detected. The variable will display its placeholder value until an explicit assignment occurs.
 
-### 52.7 Interaction with `protect=` (§11)
+### 52.7 Interaction with `protect=` (§52; see also §6.12)
 
 `protect=` and `authority=` address different concerns and SHALL NOT conflict:
 
@@ -21666,7 +21972,7 @@ that together close the narrow state-machine completeness gap identified in the 
 
 ### 54.1 Overview
 
-Scrml state types (`< StateName>` blocks declared via §4.2 or §11) MAY contain **nested substates** and **state-local transition declarations**. This section defines:
+Scrml state types (`< StateName>` blocks declared via §4.2 or §6.3; formerly §11) MAY contain **nested substates** and **state-local transition declarations**. This section defines:
 
 - The nested substate syntax (§54.2)
 - State-local transition declarations (§54.3)
