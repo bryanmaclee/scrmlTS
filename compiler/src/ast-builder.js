@@ -2932,6 +2932,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       rhsT1 && (rhsT1.kind === "IDENT" || rhsT1.kind === "KEYWORD")
     );
 
+    // Phase A1a Step 6 — parse `default=expr` raw text into ExprNode. Stays
+    // null if the scan didn't see a `default=` attr.
+    const defaultExpr = scan.defaultExprRaw
+      ? safeParseExprToNode(scan.defaultExprRaw, scan.defaultExprSpan?.start ?? 0)
+      : null;
+    const pinnedFlag = !!scan.pinned;
+
     if (isMarkupRHS) {
       // Shape 2: markup-RHS. Parse via parseLiftTag (the existing markup parser
       // shared with `lift` directives). On failure, reset cursor to start of
@@ -2954,6 +2961,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           initExpr: null,
           renderSpec,
           validators: scan.validators,
+          defaultExpr,
+          pinned: pinnedFlag,
           structuralForm: true,
           isConst: !!isConst,
           shape: "decl-with-spec",
@@ -2996,6 +3005,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       structuralForm: true,
       isConst: !!isConst,
       shape: isConst ? "derived" : "plain",
+      defaultExpr,
+      pinned: pinnedFlag,
       span: spanOf(startTok, peek()),
     };
     if (scan.validators.length > 0) {
@@ -3032,6 +3043,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     // peek(1) is IDENT (cell name). Validators start at peek(2).
     let scanIdx = 2;
     const validators = [];
+    // Phase A1a Step 6 — `default=expr` raw text + span (parsed into ExprNode by caller).
+    let defaultExprRaw = null;
+    let defaultExprSpan = null;
+    // Phase A1a Step 6 — `pinned` bareword modifier flag.
+    let pinned = false;
 
     // Edge: bare `<NAME>` form (no validators) — peek(2) is `>` or `>=`.
     // Handled below by the closer check after the validator loop.
@@ -3049,6 +3065,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         return {
           consumeUntil: i + scanIdx + 2, // past `>` and `=`
           validators,
+          defaultExprRaw,
+          defaultExprSpan,
+          pinned,
           fusedGtEq: false,
         };
       }
@@ -3060,8 +3079,103 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         return {
           consumeUntil: i + scanIdx + 1, // past the fused token
           validators,
+          defaultExprRaw,
+          defaultExprSpan,
+          pinned,
           fusedGtEq: true,
         };
+      }
+
+      // ─── Phase A1a Step 6 — `default=expr` attribute ───
+      // KEYWORD token with text "default" followed by PUNCT `=`. Collect the
+      // RHS as raw text, depth-tracked, stopping at top-level `>` or the
+      // look-ahead pattern of the next attribute.
+      if (t.kind === "KEYWORD" && t.text === "default") {
+        const eqTok = tokens[i + scanIdx + 1];
+        if (!eqTok || eqTok.kind !== "PUNCT" || eqTok.text !== "=") return null;
+        if (defaultExprRaw !== null) return null; // duplicate `default=` — decline
+        const valStart = tokens[i + scanIdx + 2];
+        if (!valStart || valStart.kind === "EOF") return null;
+        // State-machine collector for `default=<expr>`:
+        //   - depth-track parens/brackets/braces.
+        //   - At top level, stop on PUNCT `>` (closer).
+        //   - At top level, an IDENT/KEYWORD encountered when `expectingExpr`
+        //     is false (i.e., a primary already consumed and no continuing
+        //     operator since) signals the next attribute → stop before consuming.
+        //   - `expectingExpr` toggles: true after operator-like punctuation
+        //     (`.`, `[`, OPERATOR), false after a primary (IDENT/KEYWORD/
+        //     NUMBER/STRING) or after `)`/`]`.
+        let parenDepth = 0;
+        let bracketDepth = 0;
+        let braceDepth = 0;
+        let valIdx = scanIdx + 2;
+        const valTexts = [];
+        let valLastTok = null;
+        let expectingExpr = true;
+        while (true) {
+          const vt = tokens[i + valIdx];
+          if (!vt || vt.kind === "EOF") return null; // unterminated
+          const topLevel = (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0);
+          // Top-level closer: PUNCT `>`. Stop before consuming.
+          if (topLevel && vt.kind === "PUNCT" && vt.text === ">") break;
+          // Top-level next-attribute boundary: IDENT/KEYWORD when not expecting
+          // an expression token signals the start of the next attribute.
+          if (topLevel && !expectingExpr && (vt.kind === "IDENT" || vt.kind === "KEYWORD")) break;
+          // Track depth + expectingExpr transitions.
+          if (vt.kind === "PUNCT" && vt.text === "(") {
+            parenDepth++;
+            expectingExpr = true;
+          } else if (vt.kind === "PUNCT" && vt.text === ")") {
+            if (parenDepth === 0) return null;
+            parenDepth--;
+            expectingExpr = false;
+          } else if (vt.kind === "PUNCT" && vt.text === "[") {
+            bracketDepth++;
+            expectingExpr = true;
+          } else if (vt.kind === "PUNCT" && vt.text === "]") {
+            if (bracketDepth === 0) return null;
+            bracketDepth--;
+            expectingExpr = false;
+          } else if (vt.kind === "PUNCT" && vt.text === "{") {
+            braceDepth++;
+            expectingExpr = true;
+          } else if (vt.kind === "PUNCT" && vt.text === "}") {
+            if (braceDepth === 0) return null;
+            braceDepth--;
+            expectingExpr = false;
+          } else if (vt.kind === "PUNCT" && (vt.text === "." || vt.text === ",")) {
+            expectingExpr = true;
+          } else if (vt.kind === "OPERATOR") {
+            expectingExpr = true;
+          } else if (vt.kind === "IDENT" || vt.kind === "KEYWORD" || vt.kind === "NUMBER" || vt.kind === "STRING") {
+            expectingExpr = false;
+          }
+          valTexts.push(vt.text);
+          valLastTok = vt;
+          valIdx++;
+        }
+        if (valTexts.length === 0) return null; // empty `default=` — decline
+        defaultExprRaw = valTexts.join(" ").trim();
+        defaultExprSpan = { ...valStart.span, end: valLastTok.span.end };
+        scanIdx = valIdx;
+        continue;
+      }
+
+      // ─── Phase A1a Step 6 — `pinned` bareword modifier ───
+      // IDENT with text "pinned" NOT followed by `(`. Sets `pinned: true` and
+      // does NOT add to validators[]. Must be checked BEFORE the generic IDENT
+      // validator branch below (otherwise `pinned` would be captured as a
+      // validator name).
+      if (t.kind === "IDENT" && t.text === "pinned") {
+        const lookNext = tokens[i + scanIdx + 1];
+        if (!lookNext || lookNext.kind !== "PUNCT" || lookNext.text !== "(") {
+          if (pinned) return null; // duplicate `pinned` — decline
+          pinned = true;
+          scanIdx++;
+          continue;
+        }
+        // `pinned(...)` falls through to the call-form validator branch (defensive,
+        // though no spec-sanctioned `pinned(args)` form exists).
       }
 
       // Validator: IDENT bareword or call-form.

@@ -472,6 +472,19 @@ export interface ReactiveDeclNode extends BaseNode {
    * and cross-field args (`@cell`) are not standalone-parseable as JS.
    */
   validators?: ValidatorEntry[];
+  /**
+   * Phase A1a Step 6 — `default=<expr>` attribute on a structural state-decl.
+   * Parsed into an ExprNode (acorn AST). `null` when the attribute is absent.
+   * Per SPEC §6.8 the default expression is used for `reset(@cell)` lowering
+   * (A1c codegen); A1b will validate type-compatibility with the cell type.
+   */
+  defaultExpr?: ExprNode | null;
+  /**
+   * Phase A1a Step 6 — `pinned` bareword modifier on a structural state-decl.
+   * `true` iff the bareword was present between `<NAME` and `>`. A1b consumes
+   * for forward-reference legality; A1c hoists pinned declarations.
+   */
+  pinned?: boolean;
 }
 
 /**
