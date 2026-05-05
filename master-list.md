@@ -4,7 +4,7 @@
 
 **Last updated:** 2026-05-05 (S59 in-flight — major-restructure session post-parser-audit)
 
-**Tests (current):** 8,757 pass / 43 skip / 0 fail / 8,800 across 435 files (post A1a Steps 1 + 2 + 3 + 8 + program-attrs feature). Pre-commit subset ~8,030 / 33 / 0.
+**Tests (current):** 8,769 pass / 43 skip / 0 fail / 8,812 across 435 files (post A1a Steps 1 + 2 + 3 + 4 + 8 + program-attrs feature). Pre-commit subset ~8,042 / 33 / 0.
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
@@ -71,8 +71,8 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 | 1 | Lexer: reserve `reset` | ✅ `9cd7779` |
 | **2** | **Foundational: `<NAME>` decl-site recognition** | ✅ `d28f6f7` (depth-of-survey discount: ~21min vs 10-15h estimate) |
 | **3** | **AST kind rename `reactive-decl` → `state-decl`** | ✅ `8fa26e1` (~514 changes / ~120 files / 0 regressions) |
-| 4 | Parser: state-decl `shape` discriminant for Shapes 1 + 3 | 🟡 NEXT |
-| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | ⏸ |
+| 4 | Parser: state-decl `shape` discriminant for Shapes 1 + 3 | ✅ `96dbe92` (17 sites + self-host parity; surfaced `reactive-derived-decl` divergence — see §0.6) |
+| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | 🟡 NEXT (will need to relax §S4.10 invariant test to admit `"decl-with-spec"` shape) |
 | 6 | Parser: `default=` + `pinned` on state-decl | ⏸ |
 | 7 | Parser: `pinned` on import items | ⏸ |
 | 8 | E-RESERVED-IDENTIFIER trigger | ✅ `af4a0da` |
@@ -82,10 +82,20 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 | 12 | Existing-test deltas: rewrite + drop | ⏸ |
 | 13 | Final commit + CHANGELOG draft | ⏸ |
 
-**5/13 done.** Remaining: ~25-40h focused work across Steps 4-7 + 9-13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
+**5/13 done.** (Wait — 6/13 done with Step 4 just landed.) Remaining: ~22-35h focused work across Steps 5-7 + 9-13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
 
 **Side landings during A1a (parallel work):**
 - Documentary `<program>` attributes (`title=`, `description=`, `version=`, `author=`, `license=`) — SPEC §40.7 + emit-html.ts head injection + tier-ladder article update. Commit `4620290`.
+
+### §0.6 Surfaced divergences / queued follow-ups
+
+**`reactive-derived-decl` AST kind (S59 Step 4 surfaced):** Step 3's rename swept `reactive-decl` → `state-decl`. But `const @NAME = expr` (legacy derived-cell decl) produces a SEPARATE AST kind: `kind: "reactive-derived-decl"`, NOT `state-decl`. Verified S59 Step 4 via probe. ~20 consumer sites across compiler (component-expander, reactive-deps, dependency-graph, route-inference, emit-bindings, emit-logic, type-system, types/ast.ts). **Folding `reactive-derived-decl` into `state-decl` (with `isConst: true` discriminant) is queued as a future small standalone step.** Estimated ~3-5h. Schedulable any time. Until then, the AST has two kinds for state declarations:
+- `state-decl` — `@NAME = init` (mutable) + `<NAME> = init` (Step 2) + `const <NAME> = expr` (Step 2; structural derived).
+- `reactive-derived-decl` — `const @NAME = expr` (legacy derived; unchanged path).
+
+A1b/A1c work touching derived cells must handle BOTH kinds until the merge.
+
+**§S4.10 discriminant invariant test (Step 5 dependency):** `parse-shapes-v0next.test.js` §S4.10 asserts `shape ∈ {"plain","derived"}` AND `shape !== "decl-with-spec"`. Step 5 introduces `"decl-with-spec"`; will need to relax that assertion to admit the new shape.
 
 ---
 
