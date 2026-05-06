@@ -1,7 +1,7 @@
 // test-009-test-reactive.scrml
 // Testing @reactive behavior. Tests: reactive + test.
 
-@value = 42
+<value> = 42
 
 ${
     function setValue(v) {

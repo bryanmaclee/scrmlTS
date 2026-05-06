@@ -13,8 +13,8 @@ type Role:enum = { Admin, User, Guest }
     </>
 </>
 
-@users = []
-@filter = "all"
+<users> = []
+<filter> = "all"
 
 ${
     function addUser(name, role) {

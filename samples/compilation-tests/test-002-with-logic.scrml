@@ -1,7 +1,7 @@
 // test-002-with-logic.scrml
 // Test block with reactive vars. Tests: @reactive in test context.
 
-@counter = 0
+<counter> = 0
 
 ${
     function increment() {
