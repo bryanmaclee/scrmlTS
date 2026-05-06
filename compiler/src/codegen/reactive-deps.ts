@@ -305,7 +305,7 @@ export function extractReactiveDepsFromExprNode(
 /**
  * A registry of function bodies for call-graph traversal.
  * Maps function name → array of function body statements.
- * Multiple entries per name are possible (overloads, cross-file).
+ * Multiple entries per name are possible (cross-file).
  */
 export type FunctionBodyRegistry = Map<string, { body: unknown[]; params: string[] }[]>;
 

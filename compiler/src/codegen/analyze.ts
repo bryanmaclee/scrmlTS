@@ -40,7 +40,6 @@ interface ProtectAnalysis {
 /** A file AST as produced by the compiler pipeline. */
 interface FileAST {
   filePath: string;
-  overloadRegistry?: Map<string, Map<string, object>>;
   nodes?: ASTNode[];
   ast?: { nodes: ASTNode[] };
   [key: string]: unknown;
@@ -56,7 +55,6 @@ export interface FileAnalysis {
   cssBridges: object[];
   cssBlocks: { inlineBlocks: object[]; styleBlocks: object[] };
   channelNodes: object[];
-  overloadRegistry: Map<string, Map<string, object>> | undefined;
   ir: FileIR;
   testGroups: TestGroup[];
 }
@@ -89,7 +87,6 @@ export function analyzeFile(fileAST: FileAST): FileAnalysis {
     cssBridges: collectCssVariableBridges(nodes) as object[],
     cssBlocks: collectCssBlocks(nodes) as { inlineBlocks: object[]; styleBlocks: object[] },
     channelNodes: collectChannelNodes(nodes) as object[],
-    overloadRegistry: fileAST.overloadRegistry,
     ir: createFileIR(filePath),
     testGroups,
   };

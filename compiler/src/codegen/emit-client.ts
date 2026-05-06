@@ -6,7 +6,6 @@ import { escapeRegex } from "./utils.ts";
 import { emitFunctions } from "./emit-functions.ts";
 import { emitBindings } from "./emit-bindings.ts";
 import { emitReactiveWiring } from "./emit-reactive-wiring.ts";
-import { emitOverloads } from "./emit-overloads.ts";
 import { emitEventWiring } from "./emit-event-wiring.ts";
 import { setVariantFieldsForFile } from "./emit-control-flow.ts";
 import { EncodingContext, emitDecodeTable, emitRuntimeReflect } from "./type-encoding.ts";
@@ -541,10 +540,6 @@ export function generateClientJs(ctx: CompileContext): string {
   // Emit ref= and bind:/class: directive wiring
   const bindingLines = emitBindings(ctx);
   for (const line of bindingLines) lines.push(line);
-
-  // Emit state-type overload dispatch functions
-  const overloadLines = emitOverloads(ctx);
-  for (const line of overloadLines) lines.push(line);
 
   // Emit event handler wiring and reactive display wiring
   const eventLines = emitEventWiring(ctx, fnNameMap);
