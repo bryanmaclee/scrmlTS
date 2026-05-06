@@ -2,7 +2,81 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-05 S61): **8,886 pass / 44 skip / 0 fail / 8,930 across 439 files**. S61 landed Steps 11.5 + 12 + 11.0e (Phase A1a now **17/20 done**), the SPEC head broken-path cleanup, and Curation Batches A + B + C + D + E + F + G + H + I (65 dirs dereffed). Step 12 surfaced 2 P-FUPs (11.0d + 11.0e); 11.0e landed clean and surfaced a 3rd (11.0f). Remaining A1a: 11.0d, 11.0f, 13 (~4.5-9.5h).
+Current baseline (2026-05-05 S61 close): **8,902 pass / 44 skip / 1 todo / 0 fail / 8,947 across 439 files**. **Phase A1a (lex+parse) is COMPLETE** as of S61 close — 20 sub-steps done (Steps 1-13 + 11.0a/b/c/d/e/f + 11.5). Net A1a delta: from S58 close baseline 8,720/43/0/8,763 to A1a-close 8,902/44/1/8,947 — **+182 pass / +1 skip / +1 todo / +184 total tests**. Curation pass: 76 dirs dereffed across 10 batches (`docs/changes/` 103 → 30). Next: A1b (resolve+type, 22 steps, RATIFIED) → A1c (codegen+runtime, 24 steps, RATIFIED).
+
+### 2026-05-05 (S61 close — Phase A1a (lex+parse) COMPLETE)
+
+Phase A1a — the foundational lex+parse layer of the v0.next migration — is COMPLETE. 20 sub-steps landed across S59 + S60 + S61. The compiler's parser now recognizes the full V5-strict structural decl-form `<x> = init` (Shapes 1+2+3, Variant C compound, typed-decl) at every position the SPEC sanctions: inside `${...}` logic blocks AND at file top-level. The legacy `@x = init` expression-form decl is mirror-supported via Step 4's discriminant; its pre-v0.next AST kind divergence (`reactive-derived-decl`) is folded into unified `state-decl{shape:"derived",isConst:true,structuralForm:false}` per Step 11.5. Sample-suite migration to V5-strict canon completed across 175 files in `samples/compilation-tests/` (Step 12) + sample restorations from each P-FUP step.
+
+**Cumulative A1a step ledger (chronological landing order):**
+
+| # | Step | SHA | Era | Tier | Δ tests | Key insight |
+|---|---|---|---|---|---|---|
+| 1 | Lexer: reserve `reset` | `9cd7779` | S59 | T1 | +6 | Tokenizer KEYWORD addition |
+| 2 | Foundational `<NAME>` decl-site recognition | `d28f6f7` | S59 | T2 | +15 | Depth-of-survey discount #5 — 21min vs 10-15h estimate; block-splitter already preserved raw `<` |
+| 3 | AST kind rename `reactive-decl` → `state-decl` | `8fa26e1` | S59 | T2 | 0 | ~514 changes / ~120 files / 0 regressions |
+| 4 | Parser: state-decl `shape` discriminant | `96dbe92` | S59 | T2 | +12 | Surfaced `reactive-derived-decl` divergence → ADR + Step 11.5 |
+| 5 | Parser: Shape 2 `renderSpec` + bareword validators + `req` | `505531f` | S59 | T2 | +15 | Validator args as `string[]` deferred to A1b B9; brief-locus correction |
+| 6 | Parser: `default=` + `pinned` on state-decl | `2754940` | S60 | T2 | +10 | KEYWORD-vs-IDENT survey insight |
+| 7 | Parser: `pinned` on import items | `556de93` | S60 | T2 | +10 | Regex-driven parser insight; 3 disambiguation edge cases |
+| 8 | E-RESERVED-IDENTIFIER trigger | `af4a0da` | S59 | T1 | +4 | reset-keyword shadow check |
+| 9 | Expression parser: `reset(@cell)` keyword + E-RESET-NO-ARG | `fded36a` | S60 | T2 | +8 | Full tree walker `forEachResetExprInExprNode`; conservative codegen pass-through |
+| 10 | Expression parser: MemberCall/MemberAssignment/UnaryDelete | `226a2dd` | S60 | T1 | +10 | **Discount #8 — ZERO source changes**; AST kinds already correct |
+| 11 | Variant C compound + render-by-tag + kickstarter v2 §3 smoke | `bcca1e6` | S60 | T2 | +23 | **Discovered-blocker escalation** — work expanded; surfaced 11.0a/b/c |
+| 11.0a | Variant C compound recognizer | `6d51d00` | S60 | T2 | +8 | ~127 LOC `tryParseStructuralDecl` extension; 2 anti-test memorials flipped |
+| 11.0b | Newline-as-statement-separator | `a7dd96a` | S60 | T2 | +11 | ~30 LOC `collectExpr` ASI-NEWLINE branch — universal-fix substrate for 11.0e + 11.0f |
+| 11.0c | Typed-decl recognizer | `92af2ca` | S60 | T2 | +10 | ~48 LOC via 100% reuse of `collectTypeAnnotation()` — high-reuse pattern |
+| 11.5 | FOLD `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}` | `a020ea1` | S61 | T2 | +4 / +1 skip | ADR Option A; 1 hidden coupling resolved at emit-logic.ts; pre-existing Shape 3 V5-strict codegen gap deferred to A1c |
+| 12 | Existing-test deltas | `7be23aa` | S61 | T2 | 0 net | 175 files migrated to V5-strict; 624 sites in broader `samples/` deferred per SURVEY scope; **2 P-FUPs surfaced** |
+| 11.0e | `<x> = not\n<y>` newline boundary fix (P-FUP-2) | `916de65` | S61 | T2 | +8 | Universal — `"not"` added to `VALUE_KEYWORDS` Set; 4 of 5 reverted Step 12 samples restored; **1 P-FUP surfaced** (P-FUP-3) |
+| 11.0f | `<x> = ?{SQL}\n<y>` BLOCK_REF newline boundary fix (P-FUP-3) | `fe93d40` | S61 | T2 | +7 | Universal — BLOCK_REF added to `lastEndsValue` predicate; combined-007-crud restored; coverage now exhaustive (no P-FUP-4 surfaced) |
+| 11.0d | Top-level structural Shape 1 recognition (P-FUP-1) | `0f92077` | S61 | T2 | +9 / +1 todo | BS top-level scan extension via `peekTopLevelStateDeclSignal`; 3 reverted Step 12 samples restored; component-def discrimination preserved; Variant C compound at top-level deferred (§S11D.5 .todo) |
+| 13 | Final commit + CHANGELOG aggregate + cleanup | this commit | S61 | T1 | 0 | 5 ephemeral `scripts/step12-*.mjs` helpers removed; master-list A1 row to DONE |
+
+**Net Phase A1a delta:** 8,720 / 43 / 0 / 8,763 (S58 close) → **8,902 / 44 / 1 todo / 0 / 8,947** (A1a-COMPLETE). +182 pass / +1 skip / +1 todo / +184 total tests across 7 new test files. Zero regressions throughout.
+
+**AST contract changes (load-bearing for A1b):**
+- `state-decl` carries new fields: `shape: "plain" | "decl-with-spec" | "derived"`, `structuralForm: boolean`, `isConst: boolean`, `renderSpec: RenderSpecNode | null`, `validators: ValidatorEntry[]`, `defaultExpr: ExprNode | null`, `pinned: boolean`, `children: ReactiveDeclNode[]`, `typeAnnotation: string`.
+- New AST kinds: `render-spec` (Step 5), `reset-expr` (Step 9).
+- Renamed: `reactive-decl` → `state-decl` (Step 3); `machine-decl` → `engine-decl` (S53); `reactive-derived-decl` retired and folded into `state-decl{shape:"derived",isConst:true}` (Step 11.5).
+- Import items: `pinned` modifier (Step 7).
+- Expression mutation shapes (`MemberCall`/`MemberAssignment`/`UnaryDelete`): unchanged AST kinds (Step 10 verified zero-source); B8 walker must handle dual-path discrimination (specialized kinds `reactive-array-mutation` / `reactive-nested-assign` AND `bare-expr.exprNode` structural walk).
+- `@`-prefix discrimination: `ident.name` preserves `@` prefix verbatim — pure string-shape inspection.
+
+**Out-of-scope deferrals for A1b (resolve+type, 22 steps RATIFIED S60):**
+- V5-strict bare-name resolver enforcement (E-NAME-COLLIDES-STATE firing).
+- Derived-cell wiring (dependency graph + topo sort).
+- L21 (`E-DERIVED-VALUE-MUTATE`) firing.
+- Validator typer (string args → `ExprNode[]` per AST contract §1.1; from Step 5 deferral).
+- `pinned` forward-reference check.
+- Bare-variant inference (M9; from Step 11.0c).
+
+**Out-of-scope deferrals for A1c (codegen+runtime, 24 steps RATIFIED S60):**
+- Codegen for Shape 2 `renderSpec` markup-RHS dispatch.
+- `reset(@cell)` lowering past the conservative pass-through (Step 9).
+- `default=` integration with reset semantics.
+- Component-def lowering for engine state-children.
+- **Pre-existing Shape 3 V5-strict codegen gap** (surfaced S61 Step 11.5; documented in A1c plan §6.4) — `const <x> = expr` emits `_scrml_reactive_set` not `_scrml_derived_declare`.
+
+**Other deferrals beyond A1b/A1c:**
+- Top-level Variant C compound (§S11D.5 .todo from Step 11.0d) — BS peek currently matches `=`/`:`, not `<` for compound-opener at top-level. Likely Step 11.0g or A1b territory if A1b's resolver normalizes.
+- Self-host parity — current Step 4-7 deferred-policy holds. 6+ self-host files still reference `reactive-derived-decl` literal; catches up at next bootstrap regen (post-A1c).
+
+**Methodology callouts captured this phase:**
+- **Depth-of-survey discount — now 9× confirmed.** Pattern: when an audit names a multi-h "new infrastructure" fix, implementation-time survey routinely reveals 2-5× shorter due to existing infra coverage. Three notable shape variants surfaced in A1a:
+  - **Zero-source variant** (Step 10 — Discount #8).
+  - **Discovered-blocker escalation** (Step 11 — work expanded, not shrank; surfaced 11.0a/b/c).
+  - **High-reuse pattern** (Step 11.0c — ~48 LOC via existing `collectTypeAnnotation()` reuse; Step 11.5 1 hidden coupling caught + resolved).
+- **Step 11 escalation closure pattern.** When a smoke step surfaces deferred parser gaps as a discovered-blocker, queue follow-on sub-steps (11.0a/b/c, then 11.0d/e/f when more surface), close all before the wrap. Pattern proven across 6 escalation steps.
+- **Per-step branch + cherry-pick + push.** Each step a focused worktree dispatch; PA cherry-picks onto main; main always green. Held throughout 20 sub-steps.
+- **Cross-machine sync hygiene + path-discipline.** Multiple F4 leaks caught + recovered (S58, S59, S61 — 11.0f had 2 self-corrected near-misses, 11.0d had 1 PA-recovered leak). Pattern is structural; PreToolUse hook fix deferred.
+- **Stream-timeout salvage.** Two S61-close agents (11.0d original + 11.0d-finisher) stalled with stream watchdog timeouts. Both had committed clean partial work; PA salvaged via cherry-pick of partials + finisher re-dispatch + final-commit-by-PA. Demonstrated agent-failure recovery flow.
+- **Universal-fix substrate** (Step 11.0b's `collectExpr` ASI-NEWLINE branch) reused by Steps 11.0e + 11.0f — both narrow patches at the same locus extending the value-classifier. Substrate design held.
+
+**S61 also landed (alongside Phase A1a closure):**
+- **SPEC head broken-path amendment-ref cleanup** (`0a48700`) — 4 dead path refs → 1 archive pointer. Per pa.md "current truth only" scope principle.
+- **Curation pass — 10 of 10 batches executed.** 76 directories dereffed from `scrmlTS/docs/changes/` to `scrml-support/archive/changes/`. Disposition matrix at `scrmlTS/docs/curation/2026-05-05-changes-dir-disposition.md`. Batches: A (P-series 12), B (expr-ast-phase-4d 4), C (dispatch-app 7), D (F-series 11), E (GITI 2), F (BUG-letters 2), G (bun-sql 2), H (LSP L1-L4 5), I (fix-* 20), J (misc 11). `docs/changes/` count: 103 → 30. Cross-refs fixed: 11 (FRICTION.md, README.md ×2, changelog ×3, scope-c-findings-tracker ×2, 2 test files, 2 src files).
+- **Maps refresh attempted** but agent's Write tool returned permission-denied (system-level directive). Findings returned as text — 8 non-compliance categories surfaced; items #1 (SPEC head) + #2 (curation) actioned this session. Maps files themselves remain stale (last touched 2026-04-24); root-cause investigation deferred.
 
 ### 2026-05-05 (S61 — A1a Step 11.5 + Step 12 landed + 2 new P-FUPs + curation pass started)
 
