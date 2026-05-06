@@ -200,6 +200,7 @@ Key engine concepts:
 - **`effect=` attribute** on rules for inline per-rule effects.
 - **Derived engines** — `<engine for=Phase derived=expr>` reactively recomputes the variant; no rules, no writes (`E-DERIVED-ENGINE-NO-WRITE`).
 - **Components are NOT engines** — a component-instance with internal state is fresh per instance; an engine is one app-lifecycle singleton (`E-COMPONENT-ENGINE-SCOPE`).
+- **Legacy `<machine>` keyword** — deprecated alias for `<engine>`. Emits `W-DEPRECATED-001` at the call site; the `bun scrml migrate <file>` CLI auto-rewrites `<machine` → `<engine`. `W-DEPRECATED-001 → E-DEPRECATED-001` transition planned for v0.3.0.
 
 ---
 
@@ -292,6 +293,7 @@ D3 landed S58 — `compiler/SPEC.md` §38 / §39 / §42 / §53 / §34 are now au
 - **Inviolable:** SQL strings sent to the database are unchanged in shape. Vocabulary unification touches scrml source-level only.
 - Cross-locus consistency: same shared-core word fires in three contexts — state validator (§55, reactive), refinement type (§53, compile + boundary), schema column (here, DBMS-enforced).
 - SQL passthrough (`?{}` blocks) remains **inviolable**.
+- **Schema-to-migration-SQL diff lives in `compiler/src/schema-differ.js`** (~273 LOC). Compares desired (`<schema>` AST) vs actual (`PRAGMA table_info()` output); emits migration SQL. Live during dev-mode reload. The diff algorithm is invisible at the §39 spec level — when dispatching schema-evolution work, read schema-differ.js directly.
 
 ### §9.3 Predicates (§53) — refinement-type cross-ref (L4)
 
@@ -402,6 +404,10 @@ What LLMs reflexively reach for + the scrml form:
 - **`const @x` → `const <x>` sweep DONE (S58)**. Two-phase cleanup: (a) §6 sweep (62 edits) replaced declarations within §6 itself; (b) follow-up cleanup across §11/§12/§22/§23/§34/§52 (13 more edits). SPEC.md now has zero `const @x` declarations. Canonical form `const <x> = expr` is universal. Read sites still use `@x` (canonical access).
 - **`bun install` required in fresh worktrees**: pre-commit `bun test` fails with "cannot find package 'acorn'" in newly-spawned worktrees because node_modules doesn't inherit from main. Hit by every D2.8/D3/oauth/D4 dispatch this session. Workaround: `bun install` once at worktree startup. Worth a pa.md F4 addendum or a worktree-setup hook (deferred).
 - **`bun run pretest` required in fresh worktrees** (S59 rev-1 finding): browser tests load from `samples/compilation-tests/dist/` which is gitignored. Without `bun run pretest`, full `bun test` produces ~130 ECONNREFUSED-shaped failures in happy-dom. Use `bun run test` (chains pretest) NOT `bun test` directly for baseline checks. Documented in pa.md F4 step 5.
+- **SPEC.md Read-budget reality (S64 amendment).** SPEC.md is ~410k tokens. Primer + SPEC-INDEX.md + targeted-section Read is the only sustainable pattern. Never attempt full-file Read (will overflow). For lookups: `grep -n "^### " compiler/SPEC.md` for top-level headings, then targeted Read with `offset:` + `limit:`. SPEC-INDEX.md (~288 lines) is the navigation map. Per-section split queued as v0.3.0+ candidate.
+- **Adding a new scrml-special structural element (S64 amendment)** — e.g., a new structural element added at SPEC §4/§24 — REQUIRES updating `compiler/src/attribute-registry.js` (~233 LOC, defines per-element attribute schemas) for VP-1 (attribute-allowlist.ts) and VP-3 (attribute-interpolation.ts) validation. Otherwise unknown attributes are silently forwarded as HTML. PIPELINE.md 0.7.0 §3.3 calls this out at the stage-contract level; the dispatch checklist must enforce it.
+- **Self-host integration shim (S64 amendment).** `compiler/src/codegen/compat/parser-workarounds.js` exposes `setBPPOverrides(mod)` — runtime override hook that swaps in self-hosted BPP module implementations when available. Live in self-host integration. Without context, the shim looks like dead-code-with-getter; it isn't.
+- **Open SPEC-ISSUE registry (S64 amendment, scattered in SPEC prose).** Discoverable via `grep -ohE 'SPEC-ISSUE-[0-9]+' compiler/SPEC.md | sort -u`. As of 2026-05-06: **005** (HTML version target), **010-COMPONENT** (component overloading; pinned for queued debate-03), **012** (Tailwind variants/theming), **018** (SQL transactions), **025-027** (server `@var` initial-load semantics), §53.13.1-4 (named-shape registry, constraint arithmetic, type-alias for predicates, boolean predicates). 010-FUNCTION closed-without-resolution (debate-02 verdict). 013 closed 2026-03-27.
 - **Pipeline has TWO bookends the named-stage list doesn't show (S64 audit finding):**
   - **Pre-Stage-2 lint pass** — `compiler/src/lint-ghost-patterns.js` (~492 LOC) runs BEFORE Stage 2 BS. Scans for React/Vue/Svelte syntax and emits "did you mean?" warnings. The §11 anti-patterns table above is enforced at *both* doc-level AND lint-level by this pass. Catalog source: `scrml-support/docs/ghost-error-mitigation-plan.md`.
   - **Post-TAB diagnostic walkers** — `compiler/src/gauntlet-phase[1|3]-checks.js` (~1226 LOC total) emit a class of diagnostics AFTER the named pipeline stages: import/scope/use-decl placement (E-IMPORT-001/003, E-SCOPE-010, E-USE-001/002, E-USE-INVALID-CTX) + equality / null-token misuses (E-EQ-002/004, E-SYNTAX-042). When dispatching diagnostic-fix work, **search both `type-system.ts` AND these gauntlet files** — the diagnostic source may not live in the named stage you'd expect.
@@ -440,14 +446,33 @@ Captured in full at `scrml-support/docs/deep-dives/v0next-s56-deliberation-outco
 
 ---
 
+## §13.5 Spec real-estate vs adoption — known slivers + doc-only surfaces (S64 audit)
+
+The spec is ahead of adoption for several feature surfaces. Knowing which surfaces are sliver-empty or doc-only saves PA from dispatching work that has no real consumer or has nothing to delete.
+
+| Surface | Status | Note |
+|---|---|---|
+| `^{}` meta-blocks | **active** (74+ sample/example files) | First-class; design + adoption both real |
+| `_{}` foreign-code (§23, ~443 lines spec) | **sliver-empty** (0 source-level uses) | Design real, adoption pending. Treat foreign-code design questions as low-priority unless a specific WASM/sidecar use-case is in scope |
+| `<keyboard>` / `<mouse>` / `<gamepad>` (§36, 358 lines spec) | **sliver-empty** (0 source-level uses, 1 unit test) | Spec real-estate exceeds adoption. §36 retention debate (debate-04 candidate) before extending. Trio (`match`/`engine`/derived) does NOT cover live-input dispatch — input events are inherently external |
+| State-type-discriminated function-overloading (§17.5 first half) | **retired** (debate-02 verdict, S64) | Stage 0c.A deletes the implementation; replacement primitives are `match`/`engine`/derived |
+| Component-overloading (§17.5 second half) | **DOC-ONLY in SPEC, never implemented** (S64 audit finding) | `component-expander.ts` has zero overload code paths. Stage 0c has nothing component-shaped to delete. SPEC-ISSUE-010-COMPONENT pinned for queued debate-03 (CLOSE / KEEP-OPEN-DEFER / DESIGN-AND-SHIP) |
+| `<transaction>` block (§44.6, SPEC-ISSUE-018 open) | **stub** | Codegen has TODOs; spec defers full transaction syntax. Either close SPEC-ISSUE-018 + finish, or retire AST kind |
+| `<machine>` keyword | **deprecated** (W-DEPRECATED-001) | `bun scrml migrate` rewrites to `<engine>`. Hard-removal at v0.3.0 |
+
+**General principle:** when planning work touching one of these surfaces, check the row first. PA should not dispatch implementation work against a doc-only surface, and should not assume a sliver-empty surface has consumers.
+
+---
+
 ## §14 What this primer does NOT cover (read elsewhere)
 
-- Detailed grammar — see `compiler/SPEC.md` (the authoritative spec; ~23k lines)
+- Detailed grammar — see `compiler/SPEC.md` (the authoritative spec; ~24k lines / ~410k tokens — see §12 Read-budget reality)
 - Section index — see `compiler/SPEC-INDEX.md`
 - Recipes (auth, real-time, schema, etc.) — see `docs/articles/llm-kickstarter-v2-2026-05-04.md` §11
 - Anti-patterns table for dev-agent dispatch — see `scrml-support/docs/gauntlets/BRIEFING-ANTI-PATTERNS.md`
-- Compilation pipeline stages — see `compiler/PIPELINE.md`
+- Compilation pipeline stages — see `compiler/PIPELINE.md` (and primer §12 for the two bookends not in PIPELINE.md)
 - Implementation phase plan (Phase A1+) — see `docs/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md`
+- Forgotten-surface audit (vestigial features / fragile string paths / spec-vs-code drift / cross-pass invariants) — see `docs/audits/compiler-forgotten-surface-2026-05-06.md`
 
 ---
 
