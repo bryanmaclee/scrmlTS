@@ -2,9 +2,9 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS, plus the **v0.2.0 migration dashboard**. Current truth only. Historical session-by-session detail lives in `docs/changelog.md`; deep-dives live in `scrml-support/docs/deep-dives/`.
 
-**Last updated:** 2026-05-05 (S61 — A1a 17/20 done; Step 11.0e landed; new P-FUP-3 queued as Step 11.0f; Curation Batches A+B+C+D+E+F+G+H+I executed — 65 dirs dereffed)
+**Last updated:** 2026-05-05 (S61 close — A1a 19/20 done; Step 11.0f landed; Step 13 staged for PA integration; only Step 11.0d remaining)
 
-**Tests (current):** **8,886 pass / 44 skip / 0 fail / 8,930 across 439 files** (post A1a Step 11.0e; +12 pass / +1 skip vs S60 close). Step 11.0e added 8 new §S11E cases. Step 12 was zero-net-delta. Pre-commit subset ~8,162 / 33 / 0.
+**Tests (current):** **8,893 pass / 44 skip / 0 fail / 8,937 across 439 files** (post A1a Step 11.0f; +7 pass vs Step 11.0e). Pre-commit subset 8,169 / 33 / 0.
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
@@ -27,7 +27,7 @@
 | Stage 0a | Impact assessment | done | ✅ | `IMPACT-ASSESSMENT.md` (446 lines) |
 | Stage 0b | SPEC + PIPELINE + INDEX rewrite | 70-127h | ✅ | D1+D2 (S57) + D3+D4 (S58) all landed |
 | Stage 0b+ | L21 lock E-DERIVED-VALUE-MUTATE | done | ✅ | S59 commit `1217b41` |
-| **A1 — Foundational lex/parse (A1a + A1b + A1c three-phase split)** | `<NAME> = RHS` decl recognition + Shapes 1/2/3 + Variant C; resolve+type; codegen+runtime+PIPELINE prose | **A1a 35-50h + A1b 85-120h + A1c 96-136h** | **🟡 A1a 17/20 done** | **A1a (lex+parse) 17/20 done at S61 (~4.5-9.5h remaining):** Steps 1-12 + 11.0a + 11.0b + 11.0c + 11.0e + 11.5 all landed. Steps remaining: **11.0d (P-FUP-1; top-level Shape 1, ~3-6h, BRIEF)**, **11.0f (P-FUP-3; `<x> = ?{SQL}\n<y>` BLOCK_REF newline boundary, ~1-3h, BRIEF NEW S61)**, 13 (final CHANGELOG + cleanup `scripts/step12-*.mjs`, 0.5h, BRIEF). **Step 11.0e (`<x> = not\n<y>` newline boundary)** landed S61 (`916de65`, T2 tier, +8 tests; 4 of 5 reverted Step 12 samples restored; UNIVERSAL fix preserves Step 11.0b's universality property — added `"not"` to `VALUE_KEYWORDS` Set; 1 NEW P-FUP surfaced — combined-007-crud has BLOCK_REF same-shape bug → Step 11.0f). **Step 12 (existing-test deltas) landed S61** (`7be23aa`, T2 tier, ZERO net delta — 175 sample files migrated to V5-strict canon; 2 P-FUPs surfaced). **Step 11.5 (FOLD `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}`)** landed S61 (`a020ea1`, T2 tier, +4 pass / +1 skip). **A1b (resolve+type) RATIFIED S60** (22 steps B1-B22, 5 waves; refinement-zone subset). **A1c (codegen+runtime) RATIFIED S60** (24 steps C0-C23, 6 waves; runtime library Option C compile-time elision; **§6.4 carry-forward: Shape 3 V5-strict codegen gap**). **ADR ratified S60 + LANDED S61:** `reactive-derived-decl` Option A FOLD as Step 11.5. |
+| **A1 — Foundational lex/parse (A1a + A1b + A1c three-phase split)** | `<NAME> = RHS` decl recognition + Shapes 1/2/3 + Variant C; resolve+type; codegen+runtime+PIPELINE prose | **A1a 35-50h + A1b 85-120h + A1c 96-136h** | **🟡 A1a 19/20 done — Step 13 staged for integration; Step 11.0d only remaining** | **A1a (lex+parse) 19/20 done at S61 close (~3-6h remaining for Step 11.0d):** Steps 1-12 + 11.0a/b/c + 11.0e + 11.0f + 11.5 + 13 (DRAFT) all landed/staged. Step remaining: **11.0d (P-FUP-1; top-level Shape 1, ~3-6h, BRIEF; in flight on parallel worktree at draft time)**. **Step 13 (final CHANGELOG + master-list refresh + cleanup `scripts/step12-*.mjs` helpers)** staged as draft on `phase-a1a-step-13-final-changelog` branch — PA fills in 11.0d details + makes final `compile(a1a-COMPLETE)` commit at integration. **Step 11.0f (`<x> = ?{SQL}\n<y>` BLOCK_REF newline boundary)** landed S61 (`fe93d40`, T2 tier; BLOCK_REF added to `lastEndsValue` value-classifier in `collectExpr` ASI-NEWLINE branch; restored `combined-007-crud.scrml`). **Step 11.0e (`<x> = not\n<y>` newline boundary)** landed S61 (`916de65`, T2 tier, +8 tests; 4 of 5 reverted Step 12 samples restored; UNIVERSAL fix — added `"not"` to `VALUE_KEYWORDS` Set; surfaced P-FUP-3 → 11.0f). **Step 12 (existing-test deltas) landed S61** (`7be23aa`, T2 tier, ZERO net delta — 175 sample files migrated to V5-strict canon; 2 P-FUPs surfaced). **Step 11.5 (FOLD `reactive-derived-decl` → `state-decl{shape:"derived",isConst:true}`)** landed S61 (`a020ea1`, T2 tier, +4 pass / +1 skip). **A1b (resolve+type) RATIFIED S60** (22 steps B1-B22, 5 waves; refinement-zone subset). **A1c (codegen+runtime) RATIFIED S60** (24 steps C0-C23, 6 waves; runtime library Option C compile-time elision; **§6.4 carry-forward: Shape 3 V5-strict codegen gap**). **ADR ratified S60 + LANDED S61:** `reactive-derived-decl` Option A FOLD as Step 11.5. |
 | A2 — Structural elements | `<engine>`, `<match>` block, `<channel>`, `<errors>`, `<onTransition>` | 25-40h | ⏸️ pending A1 | |
 | A3 — Validators + synth surface | bareword validator scan + auto-synth + `<errors of=…/>` | 20-35h | ⏸️ pending A2 | |
 | A4 — Schema + refinement + pinned | shared-core in schema; refinement-type predicates; pinned on imports | 15-25h | ⏸️ pending A3 | |
@@ -64,7 +64,7 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 - **`reactive-decl` rename to `state-decl`** — RESOLVED + LANDED in Step 3 (commit `8fa26e1`). ~514 changes across ~120 file updates. 0 regressions.
 - **Depth-of-survey discount pattern** (S59 captured) — see `scrml-support/design-insights.md` "Depth-of-survey discount" entry. Three confirmed occurrences (S51 W2, S52 DD4, S59 Step 2). PA-SCRML-PRIMER §12 has the session-start pointer + mitigation checklist.
 
-### §0.5 A1a 20-step status (rev 5 decomposition — incl. 11.0a/b/c/e + 11.5 done; 11.0d/f queued)
+### §0.5 A1a 20-step status (rev 5 decomposition — Step 13 staged for PA integration; only 11.0d remaining)
 
 | # | Step | Status |
 |---|---|---|
@@ -86,10 +86,10 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 | 12 | Existing-test deltas: rewrite + drop | ✅ **S61 `7be23aa`** (T2 tier; **ZERO net delta** — same baseline 8,878/44/0/8,922; 175 sample files in `samples/compilation-tests/` migrated to V5-strict canon; 2 NEW parser-gap follow-ups surfaced — see 11.0d / 11.0e below; 624 sites in broader `samples/` deliberately left in legacy form per SURVEY scope) |
 | **11.0d** | **Top-level structural Shape 1 recognition** (P-FUP-1 from Step 12) | ⏸ NEW S61 (BRIEF at `docs/changes/phase-a1a-step-11-0d-toplevel-shape-1/BRIEF.md`; ~3-6h; restores 3 reverted Step 12 samples) |
 | **11.0e** | **`<x> = not\n<y>` newline-as-separator boundary fix** (P-FUP-2 from Step 12) | ✅ **S61 `916de65`** (T2 tier; +8 tests §S11E.1-§S11E.8; 4 of 5 reverted Step 12 samples restored; UNIVERSAL fix — `"not"` added to `VALUE_KEYWORDS` Set; preserves Step 11.0b universality; 1 LOC source change + 10 LOC explanation comment; surfaced P-FUP-3 → Step 11.0f) |
-| **11.0f** | **`<x> = ?{SQL}\n<y>` BLOCK_REF newline-as-separator boundary fix** (P-FUP-3 from Step 11.0e) | ⏸ NEW S61 (BRIEF at `docs/changes/phase-a1a-step-11-0f-blockref-newline-boundary/BRIEF.md`; ~1-3h; restores combined-007-crud sample) |
-| 13 | Final commit + CHANGELOG draft + cleanup `scripts/step12-*.mjs` helpers | ⏸ |
+| **11.0f** | **`<x> = ?{SQL}\n<y>` BLOCK_REF newline-as-separator boundary fix** (P-FUP-3 from Step 11.0e) | ✅ **S61 `fe93d40`** (T2 tier; BLOCK_REF added to `lastEndsValue` value-classifier in `collectExpr` ASI-NEWLINE branch; restored `combined-007-crud.scrml`; preserves Step 11.0b/e universality) |
+| 13 | Final commit + CHANGELOG draft + cleanup `scripts/step12-*.mjs` helpers | 🟡 **S61 staged for integration** (T1 tier; CHANGELOG entry drafted with `<TBD-AT-INTEGRATION>` placeholder for Step 11.0d; master-list refresh + 5 step12 helpers deleted; PA cherry-picks then fills in 11.0d details + makes final `compile(a1a-COMPLETE)` commit) |
 
-**17/20 done at S61.** Remaining: ~4.5-9.5h across Steps 11.0d, 11.0f, 13. Each step a focused single-file dispatch with PA cherry-pick to main between steps.
+**19/20 done at S61 close (Step 13 staged).** Remaining: ~3-6h for Step 11.0d (in flight on parallel worktree at S61 close). Each step a focused single-file dispatch with PA cherry-pick to main between steps.
 
 **Side landings during A1a (parallel work):**
 - Documentary `<program>` attributes (`title=`, `description=`, `version=`, `author=`, `license=`) — SPEC §40.7 + emit-html.ts head injection + tier-ladder article update. Commit `4620290`.
@@ -104,7 +104,7 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 
 **P-FUP-2: `<x> = not\n<y>` newline-as-separator boundary (S61 Step 12 surfaced; FIXED S61 Step 11.0e):** RESOLVED. The `not` keyword tokenized as KEYWORD but was missing from `VALUE_KEYWORDS` Set in `collectExpr`'s ASI-NEWLINE branch (ast-builder.js L1970). Step 11.0e added `"not"` to the Set — universal fix, preserves Step 11.0b's universality property. 4 of 5 reverted Step 12 samples restored to V5-strict canon. The 5th sample (combined-007-crud) blocked by NEW P-FUP-3 (BLOCK_REF same-shape bug) — see below.
 
-**P-FUP-3: `<x> = ?{SQL}\n<y>` BLOCK_REF newline boundary (S61 Step 11.0e surfaced):** Same shape as P-FUP-2 but with `BLOCK_REF` (`?{SQL}`) as trailing value-producing token, not the `not` keyword. The `lastEndsValue` check in collectExpr's ASI-NEWLINE branch doesn't recognize BLOCK_REF as value-producing. Detected via Step 11.0e's per-sample decl-count regression in `combined-007-crud.scrml`. **Queued as Step 11.0f** (BRIEF at `docs/changes/phase-a1a-step-11-0f-blockref-newline-boundary/BRIEF.md`; estimate 1-3h; narrow patch at same locus as Step 11.0e — likely 1-LOC value-classifier extension).
+**P-FUP-3: `<x> = ?{SQL}\n<y>` BLOCK_REF newline boundary (S61 Step 11.0e surfaced; FIXED S61 Step 11.0f):** RESOLVED. Same shape as P-FUP-2 but with `BLOCK_REF` (`?{SQL}`) as trailing value-producing token. Step 11.0f extended the `lastEndsValue` value-classifier in `collectExpr`'s ASI-NEWLINE branch to recognize BLOCK_REF as value-producing — narrow patch at same locus as Step 11.0e. `combined-007-crud.scrml` restored to V5-strict canon. Final commit `fe93d40` (S61).
 
 **Curation pass S61 — `docs/changes/` 103-dir wholesale curation:** Triggered by S61 maps-refresh agent's non-compliance scan. Disposition matrix at `docs/curation/2026-05-05-changes-dir-disposition.md`. **9 batches RATIFIED + EXECUTED** (A: P-series 12, B: expr-ast-phase-4d 4, C: dispatch-app 7, D: F-series 11, E: GITI 2, F: BUG-letters 2, G: bun-sql 2, H: LSP L1-L4 5, I: fix-* 20) = **65 dirs dereffed** to `scrml-support/archive/changes/`. 1 batch remaining: J (misc, 12). `docs/changes/` count: 103 → 41.
 
@@ -127,7 +127,7 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 ## A. Compiler core
 
 **Entry:** `compiler/src/cli.js` (bin: `scrml`); published binary shebang at `compiler/bin/scrml.js`.
-**Tests (current S59 in-flight):** **8,730 pass / 43 skip / 0 fail / 8,773 across 434 files** (full suite incl. browser); pre-commit subset 8,005 / 33 / 0. Step 1 (S59 `9cd7779`, +6 reset-keyword tests) + Step 8 (S59 `af4a0da`, +4 E-RESERVED-IDENTIFIER tests) shipped above the S58-close baseline of 8,720 / 43 / 0 / 8,769.
+**Tests (current — S61 close):** **8,893 pass / 44 skip / 0 fail / 8,937 across 439 files** (full suite incl. browser); pre-commit subset 8,169 / 33 / 0. **Net Phase A1a delta:** +173 pass / +1 skip / +5 files vs the S58-close baseline of 8,720 / 43 / 0 / 8,763 across 432 files (across 19 sub-step landings; pending Step 11.0d at integration).
 **Test-count history (session deltas):** see `docs/changelog.md` for per-session +/- ledger across S40-S58.
 **Compile time:** ~44ms TodoMVC (post-ExprNode parsing overhead)
 **Self-host flag:** `--self-host` loads 11 scrml modules from `compiler/self-host/` — deferred post-S30 public pivot
