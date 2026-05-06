@@ -16,7 +16,7 @@ canonical_url:
 
 Two features are leaving the language in v0.2.0. They shipped, they worked, and I had been quietly wondering for a while what I would actually use them for, given everything scrml's primitives already do. Last week I asked claude, the LLM I have been pair-programming the compiler with, to walk me through what using the function-overload mechanism for a real centralization problem would actually look like. The drafts confirmed what I had been suspecting. Fifteen minutes after the engine-shaped rewrite landed on screen, the features were dead.
 
-If that sounds dismissive, hear me out. They did work. State-type-discriminated function overloading has been in the compiler for roughly a year. Component overloading has been a SPEC-ISSUE almost as long. The codegen path is sixty lines, cleanly written, tests cover it. With the language as it is today, neither feature can do anything `match` and `engine` don't already do better, and the self-audit couldn't surface a single case to the contrary.
+If that sounds dismissive, hear me out. State-type-discriminated function overloading has been in the compiler for roughly a year and it did work. Sixty lines of codegen, cleanly written, tests covering it. Component overloading was a different beast: a SPEC-ISSUE that tracked the design intent but was never implemented in the compiler. So one half of what is leaving v0.2.0 is shipped code with users that turned out to be zero; the other half is a doc-only proposal that never quite earned implementation. With the language as it is today, neither shape can do anything `match` and `engine` don't already do better, and the self-audit couldn't surface a single case to the contrary.
 
 About twenty compiler attempts behind me. Eighteen months of design. The thing that made me kill these two features was not a benchmark or a roadmap pruning. It was an introspective moment of epiphany'd defeat. I had insisted on and worked to add overloading as a first-class feature. I wanted scrml to have an easy bridge from JS. And perhaps without building that bridge for myself, I wouldn't have had the perspective to see the right path.
 
@@ -24,7 +24,7 @@ About twenty compiler attempts behind me. Eighteen months of design. The thing t
 
 Function overloading scrml-style let you declare two functions with the same name in two different state-type bodies. `function dothe(): UserFlow { ... }` lives inside `UserFlow`'s state-constructor. `function dothe(): AdminFlow { ... }` lives inside `AdminFlow`'s. The compiler tags each one with its enclosing state-type, builds a registry, and at the call site emits a dispatch shim that reads the argument's runtime state-type tag and routes to the matching body.
 
-Component overloading was the same shape on the markup side: multiple definitions of `<Card>`, prop-type-discriminated. The exact syntax was tracked as SPEC-ISSUE-010, never pinned down.
+Component overloading was the same shape on the markup side: multiple definitions of `<Card>`, prop-type-discriminated. The exact syntax was tracked as SPEC-ISSUE-010, never pinned down, and never implemented in the compiler — it lived as design intent in the spec text and nowhere else.
 
 The motivation is reasonable on paper. Two actor types, two implementations of the same operation, one name at the call site. Method dispatch.
 
@@ -230,11 +230,11 @@ Then the same anti-sycophancy worry kicked in again. I had reached a conclusion 
 
 The deep dive went broad. It looked at how this dispatch shape has played out across other languages that ship some flavor of it, the kinds of language designers who would push back hardest on the deletion, and the realistic use cases the mechanism was meant to serve. None of it surfaced a counter-case. Every reasonable use of the overload mechanism collapsed into one of `match`, `engine`, or derived state, with the existing primitives doing more work, more typed, with less ceremony. The radical-doubt framing did not change the conclusion; it confirmed it.
 
-Component overloading collapsed under the same scrutiny. Every plausible "multi-definition overload" use case in the markup tree reduces to either two-different-components, a single component whose body is a `match`, or a `match for=state` over an enum. There is nothing the multi-definition form does that one of those three doesn't do better.
+Component overloading collapsed under the same scrutiny, by a slightly different route. Because no code ever shipped, the question was not "delete this implementation" but "should we still ship it." A second debate ran the panel through that question, and the convergent reading was the same shape as the function-overload finding: every plausible "multi-definition overload" use case in the markup tree reduces to either two-different-components, a single component whose body is a `match`, or a `match for=state` over an enum. The case that the JSX call site is structurally asymmetric to a function call site (which is true for React, Vue, Solid, Svelte) does not survive scrml's specific shape, because scrml's `<match for=Type>` is itself a markup expression of the same kind as `<Foo/>`. There is nothing the multi-definition form does that one of those three doesn't do better.
 
 ## What goes away in v0.2.0
 
-The dispatch emitter, the registry-building pass, the AST tag the parser was setting, the tests that asserted the registry's shape: gone. The spec section that called overloading "the primary dispatch mechanism" is rewritten to point at `match` and `engine` instead. The pending spec issue that was supposed to nail down the overload syntax closes without resolution.
+For function overloading: the dispatch emitter, the registry-building pass, the AST tag the parser was setting, the tests that asserted the registry's shape — gone. For component overloading: nothing in the codegen, because there was nothing in the codegen. What goes away there is the spec text and the pending issue that tracked it. The spec section that called overloading "the primary dispatch mechanism" is rewritten to point at `match` and `engine` instead. The pending spec issue that was supposed to nail down the overload syntax closes without resolution.
 
 The replacement primitives are already in the language and already taught. See the companion piece for the full ladder.
 
