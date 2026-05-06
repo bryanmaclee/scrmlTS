@@ -510,3 +510,249 @@ describe("SYM general invariants", () => {
     expect(lookupQualifiedStateCell(sym.fileScope, ["missing"])).toBeNull();
   });
 });
+
+// ===========================================================================
+// §B2 — V5-strict local-decl shadow check (E-NAME-COLLIDES-STATE)
+// ===========================================================================
+//
+// Per SPEC §6.1.3 + §34: a local `let`/`const`/`tilde`/`lin` declaration whose
+// name matches a registered state-cell name in scope (or any enclosing scope)
+// is `E-NAME-COLLIDES-STATE`. V5-strict invariant: locals cannot shadow
+// registered state.
+//
+// Tests below exercise:
+//   - Positive collisions across all four local-decl kinds.
+//   - Negative cases (no fire when the name isn't registered).
+//   - Nested scope shadowing (parent-chain walk).
+//   - Compound-cell collisions (qualifiedPath disambiguation).
+//   - Forward-ref hoisting (state-decl appears AFTER the local in source order).
+//   - Multi-collision (multiple local-decls firing in the same scope).
+// ===========================================================================
+
+function symErrorCount(sym) {
+  return sym.errors.filter((e) => e.code === "E-NAME-COLLIDES-STATE").length;
+}
+
+function symErrorAt(sym, name) {
+  return sym.errors.find(
+    (e) => e.code === "E-NAME-COLLIDES-STATE" && e.message.includes("`" + name + "\`"),
+  );
+}
+
+describe("§B2.1 positive — let-decl shadows file-scope state cell", () => {
+  test("`<count> = 0` + function body `let count = 5` fires E-NAME-COLLIDES-STATE", () => {
+    const src = `<program>\${
+      <count> = 0
+      function inc() {
+        let count = 5
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    const err = sym.errors[0];
+    expect(err.code).toBe("E-NAME-COLLIDES-STATE");
+    expect(err.severity).toBe("error");
+    // Anti-folklore guard: message identifies the local + the cell.
+    expect(err.message).toContain("count");
+    expect(err.message).toContain("E-NAME-COLLIDES-STATE");
+    expect(err.message).toContain("V5-strict");
+  });
+});
+
+describe("§B2.2 positive — const-decl shadows state cell", () => {
+  test("`<userName> = \"\"` + function body `const userName = \"guest\"` fires", () => {
+    const src = `<program>\${
+      <userName> = ""
+      function format() {
+        const userName = "guest"
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    expect(sym.errors[0].message).toContain("const userName");
+    expect(sym.errors[0].message).toContain("<userName>");
+  });
+});
+
+describe("§B2.3 negative — no fire when name does NOT match a state cell", () => {
+  test("`<count> = 0` + function body `let total = 5` does NOT fire", () => {
+    const src = `<program>\${
+      <count> = 0
+      function f() {
+        let total = 5
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(0);
+  });
+
+  test("function body `let count = 5` with NO state cell does NOT fire", () => {
+    const src = `<program>\${
+      function f() {
+        let count = 5
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(0);
+  });
+});
+
+describe("§B2.4 positive — multiple decls colliding in same function fire multiple diagnostics", () => {
+  test("two locals each shadowing a different state cell each fire once", () => {
+    const src = `<program>\${
+      <count> = 0
+      <name> = ""
+      function f() {
+        let count = 5
+        let name = "x"
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(2);
+    expect(symErrorAt(sym, "let count")).toBeDefined();
+    expect(symErrorAt(sym, "let name")).toBeDefined();
+  });
+});
+
+describe("§B2.5 positive — tilde-decl (bare `name = expr`) shadows state cell", () => {
+  test("`<count> = 0` + function body `count = 5` fires (bare-name = tilde-decl)", () => {
+    // Per ast-builder.js:7274, bare `IDENT = expr` in logic position parses
+    // as tilde-decl. This is a v0.next form (~-typed must-use variable).
+    const src = `<program>\${
+      <count> = 0
+      function f() {
+        count = 5
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    // tilde-decl displays as bare name (no leading keyword).
+    const err = sym.errors[0];
+    expect(err.message).toContain("`count`");
+    expect(err.message).toContain("<count>");
+  });
+});
+
+describe("§B2.6 positive — lin-decl shadows state cell", () => {
+  test("`<token> = null` + function body `lin token = makeToken()` fires", () => {
+    const src = `<program>\${
+      <token> = null
+      function f() {
+        lin token = makeToken()
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    expect(sym.errors[0].message).toContain("lin token");
+  });
+});
+
+describe("§B2.7 positive — forward-reference: state-decl AFTER local-decl still fires", () => {
+  test("local-decl appearing BEFORE state-decl in source still triggers (hoisting)", () => {
+    // State cells hoist per SPEC §6 — the let-decl's `count` collides even
+    // though `<count>` is declared after the function in source order. The
+    // two-pass walker design (PASS 1 registers, PASS 2 checks) handles this
+    // cleanly without source-order dependency.
+    const src = `<program>\${
+      function f() {
+        let count = 5
+      }
+      <count> = 0
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    expect(sym.errors[0].message).toContain("count");
+  });
+});
+
+describe("§B2.8 positive — nested function inherits collision check via parent-chain walk", () => {
+  test("collision in inner function with state cell at file scope fires", () => {
+    const src = `<program>\${
+      <count> = 0
+      function outer() {
+        function inner() {
+          let count = 5
+        }
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+  });
+});
+
+describe("§B2.9 positive — compound-parent collision", () => {
+  test("compound parent name collides with outer let-decl", () => {
+    // The compound parent `signup` registers in the FILE scope; an outer
+    // `let signup` in a sibling function therefore collides.
+    const src = `<program>\${
+      <signup>
+        <name> = ""
+        <email> = ""
+      </>
+      function f() {
+        let signup = "x"
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    expect(sym.errors[0].message).toContain("let signup");
+    expect(sym.errors[0].message).toContain("<signup>");
+  });
+});
+
+describe("§B2.10 negative — compound-child name does NOT register at file scope", () => {
+  test("compound CHILD `name` is NOT shadowed by outer-function `let name`", () => {
+    // Per B1: compound children register in the PARENT'S compound sub-scope,
+    // NOT at file scope. So a `let name` in an outer function does NOT collide
+    // with `signup.name` (the qualified path) — only with a hypothetical
+    // top-level `<name>` cell.
+    const src = `<program>\${
+      <signup>
+        <name> = ""
+        <email> = ""
+      </>
+      function f() {
+        let name = "x"
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    // No collision: `name` is only registered as `signup.name` (compound-
+    // child), so the top-level `let name` doesn't shadow the leaf.
+    expect(symErrorCount(sym)).toBe(0);
+  });
+});
+
+describe("§B2.11 spans + cross-cell-display", () => {
+  test("error span points at the local-decl, not the state-decl", () => {
+    const src = `<program>\${
+      <count> = 0
+      function f() {
+        let count = 5
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    // The span should be on the `let count = 5` line, NOT on the `<count>` decl.
+    const err = sym.errors[0];
+    expect(err.span).toBeDefined();
+    // The let-decl appears AFTER the state-decl in this source; the span's
+    // start offset should be greater than the state-decl's offset.
+    const stateDeclStart = src.indexOf("<count> = 0");
+    expect(err.span.start).toBeGreaterThan(stateDeclStart);
+  });
+
+  test("error message includes the qualified path for compound cells", () => {
+    const src = `<program>\${
+      <form>
+        <name> = ""
+      </>
+      function f() {
+        let form = "x"
+      }
+    }</program>`;
+    const { sym } = buildSymbolTable(src);
+    expect(symErrorCount(sym)).toBe(1);
+    // The cell's qualifiedPath is `form` (top-level compound parent).
+    expect(sym.errors[0].message).toContain("<form>");
+  });
+});

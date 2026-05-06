@@ -112,5 +112,28 @@ For now, **B2 only fires within file/function/compound scopes** — which is exa
 
 ## Implementation phase
 
-(Append timestamped lines as work proceeds.)
+### Chunk 1 — landed `f12c116`
+
+- Extended `compiler/src/symbol-table.ts`:
+  - Imported the four local-decl types: `LetDeclNode`, `ConstDeclNode`, `TildeDeclNode`, `LinDeclNode`.
+  - Added `checkLocalDeclCollidesState()` helper that calls `lookupStateCell(currentScope, decl.name)` and pushes a `SYMDiagnostic` with `code: "E-NAME-COLLIDES-STATE"` if a record is found. Message format: `local \`{kw} {name}\` shadows registered state cell \`<{qualifiedPath}>\`. ...` with V5-strict + SPEC §6.1.3 reference.
+  - Added `walkLocalDeclsForCollisions()` — PASS 2 walker that visits the same AST tree as the B1 PASS 1 walker, but ONLY checks local-decls and re-uses the `_scope` annotations PASS 1 attached. Two-pass design: PASS 1 fully populates the symbol table (state-decls hoist), then PASS 2 fires diagnostics with the table fully built. Forward refs handled correctly.
+  - `runSYM` now calls both passes; `errors[]` populated by PASS 2.
+  - Updated docblock: B2 LANDED, V5-strict bare-name resolution active.
+
+- Test impact: 4 channel tests (`p3a-*`) fixed:
+  - `compiler/tests/integration/p3a-cross-file-multi-page-broadcast.test.js`
+  - `compiler/tests/unit/p3a-chx-same-file-passthrough.test.js`
+  - `compiler/tests/unit/p3a-chx-cross-file-inline.test.js`
+  - `compiler/tests/unit/p3a-diagnosis.test.js`
+
+  These tests used the legacy non-V5-strict pattern `messages = [...messages, ...]` inside server functions. Under the parser, this was being recognized as a `tilde-decl` (bare-name declaration) — which, post-B2, shadows the registered `<messages>` state cell and fires `E-NAME-COLLIDES-STATE`.
+
+  Replaced the function bodies with neutral `return author` — these tests probe WS routing/wire identity, not function body semantics. The original pattern was never V5-strict; B2 surfaced this drift. (A1a Step 12 was meant to land all such migrations but missed these — the bare-name shadow pattern wasn't on the Step 12 inventory.)
+
+- **Test counts:** 8928 / 44 / 1 / 0 / 8973 / 440 — zero net delta from baseline. Chunk 1 is wiring + sweep; integration tests come in Chunk 3.
+
+- Pre-commit clean. Post-commit gauntlet (TodoMVC) clean.
+
+
 

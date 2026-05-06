@@ -14232,6 +14232,10 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-IMPORT-PINNED-INVALID | §21.8.1 | The `pinned` modifier appears on an imported name that is not a state cell or an engine. `pinned` is meaningful only for cell-typed and engine-typed names; remove it for function or type imports. (Stage 0b D4) | Error |
 | E-DERIVED-CIRCULAR-DEP | §31.5, §6.6 | A `const <derived> = expr` cell whose RHS expression depends on itself directly or transitively forms a cycle in the dependency graph. Break the cycle. Distinct from `E-DERIVED-ENGINE-CIRCULAR` (§51.0.J) which is the engine-form cycle. (Stage 0b D4) | Error |
 | E-USE-INVALID-CTX | §41.12 | `registerMessages(map)` (or another project-level registration API) called from a non-top-level context (inside a function body, inside a worker `<program>`). Registration must happen at app initialisation. (Stage 0b D4) | Error |
+| E-CTRL-011 | §17.4 | `for (... in ...)` is not a valid scrml loop form. scrml iterates values via `of`: `for (item of @items)`. The `in` keyword iterates object keys in JavaScript and does not appear in scrml's vocabulary. (Catalog addition S64 audit; emitted at `compiler/src/ast-builder.js:4087-4093, 6517-6519`) | Error |
+| E-META-EVAL-001 | §22.4 | Compile-time meta evaluation failed at runtime — the `^{}` block body threw an exception when evaluated by the meta interpreter. The error message includes the underlying runtime error. (Catalog addition S64 audit; emitted at `compiler/src/meta-eval.ts:447`) | Error |
+| E-META-EVAL-002 | §22.4 | Re-parsing the code emitted by a `^{}` meta block failed. The meta block produced output that is not syntactically valid scrml/JavaScript. The error message includes the underlying parse error. (Catalog addition S64 audit; emitted at `compiler/src/meta-eval.ts:375, 385`) | Error |
+| E-SYNTAX-050 | §4 | Bare `/` is no longer a valid closer for an open tag. Use `</>` to close the most recently opened tag, or use the explicit form `</TagName>`. (Catalog addition S64 audit; emitted at `compiler/src/block-splitter.js:1276`) | Error |
 
 ---
 
