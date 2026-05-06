@@ -1,4 +1,4 @@
-# scrmlTS — Session 61 (OPEN — Steps 11.5 + 12 LANDED + Curation Batches A+C + 2 P-FUP BRIEFs)
+# scrmlTS — Session 61 (OPEN — Steps 11.5 + 12 + 11.0e LANDED + 9 of 10 Curation Batches + 2 P-FUP BRIEFs queued)
 
 **Date opened:** 2026-05-05
 **Previous:** `handOffs/hand-off-60.md` (S60 close — 8 dispatch cycles, A1a 14/17 done, A1b/A1c FULLY RATIFIED, ADR ratified Option A FOLD as Step 11.5, Step 11 escalation FULLY CLOSED)
@@ -9,46 +9,56 @@
 
 | Item | State |
 |---|---|
-| **scrmlTS HEAD** | **`7be23aa`** (`compile(a1a-step-12): existing-test deltas — 175 files, 330 site rewrites`) + S61-extension bookkeeping doc bundle pending |
-| **scrml-support HEAD** | **`9943174`** (`archive(s61-curation-batch-c): scrmlTS docs/changes/dispatch-app-* → archive/changes/`) — clean, pushed |
-| **Origin sync** | scrmlTS 9 commits ahead of origin (Step 12 cherry-pick chain) + 1 incoming bookkeeping bundle. scrml-support clean+pushed. |
-| **Tests** | **8,878 pass / 44 skip / 0 fail / 8,922 across 439 files** (S61 baseline; ZERO net delta since Step 11.5; Step 12 was zero-delta migration) |
+| **scrmlTS HEAD** | **`122c790`** (`docs(s61-curation-batch-h): deref lsp-* → scrml-support/archive/changes/`) + bookkeeping bundle pending |
+| **scrml-support HEAD** | **`880bc76`** (`archive(s61-curation-batch-h): scrmlTS docs/changes/lsp-* → archive/changes/`) — clean, pushed |
+| **Origin sync** | scrmlTS clean+pushed except in-progress bookkeeping bundle. scrml-support clean+pushed. |
+| **Tests** | **8,886 pass / 44 skip / 0 fail / 8,930 across 439 files** (post Step 11.0e; +12 pass / +1 skip vs S60 close) |
 | **Inbox** | empty |
 | **Branch** | `main` |
 | **Working tree (both repos)** | scrmlTS has bookkeeping bundle staged; scrml-support clean |
-| **Maps state** | `.claude/maps/` last touched 2026-04-24 — S61 refresh attempted but agent's Write tool was permission-denied; findings returned as text. Item #1 (SPEC head) actioned. Item #2 (curation) in progress (Batches A + C done; 8 batches remaining). |
+| **Maps state** | `.claude/maps/` last touched 2026-04-24 — S61 refresh attempted but agent's Write tool was permission-denied; findings returned as text. Item #1 (SPEC head) actioned. Item #2 (curation) **9 of 10 batches done** (J remaining). |
 
 ---
 
 ## 1. Where we are in v0.next migration
 
-- **Phase A1a: 16/19 done.** Steps 1-12 + 11.0a/b/c + **11.5 (LANDED S61, `a020ea1`)** + **12 (LANDED S61, `7be23aa`)** all complete. Remaining: **11.0d (P-FUP-1; top-level Shape 1, ~3-6h, BRIEF queued)** → **11.0e (P-FUP-2; `<x> = not\n<y>` boundary, ~1-3h, BRIEF queued)** → **13 (final commit + CHANGELOG + cleanup `scripts/step12-*.mjs`, ~0.5h)**.
-- **A1b SCOPE FULLY RATIFIED** at S60 close. 22 steps; ~85-120h focused work. Sequence: 11.0d/e → 13 → A1b/B1.
+- **Phase A1a: 17/20 done.** Steps 1-12 + 11.0a/b/c/e + 11.5 all complete. Remaining: **11.0d (P-FUP-1; top-level Shape 1, ~3-6h, BRIEF)** → **11.0f (P-FUP-3 NEW; `<x> = ?{SQL}\n<y>` BLOCK_REF boundary, ~1-3h, BRIEF NEW S61)** → **13 (final commit + CHANGELOG + cleanup `scripts/step12-*.mjs`, ~0.5h)**.
+- **Step 11.0e (P-FUP-2 fix) LANDED S61** as `916de65`. Universal fix — `"not"` added to `VALUE_KEYWORDS` Set; preserves Step 11.0b universality. +8 tests; 4 of 5 Step 12 reverted samples restored. **Surfaced P-FUP-3** (combined-007-crud has BLOCK_REF same-shape bug) → queued as Step 11.0f.
+- **A1b SCOPE FULLY RATIFIED** at S60 close. 22 steps; ~85-120h focused work. Sequence: 11.0d/f → 13 → A1b/B1.
 - **A1c SCOPE FULLY RATIFIED** at S60 close. 24 steps including new C0 feature-usage analyzer. ~96-136h. **Pre-existing Shape 3 V5-strict codegen gap deferred to A1c** (surfaced S61 Step 11.5; documented in §6.4 of A1c plan).
-- **2 NEW parser-gap follow-ups surfaced S61 Step 12** — both BRIEFs drafted:
-  - **P-FUP-1 → Step 11.0d:** top-level Shape 1 NOT implemented in BS despite SPEC §6.2. The 3 dispatch-named samples reverted (`test-002-with-logic`, `test-009-test-reactive`, `modern-003-full-app`).
-  - **P-FUP-2 → Step 11.0e:** `<x> = not\n<y>` boundary bug. 5 files reverted (`combined-007-crud`, `gauntlet-r10-go-contacts`, `gauntlet-r10-odin-filebrowser`, `gauntlet-r10-rails-blog`, `integration-001-stripe-mini`).
-- **Curation pass started** — `docs/changes/` 103 → 84 (Batches A + C done; 8 batches remaining).
+- **3 P-FUPs surfaced S61, 1 of 3 fixed:**
+  - ⏸ **P-FUP-1 → Step 11.0d:** top-level Shape 1 NOT implemented in BS despite SPEC §6.2. 3 samples reverted.
+  - ✅ **P-FUP-2 → Step 11.0e:** `<x> = not\n<y>` boundary bug — FIXED.
+  - ⏸ **P-FUP-3 → Step 11.0f:** `<x> = ?{SQL}\n<y>` BLOCK_REF boundary bug. 1 sample reverted (combined-007-crud).
+- **Curation pass — 9 of 10 batches done** — `docs/changes/` 103 → 41 (65 dirs dereffed). Only Batch J (misc, 12 dirs) remains.
 
 ---
 
 ## 2. S61 progress so far
 
-1. ✅ Session-open checklist completed (pa.md, PA-SCRML-PRIMER, hand-off, user-voice tail, sync hygiene).
+1. ✅ Session-open checklist completed.
 2. ✅ Test baseline 8,874 / 43 / 0 / 8,917 confirmed at open.
-3. ✅ **Step 11.5 dispatched + landed** as `a020ea1`. T2-tier; 6-commit chain. Hidden coupling at emit-logic.ts caught + resolved. Pre-existing Shape 3 codegen gap surfaced + deferred to A1c.
-4. ✅ **SPEC head broken-path cleanup** committed `0a48700`.
+3. ✅ **Step 11.5 LANDED** (`a020ea1`). T2; +4 pass / +1 skip. Pre-existing Shape 3 codegen gap deferred to A1c.
+4. ✅ **SPEC head broken-path cleanup** (`0a48700`).
 5. ✅ **Step 12 SURVEY pre-staged** + Q1+Q2 ratified.
-6. ✅ Maps refresh attempted (Write-denied; agent returned text findings + 8 non-compliance categories surfaced).
-7. ✅ **Curation Batch A** RATIFIED + EXECUTED. 12 P-series dirs dereffed to scrml-support archive (`f4c0081` scrmlTS / `df2f3d2` scrml-support).
-8. ✅ **Curation Batch C** RATIFIED + EXECUTED. 7 dispatch-app M-series dirs dereffed (`729e57c` scrmlTS / `9943174` scrml-support).
-9. ✅ **Step 12 dispatched + landed** as `7be23aa`. T2-tier; 9-commit chain. **ZERO net delta** (175 sample files migrated; same baseline). **2 NEW parser-gap follow-ups surfaced** — see below.
-10. ✅ **P-FUP-1 + P-FUP-2 BRIEFs drafted** at `docs/changes/phase-a1a-step-11-0{d,e}-*/BRIEF.md`.
-11. ⏸ **Step 11.0e dispatch** — about to launch (per S61 latest user direction; small narrow patch ~1-3h).
-12. ⏸ **Step 11.0d dispatch** — queued after 11.0e (medium ~3-6h).
-13. ⏸ **Step 13** — wrap A1a after 11.0d/e.
-14. ⏸ **8 curation batches remaining** (B, D, E, F, G, H, I, J — total ~58 dirs).
-15. ⏸ **A1b/B1 dispatch** — begins after Step 13.
+6. ✅ Maps refresh attempted (Write-denied; 8 non-compliance categories surfaced).
+7. ✅ **Curation Batch A** EXECUTED — 12 P-series dirs dereffed.
+8. ✅ **Curation Batch C** EXECUTED — 7 dispatch-app M-series dirs dereffed.
+9. ✅ **Step 12 LANDED** (`7be23aa`). T2; ZERO net delta. 2 P-FUPs surfaced.
+10. ✅ **P-FUP-1 + P-FUP-2 BRIEFs drafted** (Steps 11.0d + 11.0e).
+11. ✅ **Curation Batch B** EXECUTED — 4 expr-ast-phase-4d dirs.
+12. ✅ **Curation Batch F** EXECUTED — 2 BUG-letter dirs.
+13. ✅ **Curation Batch D** EXECUTED — 11 F-series dirs.
+14. ✅ **Curation Batch I** EXECUTED — 20 fix-* dirs (6 cross-refs fixed).
+15. ✅ **Curation Batches E + G combined** EXECUTED — 4 dirs.
+16. ✅ **Step 11.0f BRIEF drafted** (P-FUP-3 NEW, ~1-3h queued).
+17. ✅ **Curation Batch H** EXECUTED — 5 LSP dirs (2 J-pile cross-refs pre-fixed).
+18. ✅ **Step 11.0e LANDED** (`916de65`). T2; +8 tests; 4/5 samples restored; surfaced P-FUP-3.
+19. ⏸ **Step 11.0d dispatch** — queued (~3-6h).
+20. ⏸ **Step 11.0f dispatch** — queued (~1-3h).
+21. ⏸ **Curation Batch J** — 12 misc dirs remaining.
+22. ⏸ **Step 13** — wrap A1a after 11.0d + 11.0f.
+23. ⏸ **A1b/B1 dispatch** — begins after Step 13.
 
 ---
 
@@ -124,4 +134,4 @@
 
 ## 6. Tags
 
-#session-61 #step-11-5-landed #step-12-landed #spec-head-cleanup #q1-ratified-out-of-scope #q2-ratified-option-a #phase-a1a-16-of-19 #a020ea1 #7be23aa #curation-batch-a-executed #curation-batch-c-executed #p-fup-1-step-11-0d-queued #p-fup-2-step-11-0e-queued #zero-net-delta-step-12 #shape-3-codegen-deferred-to-a1c
+#session-61 #step-11-5-landed #step-12-landed #step-11-0e-landed #spec-head-cleanup #q1-ratified-out-of-scope #q2-ratified-option-a #phase-a1a-17-of-20 #a020ea1 #7be23aa #916de65 #curation-9-of-10-batches-executed #curation-65-dirs-dereffed #p-fup-1-step-11-0d-queued #p-fup-3-step-11-0f-queued #zero-net-delta-step-12 #universal-fix-step-11-0e #shape-3-codegen-deferred-to-a1c
