@@ -8996,14 +8996,19 @@ ${ for (let card of @cards key card.id) {
 } }
 ```
 
-### 17.5 Component Overloading
+### 17.5 Discrimination on type or value — use `match` or `engine`
 
-Component overloading is the primary dispatch mechanism for structural variation based on type or value. Multiple definitions of the same component name with different prop type constraints are valid.
+**Status (2026-05-06, S63):** This section previously declared a "Component Overloading" mechanism with multi-definition prop-type-discriminated dispatch (SPEC-ISSUE-010). That mechanism, and its sibling state-type-discriminated function-overloading mechanism (`emit-overloads.ts`), are **retired for v0.2.0**. The radical-doubt deep-dive at `scrml-support/docs/deep-dives/state-type-overload-deprecation-2026-05-06.md` found zero source-level usage, zero source-level integration tests, zero spec authority, zero documentation, and 0/6 expert-position votes for keeping the mechanism. Both forms collapse under the same scrutiny: every realistic use-case reduces to either `match` over a discriminator type or an `engine` transition. SPEC-ISSUE-010 is closed without resolution; the multi-definition overload form is not part of v0.2.0.
 
-- The compiler SHALL dispatch to the correct definition based on the caller's prop types.
-- For enum-typed props, the compiler SHALL enforce exhaustiveness: all enum variants must have a corresponding component overload, or a default overload must exist.
+**The replacement primitives (already in the language):**
 
-**SPEC ISSUE:** The exact syntax for component overloading is tracked in SPEC-ISSUE-010. This feature is confirmed but not yet fully specified.
+- For **prop-type or value discrimination at a single component**, write one component body whose markup uses a `match for=…` over the discriminator. Exhaustiveness is type-system-enforced for enum-typed discriminators.
+- For **stateful dispatch with effects, time, or multi-step transitions**, write an `<engine>` whose transition arms carry typed parameters. The arm pattern (`! send(target: UserFlow, …)`) is the dispatch.
+- For **per-actor-type derived facts** (e.g., "is this actor rate-limited?"), use a `const <name> = …` derived cell on the state-type body. The cell updates reactively when its inputs change.
+
+The retired form added a per-type-tagged method-dispatch primitive that overlapped in expressivity with `match` over a tag union — a duplicate of an existing primitive, dispatching at runtime via an `if`-ladder over a `__scrml_state_type` tag. The replacement primitives are strictly more expressive (cross-type cases like `match actor { | UserFlow | AdminFlow => …}` were always inexpressible in the retired form).
+
+**Removal lands as Stage 0c housekeeping** before A1c (codegen overhaul) starts. Files affected: `compiler/src/codegen/emit-overloads.ts` (deleted), `compiler/src/type-system.ts:7199-7245` (`buildOverloadRegistry` deleted), `compiler/src/ast-builder.js:1346-1372` (`tagFunctionsWithStateType` deleted), `compiler/src/types/ast.ts:663` (`FunctionDeclNode.stateTypeScope` field deleted), 5 unit tests in `compiler/tests/unit/type-system.test.js:2349-2450` (deleted). See `docs/changes/phase-a1c-codegen/SCOPE-AND-DECOMPOSITION.md §4.-1` for the per-step decomposition.
 
 ### 17.6 If-as-Expression
 

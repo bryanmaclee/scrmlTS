@@ -30,7 +30,7 @@ and bun:test files.
 | `emit-functions.ts` | Fetch stubs, CPS wrappers, and client-boundary function bodies. |
 | `emit-bindings.ts` | `ref=`, `bind:`, and `class:` directive wiring. |
 | `emit-reactive-wiring.ts` | Top-level logic statements + CSS variable bridge + sync infrastructure. |
-| `emit-overloads.ts` | State-type overload dispatch functions. |
+| `emit-overloads.ts` | State-type overload dispatch functions. **DEPRECATED for v0.2.0** — removal lands at Stage 0c.A per `docs/changes/phase-a1c-codegen/SCOPE-AND-DECOMPOSITION.md §4.-1`. Reason: zero source-level usage; collapses to `match` / `engine` per `scrml-support/docs/deep-dives/state-type-overload-deprecation-2026-05-06.md`. |
 | `emit-event-wiring.ts` | Event handler wiring and reactive display wiring (`DOMContentLoaded`). |
 | `emit-logic.ts` | Single `LogicNode` to JS emission (switch on `node.kind`). |
 | `emit-control-flow.ts` | `if` / `for` / `while` / `try` / `match` / `switch` statement emission. |

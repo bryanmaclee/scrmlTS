@@ -7,9 +7,11 @@ cover_image:
 canonical_url:
 ---
 
-*authored by claude, rubber stamped by Bryan MacLee*
+*by Bryan MacLee*
 
 **TL;DR: The goal is a shipped app that is essentially bullet-proof — every reachable state has UI, every transition is intentional, every effect runs at the right moment. Getting there should not require rewriting the prototype. scrml has a three-tier ladder — `if=` → `<match>` → `<engine>` — where the state-children migrate verbatim. The compiler tells you when to promote. The wrapper swap is the commitment moment.**
+
+This piece and its companion arrived together. This one shows the ladder. The companion piece, *Why scrml has to deprecate function and component overloading*, explains two features the language is deleting in v0.2.0 because the ladder you are about to read already does their job better.
 
 Every framework I have looked at picks a side in the same fight. The state-machine evangelists insist you specify your machine before you write a feature. The rapid-prototyping evangelists hand you `useState` and let you stack booleans until you have a runtime invariant problem you cannot debug. Both camps are right about something and wrong about something else.
 
@@ -298,4 +300,4 @@ That is the point.
 
 ---
 
-*Part of an ongoing series unpacking scrml's design. Earlier pieces: components-are-states, the npm myth, css without a build step. Next: the validator-vocabulary unification.*
+*Drafted with Claude. Companion piece: [Why scrml has to deprecate function and component overloading](./why-scrml-has-to-deprecate-function-and-component-overloading-devto-2026-05-06.md). Two features the language is deleting in v0.2.0 because the ladder above already does their job. Part of an ongoing series unpacking scrml's design. Earlier pieces: components-are-states, the npm myth, css without a build step.*

@@ -170,7 +170,26 @@ A1b records zone decisions per type-annotation; A1c emits the runtime predicates
 
 ## §4 Decomposition into per-step dispatches
 
-23 steps total, ~93-131 h focused work, 6 waves. Each step is a per-step branch with PA cherry-pick to main, mirroring A1a + A1b.
+23 steps total + Stage 0c (housekeeping) prepended, ~96-136 h focused work, 6 waves + 1 housekeeping milestone. Each step is a per-step branch with PA cherry-pick to main, mirroring A1a + A1b.
+
+### §4.-1 Stage 0c housekeeping — `emit-overloads.ts` deprecation (Hard removal) — ~3-5 h
+
+**Inserted S63 (2026-05-06)** following the radical-doubt deep-dive at `scrml-support/docs/deep-dives/state-type-overload-deprecation-2026-05-06.md`. State-type-discriminated function overloading is removed BEFORE A1c-C0 starts so the codegen overhaul doesn't have to handle a vestigial path. Hard removal (no soft-deprecation cycle) per §0c.D below.
+
+| # | Step | Files | Est | Notes |
+|---|---|---|---|---|
+| **0c.A** | **Remove dispatch emitter** — delete `emit-overloads.ts`; remove the unconditional `emitOverloads(ctx)` call site in `emit-client.ts:545-547`. | `compiler/src/codegen/emit-overloads.ts` (DELETE), `compiler/src/codegen/emit-client.ts` (call-site removal), `compiler/src/codegen/README.md` (row removal at L33), `compiler/src/codegen/analyze.ts` (overloadRegistry threading at L43/59/92, remove) | 1 h | Net -60 LOC dispatch + ~5 LOC threading |
+| **0c.B** | **Remove TS overload registry** — delete `buildOverloadRegistry` and its caller in `type-system.ts`; remove `overloadRegistry` from the FileAST surface. | `compiler/src/type-system.ts:7199-7245` (delete), `compiler/src/type-system.ts:7934` (caller), exports at `:8773`. | 0.5 h | Eliminates one global per-file AST walk (salsa-incrementality win per deep-dive §E) |
+| **0c.C** | **Remove parser tagging + AST field** — delete `tagFunctionsWithStateType` in `ast-builder.js` and the `stateTypeScope?: string` field on `FunctionDeclNode`. | `compiler/src/ast-builder.js:1346-1372` (delete), `compiler/src/ast-builder.js:8345` (call-site), `compiler/src/types/ast.ts:663` (field) | 0.5 h | |
+| **0c.D** | **Test cleanup** — remove the 5 programmatic unit tests in `type-system.test.js:2349-2450` that assert on overload-registry construction. (No source-level integration tests exist; nothing else breaks.) | `compiler/tests/unit/type-system.test.js:2349-2450` | 0.5 h | Test count delta: -5 |
+| **0c.E** | **Spec rewrite — §17.5** — replace "Component Overloading" section with "use `match` over the discriminator type, or `engine` for stateful dispatch"; retire SPEC-ISSUE-010. | `compiler/SPEC.md §17.5` | 0.5 h | §F finding of deep-dive: component overloading collapses under same scrutiny |
+| **0c.F** | **Audit doc updates** — strike "shipped + tutorial gap" entries and SPEC-ISSUE-010 row from the two 2026-04-29 audits in scrml-support; add DEPRECATED-FOR-V0.2.0 cross-reference. | `scrml-support/docs/deep-dives/language-status-audit-2026-04-29.md`, `scrml-support/docs/deep-dives/tutorial-freshness-audit-2026-04-29.md` | 0.5 h | Tutorial §2.11 work retired (was gated on SPEC-ISSUE-010 lock that's no longer happening) |
+
+**Self-host parity:** the self-host `.scrml` modules in `~/scrmlMaster/scrml/` reference no overload uses (per deep-dive §A); 0c.C field removal needs the corresponding ast-shape commit at the next bootstrap regen, but no behavior change.
+
+**Test invariant after Stage 0c:** baseline drops by 5 (the deleted programmatic unit tests); zero source-level regressions. Validate: `bun run test` passes with delta exactly -5.
+
+**Why hard, not soft (per deep-dive §E + user authorization S63):** zero source-level usage; zero source-level integration tests; v0.2.0 is breaking-by-design; the soft-deprecation cycle exists to give users a migration window, but with no users the migration window has no recipient.
 
 ### §4.0 Foundational usage-analysis pass (Step C0) — ~3-5 h
 
