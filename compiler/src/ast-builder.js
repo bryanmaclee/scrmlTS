@@ -307,6 +307,27 @@ function preprocessWorkerAndStateRefs(raw) {
 const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w)/;
 
 /**
+ * Phase A1a Step 11.0d — top-level structural state-decl pattern.
+ *
+ * Matches text blocks that BS emitted when it detected the top-level state-decl
+ * signal (`<count> = 0`, `const <doubled> = expr`, `<count>: number = 0`).
+ * Such text blocks always start with optional `const`, optional whitespace,
+ * then `<` IDENT (optionally with attrs), `>`, then `=` or `:`.
+ *
+ * SPEC §6.2 (Three RHS Shapes), §6.6 (derived const), §35.2 (typed-decl).
+ *
+ * Notes:
+ *   - The regex anchors on `^\s*` to permit leading newlines/spaces.
+ *   - Optional `const\s+` matches Shape 3 (derived).
+ *   - The attrs portion `[^>]*` is permissive — actual attr parsing happens
+ *     in parseLogicBody → tryParseStructuralDecl after the `${...}` wrap.
+ *   - The terminator `>\s*[=:]` is the discriminator vs ordinary markup
+ *     content. Markup like `<div>hello</>` has `>` followed by content,
+ *     never `=` or `:` directly.
+ */
+const TOPLEVEL_STATE_DECL_RE = /^\s*(?:const\s+)?<\s*[A-Za-z_][A-Za-z0-9_]*[^>]*>\s*[=:]/;
+
+/**
  * P2: regex matching a text block whose only meaningful content is the bare
  * `export` keyword. Used to detect the `export <ComponentName ...>...</>`
  * pattern (text "export " block followed by a PascalCase markup block).
@@ -912,6 +933,34 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
         closerForm: null,
         isComponent: false,
         _synthetic: true,   // diagnostic marker
+      });
+      continue;
+    }
+
+    // Phase A1a Step 11.0d — top-level structural state-decl lift.
+    //
+    // SPEC §6.2 (Three RHS Shapes for State Declarations) — `<count> = 0` at
+    // FILE TOP-LEVEL is canonical Shape 1. BS now emits this as a text block
+    // (see block-splitter.js peekTopLevelStateDeclSignal). Wrap it in ${...}
+    // so parseLogicBody's tryParseStructuralDecl (Steps 2/11.0a/11.0c) parses
+    // it as a state-decl with structuralForm:true.
+    //
+    // Suppressed when parentType === "markup" (prose context). Mirrors
+    // BARE_DECL_RE's policy: lift fires at true top level and inside
+    // <program> direct text children (parentType === "state"), not inside
+    // arbitrary markup elements.
+    if (block.type === "text" && parentType !== "markup" && TOPLEVEL_STATE_DECL_RE.test(block.raw)) {
+      result.push({
+        type: "logic",
+        raw: "${" + block.raw + "}",
+        span: block.span,
+        depth: block.depth,
+        children: [],
+        name: null,
+        closerForm: null,
+        isComponent: false,
+        _synthetic: true,
+        _toplevelStateDecl: true, // diagnostic marker
       });
       continue;
     }

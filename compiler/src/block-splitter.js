@@ -415,6 +415,88 @@ export function splitBlocks(filePath, source) {
   }
 
   // ---------------------------------------------------------------------------
+  // Phase A1a Step 11.0d — top-level state-decl signal peek
+  //
+  // Pre-condition: source[pos] === "<", source[pos+1] is [A-Za-z_], and
+  // we are at TRUE top level (stack.length === 0). This non-mutating scan
+  // peeks past `<NAME [attrs]>` to determine whether the immediately
+  // following non-space (excluding newlines) char is `=` or `:` — the
+  // state-decl Shape 1/2/3 signals.
+  //
+  // SPEC §6.2 — `<count> = 0`, `<userName req length(>=2)> = <input/>`,
+  // `<count>: number = 0`. All three forms have `=` or `:` immediately
+  // after `>`.
+  //
+  // Self-closing `<NAME/>` is NOT a state-decl (it's markup leaf).
+  // Component-defs (`< userBadge name(string)>`) take the whitespace-state
+  // BS branch (line 1088), not this markup branch — untouched here.
+  //
+  // Tightened post-`>` predicate:
+  //   - `=` followed by `=` is comparison — not a decl.
+  //   - `=` followed by `>` is arrow — not a decl.
+  //   - `:` is always a state-decl typed-form signal at top level
+  //     (no ambient JS construct at file top level uses `<NAME>: TYPE`).
+  //
+  // Returns true iff a state-decl signal is detected. Does NOT modify scanner state.
+  // ---------------------------------------------------------------------------
+
+  /** @returns {boolean} */
+  function peekTopLevelStateDeclSignal() {
+    let p = pos + 1; // past '<'
+    // Read identifier
+    while (p < len && /[A-Za-z0-9_\-]/.test(source[p])) p++;
+    if (p === pos + 1) return false; // no ident
+    // Skip attribute content up to '>' — non-mutating mirror of scanAttributes balance logic.
+    let braceDepth = 0;
+    let parenDepth = 0;
+    let inDouble = false;
+    let inSingle = false;
+    while (p < len) {
+      const c = source[p];
+      if (braceDepth > 0) {
+        if (c === "{") braceDepth++;
+        else if (c === "}") braceDepth--;
+        p++;
+        continue;
+      }
+      if (parenDepth > 0) {
+        if (c === "(") parenDepth++;
+        else if (c === ")") parenDepth--;
+        p++;
+        continue;
+      }
+      if (!inDouble && !inSingle) {
+        if (c === ">") { p++; break; }
+        if (c === "/" && p + 1 < len && source[p + 1] === ">") return false; // self-closing — not state-decl
+        if ((c === "$" || c === "?" || c === "#" || c === "!" || c === "^" || c === "~") && p + 1 < len && source[p + 1] === "{") {
+          braceDepth = 1; p += 2; continue;
+        }
+        if (c === "{") { braceDepth++; p++; continue; }
+        if (c === "(") { parenDepth++; p++; continue; }
+        if (c === '"') { inDouble = true; p++; continue; }
+        if (c === "'") { inSingle = true; p++; continue; }
+      } else if (inDouble && c === '"') { inDouble = false; p++; continue; }
+      else if (inSingle && c === "'") { inSingle = false; p++; continue; }
+      else if (c === "\\") { p += 2; continue; }
+      p++;
+    }
+    if (p > len) return false; // ran past EOF
+    // Skip horizontal whitespace (NOT newlines — newlines separate statements).
+    while (p < len && (source[p] === " " || source[p] === "\t")) p++;
+    if (p >= len) return false;
+    if (source[p] === "=") {
+      const nxt = p + 1 < len ? source[p + 1] : "";
+      if (nxt === "=" || nxt === ">") return false; // comparison '==' or arrow '=>'
+      return true;
+    }
+    if (source[p] === ":") {
+      // Typed-decl signal. ':' is unambiguous at top-level after a tag.
+      return true;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
   // Context stack operations
   // ---------------------------------------------------------------------------
 
@@ -1033,6 +1115,24 @@ export function splitBlocks(filePath, source) {
 
       // '<letter' or '<_' - markup tag (section 4.1)
       if (/[A-Za-z_]/.test(next)) {
+        // Phase A1a Step 11.0d — top-level state-decl signal.
+        // SPEC §6.2: `<count> = 0` (Shape 1), `<count>: number = 0` (Shape 1+typed),
+        // `<userName req> = <input/>` (Shape 2). At TRUE top level (no enclosing
+        // block context), recognize the post-`>` `=` or `:` signal and let the
+        // entire `<NAME [attrs]>...` slice flow through as TEXT instead of
+        // pushing a markup context. liftBareDeclarations then wraps such text
+        // blocks in `${...}` synthetic logic, where parseLogicBody's existing
+        // tryParseStructuralDecl recognizer (Step 2 + 11.0a + 11.0c) parses it.
+        //
+        // Component-defs (`< userBadge name(string) role(Role)>`) take the
+        // whitespace-state branch (line below) — untouched.
+        if (stack.length === 0 && peekTopLevelStateDeclSignal()) {
+          // Don't flush text; don't step. Let the default raw-content path
+          // accumulate the entire `<NAME [attrs]> = expr` line as text.
+          beginText();
+          step(); // consume '<' so we don't loop on it
+          continue;
+        }
         flushText();
         step(); // consume '<'
         const tagName = readIdent();
