@@ -40,7 +40,8 @@ describe("P3.A multi-page broadcast — case 3 of dive §6.3", () => {
   ${"$"}{
     @shared messages = []
     server function postMessage(author, body) {
-      messages = [...messages, { author, body, ts: Date.now() }]
+      // V5-strict: function body neutral. Test probes WS routing only.
+      return author
     }
   }
 </>

@@ -70,7 +70,8 @@ describe("P3.A CHX — same-file <channel> pass-through (regression pin)", () =>
   ${"$"}{
     @shared messages = []
     server function postMessage(author, body) {
-      messages = [...messages, { author, body, ts: Date.now() }]
+      // V5-strict: function body neutral; this test probes WS routing only.
+      return author
     }
   }
 </>

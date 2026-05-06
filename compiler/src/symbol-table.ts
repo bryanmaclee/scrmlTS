@@ -6,7 +6,7 @@
  * TAB and decorated by NR. It is FOUNDATIONAL infrastructure that
  * subsequent A1b steps (B2 onward) build on:
  *
- *   B2 — V5-strict bare-name resolution + E-NAME-COLLIDES-STATE
+ *   B2 — V5-strict bare-name resolution + E-NAME-COLLIDES-STATE  [LANDED]
  *   B3 — `@name` resolution → record back-pointer on each ExprNode
  *   B4 — Import binding + `pinned` forward-ref cycle detection
  *   B5 — Cell classifier (bindable, markup-typed, derived-with-validators)
@@ -14,6 +14,14 @@
  *   B7 — Derived-cell dep DAG + E-DERIVED-CIRCULAR-DEP
  *   B8 — L21 walker (E-DERIVED-VALUE-MUTATE + E-SYNTHESIZED-WRITE)
  *   B11/B12 — Validity-surface synthesized cells (re-entrancy invariant)
+ *
+ * Phase A1b Step B2 — V5-strict bare-name resolution. The walker now also
+ * visits `let-decl`, `const-decl`, `tilde-decl`, and `lin-decl` nodes (the
+ * four local declaration kinds). For each local-decl, looks up the decl's
+ * name in the current scope (via `lookupStateCell`'s parent-chain walk). If
+ * a registered state-cell record is found at any enclosing scope, fires
+ * `E-NAME-COLLIDES-STATE` per SPEC §6.1.3 + §34. Local names cannot shadow
+ * registered state-cell names — the V5-strict invariant.
  *
  * What B1 lands:
  *   - A `Scope` data structure (per-file root, child scopes for function /
@@ -32,9 +40,7 @@
  *     `lookupQualifiedStateCell` (multi-segment paths), `getScopeForNode`
  *     (reverse lookup).
  *
- * What B1 does NOT do (handled by later B-steps):
- *   - Fire ANY diagnostics. B1 is infrastructure; B2 fires the first
- *     diagnostic (E-NAME-COLLIDES-STATE).
+ * What B1 + B2 do NOT do (handled by later B-steps):
  *   - Resolve `@name` reads. B3 walks ExprNode trees and records the
  *     resolution back-pointer.
  *   - Synthesize validity-surface cells (`@compound.isValid` etc.). B11/B12
@@ -55,6 +61,10 @@ import type {
   FileAST,
   ReactiveDeclNode,
   FunctionDeclNode,
+  LetDeclNode,
+  ConstDeclNode,
+  TildeDeclNode,
+  LinDeclNode,
   Span,
 } from "./types/ast.ts";
 
@@ -164,9 +174,9 @@ export interface Scope {
 
 /**
  * Per-file SYM result. Mirrors `NRResult`'s shape (filePath + diagnostic
- * count + summary stats). B1 emits NO diagnostics, so `errors` is always
- * empty; the field is preserved for ABI alignment with NR (B2 will start
- * populating it).
+ * count + summary stats). B1 emitted NO diagnostics, but B2 populates
+ * `errors[]` with `E-NAME-COLLIDES-STATE` whenever a local declaration
+ * (let/const/tilde/lin) shadows a registered state-cell name.
  */
 export interface SYMResult {
   filePath: string;
@@ -338,10 +348,56 @@ function registerStateDecl(
 // recursing into the body. Compound state-decls handle their own sub-scope
 // (in `registerStateDecl`).
 //
+// B2 extension: visits the four local-decl kinds (`let-decl`, `const-decl`,
+// `tilde-decl`, `lin-decl`); for each, looks up its name in the current
+// scope's parent chain and fires E-NAME-COLLIDES-STATE if a registered
+// state-cell shadows it. The B2 check is a localized extension, not a new
+// pass — the SYM walker already passes through let/const/tilde/lin nodes
+// when descending function-body / logic-block containers; B1 ignored them,
+// B2 consults the table.
+//
 // Mirrors NR's walker recursion (name-resolver.ts:301-378): visits
 // `children`, `body`, `consequent`, `alternate`, `arms[].body`,
 // `lift-expr.expr.node`. Engine + component bodies are NOT walked here —
 // today's AST stores them as strings (see ScopeKind doc).
+
+/**
+ * B2: emit `E-NAME-COLLIDES-STATE` if `decl.name` is registered as a state
+ * cell at any enclosing scope (parent-chain walk). Diagnostic carries the
+ * decl's span and the name of the collided cell + its qualified path.
+ */
+function checkLocalDeclCollidesState(
+  decl: LetDeclNode | ConstDeclNode | TildeDeclNode | LinDeclNode,
+  currentScope: Scope,
+  errors: SYMDiagnostic[],
+): void {
+  if (!decl.name) return;
+  const collided = lookupStateCell(currentScope, decl.name);
+  if (!collided) return;
+  // Render the local-decl keyword display: `let x`, `const x`, `lin x`, or
+  // bare `x` (for tilde-decl which has no leading keyword).
+  let declDisplay: string;
+  switch (decl.kind) {
+    case "let-decl":   declDisplay = `let ${decl.name}`;   break;
+    case "const-decl": declDisplay = `const ${decl.name}`; break;
+    case "lin-decl":   declDisplay = `lin ${decl.name}`;   break;
+    case "tilde-decl": declDisplay = `${decl.name}`;       break;
+    default:           declDisplay = decl.name;
+  }
+  // The collision is detected by parent-chain walk; the registered record's
+  // qualifiedPath disambiguates which cell is being shadowed (relevant for
+  // compound-child collisions where the user's `let` sits in an outer
+  // function but the state cell lives at a nested compound qualifiedPath).
+  errors.push({
+    code: "E-NAME-COLLIDES-STATE",
+    message:
+      `E-NAME-COLLIDES-STATE: local \`${declDisplay}\` shadows registered state cell \`<${collided.qualifiedPath}>\`. `
+      + `Local names cannot shadow registered state-cell names (V5-strict, SPEC §6.1.3). `
+      + `Rename the local, or use \`@${collided.qualifiedPath}\` to read the cell directly.`,
+    span: decl.span,
+    severity: "error",
+  });
+}
 
 function walk(
   nodes: ASTNode[] | undefined,
@@ -403,6 +459,84 @@ function walk(
 }
 
 // ---------------------------------------------------------------------------
+// B2: Local-decl collision walker (separate from PASS 1)
+// ---------------------------------------------------------------------------
+//
+// Walks the same AST tree as `walk`, but ONLY fires E-NAME-COLLIDES-STATE
+// diagnostics on local-decl nodes. Re-uses the `_scope` annotations PASS 1
+// attached to scope-introducing nodes (function-decls, compound state-decls,
+// FileAST). State-decl registration is NOT performed here — by the time
+// PASS 2 runs, the symbol table is fully populated, so `lookupStateCell`
+// sees every cell regardless of source-order forward refs.
+
+function walkLocalDeclsForCollisions(
+  nodes: ASTNode[] | undefined,
+  currentScope: Scope,
+  visited: WeakSet<object>,
+  errors: SYMDiagnostic[],
+): void {
+  if (!nodes) return;
+  for (const n of nodes) {
+    if (!n || typeof n !== "object") continue;
+    if (visited.has(n)) continue;
+    visited.add(n);
+    const anyN = n as any;
+    const kind = anyN.kind as string;
+
+    // B2 — V5-strict local-decl shadow check. The four local declaration
+    // kinds (let / const / tilde / lin) cannot use a name registered as a
+    // state cell at any enclosing scope. SPEC §6.1.3 + §34
+    // E-NAME-COLLIDES-STATE.
+    if (
+      kind === "let-decl"
+      || kind === "const-decl"
+      || kind === "tilde-decl"
+      || kind === "lin-decl"
+    ) {
+      checkLocalDeclCollidesState(
+        n as LetDeclNode | ConstDeclNode | TildeDeclNode | LinDeclNode,
+        currentScope,
+        errors,
+      );
+      // No early-continue: a local-decl may carry an if-/for-/match-as-
+      // expression body that contains nested decls. Generic-recursion
+      // fallthrough handles its child arrays.
+    }
+
+    if (kind === "state-decl") {
+      // PASS 2 does not register; descend only into the compound sub-scope
+      // (if any) so nested local-decls inside compound bodies are checked.
+      const stateScope = (anyN as ReactiveDeclNode & ScopeAnnotated)._scope;
+      if (stateScope && Array.isArray(anyN.children)) {
+        walkLocalDeclsForCollisions(anyN.children, stateScope, visited, errors);
+      }
+      continue;
+    }
+
+    if (kind === "function-decl") {
+      // Use the function scope PASS 1 already created.
+      const fnScope = (anyN as ScopeAnnotated)._scope ?? currentScope;
+      walkLocalDeclsForCollisions(anyN.body, fnScope, visited, errors);
+      continue;
+    }
+
+    // Generic recursion. Same shape as PASS 1.
+    if (Array.isArray(anyN.children)) walkLocalDeclsForCollisions(anyN.children, currentScope, visited, errors);
+    if (Array.isArray(anyN.body)) walkLocalDeclsForCollisions(anyN.body, currentScope, visited, errors);
+    if (Array.isArray(anyN.consequent)) walkLocalDeclsForCollisions(anyN.consequent, currentScope, visited, errors);
+    if (Array.isArray(anyN.alternate)) walkLocalDeclsForCollisions(anyN.alternate, currentScope, visited, errors);
+    if (Array.isArray(anyN.arms)) {
+      for (const arm of anyN.arms) {
+        if (arm && Array.isArray(arm.body)) walkLocalDeclsForCollisions(arm.body, currentScope, visited, errors);
+      }
+    }
+    if (kind === "lift-expr" && anyN.expr && anyN.expr.kind === "markup" && anyN.expr.node) {
+      walkLocalDeclsForCollisions([anyN.expr.node], currentScope, visited, errors);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -431,12 +565,26 @@ export function runSYM(input: SYMInput): SYMResult {
     totalScopes: 1, // the file-level root counts
   };
 
+  // PASS 1 (B1): Construct scopes + register state-decls. The state-cell
+  // table is fully populated when this returns, so PASS 2 can do a clean
+  // parent-chain walk for collision detection regardless of source order.
+  // (State-decls hoist per SPEC §6 — they are visible at any local-decl
+  // in the same or enclosing scope.)
   const visited = new WeakSet<object>();
   walk(ast.nodes, fileScope, stats, visited);
 
+  // PASS 2 (B2): Walk local-decl nodes (let/const/tilde/lin); look up each
+  // by name in the current-scope parent chain; fire E-NAME-COLLIDES-STATE
+  // if a state-cell record is found. Re-uses the `_scope` annotations PASS 1
+  // attached to function-decls (so we can set the correct currentScope as
+  // we descend without re-creating scopes).
+  const errors: SYMDiagnostic[] = [];
+  const visited2 = new WeakSet<object>();
+  walkLocalDeclsForCollisions(ast.nodes, fileScope, visited2, errors);
+
   return {
     filePath,
-    errors: [],
+    errors,
     fileScope,
     stats,
   };
@@ -461,9 +609,9 @@ export function runSYMBatch(
  * Look up a state-cell by leaf name, walking the scope's parent chain.
  * Returns the closest enclosing record, or `null` if not found.
  *
- * V5-strict semantic: this is the lookup B2 will use for the
- * E-NAME-COLLIDES-STATE check (a local `let`/`const` redeclaring a name
- * registered in this scope or any parent fires the error). B3 will use it
+ * V5-strict semantic: B2 uses this lookup for the E-NAME-COLLIDES-STATE
+ * check (a local `let`/`const`/`tilde`/`lin` redeclaring a name registered
+ * in this scope or any enclosing parent fires the error). B3 will use it
  * for `@name` resolution.
  */
 export function lookupStateCell(
