@@ -7,6 +7,7 @@
  *   scrml dev <file.scrml|dir> [options]
  *   scrml build <dir> [options]
  *   scrml migrate <file|dir> [options]
+ *   scrml promote --match|--engine <file|dir> [options]
  *   scrml --help
  *   scrml --version
  *
@@ -41,6 +42,7 @@ Usage:
   scrml build <dir> [options]                Build production server
   scrml serve [options]                      Start persistent compiler server
   scrml migrate <file|dir> [options]         Apply automated source rewrites for deprecated patterns
+  scrml promote --match|--engine <file|dir>  Promote tier-1 if-else → <match> or <match> → <engine> (CLI surface; impl pending)
 
 Options (compile / dev):
   --output-dir, -o <dir>  Output directory (default: dist/ next to input)
@@ -70,6 +72,14 @@ Options (migrate):
   --exclude=<glob>      Additional exclude pattern (substring match)
   --no-default-excludes Disable built-in samples/ + tests/ exclusions
 
+Options (promote):
+  --match               Lift if-else over enum-typed cell into <match> block (Tier 1)
+  --engine              Lift <match> with rule= attributes into <engine> (Tier 2)
+  --dry-run             Print unified diff to stdout without writing
+  --check               Exit non-zero if any file would be promoted
+  Status: CLI surface locked; AST→AST rewrite implementation pending.
+  See docs/changes/promotion-ergonomics/SCOPE.md.
+
 Options (global):
   --help, -h            Show this message
   --version             Print version
@@ -87,7 +97,7 @@ let subcommand = args[0];
 let subArgs = args.slice(1);
 
 // Fall through: if first arg is a .scrml file or a directory, treat as compile
-if (subcommand !== "compile" && subcommand !== "dev" && subcommand !== "build" && subcommand !== "serve" && subcommand !== "init" && subcommand !== "migrate") {
+if (subcommand !== "compile" && subcommand !== "dev" && subcommand !== "build" && subcommand !== "serve" && subcommand !== "init" && subcommand !== "migrate" && subcommand !== "promote") {
   // Check if it looks like a file or directory rather than a subcommand
   const looksLikeInput = subcommand.endsWith(".scrml") || (() => {
     try { return statSync(subcommand).isDirectory(); } catch { return false; }
@@ -122,4 +132,7 @@ if (subcommand === "init") {
 } else if (subcommand === "migrate") {
   const { runMigrate } = await import("./commands/migrate.js");
   await runMigrate(subArgs);
+} else if (subcommand === "promote") {
+  const { runPromote } = await import("./commands/promote.js");
+  await runPromote(subArgs);
 }

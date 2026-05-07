@@ -391,6 +391,7 @@ What LLMs reflexively reach for + the scrml form:
 | Importing across files without `pinned` when forward-ref is needed | forward-references through imports require `pinned` to lift the cycle | E-IMPORT-PINNED-INVALID; add `pinned` modifier to the import |
 | Engine instantiated inside a component body | components are multi-instance, engines are singleton — they don't compose | E-COMPONENT-ENGINE-SCOPE; declare the engine at file/program scope and mount via `<EngineName/>` |
 | `@derivedArr.push(x)` / `@derivedObj.foo = x` on a `const`-derived cell | derived cells are value-immutable from the developer's perspective; the mutation would be silently clobbered next time upstream deps fire | E-DERIVED-VALUE-MUTATE (§6.6.18); mutate the upstream cell instead (`@items = [...@items, x]`) or declare a separate mutable cell |
+| `if (@phase == .Idle) { ... } else if (@phase == .Loading) { ... }` over an enum-typed cell | works, but loses Tier-1 structural-exhaustiveness guarantees and forfeits future-variant-add catching at the discrimination site | I-MATCH-PROMOTABLE (§13.8, SPEC §56) info-level lint surfaces the opportunity; run `bun scrml promote --match <file>[:line]` to mechanically lift to `<match for=Type on=@phase> <Idle>...</> <Loading>...</> </>` |
 
 ---
 
@@ -514,6 +515,35 @@ A1b decorates the A1a AST with resolution metadata that downstream passes (B5+, 
 - `_resolvedStateCell: null` is an EXPLICIT "B3 ran, found nothing" marker — not the same as `undefined`. Downstream passes can detect failed resolution and decide whether to fire (a future tightening dispatch will convert null markers into fired E-SCOPE-001 at the type-check pass; today the `@`-prefix path in `type-system.ts:2870-2999` skips diagnostics).
 - **Compound nav** (`@form.name`): B3 resolves the BASE cell on the `@form` IdentExpr. The `.name` part is a static property string (MemberExpr), NOT an IdentExpr — `forEachIdentInExprNode` walks `member.object` only. Consumers needing leaf-level resolution (e.g., B22 `reset(@form.name)`) must re-resolve via `lookupQualifiedStateCell`.
 - **No collision with parseVariant Phase 2's `parseVariantEnum`** — different node kinds (CallExpr vs IdentExpr), different stages (type-check pass vs SYM PASS-3).
+
+---
+
+## §13.8 Promotion ergonomics — `I-MATCH-PROMOTABLE` + `bun scrml promote` (S65)
+
+The tier ladder (§1) is "promotion is mechanical and additive." Promotion ergonomics is the design center that makes that promise concrete in the dev loop:
+
+**Two pieces, one workflow:**
+
+1. **`I-MATCH-PROMOTABLE`** — info-level lint (NOT a warning). Surfaces when an if-else chain over an enum-typed state cell is mechanically promotable to a Tier-1 `<match>` block. Three message shapes:
+   - **Exhaustive** — all variants covered; clean lift available.
+   - **Near-miss** — partial coverage; lists the *missing variants concretely*. Add the missing arm, then promote. (Once promoted, the compiler catches future variant-adds at the `<match>` site automatically — that's the gain.)
+   - **Wrong-discriminator** — defers to `W-LIFECYCLE-CANDIDATE` (the discriminator is a string with enum-tag-shaped values; lift to enum first, then `I-MATCH-PROMOTABLE` re-fires).
+
+2. **`bun scrml promote --match <file>[:line]`** — CLI subcommand that *executes* the lift mechanically. Per-branch rewrite rules (full table SPEC §56.5.2): `if (@cell == .X) { body }` → `<X>{body}</>`; payload destructure preserved; `else { ... }` dropped on exhaustive coverage. Idempotent — re-running on already-promoted code is a no-op. Supports `--dry-run`, `--check`, file or directory targets. Pairs with `bun scrml migrate` (deprecated→current) but is a separate verb because semantics differ — `promote` is a tier-up of valid code.
+
+**Companion verb:** `bun scrml promote --engine <file>[:line]` lifts a `<match>` block whose state-arms accrue `rule=` attributes into an active `<engine>` (Tier 1→2). Pairs with the `W-MATCH-TRANSITIONS-ACCRUING` lint.
+
+**Status (S65 dispatch):** CLI surface registered; spec/primer/article docs landed (Tier A). Lint detection + AST→AST transformation impl pending Tier B dispatch (gated on A+ verdict #1+#2 landing for the lint substrate). See `docs/changes/promotion-ergonomics/SCOPE.md` and `SURVEY-NOTE.md` for the full design + tier-split rationale.
+
+**Why this matters (marketing-load-bearing):** scrml is the only mainstream-target framework where the *compiler tells you when your code is ready to lift* AND *a CLI does the mechanical lift* AND *no silent rewrite happens*. React/Vue/Svelte have nothing comparable. Promotion ergonomics is the marketing flagship for the tier-ladder system itself, paired with `formFor` as the marketing flagship for L22-family validators.
+
+**Cross-references:**
+- SPEC §34 — `I-MATCH-PROMOTABLE` catalog row
+- SPEC §56 — full normative spec (fire conditions, message shapes, CLI flag set, exit codes, formatting-preservation invariant)
+- Primer §1 — tier ladder framing
+- Primer §11 — anti-pattern row pointing here
+- `docs/articles/tier-ladder-promotion-devto-2026-05-04.md` — the dev.to article
+- `docs/changes/promotion-ergonomics/` — dispatch artifacts (SCOPE, SURVEY-NOTE, progress)
 
 ---
 

@@ -24726,6 +24726,186 @@ the relevant sections; §34 indexes them.
 
 ---
 
+## 56. Promotion Ergonomics — `I-MATCH-PROMOTABLE` and `bun scrml promote`
+
+**Status (S65):** Design locked. Severity, fire conditions, message shapes, and CLI surface are
+normative below. Implementation is split into Tier A (CLI surface registration + spec/primer/
+article docs — landed S65) and Tier B (lint detection + AST→AST transformation — pending
+post-A+ verdict #1+#2 dispatch). See `docs/changes/promotion-ergonomics/SCOPE.md` and
+`docs/changes/promotion-ergonomics/SURVEY-NOTE.md` for the implementation-path rationale.
+
+### 56.1 Motivation
+
+scrml's tier ladder (§1, primer §1) is "promotion is mechanical and additive" — a Tier-0
+boolean cluster lifts to a Tier-1 `<match>` lifts to a Tier-2 `<engine>` without rewriting
+business logic. Two devx surfaces make the mechanical-promotion guarantee concrete:
+
+1. **`I-MATCH-PROMOTABLE`** — info-level lint that surfaces when an if-else / `if=` chain
+   over an enum-typed state cell is mechanically promotable to a `<match>` block. The lint
+   does not nudge — the existing chain is valid scrml. It merely *names* the opportunity.
+
+2. **`bun scrml promote`** — CLI subcommand that *executes* the lift. Pairs with
+   `I-MATCH-PROMOTABLE`: lint surfaces, CLI does the lift. No silent rewrite — the dev
+   invokes the verb explicitly.
+
+This pairing is intentional: scrml provides compiler signal AND mechanical execution, but
+keeps the dev in the loop for both. Rationale: silent rewrites (Prettier-style auto-promote
+on save) would defeat the deliberateness of tier-ladder promotion as a *promotion ceremony*
+— promotions are when the dev formally tells the system "this surface is now a state
+machine" and gets back stronger guarantees in exchange.
+
+### 56.2 `I-MATCH-PROMOTABLE` — fire conditions
+
+The lint fires on an if-else chain (logic-block form) or an `if=`/`else if=`/`else=`
+attribute chain (markup form) when ALL of:
+
+1. **Discriminator is a state cell typed as enum.** The chain's leading condition reads a
+   `@cell` whose B3 resolution (`getResolvedStateCell`) returns a `StateCellRecord` and
+   whose declared type resolves (via type-system) to an `EnumType`. Compound-cell sub-paths
+   (e.g., `@form.phase` over an enum-typed sub-cell) qualify identically.
+
+2. **Conditions are clean variant predicates.** Each branch's condition is one of:
+   - `@cell == .Variant`
+   - `@cell.is(.Variant)`
+   - `@cell == .Variant(payload)` — payload destructure
+   - `@cell == .Variant msg` — single-field bind syntax
+
+3. **All branches reference the same discriminator.** Mixed-discriminator chains do NOT
+   fire `I-MATCH-PROMOTABLE`.
+
+4. **No compound conditions.** Branches with `&&` / `||` / negation / side-effect guards
+   are non-promotable; the lint emits a separate "compound-condition" advisory (§56.4)
+   rather than a near-miss.
+
+### 56.3 Three message shapes
+
+#### 56.3.1 Exhaustive (clean promotion)
+
+```
+I-MATCH-PROMOTABLE at app.scrml:42 — this if-else exhaustively covers Phase
+(.Idle, .Loading, .Error, .Success). Run `bun scrml promote --match
+app.scrml:42` to convert.
+```
+
+Fires when the union of variant-predicate-tags across all branches equals
+`EnumType.variants` (computed via `checkEnumExhaustiveness`, §18.0.1 machinery).
+
+#### 56.3.2 Near-miss (load-bearing — concrete actionable)
+
+```
+I-MATCH-PROMOTABLE at app.scrml:42 — this if-else covers Phase partially
+(.Idle, .Loading, .Error). Missing .Success. Add the missing arm, then
+run `bun scrml promote --match app.scrml:42` to convert. Once promoted,
+the compiler will catch any future variant-add at the <match> site
+automatically.
+```
+
+Fires when the discriminator + condition predicates qualify but variant coverage is
+incomplete AND no trailing bare `else { ... }` catch-all is present. The missing-variant
+list is computed concretely.
+
+#### 56.3.3 Wrong-discriminator (folds into `W-LIFECYCLE-CANDIDATE`)
+
+When the discriminator is a string-typed cell whose RHS values are enum-tag-shaped (per
+the S64 A+ verdict #2 string-discriminator-trap predicate, §6 cross-ref), the lint defers
+to `W-LIFECYCLE-CANDIDATE` rather than firing `I-MATCH-PROMOTABLE`. Two-step path:
+lift to enum first, then re-run lints to surface the match-promotion.
+
+### 56.4 Compound-condition advisory (separate info)
+
+Branches with grouped conditions (e.g., `if (@phase == .Loading || @phase == .Polling)`)
+need manual restructuring before `--match` can promote. The lint surfaces a separate
+informational message: "branches with grouped conditions need manual restructuring;
+consider splitting `<Loading>` and `<Polling>` arms with shared body, or using a guard
+pattern." `bun scrml promote --match` does NOT auto-handle this.
+
+### 56.5 `bun scrml promote` CLI
+
+#### 56.5.1 Verb shape
+
+```
+scrml promote --match  <file>[:line]   # if-else → <match>           (Tier 1 lift)
+scrml promote --engine <file>[:line]   # <match> → <engine>          (Tier 1→2 lift)
+scrml promote --dry-run --match <f>    # preview unified diff
+scrml promote --match  <dir>           # recurse all .scrml files
+```
+
+`--match` and `--engine` are mutually exclusive in a single invocation. The CLI inherits
+file-walk, include/exclude, dry-run, and check-mode conventions from `bun scrml migrate`.
+The verb is registered separately because the *semantics* differ: `migrate` converts
+deprecated→current syntax (one-way; old form is removed); `promote` lifts a valid Tier-N
+form to a valid Tier-(N+1) form (both forms remain valid after the lift).
+
+#### 56.5.2 Per-branch rewrite rules (`--match` mode)
+
+| Source branch condition | Target arm |
+|---|---|
+| `if (@cell == .X) { body }` | `<X>{body}</>` |
+| `if (@cell == .X(payload)) { body }` | `<X payload>{body}</>` |
+| `if (@cell == .X msg) { body }` | `<X msg>{body}</>` |
+| `if (@cell.is(.X)) { body }` | `<X>{body}</>` (same as `==`) |
+| Trailing bare `else { body }` with exhaustive coverage | dropped (unreachable) |
+| Trailing bare `else { body }` with non-exhaustive coverage | the lint fires near-miss; CLI skips the site |
+
+#### 56.5.3 Idempotency + skip-and-report
+
+Re-running `bun scrml promote --match` on already-promoted code is a no-op — the verb
+detects existing `<match>` blocks and leaves them untouched. Files containing a mix of
+promoted and not-yet-promoted sites are handled site-by-site.
+
+Sites that are non-promotable (compound conditions, computed-expression conditions,
+mixed-discriminator chains, side-effect guards) are skipped and reported in the per-file
+output, with a one-line reason per skipped site.
+
+#### 56.5.4 Formatting + comment preservation (normative)
+
+The transformation MUST preserve, verbatim, all source content outside the rewritten
+chain — comments, whitespace, indentation, and surrounding markup. Inside the rewritten
+chain, comments attached to a branch's body are preserved into the corresponding `<X>`
+arm.
+
+#### 56.5.5 Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | N sites promoted cleanly, OR no promotable sites found (informational). |
+| 1 | File not parseable, OR I/O failure during write. |
+| 2 | Ambiguous site needing human disambiguation (during stub phase: emitted unconditionally with the implementation-pending notice). |
+
+### 56.6 `--engine` mode (Tier 1→2 sibling)
+
+Same span-rewrite shape as `--match`, different transformation. Pairs with the
+`W-MATCH-TRANSITIONS-ACCRUING` lint. Input: a `<match for=Phase on=@phase>` block whose
+state-arms accrue `rule=` attributes. Output: an `<engine for=Phase initial=.InitialVariant>`
+block where the rules become *active* (transitions can fire; `<onTransition>` becomes
+legal).
+
+The Tier 1→2 lift requires the dev to specify `initial=` because match-block forms have
+no concept of an initial state. The CLI may default to the first arm's variant and emit a
+`W-ENGINE-INITIAL-MISSING` until corrected.
+
+### 56.7 Tooling integration
+
+- **CLI registration:** the `promote` subcommand is wired into `compiler/src/cli.js`
+  alongside `compile`, `dev`, `build`, `migrate`. Help text (`bun scrml --help` and
+  `bun scrml promote --help`) lists the verb and its current implementation status.
+- **Lint runner:** `I-MATCH-PROMOTABLE` runs as a post-type-check pass in the standard
+  pipeline; it requires resolved enum type information (B3's `_resolvedStateCell` is
+  necessary but not sufficient — type-system resolution is also required). The pass is
+  *info-only* and never blocks compilation.
+
+### 56.8 Cross-references
+
+- §1 — tier ladder framing.
+- §18 — match block-form (`<match for=Type>`); `<X>` arm syntax; exhaustiveness.
+- §34 — `I-MATCH-PROMOTABLE` and `W-LIFECYCLE-CANDIDATE` catalog rows.
+- §51 — engine semantics (the Tier-2 destination of `--engine`).
+- Primer §11 — anti-patterns table; promotion-ergonomics is the canonical workflow that
+  resolves the "if-else over enum cell" reflex.
+- Primer §13.8 — design center for promotion ergonomics.
+
+---
+
 
 
 

@@ -264,14 +264,20 @@ If you reach for `import X from 'some-npm-package'` while writing scrml, stop. C
 ## 6. CLI catalog
 
 ```
-scrml init [dir]      — scaffold a new project
-scrml dev <file|dir>  — compile + watch + serve (with HMR)
-scrml build <dir>     — production build
-scrml serve           — persistent compiler server
-scrml compile <file>  — single-file compile to JS
+scrml init [dir]                              — scaffold a new project
+scrml dev <file|dir>                          — compile + watch + serve (with HMR)
+scrml build <dir>                             — production build
+scrml serve                                   — persistent compiler server
+scrml compile <file>                          — single-file compile to JS
+scrml migrate <file|dir>                      — rewrite deprecated syntax (e.g. <machine> → <engine>)
+scrml promote --match|--engine <file|dir>     — promote tier-1 if-else → <match>, or <match> → <engine>
+                                                (CLI surface locked S65; AST→AST rewrite impl pending —
+                                                see SPEC §56 + docs/changes/promotion-ergonomics/)
 ```
 
 There is no `scrml start`. There is no `scrml.config.js` with `defineConfig`. The dev server is part of the language tooling, not a separate config layer.
+
+**`migrate` vs `promote` — distinct verbs, distinct semantics.** `migrate` rewrites deprecated→current syntax (one-way; the old form is going away). `promote` lifts valid Tier-N code to a valid Tier-(N+1) form (both forms remain valid forever; promotion is the dev's deliberate choice). Pairs with the `I-MATCH-PROMOTABLE` info-level lint that surfaces when an if-else over an enum-typed cell is mechanically promotable — compiler tells you when, CLI does the lift, no silent rewrite. See SPEC §56.
 
 ---
 
