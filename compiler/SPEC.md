@@ -23870,6 +23870,82 @@ and `integer`.
 
 ---
 
+## §53.14 Type-as-argument primitives
+
+**Added:** S65, 2026-05-06 — formalizes the type-as-argument feature concept introduced by `parseVariant` (§41.13). Ratifies design insight #4 (`scrml-support/design-insights.md` — "Boundary-parsing primitive — type-establishment vs predicate-enforcement"), debate-05 unanimous verdict, and the S65 Path-A architectural commit (`docs/changes/parsevariant-impl/SCOPE.md`). This subsection establishes the family framing AND the discipline that bounds future additions; subsequent type-as-argument additions ride this section's precedent and MUST satisfy the discipline below.
+
+> **Numbering note:** §53.10 (Interaction with `protect=`) is unrelated; this subsection lands after §53.13 to avoid conflict with prior `§53.10` reservation.
+
+### §53.14.1 Motivation — type-establishment vs predicate-enforcement
+
+Inline type predicates (§53) operate on **already-typed values**: the SPARK three-zone model (§53.4) refines a value whose static type is already known. Predicates cannot perform **type-establishment** — the act of selecting a constructor for a sum type from an untyped data shape (e.g., a JSON object's `tag` field). Type-establishment is logically prior to predicate-enforcement: a value must inhabit some statically-known variant before any predicate can fire on its payload.
+
+For sum types (`:enum`) specifically, type-establishment requires constructor selection from a discriminator. This is a closed, compiler-derivable operation — the variant set is known at compile time, the discriminator key is fixed (§41.13), the per-variant payload validation can be emitted per call site. Predicates cannot express this operation because predicates do not pick constructors; they refine values within a constructor.
+
+**The sequencing principle:** type-establishment (`parseVariant`, future `serialize` / `formFor` / etc.) precedes predicate-enforcement (§53.4 SPARK). Any time the language receives untyped data and must produce a typed value, the type-establishment step is irreducible — predicates cannot perform it.
+
+### §53.14.2 Existing meta-block precedent — `reflect(TypeName)`
+
+scrml has had a working type-as-argument primitive since the introduction of `^{}` meta blocks: `reflect(TypeName)` (§22; emitted at `compiler/src/meta-checker.ts:144-274`). `reflect` accepts a bare type-name identifier as its first positional argument, classifies it as a compile-time type vs a runtime value via identifier-shape inspection, and returns enum metadata to the meta-program at compile time.
+
+`reflect` is structurally identical to the type-as-argument shape `parseVariant` uses, but its usage is bounded to `^{}` meta-blocks. The architectural question type-as-argument outside `^{}` was never *whether* but *when*: meta-block use proved the recognition mechanism, the feature family ratified at debate-05 establishes the general-position usage. **`parseVariant` is the first *general-position* (non-meta-block) member of the type-as-argument family.**
+
+### §53.14.3 The family
+
+The type-as-argument family is open with bounded discipline (§53.14.4). The shipped + planned members:
+
+| Member | Status | Sliver test |
+|---|---|---|
+| `parseVariant(json, EnumType)` | shipped — S65 (§41.13) | PASSES — type-establishment for sum types is irreducible (constructor selection cannot be expressed via predicates) |
+| `serialize(value, EnumType)` | planned (~6-12mo horizon) | PASSES — symmetric to `parseVariant`; round-trip law `parseVariant(serialize(v, T), T) == .Ok(v)` is a structural invariant the language can guarantee |
+| `formFor(StructType)` | planned (FLAGSHIP — `scrml.dev` demo) | PASSES — compile-time structural walk of struct fields → emits `<form>` markup tree using existing Shape 2 + auto-synth validity surface (§55) + `<errors of=>` machinery (§55.8). Not expressible via predicates (predicates do not generate markup) |
+| `schemaFor(StructType)` | planned | PASSES — emits `<schema>` SQL DDL from struct field predicates. Closes the §39 + L4 vocabulary-unification loop ("define type once → schema, form, validator, parser all derive") |
+| `tableFor(StructType, rows)` | planned | PASSES — auto-`<table>` from struct fields + rows; per-column slot overrides; sorting/selection/empty-state attrs. Same family as `formFor` (admin-UI lift) |
+| `variantNames(EnumType)` / reflective metadata | planned | PASSES — exposes variant lists as runtime values, not currently surfaced; small primitive that tightens the family |
+
+**Family economics:** the architectural cost is paid once at `parseVariant` (S65, ~14-23h dispatch). Subsequent members harvest the precedent over a ~6-12mo horizon (~65-125h estimated for the rest of the family). Without the family discipline (§53.14.4), this surface would be a slippery slope into stdlib bloat; with the discipline, it is load-bearing infrastructure for ~85-145h of high-leverage feature surface that scrml's existing design center already points at.
+
+### §53.14.4 Discipline that bounds the family
+
+Every future type-as-argument addition SHALL independently pass each of the four gates below. The discipline is mandatory; without it, every `Type.foo` request becomes a credible feature ask.
+
+1. **Per-shape sliver test** (debate-02 + debate-04 methodology). The candidate MUST produce a distinct semantic shape vs every existing primitive. The candidate's behaviour SHALL NOT be expressible by a 1-2 line composition of existing predicates, refinement types, or family members.
+2. **Synonym-detection precondition** (debate-04). Before sliver verification, the candidate MUST be checked for isomorphism with existing surface. If the candidate is structurally a synonym for an existing primitive, it is a synonym not a sliver and SHALL be closed. **Canonical example:** `parseShape(json, StructType)` was demoted under this gate as a synonym for §53.4 boundary-zone refinement on assignment to a typed parameter; struct-boundary parsing is either (a) a server-function normalization step, or (b) §53.4 SPARK boundary refinement on the typed assignment.
+3. **Asymmetric-forfeit-cost decomposition** (debate-03). Every candidate SHALL decompose three forfeit cost cells honestly: SHIP-and-wrong (cost of feature regret + reversal), DON'T-SHIP-and-wrong (cost of every adopter hand-rolling around the gap), HYBRID-and-wrong (cost of partial admission + partial close). The decision SHALL acknowledge the asymmetry between ship-cost and forfeit-cost rather than treating them as symmetric.
+4. **Per-feature deep-dive when the convener has any doubt.** If the per-shape sliver test, synonym-detection, or forfeit-cost decomposition produces ambiguity, a deep-dive (`scrml-deep-dive` + debate as needed) SHALL fire BEFORE the candidate enters spec or implementation surface.
+
+The doc `scrml-support/docs/type-as-argument-family-2026-05-06.md` records the discipline as a future-PA reference; that doc is the gate-keeping reference for any new `Type.foo` request.
+
+### §53.14.5 Compile-time recognition
+
+Type-as-argument primitives are recognized at the **type-system stage** (`compiler/src/type-system.ts`), not the parser. The parser produces a regular `CallExpression` whose positional arguments are general expressions; an identifier-as-argument is just an `IdentExpr` AST node. The type-system pass:
+
+1. Resolves the call's callee through the file's import registry (cross-ref §41.3 — MOD stage).
+2. If the callee resolves to a recognized type-as-argument primitive (`parseVariant`, future `serialize`/`formFor`/`schemaFor`/`tableFor`/`variantNames`), inspects the type-argument position(s).
+3. Validates the type-argument is a bare `IdentExpr` whose `name` resolves in `typeRegistry` to a type with the expected `kind` (e.g., `:enum` for `parseVariant`/`serialize`/`variantNames`; `:struct` for `formFor`/`schemaFor`/`tableFor`).
+4. On validation failure, emits the per-primitive `E-*-TYPE-NOT-*` error (e.g., `E-PARSEVARIANT-TYPE-NOT-ENUM` for `parseVariant`; future members get sibling codes).
+5. On validation success, annotates the call-expression node with a back-reference to the resolved type so codegen can pick it up directly without re-resolving.
+
+The mechanism is structurally identical to `<engine for=Type>` validation (§51.0; `E-ENGINE-004` at `compiler/src/type-system.ts:1998-2018`) and `<match for=Type>` exhaustiveness checking (§18; `checkEnumExhaustiveness` at `type-system.ts:5267`). New family members SHOULD ride the existing helper extraction (planned: `validateTypeArgument(expr, expectedKind, errors, span)`) rather than re-implementing the lookup-and-classify logic.
+
+### §53.14.6 Stdlib-declared types and cross-file resolution
+
+Type-as-argument primitives MAY use enum or struct types declared in stdlib modules (e.g., `ParseError:enum` declared in `scrml:data` per §41.13). Cross-file enum/struct-type imports use the existing protocol of §21.8 (cross-file engine import via `import { Type } from './path'`); the stdlib `scrml:` protocol prefix follows the same resolution path through MOD (§41.3-§41.4).
+
+The importing file's `typeRegistry` SHALL include any imported stdlib types after MOD resolution. This is a prerequisite for `!{}` handler exhaustiveness checking against stdlib-declared failure types (e.g., `parseVariant(json, T) !{ | ::ParseError msg -> ... }` requires the importer's typeRegistry to contain `ParseError`).
+
+### Cross-references
+
+- §41.13 — `parseVariant` (first general-position family member).
+- §22 — `reflect(TypeName)` (sibling type-as-argument primitive inside `^{}` meta-blocks).
+- §53.6 — Named Shape Registry (structurally similar compile-time-only registry pattern).
+- §51.0 — `<engine for=Type>` (`E-ENGINE-004` is the structural template for type-argument validation).
+- §18 — `<match for=Type>` (`checkEnumExhaustiveness` is the variant-walk precedent).
+- §21.8 — cross-file type imports (the resolution path that stdlib type-as-argument users ride).
+- §34 — `E-PARSEVARIANT-TYPE-NOT-ENUM` (and future sibling per-primitive type-arg-validation codes).
+
+---
+
 ## 54. Nested Substates and State-Local Transitions
 
 **Added 2026-04-20 (S32).** Ratifies Insight 21 (scrml-support/design-insights.md) — Flavor A+B
