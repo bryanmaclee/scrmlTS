@@ -4,7 +4,7 @@
 
 **Last updated:** 2026-05-06 (S65 continuing — **predicate-system-Zod-replacement deep-dive LANDED · debate-05 judged 5/5 unanimous C-narrow · npm-myth article amended · X-snippet drafted · parseVariant impl SCOPE landed + Path A LOCKED · type-as-argument family roadmap recorded · survey-first dispatch in flight · Gap #19 closure plan ready**)
 
-**Tests (current):** **8,941 pass / 44 skip / 1 todo / 0 fail / 8,986 across 440 files** (unchanged from S64 — S65 was deliberation-and-docs only, no compiler source changes). Pre-commit subset ~8,217 / 33 / 0.
+**Tests (current):** **8,959 pass / 44 skip / 1 todo / 0 fail / 9,004 across 440 files** (S65 parseVariant Phase 2 added +18 net: 8 unit + 10 integration tests; 0 regressions). Pre-commit subset ~8,235 / 33 / 0.
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
@@ -41,6 +41,7 @@
 | C1 — Tutorial rewrite | zero-to-running on v0.2.0 | 8-15h | ⏸️ pending A2 | |
 | C2 — Articles triage | 15 articles | 4-8h | 🟡 audit done | `ARTICLE-TRUTHFULNESS-AUDIT-2026-05-05.md` |
 | C3 — README + scrml.dev v0.2.0 | public announce | 2-4h | ⏸️ pending | drafting next |
+| **L22 — Type-as-argument family (parseVariant → serialize → formFor → schemaFor → tableFor → reflective)** | new language primitive surface; closes Gap #19, eventually #20 via formFor pick=/omit=/partial= | **family ~85-145h** / parseVariant SHIPPED in ~?h actual | ✅ **parseVariant SHIPPED S65 at `f963a75`** (Phase 1+2+3 GREEN; tests 8959/44/1/0/9004; +18 / 0 regressions) | **ADDITIVE to A1+, not blocking or blocked.** parseVariant compiler work (`type-system.ts` extension + new `emit-parse-variant.ts`) is orthogonal to A1b's `@name` resolution AND A1c's per-decl-shape codegen waves. `reflect(TypeName)` in `meta-checker.ts:144-274` is a working type-as-argument primitive TODAY (in `^{}` meta blocks); parseVariant rides the same recognition pattern outside meta-blocks. Shipping order: parseVariant (S65/66 next) → serialize (~6-12mo horizon, symmetric counterpart) → **`formFor` (FLAGSHIP — scrml.dev demo: define struct → get form+validation+submit in one line)** → `schemaFor` (close §39+L4 vocabulary-unification loop) → `tableFor` (admin-UI lift) → `variantNames` + reflective metadata. Each future family member must independently pass per-shape sliver test + synonym-detection precondition + per-feature deep-dive (the discipline that bounds the family). |
 
 ### §0.2 v0.2.0 architectural locks (L1-L22)
 
@@ -62,7 +63,9 @@ L1 markup-as-first-class-value (PILLAR — held since scrml8) · L2 Variant C co
 - **Acorn replacement** — RESOLVED: stays. Pre-processor extension absorbs new syntax above acorn's scope. See SCOPE-MAP §A.4.
 - **Self-host migration risk** — TBD at B4 entry. Fixed-point regressions are subtle.
 - **`reactive-decl` rename to `state-decl`** — RESOLVED + LANDED in Step 3 (commit `8fa26e1`). ~514 changes across ~120 file updates. 0 regressions.
-- **Depth-of-survey discount pattern** (S59 captured) — see `scrml-support/design-insights.md` "Depth-of-survey discount" entry. Three confirmed occurrences (S51 W2, S52 DD4, S59 Step 2). PA-SCRML-PRIMER §12 has the session-start pointer + mitigation checklist.
+- **Depth-of-survey discount pattern** (S59 captured) — see `scrml-support/design-insights.md` "Depth-of-survey discount" entry. **Seven confirmed occurrences** (S51 W2, S52 DD4, S59 Step 2, S59 documentary-attrs, S64 Phase 4d, S64 B2, S65 parseVariant Path A survey). PA-SCRML-PRIMER §12 has the session-start pointer + mitigation checklist.
+- **L22 family vs A1c sequencing** (S65 NEW) — parseVariant compiler work is additive, not blocking or blocked. File-disjoint from A1b/A1c. Three options: (a) parseVariant Phase 2 BEFORE A1c starts — gets type-as-argument precedent shipped early, A1c builds on it; (b) parseVariant Phase 2 AFTER A1c lands — A1c's codegen orchestrator is more stable; (c) parallel — possible since file-disjoint. **PA lean: (a)** — parseVariant unlocks `formFor` which is the scrml.dev flagship demo; getting it shipped sooner pays for itself in marketing terms. (b) is also defensible.
+- **Pro-X-voice-voting-against-X methodology-grade signal** (frequency-3, S65) — debate-03 roc retracted carve-out; debate-04 crystal voted A; debate-05 simplicity-defender flipped to C-narrow. When a partisan-defender voice flips under its own methodology lens, the rejection is structurally stronger than expected agreement. Apply going forward.
 
 ### §0.5 A1a 20-step status (rev 6 decomposition — ALL 20 SUB-STEPS DONE; A1a COMPLETE)
 

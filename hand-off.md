@@ -5,9 +5,13 @@
 **Previous:** `handOffs/hand-off-64.md` (S64 close — substantial work landed across 3 debates + Stage 0c.A + B2 + Phase 4d)
 **This file:** rotates to `handOffs/hand-off-65.md` at S66 open
 
-**Tests at close:** **8,941 / 44 / 1 / 0 / 8,986 / 440** (unchanged from S64 — S65 was deliberation + docs only).
+**Tests at close:** **8,959 / 44 / 1 / 0 / 9,004 / 440** (Phase 2 added +18 net: 8 unit + 10 integration parse-variant tests; 0 regressions).
 
 ---
+
+## **🎯 parseVariant SHIPS — L22 family member #1 fully realized**
+
+S65 third tranche: Phase 1 (stdlib scaffold + sniff test) → Phase 3 (spec writing) → Phase 2 (compiler implementation) all GREEN. **`parseVariant(json, EnumType)` is now a working scrml language primitive** at commit `f963a75`. Tests 8959/44/1/0/9004 (+18 / 0 regressions). Type-as-argument is no longer just an architectural commitment; it's a shipped language feature.
 
 ## TL;DR — what landed in S65
 
@@ -24,6 +28,12 @@
 | Survey-first dispatch (parseVariant Path A) | ✅ LANDED | `docs/changes/parsevariant-impl/SURVEY-REPORT.md` (depth-of-survey-discount #7; 2 SCOPE drifts caught + corrected) |
 | SCOPE doc updated with survey findings | ✅ LANDED | DRIFT-1 (§10.4 → §41.13) + DRIFT-2 (parser-level no-op) corrected; cost re-estimated 16-23h |
 | Primer §12 depth-of-survey-discount counter | ✅ updated | 4 occurrences → 7 (added S64 Stage 0c.A, S64 B2, S65 parseVariant survey) |
+| **parseVariant Phase 1 (stdlib scaffold + sniff test)** | ✅ GREEN | scrml-support `5e25586` (L22) + scrmlTS `c2fc731` (parse.scrml + index.scrml + §41.13 bundled) + `808775c` (progress) |
+| **parseVariant Phase 3 (spec writing)** | ✅ GREEN | `b07072f` (§53.14) + `56c6b4b` (§34 4 codes) + `549d741` (primer + kickstarter) + `660cb02` (progress) + scrml-support `5efdd05` (family-precedent doc) + `fc7fe93` (predicate-gaps Gap #19 closed + Gap #20 added) |
+| **parseVariant Phase 2 (compiler implementation)** | ✅ GREEN — **L22 family member #1 SHIPPED** | `36a2d88` (TS pass + codegen + dispatch hook) + `b5caf5d` (ParseError-as-builtin tEnum + 8 unit tests) + `f963a75` (10 runtime integration tests) + `deb8ea6` (progress) |
+| §53.10 → §53.14 stale-reference sweep | ✅ staged (commit pending pre-commit unblock) | SCOPE.md + SURVEY-REPORT.md |
+| A1c C0 dispatch brief preparation | ✅ staged | `docs/changes/phase-a1c-codegen/C0-DISPATCH-BRIEF.md` |
+| Companion follow-up dev.to article | ✅ staged | `docs/articles/scrml-debate-amends-zod-claim-devto-2026-05-06.md` (~2,636 words, voice-authentic) |
 | master-list.md + changelog + hand-off updates | ✅ LANDED (initial wrap + second-tranche update) | all three |
 
 **Commit count after second tranche:** scrmlTS 5 commits; scrml-support 4 commits; total 9 commits across 2 repos. First tranche pushed mid-session (`4595b2c` + `c9c2182`); second tranche commits `9c02e8b` + (master-list/hand-off update commit) **push pending**.
@@ -165,6 +175,12 @@ Standing list 1-47 from S64 hand-off carries forward verbatim. New S65 additions
 56. **The family-bounding discipline is mandatory.** Sliver test + synonym-detection + per-feature deep-dive on every future `Type.foo` request. Without this, L22 becomes the slippery slope simplicity-defender warned about. The family-precedent doc (Step 12 of SCOPE) records this discipline; it MUST be written when parseVariant ships.
 
 57. **`formFor` is the flagship demo.** The 1-struct → schema + form + table demo is the strongest "we are not React" pitch scrml has. PA dispatching `formFor` work later: treat it as marketing-load-bearing, not just stdlib expansion.
+
+58. **api.js cross-file stdlib enum re-export gap (NEW S65 from Phase 2 work).** Phase 1's sniff test reported PASS but was incomplete — `match` worked via a `kind:error` shadow on `BUILTIN_TYPES["ParseError"]` (legacy `tError` entry); `!{}` exhaustiveness, which requires `kind === "enum"`, would have failed. Phase 2 fixed structurally by promoting `ParseError` to a `BUILTIN_TYPES tEnum` with the canonical 4 variants. **The underlying gap remains:** `api.js`'s `importedTypesByFile` seeder reads each dep's OWN typeDecls and does NOT chase re-exports through `index.scrml`. Future stdlib enum additions will need either builtin-status grant (the parseVariant route) OR re-export chasing in api.js. Track as v0.next follow-up; flag in any future "add a stdlib enum" dispatch brief.
+
+59. **`export function` swallows function-decl into export-decl** (`ast-builder.js:5410`). Phase 2 tests had to drop `export` to get a reachable function-decl AST node. Not parseVariant-specific; worth documenting if it bites another dispatch.
+
+60. **L22 family member #1 SHIPPED.** Type-as-argument is now a working scrml language primitive, not just an architectural commitment. Future family members (`serialize`, `formFor`, `schemaFor`, `tableFor`, reflective metadata) ride this precedent. The discipline that bounds the family — sliver test + synonym-detection + per-feature deep-dive — is recorded in SPEC §53.14, primer §13.6, family-precedent doc, and the SCOPE doc.
 
 ---
 
