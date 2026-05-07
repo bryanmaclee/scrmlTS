@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>{{title}} · scrml</title>
+  <meta name="description" content="{{description}}">
+  <meta name="author" content="Bryan Maclee">
+  <link rel="canonical" href="{{canonical}}">
+
+  <meta property="og:title" content="{{title}}">
+  <meta property="og:description" content="{{description}}">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="{{canonical}}">
+  <meta property="og:site_name" content="scrml">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{title}}">
+  <meta name="twitter:description" content="{{description}}">
+
+  <link rel="stylesheet" href="/_styles.css">
+</head>
+<body>
+<main>
+  <p style="margin: 0 0 2rem;"><a href="/" style="color: var(--fg-dim);">&larr; scrml.dev</a></p>
+
+  <article>
+    <h1>{{title}}</h1>
+    <header class="article-meta">
+      Published {{date}}{{tag_line}}
+    </header>
+
+    {{content}}
+  </article>
+
+  <footer>
+    <p>
+      scrml is MIT-licensed. The compiler, language spec, and runtime live at <a href="https://github.com/bryanmaclee/scrmlTS">github.com/bryanmaclee/scrmlTS</a>. More writing at <a href="/articles/">scrml.dev/articles</a>.
+    </p>
+  </footer>
+</main>
+</body>
+</html>

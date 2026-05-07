@@ -47,7 +47,8 @@
     "watch": "bun --watch compiler/src/cli.js compile",
     "bench": "bun run compiler/src/cli.js compile samples/compilation-tests/ --timing",
     "security": "bun run compiler/src/cli.js compile samples/compilation-tests/ && node --check samples/compilation-tests/*/dist/*.client.js 2>&1",
-    "lsp": "bun run lsp/server.js --stdio"
+    "lsp": "bun run lsp/server.js --stdio",
+    "docs:build": "bun run docs/build.ts"
   },
   "dependencies": {
     "vscode-languageserver": "^9.0.1",
@@ -56,6 +57,7 @@
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.8.9",
     "happy-dom": "^20.8.9",
+    "marked": "^14.1.3",
     "puppeteer": "^24.40.0"
   }
 }
