@@ -45,6 +45,7 @@ import type {
   ExprNode,
 } from "./types/ast.ts";
 import { forEachIdentInExprNode, emitStringFromTree } from "./expression-parser.ts";
+import { forEachIdentInValidators } from "./validator-arg-parser.ts";
 
 // ---------------------------------------------------------------------------
 // DG-internal types (not in the shared AST, specific to Stage 7 output)
@@ -52,7 +53,7 @@ import { forEachIdentInExprNode, emitStringFromTree } from "./expression-parser.
 
 type NodeId = string;
 
-type DGEdgeKind = "calls" | "reads" | "writes" | "renders" | "awaits" | "invalidates";
+type DGEdgeKind = "calls" | "reads" | "writes" | "renders" | "awaits" | "invalidates" | "validator-reads";
 type Boundary = "client" | "server";
 type Severity = "error" | "warning";
 
@@ -737,6 +738,37 @@ function buildDerivedReadsAdj(
   const adj = new Map<NodeId, Set<NodeId>>();
   for (const edge of edges) {
     if (edge.kind !== "reads") continue;
+    const fromNode = nodes.get(edge.from);
+    const toNode = nodes.get(edge.to);
+    if (!fromNode || !toNode) continue;
+    if (fromNode.kind !== "reactive" || toNode.kind !== "reactive") continue;
+    if (!adj.has(edge.from)) adj.set(edge.from, new Set());
+    adj.get(edge.from)!.add(edge.to);
+  }
+  return adj;
+}
+
+/**
+ * Build an adjacency map of `validator-reads` edges (B10 Phase 3).
+ *
+ * A `validator-reads` edge from cell A to cell B means: cell A's validators
+ * reference cell B via cross-field predicate args (e.g., `<a eq(@b)>`). A
+ * cycle in this subgraph violates SPEC §55.11 and fires
+ * `E-VALIDATOR-CIRCULAR-DEP` per §34.
+ *
+ * Sibling of `buildDerivedReadsAdj`. Same DFS (`detectCycle`) consumes the
+ * adjacency. Self-edges are NOT pushed into `edges` (mirrors the derived-
+ * reads handling — `<a eq(@a)>` is tracked separately via the cycle check
+ * if needed; today the walker emits the self-edge into the adjacency so
+ * `detectCycle`'s degenerate-1-cycle behavior fires uniformly).
+ */
+function buildValidatorArgsAdj(
+  edges: DGEdge[],
+  nodes: Map<NodeId, DGNode>,
+): Map<NodeId, Set<NodeId>> {
+  const adj = new Map<NodeId, Set<NodeId>>();
+  for (const edge of edges) {
+    if (edge.kind !== "validator-reads") continue;
     const fromNode = nodes.get(edge.from);
     const toNode = nodes.get(edge.to);
     if (!fromNode || !toNode) continue;
@@ -1729,6 +1761,90 @@ export function runDG(input: DGInput): DGOutput {
   }
 
   // ------------------------------------------------------------------
+  // Phase A1b B10 (Phase 3) — Validator-arg dep edges + cycle detection
+  // (E-VALIDATOR-CIRCULAR-DEP, SPEC §55.11, §31.4)
+  //
+  // For every state-decl with validators, walk validator-arg ExprNodes
+  // (using B9's `forEachIdentInValidators` traversal) collecting `@cell`
+  // references. Each ref emits a `validator-reads` edge from THIS cell to
+  // the referenced cell. A cycle in this subgraph is the canonical
+  // §55.11 case: `<a eq(@b)>` + `<b eq(@a)>`.
+  //
+  // FIRST consumer of B7's reusability promise: same generic `detectCycle`
+  // DFS, distinct adjacency-builder (`buildValidatorArgsAdj`) filtering by
+  // edge.kind === "validator-reads".
+  // ------------------------------------------------------------------
+
+  // Self-references in validator args (e.g., `<a eq(@a)>`) — degenerate
+  // 1-cycle case; track separately so the diagnostic can identify the
+  // self-cell explicitly. Per §55.11 the canonical example is the 2-cell
+  // case but the self-case is a clear degenerate cycle.
+  const selfReferencingValidatorNodes = new Set<NodeId>();
+
+  function emitValidatorArgEdgesForFile(fileAST: FileAST): void {
+    // Walk the full AST collecting state-decls with validators. Compound
+    // CHILDREN are visited too — validators commonly sit on Shape-2
+    // children of compound parents (`<form><name req length(>=2)>...`).
+    const decls: ReactiveDeclNode[] = [];
+    function visit(list: ASTNode[]): void {
+      for (const node of list) {
+        if (node.kind === "logic" && Array.isArray((node as any).body)) {
+          visit((node as any).body);
+        }
+        if (node.kind === "state-decl") {
+          const validators = (node as any).validators;
+          if (Array.isArray(validators) && validators.length > 0) {
+            decls.push(node as ReactiveDeclNode);
+          }
+          const children = (node as any).children;
+          if (Array.isArray(children)) {
+            visit(children);
+          }
+        }
+        if ("children" in node && Array.isArray((node as MarkupNode).children)) {
+          visit((node as MarkupNode).children as ASTNode[]);
+        }
+      }
+    }
+    visit(fileAST.nodes);
+
+    for (const decl of decls) {
+      const fromNodeId = reactiveVarNodeIds.get(decl.name);
+      if (!fromNodeId) continue;
+
+      const validators = (decl as any).validators;
+      if (!Array.isArray(validators)) continue;
+
+      forEachIdentInValidators(validators, (ident) => {
+        const name = (ident as any).name;
+        if (typeof name !== "string" || !name.startsWith("@")) return;
+        const targetVarName = name.slice(1);
+        const toNodeId = reactiveVarNodeIds.get(targetVarName);
+        if (!toNodeId) return;
+
+        if (fromNodeId === toNodeId) {
+          selfReferencingValidatorNodes.add(fromNodeId);
+          return;
+        }
+
+        const exists = edges.some(
+          (e) => e.from === fromNodeId && e.to === toNodeId
+            && e.kind === "validator-reads",
+        );
+        if (!exists) {
+          edges.push({ from: fromNodeId, to: toNodeId, kind: "validator-reads" });
+        }
+      });
+    }
+  }
+
+  for (const rawFile of files) {
+    const fileAST = resolveFileAST(rawFile);
+    if (!fileAST) continue;
+    emitValidatorArgEdgesForFile(fileAST);
+  }
+
+  // ------------------------------------------------------------------
   // Phase A1b B7 — Cycle detection in derived-cell `reads` subgraph
   // (E-DERIVED-CIRCULAR-DEP, SPEC §6.6.10, §31.5)
   //
@@ -1741,11 +1857,70 @@ export function runDG(input: DGInput): DGOutput {
   //
   // Reusability — the same DFS (`detectCycle`) and adjacency-builder
   // pattern (`buildDerivedReadsAdj`) is reused by:
+  //   • B10 (validator-arg deps, §55.11) — implemented above this section
   //   • B16 (engine-derived, E-DERIVED-ENGINE-CIRCULAR, §51.0.J)
-  //   • B10/B11/B12 (validator-arg deps, §31.4)
   // ------------------------------------------------------------------
 
   const allNodeIds = new Set<NodeId>(nodes.keys());
+
+  // ------------------------------------------------------------------
+  // Phase A1b B10 (Phase 3) — Cycle detection in validator-args subgraph
+  // (E-VALIDATOR-CIRCULAR-DEP, SPEC §55.11, §31.4, §34)
+  //
+  // Runs BEFORE derived-cell cycle detection because a validator-cycle is
+  // a distinct error class — devs need clear "your validators reference
+  // each other circularly" messaging, not "your derived cells".
+  // ------------------------------------------------------------------
+
+  // Self-references: degenerate 1-cycle case (`<a eq(@a)>`).
+  for (const selfNodeId of selfReferencingValidatorNodes) {
+    const dgNode = nodes.get(selfNodeId);
+    if (!dgNode || dgNode.kind !== "reactive") continue;
+    errors.push(
+      new DGError(
+        "E-VALIDATOR-CIRCULAR-DEP",
+        `E-VALIDATOR-CIRCULAR-DEP: Validator on \`@${dgNode.varName}\` ` +
+          `references the cell itself via cross-field predicate args ` +
+          `(e.g., \`<${dgNode.varName} eq(@${dgNode.varName})>\`). ` +
+          `Validator predicate args form a DAG; self-references are ` +
+          `forbidden (SPEC §55.11). Break the self-reference.`,
+        dgNode.span,
+      ),
+    );
+  }
+
+  // Multi-node cycles in the validator-args subgraph.
+  const validatorArgsAdj = buildValidatorArgsAdj(edges, nodes);
+  const validatorCycle = detectCycle(validatorArgsAdj, allNodeIds);
+  if (validatorCycle) {
+    const varChain = validatorCycle
+      .map((nid) => {
+        const n = nodes.get(nid);
+        return n && n.kind === "reactive" ? `@${n.varName}` : nid;
+      })
+      .join(" -> ");
+    const firstReactive = nodes.get(validatorCycle[0]);
+    errors.push(
+      new DGError(
+        "E-VALIDATOR-CIRCULAR-DEP",
+        `E-VALIDATOR-CIRCULAR-DEP: Circular dependency detected among ` +
+          `validator predicate args: ${varChain}. ` +
+          `Each cell's validator references a cell whose validator eventually ` +
+          `references back to the first — break the cycle (SPEC §55.11).`,
+        firstReactive
+          ? firstReactive.span
+          : { file: "", start: 0, end: 0, line: 1, col: 1 },
+      ),
+    );
+  }
+
+  // E-VALIDATOR-CIRCULAR-DEP: per §55.11 line 24631, "the validator-dep
+  // graph is a DAG; cycles are forbidden". Like E-DERIVED-CIRCULAR-DEP,
+  // this is a hard error that should fail-fast before the derived-cycle
+  // scan to give clean diagnostics.
+  if (selfReferencingValidatorNodes.size > 0 || validatorCycle) {
+    return { depGraph: { nodes, edges }, errors };
+  }
 
   // Self-references: degenerate 1-cycle case (SPEC §6.6.10 line 2712).
   for (const selfNodeId of selfReferencingDerivedNodes) {
