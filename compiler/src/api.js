@@ -30,6 +30,7 @@ import { runNRBatch } from "./name-resolver.ts";
 import { runSYMBatch } from "./symbol-table.ts";
 import { setBPPOverrides } from "./codegen/compat/parser-workarounds.js";
 import { lintGhostPatterns } from "./lint-ghost-patterns.js";
+import { runIMatchPromotable } from "./lint-i-match-promotable.js";
 import { findUnsupportedTailwindShapes } from "./tailwind-classes.js";
 import { runGauntletPhase1Checks } from "./gauntlet-phase1-checks.js";
 import { runGauntletPhase3EqChecks } from "./gauntlet-phase3-eq-checks.js";
@@ -903,6 +904,24 @@ export function compileScrml(options = {}) {
     importedTypesByFile,
   }));
   collectErrors("TS", tsResult.errors);
+
+  // Stage 6.4: I-MATCH-PROMOTABLE info-level lint (SPEC §56)
+  // Walks the typed-AST and emits info diagnostics for if-else chains over
+  // enum-typed state cells that are mechanically promotable to <match>.
+  // Non-fatal — diagnostics flow into allLintDiagnostics, never errors.
+  // Pairs with `bun scrml promote --match`.
+  if (tsResult.stateTypeRegistry && Array.isArray(tsResult.files) && tsResult.files.length > 0) {
+    try {
+      const matchPromotableDiags = runIMatchPromotable(tsResult.files, tsResult.stateTypeRegistry);
+      for (const d of matchPromotableDiags) {
+        allLintDiagnostics.push(d);
+        if (verbose) log(`  [LINT] ${d.filePath}:${d.line}:${d.column} ${d.code}: ${d.message}`);
+      }
+    } catch (e) {
+      // Lint must not block compilation under any circumstance.
+      if (verbose) log(`  [LINT] I-MATCH-PROMOTABLE pass threw: ${e?.message ?? String(e)}`);
+    }
+  }
 
   // Stage 6.5: META — Meta Check + Eval (merged MC+ME, runs before DG)
   // MC validates phase separation (E-META-001) and reflect() calls (E-META-003).
