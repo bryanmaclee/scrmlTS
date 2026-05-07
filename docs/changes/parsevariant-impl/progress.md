@@ -66,3 +66,45 @@ scrml-support:
 3. **Kickstarter is v1, not v2.** Brief referenced `§11 anti-patterns` and `~line 750`; the file is `llm-kickstarter-v1-2026-04-25.md` (694 lines), section 3 is the anti-pattern table, section 5 is the stdlib catalog. Updated section 3 + section 5 + new section 3a accordingly.
 4. **Concurrency artifact:** Phase 1's stdlib files were untracked in working tree when Phase 3's first commit (`git add compiler/SPEC.md && git commit`) ran, but Phase 1 had already staged them; the commit caught all three changes. Net result was clean (correct file content on both sides), but the commit-attribution mixes Phase 1 + Phase 3 work. Phase 1's progress note already documents this.
 
+## Phase 2 — STATUS
+
+[2026-05-06 ~21:30] - Startup verification GREEN: HEAD=`56c6b4b`, `bun install` clean, `bun run pretest` compiled 12 samples.
+[2026-05-06 ~22:00] - TS pass landed: commit `36a2d88` — `feat(type-system): parseVariant call-site recognition + E-PARSEVARIANT-TYPE-NOT-ENUM validation`. Adds `validateParseVariantTypeArg` helper + `walkAndValidateParseVariantCalls` recursive walker. Wires `fnErrorTypes`/`fnCanFail` for parseVariant locals so the existing `!{}` exhaustiveness check (line 4429) treats parseVariant calls as failable returning ParseError. Annotates each valid call-node with `parseVariantEnum: EnumType` (Risk #3 — read directly off call-node, no `serializeTypeEntry` extension). Same commit also adds `compiler/src/codegen/emit-parse-variant.ts` (NEW, ~210 LOC) — the monomorphized parser emitter modeled on `emit-machines.ts`, plus the `emitCall` dispatch hook in `emit-expr.ts` that routes annotated calls to `emitParseVariantCall`.
+[2026-05-06 ~22:30] - ParseError-as-builtin-:enum + unit tests landed: commit `b5caf5d` — `feat(type-system): ParseError as builtin :enum + parseVariant test suite`. Surfaces a real cross-file resolution gap: api.js's `importedTypesByFile` seeder reads each dep's OWN typeDecls and does NOT chase re-exports through `index.scrml`. Combined with the legacy `BUILTIN_TYPES["ParseError"] = tError(...)` (kind: error) shadow, the stdlib enum was unreachable. Fix replaces the BUILTIN_TYPES entry with a `tEnum` carrying the four canonical variants (mirrors stdlib/data/parse.scrml exactly). Surrounding comment documents the re-export-chase gap as a structural follow-up.
+[2026-05-06 ~22:40] - Runtime integration tests landed: commit `f963a75` — `test(parse-variant): runtime integration tests — 10 cases compile + execute`. Compiles fixtures, extracts the monomorphized IIFE from emitted JS, executes directly with controlled inputs. Covers 3 happy paths (multi-field/unit/single-field), 4 failure paths (missing/unknown/invalid/malformed), and 1 invariant test (NO auto-recursion).
+[2026-05-06 ~22:45] - Full suite: **8959 pass / 44 skip / 1 todo / 0 fail / 9004 total** (baseline was 8941; +18 = 8 new unit + 10 new integration). Zero regressions.
+
+## Phase 2 verdict
+
+**GREEN.**
+
+- TS pass + codegen emit landed at scrmlTS.
+- `E-PARSEVARIANT-TYPE-NOT-ENUM` fires with context-specific messages for all four invalid arg2 shapes (struct, string-literal, num-literal, undeclared).
+- `!{}` exhaustiveness against ParseError fires E-TYPE-080 when arms are non-exhaustive; passes when wildcard `_` arm is present.
+- Monomorphized IIFE produces the correct runtime shape: bare strings for unit variants, `{variant, data}` for payload variants, `{__scrml_error, type, variant, data}` for failures (matches existing fail-expr emission shape — emit-logic.ts:912).
+- Server/client codegen split: emitted IIFE is synchronous-function-shaped, no SQL/server-only constructs — works in both contexts.
+- NO auto-recursion verified — inner enum payload is accepted as-object; developer must call parseVariant again at the inner site (matches SCOPE risk #1's composition discipline).
+
+Phase 2 ships at `f963a75`. parseVariant is the FIRST shipped member of the type-as-argument family (L22 architectural commit fully realized for this member). Phase 4 (optional ghost-patterns lint) ready when convener authorizes.
+
+## Phase 2 unexpected findings
+
+1. **Helper extraction (E-ENGINE-004) skipped — different validation shapes.** The brief biased toward extracting a shared helper for engine-validation + parseVariant-validation. On inspection, E-ENGINE-004 accepts "enum or struct" (lines 2010-2018) while parseVariant is enum-only with a different error code and different message wording. A shared helper would either be awkwardly parametric or duplicate too much branching. Wrote `validateParseVariantTypeArg` as a focused sibling instead — its signature is shaped for the future `serialize` / `formFor` / `schemaFor` family members (which all need enum-only or struct-only validation, matching parseVariant's shape rather than engine's).
+
+2. **Risk #3 (read EnumType off call-node) worked cleanly** — no `serializeTypeEntry` extension needed. Annotation is a single field-set; codegen reads it directly. As predicted.
+
+3. **Cross-file stdlib enum resolution gap (NOT covered by Phase 1's claim).** Phase 1's progress claimed cross-file ParseError import resolves into the importing file's typeRegistry. Investigation during Phase 2 testing showed: (a) BUILTIN_TYPES had `ParseError` registered as `tError` (kind: error, no variants) — this shadowed the stdlib's enum because typeRegistry seeding's "local-decl wins" rule treats the builtin as a local. (b) Even if removed, api.js's `importedTypesByFile` only reads each dep file's OWN typeDecls; re-exports through `stdlib/data/index.scrml` are NOT chased. The Phase 1 sniff probably tested the path that happened to work via the shadow — which is OK for `match` exhaustiveness but NOT for `!{}` (which uses the stricter `kind === "enum"` check at line 4435). Surfaced and fixed structurally: registered ParseError as a builtin **enum** with the canonical 4 variants. The stdlib export remains for explicit-import hygiene; the builtin guarantees `!{}` exhaustiveness resolves regardless. This is a v0.next decision to surface upstream — future stdlib enum additions will need either (a) builtin-status grant, or (b) re-export chasing in api.js.
+
+4. **`export function` swallows function-decl into export-decl** (test fixture finding). The ast-builder's export keyword handler at line 5410 collects the entire body as the export-decl's `raw` field — no separate function-decl AST node is produced for `export function foo()`. Tests had to drop `export` from function declarations to get a real function-decl AST node for the parseVariant call to be reachable. Not a parseVariant-specific issue, but worth documenting.
+
+## Phase 2 commits
+
+- `36a2d88` — feat(type-system): parseVariant call-site recognition + E-PARSEVARIANT-TYPE-NOT-ENUM validation (TS pass + codegen + dispatch)
+- `b5caf5d` — feat(type-system): ParseError as builtin :enum + parseVariant test suite (8 unit tests)
+- `f963a75` — test(parse-variant): runtime integration tests — 10 cases compile + execute
+
+## Tests at Phase 2 close
+
+- 8941 → 8959 pass (+18: 8 unit + 10 integration)
+- 0 fail, 44 skip, 1 todo (unchanged)
+- All Phase 2 tests pass on first invocation post-implementation; no test was disabled, skipped, or trivially-passing.
