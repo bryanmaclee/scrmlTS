@@ -193,3 +193,52 @@ S66 sub-survey: `if (@cell is .Variant)`. Handles both structured `binary op=is`
 and `escape-hatch` AST shapes (fallback regex on raw text).
 
 ## Phase 2 — `bun scrml promote --match` AST→AST transformation (starts)
+
+## 2026-05-07 — S66 narrowing REVERSED (full predicate matrix restored)
+
+The S66 Phase 0a/0b/0c narrowing decision was the WRONG conclusion. Bryan flagged the
+structural error: corpus-shows-zero-`==` was inverted as evidence — the corpus is empty
+BECAUSE the parser couldn't handle leading-dot variants outside `is .Variant`, not because
+devs made a positive choice for `is`. By the same "drop because corpus shows zero" logic,
+every comparison operator over a bare-dot variant would have to be dropped (`<= .X`,
+`>= .X`, etc.) — absurd. The right fix was always to make `.Variant` parseable as a
+primary expression in any context.
+
+**Reverts (in order, all on main):**
+- `d66771e` reverted `a841ab4` (Phase 4 docs touch-up — primer §13.8 + §11 + 2 articles
+  anchored on `is`-only)
+- `87b75f9` reverted `e3016e4` (sub-survey predicate narrowing to bare `is .Variant`)
+- `3326b91` reverted `9e8ae7a` + `af06cfb` (SCOPE re-scope + SPEC §56 Path A drop-`==`)
+
+After reverts: SPEC §56 restored to full 4-shape predicate matrix; SCOPE.md back to
+pre-narrowing state; primer §13.8 + §11 + articles back to `==`-using examples.
+
+**Principled fix (not in this directory's artifacts — see compiler/src/):**
+- `cb167b1` parser(s66): bare-dot variants `.Variant` parseable as primary expressions.
+  Added general bare-dot rule to `preprocessForAcorn` replacing `.Variant` with placeholder
+  identifier `__scrml_bare_variant_Variant__` everywhere it appears OUTSIDE an
+  identifier-chain (lookbehind excludes identifier chars + closing paren/bracket + quote
+  chars). Esh-tree-to-ExprNode unmasks placeholder back to IdentExpr name `.Variant`.
+  Now `@phase == .Idle`, `fn(.Idle)`, `[.A, .B]`, `cond ? .A : .B`, `return .Idle`, etc.
+  all parse to structured AST nodes — no escape-hatch fallback.
+- `4f2ff35` feat: full predicate matrix in lint + CLI rewrite. matchIsVariantPredicate
+  accepts both `op: "is"` and `op: "=="` over leading-dot ident RHS. Tests: pure `==`
+  chain fires exhaustive; mixed `is`/`==` chain fires exhaustive; `==`-form chain
+  rewrites to identical `<match>` block shape as `is`-form.
+
+**Methodological note (the why-this-error-happened cause):**
+PA anchored on "what does the corpus show today" instead of "what does the language want
+to express." That's wrong for a v0.2.0 in-flight rewrite where the corpus IS the artifact
+of past parser limits, not evidence of design intent. The right framing was "is `@phase
+== .Idle` the canonical equality form scrml wants?" — which is yes, equational consistency
+demands it. Adding the preprocessor rule was the small fix.
+
+**Tier B closure status (post-reversal):**
+- `bun scrml promote --match` SHIPPED on full predicate matrix (`is` + `==`, mixed in same chain)
+- I-MATCH-PROMOTABLE lint SHIPPED with three message shapes
+- `--engine` still deferred to Tier C
+- §34 catalog row landed Phase 0a (still in place after revert, cross-checked)
+- Test count: 9039 pass / 0 fail (was 9036 pre-reversal; +3 from new == form tests)
+
+**Tier C scope NOT affected by reversal.** TIER-C-SCOPE.md is independent — it scopes
+`--engine` lift + W-MATCH-TRANSITIONS-ACCRUING groundwork; doesn't reference narrowing.
