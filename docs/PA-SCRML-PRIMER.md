@@ -519,7 +519,7 @@ A1b decorates the A1a AST with resolution metadata that downstream passes (B5+, 
 
 ---
 
-## §13.8 Promotion ergonomics — `I-MATCH-PROMOTABLE` + `bun scrml promote` (S65)
+## §13.8 Promotion ergonomics — `I-MATCH-PROMOTABLE` + `bun scrml promote --match` (S65 design / S66 shipped)
 
 The tier ladder (§1) is "promotion is mechanical and additive." Promotion ergonomics is the design center that makes that promise concrete in the dev loop:
 
@@ -528,13 +528,15 @@ The tier ladder (§1) is "promotion is mechanical and additive." Promotion ergon
 1. **`I-MATCH-PROMOTABLE`** — info-level lint (NOT a warning). Surfaces when an if-else chain over an enum-typed state cell is mechanically promotable to a Tier-1 `<match>` block. Three message shapes:
    - **Exhaustive** — all variants covered; clean lift available.
    - **Near-miss** — partial coverage; lists the *missing variants concretely*. Add the missing arm, then promote. (Once promoted, the compiler catches future variant-adds at the `<match>` site automatically — that's the gain.)
-   - **Wrong-discriminator** — defers to `W-LIFECYCLE-CANDIDATE` (the discriminator is a string with enum-tag-shaped values; lift to enum first, then `I-MATCH-PROMOTABLE` re-fires).
+   - **Compound** — branches use `||` / `&&` grouping; not auto-promotable. Separate info points out the constraint.
 
-2. **`bun scrml promote --match <file>[:line]`** — CLI subcommand that *executes* the lift mechanically. Per-branch rewrite rules (full table SPEC §56.5.2): `if (@cell == .X) { body }` → `<X>{body}</>`; payload destructure preserved; `else { ... }` dropped on exhaustive coverage. Idempotent — re-running on already-promoted code is a no-op. Supports `--dry-run`, `--check`, file or directory targets. Pairs with `bun scrml migrate` (deprecated→current) but is a separate verb because semantics differ — `promote` is a tier-up of valid code.
+2. **`bun scrml promote --match <file>[:line]`** — CLI subcommand that *executes* the lift mechanically. Per-branch rewrite rule (SPEC §56.5.2): `if (@cell is .X) { body }` → `<X>{body}</>`; trailing `else { ... }` dropped on exhaustive coverage. Idempotent — re-running on already-promoted code is a no-op. Supports `--dry-run`, file or directory targets. Pairs with `bun scrml migrate` (deprecated→current) but is a separate verb because semantics differ — `promote` is a tier-up of valid code.
 
-**Companion verb:** `bun scrml promote --engine <file>[:line]` lifts a `<match>` block whose state-arms accrue `rule=` attributes into an active `<engine>` (Tier 1→2). Pairs with the `W-MATCH-TRANSITIONS-ACCRUING` lint.
+**Predicate matrix (S66 — full restored after narrowing-error reversal):** the lint and `--match` accept BOTH `if (@cell is .Variant)` AND `if (@cell == .Variant)` as variant-tag-check predicates. They're structurally equivalent in scrml; the dev's choice of operator is style. Mixed `is`/`==` in the same chain is supported and produces a unified rewrite. The S66 preprocessor fix (`compiler/src/expression-parser.ts`) makes `.Variant` parseable as a primary expression in any operator context — that change is what unblocks `==` recognition here. The earlier S66 sub-survey "narrowing to bare-`is`-only" was a methodology-error reversal: corpus-shows-zero-`==` was inverted (corpus empty BECAUSE parser broken, not because devs chose `is`); see `docs/changes/promotion-ergonomics/progress.md` "S66 narrowing reversal" entry for the full arc + methodological note.
 
-**Status (S65 dispatch):** CLI surface registered; spec/primer/article docs landed (Tier A). Lint detection + AST→AST transformation impl pending Tier B dispatch (gated on A+ verdict #1+#2 landing for the lint substrate). See `docs/changes/promotion-ergonomics/SCOPE.md` and `SURVEY-NOTE.md` for the full design + tier-split rationale.
+**Companion verb (DEFERRED to Tier C):** `bun scrml promote --engine <file>[:line]` lifts a `<match>` block whose state-arms accrue `rule=` attributes into an active `<engine>` (Tier 1→2). Pairs with the `W-MATCH-TRANSITIONS-ACCRUING` lint. Both the lint and the rewrite were deferred from Tier B — `W-MATCH-TRANSITIONS-ACCRUING` has no §34 row + no impl today; needs proper groundwork. The `--engine` flag stays in the CLI but prints "deferred to Tier C — needs W-MATCH-TRANSITIONS-ACCRUING groundwork" and exits 2. See `docs/changes/promotion-ergonomics/TIER-C-SCOPE.md`.
+
+**Status (S66 — Tier B SHIPPED):** I-MATCH-PROMOTABLE lint live (`compiler/src/lint-i-match-promotable.js`) + `bun scrml promote --match` AST→AST span-rewrite live (`compiler/src/commands/promote.js`). 14 lint tests + 6 promote tests; 0 regressions. SPEC §34 catalog row landed. `--engine` Tier-C-deferred per Finding B. Test count pre-S66: 9019; post-S66: 9039.
 
 **Why this matters (marketing-load-bearing):** scrml is the only mainstream-target framework where the *compiler tells you when your code is ready to lift* AND *a CLI does the mechanical lift* AND *no silent rewrite happens*. React/Vue/Svelte have nothing comparable. Promotion ergonomics is the marketing flagship for the tier-ladder system itself, paired with `formFor` as the marketing flagship for L22-family validators.
 

@@ -331,7 +331,7 @@ The pairing matters. React, Vue, Svelte have nothing comparable — there is no 
 
 `bun scrml promote` is a sibling of `bun scrml migrate` (which rewrites deprecated→current syntax, e.g., `<machine>` → `<engine>`). Different verb, different semantics: `migrate` removes the old form; `promote` keeps both forms valid. You promote because you decide to, not because something is going away.
 
-(*Status note (S65 dispatch): the design is locked, the CLI surface is registered, and SPEC §56 normatively specifies the lint and verb. The AST→AST transformation implementation is the next dispatch — gated on a sibling lint-tightening dispatch landing first. The article is intentionally describing the design rather than a shipped binary.*)
+(*Status note (S66): `bun scrml promote --match` is shipped — the I-MATCH-PROMOTABLE lint fires with three message shapes (exhaustive / near-miss / compound), and the CLI executes the AST→AST span-rewrite. Both `if (@cell is .X)` and `if (@cell == .X)` predicate forms are accepted. The CLI's companion `--engine` flag (Tier 1→2 lift) is deferred to a follow-up dispatch — it pairs with `W-MATCH-TRANSITIONS-ACCRUING`, a sibling lint that needs its own §34 catalog + impl groundwork; the flag stays registered but prints a clear "deferred" message until that lands.*)
 
 ## What this is not
 
