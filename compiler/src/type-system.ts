@@ -519,7 +519,20 @@ const BUILTIN_TYPES: Map<string, ResolvedType> = new Map([
   ["SQLError",        tError("SQLError",        new Map())],
   ["AuthError",       tError("AuthError",       new Map())],
   ["TimeoutError",    tError("TimeoutError",    new Map())],
-  ["ParseError",      tError("ParseError",      new Map())],
+  // §41.13 — ParseError is the canonical failure-type for parseVariant
+  // (Path A, L22). It is also exported from `stdlib/data/parse.scrml` for
+  // explicit `import { ParseError } from 'scrml:data'` use, but registering
+  // it here as a built-in :enum (with the four canonical variants) ensures
+  // that `!{}` exhaustiveness checks against parseVariant calls resolve the
+  // type even when the importing file doesn't repeat the import — and dodges
+  // the stdlib re-export-chase gap (api.js importedTypes seeder reads the
+  // dep file's own typeDecls, not those re-exported via index.scrml).
+  ["ParseError",      tEnum("ParseError", [
+    { name: "MissingDiscriminator", payload: null, renders: null },
+    { name: "UnknownVariant",       payload: new Map([["tag",    tPrimitive("string")]]), renders: null },
+    { name: "InvalidPayload",       payload: new Map([["field",  tPrimitive("string")], ["reason", tPrimitive("string")]]), renders: null },
+    { name: "Malformed",            payload: new Map([["reason", tPrimitive("string")]]), renders: null },
+  ])],
   ["NotFoundError",   tError("NotFoundError",   new Map())],
   ["ConflictError",   tError("ConflictError",   new Map())],
 ]);
@@ -3458,7 +3471,8 @@ function annotateNodes(
   // Step 3: walk every ExprNode in the file. Validate + annotate each
   // parseVariant call-site.
   if (parseVariantLocals.size > 0) {
-    walkAndValidateParseVariantCalls(_allTopNodes, parseVariantLocals, typeRegistry, errors, fileSpan);
+    const _pvDefaultSpan: Span = { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+    walkAndValidateParseVariantCalls(_allTopNodes, parseVariantLocals, typeRegistry, errors, _pvDefaultSpan);
   }
 
   function visitNode(node: unknown): ResolvedType {
