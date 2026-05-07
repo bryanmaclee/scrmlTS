@@ -162,6 +162,26 @@ One detail worth being precise about: `rule="..."` attributes are *allowed* insi
 
 This is enough for many apps. Ship it.
 
+## Aside — the value-return shape of Tier 1
+
+Sometimes you want the case-analysis to return a value into an expression position, not project markup. scrml has the same Tier-1 shape, JS-style:
+
+```scrml
+const summary = match @phase {
+    .Idle             -> "Click load to begin"
+    .Loading          -> "Loading…"
+    .Error msg        -> "Failed: ${msg}"
+    .Empty            -> "No items"
+    .Success count    -> "Loaded ${count} items"
+}
+```
+
+Same exhaustiveness contract — every variant must be covered, the compiler errors otherwise. Same payload destructuring (`Error msg`, `Success count`). The difference is *position* and *output*: `<match for=Phase>` projects markup into a render tree; `match @phase {}` evaluates to a value. Use whichever fits.
+
+Both forms are Tier 1. They coexist. They check the same way. Pick the one that matches the shape of what you're producing — UI tree vs. value.
+
+The promotion path I'll walk in the rest of this article uses the structural `<match for=Phase>` form because the example produces UI. If your case-analysis is producing a value, you stay in the JS-style form indefinitely; there's no Tier 2 for value-return. Engines are about state machines, not expression evaluation.
+
 ## The second nudge
 
 Time passes. Features land. Now the screen needs:

@@ -21,10 +21,12 @@ But — apps don't START at the north star; they EVOLVE toward it. Booleans-as-l
 | Tier | Form | What you get |
 |---|---|---|
 | 0 | `if=` chains / `${ if (...) lift ... }` | prototype, no exhaustiveness check |
-| 1 | `<match for=Type [on=expr]>` block | structural exhaustiveness; rules-inert (with W-MATCH-RULE-INERT lint) |
+| 1 | `<match for=Type [on=expr]>` block (structural) **OR** `match expr {}` (JS-style value-return) | structural exhaustiveness; rules-inert in block form (with W-MATCH-RULE-INERT lint); value-return in JS-style form |
 | 2 | `<engine for=Type initial=.Variant>` | full deal: exhaustiveness + active rules + transition handlers |
 
-**Promotion is mechanical and additive.** State-children carry forward verbatim from Tier 1 to Tier 2; the wrapper swap is the commitment moment.
+**The two Tier-1 shapes coexist (per L8):** the structural `<match for=Type>` block-form is the canonical UI-tree shape (rules-inert with lint nudge to Tier 2 — W-MATCH-RULE-INERT); the JS-style `match expr { … }` is the canonical **value-return** form for in-expression branching. Both check exhaustiveness against the discriminating type. Use whichever fits the surrounding context — markup tree vs. expression position. (S64 debate-04 verdict A+ item #3: this two-shape coexistence is what closes "where do I put the value-return rung?" — answer: it's already there.)
+
+**Promotion is mechanical and additive.** State-children carry forward verbatim from Tier 1 (block form) to Tier 2; the wrapper swap is the commitment moment. JS-style `match expr {}` does NOT promote to Tier 2 directly — its semantic is value-return, not state-machine; if the value-return logic accumulates state-transition shape, the dev hoists into a `<match for=Type>` block first, then to `<engine>`.
 
 ---
 
@@ -493,6 +495,25 @@ Updated row for parseVariant (S65):
 4. L22 — the architectural lock
 
 **What was rejected (CLOSED by debate-05 verdict; do not re-propose without new corpus signal):** `parseShape` (synonym for §53.4 boundary refinement), `parseArray` (synonym for `[].map(parseVariant)`), `parseRecord`, `parseTuple`, `parsePartial` (Gap #20 closes via `formFor(..., partial=true)`, not via parse primitive).
+
+---
+
+## §13.7 Annotated-AST contracts produced by A1b resolver passes (S65)
+
+A1b decorates the A1a AST with resolution metadata that downstream passes (B5+, codegen) consume. Each step's contract is recorded here as it lands so future passes can rely on the field name + value semantics.
+
+| Step | Field | On node kind | Values | Read API |
+|---|---|---|---|---|
+| **B1** | `_record` | state-decl nodes (registered cells) | `StateCellRecord` | `lookupStateCell(name, scope)` |
+| **B1** | `_scope` | various nodes attached during PASS 1 | scope identifier | (internal walker discrimination) |
+| **B2** | (no new field — fires `E-NAME-COLLIDES-STATE` diagnostic) | local-decl nodes shadowing state names | — | — |
+| **B3** | `_resolvedStateCell` | every `@`-prefixed `IdentExpr` reachable via SYM PASS-3 | `StateCellRecord` (resolved), `null` (unresolved — no error fired at B3), `undefined` (not walked) | `getResolvedStateCell(ident)` exported from `compiler/src/symbol-table.ts` |
+
+**B3 specifics (load-bearing for B5/B7/B10/B22 + promotion ergonomics + A1c C0):**
+
+- `_resolvedStateCell: null` is an EXPLICIT "B3 ran, found nothing" marker — not the same as `undefined`. Downstream passes can detect failed resolution and decide whether to fire (a future tightening dispatch will convert null markers into fired E-SCOPE-001 at the type-check pass; today the `@`-prefix path in `type-system.ts:2870-2999` skips diagnostics).
+- **Compound nav** (`@form.name`): B3 resolves the BASE cell on the `@form` IdentExpr. The `.name` part is a static property string (MemberExpr), NOT an IdentExpr — `forEachIdentInExprNode` walks `member.object` only. Consumers needing leaf-level resolution (e.g., B22 `reset(@form.name)`) must re-resolve via `lookupQualifiedStateCell`.
+- **No collision with parseVariant Phase 2's `parseVariantEnum`** — different node kinds (CallExpr vs IdentExpr), different stages (type-check pass vs SYM PASS-3).
 
 ---
 
