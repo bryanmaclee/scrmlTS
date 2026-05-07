@@ -4977,10 +4977,20 @@ All synthesized properties are **READ-ONLY**. Writing to them is **E-SYNTHESIZED
 
 **Full treatment: §55 (forthcoming).** This section is a forward stub. §55 covers the complete validator grammar, error message synthesis, `<errors of=expr/>` display helpers, and interaction with the bind: dispatch table.
 
+> **Note on type-shape correction (S67, parallel to §6.6.8 S59 + §6.6.10 S66 rename footnotes).** The type-shape table in this stub predates §55.9's `ValidationError` enum (locked at L12). The canonical types per §55.5–§55.7 supersede the stub:
+>
+> - Compound `errors` is `{ fieldName: [...errorTags], ... }` (object map of arrays of `ValidationError` enum tags), NOT `string[]`.
+> - Per-field property is `errors` (plural, array of enum tags), NOT singular `error: string | not`.
+> - All `errors` arrays contain `ValidationError` enum tags per §55.9, NOT raw strings.
+>
+> §55.5–§55.7 are the authoritative type-shape reference. Surfaced by S67 A1b B11 + B12 Rule-4 audits (`docs/audits/a1b-b11-rule4-audit-2026-05-07.md`, `docs/audits/a1b-b12-rule4-audit-2026-05-07.md`).
+
 **Cross-references:**
 - §6.2 — Shape 2 (decl-with-render-spec): where validators appear
 - §34 — E-SYNTHESIZED-WRITE
 - §55 — Inline Type Predicates (full validator specification; forthcoming)
+- §55.5–§55.7 — canonical synthesized-property type shapes (supersede this stub's table per the S67 footnote above)
+- §55.9 — `ValidationError` enum (the canonical error tag type)
 
 ---
 
