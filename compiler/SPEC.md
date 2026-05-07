@@ -14207,6 +14207,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-RESET-NO-ARG | §6.8 | `reset()` called with no argument. The `reset` keyword requires an explicit cell argument: `reset(@cell)` or `reset(@compound.field)`. | Error |
 | W-LIFECYCLE-CANDIDATE | §1.5 | A `<program>` body, component body, or file scope has more than 2 reactive boolean cells gating the same UI region. Consider promoting to a `<match>` block (Tier 1) or `<engine>` (Tier 2) for structural exhaustiveness. | Warning |
 | W-MATCH-RULE-INERT | §18.0.2 | `rule=` declared on a state-child inside a `<match>` block. Rules are legal-but-inert in match (read-only on the matched-on value); promote to `<engine>` (Tier 2) to activate enforcement. | Warning |
+| I-MATCH-PROMOTABLE | §56 | An if-else (or `if=`/`else if=`/`else=` markup) chain over an enum-typed state cell is mechanically promotable to a `<match>` block. Three message shapes — exhaustive (clean lift), near-miss (concrete missing-variants list), compound-condition (advisory; needs manual restructuring). Pairs with `bun scrml promote --match`. | Info |
 | E-MATCH-EFFECT-FORBIDDEN | §18.0.2 | `effect=` attribute used on a state-child inside a `<match>` block. Effects presuppose transitions; transitions don't occur in match. Use `<engine>` (Tier 2). | Error |
 | E-MATCH-ONTRANSITION-FORBIDDEN | §18.0.2 | `<onTransition>` element used inside a `<match>` block. Transition handlers are engine-only. Use `<engine>` (Tier 2). | Error |
 | E-MATCH-NOT-EXHAUSTIVE | §18.0.1 | Block-form `<match for=Type>` is missing variants of `Type` and has no wildcard `<_>` catch-all. Add the missing variants or add `<_>`. | Error |
@@ -24728,11 +24729,19 @@ the relevant sections; §34 indexes them.
 
 ## 56. Promotion Ergonomics — `I-MATCH-PROMOTABLE` and `bun scrml promote`
 
-**Status (S65):** Design locked. Severity, fire conditions, message shapes, and CLI surface are
-normative below. Implementation is split into Tier A (CLI surface registration + spec/primer/
-article docs — landed S65) and Tier B (lint detection + AST→AST transformation — pending
-post-A+ verdict #1+#2 dispatch). See `docs/changes/promotion-ergonomics/SCOPE.md` and
-`docs/changes/promotion-ergonomics/SURVEY-NOTE.md` for the implementation-path rationale.
+**Status (S66):** Design locked + `--match` shipped + I-MATCH-PROMOTABLE lint shipped. Severity,
+fire conditions, message shapes, and CLI surface are normative below. Implementation history:
+Tier A (CLI surface registration + spec/primer/article docs) landed S65; Tier B (lint detection
++ `--match` AST→AST transformation) ships S66. The `--engine` mode is deferred to Tier C — it
+needs `W-MATCH-TRANSITIONS-ACCRUING` lint groundwork (a §34 catalog row + lint pass impl) that
+is out of scope for Tier B. See `docs/changes/promotion-ergonomics/SCOPE.md`,
+`docs/changes/promotion-ergonomics/SURVEY-NOTE.md`, and `SURVEY-PHASE-B.md` for the rationale.
+
+**Predicate matrix (Path A, S66):** the `is`-form predicates are canonical. The `==`-with-dot-
+prefix-variant form (`@cell == .Variant`) is NOT a parseable scrml expression today (the
+expression preprocessor at `expression-parser.ts:686+` registers placeholders only for `is`
+forms, not for `==`). The lint and CLI rewrite operate ONLY on the parseable `is` forms below.
+Adding the `==` shape is a future preprocessor extension (out of scope; Tier C+).
 
 ### 56.1 Motivation
 
@@ -24765,10 +24774,13 @@ attribute chain (markup form) when ALL of:
    (e.g., `@form.phase` over an enum-typed sub-cell) qualify identically.
 
 2. **Conditions are clean variant predicates.** Each branch's condition is one of:
-   - `@cell == .Variant`
-   - `@cell.is(.Variant)`
-   - `@cell == .Variant(payload)` — payload destructure
-   - `@cell == .Variant msg` — single-field bind syntax
+   - `@cell.is(.Variant)` — method-call form
+   - `@cell is .Variant` — operator form
+   - `@cell is .Variant msg` — single-field bind syntax (operator form with bind)
+
+   The `@cell == .Variant` form is NOT parseable today (preprocessor gap, see status note
+   above) and is out of scope for the lint and CLI rewrite. Future preprocessor work may
+   extend the matrix.
 
 3. **All branches reference the same discriminator.** Mixed-discriminator chains do NOT
    fire `I-MATCH-PROMOTABLE`.
@@ -24840,12 +24852,16 @@ form to a valid Tier-(N+1) form (both forms remain valid after the lift).
 
 | Source branch condition | Target arm |
 |---|---|
-| `if (@cell == .X) { body }` | `<X>{body}</>` |
-| `if (@cell == .X(payload)) { body }` | `<X payload>{body}</>` |
-| `if (@cell == .X msg) { body }` | `<X msg>{body}</>` |
-| `if (@cell.is(.X)) { body }` | `<X>{body}</>` (same as `==`) |
+| `if (@cell.is(.X)) { body }` | `<X>{body}</>` |
+| `if (@cell is .X) { body }` | `<X>{body}</>` |
+| `if (@cell is .X msg) { body }` | `<X msg>{body}</>` |
 | Trailing bare `else { body }` with exhaustive coverage | dropped (unreachable) |
 | Trailing bare `else { body }` with non-exhaustive coverage | the lint fires near-miss; CLI skips the site |
+
+The `==`-with-dot-prefix-variant rewrite shapes (`@cell == .X`, `@cell == .X(payload)`,
+`@cell == .X msg`) are NOT in the current rewrite table — see the §56 status note. Adding
+them requires extending `preprocessForAcorn` to register `==`-with-dot-variant placeholders
+symmetric to the existing `is .Variant` rule.
 
 #### 56.5.3 Idempotency + skip-and-report
 
@@ -24872,17 +24888,32 @@ arm.
 | 1 | File not parseable, OR I/O failure during write. |
 | 2 | Ambiguous site needing human disambiguation (during stub phase: emitted unconditionally with the implementation-pending notice). |
 
-### 56.6 `--engine` mode (Tier 1→2 sibling)
+### 56.6 `--engine` mode (Tier 1→2 sibling — DEFERRED to Tier C)
 
-Same span-rewrite shape as `--match`, different transformation. Pairs with the
-`W-MATCH-TRANSITIONS-ACCRUING` lint. Input: a `<match for=Phase on=@phase>` block whose
-state-arms accrue `rule=` attributes. Output: an `<engine for=Phase initial=.InitialVariant>`
-block where the rules become *active* (transitions can fire; `<onTransition>` becomes
-legal).
+**Status (S66):** Design locked; implementation deferred to a Tier C dispatch. The CLI
+flag `--engine` is registered (running it prints "implementation pending") but the
+transformation is not yet shipped. Reason for deferral: a clean `--engine` ship needs the
+`W-MATCH-TRANSITIONS-ACCRUING` lint as a discovery surface, and that lint has no §34 catalog
+row, no §28 suppression config row, and no implementation today. Folding all of that work
+into Tier B blew the dispatch's scope; splitting into a Tier C dispatch keeps each ship
+coherent. The Tier B dispatch (`--match` + I-MATCH-PROMOTABLE) is the flagship marketing
+beat; `--engine` deserves the same care in its own dispatch.
+
+**Design (preserved):** same span-rewrite shape as `--match`, different transformation.
+Input: a `<match for=Phase on=@phase>` block whose state-arms accrue `rule=` attributes.
+Output: an `<engine for=Phase initial=.InitialVariant>` block where the rules become
+*active* (transitions can fire; `<onTransition>` becomes legal).
 
 The Tier 1→2 lift requires the dev to specify `initial=` because match-block forms have
 no concept of an initial state. The CLI may default to the first arm's variant and emit a
 `W-ENGINE-INITIAL-MISSING` until corrected.
+
+**Tier C work items (when dispatched):**
+1. Add §34 catalog row for `W-MATCH-TRANSITIONS-ACCRUING`.
+2. Add §28 suppression config row for `lint.match-transitions-accruing`.
+3. Implement the lint pass (AST walk over `<match>` arms looking for `rule=` attributes).
+4. Implement the `<match>` → `<engine>` span-based rewrite in `commands/promote.js`,
+   replacing the current "implementation pending" branch.
 
 ### 56.7 Tooling integration
 
