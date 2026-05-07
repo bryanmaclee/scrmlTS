@@ -80,6 +80,105 @@ export function runIMatchPromotable(files, _crossFileStateRegistry) {
 }
 
 /**
+ * Sibling API for `bun scrml promote --match`. Walks the typed-AST to find
+ * promotable if-else chains and returns rewrite-ready descriptors. Only
+ * `exhaustive`-shape chains are returned (those are the only sites the CLI
+ * promotes). Near-miss / compound chains are omitted — those need human
+ * action first (the lint surfaces them via `runIMatchPromotable`).
+ *
+ * @param {object} file — typed FileAST (with file.typeRegistry exposed)
+ * @returns {Array<{
+ *   chainHead: object,
+ *   branches: BranchInfo[],
+ *   enumName: string,
+ *   variantTagsInOrder: string[],
+ *   cellName: string,
+ *   shape: "exhaustive"
+ * }>}
+ */
+export function findPromotableChains(file) {
+  const out = [];
+  if (!file) return out;
+  const typeRegistry = file.typeRegistry;
+  if (!typeRegistry) return out;
+  const cellTypeByName = collectCellTypeAnnotations(file);
+
+  walkFileForIfChains(file, (chainHead, chainBranches) => {
+    const result = classifyChainStructured(chainHead, chainBranches, typeRegistry, cellTypeByName);
+    if (result && result.shape === "exhaustive") {
+      out.push(result);
+    }
+  });
+
+  return out;
+}
+
+/**
+ * Like `analyseChain` but returns the structured classification (head +
+ * branches + variant tags + enum) rather than the diagnostic shape. Returns
+ * null if the chain is not promotable in any shape.
+ */
+function classifyChainStructured(chainHead, branches, typeRegistry, cellTypeByName) {
+  if (branches.length < 2) return null;
+
+  let cellIdent = null;
+  let cellName = null;
+  let hasCompound = false;
+  let hasMixedDiscriminator = false;
+  let hasNonIsForm = false;
+  const variantTags = [];
+
+  for (const b of branches) {
+    const ce = b.condExpr;
+    if (!ce) continue;
+    if (isCompoundCondition(ce)) { hasCompound = true; continue; }
+    const match = matchIsVariantPredicate(ce);
+    if (!match) { hasNonIsForm = true; continue; }
+    if (cellName == null) {
+      cellName = match.cellName;
+      cellIdent = match.idLeft;
+    } else if (cellName !== match.cellName) {
+      hasMixedDiscriminator = true;
+    }
+    if (match.variantTag) variantTags.push(match.variantTag);
+  }
+
+  if (variantTags.length === 0) return null;
+  if (hasCompound || hasMixedDiscriminator || hasNonIsForm) return null;
+
+  const enumType = resolveEnumTypeForCell(cellIdent, cellName, typeRegistry, cellTypeByName);
+  if (!enumType) return null;
+
+  const allVariants = (enumType.variants ?? []).map(v => v.name);
+  const coveredSet = new Set(variantTags);
+  const missing = allVariants.filter(v => !coveredSet.has(v));
+  const hasTrailingElse = branches.some(b => b.trailingElse !== null);
+
+  if (missing.length === 0) {
+    return {
+      chainHead,
+      branches,
+      enumName: enumType.name,
+      variantTagsInOrder: variantTags,
+      cellName,
+      shape: "exhaustive",
+    };
+  } else if (hasTrailingElse) {
+    return null;
+  } else {
+    return {
+      chainHead,
+      branches,
+      enumName: enumType.name,
+      variantTagsInOrder: variantTags,
+      cellName,
+      shape: "near-miss",
+      missing,
+    };
+  }
+}
+
+/**
  * Walk a file's nodes looking for state-decls (top-level and nested in
  * logic blocks). Returns a Map<cellName, typeAnnotation> for cells with
  * a `:T` type annotation. The cell key is the bare name (no `@` prefix).

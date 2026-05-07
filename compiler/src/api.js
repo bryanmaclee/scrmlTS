@@ -905,6 +905,18 @@ export function compileScrml(options = {}) {
   }));
   collectErrors("TS", tsResult.errors);
 
+  // S66 promote-bridge: if an external caller has set the typed-AST capture
+  // hook on globalThis (Symbol.for('__SCRML_PROMOTE_TS_CAPTURE__')), stash
+  // tsResult.files there. Used by `bun scrml promote --match` to walk the
+  // typed-AST without re-architecting the api. Non-invasive: no caller sees
+  // any change unless they explicitly opt in by setting the capture symbol.
+  try {
+    const captureKey = Symbol.for("__SCRML_PROMOTE_TS_CAPTURE__");
+    if (globalThis[captureKey] && typeof globalThis[captureKey] === "object") {
+      globalThis[captureKey].files = tsResult.files ?? null;
+    }
+  } catch { /* no-op */ }
+
   // Stage 6.4: I-MATCH-PROMOTABLE info-level lint (SPEC §56)
   // Walks the typed-AST and emits info diagnostics for if-else chains over
   // enum-typed state cells that are mechanically promotable to <match>.

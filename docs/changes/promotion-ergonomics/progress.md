@@ -180,3 +180,16 @@ reality before implementation, and proceed.
 
 Probe file: `_probe-is-method.test.js` was created under tests/unit/ and removed after
 findings recorded. Probe was a 30-second informational test; no commits.
+
+## Phase 1 SHIPPED — I-MATCH-PROMOTABLE lint
+
+- New module: `compiler/src/lint-i-match-promotable.js` (post-TS info-level lint)
+- Wired in `compiler/src/api.js` Stage 6.4 (between TS and META)
+- type-system.ts exposes per-file `typeRegistry` on TypedFileAST (additive)
+- 11 new unit tests — all pass; baseline: 9030/44/1/0 (was 9019; +11 new, 0 regressions)
+
+Three message shapes: exhaustive, near-miss, compound. Single predicate matrix per
+S66 sub-survey: `if (@cell is .Variant)`. Handles both structured `binary op=is`
+and `escape-hatch` AST shapes (fallback regex on raw text).
+
+## Phase 2 — `bun scrml promote --match` AST→AST transformation (starts)

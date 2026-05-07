@@ -1,0 +1,21 @@
+// Canonical promote --match fixture: an if-else chain in MARKUP context
+// over an enum-typed cell. The lint fires; --match converts to <match>.
+
+${
+    type Phase:enum = { Idle, Loading, Error, Success }
+    <phase>: Phase = .Idle
+}
+
+<div>
+    ${
+        if (@phase is .Idle) {
+            <p>idle</p>
+        } else if (@phase is .Loading) {
+            <p>loading</p>
+        } else if (@phase is .Error) {
+            <p>error</p>
+        } else if (@phase is .Success) {
+            <p>success</p>
+        }
+    }
+</>
