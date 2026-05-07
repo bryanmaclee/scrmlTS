@@ -160,21 +160,28 @@ Engines are the v0.next centerpiece. Singleton-by-design (one declaration mounts
 ```scrml
 type Phase:enum = { Idle, Loading, Error(msg: string), Empty, Success(count: int) }
 
+function load() {
+    @phase = .Loading
+    const result = fetchItems() !{
+        | ::Network msg -> { @phase = .Error(msg); return }
+        | ::Empty       -> { @phase = .Empty;       return }
+    }
+    @phase = .Success(result.length)
+}
+
 <engine for=Phase initial=.Idle>
 
-    <Idle>
-        <button rule="load -> Loading">Load</button>
+    <Idle rule=.Loading>
+        <button onclick=load()>Load</button>
     </>
 
-    <Loading rule="onResult.ok(n) -> Success(n)"
-             rule="onResult.err(m) -> Error(m)"
-             rule="onResult.empty -> Empty">
+    <Loading rule=(.Success | .Error | .Empty)>
         Loading...
     </>
 
-    <Error msg>
+    <Error msg rule=.Loading>
         <div>${msg}</div>
-        <button rule="retry -> Loading">Retry</button>
+        <button onclick=${@phase = .Loading}>Retry</button>
     </>
 
     <Empty>
@@ -185,7 +192,7 @@ type Phase:enum = { Idle, Loading, Error(msg: string), Empty, Success(count: int
         Got it: ${count} rows
     </>
 
-    <onTransition from=Loading to=Success>
+    <onTransition from=.Loading to=.Success>
         ${ analytics.track("load.success") }
     </>
 
@@ -196,13 +203,13 @@ Key engine concepts:
 - **Auto-declared engine variable** — first `<engine for=Phase>` in a scope auto-declares `<phase>` (lowercase first-letter of type, Move 16). Manual override via `var=<name>`.
 - **Mount position = decl position.** Same-file decl-IS-mount; `<EngineName/>` for cross-file mount of a shared singleton.
 - **`initial=`** required (W-ENGINE-INITIAL-MISSING lint defaults to first variant if omitted; forbidden on derived engines).
-- **`rule="event -> Variant"`** the transition contract. Three forms: event-driven, predicate, wildcard.
-- **`.advance(.event)`** is the only legal write path. `@phase = .Loading` direct writes bypass rules — `E-ENGINE-INVALID-TRANSITION`.
-- **`<onTransition from=A to=B>`** for cross-state effects (analytics, cleanup).
-- **`effect=` attribute** on rules for inline per-rule effects.
-- **Derived engines** — `<engine for=Phase derived=expr>` reactively recomputes the variant; no rules, no writes (`E-DERIVED-ENGINE-NO-WRITE`).
+- **`rule=` declares legal transitions FROM the state-child** per §51.0.F. **Three target-only forms:** single-target `rule=.NextVariant`, multi-target `rule=(.A | .B | .C)`, wildcard `rule=*` (escape hatch — loses static guarantees). The arrow form `rule="event -> Variant"` is **legacy `<machine>` syntax** (§51.3, deprecated); `<engine>` does NOT use it.
+- **Transitions are direct writes (`@phase = .X`) or `.advance(.X)`** per §51.0.F + §51.0.G. The `rule=` contract is enforced compile-time when from-state is statically known (inside a state-child body) and runtime otherwise. `E-ENGINE-INVALID-TRANSITION` fires on writes that violate the rule= set. `.advance(.X)` is the loud-failure variant; direct write is the canonical quiet-validation path. (`.tryAdvance` was rejected at S55 deliberation — silent failures hide bugs.)
+- **`<onTransition from=A to=B>`** for cross-state effects (analytics, cleanup). Multiple `<onTransition>` children supported per state-child for multi-target rules.
+- **`effect=` attribute** on a state-child for inline per-rule effects (single-target only — `E-ENGINE-EFFECT-AMBIGUOUS` on multi-target).
+- **Derived engines** — `<engine for=Phase derived=expr>` reactively recomputes the variant; no rules, no writes (`E-DERIVED-ENGINE-NO-WRITE`); no `initial=` (`E-DERIVED-ENGINE-NO-INITIAL`).
 - **Components are NOT engines** — a component-instance with internal state is fresh per instance; an engine is one app-lifecycle singleton (`E-COMPONENT-ENGINE-SCOPE`).
-- **Legacy `<machine>` keyword** — deprecated alias for `<engine>`. Emits `W-DEPRECATED-001` at the call site; the `bun scrml migrate <file>` CLI auto-rewrites `<machine` → `<engine`. `W-DEPRECATED-001 → E-DEPRECATED-001` transition planned for v0.3.0.
+- **Legacy `<machine>` keyword** — deprecated alias for `<engine>`. Emits `W-DEPRECATED-001` at the call site; the `bun scrml migrate <file>` CLI auto-rewrites `<machine` → `<engine`. `W-DEPRECATED-001 → E-DEPRECATED-001` transition planned for v0.3.0. **Note:** `<machine>` retains a richer `rule=` grammar (event-arrow, predicate, temporal-after; §51.3, §51.12). Migrating that grammar into `<engine>` is engineering work tracked separately (see master-PA inbox 2026-05-07-1327; S67 user-direction signal #4 — Class A, no debate).
 
 ---
 
