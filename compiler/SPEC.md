@@ -16938,6 +16938,75 @@ The `scrml:data` module exports a sibling helper `messageFor` that performs the 
 - §55.10 — full 4-level message resolution chain.
 - §55.8 — `<errors of=expr/>` element (default rendering uses `messageFor`).
 
+### 41.13 `scrml:data` `parseVariant` — boundary-parsing primitive for tagged-variant JSON
+
+**Added:** S65, 2026-05-06 — ratified by debate-05 (boundary-parsing primitive; 5/5 unanimous panel verdict; judge-ratified) and the S65 Path-A architectural commit. `parseVariant` is the FIRST general-position member of the type-as-argument feature family (cross-ref §53.14). The architectural cost of admitting type-as-argument outside `^{}` meta-blocks is paid here once and harvested across the planned family (`serialize`, `formFor`, `schemaFor`, `tableFor`, reflective metadata).
+
+**The API:**
+
+```scrml
+import { parseVariant } from 'scrml:data'
+
+type LoadResult:enum = { Success(rows: int), Empty, Failed(reason: string) }
+type LoadError:enum  = { Malformed(reason: string), Network(msg: string) }
+
+server function loadResult()! -> LoadError {
+    const raw = fetch("https://api.example.com/results")
+    const result = parseVariant(raw, LoadResult) !{
+        | ::ParseError msg -> { fail LoadError::Malformed(msg) }
+    }
+    return result    // typed as LoadResult; <match> exhaustive
+}
+```
+
+**Call signature:**
+
+```
+parseVariant(json: string | object, EnumType) -> EnumType
+```
+
+The function lifts untyped JSON (a string to be `JSON.parse`d, or an already-parsed object) into a typed enum value via type-driven dispatch. `parseVariant` is **failable**; on parse failure it raises `::ParseError` (declared by `scrml:data`; see "Failure type" below) and the call site MUST install an `!{}` handler per §19 failable semantics.
+
+**Normative statements:**
+
+- The second argument SHALL be a bare scrml-native `:enum` type identifier. Struct types, named-shape types, refinement-type literals, and arbitrary type expressions SHALL NOT be accepted in argument-2 position. Violations SHALL emit `E-PARSEVARIANT-TYPE-NOT-ENUM` at the type-system stage (cross-ref §34). The compile-time enforcement closes the string-discriminator trap at the type system.
+- The discriminator key SHALL be the enum's own variant names. `parseVariant` does NOT accept a `discriminatorKey=`, `mapping=`, or any name-translation argument. Wire formats whose discriminator does not match the variant name (e.g., `{type: "SUCCESS"}` against an enum variant `Success`) SHALL be normalized in a server function before being passed to `parseVariant`.
+- `parseVariant` returns the constructed enum value typed as `EnumType`. Inside an `!{}` handler installed against the call, the handler's exhaustiveness check (cross-ref §19) sees the four `ParseError` variants and a non-exhaustive handler is `E-MATCH-NOT-EXHAUSTIVE`.
+- `parseVariant` does NOT auto-recurse into payload fields whose type is itself an enum. Each level of nested-enum payload SHALL be parsed by an explicit nested call. This forces composition discipline and matches the family's sliver-test minimalism.
+- `parseVariant` is callable in both server-side and client-side contexts; the emitted code is a synchronous monomorphized parser per call site and respects the existing server/client codegen split.
+
+**Failure type — `ParseError:enum` (declared in `scrml:data`):**
+
+```scrml
+type ParseError:enum = {
+    MissingDiscriminator,
+    UnknownVariant(tag: string),
+    InvalidPayload(field: string, reason: string),
+    Malformed(reason: string),
+}
+```
+
+Variant semantics:
+
+- `MissingDiscriminator` — the JSON value has no `tag` field at parse time, or the value is `null`/non-object/non-string-on-string-arg. Emitted via `E-PARSEVARIANT-DISCRIMINATOR-MISSING` (runtime).
+- `UnknownVariant(tag)` — the JSON discriminator value does not match any variant name in the second-argument enum. Emitted via `E-PARSEVARIANT-UNKNOWN-VARIANT` (runtime).
+- `InvalidPayload(field, reason)` — a variant's payload field has the wrong type or fails a payload predicate. Emitted via `E-PARSEVARIANT-INVALID-PAYLOAD` (runtime).
+- `Malformed(reason)` — the JSON string failed `JSON.parse`, or other unrecoverable shape failure with a free-form reason string. Re-raised when `JSON.parse` throws.
+
+**Compile-time recognition:**
+
+`parseVariant(json, EnumType)` parses cleanly as a regular `CallExpression` with two argument expressions; the second argument is an `Identifier` AST node. The compiler recognizes the call form at the **type-system stage** (cross-ref §53.14.5) by inspecting the resolved callee against the imported `parseVariant` from `scrml:data` and looking up the second argument's identifier in the file's `typeRegistry`. The mechanism is structurally identical to `<engine for=Type>` validation (cross-ref §51.0; `E-ENGINE-004` is the structural template for `E-PARSEVARIANT-TYPE-NOT-ENUM`).
+
+**Cross-references:**
+
+- §53.14 — type-as-argument primitives (family framing + discipline; parseVariant is the first general-position member).
+- §22 — `reflect(TypeName)` in `^{}` meta blocks (sibling type-as-argument primitive *inside* meta).
+- §53.4 — SPARK three-zone boundary semantics (sequencing — type-establishment via `parseVariant` precedes predicate-enforcement on the resulting typed value).
+- §34 — `E-PARSEVARIANT-TYPE-NOT-ENUM`, `E-PARSEVARIANT-DISCRIMINATOR-MISSING`, `E-PARSEVARIANT-UNKNOWN-VARIANT`, `E-PARSEVARIANT-INVALID-PAYLOAD`.
+- §19 — failable functions + `!{}` handler integration (the call's failure type is `ParseError`).
+
+**Authority:** ratified at debate-05 (`scrml-support/docs/debates/debate-05-boundary-parsing-primitive-2026-05-06.md`) + judge ratification (`scrml-support/docs/debates/debate-05-judgment-2026-05-06.md`) + Path-A architectural commit (S65; `docs/changes/parsevariant-impl/SCOPE.md`).
+
 ---
 
 ## 42. `not` — The Unified Absence Value

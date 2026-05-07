@@ -1,0 +1,69 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:data/parse — boundary-parsing primitives
+    //
+    // parseVariant lifts untyped JSON into a typed enum value, with type-driven
+    // dispatch on the enum's variant declarations. The second argument MUST be
+    // a scrml-native enum type; struct types and arbitrary type literals are
+    // rejected at compile time with E-PARSEVARIANT-TYPE-NOT-ENUM.
+    //
+    // Discriminator key is fixed: the enum's own variant names. No custom
+    // field-name override; no name-mapping table. Wire formats with non-matching
+    // shapes (e.g. `{type: "SUCCESS"}` vs enum `Success`) require a server-fn
+    // normalization step.
+    //
+    // Returns the typed enum value or fails with ParseError.
+    //
+    // Usage:
+    //   import { parseVariant, ParseError } from 'scrml:data'
+    //
+    //   type LoadResult:enum = { Success(rows: int), Empty, Failed(reason: string) }
+    //
+    //   const result = parseVariant(jsonBlob, LoadResult) !{
+    //       | ::ParseError.Malformed(msg) -> { fail .Malformed(msg) }
+    //   }
+    //
+    // The actual parser body is monomorphized at each call site by the compiler
+    // (Path A — type-as-argument special form). This export exists so
+    // `import { parseVariant }` resolves at MOD stage; if a call-site
+    // monomorphization fails to fire, the runtime fallback surfaces
+    // ParseError.Malformed("internal: parseVariant not monomorphized").
+    //
+    // Family roadmap (L22): parseVariant → serialize → formFor → schemaFor →
+    // tableFor → reflective metadata.
+    // ---------------------------------------------------------------------------
+
+    /**
+     * ParseError — failure variants surfaced by parseVariant.
+     *
+     * MissingDiscriminator       — input had no recognizable variant tag
+     * UnknownVariant(tag)        — tag did not match any declared variant
+     * InvalidPayload(field, why) — payload field type mismatch
+     * Malformed(reason)          — generic structural failure
+     */
+    export type ParseError:enum = {
+        MissingDiscriminator,
+        UnknownVariant(tag: string),
+        InvalidPayload(field: string, reason: string),
+        Malformed(reason: string)
+    }
+
+    /**
+     * parseVariant(json, T) — typed-enum boundary parser.
+     *
+     * Compile-time recognized special form (Path A — see L22). The compiler
+     * emits a monomorphized parser at each call site (see emit-parse-variant.ts
+     * in Phase 2). This body is a defensive fallback only — it should never
+     * execute under a correct compiler.
+     *
+     * @param json - Untyped JSON value (string, object, etc.)
+     * @param T    - Type expression — MUST be a scrml-native enum
+     * @returns    - Typed enum value of type T
+     * @fails      - ParseError on any structural failure
+     */
+    export function parseVariant(json, T)! -> ParseError {
+        fail ParseError.Malformed("internal: parseVariant not monomorphized at call site")
+    }
+}
+</program>

@@ -17,5 +17,7 @@ ${
     export { pick, omit, mapKeys, mapValues, groupBy, indexBy, sortBy, unique,
              flatten, flattenDeep, chunk, toSnakeCase, toCamelCase, camelizeKeys,
              snakifyKeys, deepMerge, clamp, paginate } from './transform.scrml'
+
+    export { parseVariant, ParseError } from './parse.scrml'
 }
 </program>
