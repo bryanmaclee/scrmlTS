@@ -231,7 +231,62 @@ export interface StateCellRecord {
   /** True iff `typeAnnotation` is set on the decl node. Used by B20 for
    *  bare-variant inference (M9, §14.10). */
   hasTypeAnnotation: boolean;
+  /** B11 — true iff this record was synthesized by PASS 8 (auto-synthesized
+   *  validity surface per §55.5 / §55.7 / L11). Synth records have NO underlying
+   *  source AST decl — they are virtual cells the compiler creates so that
+   *  `@form.isValid` / `@form.errors` / `@form.touched` / `@form.submitted`
+   *  resolve to a registered entry. The `declNode` field still references the
+   *  COMPOUND PARENT's decl node (not a fresh node — synth records are
+   *  metadata, not AST insertions). */
+  isSynthesized?: boolean;
+  /** B11 — when `isSynthesized` is `true`, identifies which synth-surface
+   *  property this record represents. Mirrors the four §55.5 / §55.7 properties
+   *  exactly; per-field properties (B12 future scope) reuse the same enum
+   *  except `submitted` which is COMPOUND-LEVEL ONLY (per §55.7 line 24468). */
+  synthProperty?: SynthProperty;
+  /** B11 — when `isSynthesized` is `true`, back-pointer to the parent compound
+   *  record. Codegen reads this to know which compound's value-cells the synth
+   *  cell rolls up over. */
+  parentCompound?: StateCellRecord;
+  /** B11 — runtime-hook requirement annotation per §55.7 line 24449-24461.
+   *  Pure-reactive synth cells (`isValid`, `errors`) have `null`; event-driven
+   *  cells (`touched`, `submitted`) have `"touch"` or `"submit"`. A1c codegen
+   *  emits the actual hooks (`bind:value` change / focus-out for touch; form
+   *  submit for submit). NOT set on non-synth records. */
+  runtimeHookKind?: "touch" | "submit" | null;
 }
+
+/**
+ * The four synthesized-validity-surface property names per SPEC §55.5 / §55.7.
+ *
+ * - `isValid` — boolean reactive rollup (compound-level: `true ↔ all fields pass`).
+ * - `errors`  — object map at compound scope (`{fieldName: [...errorTags]}`),
+ *               array of `ValidationError` enum tags at per-field scope (B12).
+ * - `touched` — object map at compound scope (`{fieldName: bool}`), boolean
+ *               at per-field scope. Latched on first interaction.
+ * - `submitted` — boolean. **COMPOUND-LEVEL ONLY** per §55.7 line 24468.
+ */
+export type SynthProperty = "isValid" | "errors" | "touched" | "submitted";
+
+/**
+ * The four synth-property names as a frozen set, for use in walkers that need
+ * to discriminate "is this member-access targeting a synth surface property?"
+ */
+export const SYNTH_PROPERTY_NAMES: ReadonlySet<SynthProperty> = new Set(
+  ["isValid", "errors", "touched", "submitted"] as const,
+);
+
+/**
+ * The compound-level synth-property names per §55.5. All four are synthesized
+ * at compound scope; B12 will replicate `isValid`, `errors`, `touched` at
+ * per-field scope but `submitted` stays compound-only.
+ */
+export const COMPOUND_SYNTH_PROPERTIES: readonly SynthProperty[] = [
+  "isValid",
+  "errors",
+  "touched",
+  "submitted",
+] as const;
 
 /**
  * A single lexical scope. Forms a tree via `parent` back-pointers.
@@ -1821,17 +1876,29 @@ function checkExprNodeForMutations(
     if (k === "assign" && n.target && typeof n.op === "string"
         && (n.target.kind === "member" || n.target.kind === "index")
         && isDerivedMutatingAssignOp(n.op)) {
-      // The receiver chain is `n.target.object` (everything BEFORE the
-      // final property/index segment). The final segment IS the assign
-      // target; it's not part of the receiver path.
-      const fullPath = buildReceiverPath(n.target.object);
-      if (fullPath) {
-        // Walk prefixes longest→shortest; the deepest registered record is
-        // the leaf cell (covers single-segment `["copy"]`, compound-nav
-        // `["form", "derivedField"]`, etc.). Fire if `isConst`.
-        const fired = scanPrefixesAndFireAssign(fullPath, n, scope, errors, containerSpan);
-        // (no-op when not derived; scan returns boolean for future use)
-        void fired;
+      // B11 extension: check FIRST for synth-property writes at compound
+      // scope. E-SYNTHESIZED-WRITE is the more specific rule — fire it when
+      // applicable, then short-circuit the derived-mutate check (the dev's
+      // intent is "I'm trying to set a synth surface property", which is a
+      // distinct error class with distinct fix-advice from "I'm mutating a
+      // derived cell").
+      const synthFired = checkSynthAssignFire(n, scope, errors, containerSpan);
+      if (synthFired) {
+        // Don't double-fire derived-mutate — the synth message is canonical.
+        // Continue ExprNode descent for nested mutations elsewhere.
+      } else {
+        // The receiver chain is `n.target.object` (everything BEFORE the
+        // final property/index segment). The final segment IS the assign
+        // target; it's not part of the receiver path.
+        const fullPath = buildReceiverPath(n.target.object);
+        if (fullPath) {
+          // Walk prefixes longest→shortest; the deepest registered record is
+          // the leaf cell (covers single-segment `["copy"]`, compound-nav
+          // `["form", "derivedField"]`, etc.). Fire if `isConst`.
+          const fired = scanPrefixesAndFireAssign(fullPath, n, scope, errors, containerSpan);
+          // (no-op when not derived; scan returns boolean for future use)
+          void fired;
+        }
       }
     }
     if (k === "call" && n.callee && n.callee.kind === "member"
@@ -1918,6 +1985,12 @@ function checkReactiveNestedAssign(
   fileFromScope: string,
 ): void {
   if (typeof n.target !== "string" || !Array.isArray(n.path)) return;
+  // B11 extension: check FIRST for synth-property writes at compound scope.
+  // If the target.path leaf is a synth-property name and the prefix resolves
+  // to a compound parent, fire E-SYNTHESIZED-WRITE and short-circuit (audit
+  // §1.3 — synth-write is more specific than derived-value-mutate).
+  if (checkSynthNestedAssignFire(n, scope, errors, fileFromScope)) return;
+
   // Receiver path = [target, ...path[0..length-1]] — the assigned property
   // is the LAST element of `path` (or `path` itself is the property if
   // length === 1).
@@ -2477,6 +2550,363 @@ function isArrayLikeArg(arg: ValidatorArg): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// B11: Auto-synthesized validity surface — compound-level (PASS 8)
+// ---------------------------------------------------------------------------
+//
+// Per SPEC §55.5 / §55.7 (locks L11 + L12) — every COMPOUND state-decl gets
+// four synthesized properties registered into its compound scope:
+//
+//   `@compound.isValid`   — boolean rollup (true ↔ ALL fields pass validators).
+//   `@compound.errors`    — object map { fieldName: [...errorTags] }.
+//   `@compound.touched`   — object map { fieldName: bool }.
+//   `@compound.submitted` — boolean (compound-level only per §55.7 line 24468).
+//
+// **Trigger predicate (per audit §1.1):** `_cellKind === "compound-parent"`.
+// Synthesis is UNCONDITIONAL for compound parents — even no-validator compounds
+// get the surface, with trivially-valid defaults per §55.5 line 24415-24418
+// ("predictability over namespace savings"). Single-value Tier-1 cells (L11
+// Edge A) DO NOT get the surface (compound parent check filters them naturally).
+//
+// **Canonical types per §55, NOT §6.11 stub (per audit §1.2):**
+//   - compound `errors` is OBJECT MAP keyed by field name (NOT `string[]`).
+//   - per-field `errors` (B12 future) is array of `ValidationError` enum tags
+//     (NOT singular `error: string`).
+//
+// **Runtime-hook annotations per §55.7 line 24449-24461 (audit §1.5):**
+//   - `isValid`, `errors` are pure reactive derivations → `runtimeHookKind: null`.
+//   - `touched` has runtime trigger (bind:value/bind:checked change OR first
+//     focus-out) → `runtimeHookKind: "touch"`.
+//   - `submitted` has runtime trigger (form's submit handler) →
+//     `runtimeHookKind: "submit"`.
+//   - B11 RECORDS the hook requirement on each synth record. A1c codegen reads
+//     the annotation and emits the actual hook plumbing.
+//
+// **Cross-field deps via predicate args:** B10 Phase 3 already emits
+// `validator-reads` edges in the dep-graph. B11 emits NO new DG edges — the
+// reactive wiring for compound rollup (`isValid` reading each field's
+// `isValid`) is logically a consequence of the synth records' annotations and
+// is materialized by A1c codegen via the existing `validator-reads` machinery.
+//
+// **`submitted` is COMPOUND-LEVEL ONLY** per §55.7 line 24468 (audit §1.6).
+// B12 (per-field surface) MUST NOT register per-field `submitted`.
+//
+// **E-SYNTHESIZED-WRITE** is fired by the EXTENDED PASS 6 walker (see below).
+// PASS 8 only registers — diagnostic firing rides on the existing walker
+// pattern (audit §1.3 wave-ordering correction).
+
+/**
+ * The runtime-hook requirement table for synth-surface properties at
+ * compound scope. Per §55.7 line 24463-24468.
+ */
+const B11_RUNTIME_HOOK: Readonly<Record<SynthProperty, "touch" | "submit" | null>> = {
+  isValid: null,    // pure reactive
+  errors: null,     // pure reactive
+  touched: "touch", // event-driven
+  submitted: "submit", // event-driven
+};
+
+/**
+ * Construct a single synth-cell `StateCellRecord` for a compound parent's
+ * `_scope`. The `declNode` field references the compound parent (NOT a
+ * fresh AST node — synth records are metadata) so that consumers walking
+ * `record.declNode.span` get a usable source-anchor for diagnostics.
+ *
+ * Conformance with `StateCellRecord` shape:
+ *   - `name` = the synth-property name.
+ *   - `qualifiedPath` = compound's qualified path + "." + name.
+ *   - `scope` = the compound's `_scope` (where the record is being registered).
+ *   - `structuralForm: true` (synth cells are spec-canonical).
+ *   - `shape: "derived"` — synth cells are READ-ONLY derived; mutation fires
+ *     `E-SYNTHESIZED-WRITE` per §55.5 line 24422 + §34.
+ *   - `isConst: true` — read-only invariant.
+ *   - `isPinned: false` — synth cells aren't pinnable.
+ *   - `isCompoundParent: false` — synth cells aren't compounds themselves.
+ *   - `isCompoundChild: true` — registered inside a compound's `_scope`.
+ *   - `hasValidators: false` — synth cells have no validators of their own.
+ *   - `hasDefaultExpr: false` — defaults are §55.7 table values, not AST.
+ *   - `hasTypeAnnotation: false` — types are spec-fixed per §55.5.
+ *   - `isSynthesized: true` — the discriminant.
+ *   - `synthProperty` — which of the four.
+ *   - `parentCompound` — back-pointer to the compound's record.
+ *   - `runtimeHookKind` — per §55.7 update-timing table.
+ */
+function makeSynthRecord(
+  parentCompound: StateCellRecord,
+  property: SynthProperty,
+  compoundScope: Scope,
+): StateCellRecord {
+  return {
+    name: property,
+    qualifiedPath: parentCompound.qualifiedPath + "." + property,
+    declNode: parentCompound.declNode, // anchor for span; no fresh AST node.
+    scope: compoundScope,
+    structuralForm: true,
+    shape: "derived",
+    isConst: true,
+    isPinned: false,
+    isCompoundParent: false,
+    isCompoundChild: true,
+    hasValidators: false,
+    hasDefaultExpr: false,
+    hasTypeAnnotation: false,
+    isSynthesized: true,
+    synthProperty: property,
+    parentCompound,
+    runtimeHookKind: B11_RUNTIME_HOOK[property],
+  };
+}
+
+/**
+ * Register the four synth-surface records into a single compound's
+ * `_scope.stateCells`. Idempotent — if a synth record with the same name
+ * already exists (e.g., the dev declared `<isValid>` as a compound child),
+ * the existing record wins (DEV INTENT > SYNTH). This is consistent with
+ * the spec's predictability rule but is also a future-tightening hook: a
+ * later B-step might fire E-SYNTH-NAME-COLLIDES on user fields named
+ * `isValid` / `errors` / `touched` / `submitted`. For B11, silent skip is
+ * the conservative choice.
+ *
+ * Per audit §1.7: B5's `_cellKind` annotation is the trigger predicate; the
+ * caller (`walkRegisterSynthSurface`) walks every state-decl with
+ * `_cellKind === "compound-parent"` and calls this for each.
+ */
+function registerCompoundSynthSurface(
+  compoundRecord: StateCellRecord,
+): void {
+  const compoundDecl = compoundRecord.declNode as ReactiveDeclNode & ScopeAnnotated;
+  const compoundScope = compoundDecl._scope;
+  // Defensive: every compound parent should have a `_scope` set by PASS 1's
+  // `registerStateDecl`. If absent (test-harness construction or AST shape
+  // drift), skip silently — synth registration is best-effort.
+  if (!compoundScope) return;
+
+  for (const property of COMPOUND_SYNTH_PROPERTIES) {
+    if (compoundScope.stateCells.has(property)) {
+      // Dev declared a child with this name. Preserve dev intent; skip synth.
+      // Future tightening: fire E-SYNTH-NAME-COLLIDES.
+      continue;
+    }
+    const synthRec = makeSynthRecord(compoundRecord, property, compoundScope);
+    compoundScope.stateCells.set(property, synthRec);
+  }
+}
+
+/**
+ * PASS 8 walker — visit every state-decl, find compound parents, register
+ * synth-surface records into each compound's `_scope`. Mirrors the
+ * structural-recursion shape used by PASS 4 / PASS 5 / PASS 6.
+ *
+ * Reads `_cellKind` (set by PASS 4) to identify compound parents. Per audit
+ * §1.1, ALL compound parents get the surface — no conditionalization on
+ * "has any field validators?" (predictability per §55.5).
+ *
+ * Reads `_record` (set by PASS 1) to recover the compound's `StateCellRecord`
+ * for the `parentCompound` back-pointer.
+ */
+function walkRegisterSynthSurface(
+  nodes: ASTNode[] | undefined,
+  visited: WeakSet<object>,
+): void {
+  if (!nodes) return;
+  for (const n of nodes) {
+    if (!n || typeof n !== "object") continue;
+    if (visited.has(n)) continue;
+    visited.add(n);
+    const anyN = n as any;
+    const kind = anyN.kind as string;
+
+    if (kind === "state-decl") {
+      const cellKind: CellKind | undefined = anyN._cellKind;
+      const record: StateCellRecord | undefined = anyN._record;
+      if (cellKind === "compound-parent" && record) {
+        registerCompoundSynthSurface(record);
+        // Recurse into compound children — nested compounds need their own
+        // synth surface (e.g., `<form><address><street>...</></>` registers
+        // `@form.address.isValid` etc. on the address sub-compound).
+        if (Array.isArray(anyN.children)) {
+          walkRegisterSynthSurface(anyN.children, visited);
+        }
+      }
+      continue;
+    }
+
+    // Generic recursion (mirrors PASS 4 / PASS 5 structural walk).
+    if (Array.isArray(anyN.children)) walkRegisterSynthSurface(anyN.children, visited);
+    if (Array.isArray(anyN.body)) walkRegisterSynthSurface(anyN.body, visited);
+    if (Array.isArray(anyN.consequent)) walkRegisterSynthSurface(anyN.consequent, visited);
+    if (Array.isArray(anyN.alternate)) walkRegisterSynthSurface(anyN.alternate, visited);
+    if (Array.isArray(anyN.arms)) {
+      for (const arm of anyN.arms) {
+        if (arm && Array.isArray(arm.body)) walkRegisterSynthSurface(arm.body, visited);
+      }
+    }
+    if (kind === "lift-expr" && anyN.expr && anyN.expr.kind === "markup" && anyN.expr.node) {
+      walkRegisterSynthSurface([anyN.expr.node], visited);
+    }
+  }
+}
+
+// Helper: walk the AST top-level so the walker re-enters nested arrays under
+// `body`/`children` correctly. The wrapper ensures the recursion shape mirrors
+// other passes (PASS 4 / PASS 5 / PASS 6) — top-level dispatch on array.
+function dispatchWalkSynth(
+  nodes: ASTNode[] | undefined,
+): void {
+  const visited = new WeakSet<object>();
+  walkRegisterSynthSurface(nodes, visited);
+}
+
+// ---------------------------------------------------------------------------
+// B11: E-SYNTHESIZED-WRITE — extends B8's PASS 6 walker (audit §1.3)
+// ---------------------------------------------------------------------------
+//
+// Per SPEC §55.5 line 24422 + §55.7 line 24470 + §34: writing to any auto-
+// synthesized validity-surface property is `E-SYNTHESIZED-WRITE`. Examples:
+//
+//   `@form.isValid = false`     → fire (assignment to synth property).
+//   `@form.errors = {}`         → fire.
+//   `@form.touched = {}`        → fire.
+//   `@form.submitted = true`    → fire.
+//
+// **Implementation strategy (audit §1.3):** B11 EXTENDS B8's PASS 6 walker
+// with a fourth dispatch path keyed on synth property names at compound scope.
+// B8's walker structure was prepared for this join (per primer §13.7 B8
+// specifics: "B11 will extend this walker with a fourth dispatch keyed on
+// synthesized property names. The walker structure is prepared for that join.").
+//
+// **Per-field scope DEFERRED to B12** per audit §1.3: B11 fires only at
+// compound scope. B12 will extend to per-field scope (e.g.,
+// `@form.email.isValid = false`).
+//
+// **Receiver-chain root resolution** mirrors B8 (audit §1.7 integration story):
+// the assignment target is `@compound.synthProp = ...`; the chain root resolves
+// to the compound parent's record (B5 `_cellKind: "compound-parent"`); the leaf
+// property is in `SYNTH_PROPERTY_NAMES`. Fire fires unconditionally — B11
+// doesn't gate on "is the synth registered?" because PASS 8 unconditionally
+// registers all four for every compound (audit §1.1).
+
+/**
+ * Construct the `E-SYNTHESIZED-WRITE` diagnostic message per §34 catalog row
+ * line 14218 + §55.5 line 24422 fix-recommendation.
+ */
+function fireSynthesizedWrite(
+  errors: SYMDiagnostic[],
+  compoundPath: string[],
+  property: SynthProperty,
+  op: string,
+  span: Span,
+): void {
+  const compoundRef = formatReceiver(compoundPath);
+  errors.push({
+    code: "E-SYNTHESIZED-WRITE",
+    message:
+      `E-SYNTHESIZED-WRITE: assignment to auto-synthesized property `
+      + `\`${compoundRef}.${property}\`. Synthesized validity-surface properties `
+      + `(\`isValid\`, \`errors\`, \`touched\`, \`submitted\`) are READ-ONLY `
+      + `(SPEC §55.5 + §34). The form was \`${compoundRef}.${property} ${op} ...\`. `
+      + `Fix: change the underlying input cells (the synth surface recomputes `
+      + `automatically); use \`reset(${compoundRef})\` to clear validity state `
+      + `(SPEC §55.13).`,
+    span,
+    severity: "error",
+  });
+}
+
+/**
+ * Check an `assign` ExprNode (B8 form 2-style) for synth-property writes at
+ * compound scope. Returns `true` iff fired (so the caller can short-circuit
+ * derived-cell-mutate firing — synth-write IS a different rule and shouldn't
+ * double-fire as derived-mutate).
+ *
+ * Receiver-path shape: for `@form.isValid = false`:
+ *   - assignNode.target is `member { object: ident("@form"), property: "isValid" }`
+ *   - receiver chain root = ident("@form") → resolves to compound parent record
+ *   - leaf property = "isValid" → in SYNTH_PROPERTY_NAMES
+ *
+ * For nested compounds `@form.address.isValid = false`:
+ *   - receiver chain root = `@form.address` → resolves via lookupQualifiedStateCell
+ *   - leaf property = "isValid" → fires
+ */
+function checkSynthAssignFire(
+  assignNode: any,
+  scope: Scope,
+  errors: SYMDiagnostic[],
+  containerSpan: Span,
+): boolean {
+  const target = assignNode.target;
+  if (!target || target.kind !== "member" || typeof target.property !== "string") return false;
+  const property = target.property as string;
+  if (!SYNTH_PROPERTY_NAMES.has(property as SynthProperty)) return false;
+
+  // Receiver chain path = path-to-compound. Build it from the assign target's
+  // object (everything before `.property`).
+  const receiverPath = buildReceiverPath(target.object);
+  if (!receiverPath || receiverPath.length === 0) return false;
+
+  // Resolve the receiver to a compound parent. Use the B8 deepest-prefix scan
+  // — for nested compounds, we want the deepest registered compound parent.
+  const hit = findDeepestRegisteredOnPrefix(scope, receiverPath);
+  if (!hit) return false;
+  if (!hit.record.isCompoundParent) return false;
+  // Ensure the resolved prefix is the FULL receiver path (no extra tail
+  // segments — those would be a write into a compound-CHILD's namespace, e.g.,
+  // `@form.email.isValid` which is per-field scope, B12's domain).
+  if (hit.path.length !== receiverPath.length) return false;
+
+  fireSynthesizedWrite(errors, receiverPath, property as SynthProperty,
+    assignNode.op ?? "=", containerSpan);
+  return true;
+}
+
+/**
+ * Check a `reactive-nested-assign` AST node (specialized lowering, plain `=`)
+ * for synth-property writes at compound scope. Mirrors `checkSynthAssignFire`
+ * for the specialized form.
+ *
+ * For `@form.isValid = false` lowered as reactive-nested-assign:
+ *   - n.target = "form" (cell name)
+ *   - n.path = ["isValid"] (the property segments — last is the assigned property)
+ *
+ * For `@form.address.isValid = false`:
+ *   - n.target = "form"
+ *   - n.path = ["address", "isValid"]
+ *
+ * Returns `true` iff fired.
+ */
+function checkSynthNestedAssignFire(
+  n: any,
+  scope: Scope,
+  errors: SYMDiagnostic[],
+  fileFromScope: string,
+): boolean {
+  if (typeof n.target !== "string" || !Array.isArray(n.path) || n.path.length === 0) {
+    return false;
+  }
+  const path: string[] = n.path;
+  const property = path[path.length - 1];
+  if (typeof property !== "string") return false;
+  if (!SYNTH_PROPERTY_NAMES.has(property as SynthProperty)) return false;
+
+  // Receiver path = [target, ...path[0..length-1]] (the compound chain).
+  const compoundPath = [n.target, ...path.slice(0, path.length - 1)];
+
+  // Resolve the deepest registered compound on the prefix.
+  const hit = findDeepestRegisteredOnPrefix(scope, compoundPath);
+  if (!hit) return false;
+  if (!hit.record.isCompoundParent) return false;
+  if (hit.path.length !== compoundPath.length) return false;
+
+  fireSynthesizedWrite(
+    errors,
+    compoundPath,
+    property as SynthProperty,
+    "=",
+    spanFromMutationNode(n, fileFromScope),
+  );
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -2569,13 +2999,25 @@ export function runSYM(input: SYMInput): SYMResult {
   const visited5 = new WeakSet<object>();
   walkRenderByTagUses(ast.nodes, fileScope, visited5, errors);
 
-  // PASS 6 (B8): L21 walker — fire E-DERIVED-VALUE-MUTATE on in-place
-  // mutations of `const`-derived cells per SPEC §6.6.18. Three forms covered:
-  // array mutating method calls, object property writes (incl. compound
-  // assigns + delete), in-compound derived sub-cells. Reads PASS 1's scope
-  // tree + StateCellRecord.isConst; no annotations written. E-DERIVED-WRITE
-  // (§6.6.8) is the sibling rule that will join this walker when implemented;
-  // E-SYNTHESIZED-WRITE (§55.7) is deferred to B11.
+  // PASS 8 (B11): Auto-synthesized validity surface — compound-level. For
+  // every state-decl with `_cellKind === "compound-parent"` (B5 annotation),
+  // register the four synth-cell records into the compound's `_scope`:
+  // `isValid`, `errors`, `touched`, `submitted`. Synthesis is unconditional
+  // per §55.5 predictability rule (audit §1.1). Runs BEFORE PASS 6 so the
+  // E-SYNTHESIZED-WRITE dispatch can resolve synth properties (though
+  // PASS 6's check is by NAME match against `SYNTH_PROPERTY_NAMES`, not by
+  // record lookup — registration here is for downstream B-steps + A1c
+  // codegen + IDE autocomplete, not for PASS 6 directly).
+  dispatchWalkSynth(ast.nodes);
+
+  // PASS 6 (B8 + B11 extension): L21 walker — fire E-DERIVED-VALUE-MUTATE on
+  // in-place mutations of `const`-derived cells per SPEC §6.6.18. Three
+  // forms covered: array mutating method calls, object property writes
+  // (incl. compound assigns + delete), in-compound derived sub-cells.
+  // **B11 extension (audit §1.3):** the walker also fires E-SYNTHESIZED-WRITE
+  // on writes to `@compound.{isValid,errors,touched,submitted}` at compound
+  // scope (§55.5 + §34). Per-field scope (e.g., `@form.email.isValid = false`)
+  // is deferred to B12.
   const visited6 = new WeakSet<object>();
   walkDerivedValueMutate(ast.nodes, fileScope, visited6, errors, filePath);
 
@@ -2771,4 +3213,42 @@ export function isCellBindable(
   if (!decl) return undefined;
   const annotated = decl as ReactiveDeclNode & CellKindAnnotated;
   return annotated._isBindable;
+}
+
+/**
+ * B11 read API — return `true` iff the record is a synthesized validity-
+ * surface cell registered by PASS 8. Mirrors `getCellKind` style.
+ *
+ * Returns `false` for plain (non-synth) state-cell records or for `null` /
+ * `undefined` input (defensive — synth-discrimination on a missing record is
+ * always "no").
+ */
+export function isSynthesizedCell(
+  record: StateCellRecord | null | undefined,
+): boolean {
+  return !!record && record.isSynthesized === true;
+}
+
+/**
+ * B11 read API — return the array of synthesized validity-surface records
+ * registered for a given compound parent. Returns `[]` for non-compound
+ * cells, for compounds whose surface was not synthesized (e.g., dev-declared
+ * children shadowed all four names — not a normal case), or for `null` input.
+ *
+ * The returned array preserves declaration order (per `COMPOUND_SYNTH_PROPERTIES`):
+ * `[isValid, errors, touched, submitted]`.
+ */
+export function getSynthRecords(
+  compoundDecl: ReactiveDeclNode | null | undefined,
+): StateCellRecord[] {
+  if (!compoundDecl) return [];
+  const annotated = compoundDecl as ReactiveDeclNode & ScopeAnnotated;
+  const compoundScope = annotated._scope;
+  if (!compoundScope) return [];
+  const out: StateCellRecord[] = [];
+  for (const property of COMPOUND_SYNTH_PROPERTIES) {
+    const rec = compoundScope.stateCells.get(property);
+    if (rec && rec.isSynthesized) out.push(rec);
+  }
+  return out;
 }

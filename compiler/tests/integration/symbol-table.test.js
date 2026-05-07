@@ -365,7 +365,7 @@ describe("§B1.12 scope kinds receive correct ScopeKind label", () => {
 });
 
 describe("§B1.13 empty compound parent registers without children", () => {
-  test("`<empty></>` registers parent with empty compound sub-scope", () => {
+  test("`<empty></>` registers parent with compound sub-scope (post-B11: holds 4 synth cells)", () => {
     const src = `<program>\${ <empty></> }</program>`;
     const { sym } = buildSymbolTable(src);
     expect(sym.fileScope.stateCells.has("empty")).toBe(true);
@@ -373,7 +373,16 @@ describe("§B1.13 empty compound parent registers without children", () => {
     expect(rec.isCompoundParent).toBe(true);
     expect(rec.declNode._scope).toBeDefined();
     expect(rec.declNode._scope.kind).toBe("compound");
-    expect(rec.declNode._scope.stateCells.size).toBe(0);
+    // B11 (S68): every compound parent — including empty ones — receives
+    // four synthesized validity-surface cells (isValid, errors, touched,
+    // submitted) per §55.5 predictability rule. So an empty compound's
+    // sub-scope holds ONLY those four synth cells (no dev children).
+    expect(rec.declNode._scope.stateCells.size).toBe(4);
+    for (const synthName of ["isValid", "errors", "touched", "submitted"]) {
+      const synthRec = rec.declNode._scope.stateCells.get(synthName);
+      expect(synthRec).toBeDefined();
+      expect(synthRec.isSynthesized).toBe(true);
+    }
   });
 });
 
@@ -414,23 +423,32 @@ describe("§B1.14 getScopeForNode reverse-lookup works", () => {
   });
 });
 
-describe("§B1.15 re-entrancy invariant — B11 simulation", () => {
-  test("synthesized record can be added to existing scope post-SYM and looked up", () => {
+describe("§B1.15 re-entrancy invariant — post-B12 simulation (still future)", () => {
+  test("an EXTRA record can be added to existing scope post-SYM and looked up (re-entrancy)", () => {
+    // Post-B11 (S68): the four compound-level synth cells are already
+    // registered by `runSYM`. This test verifies the SCOPE re-entrancy
+    // invariant: the scope is still mutable post-runSYM (B12 will add
+    // per-field synth cells; future B-steps may add more). The injection
+    // here uses a non-synth-property name so it doesn't conflict with B11.
     const src = `<program>\${ <signup><name>="" </> }</program>`;
     const { sym } = buildSymbolTable(src);
 
-    // Simulate B11/B12 synthesizing `@signup.isValid` post-B1.
     const signupRec = sym.fileScope.stateCells.get("signup");
     expect(signupRec).toBeDefined();
     const signupScope = signupRec.declNode._scope;
     expect(signupScope).toBeDefined();
-    expect(signupScope.stateCells.has("isValid")).toBe(false);
 
-    // Construct a synthetic record and inject into the existing scope.
+    // B11 synth cells already there; verify pre-existing state.
+    expect(signupScope.stateCells.has("isValid")).toBe(true);
+
+    // Construct an EXTRA synthetic record (simulating a future B-step's
+    // addition) and inject into the existing scope.
+    const extraName = "_someFutureBStepCell";
+    expect(signupScope.stateCells.has(extraName)).toBe(false);
     const synthRec = {
-      name: "isValid",
-      qualifiedPath: "signup.isValid",
-      declNode: { kind: "state-decl", name: "isValid", _synthesized: true },
+      name: extraName,
+      qualifiedPath: "signup." + extraName,
+      declNode: { kind: "state-decl", name: extraName, _synthesized: true },
       scope: signupScope,
       structuralForm: true,
       shape: "derived",
@@ -442,16 +460,16 @@ describe("§B1.15 re-entrancy invariant — B11 simulation", () => {
       hasDefaultExpr: false,
       hasTypeAnnotation: false,
     };
-    signupScope.stateCells.set("isValid", synthRec);
+    signupScope.stateCells.set(extraName, synthRec);
 
-    // Lookup recovers the synthesized record.
-    expect(signupScope.stateCells.has("isValid")).toBe(true);
-    expect(signupScope.stateCells.get("isValid")).toBe(synthRec);
+    // Lookup recovers the injected record.
+    expect(signupScope.stateCells.has(extraName)).toBe(true);
+    expect(signupScope.stateCells.get(extraName)).toBe(synthRec);
 
     // Qualified-path lookup also finds it.
-    const fromQualified = lookupQualifiedStateCell(sym.fileScope, ["signup", "isValid"]);
+    const fromQualified = lookupQualifiedStateCell(sym.fileScope, ["signup", extraName]);
     expect(fromQualified).toBe(synthRec);
-    expect(fromQualified.qualifiedPath).toBe("signup.isValid");
+    expect(fromQualified.qualifiedPath).toBe("signup." + extraName);
   });
 });
 
