@@ -2,15 +2,15 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS, plus the **v0.2.0 migration dashboard**. Current truth only. Historical session-by-session detail lives in `docs/changelog.md`; deep-dives live in `scrml-support/docs/deep-dives/`.
 
-**Last updated:** 2026-05-06 (S65 close — **parseVariant SHIPPED (L22 family member #1) · A1b B3+B5 LANDED · A+ verdict #1+#2+#3 carry-forward fully closed · ast-builder grammar fixes · api.js cross-file enum gap closed · promotion ergonomics Tier A landed (CLI stub + spec + docs) · 5 parallel dispatches converged · depth-of-survey-discount hit #9**)
+**Last updated:** 2026-05-07 (S66 close — **A1b B4 + B6 SHIPPED (foundational wave 1 complete + wave 2 advanced) · S66 narrowing-reversal + parser fix (bare-dot variants parseable everywhere) · Tier B promotion ergonomics SHIPPED on full predicate matrix · Tier C scoped · Self-host DEFERRED to post-v1.0.0 · pa.md Rules 1-4 added (PERMANENT until v0.2.0) · A1c + B7 + B8 Rule-4 audits landed · Maps cold-start refresh · Master-driven docs site refresh in flight (changes 1-2 committed)** — 38 commits)
 
-**Tests (current):** **9,019 pass / 44 skip / 1 todo / 0 fail / 9,064 across 447 files** (S65 added +78 net across parseVariant Phase 2 +18, B3 +11, api.js +5, B5 +11, A+ #1+#2 +15, ast-builder grammar +18; 0 regressions across the entire wave).
+**Tests (current):** **9,090 pass / 44 skip / 1 todo / 0 fail** (full suite); **8,366 pre-commit subset**. S66 added +71 net (B4 +32; B6 +19; promotion ergonomics +6; bare-dot parser +3; misc +11; 0 regressions).
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
-**In flight:** **scrml v0.2.0** breaking-change rewrite (~280-440h focused engineering, multi-month). See **§0 v0.2.0 Migration Status** below for live progress dashboard. Spec target frozen post-Stage-0b (S58); Phase A1+ implementation in progress.
+**In flight:** **scrml v0.2.0** breaking-change rewrite (~240-360h focused engineering — REDUCED by S66 self-host deferral, was 280-440h). See **§0 v0.2.0 Migration Status** below for live progress dashboard. Spec target frozen post-Stage-0b (S58); Phase A1+ implementation in progress; A1b foundational wave 1 (B1-B5) COMPLETE.
 
-**Origin sync:** clean / 0 ahead / 0 behind at last push.
+**Origin sync:** 38 commits ahead of origin/main at S66 close — push pending (Bryan-authorized "wrap and push").
 
 ---
 

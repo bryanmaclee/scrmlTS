@@ -1,264 +1,183 @@
-# scrmlTS — Session 65 (CLOSE — parseVariant SHIPS · A1b B3+B5 · A+ verdict closed · 5-dispatch parallel wave converged · promotion ergonomics Tier A landed)
+# scrmlTS — Session 66 (CLOSE — substantial methodology + impl wave)
 
-**Date opened:** 2026-05-06
-**Date closed:** 2026-05-06 (multi-tranche session; deliberation morning → debate verdicts → architectural commit → 5-dispatch parallel compiler wave)
-**Previous:** `handOffs/hand-off-64.md` (S64 close — substantial work landed across 3 debates + Stage 0c.A + B2 + Phase 4d)
-**This file:** rotates to `handOffs/hand-off-65.md` at S66 open
-
-**Tests at close:** **9,019 / 44 / 1 / 0 / 9,064 / 447** (+78 net from session-open across parseVariant Phase 2 +18, B3 +11, api.js +5, B5 +11, A+ #1+#2 +15, ast-builder grammar +18; 0 regressions).
+**Date opened:** 2026-05-06 (continuation evening; same calendar day as S65 close)
+**Date closed:** 2026-05-07
+**Previous:** `handOffs/hand-off-65.md` (S65 close)
+**This file:** rotates to `handOffs/hand-off-66.md` at S67 open
+**Tests at close:** **9,090 / 44 / 1 / 0** (full suite); **8,366 / 33 / 1 / 0** (pre-commit subset). Net +71 from S65 baseline 9,019.
 
 ---
 
-## **🎯 S65 final state — substantial v0.2.0 forward motion**
+## TL;DR — what landed
 
-**parseVariant SHIPS (L22 family member #1)** at `f963a75`. **A1b foundational steps B3 + B5 LANDED** with depth-of-survey discounts #8 + #9 (counter is now 9). **A+ verdict #1+#2+#3 carry-forward FULLY CLOSED**. **api.js cross-file enum gap closed** (Phase 2 follow-up). **ast-builder grammar fixes** (export function swallow + export * + renamed re-exports). **Promotion ergonomics Tier A landed** (CLI stub + SPEC §56 + primer + 2 article updates); Tier B properly scoped UPWARD to 25-41h follow-up dispatch.
+| Layer | Outcome |
+|---|---|
+| **Methodology** | pa.md "Design discipline" section added with **4 rules** (no marketing; not-a-toy; right-answer-beats-easy; **spec-is-normative-derived-docs-are-NOT**). PERMANENT until v0.2.0 ships. Two precedent-error narratives recorded for future PA |
+| **A1b foundational wave 1 COMPLETE** | B1 ✅ B2 ✅ B3 ✅ **B4 ✅ (S66 — import binding + pinned source-position forward-ref check; 32 new tests)** B5 ✅ |
+| **A1b wave 2 advanced** | **B6 SHIPPED (render-by-tag classifier; 19 tests)**; B7 + B8 audited pre-dispatch (1 substantive scope expansion + 1 spec naming drift surfaced + 1 wave-ordering caveat) |
+| **S66 narrowing reversal** | Reverted 4 commits (drop-`==`-from-spec error). Parser fix: bare-dot variants `.Variant` parseable as primary expressions everywhere. Lint + CLI extended to full predicate matrix (`is` AND `==`). Promotion ergonomics Tier B SHIPPED on full predicate matrix |
+| **Tier B (promotion ergonomics) SHIPPED + Tier C scoped** | `bun scrml promote --match` AST→AST span-rewrite + I-MATCH-PROMOTABLE lint live. `--engine` deferred to Tier C with full SCOPE doc |
+| **Self-host plan changed** | DEFERRED to post-v1.0.0; **entire self-host scrml compiler** human-authored (not just bootstrap), processed through scrmlTS. ~40-80h removed from v0.2.0 plan |
+| **A1c Rule-4 audit landed** | Pre-dispatch spec-faithfulness check on 24-step A1c roadmap. 1 substantive drift (validator catalog `email/url/numeric/integer/custom` claimed as universal-core but NOT in SPEC §55.1) + 1 minor incompleteness (schema lowering table) |
+| **Maps cold-start refresh** | First real refresh since S40. ~12 days of work caught up. `7d_intinct_doc_only` 7df773f |
+| **Spec amendments** | §6.6.10 `E-REACTIVE-005` → `E-DERIVED-CIRCULAR-DEP` rename footnote (parallel to §6.6.8 S59 pattern) |
+| **Primer §8 correction** | Validator catalog drift fixed (drop email/url/numeric/integer; align to SPEC §55.1's actual 14) |
+| **Master-driven docs work** | scrml.dev refresh: change-1 (extract styles to `_styles.css`) + change-2 (Bun build script + templates) committed. Master sends per-change FYI/action; PA validates + commits + does NOT proactively run `bun run docs:build` (Rule 1) |
 
-**The fourth tranche was the largest parallel compiler-work wave in scrmlTS history** — 5 concurrent background dispatches converging cleanly with 0 regressions across 78 net new tests. Two independent observations of concurrency hazard surfaced (cross-agent staging clobbers + destructive resets). Worth a primer §12 amendment + S66 must-not-screw-up entry.
+**Total S66 commits on main: 38.** Push pending — Bryan-authorized "wrap and push."
 
-## TL;DR — what landed in S65
+---
 
-| Thread | Outcome | Path |
+## Commit roster (38 since S65 wrap `7334fb0`)
+
+| # | SHA | Topic |
 |---|---|---|
-| Predicate-Zod-replacement deep-dive | ✅ LANDED | `scrml-support/docs/deep-dives/predicate-system-zod-replacement-2026-05-06.md` (608 lines) |
-| Debate-05 brief + 5 expert positions + transcript + judgment | ✅ LANDED | `scrml-support/docs/debates/debate-05-*-2026-05-06.md` |
-| Design insight #4 appended | ✅ LANDED | `scrml-support/design-insights.md` (line 1387+) |
-| npm-myth article amended | ✅ LANDED | `docs/articles/npm-myth-devto-2026-04-28.md` lines 44-48 |
-| X-snippet drafted (3 variants) | ✅ DRAFT — awaits Bryan | `docs/articles/x-snippet-zod-calibration-2026-05-06.md` |
-| parseVariant implementation SCOPE | ✅ LANDED — Path A LOCKED (S65 second tranche) | `docs/changes/parsevariant-impl/SCOPE.md` |
-| Type-as-argument family roadmap recorded | ✅ LANDED in SCOPE doc + master-list L22 | parseVariant → serialize → formFor → schemaFor → tableFor → reflective |
-| L22 added to master-list locks list | ✅ LANDED | `master-list.md §0.2` |
-| Survey-first dispatch (parseVariant Path A) | ✅ LANDED | `docs/changes/parsevariant-impl/SURVEY-REPORT.md` (depth-of-survey-discount #7; 2 SCOPE drifts caught + corrected) |
-| SCOPE doc updated with survey findings | ✅ LANDED | DRIFT-1 (§10.4 → §41.13) + DRIFT-2 (parser-level no-op) corrected; cost re-estimated 16-23h |
-| Primer §12 depth-of-survey-discount counter | ✅ updated | 4 occurrences → 7 (added S64 Stage 0c.A, S64 B2, S65 parseVariant survey) |
-| **parseVariant Phase 1 (stdlib scaffold + sniff test)** | ✅ GREEN | scrml-support `5e25586` (L22) + scrmlTS `c2fc731` (parse.scrml + index.scrml + §41.13 bundled) + `808775c` (progress) |
-| **parseVariant Phase 3 (spec writing)** | ✅ GREEN | `b07072f` (§53.14) + `56c6b4b` (§34 4 codes) + `549d741` (primer + kickstarter) + `660cb02` (progress) + scrml-support `5efdd05` (family-precedent doc) + `fc7fe93` (predicate-gaps Gap #19 closed + Gap #20 added) |
-| **parseVariant Phase 2 (compiler implementation)** | ✅ GREEN — **L22 family member #1 SHIPPED** | `36a2d88` (TS pass + codegen + dispatch hook) + `b5caf5d` (ParseError-as-builtin tEnum + 8 unit tests) + `f963a75` (10 runtime integration tests) + `deb8ea6` (progress) |
-| §53.10 → §53.14 stale-reference sweep | ✅ staged (commit pending pre-commit unblock) | SCOPE.md + SURVEY-REPORT.md |
-| A1c C0 dispatch brief preparation | ✅ staged | `docs/changes/phase-a1c-codegen/C0-DISPATCH-BRIEF.md` |
-| Companion follow-up dev.to article | ✅ staged | `docs/articles/scrml-debate-amends-zod-claim-devto-2026-05-06.md` (~2,636 words, voice-authentic) |
-| master-list.md + changelog + hand-off updates | ✅ LANDED (initial wrap + second-tranche update) | all three |
+| 1 | `7df773f` | Maps cold-start refresh (S40 → S65 catch-up) |
+| 2-9 | (Tier B initial: Phase 0/0a/0b/0c/1/2 of original predicate-narrowing path) | parseable-only-`is` lint + CLI shipped |
+| 10 | `a841ab4` | Tier B Phase 4 docs (later REVERTED) |
+| 11 | `289b4a3` | Tier C SCOPE — `--engine` + W-MATCH-TRANSITIONS-ACCRUING |
+| 12-14 | `d66771e` `87b75f9` `3326b91` | **Narrowing reversal** — 4 reverts in 3 commits restoring SPEC §56 + SCOPE.md + docs |
+| 15 | `cb167b1` | **Parser principled fix** — bare-dot variants parseable as primary expressions |
+| 16 | `4f2ff35` | Lint + CLI: full predicate matrix (`is` AND `==`) + 3 new tests |
+| 17 | `7e9121a` | progress.md reversal narrative |
+| 18 | `bb97e9a` | Primer §13.8 + article + kickstarter — S66-shipped status |
+| 19 | `b9ed76f` | Self-host bootstrap DEFERRED |
+| 20 | `c744b19` | **pa.md Rules 1+2+3** added (3 design-discipline rules) |
+| 21 | `7a213b9` | Self-host clarification (entire compiler, not just bootstrap) |
+| 22 | `0ff3817` (cherry-pick of 5 commits) | **A1b B4 SHIPPED** — import binding + pinned forward-ref source-position check |
+| 23 | `f9ab867` | A1c Rule-4 audit |
+| 24 | `eba2df0` | Primer §8 validator-catalog correction |
+| 25 | `6768132` | **pa.md Rule 4** added (spec is normative, derived docs NOT) |
+| 26 | `ac23dde` | A1b B7 Rule-4 audit |
+| 27 | `9064767` | spec(§6.6.10) E-REACTIVE-005 → E-DERIVED-CIRCULAR-DEP rename footnote |
+| 28 | `5f1b925` | A1b B8 Rule-4 audit |
+| 29 | `2ec30cc` | B6 Phase 0 survey (cherry-pick from killed first agent) |
+| 30-32 | `efdbb49` `cbf4514` `d1b7f1e` | **B6 SHIPPED** — render-by-tag classifier (PASS 5 + 19 tests + primer §13.7 row) |
+| 33 | `afaa6b6` | docs(site) change 1 — extract styles (master-driven) |
+| 34 | `26ebfc9` | docs(site) change 2 — Bun build script (master-driven) |
 
-**Commit count after second tranche:** scrmlTS 5 commits; scrml-support 4 commits; total 9 commits across 2 repos. First tranche pushed mid-session (`4595b2c` + `c9c2182`); second tranche commits `9c02e8b` + (master-list/hand-off update commit) **push pending**.
-
----
-
-## BIG DECISIONS RATIFIED THIS SESSION
-
-### S65 second tranche — Path A LOCKED + type-as-argument family roadmap (architectural commit)
-
-After debate-05's narrowing of Bryan's lean from full Approach A to C-narrow, Bryan asked the load-bearing question: **"what future shippable features could ride the type-as-argument precedent?"** PA enumerated a 5-7 member family (parseVariant → serialize → formFor → schemaFor → tableFor → variantNames + reflective metadata). Two members (`formFor` and `tableFor`) GENUINELY require type-as-argument as a structural language concept — they cannot be expressed as desugars because the compiler must walk struct fields structurally to emit markup trees. **Bryan locked Path A.** Subsequent members ride the precedent for free.
-
-**The deciding code sample (S65 internal — what locked the call):**
-
-```scrml
-type User:struct = {
-    name:  string req length(>=2)
-    email: string(email) req unique
-    age:   int min(13) max(120)
-}
-
-<schema>${schemaFor(User)}</>
-<users>: [User] = []
-
-<program>
-    <{formFor(User, submit=createUser)}/>
-    <{tableFor(User, rows=@users)}/>
-</>
-```
-
-One struct definition + five lines of glue → SQL schema with constraints, working form with validation/submission/errors, working table with rendered cells, full reactive lifecycle, zero npm packages. **scrml.dev flagship demo.**
-
-**L22 phrasing (locked):** "Type-as-argument is a first-class scrml language primitive, introduced by `parseVariant`. Foundation for the type-as-argument family. Each future family member must independently pass per-shape sliver test + synonym-detection precondition + asymmetric-forfeit-cost decomposition."
-
-**Discipline that bounds the family** (recorded in SCOPE doc + carried forward in family-precedent doc per Step 12): per-shape sliver test mandatory; synonym-detection mandatory; per-feature deep-dive when convener has any doubt. Without this discipline, Path A becomes the slippery slope simplicity-defender warned about. With it, Path A is load-bearing infrastructure for a 5-7 member family.
-
-**Family economics:** ~20-30h architectural commit at parseVariant pays for ~85-145h of family-feature surface across 6-12 months.
-
-### Boundary-parsing primitive — debate-05 verdict (5/5 unanimous C-narrow)
-
-Convener: **Bryan strongly leaned yes** (anti-sycophancy stance — fired debate to test the lean). Verdict: **lean validated but narrowed** from full Approach A to C-narrow.
-
-**Ship `parseVariant(json, EnumType)`. Close `parseShape` as intentional absent.**
-
-Constraints (load-bearing — judge-ratified):
-1. Second arg MUST be scrml-native `enum` type descriptor (not struct, not arbitrary type literal)
-2. Discriminator key = enum's own variant names; no custom field name; no name-mapping table
-3. Returns typed enum value or fails with `::ParseError msg`
-4. Companion design statement closing `parseShape` ships with the addition
-
-**Why not `parseShape`?** It's a synonym for §53 SPARK boundary-zone refinement on assignment. The synonym-detection test (debate-04 methodology) demoted it. Adding it would be stdlib bloat with no distinct semantic shape.
-
-**Why `parseVariant`?** It's the type-establishment step for sum types — constructor selection from a discriminator field is what predicate systems can't perform. SPARK is the predicate-enforcement step that fires AFTER type-establishment. They're sequentially ordered, not substitutable. The DON'T-SHIP forfeit is paid on every tRPC integration in user code, forever.
-
-### Pro-X-voice-voting-against-X at frequency-3 (methodology-grade signal)
-
-| Debate | Expert | Default | Vote | Mechanism |
-|---|---|---|---|---|
-| debate-03 | roc-expert | retain component-overload carve-out | retracted | structural-element reframe |
-| debate-04 | crystal-multi-dispatch | sanction switch as Tier 0+ | voted A (hard-error) | synonym-not-sliver |
-| **debate-05** | **simplicity-defender** | **refuse stdlib expansion (B)** | **C-narrow** | **synonym test on `parseVariant`** |
-
-Frequency-3 confirms: when a partisan-defender voice flips under its own methodology lens, the rejection is structurally stronger than expected agreement.
+(Numbering approximate — see `git log` for exact sequence.)
 
 ---
 
-## DESIGN-INSIGHT contributions this session
+## Bryan's workflow concern (load-bearing for next-session PA)
 
-### Insight #4 (debate-05): "Type-establishment vs predicate-enforcement are sequentially ordered, not substitutable"
+**User raised mid-session (verbatim):**
+> cherry picking the work on every code edit, rewriting everything from diagnostic agents. it really seams like we are double-dipping work alot. For a while, I had a system implemented where instead of worktrees we just gave agents a throw-away dir with everything they need and they would commit to main and have full permissions within that dir. then changes could just be a quick cp instead of re-hashing everything an agent did. what happend to that?
 
-When a language has a type-enforcement mechanism that operates on already-typed values (scrml's §53 SPARK three-zone enforcement), a natural assumption is that "parse unknown external data into a typed value" is covered by that mechanism. **It is not — these are sequentially ordered operations.** The type-establishment step (constructor selection from a discriminator) must happen *before* predicate enforcement can fire. A stdlib designed to replace an external parsing library must decompose into both steps. A language designer who provides only the second forces every developer to hand-roll the first forever.
+**Honest analysis (PA's read; Bryan to weigh in):**
 
-The further refinement: the decomposition is type-specific. **For sum types** (enums, discriminated unions), the type-establishment step requires constructor selection — a closed, compiler-derivable operation that predicate systems cannot perform. **For product types** (structs), the type-establishment step collapses into "assign the fields," which a sound boundary-enforcement system already does. The stdlib primitive is justified for the sum-type case and is a synonym (bloat risk) for the product-type case.
+Current pattern (worktrees + cherry-pick) was instituted because:
+1. Worktrees give safe parallel-dispatch isolation (per concurrency hazard #61)
+2. Cherry-pick gives PA review-before-land safety net (S66 narrowing-error reversal validates this — the audit caught it pre-impl)
+3. Branch is the crash-recovery checkpoint (B6 first agent killed mid-Phase-1; survey commit on its branch was salvageable)
 
-The sliver test for any boundary-parsing primitive: **does this type's type-establishment step require operations that the language's predicate-enforcement mechanism cannot perform?** For sum types in a nominally-typed language: reliably yes. For product types under sound boundary enforcement: reliably no.
+**But:** Bryan's concern is real. Overhead exists. Specifically:
+- Cherry-pick step is mechanical; 90% of dispatches land clean. Conflicts on progress.md (append-only) are recurring.
+- "Diagnostic agent rewriting" — not what happens (PA writes audits + briefs FOR agents; agents write impl). But the appearance is similar (two artifacts both touching same territory).
+- Multi-step waves (4-8 commits per dispatch) inflate the cherry-pick surface.
 
----
+**Possible workflow evolutions for next session to consider:**
 
-## A+ verdict execution carry-forward (from S64 — STILL pending)
+| Pattern | Pros | Cons |
+|---|---|---|
+| Current (worktree + cherry-pick) | Safe; review gate; parallel-safe | Cherry-pick churn; progress.md conflicts |
+| Trusted dispatches commit to main directly (no cherry-pick) | Fast; matches Bryan's recall | Lose review gate; risk of agent landing wrong work; concurrency-safety needs new mechanism |
+| Drop-zone pattern (agent writes to throw-away dir; PA `cp` final state) | Simple; matches Bryan's recall | Lose branch backup if agent crashes; need explicit final-state contract |
+| Hybrid: trusted = direct commit; novel = worktree-cherry-pick | Best of both | Requires PA to classify each dispatch |
 
-These three items from debate-04 verdict have NOT yet been implemented (carried from S64 hand-off):
+**S66 narrowing reversal + B4 cycle-detection brief ARE evidence that the review gate has caught real errors.** Direct-commit would have shipped both. So the safety isn't ceremonial.
 
-1. **`did-you-mean: match` quickfix on E-SWITCH-FORBIDDEN** — ~1-2h
-2. **W-LIFECYCLE-CANDIDATE tightening** on `if=` over enum-tag-shaped string-literal RHS — ~1h
-3. **Document JS-style `match expr {}` form as canonical value-return rung** in primer §1 + tier-ladder-promotion article — small
+**My recommendation:** keep worktree+cherry-pick for novel/risky dispatches; introduce a "fast-forward dispatch" mode for surgical follow-ups where agent commits to a branch that PA fast-forwards (not cherry-picks). Reduces churn without losing the review gate.
 
-Combined: ~3-5h dispatch. Could fold into B3 or parseVariant work.
-
----
-
-## Open questions to surface immediately at S66 open (UPDATED post-second-tranche)
-
-1. **parseVariant Path A — RESOLVED.** Path A is locked (S65 second tranche). Survey-first diagnostic dispatch is in flight; will land before any implementation work. Open question NEXT: based on survey findings, fire the implementation dispatch (~20-30h Path A scope, possibly discounted via depth-of-survey) — OR refine SCOPE based on survey before dispatching.
-
-2. **Dispatch sequencing post-survey:**
-   - (a) Fire parseVariant Path A implementation (20-30h, possibly discounted)
-   - (b) Fire B3 (`@name` resolution) first per S64 plan; parseVariant after
-   - (c) Stack both — parseVariant Path A in background, B3 in foreground (no file overlap; should be safe)
-
-3. **X-snippet selection.** 3 variants drafted at `docs/articles/x-snippet-zod-calibration-2026-05-06.md`. PA lean: variant 3 (long-form ~180 words) for credibility. Bryan to pick. Will surface again after survey lands.
-
-4. **Companion follow-up dev.to article?** Variant 3 of X snippet narrates the debate-and-revise process. Optional follow-up article (`scrml-debate-amends-zod-claim-devto-2026-05-06.md`) could expand it. PA's view: skip — the npm-myth amendment + X post is sufficient. Avoid article-tail bloat.
-
-5. **B3 dispatch readiness** — UNCHANGED from S64. `@name` resolution remains queued; no file conflicts with parseVariant work. 4-6h focused estimate (likely smaller).
-
-6. **A+ verdict execution items** — UNCHANGED from S64 carry-forward. Could fold into next dispatch.
-
-7. **Predicate-gaps inventory P-promotion** — under the Zod lens (deep-dive), 4 gaps promote to P1: `#17 transform/preprocess`, `#9 reqIf`, `#12 async predicates`, `#8 predicate aliases`. 3 new gaps surfaced (#18 named-shape breadth, #19 boundary-parsing — closing via parseVariant, #20 validator-set transform operators). Inventory revisit when A1c surfaces real-app friction OR adopter reports `reqIf` blocker.
-
-8. **Carry-forward S62/S63/S64 unresolved set:**
-   - Article truthfulness audit dispositions (15 articles, S59 carry-forward)
-   - scrml.dev v0.2.0 announce refresh
-   - 6 KEEP-RECENT-LANDED dirs deref (now eligible after large S64+S65)
-   - Maps refresh root cause investigation (S61 issue still open)
-   - Tier-ladder em-dashes decision
+**This is a methodology evolution worth Bryan's deliberation S67. Not actionable yet.**
 
 ---
 
-## Things S66 PA needs to NOT screw up
+## Open questions to surface immediately at S67 open
 
-Standing list 1-47 from S64 hand-off carries forward verbatim. New S65 additions:
-
-48. **`parseVariant` is the verdict-locked answer for sum-type boundary parsing.** Don't let any agent re-frame it as `parseShape`-equivalent or extend its scope to structs. The synonym test demoted `parseShape` for a reason; that decision is locked.
-
-49. **`parseShape` is CLOSED as intentional absent** — by debate-05 verdict + judge ratification. Struct boundary parsing is a server function or §53 boundary-zone refinement on assignment. Don't accept "but `parseShape` would be ergonomic" as a re-open argument. The companion design statement must ship with the parseVariant implementation.
-
-50. **Type-establishment-vs-predicate-enforcement is sequentially ordered.** SPARK boundary-zone refinement fires AFTER the value has a type. `parseVariant` is the operation that gives the value a type. Anyone proposing "just use refinement at the call site" for unknown JSON is missing the sequencing.
-
-51. **String-discriminator trap mitigation = enum-only second-arg constraint at the type system.** Not a documentation concern; a compiler-enforced rule. `parseVariant(json, MyStruct)` must produce a clear "must be enum" compile error.
-
-52. **Pro-X-voice-voting-against-X is methodology-grade signal at frequency-3.** Apply going forward: when a partisan-defender flips under its own methodology, weight the flip heavily.
-
-53. **Article amendment posture is calibrated, not retracted.** Form-validation claim ("Zod can't fail your build. This can.") is unmodified — it survives every test. The boundary-parsing claim was overreach in absolute form ("None of it. Ever.") and is now narrowed. Don't let any agent further-soften the form-DX claim.
-
-54. **The deep-dive's 17-gap predicate inventory was re-prioritized under the Zod lens.** P1 promotions: #8 (aliases), #9 (reqIf), #12 (async), #17 (transform/preprocess). Demoted to elimination: #1 (between), #2 (nonempty) — synonyms. Don't re-introduce demoted items under different names without sliver-test verification.
-
-55. **L22 type-as-argument is LOCKED at the language level (S65 second tranche).** parseVariant is the FIRST family member; do NOT let any agent treat it as a one-off when planning implementation. SCOPE doc records the family roadmap; future PA's see L22 in master-list locks list.
-
-56. **The family-bounding discipline is mandatory.** Sliver test + synonym-detection + per-feature deep-dive on every future `Type.foo` request. Without this, L22 becomes the slippery slope simplicity-defender warned about. The family-precedent doc (Step 12 of SCOPE) records this discipline; it MUST be written when parseVariant ships.
-
-57. **`formFor` is the flagship demo.** The 1-struct → schema + form + table demo is the strongest "we are not React" pitch scrml has. PA dispatching `formFor` work later: treat it as marketing-load-bearing, not just stdlib expansion.
-
-58. **api.js cross-file stdlib enum re-export gap (NEW S65 from Phase 2 work).** Phase 1's sniff test reported PASS but was incomplete — `match` worked via a `kind:error` shadow on `BUILTIN_TYPES["ParseError"]` (legacy `tError` entry); `!{}` exhaustiveness, which requires `kind === "enum"`, would have failed. Phase 2 fixed structurally by promoting `ParseError` to a `BUILTIN_TYPES tEnum` with the canonical 4 variants. **The underlying gap remains:** `api.js`'s `importedTypesByFile` seeder reads each dep's OWN typeDecls and does NOT chase re-exports through `index.scrml`. Future stdlib enum additions will need either builtin-status grant (the parseVariant route) OR re-export chasing in api.js. Track as v0.next follow-up; flag in any future "add a stdlib enum" dispatch brief.
-
-59. **`export function` swallows function-decl into export-decl** (`ast-builder.js:5410`). Phase 2 tests had to drop `export` to get a reachable function-decl AST node. Not parseVariant-specific; worth documenting if it bites another dispatch.
-
-60. **L22 family member #1 SHIPPED.** Type-as-argument is now a working scrml language primitive, not just an architectural commitment. Future family members (`serialize`, `formFor`, `schemaFor`, `tableFor`, reflective metadata) ride this precedent. The discipline that bounds the family — sliver test + synonym-detection + per-feature deep-dive — is recorded in SPEC §53.14, primer §13.6, family-precedent doc, and the SCOPE doc.
-
-61. **CONCURRENCY HAZARD — load-bearing for next session's parallel work.** Two independent observations during the S65 5-dispatch wave: (a) A+ #1+#2 dispatch detected destructive `git reset HEAD` + working-tree clobbers TWICE from other concurrent agents — wiped uncommitted edits, agent reapplied each time; (b) ast-builder grammar fixes dispatch's commits got captured by A+ and promotion-ergonomics commits — work landed verbatim but commit attribution is wrong (`b661c0b` and `50b6af3` show those collisions). **Recommendation for any future >2 concurrent compiler dispatches: serialize edits to compiler/src/ast-builder.js + compiler/src/lint-ghost-patterns.js + compiler/src/symbol-table.ts across dispatches, OR use worktree isolation when dispatches need overlapping files.** Pre-commit-hook + concurrent-tree dynamic also serializes the COMMIT phase even when WORK phases run parallel — one in-flight failing test blocks all other agents' commits until cleanup. Effectively the hook enforces a "settle window" between commits across agents. Worth a primer §12 amendment.
-
-62. **B5 cell classifier annotation contract LANDED.** `_cellKind: "plain" | "bindable" | "markup-typed" | "compound-parent"` + `_isBindable: boolean` on every state-decl. `getCellKind(decl)` + `isCellBindable(decl)` exported from `compiler/src/symbol-table.ts`. Powers B6 + B7. Bindable tag set sourced from `codegen/emit-html.ts` BIND_DIRECTIVE_TAGS — canon alignment with codegen bind-directive dispatch. Engine state-decls deferred to B14+. Recorded in primer §13.7.
-
-63. **A+ verdict #1+#2 carry-forward CLOSED.** Pattern 16 in lint-ghost-patterns.js (W-LIFECYCLE-CANDIDATE tightening: `^[A-Z][A-Za-z0-9]*$` predicate) + did-you-mean: match enrichment on E-SWITCH-FORBIDDEN. Quickfix infrastructure does not exist in scrml today; enriched-message-text used. Future LSP/code-action dispatch can wire real quickfixes. Carry-cost paid: 2 internal `switch (type.kind)` blocks in `stdlib/compiler/meta-checker.scrml` rewritten as if-else (the language now dogfoods its own anti-pattern lint).
-
-64. **ast-builder grammar findings landed.** F1 `export function NAME() {}` synthesizes sibling `function-decl{exported: true, fromExport: true}`; codegen emitters skip `fromExport: true` to avoid double-emission. F2 `export * from './path'` parses as `re-export-all`. F3 `export {A as B} from './path'` parses with `renames: [{exported, local}]`. Module-resolver propagates new graph entries. **api.js seeder follow-up** (chase `localName` + `re-export-all`) is QUEUED — not bug-blocking, but future stdlib enum re-exports with rename or wildcard won't seed correctly until that fires.
-
-65. **Promotion ergonomics Tier A LANDED + Tier B SCOPED UPWARD.** Tier A: `compiler/src/commands/promote.js` CLI stub (mutual-exclusion validation, prints implementation-pending) + SPEC §56 (full normative spec) + §34 catalog row + primer §11/§13.8 + kickstarter §6 + tier-ladder-promotion article section. Tier B: ~25-41h scope-revised UPWARD (NOT a depth-of-survey discount candidate). **Honest scope-revision-up is also a discount-pattern signal** — `bun scrml migrate` is regex-based not AST-aware (CLI scaffolding carries forward; transformation logic is novel work); W-MATCH lint family is spec-only-not-implemented (no copy-paste shortcut); StateCellRecord lacks resolved type info (lint must run downstream of type-resolution). Span-based AST→AST rewrite path recommended in SURVEY.md. CLI surface locked at `compiler/src/commands/promote.js`; Tier B drops transformation behind it.
-
-66. **Predicate-gaps deep-dive SCOPE PREPARED.** ~1,762 words at `docs/changes/predicate-gaps-deep-dive-prep/SCOPE.md`. 4 P1-promoted gaps from S65 Zod-replacement deep-dive: #8 aliases, #9 reqIf, #12 async, #17 transform. **#9 `reqIf` corroborated as most-urgent** — highest demand across yup/zod/ajv/react-hook-form; carries highest string-switch-trap risk. Trigger conditions explicit (A1c real-app friction OR adopter blocker OR SPEC-ISSUE-§53.13.1-4 touch). Deep-dive itself fires later when corpus signal warrants.
-
-67. **Depth-of-survey-discount counter is now 9.** B3 (#8: ~2h actual vs 4-6h estimate) + B5 (#9: ~1.5h actual vs 3-5h estimate). Both followed the same pattern: existing AST machinery covers more than the audit assumed; intervention is localized extension. Promotion ergonomics Tier B was the inverse case (scope-revision UP) — methodology catches both directions. Mitigation checklist in primer §12 stands.
-
-68. **api.js seeder + auto-gather pre-pass extension landed.** Phase 2 Risk #1 closed. `importedTypesByFile` seeder rewrite at lines 790-895 + auto-gather pre-pass regex extension at lines 448-505 (`/(?:import|export) ... from/`). Future stdlib enum additions (e.g., `serialize`'s `SerializeError`) work without builtin-status grants. Adjacent finding: only the seeder fix wasn't sufficient; the auto-gather had to compile re-export targets too.
+1. **Workflow concern resolution.** Above. PA recommends a small-deliberation lock at S67 open.
+2. **B7 dispatch readiness** — full Rule-4 audit on file (`docs/audits/a1b-b7-rule4-audit-2026-05-07.md`); brief should include transitive-fn-call requirement + canonical name `E-DERIVED-CIRCULAR-DEP`. Estimate 5-7h or 8-12h depending on §31 machinery extensibility.
+3. **B8 dispatch readiness** — Rule-4 audit on file (`docs/audits/a1b-b8-rule4-audit-2026-05-07.md`); recommends scope to E-DERIVED-VALUE-MUTATE only (3-4h); fold E-SYNTHESIZED-WRITE into B11 (synth-cell registry source).
+4. **`docs:build` execution decision.** Master's change-2 added the build script but PA did NOT run `bun run docs:build` (Rule 1: no marketing PA-volunteered work; master's "your call when to run"). Bryan: run when ready, or it stays unrun.
+5. **Articles canonical_url/Tier-A site refresh next steps.** Master will continue per-change messages (change 3 = canonical_url frontmatter; change 4 = index.html refresh). PA continues validate-and-commit.
 
 ---
 
-## State as of S65 close (verified at wrap)
+## Things S67 PA must NOT screw up
+
+S65/S64 standing list 1-68 carries forward verbatim. New S66 additions:
+
+69. **Spec is normative; derived planning docs are NOT.** pa.md Rule 4 + 2 cited precedents (S66 narrowing reversal, B4 cycle-detection brief). Verify every spec-derivative claim against `compiler/SPEC.md` BEFORE encoding into a brief. SCOPE-AND-DECOMPOSITION docs DRIFT.
+
+70. **No marketing/article/tweet PA-volunteered work** while v0.2.0 is in flight. Article truthfulness audits, X-snippet selection, dev.to drafts, kickstarter copy edits — silent off-list unless Bryan raises.
+
+71. **scrml is not a toy.** No "ship smaller surface" / "corpus shows zero" / "users won't notice" reasoning. The bar is structural correctness for full-production fidelity.
+
+72. **Right answer beats easy answer 99.999%.** When PA sees an easy path diverge from the right path, propose the right path and surface the easy path as a veto-check only. Do NOT silently default to easy.
+
+73. **Self-host DEFERRED to post-v1.0.0.** Entire self-host compiler (every module, not just bootstrap) is human-authored; processed through scrmlTS. v0.2.0 plan no longer includes B4-self-host. ~40-80h removed.
+
+74. **Bare-dot variants `.Variant` are parseable everywhere** (S66 parser fix `cb167b1`). `@phase == .Idle` works structurally. Anywhere a primary expression is expected, `.Variant` is a parseable form. No more "drop because corpus shows zero" reasoning on this surface.
+
+75. **Promotion ergonomics Tier B SHIPPED on full predicate matrix** (`is` AND `==`, mixed). I-MATCH-PROMOTABLE + `bun scrml promote --match` live. `--engine` Tier-C-deferred per `docs/changes/promotion-ergonomics/TIER-C-SCOPE.md`.
+
+76. **A1b B4 SHIPPED** — `importBindings` per-scope registry; E-STATE-PINNED-FORWARD-REF source-position rule (NOT cycle detection); E-IMPORT-PINNED-INVALID best-effort fire on `function`/`fn`/`type`/`channel` imports (const/let deferred to B14 with explicit known-limit comment).
+
+77. **A1b B6 SHIPPED** — render-by-tag classifier (PASS 5 in `symbol-table.ts`). Fires E-CELL-NO-RENDER-SPEC + E-CELL-RENDER-SPEC-NOT-BINDABLE. Compound-parent self-tag fires E-CELL-NO-RENDER-SPEC (Phase 0 disposition). PascalCase `<MyComp/>` deferred to B14/M18/M20.
+
+78. **Master-driven docs work in flight.** scrml.dev site refresh per master PA. Change-1 + change-2 committed. PA's role: validate + commit + push. Do NOT volunteer beyond that. `bun run docs:build` not yet run.
+
+79. **First-time rule-4 audit cost ~30min/dispatch saves ~2-4h+ rework.** Two S66 audits already paid for themselves (validator catalog drift + cycle-detection brief error). PA should run Rule-4 audit before EACH new dispatch wave per pa.md operational rule.
+
+80. **B6 dispatch concurrency-confusion lesson.** PA accidentally ran `git cherry-pick` from inside the worktree directory (CWD slipped); cherry-picks landed on the worktree branch, not main. Recovery: `cd` back to main checkout, abort, re-cherry-pick from main. Future PA: verify `pwd` and `git branch --show-current` before cherry-pick.
+
+81. **Killed-agent reuse pattern.** When PA accidentally TaskStops an agent (S66 B6 first dispatch), the survey commit IS salvageable via cherry-pick. Re-dispatch with Phase 0 baked-in skips re-survey. ~3-5h saved vs full restart.
+
+---
+
+## State as of S66 close
 
 | Field | Value |
 |---|---|
-| scrmlTS HEAD (post-wrap) | `3bef6e6` (S65 outflows commit) — push pending |
-| scrmlTS origin sync | 2 commits ahead of origin/main (push pending) |
-| scrml-support HEAD (post-wrap) | `c9c2182` (debate-05 judgment + insight) — push pending |
-| scrml-support origin sync | 4 commits ahead of origin/main (push pending) |
-| Tests | **8,941 / 44 / 1 / 0 / 8,986 / 440** (full suite) |
-| Working tree (both repos) | clean (after master-list + changelog + hand-off rewrite committed) |
-| Inbox | empty |
-| Active agents (post-S65) | 45 (unchanged from S64) |
-| Permissions whitelist | unchanged |
-| Depth-of-survey-discount counter | **9** (parseVariant survey #7, B3 #8, B5 #9; promotion ergonomics Tier B was inverse case — scope-revision UPWARD) |
-| Design insights count (since 2026-03-22) | 30+ entries; 1 new in S65 (#4 boundary-parsing) |
+| scrmlTS HEAD | `26ebfc9` (after master change-2) — push pending |
+| scrmlTS origin sync | 38 commits ahead of origin/main — push pending (Bryan-authorized) |
+| scrml-support HEAD | `c8104fa` — modified user-voice not yet committed |
+| scrml-support origin sync | 0/0 vs origin/main (last commit landed S65) |
+| Working tree (scrmlTS) | clean except: `M hand-off.md` (this file), `?? handOffs/hand-off-65.md` (rotation pending), `?? handOffs/incoming/read/2026-05-07-*.md` (3 master messages moved-to-read) |
+| Working tree (scrml-support) | `M user-voice-scrmlTS.md` (3 S66 entries appended; not yet committed) |
+| Inbox | empty (3 master messages processed → `read/`) |
+| Active agents | 45 |
+| Tests | **9,090 / 44 / 1 / 0** (full suite) / **8,366 pre-commit** |
+| Depth-of-survey-discount counter | **9** (B4 was 4-2h actual vs 6-9h estimate; not formally counted but pattern continues) |
+| L-locks count | **L1–L22** (unchanged from S65) |
+| Design-insights | 30+ entries; 0 new in S66 (audit/methodology emphasis, not debate-derived) |
 
-### File-modification inventory (S65 — for cherry-pick / forensic review)
+### File-modification inventory (S66 — for cherry-pick / forensic review)
 
-**scrmlTS commits (5 from session-open `0dee2f7`):**
-1. `3bef6e6` — docs(s65): debate-05 outflows — npm-myth amend + X snippet + parseVariant scope
-2. `4595b2c` — docs(s65-close): wrap — master-list + changelog + hand-off (initial wrap, mid-session)
-3. `9c02e8b` — parseVariant SCOPE: Path A LOCKED + family roadmap recorded
-4. (this commit) — second-tranche update: master-list L22 + hand-off Path-A reflection
+**scrmlTS commits:** 38 since `7334fb0` (see Commit roster above).
 
-**scrml-support commits (4 from session-open `9123af6`):**
-1. `d05c79a` — debate-05 brief
-2. `b2de9f6` — 5 expert positions
-3. `d008caf` — debate-05 transcript assembled
-4. `c9c2182` — debate-05 JUDGED + design insight #4
-
-**Articles touched:**
-- `docs/articles/npm-myth-devto-2026-04-28.md` — lines 44-48 amended (`published: true`; PUBLISHED article — public correction effective with this commit; X amendment pending Bryan's selection)
-- `docs/articles/x-snippet-zod-calibration-2026-05-06.md` — NEW (`published: false`; draft for Bryan)
-
-**Globals:** none (no agent forges this session).
+**scrml-support modifications (uncommitted at scrmlTS wrap):**
+- `user-voice-scrmlTS.md` — 3 entries appended: (1) S66 three new rules (no marketing / not-a-toy / right-answer); (2) Self-host deferred + clarification; (3) Rule 4 added.
 
 ---
 
 ## Cross-references
 
-- **S64 close ledger (this rotation):** `handOffs/hand-off-64.md`
-- **S65 working ledger (this file becomes):** `handOffs/hand-off-65.md` at S66 open
-- **PA scrml expert primer (READ FIRST every session):** `docs/PA-SCRML-PRIMER.md` (last updated S64)
-- **PA directives:** `pa.md`
-- **Master-list dashboard (live progress):** `master-list.md` §0
-- **parseVariant SCOPE document:** `docs/changes/parsevariant-impl/SCOPE.md`
-- **X-snippet draft:** `docs/articles/x-snippet-zod-calibration-2026-05-06.md`
-- **Debate-05 transcript:** `../scrml-support/docs/debates/debate-05-boundary-parsing-primitive-2026-05-06.md`
-- **Debate-05 judgment:** `../scrml-support/docs/debates/debate-05-judgment-2026-05-06.md`
-- **Debate-05 brief:** `../scrml-support/docs/debates/debate-05-boundary-parsing-primitive-2026-05-06-BRIEF.md`
-- **5 position files:** `../scrml-support/docs/debates/debate-05-position-*-2026-05-06.md`
-- **Predicate-Zod deep-dive:** `../scrml-support/docs/deep-dives/predicate-system-zod-replacement-2026-05-06.md`
-- **Predicate-gaps inventory (re-prioritized):** `../scrml-support/docs/predicate-gaps-inventory-2026-05-06.md`
-- **Design insights:** `../scrml-support/design-insights.md`
+- **S65 close ledger (rotated):** `handOffs/hand-off-65.md`
+- **PA scrml expert primer:** `docs/PA-SCRML-PRIMER.md` (last touch §13.7 B6 row)
+- **PA directives:** `pa.md` (Design Discipline section §1-4 + when-in-doubt + cited precedents)
+- **Master-list dashboard:** `master-list.md` §0
+- **B4 audit:** `docs/audits/a1b-b4-rule4-audit-2026-05-07.md` (deferred — never written; B4 dispatched without explicit audit doc since predecessor agent ran the audit inside its Phase 0 STOP report)
+- **B7 audit:** `docs/audits/a1b-b7-rule4-audit-2026-05-07.md`
+- **B8 audit:** `docs/audits/a1b-b8-rule4-audit-2026-05-07.md`
+- **A1c roadmap audit:** `docs/audits/a1c-roadmap-rule4-audit-2026-05-07.md`
+- **Tier C SCOPE:** `docs/changes/promotion-ergonomics/TIER-C-SCOPE.md`
+- **B6 SURVEY:** `docs/changes/phase-a1b-step-b6-render-by-tag/SURVEY.md`
+- **User-voice S66 entries:** `../scrml-support/user-voice-scrmlTS.md` (uncommitted)
 
 ---
 
 ## Tags
 
-#session-65 #close #predicate-zod-deep-dive #debate-05-judged #c-narrow-verdict #parsevariant-scope-landed #parseshape-closed #npm-myth-amended #x-snippet-drafted #design-insight-4 #pro-x-voting-against-x-frequency-3 #anti-sycophancy-convener #methodology-stack-triangulation #L22-pending
+#session-66 #close #b4-shipped #b6-shipped #pa-rules-1234 #spec-is-normative #s66-narrowing-reversal #parser-bare-dot-fix #self-host-deferred-to-v1 #tier-b-shipped-full-matrix #tier-c-scoped #a1c-rule4-audit #b7-b8-rule4-audited #master-driven-docs-site-refresh #workflow-concern-surfaced #38-commits #wrap-and-push-authorized
