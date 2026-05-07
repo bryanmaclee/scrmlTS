@@ -53,5 +53,32 @@ Default-proceed unless STOP signal.
 
 - [Phase 2 progress] Added B6 row to primer §13.7 contracts table (between B5 and B4 rows; the table is ordered by step-landing chronology). Added comprehensive **B6 specifics** prose block covering the disambiguator (`isConst` discrimination over the collapsed `markup-typed` bucket), the §3.1 / §3.2 dispositions, and the HTML-builtin skip behavior.
 - No SPEC §34 changes required — both error codes (E-CELL-NO-RENDER-SPEC at line 14205, E-CELL-RENDER-SPEC-NOT-BINDABLE at line 14206) already exist with current message text matching the implementation.
+- [Phase 2 commit] `c126d04` — `WIP(a1b-b6): Phase 2 — primer §13.7 B6 row + progress.md`.
+
+## Phase 3 — Final verification
+
+- [Phase 3] `bun run test` final: **9090 pass / 44 skip / 1 todo / 0 fail** — matches Phase 1b verification. Tree clean.
+- [Phase 3] Branch `worktree-agent-a98b04abb6655acd5` carries 3 commits over main:
+  - `5099b84` Phase 0 resume — sync to main, baseline 9071, plan locked.
+  - `cd6bda3` Phase 1 — PASS 5 render-by-tag classifier + tests (+19 tests).
+  - `c126d04` Phase 2 — primer §13.7 B6 row + progress.md.
+- [Phase 3] Test delta: 9071 → 9090 (+19 new tests, all passing). Zero regressions. Zero pre-existing failures introduced.
+
+## Final state
+
+**B6 SHIPPED.** Render-by-tag classifier active in SYM PASS 5. `<x/>` use-sites now emit precise diagnostics for plain / derived / compound / Shape-2-non-bindable cells; bindable cells accept silently; PascalCase deferred (Phase 0 §3.2); HTML built-ins no-op. Spec-faithful per Rule 4 (SPEC §6.4 + §6.2 + §6.6.17 + §34 verified directly). Production-language fidelity per Rule 2 (comprehensive Shape × use-site coverage; under-fire on PascalCase preferred to mis-fire). Right-answer-beats-easy per Rule 3 (no shortcut deferrals beyond the explicit Phase 0 §3.2 component-prop substrate gap).
+
+## Tags
+
+#a1b #b6 #render-by-tag #symbol-table #spec-fidelity #shipped
+
+## Links
+
+- `compiler/src/symbol-table.ts` — PASS 5 walker (`walkRenderByTagUses`, `checkRenderByTag`, diagnostic builders) + runSYM wiring
+- `compiler/tests/unit/render-by-tag.test.js` — 19-test matrix (§B6.1–§B6.18)
+- `docs/PA-SCRML-PRIMER.md` §13.7 — B6 row + B6 specifics prose
+- `compiler/SPEC.md` §6.4 (lines 1893-1939), §6.2 (lines 1762-1821), §6.6.17 (lines 3015-3033), §34 (lines 14205-14206)
+- `docs/changes/phase-a1b-step-b6-render-by-tag/SURVEY.md` — Phase 0 dispositions (Bryan-ratified)
+
 
 
