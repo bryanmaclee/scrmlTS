@@ -193,3 +193,37 @@ S66 sub-survey: `if (@cell is .Variant)`. Handles both structured `binary op=is`
 and `escape-hatch` AST shapes (fallback regex on raw text).
 
 ## Phase 2 — `bun scrml promote --match` AST→AST transformation (starts)
+
+## 2026-05-07 — S66 close — Tier B SHIPPED + Phase 4 docs touch-up (PA-finished after agent stall)
+
+Tier B background dispatch (`agent-a35e9695d1b010931`) shipped Phases 0a/0b/0c/1/2 cleanly
+(commits `f9a0b33` / `d9f8f4b` / `af06cfb` / `9e8ae7a` / `e3016e4` / `fd4d1d0` / `978cdfa` /
+`1282dfe`) and stalled in Phase 4 docs touch-up (stream watchdog timeout at 600s with no
+progress). PA cherry-picked all 8 commits onto main (post-commit hook ran on each:
+9036/44/1/0 + TodoMVC + browser validation PASS) and finished Phase 4 manually:
+
+- **Primer §13.8** — fully rewritten for S66 ship state. Predicate matrix narrowing surfaced
+  (S66 sub-survey: only `if (@cell is .Variant)` is parseable; `==`-shaped + `.is(.X)` +
+  `is .X msg` are separate language gaps). `--engine` Tier-C-deferral note added with
+  reasoning (W-MATCH-TRANSITIONS-ACCRUING groundwork missing).
+- **Primer §11 anti-patterns row** — `==` example replaced with `is` form + parenthetical
+  noting the predicate-matrix narrowing.
+- **`docs/articles/tier-ladder-promotion-devto-2026-05-04.md`** — code examples updated
+  to `is`-form; status note updated from S65-pending to S66-shipped; `--engine` clearly
+  marked as deferred-to-follow-up. Compound-condition message-shape replaces the
+  "wrong-discriminator" message-shape (the latter is Pattern 16 territory, not
+  I-MATCH-PROMOTABLE territory).
+- **`docs/articles/llm-kickstarter-v1-2026-04-25.md` §6 CLI table** — `--match` marked
+  shipped S66; `--engine` Tier C deferred.
+
+Final state at S66 close:
+- I-MATCH-PROMOTABLE lint live (`compiler/src/lint-i-match-promotable.js`, wired Stage 6.4
+  in `api.js`). 11 unit tests pass.
+- `bun scrml promote --match` ships AST→AST span-rewrite (`compiler/src/commands/promote.js`).
+  6 unit tests pass.
+- `--engine` flag stays in CLI; prints deferral message + exits 2.
+- SPEC §56 reflects parser reality (Path A — `is`-only).
+- SPEC §34 catalog row landed (Phase 0a catch-up).
+
+Tier B closed. Tier C (`--engine` lift + W-MATCH-TRANSITIONS-ACCRUING groundwork) queued
+for a future dispatch when corpus-signal warrants.

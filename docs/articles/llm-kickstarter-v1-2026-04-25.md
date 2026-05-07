@@ -270,8 +270,8 @@ scrml build <dir>                             — production build
 scrml serve                                   — persistent compiler server
 scrml compile <file>                          — single-file compile to JS
 scrml migrate <file|dir>                      — rewrite deprecated syntax (e.g. <machine> → <engine>)
-scrml promote --match|--engine <file|dir>     — promote tier-1 if-else → <match>, or <match> → <engine>
-                                                (CLI surface locked S65; AST→AST rewrite impl pending —
+scrml promote --match <file|dir>              — promote tier-1 if-else (`if (@cell is .Variant)`) → <match>
+                                                (shipped S66; --engine for tier-1→2 deferred to Tier C —
                                                 see SPEC §56 + docs/changes/promotion-ergonomics/)
 ```
 

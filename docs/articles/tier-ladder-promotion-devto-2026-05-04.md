@@ -308,11 +308,11 @@ The mechanical-promotion claim above ("state-children carry forward verbatim, on
 
 Two pieces, paired:
 
-**The lint surfaces the opportunity at compile time.** When you write an if-else chain over an enum-typed state cell — `if (@phase == .Idle) { ... } else if (@phase == .Loading) { ... } else if (@phase == .Error) { ... }` — the compiler emits an info-level diagnostic, `I-MATCH-PROMOTABLE`. Three message shapes:
+**The lint surfaces the opportunity at compile time.** When you write an if-else chain over an enum-typed state cell — `if (@phase is .Idle) { ... } else if (@phase is .Loading) { ... } else if (@phase is .Error) { ... }` — the compiler emits an info-level diagnostic, `I-MATCH-PROMOTABLE`. Three message shapes:
 
 - *Exhaustive coverage:* "this if-else exhaustively covers Phase (.Idle, .Loading, .Error, .Success). Run `bun scrml promote --match app.scrml:42` to convert."
 - *Near-miss:* "this if-else covers Phase partially (.Idle, .Loading, .Error). Missing .Success. Add the missing arm, then run `bun scrml promote --match app.scrml:42` to convert. Once promoted, the compiler will catch any future variant-add at the `<match>` site automatically."
-- *Wrong-discriminator:* if you wrote your discriminator as a string ("idle" / "loading" / "error" instead of `.Idle` / `.Loading` / `.Error`), the lint defers to a sibling — `W-LIFECYCLE-CANDIDATE` — pointing out the string-discriminator trap. Lift to enum first; then `I-MATCH-PROMOTABLE` re-fires.
+- *Compound:* if your branches use grouped conditions (`||` / `&&`) the lint surfaces a separate info — those are not auto-promotable; the rewrite would either duplicate the body or need a guard pattern, so we leave it to your judgment.
 
 It is **info, not warning.** The if-else compiles fine. The lint just names the opportunity.
 
@@ -322,16 +322,16 @@ It is **info, not warning.** The if-else compiles fine. The lint just names the 
 bun scrml promote --match app.scrml:42       # promote one site in place
 bun scrml promote --match app.scrml          # all promotable sites in the file
 bun scrml promote --match src/ --dry-run     # preview the diff for the whole tree
-bun scrml promote --engine app.scrml         # Tier 1→2: <match> → <engine>
+bun scrml promote --engine app.scrml         # Tier 1→2: <match> → <engine>  (deferred — see below)
 ```
 
-The transformation is AST-aware: per-branch rewrite rules handle `if (@cell == .X) { body }` → `<X>{body}</>`, payload destructure `if (@cell == .Error msg)` → `<Error msg>{body}</>`, the `.is(.X)` predicate form, and the trailing `else` (dropped on exhaustive coverage). Comments, indentation, and surrounding markup are preserved verbatim. Re-running the verb on already-promoted code is a no-op.
+The transformation is AST-aware: the parseable predicate form `if (@cell is .X) { body }` is rewritten to `<X>{body}</>`; the trailing `else` (dropped on exhaustive coverage); comments, indentation, and surrounding markup are preserved verbatim. The rewrite uses span-based source operations rather than a whole-file pretty-printer, which is why formatting outside the rewrite site is byte-identical to before. Re-running the verb on already-promoted code is a no-op.
 
 The pairing matters. React, Vue, Svelte have nothing comparable — there is no equivalent of "your compiler told you a region is ready to lift, and the CLI does the lift mechanically without rewriting your hand-written code." It is uniquely available because scrml's tier ladder is uniquely a *language* feature, not a library convention.
 
 `bun scrml promote` is a sibling of `bun scrml migrate` (which rewrites deprecated→current syntax, e.g., `<machine>` → `<engine>`). Different verb, different semantics: `migrate` removes the old form; `promote` keeps both forms valid. You promote because you decide to, not because something is going away.
 
-(*Status note (S65 dispatch): the design is locked, the CLI surface is registered, and SPEC §56 normatively specifies the lint and verb. The AST→AST transformation implementation is the next dispatch — gated on a sibling lint-tightening dispatch landing first. The article is intentionally describing the design rather than a shipped binary.*)
+(*Status note (S66): `--match` is shipped — `I-MATCH-PROMOTABLE` lint live + `bun scrml promote --match` AST→AST span-rewrite live. The predicate matrix is `if (@cell is .Variant)` only; `==`-shaped variant comparison is not parseable in scrml today (a separate language gap, not promotion-ergonomics scope). `--engine` (Tier 1→2 lift) is deferred to a follow-up dispatch — its sibling lint, `W-MATCH-TRANSITIONS-ACCRUING`, needs proper groundwork first; for now the flag prints a clear "deferred" message and exits.*)
 
 ## What this is not
 

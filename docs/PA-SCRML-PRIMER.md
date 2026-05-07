@@ -391,7 +391,7 @@ What LLMs reflexively reach for + the scrml form:
 | Importing across files without `pinned` when forward-ref is needed | forward-references through imports require `pinned` to lift the cycle | E-IMPORT-PINNED-INVALID; add `pinned` modifier to the import |
 | Engine instantiated inside a component body | components are multi-instance, engines are singleton — they don't compose | E-COMPONENT-ENGINE-SCOPE; declare the engine at file/program scope and mount via `<EngineName/>` |
 | `@derivedArr.push(x)` / `@derivedObj.foo = x` on a `const`-derived cell | derived cells are value-immutable from the developer's perspective; the mutation would be silently clobbered next time upstream deps fire | E-DERIVED-VALUE-MUTATE (§6.6.18); mutate the upstream cell instead (`@items = [...@items, x]`) or declare a separate mutable cell |
-| `if (@phase == .Idle) { ... } else if (@phase == .Loading) { ... }` over an enum-typed cell | works, but loses Tier-1 structural-exhaustiveness guarantees and forfeits future-variant-add catching at the discrimination site | I-MATCH-PROMOTABLE (§13.8, SPEC §56) info-level lint surfaces the opportunity; run `bun scrml promote --match <file>[:line]` to mechanically lift to `<match for=Type on=@phase> <Idle>...</> <Loading>...</> </>` |
+| `if (@phase is .Idle) { ... } else if (@phase is .Loading) { ... }` over an enum-typed cell | works, but loses Tier-1 structural-exhaustiveness guarantees and forfeits future-variant-add catching at the discrimination site | I-MATCH-PROMOTABLE (§13.8, SPEC §56) info-level lint surfaces the opportunity; run `bun scrml promote --match <file>[:line]` to mechanically lift to `<match for=Type on=@phase> <Idle>...</> <Loading>...</> </>` (S66 ship: `is`-form only — `==`-shaped variant comparison is not parseable today) |
 
 ---
 
@@ -519,7 +519,7 @@ A1b decorates the A1a AST with resolution metadata that downstream passes (B5+, 
 
 ---
 
-## §13.8 Promotion ergonomics — `I-MATCH-PROMOTABLE` + `bun scrml promote` (S65)
+## §13.8 Promotion ergonomics — `I-MATCH-PROMOTABLE` + `bun scrml promote --match` (S65 design / S66 shipped)
 
 The tier ladder (§1) is "promotion is mechanical and additive." Promotion ergonomics is the design center that makes that promise concrete in the dev loop:
 
@@ -528,13 +528,15 @@ The tier ladder (§1) is "promotion is mechanical and additive." Promotion ergon
 1. **`I-MATCH-PROMOTABLE`** — info-level lint (NOT a warning). Surfaces when an if-else chain over an enum-typed state cell is mechanically promotable to a Tier-1 `<match>` block. Three message shapes:
    - **Exhaustive** — all variants covered; clean lift available.
    - **Near-miss** — partial coverage; lists the *missing variants concretely*. Add the missing arm, then promote. (Once promoted, the compiler catches future variant-adds at the `<match>` site automatically — that's the gain.)
-   - **Wrong-discriminator** — defers to `W-LIFECYCLE-CANDIDATE` (the discriminator is a string with enum-tag-shaped values; lift to enum first, then `I-MATCH-PROMOTABLE` re-fires).
+   - **Compound** — branches use `||` / `&&` grouping; not auto-promotable, separate info surfaces the constraint.
 
-2. **`bun scrml promote --match <file>[:line]`** — CLI subcommand that *executes* the lift mechanically. Per-branch rewrite rules (full table SPEC §56.5.2): `if (@cell == .X) { body }` → `<X>{body}</>`; payload destructure preserved; `else { ... }` dropped on exhaustive coverage. Idempotent — re-running on already-promoted code is a no-op. Supports `--dry-run`, `--check`, file or directory targets. Pairs with `bun scrml migrate` (deprecated→current) but is a separate verb because semantics differ — `promote` is a tier-up of valid code.
+2. **`bun scrml promote --match <file>[:line]`** — CLI subcommand that *executes* the lift mechanically. Per-branch rewrite rule (full table SPEC §56.5.2): `if (@cell is .X) { body }` → `<X>{body}</>`; trailing `else { ... }` dropped on exhaustive coverage. Idempotent — re-running on already-promoted code is a no-op. Supports `--dry-run`, file or directory targets. Pairs with `bun scrml migrate` (deprecated→current) but is a separate verb because semantics differ — `promote` is a tier-up of valid code.
 
-**Companion verb:** `bun scrml promote --engine <file>[:line]` lifts a `<match>` block whose state-arms accrue `rule=` attributes into an active `<engine>` (Tier 1→2). Pairs with the `W-MATCH-TRANSITIONS-ACCRUING` lint.
+**Predicate matrix (S66 sub-survey finding — narrower than S65 SCOPE expected):** the lint and `--match` operate on EXACTLY ONE parseable form: `if (@cell is .Variant)`. The `==`-shaped forms (`@cell == .X`, `@cell == .X(payload)`, `@cell == .X msg`) named in the original S65 SCOPE are not parseable today — `expression-parser.ts:686+` registers `is .Variant` only. The `.is(.X)` method-call form drops to `escape-hatch` AST (not structured). The bind-on-is form `is .X msg` silently drops `msg` at parse. Each of these is a separate language gap; out of scope for promotion ergonomics. SPEC §56 amended S66 to reflect parser reality.
 
-**Status (S65 dispatch):** CLI surface registered; spec/primer/article docs landed (Tier A). Lint detection + AST→AST transformation impl pending Tier B dispatch (gated on A+ verdict #1+#2 landing for the lint substrate). See `docs/changes/promotion-ergonomics/SCOPE.md` and `SURVEY-NOTE.md` for the full design + tier-split rationale.
+**Companion verb (DEFERRED to Tier C):** `bun scrml promote --engine <file>[:line]` lifts a `<match>` block whose state-arms accrue `rule=` attributes into an active `<engine>` (Tier 1→2). Pairs with the `W-MATCH-TRANSITIONS-ACCRUING` lint. Both the lint and the rewrite were deferred from Tier B — `W-MATCH-TRANSITIONS-ACCRUING` has no §34 row + no impl today; needs proper groundwork. The `--engine` flag stays in the CLI but prints "deferred to Tier C — needs W-MATCH-TRANSITIONS-ACCRUING groundwork" and exits 2.
+
+**Status (S66 — Tier B shipped):** I-MATCH-PROMOTABLE lint + `bun scrml promote --match` AST→AST span-rewrite are live (commits `978cdfa` lint + `1282dfe` CLI; +17 tests; 0 regressions). `--engine` Tier-C-deferred per Finding B. SPEC §34 catalog row landed (Phase 0a). See `docs/changes/promotion-ergonomics/SURVEY-PHASE-B.md` for the full re-scope rationale.
 
 **Why this matters (marketing-load-bearing):** scrml is the only mainstream-target framework where the *compiler tells you when your code is ready to lift* AND *a CLI does the mechanical lift* AND *no silent rewrite happens*. React/Vue/Svelte have nothing comparable. Promotion ergonomics is the marketing flagship for the tier-ladder system itself, paired with `formFor` as the marketing flagship for L22-family validators.
 
