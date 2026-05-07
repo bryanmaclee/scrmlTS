@@ -1,17 +1,19 @@
-# scrmlTS — Session 65 (CONTINUING past wrap — predicate-Zod deep-dive · debate-05 5/5 C-narrow · npm-myth amend · parseVariant Path A LOCKED · type-as-argument family roadmap recorded · survey-first dispatch in flight)
+# scrmlTS — Session 65 (CLOSE — parseVariant SHIPS · A1b B3+B5 · A+ verdict closed · 5-dispatch parallel wave converged · promotion ergonomics Tier A landed)
 
 **Date opened:** 2026-05-06
-**Date status:** session continued past initial wrap — Bryan: "we have lots of ctx left lets go"; second tranche of work landed Path A architectural commit + family roadmap
+**Date closed:** 2026-05-06 (multi-tranche session; deliberation morning → debate verdicts → architectural commit → 5-dispatch parallel compiler wave)
 **Previous:** `handOffs/hand-off-64.md` (S64 close — substantial work landed across 3 debates + Stage 0c.A + B2 + Phase 4d)
 **This file:** rotates to `handOffs/hand-off-65.md` at S66 open
 
-**Tests at close:** **8,959 / 44 / 1 / 0 / 9,004 / 440** (Phase 2 added +18 net: 8 unit + 10 integration parse-variant tests; 0 regressions).
+**Tests at close:** **9,019 / 44 / 1 / 0 / 9,064 / 447** (+78 net from session-open across parseVariant Phase 2 +18, B3 +11, api.js +5, B5 +11, A+ #1+#2 +15, ast-builder grammar +18; 0 regressions).
 
 ---
 
-## **🎯 parseVariant SHIPS — L22 family member #1 fully realized**
+## **🎯 S65 final state — substantial v0.2.0 forward motion**
 
-S65 third tranche: Phase 1 (stdlib scaffold + sniff test) → Phase 3 (spec writing) → Phase 2 (compiler implementation) all GREEN. **`parseVariant(json, EnumType)` is now a working scrml language primitive** at commit `f963a75`. Tests 8959/44/1/0/9004 (+18 / 0 regressions). Type-as-argument is no longer just an architectural commitment; it's a shipped language feature.
+**parseVariant SHIPS (L22 family member #1)** at `f963a75`. **A1b foundational steps B3 + B5 LANDED** with depth-of-survey discounts #8 + #9 (counter is now 9). **A+ verdict #1+#2+#3 carry-forward FULLY CLOSED**. **api.js cross-file enum gap closed** (Phase 2 follow-up). **ast-builder grammar fixes** (export function swallow + export * + renamed re-exports). **Promotion ergonomics Tier A landed** (CLI stub + SPEC §56 + primer + 2 article updates); Tier B properly scoped UPWARD to 25-41h follow-up dispatch.
+
+**The fourth tranche was the largest parallel compiler-work wave in scrmlTS history** — 5 concurrent background dispatches converging cleanly with 0 regressions across 78 net new tests. Two independent observations of concurrency hazard surfaced (cross-agent staging clobbers + destructive resets). Worth a primer §12 amendment + S66 must-not-screw-up entry.
 
 ## TL;DR — what landed in S65
 
@@ -182,6 +184,22 @@ Standing list 1-47 from S64 hand-off carries forward verbatim. New S65 additions
 
 60. **L22 family member #1 SHIPPED.** Type-as-argument is now a working scrml language primitive, not just an architectural commitment. Future family members (`serialize`, `formFor`, `schemaFor`, `tableFor`, reflective metadata) ride this precedent. The discipline that bounds the family — sliver test + synonym-detection + per-feature deep-dive — is recorded in SPEC §53.14, primer §13.6, family-precedent doc, and the SCOPE doc.
 
+61. **CONCURRENCY HAZARD — load-bearing for next session's parallel work.** Two independent observations during the S65 5-dispatch wave: (a) A+ #1+#2 dispatch detected destructive `git reset HEAD` + working-tree clobbers TWICE from other concurrent agents — wiped uncommitted edits, agent reapplied each time; (b) ast-builder grammar fixes dispatch's commits got captured by A+ and promotion-ergonomics commits — work landed verbatim but commit attribution is wrong (`b661c0b` and `50b6af3` show those collisions). **Recommendation for any future >2 concurrent compiler dispatches: serialize edits to compiler/src/ast-builder.js + compiler/src/lint-ghost-patterns.js + compiler/src/symbol-table.ts across dispatches, OR use worktree isolation when dispatches need overlapping files.** Pre-commit-hook + concurrent-tree dynamic also serializes the COMMIT phase even when WORK phases run parallel — one in-flight failing test blocks all other agents' commits until cleanup. Effectively the hook enforces a "settle window" between commits across agents. Worth a primer §12 amendment.
+
+62. **B5 cell classifier annotation contract LANDED.** `_cellKind: "plain" | "bindable" | "markup-typed" | "compound-parent"` + `_isBindable: boolean` on every state-decl. `getCellKind(decl)` + `isCellBindable(decl)` exported from `compiler/src/symbol-table.ts`. Powers B6 + B7. Bindable tag set sourced from `codegen/emit-html.ts` BIND_DIRECTIVE_TAGS — canon alignment with codegen bind-directive dispatch. Engine state-decls deferred to B14+. Recorded in primer §13.7.
+
+63. **A+ verdict #1+#2 carry-forward CLOSED.** Pattern 16 in lint-ghost-patterns.js (W-LIFECYCLE-CANDIDATE tightening: `^[A-Z][A-Za-z0-9]*$` predicate) + did-you-mean: match enrichment on E-SWITCH-FORBIDDEN. Quickfix infrastructure does not exist in scrml today; enriched-message-text used. Future LSP/code-action dispatch can wire real quickfixes. Carry-cost paid: 2 internal `switch (type.kind)` blocks in `stdlib/compiler/meta-checker.scrml` rewritten as if-else (the language now dogfoods its own anti-pattern lint).
+
+64. **ast-builder grammar findings landed.** F1 `export function NAME() {}` synthesizes sibling `function-decl{exported: true, fromExport: true}`; codegen emitters skip `fromExport: true` to avoid double-emission. F2 `export * from './path'` parses as `re-export-all`. F3 `export {A as B} from './path'` parses with `renames: [{exported, local}]`. Module-resolver propagates new graph entries. **api.js seeder follow-up** (chase `localName` + `re-export-all`) is QUEUED — not bug-blocking, but future stdlib enum re-exports with rename or wildcard won't seed correctly until that fires.
+
+65. **Promotion ergonomics Tier A LANDED + Tier B SCOPED UPWARD.** Tier A: `compiler/src/commands/promote.js` CLI stub (mutual-exclusion validation, prints implementation-pending) + SPEC §56 (full normative spec) + §34 catalog row + primer §11/§13.8 + kickstarter §6 + tier-ladder-promotion article section. Tier B: ~25-41h scope-revised UPWARD (NOT a depth-of-survey discount candidate). **Honest scope-revision-up is also a discount-pattern signal** — `bun scrml migrate` is regex-based not AST-aware (CLI scaffolding carries forward; transformation logic is novel work); W-MATCH lint family is spec-only-not-implemented (no copy-paste shortcut); StateCellRecord lacks resolved type info (lint must run downstream of type-resolution). Span-based AST→AST rewrite path recommended in SURVEY.md. CLI surface locked at `compiler/src/commands/promote.js`; Tier B drops transformation behind it.
+
+66. **Predicate-gaps deep-dive SCOPE PREPARED.** ~1,762 words at `docs/changes/predicate-gaps-deep-dive-prep/SCOPE.md`. 4 P1-promoted gaps from S65 Zod-replacement deep-dive: #8 aliases, #9 reqIf, #12 async, #17 transform. **#9 `reqIf` corroborated as most-urgent** — highest demand across yup/zod/ajv/react-hook-form; carries highest string-switch-trap risk. Trigger conditions explicit (A1c real-app friction OR adopter blocker OR SPEC-ISSUE-§53.13.1-4 touch). Deep-dive itself fires later when corpus signal warrants.
+
+67. **Depth-of-survey-discount counter is now 9.** B3 (#8: ~2h actual vs 4-6h estimate) + B5 (#9: ~1.5h actual vs 3-5h estimate). Both followed the same pattern: existing AST machinery covers more than the audit assumed; intervention is localized extension. Promotion ergonomics Tier B was the inverse case (scope-revision UP) — methodology catches both directions. Mitigation checklist in primer §12 stands.
+
+68. **api.js seeder + auto-gather pre-pass extension landed.** Phase 2 Risk #1 closed. `importedTypesByFile` seeder rewrite at lines 790-895 + auto-gather pre-pass regex extension at lines 448-505 (`/(?:import|export) ... from/`). Future stdlib enum additions (e.g., `serialize`'s `SerializeError`) work without builtin-status grants. Adjacent finding: only the seeder fix wasn't sufficient; the auto-gather had to compile re-export targets too.
+
 ---
 
 ## State as of S65 close (verified at wrap)
@@ -197,7 +215,7 @@ Standing list 1-47 from S64 hand-off carries forward verbatim. New S65 additions
 | Inbox | empty |
 | Active agents (post-S65) | 45 (unchanged from S64) |
 | Permissions whitelist | unchanged |
-| Depth-of-survey-discount counter | **7** (was 6; S65 parseVariant Path A survey landed ~15-25% discount + caught 2 SCOPE drifts) |
+| Depth-of-survey-discount counter | **9** (parseVariant survey #7, B3 #8, B5 #9; promotion ergonomics Tier B was inverse case — scope-revision UPWARD) |
 | Design insights count (since 2026-03-22) | 30+ entries; 1 new in S65 (#4 boundary-parsing) |
 
 ### File-modification inventory (S65 — for cherry-pick / forensic review)

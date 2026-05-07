@@ -509,6 +509,7 @@ A1b decorates the A1a AST with resolution metadata that downstream passes (B5+, 
 | **B1** | `_scope` | various nodes attached during PASS 1 | scope identifier | (internal walker discrimination) |
 | **B2** | (no new field — fires `E-NAME-COLLIDES-STATE` diagnostic) | local-decl nodes shadowing state names | — | — |
 | **B3** | `_resolvedStateCell` | every `@`-prefixed `IdentExpr` reachable via SYM PASS-3 | `StateCellRecord` (resolved), `null` (unresolved — no error fired at B3), `undefined` (not walked) | `getResolvedStateCell(ident)` exported from `compiler/src/symbol-table.ts` |
+| **B5** | `_cellKind` (+ `_isBindable`) | every registered `state-decl` | `"plain" \| "bindable" \| "markup-typed" \| "compound-parent"` (+ boolean convenience) | `getCellKind(decl)`, `isCellBindable(decl)` exported from `compiler/src/symbol-table.ts` |
 
 **B3 specifics (load-bearing for B5/B7/B10/B22 + promotion ergonomics + A1c C0):**
 

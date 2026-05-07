@@ -2,9 +2,9 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS, plus the **v0.2.0 migration dashboard**. Current truth only. Historical session-by-session detail lives in `docs/changelog.md`; deep-dives live in `scrml-support/docs/deep-dives/`.
 
-**Last updated:** 2026-05-06 (S65 continuing — **predicate-system-Zod-replacement deep-dive LANDED · debate-05 judged 5/5 unanimous C-narrow · npm-myth article amended · X-snippet drafted · parseVariant impl SCOPE landed + Path A LOCKED · type-as-argument family roadmap recorded · survey-first dispatch in flight · Gap #19 closure plan ready**)
+**Last updated:** 2026-05-06 (S65 close — **parseVariant SHIPPED (L22 family member #1) · A1b B3+B5 LANDED · A+ verdict #1+#2+#3 carry-forward fully closed · ast-builder grammar fixes · api.js cross-file enum gap closed · promotion ergonomics Tier A landed (CLI stub + spec + docs) · 5 parallel dispatches converged · depth-of-survey-discount hit #9**)
 
-**Tests (current):** **8,959 pass / 44 skip / 1 todo / 0 fail / 9,004 across 440 files** (S65 parseVariant Phase 2 added +18 net: 8 unit + 10 integration tests; 0 regressions). Pre-commit subset ~8,235 / 33 / 0.
+**Tests (current):** **9,019 pass / 44 skip / 1 todo / 0 fail / 9,064 across 447 files** (S65 added +78 net across parseVariant Phase 2 +18, B3 +11, api.js +5, B5 +11, A+ #1+#2 +15, ast-builder grammar +18; 0 regressions across the entire wave).
 
 **Currently shipped baseline:** **scrml v0.1.0** (16-module stdlib, 32 examples, full SQL passthrough via Bun.SQL, LSP + VSCode + neovim editor support, server-fn boundary, `<machine>` engines, `<channel>` channels, `?{}` SQL passthrough, `<schema>` blocks, `<program>` config + wrapper, ~24,739 LOC compiler / ~14,135 LOC codegen).
 
