@@ -108,8 +108,15 @@ import type {
   IdentExpr,
   ImportDeclNode,
   ImportSpecifier,
+  ExprNode,
+  ResetExpr,
+  MemberExpr,
 } from "./types/ast.ts";
-import { forEachIdentInExprNode, emitStringFromTree } from "./expression-parser.ts";
+import {
+  forEachIdentInExprNode,
+  emitStringFromTree,
+  forEachResetExprInExprNode,
+} from "./expression-parser.ts";
 import {
   ARRAY_MUTATING_METHODS,
   isDerivedMutatingAssignOp,
@@ -5110,6 +5117,288 @@ function fireComponentEngineScope(
 
 
 // ---------------------------------------------------------------------------
+// B22: reset(@cell) target-shape validation (PASS 14) — A1b Phase
+// ---------------------------------------------------------------------------
+//
+// Per SPEC §6.8.2 (line 4844+) + §34. Step 9's parser (`expression-parser.ts`)
+// permissively accepts ANY ExprNode as the `reset(<target>)` argument and
+// defers shape validation to A1b. B22 runs the validation: the target MUST be
+// one of the three §6.8.2 shapes:
+//
+//     reset(@cell)              // bare top-level cell
+//     reset(@compound)          // whole compound parent (every field)
+//     reset(@compound.field)    // single-level compound nav
+//
+// Per Phase 0 SURVEY decision (option 2 — accept multi-level), the walker
+// also accepts `reset(@a.b.c.d)` when each segment resolves through the
+// compound-scope chain. This is the spec-faithful default per §6.3.5
+// recursive-composition semantics; rejecting multi-level would create an
+// anti-symmetry with READ access (`@a.b.c.d` is legal anywhere else in the
+// language). SPEC-PROSE FOLLOW-UP recorded for §6.8.2 amendment.
+//
+// Anything else (literals, function calls, binary expressions, ternaries,
+// non-`@`-prefixed identifiers, member chains rooted at non-`@` identifiers)
+// fires `E-RESET-INVALID-TARGET`.
+//
+// **Walker shape:** mirrors PASS 13 (B17) structural recursion. Visits every
+// AST node, walks each ExprNode-bearing field via `forEachResetExprInExprNode`,
+// and validates each `reset-expr` encountered.
+//
+// **Scope-aware walk:** like PASS 6 (B8), the walker descends with the active
+// scope so multi-level lookups via `lookupQualifiedStateCell` see the correct
+// compound-scope chain (B12-extended descent).
+//
+// **Diagnostic-skip rule:** if the `reset-expr` already carries a parse-time
+// `diagnostic` (E-RESET-NO-ARG path), B22 SKIPS that node — the parser has
+// already surfaced the malformed-shape error and we don't double-report.
+//
+// Reuses:
+//   - `forEachResetExprInExprNode(node, cb)` from `expression-parser.ts` —
+//     full ExprNode-tree walk that visits every reset-expr.
+//   - `lookupQualifiedStateCell(scope, path[])` for compound-nav resolution
+//     (B12 extension descends through any cell with `_scope`).
+
+/**
+ * Validate a single `reset-expr` node's target shape. Fires
+ * `E-RESET-INVALID-TARGET` per §6.8.2 + §34 when the target is not one of:
+ *   - bare `@cell` IdentExpr (top-level or compound parent)
+ *   - `@compound.field` / `@a.b.c.d` MemberExpr chain rooted at a `@`-prefixed
+ *     IdentExpr where every segment resolves through `lookupQualifiedStateCell`
+ *
+ * **Pass-through cases (no fire):**
+ *   - `node.diagnostic` is set → parse-time E-RESET-NO-ARG already surfaced.
+ *   - Target IdentExpr is `@`-prefixed but `_resolvedStateCell` is `null` →
+ *     name-resolution issue, not shape issue. B22 stays silent (a future
+ *     dispatch may tighten B3's null markers into E-SCOPE-001).
+ *   - Target MemberExpr is `@`-rooted but `lookupQualifiedStateCell` returns
+ *     `null` → same: name-resolution at the leaf level, not shape.
+ */
+function validateResetExprTarget(
+  resetNode: ResetExpr,
+  currentScope: Scope,
+  errors: SYMDiagnostic[],
+  filePath: string,
+): void {
+  // Skip already-diagnosed nodes (parse-time E-RESET-NO-ARG).
+  if (resetNode.diagnostic) return;
+
+  const target = resetNode.target;
+  if (!target || typeof target !== "object") return;
+
+  // Shape 1: bare IdentExpr — must be `@`-prefixed.
+  if (target.kind === "ident") {
+    const ident = target as IdentExpr;
+    if (typeof ident.name === "string" && ident.name.startsWith("@")) {
+      // Shape OK. Resolution may still fail (B3 stamps null on unknown
+      // names) but that's a B3 concern — B22 stays silent on resolution
+      // issues, surfaces only shape issues.
+      return;
+    }
+    fireResetInvalidTarget(resetNode, target, errors, filePath, "bare-non-at-ident");
+    return;
+  }
+
+  // Shape 2: MemberExpr chain — must root at a `@`-prefixed IdentExpr,
+  // every segment must be a static string property. Multi-level OK (per
+  // Phase 0 decision; lookupQualifiedStateCell handles arity-N).
+  if (target.kind === "member") {
+    const path: string[] = [];
+    let cursor: ExprNode = target;
+    while (cursor.kind === "member") {
+      const m = cursor as MemberExpr;
+      // Optional-chain (`?.`) is not a canonical reset target. Reject
+      // upfront — semantics of "reset something that might not exist"
+      // are spec-undefined.
+      if (m.optional) {
+        fireResetInvalidTarget(resetNode, target, errors, filePath, "optional-chain");
+        return;
+      }
+      if (typeof m.property !== "string") {
+        // Defensive: ast.ts:1502 declares property as string, but if a
+        // future grammar extension introduces computed-property MemberExpr
+        // (would normally be IndexExpr), reject.
+        fireResetInvalidTarget(resetNode, target, errors, filePath, "non-static-property");
+        return;
+      }
+      path.unshift(m.property);
+      cursor = m.object;
+    }
+    if (cursor.kind !== "ident") {
+      fireResetInvalidTarget(resetNode, target, errors, filePath, "non-ident-root");
+      return;
+    }
+    const rootIdent = cursor as IdentExpr;
+    if (typeof rootIdent.name !== "string" || !rootIdent.name.startsWith("@")) {
+      fireResetInvalidTarget(resetNode, target, errors, filePath, "non-at-root");
+      return;
+    }
+    // Shape OK. Now check that the full path resolves through the compound-
+    // scope chain. The root cell (segment 0) is the bare name without `@`.
+    const rootName = rootIdent.name.slice(1);
+    const fullPath = [rootName, ...path];
+    const resolved = lookupQualifiedStateCell(currentScope, fullPath);
+    if (resolved === null) {
+      // Leaf-level resolution fail. Per Phase 0 decision (and the brief's
+      // "may pass through silently"): this is a name-resolution concern, not
+      // a target-shape concern. B22 stays silent. A future tightening
+      // dispatch could fire E-SCOPE-* or similar; today's behavior matches
+      // B3's null-stamp policy for unknown @-names.
+      return;
+    }
+    return;
+  }
+
+  // Shape 3+: anything else — fire.
+  fireResetInvalidTarget(resetNode, target, errors, filePath, target.kind);
+}
+
+/**
+ * Fire `E-RESET-INVALID-TARGET` per §6.8.2 + §34. Triggered when the target
+ * of a `reset(...)` keyword call is not one of the three canonical shapes.
+ * Message identifies the offending shape and recommends canonical forms.
+ */
+function fireResetInvalidTarget(
+  resetNode: ResetExpr,
+  target: ExprNode,
+  errors: SYMDiagnostic[],
+  filePath: string,
+  reason: string,
+): void {
+  const span: SYMDiagnostic["span"] = (resetNode.span && typeof resetNode.span === "object")
+    ? (resetNode.span as unknown as SYMDiagnostic["span"])
+    : { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+  // Best-effort source rendering of the offending target for the message.
+  let rendered = "<expr>";
+  try {
+    const r = emitStringFromTree(target as any);
+    if (typeof r === "string" && r.length > 0 && r.length < 80) {
+      rendered = r;
+    } else if (typeof r === "string" && r.length >= 80) {
+      rendered = r.slice(0, 77) + "...";
+    }
+  } catch {
+    // Defensive: emitStringFromTree may not handle every kind. Fall through
+    // to the kind-only label.
+  }
+  // Map internal reason tags to short human-readable hints.
+  const hint = (() => {
+    switch (reason) {
+      case "bare-non-at-ident": return "bare identifier without `@` prefix";
+      case "optional-chain": return "optional-chain (`?.`) member access";
+      case "non-static-property": return "non-static property access";
+      case "non-ident-root": return "member chain not rooted at an identifier";
+      case "non-at-root": return "member chain rooted at a non-`@` identifier";
+      case "lit": return "literal";
+      case "call": return "function-call result";
+      case "new": return "constructor-call result";
+      case "binary": return "binary expression";
+      case "unary": return "unary expression";
+      case "ternary": return "ternary expression";
+      case "assign": return "assignment expression";
+      case "array": return "array literal";
+      case "object": return "object literal";
+      case "lambda": return "lambda";
+      case "cast": return "cast expression";
+      case "index": return "computed-index access";
+      case "match-expr": return "match expression";
+      case "spread": return "spread";
+      case "reset-expr": return "nested `reset(...)` call";
+      case "escape-hatch": return "unparsed expression form";
+      default: return `expression of kind \`${reason}\``;
+    }
+  })();
+  errors.push({
+    code: "E-RESET-INVALID-TARGET",
+    message:
+      `E-RESET-INVALID-TARGET: \`reset(${rendered})\` — target is a ${hint}, ` +
+      `which is not a valid reset target. The \`reset\` keyword accepts only ` +
+      `\`reset(@cell)\` (top-level cell), \`reset(@compound)\` (whole compound), ` +
+      `or \`reset(@compound.field)\` (compound nav, including multi-level paths ` +
+      `that resolve through the compound-scope chain). ` +
+      `(SPEC §6.8.2 + §34.)`,
+    span,
+    severity: "error",
+  });
+}
+
+/**
+ * PASS 14 (B22) walker — visits every AST node, scans each ExprNode-bearing
+ * field for `reset-expr` instances, and validates each one's target shape.
+ *
+ * Mirrors PASS 13 (B17) / PASS 6 (B8) structural recursion. Scope-aware so
+ * `lookupQualifiedStateCell` for multi-level compound-nav sees the correct
+ * compound-scope chain (PASS 1 attaches `_scope` to compound state-decls).
+ */
+function walkValidateResetTargets(
+  nodes: ASTNode[] | undefined,
+  currentScope: Scope,
+  visited: WeakSet<object>,
+  errors: SYMDiagnostic[],
+  filePath: string,
+): void {
+  if (!nodes) return;
+  for (const n of nodes) {
+    if (!n || typeof n !== "object") continue;
+    if (visited.has(n)) continue;
+    visited.add(n);
+    const anyN = n as any;
+    const kind = anyN.kind as string;
+
+    // Walk every ExprNode payload this node carries; for each, find any
+    // reset-expr nodes nested inside and validate them.
+    for (const f of B3_EXPR_FIELDS) {
+      const v = anyN[f];
+      if (v && typeof v === "object") {
+        forEachResetExprInExprNode(v as ExprNode, (resetNode) => {
+          validateResetExprTarget(resetNode, currentScope, errors, filePath);
+        });
+      }
+    }
+    // c-style for: { initExpr, condExpr, updateExpr }.
+    if (anyN.cStyleParts && typeof anyN.cStyleParts === "object") {
+      for (const f of ["initExpr", "condExpr", "updateExpr"]) {
+        const v = anyN.cStyleParts[f];
+        if (v && typeof v === "object") {
+          forEachResetExprInExprNode(v as ExprNode, (resetNode) => {
+            validateResetExprTarget(resetNode, currentScope, errors, filePath);
+          });
+        }
+      }
+    }
+
+    // Scope-aware recursion (mirrors PASS 6).
+    if (kind === "state-decl") {
+      const stateScope = (anyN as ReactiveDeclNode & ScopeAnnotated)._scope;
+      if (stateScope && Array.isArray(anyN.children)) {
+        walkValidateResetTargets(anyN.children, stateScope, visited, errors, filePath);
+      }
+      continue;
+    }
+    if (kind === "function-decl") {
+      const fnScope = (anyN as ScopeAnnotated)._scope ?? currentScope;
+      walkValidateResetTargets(anyN.body, fnScope, visited, errors, filePath);
+      continue;
+    }
+
+    // Generic recursion (mirrors PASS 3 / PASS 6 / PASS 13).
+    if (Array.isArray(anyN.children)) walkValidateResetTargets(anyN.children, currentScope, visited, errors, filePath);
+    if (Array.isArray(anyN.body)) walkValidateResetTargets(anyN.body, currentScope, visited, errors, filePath);
+    if (Array.isArray(anyN.consequent)) walkValidateResetTargets(anyN.consequent, currentScope, visited, errors, filePath);
+    if (Array.isArray(anyN.alternate)) walkValidateResetTargets(anyN.alternate, currentScope, visited, errors, filePath);
+    if (Array.isArray(anyN.arms)) {
+      for (const arm of anyN.arms) {
+        if (arm && Array.isArray(arm.body)) walkValidateResetTargets(arm.body, currentScope, visited, errors, filePath);
+      }
+    }
+    if (kind === "lift-expr" && anyN.expr && anyN.expr.kind === "markup" && anyN.expr.node) {
+      walkValidateResetTargets([anyN.expr.node], currentScope, visited, errors, filePath);
+    }
+  }
+}
+
+
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -5331,6 +5620,18 @@ export function runSYM(input: SYMInput): SYMResult {
   // (B15 took PASS 11; B16 took PASS 12).
   const visitedB17 = new WeakSet<object>();
   walkRejectEnginesInComponentDefChildren(ast.nodes, errors, filePath, visitedB17);
+
+  // PASS 14 (B22): `reset(@cell)` target-shape validation per SPEC §6.8.2 +
+  // §34. Fires E-RESET-INVALID-TARGET when a `reset-expr` target is not one
+  // of the three canonical shapes (`@cell` / `@compound` / `@compound.field`,
+  // including multi-level paths per Phase 0 decision). Skips nodes that
+  // already carry a parse-time `diagnostic` (E-RESET-NO-ARG path) so we
+  // don't double-report. Reads B3's `_resolvedStateCell` for IdentExpr
+  // targets and re-resolves MemberExpr chains via `lookupQualifiedStateCell`
+  // (B12-extended descent through any cell with a `_scope`). Closes A1a
+  // Step 9's deferred validation (per ast.ts:1670-1674 docstring).
+  const visitedB22 = new WeakSet<object>();
+  walkValidateResetTargets(ast.nodes, fileScope, visitedB22, errors, filePath);
 
   return {
     filePath,

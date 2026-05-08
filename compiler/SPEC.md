@@ -4861,6 +4861,9 @@ reset(@compound)          // reset all fields of a compound cell
 
 - `reset(@compound.field)` applies the rule above to the named field only.
 - `reset(@compound)` applies the rule above to every field of the compound (in declaration order).
+- **Multi-level compound nav** (`reset(@a.b.c.d)`) is legal when each segment resolves through the compound-scope chain. Per §6.3.5 ("V5-Strict Composition in Compound Cells — the V5-strict access forms apply at every level of the compound hierarchy"), compound-nav is fundamentally recursive: `@a.b.c` is the same access form at every depth. Reset uses the resolved leaf's reset rule (its `default=` if present, else its init expression). This avoids an anti-symmetry with READ access, which is legal at any depth.
+
+**Target-shape validation (E-RESET-INVALID-TARGET).** The target argument MUST be one of the three canonical shapes above. Any other expression shape — literal, function-call result, binary / ternary / unary expression, bare identifier without `@`, member chain rooted at a non-`@` identifier, or computed-index access — is **E-RESET-INVALID-TARGET** (compile error; see §34).
 
 **`reset` is a RESERVED IDENTIFIER** — declaring a local function `function reset() { ... }` or `fn reset { ... }` is **E-RESERVED-IDENTIFIER** (compile error; see §34).
 
@@ -4868,8 +4871,8 @@ reset(@compound)          // reset all fields of a compound cell
 
 **Cross-references:**
 - §6.2 — Three RHS shapes (which cells support `default=`)
-- §6.3 — Compound state (compound reset semantics)
-- §34 — E-RESERVED-IDENTIFIER, E-RESET-NO-ARG
+- §6.3 — Compound state (compound reset semantics; §6.3.5 grounds multi-level)
+- §34 — E-RESERVED-IDENTIFIER, E-RESET-NO-ARG, E-RESET-INVALID-TARGET
 
 ---
 
@@ -14221,6 +14224,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-RESERVED-IDENTIFIER | §6.8 | Local identifier shadows a reserved language keyword. Specific case: `function reset() {...}` or `fn reset {...}` shadows the `reset` keyword. | Error |
 | E-SYNTHESIZED-WRITE | §6.11 | Assignment to an auto-synthesized property (e.g., `@signup.isValid = false`). Synthesized validity surface properties are read-only. See §55 for full validity surface specification. | Error |
 | E-RESET-NO-ARG | §6.8 | `reset()` called with no argument. The `reset` keyword requires an explicit cell argument: `reset(@cell)` or `reset(@compound.field)`. | Error |
+| E-RESET-INVALID-TARGET | §6.8.2 | The `reset` keyword target must be one of the three canonical shapes: `reset(@cell)` (top-level cell), `reset(@compound)` (whole compound), or `reset(@compound.field)` (single-level compound nav). Multi-level compound paths (`reset(@a.b.c)`) are also legal when each segment resolves through the compound-scope chain (§6.3.5 recursive composition). Other expression shapes (literals, function-call results, binary / ternary / unary expressions, bare identifiers without `@`, member chains rooted at non-`@` identifiers) are rejected. (Catalog addition S69 — A1b B22.) | Error |
 | W-LIFECYCLE-CANDIDATE | §1.5 | A `<program>` body, component body, or file scope has more than 2 reactive boolean cells gating the same UI region. Consider promoting to a `<match>` block (Tier 1) or `<engine>` (Tier 2) for structural exhaustiveness. | Warning |
 | W-MATCH-RULE-INERT | §18.0.2 | `rule=` declared on a state-child inside a `<match>` block. Rules are legal-but-inert in match (read-only on the matched-on value); promote to `<engine>` (Tier 2) to activate enforcement. | Warning |
 | E-MATCH-EFFECT-FORBIDDEN | §18.0.2 | `effect=` attribute used on a state-child inside a `<match>` block. Effects presuppose transitions; transitions don't occur in match. Use `<engine>` (Tier 2). | Error |
