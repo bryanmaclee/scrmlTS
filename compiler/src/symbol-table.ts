@@ -271,18 +271,22 @@ export interface EngineMetadata {
   /** §51.0.Q — for file-scope engines that host nested engines, the list of
    *  inner engine records. POPULATED by future A5-2 hierarchy dispatch. */
   innerEngines?: StateCellRecord[];
-  /** §51.0.N — `history` attribute on a state-child (composite). POPULATED
-   *  by future A5-2 hierarchy dispatch. */
+  /** §51.0.N — file-scope summary: `true` iff ANY state-child carries
+   *  `historyAttr: true` (OR-reduce over `stateChildren[].historyAttr`).
+   *  POPULATED by SYM PASS 16 (A5-3). */
   historyAttr?: boolean;
-  /** §51.0.O — list of internal-rule entries (`internal:rule=`) per state-
-   *  child. POPULATED by future A5-2 hierarchy dispatch. */
-  internalRules?: unknown[];
+  /** §51.0.O — file-scope summary: flat list of `internal:rule=` entries
+   *  across all state-children, each annotated with the owning state-child
+   *  tag for codegen clarity. Only entries whose `internalRule.kind !== "absent"`
+   *  are included. POPULATED by SYM PASS 16 (A5-3). */
+  internalRules?: Array<{ stateChildTag: string; rule: EngineRuleForm }>;
   /** §51.0.P — `parallel` attribute on file-scope engines. POPULATED by
-   *  future A5-2 hierarchy dispatch. */
+   *  PASS 10.A (A5-2 sub-step 2) — mirrors `engineDecl.parallelAttr`. */
   parallelAttr?: boolean;
-  /** §51.0.M — `<onTimeout>` element entries on state-children. POPULATED
-   *  by future A5-2 hierarchy dispatch. */
-  onTimeoutElements?: unknown[];
+  /** §51.0.M — file-scope summary: flat list of `<onTimeout>` element
+   *  entries across all state-children, each annotated with the owning
+   *  state-child tag for codegen clarity. POPULATED by SYM PASS 16 (A5-3). */
+  onTimeoutElements?: Array<{ stateChildTag: string; entry: OnTimeoutEntry }>;
 
   // ---- B15 fields (PASS 11 — engine state-child exhaustiveness + rule= typer) ----
 
@@ -5826,6 +5830,434 @@ function fireChannelSharedModifier(
 
 
 // ---------------------------------------------------------------------------
+// PASS 16 (A5-3) — A7 hierarchy + temporal extensions (§51.0.M-Q)
+// ---------------------------------------------------------------------------
+//
+// Per Phase A7 Step A5-3 (BRIEF + Phase 0 SURVEY at
+// `docs/changes/phase-a7-step-a5-3-typer-walker/{BRIEF,SURVEY}.md`).
+//
+// **In-scope fire-sites (9 of 12 BRIEF §4.1 rows):**
+//
+//   1. E-HISTORY-NO-INNER-ENGINE (NEW S68 row 14250) — fired when a
+//      state-child carries `historyAttr: true` AND `innerEngines.length === 0`
+//      (history is composite-only per §51.0.N).
+//
+//   2. E-INTERNAL-RULE-NOT-COMPOSITE (NEW S68 row 14251) — fired when
+//      `internalRule.kind !== "absent"` AND `innerEngines.length === 0`
+//      (`internal:rule=` is composite-only per §51.0.O).
+//
+//   3. E-ENGINE-INVALID-TRANSITION (existing row 14234) — fired when
+//      `<onTimeout to=.X/>` does not satisfy the surrounding state-child's
+//      `rule=` legality contract (§51.0.M + §51.0.F target-only forms).
+//      THIS IS THE FIRST COMPILE-TIME E-ENGINE-INVALID-TRANSITION FIRE-SITE
+//      (per SURVEY §1.3 KEY FINDING #1; spec §51.0.M line 20567 explicitly
+//      authorizes static check because the from-state IS this state-child).
+//
+//   4. E-ENGINE-RULE-INVALID-VARIANT (existing row 14248) — fired when
+//      `<onTimeout to=.X/>` references a variant `X` not in the engine's
+//      `for=Type` (§51.0.M variant-membership requirement). Independent
+//      of fire-site #3 — both can fire on the same `<onTimeout/>`.
+//
+//   5. E-ENGINE-RULE-INVALID-VARIANT — same code, applied to each target
+//      in `entry.internalRule` (§51.0.O — internal:rule= variants must
+//      be valid). Mirrors B15's canonical-rule variant validation.
+//
+// **Transparent fire-sites (no new code; B15 already fires):**
+//
+//   - `.Variant.history` target variant validation (§51.0.N) — A5-2's
+//     `historyForm`/`historyForms` flag rides EngineRuleForm.single/multi
+//     transparently; B15 reads `target`/`targets` blind to the flag and
+//     fires E-ENGINE-RULE-INVALID-VARIANT on unknown variants. A5-3
+//     anchors this contract via tests; no new validation code.
+//
+// **EngineMetadata file-scope aggregation (§4.2 + SURVEY §4):**
+//
+//   - `historyAttr: boolean` — OR-reduce over `stateChildren[].historyAttr`.
+//   - `internalRules: Array<{ stateChildTag, rule }>` — concat where
+//     `internalRule.kind !== "absent"`, annotated for codegen consumers.
+//   - `onTimeoutElements: Array<{ stateChildTag, entry }>` — concat across
+//     state-children, annotated for codegen consumers.
+//
+// **Out of scope (DEFERRED on infrastructure preconditions, per SURVEY
+// §10 SCOPE CORRECTIONS):**
+//
+//   - Fire-site #5 (E-STRUCTURAL-ELEMENT-MISPLACED for `<onTimeout>`
+//     outside engine state-child) — gated on a markup walker that
+//     tokenizes `<onTimeout>` as a structural element everywhere. Same
+//     precondition that defers `<onTransition>` placement enforcement
+//     (B17 deferral).
+//   - Fire-site #6 (E-STRUCTURAL-ELEMENT-MISPLACED inside `<match>`
+//     block-form arm) — same precondition.
+//   - Fire-site #7 (cascade-miss message extension on E-ENGINE-INVALID-
+//     TRANSITION) — gated on direct-write compile-time enforcement
+//     inside engine state-child bodies; that fire-site does not exist
+//     today (engine bodies are RAW TEXT — no walkable children, per
+//     `symbol-table.ts:4150,4544` deferrals).
+//   - Inner-engine structural recursion — DEFERRED to A1c codegen (per
+//     SURVEY §3.3). A5-3's primary fire-sites read OUTER engine's
+//     state-children only; `innerEngines.length > 0` is the composite
+//     marker. A5-3 does NOT recurse into inner engines.
+//
+// **Walker placement: NEW PASS 16** (per BRIEF §3.8 + SURVEY §2). PASS 11
+// (B15) retains responsibility for canonical rule= variant validation
+// (which already covers fire-site #9 transparently); A5-3 PASS 16 owns
+// only the NEW responsibilities listed above.
+
+/**
+ * Fire an A5-3 SYM diagnostic with a fallback span (engine-decl's span)
+ * when the offending sub-element doesn't have its own span. Today's
+ * parser doesn't produce per-state-child or per-onTimeout spans (rulesRaw
+ * is text); A5-3 uses the engine-decl's span as a coarse anchor — same
+ * pattern as B15's `fireB15Diagnostic`. Future parser tightening will
+ * produce per-state-child spans automatically.
+ */
+function fireA5Diagnostic(
+  errors: SYMDiagnostic[],
+  code: string,
+  message: string,
+  engineDecl: any,
+  filePath: string,
+  severity: "error" | "warning" = "error",
+): void {
+  const span: SYMDiagnostic["span"] = engineDecl?.span ?? {
+    file: filePath, start: 0, end: 0, line: 1, col: 1,
+  };
+  errors.push({ code, message, span, severity });
+}
+
+/**
+ * Format a list of variants for diagnostic messages: `[".A", ".B", ".C"]`.
+ */
+function formatVariantList(variants: string[]): string {
+  return variants.map((v) => `.${v}`).join(", ");
+}
+
+/**
+ * PASS 16 (A5-3) — per-engine A7 hierarchy + temporal extension validation
+ * + EngineMetadata file-scope aggregation. For each `engine-decl` carrying
+ * a `_record` (set by PASS 10.A) AND `engineMeta.stateChildren` (populated
+ * by PASS 11 / B15), iterate state-children and:
+ *
+ *   1. Fire E-HISTORY-NO-INNER-ENGINE on history-on-non-composite.
+ *   2. Fire E-INTERNAL-RULE-NOT-COMPOSITE on internal:rule on non-composite.
+ *   3. Validate each `<onTimeout>` `to=` against the surrounding state-child's
+ *      `rule=` legality (§51.0.M + §51.0.F).
+ *   4. Validate each `<onTimeout>` `to=` against `engineMeta.variants`.
+ *   5. Validate each target in `entry.internalRule` against `engineMeta.variants`.
+ *   6. Aggregate file-scope `historyAttr` / `internalRules` / `onTimeoutElements`
+ *      onto `engineMeta` (annotated records per SURVEY §4).
+ *
+ * Exported for direct test use (mirrors B15's `validateEngineStateChildrenAndRules`
+ * export pattern). Synthesized AST tests bypass full-pipeline run.
+ */
+export function validateEngineA5Extensions(
+  engineDecl: any,
+  fileAst: any,
+  errors: SYMDiagnostic[],
+  filePath: string,
+): void {
+  // engineDecl._record is set by PASS 10.A; if absent, skip silently —
+  // the upstream pass would have surfaced the underlying problem.
+  void fileAst; // reserved for future cross-decl checks; intentional unused.
+  const record: StateCellRecord | undefined = engineDecl._record;
+  if (!record || !record.engineMeta) return;
+  const meta = record.engineMeta;
+
+  // PASS 11 (B15) populates `stateChildren`. If empty (legacy arrow-rule
+  // body, parse failure path, or zero state-children), there's nothing
+  // for A5-3 to validate or aggregate. Initialize aggregation to defaults
+  // and return.
+  const stateChildren = meta.stateChildren;
+  if (!Array.isArray(stateChildren) || stateChildren.length === 0) {
+    meta.historyAttr = false;
+    meta.internalRules = [];
+    meta.onTimeoutElements = [];
+    return;
+  }
+
+  const variants = Array.isArray(meta.variants) ? meta.variants : [];
+  const variantSet = new Set(variants);
+  const forType = typeof meta.forType === "string" ? meta.forType : "";
+
+  // File-scope aggregation accumulators (annotated records per SURVEY §4).
+  let aggHistoryAttr = false;
+  const aggInternalRules: Array<{ stateChildTag: string; rule: EngineRuleForm }> = [];
+  const aggOnTimeoutElements: Array<{ stateChildTag: string; entry: OnTimeoutEntry }> = [];
+
+  // Per-state-child loop — fire-sites #1, #2, #3, #4, #8 + aggregation.
+  for (const sc of stateChildren) {
+    if (!sc || typeof sc !== "object") continue;
+
+    const isComposite = Array.isArray(sc.innerEngines) && sc.innerEngines.length > 0;
+
+    // ----- Aggregation (always, regardless of compositeness) -----
+    if (sc.historyAttr === true) aggHistoryAttr = true;
+    if (sc.internalRule && sc.internalRule.kind !== "absent") {
+      aggInternalRules.push({ stateChildTag: sc.tag, rule: sc.internalRule });
+    }
+    if (Array.isArray(sc.onTimeoutElements)) {
+      for (const ent of sc.onTimeoutElements) {
+        if (ent && typeof ent === "object") {
+          aggOnTimeoutElements.push({ stateChildTag: sc.tag, entry: ent });
+        }
+      }
+    }
+
+    // ----- Fire-site #1: E-HISTORY-NO-INNER-ENGINE (§51.0.N) -----
+    if (sc.historyAttr === true && !isComposite) {
+      fireA5Diagnostic(
+        errors,
+        "E-HISTORY-NO-INNER-ENGINE",
+        `E-HISTORY-NO-INNER-ENGINE: state-child \`<${sc.tag}>\` carries the \`history\` ` +
+        `attribute but has no inner \`<engine>\`. Per SPEC §51.0.N, \`history\` is ` +
+        `composite-only — it records and restores the inner machine's variant on entry. ` +
+        `Either add an inner \`<engine>\` to \`<${sc.tag}>\` (making it composite), or ` +
+        `remove the \`history\` attribute.`,
+        engineDecl,
+        filePath,
+        "error",
+      );
+    }
+
+    // ----- Fire-site #2: E-INTERNAL-RULE-NOT-COMPOSITE (§51.0.O) -----
+    if (sc.internalRule && sc.internalRule.kind !== "absent" && !isComposite) {
+      fireA5Diagnostic(
+        errors,
+        "E-INTERNAL-RULE-NOT-COMPOSITE",
+        `E-INTERNAL-RULE-NOT-COMPOSITE: state-child \`<${sc.tag}>\` carries an ` +
+        `\`internal:rule=\` attribute but has no inner \`<engine>\`. Per SPEC §51.0.O, ` +
+        `\`internal:rule=\` is composite-only — it governs which inner-engine variants ` +
+        `are reachable from inside this composite. Either add an inner \`<engine>\` to ` +
+        `\`<${sc.tag}>\` (making it composite), or remove the \`internal:rule=\` attribute.`,
+        engineDecl,
+        filePath,
+        "error",
+      );
+    }
+
+    // ----- Fire-site #8: internal:rule= variant validation (§51.0.O) -----
+    // Apply the same variant-set check B15 applies to canonical rule=.
+    // Skipped when variants is empty (unknown type — B15 already skips).
+    if (variants.length > 0 && sc.internalRule) {
+      const ir = sc.internalRule;
+      switch (ir.kind) {
+        case "absent":
+        case "wildcard":
+          break;
+        case "single":
+          if (!variantSet.has(ir.target)) {
+            fireA5Diagnostic(
+              errors,
+              "E-ENGINE-RULE-INVALID-VARIANT",
+              `E-ENGINE-RULE-INVALID-VARIANT: \`<${sc.tag} internal:rule=.${ir.target}>\` ` +
+              `references variant \`.${ir.target}\` which is not in \`${forType}\`. ` +
+              `Valid variants are: ${formatVariantList(variants)}.`,
+              engineDecl,
+              filePath,
+              "error",
+            );
+          }
+          break;
+        case "multi":
+          for (const t of ir.targets) {
+            if (!variantSet.has(t)) {
+              fireA5Diagnostic(
+                errors,
+                "E-ENGINE-RULE-INVALID-VARIANT",
+                `E-ENGINE-RULE-INVALID-VARIANT: \`<${sc.tag}>\` internal:rule= multi-target ` +
+                `list contains \`.${t}\` which is not in \`${forType}\`. ` +
+                `Valid variants are: ${formatVariantList(variants)}.`,
+                engineDecl,
+                filePath,
+                "error",
+              );
+            }
+          }
+          break;
+        case "legacy-arrow":
+        case "parse-error":
+          // B15 already fires on the canonical rule= legacy/parse-error
+          // shapes; A5-3 does NOT double-fire for internal:rule= shapes
+          // here either — internal:rule= parser at engine-statechild-parser
+          // already constrains to the §51.0.F three forms (legacy-arrow /
+          // parse-error are unreachable on internal:rule= for this dispatch;
+          // future parser extensions could surface them, at which point
+          // this case becomes a defensive no-op).
+          break;
+      }
+    }
+
+    // ----- Fire-sites #3 + #4: <onTimeout to=> legality + variant validation (§51.0.M) -----
+    if (Array.isArray(sc.onTimeoutElements) && sc.onTimeoutElements.length > 0) {
+      for (const ot of sc.onTimeoutElements) {
+        if (!ot || typeof ot !== "object") continue;
+        const toTarget: string = typeof ot.to === "string" ? ot.to : "";
+        if (toTarget.length === 0) {
+          // Empty `to=` is a parse-error shape captured by A5-2; surface
+          // as E-ENGINE-INVALID-TRANSITION since the structural contract
+          // is violated (target absent or unparseable).
+          fireA5Diagnostic(
+            errors,
+            "E-ENGINE-INVALID-TRANSITION",
+            `E-ENGINE-INVALID-TRANSITION: \`<onTimeout/>\` inside state-child \`<${sc.tag}>\` ` +
+            `is missing a \`to=.Variant\` target. Per SPEC §51.0.M, \`<onTimeout>\` requires ` +
+            `both \`after=\` and \`to=\` attributes.`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+
+        // Fire-site #4: variant membership in engine's `for=Type`.
+        // Skipped when variants is empty (unknown type — same gate as B15).
+        if (variants.length > 0 && !variantSet.has(toTarget)) {
+          fireA5Diagnostic(
+            errors,
+            "E-ENGINE-RULE-INVALID-VARIANT",
+            `E-ENGINE-RULE-INVALID-VARIANT: \`<onTimeout to=.${toTarget}/>\` inside ` +
+            `state-child \`<${sc.tag}>\` references variant \`.${toTarget}\` which is not ` +
+            `in \`${forType}\`. Valid variants are: ${formatVariantList(variants)}.`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+        }
+
+        // Fire-site #3: legality vs surrounding `rule=` set (§51.0.M + §51.0.F).
+        // The from-state IS this state-child (sc.tag); the to-state must be
+        // permitted by `sc.rule`.
+        const r = sc.rule;
+        if (!r) continue;
+        switch (r.kind) {
+          case "absent":
+            // Terminal state — no transitions; `<onTimeout to=.X>` cannot fire.
+            fireA5Diagnostic(
+              errors,
+              "E-ENGINE-INVALID-TRANSITION",
+              `E-ENGINE-INVALID-TRANSITION: \`<onTimeout to=.${toTarget}/>\` inside ` +
+              `state-child \`<${sc.tag}>\` cannot fire — \`<${sc.tag}>\` has no \`rule=\` ` +
+              `attribute (terminal state per §51.0.F). Add \`rule=.${toTarget}\` (or a ` +
+              `wider rule covering \`.${toTarget}\`) to \`<${sc.tag}>\` to permit the timer ` +
+              `transition.`,
+              engineDecl,
+              filePath,
+              "error",
+            );
+            break;
+          case "wildcard":
+            // `rule=*` — any transition allowed; <onTimeout> is always legal.
+            break;
+          case "single":
+            if (r.target !== toTarget) {
+              fireA5Diagnostic(
+                errors,
+                "E-ENGINE-INVALID-TRANSITION",
+                `E-ENGINE-INVALID-TRANSITION: \`<onTimeout to=.${toTarget}/>\` inside ` +
+                `state-child \`<${sc.tag}>\` is not permitted by \`<${sc.tag}>\`'s ` +
+                `\`rule=.${r.target}\` (single-target form per §51.0.F — only \`.${r.target}\` ` +
+                `is reachable). Either change the \`<onTimeout>\` target to \`.${r.target}\`, ` +
+                `widen \`rule=\` to \`(.${r.target} | .${toTarget})\` or \`*\`, or remove the ` +
+                `\`<onTimeout>\`.`,
+                engineDecl,
+                filePath,
+                "error",
+              );
+            }
+            break;
+          case "multi":
+            if (!r.targets.includes(toTarget)) {
+              fireA5Diagnostic(
+                errors,
+                "E-ENGINE-INVALID-TRANSITION",
+                `E-ENGINE-INVALID-TRANSITION: \`<onTimeout to=.${toTarget}/>\` inside ` +
+                `state-child \`<${sc.tag}>\` is not permitted by \`<${sc.tag}>\`'s multi-target ` +
+                `\`rule=(${r.targets.map((t) => `.${t}`).join(" | ")})\` (per §51.0.F — only ` +
+                `the listed targets are reachable). Either pick one of the listed targets, ` +
+                `add \`.${toTarget}\` to the rule list, or widen to \`*\`.`,
+                engineDecl,
+                filePath,
+                "error",
+              );
+            }
+            break;
+          case "legacy-arrow":
+          case "parse-error":
+            // B15 already fired E-ENGINE-RULE-LEGACY-SYNTAX or E-ENGINE-RULE-
+            // INVALID-VARIANT on the malformed rule=; A5-3 does NOT double-fire
+            // a misleading legality diagnostic against a rule that doesn't
+            // structurally exist. Skip silently — the developer fixes the
+            // rule= shape first; on next compile, the legality check fires
+            // cleanly against the now-valid rule.
+            break;
+        }
+      }
+    }
+  }
+
+  // ----- File-scope aggregation (always — per SURVEY §4). -----
+  meta.historyAttr = aggHistoryAttr;
+  meta.internalRules = aggInternalRules;
+  meta.onTimeoutElements = aggOnTimeoutElements;
+}
+
+/**
+ * PASS 16 walker — visits every engine-decl in the AST and runs A5-3
+ * extension validation. Mirrors `walkValidateEngineStateChildrenAndRules`
+ * (B15 PASS 11) shape verbatim — same recursion contract, same engine-decl
+ * stop-recursion (engine bodies are raw text; no walkable children today).
+ */
+function walkValidateEngineA5Extensions(
+  nodes: any,
+  fileAst: any,
+  errors: SYMDiagnostic[],
+  filePath: string,
+  visited: WeakSet<object>,
+): void {
+  if (!nodes) return;
+  if (Array.isArray(nodes)) {
+    for (const n of nodes) {
+      walkValidateEngineA5Extensions(n, fileAst, errors, filePath, visited);
+    }
+    return;
+  }
+  if (typeof nodes !== "object") return;
+  if (visited.has(nodes)) return;
+  visited.add(nodes);
+
+  const node = nodes as any;
+  if (node.kind === "engine-decl") {
+    validateEngineA5Extensions(node, fileAst, errors, filePath);
+    // Engine bodies are RAW TEXT (parser limitation per primer §13.7
+    // B14 specifics). Inner-engine recursion is DEFERRED to A1c per
+    // SURVEY §3.3 — no walking inside engine-decl from PASS 16.
+    return;
+  }
+
+  if (Array.isArray(node.children)) {
+    walkValidateEngineA5Extensions(node.children, fileAst, errors, filePath, visited);
+  }
+  if (Array.isArray(node.body)) {
+    walkValidateEngineA5Extensions(node.body, fileAst, errors, filePath, visited);
+  }
+  if (Array.isArray(node.consequent)) {
+    walkValidateEngineA5Extensions(node.consequent, fileAst, errors, filePath, visited);
+  }
+  if (Array.isArray(node.alternate)) {
+    walkValidateEngineA5Extensions(node.alternate, fileAst, errors, filePath, visited);
+  }
+  if (Array.isArray(node.arms)) {
+    for (const arm of node.arms) {
+      if (arm && Array.isArray(arm.body)) {
+        walkValidateEngineA5Extensions(arm.body, fileAst, errors, filePath, visited);
+      }
+    }
+  }
+}
+
+
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -6072,6 +6504,43 @@ export function runSYM(input: SYMInput): SYMResult {
   // Renumbered from B19's PASS 14 → PASS 15 during S69 file-delta merge
   // (B22 took PASS 14 in the parallel small-bundle dispatch).
   walkValidateChannels(ast, errors, filePath);
+
+  // PASS 16 (A5-3): A7 hierarchy + temporal extensions per §51.0.M-Q.
+  // For every engine-decl carrying a `_record` (set by PASS 10.A) AND
+  // `engineMeta.stateChildren` (populated by PASS 11 / B15), iterate
+  // state-children to fire:
+  //   - E-HISTORY-NO-INNER-ENGINE on history-on-non-composite (§51.0.N).
+  //   - E-INTERNAL-RULE-NOT-COMPOSITE on internal:rule on non-composite (§51.0.O).
+  //   - E-ENGINE-INVALID-TRANSITION on `<onTimeout to=.X/>` not permitted
+  //     by surrounding `rule=` (§51.0.M + §51.0.F). FIRST compile-time
+  //     E-ENGINE-INVALID-TRANSITION fire-site (per Phase 0 SURVEY §1.3).
+  //   - E-ENGINE-RULE-INVALID-VARIANT on `<onTimeout to=.X/>` and on
+  //     `internal:rule=` targets not in `engineMeta.variants`.
+  //
+  // Plus EngineMetadata file-scope aggregation: `historyAttr` (OR-reduce),
+  // `internalRules` (concat with stateChildTag), `onTimeoutElements`
+  // (concat with stateChildTag) — annotated records per Phase 0 SURVEY §4.
+  //
+  // Ordering: runs AFTER PASS 11 (B15) because A5-3 reads
+  // `engineMeta.variants` (populated by B15) and `engineMeta.stateChildren`
+  // (populated by B15). PASS 12 (B16) / PASS 13 (B17) / PASS 14 (B22) /
+  // PASS 15 (B19) are engine-orthogonal — order with PASS 16 doesn't
+  // matter beyond the B15 prerequisite.
+  //
+  // Out of scope (DEFERRED on infrastructure preconditions, per Phase 0
+  // SURVEY §10 SCOPE CORRECTIONS):
+  //   - E-STRUCTURAL-ELEMENT-MISPLACED for `<onTimeout>` outside engine
+  //     state-child / inside `<match>` block-form arm — gated on a
+  //     markup walker (same precondition that defers `<onTransition>`
+  //     placement enforcement).
+  //   - Cascade-miss diagnostic (message extension on E-ENGINE-INVALID-
+  //     TRANSITION direct-write) — gated on direct-write compile-time
+  //     enforcement inside engine state-child bodies; that fire-site
+  //     does not exist today (engine bodies are RAW TEXT).
+  //   - Inner-engine structural recursion — DEFERRED to A1c per SURVEY
+  //     §3.3.
+  const visitedA53 = new WeakSet<object>();
+  walkValidateEngineA5Extensions(ast.nodes, ast, errors, filePath, visitedA53);
 
   return {
     filePath,

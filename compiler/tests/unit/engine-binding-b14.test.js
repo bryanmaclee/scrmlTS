@@ -307,7 +307,7 @@ describe("B14 SYM PASS 10.A — engine cell registration", () => {
     expect(rec.engineMeta.forType).toBe("Order");
   });
 
-  test("forward-compat A7 fields are declared but null/undefined at B14 (post-A5-2: parallelAttr populated)", () => {
+  test("forward-compat A7 fields are declared but null/undefined at B14 (post-A5-2: parallelAttr populated; post-A5-3: aggregation populated)", () => {
     const src = `<program>
 <engine for=MarioState initial=.Small>
   .Small => .Big
@@ -319,13 +319,17 @@ describe("B14 SYM PASS 10.A — engine cell registration", () => {
     expect(rec.engineMeta.parentEngine).toBeNull();
     expect(Array.isArray(rec.engineMeta.innerEngines)).toBe(true);
     expect(rec.engineMeta.innerEngines.length).toBe(0);
-    expect(rec.engineMeta.historyAttr).toBeUndefined();
-    expect(rec.engineMeta.internalRules).toBeUndefined();
-    // §51.0.P (S67 — A5-2 sub-step 2): parallelAttr is now populated by
-    // PASS 10.A (mirrors engineDecl.parallelAttr from ast-builder).
-    // Engine without `parallel` bareword → false.
+    // §51.0.P (S67 — A5-2 sub-step 2): parallelAttr populated by PASS 10.A
+    // (mirrors engineDecl.parallelAttr). Engine without `parallel` → false.
     expect(rec.engineMeta.parallelAttr).toBe(false);
-    expect(rec.engineMeta.onTimeoutElements).toBeUndefined();
+    // A5-3 (PASS 16): aggregation fields populated. For a legacy
+    // arrow-rules body (no state-children parsed), defaults are:
+    //   historyAttr: false (OR-reduce over empty stateChildren),
+    //   internalRules: [] (concat over empty),
+    //   onTimeoutElements: [] (concat over empty).
+    expect(rec.engineMeta.historyAttr).toBe(false);
+    expect(rec.engineMeta.internalRules).toEqual([]);
+    expect(rec.engineMeta.onTimeoutElements).toEqual([]);
   });
 });
 
