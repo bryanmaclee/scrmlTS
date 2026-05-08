@@ -4073,6 +4073,20 @@ function annotateNodes(
             checkTransitionCallsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
             // §54.6.4 Phase 4f: terminal-substate mutation check
             checkTerminalMutationsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
+            // B20 §14.10 / M9 — bare-variant inference at LHS let/const-decl
+            // annotation. The annotation type drives bare-variant resolution
+            // in the initializer. When NO annotation is present, the writer
+            // chose `let x = .V` with no type context — per §14.10 line 7174,
+            // bare variants are NOT supported there; fire E-VARIANT-AMBIGUOUS.
+            if (letAnnot) {
+              inferBareVariantsInExpr(initExprForScope, resolvedType, letSpan, errors);
+            } else {
+              // No annotation case — pass null as contextType to fire the
+              // no-type-context diagnostic on any bare variant. This matches
+              // §14.10 line 7174 ("bare variants ARE NOT supported in
+              // expression positions where no type context exists").
+              inferBareVariantsInExpr(initExprForScope, null, letSpan, errors);
+            }
           }
         }
         {
@@ -4158,6 +4172,17 @@ function annotateNodes(
             checkTransitionCallsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
             // §54.6.4 Phase 4f: terminal-substate mutation check
             checkTerminalMutationsInExpr(reactInitExprNode, reactSpan, scopeChain, stateTypeRegistry, errors);
+            // B20 §14.10 / M9 — bare-variant inference at LHS state-decl
+            // annotation. The annotation type drives bare-variant resolution.
+            // The structural form `<x>: T = .V` is the canonical M9 locus.
+            // When NO annotation is present, the writer chose `<x> = .V`
+            // with no type context — per §14.10 line 7174, fire
+            // E-VARIANT-AMBIGUOUS.
+            if (reactAnnot) {
+              inferBareVariantsInExpr(reactInitExprNode, resolvedType, reactSpan, errors);
+            } else {
+              inferBareVariantsInExpr(reactInitExprNode, null, reactSpan, errors);
+            }
           }
         }
         if (n.name) {
@@ -4741,6 +4766,19 @@ function annotateNodes(
         if (Array.isArray(armBody)) {
           const label = (n as { variant?: string }).variant ?? "arm";
           scopeChain.push(`match-arm:${label}:${nodeKey(n)}`);
+          // Bind payload destructure names (`.Mushroom(n) => { ... }`) into
+          // the arm scope so references like `n` inside the body resolve.
+          // Type is `tAsIs` for now — variant payload type inference is a
+          // separate concern (arm-pattern type-aware binding is post-B20
+          // territory; for B20 we just unblock scope resolution).
+          const payloadBindings = (n as { payloadBindings?: string[] }).payloadBindings;
+          if (Array.isArray(payloadBindings)) {
+            for (const binding of payloadBindings) {
+              if (typeof binding === "string" && binding.length > 0) {
+                scopeChain.bind(binding, { kind: "variable", resolvedType: tAsIs() });
+              }
+            }
+          }
           for (const child of armBody) visitNode(child);
           scopeChain.pop();
         }
@@ -5324,6 +5362,181 @@ function checkIsExpressions(
 }
 
 // ---------------------------------------------------------------------------
+// B20 — §14.10 / M9 bare-variant inference (E-VARIANT-AMBIGUOUS + E-TYPE-063)
+// ---------------------------------------------------------------------------
+//
+// SPEC §14.10 (line 7149+) — when the position type is statically known, a
+// bare `.Variant` reference resolves against that type's variants. The S66
+// parser fix (commit cb167b1) makes `.Variant` parseable as a primary
+// expression everywhere by replacing it with placeholder
+// `__scrml_bare_variant_Variant__` and unmasking back to an IdentExpr with
+// `name: ".Variant"` in `esTreeToExprNode`. So the AST shape is:
+//
+//   IdentExpr { kind: "ident", name: ".Variant" }
+//
+// `inferBareVariantsInExpr` walks the ExprNode and resolves each such ident
+// against `contextType`:
+//
+//   - contextType is EnumType: variant exists → silent; missing → E-TYPE-063
+//     (existing code, used the same way `is .V` does).
+//   - contextType is UnionType: collect enum members; if exactly one declares
+//     the variant → silent; if multiple → E-VARIANT-AMBIGUOUS (union-shared);
+//     if none → E-TYPE-063 with cross-enum context.
+//   - contextType is null / asIs / unknown / non-enum / non-union: per
+//     §14.10 line 7173-7174, no type context fires E-VARIANT-AMBIGUOUS.
+//
+// Walker placement: invoked from the type-system.ts `state-decl`,
+// `let-decl`/`const-decl`, and `bare-expr` (for `@cell = .V` after-decl
+// assignments) cases — the LHS-driven inference positions per §14.10's
+// six positions list. Engine `initial=` (position 6) is handled by B15
+// (symbol-table.ts:4247-4267); match `for=` arm patterns (position 5) are
+// handled by exhaustiveness today; positions 3 (param) and 4 (return)
+// require deeper FunctionType.params + return-type infra and are deferred
+// to a follow-up step (B20.b).
+//
+// Per BRIEF §"OUT OF SCOPE": §18.0.3 match-arm pattern bare-variants are
+// left for a future step. The §34 catalog cross-ref currently cites
+// §18.0.3 only — extending to §14.10 is a SPEC-PROSE FOLLOW-UP for PA.
+// ---------------------------------------------------------------------------
+
+/**
+ * §14.10 / M9 — Walk an ExprNode tree and resolve every bare-variant
+ * IdentExpr (`name` starting with `.` followed by an uppercase identifier)
+ * against the supplied `contextType`. Emits diagnostics on the supplied
+ * errors list.
+ *
+ * @param exprNode    The expression to walk (state-decl init, let-decl init,
+ *                    bare-expr assign value, etc.)
+ * @param contextType The LHS-driven type at this position (or null if no
+ *                    type context — see §14.10 line 7173-7174).
+ * @param span        Span to report on (typically the parent decl's span).
+ * @param errors      Accumulator for diagnostics.
+ */
+function inferBareVariantsInExpr(
+  exprNode: unknown,
+  contextType: ResolvedType | null,
+  span: Span,
+  errors: TSError[],
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+  forEachIdentInExprNode(exprNode as any, (ident) => {
+    if (typeof ident.name !== "string") return;
+    const raw = ident.name;
+    // Bare-variant shape: `.Variant` — leading dot, uppercase first letter.
+    // The S66 placeholder unmask only produces this exact shape.
+    if (raw.length < 2 || raw[0] !== ".") return;
+    const variantName = raw.slice(1);
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(variantName)) return;
+
+    // Determine the enum that should contain this variant from contextType.
+    // Resolution rules (mirrored from §14.10 normative statements):
+    //   - null / asIs / unknown / non-enum / non-union → no type context.
+    //   - enum → check variant in this enum.
+    //   - union → if exactly one enum member has the variant, OK; if multiple,
+    //     ambiguous; if none, unknown variant across all enum members.
+    if (!contextType) {
+      // No type context per §14.10 line 7173-7174.
+      errors.push(new TSError(
+        "E-VARIANT-AMBIGUOUS",
+        `E-VARIANT-AMBIGUOUS: Bare variant \`.${variantName}\` has no type context. ` +
+        `Add a type annotation (\`<x>: SomeEnum = .${variantName}\`) or qualify the variant ` +
+        `(\`SomeEnum.${variantName}\`). Per §14.10, bare variants are only legal at positions ` +
+        `where the type is fixed by the surrounding declaration.`,
+        span,
+      ));
+      return;
+    }
+
+    if (contextType.kind === "enum") {
+      const enumType = contextType as EnumType;
+      const has = (enumType.variants ?? []).some(v => v.name === variantName);
+      if (!has) {
+        const known = (enumType.variants ?? []).map(v => "." + v.name).join(", ");
+        errors.push(new TSError(
+          "E-TYPE-063",
+          `E-TYPE-063: \`.${variantName}\` is not a declared variant of enum ` +
+          `\`${enumType.name}\`. Known variants: ${known || "(none)"}. ` +
+          `Check for a typo or add the variant to the enum declaration (§42).`,
+          span,
+        ));
+      }
+      return;
+    }
+
+    if (contextType.kind === "union") {
+      const enumMembers = (contextType as UnionType).members.filter(
+        (m: ResolvedType) => m.kind === "enum",
+      ) as EnumType[];
+      const declarers = enumMembers.filter(
+        (em) => (em.variants ?? []).some(v => v.name === variantName),
+      );
+      if (declarers.length === 0) {
+        // No enum member declares the variant.
+        if (enumMembers.length === 0) {
+          // Union has no enum members at all — treat as no-context (rare).
+          errors.push(new TSError(
+            "E-VARIANT-AMBIGUOUS",
+            `E-VARIANT-AMBIGUOUS: Bare variant \`.${variantName}\` cannot be resolved against ` +
+            `a union with no enum members. Qualify the variant or change the position type.`,
+            span,
+          ));
+        } else {
+          const enumNames = enumMembers.map(em => em.name).join(", ");
+          errors.push(new TSError(
+            "E-TYPE-063",
+            `E-TYPE-063: \`.${variantName}\` is not a declared variant of any enum in ` +
+            `\`${enumNames}\`. Check for a typo or add the variant to one of the enum declarations (§42).`,
+            span,
+          ));
+        }
+        return;
+      }
+      if (declarers.length > 1) {
+        const declarerNames = declarers.map(em => em.name).join(", ");
+        errors.push(new TSError(
+          "E-VARIANT-AMBIGUOUS",
+          `E-VARIANT-AMBIGUOUS: Bare variant \`.${variantName}\` is ambiguous in union-typed ` +
+          `context. Multiple union members declare \`.${variantName}\`: ${declarerNames}. ` +
+          `Qualify the variant — write \`${declarers[0].name}.${variantName}\` or one of the ` +
+          `other enum names — to disambiguate (§14.10).`,
+          span,
+        ));
+        return;
+      }
+      // Exactly one declarer — silent (the resolution is unambiguous).
+      return;
+    }
+
+    // contextType is asIs / unknown / non-enum / non-union — treat as
+    // no-context. Per §14.10 line 7173, the bare variant is ambiguous.
+    if (contextType.kind === "asIs" || contextType.kind === "unknown") {
+      errors.push(new TSError(
+        "E-VARIANT-AMBIGUOUS",
+        `E-VARIANT-AMBIGUOUS: Bare variant \`.${variantName}\` has no resolvable type ` +
+        `context. Add a concrete enum type annotation or qualify the variant ` +
+        `(\`SomeEnum.${variantName}\`). Per §14.10, bare variants require a statically ` +
+        `known enum or union-of-enums context.`,
+        span,
+      ));
+      return;
+    }
+
+    // Other contexts (struct, primitive, etc.): the position type can't carry
+    // an enum variant. This is a type-mismatch — defer to existing E-TYPE-031
+    // path or emit a focused E-VARIANT-AMBIGUOUS so the writer learns the
+    // rule. We choose E-VARIANT-AMBIGUOUS for consistency with the no-context
+    // wording per §14.10 line 7174.
+    errors.push(new TSError(
+      "E-VARIANT-AMBIGUOUS",
+      `E-VARIANT-AMBIGUOUS: Bare variant \`.${variantName}\` cannot be resolved — the ` +
+      `position type is not an enum or union of enums. Qualify the variant ` +
+      `(\`SomeEnum.${variantName}\`) or change the position type (§14.10).`,
+      span,
+    ));
+  });
+}
+
+// ---------------------------------------------------------------------------
 // TS-C: Pattern matching exhaustiveness checker (§18.8)
 // ---------------------------------------------------------------------------
 
@@ -5559,7 +5772,7 @@ function splitMatchArms(raw: string): string[] {
 }
 
 type ParsedArmPattern =
-  | { kind: "variant"; variantName: string; hasGuard: boolean; armText: string }
+  | { kind: "variant"; variantName: string; payloadBindings: string[]; hasGuard: boolean; armText: string }
   | { kind: "wildcard"; isElse: boolean; isNot: boolean; hasGuard: boolean; armText: string }
   | { kind: "unknown"; armText: string };
 
@@ -5611,16 +5824,61 @@ function parseArmPattern(armText: string): ParsedArmPattern {
   if (/^not\b/.test(patOnly)) {
     return { kind: "wildcard", isElse: false, isNot: true, hasGuard, armText };
   }
-  const varMatch = patOnly.match(/^\.\s*([A-Za-z_][A-Za-z0-9_]*)/);
+  const varMatch = patOnly.match(/^\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*(\(([^)]*)\))?/);
   if (varMatch) {
-    return { kind: "variant", variantName: varMatch[1], hasGuard, armText };
+    const payloadBindings = extractPayloadBindings(varMatch[3]);
+    return { kind: "variant", variantName: varMatch[1], payloadBindings, hasGuard, armText };
   }
   // §54.4 Phase 3d: substate pattern `< SubstateName>` (space-after-< per §4.3 disambiguation).
-  const subMatch = patOnly.match(/^<\s+([A-Z][A-Za-z0-9_]*)\s*>/);
+  const subMatch = patOnly.match(/^<\s+([A-Z][A-Za-z0-9_]*)\s*>\s*(\(([^)]*)\))?/);
   if (subMatch) {
-    return { kind: "variant", variantName: subMatch[1], hasGuard, armText };
+    const payloadBindings = extractPayloadBindings(subMatch[3]);
+    return { kind: "variant", variantName: subMatch[1], payloadBindings, hasGuard, armText };
   }
   return { kind: "unknown", armText };
+}
+
+/**
+ * Extract payload binding names from a parenthesized destructure list.
+ * `.Mushroom(n)` → `["n"]`. `.Rect(w, h)` → `["w", "h"]`.
+ * `.Foo(_, x, _)` → `["_", "x", "_"]` (discard `_` is preserved as a binding
+ *   name; scope-checking treats it like any other name).
+ * Returns empty array for missing/empty parens or unbindable shapes
+ * (nested destructures, type annotations — out of B20's scope).
+ */
+function extractPayloadBindings(rawArgs: string | undefined): string[] {
+  if (!rawArgs) return [];
+  const trimmed = rawArgs.trim();
+  if (trimmed.length === 0) return [];
+  // Top-level comma split. Ignore parens/brackets/braces inside arg text
+  // (e.g., type annotations). For B20: simple-name-only payload bindings;
+  // nested destructure (`(a, (b, c))`) and type annotations (`(n: number)`)
+  // fall through to the simple-split path and may produce non-ident strings,
+  // which we filter below.
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (let i = 0; i < trimmed.length; i++) {
+    const c = trimmed[i];
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth = Math.max(0, depth - 1);
+    if (c === "," && depth === 0) {
+      parts.push(cur.trim());
+      cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  if (cur.trim().length > 0) parts.push(cur.trim());
+  // Each part: take the leading bare identifier (ignore type annotations
+  // like `n: number` — bind `n` only). Reject parts that don't start with
+  // a valid identifier character.
+  const out: string[] = [];
+  for (const p of parts) {
+    const m = p.match(/^([A-Za-z_$][A-Za-z0-9_$]*)/);
+    if (m) out.push(m[1]);
+  }
+  return out;
 }
 
 interface ExtractedArms {

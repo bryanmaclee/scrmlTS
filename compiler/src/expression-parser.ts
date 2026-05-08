@@ -748,7 +748,7 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // `esTreeToExprNode` so downstream consumers see a structured AST node
   // (instead of falling into the escape-hatch path on the whole expression).
   s = s.replace(
-    /(?<![A-Za-z0-9_$\)\]"'`])\.([A-Z][A-Za-z0-9_]*)/g,
+    /(?<![A-Za-z0-9_$\)\]"'`]\s*)\.\s*([A-Z][A-Za-z0-9_]*)/g,
     '__scrml_bare_variant_$1__'
   );
 

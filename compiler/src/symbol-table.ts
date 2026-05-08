@@ -2736,9 +2736,14 @@ function isArrayLikeArg(arg: ValidatorArg): boolean {
   const a = arg as any;
   if (a.kind === "array-lit") return true;
   if (a.kind === "lit" && a.litType === "array") return true;
+  // Canonical scrml ExprNode for array literals (post-S69 / B20 parser fix —
+  // bare-variant arrays now parse as clean `kind:"array"` instead of
+  // escape-hatch ParseError).
+  if (a.kind === "array") return true;
   if (a.kind === "escape-hatch") {
     if (a.estreeType === "ArrayExpression") return true;
-    // Bare-variant arrays: ParseError with raw starting "[".
+    // Bare-variant arrays: ParseError with raw starting "[" — legacy shape
+    // preserved for any path that still produces it (defensive).
     if (a.estreeType === "ParseError" && typeof a.raw === "string"
         && a.raw.trimStart().startsWith("[")) return true;
   }

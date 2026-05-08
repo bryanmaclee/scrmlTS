@@ -127,8 +127,15 @@ function shouldSkipExprParse(expr) {
   if (/< \/ [a-z]/i.test(t)) return true;
   // Multi-line strings with embedded HTML (e.g. emit("<div>...\n...</div>"))
   if (/\n/.test(t) && /<[a-z]/i.test(t)) return true;
-  // Leading dot: `.method()` chain continuations (not a standalone expression)
-  if (/^\s*\./.test(t)) return true;
+  // Leading dot: `.method()` chain continuations (not a standalone expression).
+  // EXCEPTION (B20, §14.10 / M9): `.Variant` (uppercase first letter) IS a
+  // valid standalone primary expression — the bare-variant form. The S66
+  // parser fix in `expression-parser.ts:preprocessForAcorn` replaces it with
+  // a placeholder identifier that acorn can parse. So we let `.Variant` (or
+  // `. Variant` after joinWithNewlines token-join spacing) fall through to
+  // the parser; only chain continuations (`.method()`, `.field`, `.0`)
+  // starting with non-uppercase or numeric remain skipped.
+  if (/^\s*\./.test(t) && !/^\s*\.\s*[A-Z]/.test(t)) return true;
   // C-style for-loop header: `( init ; cond ; update )`
   if (/^\s*\(/.test(t) && /;\s*/.test(t) && t.trim().endsWith(")")) return true;
   return false;
@@ -4696,10 +4703,72 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         id: ++counter.next,
         kind: 'match-arm-block',
         variant: variantNameTok.text,
+        payloadBindings: [],
         isWildcard: false,
         body: blockBody,
         span: spanOf(startTok, peek()),
       };
+    }
+
+    // Form 1b: `. VariantName(binding, ...) => {` — payload-destructure arm
+    // with block body. Captures comma-separated binding names so the type-
+    // system can bind them into the arm body's scope (otherwise references
+    // like `n` inside the body fire E-SCOPE-001).
+    if (tok.kind === 'PUNCT' && tok.text === '.' &&
+        peek(1) && peek(1).kind === 'IDENT' && /^[A-Z]/.test(peek(1).text) &&
+        peek(2) && peek(2).kind === 'PUNCT' && peek(2).text === '(') {
+      // Lookahead to find the matching `)` then check for `=> {`.
+      let i = 3;
+      let depth = 1;
+      while (peek(i) && depth > 0) {
+        const t = peek(i);
+        if (t.kind === 'PUNCT' && t.text === '(') depth++;
+        else if (t.kind === 'PUNCT' && t.text === ')') depth--;
+        if (depth === 0) break;
+        i++;
+      }
+      if (peek(i) && peek(i).kind === 'PUNCT' && peek(i).text === ')' &&
+          peek(i + 1) && isMatchArrow(peek(i + 1)) &&
+          peek(i + 2) && peek(i + 2).kind === 'PUNCT' && peek(i + 2).text === '{') {
+        const startTok = tok;
+        consume(); // '.'
+        const variantNameTok = consume(); // IDENT (PascalCase variant name)
+        consume(); // '('
+        // Collect binding names by walking tokens until matching `)`.
+        const payloadBindings = [];
+        let bdepth = 1;
+        while (peek() && bdepth > 0) {
+          const t = peek();
+          if (t.kind === 'PUNCT' && t.text === '(') bdepth++;
+          else if (t.kind === 'PUNCT' && t.text === ')') {
+            bdepth--;
+            if (bdepth === 0) break;
+          }
+          if (bdepth === 1 && t.kind === 'IDENT' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(t.text)) {
+            // Only the FIRST identifier per comma-segment is the binding —
+            // subsequent idents (e.g., type annotations `n: number`) are
+            // out of B20's scope. We use a simple "ident immediately after
+            // `(` or `,`" heuristic.
+            const prev = peek(-1);
+            const isStart = !prev || (prev.kind === 'PUNCT' && (prev.text === '(' || prev.text === ','));
+            if (isStart) payloadBindings.push(t.text);
+          }
+          consume();
+        }
+        consume(); // ')'
+        consume(); // '=>'
+        consume(); // '{'
+        const blockBody = parseRecursiveBody();
+        return {
+          id: ++counter.next,
+          kind: 'match-arm-block',
+          variant: variantNameTok.text,
+          payloadBindings,
+          isWildcard: false,
+          body: blockBody,
+          span: spanOf(startTok, peek()),
+        };
+      }
     }
 
     // Form 2: `else => {` — wildcard arm with block body
