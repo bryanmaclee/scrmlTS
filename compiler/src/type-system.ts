@@ -1655,6 +1655,51 @@ function classifyPredicateZone(
   }
 }
 
+/**
+ * §53.4 / B21 — Upgrade a SourceInfo when the source expression is a single
+ * `IdentExpr` resolving in the scope chain to a predicated-typed binding.
+ *
+ * `classifyLiteralFromExprNode` (in expression-parser.ts) is purely syntactic
+ * and only returns `literal | arithmetic | unconstrained`. To make T-PRED-4
+ * (trusted-zone elision via `predicateImplies`) reachable from real AST code,
+ * we look up the RHS identifier in the scope chain and, if it's bound to a
+ * predicated type, return a `predicated` SourceInfo carrying the source's
+ * predicated type so `classifyPredicateZone` can call `predicateImplies` and
+ * decide trusted vs boundary.
+ *
+ * This is the SOLE behavioral upgrade in B21: it converts certain assignments
+ * that would previously classify as `boundary` (with a runtime check emitted
+ * by A1c codegen) to `trusted` (with elision marker), per SPEC §53.4.4 +
+ * T-PRED-4.
+ *
+ * Called from `let-decl` / `state-decl` annotators just before
+ * `classifyPredicateZone`.
+ */
+function upgradeSourceInfoForPredicatedIdent(
+  initial: SourceInfo,
+  initExpr: unknown,
+  scopeChain: ScopeChain | null,
+): SourceInfo {
+  // Only upgrade when the syntactic classifier returned `unconstrained`.
+  // `literal` and `arithmetic` are stronger signals that take precedence —
+  // a literal value is statically known; arithmetic strips constraints
+  // (T-PRED-5) regardless of operand types.
+  if (initial.kind !== "unconstrained") return initial;
+  if (!scopeChain) return initial;
+  if (!initExpr || typeof initExpr !== "object") return initial;
+  const node = initExpr as { kind?: string; name?: string };
+  if (node.kind !== "ident" || typeof node.name !== "string") return initial;
+  // Bare-variant idents (`.Variant`) carry a leading dot — not a binding.
+  if (node.name.startsWith(".")) return initial;
+  // Tilde / pipeline-accumulator ident — not a regular binding.
+  if (node.name === "~") return initial;
+  const entry = scopeChain.lookup(node.name);
+  if (!entry || entry.kind !== "variable") return initial;
+  const rt = entry.resolvedType;
+  if (!rt || rt.kind !== "predicated") return initial;
+  return { kind: "predicated", predType: rt as PredicatedType };
+}
+
 // ---------------------------------------------------------------------------
 // Scope chain
 // ---------------------------------------------------------------------------
@@ -3993,11 +4038,22 @@ function annotateNodes(
           if (letAnnoType.kind === "predicated") {
             resolvedType = letAnnoType;
             const letDeclSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-            const letSourceInfo = (n as any).initExpr ? classifyLiteralFromExprNode((n as any).initExpr) : extractInitLiteral((n as ASTNodeLike).init);
+            const letInitExpr = (n as any).initExpr;
+            let letSourceInfo: SourceInfo = letInitExpr ? classifyLiteralFromExprNode(letInitExpr) : extractInitLiteral((n as ASTNodeLike).init);
+            // B21 §53.4 — upgrade unconstrained-ident SourceInfo via scope lookup
+            // so T-PRED-4 trusted-zone elision is reachable from real code.
+            letSourceInfo = upgradeSourceInfoForPredicatedIdent(letSourceInfo, letInitExpr, scopeChain);
             const letZone = classifyPredicateZone(letAnnoType, letSourceInfo, letDeclSpan, errors);
-            if (letZone === "boundary") {
-              (n as ASTNodeLike).predicateCheck = { predicate: letAnnoType.predicate, zone: "boundary" };
-            }
+            // B21 §53.4 — record three-zone classification on every predicated decl
+            // (was: boundary-only). Static and trusted classifications are now
+            // annotated for downstream consumers (A1c codegen / IDE tooling /
+            // future optimization passes). A1c codegen continues to gate runtime
+            // check emission on `zone === "boundary"` (additive, non-breaking).
+            (n as ASTNodeLike).predicateCheck = {
+              predicate: letAnnoType.predicate,
+              zone: letZone,
+              sourceKind: letSourceInfo.kind,
+            };
           } else {
             // Non-predicated annotation — bind the resolved type for downstream lookups
             // (e.g. enum-typed variables used in `is .Variant` checks). §S19.
@@ -4127,11 +4183,20 @@ function annotateNodes(
           if (reactAnnoType.kind === "predicated") {
             resolvedType = reactAnnoType;
             const reactDeclSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-            const reactSourceInfo = (n as any).initExpr ? classifyLiteralFromExprNode((n as any).initExpr) : extractInitLiteral((n as ASTNodeLike).init);
+            const reactInitExpr = (n as any).initExpr;
+            let reactSourceInfo: SourceInfo = reactInitExpr ? classifyLiteralFromExprNode(reactInitExpr) : extractInitLiteral((n as ASTNodeLike).init);
+            // B21 §53.4 — upgrade unconstrained-ident SourceInfo via scope lookup
+            // so T-PRED-4 trusted-zone elision is reachable from real code.
+            reactSourceInfo = upgradeSourceInfoForPredicatedIdent(reactSourceInfo, reactInitExpr, scopeChain);
             const reactZone = classifyPredicateZone(reactAnnoType, reactSourceInfo, reactDeclSpan, errors);
-            if (reactZone === "boundary") {
-              (n as ASTNodeLike).predicateCheck = { predicate: reactAnnoType.predicate, zone: "boundary" };
-            }
+            // B21 §53.4 — record three-zone classification on every predicated decl.
+            // A1c codegen continues to gate runtime check emission on
+            // `zone === "boundary"` (additive, non-breaking).
+            (n as ASTNodeLike).predicateCheck = {
+              predicate: reactAnnoType.predicate,
+              zone: reactZone,
+              sourceKind: reactSourceInfo.kind,
+            };
           }
         }
         // §51.3.3: Check for machine binding annotation (@var: MachineName)
