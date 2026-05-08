@@ -14230,7 +14230,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-MATCH-EFFECT-FORBIDDEN | §18.0.2 | `effect=` attribute used on a state-child inside a `<match>` block. Effects presuppose transitions; transitions don't occur in match. Use `<engine>` (Tier 2). | Error |
 | E-MATCH-ONTRANSITION-FORBIDDEN | §18.0.2 | `<onTransition>` element used inside a `<match>` block. Transition handlers are engine-only. Use `<engine>` (Tier 2). | Error |
 | E-MATCH-NOT-EXHAUSTIVE | §18.0.1 | Block-form `<match for=Type>` is missing variants of `Type` and has no wildcard `<_>` catch-all. Add the missing variants or add `<_>`. | Error |
-| E-VARIANT-AMBIGUOUS | §18.0.3 | Bare arm pattern (e.g., `<Small>` without type qualifier) is ambiguous in a union-typed match context where multiple union members declare the same variant name. Qualify the variant: `<TypeName.Small>`. | Error |
+| E-VARIANT-AMBIGUOUS | §14.10, §18.0.3 | Bare variant reference (e.g., `let x = .Small` or `<Small>` arm pattern) is ambiguous because the position's type is a union with multiple members declaring the variant, OR the position has no statically-known enum type context. §14.10 covers general expression positions (LHS state-decl / let / const annotations, fn params, fn return); §18.0.3 covers match-arm patterns. Qualify the variant: `TypeName.Small` / `<TypeName.Small>`. | Error |
 | E-ENGINE-INVALID-TRANSITION | §51.0.F, §51.0.G | Direct write to engine variable or `.advance()` violates the from-state's `rule=` contract. Statically rejected when from-state is known; runtime-thrown otherwise. | Runtime |
 | E-ENGINE-EFFECT-AMBIGUOUS | §51.0.H | `effect=` attribute used on a state-child whose `rule=` is multi-target. Use `<onTransition>` element child(ren) instead — `effect=` requires a single-target rule. | Error |
 | E-ENGINE-VAR-DUPLICATE | §51.0.C | Separate declaration of the engine's auto-declared variable (e.g., `<marioState> = .Small` while `<engine for=MarioState ...>` also exists in scope). The engine OWNS its variable; use `var=` on the engine to override the auto-derived name. | Error |
@@ -25304,7 +25304,7 @@ of the original D2 brief for the canonical listing):
 | `E-MATCH-EFFECT-FORBIDDEN` | Error | effect= forbidden inside match-block (§18.0.2). |
 | `E-MATCH-ONTRANSITION-FORBIDDEN` | Error | <onTransition> forbidden inside match-block (§18.0.2). |
 | `E-MATCH-NOT-EXHAUSTIVE` | Error | Block-form match missing variants and no wildcard (§18.0.1). |
-| `E-VARIANT-AMBIGUOUS` | Error | Bare variant arm pattern ambiguous in union-typed context (§18.0.3). |
+| `E-VARIANT-AMBIGUOUS` | Error | Bare variant reference ambiguous (§14.10 expression positions, §18.0.3 match-arm patterns). |
 | `E-ENGINE-INVALID-TRANSITION` | Runtime | Direct write or .advance violates rule= contract (§51.0.F-G). |
 | `E-ENGINE-EFFECT-AMBIGUOUS` | Error | effect= on a multi-target rule= (§51.0.H). |
 | `E-ENGINE-VAR-DUPLICATE` | Error | Separate decl of engine's auto-declared variable (§51.0.C). |
