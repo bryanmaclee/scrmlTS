@@ -336,6 +336,7 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
     let bodyStart = openerEnd + 1;
     let bodyEnd: number;
     let nextI: number;
+    let isColonShorthand = false;
     if (isSelfClose) {
       bodyEnd = bodyStart;
       nextI = bodyStart;
@@ -353,6 +354,7 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
         // For `:`-shorthand, the body is the post-`:` text.
         // (We don't currently need it for B15 validation but record it.)
         bodyStart = colonStart + 1;
+        isColonShorthand = true;
       } else {
         // Find matching closer for this state-child.
         const closerStart = findStateChildCloser(rulesRaw, bodyStart, tag);
@@ -376,6 +378,7 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       tag,
       rule: ruleForm,
       bodyRaw: rulesRaw.slice(bodyStart, bodyEnd),
+      isColonShorthand,
       rawOffset: lt,
     });
     i = nextI;

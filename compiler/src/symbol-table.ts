@@ -126,6 +126,8 @@ import {
   parseEngineStateChildren,
   isLegacyArrowRulesBody,
 } from "./engine-statechild-parser.ts";
+// B18 — multi-statement event-handler validation helper.
+import { scanForTopLevelSemicolon } from "./multi-statement-scan.ts";
 
 // ---------------------------------------------------------------------------
 // B4 — Import binding registry
@@ -315,8 +317,22 @@ export interface EngineStateChildEntry {
   rule: EngineRuleForm;
   /** Raw body text between the opener and closer. Today's AST stores
    *  engine bodies as raw text (parser limitation per §13.7 B14 specifics);
-   *  walkable bodies become available in a future dispatch. */
+   *  walkable bodies become available in a future dispatch.
+   *
+   *  - For bare-body form (`<Variant>...</>`), this is the inter-tag text
+   *    (children + nested logic + text). Multi-statement is LEGAL here.
+   *  - For `:`-shorthand form (`<Variant : single-expression>`), this is
+   *    the post-`:` text up to the line end. Multi-statement is FORBIDDEN
+   *    here per SPEC §4.14 line 980 — B18 PASS 11 fires
+   *    E-MULTI-STATEMENT-HANDLER on top-level `;`.
+   *  - For self-closing form (`<Variant/>`), this is empty. */
   bodyRaw: string;
+  /** TRUE when this entry's body was parsed via the `:`-shorthand path
+   *  (§4.14 / §51.0.I). FALSE for bare-body or self-closing forms.
+   *  Drives B18's E-MULTI-STATEMENT-HANDLER fire-site #2 (only `:`-shorthand
+   *  bodies are governed by the single-expression discipline; bare-body
+   *  contains arbitrary children where `;` is meaningful). */
+  isColonShorthand: boolean;
   /** Substring offset (relative to `rulesRaw`) of the state-child's opener.
    *  Useful for span-based diagnostics; absolute file offset can be
    *  reconstructed by adding the engine-decl's `span.start` + the offset
@@ -4188,8 +4204,13 @@ function fireB15Diagnostic(
  * `_record` (set by PASS 10.A), populate `engineMeta.variants`, validate
  * `initial=`, parse state-children from `rulesRaw`, validate exhaustiveness
  * and `rule=` forms.
+ *
+ * Exported for direct test use (B18 §B18.8 fire-site #2 verifies the
+ * E-MULTI-STATEMENT-HANDLER fire on synthetic engine-decls — needed
+ * because BS doesn't yet tokenize `:`-shorthand engine bodies, so
+ * full-pipeline integration tests can't reach this fire-site today).
  */
-function validateEngineStateChildrenAndRules(
+export function validateEngineStateChildrenAndRules(
   engineDecl: any,
   fileAst: any,
   errors: SYMDiagnostic[],
@@ -4373,6 +4394,40 @@ function validateEngineStateChildrenAndRules(
         );
         break;
     }
+  }
+
+  // ----------------------------------------------------------------------
+  // A1b B18 fire-site #2 — multi-statement `:`-shorthand body validation
+  // (E-MULTI-STATEMENT-HANDLER) per SPEC §4.14 line 980 + §34 row 14260.
+  //
+  // For each state-child whose body was parsed via the `:`-shorthand path
+  // (`<Variant : single-expression>`), fire E-MULTI-STATEMENT-HANDLER if
+  // the post-`:` text contains a top-level `;` outside expression-internal
+  // contexts (strings, parens, braces, brackets, comments, ${...}).
+  //
+  // Bare-body state-children (`<Variant>...children...</>`) and self-
+  // closing forms are EXEMPT — multi-statement intent is legal in those.
+  // Only the `:`-shorthand single-expression discipline is governed by
+  // this rule.
+  // ----------------------------------------------------------------------
+  for (const sc of stateChildren) {
+    if (!sc.isColonShorthand) continue;
+    if (!sc.bodyRaw || sc.bodyRaw.length === 0) continue;
+    const hits = scanForTopLevelSemicolon(sc.bodyRaw);
+    if (hits.length === 0) continue;
+    fireB15Diagnostic(
+      errors,
+      "E-MULTI-STATEMENT-HANDLER",
+      `E-MULTI-STATEMENT-HANDLER: \`:\`-shorthand body of state-child \`<${sc.tag}>\` ` +
+      `contains multiple statements (semicolon-separated). The \`:\`-shorthand body must ` +
+      `be exactly one expression — a call (\`<${sc.tag} : fn()>\`), a single expression, ` +
+      `or markup-as-value. For multi-statement intent, switch to bare-body form ` +
+      `\`<${sc.tag}>...children + logic...</>\` or lift to a named function ` +
+      `(SPEC §4.14 / §5.2.3 / §34).`,
+      engineDecl,
+      filePath,
+      "error",
+    );
   }
 }
 

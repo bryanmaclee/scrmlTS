@@ -48,6 +48,7 @@ import {
 import { parseExprToNode, forEachResetExprInExprNode } from "./expression-parser.ts";
 import { decorateValidatorsWithExprNodes } from "./validator-arg-parser.ts";
 import { splitBlocks as _splitBlocksForP2Form1 } from "./block-splitter.js";
+import { scanForTopLevelSemicolon, isEventHandlerAttrName } from "./multi-statement-scan.ts";
 
 /**
  * Bug 1 fix: re-emit a string literal's raw inner text as a valid JS string
@@ -8361,6 +8362,92 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         "markup"
       );
       const attrs = parseAttributes(attrTokens, filePath, errors, block.isComponent === true);
+
+      // ----------------------------------------------------------------
+      // A1b B18 fire-site #1 — multi-statement event-handler validation
+      // (E-MULTI-STATEMENT-HANDLER) per SPEC §5.2.3 + §34 row 14260.
+      //
+      // Scan the opener portion of `block.raw` for top-level `;` outside
+      // expression-internal contexts (strings, parens, braces, brackets,
+      // template-literal `${...}` interpolations, comments). For each top-
+      // level hit, find the nearest preceding `attrName=` and fire if
+      // `attrName` is in the event-handler family (`/^on[a-z]+$/i`,
+      // `on:`, `onserver:`, `onclient:` per primer §9.6 + §38.6.1).
+      //
+      // The `${...}` exemption noted in §5.2.3 line 1144 is handled
+      // automatically: `${` opens a brace-tracked region in the helper,
+      // so any `;` inside is not top-level.
+      // ----------------------------------------------------------------
+      try {
+        const openerScan = scanOpenerForAttrs(block.raw, 0);
+        if (openerScan) {
+          // Slice the opener attribute region — from after the tag name
+          // to the closing `>` (or `/` of `/>`). This is exactly the span
+          // where attribute names + values live; we never scan into the
+          // body (where `;` is allowed because the body is logic / text).
+          const openerSlice = block.raw.slice(openerScan.attrStart, openerScan.openerEnd);
+          const hits = scanForTopLevelSemicolon(openerSlice);
+          if (hits.length > 0) {
+            // Pre-compute attribute-name boundaries within `openerSlice`
+            // so each `;` hit maps to its enclosing attribute. We use a
+            // regex-based scan over the slice — for each match of
+            // `name=`, record the `name` and the offset of its `=`. The
+            // owning attribute for a `;` at offset `k` is the latest
+            // `name=` whose `=` offset is `< k`.
+            //
+            // Pattern: identifiers can include `:` (for `on:click`,
+            // `onserver:foo`, `class:active`), letters/digits/`-`/`_`,
+            // and `.` (for `bind:value` etc.). Keep the regex liberal —
+            // we only care about whether the matched `name` later passes
+            // `isEventHandlerAttrName`.
+            const NAME_EQ_RE = /([A-Za-z_][A-Za-z0-9_:\-]*)\s*=/g;
+            const attrBoundaries = [];
+            let nameMatch;
+            while ((nameMatch = NAME_EQ_RE.exec(openerSlice)) !== null) {
+              attrBoundaries.push({
+                name: nameMatch[1],
+                eqEnd: nameMatch.index + nameMatch[0].length,
+              });
+            }
+            for (const hit of hits) {
+              // Find the latest attrBoundary whose eqEnd <= hit.offset.
+              let owner = null;
+              for (let bi = attrBoundaries.length - 1; bi >= 0; bi--) {
+                if (attrBoundaries[bi].eqEnd <= hit.offset) {
+                  owner = attrBoundaries[bi];
+                  break;
+                }
+              }
+              if (!owner) continue;
+              if (!isEventHandlerAttrName(owner.name)) continue;
+              // Map relative offset back to absolute file offset for span.
+              const absOffset = block.span.start + openerScan.attrStart + hit.offset;
+              const fireSpan = {
+                file: filePath,
+                start: absOffset,
+                end: absOffset + 1,
+                line: span.line,
+                col: span.col,
+              };
+              errors.push(new TABError(
+                "E-MULTI-STATEMENT-HANDLER",
+                `E-MULTI-STATEMENT-HANDLER: Event-handler attribute \`${owner.name}\` on ` +
+                `\`<${block.name}>\` contains multiple statements (semicolon-separated). ` +
+                `A bare-form event handler must be exactly one expression — a call ` +
+                `(\`${owner.name}=fn()\`), an assignment (\`${owner.name}=@phase = .Loading\`), ` +
+                `or a single expression (\`${owner.name}=@count++\`). For multi-statement ` +
+                `intent, lift the body to a named function and wire by name: ` +
+                `\`function name() { ... }\` then \`${owner.name}=name()\` ` +
+                `(SPEC §5.2.3 / §34).`,
+                fireSpan,
+              ));
+            }
+          }
+        }
+      } catch (_e) {
+        // Defensive: scan failure must never block AST building. Leave the
+        // attr parse in place; the absent diagnostic is a survivable degradation.
+      }
 
       const children = block.children.map(child =>
         buildBlock(child, filePath, "markup", counter, errors)
