@@ -4,7 +4,8 @@ ${
     // scrml:format — string and number formatting utilities
     //
     // All functions are pure (no side effects, no server context required).
-    // Safe to use in both server function bodies and client-side reactive code.
+    // Safe to use in both server-classified function bodies and client-side
+    // reactive code.
     //
     // Usage:
     //   ${ import { formatCurrency, pluralize, slug, truncate } from 'scrml:format' }

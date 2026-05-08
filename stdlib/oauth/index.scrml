@@ -32,11 +32,11 @@ ${
     //   const storage = memoryAdapter()           // dev-only; use Redis/store in prod
     //   const cfg     = googleConfig({ clientId, clientSecret, redirectUri, storage })
     //
-    //   server function signinStart(sessionId) {
+    //   function signinStart(sessionId) {
     //       return await startFlow(cfg, sessionId)        // → URL to redirect to
     //   }
     //
-    //   server function signinCallback(sessionId, code, state) {
+    //   function signinCallback(sessionId, code, state) {
     //       const tokens = await exchangeCode(cfg, sessionId, code, state)
     //       const user   = await getUserInfo(cfg, tokens.accessToken)
     //       // … persist tokens + user as you see fit

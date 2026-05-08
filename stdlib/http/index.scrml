@@ -19,8 +19,8 @@ ${
     //   retry     — retry count on network errors only (default: 0)
     //   retryDelay — base delay ms, exponential: delay * attempt (default: 1000)
     //
-    // IMPORTANT: Intended for server function bodies. fetch is available
-    // server-side in Bun. Do not call from client-side reactive code.
+    // IMPORTANT: Intended for server-classified function bodies. fetch is
+    // available server-side in Bun. Do not call from client-side reactive code.
     //
     // Usage:
     //   ${ import { get, post, withBaseUrl, isOk } from 'scrml:http' }

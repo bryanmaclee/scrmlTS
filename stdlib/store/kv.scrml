@@ -7,7 +7,9 @@ ${
     // All operations are synchronous (SQLite is synchronous in Bun).
     //
     // IMPORTANT: These functions use bun:sqlite, which is a server-side only
-    // dependency. Call from server function bodies.
+    // dependency. They escalate to server by §12.2 inference (the bun:sqlite
+    // import + the `?{}` SQL contexts they invoke). No keyword annotation
+    // is required at the call site.
     //
     // Schema:
     //   CREATE TABLE IF NOT EXISTS kv_store (

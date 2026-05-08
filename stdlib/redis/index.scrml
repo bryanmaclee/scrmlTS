@@ -12,7 +12,7 @@ ${
     // Usage:
     //   ${ import { get, set, expire, publish } from 'scrml:redis' }
     //
-    //   server function cacheUser(id, user) {
+    //   function cacheUser(id, user) {
     //       await set("user:" + id, JSON.stringify(user))
     //       await expire("user:" + id, 3600)
     //   }

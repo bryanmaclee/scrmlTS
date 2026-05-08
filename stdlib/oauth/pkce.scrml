@@ -17,7 +17,9 @@ ${
     // Length 43-128. We generate 43 chars by default (≈256 bits of entropy
     // when each char draws from a 66-char alphabet — 256-bit sec margin).
     //
-    // Server-side only. Uses crypto.getRandomValues + crypto.subtle.digest.
+    // Module-tagged server-only by inference: `scrml:oauth` is in the
+    // SERVER_ONLY_SCRML_MODULES set (§12.2 Trigger 3), so importing
+    // functions are escalated. Uses crypto.getRandomValues + crypto.subtle.digest.
     // ---------------------------------------------------------------------------
 
     const VERIFIER_ALPHABET =
@@ -30,25 +32,23 @@ ${
      * @returns string — URL-safe random verifier
      */
     export function generateVerifier(length) {
-        server {
-            const len = length || 43
-            if (len < 43 || len > 128) {
-                throw new Error(`[scrml:oauth/pkce] verifier length must be 43-128, got ${len}`)
-            }
-            const bytes = new Uint8Array(len)
-            crypto.getRandomValues(bytes)
-            const A = VERIFIER_ALPHABET
-            const alphaLen = A.length
-            let out = ""
-            for (let i = 0; i < len; i++) {
-                // Modulo bias is acceptable here: 256 mod 66 = 58 ≠ 0, but the
-                // bias is < 0.4% per char and the verifier is rejected by
-                // the auth server unless its hash matches — bias does not
-                // weaken the protocol.
-                out += A[bytes[i] % alphaLen]
-            }
-            return out
+        const len = length || 43
+        if (len < 43 || len > 128) {
+            throw new Error(`[scrml:oauth/pkce] verifier length must be 43-128, got ${len}`)
         }
+        const bytes = new Uint8Array(len)
+        crypto.getRandomValues(bytes)
+        const A = VERIFIER_ALPHABET
+        const alphaLen = A.length
+        let out = ""
+        for (let i = 0; i < len; i++) {
+            // Modulo bias is acceptable here: 256 mod 66 = 58 ≠ 0, but the
+            // bias is < 0.4% per char and the verifier is rejected by
+            // the auth server unless its hash matches — bias does not
+            // weaken the protocol.
+            out += A[bytes[i] % alphaLen]
+        }
+        return out
     }
 
     /**
@@ -60,15 +60,13 @@ ${
      * @returns Promise<string> — URL-safe base64 challenge, no padding
      */
     export async function deriveChallenge(verifier) {
-        server {
-            if (typeof verifier !== "string" || verifier.length < 43) {
-                throw new Error(`[scrml:oauth/pkce] verifier must be a string of length >= 43`)
-            }
-            const enc = new TextEncoder()
-            const data = enc.encode(verifier)
-            const digest = await crypto.subtle.digest("SHA-256", data)
-            return _base64UrlEncode(new Uint8Array(digest))
+        if (typeof verifier !== "string" || verifier.length < 43) {
+            throw new Error(`[scrml:oauth/pkce] verifier must be a string of length >= 43`)
         }
+        const enc = new TextEncoder()
+        const data = enc.encode(verifier)
+        const digest = await crypto.subtle.digest("SHA-256", data)
+        return _base64UrlEncode(new Uint8Array(digest))
     }
 
     /**

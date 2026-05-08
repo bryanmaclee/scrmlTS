@@ -3,13 +3,14 @@ ${
     // ---------------------------------------------------------------------------
     // scrml:fs — file system utilities for scrml applications
     //
-    // Server-side only. All functions require a server context because they
-    // use Node.js / Bun file system APIs — not available in the browser.
+    // Server-side only by inference: `scrml:fs` is in SERVER_ONLY_SCRML_MODULES
+    // (§12.2 Trigger 3), so importing functions are escalated to server. All
+    // functions use Node.js / Bun file system APIs — not available in the browser.
     //
     // Usage:
     //   ${ import { readFileSync, writeFileSync, existsSync } from 'scrml:fs' }
     //
-    //   server function loadConfig(path) {
+    //   function loadConfig(path) {
     //       if (existsSync(path)) {
     //           return JSON.parse(readFileSync(path))
     //       }
@@ -28,10 +29,8 @@ ${
      *   readFileSync("/tmp/data.bin", "base64")   → "base64encoded..."
      */
     export function readFileSync(path, encoding) {
-        server {
-            const fs = require("node:fs")
-            return fs.readFileSync(path, { encoding: encoding || "utf-8" })
-        }
+        const fs = require("node:fs")
+        return fs.readFileSync(path, { encoding: encoding || "utf-8" })
     }
 
     /**
@@ -45,10 +44,8 @@ ${
      *   writeFileSync("/tmp/out.txt", data, "base64")
      */
     export function writeFileSync(path, content, encoding) {
-        server {
-            const fs = require("node:fs")
-            fs.writeFileSync(path, content, { encoding: encoding || "utf-8" })
-        }
+        const fs = require("node:fs")
+        fs.writeFileSync(path, content, { encoding: encoding || "utf-8" })
     }
 
     /**
@@ -62,10 +59,8 @@ ${
      *   existsSync("/tmp/nope")        → false
      */
     export function existsSync(path) {
-        server {
-            const fs = require("node:fs")
-            return fs.existsSync(path)
-        }
+        const fs = require("node:fs")
+        return fs.existsSync(path)
     }
 
     /**
@@ -79,11 +74,9 @@ ${
      *   mkdirSync("/tmp/flat", { recursive: false }) — single level only
      */
     export function mkdirSync(dir, options) {
-        server {
-            const fs = require("node:fs")
-            const opts = options || { recursive: true }
-            fs.mkdirSync(dir, opts)
-        }
+        const fs = require("node:fs")
+        const opts = options || { recursive: true }
+        fs.mkdirSync(dir, opts)
     }
 
     /**
@@ -96,10 +89,8 @@ ${
      *   readdirSync("/tmp/mydir") → ["file1.txt", "file2.txt"]
      */
     export function readdirSync(dir) {
-        server {
-            const fs = require("node:fs")
-            return fs.readdirSync(dir)
-        }
+        const fs = require("node:fs")
+        return fs.readdirSync(dir)
     }
 
     /**
@@ -118,19 +109,17 @@ ${
      *     → { isFile: true, isDirectory: false, size: 42, mtime: Date }
      */
     export function statSync(path) {
-        server {
-            const fs = require("node:fs")
-            try {
-                const s = fs.statSync(path)
-                return {
-                    isFile: s.isFile(),
-                    isDirectory: s.isDirectory(),
-                    size: s.size,
-                    mtime: s.mtime
-                }
-            } catch(e) {
-                return undefined
+        const fs = require("node:fs")
+        try {
+            const s = fs.statSync(path)
+            return {
+                isFile: s.isFile(),
+                isDirectory: s.isDirectory(),
+                size: s.size,
+                mtime: s.mtime
             }
+        } catch(e) {
+            return undefined
         }
     }
 
@@ -146,18 +135,16 @@ ${
      *   rmSync("/tmp/olddir", { recursive: true, force: true })
      */
     export function rmSync(path, options) {
-        server {
-            const fs = require("node:fs")
-            const opts = options || { recursive: false, force: false }
-            fs.rmSync(path, opts)
-        }
+        const fs = require("node:fs")
+        const opts = options || { recursive: false, force: false }
+        fs.rmSync(path, opts)
     }
 
     ~{
-        // Note: server {} blocks cannot be tested in ~{} because ~{} runs at
-        // compile time, not server-side. These tests validate structural
-        // expectations only. Server-side behavior is validated by the unit
-        // tests in compiler/tests/unit/stdlib-fs.test.js.
+        // Note: ~{} runs at compile time, not server-side, and cannot exercise
+        // the Node.js fs APIs these functions invoke. These tests validate
+        // structural expectations only. Server-side behavior is validated by
+        // the unit tests in compiler/tests/unit/stdlib-fs.test.js.
 
         import { assertTruthy } from 'scrml:test'
 

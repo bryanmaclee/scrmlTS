@@ -3,13 +3,17 @@ ${
     // ---------------------------------------------------------------------------
     // scrml:path — file path manipulation utilities
     //
-    // Server-side only. All functions require a server context because they
-    // delegate to Node's `path` module (POSIX by default).
+    // Server-side only by transitive dependency: every function below
+    // delegates to Node's `path` module (POSIX by default), which is not
+    // available in the browser. Route inference (§12.2) classifies any
+    // caller that imports from scrml:path as server-side via call-graph
+    // propagation (Trigger 5) — when the importing function has a server-
+    // only call site (a ?{}, Bun.* call, etc.), the chain escalates.
     //
     // Usage:
     //   ${ import { join, resolve, dirname, basename, extname } from 'scrml:path' }
     //
-    //   server function buildOutput(srcFile) {
+    //   function buildOutput(srcFile) {
     //       const dir = dirname(srcFile)
     //       const name = basename(srcFile, ".ts")
     //       return join(dir, "dist", name + ".js")
@@ -26,12 +30,10 @@ ${
      *   join("a", "..", "b")                → "b"
      */
     export function join(...segments) {
-        server {
-            const path = require("node:path")
-            const filtered = segments.filter(s => s != null)
-            if (filtered.length === 0) return "."
-            return path.join(...filtered)
-        }
+        const path = require("node:path")
+        const filtered = segments.filter(s => s != null)
+        if (filtered.length === 0) return "."
+        return path.join(...filtered)
     }
 
     /**
@@ -45,12 +47,10 @@ ${
      *   resolve("/a", "/b", "c")           → "/b/c"
      */
     export function resolve(...segments) {
-        server {
-            const path = require("node:path")
-            const filtered = segments.filter(s => s != null)
-            if (filtered.length === 0) return path.resolve()
-            return path.resolve(...filtered)
-        }
+        const path = require("node:path")
+        const filtered = segments.filter(s => s != null)
+        if (filtered.length === 0) return path.resolve()
+        return path.resolve(...filtered)
     }
 
     /**
@@ -63,11 +63,9 @@ ${
      *   dirname("/")                    → "/"
      */
     export function dirname(filePath) {
-        server {
-            const path = require("node:path")
-            if (filePath == null) return "."
-            return path.dirname(filePath)
-        }
+        const path = require("node:path")
+        if (filePath == null) return "."
+        return path.dirname(filePath)
     }
 
     /**
@@ -81,12 +79,10 @@ ${
      *   basename("archive.tar.gz", ".gz")   → "archive.tar"
      */
     export function basename(filePath, ext) {
-        server {
-            const path = require("node:path")
-            if (filePath == null) return ""
-            if (ext != null) return path.basename(filePath, ext)
-            return path.basename(filePath)
-        }
+        const path = require("node:path")
+        if (filePath == null) return ""
+        if (ext != null) return path.basename(filePath, ext)
+        return path.basename(filePath)
     }
 
     /**
@@ -100,11 +96,9 @@ ${
      *   extname(".gitignore")     → ""
      */
     export function extname(filePath) {
-        server {
-            const path = require("node:path")
-            if (filePath == null) return ""
-            return path.extname(filePath)
-        }
+        const path = require("node:path")
+        if (filePath == null) return ""
+        return path.extname(filePath)
     }
 
     /**
@@ -117,12 +111,10 @@ ${
      *   relative("/a/b/c", "/a/d/e")                  → "../../d/e"
      */
     export function relative(from, to) {
-        server {
-            const path = require("node:path")
-            if (from == null) from = "."
-            if (to == null) to = "."
-            return path.relative(from, to)
-        }
+        const path = require("node:path")
+        if (from == null) from = "."
+        if (to == null) to = "."
+        return path.relative(from, to)
     }
 
     /**
@@ -136,11 +128,9 @@ ${
      *   normalize("a/./b/../c")         → "a/c"
      */
     export function normalize(filePath) {
-        server {
-            const path = require("node:path")
-            if (filePath == null) return "."
-            return path.normalize(filePath)
-        }
+        const path = require("node:path")
+        if (filePath == null) return "."
+        return path.normalize(filePath)
     }
 
     /**
@@ -150,10 +140,10 @@ ${
     export const sep = "/"
 
     ~{
-        // Note: server {} blocks cannot be tested in ~{} because ~{} runs at
-        // compile time, not server-side. These tests validate structural
-        // expectations only. Server-side behavior is validated by the unit
-        // tests in compiler/tests/unit/stdlib-path.test.js.
+        // Note: ~{} runs at compile time, not server-side, and cannot exercise
+        // the Node.js path APIs these functions delegate to. These tests
+        // validate structural expectations only. Server-side behavior is
+        // validated by the unit tests in compiler/tests/unit/stdlib-path.test.js.
 
         import { assertEqual } from 'scrml:test'
 

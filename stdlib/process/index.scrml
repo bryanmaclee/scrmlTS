@@ -3,13 +3,16 @@ ${
     // ---------------------------------------------------------------------------
     // scrml:process — process and environment APIs for scrml applications
     //
-    // Server-side only. All functions require a server context because they
-    // use Node/Bun process APIs — not available in the browser.
+    // Server-side only by inference: `scrml:process` is in
+    // SERVER_ONLY_SCRML_MODULES (§12.2 Trigger 3), and the bodies use
+    // process.{cwd,env,argv,platform,exit,uptime,memoryUsage} which are
+    // recognized in SERVER_ONLY_PATTERNS (§12.2 Trigger 1). Importing
+    // functions escalate to server.
     //
     // Usage:
     //   ${ import { cwd, env, argv, platform, exit, uptime, memoryUsage } from 'scrml:process' }
     //
-    //   server function showEnv() {
+    //   function showEnv() {
     //       const home = env("HOME")
     //       const dir = cwd()
     //       return `Running in ${dir}, home is ${home}`
@@ -23,9 +26,7 @@ ${
      *   cwd() → "/home/user/project"
      */
     export function cwd() {
-        server {
-            return process.cwd()
-        }
+        return process.cwd()
     }
 
     /**
@@ -38,11 +39,9 @@ ${
      *   env("NONEXISTENT") → undefined
      */
     export function env(key) {
-        server {
-            if (key === undefined || key === null) return undefined
-            const val = process.env[String(key)]
-            return val !== undefined ? val : undefined
-        }
+        if (key === undefined || key === null) return undefined
+        const val = process.env[String(key)]
+        return val !== undefined ? val : undefined
     }
 
     /**
@@ -56,9 +55,7 @@ ${
      *   argv() → ["/usr/bin/bun", "script.js", "--flag"]
      */
     export function argv() {
-        server {
-            return Array.from(process.argv)
-        }
+        return Array.from(process.argv)
     }
 
     /**
@@ -68,9 +65,7 @@ ${
      *   platform() → "linux"
      */
     export function platform() {
-        server {
-            return process.platform
-        }
+        return process.platform
     }
 
     /**
@@ -82,9 +77,7 @@ ${
      *   exit(1) — exits with code 1 (error)
      */
     export function exit(code) {
-        server {
-            process.exit(code !== undefined ? code : 0)
-        }
+        process.exit(code !== undefined ? code : 0)
     }
 
     /**
@@ -94,9 +87,7 @@ ${
      *   uptime() → 12.345
      */
     export function uptime() {
-        server {
-            return process.uptime()
-        }
+        return process.uptime()
     }
 
     /**
@@ -111,21 +102,19 @@ ${
      *   memoryUsage() → { heapUsed: 4567890, heapTotal: 8000000, rss: 25000000 }
      */
     export function memoryUsage() {
-        server {
-            const mem = process.memoryUsage()
-            return {
-                heapUsed: mem.heapUsed,
-                heapTotal: mem.heapTotal,
-                rss: mem.rss
-            }
+        const mem = process.memoryUsage()
+        return {
+            heapUsed: mem.heapUsed,
+            heapTotal: mem.heapTotal,
+            rss: mem.rss
         }
     }
 
     ~{
-        // Note: server {} blocks cannot be tested in ~{} because ~{} runs at
-        // compile time, not server-side. These tests validate structural
-        // expectations only. Server-side behavior is validated by the unit
-        // tests in compiler/tests/unit/stdlib-process.test.js.
+        // Note: ~{} runs at compile time, not server-side, and cannot exercise
+        // the Node/Bun process APIs these functions invoke. These tests
+        // validate structural expectations only. Server-side behavior is
+        // validated by the unit tests in compiler/tests/unit/stdlib-process.test.js.
 
         // cwd() — returns a string (working directory path)
         // env(key) — returns string or undefined

@@ -6,8 +6,10 @@ ${
     // Manual HS256 implementation using Bun's Web Crypto API (crypto.subtle).
     // No external jwt library required.
     //
-    // IMPORTANT: signJwt and verifyJwt are server-only (use server {} blocks).
-    // decodeJwt is pure and safe in any context.
+    // signJwt and verifyJwt are server-only by inference: the `scrml:auth`
+    // module is server-tagged (§12.2 Trigger 3, SERVER_ONLY_SCRML_MODULES),
+    // and importing functions escalate to server. No keyword annotation
+    // is required. decodeJwt is pure and safe in any context.
     // ---------------------------------------------------------------------------
 
     // ---------------------------------------------------------------------------
@@ -53,33 +55,31 @@ ${
      *   const token = await signJwt({ userId: 42, role: "admin" }, process.env.JWT_SECRET)
      */
     export async function signJwt(payload, secret, expiresIn) {
-        server {
-            const now = Math.floor(Date.now() / 1000)
-            const exp = now + (expiresIn !== undefined ? expiresIn : 3600)
+        const now = Math.floor(Date.now() / 1000)
+        const exp = now + (expiresIn !== undefined ? expiresIn : 3600)
 
-            const header = { alg: "HS256", typ: "JWT" }
-            const claims = { ...payload, iat: now, exp }
+        const header = { alg: "HS256", typ: "JWT" }
+        const claims = { ...payload, iat: now, exp }
 
-            const headerStr = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)))
-            const payloadStr = base64urlEncode(new TextEncoder().encode(JSON.stringify(claims)))
-            const signingInput = `${headerStr}.${payloadStr}`
+        const headerStr = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)))
+        const payloadStr = base64urlEncode(new TextEncoder().encode(JSON.stringify(claims)))
+        const signingInput = `${headerStr}.${payloadStr}`
 
-            const keyData = new TextEncoder().encode(secret)
-            const cryptoKey = await crypto.subtle.importKey(
-                "raw",
-                keyData,
-                { name: "HMAC", hash: "SHA-256" },
-                false,
-                ["sign"]
-            )
-            const signatureBuffer = await crypto.subtle.sign(
-                "HMAC",
-                cryptoKey,
-                new TextEncoder().encode(signingInput)
-            )
-            const signature = base64urlEncode(signatureBuffer)
-            return `${signingInput}.${signature}`
-        }
+        const keyData = new TextEncoder().encode(secret)
+        const cryptoKey = await crypto.subtle.importKey(
+            "raw",
+            keyData,
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+        )
+        const signatureBuffer = await crypto.subtle.sign(
+            "HMAC",
+            cryptoKey,
+            new TextEncoder().encode(signingInput)
+        )
+        const signature = base64urlEncode(signatureBuffer)
+        return `${signingInput}.${signature}`
     }
 
     /**
@@ -97,49 +97,47 @@ ${
      *   if (result.valid) { @currentUser = result.payload }
      */
     export async function verifyJwt(token, secret) {
-        server {
-            const decoded = decodeJwt(token)
-            if (!decoded) {
-                return { valid: false, reason: "malformed" }
-            }
+        const decoded = decodeJwt(token)
+        if (!decoded) {
+            return { valid: false, reason: "malformed" }
+        }
 
-            // Check expiry before signature (fast path)
-            const now = Math.floor(Date.now() / 1000)
-            if (decoded.exp && decoded.exp < now) {
-                return { valid: false, reason: "expired" }
-            }
+        // Check expiry before signature (fast path)
+        const now = Math.floor(Date.now() / 1000)
+        if (decoded.exp && decoded.exp < now) {
+            return { valid: false, reason: "expired" }
+        }
 
-            // Verify signature
-            try {
-                const parts = token.split(".")
-                if (parts.length !== 3) return { valid: false, reason: "malformed" }
+        // Verify signature
+        try {
+            const parts = token.split(".")
+            if (parts.length !== 3) return { valid: false, reason: "malformed" }
 
-                const signingInput = `${parts[0]}.${parts[1]}`
-                const expectedSig = parts[2]
+            const signingInput = `${parts[0]}.${parts[1]}`
+            const expectedSig = parts[2]
 
-                const keyData = new TextEncoder().encode(secret)
-                const cryptoKey = await crypto.subtle.importKey(
-                    "raw",
-                    keyData,
-                    { name: "HMAC", hash: "SHA-256" },
-                    false,
-                    ["sign"]
-                )
-                const signatureBuffer = await crypto.subtle.sign(
-                    "HMAC",
-                    cryptoKey,
-                    new TextEncoder().encode(signingInput)
-                )
-                const actualSig = base64urlEncode(signatureBuffer)
+            const keyData = new TextEncoder().encode(secret)
+            const cryptoKey = await crypto.subtle.importKey(
+                "raw",
+                keyData,
+                { name: "HMAC", hash: "SHA-256" },
+                false,
+                ["sign"]
+            )
+            const signatureBuffer = await crypto.subtle.sign(
+                "HMAC",
+                cryptoKey,
+                new TextEncoder().encode(signingInput)
+            )
+            const actualSig = base64urlEncode(signatureBuffer)
 
-                if (actualSig !== expectedSig) {
-                    return { valid: false, reason: "invalid" }
-                }
-
-                return { valid: true, payload: decoded }
-            } catch(e) {
+            if (actualSig !== expectedSig) {
                 return { valid: false, reason: "invalid" }
             }
+
+            return { valid: true, payload: decoded }
+        } catch(e) {
+            return { valid: false, reason: "invalid" }
         }
     }
 

@@ -5528,6 +5528,29 @@ ${ server function badQuery(filterCol) {
 } }
 ```
 
+#### 8.4.1 Fragment Reuse via Call-Graph Extraction
+
+**Added:** 2026-05-08 (Insight 27). Documents the canonical scrml idiom for sharing SQL patterns across queries.
+
+When the same SQL pattern (e.g., a shared WHERE clause) needs to appear across multiple `?{}` blocks, the canonical scrml idiom is to extract a function returning the query result rather than to factor out a fragment-as-value:
+
+```scrml
+function activeUsers(filter: string)! -> AppError {
+    return ?{ select * from users where active = true and ${filter} }
+}
+// Use across queries:
+const admins = activeUsers("role = 'admin'") !{ ... }
+const editors = activeUsers("role = 'editor'") !{ ... }
+```
+
+The function call IS the reuse boundary. scrml does NOT provide fragment-as-value composition (no `sql\`\`` tagged template; no `?if` directive; no `scrml:sql` query builder) — these were evaluated 2026-03-30 + re-evaluated 2026-05-08 (Insight 27) and ratified as Pillar-5 violations or otherwise structurally inappropriate. Fragment-reuse via call-graph extraction is structurally sufficient: the function-extraction boundary subsumes the fragment-extraction shape under §12.2 route inference (the extracted function escalates to server via Trigger 1 — the `?{}` block — and is called from server-classified callers, also Trigger 5).
+
+**Normative statements:**
+
+- Fragment reuse SHALL be expressed via function extraction, not via a fragment-as-value primitive. The compiler SHALL NOT provide `sql\`\``, `?if` directives, or a query-builder API.
+- The `?{}` template body SHALL remain a literal string at compile time (E-SQL-003); fragment reuse is achieved via the call graph, not via runtime template assembly.
+- A future re-evaluation of fragment-reuse-as-value MAY be triggered by adopter-evidence per Insight 27's gate ("if gauntlet ≥3 adopters report fragment-reuse pain"). Absent that evidence, the call-graph idiom is canonical.
+
 ### 8.5 Full SQL Support — INSERT/UPDATE/DELETE
 
 SQL write operations (INSERT, UPDATE, DELETE) use the same `?{}` syntax as SELECT queries.
@@ -6270,8 +6293,10 @@ The compiler SHALL escalate a function to a server route if ANY of the following
 
 1. The function accesses a resource not accessible from the client (e.g., a file-system-only database via Bun SQLite).
 2. The function's inferred return type or any intermediate type in its body includes a protected field (from `protect=` on an enclosing state block).
-3. Developer configuration declares that a specific module or function SHALL never run client-side.
-4. The function has an explicit `server` annotation (Section 11.4).
+3. Developer configuration declares that a specific module or function SHALL never run client-side. The `SERVER_ONLY_SCRML_MODULES` set names the canonical server-only stdlib modules; importing any of them — `scrml:auth`, `scrml:db`, `scrml:redis`, `scrml:fs`, `scrml:process`, `scrml:cron`, `scrml:oauth` — escalates the importing function. Direct uses of `process.{cwd,argv,platform,exit,uptime,memoryUsage}`, `Bun.cron`, and the wildcard import `import * as X from "bun"` are also recognized as server-only signals.
+4. The function has an explicit `server` annotation (§52.10). **DEPRECATED** as of v0.next per Insight 26 (2026-05-08); see W-DEPRECATED-SERVER-MODIFIER (§34) and the deprecation cycle. Triggers 1, 2, 3, 5, and 6 cover every case the keyword previously communicated.
+5. **Caller-context propagation.** A function with no direct triggers (1-4) and no capture-taint, called only from server-classified callers and never from a client-classified function, SHALL escalate to server by inheritance. A function with at least one client-classified caller SHALL remain ambient (client-classified). A function with no callers at all SHALL NOT escalate via this trigger; see Trigger 6. (Added 2026-05-08 — Insight 26 Batch 1 precondition; whole-program analysis applied at the call-graph fixed-point. Implementation: `compiler/src/route-inference.ts` Step 5c.)
+6. **Dead-code unreached-warn.** A function declared but called from neither a server-classified context nor a client-classified context, not exported, not server-annotated, and not referenced from markup, SHALL fire `W-DEAD-FUNCTION` at its declaration site (§34). The function will be tree-shaken from the output. This trigger is diagnostic, not escalation: it surfaces the in-vacuum case where neither Trigger 1-3 nor Trigger 5 carries information about intended placement. (Added 2026-05-08 — Insight 26 Batch 1 precondition; complements Trigger 5 by catching empty-call-graph cases the call-graph fixed-point cannot resolve.)
 
 Additional escalation triggers MAY be added in future versions of this specification.
 
@@ -14045,6 +14070,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | W-CASE-001 | §15.15.4 | A user-declared state-type or component name is lowercase and shadows a built-in HTML element name. Resolution still succeeds (the user declaration takes precedence). Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
 | W-WHITESPACE-001 | §15.15.5 | A `< identifier>` opener uses whitespace between `<` and the identifier. The canonical form is no-space (`<identifier>`); the with-space form is deprecated and becomes E-WHITESPACE-001 in P3. Migration via `scrml-migrate`. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1.E):** emitted by NR (Stage 3.05) — see `compiler/src/name-resolver.ts`. | Warning |
 | W-DEPRECATED-001 | §51.3.2 | The `<machine>` keyword is deprecated; use the canonical `<engine>` keyword. Both forms continue to compile in P1; `<machine>` becomes E-DEPRECATED-001 in P3. Phase P1 of state-as-primary unification (2026-04-30). **Fires (P1):** emitted by TAB (`compiler/src/ast-builder.js` engine-decl path) — the keyword distinction is decided at TAB time, NR is not required for this diagnostic. | Warning |
+| W-DEPRECATED-SERVER-MODIFIER | §12.2, §52.10 | The `server` modifier on a function declaration (`server function name() { ... }`) is redundant — the function body's escalation triggers (§12.2 T1/T2/T3) and/or caller-context propagation (T5) already classify the function as server-side. The keyword is deprecated as of v0.next per Insight 26 (2026-05-08); remove from new code. The keyword fires this warning ONLY when at least one other trigger would escalate the function regardless. The keyword on its own (no other trigger, no caller-context evidence) does NOT fire this warning during the deprecation window — that case preserves in-progress development. **Fires:** emitted by RI (`compiler/src/route-inference.ts` Step 5d, D5) for any explicitly-`server`-annotated function whose escalation reasons include at least one non-explicit-annotation entry, OR whose call-graph caller set is non-empty and consists entirely of server-classified callers. The `server @var` cell authority modifier (§52.4) is NOT affected. | Warning |
+| E-DEPRECATED-SERVER-MODIFIER | §12.2, §52.10 | The `server` modifier on a function declaration is removed. Use a plain `function` declaration; route inference (§12.2) will classify the function based on its body content and call graph. Deprecation cycle endpoint: this code activates after the W-DEPRECATED-SERVER-MODIFIER deprecation window, when the parser stops accepting `server function` syntax. Mirrors the `<machine>` → `<engine>` deprecation cycle (W-DEPRECATED-001 → E-DEPRECATED-001). | Error |
+| W-DEAD-FUNCTION | §12.2 | A function is declared but called from neither a server-classified context nor a client-classified context, is not exported, is not server-annotated, and is not referenced from markup. The function will be tree-shaken from the output. Remove the declaration if intended dead, or wire it up to a caller. RI does not yet track all markup reference patterns; if the diagnostic is a false positive, exporting the function or adding an explicit caller suppresses it. **Fires:** emitted by RI (`compiler/src/route-inference.ts` Step 5d, D4) at the function's declaration site. Added 2026-05-08 (Insight 26 Batch 1) as the in-vacuum complement to caller-context propagation (Trigger 5). | Warning |
 | E-TYPE-030 | §14.7, §15.2 | `asIs` value used past resolution requirement | Error |
 | E-TYPE-031 | §15.3, §15.10 | Prop value fails declared type constraint | Error |
 | E-TYPE-040 | §16.4 | Slot fill type incompatible with declared slot shape | Error |
@@ -23067,7 +23095,7 @@ server-modifier    ::= "server"
 
 `@var = expr` (no modifier) declares a client-local reactive variable. This is unchanged from §6.1.
 
-The `server` modifier in this position extends the `server` keyword already used for function declarations (§11.4). The semantics are consistent: `server` marks a construct as server-side.
+The `server` modifier in this position parallels — but is NOT — the (deprecated) `server function` modifier (§52.10). The shared keyword reads as "server-side" in both positions, but the cell-authority mechanism here is independent and remains canonical; only the function modifier is on the deprecation track per Insight 26 (2026-05-08).
 
 #### 52.4.2 Semantics
 
@@ -23349,16 +23377,22 @@ The two constructs are not interchangeable:
 
 A developer who needs read-only server data with manual re-fetch control SHOULD use `<request>`. A developer who needs read-write server state with automatic optimistic update SHOULD use `server @var` (primitive) or a type with `authority="server"` (structured).
 
-### 52.10 Interaction with `server function` (§11.4)
+### 52.10 Interaction with `server function` (Deprecated)
 
 The `server` keyword on a function declaration and the `server` modifier on a reactive variable declaration share the same keyword but have distinct semantics:
 
-- `server function name() { ... }` — forces server-side execution for the named function (§11.4).
-- `server @var = expr` — declares the reactive variable as server-authoritative.
+- `server function name() { ... }` — historically forced server-side execution for the named function. **DEPRECATED** as of v0.next per Insight 26 (2026-05-08). The compiler classifies functions by body-content triggers (§12.2 Triggers 1-3) joined with caller-context propagation (Trigger 5) and dead-code-warn (Trigger 6); the keyword is structurally redundant. See W-DEPRECATED-SERVER-MODIFIER (§34) for the warn-then-error deprecation cycle.
+- `server @var = expr` — declares the reactive variable as server-authoritative. **NOT DEPRECATED.** The cell authority modifier on state declarations is a distinct mechanism from the function modifier; only the function modifier is on the deprecation track. See §52.4 (Tier 2 — Instance-Level Authority) for the full normative treatment.
 
-The two constructs are syntactically unambiguous. The parser identifies the token following `server`: if it is `function` or `fn`, it is a function declaration; if it is `@`, it is a reactive variable declaration.
+The two constructs remain syntactically unambiguous so long as both forms continue to parse during the deprecation window. The parser identifies the token following `server`: if it is `function` or `fn`, it is a (deprecated) function declaration; if it is `@`, it is a reactive variable declaration.
 
-**Normative statement:** The parser SHALL distinguish `server function` from `server @var` by the token immediately following `server`. No ambiguity is possible.
+**Migration note.** The `server function` modifier is deprecated as of v0.next; remove from new code; existing usage warns then errors per the deprecation cycle (`W-DEPRECATED-SERVER-MODIFIER` → `E-DEPRECATED-SERVER-MODIFIER`). The canonical replacement is no replacement at all: write `function name() { ... }` (or `async function`, `export function`, etc.) and rely on §12.2 inference. If the function body has no server-only triggers and the function is called only from server contexts, Trigger 5 (caller-context propagation) classifies it server. If the function body has server-only triggers (T1/T2/T3), those classify it server directly. Functions whose intended placement cannot be inferred from body content or call graph are either dead code (Trigger 6 fires `W-DEAD-FUNCTION`) or a structural smell that the deprecation cycle is designed to surface. The `<machine>` → `<engine>` keyword deprecation precedent (§51.3.2 / W-DEPRECATED-001) is the canonical shape: warn during the deprecation window, error on removal.
+
+**Normative statements:**
+
+- The parser SHALL distinguish `server function` from `server @var` by the token immediately following `server`. No ambiguity is possible.
+- During the deprecation window, the parser SHALL accept `server function` declarations and emit `W-DEPRECATED-SERVER-MODIFIER` (§34) per the firing conditions defined in route inference. After the deprecation cycle completes, `server function` SHALL be `E-DEPRECATED-SERVER-MODIFIER` and removed from the parser.
+- The `server` modifier on reactive variable declarations (`server @var`, §52.4) is unaffected by this deprecation. It is a distinct construct that names a state authority contract (initial load + optimistic update + rollback), not a function-execution-placement directive. The cell authority modifier remains canonical.
 
 ### 52.11 Error Codes
 

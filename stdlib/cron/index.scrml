@@ -12,7 +12,7 @@ ${
     // Usage:
     //   ${ import { schedule } from 'scrml:cron' }
     //
-    //   server function startBackgroundJobs() {
+    //   function startBackgroundJobs() {
     //       const job = schedule("0 * * * *", async () => {
     //           await pruneExpiredSessions()
     //       })
