@@ -220,6 +220,55 @@ describe("§A5-2.2 — history bare attribute (§51.0.N)", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].historyAttr).toBe(false);
   });
+
+  // S70 post-A5-3 regression: the naive `\bhistory\b(?!\s*=)` regex matched
+  // `history` inside `rule=.Variant.history` (a SPEC §51.0.N target form),
+  // mis-classifying the state-child as carrying the `history` bare attr.
+  // Bug found via kitchen-sink probe — canonical SPEC §51.0.N example was
+  // the trigger. Regex tightened to require standalone-token (preceded by
+  // whitespace, followed by whitespace / `>` / `/` / end).
+  test("REGRESSION (S70): rule=.Variant.history target form does NOT mis-set historyAttr", () => {
+    const rulesRaw = `<Paused rule=.Playing.history></>`;
+    const entries = parseEngineStateChildren(rulesRaw);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].tag).toBe("Paused");
+    expect(entries[0].historyAttr).toBe(false);
+    // Verify the .history target form IS recognized on the rule itself.
+    expect(entries[0].rule.kind).toBe("single");
+    expect(entries[0].rule.target).toBe("Playing");
+    expect(entries[0].rule.historyForm).toBe(true);
+  });
+
+  test("REGRESSION (S70): rule=(.A | .B.history) multi-target with .history mid-list does NOT mis-set historyAttr", () => {
+    const rulesRaw = `<X rule=(.A | .B.history)></>`;
+    const entries = parseEngineStateChildren(rulesRaw);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].historyAttr).toBe(false);
+  });
+
+  test("REGRESSION (S70): canonical SPEC §51.0.N composite example parses correctly", () => {
+    // The full shape from spec §51.0.N — composite Playing with inner engine,
+    // Paused with .Playing.history target. The bug fix prevents Paused from
+    // false-firing as historyAttr=true.
+    const rulesRaw = `<Title rule=.Playing></>
+<Playing history rule=(.Title | .Paused)>
+  <engine for=PlayMode initial=.Exploring>
+    <Exploring rule=.Battle></>
+    <Battle rule=.Exploring></>
+  </>
+</>
+<Paused rule=.Playing.history></>`;
+    const entries = parseEngineStateChildren(rulesRaw);
+    expect(entries).toHaveLength(3);
+    const titleE = entries.find((e) => e.tag === "Title");
+    const playingE = entries.find((e) => e.tag === "Playing");
+    const pausedE = entries.find((e) => e.tag === "Paused");
+    expect(titleE.historyAttr).toBe(false);
+    expect(playingE.historyAttr).toBe(true);
+    expect(playingE.innerEngines.length).toBe(1);
+    expect(pausedE.historyAttr).toBe(false); // bug-fix anchor
+    expect(pausedE.rule.historyForm).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

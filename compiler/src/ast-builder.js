@@ -8597,13 +8597,16 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         //   pinned         — bareword modifier (§51.0.B + §6.10)
         const varMatch = header.match(new RegExp(`\\bvar\\s*=\\s*(${IDENT.source})\\b`));
         const initialMatch = header.match(new RegExp(`\\binitial\\s*=\\s*\\.(${IDENT.source})\\b`));
-        // `pinned` as a bareword (not `pinned=`).
-        const pinnedMatch = /\bpinned\b(?!\s*=)/.test(header);
+        // `pinned` as a bareword (not `pinned=`). Standalone-token
+        // requirement (preceded by whitespace, followed by whitespace / `>`
+        // / `/` / end) — defense-in-depth against `.X.pinned`-style
+        // mis-matches (mirrors the `historyAttr` regex tightening landed
+        // S70 post-A5-3-SHIP for the SPEC §51.0.N `.Variant.history` shape).
+        const pinnedMatch = /(?:^|\s)pinned(?=\s|>|\/|$)/.test(header);
         // §51.0.P (S67 — A5-2): `parallel` bareword modifier on file-scope
-        // engines. Negative-lookahead avoids false-match on a hypothetical
-        // `parallel=...` attribute (not in spec). A5-3 typer fires
-        // E-PARALLEL-NESTED-ENGINE / silently-ignores on derived engines.
-        const parallelMatch = /\bparallel\b(?!\s*=)/.test(header);
+        // engines. Same standalone-token discipline as `pinned` above —
+        // defense-in-depth (mirrors S70 `historyAttr` regex tightening).
+        const parallelMatch = /(?:^|\s)parallel(?=\s|>|\/|$)/.test(header);
 
         let engineName = "";
         let governedType = "";

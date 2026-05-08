@@ -673,9 +673,18 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       ruleForm = parseRuleAttrValue(val);
     }
 
-    // §51.0.N (A5-2 sub-step 3) — `history` bare attribute. Negative-
-    // lookahead avoids false-match on a hypothetical `history=...` attribute.
-    const historyAttr = /\bhistory\b(?!\s*=)/.test(afterTag);
+    // §51.0.N (A5-2 sub-step 3) — `history` bare attribute.
+    //
+    // The regex MUST require `history` to be a STANDALONE token preceded by
+    // whitespace and followed by whitespace / `>` / `/` / end-of-string —
+    // NOT preceded by `.`. The naive `\bhistory\b(?!\s*=)` form fires
+    // incorrectly inside `rule=.Variant.history` (a SPEC §51.0.N target form
+    // where `history` is a structured-target suffix, NOT a bareword
+    // attribute). Word boundary `\b` treats `.` as a boundary, so the naive
+    // form mis-classifies `<Paused rule=.Playing.history>` as carrying the
+    // `history` bare attribute. (Bug found S70 post-A5-3-SHIP via kitchen-
+    // sink probe; canonical SPEC §51.0.N example was the trigger.)
+    const historyAttr = /(?:^|\s)history(?=\s|>|\/|$)/.test(afterTag);
 
     // Locate body end.
     let bodyStart = openerEnd + 1;
