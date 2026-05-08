@@ -241,6 +241,17 @@ const SERVER_ONLY_PATTERNS: ServerOnlyPattern[] = [
   { pattern: /\bwriteFileSync\s*\(/, resourceType: "writeFileSync" },
   // process.env is server-only
   { pattern: /\bprocess\.env\b/, resourceType: "process.env" },
+  // Insight 26 Batch 1 — D2: complete process.* server-only set (2026-05-08).
+  // Per stdlib-empty-body-audit-2026-05-08.md §3.6, these patterns escape
+  // the original regex set and stdlib/process/index.scrml relies on them.
+  { pattern: /\bprocess\.cwd\s*\(/, resourceType: "process.cwd" },
+  { pattern: /\bprocess\.argv\b/, resourceType: "process.argv" },
+  { pattern: /\bprocess\.platform\b/, resourceType: "process.platform" },
+  { pattern: /\bprocess\.exit\s*\(/, resourceType: "process.exit" },
+  { pattern: /\bprocess\.uptime\s*\(/, resourceType: "process.uptime" },
+  { pattern: /\bprocess\.memoryUsage\s*\(/, resourceType: "process.memoryUsage" },
+  // Bun.cron — Bun ≥1.3.12 in-process scheduler. Server-only.
+  { pattern: /\bBun\.cron\b/, resourceType: "Bun.cron" },
   // env() built-in is server-only unless prefixed with `public`
   { pattern: /(?<!public )\benv\s*\(/, resourceType: "env()" },
   // session object is server-only (§20.5 — available only in server-escalated functions)
@@ -260,6 +271,13 @@ const SERVER_ONLY_SCRML_MODULES = new Set<string>([
   "scrml:auth",
   "scrml:data",
   "scrml:http",
+  // Insight 26 Batch 1 — D1 completion (2026-05-08).
+  // Each verified server-only by header of stdlib/<name>/index.scrml.
+  "scrml:redis",   // wraps Bun.redis (Bun ≥1.3); network-bound server-only
+  "scrml:fs",      // node:fs / Bun.file APIs; not available in browser
+  "scrml:process", // Node/Bun process APIs; not available in browser
+  "scrml:cron",    // wraps Bun.cron (Bun ≥1.3.12); in-process scheduler
+  "scrml:oauth",   // OAuth client; network calls + token storage
 ]);
 
 /**
@@ -532,10 +550,39 @@ export function walkBodyForTriggers(
   stateBlockIdByField: Map<string, string>,
   filePath: string,
   isWorkerBody: boolean = false,
+  /**
+   * Insight 26 Batch 1 D2c (2026-05-08): names imported from server-only
+   * runtime sources (`bun`, `bun:*`, `node:*`, server-only `scrml:*`).
+   * When a bare-expr references such a name as a member-access subject
+   * (e.g. `redis.get(key)` where `redis` is imported from "bun"), it
+   * triggers server escalation.
+   *
+   * Defaults to empty set for back-compat with self-host RI and any
+   * external callers.
+   */
+  importedServerNamespaces: Set<string> = new Set(),
 ): WalkResult {
   const triggers: EscalationReason[] = [];
   const callees: string[] = [];
   const warnings: RouteWarning[] = [];
+
+  /**
+   * D2c helper: scan an expression string for member-access references to
+   * any name imported from a server-only runtime source. Returns the first
+   * matching name, or null.
+   *
+   * Matches `\bNAME\.` (member access) — does NOT match `NAME(...)` direct
+   * calls, which are already handled by `extractCalleesFromExpr` +
+   * `importedServerFnNames` at the CPS layer.
+   */
+  function detectImportedServerNamespaceRef(expr: string): string | null {
+    if (importedServerNamespaces.size === 0) return null;
+    for (const name of importedServerNamespaces) {
+      const re = new RegExp(`\\b${escapeRegex(name)}\\.[A-Za-z_$]`);
+      if (re.test(expr)) return name;
+    }
+    return null;
+  }
 
   function visitNode(node: LogicStatement | ASTNode): void {
     if (!node || typeof node !== "object") return;
@@ -560,6 +607,16 @@ export function walkBodyForTriggers(
         triggers.push({
           kind: "server-only-resource",
           resourceType,
+          span: node.span,
+        });
+      }
+
+      // D2c (Insight 26): server-only namespace import member access.
+      const nsRef = detectImportedServerNamespaceRef(expr);
+      if (nsRef !== null) {
+        triggers.push({
+          kind: "server-only-resource",
+          resourceType: `imported-server-namespace:${nsRef}`,
           span: node.span,
         });
       }
@@ -626,6 +683,16 @@ export function walkBodyForTriggers(
         });
       }
 
+      // D2c (Insight 26): server-only namespace import member access in init.
+      const nsRefInit = detectImportedServerNamespaceRef(init);
+      if (nsRefInit !== null) {
+        triggers.push({
+          kind: "server-only-resource",
+          resourceType: `imported-server-namespace:${nsRefInit}`,
+          span: node.span,
+        });
+      }
+
       // Callee extraction from the init expression.
       callees.push(...extractCalleesFromNode(node, "init"));
       return;
@@ -662,6 +729,16 @@ export function walkBodyForTriggers(
         triggers.push({
           kind: "server-only-resource",
           resourceType: reactDeclResourceType,
+          span: node.span,
+        });
+      }
+
+      // D2c (Insight 26): server-only namespace import member access in init.
+      const nsRefStateInit = detectImportedServerNamespaceRef(init);
+      if (nsRefStateInit !== null) {
+        triggers.push({
+          kind: "server-only-resource",
+          resourceType: `imported-server-namespace:${nsRefStateInit}`,
           span: node.span,
         });
       }
@@ -770,6 +847,12 @@ export function analyzeCPSEligibility(
   analysisMap: Map<string, AnalysisRecord>,
   resolvedServerFnIds: Set<string>,
   importedServerFnNames: Set<string>,
+  /**
+   * Insight 26 Batch 1 D2c (2026-05-08): names imported from server-only
+   * runtime sources for the file containing this body. Defaults to empty
+   * for back-compat with self-host RI and external callers.
+   */
+  importedServerNamespaces: Set<string> = new Set(),
 ): CPSResult | null {
   if (!body || body.length === 0) return null;
 
@@ -791,6 +874,7 @@ export function analyzeCPSEligibility(
       analysisMap,
       resolvedServerFnIds,
       importedServerFnNames,
+      importedServerNamespaces,
     );
 
     // Special case: state-decl with server function call OR server-only
@@ -799,7 +883,7 @@ export function analyzeCPSEligibility(
       isReactive &&
       node.kind === "state-decl" &&
       (hasServerCallInInit(node, functionIndex, resolvedServerFnIds, importedServerFnNames) ||
-        hasServerOnlyResourceInInit(node));
+        hasServerOnlyResourceInInit(node, importedServerNamespaces));
 
     if (isReactiveServer) {
       reactiveServerIndices.push(i);
@@ -877,8 +961,15 @@ function hasServerCallInInit(
 /**
  * Check if a state-decl node's init expression contains a server-only
  * resource: SQL sigil (?{`), Bun.* APIs, process.env, env(), etc.
+ *
+ * Per Insight 26 Batch 1 D2c (2026-05-08), also recognizes member-access
+ * references to names imported from server-only runtime sources (e.g.
+ * `redis.get(key)` where `redis` is imported from "bun").
  */
-function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
+function hasServerOnlyResourceInInit(
+  node: LogicStatement,
+  importedServerNamespaces: Set<string> = new Set(),
+): boolean {
   // fix-cg-cps-return-sql-ref-placeholder (S40 follow-up): when the AST
   // builder attached a structured sqlNode (because the initializer was
   // `?{...}.method()`), `init` is "" and `initExpr` is undefined. The
@@ -897,6 +988,14 @@ function hasServerOnlyResourceInInit(node: LogicStatement): boolean {
 
   // Check for other server-only resource patterns
   if (detectServerOnlyResource(init) !== null) return true;
+
+  // Insight 26 D2c — server-only namespace member access (e.g. `redis.get(key)`).
+  if (importedServerNamespaces.size > 0) {
+    for (const name of importedServerNamespaces) {
+      const re = new RegExp(`\\b${escapeRegex(name)}\\.[A-Za-z_$]`);
+      if (re.test(init)) return true;
+    }
+  }
 
   return false;
 }
@@ -925,8 +1024,20 @@ function isServerTriggerStatement(
   analysisMap: Map<string, AnalysisRecord>,
   resolvedServerFnIds: Set<string>,
   importedServerFnNames: Set<string>,
+  /** Insight 26 D2c (2026-05-08): per-file imported server namespaces. */
+  importedServerNamespaces: Set<string> = new Set(),
 ): boolean {
   if (!node || typeof node !== "object") return false;
+
+  // Insight 26 D2c helper — match `\bNAME\.` (member access).
+  const matchesNamespaceRef = (expr: string): boolean => {
+    if (importedServerNamespaces.size === 0) return false;
+    for (const name of importedServerNamespaces) {
+      const re = new RegExp(`\\b${escapeRegex(name)}\\.[A-Za-z_$]`);
+      if (re.test(expr)) return true;
+    }
+    return false;
+  };
 
   // SQL blocks are always server-side
   if (node.kind === "sql") return true;
@@ -937,6 +1048,9 @@ function isServerTriggerStatement(
 
     // Server-only resource access
     if (detectServerOnlyResource(expr) !== null) return true;
+
+    // D2c (Insight 26): server-only namespace member access
+    if (matchesNamespaceRef(expr)) return true;
 
     // Protected field access
     for (const fieldName of protectedFields) {
@@ -966,6 +1080,9 @@ function isServerTriggerStatement(
 
     // Server-only resource in init
     if (detectServerOnlyResource(init) !== null) return true;
+
+    // D2c (Insight 26): server-only namespace member access in init
+    if (matchesNamespaceRef(init)) return true;
 
     // Calls to server-escalated functions or scrml: stdlib imports in init
     const callees = extractCalleesFromNode(node, "init");
@@ -1015,10 +1132,32 @@ export function buildFunctionIndex(files: FileAST[]): Map<string, FunctionIndexE
 }
 
 /**
+ * Insight 26 Batch 1 — D2c (2026-05-08).
+ * Bun runtime sources whose imports are all server-only. `bun` itself
+ * surfaces network/process/file APIs (Bun.file, Bun.serve, redis, etc.) that
+ * have no browser equivalent. `bun:*` subpath imports (bun:sqlite, bun:test,
+ * bun:ffi, etc.) are also server-only — bun:test is dev-time only and is
+ * never bundled into client output.
+ */
+function isServerOnlyImportSource(source: string): boolean {
+  if (SERVER_ONLY_SCRML_MODULES.has(source)) return true;
+  if (source === "bun") return true;
+  if (source.startsWith("bun:")) return true;
+  // node:* subpaths are Node-stdlib namespaces; never browser-available.
+  if (source.startsWith("node:")) return true;
+  return false;
+}
+
+/**
  * Build a set of function names imported from server-only scrml: modules.
  *
  * When a file imports { hash } from 'scrml:crypto', hash is server-only
  * even though it has no AST node in the user's code.
+ *
+ * Per Insight 26 Batch 1 D2c (2026-05-08), also recognizes Bun and Node
+ * runtime sources (`bun`, `bun:*`, `node:*`) so that `import { redis } from "bun"`
+ * (the pattern used by stdlib/redis/index.scrml) treats the imported names
+ * as server-only.
  */
 function buildImportedServerFnNames(files: FileAST[]): Set<string> {
   const names = new Set<string>();
@@ -1028,7 +1167,7 @@ function buildImportedServerFnNames(files: FileAST[]): Set<string> {
     for (const node of imports) {
       if (node && node.kind === "import-decl" && node.source) {
         const source = node.source.replace(/^['"]|['"]$/g, "");
-        if (SERVER_ONLY_SCRML_MODULES.has(source)) {
+        if (isServerOnlyImportSource(source)) {
           for (const name of node.names ?? []) {
             names.add(name);
           }
@@ -1037,6 +1176,40 @@ function buildImportedServerFnNames(files: FileAST[]): Set<string> {
     }
   }
   return names;
+}
+
+/**
+ * Insight 26 Batch 1 D2c (2026-05-08).
+ * Build a per-file map of names imported from server-only sources,
+ * used by walkBodyForTriggers to detect member-access references like
+ * `redis.get(key)` where `redis` is imported from "bun".
+ *
+ * Distinct from `buildImportedServerFnNames` (which collects all such names
+ * across all files into a single flat set used at the CPS layer for
+ * direct-call escalation): this map is per-file because imports are
+ * file-scoped, and a member-access reference like `redis.get(key)` only
+ * means "server-only" when `redis` was imported from a server-only source
+ * IN THE SAME FILE.
+ */
+function buildPerFileImportedServerNamespaces(files: FileAST[]): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>();
+  for (const fileAST of files) {
+    const imports: ImportDeclNode[] =
+      fileAST.imports ?? ((fileAST as any).ast ? (fileAST as any).ast.imports : []) ?? [];
+    const names = new Set<string>();
+    for (const node of imports) {
+      if (node && node.kind === "import-decl" && node.source) {
+        const source = node.source.replace(/^['"]|['"]$/g, "");
+        if (isServerOnlyImportSource(source)) {
+          for (const name of node.names ?? []) {
+            names.add(name);
+          }
+        }
+      }
+    }
+    result.set(fileAST.filePath, names);
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1428,6 +1601,13 @@ export function runRI(input: RIInput): RIOutput {
   const importedServerFnNames = buildImportedServerFnNames(files);
 
   // ------------------------------------------------------------------
+  // Step 2c: Insight 26 Batch 1 (2026-05-08) — per-file map of names
+  // imported from server-only sources, used by walkBodyForTriggers to
+  // detect member-access references like `redis.get(key)`.
+  // ------------------------------------------------------------------
+  const perFileImportedServerNamespaces = buildPerFileImportedServerNamespaces(files);
+
+  // ------------------------------------------------------------------
   // Step 3: First pass — collect all function nodes and compute DIRECT
   // escalation (no transitive resolution yet).
   // ------------------------------------------------------------------
@@ -1441,6 +1621,9 @@ export function runRI(input: RIInput): RIOutput {
     // Collect the span.start values of functions inside worker bodies
     // (<program name="...">) so we can suppress E-ROUTE-001 for them.
     const workerBodyFnIds = collectWorkerBodyFunctionIds(fileAST);
+
+    // Per-file imported server namespaces (Insight 26 D2c).
+    const fileImportedNamespaces = perFileImportedServerNamespaces.get(filePath) ?? new Set<string>();
 
     for (const fnNode of fnNodes) {
       const fnNodeId = makeFunctionNodeId(filePath, fnNode);
@@ -1464,6 +1647,7 @@ export function runRI(input: RIInput): RIOutput {
         stateBlockIdByField,
         filePath,
         isWorkerBody,
+        fileImportedNamespaces,
       );
 
       const directTriggers: EscalationReason[] = [...explicitTriggers, ...bodyTriggers];
@@ -1624,6 +1808,345 @@ export function runRI(input: RIInput): RIOutput {
   }
 
   // ------------------------------------------------------------------
+  // Step 5c: Caller-context propagation (Insight 26 Batch 1, 2026-05-08).
+  //
+  // Forward fixed-point: a function with NO direct triggers and NO
+  // capture taint, called ONLY from server-classified callers (and never
+  // from any client-classified function), escalates to server.
+  //
+  // This is the load-bearing precondition that makes Position B safe
+  // (server keyword deprecation): functions that exist only to be called
+  // from server contexts get correctly classified server even without
+  // explicit annotation or body triggers.
+  //
+  // Rules:
+  //   - Function with at least one client caller stays AMBIENT (client-
+  //     classified for now; codegen handles the cross-boundary call via
+  //     fetch stub at call site, current behavior preserved).
+  //   - Function with no callers at all stays unchanged (Step 6's D4
+  //     dead-code-warn handles those separately).
+  //   - Function called ONLY by server-classified functions promotes to
+  //     server.
+  //   - Cycles where neither cycle member has direct triggers and the
+  //     cycle has no external server callers: stay client (the lattice
+  //     join is monotonic; without a "seed" server caller, propagation
+  //     never starts).
+  //
+  // The algorithm is monotonic (only ever PROMOTES client→server, never
+  // demotes), so the lattice fixed-point terminates in at most
+  // analysisMap.size iterations.
+  // ------------------------------------------------------------------
+
+  // Build inverse caller map: calleeFnNodeId → Set<callerFnNodeId>.
+  // Resolves callees by name via fnNameToNodeIds (already built for 5b).
+  const inverseCallerMap = new Map<string, Set<string>>();
+  for (const [callerFnNodeId, callerRecord] of analysisMap) {
+    for (const calleeName of callerRecord.callees) {
+      const calleeFnIds = fnNameToNodeIds.get(calleeName);
+      if (!calleeFnIds) continue;
+      for (const calleeFnId of calleeFnIds) {
+        if (!inverseCallerMap.has(calleeFnId)) inverseCallerMap.set(calleeFnId, new Set());
+        inverseCallerMap.get(calleeFnId)!.add(callerFnNodeId);
+      }
+    }
+  }
+
+  const MAX_CALLER_CTX_ITER = analysisMap.size + 1;
+  let callerCtxChanged = true;
+  let callerCtxIter = 0;
+
+  while (callerCtxChanged && callerCtxIter < MAX_CALLER_CTX_ITER) {
+    callerCtxChanged = false;
+    callerCtxIter++;
+
+    for (const [fnNodeId, record] of analysisMap) {
+      // Already server-classified — no propagation needed.
+      if (resolvedServerFnIds.has(fnNodeId)) continue;
+
+      // §39.3: handle() escape hatch is middleware, not server. Skip.
+      if ((record.fnNode as any).isHandleEscapeHatch === true) continue;
+
+      const callers = inverseCallerMap.get(fnNodeId);
+      if (!callers || callers.size === 0) continue;
+
+      // Classify callers. Skip self-references (cycles) — a function calling
+      // itself doesn't add information for propagation.
+      let serverCallerCount = 0;
+      let clientCallerCount = 0;
+      for (const callerId of callers) {
+        if (callerId === fnNodeId) continue; // self-reference
+        if (resolvedServerFnIds.has(callerId)) {
+          serverCallerCount++;
+        } else {
+          clientCallerCount++;
+        }
+      }
+
+      // No non-self callers → cycle-only or self-only → skip.
+      if (serverCallerCount === 0 && clientCallerCount === 0) continue;
+
+      // ANY client caller → stay AMBIENT (current behavior preserved).
+      if (clientCallerCount > 0) continue;
+
+      // ALL non-self callers are server-classified → promote.
+      const propagatedReason: EscalationReason = {
+        kind: "server-only-resource",
+        resourceType: "caller-context-propagation",
+        span: record.fnNode.span,
+      };
+
+      record.directTriggers.push(propagatedReason);
+      resolvedServerFnIds.add(fnNodeId);
+
+      const existing = escalationResults.get(fnNodeId);
+      if (existing) {
+        existing.allReasons.push(propagatedReason);
+        existing.deduped = deduplicateReasons(existing.allReasons);
+      } else {
+        escalationResults.set(fnNodeId, {
+          allReasons: [propagatedReason],
+          deduped: [propagatedReason],
+        });
+      }
+
+      callerCtxChanged = true;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Step 5d: Insight 26 Batch 1 D4+D5 (2026-05-08) — emit deprecation +
+  // dead-function diagnostics.
+  //
+  // D4: W-DEAD-FUNCTION fires for a function with NO callers (anywhere
+  //     in the project) AND NOT exported AND NOT explicitly server-
+  //     annotated AND whose name does not appear as an identifier in any
+  //     markup attribute value or any bare-expr text outside its own body.
+  //
+  // D5: W-DEPRECATED-SERVER-MODIFIER fires for a function with `isServer`
+  //     === true AND at least one OTHER (non-explicit-annotation)
+  //     escalation reason. The keyword is redundant in this case;
+  //     the function would still be classified server even without it.
+  // ------------------------------------------------------------------
+
+  // Build the set of exported function names (per file) — exporting a
+  // function makes it potentially-callable from outside the project, so
+  // it is never "dead" by RI's body-callee analysis alone.
+  // CE wraps FileAST in `.ast`; unit tests pass bare FileAST. Try both.
+  const exportedFnNames = new Set<string>();
+  for (const fileAST of files) {
+    const exps = (fileAST.exports ?? ((fileAST as any).ast ? (fileAST as any).ast.exports : [])) as
+      Array<{ exportedName: string | null }>;
+    for (const exp of exps ?? []) {
+      if (exp && exp.exportedName) exportedFnNames.add(exp.exportedName);
+    }
+  }
+
+  // Build the set of identifier-like tokens that appear ANYWHERE in the
+  // project's markup attribute values, raw markup text, or bare-expr text
+  // OUTSIDE the body of the function being analyzed. This is used as a
+  // conservative "may be referenced from markup" check.
+  //
+  // RI does NOT walk markup ASTs in detail (the body-callee pass only
+  // looks at function bodies). Without this heuristic, a function called
+  // only from `<button onclick={fn}>` would falsely fire W-DEAD-FUNCTION.
+  // The cost of this heuristic is at most O(total-source-text length).
+  const markupReferencedNames = new Set<string>();
+  const IDENT_RE = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+  function collectIdentsFromText(text: string): void {
+    if (!text) return;
+    let m: RegExpExecArray | null;
+    while ((m = IDENT_RE.exec(text)) !== null) {
+      markupReferencedNames.add(m[0]);
+    }
+  }
+  // Walker collects identifier names ONLY from MARKUP-context text:
+  //   - markup attribute values (e.g. onclick="handleClick()")
+  //   - markup attribute exprNodes (newer canonical form)
+  //   - bare-expr nodes nested inside markup AS markup interpolations
+  //   - text nodes (raw markup text)
+  //
+  // Identifiers found inside FUNCTION BODIES are NOT collected — those
+  // are tracked by the body-callee analysis (record.callees), which feeds
+  // the inverseCallerMap. Including them here would falsely mask dead
+  // self-recursive functions (a function calling only itself is still
+  // dead).
+  //
+  // The walker is intentionally over-inclusive of EXTERNAL references:
+  // false positives in markupReferencedNames simply suppress the
+  // (advisory) W-DEAD-FUNCTION, which is the safe direction.
+  function walkMarkupContext(node: any): void {
+    if (!node || typeof node !== "object") return;
+
+    // STOP at function-decl: do NOT collect identifiers from inside any
+    // function body. Body-callee analysis handles those references.
+    if (node.kind === "function-decl") return;
+
+    if (node.kind === "markup" && Array.isArray(node.attrs)) {
+      for (const a of node.attrs) {
+        if (!a) continue;
+        // Legacy / direct-string attribute values.
+        if (typeof a.value === "string") collectIdentsFromText(a.value);
+        if (a.exprNode) collectIdentsFromText(emitStringFromTree(a.exprNode));
+        if (typeof a.raw === "string") collectIdentsFromText(a.raw);
+        // Structured AttrValue forms (canonical AST shape).
+        const av = a.value;
+        if (av && typeof av === "object") {
+          // call-ref: e.g. `onclick=handleClick(arg)` — collect callee name + arg idents.
+          if (av.kind === "call-ref") {
+            if (av.name) markupReferencedNames.add(av.name);
+            if (Array.isArray(av.args)) {
+              for (const arg of av.args) {
+                if (typeof arg === "string") collectIdentsFromText(arg);
+              }
+            }
+            if (Array.isArray(av.argExprNodes)) {
+              for (const en of av.argExprNodes) {
+                if (en) collectIdentsFromText(emitStringFromTree(en));
+              }
+            }
+          }
+          // variable-ref: e.g. `class=someVar` — collect the reference.
+          if (av.kind === "variable-ref" && av.name) {
+            markupReferencedNames.add(av.name);
+            if (av.exprNode) collectIdentsFromText(emitStringFromTree(av.exprNode));
+          }
+          // expr: e.g. `class={cond ? 'a' : 'b'}` — collect from raw / exprNode.
+          if (av.kind === "expr") {
+            if (typeof av.raw === "string") collectIdentsFromText(av.raw);
+            if (av.exprNode) collectIdentsFromText(emitStringFromTree(av.exprNode));
+            if (Array.isArray(av.refs)) for (const r of av.refs) markupReferencedNames.add(r);
+          }
+          // string-literal: e.g. `class="foo"` — usually not a fn ref, but
+          // be conservative and collect identifiers anyway.
+          if (av.kind === "string-literal" && typeof av.value === "string") {
+            collectIdentsFromText(av.value);
+          }
+        }
+      }
+    }
+    // Bare-expr text inside markup interpolations (`${fn()}` in markup).
+    // Note: we walk ALL bare-expr at logic-block top level too, but
+    // function-decl returns above, so these are limited to non-function
+    // contexts (markup interpolations + top-level logic statements).
+    if (node.kind === "bare-expr") {
+      const txt = node.exprNode ? emitStringFromTree(node.exprNode) : (node.expr ?? "");
+      collectIdentsFromText(txt);
+    }
+    if (node.kind === "text" && typeof node.text === "string") {
+      collectIdentsFromText(node.text);
+    }
+    // Recurse into children/body/etc.
+    for (const key of Object.keys(node)) {
+      if (key === "span" || key === "id") continue;
+      const val = node[key];
+      if (Array.isArray(val)) {
+        for (const child of val) walkMarkupContext(child);
+      } else if (val && typeof val === "object" && val.kind) {
+        walkMarkupContext(val);
+      }
+    }
+  }
+  for (const fileAST of files) {
+    // CE wraps the FileAST in `.ast`; bare-FileAST inputs (unit tests) keep
+    // .nodes at the top level. Try both, same idiom as buildImportedServerFnNames.
+    const nodes = fileAST.nodes ?? ((fileAST as any).ast ? (fileAST as any).ast.nodes : []) ?? [];
+    for (const top of nodes) walkMarkupContext(top);
+  }
+
+  // Now emit D4 (W-DEAD-FUNCTION) + D5 (W-DEPRECATED-SERVER-MODIFIER).
+  for (const [fnNodeId, record] of analysisMap) {
+    const fnName = record.fnNode.name;
+    if (!fnName) continue;
+
+    // §39.3: handle() escape hatch is middleware — never dead-warn or
+    // deprecation-warn (it is not a normal user function).
+    if ((record.fnNode as any).isHandleEscapeHatch === true) continue;
+
+    // -- D4: W-DEAD-FUNCTION --------------------------------------------
+    const callers = inverseCallerMap.get(fnNodeId);
+    const hasCallers = callers !== undefined && callers.size > 0 &&
+      // Only count non-self callers; a function calling only itself is
+      // still effectively dead.
+      Array.from(callers).some(c => c !== fnNodeId);
+    const isExported = exportedFnNames.has(fnName);
+    const isExplicitServer = record.fnNode.isServer === true;
+    const isMarkupReferenced = markupReferencedNames.has(fnName);
+
+    // Functions that are also generators (SSE) are explicitly intended as
+    // entry points; never dead-warn.
+    const isGenerator = (record.fnNode as any).isGenerator === true;
+
+    if (!hasCallers && !isExported && !isExplicitServer && !isMarkupReferenced && !isGenerator) {
+      const warn = new RIError(
+        "W-DEAD-FUNCTION",
+        `W-DEAD-FUNCTION: Function \`${fnName}\` has no callers, is not exported, ` +
+        `is not server-annotated, and is not referenced from markup. ` +
+        `It will be tree-shaken from the output. Remove the declaration if intended dead, ` +
+        `or wire it up to a caller. ` +
+        `(Note: RI does not yet track all markup reference patterns; ` +
+        `if this is a false positive, export the function or add an explicit caller.)`,
+        record.fnNode.span,
+      );
+      warn.severity = "warning";
+      errors.push(warn);
+    }
+
+    // -- D5: W-DEPRECATED-SERVER-MODIFIER -------------------------------
+    if (isExplicitServer) {
+      const escalation = escalationResults.get(fnNodeId);
+      const otherReasons = (escalation?.deduped ?? []).filter(
+        r => r.kind !== "explicit-annotation",
+      );
+
+      // Body-trigger evidence (T1/T2/T3 + capture-taint).
+      let triggerDesc: string | null = null;
+      if (otherReasons.length > 0) {
+        const first = otherReasons[0];
+        if (first.kind === "server-only-resource") {
+          triggerDesc = `server-only resource (${first.resourceType})`;
+        } else if (first.kind === "protected-field-access") {
+          triggerDesc = `protected field access (${first.field})`;
+        } else {
+          triggerDesc = first.kind;
+        }
+      } else if (callers && callers.size > 0) {
+        // Caller-context-propagation evidence: D3 didn't run for this
+        // function (already server via Trigger 4), but if it WOULD have
+        // promoted under D3 (all non-self callers are server), the
+        // keyword is redundant.
+        let serverCallerCount = 0;
+        let clientCallerCount = 0;
+        for (const callerId of callers) {
+          if (callerId === fnNodeId) continue;
+          if (resolvedServerFnIds.has(callerId)) {
+            serverCallerCount++;
+          } else {
+            clientCallerCount++;
+          }
+        }
+        if (serverCallerCount > 0 && clientCallerCount === 0) {
+          triggerDesc = "caller-context-propagation";
+        }
+      }
+
+      if (triggerDesc !== null) {
+        // The keyword is redundant — the function would escalate anyway.
+        const warn = new RIError(
+          "W-DEPRECATED-SERVER-MODIFIER",
+          `W-DEPRECATED-SERVER-MODIFIER: 'server' modifier on \`${fnName}\` is redundant ` +
+          `— function body already escalates to server via ${triggerDesc}. ` +
+          `The 'server' keyword is deprecated; remove from new code. ` +
+          `(Per Insight 26, 2026-05-08: body-content inference + caller-context propagation ` +
+          `now classify server functions structurally.)`,
+          record.fnNode.span,
+        );
+        warn.severity = "warning";
+        errors.push(warn);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
   // Step 6: Finalize RouteMap entries, apply CPS analysis, collect errors.
   // ------------------------------------------------------------------
 
@@ -1676,6 +2199,8 @@ export function runRI(input: RIInput): RIOutput {
             analysisMap,
             resolvedServerFnIds,
             importedServerFnNames,
+            // Insight 26 D2c: per-file server-only imported namespaces.
+            perFileImportedServerNamespaces.get(record.filePath) ?? new Set<string>(),
           );
 
           if (cpsResult && cpsResult.eligible) {

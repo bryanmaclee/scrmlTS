@@ -304,7 +304,14 @@ describe("§1 — client-default: function with no escalation triggers", () => {
     expect(route.escalationReasons).toHaveLength(0);
     expect(route.generatedRouteName).toBeNull();
     expect(route.serverEntrySpan).toBeNull();
-    expect(errors.filter(e => e.code !== "E-ROUTE-001")).toHaveLength(0);
+    // Insight 26 (2026-05-08): W-DEAD-FUNCTION + W-DEPRECATED-SERVER-MODIFIER
+    // are advisory warnings, not structural errors. Filter them out — this
+    // test asserts on the absence of routing errors only.
+    expect(errors.filter(e =>
+      e.code !== "E-ROUTE-001" &&
+      e.code !== "W-DEAD-FUNCTION" &&
+      e.code !== "W-DEPRECATED-SERVER-MODIFIER"
+    )).toHaveLength(0);
   });
 
   test("a function with arithmetic body is 'client'", () => {
@@ -790,10 +797,18 @@ describe("§8 — direct-only escalation: cycle detection (no infinite loop)", (
     expect(routeB.boundary).toBe("client");
   });
 
-  test("cycle where one member is server-escalated — only server-annotated member escalates", () => {
+  test("cycle where one member is server-escalated — caller-context propagation escalates the other", () => {
     // A calls B (server), B calls A — cycle where B is server.
     // B has direct annotation — stays server.
-    // A calls B but has no direct triggers — stays client.
+    //
+    // Pre-Insight 26 (2026-05-08): A stayed client because the original
+    // direct-only escalation rule (Step 4) didn't propagate.
+    // Post-Insight 26 D3 (2026-05-08): A's only non-self caller is B (server).
+    // Caller-context propagation in Step 5c promotes A to server.
+    //
+    // This is the load-bearing precondition for `server` keyword
+    // deprecation: a function called only from server-classified callers
+    // is correctly classified server even without explicit annotation.
     const fnA = makeFunctionDecl({
       name: "A",
       body: [makeBareExpr("return B(x)")],
@@ -810,9 +825,12 @@ describe("§8 — direct-only escalation: cycle detection (no infinite loop)", (
 
     const routeB = getRoute(routeMap, "/test/app.scrml", 50);
     expect(routeB.boundary).toBe("server"); // B has direct annotation
-    // A calls B (server) but A has no direct triggers — stays client.
+    // Insight 26 D3: A's only caller is B (server) — A escalates via caller-context.
     const routeA = getRoute(routeMap, "/test/app.scrml", 10);
-    expect(routeA.boundary).toBe("client");
+    expect(routeA.boundary).toBe("server");
+    // The escalation reason is caller-context-propagation.
+    const reasonsA = routeA.escalationReasons.map(r => r.resourceType).filter(Boolean);
+    expect(reasonsA).toContain("caller-context-propagation");
   });
 
   test("three-way cycle — no infinite loop", () => {
@@ -2251,5 +2269,816 @@ describe("§25 — E-ROUTE-001: suppressed inside worker bodies", () => {
     // Only the top-level function's computed access should produce E-ROUTE-001.
     expect(route001).toHaveLength(1);
     expect(route001[0].severity).toBe("warning");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §26 — Insight 26 D1: SERVER_ONLY_SCRML_MODULES set completion (2026-05-08)
+//
+// Adds 5 stdlib module names to the server-only set, so that callees imported
+// from these modules are recognized as server-side calls (used by CPS).
+//
+// New entries: scrml:redis, scrml:fs, scrml:process, scrml:cron, scrml:oauth.
+// Each was verified server-only by stdlib/<name>/index.scrml header.
+// ---------------------------------------------------------------------------
+
+describe("§26 D1 — Insight 26: server-only stdlib modules (redis/fs/process/cron/oauth)", () => {
+  test("scrml:redis import: callee triggers CPS server-side classification", () => {
+    // Pattern adapted from §21 BUG-R15-003 tests.
+    const fn = makeFunctionDecl({
+      name: "cacheUser",
+      isServer: true,
+      body: [
+        makeLetDecl("v", "get(key)", 20),
+        makeReactiveDecl("users", "[...@users, v]", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["get"], "scrml:redis");
+    const fileAST = makeFileASTWithImports("/test/redis.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/redis.scrml", 10);
+    expect(route.boundary).toBe("server");
+    // CPS split: get(key) on server (index 0); reactive on client (index 1).
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+    expect(route.cpsSplit.clientStmtIndices).toContain(1);
+  });
+
+  test("scrml:fs import: readFileSync recognized as server-side", () => {
+    const fn = makeFunctionDecl({
+      name: "loadConfig",
+      isServer: true,
+      body: [
+        makeLetDecl("c", "readFileSync(path)", 20),
+        makeReactiveDecl("cfg", "JSON.parse(c)", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["readFileSync"], "scrml:fs");
+    const fileAST = makeFileASTWithImports("/test/fs.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/fs.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+  });
+
+  test("scrml:process import: cwd recognized as server-side", () => {
+    const fn = makeFunctionDecl({
+      name: "showCwd",
+      isServer: true,
+      body: [
+        makeLetDecl("d", "cwd()", 20),
+        makeReactiveDecl("dir", "d", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["cwd"], "scrml:process");
+    const fileAST = makeFileASTWithImports("/test/proc.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/proc.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+  });
+
+  test("scrml:cron import: schedule recognized as server-side", () => {
+    const fn = makeFunctionDecl({
+      name: "startJobs",
+      isServer: true,
+      body: [
+        makeLetDecl("j", 'schedule("0 * * * *", handler)', 20),
+        makeReactiveDecl("started", "true", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["schedule"], "scrml:cron");
+    const fileAST = makeFileASTWithImports("/test/cron.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/cron.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+  });
+
+  test("scrml:oauth import: startFlow recognized as server-side", () => {
+    const fn = makeFunctionDecl({
+      name: "signin",
+      isServer: true,
+      body: [
+        makeLetDecl("u", "startFlow(cfg, sessionId)", 20),
+        makeReactiveDecl("redirectUrl", "u", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["startFlow"], "scrml:oauth");
+    const fileAST = makeFileASTWithImports("/test/oauth.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/oauth.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+    expect(route.cpsSplit.serverStmtIndices).toContain(0);
+  });
+
+  test("non-server-only module (scrml:format): callee NOT escalated", () => {
+    // Sanity check: a module NOT in the set does not auto-escalate.
+    const fn = makeFunctionDecl({
+      name: "fmt",
+      body: [
+        makeLetDecl("s", "humanize(n)", 20),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["humanize"], "scrml:format");
+    const fileAST = makeFileASTWithImports("/test/fmt.scrml", [fn], [imp]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/fmt.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §27 — Insight 26 D2: SERVER_ONLY_PATTERNS regex completion + bun-runtime
+// import recognition (2026-05-08).
+//
+// D2a: complete process.* pattern set (cwd, argv, platform, exit, uptime,
+//      memoryUsage) and Bun.cron.
+// D2c: recognize `import { ... } from "bun"`, `from "bun:*"`, `from "node:*"`
+//      as server-only-import signal.
+// ---------------------------------------------------------------------------
+
+describe("§27 D2 — Insight 26: process.* / Bun.cron patterns + bun runtime imports", () => {
+  // Each new D2a pattern as a bare-expr resource trigger.
+  const D2_PATTERNS = [
+    { expr: "return process.cwd()",                     resourceType: "process.cwd" },
+    { expr: "return process.argv[0]",                   resourceType: "process.argv" },
+    { expr: "return process.platform === 'linux'",      resourceType: "process.platform" },
+    { expr: "process.exit(1)",                          resourceType: "process.exit" },
+    { expr: "return process.uptime()",                  resourceType: "process.uptime" },
+    { expr: "return process.memoryUsage().heapUsed",    resourceType: "process.memoryUsage" },
+    { expr: "Bun.cron('0 * * * *', handler)",           resourceType: "Bun.cron" },
+  ];
+
+  D2_PATTERNS.forEach(({ expr, resourceType }) => {
+    test(`bare-expr \`${expr.slice(0, 40)}...\` escalates to 'server' (resourceType: ${resourceType})`, () => {
+      const fn = makeFunctionDecl({
+        name: "f",
+        body: [makeBareExpr(expr)],
+        spanStart: 10,
+      });
+      const fileAST = makeFileAST("/test/p.scrml", [fn]);
+      const { routeMap } = runRIClean([fileAST]);
+
+      const route = getRoute(routeMap, "/test/p.scrml", 10);
+      expect(route.boundary).toBe("server");
+      const reasons = route.escalationReasons.map(r => r.resourceType).filter(Boolean);
+      expect(reasons).toContain(resourceType);
+    });
+  });
+
+  test("D2c: import { redis } from 'bun' — redis() callee recognized server-only", () => {
+    // The exact pattern stdlib/redis/index.scrml uses.
+    const fn = makeFunctionDecl({
+      name: "cacheUser",
+      isServer: true,
+      body: [
+        makeLetDecl("v", "redis.get(key)", 20),
+        makeReactiveDecl("users", "[...@users, v]", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["redis", "RedisClient"], "bun");
+    const fileAST = makeFileASTWithImports("/test/r.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/r.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+  });
+
+  test("D2c: import { Database } from 'bun:sqlite' — Database recognized server-only", () => {
+    const fn = makeFunctionDecl({
+      name: "openDb",
+      isServer: true,
+      body: [
+        makeLetDecl("d", "Database(path)", 20),
+        makeReactiveDecl("ready", "true", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["Database"], "bun:sqlite");
+    const fileAST = makeFileASTWithImports("/test/db.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/db.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+  });
+
+  test("D2c: import { readFileSync } from 'node:fs' — readFileSync recognized server-only", () => {
+    const fn = makeFunctionDecl({
+      name: "loadCfg",
+      isServer: true,
+      body: [
+        makeLetDecl("c", "readFileSync(path)", 20),
+        makeReactiveDecl("cfg", "JSON.parse(c)", 30),
+      ],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["readFileSync"], "node:fs");
+    const fileAST = makeFileASTWithImports("/test/nfs.scrml", [fn], [imp]);
+    const { routeMap, errors } = runRIClean([fileAST]);
+
+    const riErrors = errors.filter(e => e.code === "E-RI-002");
+    expect(riErrors).toHaveLength(0);
+
+    const route = getRoute(routeMap, "/test/nfs.scrml", 10);
+    expect(route.boundary).toBe("server");
+    expect(route.cpsSplit).not.toBeNull();
+  });
+
+  test("D2c: import from non-bun module (e.g. 'react') — NOT recognized server-only", () => {
+    const fn = makeFunctionDecl({
+      name: "f",
+      body: [makeLetDecl("x", "useState(0)", 20)],
+      spanStart: 10,
+    });
+    const imp = makeImportDecl(["useState"], "react");
+    const fileAST = makeFileASTWithImports("/test/r.scrml", [fn], [imp]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const route = getRoute(routeMap, "/test/r.scrml", 10);
+    expect(route.boundary).toBe("client");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §28 — Insight 26 D3: caller-context propagation (2026-05-08).
+//
+// A function with no direct triggers, called ONLY from server-classified
+// callers (with NO client-context callers), escalates to server. This
+// closes the "vacuum" gap: a helper function called only from server
+// helpers gets correctly classified server even without an explicit
+// annotation or body trigger.
+// ---------------------------------------------------------------------------
+
+describe("§28 D3 — Insight 26: caller-context propagation", () => {
+  test("helper called only from server-annotated caller escalates to server", () => {
+    // helper() has no body triggers; caller() is server-annotated.
+    // D3 propagates: helper() promotes to server via caller-context.
+    const helperFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return x + 1")],
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      isServer: true,
+      body: [makeBareExpr("return helper(42)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d3.scrml", [helperFn, callerFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const helperRoute = getRoute(routeMap, "/test/d3.scrml", 10);
+    expect(helperRoute.boundary).toBe("server");
+    const reasons = helperRoute.escalationReasons.map(r => r.resourceType).filter(Boolean);
+    expect(reasons).toContain("caller-context-propagation");
+  });
+
+  test("helper called from server-trigger caller (?{} SQL) escalates", () => {
+    // caller() has Trigger 1 (SQL) — already server.
+    // helper() called only from caller — D3 propagates.
+    const helperFn = makeFunctionDecl({
+      name: "format",
+      body: [makeBareExpr("return JSON.stringify(o)")],
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "fetchAndFormat",
+      body: [
+        makeLetDecl("u", "?{`SELECT * FROM users`}.all()", 60),
+        makeBareExpr("return format(u)", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d3b.scrml", [helperFn, callerFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const helperRoute = getRoute(routeMap, "/test/d3b.scrml", 10);
+    expect(helperRoute.boundary).toBe("server");
+  });
+
+  test("helper called from BOTH server and client callers stays client (ambient)", () => {
+    // shared() called by both serverFn (server-annotated) and clientFn (no triggers).
+    // Mixed-context call graph — D3 does NOT promote. Caller stays AMBIENT (client).
+    const sharedFn = makeFunctionDecl({
+      name: "shared",
+      body: [makeBareExpr("return x.toUpperCase()")],
+      spanStart: 10,
+    });
+    const serverFn = makeFunctionDecl({
+      name: "serverFn",
+      isServer: true,
+      body: [makeBareExpr("return shared(s)")],
+      spanStart: 50,
+    });
+    const clientFn = makeFunctionDecl({
+      name: "clientFn",
+      body: [makeBareExpr("return shared(s)")],
+      spanStart: 100,
+    });
+    const fileAST = makeFileAST("/test/d3c.scrml", [sharedFn, serverFn, clientFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const sharedRoute = getRoute(routeMap, "/test/d3c.scrml", 10);
+    expect(sharedRoute.boundary).toBe("client");
+  });
+
+  test("helper called only from client callers stays client", () => {
+    // client-only call graph — D3 does NOT promote.
+    const helperFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return x")],
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      body: [makeBareExpr("return helper(0)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d3d.scrml", [helperFn, callerFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const helperRoute = getRoute(routeMap, "/test/d3d.scrml", 10);
+    expect(helperRoute.boundary).toBe("client");
+  });
+
+  test("helper with no callers stays client (D3 needs propagation evidence)", () => {
+    // helper() exists but is never called. D3 has no caller info to propagate.
+    // (D4 dead-code-warn is the diagnostic for this case; D3 stays silent.)
+    const helperFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return x")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d3e.scrml", [helperFn]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    const helperRoute = getRoute(routeMap, "/test/d3e.scrml", 10);
+    expect(helperRoute.boundary).toBe("client");
+  });
+
+  test("multi-hop server→server→helper chain — propagation reaches all hops (fixed point)", () => {
+    // a (server) → b (no triggers) → c (no triggers).
+    // D3 fixed-point: b escalates first (caller a is server), then c escalates
+    // (caller b is now server).
+    const fnA = makeFunctionDecl({
+      name: "a",
+      isServer: true,
+      body: [makeBareExpr("return b(x)")],
+      spanStart: 10,
+    });
+    const fnB = makeFunctionDecl({
+      name: "b",
+      body: [makeBareExpr("return c(x)")],
+      spanStart: 50,
+    });
+    const fnC = makeFunctionDecl({
+      name: "c",
+      body: [makeBareExpr("return x * 2")],
+      spanStart: 90,
+    });
+    const fileAST = makeFileAST("/test/d3f.scrml", [fnA, fnB, fnC]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    expect(getRoute(routeMap, "/test/d3f.scrml", 10).boundary).toBe("server");
+    expect(getRoute(routeMap, "/test/d3f.scrml", 50).boundary).toBe("server");
+    expect(getRoute(routeMap, "/test/d3f.scrml", 90).boundary).toBe("server");
+  });
+
+  test("self-recursive function with server caller still escalates", () => {
+    // a (server) → b (recurses). b's only NON-SELF caller is a (server).
+    // D3 ignores the self-cycle and propagates from a.
+    const fnA = makeFunctionDecl({
+      name: "a",
+      isServer: true,
+      body: [makeBareExpr("return b(x)")],
+      spanStart: 10,
+    });
+    const fnB = makeFunctionDecl({
+      name: "b",
+      body: [makeBareExpr("return n <= 1 ? n : b(n - 1)")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d3g.scrml", [fnA, fnB]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    expect(getRoute(routeMap, "/test/d3g.scrml", 50).boundary).toBe("server");
+  });
+
+  test("two-function cycle with no external server caller stays client", () => {
+    // a → b → a, no body triggers, no external callers.
+    // Both functions have only cycle-mate (themselves through cycle) as caller.
+    // D3's self-skip means each sees zero non-self callers — no propagation.
+    const fnA = makeFunctionDecl({
+      name: "a",
+      body: [makeBareExpr("return b()")],
+      spanStart: 10,
+    });
+    const fnB = makeFunctionDecl({
+      name: "b",
+      body: [makeBareExpr("return a()")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d3h.scrml", [fnA, fnB]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    // Both stay client — neither has direct trigger nor server caller.
+    expect(getRoute(routeMap, "/test/d3h.scrml", 10).boundary).toBe("client");
+    expect(getRoute(routeMap, "/test/d3h.scrml", 50).boundary).toBe("client");
+  });
+
+  test("two-function cycle WITH external server caller — conservative: cycle stays client (Batch 1 limit)", () => {
+    // entry (server) → a → b → a (cycle).
+    //
+    // Ideal/aspirational: a and b should both escalate via server-reachability.
+    // Batch 1 conservative behavior: D3's monotonic single-pass algorithm
+    // doesn't escalate in this configuration — a's callers are {entry, b};
+    // since b is unresolved (client) at iteration 1, the "ALL non-self
+    // callers are server" check fails for a. b's only caller is a, also
+    // unresolved → no propagation.
+    //
+    // This is an accepted limitation per the dispatch ("Cycles in the
+    // call graph: handle conservatively"). A future enhancement could use
+    // Tarjan SCC + topological propagation to handle server-seeded cycles;
+    // queued for post-Batch-2 follow-up if real adopter code surfaces this
+    // shape.
+    const entry = makeFunctionDecl({
+      name: "entry",
+      isServer: true,
+      body: [makeBareExpr("return a(0)")],
+      spanStart: 10,
+    });
+    const fnA = makeFunctionDecl({
+      name: "a",
+      body: [makeBareExpr("return b(x)")],
+      spanStart: 50,
+    });
+    const fnB = makeFunctionDecl({
+      name: "b",
+      body: [makeBareExpr("return a(x - 1)")],
+      spanStart: 90,
+    });
+    const fileAST = makeFileAST("/test/d3i.scrml", [entry, fnA, fnB]);
+    const { routeMap } = runRIClean([fileAST]);
+
+    expect(getRoute(routeMap, "/test/d3i.scrml", 10).boundary).toBe("server");
+    // Batch 1 conservative: cycle stays client (no SCC analysis).
+    expect(getRoute(routeMap, "/test/d3i.scrml", 50).boundary).toBe("client");
+    expect(getRoute(routeMap, "/test/d3i.scrml", 90).boundary).toBe("client");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §29 — Insight 26 D4: W-DEAD-FUNCTION diagnostic (2026-05-08).
+//
+// Fires for a function with NO callers (anywhere in the project) AND NOT
+// exported AND NOT explicitly server-annotated AND not referenced from
+// markup. Conservative: false-negatives are acceptable; false-positives
+// are not (would burn the warning on legitimate code).
+// ---------------------------------------------------------------------------
+
+describe("§29 D4 — Insight 26: W-DEAD-FUNCTION diagnostic", () => {
+  function makeFileASTWithExports(filePath, fnNodes, exports) {
+    return {
+      filePath,
+      nodes: [{ id: 1, kind: "logic", body: fnNodes, span: span(0, filePath) }],
+      imports: [],
+      exports,
+      components: [],
+      typeDecls: [],
+      spans: new Map(),
+    };
+  }
+
+  test("uncalled, unexported, non-server function fires W-DEAD-FUNCTION", () => {
+    const fn = makeFunctionDecl({
+      name: "deadHelper",
+      body: [makeBareExpr("return 42")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d4.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const dead = errors.filter(e => e.code === "W-DEAD-FUNCTION");
+    expect(dead).toHaveLength(1);
+    expect(dead[0].severity).toBe("warning");
+    expect(dead[0].message).toContain("deadHelper");
+  });
+
+  test("called function does NOT fire W-DEAD-FUNCTION", () => {
+    const helperFn = makeFunctionDecl({
+      name: "helper",
+      body: [makeBareExpr("return 1")],
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      body: [makeBareExpr("return helper()")],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d4b.scrml", [helperFn, callerFn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const helperDead = errors.filter(e => e.code === "W-DEAD-FUNCTION" && e.message.includes("helper"));
+    expect(helperDead).toHaveLength(0);
+  });
+
+  test("exported function does NOT fire W-DEAD-FUNCTION (potentially called from another file)", () => {
+    const fn = makeFunctionDecl({
+      name: "publicApi",
+      body: [makeBareExpr("return 1")],
+      spanStart: 10,
+    });
+    const exportDecl = {
+      id: 5,
+      kind: "export-decl",
+      raw: "export function publicApi",
+      exportedName: "publicApi",
+      exportKind: "function",
+      span: span(5),
+    };
+    const fileAST = makeFileASTWithExports("/test/d4c.scrml", [fn], [exportDecl]);
+    const { errors } = runRIClean([fileAST]);
+
+    const dead = errors.filter(e => e.code === "W-DEAD-FUNCTION");
+    expect(dead).toHaveLength(0);
+  });
+
+  test("explicitly-server-annotated function does NOT fire W-DEAD-FUNCTION", () => {
+    // server function = potential route handler / explicit dev intent.
+    const fn = makeFunctionDecl({
+      name: "manualRoute",
+      isServer: true,
+      body: [makeBareExpr("return 1")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d4d.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const dead = errors.filter(e => e.code === "W-DEAD-FUNCTION");
+    expect(dead).toHaveLength(0);
+  });
+
+  test("function referenced from markup attribute (e.g. onclick=fn()) does NOT fire", () => {
+    // Real-app pattern: <button onclick=handleClick()>.
+    // RI's body-callee analysis doesn't track markup refs precisely, but the
+    // markup-text-search heuristic (Step 5d) checks identifiers in attr values.
+    const fn = makeFunctionDecl({
+      name: "handleClick",
+      body: [makeBareExpr("@count = @count + 1")],
+      spanStart: 10,
+    });
+    // Construct a FileAST with a markup root that references handleClick.
+    const fileAST = {
+      filePath: "/test/d4e.scrml",
+      nodes: [
+        {
+          id: 90,
+          kind: "markup",
+          tag: "program",
+          attrs: [],
+          children: [
+            {
+              id: 91,
+              kind: "markup",
+              tag: "button",
+              attrs: [{ name: "onclick", value: "handleClick()" }],
+              children: [],
+              selfClosing: false,
+              closerForm: "</>",
+              isComponent: false,
+              span: span(91, "/test/d4e.scrml"),
+            },
+          ],
+          selfClosing: false,
+          closerForm: "</>",
+          isComponent: false,
+          span: span(90, "/test/d4e.scrml"),
+        },
+        { id: 1, kind: "logic", body: [fn], span: span(0, "/test/d4e.scrml") },
+      ],
+      imports: [],
+      exports: [],
+      components: [],
+      typeDecls: [],
+      spans: new Map(),
+    };
+    const { errors } = runRIClean([fileAST]);
+
+    const dead = errors.filter(e => e.code === "W-DEAD-FUNCTION");
+    expect(dead).toHaveLength(0);
+  });
+
+  test("generator function (SSE) does NOT fire W-DEAD-FUNCTION", () => {
+    // Generator (SSE) functions are entry points; never dead-warn.
+    const fn = {
+      ...makeFunctionDecl({
+        name: "stream",
+        isServer: true,
+        body: [makeBareExpr("yield 1")],
+        spanStart: 10,
+      }),
+      isGenerator: true,
+    };
+    const fileAST = makeFileAST("/test/d4f.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const dead = errors.filter(e => e.code === "W-DEAD-FUNCTION");
+    expect(dead).toHaveLength(0);
+  });
+
+  test("self-referential-only function (recurses, no other callers) STILL fires dead-warn", () => {
+    // A function that only calls itself is still dead. The self-skip logic in
+    // D4 ensures cycle-self-ref doesn't count as a "real" caller.
+    const fn = makeFunctionDecl({
+      name: "looper",
+      body: [makeBareExpr("return looper()")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d4g.scrml", [fn]);
+    const { errors } = runRIClean([fileAST]);
+
+    const dead = errors.filter(e => e.code === "W-DEAD-FUNCTION");
+    expect(dead).toHaveLength(1);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// §30 — Insight 26 D5: W-DEPRECATED-SERVER-MODIFIER (2026-05-08).
+//
+// Fires when a function has the `server` modifier AND the body has any
+// other escalation trigger (T1/T2/T3) or caller-context propagation
+// classifies it as server. The keyword is redundant in those cases.
+//
+// Does NOT fire when the keyword is the SOLE escalation signal.
+// ---------------------------------------------------------------------------
+
+describe("§30 D5 — Insight 26: W-DEPRECATED-SERVER-MODIFIER", () => {
+  test("server function with body server-only resource (Bun.file) — fires deprecation warning", () => {
+    const fn = makeFunctionDecl({
+      name: "loadCfg",
+      isServer: true,
+      body: [makeBareExpr("return Bun.file('/etc/c').text()")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d5.scrml", [fn]);
+    const exp = {
+      id: 5,
+      kind: "export-decl",
+      raw: "export function loadCfg",
+      exportedName: "loadCfg",
+      exportKind: "function",
+      span: span(5),
+    };
+    // Add export to silence the dead-warn for this test.
+    fileAST.exports = [exp];
+    const { errors } = runRIClean([fileAST]);
+
+    const deprec = errors.filter(e => e.code === "W-DEPRECATED-SERVER-MODIFIER");
+    expect(deprec).toHaveLength(1);
+    expect(deprec[0].severity).toBe("warning");
+    expect(deprec[0].message).toContain("loadCfg");
+    expect(deprec[0].message).toContain("Bun.file");
+  });
+
+  test("server function with body SQL trigger — fires deprecation", () => {
+    const fn = makeFunctionDecl({
+      name: "fetchRows",
+      isServer: true,
+      body: [makeLetDecl("u", "?{`SELECT * FROM users`}.all()", 20)],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d5b.scrml", [fn]);
+    fileAST.exports = [{
+      id: 5, kind: "export-decl", raw: "", exportedName: "fetchRows", exportKind: "function", span: span(5),
+    }];
+    const { errors } = runRIClean([fileAST]);
+
+    const deprec = errors.filter(e => e.code === "W-DEPRECATED-SERVER-MODIFIER");
+    expect(deprec).toHaveLength(1);
+    expect(deprec[0].message).toContain("sql-query");
+  });
+
+  test("server function with caller-context propagation — fires deprecation", () => {
+    // Helper has NO body trigger but is called from a server-annotated caller.
+    // It would be promoted via D3 caller-context propagation. If it ALSO has
+    // the `server` modifier, the modifier is redundant — fire deprecation.
+    const helperFn = makeFunctionDecl({
+      name: "helper",
+      isServer: true, // explicit + caller-context = redundant
+      body: [makeBareExpr("return x + 1")],
+      spanStart: 10,
+    });
+    const callerFn = makeFunctionDecl({
+      name: "caller",
+      isServer: true,
+      body: [
+        makeLetDecl("y", "?{`SELECT 1`}.get()", 60),
+        makeBareExpr("return helper(y)", 80),
+      ],
+      spanStart: 50,
+    });
+    const fileAST = makeFileAST("/test/d5c.scrml", [helperFn, callerFn]);
+    // Export so dead-warn doesn't fire.
+    fileAST.exports = [
+      { id: 5, kind: "export-decl", raw: "", exportedName: "helper", exportKind: "function", span: span(5) },
+      { id: 6, kind: "export-decl", raw: "", exportedName: "caller", exportKind: "function", span: span(6) },
+    ];
+    const { errors } = runRIClean([fileAST]);
+
+    // helper: explicit + caller-context propagation → redundant → fires.
+    const helperDeprec = errors.filter(
+      e => e.code === "W-DEPRECATED-SERVER-MODIFIER" && e.message.includes("`helper`"),
+    );
+    expect(helperDeprec).toHaveLength(1);
+    expect(helperDeprec[0].message).toContain("caller-context-propagation");
+
+    // caller: explicit + body SQL → redundant → fires.
+    const callerDeprec = errors.filter(
+      e => e.code === "W-DEPRECATED-SERVER-MODIFIER" && e.message.includes("`caller`"),
+    );
+    expect(callerDeprec).toHaveLength(1);
+  });
+
+  test("server function with NO other trigger — does NOT fire deprecation (keyword is sole signal)", () => {
+    // The "empty body server intent" case. Insight 26 acknowledges this is
+    // rare but not zero. Until the function gets a body trigger or is wired
+    // up to server callers, the modifier remains the sole escalation signal
+    // and is NOT deprecated.
+    const fn = makeFunctionDecl({
+      name: "soleSignal",
+      isServer: true,
+      body: [makeBareExpr("return 'hello'")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d5d.scrml", [fn]);
+    fileAST.exports = [{
+      id: 5, kind: "export-decl", raw: "", exportedName: "soleSignal", exportKind: "function", span: span(5),
+    }];
+    const { errors } = runRIClean([fileAST]);
+
+    const deprec = errors.filter(e => e.code === "W-DEPRECATED-SERVER-MODIFIER");
+    expect(deprec).toHaveLength(0);
+  });
+
+  test("client function (no server modifier) — does NOT fire deprecation", () => {
+    const fn = makeFunctionDecl({
+      name: "client",
+      body: [makeBareExpr("return 1")],
+      spanStart: 10,
+    });
+    const fileAST = makeFileAST("/test/d5e.scrml", [fn]);
+    fileAST.exports = [{
+      id: 5, kind: "export-decl", raw: "", exportedName: "client", exportKind: "function", span: span(5),
+    }];
+    const { errors } = runRIClean([fileAST]);
+
+    const deprec = errors.filter(e => e.code === "W-DEPRECATED-SERVER-MODIFIER");
+    expect(deprec).toHaveLength(0);
   });
 });

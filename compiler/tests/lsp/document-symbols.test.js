@@ -167,7 +167,14 @@ describe("LSP L1 — buildDocumentSymbols", () => {
     }
     const text = fs.readFileSync(fixture, "utf8");
     const { symbols, diagnostics } = symbolize(text, fixture);
-    expect(diagnostics.length).toBe(0);
+    // Filter out advisory warnings introduced by Insight 26 Batch 1
+    // (W-DEAD-FUNCTION, W-DEPRECATED-SERVER-MODIFIER) — this test asserts
+    // on structural diagnostics only.
+    const errs = diagnostics.filter(d =>
+      d.code !== "W-DEAD-FUNCTION" &&
+      d.code !== "W-DEPRECATED-SERVER-MODIFIER"
+    );
+    expect(errs.length).toBe(0);
     // Should at minimum surface the three enum types and the two machines.
     const names = symbols.map(s => s.name);
     expect(names).toContain("PowerUp");

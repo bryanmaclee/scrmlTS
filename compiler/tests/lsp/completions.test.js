@@ -104,8 +104,15 @@ describe("LSP L1 — buildCompletions", () => {
       "",
     ].join("\n");
     const { analysis, diagnostics } = analyzeText("/t.scrml", validSrc);
-    // Sanity: the file parses.
-    expect(diagnostics.length).toBe(0);
+    // Sanity: the file parses without errors. Filter out advisory warnings
+    // introduced by Insight 26 Batch 1 (W-DEAD-FUNCTION fires here because
+    // alpha() has no callers in this minimal fixture; W-DEPRECATED-SERVER-MODIFIER
+    // is N/A but listed for symmetry with future fixtures).
+    const errs = diagnostics.filter(d =>
+      d.code !== "W-DEAD-FUNCTION" &&
+      d.code !== "W-DEPRECATED-SERVER-MODIFIER"
+    );
+    expect(errs.length).toBe(0);
     expect(analysis.functions.map(f => f.name)).toContain("alpha");
     expect(analysis.types.map(t => t.name)).toContain("Foo");
 
