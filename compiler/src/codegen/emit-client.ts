@@ -7,6 +7,7 @@ import { emitFunctions } from "./emit-functions.ts";
 import { emitBindings } from "./emit-bindings.ts";
 import { emitReactiveWiring } from "./emit-reactive-wiring.ts";
 import { emitEventWiring } from "./emit-event-wiring.ts";
+import { emitEngineSubstrate } from "./emit-engine.ts";
 import { setVariantFieldsForFile } from "./emit-control-flow.ts";
 import { EncodingContext, emitDecodeTable, emitRuntimeReflect } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
@@ -500,6 +501,25 @@ export function generateClientJs(ctx: CompileContext): string {
   if (enumObjectLines.length > 0) {
     lines.push("// --- enum variant objects (compiler-generated) ---");
     for (const line of enumObjectLines) lines.push(line);
+    lines.push("");
+  }
+
+  // C12 engine substrate — per `<engine for=Type initial=.X>` declaration:
+  // (1) static transition table const, (2) auto-declared variant cell init.
+  // SPEC §51.0.A-G. Emitted AFTER enum variant objects (so the variant tag
+  // names map to defined runtime constants) and BEFORE reactive-wiring +
+  // event-wiring (so the engine's auto-declared cell exists before any
+  // user-authored code reads `@<varName>`).
+  //
+  // Direct-write rule= validation hook + `.advance()` method emission +
+  // `<onTransition>` hook firing + body rendering are DEFERRED to C13/C14/
+  // C15. See `compiler/src/codegen/emit-engine.ts` and the C12 SURVEY
+  // (`docs/changes/phase-a1c-step-c12-engine-state-machine-runtime/SURVEY.md`)
+  // for the full hand-off contract.
+  const engineLines = emitEngineSubstrate(fileAST);
+  if (engineLines.length > 0) {
+    lines.push("// --- engine substrate (compiler-generated, §51.0) ---");
+    for (const line of engineLines) lines.push(line);
     lines.push("");
   }
 
