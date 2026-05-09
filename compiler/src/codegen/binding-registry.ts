@@ -69,9 +69,13 @@ export interface LogicBinding {
    * (`<userName/>` in markup body resolves to a Shape 2 bindable cell, expanded inline
    * to the cell's renderSpec.element; this binding records the cell+renderSpec metadata
    * so C4 can emit the bind:value/bind:checked/bind:files/bind:group dispatch per
-   * SPEC §5.4.1).
+   * SPEC §5.4.1). "errors-element" → A1c C11 `<errors of=expr/>` first-class
+   * element (SPEC §55.8 / L13). Records the source `errors` cell key + iteration
+   * shape (per-field array vs compound rollup map) + optional body-override
+   * arrow-function expression. emit-event-wiring consumes and emits subscribe +
+   * per-iteration render.
    */
-  kind?: "if-chain-branch" | "if-chain-else" | "render-by-tag";
+  kind?: "if-chain-branch" | "if-chain-else" | "render-by-tag" | "errors-element";
 
   // Conventional reactive / conditional binding fields.
   // Required for `kind === undefined` bindings (the default).
@@ -144,6 +148,41 @@ export interface LogicBinding {
   renderSpecTag?: string;
   renderSpecAttrs?: any[];
   declValidators?: any[];
+
+  /**
+   * A1c C11 — `<errors of=expr/>` element fields.
+   * Required when `kind === "errors-element"`.
+   *
+   *   anchorId        — the placeholder anchor id stamped into the
+   *                     `<span data-scrml-errors-anchor="...">` HTML hookpoint.
+   *                     The runtime locates the anchor via this id and replaces
+   *                     its `innerHTML` on each render.
+   *   errorsKey       — the source errors cell's storage key WITHOUT the trailing
+   *                     `.errors` suffix. e.g. `of=@signup.name` → `"signup.name"`,
+   *                     `of=@signup` → `"signup"`. emit-event-wiring appends
+   *                     `.errors` and applies encodingCtx.encode().
+   *   isCompoundRollup — `true` when `of=` is a compound (no dot path past the
+   *                      compound-root) so the source `errors` is an object map
+   *                      `{field: [tags]}`. `false` for per-field (`errors` is an
+   *                      array of tags).
+   *   allFlag         — `true` when the `all` attribute is present on the element.
+   *                     Default false → render first error only.
+   *   fieldName       — for per-field iteration, the source field name (passed as
+   *                     the second arg to `_scrml_message_for(tag, fieldName)`).
+   *                     For compound rollup, undefined — `messageFor` is called
+   *                     per-(field, tag) pair using the iterated key.
+   *   bodyExpr        — raw arrow-function-shaped body when the element has a
+   *                     body-override (`${(err) => <markup>}`). Replaces the
+   *                     default `<p class="scrml-error">` render. Optional.
+   *   bodyExprNode    — structured ExprNode form of `bodyExpr`. Optional.
+   */
+  anchorId?: string;
+  errorsKey?: string;
+  isCompoundRollup?: boolean;
+  allFlag?: boolean;
+  fieldName?: string;
+  bodyExpr?: string;
+  bodyExprNode?: any;
 }
 
 export class BindingRegistry {

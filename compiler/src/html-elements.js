@@ -562,6 +562,30 @@ REGISTRY.set("errorboundary", {
 });
 
 // ---------------------------------------------------------------------------
+// <errors> — first-class validation errors element (SPEC §55.8, L13, A1c C11).
+//
+// Renders error messages from a state cell's auto-synthesized `errors` array
+// or compound rollup map. The element itself is a structural compiler-level
+// construct — it expands to a placeholder `<span data-scrml-errors-anchor>`
+// at codegen time, with runtime wiring that subscribes to the source errors
+// cell and produces the rendered DOM.
+//
+// Required attribute `of=` references the source cell. Optional `all` flag
+// renders the full error array (default: first error only).
+// ---------------------------------------------------------------------------
+
+REGISTRY.set("errors", {
+  tag: "errors",
+  attributes: new Map([
+    ...GLOBAL_ATTRIBUTES,
+    ["of",  attr("string", true)],   // required — references @cell or @compound.field
+    ["all", attr("boolean")],        // optional flag — render full array
+  ]),
+  isVoid: false,        // self-closing form is canonical, but body-override arrow is legal
+  rendersToDom: false,  // structural — codegen expands to a placeholder span
+});
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 

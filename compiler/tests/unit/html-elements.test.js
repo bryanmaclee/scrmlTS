@@ -101,7 +101,7 @@ describe("void elements", () => {
 
 describe("rendersToDom", () => {
   it("is true for all HTML elements", () => {
-    const nonDomElements = new Set(["program", "errorboundary"]);
+    const nonDomElements = new Set(["program", "errorboundary", "errors"]);
     for (const tag of getAllElementNames()) {
       if (nonDomElements.has(tag)) continue; // scrml structural elements
       expect(getElementShape(tag).rendersToDom).toBe(true);
@@ -116,6 +116,14 @@ describe("rendersToDom", () => {
 
   it("is false for errorBoundary (scrml error boundary)", () => {
     const shape = getElementShape("errorboundary");
+    expect(shape).not.toBeNull();
+    expect(shape.rendersToDom).toBe(false);
+  });
+
+  // A1c C11: <errors of=expr/> first-class element (SPEC §55.8) — structural,
+  // expands to placeholder span at codegen time, not a DOM-rendering tag.
+  it("is false for errors (scrml validation errors element)", () => {
+    const shape = getElementShape("errors");
     expect(shape).not.toBeNull();
     expect(shape.rendersToDom).toBe(false);
   });

@@ -46,13 +46,28 @@ interface LogicBinding {
    * (`if-chain-else`). `branchMode` decides per-branch whether the chain
    * controller mounts/unmounts via _scrml_mount_template/_scrml_unmount_scope
    * (clean) or toggles wrapper.style.display (dirty fallback).
+   *
+   * A1c C11: `errors-element` discriminates the `<errors of=expr/>` first-class
+   * element binding (SPEC §55.8 / L13).
    */
-  kind?: "if-chain-branch" | "if-chain-else";
+  kind?: "if-chain-branch" | "if-chain-else" | "errors-element";
   chainId?: string;
   branchId?: string;
   branchIndex?: number;
   branchMode?: "mount" | "display";
   condition?: any;
+
+  /**
+   * A1c C11 — `<errors of=expr/>` element binding fields.
+   * Required when `kind === "errors-element"`. See binding-registry.ts.
+   */
+  anchorId?: string;
+  errorsKey?: string;
+  isCompoundRollup?: boolean;
+  allFlag?: boolean;
+  fieldName?: string;
+  bodyExpr?: string;
+  bodyExprNode?: ExprNode;
 }
 
 /**
@@ -357,8 +372,122 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
   if (logicBindings && logicBindings.length > 0) {
     lines.push("");
     lines.push("  // --- Reactive display wiring ---");
+
+    // ---------------------------------------------------------------------
+    // A1c C11 — `<errors of=expr/>` first-class element runtime wiring
+    // (SPEC §55.8, L13). Emitted ONCE per compilation when at least one
+    // errors-element binding exists. Defines the local `_scrml_render_errors`
+    // helper which subscribes to the source errors cell and re-renders on
+    // change. Per-binding wiring follows the same loop as other bindings.
+    //
+    // C10 sibling note: `_scrml_message_for(tag, fieldName)` is C10's helper
+    // (4-level message resolution chain, §55.10). Until C10 lands, this code
+    // emits a stub fallback in the binding's own scope — `messageForFn` —
+    // which prefers an existing global `_scrml_message_for` if defined and
+    // falls back to a local stub returning `String(tag.tag)`. PA reconciles
+    // when C10's `_scrml_message_for` lands; consumer code is unaffected.
+    // ---------------------------------------------------------------------
+
     for (const binding of logicBindings) {
       const { placeholderId, expr } = binding;
+
+      // -----------------------------------------------------------------
+      // A1c C11 — `<errors of=expr/>` element wiring per binding.
+      // -----------------------------------------------------------------
+      if (binding.kind === "errors-element" && binding.anchorId && binding.errorsKey) {
+        // Encode the source errors cell key (compound or per-field). The
+        // suffix `.errors` is appended *after* encoding because the C8
+        // emission writes encoded keys like `signup.errors` (encoded as a
+        // single unit) — but in practice the type-encoding context encodes
+        // base names (`signup`, `signup.name`) and the `.errors` suffix is
+        // appended by emit-synth-surface AFTER encoding. To match, we encode
+        // `${errorsKey}.errors` as a single string. Since C8 calls
+        // `encodeKey(${qualifiedName}.errors)` to build the key, we mirror.
+        const sourceErrorsKey = `${binding.errorsKey}.errors`;
+        const encodedSourceKey = encodingCtx && encodingCtx.enabled
+          ? encodingCtx.encode(sourceErrorsKey)
+          : sourceErrorsKey;
+
+        const anchorId = binding.anchorId;
+        const isRollup = binding.isCompoundRollup === true;
+        const allFlag = binding.allFlag === true;
+        const fieldName = binding.fieldName ?? "";
+
+        // Compile the body-override arrow function if present. Reactive ref
+        // rewrite + emit through emitExprField so any `@vars` resolve.
+        let bodyFn: string | null = null;
+        if (binding.bodyExpr) {
+          bodyFn = emitExprField(binding.bodyExprNode, binding.bodyExpr, { mode: "client" });
+        }
+
+        const suffix = anchorId.replace(/[^a-zA-Z0-9_]/g, "_");
+        lines.push(`  // <errors of=...> element wiring (C11)`);
+        lines.push(`  {`);
+        lines.push(`    const el = document.querySelector('[data-scrml-errors-anchor=${JSON.stringify(anchorId)}]');`);
+        lines.push(`    if (el) {`);
+        // Local messageFor — prefers a global C10 implementation, falls back
+        // to a stub returning the tag string.
+        lines.push(`      const messageForFn_${suffix} = (typeof _scrml_message_for === "function")`);
+        lines.push(`        ? _scrml_message_for`);
+        lines.push(`        : function (errTag, _field) {`);
+        lines.push(`            if (errTag == null) return "";`);
+        lines.push(`            if (typeof errTag === "object" && errTag.tag != null) return String(errTag.tag);`);
+        lines.push(`            return String(errTag);`);
+        lines.push(`          };`);
+        // Body-override factory — when absent, the default render shape per
+        // SPEC line 25190.
+        if (bodyFn !== null) {
+          lines.push(`      const bodyFn_${suffix} = ${bodyFn};`);
+          lines.push(`      const renderOne_${suffix} = function(errTag, field) {`);
+          lines.push(`        const out = bodyFn_${suffix}(errTag);`);
+          lines.push(`        return (out == null) ? "" : String(out);`);
+          lines.push(`      };`);
+        } else {
+          lines.push(`      const renderOne_${suffix} = function(errTag, field) {`);
+          lines.push(`        return '<p class="scrml-error">' + messageForFn_${suffix}(errTag, field) + '</p>';`);
+          lines.push(`      };`);
+        }
+        // Render function: reads source errors, iterates per (allFlag,
+        // isRollup), produces innerHTML. Empty source → empty innerHTML
+        // (no DOM). Per SPEC line 25193-25195.
+        lines.push(`      const render_${suffix} = function() {`);
+        lines.push(`        const src = _scrml_derived_get(${JSON.stringify(encodedSourceKey)});`);
+        if (isRollup) {
+          // Compound rollup: src is an object map {field: [tags]}.
+          lines.push(`        if (!src || typeof src !== "object") { el.innerHTML = ""; return; }`);
+          lines.push(`        const entries = Object.entries(src);`);
+          lines.push(`        const parts = [];`);
+          lines.push(`        for (const [fieldKey, arr] of entries) {`);
+          lines.push(`          if (!Array.isArray(arr) || arr.length === 0) continue;`);
+          if (allFlag) {
+            lines.push(`          for (const tag of arr) parts.push(renderOne_${suffix}(tag, fieldKey));`);
+          } else {
+            lines.push(`          parts.push(renderOne_${suffix}(arr[0], fieldKey));`);
+          }
+          lines.push(`        }`);
+          lines.push(`        el.innerHTML = parts.join("");`);
+        } else {
+          // Per-field: src is an array of tags.
+          lines.push(`        if (!Array.isArray(src) || src.length === 0) { el.innerHTML = ""; return; }`);
+          if (allFlag) {
+            lines.push(`        const parts = [];`);
+            lines.push(`        for (const tag of src) parts.push(renderOne_${suffix}(tag, ${JSON.stringify(fieldName)}));`);
+            lines.push(`        el.innerHTML = parts.join("");`);
+          } else {
+            lines.push(`        el.innerHTML = renderOne_${suffix}(src[0], ${JSON.stringify(fieldName)});`);
+          }
+        }
+        lines.push(`      };`);
+        // Initial render + reactive subscription. Subscribe to the SOURCE
+        // errors cell (which is itself a derived cell from C7/C8). When the
+        // upstream changes, _scrml_reactive_set re-fires subscribers; we
+        // pull the latest derived value and re-render.
+        lines.push(`      render_${suffix}();`);
+        lines.push(`      _scrml_reactive_subscribe(${JSON.stringify(encodedSourceKey)}, function() { render_${suffix}(); });`);
+        lines.push(`    }`);
+        lines.push(`  }`);
+        continue;
+      }
 
       // -----------------------------------------------------------------
       // Phase 2b: if= mount/unmount (clean-subtree path)

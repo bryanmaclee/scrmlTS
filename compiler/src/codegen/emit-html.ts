@@ -456,6 +456,150 @@ export function generateHtml(
         return;
       }
 
+      // ---------------------------------------------------------------------
+      // A1c C11 — `<errors of=expr/>` first-class element (SPEC §55.8, L13).
+      //
+      // Two attribute shapes:
+      //   - of=@compound.field → per-field; reads <compound>.<field>.errors
+      //     array of validation tags. Default renders the first tag wrapped in
+      //     `<p class="scrml-error">${ messageFor(tag, fieldName) }</p>`.
+      //     `all` flag iterates the full array.
+      //   - of=@compound → compound rollup; reads <compound>.errors object map
+      //     `{field: [tags]}`. `all` flag iterates Object.entries(map).
+      //
+      // When the source errors array/map is empty, NO DOM is rendered (per
+      // SPEC line 25193-25195: "literally nothing rendered"). The anchor span
+      // remains in the DOM as the re-render hookpoint, but its innerHTML is
+      // empty when there are no errors.
+      //
+      // Body override (SPEC line 25197-25207): when the element body contains
+      // an arrow-function-shaped expression `${(err) => <markup>}`, the body
+      // REPLACES the default render. The compiler captures the body as a JS
+      // arrow function; the runtime applies it per error tag.
+      //
+      // No-validator fields (SPEC line 25209-25210): legal and produces no DOM
+      // — handled trivially since C7+C8 emit `errors === []` for fields with
+      // no validators (the empty-array path applies unconditionally).
+      //
+      // The `messageFor` 4-level resolution chain (§55.10) is C10 sibling
+      // territory. Until C10 lands, the runtime uses a stub helper that
+      // returns the raw tag name; this is documented in the dispatch and
+      // PA reconciles when C10 is shipped.
+      // ---------------------------------------------------------------------
+      if (tag === "errors") {
+        const span = node.span ?? { file: "", start: 0, end: 0, line: 1, col: 1 };
+        const ofAttr = attrs.find((a: any) => a.name === "of");
+        const allAttr = attrs.find((a: any) => a.name === "all");
+
+        // VP-style validation: `of=` is REQUIRED. Surface as warning rather
+        // than error — keeps the page rendering even with a malformed `<errors>`.
+        if (!ofAttr) {
+          if (errors) {
+            errors.push(new CGError(
+              "E-ERRORS-001",
+              `E-ERRORS-001: \`<errors>\` is missing the required \`of\` attribute. ` +
+              `The \`of=\` attribute references the source errors cell, e.g. ` +
+              `\`<errors of=@signup.name/>\` (per-field) or \`<errors of=@signup all/>\` (compound rollup). ` +
+              `See SPEC §55.8.`,
+              span,
+            ));
+          }
+          // Continue and emit an empty anchor so downstream rendering doesn't break.
+        }
+
+        // Resolve the `of=` reference → storage key root (without trailing
+        // `.errors`). The value is a `variable-ref` AST node like
+        // `{kind: "variable-ref", name: "@signup.name"}` (per parser).
+        // We strip the leading `@` and pass through; the compound-vs-per-field
+        // distinction is the presence of a dot in the dotted path.
+        let errorsKey: string | null = null;
+        let isCompoundRollup = false;
+        let fieldName: string | undefined;
+        if (ofAttr) {
+          const ofVal = ofAttr.value;
+          if (ofVal && ofVal.kind === "variable-ref" && typeof ofVal.name === "string") {
+            const raw = ofVal.name.replace(/^@/, "");
+            // raw is like "signup.name" (per-field) or "signup" (compound),
+            // or "outer.inner" (compound) or "outer.inner.field" (multi-level
+            // per-field, §6.3.5 multi-level compound nav). Distinguishing
+            // compound-rollup vs per-field at codegen-time without symbol-table
+            // lookup is impossible from the AST alone. Heuristic: treat the
+            // path as per-field when it has at least one dot (the most common
+            // shape — `<errors of=@compound.field/>`); compound rollup uses
+            // a bare `<errors of=@compound/>` (no dot). Multi-level compound
+            // nav (`@outer.inner.field`) lands in the per-field branch — still
+            // correct, since the leaf cell's `errors` is always an array.
+            //
+            // The compound-rollup case (`@compound`) has no per-field name to
+            // pass to `messageFor`; the iteration produces (fieldName, tag)
+            // pairs, with messageFor(tag, fieldName).
+            errorsKey = raw;
+            const lastDot = raw.lastIndexOf(".");
+            if (lastDot === -1) {
+              // No dot → compound rollup (errors is an object map)
+              isCompoundRollup = true;
+            } else {
+              // Has at least one dot → per-field (errors is an array)
+              isCompoundRollup = false;
+              fieldName = raw.substring(lastDot + 1);
+            }
+          } else if (errors) {
+            errors.push(new CGError(
+              "E-ERRORS-002",
+              `E-ERRORS-002: \`<errors of=...>\` requires an \`@\`-rooted scrml expression. ` +
+              `Got an unrecognized value shape. ` +
+              `Example: \`<errors of=@signup.name/>\` or \`<errors of=@signup all/>\`. ` +
+              `See SPEC §55.8.`,
+              span,
+            ));
+          }
+        }
+
+        // `all` flag — present means render the full array; absent means
+        // first error only. Per SPEC line 25186-25187. Treat any presence of
+        // the attribute as truthy (boolean flag).
+        const allFlag = allAttr !== undefined;
+
+        // Body-override path. The arrow-function-shaped body is captured as a
+        // logic-node child. We extract the raw expression text + its ExprNode
+        // for emit-event-wiring to compile and apply per error.
+        let bodyExpr: string | undefined;
+        let bodyExprNode: any | undefined;
+        for (const child of children) {
+          if (!child || typeof child !== "object") continue;
+          if (child.kind === "logic" && Array.isArray(child.body) && child.body.length > 0) {
+            // Look for a single bare-expr that is arrow-function-shaped.
+            const bare = child.body.find((b: any) => b && b.kind === "bare-expr");
+            if (bare) {
+              const raw: string = bare.exprNode
+                ? emitStringFromTree(bare.exprNode)
+                : (bare.expr ?? "");
+              if (raw && /^\s*\(?\s*[a-zA-Z_$][\w$]*\s*\)?\s*=>/.test(raw)) {
+                bodyExpr = raw;
+                bodyExprNode = bare.exprNode;
+                break;
+              }
+            }
+          }
+        }
+
+        const anchorId = genVar("scrml_errors");
+        parts.push(`<span data-scrml-errors-anchor="${anchorId}"></span>`);
+
+        if (registry && errorsKey !== null) {
+          registry.addLogicBinding({
+            kind: "errors-element",
+            anchorId,
+            errorsKey,
+            isCompoundRollup,
+            allFlag,
+            ...(fieldName !== undefined ? { fieldName } : {}),
+            ...(bodyExpr !== undefined ? { bodyExpr, bodyExprNode } : {}),
+          } as any);
+        }
+        return;
+      }
+
       if (tag === "program") {
         // Named programs are worker bundles (§4.12.4) — skip entirely.
         // Only emit children for the unnamed/root program.

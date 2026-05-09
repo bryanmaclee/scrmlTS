@@ -179,6 +179,30 @@ ELEMENT_ATTR_REGISTRY.set("errorboundary", {
 });
 
 // ---------------------------------------------------------------------------
+// <errors> — first-class validation errors element (SPEC §55.8, L13).
+//
+// Two attribute shapes:
+//   - of=expr (REQUIRED) — references a per-field cell (`@signup.name`) or a
+//     compound cell (`@signup`). The compiler reads `.errors` from the
+//     referenced cell's runtime registry. The value is a scrml @-rooted
+//     expression, NOT a string template — interpolation is not supported.
+//   - all (optional flag) — when present, renders the FULL error array; absent,
+//     renders the first error only.
+//
+// Codegen emits the runtime wiring; this registry entry exists so VP-1 can
+// validate that `of=` and `all` are the only legal attrs (catches typos like
+// `<errors for=...>`). New scrml-special structural elements MUST be added
+// here per primer §12 amendment.
+// ---------------------------------------------------------------------------
+
+ELEMENT_ATTR_REGISTRY.set("errors", {
+  allowedAttrs: new Map([
+    ["of",         attrSpec({ supportsInterpolation: false })],
+    ["all",        attrSpec({ supportsInterpolation: false })],
+  ]),
+});
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 

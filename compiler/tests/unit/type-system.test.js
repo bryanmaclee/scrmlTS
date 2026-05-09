@@ -1900,9 +1900,10 @@ describe("§35 State Type Registry", () => {
       }
     });
 
-    test("all HTML entries have isHtml=true, rendersToDom=true (except program and errorBoundary)", () => {
+    test("all HTML entries have isHtml=true, rendersToDom=true (except program, errorBoundary, errors)", () => {
       const reg = buildStateTypeRegistry();
-      const nonDomElements = new Set(["program", "errorboundary"]);
+      // C11: <errors of=expr/> is structural (SPEC §55.8) — non-DOM-rendering.
+      const nonDomElements = new Set(["program", "errorboundary", "errors"]);
       for (const [name, st] of reg) {
         if (nonDomElements.has(name)) {
           expect(st.isHtml).toBe(false);
