@@ -222,6 +222,70 @@ ${
     }
 
     // ---------------------------------------------------------------------------
+    // Bridging external schema libraries (zod, valibot, arktype, etc.)
+    // ---------------------------------------------------------------------------
+    //
+    // scrml does NOT ship a curated zod / standard-schema stdlib adapter. The
+    // existing `custom(fn)` slot above absorbs the bridge in 5 lines. Per
+    // SPEC §53.14.4 (synonym-detection canon) and design-insight 28
+    // (2026-05-09): a curated stdlib export would be a synonym for
+    // `custom(fn)`, not a sliver — closed by the synonym-detection rule.
+    //
+    // Pattern (verbatim, paste into your scrml file):
+    //
+    //     ${
+    //         import { z } from 'zod'  // or valibot, arktype, etc.
+    //         import { custom } from 'scrml:data'
+    //
+    //         function fromSchema(schema) {
+    //             return custom((value) => {
+    //                 const r = schema.safeParse(value)
+    //                 return r.success ? true : r.error.issues[0].message
+    //             })
+    //         }
+    //     }
+    //
+    //     <signup>
+    //         <email custom(fromSchema(z.string().email()))> = <input/>
+    //     </>
+    //
+    // For Standard-Schema-shaped libraries, swap `safeParse` for the
+    // `~standard.validate` interop call. See standardschema.dev.
+    //
+    // Trade-offs (these apply to ANY bridged validator, not just zod):
+    //
+    //   - Bridged validators do NOT lower to schema-column DDL. SPEC §39.5.8
+    //     CHECK constraints cannot call JS. A field declared with a bridged
+    //     validator gets cell-level + refinement-level enforcement only;
+    //     DBMS-level enforcement stays scrml-native or absent.
+    //
+    //   - Bridged validators do NOT inform HTML attribute inference.
+    //     SPEC §53.7 native predicates auto-emit `min=`, `maxlength=`,
+    //     `pattern=`, `required` etc. on bindable cells. Bridged schemas
+    //     are opaque to scrml's compiler; their constraints stay runtime-
+    //     only. You lose free HTML validation.
+    //
+    //   - Bridged errors land as `ValidationError::Custom(message)` per
+    //     SPEC §55.9, not as structured-payload variants like
+    //     `.MinFailed(threshold)`. Programmatic access to the threshold
+    //     (e.g., to render a numeric input's `min=` attribute) is lost.
+    //
+    //   - Cross-locus consistency (L4) breaks at bridged validators —
+    //     same shape as `custom(fn)` itself. The docs page is the
+    //     mitigation regardless of bridge-or-not.
+    //
+    // For fields that need cross-locus enforcement (cell + refinement +
+    // schema column + HTML), use scrml-native predicates (`length`,
+    // `pattern`, `min`, `max`, named shapes). For sum-type boundary
+    // parsing of incoming JSON (different mechanism, different locus),
+    // see `parseVariant(json, EnumType)` per SPEC §41.13.
+    //
+    // Re-debate trigger (design-insight 28 OQ-bridge-2): if ≥3 adopters
+    // report the wrapper above as friction-felt at scale, the bridge
+    // question reopens. Elevate the Standard-Schema-via-`custom(...)`-
+    // type-dispatch shape on re-fire — NOT the per-library shape.
+
+    // ---------------------------------------------------------------------------
     // Convenience: pre-built rule sets for common fields
     // ---------------------------------------------------------------------------
 
