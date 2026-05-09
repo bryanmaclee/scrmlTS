@@ -367,6 +367,51 @@ export interface NestedEngineEntry {
   rawOffset: number;
 }
 
+/**
+ * B17.2 (§51.0.H) — an `<onTransition>` element parsed out of a state-child
+ * body. Captures the four built-in attributes from the opener and the body
+ * text verbatim. Per S74 narrow-scope ratification, B17.2 captures shape ONLY;
+ * B17.3 typer (forthcoming) walks the captured entries to fire diagnostics
+ * (e.g., E-ENGINE-EFFECT-AMBIGUOUS, missing-direction errors).
+ *
+ * Per BRIEF §scope-IN item 1: built-in attributes per SPEC §51.0.H lines
+ * 20563-20570 are `to=.Variant`, `from=.Variant`, `once`, `if=expr`. Other
+ * attributes are NOT recognized at the parser layer (the §51.0.J derived-engine
+ * example showing `effect=` ON `<onTransition>` is a separate spec
+ * disambiguation concern — see SURVEY.md decision 2).
+ */
+export interface OnTransitionEntry {
+  /** §51.0.H — `to=.Variant` value (no leading dot). `null` when not present.
+   *  Per SPEC, exactly ONE of {to, from} should be present; the typer (B17.3)
+   *  enforces. The parser captures verbatim. */
+  to: string | null;
+  /** §51.0.H — `from=.Variant` value (no leading dot). `null` when not present.
+   *  Inverts directionality (placed in TARGET state-child to fire on incoming
+   *  transitions). */
+  from: string | null;
+  /** §51.0.H — `once` bare attribute. `true` when present (handler runs at
+   *  most once per engine lifetime). */
+  once: boolean;
+  /** §51.0.H — `if=expr` raw value, captured verbatim including any
+   *  surrounding parentheses or `${...}` wrapper. `null` when not present.
+   *  B17.3 typer normalises (paren-form / logic-context / bare). */
+  ifExprRaw: string | null;
+  /** Body text between opener and closer. Empty string for self-closing
+   *  `<onTransition .../>` (degenerate but harmless per SURVEY.md decision 2).
+   *
+   *  - For bare-body form, this is the inter-tag text.
+   *  - For `:`-shorthand form (§51.0.I, defensively supported per SURVEY.md
+   *    decision sub-3a), this is the post-`:` text up to the line end.
+   *  - For self-closing, this is empty. */
+  bodyRaw: string;
+  /** TRUE when this entry's body was parsed via `:`-shorthand. FALSE for
+   *  bare-body or self-closing forms. */
+  isColonShorthand: boolean;
+  /** Substring offset (relative to the enclosing state-child's `bodyRaw`)
+   *  of the `<onTransition` opener. */
+  rawOffset: number;
+}
+
 /** §51.0.B + §51.0.F — a state-child entry parsed out of `engine-decl.rulesRaw`. */
 export interface EngineStateChildEntry {
   /** PascalCase tag name, e.g., `"Small"` for `<Small ...>...</>`. */
@@ -418,6 +463,24 @@ export interface EngineStateChildEntry {
    *  Empty array when this state-child is non-composite. The composite
    *  marker is downstream-derivable from `innerEngines.length > 0`. */
   innerEngines: NestedEngineEntry[];
+
+  // ---- B17.2 NEW (§51.0.H ratified extensions) ----
+
+  /** §51.0.H — raw text between `${` and matching `}` of the state-child
+   *  opener's `effect=` attribute. `null` when `effect=` is absent.
+   *
+   *  `effect=${ ... }` is a logic-context expression that runs when a
+   *  single-target `rule=` transition fires. Parser captures the inner
+   *  expression text verbatim (no `${` `}` wrapper). B17.3 typer fires
+   *  E-ENGINE-EFFECT-AMBIGUOUS when this is non-null AND `rule.kind` is
+   *  multi-target (per §51.0.H lines 20548-20550).
+   *
+   *  Capture-with-null fallback for malformed `effect=` (unbalanced braces) —
+   *  see B17.2 SURVEY.md decision 3. */
+  effectRaw: string | null;
+  /** §51.0.H — `<onTransition>` siblings inside this state-child body.
+   *  Empty array when none are present. */
+  onTransitionElements: OnTransitionEntry[];
 }
 
 /**

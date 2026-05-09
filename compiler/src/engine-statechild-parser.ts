@@ -5,6 +5,11 @@
  *   - `history` bare attribute on state-child openers,
  *   - `internal:rule=` prefix on state-child openers,
  *   - `.Variant.history` target form in `rule=` / `internal:rule=`.
+ * Phase A1b Step B17.2 (S74) — extended for §51.0.H ratified extensions:
+ *   - `effect=${...}` attribute on state-child openers (parser captures
+ *     verbatim; B17.3 typer fires E-ENGINE-EFFECT-AMBIGUOUS).
+ *   - `<onTransition to|from|once|if=>...</>` body-scan (mirrors A5-2's
+ *     `<onTimeout>` body-scan precedent).
  *
  * Parses an engine's `rulesRaw` body text into a flat list of state-child
  * entries. State-children are the §51.0.B PascalCase variant tags inside an
@@ -39,11 +44,23 @@
  * **What this parser does NOT do:**
  *   - Parse the BODY of state-children semantically (raw text + structural
  *     element extraction only). A5-3 typer walks `bodyRaw` /
- *     `onTimeoutElements` / `innerEngines` for diagnostics.
- *   - Parse `effect=`, `<onTransition>` — those belong to B17.
+ *     `onTimeoutElements` / `innerEngines` / `onTransitionElements` for
+ *     diagnostics.
  *   - Substitute for the type-system's enum-variant validation (it merely
  *     extracts the tag string; validation against the type's variants
  *     happens in PASS 11).
+ *
+ * **What B17.2 (S74) ADDED to this parser (NEW responsibility):**
+ *   8. Recognize `effect=${...}` attribute on state-child openers (§51.0.H,
+ *      Form 1). Captures the inner expression text verbatim into
+ *      `EngineStateChildEntry.effectRaw`.
+ *   9. Body-scan for `<onTransition>` siblings (§51.0.H, Form 2) with
+ *      attribute extraction (`to=`, `from=`, `once`, `if=`) and body-text
+ *      capture (bare-body, `:`-shorthand, or self-closing). Records into
+ *      `EngineStateChildEntry.onTransitionElements`.
+ *   10. `<onTransition>` body regions are added to skipRegions for the
+ *       `<onTimeout>` + nested `<engine>` body-scans, preventing
+ *       double-counting (mirrors A5-2 nested-engine skipRegions pattern).
  */
 
 import type {
@@ -51,6 +68,7 @@ import type {
   EngineStateChildEntry,
   OnTimeoutEntry,
   NestedEngineEntry,
+  OnTransitionEntry,
 } from "./symbol-table";
 
 /**
@@ -349,6 +367,340 @@ export function scanForNestedEngineEntries(bodyRaw: string): NestedEngineEntry[]
 }
 
 /**
+ * B17.2 attribute walker — parse the attribute substring of an opener tag
+ * (the text BETWEEN the tag name and the trailing `>` / `/>`) into a flat
+ * map of name → value (for `name=value`) and a set of bare attributes (for
+ * standalone `name` tokens).
+ *
+ * **Why a walker, not a regex.** Mixed bare + valued attributes are common in
+ * `<onTransition>` openers (e.g., `to=.Cape once if=(@x == y) once`). A naive
+ * `match(/name\s*=\s*(.+?)(?=\s+\w+\s*=|\s*\/?\s*$)/)` is greedy past bare
+ * attrs because they don't trigger the `\w+\s*=` lookahead — the value
+ * captures across the bare attr. The walker handles each token in source order
+ * and respects paren / quote / `${}` / `.history`-style depth for values.
+ *
+ * **Captured values are returned VERBATIM** (no leading-dot stripping, no
+ * quote-stripping) — callers normalise per-attribute (e.g., `to=` strips
+ * leading `.`; `if=` keeps parens).
+ *
+ * Returns:
+ *   - `valued`: Map<string, string> — attribute name → raw value substring.
+ *   - `bare`:   Set<string>          — bare attribute names (e.g., `once`).
+ */
+function parseOpenerAttributes(attrs: string): {
+  valued: Map<string, string>;
+  bare: Set<string>;
+} {
+  const valued = new Map<string, string>();
+  const bare = new Set<string>();
+  let i = 0;
+  const n = attrs.length;
+  while (i < n) {
+    // Skip whitespace.
+    if (attrs[i] === " " || attrs[i] === "\t" || attrs[i] === "\n") {
+      i++;
+      continue;
+    }
+    // Trailing `/` (self-close marker) — stop.
+    if (attrs[i] === "/") break;
+    // Read identifier (allow `:` for `internal:rule=`-style namespaced attrs).
+    if (!/[A-Za-z_]/.test(attrs[i] ?? "")) {
+      // Unrecognised character — skip defensively.
+      i++;
+      continue;
+    }
+    let nameStart = i;
+    while (i < n && /[A-Za-z0-9_:]/.test(attrs[i] ?? "")) i++;
+    const name = attrs.slice(nameStart, i);
+    // Skip whitespace before `=` (or end-of-attr).
+    let j = i;
+    while (j < n && (attrs[j] === " " || attrs[j] === "\t" || attrs[j] === "\n")) j++;
+    if (j >= n || attrs[j] !== "=") {
+      // Bare attribute (no `=` follows).
+      bare.add(name);
+      i = j;
+      continue;
+    }
+    // Consume `=`.
+    j++;
+    while (j < n && (attrs[j] === " " || attrs[j] === "\t" || attrs[j] === "\n")) j++;
+    // Read value with paren / quote / `${...}` depth tracking. Value ends at
+    // unescaped whitespace at top level OR at `/` (self-close) at top level OR
+    // at end of string.
+    let valStart = j;
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let inQuote = "";
+    while (j < n) {
+      const c = attrs[j]!;
+      if (inQuote) {
+        if (c === inQuote) inQuote = "";
+        j++;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        inQuote = c;
+        j++;
+        continue;
+      }
+      // Logic-context `${...}` opener — consume a balanced brace block.
+      if (c === "$" && attrs[j + 1] === "{") {
+        j += 2;
+        braceDepth = 1;
+        while (j < n && braceDepth > 0) {
+          const c2 = attrs[j];
+          if (c2 === "{") braceDepth++;
+          else if (c2 === "}") braceDepth--;
+          j++;
+        }
+        continue;
+      }
+      if (c === "(") { parenDepth++; j++; continue; }
+      if (c === ")") { parenDepth--; j++; continue; }
+      if (parenDepth === 0 && (c === " " || c === "\t" || c === "\n")) break;
+      if (parenDepth === 0 && c === "/") break;
+      j++;
+    }
+    const value = attrs.slice(valStart, j);
+    valued.set(name, value);
+    i = j;
+  }
+  return { valued, bare };
+}
+
+/**
+ * B17.2 (§51.0.H) — scan a state-child body for `<onTransition>` siblings.
+ *
+ * `<onTransition>` is a structural element with optional `to=`, `from=`,
+ * `once`, `if=` attributes per §51.0.H. Three body forms supported (per
+ * §51.0.I + B17.2 SURVEY decision sub-3a):
+ *   - Bare body: `<onTransition to=.X>${...}</>` or `<onTransition to=.X>...</onTransition>`
+ *   - `:`-shorthand: `<onTransition to=.X> : expr` (defensive — typer may
+ *     forbid).
+ *   - Self-closing: `<onTransition to=.X/>` (degenerate but harmless per
+ *     SURVEY decision 2).
+ *
+ * **Composition with other body-scan elements** (mirrors A5-2 nested-engine
+ * skipRegions). When `<onTransition>` body contains an `<onTimeout/>` or a
+ * nested `<engine>`, those should NOT be double-counted by the outer
+ * state-child's body-scan. The caller passes the `<onTransition>` body
+ * regions to `scanForOnTimeoutEntries` and `scanForNestedEngineEntries` via
+ * their `skipRegions` parameter.
+ *
+ * **Robustness.** Malformed openers (missing `to=` AND `from=`, unbalanced
+ * `${...}` in `if=`, etc.) are CAPTURED with null fields per SURVEY decision
+ * 3 — the typer (B17.3) surfaces diagnostics on the captured shape rather
+ * than the parser silently skipping.
+ *
+ * **Returned offsets** are bodyRaw-relative; the absolute file offset is
+ * reconstructable by adding the engine-decl's span + bodyRaw start offset +
+ * the entry's `rawOffset` (mirrors `OnTimeoutEntry.rawOffset` semantics).
+ */
+export function scanForOnTransitionEntries(
+  bodyRaw: string,
+  skipRegions: ReadonlyArray<readonly [number, number]> = [],
+): OnTransitionEntry[] {
+  const out: OnTransitionEntry[] = [];
+  if (!bodyRaw) return out;
+
+  const inSkipRegion = (idx: number): boolean => {
+    for (const [start, end] of skipRegions) {
+      if (idx >= start && idx < end) return true;
+    }
+    return false;
+  };
+
+  let i = 0;
+  while (i < bodyRaw.length) {
+    const lt = bodyRaw.indexOf("<onTransition", i);
+    if (lt < 0) break;
+    // Boundary check: ensure `<onTransition` is followed by whitespace, `>`,
+    // or `/` (not a longer identifier prefix).
+    const nextCh = bodyRaw[lt + 13];
+    if (nextCh !== undefined && nextCh !== " " && nextCh !== "\t" &&
+        nextCh !== "\n" && nextCh !== ">" && nextCh !== "/") {
+      i = lt + 1;
+      continue;
+    }
+    if (inSkipRegion(lt)) {
+      i = lt + 1;
+      continue;
+    }
+
+    // Find the opener's `>`. findOpenerEnd handles parens and quotes — same
+    // pattern as state-child opener scanning. Position is one past `<`.
+    const openerEnd = findOpenerEnd(bodyRaw, lt + 1);
+    if (openerEnd < 0) break;
+
+    const openerInner = bodyRaw.slice(lt + 1, openerEnd);
+    // openerInner starts with `onTransition`. Strip the tag and parse attrs.
+    const attrs = openerInner.replace(/^onTransition/, "");
+    const isSelfClose = openerInner.trimEnd().endsWith("/");
+
+    // Use the attribute walker (handles mixed bare + valued attributes per
+    // SURVEY decision 1 + 3). The walker respects paren/quote/${} depth so
+    // values like `if=(@a == b)` capture cleanly past internal whitespace.
+    const { valued, bare } = parseOpenerAttributes(attrs);
+
+    const stripDot = (v: string): string => {
+      let s = v.trim();
+      if ((s.startsWith('"') && s.endsWith('"')) ||
+          (s.startsWith("'") && s.endsWith("'"))) {
+        s = s.slice(1, -1).trim();
+      }
+      if (s.startsWith(".")) s = s.slice(1);
+      return s;
+    };
+
+    // `to=.Variant` / `to=Variant` / `to="Variant"` — strip leading `.`.
+    const toRaw = valued.get("to");
+    const toVal: string | null = toRaw !== undefined ? stripDot(toRaw) : null;
+
+    // `from=.Variant` — same shape as `to=`.
+    const fromRaw = valued.get("from");
+    const fromVal: string | null = fromRaw !== undefined ? stripDot(fromRaw) : null;
+
+    // `once` bare attribute.
+    const once = bare.has("once");
+
+    // `if=expr` — captures verbatim; per SURVEY decision 1, paren-form,
+    // logic-context (`${...}`), and bare expression all retained as-is.
+    const ifRaw = valued.get("if");
+    const ifExprRaw: string | null = ifRaw !== undefined ? ifRaw.trim() : null;
+
+    // Locate body end. Mirrors parseEngineStateChildren body-end logic.
+    let bodyStart = openerEnd + 1;
+    let bodyEnd: number;
+    let nextI: number;
+    let isColonShorthand = false;
+    if (isSelfClose) {
+      bodyEnd = bodyStart;
+      nextI = bodyStart;
+    } else {
+      // `:`-shorthand body? After `>`, optional whitespace, then `:`.
+      const afterOpener = bodyRaw.slice(bodyStart);
+      const colonShortcutMatch = afterOpener.match(/^\s*:\s*([^\n]*)/);
+      if (colonShortcutMatch) {
+        const colonStart = bodyStart + colonShortcutMatch[0].indexOf(":");
+        const lineEnd = bodyStart + colonShortcutMatch[0].length;
+        bodyEnd = lineEnd;
+        nextI = lineEnd;
+        bodyStart = colonStart + 1;
+        isColonShorthand = true;
+      } else {
+        // Find matching closer — `</>` or `</onTransition>`.
+        const closerStart = findOnTransitionCloser(bodyRaw, bodyStart);
+        if (closerStart < 0) {
+          // Malformed — capture entry with empty body and advance past opener.
+          out.push({
+            to: toVal,
+            from: fromVal,
+            once,
+            ifExprRaw,
+            bodyRaw: "",
+            isColonShorthand: false,
+            rawOffset: lt,
+          });
+          i = openerEnd + 1;
+          continue;
+        }
+        bodyEnd = closerStart;
+        if (bodyRaw.startsWith("</>", closerStart)) {
+          nextI = closerStart + 3;
+        } else {
+          const gt = bodyRaw.indexOf(">", closerStart);
+          nextI = gt >= 0 ? gt + 1 : bodyRaw.length;
+        }
+      }
+    }
+
+    out.push({
+      to: toVal,
+      from: fromVal,
+      once,
+      ifExprRaw,
+      bodyRaw: bodyRaw.slice(bodyStart, bodyEnd),
+      isColonShorthand,
+      rawOffset: lt,
+    });
+    i = nextI;
+  }
+
+  return out;
+}
+
+/**
+ * B17.2 — find the matching closer for an `<onTransition>` opener whose body
+ * starts at index `from` in `bodyRaw`. Recognizes `</>` and `</onTransition>`
+ * closers. Honors `${...}` interpolation skipping and nested PascalCase
+ * openers (mirrors `findStateChildCloser` for `<onTransition>` body context).
+ *
+ * Returns the index of the closer's `<`, or -1 if no matching closer found.
+ */
+function findOnTransitionCloser(bodyRaw: string, from: number): number {
+  let i = from;
+  let depth = 1;
+  while (i < bodyRaw.length) {
+    // Skip ${...} interpolation
+    if (bodyRaw.startsWith("${", i)) {
+      let j = i + 2;
+      let braceDepth = 1;
+      while (j < bodyRaw.length && braceDepth > 0) {
+        if (bodyRaw[j] === "{") braceDepth++;
+        else if (bodyRaw[j] === "}") braceDepth--;
+        j++;
+      }
+      i = j;
+      continue;
+    }
+    // Closer: `</>` (generic) — pops depth.
+    if (bodyRaw.startsWith("</>", i)) {
+      depth--;
+      if (depth === 0) return i;
+      i += 3;
+      continue;
+    }
+    // Closer: `</onTransition>` (explicit).
+    if (bodyRaw.startsWith("</onTransition", i)) {
+      const ch = bodyRaw[i + 14];
+      if (ch === undefined || ch === " " || ch === "\t" || ch === "\n" || ch === ">") {
+        const end = bodyRaw.indexOf(">", i);
+        if (end < 0) return -1;
+        depth--;
+        if (depth === 0) return i;
+        i = end + 1;
+        continue;
+      }
+    }
+    // Closer: `</Variant>` (named state-child closer — pop depth like generic).
+    if (bodyRaw.startsWith("</", i)) {
+      const end = bodyRaw.indexOf(">", i);
+      if (end < 0) return -1;
+      depth--;
+      if (depth === 0) return i;
+      i = end + 1;
+      continue;
+    }
+    // Nested opener `<Tag` — increment depth for PascalCase tags. Skip lower-
+    // case / structural-element tags (they are body content, not depth-bearing).
+    if (bodyRaw[i] === "<") {
+      const next = bodyRaw[i + 1];
+      if (next && next >= "A" && next <= "Z") {
+        const openerEnd = findOpenerEnd(bodyRaw, i + 1);
+        if (openerEnd < 0) return -1;
+        if (bodyRaw[openerEnd - 1] !== "/") {
+          depth++;
+        }
+        i = openerEnd + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+  return -1;
+}
+
+/**
  * Find the matching closer for a nested `<engine>` opener whose body starts
  * at index `from` in `bodyRaw`. Recognizes `</>` and `</engine>` closers.
  *
@@ -433,6 +785,31 @@ function findEngineCloser(bodyRaw: string, from: number): number {
           continue;
         }
       }
+      // B17.2 — `<onTransition>` opener inside a nested-engine body. Skip
+      // past the entire <onTransition> block so its `</>` closer doesn't
+      // decrement scDepth incorrectly (the lowercase `<onTransition` opener
+      // doesn't trigger a scDepth bump via the PascalCase branch below).
+      if (bodyRaw.startsWith("<onTransition", i)) {
+        const ch = bodyRaw[i + 13];
+        if (ch === undefined || ch === " " || ch === "\t" || ch === "\n" ||
+            ch === ">" || ch === "/") {
+          const oe = findOpenerEnd(bodyRaw, i + 1);
+          if (oe < 0) return -1;
+          if (bodyRaw[oe - 1] === "/") {
+            i = oe + 1;
+            continue;
+          }
+          const otCloserStart = findOnTransitionCloser(bodyRaw, oe + 1);
+          if (otCloserStart < 0) return -1;
+          if (bodyRaw.startsWith("</>", otCloserStart)) {
+            i = otCloserStart + 3;
+          } else {
+            const gt = bodyRaw.indexOf(">", otCloserStart);
+            i = gt >= 0 ? gt + 1 : bodyRaw.length;
+          }
+          continue;
+        }
+      }
       // PascalCase state-child opener `<X ...>`.
       const next = bodyRaw[i + 1];
       if (next && next >= "A" && next <= "Z") {
@@ -452,9 +829,11 @@ function findEngineCloser(bodyRaw: string, from: number): number {
 
 /**
  * Find the closing `>` for an opener that starts at index `open` in `s`.
- * Respects parentheses for `rule=(.A | .B)` and double-quoted attribute
- * values. Returns the index of `>` (one past the last attribute character)
- * or -1 if no closer was found.
+ * Respects parentheses for `rule=(.A | .B)`, double-quoted attribute values,
+ * AND `${...}` logic-context blocks (B17.2 — needed for `effect=${expr}` and
+ * `<onTransition if=${expr}>` forms where the embedded expression may contain
+ * `>` operators). Returns the index of `>` (one past the last attribute
+ * character) or -1 if no closer was found.
  */
 function findOpenerEnd(s: string, open: number): number {
   let i = open;
@@ -470,6 +849,21 @@ function findOpenerEnd(s: string, open: number): number {
     if (c === '"' || c === "'") {
       inQuote = c;
       i++;
+      continue;
+    }
+    // B17.2 — `${...}` logic-context block. Consume balanced brace block
+    // so `>` operators inside (e.g., `if=${@a > 0}`) don't terminate the
+    // opener prematurely.
+    if (c === "$" && s[i + 1] === "{") {
+      let j = i + 2;
+      let braceDepth = 1;
+      while (j < s.length && braceDepth > 0) {
+        const c2 = s[j];
+        if (c2 === "{") braceDepth++;
+        else if (c2 === "}") braceDepth--;
+        j++;
+      }
+      i = j;
       continue;
     }
     if (c === "(") depth++;
@@ -533,6 +927,37 @@ function findStateChildCloser(rulesRaw: string, from: number, tag: string): numb
           i = engineCloserStart + 3;
         } else {
           const gt = rulesRaw.indexOf(">", engineCloserStart);
+          i = gt >= 0 ? gt + 1 : rulesRaw.length;
+        }
+        continue;
+      }
+    }
+    // B17.2 (§51.0.H) — a nested `<onTransition ...>` opener inside a
+    // state-child body has its own `</onTransition>` / `</>` closer pair.
+    // Without this skip, the `<onTransition>` body's `</>` closer would
+    // prematurely decrement the outer state-child's depth counter (the
+    // PascalCase check below skips lowercase-`o` openers entirely, so depth
+    // never gets incremented for the opener — but the `</>` decrement still
+    // fires, causing premature close). Skip past the entire <onTransition>
+    // block.
+    if (rulesRaw.startsWith("<onTransition", i)) {
+      const ch = rulesRaw[i + 13];
+      if (ch === undefined || ch === " " || ch === "\t" || ch === "\n" ||
+          ch === ">" || ch === "/") {
+        const oe = findOpenerEnd(rulesRaw, i + 1);
+        if (oe < 0) return -1;
+        if (rulesRaw[oe - 1] === "/") {
+          // Self-closing — no body, skip past opener only.
+          i = oe + 1;
+          continue;
+        }
+        const otCloserStart = findOnTransitionCloser(rulesRaw, oe + 1);
+        if (otCloserStart < 0) return -1;
+        // Advance past the closer.
+        if (rulesRaw.startsWith("</>", otCloserStart)) {
+          i = otCloserStart + 3;
+        } else {
+          const gt = rulesRaw.indexOf(">", otCloserStart);
           i = gt >= 0 ? gt + 1 : rulesRaw.length;
         }
         continue;
@@ -673,6 +1098,41 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       ruleForm = parseRuleAttrValue(val);
     }
 
+    // §51.0.H (B17.2) — `effect=${...}` attribute on the state-child opener.
+    //
+    // Per SPEC line 20543: `<Small rule=.Big effect=${ playSound("grow") }>`.
+    // The expression body is the substring between `${` and the matching `}`
+    // per the standard logic-context delimiter rules. Captures the inner
+    // expression text verbatim (no `${` `}` wrapper) into `effectRaw`.
+    //
+    // Robustness (per SURVEY decision 3): malformed `effect=` (unbalanced
+    // braces, missing `${`) → `effectRaw: null`; B17.3 typer can surface a
+    // diagnostic. Balanced-brace scan: find `effect=`, skip to `${`, then
+    // walk to matching `}`.
+    let effectRaw: string | null = null;
+    const effectIdx = afterTagForRule.search(/(?:^|\s)effect\s*=\s*\$\{/);
+    if (effectIdx >= 0) {
+      // Locate the `${` after `effect=`.
+      const dollarBrace = afterTagForRule.indexOf("${", effectIdx);
+      if (dollarBrace >= 0) {
+        let j = dollarBrace + 2;
+        let braceDepth = 1;
+        while (j < afterTagForRule.length && braceDepth > 0) {
+          const ch = afterTagForRule[j];
+          if (ch === "{") braceDepth++;
+          else if (ch === "}") braceDepth--;
+          if (braceDepth === 0) break;
+          j++;
+        }
+        if (braceDepth === 0) {
+          // `effectRaw` is the substring between `${` and the matching `}`.
+          effectRaw = afterTagForRule.slice(dollarBrace + 2, j);
+        }
+        // If braces never balanced (j ran off the end), `effectRaw` stays
+        // null per SURVEY decision 3.
+      }
+    }
+
     // §51.0.N (A5-2 sub-step 3) — `history` bare attribute.
     //
     // The regex MUST require `history` to be a STANDALONE token preceded by
@@ -731,20 +1191,72 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
     const bodyRaw = rulesRaw.slice(bodyStart, bodyEnd);
 
     // §51.0.Q.1 (A5-2 sub-step 7) — scan body for nested <engine> declarations
-    // FIRST (so their body regions can be excluded from the <onTimeout> scan).
-    // Skipped entirely for `:`-shorthand and self-closing forms, where bodyRaw
-    // is single-expression / empty respectively.
+    // FIRST (so their body regions can be excluded from the <onTimeout> +
+    // <onTransition> scans). Skipped entirely for `:`-shorthand and
+    // self-closing forms, where bodyRaw is single-expression / empty
+    // respectively.
     const innerEngines = (isColonShorthand || isSelfClose)
       ? []
       : scanForNestedEngineEntries(bodyRaw);
 
-    // §51.0.M (A5-2 sub-step 6) — scan body for <onTimeout/> siblings.
-    // Pass nested-engine body regions as skip-regions to avoid mis-attributing
-    // an inner engine's <onTimeout> to the outer state-child (Phase 0 SURVEY
-    // §2 edge-case).
-    const skipRegions: Array<readonly [number, number]> = innerEngines.map(
+    // §51.0.H (B17.2) — scan body for <onTransition> siblings BEFORE
+    // <onTimeout>, so <onTransition> body regions can be added to the
+    // <onTimeout> skipRegions (preventing double-counting when <onTimeout>
+    // appears inside <onTransition> body — composition concern mirrored from
+    // A5-2 nested-engine handling).
+    //
+    // Pass nested-engine regions as skipRegions to <onTransition> scan also,
+    // so a nested-engine's <onTransition> children aren't mis-attributed to
+    // the outer state-child.
+    const nestedEngineRegions: Array<readonly [number, number]> = innerEngines.map(
       (e) => [e.rawOffset, e.rawOffset + e.rawText.length] as const,
     );
+    const onTransitionElements = (isColonShorthand || isSelfClose)
+      ? []
+      : scanForOnTransitionEntries(bodyRaw, nestedEngineRegions);
+
+    // §51.0.M (A5-2 sub-step 6) — scan body for <onTimeout/> siblings.
+    // Pass nested-engine + <onTransition> body regions as skip-regions to
+    // avoid mis-attributing an inner engine's <onTimeout> to the outer
+    // state-child (Phase 0 SURVEY §2 edge-case) AND to avoid double-counting
+    // a <onTimeout> nested inside an <onTransition> body (B17.2 SURVEY
+    // decision sub-3b).
+    const onTransitionRegions: Array<readonly [number, number]> = onTransitionElements.map(
+      (e) => {
+        // Approximate region end: scan from rawOffset past opener + bodyRaw +
+        // closer. For the skipRegions API a generous over-estimate is fine —
+        // we just need to cover the opener+body+closer span so an inner
+        // <onTimeout> isn't picked up.
+        const openerStart = e.rawOffset;
+        // Find the opener end (first `>` after `<onTransition`).
+        const openerEnd = bodyRaw.indexOf(">", openerStart);
+        if (openerEnd < 0) {
+          // Malformed — skip just the opener prefix.
+          return [openerStart, openerStart + 14] as const;
+        }
+        // For self-closing, body is empty and closer is the opener's `/>`.
+        const isSelfClosingHere = bodyRaw[openerEnd - 1] === "/";
+        if (isSelfClosingHere) {
+          return [openerStart, openerEnd + 1] as const;
+        }
+        // For `:`-shorthand, region is opener + line.
+        if (e.isColonShorthand) {
+          // bodyRaw starts after `:`; line ends at next newline.
+          const nl = bodyRaw.indexOf("\n", openerEnd + 1);
+          const end = nl >= 0 ? nl : bodyRaw.length;
+          return [openerStart, end] as const;
+        }
+        // For bare body, region covers opener + body + closer. Body length
+        // is e.bodyRaw.length; add closer (assume `</>` = 3 chars or
+        // `</onTransition>` = 16 chars — use a conservative 16-char estimate).
+        const bodyEnd = openerEnd + 1 + e.bodyRaw.length;
+        return [openerStart, bodyEnd + 16] as const;
+      },
+    );
+    const skipRegions: Array<readonly [number, number]> = [
+      ...nestedEngineRegions,
+      ...onTransitionRegions,
+    ];
     const onTimeoutElements = (isColonShorthand || isSelfClose)
       ? []
       : scanForOnTimeoutEntries(bodyRaw, skipRegions);
@@ -760,6 +1272,9 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       internalRule: internalRuleForm,
       onTimeoutElements,
       innerEngines,
+      // ---- B17.2 NEW (§51.0.H) ----
+      effectRaw,
+      onTransitionElements,
     });
     i = nextI;
   }
