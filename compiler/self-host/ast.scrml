@@ -2573,9 +2573,26 @@ ${
         const tests = []
         let beforeStmts = null
         let afterStmts = null
+        // SPEC §19.12.6 — `test-bind` declarations at body scope of this `~{}`.
+        // Scope-local; does NOT leak to siblings. Phase A6-2 (parser) collects;
+        // A6-3 (typer) validates RHS shape; A6-4 (codegen) emits dispatch.
+        const testBinds = []
+        const seenBindNames = []
 
         const OPEN_BRACE = String.fromCharCode(123)
         const CLOSE_BRACE = String.fromCharCode(125)
+
+        // Detect the 3-token sequence IDENT("test") + PUNCT("-") + IDENT("bind")
+        // at index `idx`. SPEC §19.12.6 — `test-bind` tokenizes as 3 tokens
+        // because identifiers do not contain hyphens.
+        function isTestBindSeq(idx) {
+            return (
+                idx + 2 < tokens.length &&
+                tokens[idx].kind == "IDENT" && tokens[idx].text == "test" &&
+                tokens[idx + 1].kind == "PUNCT" && tokens[idx + 1].text == "-" &&
+                tokens[idx + 2].kind == "IDENT" && tokens[idx + 2].text == "bind"
+            )
+        }
 
         function collectBody() {
             const stmts = []
@@ -2633,12 +2650,133 @@ ${
                 if (depth == 0 && tok.kind == "IDENT" &&
                     (tok.text == "assert" || tok.text == "test" ||
                      tok.text == "before" || tok.text == "after")) break
+                // SPEC §19.12.6 — break on `test-bind` sequence at depth 0.
+                if (depth == 0 && isTestBindSeq(i)) break
                 if (tok.kind == "PUNCT" && tok.text == OPEN_BRACE) depth++
                 else if (tok.kind == "PUNCT" && tok.text == CLOSE_BRACE) depth--
                 parts.push(tok.text)
                 i++
             }
             return parts.join(" ").trim()
+        }
+
+        // SPEC §19.12.6 — recovery helper for malformed `test-bind` decls.
+        function skipToNextStatement() {
+            let depth = 0
+            while (i < tokens.length && tokens[i].kind != "EOF") {
+                const t = tokens[i]
+                if (t.kind == "PUNCT" && t.text == OPEN_BRACE) { depth++; i++; continue }
+                if (t.kind == "PUNCT" && t.text == CLOSE_BRACE) {
+                    if (depth == 0) return
+                    depth--; i++; continue
+                }
+                if (depth == 0 && t.kind == "IDENT") {
+                    if (isTestBindSeq(i)) return
+                    if (t.text == "test" || t.text == "assert" ||
+                        t.text == "before" || t.text == "after") return
+                }
+                i++
+            }
+        }
+
+        // SPEC §19.12.6 — parse `test-bind <ident> = <expression>` declaration.
+        // Caller has verified isTestBindSeq(i). Advances `i` past the entire decl.
+        function parseTestBindDecl() {
+            const declTok = tokens[i]
+            const declLine = (declTok.span && declTok.span.line) ? declTok.span.line : span.line
+            const declSpan = declTok.span
+                ? fullSpan(declTok.span, filePath)
+                : fullSpan(span, filePath)
+            i = i + 3 // consume test - bind
+
+            let ident = ""
+            if (i < tokens.length && tokens[i].kind == "IDENT") {
+                ident = tokens[i].text
+                i++
+            } else {
+                errors.push(new TABError(
+                    "E-TEST-005",
+                    "E-TEST-005: `test-bind` requires an identifier between `test-bind` and `=`. " +
+                    "Per SPEC §19.12.6, the surface is `test-bind <name> = <expression>` where " +
+                    "`<name>` resolves to a server function in scope.",
+                    declSpan,
+                ))
+                skipToNextStatement()
+                return
+            }
+
+            if (i < tokens.length && tokens[i].kind == "PUNCT" && tokens[i].text == "=") {
+                i++
+            } else {
+                errors.push(new TABError(
+                    "E-TEST-005",
+                    "E-TEST-005: `test-bind " + ident + "` is missing the `=` separator. " +
+                    "Per SPEC §19.12.6, the surface is `test-bind <name> = <expression>`.",
+                    declSpan,
+                ))
+                skipToNextStatement()
+                return
+            }
+
+            const rhsParts = []
+            let depth = 0
+            while (i < tokens.length && tokens[i].kind != "EOF") {
+                const t = tokens[i]
+                if (t.kind == "PUNCT" && t.text == OPEN_BRACE) {
+                    depth++
+                    rhsParts.push(t.text)
+                    i++
+                    continue
+                }
+                if (t.kind == "PUNCT" && t.text == CLOSE_BRACE) {
+                    if (depth == 0) break
+                    depth--
+                    rhsParts.push(t.text)
+                    i++
+                    continue
+                }
+                if (depth == 0 && t.kind == "IDENT") {
+                    if (isTestBindSeq(i)) break
+                    if (t.text == "test" || t.text == "assert" ||
+                        t.text == "before" || t.text == "after") break
+                }
+                rhsParts.push(t.text)
+                i++
+            }
+            const expression = rhsParts.join(" ").trim()
+
+            if (!expression) {
+                errors.push(new TABError(
+                    "E-TEST-005",
+                    "E-TEST-005: `test-bind " + ident + "` is missing the right-hand-side expression. " +
+                    "Per SPEC §19.12.6, the surface is `test-bind <name> = <expression>`.",
+                    declSpan,
+                ))
+                return
+            }
+
+            // Duplicate-identifier check (SPEC §19.12.6).
+            let seen = false
+            for (const n of seenBindNames) {
+                if (n == ident) { seen = true; break }
+            }
+            if (seen) {
+                errors.push(new TABError(
+                    "E-TEST-005",
+                    "E-TEST-005: duplicate `test-bind` declaration for `" + ident + "` in this `~{}` block. " +
+                    "Per SPEC §19.12.6, a second `test-bind` declaration for the same identifier within " +
+                    "the same `~{}` block is a compile error. Each declaration binds a distinct server function.",
+                    declSpan,
+                ))
+                return
+            }
+            seenBindNames.push(ident)
+
+            testBinds.push({
+                identifier: ident,
+                expression,
+                line: declLine,
+            })
         }
 
         // Main parse loop
@@ -2667,6 +2805,13 @@ ${
                 continue
             }
 
+            // SPEC §19.12.6 — `test-bind` declaration. MUST be checked BEFORE
+            // the `IDENT "test"` branch since they share the leading `test`.
+            if (isTestBindSeq(i)) {
+                parseTestBindDecl()
+                continue
+            }
+
             if (tok.kind == "IDENT" && tok.text == "test") {
                 const testLine = (tok.span && tok.span.line) ? tok.span.line : span.line
                 i++
@@ -2686,6 +2831,38 @@ ${
                     const inner = tokens[i]
                     if (inner.kind == "PUNCT" && inner.text == CLOSE_BRACE) break
 
+                    // SPEC §19.12.6 — `test-bind` SHALL NOT appear inside a
+                    // `test "..." {...}` case body. Fire E-TEST-005 and consume.
+                    if (isTestBindSeq(i)) {
+                        const tbTok = tokens[i]
+                        const tbSpan = tbTok.span
+                            ? fullSpan(tbTok.span, filePath)
+                            : fullSpan(span, filePath)
+                        errors.push(new TABError(
+                            "E-TEST-005",
+                            "E-TEST-005: `test-bind` declarations are not legal inside a " +
+                            "`test \"...\" {...}` case body. Per SPEC §19.12.6, `test-bind` is " +
+                            "body-scope-only at the `~{}` test-block scope (sibling to `test` " +
+                            "cases and `assert` statements). Move the `test-bind` declaration " +
+                            "to the `~{}` block body.",
+                            tbSpan,
+                        ))
+                        i = i + 3
+                        if (i < tokens.length && tokens[i].kind == "IDENT") i++
+                        if (i < tokens.length && tokens[i].kind == "PUNCT" && tokens[i].text == "=") i++
+                        let dd = 0
+                        while (i < tokens.length && tokens[i].kind != "EOF") {
+                            const t2 = tokens[i]
+                            if (t2.kind == "PUNCT" && t2.text == CLOSE_BRACE && dd == 0) break
+                            if (dd == 0 && t2.kind == "IDENT" && t2.text == "assert") break
+                            if (dd == 0 && isTestBindSeq(i)) break
+                            if (t2.kind == "PUNCT" && t2.text == OPEN_BRACE) dd++
+                            else if (t2.kind == "PUNCT" && t2.text == CLOSE_BRACE) dd--
+                            i++
+                        }
+                        continue
+                    }
+
                     if (inner.kind == "IDENT" && inner.text == "assert") {
                         i++
                         const rawExpr = collectAssertTokens()
@@ -2699,6 +2876,10 @@ ${
                             const t = tokens[i]
                             if (t.kind == "PUNCT" && t.text == CLOSE_BRACE && depth == 0) break
                             if (depth == 0 && t.kind == "IDENT" && t.text == "assert") break
+                            // SPEC §19.12.6 — break on `test-bind` so the outer
+                            // case-body loop fires the diagnostic instead of
+                            // silently absorbing the declaration.
+                            if (depth == 0 && isTestBindSeq(i)) break
                             if (t.kind == "PUNCT" && t.text == OPEN_BRACE) depth++
                             else if (t.kind == "PUNCT" && t.text == CLOSE_BRACE) depth--
                             stmtParts.push(t.text)
@@ -2749,6 +2930,8 @@ ${
             tests,
             before: beforeStmts,
             after: afterStmts,
+            // SPEC §19.12.6 — body-scope `test-bind` declarations.
+            testBinds,
         }
     }
 

@@ -7947,7 +7947,7 @@ function parseCSSTokens(tokens, filePath) {
  * @param {string} filePath
  * @param {object} span - block span (for line numbers)
  * @param {TABError[]} errors
- * @returns {{ name: string|null, line: number, tests: object[], before: string[]|null, after: string[]|null }}
+ * @returns {{ name: string|null, line: number, tests: object[], before: string[]|null, after: string[]|null, testBinds: object[] }}
  */
 function parseTestBody(tokens, filePath, span, errors) {
   let i = 0;
@@ -7955,6 +7955,14 @@ function parseTestBody(tokens, filePath, span, errors) {
   const tests = [];
   let beforeStmts = null;
   let afterStmts = null;
+  // SPEC §19.12.6 — `test-bind` declarations at body scope of this `~{}`.
+  // Scope-local; does NOT leak to siblings. Phase A6-2 (parser) collects them;
+  // A6-3 (typer) validates RHS shape; A6-4 (codegen) emits dispatch hook.
+  const testBinds = [];
+  // Track declared identifiers for duplicate-detection (SPEC §19.12.6:
+  // "A second `test-bind` declaration for the same identifier within the same
+  // `~{}` block SHALL be a compile error.").
+  const seenBindNames = new Set();
 
   /**
    * Collect raw statement tokens until a closing } at depth 0, or EOF.
@@ -8024,12 +8032,174 @@ function parseTestBody(tokens, filePath, span, errors) {
       if (depth === 0 && tok.kind === "IDENT" &&
           (tok.text === "assert" || tok.text === "test" ||
            tok.text === "before" || tok.text === "after")) break;
+      // SPEC §19.12.6 — break on `test-bind` sequence at depth 0 so a
+      // following `test-bind` declaration is not absorbed into the assert
+      // expression. (Mirrors the existing `test`/`assert`/`before`/`after`
+      // boundaries above.)
+      if (depth === 0 && isTestBindSeq(i)) break;
       if (tok.kind === "PUNCT" && tok.text === "{") depth++;
       else if (tok.kind === "PUNCT" && tok.text === "}") depth--;
       parts.push(tok.text);
       i++;
     }
     return parts.join(" ").trim();
+  }
+
+  /**
+   * Detect the 3-token sequence `IDENT("test") + PUNCT("-") + IDENT("bind")`
+   * starting at index `idx`. Returns true iff the sequence is present.
+   *
+   * SPEC §19.12.6 — `test-bind` declaration syntax. Identifiers in the scrml
+   * tokenizer are `[A-Za-z_$][A-Za-z0-9_$]*` (no hyphens), so `test-bind`
+   * tokenizes as 3 separate tokens. Detect the sequence here rather than
+   * adding `test-bind` to the multi-char keyword set in the tokenizer.
+   */
+  function isTestBindSeq(idx) {
+    return (
+      idx + 2 < tokens.length &&
+      tokens[idx].kind === "IDENT" && tokens[idx].text === "test" &&
+      tokens[idx + 1].kind === "PUNCT" && tokens[idx + 1].text === "-" &&
+      tokens[idx + 2].kind === "IDENT" && tokens[idx + 2].text === "bind"
+    );
+  }
+
+  /**
+   * Parse a `test-bind <ident> = <expression>` declaration starting at the
+   * `test` IDENT (caller has already verified `isTestBindSeq(i)`). Advances
+   * `i` past the entire declaration. Pushes a TestBindDecl to `testBinds`
+   * (or, on duplicate identifier, fires E-TEST-005 and skips the duplicate).
+   *
+   * RHS expression is collected as raw token-text up to the next body-scope
+   * statement boundary (next `test`/`assert`/`before`/`after`/`test-bind`
+   * keyword at depth 0, closing `}` at depth 0, or EOF). Brace-balanced
+   * sub-expressions (object literals, arrow function bodies) are preserved.
+   */
+  function parseTestBindDecl() {
+    const declTok = tokens[i];
+    const declLine = (declTok.span && declTok.span.line) ? declTok.span.line : span.line;
+    const declSpan = declTok.span
+      ? fullSpan(declTok.span, filePath)
+      : fullSpan(span, filePath);
+    i += 3; // consume test - bind
+
+    // Identifier (LHS)
+    let ident = "";
+    if (i < tokens.length && tokens[i].kind === "IDENT") {
+      ident = tokens[i].text;
+      i++;
+    } else {
+      errors.push(new TABError(
+        "E-TEST-005",
+        "E-TEST-005: `test-bind` requires an identifier between `test-bind` and `=`. " +
+        "Per SPEC §19.12.6, the surface is `test-bind <name> = <expression>` where " +
+        "`<name>` resolves to a server function in scope.",
+        declSpan,
+      ));
+      // Skip to next body-scope boundary to recover.
+      skipToNextStatement();
+      return;
+    }
+
+    // `=` separator
+    if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "=") {
+      i++;
+    } else {
+      errors.push(new TABError(
+        "E-TEST-005",
+        `E-TEST-005: \`test-bind ${ident}\` is missing the \`=\` separator. ` +
+        "Per SPEC §19.12.6, the surface is `test-bind <name> = <expression>`.",
+        declSpan,
+      ));
+      skipToNextStatement();
+      return;
+    }
+
+    // RHS expression — collect until next body-scope statement boundary.
+    const rhsParts = [];
+    let depth = 0;
+    while (i < tokens.length && tokens[i].kind !== "EOF") {
+      const t = tokens[i];
+      if (t.kind === "PUNCT" && t.text === "{") {
+        depth++;
+        rhsParts.push(t.text);
+        i++;
+        continue;
+      }
+      if (t.kind === "PUNCT" && t.text === "}") {
+        if (depth === 0) break; // end of enclosing ~{} body
+        depth--;
+        rhsParts.push(t.text);
+        i++;
+        continue;
+      }
+      // Statement boundaries at depth 0:
+      //   - next `test-bind` sequence
+      //   - next `test "..."` (IDENT "test" not followed by `-` `bind`)
+      //   - next `assert` IDENT
+      //   - next `before` / `after` IDENT
+      if (depth === 0 && t.kind === "IDENT") {
+        if (isTestBindSeq(i)) break;
+        if (t.text === "test" || t.text === "assert" ||
+            t.text === "before" || t.text === "after") break;
+      }
+      rhsParts.push(t.text);
+      i++;
+    }
+    const expression = rhsParts.join(" ").trim();
+
+    if (!expression) {
+      errors.push(new TABError(
+        "E-TEST-005",
+        `E-TEST-005: \`test-bind ${ident}\` is missing the right-hand-side expression. ` +
+        "Per SPEC §19.12.6, the surface is `test-bind <name> = <expression>`.",
+        declSpan,
+      ));
+      return;
+    }
+
+    // Duplicate-identifier check (SPEC §19.12.6: "A second `test-bind`
+    // declaration for the same identifier within the same `~{}` block SHALL
+    // be a compile error.").
+    if (seenBindNames.has(ident)) {
+      errors.push(new TABError(
+        "E-TEST-005",
+        `E-TEST-005: duplicate \`test-bind\` declaration for \`${ident}\` in this \`~{}\` block. ` +
+        "Per SPEC §19.12.6, a second `test-bind` declaration for the same identifier within " +
+        "the same `~{}` block is a compile error. Each declaration binds a distinct server function.",
+        declSpan,
+      ));
+      return;
+    }
+    seenBindNames.add(ident);
+
+    testBinds.push({
+      identifier: ident,
+      expression,
+      line: declLine,
+    });
+  }
+
+  /**
+   * Recovery helper — advance `i` past the current malformed statement to the
+   * next body-scope statement boundary or closing `}`. Mirrors the boundary
+   * heuristics used by `parseTestBindDecl`.
+   */
+  function skipToNextStatement() {
+    let depth = 0;
+    while (i < tokens.length && tokens[i].kind !== "EOF") {
+      const t = tokens[i];
+      if (t.kind === "PUNCT" && t.text === "{") { depth++; i++; continue; }
+      if (t.kind === "PUNCT" && t.text === "}") {
+        if (depth === 0) return;
+        depth--; i++; continue;
+      }
+      if (depth === 0 && t.kind === "IDENT") {
+        if (isTestBindSeq(i)) return;
+        if (t.text === "test" || t.text === "assert" ||
+            t.text === "before" || t.text === "after") return;
+      }
+      i++;
+    }
   }
 
   // Main parse loop
@@ -8061,6 +8231,14 @@ function parseTestBody(tokens, filePath, span, errors) {
       continue;
     }
 
+    // SPEC §19.12.6 — `test-bind <ident> = <expr>` declaration. MUST be
+    // checked BEFORE the `IDENT "test"` branch since they share the leading
+    // `test` keyword. Body-scope-only at this `~{}` block.
+    if (isTestBindSeq(i)) {
+      parseTestBindDecl();
+      continue;
+    }
+
     // test "name" { } sub-block
     if (tok.kind === "IDENT" && tok.text === "test") {
       const testLine = (tok.span && tok.span.line) ? tok.span.line : span.line;
@@ -8082,6 +8260,44 @@ function parseTestBody(tokens, filePath, span, errors) {
         const inner = tokens[i];
         if (inner.kind === "PUNCT" && inner.text === "}") break;
 
+        // SPEC §19.12.6 — `test-bind` SHALL NOT appear inside a
+        // `test "..." {...}` case body. Fire E-TEST-005 and consume the
+        // malformed declaration so parsing of subsequent statements proceeds.
+        if (isTestBindSeq(i)) {
+          const tbTok = tokens[i];
+          const tbSpan = tbTok.span
+            ? fullSpan(tbTok.span, filePath)
+            : fullSpan(span, filePath);
+          errors.push(new TABError(
+            "E-TEST-005",
+            "E-TEST-005: `test-bind` declarations are not legal inside a " +
+            "`test \"...\" {...}` case body. Per SPEC §19.12.6, `test-bind` is " +
+            "body-scope-only at the `~{}` test-block scope (sibling to `test` " +
+            "cases and `assert` statements). Move the `test-bind` declaration " +
+            "to the `~{}` block body.",
+            tbSpan,
+          ));
+          // Consume `test - bind <ident> = <expr>` shape if present, else just
+          // skip the 3-token sequence to recover.
+          i += 3;
+          // Skip optional identifier
+          if (i < tokens.length && tokens[i].kind === "IDENT") i++;
+          // Skip optional `=`
+          if (i < tokens.length && tokens[i].kind === "PUNCT" && tokens[i].text === "=") i++;
+          // Skip RHS up to next assert/closing-} at depth 0
+          let dd = 0;
+          while (i < tokens.length && tokens[i].kind !== "EOF") {
+            const t2 = tokens[i];
+            if (t2.kind === "PUNCT" && t2.text === "}" && dd === 0) break;
+            if (dd === 0 && t2.kind === "IDENT" && t2.text === "assert") break;
+            if (dd === 0 && isTestBindSeq(i)) break;
+            if (t2.kind === "PUNCT" && t2.text === "{") dd++;
+            else if (t2.kind === "PUNCT" && t2.text === "}") dd--;
+            i++;
+          }
+          continue;
+        }
+
         if (inner.kind === "IDENT" && inner.text === "assert") {
           i++; // consume "assert"
           const rawExpr = collectAssertTokens();
@@ -8096,6 +8312,10 @@ function parseTestBody(tokens, filePath, span, errors) {
             const t = tokens[i];
             if (t.kind === "PUNCT" && t.text === "}" && depth === 0) break;
             if (depth === 0 && t.kind === "IDENT" && t.text === "assert") break;
+            // SPEC §19.12.6 — break on `test-bind` at depth 0 so the outer
+            // case-body loop fires the diagnostic above instead of silently
+            // absorbing the declaration into the preceding statement.
+            if (depth === 0 && isTestBindSeq(i)) break;
             if (t.kind === "PUNCT" && t.text === "{") depth++;
             else if (t.kind === "PUNCT" && t.text === "}") depth--;
             stmtParts.push(t.text);
@@ -8149,6 +8369,9 @@ function parseTestBody(tokens, filePath, span, errors) {
     tests,
     before: beforeStmts,
     after: afterStmts,
+    // SPEC §19.12.6 — body-scope `test-bind` declarations. Always present;
+    // empty array for blocks with no declarations.
+    testBinds,
   };
 }
 

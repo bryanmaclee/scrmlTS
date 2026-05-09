@@ -157,6 +157,27 @@ export interface TestCase {
 }
 
 /**
+ * A `test-bind` declaration inside a ~{} test block (SPEC §19.12.6).
+ *
+ * Produced by `test-bind <identifier> = <expression>` syntax. Body-scope-only
+ * inside `~{}` — sibling to `test "..." {...}` cases and `assert.*` statements,
+ * not legal inside a test case body, inside `${...}`, or in any non-`~{}` context.
+ *
+ * Phase A6-2 (parser): produces this node. Phase A6-3 (typer): validates the
+ * RHS expression resolves to either a function value assignable to the bound
+ * server-fn signature OR a value assignable to the bound server-fn return type
+ * (return-stub form). Phase A6-4 (codegen): emits the test-mode dispatch hook.
+ */
+export interface TestBindDecl {
+  /** Bound server-fn identifier (LHS of `=`). */
+  identifier: string;
+  /** Raw RHS expression source (right of `=`). */
+  expression: string;
+  /** Source line of the `test-bind` declaration. */
+  line: number;
+}
+
+/**
  * A complete ~{} test block — corresponds to one ~{ ... } source block.
  *
  * A test group may contain multiple test cases. If no `test "name" { }` sub-blocks
@@ -173,6 +194,17 @@ export interface TestGroup {
   before: string[] | null;
   /** Raw statement strings from `after { }` block (if present). */
   after: string[] | null;
+  /**
+   * `test-bind` declarations at the body scope of this `~{}` block (SPEC §19.12.6).
+   *
+   * Always present; default `[]` for blocks with no test-bind declarations.
+   * A second declaration for the same identifier within the same block is a
+   * compile error (E-TEST-005) and is dropped from this array (only the first
+   * declaration is retained).
+   *
+   * Scope-local — does NOT leak to sibling `~{}` blocks or to outer scope.
+   */
+  testBinds: TestBindDecl[];
 }
 
 /**
