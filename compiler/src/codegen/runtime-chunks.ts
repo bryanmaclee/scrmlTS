@@ -16,6 +16,7 @@
  *
  * Chunk → runtime functions:
  *   core          _scrml_state, _scrml_subscribers, _scrml_reactive_get/set/subscribe/propagate_dirty
+ *   reset         _scrml_default_set/_fns, _scrml_init_set/_fns, _scrml_reset (§6.8)
  *   derived       _scrml_derived_declare/subscribe/get, flush
  *   lift          _scrml_lift
  *   scope         _scrml_cleanup_registry, _scrml_register_cleanup, _scrml_destroy_scope
@@ -42,6 +43,7 @@ import { SCRML_RUNTIME } from "../runtime-template.js";
 
 export const RUNTIME_CHUNK_ORDER = [
   'core',
+  'reset',
   'derived',
   'lift',
   'scope',
@@ -90,6 +92,7 @@ type NonCoreChunkName = Exclude<RuntimeChunkName, 'core'>;
 const CHUNK_MARKERS: Record<NonCoreChunkName, string> = {
   // §X.X section header comments — each appears exactly once, in a // comment line.
   // Split position is mid-comment-line (after '// '). Both sides are valid JS.
+  reset:          "§6.8 reset+default runtime (chunk: 'reset')",
   derived:        '§6.6 Derived reactive runtime',
   scope:          '§6.7.3 Scope-aware cleanup registry',
   timers:         '§6.7.5 / §6.7.6 Timer and Poll runtime',

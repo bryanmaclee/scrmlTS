@@ -66,15 +66,33 @@ const _scrml_derived_downstreams = {};
 // --- default= storage (§6.8) ---
 // _scrml_default_fns: name → () => default-value
 // Registered by _scrml_default_set at module-init alongside the cell
-// declaration. Read by reset(@cell) lowering (C5 — pending) to materialize
-// the default when reset is invoked. Per SPEC §6.8.1 the default is the
-// EXPRESSION (not a snapshot), so the closure is re-evaluated each reset.
+// declaration. Read by reset(@cell) lowering (C5) to materialize the default
+// when reset is invoked. Per SPEC §6.8.1 the default is the EXPRESSION (not
+// a snapshot), so the closure is re-evaluated each reset.
 //
 // Parallel map (separate from _scrml_state / _scrml_derived_fns) so the
 // existing reactive registries keep their shape stability.
+//
+// NOTE: this declaration LIVES in the 'core' chunk (no marker) so file-init
+// _scrml_default_set(...) calls always resolve. The runtime helper that
+// USES this map (_scrml_reset) lives in the 'reset' chunk further down.
 const _scrml_default_fns = {};
 function _scrml_default_set(name, fn) {
   _scrml_default_fns[name] = fn;
+}
+
+// --- init-thunk storage (§6.8 — C5) ---
+// _scrml_init_fns: name -> () => init-value
+// Registered by _scrml_init_set at module-init for each Shape 1 / Shape 2
+// state-cell that does NOT carry a "default" attribute.
+//
+// Same chunk policy as _scrml_default_fns: declaration lives in 'core' so
+// file-init _scrml_init_set(...) calls always resolve. The using helper
+// (_scrml_reset) lives in 'reset' and is tree-shaken when no reset(@cell)
+// occurs in the source.
+const _scrml_init_fns = {};
+function _scrml_init_set(name, fn) {
+  _scrml_init_fns[name] = fn;
 }
 
 // --- machine temporal transitions (§51.12) ---
@@ -280,6 +298,64 @@ function _scrml_reactive_derived(name, fn) {
     "scrml runtime: _scrml_reactive_derived is retired (§6.6). " +
     "Recompile this file with the current compiler to use _scrml_derived_declare."
   );
+}
+
+// ---------------------------------------------------------------------------
+// §6.8 reset+default runtime (chunk: 'reset')
+// ---------------------------------------------------------------------------
+
+// _scrml_reset(name) — SPEC §6.8.2 reset(@cell) keyword runtime.
+//
+// Three target shapes (per SPEC §6.8.2 lines 4848-4853):
+//   - reset(@cell)            top-level cell or compound child by direct name
+//   - reset(@compound)        whole compound (walks every child, declaration order)
+//   - reset(@compound.field)  single compound child by qualified path (multi-level OK)
+//
+// Codegen passes the cell's encoded storage key (the same key used by
+// _scrml_reactive_set / _scrml_default_set / _scrml_init_set). This helper
+// consults the registries to decide:
+//
+//   1. Default thunk wins: if _scrml_default_fns[name] exists, evaluate it
+//      and write the result via _scrml_reactive_set. (§6.8.2 line 4857.)
+//   2. Otherwise init thunk: if _scrml_init_fns[name] exists, evaluate it
+//      and write the result. (§6.8.1 line 4831.)
+//   3. Otherwise compound walk: if neither thunk exists, treat name as a
+//      compound parent and recursively reset every registered cell whose
+//      key starts with name + dot. ECMAScript object-key-iteration order
+//      preserves insertion order, and codegen registers compound children
+//      in declaration order, so the walk respects §6.8.2 line 4863's
+//      declaration-order requirement.
+//   4. Otherwise no-op (defensive: unknown name, e.g. a future engine cell
+//      whose B22 didn't reject — silent rather than throwing).
+function _scrml_reset(name) {
+  // Default thunk wins per §6.8.2 line 4857.
+  if (typeof _scrml_default_fns[name] === "function") {
+    _scrml_reactive_set(name, _scrml_default_fns[name]());
+    return;
+  }
+  // Otherwise re-evaluate init thunk per §6.8.1 line 4831.
+  if (typeof _scrml_init_fns[name] === "function") {
+    _scrml_reactive_set(name, _scrml_init_fns[name]());
+    return;
+  }
+  // Otherwise: treat as a compound parent — walk every registered child
+  // (key starts with name followed by a dot). Iteration order is insertion
+  // order per ECMAScript 2015+ semantics; codegen emits children in
+  // declaration order so this respects §6.8.2 line 4863.
+  const prefix = name + ".";
+  // Collect first to avoid mutation-during-iteration concerns when a child
+  // reset writes through _scrml_reactive_set and triggers subscribers.
+  const childKeys = [];
+  for (const k of Object.keys(_scrml_init_fns)) {
+    if (k.indexOf(prefix) === 0) childKeys.push(k);
+  }
+  for (const k of Object.keys(_scrml_default_fns)) {
+    if (k.indexOf(prefix) === 0 && childKeys.indexOf(k) === -1) childKeys.push(k);
+  }
+  for (const k of childKeys) {
+    _scrml_reset(k);
+  }
+  // No children + no thunk -> silent no-op (defensive).
 }
 
 // ---------------------------------------------------------------------------

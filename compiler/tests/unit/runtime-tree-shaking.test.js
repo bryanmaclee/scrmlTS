@@ -237,7 +237,8 @@ describe("runtime size", () => {
     expect(minimal.length).toBeLessThan(SCRML_RUNTIME.length * 0.30);
   });
 
-  test("RUNTIME_CHUNK_ORDER has 14 chunks", () => {
-    expect(RUNTIME_CHUNK_ORDER.length).toBe(14);
+  test("RUNTIME_CHUNK_ORDER has 15 chunks", () => {
+    // 15 chunks post-C5: 'reset' chunk added for §6.8 reset(@cell) + default= helpers.
+    expect(RUNTIME_CHUNK_ORDER.length).toBe(15);
   });
 });

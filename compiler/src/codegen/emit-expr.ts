@@ -86,17 +86,59 @@ export function emitExpr(node: ExprNode, ctx: EmitExprContext): string {
     case "input-state-ref": return emitInputStateRef(node);
     case "escape-hatch": return emitEscapeHatch(node, ctx);
     case "reset-expr": {
-      // §6.8.2 — Step 9 (Phase A1a) lifts `reset(<expr>)` into a structurally
-      // distinct ExprNode kind. Step 9 does NOT yet replace the codegen
-      // lowering — that is A1c's responsibility (the runtime call wired to
-      // `default=` evaluation per §6.8.1). Until A1c lands, emit the same
-      // call shape as before so any existing samples / fixtures keep their
-      // pre-Step-9 JS output bit-for-bit identical:
-      //   reset(<target-as-emitted>)
-      // The emitted string is a function-call to a name that isn't yet
-      // defined as a runtime function — same situation as before Step 9.
-      // No new gauntlet/E2E behavior at this stage.
-      return `reset(${emitExpr(node.target, ctx)})`;
+      // §6.8.2 — A1c Step C5 — lower reset(<target>) to the runtime helper.
+      //
+      // Target shapes (B22 already validated; non-canonical shapes fired
+      // E-RESET-INVALID-TARGET upstream):
+      //   - reset(@cell)              → ident, name === "@cell"
+      //   - reset(@compound)          → ident, name === "@compound" (helper detects compound by absence-of-thunk)
+      //   - reset(@compound.field)    → member chain rooted at @-IdentExpr (multi-level OK per §6.3.5)
+      //
+      // The emitted call uses the SAME storage key the cell registered with:
+      //   - top-level cell: bare cell name
+      //   - compound child: dotted qualified path (parent.child[.subfield...])
+      //
+      // The runtime helper `_scrml_reset(name)` handles the three shapes
+      // uniformly via the registries `_scrml_default_fns` / `_scrml_init_fns`
+      // (and falls back to a prefix-match compound walk when neither has a
+      // direct entry — that's the reset(@compound) case). See
+      // runtime-template.js for full helper semantics.
+      //
+      // Defensive fallback for unexpected shapes: emit a comment marker.
+      // B22 should have rejected them, but defensive code keeps codegen
+      // crash-free if a malformed AST sneaks through.
+      const target = node.target;
+      if (target.kind === "ident") {
+        const name = target.name;
+        if (typeof name === "string" && name.startsWith("@")) {
+          const bare = name.slice(1);
+          return `_scrml_reset(${JSON.stringify(bare)})`;
+        }
+        // Non-`@` IdentExpr: B22 should have rejected. Fall through to marker.
+      } else if (target.kind === "member") {
+        // Walk the MemberExpr chain to a dotted-string path. Root must be
+        // an `@`-prefixed IdentExpr (B22 enforced shape).
+        const path: string[] = [];
+        let cursor: ExprNode = target;
+        let valid = true;
+        while (cursor.kind === "member") {
+          const m = cursor as MemberExpr;
+          if (typeof m.property !== "string") { valid = false; break; }
+          path.unshift(m.property);
+          cursor = m.object;
+        }
+        if (valid && cursor.kind === "ident") {
+          const rootName = (cursor as IdentExpr).name;
+          if (typeof rootName === "string" && rootName.startsWith("@")) {
+            const fullPath = [rootName.slice(1), ...path].join(".");
+            return `_scrml_reset(${JSON.stringify(fullPath)})`;
+          }
+        }
+        // Non-canonical member chain: B22 should have rejected. Fall through.
+      }
+      // Defensive marker for unrecognized target shapes. Keeps emitted JS
+      // syntactically valid as an expression-statement comment-prefixed call.
+      return `/* C5: unexpected reset target shape; B22 should have rejected */ undefined`;
     }
     default: {
       // Exhaustiveness guard — if a new kind is added and not handled,

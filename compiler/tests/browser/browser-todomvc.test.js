@@ -93,6 +93,11 @@ function loadTodoMVC() {
     if (typeof _scrml_effect !== "undefined") window._scrml_effect = _scrml_effect;
     if (typeof _scrml_effect_static !== "undefined") window._scrml_effect_static = _scrml_effect_static;
     if (typeof _scrml_computed !== "undefined") window._scrml_computed = _scrml_computed;
+    // C5: §6.8 reset+default helpers — emitted by C1 (default-set) and C5
+    // (init-set + reset). Expose so client init code can register thunks.
+    if (typeof _scrml_default_set !== "undefined") window._scrml_default_set = _scrml_default_set;
+    if (typeof _scrml_init_set !== "undefined") window._scrml_init_set = _scrml_init_set;
+    if (typeof _scrml_reset !== "undefined") window._scrml_reset = _scrml_reset;
     window._scrml_runtime_loaded = true;
   })();`;
   eval(runtimeSetup);

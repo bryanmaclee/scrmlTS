@@ -63,6 +63,13 @@ interface IfOpts {
    * calls for plain locals (Bug F).
    */
   declaredNames?: Set<string>;
+  /**
+   * C5 — propagate the "we are inside a function body" flag through control-
+   * flow nesting so state-decl reassignments inside `if (…) { @x = … }`
+   * don't emit a `_scrml_init_set` sidecar (which would clobber the cell's
+   * canonical declaration-time init thunk).
+   */
+  insideFunctionBody?: boolean;
 }
 
 // §51.5 — Machine binding info for transition guard emission in rewriteBlockBody
@@ -89,10 +96,12 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
 
   // Thread declaredNames through body emissions so bare `x = expr`
   // reassignments inside the if/else body are recognized as rebinds of
-  // outer lets (Bug B + F).
+  // outer lets (Bug B + F). C5: also thread insideFunctionBody so nested
+  // state-decl reassignments don't leak _scrml_init_set sidecars.
   const bodyOpts = {
     derivedNames: opts.derivedNames,
     declaredNames: opts.declaredNames,
+    insideFunctionBody: opts.insideFunctionBody,
   };
 
   if (hasFragmentedLiftBody(consequent)) {
@@ -139,7 +148,7 @@ export function emitIfStmt(node: any, opts: IfOpts = {}): string {
  */
 export function emitForStmt(
   node: any,
-  opts?: { dbVar?: string; declaredNames?: Set<string> },
+  opts?: { dbVar?: string; declaredNames?: Set<string>; insideFunctionBody?: boolean },
 ): string {
   const lines: string[] = [];
   let varName: string = node.variable ?? node.name ?? "item";
@@ -165,7 +174,7 @@ export function emitForStmt(
       lines.push(`for (${init}; ${cond}; ${update}) {`);
 
       const body: any[] = node.body ?? [];
-      for (const code of emitLogicBody(body, { declaredNames: opts?.declaredNames })) {
+      for (const code of emitLogicBody(body, { declaredNames: opts?.declaredNames, insideFunctionBody: opts?.insideFunctionBody } as any)) {
         lines.push(`  ${code}`);
       }
       lines.push(`}`);
@@ -258,7 +267,7 @@ export function emitForStmt(
       lines.push(`  ${liftCode}`);
     }
   } else {
-    for (const code of emitLogicBody(body, { declaredNames: opts?.declaredNames })) {
+    for (const code of emitLogicBody(body, { declaredNames: opts?.declaredNames, insideFunctionBody: opts?.insideFunctionBody } as any)) {
       lines.push(`  ${code}`);
     }
   }
@@ -417,13 +426,13 @@ function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
 /**
  * Emit a while statement, optionally with a label prefix.
  */
-export function emitWhileStmt(node: any, opts?: { declaredNames?: Set<string> }): string {
+export function emitWhileStmt(node: any, opts?: { declaredNames?: Set<string>; insideFunctionBody?: boolean }): string {
   const lines: string[] = [];
   const _whileCtx: EmitExprContext = { mode: "client" };
   const condition = emitExprField(node.condExpr, node.condition ?? "true", _whileCtx);
   const label = node.label ? `${node.label}: ` : "";
   lines.push(`${label}while (${condition}) {`);
-  for (const code of emitLogicBody(node.body ?? [], { declaredNames: opts?.declaredNames })) {
+  for (const code of emitLogicBody(node.body ?? [], { declaredNames: opts?.declaredNames, insideFunctionBody: opts?.insideFunctionBody } as any)) {
     lines.push(`  ${code}`);
   }
   lines.push(`}`);

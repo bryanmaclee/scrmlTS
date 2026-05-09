@@ -150,7 +150,11 @@ export function scheduleStatements(body: ASTNode[], fnNode: ASTNode, routeMap: R
   const lines: string[] = [];
   // Track declared names so tilde-decl can detect reassignment vs first declaration
   const declaredNames = new Set<string>();
-  const emitOpts = { declaredNames, ...(machineBindings ? { machineBindings } : {}) };
+  // C5: scheduleStatements always emits a function body. State-decl nodes
+  // inside are reassignments, not declarations — suppress _scrml_init_set
+  // sidecar emission so the reset-to-init thunk preserves the canonical
+  // declaration-time init expression.
+  const emitOpts: any = { declaredNames, insideFunctionBody: true, ...(machineBindings ? { machineBindings } : {}) };
 
   // Only use complex scheduling (Promise.all) for functions with actual server calls.
   // For purely client-side functions, emit sequentially — wrapping non-async statements

@@ -104,6 +104,21 @@ interface EmitLogicOpts {
    */
   compoundPathPrefix?: string | null;
   /**
+   * C5 — set to `true` when emitting nodes inside a function body (or any
+   * other context where a `state-decl` represents a REASSIGNMENT rather
+   * than a top-level declaration). Suppresses `_scrml_init_set` emission
+   * because reassignments should not overwrite the cell's reset-to-init
+   * thunk (per SPEC §6.8.1: reset re-evaluates the ORIGINAL init expression).
+   *
+   * The `_scrml_default_set` sidecar (C1) is unaffected — `defaultExpr` is
+   * a TAB-time attribute that only appears on structural decl-form nodes,
+   * so it naturally doesn't fire on reassignments.
+   *
+   * Threaded through by `case "function-decl"` and analogous paths
+   * (CPS-split server-fn emission in emit-functions.ts).
+   */
+  insideFunctionBody?: boolean;
+  /**
    * C2 — Function body registry for transitive reactive-dep extraction
    * through function calls in derived-cell init expressions. Closes the
    * §6.6.3 line 2470-2482 normative gap (transitive deps recorded as if
@@ -325,6 +340,87 @@ function _emitDefaultSidecar(node: any, qualifiedName: string, opts: EmitLogicOp
   const encodedName = ctx ? ctx.encode(qualifiedName) : qualifiedName;
   const defaultBody = emitExpr(defaultExpr, _makeExprCtx(opts));
   return `_scrml_default_set(${JSON.stringify(encodedName)}, () => ${defaultBody});`;
+}
+
+/**
+ * C5 — Emit the `_scrml_init_set("name", () => <initExpr>);` sidecar for a
+ * Shape 1 / Shape 2 state-decl that does NOT carry a `defaultExpr`.
+ *
+ * Per SPEC §6.8.1 line 4831: "When `default=` is absent, calling `reset(@cell)`
+ * re-evaluates the init expression and sets the cell to the result."
+ *
+ * The init-thunk captures the same expression the C1 dispatch path passes
+ * to `_scrml_reactive_set` at module-init. At reset time the runtime
+ * `_scrml_reset` helper calls this thunk, evaluates it fresh, and writes
+ * the result via `_scrml_reactive_set` — re-firing every read of every
+ * `@`-cell the init expression touches AT RESET TIME (not capturing
+ * decl-time values).
+ *
+ * SKIP rules (mirrors `_emitDefaultSidecar`'s structure plus the brief's
+ * SCOPE §1 carve-outs):
+ *   - `defaultExpr !== null`: the cell already has a `_scrml_default_set`
+ *     entry. `_scrml_reset` prefers default over init per §6.8.2 line 4857,
+ *     so the init-thunk would be unreachable. Skip to keep emitted JS lean.
+ *   - `shape === "derived" && isConst === true`: E-DERIVED-WRITE territory.
+ *     Reset on derived cells is a write error per §6.8.1 line 4842; A1b/B22
+ *     should have rejected before codegen. Defensive skip.
+ *   - `_cellKind === "markup-typed"`: same reasoning (markup-typed derived).
+ *   - `_cellKind === "compound-parent"` (or `Array.isArray(children)`):
+ *     compound parents are computed via `_scrml_derived_declare`
+ *     reconstruction; their "init" is their children. Reset of a compound
+ *     parent walks children (handled by `_scrml_reset`'s prefix-match
+ *     fallback). Skip.
+ *   - SQL-init cells (`sqlNode` present): the init expression cannot be
+ *     re-evaluated at reset time — `_scrml_sql` is server-only (E-CG-006).
+ *     The caller's mount-hydration semantics (§8.11) own re-fetch; reset
+ *     is undefined for SQL-init cells. Skip defensively.
+ *   - `init` falsy AND `initExpr` absent: nothing to re-evaluate. Skip.
+ *
+ * Returns the sidecar line, or `null` to skip.
+ *
+ * @param node — the state-decl AST node
+ * @param qualifiedName — the storage key (compound child: "parent.child")
+ * @param opts — emit options (for encodingCtx)
+ */
+function _emitInitThunkSidecar(node: any, qualifiedName: string, opts: EmitLogicOpts): string | null {
+  // Skip on server boundary — `_scrml_init_set` is a client-side runtime
+  // helper. Server-side state lives in `_scrml_body[...]` and has different
+  // semantics; reset(@cell) only fires on the client per L18 / §6.8.
+  if (opts.boundary === "server") return null;
+  // Skip inside function bodies — reassignments must not overwrite the
+  // declaration-site init-thunk (the runtime calls the LAST registered
+  // thunk for `_scrml_reset`, and a reassignment expression is not the
+  // canonical init).
+  if (opts.insideFunctionBody) return null;
+  // Skip if defaultExpr present — _scrml_reset prefers default over init.
+  if (node.defaultExpr) return null;
+  // Skip derived (E-DERIVED-WRITE territory).
+  if ((node as any).shape === "derived" && (node as any).isConst === true) return null;
+  // Skip markup-typed derived (same).
+  if ((node as any)._cellKind === "markup-typed") return null;
+  // Skip compound parents.
+  if ((node as any)._cellKind === "compound-parent" || Array.isArray((node as any).children)) return null;
+  // Skip SQL-init cells (cannot be re-evaluated client-side).
+  if (node.sqlNode && node.sqlNode.kind === "sql") return null;
+
+  const ctx = opts.encodingCtx;
+  const encodedName = ctx ? ctx.encode(qualifiedName) : qualifiedName;
+
+  // Prefer the structured `initExpr` (Phase 3 fast path); fall back to the
+  // raw `init` string when only the legacy AST shape is available. Both
+  // paths produce the same emitted JS via emitExprField. When neither is
+  // present (e.g. tilde-only init or other rare shapes), skip — there's
+  // nothing to re-evaluate.
+  if (node.initExpr) {
+    const initBody = emitExpr(node.initExpr, _makeExprCtx(opts));
+    return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${initBody});`;
+  }
+  const initStr: string = node.init ?? "";
+  if (!initStr || initStr === "undefined") return null;
+  // Use emitExprField with the raw fallback so derivedNames/server-mode
+  // routing matches the main reactive-set arm.
+  const initBody = emitExprField(node.initExpr, initStr, _makeExprCtx(opts));
+  return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${initBody});`;
 }
 
 /**
@@ -745,10 +841,28 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       // state-decl with `defaultExpr !== null`. Compound child decls carry
       // their own `defaultExpr` and recurse into this case naturally so
       // each child registers its default at its qualified-path key.
+      //
+      // C5 adds a parallel init-thunk sidecar — `_scrml_init_set(...)` for
+      // every Shape 1 / Shape 2 state-decl that does NOT carry a
+      // `defaultExpr`. Per SPEC §6.8.1 line 4831, when `default=` is absent
+      // `reset(@cell)` re-evaluates the init expression at reset time. The
+      // helper is registered alongside the cell at module-init so the
+      // runtime can call it later. Skipped for derived/markup-typed/compound-
+      // parent cells (see `_emitInitThunkSidecar` for the carve-outs).
+      //
+      // Order at runtime: default-thunk (if any) overrides init-thunk per
+      // §6.8.2 line 4857. Order in emitted JS: init-set comes BEFORE
+      // default-set so a casual reader sees the init flow first; runtime
+      // ordering is dispatch-time, not registration-time.
       const _qualifiedName = (opts.compoundPathPrefix ? `${opts.compoundPathPrefix}.${node.name}` : node.name);
       const _defaultSidecar = _emitDefaultSidecar(node, _qualifiedName, opts);
-      const _appendSidecar = (mainStmt: string): string =>
-        _defaultSidecar ? `${mainStmt}\n${_defaultSidecar}` : mainStmt;
+      const _initSidecar = _emitInitThunkSidecar(node, _qualifiedName, opts);
+      const _appendSidecar = (mainStmt: string): string => {
+        const parts = [mainStmt];
+        if (_initSidecar) parts.push(_initSidecar);
+        if (_defaultSidecar) parts.push(_defaultSidecar);
+        return parts.join("\n");
+      };
 
       // C1 dispatch arm 1: Variant C compound parent (`<formRes><name>=""</></>`)
       // Per SPEC §6.3.2 / §6.3.5 + B5 cell-classifier (symbol-table.ts:1481),
@@ -1061,7 +1175,9 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       }
       // Always thread declaredNames + derivedNames so bare `x = expr`
       // inside if/else body sees outer lets (Bug B + F).
-      return emitIfStmt(node, { derivedNames: opts.derivedNames, declaredNames: opts.declaredNames });
+      // C5: thread insideFunctionBody too so nested state-decls don't leak
+      // _scrml_init_set sidecars when we're inside a function body.
+      return emitIfStmt(node, { derivedNames: opts.derivedNames, declaredNames: opts.declaredNames, insideFunctionBody: opts.insideFunctionBody });
 
     case "for-stmt":
       // §32 array accumulator: when tilde context is active, switch to array-mode before
@@ -1069,14 +1185,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       if (opts.tildeContext) {
         return _emitForStmtWithTilde(node, opts);
       }
-      return emitForStmt(node, { dbVar: opts.dbVar, declaredNames: opts.declaredNames });
+      return emitForStmt(node, { dbVar: opts.dbVar, declaredNames: opts.declaredNames, insideFunctionBody: opts.insideFunctionBody });
 
     case "while-stmt":
       // §32 array accumulator: same pattern as for-stmt above.
       if (opts.tildeContext) {
         return _emitWhileStmtWithTilde(node, opts);
       }
-      return emitWhileStmt(node, { declaredNames: opts.declaredNames });
+      return emitWhileStmt(node, { declaredNames: opts.declaredNames, insideFunctionBody: opts.insideFunctionBody });
 
     case "do-while-stmt":
       return emitDoWhileStmt(node);
@@ -1620,8 +1736,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const fnLines: string[] = [];
       fnLines.push(`function${generatorStar} ${fnName}(${paramNames.join(", ")}) {`);
 
-      // Function body has its own scope for declared names
-      const fnOpts: EmitLogicOpts = { ...opts, declaredNames: new Set<string>() };
+      // Function body has its own scope for declared names. C5: set
+      // `insideFunctionBody` so init-thunk sidecar is suppressed for any
+      // `@x = expr` reassignments (which are AST-shaped as state-decls but
+      // are not declaration sites).
+      const fnOpts: EmitLogicOpts = { ...opts, declaredNames: new Set<string>(), insideFunctionBody: true };
       const body: any[] = node.body ?? [];
 
       const bodyCodes = emitFnShortcutBody(body, fnOpts, node.fnKind, node.hasReturnType);

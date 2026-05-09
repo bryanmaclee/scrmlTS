@@ -108,6 +108,22 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     return false;
   }
 
+  // C5 (§6.8): check if an ExprNode tree contains a reset(@cell) call. Triggers
+  // the `reset` runtime chunk so `_scrml_reset` and the default+init thunk
+  // registries are present at runtime.
+  function exprContainsResetExpr(expr: any): boolean {
+    if (!expr || typeof expr !== "object") return false;
+    if (expr.kind === "reset-expr") return true;
+    for (const key of Object.keys(expr)) {
+      const v = expr[key];
+      if (v && typeof v === "object") {
+        if (Array.isArray(v)) { for (const el of v) { if (exprContainsResetExpr(el)) return true; } }
+        else if (exprContainsResetExpr(v)) return true;
+      }
+    }
+    return false;
+  }
+
   // Walk the full AST tree recursively
   function walkNodes(nodes: any[]): void {
     for (const node of nodes) {
@@ -134,11 +150,12 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     const kind: string = node.kind ?? "";
 
     // Check all ExprNode-valued fields for structural equality ops (== / !=)
+    // and C5's reset-expr (triggers `reset` chunk).
     for (const key of Object.keys(node)) {
       const v = node[key];
-      if (v && typeof v === "object" && typeof v.kind === "string" && exprNeedsEquality(v)) {
-        chunks.add("equality");
-        break;
+      if (v && typeof v === "object" && typeof v.kind === "string") {
+        if (exprNeedsEquality(v)) chunks.add("equality");
+        if (exprContainsResetExpr(v)) chunks.add("reset");
       }
     }
 
@@ -157,6 +174,13 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
       // structuralForm:false is the post-fold representation of legacy
       // `const @x = expr` (formerly reactive-derived-decl). Triggers the
       // `derived` chunk in addition to `deep_reactive`.
+      // C5 (§6.8): a state-decl with `defaultExpr !== null` triggers the
+      // `reset` chunk (default= storage helper). Plain Shape 1/Shape 2 cells
+      // also emit an init-thunk via `_scrml_init_set` so reset can re-evaluate
+      // the init expression — but that's also part of the `reset` chunk.
+      // Conservative trigger: if any state-decl has `defaultExpr` set, we
+      // need the chunk. The companion trigger (a `reset-expr` AST node anywhere
+      // in the file) is handled by the ExprNode walker below.
       case "state-decl":
         chunks.add("deep_reactive");
         if (
@@ -164,6 +188,9 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
           (node as any).structuralForm === false
         ) {
           chunks.add("derived");
+        }
+        if ((node as any).defaultExpr) {
+          chunks.add("reset");
         }
         break;
 

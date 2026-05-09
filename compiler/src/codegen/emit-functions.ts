@@ -183,7 +183,11 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     // Emit statements in original order, replacing server-trigger statements
     // with a call to the server stub.
     let serverCallEmitted = false;
-    const cpsOpts = { declaredNames: new Set<string>(), ...(machineBindings ? { machineBindings } : {}) };
+    // C5: CPS wrapper bodies are function bodies — `state-decl` nodes here
+    // are reassignments (the cell's true declaration site lives at module
+    // top-level). Suppress _scrml_init_set emission so the reset-to-init
+    // thunk preserves the canonical declaration-time init expression.
+    const cpsOpts: any = { declaredNames: new Set<string>(), insideFunctionBody: true, ...(machineBindings ? { machineBindings } : {}) };
     for (let i = 0; i < body.length; i++) {
       const stmt = body[i];
       if (!stmt) continue;
@@ -298,7 +302,10 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     const fnKind = (fnNode as { fnKind?: string }).fnKind;
     const hasRetType = (fnNode as { hasReturnType?: boolean }).hasReturnType;
     if (fnKind === "fn" || hasRetType) {
-      const fnOpts = { boundary: "client" as const, declaredNames: new Set<string>(), ...(machineBindings ? { machineBindings } : {}) };
+      // C5: function-shortcut bodies are function bodies — `state-decl` nodes
+      // within are reassignments, not declaration sites. Suppress
+      // _scrml_init_set sidecar emission via insideFunctionBody:true.
+      const fnOpts = { boundary: "client" as const, declaredNames: new Set<string>(), insideFunctionBody: true, ...(machineBindings ? { machineBindings } : {}) };
       const shortcutLines = emitFnShortcutBody(body, fnOpts, fnKind, hasRetType);
       for (const code of shortcutLines) {
         for (const line of code.split("\n")) {
