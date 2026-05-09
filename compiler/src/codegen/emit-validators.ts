@@ -77,7 +77,12 @@
 
 import { emitExpr, type EmitExprContext } from "./emit-expr.ts";
 import { extractReactiveDepsFromExprNode } from "./reactive-deps.ts";
-import { forEachIdentInValidators, forEachIdentInValidatorArg } from "../validator-arg-parser.ts";
+import {
+  forEachIdentInValidators,
+  forEachIdentInValidatorArg,
+  forEachQualifiedCellRefInValidators,
+  forEachQualifiedCellRefInExprNode,
+} from "../validator-arg-parser.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 
 // ---------------------------------------------------------------------------
@@ -175,12 +180,20 @@ export function emitValidatorRunnerSidecar(
   // Cross-field reactive deps — collect every `@cell` referenced in any
   // validator arg. Plus the cell's own value (the field itself). The runner
   // re-fires when any of these change.
+  //
+  // **Phase A1c Step C9 (precision):** use the qualified-cell-ref walker so
+  // a reference like `eq(@signup.password)` (which the parser produces as
+  // `MemberExpr(IdentExpr("@signup"), "password")`) subscribes to the EXACT
+  // cross-field cell key `"signup.password"` — not (as the standard
+  // `forEachIdentInValidators` walker would) the compound-parent key
+  // `"signup"`. Per SPEC §55.11 + the C9 SURVEY: the indirect-via-parent
+  // form is correct via transitive dirty propagation, but it over-fires the
+  // validator on every sibling-field write. The qualified-path form fires
+  // exactly when the referenced cell changes.
   const valueDeps = new Set<string>();
   valueDeps.add(qualifiedName);
-  forEachIdentInValidators(validators as any, (ident) => {
-    if (typeof ident.name === "string" && ident.name.startsWith("@")) {
-      valueDeps.add(ident.name.slice(1));
-    }
+  forEachQualifiedCellRefInValidators(validators as any, (qualifiedPath) => {
+    valueDeps.add(qualifiedPath);
   });
 
   // The errors derivation reads the field value via _scrml_reactive_get. Thunk
@@ -314,13 +327,35 @@ function lowerValidatorArgs(validator: any, exprCtx: EmitExprContext): string[] 
  * runner re-fires when any cross-field dep changes (we wire one
  * `_scrml_derived_subscribe` per dep), so each element re-evaluates fresh on
  * every run.
+ *
+ * **Phase A1c Step C9 (cross-field deps):** before lowering, the ExprNode
+ * tree is pre-rewritten via `rewriteAtRootedChainsToQualifiedIdents` so any
+ * MemberExpr chain rooted at an `@`-prefixed IdentExpr collapses into a
+ * synthetic single IdentExpr with the qualified name (`@signup.password`).
+ * `emitIdent` then emits `_scrml_reactive_get("signup.password")` directly,
+ * matching the canonical contract (one storage-key per cell). Without the
+ * rewrite, the standard `emitMember` path would emit
+ * `_scrml_reactive_get("signup").password` — semantically equivalent (the
+ * compound parent's lazy-pull derivation reconstructs the field) but
+ * indirected through the parent's derived state.
+ *
+ * Method calls (`@x.method(...)`) are handled correctly: the rewriter only
+ * lifts member chains that bottom out at @-IdentExpr AND whose top is NOT
+ * being used as a CallExpr callee. The receiver-vs-method distinction is
+ * preserved by NOT rewriting member-as-callee — we leave `@startDate.plus`
+ * as-is so `emitCall` sees a member callee on the lifted ident:
+ * `_scrml_reactive_get("startDate").plus(1, "day")` (member access on the
+ * cell value). Receiver chain longer than 1 segment (`@form.startDate.plus`)
+ * lifts the prefix `@form.startDate` to a single ident; the trailing
+ * `.plus` stays as the call's method name.
  */
 function lowerOneArg(arg: any, exprCtx: EmitExprContext): string {
   // Relational-predicate node — synthesize an object literal {op, value}.
   if (arg.kind === "relational-predicate") {
     const op = (arg as any).op;
     const innerExpr = (arg as any).value;
-    const inner = innerExpr ? emitExpr(innerExpr, exprCtx) : "0";
+    const innerExprRewritten = innerExpr ? rewriteAtRootedChainsToQualifiedIdents(innerExpr) : null;
+    const inner = innerExprRewritten ? emitExpr(innerExprRewritten, exprCtx) : "0";
     // The inner expression may reference @cell — wrap as thunk if so, so
     // C6's _unwrapArg re-reads at fire time. (length(>=@minLen) edge case.)
     const innerHasReactive = expressionContainsReactive(innerExpr);
@@ -328,11 +363,206 @@ function lowerOneArg(arg: any, exprCtx: EmitExprContext): string {
     return `{ op: ${JSON.stringify(op)}, value: ${valueField} }`;
   }
 
-  // Standard ExprNode — emitExpr lowers it. Wrap as thunk if it references
-  // a cross-field @cell (so the comparison re-reads at fire time).
-  const lowered = emitExpr(arg, exprCtx);
+  // Standard ExprNode — pre-rewrite @-rooted member chains to qualified
+  // single idents (C9), then emitExpr lowers the result. Wrap as thunk if
+  // it references a cross-field @cell.
+  const rewritten = rewriteAtRootedChainsToQualifiedIdents(arg);
+  const lowered = emitExpr(rewritten, exprCtx);
   const hasReactive = expressionContainsReactive(arg);
   return hasReactive ? `() => ${lowered}` : lowered;
+}
+
+/**
+ * Phase A1c Step C9 — rewrite `@`-rooted member chains into synthetic single
+ * IdentExpr nodes carrying the qualified path.
+ *
+ * Walks the ExprNode tree and replaces:
+ *   - `MemberExpr(IdentExpr("@X"), "Y")` → `IdentExpr("@X.Y")`
+ *   - `MemberExpr(MemberExpr(IdentExpr("@A"), "B"), "C")` → `IdentExpr("@A.B.C")`
+ *
+ * IMPORTANT — preservation of method-call shape:
+ *   - For a `CallExpr` whose callee is a member chain rooted at @-ident, only
+ *     the RECEIVER is lifted (i.e., the chain MINUS the trailing method
+ *     property). The callee becomes `MemberExpr(IdentExpr("@A.B"), "method")`,
+ *     which `emitMember` then renders as `_scrml_reactive_get("A.B").method`,
+ *     and `emitCall` adds the args. So `@form.startDate.plus(1, "day")`
+ *     emits as `_scrml_reactive_get("form.startDate").plus(1, "day")` —
+ *     correct: the receiver is the qualified-path get, the method call
+ *     stays a method call.
+ *   - For a stand-alone member chain (NOT a CallExpr.callee), the WHOLE
+ *     chain lifts: `@signup.password` → `IdentExpr("@signup.password")`.
+ *
+ * This is a structural transformation that's harmless on non-chain inputs
+ * (returns the original sub-tree). The rewriter clones nodes only when
+ * lifting; sub-trees not affected by the rewrite are returned by reference
+ * (cheaper, and emitExpr doesn't mutate inputs).
+ */
+function rewriteAtRootedChainsToQualifiedIdents(node: any): any {
+  if (!node || typeof node !== "object") return node;
+  const kind = node.kind;
+
+  // Try lifting THIS node as a fully-@-rooted chain first (covers the
+  // standalone `@a.b.c` form — single ident or non-callee member chain).
+  const lifted = liftAtRootedExpr(node);
+  if (lifted) return lifted;
+
+  // Not a stand-alone chain — recurse into children per kind. The recursion
+  // preserves shape: CallExpr.callee is recursed into as a CALLEE (so its
+  // member-chain trailing method is preserved); CallExpr.args are recursed
+  // as plain expressions.
+  switch (kind) {
+    case "ident":
+    case "lit":
+    case "sql-ref":
+    case "input-state-ref":
+    case "escape-hatch":
+    case "relational-predicate":
+      return node;
+
+    case "array": {
+      const elements = (node.elements as any[]).map(rewriteAtRootedChainsToQualifiedIdents);
+      return { ...node, elements };
+    }
+
+    case "object": {
+      const props = (node.props as any[]).map((prop) => {
+        if (prop.kind === "prop") {
+          const key = typeof prop.key === "string" ? prop.key : rewriteAtRootedChainsToQualifiedIdents(prop.key);
+          const value = rewriteAtRootedChainsToQualifiedIdents(prop.value);
+          return { ...prop, key, value };
+        }
+        if (prop.kind === "shorthand") return prop;
+        if (prop.kind === "spread") return { ...prop, argument: rewriteAtRootedChainsToQualifiedIdents(prop.argument) };
+        return prop;
+      });
+      return { ...node, props };
+    }
+
+    case "spread":
+    case "unary":
+      return { ...node, argument: rewriteAtRootedChainsToQualifiedIdents(node.argument) };
+
+    case "binary":
+    case "assign": {
+      return {
+        ...node,
+        ...(node.left !== undefined ? { left: rewriteAtRootedChainsToQualifiedIdents(node.left) } : {}),
+        ...(node.right !== undefined ? { right: rewriteAtRootedChainsToQualifiedIdents(node.right) } : {}),
+        ...(node.target !== undefined ? { target: rewriteAtRootedChainsToQualifiedIdents(node.target) } : {}),
+        ...(node.value !== undefined ? { value: rewriteAtRootedChainsToQualifiedIdents(node.value) } : {}),
+      };
+    }
+
+    case "ternary": {
+      return {
+        ...node,
+        condition: rewriteAtRootedChainsToQualifiedIdents(node.condition),
+        consequent: rewriteAtRootedChainsToQualifiedIdents(node.consequent),
+        alternate: rewriteAtRootedChainsToQualifiedIdents(node.alternate),
+      };
+    }
+
+    case "member": {
+      // Member chain that's NOT @-rooted (or `liftAtRootedExpr` would have
+      // caught it). Recurse into the object only — preserve trailing
+      // property as-is (it's a static name).
+      return { ...node, object: rewriteAtRootedChainsToQualifiedIdents(node.object) };
+    }
+
+    case "index": {
+      return {
+        ...node,
+        object: rewriteAtRootedChainsToQualifiedIdents(node.object),
+        index: rewriteAtRootedChainsToQualifiedIdents(node.index),
+      };
+    }
+
+    case "call":
+    case "new": {
+      // Special handling for the callee: if the callee is a member chain
+      // rooted at @-ident, lift the RECEIVER only (chain minus the trailing
+      // method name). Otherwise lift normally — this preserves the
+      // method-call shape `_scrml_reactive_get("X.Y").method(args)`.
+      const callee = rewriteCalleeChain(node.callee);
+      const args = (node.args as any[]).map(rewriteAtRootedChainsToQualifiedIdents);
+      return { ...node, callee, args };
+    }
+  }
+
+  return node;
+}
+
+/**
+ * If `expr` is a stand-alone @-rooted ident (`IdentExpr("@X")`) OR a member
+ * chain bottoming out at @-ident, return a synthetic IdentExpr carrying the
+ * fully qualified name. Otherwise return null (caller falls through to
+ * structural recursion).
+ *
+ * Span-preservation: the synthetic ident inherits the OUTER member's span
+ * (which covers the full chain in source). For pure @-ident inputs (single
+ * level), returns the input unchanged (no rewrite needed).
+ */
+function liftAtRootedExpr(expr: any): any | null {
+  if (!expr || typeof expr !== "object") return null;
+  const kind = expr.kind;
+
+  // Single @-ident — already in qualified form, no rewrite needed.
+  if (kind === "ident") {
+    if (typeof expr.name === "string" && expr.name.startsWith("@")) {
+      return expr; // identity (preserves emit behavior)
+    }
+    return null;
+  }
+
+  if (kind !== "member") return null;
+
+  // Walk down member chain collecting properties; require the bottom to be
+  // an @-ident.
+  const segments: string[] = [];
+  let cursor: any = expr;
+  while (cursor && typeof cursor === "object" && cursor.kind === "member") {
+    if (typeof cursor.property !== "string") return null;
+    segments.unshift(cursor.property);
+    cursor = cursor.object;
+  }
+  if (!cursor || typeof cursor !== "object" || cursor.kind !== "ident") return null;
+  if (typeof cursor.name !== "string" || !cursor.name.startsWith("@")) return null;
+
+  const qualifiedName = cursor.name + "." + segments.join(".");
+  return {
+    kind: "ident",
+    name: qualifiedName,
+    span: expr.span ?? cursor.span,
+  };
+}
+
+/**
+ * Rewrite a CallExpr's callee, lifting only the RECEIVER chain when the
+ * callee is a member chain rooted at @-ident. The trailing method name
+ * stays as a member access on the lifted receiver.
+ *
+ * Examples:
+ *   - `@startDate.plus` (member chain, receiver = @startDate) →
+ *     MemberExpr(IdentExpr("@startDate"), "plus")  [identity — already lifted]
+ *   - `@form.startDate.plus` (chain, receiver = @form.startDate) →
+ *     MemberExpr(IdentExpr("@form.startDate"), "plus")
+ *   - `myFn` (plain ident callee) → unchanged
+ *   - `obj.method` (non-@-rooted member callee) → unchanged (recurse into object)
+ */
+function rewriteCalleeChain(callee: any): any {
+  if (!callee || typeof callee !== "object") return callee;
+  if (callee.kind !== "member") {
+    // Plain ident (or other kind). Recurse normally.
+    return rewriteAtRootedChainsToQualifiedIdents(callee);
+  }
+  // Member callee: receiver is callee.object; method is callee.property.
+  // Try to lift the RECEIVER as an @-rooted chain. If it lifts, build a new
+  // MemberExpr with the lifted receiver. Otherwise recurse into the object.
+  const liftedReceiver = liftAtRootedExpr(callee.object);
+  if (liftedReceiver) {
+    return { ...callee, object: liftedReceiver };
+  }
+  return { ...callee, object: rewriteAtRootedChainsToQualifiedIdents(callee.object) };
 }
 
 /**

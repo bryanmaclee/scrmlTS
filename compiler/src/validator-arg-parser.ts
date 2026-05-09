@@ -247,6 +247,313 @@ export function forEachIdentInValidators(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Phase A1c Step C9 — qualified cell-reference extractor
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk an ExprNode tree and invoke `callback` for every `@`-rooted reactive
+ * cell reference, yielding the FULLY QUALIFIED path (e.g., `"signup.password"`).
+ *
+ * Why this exists (Phase A1c Step C9, SPEC §55.11 cross-field validation):
+ *
+ * The standard `forEachIdentInExprNode` walker treats `MemberExpr` by walking
+ * the `object` only. So `@signup.password` (which the real parser produces as
+ * `MemberExpr(IdentExpr("@signup"), "password")`) yields the BASE ident
+ * `@signup` — losing the `.password` qualifier. That is correct for general
+ * reactive-dep tracking (`obj.foo + bar` should track `obj`, not `obj.foo`),
+ * but for `@-prefixed` cell references the fully qualified path IS the
+ * reactive cell name (compound child cells are stored under the qualified
+ * key `"signup.password"` in `_scrml_state` — see emit-logic.ts compound
+ * emission).
+ *
+ * This walker recognizes both forms:
+ *   - `IdentExpr("@X")` standalone               → callback("X")
+ *   - `MemberExpr(IdentExpr("@X"), "Y")` chain    → callback("X.Y")
+ *   - `MemberExpr(MemberExpr(...@X.Y), "Z")` chain → callback("X.Y.Z")
+ *
+ * Other ExprNode shapes are walked normally and yield qualified paths for
+ * any `@-rooted` chains they contain. Examples:
+ *   - `gte(@startDate)` → "startDate"
+ *   - `eq(@signup.password)` → "signup.password"
+ *   - `lt(@maxAge - 1)` (binary) → "maxAge"
+ *   - `oneOf([@form.allowed, @form.altAllowed])` (array) → "form.allowed", "form.altAllowed"
+ *   - `gte(@form.startDate.plus(1, "day"))` (call on member chain): the
+ *     chain's CALL is NOT a cell ref — the receiver chain `@form.startDate`
+ *     IS. Yields "form.startDate" only (the property `.plus(...)` is a
+ *     METHOD call, not a cell-name suffix).
+ *
+ * Detection rule for the chain: walk down `member.object` repeatedly until
+ * either (a) we land on an `@`-prefixed `IdentExpr` — then the full
+ * @-stem-plus-collected-properties is the qualified path, OR (b) we land on
+ * something else (literal, call, etc.) — the chain is not @-rooted, so the
+ * normal walker behavior applies (descend into pieces).
+ *
+ * Special distinction for member-as-call-callee: a `CallExpr` with a member
+ * chain callee like `@form.startDate.plus(1, "day")` is NOT a cell-reference —
+ * the LAST property (`.plus`) is the method name, NOT a cell-name suffix.
+ * To distinguish, we only collapse the chain into a qualified path when the
+ * MemberExpr is NOT being used as a CallExpr callee (the callsite ensures
+ * this by descending into call.callee separately and stopping the chain at
+ * the next-to-last segment).
+ *
+ * The callsite is responsible for picking which version of the dep it wants:
+ *   - emit-validators.ts uses `forEachQualifiedCellRefInValidatorArg` for
+ *     `_scrml_derived_subscribe` keys (precision: subscribe to the exact cell).
+ *   - The thunk-emission path uses the qualified-path read directly via
+ *     `_scrml_reactive_get("X.Y")`.
+ *
+ * This helper is INDEPENDENT of `forEachIdentInExprNode`: it does its own
+ * AST walk, recognizing the chain pattern and falling back to the same kind-
+ * dispatch for everything else. This keeps `forEachIdentInExprNode`'s
+ * semantics stable (general-purpose walks expect base-ident-only behavior).
+ *
+ * @param node      The ExprNode (or RelationalPredicateNode) to walk.
+ * @param callback  Invoked once per @-rooted cell ref with the qualified path.
+ */
+export function forEachQualifiedCellRefInExprNode(
+  node: unknown,
+  callback: (qualifiedPath: string) => void,
+): void {
+  walkForQualifiedCellRefs(node, callback);
+}
+
+/**
+ * Internal recursive walker for `forEachQualifiedCellRefInExprNode`. Handles
+ * the "is this the @-rooted chain?" check and descent into sub-expressions.
+ */
+function walkForQualifiedCellRefs(
+  node: unknown,
+  callback: (qualifiedPath: string) => void,
+): void {
+  if (!node || typeof node !== "object") return;
+  const n = node as { kind?: string };
+
+  // RelationalPredicateNode — recurse into `value`.
+  if (n.kind === "relational-predicate") {
+    walkForQualifiedCellRefs((node as RelationalPredicateNode).value, callback);
+    return;
+  }
+
+  // The @-rooted-chain detector: try to lift this node as a qualified path.
+  // If the node itself IS a member-chain rooted at an @-ident OR a bare
+  // @-ident, emit the path and stop (no further descent needed for this
+  // sub-tree — the chain is the entire cell ref).
+  const lifted = liftAtRootedChain(node);
+  if (lifted !== null) {
+    callback(lifted);
+    return;
+  }
+
+  // Not a cell-reference chain — descend into structural sub-nodes by kind.
+  switch (n.kind) {
+    case "ident":
+    case "lit":
+    case "sql-ref":
+    case "input-state-ref":
+    case "escape-hatch":
+      // Leaves (no sub-expressions to walk) — including idents not @-prefixed
+      // (those don't represent cell refs). Note: an @-prefixed standalone
+      // ident WOULD have been caught by `liftAtRootedChain`, so reaching here
+      // for `kind === "ident"` means non-@ ident; nothing to do.
+      return;
+
+    case "array": {
+      const a = node as { elements: unknown[] };
+      for (const el of a.elements) walkForQualifiedCellRefs(el, callback);
+      return;
+    }
+
+    case "object": {
+      const o = node as { props: Array<{ kind: string; key?: unknown; value?: unknown; argument?: unknown; name?: string; span?: unknown }> };
+      for (const prop of o.props) {
+        if (prop.kind === "prop") {
+          if (typeof prop.key !== "string") walkForQualifiedCellRefs(prop.key, callback);
+          walkForQualifiedCellRefs(prop.value, callback);
+        } else if (prop.kind === "shorthand") {
+          // shorthand: `{ x }` — `x` is a binding reference. If `x` starts
+          // with `@`, treat as a top-level cell ref (same as the @-ident
+          // fast-path).
+          if (typeof prop.name === "string" && prop.name.startsWith("@")) {
+            callback(prop.name.slice(1));
+          }
+        } else if (prop.kind === "spread") {
+          walkForQualifiedCellRefs(prop.argument, callback);
+        }
+      }
+      return;
+    }
+
+    case "spread":
+    case "unary":
+      walkForQualifiedCellRefs((node as { argument: unknown }).argument, callback);
+      return;
+
+    case "binary":
+    case "assign": {
+      const b = node as { left?: unknown; right?: unknown; target?: unknown; value?: unknown };
+      walkForQualifiedCellRefs(b.left ?? b.target, callback);
+      walkForQualifiedCellRefs(b.right ?? b.value, callback);
+      return;
+    }
+
+    case "ternary": {
+      const t = node as { condition: unknown; consequent: unknown; alternate: unknown };
+      walkForQualifiedCellRefs(t.condition, callback);
+      walkForQualifiedCellRefs(t.consequent, callback);
+      walkForQualifiedCellRefs(t.alternate, callback);
+      return;
+    }
+
+    case "member": {
+      // Member chain that is NOT @-rooted (or `liftAtRootedChain` would have
+      // caught it). Walk the object only — same semantics as
+      // `forEachIdentInExprNode`'s member case.
+      walkForQualifiedCellRefs((node as { object: unknown }).object, callback);
+      return;
+    }
+
+    case "index": {
+      // `obj[idx]` — walk both. Computed keys may contain @-rooted refs.
+      const i = node as { object: unknown; index: unknown };
+      walkForQualifiedCellRefs(i.object, callback);
+      walkForQualifiedCellRefs(i.index, callback);
+      return;
+    }
+
+    case "call":
+    case "new": {
+      // For a call/new whose CALLEE is `@cell.method(...)`, the receiver
+      // chain `@cell` (or `@compound.field`) IS a cell-ref but the trailing
+      // `.method` segment is NOT. We extract the receiver chain (= the
+      // callee's `object` if member, the callee itself if ident), then walk
+      // args separately. Example: `@form.startDate.plus(1, "day")` — callee
+      // is `MemberExpr(MemberExpr(@form, startDate), plus)`. Lift the
+      // receiver chain `@form.startDate` (exclude the trailing `.plus`).
+      const c = node as { callee: unknown; args: unknown[] };
+      const calleeReceiver = stripTrailingMethodOff(c.callee);
+      walkForQualifiedCellRefs(calleeReceiver, callback);
+      for (const arg of c.args ?? []) walkForQualifiedCellRefs(arg, callback);
+      return;
+    }
+  }
+}
+
+/**
+ * If `node` is `IdentExpr("@X")` OR `MemberExpr` whose chain bottoms out at
+ * an `@`-prefixed `IdentExpr`, return the fully qualified path string
+ * (e.g., `"signup.password"`). Otherwise return null.
+ *
+ * Examples:
+ *   - `IdentExpr("@startDate")` → `"startDate"`
+ *   - `MemberExpr(IdentExpr("@signup"), "password")` → `"signup.password"`
+ *   - `MemberExpr(MemberExpr(IdentExpr("@a"), "b"), "c")` → `"a.b.c"`
+ *   - `IdentExpr("foo")` (no @ prefix) → null
+ *   - `MemberExpr(LitExpr, "x")` (non-ident root) → null
+ *   - `MemberExpr(IdentExpr("@a"), index-expr)` (computed) — N/A; this is
+ *     `IndexExpr` not `MemberExpr`, returns null.
+ */
+function liftAtRootedChain(node: unknown): string | null {
+  if (!node || typeof node !== "object") return null;
+  const kind = (node as { kind?: string }).kind;
+
+  if (kind === "ident") {
+    const name = (node as { name?: unknown }).name;
+    if (typeof name === "string" && name.startsWith("@")) {
+      return name.slice(1);
+    }
+    return null;
+  }
+
+  if (kind === "member") {
+    // Walk down the member chain collecting property names. The chain is
+    // valid iff it bottoms out at an @-prefixed IdentExpr.
+    const segments: string[] = [];
+    let cursor: unknown = node;
+    while (cursor && typeof cursor === "object" && (cursor as { kind?: string }).kind === "member") {
+      const m = cursor as { object: unknown; property: unknown };
+      if (typeof m.property !== "string") return null; // computed/non-static property — not a cell-ref
+      segments.unshift(m.property);
+      cursor = m.object;
+    }
+    // cursor should now be the leftmost non-member node — ideally an @-ident.
+    if (
+      cursor && typeof cursor === "object"
+      && (cursor as { kind?: string }).kind === "ident"
+    ) {
+      const name = (cursor as { name?: unknown }).name;
+      if (typeof name === "string" && name.startsWith("@")) {
+        return [name.slice(1), ...segments].join(".");
+      }
+    }
+    return null;
+  }
+
+  return null;
+}
+
+/**
+ * For a CallExpr or NewExpr callee that is a member chain, return the
+ * RECEIVER (i.e., the callee's `.object`) — that's the cell-ref half. The
+ * trailing property (the method name) is NOT part of the cell-ref path.
+ *
+ * For an ident or non-member callee, return as-is — `liftAtRootedChain`
+ * will yield null on a plain (non-@) ident, which is correct (function
+ * calls aren't cell refs).
+ *
+ * Examples:
+ *   - `@startDate.plus(1, "day")` callee is `MemberExpr(@startDate, "plus")`.
+ *     Receiver is `IdentExpr("@startDate")` → liftable to `"startDate"`.
+ *   - `@form.startDate.plus(1)` callee is `MemberExpr(MemberExpr(@form, startDate), plus)`.
+ *     Receiver is `MemberExpr(@form, startDate)` → liftable to `"form.startDate"`.
+ *   - `someFn(...)` callee is `IdentExpr("someFn")`. Receiver = same → not liftable.
+ */
+function stripTrailingMethodOff(callee: unknown): unknown {
+  if (!callee || typeof callee !== "object") return callee;
+  if ((callee as { kind?: string }).kind === "member") {
+    return (callee as { object: unknown }).object;
+  }
+  return callee;
+}
+
+/**
+ * Walk a single ValidatorArg and invoke `callback` for every @-rooted cell
+ * reference, yielding the qualified path. Mirror of `forEachIdentInValidatorArg`
+ * but at qualified-cell-ref granularity.
+ *
+ * Per Phase A1c Step C9 (cross-field deps refinement): callers that need to
+ * subscribe to the EXACT cross-field cell (rather than the compound parent)
+ * use this walker. Returns paths like `"signup.password"` instead of
+ * `"signup"` (which is what `forEachIdentInValidatorArg` would yield via
+ * the standard `forEachIdentInExprNode` member-base-only behavior).
+ */
+export function forEachQualifiedCellRefInValidatorArg(
+  arg: ValidatorArg,
+  callback: (qualifiedPath: string) => void,
+): void {
+  if (!arg) return;
+  forEachQualifiedCellRefInExprNode(arg, callback);
+}
+
+/**
+ * Walk every ValidatorArg in a validators list, invoking `callback` for each
+ * qualified cell-ref. Bareword (`args:null`) and zero-arg (`args:[]`) entries
+ * are skipped automatically. Mirror of `forEachIdentInValidators` at
+ * qualified-cell-ref granularity (Phase A1c Step C9).
+ */
+export function forEachQualifiedCellRefInValidators(
+  validators: ValidatorEntry[] | null | undefined,
+  callback: (qualifiedPath: string) => void,
+): void {
+  if (!Array.isArray(validators)) return;
+  for (const v of validators) {
+    if (!Array.isArray(v.args) || v.args.length === 0) continue;
+    for (const arg of v.args) {
+      forEachQualifiedCellRefInValidatorArg(arg, callback);
+    }
+  }
+}
+
 /**
  * In-place transform helper: walk a `validators` list and replace each
  * non-empty `args` string-array with its parsed-structured-form. Bareword
