@@ -19,5 +19,7 @@ ${
              snakifyKeys, deepMerge, clamp, paginate } from './transform.scrml'
 
     export { parseVariant, ParseError } from './parse.scrml'
+
+    export { registerMessages, messageFor } from './messages.scrml'
 }
 </program>

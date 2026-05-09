@@ -729,9 +729,17 @@ describe("C7 §C7.13 — Inline-override slot stripped (B13/C10 own message rend
     ]);
     const parent = compoundParent("form", [child]);
     const out = emitLogicNode(parent, clientOpts());
-    // Should emit the relational arg only — NOT the trailing string literal.
+    // Should emit the relational arg only — NOT the trailing string literal in
+    // the validator fire call. (After C10 lands, the override IS emitted via a
+    // separate `_scrml_messages_register_inline(...)` call — which is correct
+    // and distinct from the validator fire arg list.)
     expect(out).toContain('_scrml_validator_fire("length", value, { op: ">=", value: 2 })');
-    expect(out).not.toContain('"Must be at least 2 chars"');
+    // Override string should NOT appear inside any _scrml_validator_fire call
+    // (the strip behavior C7 owns). It MAY appear in C10's L1 registration.
+    const fireCalls = out.match(/_scrml_validator_fire\([^)]*\)/g) || [];
+    for (const call of fireCalls) {
+      expect(call).not.toContain('"Must be at least 2 chars"');
+    }
   });
 
   test("when inlineOverride is null, trailing string-literal IS emitted (no false-strip)", () => {

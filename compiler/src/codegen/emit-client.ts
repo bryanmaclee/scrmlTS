@@ -206,6 +206,17 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
         ) {
           chunks.add("validators");
           chunks.add("derived");
+          // C10 (§55.10 L12): Level-1 inline override emission. When ANY
+          // validator on this cell carries a non-null `inlineOverride`, the
+          // emitted code calls `_scrml_messages_register_inline` from the
+          // `messages` chunk. Tree-shaken when no inline overrides exist
+          // and (future, C11) no `<errors of=>` element appears.
+          for (const v of (node as any).validators as any[]) {
+            if (v && typeof v.inlineOverride === "string") {
+              chunks.add("messages");
+              break;
+            }
+          }
         }
         // C8 (§55.5/§55.6/§55.7): every compound-parent state-decl triggers
         // the validity-surface synth emission (compound-level rollup +

@@ -237,11 +237,14 @@ describe("runtime size", () => {
     expect(minimal.length).toBeLessThan(SCRML_RUNTIME.length * 0.30);
   });
 
-  test("RUNTIME_CHUNK_ORDER has 16 chunks", () => {
-    // 16 chunks post-C7: 'validators' chunk added for SPEC §55.1 universal-core
-    // predicate runtime (14 fire functions + VALIDATOR_RUNTIME map +
-    // _scrml_validator_fire dispatch). Chunk-detection trigger:
-    // any state-decl with non-empty validators[] (emit-client.ts).
-    expect(RUNTIME_CHUNK_ORDER.length).toBe(16);
+  test("RUNTIME_CHUNK_ORDER has 17 chunks", () => {
+    // 17 chunks post-C10: 'messages' chunk added for SPEC §55.10 4-level error
+    // message resolution chain (L12). Helpers: _scrml_message_for,
+    // _scrml_messages_register, _scrml_messages_register_inline + 14+1 default
+    // catalog. Chunk-detection trigger: any validator with a non-null
+    // inlineOverride (emit-client.ts), OR future <errors of=> element (C11).
+    //
+    // Prior milestone: 16 chunks post-C7 (validators chunk).
+    expect(RUNTIME_CHUNK_ORDER.length).toBe(17);
   });
 });

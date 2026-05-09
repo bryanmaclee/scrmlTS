@@ -1,0 +1,10 @@
+# A1c-C10 progress (append-only)
+
+- 2026-05-08 20:50 — startup verification clean. baseline confirmed 10,176/60/1/0 (second run; first had 2-fail flake from promote-test temp dir).
+- 2026-05-08 20:55 — pre-implementation reads complete: SPEC §55.9, §55.10, §41.12, primer §8/§10. Verified C7's inlineOverride strip, B13 capture, runtime-template chunk pattern, scrml:data shape.
+- 2026-05-08 20:58 — SURVEY.md written. Verdict: PROCEED-AS-BRIEFED. Plan: messages chunk + emit-messages.ts + stdlib re-export.
+- 2026-05-08 21:00 — starting implementation: runtime-template.js extension first (foundation for everything else).
+- 2026-05-08 21:08 — `messages` chunk landed in runtime-template.js (append-only at end). Smoke-tested all helpers (L1/L2/L3 resolution, default catalog for 14+1 tags). Commit 77e9166.
+- 2026-05-08 21:14 — chunk wired in runtime-chunks.ts (RUNTIME_CHUNK_ORDER 16 → 17, CHUNK_MARKERS); detection trigger in emit-client.ts (any validator with non-null inlineOverride); emit-messages.ts created; emit-logic.ts wires emitInlineMessageOverrides into sidecar pipeline; stdlib/data/messages.scrml + index.scrml re-export. Two preexisting tests required mechanical adjustment (C7 §C7.13 — assertion that override string isn't anywhere in output is now scoped to validator-fire calls only since C10 emits it via _scrml_messages_register_inline; tree-shake count 16 → 17). Commit 8d05677.
+- 2026-05-08 21:25 — c10-error-message-resolution.test.js — 61 tests, all passing first time. Coverage: chunk wiring, tree-shaking, codegen emission (L1 register call shape + skip rules), L3 default catalog (14+1+fallback), L2 wins over L3, L1 wins over L2+L3, registerMessages composition, parameterised payload interpolation, tag-to-validator mapping completeness. Commit b40225d.
+- 2026-05-08 21:27 — Full test suite: 10,237 pass / 0 fail (was 10,176 baseline; +61 C10 tests). TodoMVC gauntlet passes. Spec verified (§55.10 + §55.9 + §41.12). messageFor reachability: C11 calls `_scrml_message_for(error, fieldName, cellName?)` directly from emitted code; user code calls `messageFor(...)` after `import { messageFor } from 'scrml:data'`. SHIP.

@@ -35,6 +35,9 @@
  *   equality      _scrml_structural_eq
  *   deep_reactive _scrml_track, _scrml_trigger, _scrml_deep_reactive (Proxy),
  *                 _scrml_effect, _scrml_effect_static, _scrml_computed
+ *   messages      _scrml_messages_inline/_registered, _scrml_messages_register,
+ *                 _scrml_messages_register_inline, _scrml_message_for,
+ *                 _SCRML_DEFAULT_MESSAGES, _SCRML_TAG_TO_VALIDATOR (§55.10, C10)
  */
 
 import { SCRML_RUNTIME } from "../runtime-template.js";
@@ -61,6 +64,7 @@ export const RUNTIME_CHUNK_ORDER = [
   'input',
   'equality',
   'deep_reactive',
+  'messages',
 ] as const;
 
 export type RuntimeChunkName = (typeof RUNTIME_CHUNK_ORDER)[number];
@@ -108,6 +112,7 @@ const CHUNK_MARKERS: Record<NonCoreChunkName, string> = {
   input:          '§35.1 Global input state registry',
   equality:       '§45 Structural equality',
   deep_reactive:  'Fine-grained reactivity primitives (Reactivity Phase 1)',
+  messages:       "§55.10 Error message resolution runtime (chunk: 'messages')",
 
   // Function definition markers — 'function _name' starts at a line boundary.
   // Previous chunk ends after the preceding function/IIFE closing brace.

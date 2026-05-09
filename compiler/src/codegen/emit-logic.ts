@@ -10,6 +10,7 @@ import type { EncodingContext } from "./type-encoding.ts";
 import { emitRuntimeCheck } from "./emit-predicates.ts";
 import { emitTransitionGuard } from "./emit-machines.ts";
 import { emitValidatorRunnerSidecar } from "./emit-validators.ts";
+import { emitInlineMessageOverrides } from "./emit-messages.ts";
 import { emitCompoundSynthSurface } from "./emit-synth-surface.ts";
 
 // ---------------------------------------------------------------------------
@@ -874,11 +875,22 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         encodingCtx: opts.encodingCtx ?? null,
         derivedNames: opts.derivedNames ?? null,
       });
+      // C10 (§55.10 L12): Level-1 inline-message-override registration. For
+      // each validator with a non-null `inlineOverride` (B13-extracted), emit
+      // a `_scrml_messages_register_inline(cellName, validatorName, override)`
+      // call. Independent of the validator runner — emits even for top-level
+      // cells where the runner is skipped (registrations are cheap; future
+      // explicit `messageFor` calls may consume them).
+      const _inlineMessagesSidecar = emitInlineMessageOverrides(node, _qualifiedName, {
+        boundary: opts.boundary,
+        insideFunctionBody: opts.insideFunctionBody,
+      });
       const _appendSidecar = (mainStmt: string): string => {
         const parts = [mainStmt];
         if (_initSidecar) parts.push(_initSidecar);
         if (_defaultSidecar) parts.push(_defaultSidecar);
         if (_validatorSidecar) parts.push(_validatorSidecar);
+        if (_inlineMessagesSidecar) parts.push(_inlineMessagesSidecar);
         return parts.join("\n");
       };
 

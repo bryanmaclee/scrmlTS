@@ -1,0 +1,80 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:data/messages — error message resolution (L12, §55.10)
+    //
+    // Two user-facing exports:
+    //
+    //   registerMessages(map)
+    //     Project-wide Level-2 registration. Last-write-wins per variant key
+    //     across multiple calls. Each map entry is `(fieldName, ...payload) =>
+    //     string`. Keys are ValidationError variant names ("Required",
+    //     "MinFailed", "Custom", etc.). Per SPEC §41.12 lines 17073-17115.
+    //
+    //   messageFor(error, fieldName, cellName?)
+    //     Resolve a ValidationError-shaped object to a user-facing string via
+    //     the 4-level chain (Levels 1 → 2 → 3). Level 4 (`<match for=
+    //     ValidationError>`) is consumer-side; bypass messageFor when you need
+    //     full markup control. Per SPEC §55.10.
+    //
+    // Both functions delegate to runtime helpers that live in the `messages`
+    // chunk (compiler/src/runtime-template.js). The chunk is tree-shaken when
+    // no validators carry inline overrides AND no `<errors of=>` element
+    // appears (C11 territory).
+    //
+    // Usage:
+    //   ${
+    //     import { registerMessages, messageFor } from 'scrml:data'
+    //
+    //     registerMessages({
+    //       .Required:        (field) => `${field} is required.`,
+    //       .MinFailed:       (field, n) => `${field} must be at least ${n}.`,
+    //       .PatternMismatch: (field) => `${field} doesn't match the format.`,
+    //     })
+    //   }
+    //
+    //   // Then later, e.g. in a custom <match> block:
+    //   //   messageFor(@signup.email.errors[0], "email", "signup.email")
+    //
+    // The `<errors of=expr/>` element (C11) calls messageFor internally.
+    //
+    // Cross-references:
+    //   - SPEC §55.10 — 4-level error message resolution chain (L12)
+    //   - SPEC §55.9  — ValidationError enum (14 universal-core + Custom)
+    //   - SPEC §41.12 — registerMessages API + messageFor helper
+    //   - PA-SCRML-PRIMER §8 — validators + auto-synth surface
+    // ---------------------------------------------------------------------------
+
+    /**
+     * registerMessages — project-level Level-2 registration.
+     *
+     * @param map — `{ Required: (field) => "...", MinFailed: (field, n) => "...", ... }`
+     *              Keys are ValidationError variant names; values are functions
+     *              taking `(fieldName, ...payload)` and returning a string.
+     *
+     * Composes across multiple calls (last-write-wins per variant). Should be
+     * called at app boot (typically the root `<program>` body or a top-level
+     * `${}` block). Calling from a non-top-level context surfaces
+     * E-USE-INVALID-CTX per SPEC §41.12.
+     */
+    export function registerMessages(map) {
+        _scrml_messages_register(map)
+    }
+
+    /**
+     * messageFor — 4-level resolution walker.
+     *
+     * @param error      — ValidationError-shaped object (`{tag: "...", ...payload}`)
+     * @param fieldName  — display name of the field
+     * @param cellName   — optional qualified cell name; when supplied enables
+     *                     Level-1 inline override lookup
+     * @returns          — user-facing string (always; never null/undefined)
+     *
+     * Walks Levels 1 → 2 → 3 in order. Level 4 (`<match for=ValidationError>`)
+     * is the consumer-side escape hatch and bypasses this function.
+     */
+    export function messageFor(error, fieldName, cellName) {
+        return _scrml_message_for(error, fieldName, cellName)
+    }
+}
+</program>

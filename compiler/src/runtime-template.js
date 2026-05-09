@@ -1914,6 +1914,212 @@ function _scrml_computed(fn) {
   return computed;
 }
 
+// ---------------------------------------------------------------------------
+// §55.10 Error message resolution runtime (chunk: 'messages')
+// ---------------------------------------------------------------------------
+// 4-level chain (L12). Levels 1 → 2 → 3 (Level 4 is the consumer-side
+// \`<match for=ValidationError>\` escape hatch — not in this catalog).
+//
+//   Level 1: per-(cell,validator) inline override on field declaration
+//            (highest priority; static-string only per L12 Edge F).
+//            Stored by C10's emitter via _scrml_messages_register_inline.
+//   Level 2: project-registered messages — \`registerMessages({...})\`.
+//            Stored as enum-tag → (fieldName, ...payload) → string.
+//   Level 3: shipped English defaults — _SCRML_DEFAULT_MESSAGES below.
+//            Always available zero-config floor.
+//
+// Chunk-detection trigger: any state-decl whose validators[] contains an
+// entry with a non-null \`inlineOverride\`, OR (future, C11) any \`<errors of=>\`
+// element. When neither is present this chunk is tree-shaken out entirely.
+//
+// Cross-references:
+//   - SPEC §55.10 (lines 25243-25301) — 4-level chain
+//   - SPEC §55.9  (lines 25212-25241) — ValidationError enum (14 + Custom)
+//   - SPEC §41.12 (lines 17073-17115) — registerMessages API + messageFor
+//   - PA-SCRML-PRIMER §8 — validators + auto-synth surface
+//   - compiler/src/codegen/emit-messages.ts — Level-1 codegen emission
+
+// Level-1 storage: keys are "<cellName>::<validatorName>"; values are
+// override strings. \`::\` is collision-safe (cell names cannot contain it).
+const _scrml_messages_inline = {};
+
+// Level-2 storage: keys are ValidationError enum tags ("Required",
+// "MinFailed", "Custom", etc.); values are (fieldName, ...payload) => string.
+const _scrml_messages_registered = {};
+
+// Tag → validator name mapping for Level-1 inline override lookup. Mirrors
+// the validator-catalog at compile time but lives here so Level-1 lookup
+// is self-contained at runtime. Custom maps to "custom" (developer-defined).
+const _SCRML_TAG_TO_VALIDATOR = {
+  Required:        "req",
+  NotSome:         "is some",
+  LengthFailed:    "length",
+  PatternMismatch: "pattern",
+  MinFailed:       "min",
+  MaxFailed:       "max",
+  GtFailed:        "gt",
+  LtFailed:        "lt",
+  GteFailed:       "gte",
+  LteFailed:       "lte",
+  EqFailed:        "eq",
+  NeqFailed:       "neq",
+  OneOfFailed:     "oneOf",
+  NotInFailed:     "notIn",
+  Custom:          "custom",
+};
+
+// Format a relational-predicate payload like { op: ">=", value: 2 } → ">= 2".
+// Used by LengthFailed default. Payload may be null/undefined defensively.
+function _scrml_format_predicate(p) {
+  if (p && typeof p === "object" && typeof p.op === "string") {
+    return p.op + " " + p.value;
+  }
+  return String(p);
+}
+
+// Format a set/array payload for OneOfFailed / NotInFailed defaults.
+function _scrml_format_set(s) {
+  if (Array.isArray(s)) return s.map(v => String(v)).join(", ");
+  return String(s);
+}
+
+// Level-3 default catalog. Each entry takes (fieldName, payload) and returns
+// a non-condescending professional string. Payload shape matches the
+// ValidationError enum at SPEC §55.9 (e.g., MinFailed has \`threshold\`).
+// Uses string concatenation rather than template literals so we don't have to
+// escape every \\\${} inside this template-literal runtime source.
+const _SCRML_DEFAULT_MESSAGES = {
+  Required:        function (f) { return f + " is required."; },
+  NotSome:         function (f) { return f + " is required."; },
+  LengthFailed:    function (f, p) { return f + " length must satisfy " + _scrml_format_predicate(p) + "."; },
+  PatternMismatch: function (f) { return f + " doesn't match the expected format."; },
+  MinFailed:       function (f, p) { return f + " must be at least " + p + "."; },
+  MaxFailed:       function (f, p) { return f + " must be at most " + p + "."; },
+  GtFailed:        function (f, p) { return f + " must be greater than " + p + "."; },
+  LtFailed:        function (f, p) { return f + " must be less than " + p + "."; },
+  GteFailed:       function (f, p) { return f + " must be greater than or equal to " + p + "."; },
+  LteFailed:       function (f, p) { return f + " must be less than or equal to " + p + "."; },
+  EqFailed:        function (f, p) { return f + " must equal " + p + "."; },
+  NeqFailed:       function (f, p) { return f + " cannot equal " + p + "."; },
+  OneOfFailed:     function (f, p) { return f + " must be one of: " + _scrml_format_set(p) + "."; },
+  NotInFailed:     function (f, p) { return f + " cannot be any of: " + _scrml_format_set(p) + "."; },
+  Custom:          function (f, p) { return f + " failed validation (" + p + ")."; },
+};
+
+// Fallback for unknown/future tags. Keeps messageFor total — never throws,
+// never returns undefined.
+function _scrml_messages_fallback(fieldName) {
+  return fieldName + " is invalid.";
+}
+
+// Extract payload values as a positional array for Level-2 function call. The
+// payload-key per tag is documented at runtime-validators.js:36-49.
+function _scrml_extract_payload(error) {
+  switch (error.tag) {
+    case "Required":
+    case "NotSome":
+      return [];
+    case "LengthFailed":    return [error.predicate];
+    case "PatternMismatch": return [error.re];
+    case "MinFailed":       return [error.threshold];
+    case "MaxFailed":       return [error.threshold];
+    case "GtFailed":        return [error.expected];
+    case "LtFailed":        return [error.expected];
+    case "GteFailed":       return [error.expected];
+    case "LteFailed":       return [error.expected];
+    case "EqFailed":        return [error.expected];
+    case "NeqFailed":       return [error.forbidden];
+    case "OneOfFailed":     return [error.set];
+    case "NotInFailed":     return [error.set];
+    case "Custom":          return [error.tag_string != null ? error.tag_string : error.customTag];
+    default:                return [];
+  }
+}
+
+// First payload value (for default-catalog single-arg use). Keeps the default
+// catalog signature simple: \`(field, payload) => string\`.
+function _scrml_extract_payload_first(error) {
+  const arr = _scrml_extract_payload(error);
+  return arr.length > 0 ? arr[0] : undefined;
+}
+
+/**
+ * Level-1 storage emission — called by C10-emitted code at module init.
+ * Key shape: cellName + "::" + validatorName.
+ */
+function _scrml_messages_register_inline(cellName, validatorName, override) {
+  _scrml_messages_inline[cellName + "::" + validatorName] = override;
+}
+
+/**
+ * Level-2 registration — public facade for \`registerMessages\` (stdlib re-export).
+ * Last-write-wins per variant key per SPEC §41.12 line 17096. Composes across
+ * multiple calls (each call merges into the table).
+ *
+ * @param {Object} map — \`{ Required: (field) => "...", MinFailed: (field, n) => "...", ... }\`
+ */
+function _scrml_messages_register(map) {
+  if (!map || typeof map !== "object") return;
+  for (const tag of Object.keys(map)) {
+    const fn = map[tag];
+    if (typeof fn === "function") {
+      _scrml_messages_registered[tag] = fn;
+    }
+  }
+}
+
+/**
+ * messageFor — the 4-level resolution walker. Returns the user-facing string
+ * for a ValidationError-shaped object. Always returns a string (never throws,
+ * never returns undefined) so consumers can render unconditionally.
+ *
+ * @param {Object} error      — \`{ tag: "...", ...payload }\` per §55.9 + runtime-validators
+ * @param {string} fieldName  — display name of the field (passed by C11)
+ * @param {string} [cellName] — qualified cell name (\`signup.email\`); needed for Level-1 lookup
+ * @returns {string}
+ */
+function _scrml_message_for(error, fieldName, cellName) {
+  if (!error || typeof error !== "object" || typeof error.tag !== "string") {
+    return _scrml_messages_fallback(fieldName);
+  }
+  const tag = error.tag;
+
+  // Level 1: per-(cell, validator) inline override. Validator name maps from
+  // ValidationError tag (e.g., "Required" → "req", "MinFailed" → "min"). Only
+  // checks if cellName given (consumer must pass it for L1 to fire).
+  if (typeof cellName === "string" && cellName.length > 0) {
+    const validatorName = _SCRML_TAG_TO_VALIDATOR[tag];
+    if (typeof validatorName === "string") {
+      const inlineKey = cellName + "::" + validatorName;
+      if (Object.prototype.hasOwnProperty.call(_scrml_messages_inline, inlineKey)) {
+        return _scrml_messages_inline[inlineKey];
+      }
+    }
+  }
+
+  // Level 2: project-registered. Function takes (fieldName, ...payloadValues).
+  const registeredFn = _scrml_messages_registered[tag];
+  if (typeof registeredFn === "function") {
+    const payloadArgs = _scrml_extract_payload(error);
+    try {
+      const result = registeredFn(fieldName, ...payloadArgs);
+      if (typeof result === "string") return result;
+    } catch (_e) {
+      // Fall through to Level 3 if user-supplied function throws.
+    }
+  }
+
+  // Level 3: shipped English default for the tag.
+  const defaultFn = _SCRML_DEFAULT_MESSAGES[tag];
+  if (typeof defaultFn === "function") {
+    const payload = _scrml_extract_payload_first(error);
+    return defaultFn(fieldName, payload);
+  }
+
+  // Unknown tag — fallback (never undefined).
+  return _scrml_messages_fallback(fieldName);
+}
+
 `;
 
 /**
