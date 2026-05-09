@@ -181,6 +181,56 @@ function walkForReactiveTypes(nodes: any[], result: Map<string, string>): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// A1c C4 — bind dispatch by render-spec (SPEC §5.4.1, L17)
+// ---------------------------------------------------------------------------
+
+/** The bind flavour selected for a given render-spec element shape. */
+interface BindDispatch {
+  /** `bind:value` | `bind:checked` | `bind:files` | `bind:group` */
+  flavour: "value" | "checked" | "files" | "group";
+  /** DOM event the listener subscribes to (`input` for text-shape, `change` for the rest). */
+  inputEvent: "input" | "change";
+  /** True for `<input type="number"/>` and `<input type="range"/>` — apply Number() coercion on write. */
+  isNumeric: boolean;
+}
+
+/**
+ * Map a render-spec (tag + attributes) to the bind:* flavour per SPEC §5.4.1.
+ *
+ * - `<input type="checkbox"/>` → bind:checked / "change"
+ * - `<input type="file"/>`     → bind:files   / "change"
+ * - `<input type="radio"/>`    → bind:group   / "change"
+ * - `<input type="number"/>` or `<input type="range"/>` → bind:value / "input" + numeric coercion
+ * - any other `<input>` (text, email, url, password, tel, search, date, time, datetime-local,
+ *   color, hidden, …)             → bind:value / "input"
+ * - `<textarea/>`                  → bind:value / "input"
+ * - `<select>...</>`               → bind:value / "change"
+ * - other (defensive fallback; should not arise — B6/C3 already gate non-bindable shapes)
+ *                                  → bind:value / "input"
+ *
+ * Pure function. The caller refines the write-back expression for enum-typed cells
+ * (auto-coerce via `<EnumName>_toEnum[...]`) when `tag === "select"`.
+ */
+function dispatchByRenderSpec(tag: string, attrs: any[]): BindDispatch {
+  const typeAttr = ((attrs ?? []).find(
+    (a: any) => a && a.name === "type",
+  )?.value?.value ?? "") as string;
+  if (tag === "input") {
+    if (typeAttr === "checkbox") return { flavour: "checked", inputEvent: "change", isNumeric: false };
+    if (typeAttr === "file")     return { flavour: "files",   inputEvent: "change", isNumeric: false };
+    if (typeAttr === "radio")    return { flavour: "group",   inputEvent: "change", isNumeric: false };
+    const isNumeric = typeAttr === "number" || typeAttr === "range";
+    return { flavour: "value", inputEvent: "input", isNumeric };
+  }
+  if (tag === "textarea") return { flavour: "value", inputEvent: "input",  isNumeric: false };
+  if (tag === "select")   return { flavour: "value", inputEvent: "change", isNumeric: false };
+  // Defensive fallback. B6 (E-CELL-RENDER-SPEC-NOT-BINDABLE) blocks non-bindable shapes
+  // at A1b time, and C3 only stamps render-by-tag bindings for `_cellKind === "bindable"`,
+  // so this branch is unreachable in well-formed compilations.
+  return { flavour: "value", inputEvent: "input", isNumeric: false };
+}
+
 /**
  * Emit ref= attribute wiring and bind:/class: directive wiring.
  *
@@ -500,6 +550,133 @@ export function emitBindings(ctx: CompileContext): string[] {
         lines.push("");
       }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // A1c C4 — render-by-tag bind dispatch (SPEC §5.4.1, L17, Wave 1 closer).
+  //
+  // C3 stamped a `data-scrml-render-by-tag="<placeholderId>"` attribute on
+  // each rendered element when expanding a Shape 2 bindable cell at a
+  // `<cellName/>` use site, and recorded a LogicBinding with
+  // `kind === "render-by-tag"` carrying the cellName, renderSpecTag, and
+  // renderSpecAttrs. C4 walks those bindings and emits the bind:* wiring
+  // dispatched by render-spec element type per §5.4.1's table.
+  //
+  // Reuse: enumVarMap (built above) covers <select>+enum coercion;
+  // reactiveTypeMap covers §53.7.2 predicate-gated writes for refinement-
+  // typed cells; the wiring shapes mirror the source-level bind:* dispatch
+  // above (lines ~269-362) — same `_scrml_reactive_get` / `_scrml_reactive_set`
+  // / `_scrml_effect` runtime API.
+  //
+  // Multi-render correctness (L16): if a cell appears at multiple use sites,
+  // C3 records ONE binding per site (each with its own placeholderId). Each
+  // binding emits its own JS block; both DOM elements update reactively when
+  // the underlying cell is written.
+  // -------------------------------------------------------------------------
+  const renderByTagBindings = ((ctx as any).registry?.logicBindings ?? [])
+    .filter((b: any) => b && b.kind === "render-by-tag");
+
+  for (const binding of renderByTagBindings as any[]) {
+    const cellName: string = binding.cellName ?? "";
+    const placeholderId: string = binding.placeholderId ?? "";
+    const renderSpecTag: string = binding.renderSpecTag ?? "";
+    const renderSpecAttrs: any[] = binding.renderSpecAttrs ?? [];
+    if (!cellName || !placeholderId || !renderSpecTag) continue;
+
+    const dispatch = dispatchByRenderSpec(renderSpecTag, renderSpecAttrs);
+    const selector = `[data-scrml-render-by-tag="${placeholderId}"]`;
+    const elemId = genVar(`render_by_tag_elem_${renderSpecTag}`);
+
+    const readExpr = `_scrml_reactive_get(${JSON.stringify(cellName)})`;
+    const writeExpr = (val: string): string =>
+      `_scrml_reactive_set(${JSON.stringify(cellName)}, ${val})`;
+
+    // §53.7.2 predicate gating — only meaningful for bind:value writes (the
+    // checked/files/group flavours produce DOM-typed values that don't carry
+    // refinement constraints in v0.next). Mirrors the source-level path.
+    const typeAnnotation = reactiveTypeMap.get(cellName);
+    const predInfo = typeAnnotation ? parsePredicateAnnotation(typeAnnotation) : null;
+
+    // §5.4 / §14.4.1 enum coercion for <select> + enum-typed cell.
+    const enumTypeName = renderSpecTag === "select" ? enumVarMap.get(cellName) : undefined;
+
+    // Build the write-back expression per dispatch flavour.
+    let writeValueExpr: string;
+    switch (dispatch.flavour) {
+      case "value":
+        if (enumTypeName) {
+          writeValueExpr = `(${enumTypeName}_toEnum[event.target.value] ?? event.target.value)`;
+        } else if (dispatch.isNumeric) {
+          writeValueExpr = "Number(event.target.value)";
+        } else {
+          writeValueExpr = "event.target.value";
+        }
+        break;
+      case "checked":
+        writeValueExpr = "event.target.checked";
+        break;
+      case "files":
+        writeValueExpr = "event.target.files";
+        break;
+      case "group":
+        writeValueExpr = "event.target.value";
+        break;
+    }
+
+    lines.push(
+      `// render-by-tag bind:${dispatch.flavour}=@${cellName} (cell=${cellName}, tag=${renderSpecTag})`,
+    );
+    lines.push(`{`);
+    lines.push(`  const ${elemId} = document.querySelector('${selector}');`);
+    lines.push(`  if (${elemId}) {`);
+
+    // Initial DOM read — synchronise the rendered element with the cell's
+    // current value at mount time. Files have no programmatic write path
+    // (DOM-readonly), so we skip the initial DOM-write but keep the
+    // tracking effect (per source-level bind:files convention).
+    if (dispatch.flavour === "value") {
+      lines.push(`    ${elemId}.value = ${readExpr};`);
+    } else if (dispatch.flavour === "checked") {
+      lines.push(`    ${elemId}.checked = ${readExpr};`);
+    } else if (dispatch.flavour === "group") {
+      lines.push(`    ${elemId}.checked = (${readExpr} === ${elemId}.value);`);
+    }
+
+    // Event listener — write back to the cell. Predicate-gate when the
+    // cell is refinement-typed (§53.7.2; only for bind:value).
+    if (predInfo && dispatch.flavour === "value") {
+      const checkExpr = predicateToJsExpr(predInfo.predicate, "event.target.value");
+      lines.push(
+        `    ${elemId}.addEventListener(${JSON.stringify(dispatch.inputEvent)}, (event) => {`,
+      );
+      lines.push(`      // §53.7.2 runtime predicate check before reactive assignment`);
+      lines.push(`      if (${checkExpr}) { ${writeExpr(writeValueExpr)}; }`);
+      lines.push(`    });`);
+    } else {
+      lines.push(
+        `    ${elemId}.addEventListener(${JSON.stringify(dispatch.inputEvent)}, (event) => ${writeExpr(writeValueExpr)});`,
+      );
+    }
+
+    // Reactive effect — keep the DOM element in sync when the cell is
+    // written from anywhere (including programmatic writes from logic).
+    if (dispatch.flavour === "value") {
+      lines.push(`    _scrml_effect(() => { ${elemId}.value = ${readExpr}; });`);
+    } else if (dispatch.flavour === "checked") {
+      lines.push(`    _scrml_effect(() => { ${elemId}.checked = ${readExpr}; });`);
+    } else if (dispatch.flavour === "group") {
+      lines.push(
+        `    _scrml_effect(() => { ${elemId}.checked = (${readExpr} === ${elemId}.value); });`,
+      );
+    } else if (dispatch.flavour === "files") {
+      lines.push(
+        `    _scrml_effect(() => { /* files are read-only from DOM — effect tracks @${cellName} */ ${readExpr}; });`,
+      );
+    }
+
+    lines.push(`  }`);
+    lines.push(`}`);
+    lines.push("");
   }
 
   return lines;
