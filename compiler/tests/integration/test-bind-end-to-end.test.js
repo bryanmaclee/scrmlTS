@@ -91,7 +91,11 @@ function compileFixture(dir, source, testMode) {
  */
 function runBunTest(path) {
   const result = spawnSync("bun", ["test", path], {
-    cwd: "/home/bryan-maclee/scrmlMaster/scrmlTS",
+    // Cross-machine: use process.cwd() so this works on any machine where
+    // `bun run test` is invoked from the repo root. (S78 audit fix; was
+    // hard-coded to /home/bryan-maclee/... which broke A6-5 §1/§2/§5 on
+    // any machine with a different username.)
+    cwd: process.cwd(),
     encoding: "utf8",
     timeout: 30_000,
   });

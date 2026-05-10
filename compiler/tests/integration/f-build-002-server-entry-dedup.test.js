@@ -104,7 +104,12 @@ describe("F-BUILD-002 §3: generated entry parses without SyntaxError", () => {
     // Write to temp file and check via node --check (syntax-only validation).
     const dir = mkdtempSync(join(tmpdir(), "f-build-002-"));
     try {
-      const entryPath = join(dir, "_server.js");
+      // Use .mjs so node --check parses as ES module (entry uses `import`).
+      // Without .mjs (or a sibling package.json type:module), node treats
+      // .js as CommonJS by default and rejects the `import` statement.
+      // S78 audit fix — was failing on this machine because the temp dir
+      // had no package.json type:module marker. .mjs is unambiguous.
+      const entryPath = join(dir, "_server.mjs");
       writeFileSync(entryPath, entry);
       // node --check exits 0 if syntax is valid, non-zero on error.
       // We capture stderr to surface the SyntaxError if any.
