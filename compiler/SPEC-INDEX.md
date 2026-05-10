@@ -1,9 +1,10 @@
 # SPEC.md Section Index
 
 > Auto-generated line numbers. Regenerate: `bash scripts/update-spec-index.sh`
-> Last updated: 2026-05-08 (S70 open — full line-range refresh after S65/S66/S67/S68 content additions; SPEC.md grew 24,382 → 25,508 lines)
+> Last updated: 2026-05-10 (S78 close — SPEC conformance audit fold-in: §4.15 + §24.4 registry tables gain `<onIdle>` row (S77 omission); §34 +20 catalog rows — 5 fully-described codes and 14 W-LINT ghost-pattern rows; reconciles §56's cross-ref claim that `I-MATCH-PROMOTABLE` had a §34 row.)
 >
 > Substantive content landings since the prior S58 line-range baseline:
+> - S78 audit fold-in (post-Phase-A10-SHIP, 2026-05-10): §4.15 + §24.4 +1 row each (`<onIdle>` — §51.0.R reference, S77 registry omission caught at S78 audit); §34 +20 rows: `I-MATCH-PROMOTABLE` (§56 cross-ref claim now true), `W-CG-001` (top-level statement suppression), `E-ERRORS-001/002` (`<errors>` element validation), `E-SWITCH-FORBIDDEN` (§17 — `switch` not in scrml vocabulary), W-LINT-001..008 + W-LINT-010..015 (14 ghost-pattern rows from `compiler/src/lint-ghost-patterns.js`).
 > - S74 (A8 / A6-1, 2026-05-08): §19.12 +3 subsections (§19.12.6 `test-bind` declaration; §19.12.7 dispatch contract + 0-byte production guarantee + Position B forward-compat (S67-style, no flip-condition gating) + S67-style OQ deferral footnote; §19.12.8 worked example); §19.13 +1 row E-TEST-006; §47.5 +1 cross-reference paragraph (test-mode dispatch hook keys by §47-encoded names; dead-code-eliminated from release builds); §34 +1 row E-TEST-006. Spec-only landing — 0 compiler source changes (parser A6-2, typer A6-3, codegen A6-4, tests A6-5, scrml:test API alignment A6-6 are subsequent sub-steps). Authority: design-insight 22 + S67 user-direction methodology rule (flip conditions are NOT a feature-adoption gating mechanism).
 > - S65 (`f963a75`): §41.13 `parseVariant` API entry; §53.14 type-as-argument primitives (L22 family — `parseVariant` shipped, `serialize`/`formFor`/`schemaFor`/`tableFor`/reflective metadata planned);
 > - S66 (`I-MATCH-PROMOTABLE` Tier B SHIPPED): §56 NEW Promotion Ergonomics — fire conditions, three message shapes, `bun scrml promote` CLI, `--engine` Tier-1→2 sibling (deferred to Tier C); §34 +1 row I-MATCH-PROMOTABLE; §6.6.10 + §6.6.8 footnote convention precedent;

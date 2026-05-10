@@ -983,9 +983,9 @@ TAB receives the entire lambda as a single `ExprAttrValue`.
 
 ### 4.15 Scrml-defined structural elements (registered at the block-grammar layer)
 
-**Added:** 2026-05-04 — registers the four v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics.
+**Added:** 2026-05-04 — registers the v0.next scrml-defined elements that the block splitter and tokenizer recognise alongside HTML elements. These are NOT HTML elements; the element registry (§24) distinguishes them and routes them to their owning sections for behavioural semantics. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R).
 
-**The four registered structural elements:**
+**The registered structural elements:**
 
 | Element | Owning section | Attribute slots (parse-time) | Body form |
 |---|---|---|---|
@@ -994,14 +994,15 @@ TAB receives the entire lambda as a single `ExprAttrValue`.
 | `<errors>` | §55.8 | `of=expr` (required), `all` (boolean) | optional bare-body (override template) |
 | `<onTransition>` | §51.0.H | `to=Variant`, `from=Variant`, `once` (boolean), `if=expr` | bare-body (effect statements) or `:`-shorthand |
 | `<onTimeout>` (S67) | §51.0.M | `after=DURATION` (required), `to=.Variant` (required) | self-closing only |
+| `<onIdle>` (S77) | §51.0.R | `after=DURATION` (required), `to=.Variant` (required) | self-closing only |
 
 **Normative statements:**
 
-- The block splitter SHALL classify openers `<engine`, `<match>`, `<errors`, `<onTransition`, and `<onTimeout` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
-- These five element names SHALL NOT be treated as HTML elements. The HTML element registry (§24) excludes them; the scrml structural-element registry includes them.
+- The block splitter SHALL classify openers `<engine`, `<match>`, `<errors`, `<onTransition`, `<onTimeout`, and `<onIdle` (no whitespace between `<` and the identifier — they follow the canonical no-space convention; the convention precedes NR-authoritative routing per §4.3) as scrml-defined structural elements.
+- These element names SHALL NOT be treated as HTML elements. The HTML element registry (§24) excludes them; the scrml structural-element registry includes them.
 - Attribute slots listed above are recognised at parse time. Unknown attributes on these elements emit `W-ATTR-001` (attribute allowlist warning, §3.3 / VP-1) and may escalate to error in stricter modes.
-- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `errors`, `onTransition`, or `onTimeout` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
-- These element names are ONLY recognised in their owning loci; e.g., `<onTransition>` is grammatical only as a child of `<engine>`; `<onTimeout>` is grammatical only as a child of an engine state-child. Use outside the owning locus is `E-STRUCTURAL-ELEMENT-MISPLACED` (the specific code is documented in the owning section's error list).
+- Component names (PascalCase user types) and these scrml-defined element names are disjoint — registering a user component named `engine`, `match`, `errors`, `onTransition`, `onTimeout`, or `onIdle` is `E-NAME-COLLIDES-RESERVED` (the names are reserved structural-element identifiers).
+- These element names are ONLY recognised in their owning loci; e.g., `<onTransition>` is grammatical only as a child of `<engine>`; `<onTimeout>` is grammatical only as a child of an engine state-child; `<onIdle>` is grammatical only at engine root (sibling of state-children). Use outside the owning locus is `E-STRUCTURAL-ELEMENT-MISPLACED` or the element's specific misplacement code (e.g. `E-IDLE-MISPLACED` per §51.0.R).
 
 **Cross-references:**
 
@@ -1010,6 +1011,7 @@ TAB receives the entire lambda as a single `ExprAttrValue`.
 - `<errors>` shape, default rendering, body override: §55.8.
 - `<onTransition>` shape, attribute legality, firing rules: §51.0.H.
 - `<onTimeout>` shape, attribute legality, firing rules: §51.0.M (S67 amendment).
+- `<onIdle>` shape, attribute legality, firing rules: §51.0.R (S77 amendment).
 
 ### 4.16 M7 — multi-close shorthand `<///>` is NOT a part of scrml (negative-space)
 
@@ -13612,24 +13614,25 @@ The compiler has full awareness of the HTML specification. Every HTML element is
 
 ### 24.4 Scrml-defined structural elements (Stage 0b D4 — registry distinction)
 
-**Added:** 2026-05-04 — registers the four v0.next scrml-defined structural elements alongside the HTML element registry. These are NOT HTML elements; the registry distinguishes them.
+**Added:** 2026-05-04 — registers the v0.next scrml-defined structural elements alongside the HTML element registry. These are NOT HTML elements; the registry distinguishes them. Updated 2026-05-10 (S77 + S78) for `<onTimeout>` (§51.0.M), `<onIdle>` (§51.0.R).
 
 **Registered scrml structural elements:**
 
 | Element | Owning section | Notes |
 |---|---|---|
-| `<engine>` | §51.0 | State-machine declaration; renders nothing as DOM directly |
+| `<engine>` | §51.0 | State-machine declaration; renders state-child bodies dispatched on current variant |
 | `<match>` | §18.0.1 | Block-form match declaration; emits one selected arm body |
 | `<errors>` | §55.8 | Auto-renders validator errors per cell or rollup |
 | `<onTransition>` | §51.0.H | Cross-state effect handler; child of `<engine>` only |
-| `<onTimeout>` (S67) | §51.0.M | Time-driven transition declaration; child of an engine state-child only |
+| `<onTimeout>` (S67) | §51.0.M | Per-state-child time-driven transition declaration; child of an engine state-child only |
+| `<onIdle>` (S77) | §51.0.R | Engine-wide event-timeout watchdog; child of `<engine>` only (sibling of state-children); one per engine maximum |
 
 **Normative statements:**
 
 - The HTML element registry (§24.1) SHALL NOT include these names. They are scrml-defined structural elements with their own owning-section semantics (cross-ref §4.15).
-- The compiler SHALL NOT apply HTML attribute validation (§24.2) to these elements. Each scrml structural element has its own attribute slot catalog defined in its owning section (§51.0 for `<engine>`, §18.0.1 for `<match>`, §55.8 for `<errors>`, §51.0.H for `<onTransition>`, §51.0.M for `<onTimeout>`).
+- The compiler SHALL NOT apply HTML attribute validation (§24.2) to these elements. Each scrml structural element has its own attribute slot catalog defined in its owning section (§51.0 for `<engine>`, §18.0.1 for `<match>`, §55.8 for `<errors>`, §51.0.H for `<onTransition>`, §51.0.M for `<onTimeout>`, §51.0.R for `<onIdle>`).
 - These element names SHALL NOT be valid component names. Defining `const engine = <article>` (lowercase) or `const Engine = <div>` is `E-NAME-COLLIDES-RESERVED` — the names are reserved scrml structural-element identifiers.
-- The unified state-type registry (§15.15) routes these names per their NR `resolvedCategory`: `<engine>` → `engine`, `<match>` → a dedicated category, `<errors>` → a dedicated category, `<onTransition>` → resolved relative to its parent `<engine>`, `<onTimeout>` → resolved relative to its parent engine state-child.
+- The unified state-type registry (§15.15) routes these names per their NR `resolvedCategory`: `<engine>` → `engine`, `<match>` → a dedicated category, `<errors>` → a dedicated category, `<onTransition>` → resolved relative to its parent `<engine>`, `<onTimeout>` → resolved relative to its parent engine state-child, `<onIdle>` → resolved relative to its parent `<engine>`.
 - Validation pass VP-1 (§3.3 attribute allowlist) registers the per-element attribute catalogs for these structural elements in `compiler/src/attribute-registry.js` (cross-ref Stage 3.3 contract).
 
 **Cross-references:**
@@ -13638,6 +13641,7 @@ The compiler has full awareness of the HTML specification. Every HTML element is
 - §18.0.1 — match block-form semantics.
 - §55.8 — `<errors>` element semantics.
 - §51.0.M — `<onTimeout>` semantics (S67 amendment).
+- §51.0.R — `<onIdle>` semantics (S77 amendment).
 
 ---
 
@@ -14571,6 +14575,25 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-PARSEVARIANT-DISCRIMINATOR-MISSING | §41.13 | Runtime: a `parseVariant` call's input has no `tag` field at parse time, or the value is `null`/non-object/non-string. Surfaced via `::ParseError::MissingDiscriminator`. Resolution: ensure the wire format includes the enum-variant-name discriminator; non-conforming wire shapes require server-fn normalization before `parseVariant`. (Runtime; catalog addition S65) | Error |
 | E-PARSEVARIANT-UNKNOWN-VARIANT | §41.13 | Runtime: a `parseVariant` call's input has a `tag` field whose value does not match any variant name in the second-argument enum. Surfaced via `::ParseError::UnknownVariant(tag)`. Resolution: add the variant to the enum, OR normalize the wire format in a server function before `parseVariant`. (Runtime; catalog addition S65) | Error |
 | E-PARSEVARIANT-INVALID-PAYLOAD | §41.13 | Runtime: a variant's payload field has the wrong type or fails a payload predicate during parse. Surfaced via `::ParseError::InvalidPayload(field, reason)`. Resolution: verify the wire format matches the variant payload shape declared in the enum; type-coerce primitive payloads in a server function if the wire format is loosely typed. (Runtime; catalog addition S65) | Error |
+| I-MATCH-PROMOTABLE | §56 | Info-level lint surfaces an opportunity to promote an `if=` chain or `${ if (...) lift ... }` pattern over an enum-typed cell into a `<match for=Type on=@cell>` (Tier 1) block for structural exhaustiveness, OR into a `<engine for=Type>` (Tier 2) for full transition-validation. Run `bun scrml promote --match <file>[:line]` to mechanically lift the site. The lint is informational only; chains pre-S56 continue to compile cleanly. (Catalog addition S78 — reconciles SPEC §56 cross-ref claim. Emitted at `compiler/src/lint-promotable.ts` and consumed by `compiler/src/commands/promote.js`.) | Info |
+| W-CG-001 | §6 | A top-level `state-decl` / `let-decl` / `const-decl` / SQL block / etc. inside a logic block was suppressed from the client output (server-only emit, or unused). The lint surfaces what was filtered + why so the developer can confirm it was intentional. (Catalog addition S78 audit; emitted at `compiler/src/codegen/emit-reactive-wiring.ts:366`.) | Warning |
+| E-ERRORS-001 | §55.8 | The first-class `<errors>` element is missing the required `of=` attribute. The element renders validator errors per cell or rollup; `of=` MUST be a scrml-rooted expression like `of=@form.name` or `of=@form` (compound rollup). (Catalog addition S78 audit; emitted at `compiler/src/codegen/emit-html.ts:511`.) | Error |
+| E-ERRORS-002 | §55.8 | The `<errors of=...>` element's `of=` attribute is not a `@`-rooted scrml expression. Validator errors are auto-synthesized state surfaces accessed via `@cell` / `@compound.field`; bare-identifier and arbitrary-expression `of=` values are rejected. (Catalog addition S78 audit; emitted at `compiler/src/codegen/emit-html.ts:560`.) | Error |
+| E-SWITCH-FORBIDDEN | §17 | The JavaScript `switch` keyword is not part of scrml's vocabulary. scrml provides Tier-0 if-else for prototyping, Tier-1 `<match for=Type [on=expr]>` block-form for structural-exhaustiveness UI rendering, JS-style `match expr { … }` for value-return branching, and Tier-2 `<engine for=Type>` for full state-machine semantics. Use one of these per the §1 tier ladder. (Catalog addition S78 audit; emitted at `compiler/src/ast-builder.js:4514, 7121`.) | Error |
+| W-LINT-001 | §9 | A bare `<style>` block was found. CSS rules in scrml live inside the `#{ ... }` CSS context, not in a `<style>` HTML element. (Ghost-pattern lint; emitted at `compiler/src/lint-ghost-patterns.js`.) | Warning |
+| W-LINT-002 | §5 | An `oninput=${...}` arrow-handler that assigns to a reactive cell was found — this is the React/Svelte ghost binding pattern. scrml uses the dedicated `bind:value=@cell` two-way-binding form. (Ghost-pattern lint.) | Warning |
+| W-LINT-003 | §5 | A `className=` attribute was found — this is React's class-attribute alias. scrml uses standard HTML `class="..."` for static classes and `class:name=@cond` for reactive single-class toggling. (Ghost-pattern lint.) | Warning |
+| W-LINT-004 | §5 | A camelCase event-handler attribute name was found (`onChange=`, `onSubmit=`, etc.) — this is React's event-name convention. scrml uses lowercase HTML event-attribute names: `onchange=handler()`. The lint subsumes `onClick`, `onClose`, etc. (no separate W-LINT-009; W-LINT-004 covers it). (Ghost-pattern lint.) | Warning |
+| W-LINT-005 | §5 | A `value={expr}` attribute (JSX brace-literal, no `$` prefix) was found. scrml's reactive-value attribute form is `value=@cell` (no braces); the `${...}` interpolation form remains legal for non-reactive expressions. (Ghost-pattern lint.) | Warning |
+| W-LINT-006 | §10 | A JS-style `for (item of @items)` loop in markup context was found. scrml's markup-context iteration form is `for @items / lift item /` per §10. (Ghost-pattern lint.) | Warning |
+| W-LINT-007 | §5 | A JSX-style `<Comp prop={val}>` brace-literal attribute on a component was found (excluding `value=` which is W-LINT-005). scrml uses `<Comp prop=val>` without braces. (Ghost-pattern lint.) | Warning |
+| W-LINT-008 | §17 | A `{cond && <El>}` React conditional-rendering pattern was found. scrml uses `<El if=@cond>` for conditional rendering per §17. (Ghost-pattern lint.) | Warning |
+| W-LINT-010 | §9 | A `${...}` interpolation was found inside a `#{ ... }` CSS context. scrml's CSS context accepts `@var` directly; `${}` interpolation is for logic context only. (Ghost-pattern lint.) | Warning |
+| W-LINT-011 | §5 | A Vue-style `:attr=` colon-prefixed attribute binding was found (e.g., `:disabled="cond"`). scrml uses `attr=@var` for reactive attribute values; the colon-prefix form is reserved for `class:name=`, `bind:value=`, etc. (Ghost-pattern lint.) | Warning |
+| W-LINT-012 | §5, §10, §17 | A Vue directive was found (`v-if`, `v-for`, `v-model`, `v-show`, `v-on`, `v-bind`, `v-html`, `v-text`, `v-slot`, `v-cloak`, `v-once`, `v-pre`). scrml maps each: `if=@cond` for `v-if`; `for @items` for `v-for`; `bind:value=@x` for `v-model`; `onclick=fn()` for `v-on:click`; `class:name=@cond` for `v-bind:class`; etc. (Ghost-pattern lint.) | Warning |
+| W-LINT-013 | §5 | A Vue-style `@event=` attribute shorthand was found (e.g., `@click="fn"`, `@click.stop="fn"`). scrml's `@var` sigil is for VALUES (reactive cell access), never for attribute names. Use the standard HTML attribute name: `onclick=fn()`. The lint specifically rejects `@word =` patterns; legitimate `@cell ==` equality and `@cell = value` reactive assignments inside `~{}` test sigils are allowed. (Ghost-pattern lint.) | Warning |
+| W-LINT-014 | §10, §17 | A Svelte block directive was found (`{#if}`, `{:else}`, `{/if}`, `{#each x as y}`, `{#await}`, `{#key}`, `{:then}`, `{:catch}`). scrml's equivalents are `<el if=@cond>`, `for @items / lift … /`, and `<match>` blocks. (Ghost-pattern lint.) | Warning |
+| W-LINT-015 | §5 | A Svelte `{@html expr}` raw-HTML directive was found. scrml does not have a dedicated raw-HTML form; use `${ rawHtml(expr) }` inside markup if raw-HTML emission is required (and validate the source — raw HTML is an XSS vector). (Ghost-pattern lint.) | Warning |
 
 ---
 
