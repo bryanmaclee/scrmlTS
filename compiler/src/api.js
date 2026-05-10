@@ -367,6 +367,7 @@ export function rewriteStdlibImports(jsCode, bundleDir, outputDir, bundled) {
  * @param {boolean} [options.embedRuntime]     — embed runtime inline instead of writing separate file (browser mode only)
  * @param {boolean} [options.write]            — write output files to disk (default true)
  * @param {boolean} [options.sourceMap]        — generate Source Map v3 .map files alongside JS output (default false)
+ * @param {boolean} [options.testMode]         — Phase A8 / A6-5 (S76). Emit `<base>.test.js` from `~{}` test blocks with `test-bind` dispatch hooks (SPEC §19.12.7). Default false; production builds bit-identical to A6-5-disabled (0-byte cost guarantee).
  * @param {function} [options.log]             — logging function; defaults to console.log
  * @param {'browser'|'library'} [options.mode] — output mode (default 'browser')
  *   'browser': emits HTML + client IIFE JS + server JS (standard browser app)
@@ -394,7 +395,7 @@ export function rewriteStdlibImports(jsCode, bundleDir, outputDir, bundled) {
  *   fileCount: number,
  *   outputDir: string,
  *   durationMs: number,
- *   outputs: Map<string,{serverJs?:string,clientJs?:string,libraryJs?:string,html?:string,css?:string,clientJsMap?:string,serverJsMap?:string}>
+ *   outputs: Map<string,{serverJs?:string,clientJs?:string,libraryJs?:string,html?:string,css?:string,clientJsMap?:string,serverJsMap?:string,testJs?:string,machineTestJs?:string}>
  * }}
  */
 export function compileScrml(options = {}) {
@@ -409,6 +410,14 @@ export function compileScrml(options = {}) {
     sourceMap = false,
     mode = 'browser',
     emitMachineTests = false,
+    /**
+     * Phase A8 / A6-5 (S76): emit `<base>.test.js` from `~{}` test blocks
+     * declared in source. Off by default (production builds bit-identical to
+     * pre-A6-5 emission per SPEC §19.12.7 0-byte production cost guarantee).
+     * Enable for `bun scrml compile --test app.scrml` flow that produces a
+     * runnable bun:test file with `test-bind` dispatch hooks already wired.
+     */
+    testMode = false,
     log = console.log,
     selfHostModules = null,
   } = options;
@@ -1169,6 +1178,10 @@ export function compileScrml(options = {}) {
     sourceMap,
     mode,
     emitMachineTests,
+    // Phase A8 / A6-5 (S76): when testMode is on, runCG emits `output.testJs`
+    // for each file containing `~{}` test blocks; written to `<base>.test.js`
+    // in the write-output section below.
+    testMode,
     // C15 — pass MOD's exportRegistry so codegen can identify cross-file
     // engine mount sites (`<engineVarName/>` resolving to `category: "engine"`)
     // and emit the §21.8 mount-position marker per SPEC §51.0.D.
@@ -1319,6 +1332,17 @@ export function compileScrml(options = {}) {
             if (verbose) log(`  [CG] Wrote machine property tests: ${base}.machine.test.js`);
           }
         }
+        // Phase A8 / A6-5 (S76): user-authored ~{} test blocks compiled to
+        // bun:test JS with `test-bind` dispatch hooks already wired. Only
+        // emitted when `testMode` is true; production builds (testMode:false)
+        // produce no testJs per SPEC §19.12.7 0-byte production cost guarantee.
+        if (output.testJs) {
+          if (writeOutput(filePath, ".test.js", output.testJs)) {
+            fileCount++;
+            const { base } = pathFor(filePath, ".test.js");
+            if (verbose) log(`  [CG] Wrote user tests: ${base}.test.js`);
+          }
+        }
       }
     }
   } else if (!write && cgResult.outputs) {
@@ -1329,6 +1353,7 @@ export function compileScrml(options = {}) {
       if (output.libraryJs) fileCount++;
       if (output.html) fileCount++;
       if (output.css) fileCount++;
+      if (output.testJs) fileCount++;
     }
   }
 
