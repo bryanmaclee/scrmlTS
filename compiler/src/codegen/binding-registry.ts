@@ -58,6 +58,20 @@ export interface EventBinding {
   handlerArgs: unknown[];
   /** Raw expression handler from ${...} attribute values (e.g. "() => fn(arg)"). */
   handlerExpr?: string;
+  /**
+   * Phase A10 (S78, 2026-05-10) — engine arm context tag.
+   *
+   * Set when this event binding was emitted while the registry was inside
+   * an engine arm context (`pushArmContext(engineVarName, armTag)`). The
+   * value is `"<engineVarName>:<armTag>"` (e.g. `"phase:Showing"`). Consumers
+   * (`emit-event-wiring.ts`) skip arm-tagged bindings from global emission
+   * because they are emitted PER-ARM by `emit-variant-guard.ts:emitArmWireFunction`,
+   * which re-runs the wiring inside a function called from the engine
+   * dispatcher AFTER each variant change's `innerHTML` replace.
+   *
+   * Absent on top-level / program-scope bindings.
+   */
+  engineArm?: string;
 }
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
@@ -183,31 +197,98 @@ export interface LogicBinding {
   fieldName?: string;
   bodyExpr?: string;
   bodyExprNode?: any;
+
+  /**
+   * Phase A10 (S78, 2026-05-10) — engine arm context tag.
+   *
+   * Set when this logic binding was emitted while the registry was inside
+   * an engine arm context (`pushArmContext(engineVarName, armTag)`). Value
+   * is `"<engineVarName>:<armTag>"` (e.g. `"phase:Showing"`). Consumers
+   * (`emit-event-wiring.ts`) skip arm-tagged bindings from global emission
+   * because they are emitted PER-ARM by `emit-variant-guard.ts:emitArmWireFunction`.
+   *
+   * Absent on top-level / program-scope bindings.
+   */
+  engineArm?: string;
 }
 
 export class BindingRegistry {
   private _eventBindings: EventBinding[];
   private _logicBindings: LogicBinding[];
+  /**
+   * Phase A10 (S78, 2026-05-10) — engine arm context stack.
+   *
+   * Each entry is a string `"<engineVarName>:<armTag>"` (e.g. `"phase:Showing"`).
+   * `addEventBinding` / `addLogicBinding` stamp the top of the stack onto
+   * each new entry's `engineArm` field, allowing downstream emitters to
+   * discriminate program-scope bindings from arm-body bindings.
+   *
+   * Stack-shaped (not single-slot) to support nested engines per §51.0.Q
+   * — though arm-body emission currently does not recurse into nested
+   * engine bodies for re-wiring (nested engine has its own dispatcher).
+   * The innermost arm context is the one stamped (top of stack).
+   */
+  private _armContextStack: string[];
 
   constructor() {
     this._eventBindings = [];
     this._logicBindings = [];
+    this._armContextStack = [];
   }
 
   /**
    * Record an event binding — emitted by HTML gen when a call-ref or expr
    * attribute is encountered on an event attribute (onclick, onsubmit, etc.).
+   *
+   * Phase A10: stamps `engineArm` from the top of the arm-context stack
+   * when non-empty.
    */
   addEventBinding(entry: EventBinding): void {
+    if (this._armContextStack.length > 0 && entry.engineArm == null) {
+      entry.engineArm = this._armContextStack[this._armContextStack.length - 1];
+    }
     this._eventBindings.push(entry);
   }
 
   /**
    * Record a logic binding — emitted by HTML gen when a reactive display placeholder
    * or conditional display binding is encountered.
+   *
+   * Phase A10: stamps `engineArm` from the top of the arm-context stack
+   * when non-empty.
    */
   addLogicBinding(entry: LogicBinding): void {
+    if (this._armContextStack.length > 0 && entry.engineArm == null) {
+      entry.engineArm = this._armContextStack[this._armContextStack.length - 1];
+    }
     this._logicBindings.push(entry);
+  }
+
+  /**
+   * Phase A10 (S78, 2026-05-10) — push an engine arm context onto the
+   * stack. Subsequent `addEventBinding` / `addLogicBinding` calls stamp
+   * the pushed context onto each new entry's `engineArm` field. The
+   * caller MUST `popArmContext()` on the symmetric path; missing pops
+   * leak context to siblings (which would mistakenly skip global wiring
+   * emission for them).
+   *
+   * Used by `emit-variant-guard.ts:emitArmRenderFunction` and
+   * `emit-engine.ts:emitEngineMountHtml` (via `emitInitialArmHtmlForMount`)
+   * to scope the bindings created during arm-body HTML generation.
+   *
+   * Format: `"<engineVarName>:<armTag>"` (e.g. `"phase:Showing"`).
+   */
+  pushArmContext(armId: string): void {
+    this._armContextStack.push(armId);
+  }
+
+  /**
+   * Phase A10 — pop the topmost engine arm context. Symmetric with
+   * `pushArmContext`. Does nothing when the stack is empty (defensive;
+   * paired calls are guaranteed by the helper sites).
+   */
+  popArmContext(): void {
+    this._armContextStack.pop();
   }
 
   /** All event bindings. Read-only during emission. */

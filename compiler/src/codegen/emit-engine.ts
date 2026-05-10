@@ -754,10 +754,251 @@ export function emitEngineSubstrate(fileAST: any): string[] {
     // body-render emitter is a follow-on (C13 or later). The marker
     // documents WHERE the engine renders so the follow-on emitter can
     // locate the slot.
-    lines.push(`// §51.0.D engine mount position: ${meta.varName} (${meta.forType}) — body rendering deferred to follow-on`);
+    // Q4 (RATIFIED S78): retain mount-position marker as debug aid even
+    // when body-render is emitted. Body-render output is emitted by the
+    // sibling `emitEngineBodyRenderForFile(fileAST, ctx)` pass — which
+    // takes a CompileContext (this fn does not) and is called by
+    // emit-client.ts adjacent to this substrate emission.
+    lines.push(`// §51.0.D engine mount position: ${meta.varName} (${meta.forType}) — body render via emitEngineBodyRenderForFile`);
   }
 
   return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Phase A10 (S78, 2026-05-10) — Engine state-child body render emission
+// ---------------------------------------------------------------------------
+//
+// Per the SCOPE-AND-DECOMPOSITION doc §3.4 (Option C-prime, RATIFIED) and
+// PHASE-0-SURVEY §7.3 finalized helper signature. The emission has two
+// concerns:
+//
+//   1. Render functions per state-child (`_scrml_engine_<varName>_render_<Tag>`)
+//      and a dispatcher subscribed to the engine variable. Both are JS
+//      lines emitted into the .client.js output.
+//
+//   2. Mount-slot + initial-arm-body HTML emitted at the engine's source
+//      position by emit-html.ts's engine-decl case.
+//
+// The factored variant-guard helper (`emit-variant-guard.ts`) is variant-
+// source-agnostic; this function is the engine consumer that maps
+// `engine-decl.engineMeta.stateChildren` → `arms[]` for the helper. A
+// future match-block-form codegen dispatch will add its own thin consumer
+// without touching this function.
+//
+// **Tree-shake.** When ALL state-child bodies are empty (after structural-
+// element filter at the boundary), the helper returns empty strings; this
+// function returns `{renderFunctions: [], dispatchers: []}` and the caller
+// emits NOTHING beyond the existing C12 substrate. The Q4 marker comment
+// from `emitEngineSubstrate` is preserved either way.
+
+/**
+ * Build VariantArm[] from an engine-decl's stateChildren + bodyChildren.
+ *
+ * `stateChildren` comes from PASS 11/B15's structural parser
+ * (`engine-statechild-parser.ts`) and gives us tag + rule for each arm.
+ * `bodyChildren` comes from ast-builder's Phase A10 Phase 1 walkable AST
+ * preservation and gives us each arm's renderable body subtree.
+ *
+ * Matching is by tag: each `stateChildren[i].tag` is found in
+ * `bodyChildren` as a markup node with the same `tag`. The matched node's
+ * `attrs` provide payload bindings (bareword attrs not in the engine-
+ * reserved set per `extractPayloadBindingsFromAttrs`); its `children` are
+ * filtered to renderable subset (per `filterRenderableChildren`).
+ *
+ * Returns `null` when bodyChildren is missing (legacy zero-child engine
+ * bodies pre-A10 leave bodyChildren undefined). Returns `[]` when no arms
+ * have non-empty body — caller treats as tree-shake-empty.
+ */
+function buildEngineArms(decl: EngineDeclLike): import("./emit-variant-guard.ts").VariantArm[] | null {
+  const meta = decl._record?.engineMeta;
+  if (!meta || !Array.isArray(meta.stateChildren)) return null;
+  const bodyChildren = (decl as any).bodyChildren;
+  if (!Array.isArray(bodyChildren)) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { extractPayloadBindingsFromAttrs, filterRenderableChildren } = require("./emit-variant-guard.ts") as {
+    extractPayloadBindingsFromAttrs: (attrs: any[]) => string[];
+    filterRenderableChildren: (children: any[]) => any[];
+  };
+
+  const arms: import("./emit-variant-guard.ts").VariantArm[] = [];
+  for (const sc of meta.stateChildren) {
+    const tag = sc.tag;
+    // Find the matching markup node in bodyChildren.
+    const match = bodyChildren.find(
+      (c: any) => c && c.kind === "markup" && c.tag === tag,
+    );
+    if (!match) {
+      // No matching body — treat as empty arm. Keeps dispatcher uniform.
+      arms.push({ tag, payloadBindings: [], body: [] });
+      continue;
+    }
+    const attrs = match.attrs ?? match.attributes ?? [];
+    const payloadBindings = extractPayloadBindingsFromAttrs(attrs);
+    const body = filterRenderableChildren(match.children ?? []);
+    arms.push({ tag, payloadBindings, body });
+  }
+  return arms;
+}
+
+/**
+ * Emit body-render render functions + dispatcher for every in-scope C12
+ * engine in the file.
+ *
+ * Returns `{ renderFunctions: string[], dispatchers: string[] }` where
+ * each entry in either array is a multi-line JS block ready for line-by-
+ * line append to the client output. Empty arrays when no engine has any
+ * non-empty arm body (tree-shake).
+ *
+ * Caller (`emit-client.ts`) is responsible for placing render functions
+ * BEFORE the dispatcher block and BEFORE any code that might call them
+ * (function declarations are JS-hoisted, so order within the file is
+ * forgiving — but adjacency to the substrate keeps the output readable).
+ */
+export function emitEngineBodyRenderForFile(
+  fileAST: any,
+  ctx: import("./context.ts").CompileContext,
+): { renderFunctions: string[]; dispatchers: string[] } {
+  const decls = collectC12EngineDecls(fileAST);
+  const renderFunctions: string[] = [];
+  const dispatchers: string[] = [];
+  if (decls.length === 0) return { renderFunctions, dispatchers };
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { emitVariantGuardedRender } = require("./emit-variant-guard.ts") as {
+    emitVariantGuardedRender: typeof import("./emit-variant-guard.ts").emitVariantGuardedRender;
+  };
+
+  for (const decl of decls) {
+    const meta = decl._record!.engineMeta!;
+    const arms = buildEngineArms(decl);
+    if (!arms) continue;
+    const out = emitVariantGuardedRender(
+      // Engine consumer — variant accessor reads the engine cell. Used
+      // only in Shape B (effect mode); Shape A subscribe path uses
+      // `variantSubscribeName` and ignores the accessor.
+      () => `_scrml_reactive_get(${JSON.stringify(meta.varName)})`,
+      arms,
+      ctx,
+      {
+        idPrefix: meta.varName,
+        mountAttr: "data-scrml-engine-mount",
+        renderFnPrefix: "_scrml_engine",
+        // Subscribe-on-set semantics — engine variable is always a
+        // reactive cell registered by C12 substrate. See helper's
+        // dispatcher rationale for why this avoids breaking initial
+        // file-level reactive-wiring at module-init.
+        variantSubscribeName: meta.varName,
+      },
+    );
+    if (out.renderFunctionsJs) renderFunctions.push(out.renderFunctionsJs);
+    if (out.dispatcherJs) dispatchers.push(out.dispatcherJs);
+  }
+
+  return { renderFunctions, dispatchers };
+}
+
+/**
+ * Emit body-render for derived engines. Same pattern as the C12 path
+ * but discovers derived decls via `collectC14DerivedEngineDecls`. Per
+ * SPEC §51.0.J derived engines render the same way non-derived do — only
+ * the cell-init mechanism differs (projection vs direct).
+ *
+ * Returns `{ renderFunctions: [], dispatchers: [] }` when no derived
+ * engine has any non-empty arm body (tree-shake).
+ */
+export function emitDerivedEngineBodyRenderForFile(
+  fileAST: any,
+  ctx: import("./context.ts").CompileContext,
+): { renderFunctions: string[]; dispatchers: string[] } {
+  const decls = collectC14DerivedEngineDecls(fileAST);
+  const renderFunctions: string[] = [];
+  const dispatchers: string[] = [];
+  if (decls.length === 0) return { renderFunctions, dispatchers };
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { emitVariantGuardedRender } = require("./emit-variant-guard.ts") as {
+    emitVariantGuardedRender: typeof import("./emit-variant-guard.ts").emitVariantGuardedRender;
+  };
+
+  for (const decl of decls) {
+    const meta = decl._record!.engineMeta!;
+    const arms = buildEngineArms(decl);
+    if (!arms) continue;
+    const out = emitVariantGuardedRender(
+      () => `_scrml_derived_get(${JSON.stringify(meta.varName)})`,
+      arms,
+      ctx,
+      {
+        idPrefix: meta.varName,
+        mountAttr: "data-scrml-engine-mount",
+        renderFnPrefix: "_scrml_engine",
+        // Derived engines also register as reactive cells — the
+        // subscribe path works the same way. Per §51.0.J derived cells
+        // are read-only but still notify subscribers on upstream change.
+        variantSubscribeName: meta.varName,
+      },
+    );
+    if (out.renderFunctionsJs) renderFunctions.push(out.renderFunctionsJs);
+    if (out.dispatcherJs) dispatchers.push(out.dispatcherJs);
+  }
+
+  return { renderFunctions, dispatchers };
+}
+
+/**
+ * Public helper for emit-html.ts engine-decl case. Given an engine-decl
+ * AST node + ctx, return the HTML to emit at its source position:
+ *   - `<div data-scrml-engine-mount="<varName>"><INITIAL-ARM-BODY-HTML></div>`
+ * where INITIAL-ARM-BODY-HTML is the rendered HTML for the initial-variant
+ * arm (registered via generateHtml so file-level reactive-wiring binds
+ * to its placeholders), or an empty mount slot when the engine has no
+ * arm bodies (tree-shake).
+ *
+ * Returns `null` when the engine-decl is not in C12 scope (caller emits
+ * nothing — preserves pre-A10 behavior). Returns `""` when the engine is
+ * in scope but all arm bodies are empty (caller can choose to emit just
+ * the empty mount slot or nothing).
+ */
+export function emitEngineMountHtml(
+  decl: EngineDeclLike,
+  ctx: import("./context.ts").CompileContext,
+): string | null {
+  if (!isC12EngineDecl(decl)) return null;
+  const meta = decl._record!.engineMeta!;
+  const arms = buildEngineArms(decl);
+  if (!arms) return "";
+  const allEmpty = arms.every((a) => a.body.length === 0);
+  if (allEmpty) {
+    // Tree-shake — emit nothing (no mount slot needed; no body to render).
+    return "";
+  }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { emitInitialArmHtmlForMount } = require("./emit-variant-guard.ts") as {
+    emitInitialArmHtmlForMount: typeof import("./emit-variant-guard.ts").emitInitialArmHtmlForMount;
+  };
+  const initialTag = meta.initialVariant ?? (meta.stateChildren?.[0]?.tag ?? null);
+  // Phase A10 (S78, 2026-05-10) — DO NOT tag initial-arm bindings with
+  // armContextId. The static initial-arm HTML's bindings are intentionally
+  // routed through global emission (file-level reactive-wiring) so they
+  // bind at module-init and provide pre-DOMContentLoaded reactivity if any
+  // (cell `set` calls fire subscribers immediately). The dispatcher's
+  // DOMContentLoaded initial-fire then replaces the static innerHTML with
+  // `render_<initialTag>()` output (which uses fresh placeholder ids
+  // tagged with the arm context) and `wire_<initialTag>(_mount)` binds
+  // subscriptions against the freshly-emitted DOM. The original static
+  // placeholders are detached at that point; the file-level wiring's
+  // `if (el)` guard skips them on subsequent fires (they're orphaned but
+  // not leaked — they're caught by GC once unreferenced).
+  //
+  // Tagging them would create a duplicate binding (one logic_2 + one
+  // logic_3 for the same source `${@cell}`) — the wire fn would try to
+  // bind both, with only the freshly-emitted one matching. Avoiding the
+  // tag keeps the binding count minimal and avoids the per-render
+  // querySelector miss on the orphaned id.
+  const initialHtml = emitInitialArmHtmlForMount(arms, initialTag, ctx);
+  return `<div data-scrml-engine-mount="${meta.varName}">${initialHtml}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1302,10 +1543,10 @@ export function emitDerivedEngineSubstrateForFile(fileAST: any): string[] {
     if (declLines.length === 0) continue;
     if (lines.length > 0) lines.push("");
     for (const l of declLines) lines.push(l);
-    // §51.0.D mount-position marker. Same pattern as C12's non-derived path —
-    // C14 deliberately does NOT emit body markup (state-child bodies are RAW
-    // TEXT today; body-render is a follow-on).
-    lines.push(`// §51.0.D engine mount position: ${meta.varName} (${meta.forType}) — DERIVED — body rendering deferred to follow-on`);
+    // §51.0.D mount-position marker. Same pattern as C12's non-derived path.
+    // Q4 RATIFIED S78 — marker retained as debug aid; body-render output
+    // emitted by sibling `emitDerivedEngineBodyRenderForFile(fileAST, ctx)`.
+    lines.push(`// §51.0.D engine mount position: ${meta.varName} (${meta.forType}) — DERIVED — body render via emitDerivedEngineBodyRenderForFile`);
   }
 
   return lines;

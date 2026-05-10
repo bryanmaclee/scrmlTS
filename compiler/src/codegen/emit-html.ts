@@ -1384,6 +1384,47 @@ export function generateHtml(
       }
       return;
     }
+
+    // Phase A10 (S78, 2026-05-10) — engine-decl mount slot + initial-arm body.
+    //
+    // Pre-A10 emit-html.ts had NO engine-decl case; engine-decl nodes fell
+    // through emitNode silently (engines emit JS substrate, not HTML, per
+    // C12/C13/C14/C15). Phase A10 changes this: the engine renders state-
+    // child bodies via a JS dispatcher that writes innerHTML to a mount
+    // slot. The mount slot must exist in the static HTML at module-init so
+    // file-level reactive-wiring can bind to placeholders inside the
+    // initial-arm body. emit-engine.ts:emitEngineMountHtml builds the slot
+    // (with the initial arm's HTML inside) by calling generateHtml on the
+    // initial arm's filtered body — which registers all bindings in
+    // ctx.registry just like the program-scope HTML pass would.
+    //
+    // Tree-shake: emitEngineMountHtml returns "" when the engine has no
+    // arm bodies (all empty); we emit nothing in that case (the C12 JS
+    // substrate emission preserves the marker comment for debug).
+    //
+    // Out-of-scope here: the JS-side dispatcher + render functions; those
+    // come from emit-engine.ts:emitEngineBodyRenderForFile, called by
+    // emit-client.ts adjacent to the C12 substrate.
+    if (node.kind === "engine-decl") {
+      // Recursive require avoids TS circular dep with emit-engine.ts (which
+      // imports nothing from emit-html.ts; this require is one-way).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { emitEngineMountHtml } = require("./emit-engine.ts") as {
+        emitEngineMountHtml: (decl: any, ctx: any) => string | null;
+      };
+      // Pass the live ctx (constructed at the top of generateHtml from the
+      // legacy or new signature). Falls through to "" when ctx is the
+      // legacy errors-only signature path — consistent with pre-A10
+      // behavior (no HTML emitted).
+      const liveCtx = ctxOrErrors && typeof ctxOrErrors === "object" && "fileAST" in ctxOrErrors
+        ? (ctxOrErrors as CompileContext)
+        : null;
+      if (liveCtx) {
+        const html = emitEngineMountHtml(node, liveCtx);
+        if (html) parts.push(html);
+      }
+      return;
+    }
   }
 
   for (const node of nodes) {

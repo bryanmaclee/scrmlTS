@@ -7,7 +7,7 @@ import { emitFunctions } from "./emit-functions.ts";
 import { emitBindings } from "./emit-bindings.ts";
 import { emitReactiveWiring } from "./emit-reactive-wiring.ts";
 import { emitEventWiring } from "./emit-event-wiring.ts";
-import { emitEngineSubstrate, emitDerivedEngineSubstrateForFile, emitCrossFileEngineMountsForFile, emitEngineHookFiringFunctionsForFile, emitEngineInitialArmsForFile } from "./emit-engine.ts";
+import { emitEngineSubstrate, emitDerivedEngineSubstrateForFile, emitCrossFileEngineMountsForFile, emitEngineHookFiringFunctionsForFile, emitEngineInitialArmsForFile, emitEngineBodyRenderForFile, emitDerivedEngineBodyRenderForFile } from "./emit-engine.ts";
 import { setVariantFieldsForFile } from "./emit-control-flow.ts";
 import { EncodingContext, emitDecodeTable, emitRuntimeReflect } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
@@ -591,6 +591,37 @@ export function generateClientJs(ctx: CompileContext): string {
     lines.push("// --- derived engine substrate (compiler-generated, §51.0.J) ---");
     for (const line of derivedEngineLines) lines.push(line);
     lines.push("");
+  }
+
+  // Phase A10 (S78, 2026-05-10) — engine state-child body render.
+  //
+  // Emit per-arm render functions + dispatcher per in-scope engine.
+  // Render functions are top-level fn decls (JS-hoisted). Dispatcher
+  // subscribes to the engine variable via `_scrml_reactive_subscribe`,
+  // firing on `set` only — initial-arm HTML emitted by emit-html.ts at
+  // the engine's source position is left intact at module init so
+  // file-level reactive-wiring can bind to its placeholders.
+  //
+  // Tree-shake: when no engine has any non-empty arm body, both arrays
+  // are empty and no section header emits. The C12/C14 mount-position
+  // marker comments are preserved as documented debug aids (Q4 RATIFIED).
+  //
+  // See SCOPE-AND-DECOMPOSITION.md §3.4 (Option C-prime, RATIFIED) and
+  // PHASE-0-SURVEY §7.3 finalized helper signature.
+  const c12BodyRender = emitEngineBodyRenderForFile(fileAST, ctx);
+  const c14BodyRender = emitDerivedEngineBodyRenderForFile(fileAST, ctx);
+  const allRenderFns = [...c12BodyRender.renderFunctions, ...c14BodyRender.renderFunctions];
+  const allDispatchers = [...c12BodyRender.dispatchers, ...c14BodyRender.dispatchers];
+  if (allRenderFns.length > 0 || allDispatchers.length > 0) {
+    lines.push("// --- engine body render (Phase A10, §51.0.D) ---");
+    for (const fn of allRenderFns) {
+      lines.push(fn);
+      lines.push("");
+    }
+    for (const disp of allDispatchers) {
+      lines.push(disp);
+      lines.push("");
+    }
   }
 
   // C15 cross-file engine mount markers — per §21.8 + §51.0.D.

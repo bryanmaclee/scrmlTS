@@ -251,6 +251,67 @@ A* = compiler tracks (sequential). B* = parallel tracks (run alongside A*). C* =
 
 ---
 
+### §2.5b Phase A10 — Engine state-child body render (S78, RATIFIED + SHIPPED 2026-05-10)
+
+**Added 2026-05-10 (S78).** Closes a 6-deep deferral chain (C12 / C13 / C14 / C15 / B17.4 / A5-4) — engine state-child body rendering. Previously the compiler emitted a placeholder `// §51.0.D engine mount position: …` comment but no actual body markup. State-child bodies were structurally complete but rendered nothing. Phase A10 implements end-to-end body render: walkable `bodyChildren` AST → A1b walker descent → variant-guarded JS dispatcher + per-arm render functions + HTML mount slot.
+
+**Architecture:** Option C-prime (factored variant-guard helper) ratified S78 — preserves promotion-ladder fidelity to future match-block-form codegen without bundling its ratification surface. Helper at `compiler/src/codegen/emit-variant-guard.ts` is variant-source-agnostic; engine consumer maps `engine-decl.engineMeta.stateChildren` → `arms[]`. Future match-block-form consumer adds its own thin consumer with no helper changes.
+
+**Sub-step decomposition (all SHIPPED):**
+
+**Phase 1+2 — Walkable AST + walker recursion (S78, ~3-5h actual, commit `9f888d0`):**
+- `engine-decl.bodyChildren: ASTNode[]` field added in ast-builder.js (Phase 0 finding: block-splitter already produced walkable children; pre-A10 ast-builder discarded them via re-serialize-to-rulesRaw). Fix is "stop discarding."
+- 7 A1b walker passes (PASS 1, 2, 3, 5, 6, 13, 14) extended with recursion branch into `bodyChildren` so name resolution / scope checks / cell mutation guards / render-by-tag fire correctly inside state-child bodies.
+- Type-system `case "engine-decl"` returns `tAsIs()` without body descent (held back to keep blast radius bounded; bodyChildren type-check enabled via A1b walkers).
+
+**Phase 3 — Codegen (S78, ~2-3h actual):**
+- New file `compiler/src/codegen/emit-variant-guard.ts` — factored variant-guard helper. `emitVariantGuardedRender(variantExprAccessor, arms, ctx, opts)` returns `{dispatcherJs, renderFunctionsJs, mountElementHtml}`. Tree-shake when all arms have empty body. Two dispatcher modes: `_scrml_reactive_subscribe` (engines, fires on set only — preserves initial-arm reactive bindings) + `_scrml_effect` (future match consumer, when variant source is non-cell expression).
+- emit-engine.ts: `emitEngineBodyRenderForFile`, `emitDerivedEngineBodyRenderForFile`, `emitEngineMountHtml` engine consumers. Filter structural elements (`<onTimeout>`, `<onTransition>`, `<onIdle>`, nested `<engine>`) at arm-body construction.
+- emit-html.ts: `engine-decl` case in `emitNode` emits mount slot containing initial-arm body (so file-level reactive-wiring binds to its placeholders at module init).
+- emit-client.ts threads body-render emission between derived-engine substrate and C15 cross-file mount markers.
+- emit-reactive-wiring.ts `classifyMarkupNodes.visit()` recursion branch into `engine-decl.bodyChildren` for incidentally-nested lifecycle / input-state / request / timeout elements.
+
+**Phase 4 — Tests (S78, ~1.5h actual):**
+- 22 unit tests in `compiler/tests/unit/engine-body-render.test.js`. Coverage: tree-shake invariants, single/multi state-child dispatcher, markup with onclick + delegation, `${@cell}` interpolation registration, payload-binding render-fn signature, `_scrml_reactive_subscribe` (not `_scrml_effect`), structural-element filter, mount slot HTML content, helper unit tests.
+
+**Phase 5 — Docs (S78, ~30min):** This entry, PRIMER §7 update, SCOPE doc STATUS line.
+
+**Phase 6 — Re-wire-on-variant-change follow-on (S78, 2026-05-10, ~3-4h actual):**
+Closed the v1 limitation — reactive `${@cell}` interpolation inside non-initial arm bodies is now re-wired across variant changes. Mechanism B (per-arm wire function) chosen over Mechanism A (per-placeholder re-resolution) because:
+- No new runtime registry needed — uses existing `_scrml_effect` dispose return.
+- Each arm's wiring collocated with its render (cohesion).
+- Idempotency via dispose handle returned from `_scrml_effect`.
+- Tree-shake invariant trivially preserved.
+- Bounded performance: re-wire runs once per variant transition, NOT per cell change.
+
+Implementation:
+- `binding-registry.ts`: `pushArmContext` / `popArmContext` stack; `engineArm` field on `LogicBinding` + `EventBinding`. `addLogicBinding` / `addEventBinding` stamp the top of the arm-context stack.
+- `emit-variant-guard.ts`: `emitArmRenderFunction` wraps `generateHtml(arm.body, ctx)` in push/pop pair so all bindings created during arm rendering are tagged. New helper `emitArmWireFunction` walks the registry post-generation, finds entries tagged with this arm, and emits a function `_<prefix>_<id>_wire_<tag>(_root)` that queries within `_root`, sets up `el.textContent + _scrml_effect` for default reactive logic-bindings, attaches `addEventListener` for non-delegable events, and returns a dispose function. Dispatcher emission gains module-scope `let _<prefix>_<id>_dispose = null;` + named dispatch fn `_<prefix>_<id>_dispatch(_v)` invoked from BOTH `_scrml_reactive_subscribe` registration AND a new `DOMContentLoaded` initial-fire block. Prior-dispose teardown precedes the `innerHTML` replace (idempotency).
+- `emit-event-wiring.ts`: filter arm-tagged bindings out of global emission. Default reactive logic-bindings + non-delegable events with `engineArm` set → routed to per-arm wire fn. Delegable events (click, submit) stay in global delegation registry regardless of tag (they survive `innerHTML` replace via document-level delegation).
+
+Out-of-scope reactive surfaces (post-MVP follow-on; documented in `emit-variant-guard.ts` JSDoc):
+- `<errors of=>`, render-by-tag, if-chain branches, mount-toggle `if=`, transitions, `bind:value`/`:checked`/`:files`/`:group`, `<timer>`/`<poll>`, `<request>`, `<keyboard>`/`<mouse>`/`<gamepad>` — these patterns inside arm bodies have the same module-init binding pattern but are NOT re-wired by the helper. They keep their existing global emission as a v1 documented limitation; follow-on dispatch covers them.
+
+Tests: +6 shape tests + 3 happy-dom integration tests (the previous `.skip` block converted). Integration tests gate the load-bearing post-variant-change reactive interp invariant.
+
+**Validation gates (all met):**
+1. ✅ Variant-guard helper tree-shakes empty-body engines (no render code emitted).
+2. ✅ Engine consumer maps `engineMeta.stateChildren` → `arms[]` correctly; structural elements filtered.
+3. ✅ Dispatcher uses `_scrml_reactive_subscribe` (not `_scrml_effect`) for engines — preserves initial-arm bindings.
+4. ✅ Mount slot HTML carries initial-arm body (file-level reactive-wiring binds correctly).
+5. ✅ Phase A10 SHIPPED with full reactive semantics across variant changes (Phase 6, 2026-05-10).
+6. ✅ `bun test` 11006 pass / 64 skip / 1 todo / 6 fail (pre-existing baseline).
+
+**Unblocks:** A5-6 Feature 1 (named multi-timer + `cancelTimer` builtin; ~2-3h follow-on); future match-block-form codegen (separate scope; helper already factored).
+
+**Out-of-scope (deferred):**
+- Match block-form codegen — separate ratification (helper signature is generic; only engine consumer wired).
+- Payload-binding scope-injection in A1b PASS 1 / PASS 3 — Phase 3 codegen passes payload binding names as render-function parameters; body code references them as JS identifiers. The walker-side scope extension is Phase 1+2 follow-on territory.
+- Type-system body-walk re-enablement — `case "engine-decl": tAsIs()` retained as Phase 1+2 landed.
+- Re-wire of out-of-scope reactive surfaces inside arm bodies (errors-element, if-chain, mount-toggle, conditional-display, transitions, bind:*, lifecycle elements) — follow-on dispatch.
+
+---
+
 ### §2.6 Phase A6 — test-bind (Insight 22, effects-as-data middle path)
 
 **Added 2026-05-07 (S67).** Spec target extension via `scrml-support/design-insights.md` Insight 22 (`test-bind`). Master-PA debate verdict ratified; closes OQ-8 partially (server-function mockability); re-files OQ-8b (`<onTransition>` body effects beyond server-fn calls).

@@ -17,6 +17,20 @@ interface EventBinding {
   handlerExprNode?: ExprNode;
   /** Phase 4: structured ExprNode for each handler arg. */
   handlerArgExprNodes?: ExprNode[];
+  /**
+   * Phase A10 (S78, 2026-05-10) — engine arm context tag.
+   * Set when this event binding was emitted while the registry was inside
+   * an engine arm context. Format `"<engineVarName>:<armTag>"` (e.g.
+   * `"phase:Showing"`). Non-delegable events tagged with `engineArm` are
+   * EXCLUDED from global emission here and re-emitted PER-ARM by
+   * `emit-variant-guard.ts:emitArmWireFunction` so the listener is
+   * re-attached after each variant change's innerHTML replace.
+   * Delegable events (click, submit) are kept in global emission even
+   * when arm-tagged because document-level delegation survives the
+   * innerHTML replace. See emit-variant-guard.ts JSDoc for the full re-wire
+   * mechanism.
+   */
+  engineArm?: string;
 }
 
 /** A logic binding recorded by HTML gen and consumed by client JS gen. */
@@ -68,6 +82,22 @@ interface LogicBinding {
   fieldName?: string;
   bodyExpr?: string;
   bodyExprNode?: ExprNode;
+
+  /**
+   * Phase A10 (S78, 2026-05-10) — engine arm context tag.
+   * Set when this logic binding was emitted while the registry was inside
+   * an engine arm context. Format `"<engineVarName>:<armTag>"` (e.g.
+   * `"phase:Showing"`). Default reactive-text bindings (kind === undefined)
+   * tagged with `engineArm` are EXCLUDED from global emission here and
+   * re-emitted PER-ARM by `emit-variant-guard.ts:emitArmWireFunction` so
+   * the textContent + _scrml_effect re-bind to the new placeholder element
+   * after each variant change's innerHTML replace. Out-of-scope kinds
+   * (errors-element, if-chain-branch, if-chain-else, mount-toggle,
+   * conditional-display) keep their existing global emission as a v1
+   * documented limitation — see emit-variant-guard.ts JSDoc out-of-scope
+   * list for follow-on work.
+   */
+  engineArm?: string;
 }
 
 /**
@@ -213,8 +243,45 @@ function exprUsesServerFn(expr: string, serverFnNames: Set<string>): boolean {
 }
 
 export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, string>): string[] {
-  const eventBindings = ctx.registry.eventBindings as EventBinding[];
-  const logicBindings = ctx.registry.logicBindings as LogicBinding[];
+  const allEventBindings = ctx.registry.eventBindings as EventBinding[];
+  const allLogicBindings = ctx.registry.logicBindings as LogicBinding[];
+
+  // Phase A10 (S78, 2026-05-10) — re-wire-on-variant-change.
+  //
+  // Filter out arm-tagged bindings that emit-variant-guard.ts:emitArmWireFunction
+  // is re-emitting per-arm. The filter is precise:
+  //
+  //   * Logic bindings: skip global ONLY when `engineArm` is set AND the
+  //     binding is the default reactive-text kind (`kind === undefined`,
+  //     not a conditional-display / mount-toggle / visibility variant).
+  //     Out-of-scope kinds (errors-element, if-chain-branch, if-chain-else,
+  //     isMountToggle, isConditionalDisplay, isVisibilityToggle) keep their
+  //     global emission — see emit-variant-guard.ts JSDoc out-of-scope list.
+  //
+  //   * Event bindings: skip global ONLY when `engineArm` is set AND the
+  //     event is non-delegable. Delegable events (click, submit) survive
+  //     innerHTML replace via document-level delegation, so they stay in
+  //     the global delegation registry regardless of arm tag.
+  const eventBindings = allEventBindings.filter((b) => {
+    if (!b.engineArm) return true;
+    const domEvent = (b.eventName || "").replace(/^on/, "");
+    // Delegable events stay in global registry; non-delegable arm-tagged
+    // events are re-emitted by emitArmWireFunction.
+    return DELEGABLE_EVENTS.has(domEvent);
+  });
+  const logicBindings = allLogicBindings.filter((b) => {
+    if (!b.engineArm) return true;
+    // Default reactive-text binding (kind === undefined) AND not a
+    // conditional-display / mount-toggle / visibility variant → handled
+    // per-arm. All other kinds remain in global emission (v1 limitation
+    // for those out-of-scope surfaces).
+    if (b.kind != null) return true;
+    if (b.isConditionalDisplay) return true;
+    if (b.isVisibilityToggle) return true;
+    if (b.isMountToggle) return true;
+    return false;
+  });
+
   const encodingCtx = ctx.encodingCtx;
   const serverFnNames = buildServerFnNames(fnNameMap);
   const lines: string[] = [];

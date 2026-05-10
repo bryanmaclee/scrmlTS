@@ -525,7 +525,12 @@ export function runCG(input: CgInput): CgOutput {
         (n.kind === "text" && typeof n.value === "string" && n.value.trim() !== "") ||
         (n.kind === "text" && typeof n.text === "string" && n.text.trim() !== "") ||
         n.kind === "state" ||
-        n.kind === "if-chain"
+        n.kind === "if-chain" ||
+        // Phase A10 (S78, 2026-05-10) — engine-decl emits a mount slot at
+        // its source position when its body has any non-empty arm; gate
+        // HTML generation on engine-only files too. emit-html.ts:emitNode
+        // dispatches engine-decl to emit-engine.ts:emitEngineMountHtml.
+        n.kind === "engine-decl"
       )
     );
     const htmlBody: string | null = hasRenderableContent

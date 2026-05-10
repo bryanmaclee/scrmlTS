@@ -683,6 +683,23 @@ function classifyMarkupNodes(nodes: any[]): WiringCollections {
         continue;
       }
 
+      // Phase A10 (S78, 2026-05-10) — descend into engine-decl.bodyChildren
+      // so reactive-wiring nodes (lifecycle <timer>/<poll>, input-state
+      // <keyboard>/<mouse>/<gamepad>, <request>, <timeout>, _bindProps)
+      // INSIDE engine state-child bodies are discovered. Without this
+      // branch, non-renderable wiring elements declared inside arm bodies
+      // would be silently dropped.
+      //
+      // Per PHASE-0-SURVEY §3 walker-affected list: this is the
+      // recursive descent for emit-reactive-wiring's `classifyMarkupNodes`
+      // pass. Body-render itself is emitted via the dispatcher in
+      // emit-engine.ts; this branch is only for OTHER reactive surfaces
+      // that may incidentally appear inside arm bodies.
+      if (node.kind === "engine-decl" && Array.isArray((node as any).bodyChildren)) {
+        visit((node as any).bodyChildren);
+        continue;
+      }
+
       // Recurse into all other node kinds
       if (Array.isArray(node.children)) {
         visit(node.children);
