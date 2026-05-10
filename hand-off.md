@@ -95,7 +95,22 @@ Awaiting user direction. Carrying the S77-close menu forward:
 
 1. **Push state — 3 commits ahead of origin.** scrmlTS at HEAD (S78 wrap commit + 3 prior S78 commits — `b4b9bd9` chore SCOPE/SURVEY + `9f888d0` feat Phase 1+2 + `6a1b15e` feat Phase 3+4+rewire). User authorized "no push" all S78. Push at PA's discretion at next session open or on user request.
 
-2. **Test conformance audit running async.** Dispatched at S78 close per user direction "sounds good. gg" — agent ID `accfe3ec14a10b1a0`, output `/tmp/claude-1000/-home-bryan-scrmlMaster-scrmlTS/.../tasks/accfe3ec14a10b1a0.output`. Output writes to `docs/audits/test-conformance-2026-05-10.md`. **At S79 open: check whether agent completed; surface findings to user; address gaps as appropriate.** Six dimensions: vacuous tests / surface coverage holes / SPEC normative-statement coverage / implementation-pegged tests / skipped+todo audit / gate effectiveness.
+2. **Test conformance audit COMPLETE.** Returned post-wrap (agent `accfe3ec14a10b1a0`). Audit at `docs/audits/test-conformance-2026-05-10.md` (401 lines, 36KB). **Verdict: SHIP-READY after closing ~4-6h of mechanical test additions.** No agent-cheated pattern detected — corpus is structurally honest (no mocks, no snapshot tests, no `.only`, no self-referential mock-return assertions, no expected-fail-disguised-as-skip). The 54 skip directives are all documented with explanatory comments OR live under a `REGISTRY.md` spelling out the gating regime (31 of 54 are S32 fn-state-machine conformance tests designed to un-skip when implementation lands).
+
+   **Top priority items (ranked by risk × ease):**
+
+   - **A. 21 codes cataloged-but-untested (~3-5h).** Codes with §34 catalog rows AND "SHALL emit" normative claims AND real source firing sites AND zero test references. Confirmed list: `E-LOOP-003/005/006/007`, `E-CHANNEL-004/005`, `E-AUTH-003/004/005`, `E-CG-010/014`, `E-LIFECYCLE-015`, `E-CTRL-004/011`, `E-IMPORT-007`, `E-FN-009`, `E-META-EVAL-002`, `E-STRUCTURAL-ELEMENT-MISPLACED`, `E-ERROR-008`. Plus `W-CG-001` from SPEC audit's §1.3.
+   - **B. Phase A10 binding-registry arm-context unit gap (~30 min).** `pushArmContext` / `popArmContext` / `engineArm` field stamping (S78 SHIP) has zero direct unit test in `binding-registry.test.js` (8 existing tests cover only the data-class API). Indirect coverage via `engine-body-render.test.js` integration tests but a registry-only regression would slip the unit tier.
+   - **C. Pre-commit / full-suite divergence (~30 min).** Pre-commit hook excludes `browser/`, `lsp/`, `self-host/`, `commands/` (~28 files). No automated full-suite gate between commits. Recommendation: post-commit hook OR CI gate for `bun run test`.
+   - **D. 6-9 vacuous tests** in `conf-TAB-005.test.js` + `conf-TAB-022.test.js` — `if (sqlNode) expect(...)` with trailing `expect(true).toBe(true)` — passes whether SQL recognition works or not. Plus ~12-15 more soft-mode conditional fallbacks in the same `tab/` directory. **Lower priority** (audit framing it as cleanup, not correctness gate).
+
+   **Total estimated effort: ~4-6h to close items A-C; another ~2-3h for item D cleanup. NOT ship-blocking.**
+
+   **What's NOT a problem (audit's positive findings):**
+   - No agent-cheated tests. Corpus runs real `compileScrml(...)` end-to-end or real compiler functions on real source.
+   - Implementation-peg risk essentially zero — codegen tests use structural regex assertions, not literal-string equality.
+   - 31/54 skips are documented S32 fn-state-machine conformance tests (designed to un-skip when implementation lands).
+   - Verdict aligns with parallel SPEC audit's "catalog-bookkeeping drift, not design-level drift" finding.
 
 3. **SPEC conformance audit findings — actionable items pending decision.** Audit at `docs/audits/spec-conformance-2026-05-10.md` returned "on course" verdict (committed alongside this wrap). Top 5 priority items totaling ~5-7h:
    - **W-LINT-001..015 family backfill** (~30 min) — 15 user-visible warnings with zero spec mention.

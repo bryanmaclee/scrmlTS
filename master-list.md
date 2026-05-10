@@ -2,7 +2,7 @@
 
 **Purpose:** Live inventory of what exists in scrmlTS, plus the **v0.2.0 migration dashboard**. Current truth only. Historical session-by-session detail lives in `docs/changelog.md`; deep-dives live in `scrml-support/docs/deep-dives/`.
 
-**Last updated:** 2026-05-10 (S78 close — **Phase A10 engine state-child body render SHIPPED end-to-end · 6-deep deferral chain CLOSED · A5-6 Feature 1 named timer + cancelTimer UNBLOCKED · 1 chore + 2 SHIPs + this wrap commit · +45 tests · 0 regressions · SPEC conformance audit COMPLETE (on-course verdict; debounce/throttle the only real src-ahead-of-spec finding) · test conformance audit dispatched async at session close**)
+**Last updated:** 2026-05-10 (S78 close + post-wrap audit fold-in — **Phase A10 engine state-child body render SHIPPED end-to-end · 6-deep deferral chain CLOSED · A5-6 Feature 1 UNBLOCKED · 1 chore + 2 SHIPs + wrap + post-wrap audit fold-in · +45 tests · 0 regressions · SPEC conformance audit COMPLETE (on-course; debounce/throttle the only real src-ahead-of-spec finding) · test conformance audit COMPLETE (SHIP-READY after ~4-6h of mechanical gap closure; no agent-cheated pattern detected)**)
 
 **Tests (current — S78 close):** **11,006 pass / 64 skip / 1 todo / 6 fail** (516 files; via `bun run test` ~17s). The 6 fails are ALL ENVIRONMENTAL on this machine (same set as S77 close): 3 self-host artifacts not built (F-BUILD-002 §3 + Bootstrap L3 + Self-host tokenizer parity); 3 test-bind A6-5 integration tests with hard-coded `/home/bryan-maclee/` cwd. Cumulative across S78 (from S77 close baseline 10,961): 10,961 → 10,975 (Phase 1+2 +14) → 10,997 (Phase 3+4 +22 / +3 skip) → 11,006 (re-wire fix +9 / -3 skip from .skip→.test). **Net S78 delta: +45 pass / +0 skip net / 0 todo / +0 fail.**
 
