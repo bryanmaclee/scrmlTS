@@ -2177,7 +2177,7 @@ function _scrml_engine_check_transition(currentVariant, target, table) {
   return false;
 }
 
-function _scrml_engine_advance(varName, target, table, timersTable) {
+function _scrml_engine_advance(varName, target, table, timersTable, idleEntry) {
   // timersTable (optional, A5-4): per-state-tag timer-config map for engines
   // with at least one <onTimeout>. When provided, clear-on-exit fires before
   // the cell write and arm-on-entry fires after. When null/undefined (engines
@@ -2198,10 +2198,15 @@ function _scrml_engine_advance(varName, target, table, timersTable) {
   // Arm timers for the INCOMING state-child. Re-entering the same state-child
   // (current === target) re-arms a fresh timer per §51.12.4 reset semantics.
   if (timersTable != null) _scrml_engine_arm_state_timers(varName, target, timersTable, table);
+  // A5-6 §51.0.R — reset the engine's idle watchdog on every successful
+  // transition (machine-wide event-timeout). idleEntry is null when the
+  // engine declares no <onIdle> (tree-shake).
+  if (idleEntry != null) _scrml_engine_reset_idle_watchdog(varName, idleEntry, table);
 }
 
-function _scrml_engine_direct_set(varName, target, table, timersTable) {
+function _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry) {
   // timersTable: see _scrml_engine_advance above.
+  // idleEntry (A5-6 §51.0.R): per-engine event-timeout watchdog config or null.
   const current = _scrml_reactive_get(varName);
   if (!_scrml_engine_check_transition(current, target, table)) {
     throw new Error(
@@ -2213,6 +2218,7 @@ function _scrml_engine_direct_set(varName, target, table, timersTable) {
   if (timersTable != null) _scrml_engine_clear_state_timers(varName, current, timersTable);
   _scrml_reactive_set(varName, target);
   if (timersTable != null) _scrml_engine_arm_state_timers(varName, target, timersTable, table);
+  if (idleEntry != null) _scrml_engine_reset_idle_watchdog(varName, idleEntry, table);
 }
 
 // ---------------------------------------------------------------------------
@@ -2297,6 +2303,72 @@ function _scrml_engine_clear_state_timers(varName, stateName, timersTable) {
     var timerKey = varName + "::" + stateName + "::" + i;
     _scrml_machine_clear_timer(timerKey);
   }
+}
+
+// ---------------------------------------------------------------------------
+// §51.0.R onIdle runtime — A5-6 engine event-timeout watchdog
+// ---------------------------------------------------------------------------
+// Runtime support for the <onIdle after=DURATION to=.Variant/> element. One
+// watchdog per engine. Armed at module-init alongside the variant cell;
+// RESET on every successful transition (any _scrml_engine_direct_set or
+// _scrml_engine_advance commit). Fires through the same write-path as a
+// direct write — rule= validation applies at fire time.
+//
+// idleEntry shape (compile-time-baked per engine, see emit-engine.ts):
+//   const __scrml_engine_<varName>_idle = {
+//     ms: 300000, target: "Idle"
+//   };
+//   // OR for computed-delay (§51.12.3.1, A5-5):
+//   const __scrml_engine_<varName>_idle = {
+//     msExpr: function(){ return _scrml_reactive_get("backoffDelay") * 1; },
+//     target: "Idle"
+//   };
+// (Tree-shake: emitted ONLY when the engine declares <onIdle>; codegen passes
+//  null when absent and these helpers no-op.)
+//
+// Timer-key encoding: varName + "::__idle". The "::__idle" suffix cannot
+// collide with state-child timer keys (state names start with PascalCase, not
+// double-underscore).
+
+function _scrml_engine_arm_idle_watchdog(varName, idleEntry, table) {
+  // Arm the engine's machine-wide idle watchdog (A5-6 §51.0.R).
+  // table is the engine's transition table — the setterFn routes the
+  // watchdog-fire write through _scrml_engine_direct_set so rule= validation
+  // applies (§51.0.R sub-A1: rule=-honoring fires).
+  if (idleEntry == null) return;
+  var ms;
+  if (typeof idleEntry.ms === "number") {
+    ms = idleEntry.ms;
+  } else if (typeof idleEntry.msExpr === "function") {
+    var v;
+    try { v = idleEntry.msExpr(); } catch (e) { v = 0; }
+    ms = (typeof v === "number" && isFinite(v) && v >= 0) ? Math.round(v) : 0;
+  } else {
+    return; // malformed entry — defensive skip
+  }
+  var timerKey = varName + "::__idle";
+  var target = idleEntry.target;
+  var setterFn = (function (vn, tbl) {
+    return function (tg) { _scrml_engine_direct_set(vn, tg, tbl); };
+  })(varName, table);
+  _scrml_machine_arm_timer(timerKey, ms, target, {
+    fromVariant: null,
+    label: null,
+    auditTarget: null,
+    rulesJson: null,
+    setterFn: setterFn,
+  });
+}
+
+function _scrml_engine_reset_idle_watchdog(varName, idleEntry, table) {
+  // Reset the watchdog: clear any pending timer + re-arm. Called after
+  // every successful _scrml_engine_direct_set / _scrml_engine_advance commit
+  // (per A5-6 §51.0.R "reset on every transition" semantics). Module-init
+  // arm uses _scrml_engine_arm_idle_watchdog directly (no clear needed).
+  if (idleEntry == null) return;
+  var timerKey = varName + "::__idle";
+  _scrml_machine_clear_timer(timerKey);
+  _scrml_engine_arm_idle_watchdog(varName, idleEntry, table);
 }
 
 `;

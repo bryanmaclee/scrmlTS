@@ -67,6 +67,7 @@ import type {
   EngineRuleForm,
   EngineStateChildEntry,
   OnTimeoutEntry,
+  OnIdleEntry,
   NestedEngineEntry,
   OnTransitionEntry,
 } from "./symbol-table";
@@ -288,6 +289,63 @@ export function scanForOnTimeoutEntries(
         v = v.slice(1, -1).trim();
       }
       // Strip leading `.` for the variant name (mirror parseRuleAttrValue).
+      if (v.startsWith(".")) v = v.slice(1);
+      toVal = v;
+    }
+
+    out.push({ after: afterVal, to: toVal, rawOffset: startIdx });
+  }
+
+  return out;
+}
+
+/**
+ * A5-6 (§51.0.R, S77) — scan an engine's `rulesRaw` for `<onIdle/>` self-
+ * closing elements at the engine-root scope (sibling of state-children).
+ *
+ * Captures ALL matches (regardless of placement) so the typer can fire
+ * `E-IDLE-MISPLACED` when an entry falls inside a state-child body. The
+ * typer cross-references against the state-child boundary map produced by
+ * `parseEngineStateChildren`; an `<onIdle>` whose `rawOffset` falls within
+ * any state-child opener-to-closer range is misplaced.
+ *
+ * Same shape as `scanForOnTimeoutEntries` (lazy regex, attribute extraction
+ * with quoted-string handling, leading-dot strip on `to=`). The duration
+ * shape is identical to `<onTimeout>`'s `after=` (literal Nms/Ns/Nm/Nh OR
+ * computed `${expr}<unit>` per §51.12.3.1).
+ */
+export function scanForOnIdleEntries(rulesRaw: string): OnIdleEntry[] {
+  const out: OnIdleEntry[] = [];
+  if (!rulesRaw) return out;
+
+  const re = /<onIdle\b([^>]*?)\/>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(rulesRaw)) !== null) {
+    const startIdx = m.index;
+    const attrs = m[1] ?? "";
+
+    // Extract `after=` value — accepts:
+    //   after=Nms / after=Ns / after="500ms" / after=${expr}<unit>
+    const afterMatch = attrs.match(/\bafter\s*=\s*(.+?)(?=\s+\w+\s*=|\s*\/?\s*$)/s);
+    let afterVal = "";
+    if (afterMatch) {
+      let v = afterMatch[1]!.trim();
+      if ((v.startsWith('"') && v.endsWith('"')) ||
+          (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.slice(1, -1).trim();
+      }
+      afterVal = v;
+    }
+
+    // Extract `to=` value — accepts: to=.Variant / to="Variant" / to=Variant.
+    const toMatch = attrs.match(/\bto\s*=\s*(.+?)(?=\s+\w+\s*=|\s*\/?\s*$)/s);
+    let toVal = "";
+    if (toMatch) {
+      let v = toMatch[1]!.trim();
+      if ((v.startsWith('"') && v.endsWith('"')) ||
+          (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.slice(1, -1).trim();
+      }
       if (v.startsWith(".")) v = v.slice(1);
       toVal = v;
     }

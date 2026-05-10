@@ -11524,6 +11524,9 @@ The following error codes are introduced by this section. They SHALL be added to
 | D-CPS-IDEMPOTENT-OVERRIDE | §19.9.7 | `.idempotent()` modifier applied to a function whose batches the static classifier would have flagged non-monotone. (A9 Ext 5; S76.) | Diag (info) |
 | D-CPS-MONOTONE | §19.9.6 | Batch is monotone-by-classification — emitted at `--verbose` only to avoid noise. (A9 Ext 5; S76.) | Diag (info) |
 | W-LEAK-010 | §19.9.6, §39.2.6 | `<program idempotency-store=>` resolves to a SQL backend; the v0.2.0 SQL helper performs lazy eviction ONLY — expired rows in `_scrml_idempotency_keys` are returned as misses but never deleted, so the table grows unbounded over time. Configure a Redis backend (native EXPIREAT — no leak), schedule a periodic `DELETE FROM _scrml_idempotency_keys WHERE expires_at <= now()`, or wait for a future-amendment background sweeper. (Memory-leak deep-dive refresh; S77.) | Info |
+| E-IDLE-DUPLICATE | §51.0.R | An `<engine>` declares more than one `<onIdle>` element. Per §51.0.R, an engine has at most one event-timeout watchdog. (A5-6; S77.) | Error |
+| E-IDLE-INVALID-VARIANT | §51.0.R | `<onIdle to=.X/>` references a variant `X` not in the engine's `for=` enum, or `to=` is missing/malformed. (A5-6; S77.) | Error |
+| E-IDLE-MISPLACED | §51.0.R | `<onIdle>` appears inside a state-child body. Per §51.0.R, `<onIdle>` is engine-wide and must sit at engine root. For per-state timer-fire-on-state-entry semantics use `<onTimeout>` (§51.0.M) instead. (A5-6; S77.) | Error |
 
 ---
 
@@ -14427,6 +14430,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | D-CPS-IDEMPOTENT-OVERRIDE | §19.9.7 | `.idempotent()` modifier applied to a function whose batches the static classifier would have flagged non-monotone. Names the classifier's would-be verdict so the developer sees what they overrode. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Diag (info) |
 | D-CPS-MONOTONE | §19.9.6 | Batch is monotone-by-classification — emitted at `--verbose` only to avoid noise. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Diag (info) |
 | W-LEAK-010 | §19.9.6, §39.2.6 | The compiled `<program idempotency-store=>` resolves to a SQL backend (sqlite/postgres/mysql); the v0.2.0 helper at `compiler/runtime/idempotency.js` performs **lazy eviction only** — expired rows in `_scrml_idempotency_keys` are returned as misses but NOT deleted from disk. Over time the shadow table grows unbounded; query latency on the primary-key lookup degrades with index size; storage cost grows monotonically. Resolution: (a) configure `idempotency-store="redis"` (Redis has native `EXPIREAT` — no leak), (b) operationally schedule a periodic `DELETE FROM _scrml_idempotency_keys WHERE expires_at <= now()`, or (c) wait for the future-amendment background sweeper. The runtime helper file documents the gap inline at lines 27-29 + 74-77. (Memory-leak deep-dive refresh, S77 — `scrml-support/docs/deep-dives/memory-leak-detection-2026-05-10.md`.) | Info |
+| E-IDLE-DUPLICATE | §51.0.R | An `<engine>` declares more than one `<onIdle>` element. Per §51.0.R, an engine has at most one event-timeout watchdog. Resolution: remove the duplicate or merge into one. (A5-6, S77.) | Error |
+| E-IDLE-INVALID-VARIANT | §51.0.R | `<onIdle to=.X/>` references a variant `X` not in the engine's `for=` enum, OR the `to=` attribute is missing or malformed. Resolution: correct the variant reference or add `.X` to the enum. (A5-6, S77.) | Error |
+| E-IDLE-MISPLACED | §51.0.R | `<onIdle>` appears inside a state-child body. Per §51.0.R, `<onIdle>` is engine-wide and must sit at engine-root scope (sibling of state-children). For per-state timer-fire-on-state-entry semantics use `<onTimeout>` (§51.0.M) instead. (A5-6, S77.) | Error |
 | E-SSE-001 | §37.9 | `yield` used inside a non-generator `server function` body | Error |
 | W-SSE-001 | §37.9 | `server function*` body contains no `yield` statements | Warning |
 | E-CHANNEL-001 | §38.9 | `<channel>` missing required `name=` attribute | Error |
@@ -21295,6 +21301,98 @@ catalog).
 - §51.4 — multi-engine pattern.
 - §51.9.7 — explicit deferral of full SCXML parallel-node semantics.
 - §34 — `E-ENGINE-INVALID-TRANSITION`, `E-COMPONENT-ENGINE-SCOPE`.
+
+#### 51.0.R `<onIdle>` element — engine event-timeout watchdog (S77, 2026-05-10)
+
+**Added 2026-05-10 (S77, A5-6).** Item G B-shakeable timer extension per master-PA
+capability-gap audit (`scrmlTS/handOffs/incoming/read/2026-05-07-1327-master-to-scrmlTS-…md`).
+Distinct from `<onTimeout>` (§51.0.M) in scope and semantics: `<onTimeout>` is per-state-child
+(armed on entry, cleared on exit); `<onIdle>` is **per-engine** (machine-wide watchdog —
+armed at module-init, RESET on every successful transition, fires after N ms of silence).
+
+**Form:**
+
+```scrml
+<onIdle after=DURATION to=.Variant/>
+```
+
+**Placement:** ONLY at engine-root scope (sibling of state-children). Inside a state-child body
+fires `E-IDLE-MISPLACED`. For per-state timer-fire-on-state-entry semantics, use `<onTimeout>`
+(§51.0.M) instead.
+
+**Attributes:**
+
+| Attribute | Required? | Meaning |
+|---|---|---|
+| `after=DURATION` | REQUIRED | Time of silence before the timer fires. Same shape as `<onTimeout>` `after=` (literal `Nms`/`Ns`/`Nm`/`Nh` per §51.12.3, OR computed `${expr}<unit>` form per §51.12.3.1). |
+| `to=.Variant` | REQUIRED | Target variant on watchdog fire. MUST be a variant of the engine's `for=` enum. Strict-by-default. |
+
+**Worked example — session-idle detection:**
+
+```scrml
+${
+  type Phase:enum = { Active, Idle }
+  function refresh() { @phase = Phase.Active }
+}
+
+<engine for=Phase initial=.Active>
+  <Active rule=.Idle>
+    <button onclick=refresh()>I'm here</button>
+  </>
+  <Idle></>
+  <onIdle after=5m to=.Idle/>
+</>
+```
+
+When the engine's variant cell initializes (`Active`), the watchdog arms with full 5-minute
+remaining. Each call to `refresh()` (which transitions `.Active → .Active`) RESETS the
+watchdog — fresh 5 minutes from each reset. After 5 minutes of no transitions, the watchdog
+fires `@phase = Phase.Idle`.
+
+**Semantics:**
+
+1. **Armed at module-init** alongside the engine variant cell. Module-init counts as the
+   "first event" — the timer arms with the full duration remaining.
+2. **Reset on every successful transition** — any `_scrml_engine_direct_set` or
+   `_scrml_engine_advance` commit triggers reset (clear + re-arm).
+3. **rule=-honoring fire (sub-A1).** When the watchdog fires, the resulting transition
+   write goes through the same write path as a direct write. The destination variant's
+   `rule=` validation applies per §51.0.F. If the current state's `rule=` does not permit
+   `to=.Variant`, `E-ENGINE-INVALID-TRANSITION` fires at runtime.
+4. **One per engine maximum** — multiple `<onIdle>` declarations fire `E-IDLE-DUPLICATE`.
+5. **Tree-shake** — runtime helpers `_scrml_engine_arm_idle_watchdog` /
+   `_scrml_engine_reset_idle_watchdog` only ship when at least one engine in the file
+   declares `<onIdle>`. Engines without `<onIdle>` pass `null` for the `idleEntry` arg
+   at every commit-path call site; the runtime no-ops.
+
+**Composition with `<onTimeout>`.** `<onIdle>` and `<onTimeout>` are independent:
+
+- An engine MAY declare both — per-state timers AND a machine-wide idle watchdog.
+- Per-state `<onTimeout>` arms on state-entry, fires after N ms regardless of intervening
+  transitions to the same state-child. `<onIdle>` arms once at module-init, resets on
+  every transition (including transitions back to the same state).
+- Each timer occupies a distinct slot in the runtime's `_scrml_machine_timers` map
+  (composite-key encoding: `<varName>::<stateName>::<index>` for per-state; `<varName>::__idle`
+  for the engine-wide watchdog).
+
+**Interaction with `<onTransition>` (§51.0.H).** A watchdog-induced transition IS a legal
+transition event and triggers matching `<onTransition>` handlers — same write-path semantics
+as direct writes.
+
+**Interaction with derived engines (§51.0.J).** `<onIdle>` is permitted on derived engines —
+the watchdog arms based on the derived projection's transitions. However, derived engines
+reject direct writes (`E-DERIVED-ENGINE-NO-WRITE`); the watchdog can only fire when the
+source expression's value reaches the watchdog's `to=` target. In practice this is rarely
+useful; lint surface deferred.
+
+**Cross-refs:**
+
+- §51.0.M — `<onTimeout>` per-state timer (sibling structural element with distinct semantics).
+- §51.12 — legacy `<machine>` temporal transitions; runtime backbone shared.
+- §51.12.3.1 — computed-delay form (`${expr}<unit>`) applies to `<onIdle>` `after=` too.
+- §51.0.F — `rule=` contract (the watchdog fire defers to per sub-A1).
+- §34 — `E-IDLE-DUPLICATE`, `E-IDLE-INVALID-VARIANT`, `E-IDLE-MISPLACED`,
+  `E-ENGINE-INVALID-TRANSITION`.
 
 ---
 

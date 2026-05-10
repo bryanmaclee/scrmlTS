@@ -83,6 +83,15 @@ export interface EmitExprContext {
    * undefined as null and short-circuits).
    */
   enginesWithOnTimeout?: Set<string> | null;
+  /**
+   * A5-6 (§51.0.R, S77) — engine variable names in the file's scope that
+   * declare `<onIdle>`. When the engine var is in this set,
+   * `emitEngineAdvanceCall` passes the per-engine watchdog config identifier
+   * as the 5th argument to `_scrml_engine_advance` so the runtime resets the
+   * watchdog after every successful commit. Tree-shaken: engines without
+   * `<onIdle>` omit the arg.
+   */
+  enginesWithIdleWatchdog?: Set<string> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +540,11 @@ function emitCall(node: CallExpr, ctx: EmitExprContext): string {
       // per-engine timers-table identifier through. Engines without any
       // <onTimeout> emit the 3-arg form (no timer arg).
       const hasOnTimeout = ctx.enginesWithOnTimeout ? ctx.enginesWithOnTimeout.has(bareName) : false;
-      return emitEngineAdvanceCall(bareName, targetExpr, hasHooks, hasOnTimeout);
+      // A5-6 (§51.0.R, S77) — pass hasIdle so the helper threads the per-
+      // engine watchdog config identifier as the 5th arg. Tree-shake when
+      // engine has no <onIdle>.
+      const hasIdle = ctx.enginesWithIdleWatchdog ? ctx.enginesWithIdleWatchdog.has(bareName) : false;
+      return emitEngineAdvanceCall(bareName, targetExpr, hasHooks, hasOnTimeout, hasIdle);
     }
   }
 

@@ -125,6 +125,7 @@ import {
 import {
   parseEngineStateChildren,
   isLegacyArrowRulesBody,
+  scanForOnIdleEntries,
 } from "./engine-statechild-parser.ts";
 // B18 — multi-statement event-handler validation helper.
 import { scanForTopLevelSemicolon } from "./multi-statement-scan.ts";
@@ -297,6 +298,12 @@ export interface EngineMetadata {
    *  state-child tag for codegen clarity. POPULATED by SYM PASS 16 (A5-3). */
   onTimeoutElements?: Array<{ stateChildTag: string; entry: OnTimeoutEntry }>;
 
+  /** §51.0.R (S77, A5-6) — engine-wide event-timeout watchdog. ONE per
+   *  engine maximum (E-IDLE-DUPLICATE on multiple). `null` when the engine
+   *  declares no `<onIdle>`. Populated by SYM PASS 11 after parsing
+   *  `engine-decl.rulesRaw` via `scanForOnIdleEntries`. */
+  idleWatchdog?: OnIdleEntry | null;
+
   // ---- B15 fields (PASS 11 — engine state-child exhaustiveness + rule= typer) ----
 
   /** §51.0.B + §51.0.F — list of state-child entries parsed out of
@@ -354,6 +361,35 @@ export interface OnTimeoutEntry {
   to: string;
   /** Substring offset (relative to the enclosing state-child's `bodyRaw`)
    *  of the `<onTimeout` opener. */
+  rawOffset: number;
+}
+
+/**
+ * A5-6 (§51.0.R, S77) — an `<onIdle after=DURATION to=.Variant/>` self-
+ * closing element parsed out of an engine's `rulesRaw` (engine-root scope;
+ * sibling of state-children).
+ *
+ * Distinct from `OnTimeoutEntry` in scope and semantics:
+ *   - `<onTimeout>` is per-state-child; armed on entry to its state, cleared
+ *     on exit. Multiple per state-child are legal.
+ *   - `<onIdle>` is per-engine (machine-wide); armed at module-init, RESET
+ *     on every successful transition (any `_scrml_engine_direct_set` /
+ *     `_scrml_engine_advance` commit), fires after N ms of silence.
+ *
+ * One `<onIdle>` per engine maximum (E-IDLE-DUPLICATE on multiple).
+ * Placement OUTSIDE engine root (e.g., inside a state-child body) fires
+ * E-IDLE-MISPLACED — typer cross-references against the state-child boundary
+ * map produced by `parseEngineStateChildren`.
+ */
+export interface OnIdleEntry {
+  /** Raw `after=` attribute value. Same shape as `OnTimeoutEntry.after`
+   *  (literal `Nms`/`Ns`/etc. OR computed `${expr}<unit>`). */
+  after: string;
+  /** `to=.Variant` target — variant name (no leading dot). Empty string
+   *  when malformed. Strict-validated against engine's enum. */
+  to: string;
+  /** Substring offset (relative to the engine's `rulesRaw`) of the
+   *  `<onIdle` opener. */
   rawOffset: number;
 }
 
@@ -4495,6 +4531,115 @@ export function validateEngineStateChildrenAndRules(
   const rulesRaw: string = typeof engineDecl.rulesRaw === "string" ? engineDecl.rulesRaw : "";
   const stateChildren = parseEngineStateChildren(rulesRaw);
   meta.stateChildren = stateChildren;
+
+  // Step 3.5 (A5-6, S77) — scan for engine-root `<onIdle>` event-timeout
+  // watchdog entries. Validates placement (engine-root only — inside-state-
+  // child = E-IDLE-MISPLACED), duplicates (E-IDLE-DUPLICATE), variant target
+  // (E-IDLE-INVALID-VARIANT). Only one `<onIdle>` per engine; first valid
+  // wins.
+  meta.idleWatchdog = null;
+  if (!isDerived) {
+    const idleEntries = scanForOnIdleEntries(rulesRaw);
+    if (idleEntries.length > 0) {
+      // Build a list of state-child body ranges (rawOffset for the opener
+      // through rawOffset + bodyRaw.length + closer). The parseEngineStateChildren
+      // exit doesn't preserve closer positions; approximate via rulesRaw scan
+      // for the matching `</>` per state-child. For each `<onIdle>`, classify
+      // by whether its rawOffset falls inside any state-child opener-to-closer
+      // range.
+      const stateChildRanges: Array<[number, number]> = [];
+      for (const sc of stateChildren) {
+        if (typeof sc.rawOffset !== "number") continue;
+        // Find the matching closer after the opener. Self-closing state-children
+        // (no inner content) get a zero-width range — `<onIdle>` cannot be inside
+        // a self-closing tag, so they don't contribute false positives.
+        const openerStart = sc.rawOffset;
+        const bodyLen = typeof sc.bodyRaw === "string" ? sc.bodyRaw.length : 0;
+        if (bodyLen === 0) continue;
+        // Approximate end: opener-end + bodyRaw.length. Conservative; we only
+        // need to detect "inside a non-empty body".
+        const openerEnd = rulesRaw.indexOf(">", openerStart);
+        if (openerEnd < 0) continue;
+        stateChildRanges.push([openerEnd + 1, openerEnd + 1 + bodyLen]);
+      }
+
+      let acceptedIdle: OnIdleEntry | null = null;
+      let duplicateFired = false;
+      for (const entry of idleEntries) {
+        // Misplacement check (E-IDLE-MISPLACED).
+        let misplaced = false;
+        for (const [a, b] of stateChildRanges) {
+          if (entry.rawOffset >= a && entry.rawOffset < b) {
+            misplaced = true;
+            break;
+          }
+        }
+        if (misplaced) {
+          fireB15Diagnostic(
+            errors,
+            "E-IDLE-MISPLACED",
+            `E-IDLE-MISPLACED: \`<onIdle>\` is only legal at the engine-root scope ` +
+            `(sibling of state-children). Per SPEC §51.0.R, \`<onIdle>\` is a machine-wide ` +
+            `watchdog and cannot be nested inside a state-child body. For per-state ` +
+            `timer-fire-on-state-entry semantics, use \`<onTimeout>\` (§51.0.M) instead.`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+
+        // Variant check (E-IDLE-INVALID-VARIANT). Only fire when we have a
+        // resolved variant set; defer otherwise (matches step 2 + 4 pattern).
+        if (entry.to.length === 0) {
+          fireB15Diagnostic(
+            errors,
+            "E-IDLE-INVALID-VARIANT",
+            `E-IDLE-INVALID-VARIANT: \`<onIdle>\` is missing the required \`to=.Variant\` ` +
+            `attribute, or the value is malformed. Per SPEC §51.0.R, \`<onIdle>\` requires ` +
+            `\`to=.Variant\` (target variant of \`for=${forType}\`).`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+        if (variants.length > 0 && !variantSet.has(entry.to)) {
+          const variantList = variants.map((v) => `.${v}`).join(", ");
+          fireB15Diagnostic(
+            errors,
+            "E-IDLE-INVALID-VARIANT",
+            `E-IDLE-INVALID-VARIANT: \`<onIdle to=.${entry.to}/>\` references a variant not in ` +
+            `\`${forType}\`. Valid variants: ${variantList}.`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+
+        // Duplicate check (E-IDLE-DUPLICATE) — first valid entry wins.
+        if (acceptedIdle !== null) {
+          if (!duplicateFired) {
+            fireB15Diagnostic(
+              errors,
+              "E-IDLE-DUPLICATE",
+              `E-IDLE-DUPLICATE: engine \`<engine for=${forType}>\` declares more than one ` +
+              `\`<onIdle/>\` element. Per SPEC §51.0.R, an engine has at most one event-timeout ` +
+              `watchdog. Remove the duplicate or merge into a single entry.`,
+              engineDecl,
+              filePath,
+              "error",
+            );
+            duplicateFired = true;
+          }
+          continue;
+        }
+        acceptedIdle = entry;
+      }
+      meta.idleWatchdog = acceptedIdle;
+    }
+  }
 
   // For legacy arrow-rule bodies, the parser returns []. In that case,
   // we DO NOT fire E-ENGINE-STATE-CHILD-MISSING — the legacy form is

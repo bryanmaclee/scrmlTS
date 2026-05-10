@@ -148,6 +148,11 @@ interface EngineMetadata {
    *  when no `<onTimeout>` elements exist. Used by C12 (A5-4) to decide
    *  whether to emit the per-engine timer-config table (tree-shake). */
   onTimeoutElements?: Array<{ stateChildTag: string; entry: OnTimeoutEntryShape }>;
+  /** A5-6 §51.0.R (S77) — engine-wide event-timeout watchdog. ONE per
+   *  engine maximum. `null` when no `<onIdle>` declared. Populated by SYM
+   *  PASS 11. Tree-shake control: codegen emits the watchdog config + arming
+   *  only when this is non-null. */
+  idleWatchdog?: { after: string; to: string; rawOffset: number } | null;
   // ... Wave-4 follow-on fields ignored here.
 }
 
@@ -280,6 +285,31 @@ export function engineTimersTableName(varName: string): string {
 }
 
 /**
+ * A5-6 (§51.0.R, S77) — Compute the per-engine `<onIdle>` watchdog config
+ * const name. Format: `__scrml_engine_<varName>_idle`. Sibling to the
+ * transitions + timers tables; emitted ONLY when the engine declares
+ * `<onIdle>` (tree-shake — engines without idle watchdogs emit no const,
+ * and the runtime helper `_scrml_engine_arm_idle_watchdog` no-ops when
+ * the idleEntry arg is null).
+ */
+export function engineIdleWatchdogName(varName: string): string {
+  return `__scrml_engine_${varName}_idle`;
+}
+
+/**
+ * A5-6 (§51.0.R, S77) — Does this engine have a `<onIdle>` watchdog?
+ *
+ * The check inspects `engineMeta.idleWatchdog` (the per-engine entry
+ * populated by SYM PASS 11). Tree-shake control: emit-substrate skips the
+ * idle const AND passes `null` for the idleEntry arg at every write-guard
+ * site when this returns false.
+ */
+export function engineHasIdleWatchdog(meta: EngineMetadata): boolean {
+  const ent = meta.idleWatchdog;
+  return ent != null && typeof ent.to === "string" && ent.to.length > 0;
+}
+
+/**
  * A5-4 (§51.0.M) — Does this engine have at least one `<onTimeout>` element?
  *
  * The check inspects `engineMeta.onTimeoutElements` (the file-scope flat list
@@ -392,6 +422,49 @@ export function emitEngineTimersTable(meta: EngineMetadata): string[] {
   lines.push(stateEntryLines.join(",\n"));
   lines.push(`});`);
 
+  return lines;
+}
+
+/**
+ * A5-6 (§51.0.R, S77) — Emit the per-engine `<onIdle>` watchdog config const.
+ *
+ * Shape (literal):
+ *   const __scrml_engine_session_idle = Object.freeze({ ms: 300000, target: "Idle" });
+ *
+ * Shape (computed):
+ *   const __scrml_engine_session_idle = Object.freeze({
+ *     msExpr: function(){ return (_scrml_reactive_get("backoffDelay")) * 1000; },
+ *     target: "Idle"
+ *   });
+ *
+ * Returns an empty array when the engine has no `<onIdle>` (caller skips the
+ * emission entirely — tree-shake).
+ */
+export function emitEngineIdleWatchdog(meta: EngineMetadata): string[] {
+  if (!engineHasIdleWatchdog(meta)) return [];
+  const entry = meta.idleWatchdog!;
+  const constName = engineIdleWatchdogName(meta.varName);
+  const targetLit = JSON.stringify(entry.to);
+
+  // Lazy import (mirrors emitEngineTimersTable).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { rewriteExpr } = require("./rewrite.ts");
+  const parsed = parseAfterDuration(entry.after);
+
+  const lines: string[] = [];
+  lines.push(`// §51.0.R onIdle watchdog config for engine ${meta.varName}: ${meta.forType}`);
+  if (parsed.kind === "literal") {
+    lines.push(`const ${constName} = Object.freeze({ ms: ${parsed.ms}, target: ${targetLit} });`);
+  } else if (parsed.kind === "computed") {
+    const rewritten = rewriteExpr(parsed.exprText);
+    lines.push(
+      `const ${constName} = Object.freeze({ msExpr: function(){ return (${rewritten}) * ${parsed.unitMultiplier}; }, target: ${targetLit} });`,
+    );
+  } else {
+    // parsed.kind === "invalid" — defensive: emit a null-watchdog so call
+    // sites can reference the const safely. Typer already fired the diagnostic.
+    lines.push(`const ${constName} = null;`);
+  }
   return lines;
 }
 
@@ -592,25 +665,36 @@ export function emitEngineVariantCellInit(meta: EngineMetadata): string[] {
  * timer-config table and is a no-op when the row is empty.
  */
 export function emitEngineInitialArm(meta: EngineMetadata): string[] {
-  if (!engineHasOnTimeoutElements(meta)) return [];
-  const initial = resolveEngineInitialVariant(meta);
-  if (!initial) return [];
-  const tableName = engineTransitionTableName(meta.varName);
-  const timersTableName = engineTimersTableName(meta.varName);
-  return [
-    `// §51.0.M onTimeout initial-arm: ${meta.varName} (${meta.forType}) entering ${initial}`,
-    `_scrml_engine_arm_state_timers(${JSON.stringify(meta.varName)}, ${JSON.stringify(initial)}, ${timersTableName}, ${tableName});`,
-  ];
+  const lines: string[] = [];
+  if (engineHasOnTimeoutElements(meta)) {
+    const initial = resolveEngineInitialVariant(meta);
+    if (initial) {
+      const tableName = engineTransitionTableName(meta.varName);
+      const timersTableName = engineTimersTableName(meta.varName);
+      lines.push(`// §51.0.M onTimeout initial-arm: ${meta.varName} (${meta.forType}) entering ${initial}`);
+      lines.push(`_scrml_engine_arm_state_timers(${JSON.stringify(meta.varName)}, ${JSON.stringify(initial)}, ${timersTableName}, ${tableName});`);
+    }
+  }
+  // A5-6 §51.0.R (S77) — engine-wide event-timeout watchdog initial-arm.
+  // Independent of `<onTimeout>` initial-arm: an engine with `<onIdle>` but
+  // no `<onTimeout>` still arms the watchdog at module-init.
+  if (engineHasIdleWatchdog(meta)) {
+    const tableName = engineTransitionTableName(meta.varName);
+    const idleConstName = engineIdleWatchdogName(meta.varName);
+    lines.push(`// §51.0.R onIdle watchdog initial-arm: ${meta.varName} (${meta.forType})`);
+    lines.push(`_scrml_engine_arm_idle_watchdog(${JSON.stringify(meta.varName)}, ${idleConstName}, ${tableName});`);
+  }
+  return lines;
 }
 
 /**
- * A5-4 (§51.0.M) — Emit the initial-arm calls for every in-scope engine in
- * the file. Sibling to `emitEngineSubstrate`. Empty when no engine has
- * `<onTimeout>` elements (tree-shake).
+ * A5-4 (§51.0.M) + A5-6 (§51.0.R) — Emit the initial-arm calls for every
+ * in-scope engine in the file. Sibling to `emitEngineSubstrate`. Empty when
+ * no engine has `<onTimeout>` OR `<onIdle>` (tree-shake).
  *
  * Called by `emit-client.ts` AFTER `emitReactiveWiring` so that user
- * reactive cells (which the computed-form `<onTimeout>` may read at arm
- * time) are initialized first.
+ * reactive cells (which the computed-form `<onTimeout>`/`<onIdle>` may read
+ * at arm time) are initialized first.
  */
 export function emitEngineInitialArmsForFile(fileAST: any): string[] {
   const decls = collectC12EngineDecls(fileAST);
@@ -654,11 +738,15 @@ export function emitEngineSubstrate(fileAST: any): string[] {
     // reference the table identifier. Empty when the engine has no
     // `<onTimeout>` elements (tree-shake).
     const timersLines = emitEngineTimersTable(meta);
+    // A5-6 §51.0.R (S77) — per-engine `<onIdle>` watchdog config const.
+    // Sibling to timers table; emitted only when engine declares `<onIdle>`.
+    const idleLines = emitEngineIdleWatchdog(meta);
     const cellLines = emitEngineVariantCellInit(meta);
-    if (tableLines.length === 0 && timersLines.length === 0 && cellLines.length === 0) continue;
+    if (tableLines.length === 0 && timersLines.length === 0 && idleLines.length === 0 && cellLines.length === 0) continue;
     if (lines.length > 0) lines.push("");
     for (const l of tableLines) lines.push(l);
     for (const l of timersLines) lines.push(l);
+    for (const l of idleLines) lines.push(l);
     for (const l of cellLines) lines.push(l);
     // §51.0.D mount-position marker. The engine renders at its declaration
     // position. C12 deliberately does NOT emit body markup — state-child
@@ -711,6 +799,16 @@ export interface EngineBindingInfo {
   /** A5-4 — Compile-time-baked per-engine timer-config table identifier
    *  (per §51.0.M). Always populated when `hasOnTimeoutElements === true`. */
   timersTableName?: string;
+  /** A5-6 (§51.0.R, S77) — TRUE when the engine declares `<onIdle>`. When
+   *  TRUE, write-guard + advance emission pass the per-engine watchdog config
+   *  identifier as the 5th argument to `_scrml_engine_direct_set` /
+   *  `_scrml_engine_advance` so the runtime resets the watchdog after every
+   *  successful commit. When FALSE, the 5th arg is omitted (runtime treats
+   *  undefined as null and short-circuits — tree-shake). */
+  hasIdleWatchdog?: boolean;
+  /** A5-6 — Compile-time-baked per-engine watchdog config const identifier
+   *  (per §51.0.R). Always populated when `hasIdleWatchdog === true`. */
+  idleWatchdogName?: string;
 }
 
 /**
@@ -744,6 +842,13 @@ export function buildEngineBindingsMap(fileAST: unknown): Map<string, EngineBind
       // the timers-table identifier so arm-on-entry + clear-on-exit fire.
       hasOnTimeoutElements: hasOT,
       timersTableName: hasOT ? engineTimersTableName(meta.varName) : undefined,
+      // A5-6 (§51.0.R, S77): bind whether this engine has `<onIdle>`
+      // for the write-guard + advance emitters. When true, both paths
+      // thread the watchdog const identifier so reset-on-commit fires.
+      hasIdleWatchdog: engineHasIdleWatchdog(meta),
+      idleWatchdogName: engineHasIdleWatchdog(meta)
+        ? engineIdleWatchdogName(meta.varName)
+        : undefined,
     });
   }
   return out.size > 0 ? out : null;
@@ -777,6 +882,19 @@ export function emitEngineWriteGuard(binding: EngineBindingInfo, newValueExpr: s
   const timersArg = (binding.hasOnTimeoutElements && binding.timersTableName)
     ? `, ${binding.timersTableName}`
     : ``;
+  // A5-6 (§51.0.R, S77): when the engine declares <onIdle>, pass the
+  // watchdog config identifier as the 5th arg so the runtime resets the
+  // watchdog after the commit. When timersArg is empty AND idleArg is
+  // non-empty, fill the timers position with `null` to keep arg positions
+  // aligned.
+  let idleArg = ``;
+  if (binding.hasIdleWatchdog && binding.idleWatchdogName) {
+    if (timersArg === ``) {
+      idleArg = `, null, ${binding.idleWatchdogName}`;
+    } else {
+      idleArg = `, ${binding.idleWatchdogName}`;
+    }
+  }
   // B17.4 — when the engine has hooks, capture pre-write variant + fire hooks
   // AFTER the runtime helper commits the write (Q2 split timing: body fires
   // post-write so observers read the new value). Wrapping in a block keeps
@@ -786,11 +904,11 @@ export function emitEngineWriteGuard(binding: EngineBindingInfo, newValueExpr: s
     const fnName = engineHookFiringFunctionName(binding.varName);
     lines.push(`{`);
     lines.push(`  const __scrml_engine_from = _scrml_reactive_get(${JSON.stringify(binding.varName)});`);
-    lines.push(`  _scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg});`);
+    lines.push(`  _scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg}${idleArg});`);
     lines.push(`  ${fnName}(__scrml_engine_from, _scrml_reactive_get(${JSON.stringify(binding.varName)}));`);
     lines.push(`}`);
   } else {
-    lines.push(`_scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg});`);
+    lines.push(`_scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg}${idleArg});`);
   }
   return lines;
 }
@@ -838,6 +956,7 @@ export function emitEngineAdvanceCall(
   targetExpr: string,
   hasHooks?: boolean,
   hasOnTimeout?: boolean,
+  hasIdle?: boolean,
 ): string {
   const tableName = engineTransitionTableName(varName);
   // A5-4 (§51.0.M): when this engine has at least one `<onTimeout>` element,
@@ -849,7 +968,20 @@ export function emitEngineAdvanceCall(
   const timersArg = hasOnTimeout === true
     ? `, ${engineTimersTableName(varName)}`
     : ``;
-  const baseCall = `_scrml_engine_advance(${JSON.stringify(varName)}, ${targetExpr}, ${tableName}${timersArg})`;
+  // A5-6 (§51.0.R, S77): when this engine declares `<onIdle>`, pass the
+  // watchdog config identifier as the 5th argument so the runtime resets
+  // the watchdog after every successful commit. When timersArg is empty
+  // AND watchdog is present, fill the timers position with `null` to keep
+  // arg positions aligned.
+  let idleArg = ``;
+  if (hasIdle === true) {
+    if (timersArg === ``) {
+      idleArg = `, null, ${engineIdleWatchdogName(varName)}`;
+    } else {
+      idleArg = `, ${engineIdleWatchdogName(varName)}`;
+    }
+  }
+  const baseCall = `_scrml_engine_advance(${JSON.stringify(varName)}, ${targetExpr}, ${tableName}${timersArg}${idleArg})`;
   // B17.4 — when the engine has hooks, wrap with capture-pre + hook-fire-post.
   // IIFE keeps the wrap valid in any expression position (statement, sub-expr,
   // arg position, etc.). Tree-shaken when hasHooks is false (or undefined).
@@ -2032,6 +2164,31 @@ export function collectEnginesWithOnTimeout(fileAST: unknown): Set<string> {
   for (const decl of collectC14DerivedEngineDecls(fileAST)) {
     const meta = decl._record?.engineMeta;
     if (meta && engineHasOnTimeoutElements(meta) && typeof meta.varName === "string") {
+      out.add(meta.varName);
+    }
+  }
+  return out;
+}
+
+/**
+ * A5-6 (§51.0.R, S77) — Build a Set of engine var names that declare
+ * `<onIdle>` (event-timeout watchdog). Used by emit-expr.ts +
+ * emit-reactive-wiring.ts + emit-functions.ts to gate the watchdog-config
+ * arg insertion at write/advance sites. Mirrors `collectEnginesWithOnTimeout`
+ * shape exactly. Includes BOTH non-derived (C12-scope) and derived (C14-
+ * scope) engines.
+ */
+export function collectEnginesWithIdleWatchdog(fileAST: unknown): Set<string> {
+  const out = new Set<string>();
+  for (const decl of collectC12EngineDecls(fileAST)) {
+    const meta = decl._record?.engineMeta;
+    if (meta && engineHasIdleWatchdog(meta) && typeof meta.varName === "string") {
+      out.add(meta.varName);
+    }
+  }
+  for (const decl of collectC14DerivedEngineDecls(fileAST)) {
+    const meta = decl._record?.engineMeta;
+    if (meta && engineHasIdleWatchdog(meta) && typeof meta.varName === "string") {
       out.add(meta.varName);
     }
   }
