@@ -11209,7 +11209,7 @@ TTL eviction is lazy on read: an expired entry is treated as a miss and re-execu
 </program>
 ```
 
-**Cross-references.** §8.1.1 (db driver resolution — precedent for default-resolution shape); §8.9.5 (`.nobatch()` modifier — shape precedent for `.idempotent()` in §19.9.7); §19.6.7 (multi-batch CPS granularity — Ext 5 is the recovery path for non-tail batch failures); §19.9.5 (Ext 4 auto-`!`-wrap — Ext 5 layers replay-safety on top); §39.2.6 (`idempotency-store=` attribute); §41.4 (stdlib resolution for `scrml:redis` detection); §43 (nested `<program>` for override semantics); §51.0.G (`.advance(.X)` — intrinsic-monotone leg).
+**Cross-references.** §8.1.1 (db driver resolution — precedent for default-resolution shape); §8.9.5 (`.nobatch()` modifier — shape precedent for `.idempotent()` in §19.9.7); §19.6.7 (multi-batch CPS granularity — Ext 5 is the recovery path for non-tail batch failures); §19.9.5 (Ext 4 auto-`!`-wrap — Ext 5 layers replay-safety on top); §39.2.6 (`idempotency-store=` attribute); §41.4 (stdlib resolution for `scrml:redis` detection); §43 (nested `<program>` for override semantics); §51.0.G (`.advance(.X)` — intrinsic-monotone leg); §34 W-LEAK-010 (SQL-backend lazy-eviction-only growth — operational mitigation guidance until the future background-sweeper amendment lands).
 
 #### 19.9.7 The `.idempotent()` Function Modifier
 
@@ -11523,6 +11523,7 @@ The following error codes are introduced by this section. They SHALL be added to
 | D-CPS-MACHINE-INTRINSIC-MONOTONE | §19.9.6 | CPS batch bounded by a `<machine>` `.advance()` transition with allowed-from-states guards; classifier elides idempotency-key emission and notes structural reason. (A9 Ext 5; S76.) | Diag (info) |
 | D-CPS-IDEMPOTENT-OVERRIDE | §19.9.7 | `.idempotent()` modifier applied to a function whose batches the static classifier would have flagged non-monotone. (A9 Ext 5; S76.) | Diag (info) |
 | D-CPS-MONOTONE | §19.9.6 | Batch is monotone-by-classification — emitted at `--verbose` only to avoid noise. (A9 Ext 5; S76.) | Diag (info) |
+| W-LEAK-010 | §19.9.6, §39.2.6 | `<program idempotency-store=>` resolves to a SQL backend; the v0.2.0 SQL helper performs lazy eviction ONLY — expired rows in `_scrml_idempotency_keys` are returned as misses but never deleted, so the table grows unbounded over time. Configure a Redis backend (native EXPIREAT — no leak), schedule a periodic `DELETE FROM _scrml_idempotency_keys WHERE expires_at <= now()`, or wait for a future-amendment background sweeper. (Memory-leak deep-dive refresh; S77.) | Info |
 
 ---
 
@@ -14425,6 +14426,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | D-CPS-MACHINE-INTRINSIC-MONOTONE | §19.9.6 | CPS batch bounded by a `<machine>` `.advance()` transition with allowed-from-states guards; classifier elides idempotency-key emission and notes structural reason. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Diag (info) |
 | D-CPS-IDEMPOTENT-OVERRIDE | §19.9.7 | `.idempotent()` modifier applied to a function whose batches the static classifier would have flagged non-monotone. Names the classifier's would-be verdict so the developer sees what they overrode. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Diag (info) |
 | D-CPS-MONOTONE | §19.9.6 | Batch is monotone-by-classification — emitted at `--verbose` only to avoid noise. (Per A9 Ext 5, S76 dispatch overlay 2026-05-09.) | Diag (info) |
+| W-LEAK-010 | §19.9.6, §39.2.6 | The compiled `<program idempotency-store=>` resolves to a SQL backend (sqlite/postgres/mysql); the v0.2.0 helper at `compiler/runtime/idempotency.js` performs **lazy eviction only** — expired rows in `_scrml_idempotency_keys` are returned as misses but NOT deleted from disk. Over time the shadow table grows unbounded; query latency on the primary-key lookup degrades with index size; storage cost grows monotonically. Resolution: (a) configure `idempotency-store="redis"` (Redis has native `EXPIREAT` — no leak), (b) operationally schedule a periodic `DELETE FROM _scrml_idempotency_keys WHERE expires_at <= now()`, or (c) wait for the future-amendment background sweeper. The runtime helper file documents the gap inline at lines 27-29 + 74-77. (Memory-leak deep-dive refresh, S77 — `scrml-support/docs/deep-dives/memory-leak-detection-2026-05-10.md`.) | Info |
 | E-SSE-001 | §37.9 | `yield` used inside a non-generator `server function` body | Error |
 | W-SSE-001 | §37.9 | `server function*` body contains no `yield` statements | Warning |
 | E-CHANNEL-001 | §38.9 | `<channel>` missing required `name=` attribute | Error |
@@ -22631,6 +22633,24 @@ timer. The timer starts fresh on every entry. This matches XState's `after`
 semantics and the deep-dive default. A cumulative model — where the timer
 tracks total time spent in the variant across multiple entries — is not
 supported; use an explicit elapsed-time reactive if that is what you need.
+
+**Computed-form rules and chained auto-rearm (S77 amendment, 2026-05-10).**
+The runtime's chained auto-rearm path (the JSON-encoded `rulesPayload`
+threaded through `_scrml_machine_arm_initial`) participates ONLY for
+literal-duration rules. Computed-form rules (`after ${expr}<unit>` per
+§51.12.3.1) opt out of chained encoding because the expression cannot
+round-trip through `JSON.parse`. Single-step computed transitions arm
+correctly at module-init via the per-rule inline arm path; multi-step
+chains where each step is computed (`.A after ${e1}s => .B after ${e2}s
+=> .C`) require a user-driven write to advance from the first computed
+target onward. Single-step computed → multi-step literal chains DO
+participate in auto-rearm from the literal-step onward; only the
+computed→computed transition is gated on a user-driven write. This is a
+minor practical constraint on the computed-delay surface; literal-only
+chains are unaffected. Engine `<onTimeout>` form (§51.0.M) follows the
+same shape — its per-state timer-config table emits computed entries as
+`{ msExpr: <arrow-fn>, target }` evaluated at arm time, and chains
+across computed entries follow the same opt-out rule.
 
 #### 51.12.5 Interaction with Other Rule Clauses
 
