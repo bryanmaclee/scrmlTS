@@ -26,7 +26,23 @@ let failed = 0;
 for (const { src, dist, siblingDist } of TARGETS) {
   const result = compileScrml({ inputFiles: [src], mode: "library", write: false });
   const entry = result.outputs?.values()?.next()?.value as any;
-  if (entry?.libraryJs) {
+  // S81 strictness gate: dist is emitted ONLY when there are zero
+  // non-warning errors. Pre-S81 this script wrote libraryJs whenever the
+  // output was truthy, ignoring the errors[] array — which let SPEC §42
+  // (null/undefined → not) and other normative violations accumulate in
+  // self-host source unnoticed for an unknown period. Bryan's S81 directive:
+  // "null and undefined will not ever exist in any context in scrml in any
+  // way ... library mode inclusive." The gate honors that — the host
+  // compiler's E-SYNTAX-042 / E-EQ-004 / E-ERROR-007 / etc. firings prevent
+  // the dist write.
+  //
+  // Self-host source-side cleanup is deferred (orthogonal to v0.2.0 ship).
+  // Files with current debt (ast/ts/ri/pa/dg) will fail this rebuild script
+  // until swept. The pre-commit hook excludes compiler/tests/self-host/
+  // so this gate failing does not block compiler-side work. Full inventory
+  // + sweep plan in docs/audits/self-host-spec-conformance-2026-05-11.md.
+  const errs = (result.errors ?? []).filter((e: any) => e.severity !== "warning");
+  if (entry?.libraryJs && errs.length === 0) {
     mkdirSync(dirname(dist), { recursive: true });
     writeFileSync(dist, entry.libraryJs);
     if (siblingDist) {
@@ -37,9 +53,18 @@ for (const { src, dist, siblingDist } of TARGETS) {
     total++;
   } else {
     failed++;
-    console.log(`✗ ${src} — no libraryJs`);
-    const errs = (result.errors ?? []).filter((e: any) => e.severity !== "warning");
-    for (const e of errs.slice(0, 3)) console.log(`    ${e.code}: ${e.message?.slice(0, 100)}`);
+    if (!entry?.libraryJs) {
+      console.log(`✗ ${src} — no libraryJs`);
+    } else {
+      console.log(`✗ ${src} — ${errs.length} non-warning error(s); dist NOT written`);
+    }
+    // Group by code so a 200-occurrence single-code violation reports compactly.
+    const byCode = new Map<string, number>();
+    for (const e of errs) byCode.set(e.code, (byCode.get(e.code) ?? 0) + 1);
+    for (const [code, count] of byCode.entries()) console.log(`    ${code}: ${count}`);
+    for (const e of errs.slice(0, 3)) console.log(`    [first] ${e.code}: ${e.message?.slice(0, 100)}`);
   }
 }
 console.log(`\n${total}/${TARGETS.length} regenerated, ${failed} failed`);
+// Non-zero exit so CI / future hooks / `bun run` callers detect rebuild failure.
+if (failed > 0) process.exit(1);
