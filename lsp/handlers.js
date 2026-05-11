@@ -162,11 +162,102 @@ export function getErrorSource(code) {
   if (code.startsWith("E-TAB-") || code.startsWith("E-MARKUP-") || code.startsWith("E-STATE-")) return "scrml/tokenizer";
   if (code.startsWith("E-BPP-")) return "scrml/body-pre-parser";
   if (code.startsWith("E-IMPORT-")) return "scrml/module-resolver";
-  if (code.startsWith("E-PA-")) return "scrml/protect-analyzer";
+  if (code.startsWith("E-PA-") || code.startsWith("E-PROTECT-")) return "scrml/protect-analyzer";
   if (code.startsWith("E-RI-") || code.startsWith("E-ROUTE-")) return "scrml/route-inference";
-  if (code.startsWith("E-TYPE-") || code.startsWith("E-SCOPE-") || code.startsWith("E-PURE-") || code.startsWith("E-LIN-") || code.startsWith("E-TILDE-") || code.startsWith("W-MATCH-")) return "scrml/type-system";
+  if (
+    code.startsWith("E-TYPE-") ||
+    code.startsWith("E-SCOPE-") ||
+    code.startsWith("E-PURE-") ||
+    code.startsWith("E-LIN-") ||
+    code.startsWith("E-TILDE-") ||
+    code.startsWith("W-MATCH-") ||
+    code.startsWith("E-MATCH-") ||
+    code.startsWith("E-VARIANT-") ||
+    code.startsWith("E-NAME-") ||
+    code.startsWith("E-CTRL-") ||
+    code.startsWith("E-LOOP-") ||
+    code.startsWith("E-ASSIGN-") ||
+    code.startsWith("W-ASSIGN-") ||
+    code.startsWith("E-EQ-") ||
+    code.startsWith("W-EQ-") ||
+    code.startsWith("E-SYNTAX-") ||
+    code.startsWith("E-FN-") ||
+    code.startsWith("E-MU-") ||
+    code.startsWith("E-USE-") ||
+    code.startsWith("E-PARSE-") ||
+    code.startsWith("E-PARSEVARIANT-") ||
+    code.startsWith("E-RESERVED-")
+  ) return "scrml/type-system";
   if (code.startsWith("E-DG-") || code.startsWith("E-LIFT-") || code.startsWith("W-DG-")) return "scrml/dependency-graph";
-  if (code.startsWith("E-CG-")) return "scrml/code-generator";
+  if (code.startsWith("E-CG-") || code.startsWith("W-CG-")) return "scrml/code-generator";
+  if (
+    code.startsWith("E-ENGINE-") ||
+    code.startsWith("W-ENGINE-") ||
+    code.startsWith("E-DERIVED-ENGINE-") ||
+    code.startsWith("E-HISTORY-") ||
+    code.startsWith("E-INTERNAL-RULE-") ||
+    code.startsWith("E-IDLE-") ||
+    code.startsWith("E-TIMER-") ||
+    code.startsWith("E-ONTRANSITION-") ||
+    code.startsWith("E-TIMEOUT-") ||
+    code.startsWith("E-REPLAY-")
+  ) return "scrml/engine";
+  if (
+    code.startsWith("E-CELL-") ||
+    code.startsWith("E-DERIVED-") ||
+    code.startsWith("E-REACTIVE-") ||
+    code.startsWith("E-VALIDATOR-") ||
+    code.startsWith("E-SYNTHESIZED-") ||
+    code.startsWith("E-DEBOUNCED-") ||
+    code.startsWith("E-REACTIVITY-") ||
+    code.startsWith("E-RESET-") ||
+    code.startsWith("E-STATE-PINNED-") ||
+    code.startsWith("W-DERIVED-")
+  ) return "scrml/reactive";
+  if (
+    code.startsWith("E-CHANNEL-") ||
+    code.startsWith("W-CHANNEL-")
+  ) return "scrml/channel";
+  if (
+    code.startsWith("E-COMPONENT-") ||
+    code.startsWith("W-COMPONENT-") ||
+    code.startsWith("E-EXPORT-")
+  ) return "scrml/component";
+  if (
+    code.startsWith("E-AUTH-") ||
+    code.startsWith("W-AUTH-") ||
+    code.startsWith("E-MW-") ||
+    code.startsWith("W-ATTR-") ||
+    code.startsWith("E-ATTR-")
+  ) return "scrml/attributes";
+  if (
+    code.startsWith("E-CONTRACT-") ||
+    code.startsWith("E-CPS-") ||
+    code.startsWith("W-CPS-")
+  ) return "scrml/contracts";
+  if (
+    code.startsWith("E-LIFECYCLE-") ||
+    code.startsWith("W-LIFECYCLE-")
+  ) return "scrml/lifecycle";
+  if (code.startsWith("E-SQL-") || code.startsWith("E-BATCH-") || code.startsWith("W-BATCH-")) return "scrml/sql";
+  if (code.startsWith("E-META-") || code.startsWith("E-META-EVAL-")) return "scrml/meta";
+  if (
+    code.startsWith("E-TEST-") ||
+    code.startsWith("W-LINT-") ||
+    code.startsWith("E-CLOSER-") ||
+    code.startsWith("E-STRUCTURAL-") ||
+    code.startsWith("E-MULTI-STATEMENT-") ||
+    code.startsWith("E-WHITESPACE-") ||
+    code.startsWith("E-DEPRECATED-") ||
+    code.startsWith("W-DEPRECATED-") ||
+    code.startsWith("I-MATCH-") ||
+    code.startsWith("E-INPUT-") ||
+    code.startsWith("E-TAILWIND-") ||
+    code.startsWith("W-TAILWIND-") ||
+    code.startsWith("E-FOREIGN-") ||
+    code.startsWith("W-FOREIGN-") ||
+    code.startsWith("E-WASM-")
+  ) return "scrml";
   return "scrml";
 }
 
@@ -902,6 +993,166 @@ export const ERROR_DESCRIPTIONS = {
   "E-CG-003": "Dependency graph edge references unknown node ID.",
   "E-CG-004": "CSS scoping collision.",
   "E-CG-005": "Non-deterministic MetaBlock with meta.runtime === false.",
+  "E-CG-006": "Codegen invariant violation (e.g., transaction in client-boundary function, unresolvable scheduling primitive). Message names the specific violation.",
+  // Reactive — derived / synthesized / pinned / reactivity attrs (v0.2.0)
+  "E-DERIVED-WRITE": "Reassignment to a const-derived reactive cell. Derived cells are read-only.",
+  "E-DERIVED-VALUE-MUTATE": "In-place value-mutation of a const-derived reactive cell (array mutating method, property assign, delete). Mutate the upstream cell instead. (SPEC §6.6.18 / L21)",
+  "E-DERIVED-WITH-VALIDATORS": "Validators applied to a derived cell. Use a refinement type instead: const <x>: number(>=0) = expr. (SPEC §55.14)",
+  "E-DEBOUNCED-WITH-DERIVED": "debounced= or throttled= applied to a derived cell. Debounce the upstream source instead. (SPEC §6.13)",
+  "E-DEBOUNCED-WITH-SERVER": "debounced= or throttled= applied to a <x server> server-authoritative cell. Server-side timing semantics are out of scope this revision. (SPEC §6.13)",
+  "E-REACTIVITY-ATTR-CONFLICT": "Both debounced= and throttled= declared on the same cell. Pick one. (SPEC §6.13)",
+  "E-CELL-NO-RENDER-SPEC": "<varname/> used as render-by-tag but the cell has no render-spec (plain or non-markup derived). Use ${@varname} interpolation instead. (SPEC §6.4)",
+  "E-CELL-RENDER-SPEC-NOT-BINDABLE": "Shape 2 declaration with non-bindable RHS markup (e.g., <div>). Use const <name> for display-only markup cells. (SPEC §6.2)",
+  "E-STATE-PINNED-FORWARD-REF": "Read of a pinned state declaration before its declaration site. pinned opts out of hoisting. (SPEC §6.10)",
+  "E-SYNTHESIZED-WRITE": "Assignment to an auto-synthesized validity surface property (e.g., @signup.isValid). Synthesized cells are read-only. (SPEC §55)",
+  "E-RESET-NO-ARG": "reset() requires an explicit cell argument: reset(@cell). (SPEC §6.8)",
+  "E-RESET-INVALID-TARGET": "reset target must be reset(@cell), reset(@compound), or reset(@compound.field). (SPEC §6.8.2)",
+  "E-VALIDATOR-INLINE-DYNAMIC": "Inline validator message override must be a static string literal (i18n extraction requires static discoverability). (SPEC §55.10)",
+  "E-VALIDATOR-CIRCULAR-DEP": "Cycle in validator-arg cross-field references. The validator dependency graph is a DAG. (SPEC §55.11)",
+  // Engine — Tier-2 state machines (v0.2.0)
+  "E-ENGINE-INVALID-TRANSITION": "Direct write or .advance() violates the from-state's rule= contract. (SPEC §51.0.F-G)",
+  "E-ENGINE-EFFECT-AMBIGUOUS": "effect= on a multi-target rule. Use <onTransition> child(ren) instead. (SPEC §51.0.H)",
+  "E-ENGINE-VAR-DUPLICATE": "Engine's auto-declared variable name collides with another declaration. Use var= to override the auto-derived name. (SPEC §51.0.C)",
+  "E-ENGINE-MOUNT-NOT-ENGINE": "Self-closing <EngineName/> mounts an import whose source export is not an engine. (SPEC §51.0.D / §21.8)",
+  "E-ENGINE-STATE-CHILD-MISSING": "Variant of for=Type has no matching state-child tag in the engine body. (SPEC §51.0.B-F)",
+  "E-ENGINE-STATE-CHILD-INVALID-VARIANT": "State-child tag does not match any variant of for=Type. (SPEC §51.0.B)",
+  "E-ENGINE-INITIAL-INVALID-VARIANT": "initial=.X references a variant not in for=Type. (SPEC §51.0.E)",
+  "E-ENGINE-RULE-INVALID-VARIANT": "rule= value references a variant not in for=Type. (SPEC §51.0.F)",
+  "E-ENGINE-RULE-LEGACY-SYNTAX": "rule= uses legacy event-arrow form (rule=\"event -> Variant\"). Use one of the three §51.0.F target-only forms. (SPEC §51.0.F)",
+  "W-ENGINE-INITIAL-MISSING": "initial= omitted on a non-derived <engine>. Compiler defaults to the first state-child's variant. (SPEC §51.0.E)",
+  "E-DERIVED-ENGINE-NO-RULES": "rule= on a state-child of a derived engine. Derived engines compute transitions from the source expression. (SPEC §51.0.J)",
+  "E-DERIVED-ENGINE-NO-INITIAL": "initial= on a derived engine. The initial value is computed at engine-init time. (SPEC §51.0.J / §51.0.E)",
+  "E-DERIVED-ENGINE-NO-WRITE": "Direct write to a derived engine's variable. Derived-engine variables are read-only. (SPEC §51.0.J)",
+  "E-DERIVED-ENGINE-CIRCULAR": "Cycle in chained derived-engine derivation. (SPEC §51.0.J)",
+  "E-COMPONENT-ENGINE-SCOPE": "Component body contains an <engine> element. Engines are singletons; declare the engine outside the component and mount via <EngineName/>. (SPEC §51.0.K)",
+  "E-HISTORY-NO-INNER-ENGINE": "history attribute on a state-child without a nested <engine>. history is meaningful only on composite state-children. (SPEC §51.0.N)",
+  "E-INTERNAL-RULE-NOT-COMPOSITE": "internal:rule= prefix on a non-composite state-child. Use canonical rule= instead. (SPEC §51.0.O)",
+  "E-ONTRANSITION-NO-TARGET": "<onTransition> with neither to= nor from=. Exactly one must appear. (SPEC §51.0.H)",
+  // onTimeout / onIdle (S77 / S79)
+  "E-IDLE-MISPLACED": "<onIdle> inside a state-child body. <onIdle> is engine-wide and must sit at engine-root scope. For per-state semantics use <onTimeout>. (SPEC §51.0.R)",
+  "E-IDLE-INVALID-VARIANT": "<onIdle to=.X/> references a variant not in for=Type, or to= is missing/malformed. (SPEC §51.0.R)",
+  "E-IDLE-DUPLICATE": "More than one <onIdle> in the same engine. At most one watchdog per engine. (SPEC §51.0.R)",
+  "E-TIMER-NAME-INVALID": "<onTimeout name=...> is not a valid identifier — must match /^[A-Za-z_][A-Za-z0-9_]*$/. (SPEC §51.0.M.1)",
+  "E-TIMER-NAME-DUPLICATE": "Two <onTimeout> elements share the same name= within one state-child. Names must be scope-local-unique for cancelTimer disambiguation. (SPEC §51.0.M.1)",
+  // Channel (v0.2.0)
+  "E-CHANNEL-001": "<channel> missing required name= attribute. (SPEC §38)",
+  "E-CHANNEL-003": "Duplicate channel name in the same file. (SPEC §38)",
+  "E-CHANNEL-004": "broadcast() called outside a <channel> scope. (SPEC §38)",
+  "E-CHANNEL-005": "onserver:message handler accepts at most one parameter. (SPEC §38)",
+  "E-CHANNEL-006": "onclient:* handler declared as server function. Client-side handler must be a plain function. (SPEC §38)",
+  "E-CHANNEL-007": "name= (or topic=) contains ${...} interpolation. Channel identity must be compile-time stable. (SPEC §38)",
+  "E-CHANNEL-008": "Two cross-file channel imports share the same name= — WS route conflict. Rename one channel. (SPEC §38)",
+  "E-CHANNEL-INSIDE-PROGRAM": "<channel> nested inside <program>. v0.next channels are file-level. (SPEC §38.1)",
+  "E-CHANNEL-SHARED-MODIFIER": "@shared modifier removed in v0.next. Cells declared inside a channel body auto-sync by virtue of being declared there. (SPEC §38.4)",
+  "E-CHANNEL-EXPORT-001": "export <channel> requires a static string-literal name=. (SPEC §38.12)",
+  // Variant / Match / Control-flow / Reserved-name (v0.2.0)
+  "E-VARIANT-AMBIGUOUS": "Bare variant reference is ambiguous (union with multiple members declaring the variant, or no static enum context). Qualify: TypeName.Variant. (SPEC §14.10 / §18.0.3)",
+  "E-NAME-COLLIDES-STATE": "Local identifier shadows a registered state cell name. Rename the local. (SPEC §6.1)",
+  "E-NAME-COLLIDES-RESERVED": "Component or state-type name collides with a reserved scrml structural-element identifier (engine, match, errors, onTransition, onTimeout, onIdle). (SPEC §4.15 / §24.4)",
+  "E-STRUCTURAL-ELEMENT-MISPLACED": "scrml-defined structural element used outside its owning locus. (SPEC §4.15)",
+  "E-MULTI-STATEMENT-HANDLER": "Inline event handler attribute (or :-shorthand body) contains multiple statements. Extract to a named function and call it. (SPEC §5.2.3 / §4.14)",
+  "E-CLOSER-001": "Tag uses :-shorthand body with an explicit closer. Choose one form. (SPEC §4.14)",
+  "E-MATCH-EFFECT-FORBIDDEN": "effect= on a state-child inside <match>. Transitions don't occur in match; use <engine>. (SPEC §18.0.2)",
+  "E-MATCH-ONTRANSITION-FORBIDDEN": "<onTransition> inside <match>. Transition handlers are engine-only. (SPEC §18.0.2)",
+  "E-MATCH-NOT-EXHAUSTIVE": "Block-form <match for=Type> missing variants and no wildcard <_> catch-all. (SPEC §18.0.1)",
+  "E-MATCH-012": "match on a T|not (optional) type lacks both a not arm and a wildcard/else. (SPEC §18.14)",
+  "W-MATCH-RULE-INERT": "rule= declared on a state-child inside <match>. Rules are read-only in match; promote to <engine> to activate. (SPEC §18.0.2)",
+  "E-IMPORT-PINNED-INVALID": "pinned modifier on a non-cell, non-engine import. Remove pinned for function or type imports. (SPEC §21.8.1)",
+  "E-DERIVED-CIRCULAR-DEP": "Derived cell expression depends on itself directly or transitively. Break the cycle. (SPEC §31.5 / §6.6)",
+  "E-USE-INVALID-CTX": "registerMessages() (or another project-level registration API) called from a non-top-level context. (SPEC §41.12)",
+  "E-USE-001": "use declaration inside a ${ } context or other nested scope. use is only valid at file top level. (SPEC §41)",
+  "E-USE-002": "use declaration appears after the first markup element or logic context. All use declarations must precede file body content. (SPEC §41)",
+  "E-USE-005": "use specifier uses an unrecognized protocol prefix. Must begin with scrml:, vendor:, ./, or ../. (SPEC §41)",
+  "E-RESERVED-IDENTIFIER": "Local identifier shadows a reserved language keyword (e.g., function reset() shadows the reset keyword). Rename. (SPEC §6.8)",
+  // Equality / null / syntax-shape (v0.2.0)
+  "E-EQ-001": "== applied to incompatible types. (SPEC §45)",
+  "E-EQ-002": "== not used instead of `is not`. The absence check is the keyword form `x is not`. (SPEC §45)",
+  "E-EQ-003": "== applied to a type containing function fields. Functions are not value-comparable. (SPEC §45)",
+  "E-EQ-004": "=== used in scrml source. scrml has a single equality operator == (with strict type-matching). (SPEC §45)",
+  "E-SYNTAX-042": "null or undefined in a scrml value position. The absence sentinel is `not`. (SPEC §17.6 / §45)",
+  "E-SYNTAX-043": "(x) => presence-guard syntax used. Replaced by `given x =>`. (SPEC §17.6)",
+  "E-SYNTAX-044": "Property path in given position. given accepts only simple identifiers in v1. (SPEC §17.6)",
+  "E-SYNTAX-050": "Bare / is no longer a valid closer. Use </> to close the most recently opened tag. (SPEC §4)",
+  "E-TYPE-041": "`not` assigned to a non-optional type T. `not` is only assignable to T|not. (SPEC §14 / §17.6)",
+  "E-TYPE-042": "Absence checked with == not, == null, etc. The only normative absence check is `x is not`. (SPEC §17.6 / §45)",
+  "E-TYPE-045": "`not` used as a boolean negation operator. `not` is the absence value; use ! for boolean negation. (SPEC §17.6)",
+  "E-SWITCH-FORBIDDEN": "switch keyword is not part of scrml's vocabulary. Use if-else (Tier 0), <match for=Type> (Tier 1), match expr {} (value-return), or <engine for=Type> (Tier 2). (SPEC §17)",
+  "E-CTRL-001": "else attribute without a preceding if= or else-if= sibling at the same level. (SPEC §17.5)",
+  "E-CTRL-002": "else-if= attribute without a preceding if= or else-if= sibling. (SPEC §17.5)",
+  "E-CTRL-003": "Element extends an if= chain after a terminal else. else terminates the chain. (SPEC §17.5)",
+  "E-CTRL-005": "else or else-if= appears on the same element as if=. Mutually exclusive. (SPEC §17.5)",
+  "E-CTRL-011": "for (... in ...) is not a valid scrml loop. scrml iterates via `of`: for (item of @items). (SPEC §17.4)",
+  // Errors element (v0.2.0)
+  "E-ERRORS-001": "<errors> element missing required of= attribute. (SPEC §55.8)",
+  "E-ERRORS-002": "<errors of=...> attribute is not a @-rooted scrml expression. (SPEC §55.8)",
+  // parseVariant family (S65)
+  "E-PARSEVARIANT-TYPE-NOT-ENUM": "Second argument to parseVariant must be a bare :enum type identifier. (SPEC §41.13 / §53.14)",
+  "E-PARSEVARIANT-DISCRIMINATOR-MISSING": "Runtime: parseVariant input has no `tag` field. Surface via ::ParseError::MissingDiscriminator. (SPEC §41.13)",
+  "E-PARSEVARIANT-UNKNOWN-VARIANT": "Runtime: parseVariant input has a tag not matching any variant in the enum. Surface via ::ParseError::UnknownVariant(tag). (SPEC §41.13)",
+  "E-PARSEVARIANT-INVALID-PAYLOAD": "Runtime: variant payload field has wrong type or fails a payload predicate. Surface via ::ParseError::InvalidPayload. (SPEC §41.13)",
+  // Test blocks (S74)
+  "E-TEST-001": "~{} test block: assertion failed.",
+  "E-TEST-002": "~{} test block: unexpected error during execution.",
+  "E-TEST-003": "~{} test block: timeout exceeded.",
+  "E-TEST-004": "~{} test block: references variable from outer scope.",
+  "E-TEST-005": "~{} test block: invalid test structure.",
+  "E-TEST-006": "~{} test block: server-function call inside an active test-bind context references a server function with no test-bind declaration in scope. (SPEC §19.12.7)",
+  // Lifecycle state types
+  "E-LIFECYCLE-009": "<timer> or <poll> missing required interval attribute. (SPEC §28.1)",
+  "E-LIFECYCLE-010": "<timer> or <poll> interval is zero or negative. Must be positive ms. (SPEC §28.1)",
+  "E-LIFECYCLE-012": "<poll> has no logic body. (SPEC §28.2)",
+  "E-LIFECYCLE-015": "animationFrame() called with zero arguments or a non-function argument. (SPEC §28.5)",
+  "E-LIFECYCLE-017": "animationFrame() called outside any element scope. (SPEC §28.5)",
+  "E-LIFECYCLE-018": "<request> element has no id attribute. (SPEC §28.3)",
+  "W-LIFECYCLE-002": "<timer> has no body (self-closing). Probable dead code. (SPEC §28.1)",
+  "W-LIFECYCLE-007": "running=false literal on <timer>/<poll>. The element can never become un-paused. Use running=@flag or remove. (SPEC §28.1)",
+  // Auth / middleware / attrs
+  "E-AUTH-001": "Client-local @var used as bound parameter in ?{}-INSERT/UPDATE/DELETE outside server function. (SPEC §52.11)",
+  "E-AUTH-002": "server @var initial value derived from a client-local @var. (SPEC §52.11)",
+  "E-AUTH-003": "State type declares authority=\"server\" without table=. (SPEC §52.11)",
+  "E-AUTH-004": "Two declarations of the same state type with conflicting authority= values. (SPEC §52.11)",
+  "E-AUTH-005": "server @var declared inside a client-only component. (SPEC §52.11)",
+  "E-MW-002": "ratelimit= value does not match the canonical N/unit pattern (e.g., 100/minute). (SPEC §40)",
+  "E-MW-005": "More than one handle() function in the same file. (SPEC §40)",
+  "E-MW-006": "handle() defined outside file top-level ${ } logic. (SPEC §40)",
+  "W-ATTR-001": "Attribute not recognized on a scrml-special element (informational; forwarded to HTML as-is). (SPEC §52.13)",
+  "W-ATTR-002": "Attribute value-shape not recognized — silently accepted but no compile-time effect. (SPEC §52.13)",
+  "E-ATTR-013": "class: directive value is invalid (bare identifier, string literal, or empty). class: requires a boolean expression. (SPEC §5.5.2)",
+  // SQL / batch / component-overload (v0.2.0)
+  "E-SQL-006": ".prepare() called on a ?{} SQL result. .prepare() is removed; Bun.SQL caches internally. Use .get() / .all() / .run(). (SPEC §44.3 / §8.1.1)",
+  "E-SQL-008": "?{ SQL block has no matching `}` — unterminated SQL template, backtick literal, or ${} interpolation. (SPEC §8.1.1 / §44.8)",
+  "E-COMPONENT-013": "bind:propName at call site where propName is not declared as a bind prop. Declare with bind, or remove bind:. (SPEC §15.10)",
+  "E-COMPONENT-014": "bind prop declared with a non-primitive type. Use state projection (§15.11.2) instead. (SPEC §15.10)",
+  "E-COMPONENT-020": "More than one ${...} spread in a component body. (SPEC §15.14 / §16.4)",
+  "E-COMPONENT-021": "Caller provides unslotted children but the component has no ${...} spread. (SPEC §16.4)",
+  // Meta blocks
+  "E-META-001": "^{ } block requires runtime but meta.runtime is false.",
+  "E-META-003": "reflect() called on an unknown type identifier inside a compile-time ^{} block. (SPEC §22.4)",
+  "E-META-005": "^{} block mixes compile-time API (reflect()) with runtime-only values. A meta block must be entirely one mode. (SPEC §22.6)",
+  "E-META-006": "lift call inside a ^{} meta block. lift is a markup-emission form. (SPEC §22.6)",
+  "E-META-007": "?{} SQL context inside a runtime ^{} meta block. Runtime meta has no DB driver in scope. (SPEC §22.6)",
+  "E-META-008": "reflect() called outside any ^{} meta block. (SPEC §22.11)",
+  "E-META-EVAL-001": "Compile-time meta evaluation threw at runtime. (SPEC §22.4)",
+  "E-META-EVAL-002": "Re-parsing the code emitted by a ^{} meta block failed. (SPEC §22.4)",
+  // Ghost-pattern lints (W-LINT-*)
+  "W-LINT-001": "Bare <style> block. CSS lives inside the #{ } CSS context. (Ghost-pattern lint)",
+  "W-LINT-002": "oninput=${...} arrow handler that assigns to a reactive cell — React/Svelte ghost binding. scrml uses bind:value=@cell. (Ghost-pattern lint)",
+  "W-LINT-003": "className= attribute — React's class-attribute alias. scrml uses class=\"...\" and class:name=@cond. (Ghost-pattern lint)",
+  "W-LINT-004": "camelCase event-handler attribute (onChange=, onSubmit=, etc.) — React's convention. scrml uses lowercase: onchange=handler(). (Ghost-pattern lint)",
+  "W-LINT-005": "value={expr} JSX brace-literal. scrml's reactive form is value=@cell. (Ghost-pattern lint)",
+  "W-LINT-006": "JS-style `for (item of @items)` in markup context. scrml's markup-context iteration is `for @items / lift item /`. (Ghost-pattern lint)",
+  "W-LINT-007": "<Comp prop={val}> JSX brace-literal on a component. scrml uses <Comp prop=val>. (Ghost-pattern lint)",
+  "W-LINT-008": "{cond && <El>} React conditional. scrml uses <El if=@cond>. (Ghost-pattern lint)",
+  "W-LINT-010": "${...} interpolation inside a #{ } CSS context. CSS accepts @var directly. (Ghost-pattern lint)",
+  "W-LINT-011": "Vue-style :attr= colon-prefixed attribute. scrml uses attr=@var; the colon-prefix is reserved for class:, bind:, etc. (Ghost-pattern lint)",
+  "W-LINT-012": "Vue directive (v-if, v-for, v-model, …). See §5/§10/§17 for the scrml equivalent. (Ghost-pattern lint)",
+  "W-LINT-013": "Vue-style @event= attribute. scrml's @ sigil is for VALUES (reactive cell access), not attribute names. Use onclick=fn(). (Ghost-pattern lint)",
+  "W-LINT-014": "Svelte block directive ({#if}, {/each}, …). scrml uses <el if=@cond>, `for @items / lift … /`, and <match> blocks. (Ghost-pattern lint)",
+  "W-LINT-015": "Svelte {@html expr} directive. Use ${ rawHtml(expr) } if raw-HTML emission is required (XSS risk). (Ghost-pattern lint)",
+  "W-CG-001": "A top-level decl / SQL block was suppressed from the client output (server-only emit, or unused). (SPEC §6)",
+  // Lifecycle warnings (existing reverberation)
+  "W-LIFECYCLE-CANDIDATE": "More than 2 reactive boolean cells gating the same UI region. Consider promoting to <match> (Tier 1) or <engine> (Tier 2). (SPEC §1.5)",
+  "I-MATCH-PROMOTABLE": "if= chain over an enum-typed cell is mechanically promotable to <match for=Type on=@cell>. Run `bun scrml promote --match <file>[:line]`. (SPEC §56)",
 };
 
 const KEYWORD_DOCS = {
@@ -911,6 +1162,28 @@ const KEYWORD_DOCS = {
   "pure": "**pure** -- Declares a pure function with no side effects.\n\nPure functions cannot read/write @reactive state, perform I/O, or call non-pure functions.",
   "server": "**server** -- Marks a function as server-only.\n\nThe compiler generates a server route and client-side fetch stub automatically.",
   "lin": "**lin** -- Linear type declaration.\n\nA `lin` variable must be consumed exactly once before scope exit. Cannot be used in loops.",
+  // v0.2.0 keyword surface — scrml structural elements + modifiers + sentinels
+  "engine": "**engine** -- Tier-2 state machine declaration (`<engine for=Type initial=.Variant>`).\n\nSingleton-by-design; one declaration mounts the singleton. Auto-declares a variable matching the lowercased type name. State-children declare legal transitions via `rule=`. See SPEC §51.0.",
+  "machine": "**machine** -- Deprecated alias for `<engine>` (W-DEPRECATED-001).\n\n`bun scrml migrate` auto-rewrites to `<engine>`. Hard-removal scheduled for v0.3.0.",
+  "errors": "**<errors of=expr/>** -- First-class element rendering validator errors for a cell or rollup.\n\n`of=@signup.name` renders errors for one field; `of=@signup` renders the compound rollup. `all` attribute toggles full-array vs first-error rendering. See SPEC §55.8.",
+  "onTransition": "**<onTransition from=.A to=.B>** -- Cross-state effect handler inside `<engine>`.\n\nExactly one of `to=` or `from=` MUST appear. Body runs on transition. See SPEC §51.0.H.",
+  "onTimeout": "**<onTimeout after=DURATION to=.Variant [name=IDENT]/>** -- Per-state time-driven transition.\n\nSelf-closing. Inside an engine state-child only. Reset on re-entry. Optional `name=` makes the timer addressable for `cancelTimer(\"name\")`. See SPEC §51.0.M.",
+  "onIdle": "**<onIdle after=DURATION to=.Variant/>** -- Engine-wide event-timeout watchdog.\n\nSelf-closing. Engine-root scope only (sibling of state-children). Resets on every successful transition; fires after N ms of silence. One per engine maximum. See SPEC §51.0.R.",
+  "channel": "**<channel name=\"...\">** -- File-level reactive pub/sub topic.\n\nWebSocket/SSE backed. Cells declared inside auto-sync across subscribed clients. Sibling of `<program>`, never a child (E-CHANNEL-INSIDE-PROGRAM). See SPEC §38.",
+  "schema": "**<schema>** -- SQL schema declaration block.\n\nSQL-mirror canonical (`not null`, `unique`, `references`, …) + shared-core additive (`req`, `length`, `pattern`, `min`, `max`, …). See SPEC §39.",
+  "program": "**<program>** -- File-level program scope.\n\nTop-level wraps the page; nested for workers / sidecars. Documentary attributes (`title=`, `description=`, …) meaningful only at top level. See SPEC §4.12.",
+  "not": "**not** -- The absence sentinel.\n\nscrml's unification of null+undefined. Only assignable to `T|not` optional types. Absence check via `x is not`. NOT a boolean negation operator (use `!`). See SPEC §17.6 / §42.",
+  "req": "**req** -- Universal-core predicate.\n\nValue must be non-empty / meaningful. Empty string fails `req` (distinct from `is some`, which empty string passes). See SPEC §55.1.",
+  "fail": "**fail .Variant(args)** -- Surface a failable function's error.\n\nUsed inside a `function name() ! ErrorType { ... }` body. The caller handles via `let x = f() !{ | ::Variant arg -> ... }`. scrml has no `throw` keyword. See SPEC §19.",
+  "pinned": "**pinned** -- Opts a declaration out of hoisting.\n\nForward reads of a pinned cell fire E-STATE-PINNED-FORWARD-REF. Legal on state declarations and imports. See SPEC §6.10 / §21.8.1.",
+  "reset": "**reset(@cell)** -- Reset keyword.\n\nResets a cell to its `default=` target (or zero-value). Three canonical shapes: `reset(@cell)`, `reset(@compound)`, `reset(@compound.field)`. See SPEC §6.8.",
+  "derived": "**derived=expr** -- Engine attribute making the engine derive its variant from a reactive expression.\n\nNo `rule=`, no writes (E-DERIVED-ENGINE-NO-WRITE); no `initial=` (E-DERIVED-ENGINE-NO-INITIAL). See SPEC §51.0.J.\n\nAlso: `const <name> = expr` declares a derived reactive cell (read-only). See SPEC §6.6.",
+  "history": "**history** -- Bareword attribute on a composite state-child.\n\nThe compiler synthesizes a reactive cell that captures the inner-engine's last variant on outer-exit and restores it on outer-re-entry. Shallow only this revision. See SPEC §51.0.N.",
+  "given": "**given x => ...** -- Presence-guard. Replaces the legacy `(x) =>` form (E-SYNTAX-043).\n\nAccepts only simple identifiers in v1 — property paths fire E-SYNTAX-044. See SPEC §17.6.",
+  "partial": "**partial match expr { ... }** -- Match modifier that relaxes exhaustiveness — the match may return undefined when no arm matches.\n\nNot valid in rendering / lift contexts (E-TYPE-081). See SPEC §18.16.",
+  "when": "**when @var changes { ... }** -- Reactive effect block.\n\nBody runs each time `@var` changes value. See SPEC §6.7.4.",
+  "transaction": "**transaction { ... }** -- Transaction block (v0.2.0 stub; SPEC §44.6, SPEC-ISSUE-018 open).\n\nGroups SQL operations into a single transaction. Composes with the implicit per-handler envelope per §8.9.3.",
+  "test-bind": "**test-bind** -- Test-mode bind declaration.\n\nDeclares a function-stub binding active inside `~{}` test blocks. References without an in-scope `test-bind` fire E-TEST-006 (fail-fast over silent passthrough). See SPEC §19.12.7.",
 };
 
 /**
@@ -1171,19 +1444,69 @@ export const SCRML_ATTRIBUTES = [
   { label: "bind:selected", detail: "Two-way binding for select value", kind: CompletionItemKind.Property },
   { label: "bind:group", detail: "Two-way binding for radio group", kind: CompletionItemKind.Property },
   { label: "if=", detail: "Conditional rendering", kind: CompletionItemKind.Property },
+  { label: "else-if=", detail: "Continuation of an if= chain", kind: CompletionItemKind.Property },
+  { label: "else", detail: "Terminator of an if= / else-if= chain", kind: CompletionItemKind.Property },
   { label: "each=", detail: "List rendering", kind: CompletionItemKind.Property },
   { label: "key=", detail: "Unique key for list items", kind: CompletionItemKind.Property },
+  // Engine + state-child attributes (§51.0)
+  { label: "for=", detail: "Engine / match `for=Type` — declares the discriminating type", kind: CompletionItemKind.Property },
+  { label: "initial=", detail: "Engine `initial=.Variant` — starting variant (§51.0.E)", kind: CompletionItemKind.Property },
+  { label: "var=", detail: "Engine `var=name` — override the auto-derived engine variable name (§51.0.C)", kind: CompletionItemKind.Property },
+  { label: "derived=", detail: "Engine `derived=expr` — derived engine; no rules, no writes (§51.0.J)", kind: CompletionItemKind.Property },
+  { label: "rule=", detail: "State-child legal-transitions contract (§51.0.F)", kind: CompletionItemKind.Property },
+  { label: "internal:rule=", detail: "Composite state-child internal-transition prefix (§51.0.O)", kind: CompletionItemKind.Property },
+  { label: "effect=", detail: "State-child inline per-rule effect (single-target only; §51.0.H)", kind: CompletionItemKind.Property },
+  { label: "to=", detail: "<onTransition> / <onTimeout> / <onIdle> target variant", kind: CompletionItemKind.Property },
+  { label: "from=", detail: "<onTransition> source variant", kind: CompletionItemKind.Property },
+  { label: "after=", detail: "<onTimeout> / <onIdle> duration (e.g. 300ms, ${expr}s)", kind: CompletionItemKind.Property },
+  { label: "once", detail: "<onTransition> once-only modifier", kind: CompletionItemKind.Property },
+  { label: "name=", detail: "<onTimeout name=IDENT> — addressable for cancelTimer() (S79)", kind: CompletionItemKind.Property },
+  { label: "history", detail: "Composite state-child history attribute (§51.0.N)", kind: CompletionItemKind.Property },
+  // Reactivity attrs (§6.13 / S79)
+  { label: "debounced=", detail: "Debounced cell write path (e.g. debounced=300ms; §6.13)", kind: CompletionItemKind.Property },
+  { label: "throttled=", detail: "Throttled cell write path (e.g. throttled=100ms; §6.13)", kind: CompletionItemKind.Property },
+  // State-decl attrs
+  { label: "default=", detail: "Cell reset target (used by reset(@cell); §6.8)", kind: CompletionItemKind.Property },
+  { label: "pinned", detail: "Opts a decl out of hoisting (§6.10)", kind: CompletionItemKind.Property },
+  // Universal-core predicates (bare attrs on Shape 2; §55.1)
+  { label: "req", detail: "Universal-core predicate — value non-empty (§55.1)", kind: CompletionItemKind.Property },
+  { label: "is some", detail: "Universal-core predicate — value exists (§55.1; null+undefined fail)", kind: CompletionItemKind.Property },
+  // Errors element (§55.8)
+  { label: "of=", detail: "<errors of=expr/> — cell or rollup whose errors to render (§55.8)", kind: CompletionItemKind.Property },
+  { label: "all", detail: "<errors all/> — render full array vs first error (§55.8)", kind: CompletionItemKind.Property },
+  // Channel attrs (§38)
+  { label: "topic=", detail: "Channel topic (defaults to name=)", kind: CompletionItemKind.Property },
+  { label: "reconnect=", detail: "Channel reconnect cadence (ms; per-channel; §38.3.1)", kind: CompletionItemKind.Property },
+  // Auth attrs (§52.13 / S80)
+  { label: "auth=", detail: "Auth gate: \"required\" | \"optional\" | \"none\" (§52.13)", kind: CompletionItemKind.Property },
+  { label: "csrf=", detail: "CSRF mode: \"auto\" | \"off\" (§52.13)", kind: CompletionItemKind.Property },
+  { label: "loginRedirect=", detail: "Auth login redirect URL (§52.13)", kind: CompletionItemKind.Property },
+  { label: "sessionExpiry=", detail: "Auth session expiry duration (§52.13)", kind: CompletionItemKind.Property },
+  // Program adopter-override attrs (S79 / S81)
+  { label: "idempotency-store=", detail: "Idempotency backend: \"auto\" | \"sqlite\" | \"postgres\" | \"mysql\" | \"redis\" | \"none\" (§39.2.6)", kind: CompletionItemKind.Property },
+  { label: "idempotency-ttl=", detail: "Idempotency key TTL (default 24h; §19.9.6)", kind: CompletionItemKind.Property },
+  { label: "batch-in-list-cap=", detail: "SQL IN-list batch cap (default 32766; §8.10.6)", kind: CompletionItemKind.Property },
+  { label: "cors-max-age=", detail: "Access-Control-Max-Age override (default 86400s; §39.2.1)", kind: CompletionItemKind.Property },
+  { label: "channel-reconnect=", detail: "Project-level WS reconnect cadence (default 2000ms; §38.3.1)", kind: CompletionItemKind.Property },
+  // Lifecycle state-type attrs
+  { label: "interval=", detail: "<timer> / <poll> tick interval (ms; §28.1)", kind: CompletionItemKind.Property },
+  { label: "running=", detail: "<timer> / <poll> running flag (typically @flag; §28.1)", kind: CompletionItemKind.Property },
+  { label: "delay=", detail: "<timeout> delay (ms; §51.0.M)", kind: CompletionItemKind.Property },
+  // class binding
+  { label: "class:", detail: "Reactive single-class toggle: class:name=@cell (§5.5)", kind: CompletionItemKind.Property },
 ];
 
 export const SCRML_KEYWORDS = [
   { label: "lift", detail: "Lift markup into parent rendering context", kind: CompletionItemKind.Keyword },
-  { label: "match", detail: "Pattern matching expression", kind: CompletionItemKind.Keyword },
+  { label: "match", detail: "Pattern matching expression / block (Tier 1)", kind: CompletionItemKind.Keyword },
   { label: "is", detail: "Type check in pattern matching", kind: CompletionItemKind.Keyword },
+  { label: "is some", detail: "Universal-core predicate — value exists (§55.1)", kind: CompletionItemKind.Keyword },
+  { label: "is not", detail: "Absence check (the only normative form; §17.6)", kind: CompletionItemKind.Keyword },
   { label: "enum", detail: "Enum type declaration", kind: CompletionItemKind.Keyword },
   { label: "struct", detail: "Struct type declaration", kind: CompletionItemKind.Keyword },
-  { label: "fn", detail: "Function shorthand", kind: CompletionItemKind.Keyword },
+  { label: "fn", detail: "Pure function shorthand", kind: CompletionItemKind.Keyword },
   { label: "pure", detail: "Pure function declaration", kind: CompletionItemKind.Keyword },
-  { label: "server", detail: "Server-only function annotation", kind: CompletionItemKind.Keyword },
+  { label: "server", detail: "Server-only function annotation (deprecated keyword form; W-DEPRECATED-SERVER-MODIFIER)", kind: CompletionItemKind.Keyword },
   { label: "let", detail: "Variable declaration (mutable)", kind: CompletionItemKind.Keyword },
   { label: "const", detail: "Variable declaration (immutable)", kind: CompletionItemKind.Keyword },
   { label: "lin", detail: "Linear type variable declaration", kind: CompletionItemKind.Keyword },
@@ -1197,11 +1520,41 @@ export const SCRML_KEYWORDS = [
   { label: "else", detail: "Else branch", kind: CompletionItemKind.Keyword },
   { label: "for", detail: "For loop", kind: CompletionItemKind.Keyword },
   { label: "while", detail: "While loop", kind: CompletionItemKind.Keyword },
-  { label: "of", detail: "For-of iteration", kind: CompletionItemKind.Keyword },
-  { label: "in", detail: "For-in iteration", kind: CompletionItemKind.Keyword },
+  { label: "of", detail: "For-of iteration (the only scrml form — E-CTRL-011 rejects `in`)", kind: CompletionItemKind.Keyword },
   { label: "async", detail: "Async function modifier", kind: CompletionItemKind.Keyword },
   { label: "await", detail: "Await expression", kind: CompletionItemKind.Keyword },
   { label: "navigate", detail: "Client-side navigation", kind: CompletionItemKind.Keyword },
+  // v0.2.0 keywords
+  { label: "engine", detail: "Tier-2 state machine declaration (§51.0)", kind: CompletionItemKind.Keyword },
+  { label: "errors", detail: "First-class validator-errors element <errors of=expr/> (§55.8)", kind: CompletionItemKind.Keyword },
+  { label: "onTransition", detail: "Engine cross-state effect handler (§51.0.H)", kind: CompletionItemKind.Keyword },
+  { label: "onTimeout", detail: "Engine state-child temporal transition (§51.0.M)", kind: CompletionItemKind.Keyword },
+  { label: "onIdle", detail: "Engine-wide event-timeout watchdog (§51.0.R)", kind: CompletionItemKind.Keyword },
+  { label: "channel", detail: "File-level reactive pub/sub topic (§38)", kind: CompletionItemKind.Keyword },
+  { label: "schema", detail: "SQL schema declaration (§39)", kind: CompletionItemKind.Keyword },
+  { label: "program", detail: "File-level program scope (§4.12)", kind: CompletionItemKind.Keyword },
+  { label: "not", detail: "Absence sentinel (scrml's null+undefined unification; §17.6 / §42)", kind: CompletionItemKind.Keyword },
+  { label: "req", detail: "Universal-core predicate — non-empty (§55.1)", kind: CompletionItemKind.Keyword },
+  { label: "fail", detail: "Surface a failable function's error (§19)", kind: CompletionItemKind.Keyword },
+  { label: "pinned", detail: "Opt-out hoisting modifier (§6.10)", kind: CompletionItemKind.Keyword },
+  { label: "reset", detail: "Reset a cell to its default= target (§6.8)", kind: CompletionItemKind.Keyword },
+  { label: "derived", detail: "Derived engine attribute (§51.0.J) / derived cell (const <x> = expr; §6.6)", kind: CompletionItemKind.Keyword },
+  { label: "history", detail: "Composite state-child history attribute (§51.0.N)", kind: CompletionItemKind.Keyword },
+  { label: "given", detail: "Presence-guard (replaces (x) =>; §17.6)", kind: CompletionItemKind.Keyword },
+  { label: "partial", detail: "partial match — relaxes exhaustiveness; not valid in lift/markup (§18.16)", kind: CompletionItemKind.Keyword },
+  { label: "when", detail: "Reactive effect block: when @var changes { ... } (§6.7.4)", kind: CompletionItemKind.Keyword },
+  { label: "transaction", detail: "Transaction block (§44.6; SPEC-ISSUE-018 open)", kind: CompletionItemKind.Keyword },
+  { label: "test-bind", detail: "Test-mode function-stub binding inside ~{} (§19.12.7)", kind: CompletionItemKind.Keyword },
+  // Built-in functions
+  { label: "cancelTimer", detail: "Cancel a named <onTimeout> by name (§51.0.M.1)", kind: CompletionItemKind.Function },
+  { label: "parseVariant", detail: "Parse JSON to a tagged variant (scrml:data; §41.13 / §53.14)", kind: CompletionItemKind.Function },
+  { label: "reflect", detail: "Compile-time type reflection (^{} meta blocks only; §22.4)", kind: CompletionItemKind.Function },
+  { label: "broadcast", detail: "Channel-injected: broadcast(data) to subscribers (§38)", kind: CompletionItemKind.Function },
+  { label: "disconnect", detail: "Channel-injected: disconnect the current connection (§38)", kind: CompletionItemKind.Function },
+  { label: "cleanup", detail: "Scope-exit teardown (§6.7.3)", kind: CompletionItemKind.Function },
+  { label: "flush", detail: "Flush pending derived re-evaluation (NOT valid in derived bodies; §6.6.5)", kind: CompletionItemKind.Function },
+  { label: "animationFrame", detail: "animationFrame(fn) — requestAnimationFrame loop within an element scope (§6.7.9)", kind: CompletionItemKind.Function },
+  // Sigils
   { label: "@", detail: "Reactive variable sigil", kind: CompletionItemKind.Variable },
   { label: "@derived", detail: "Derived reactive value", kind: CompletionItemKind.Variable },
 ];
