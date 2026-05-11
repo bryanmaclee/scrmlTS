@@ -1,0 +1,53 @@
+// engine-009-hierarchy-basic — nested <engine> in composite state-child (§51.0.Q.1).
+//
+// Demonstrates A5-7 hierarchy surface (S67 amendment, SPEC §51.0.Q.1) —
+// an engine state-child body MAY contain a nested <engine> declaration.
+// The nested engine has FULL engine semantics (own for=, own initial=,
+// own state-children with rule=). The state-child whose body contains the
+// nested engine becomes a "composite" state-child.
+//
+// Lifecycle coupling per §51.0.Q.1:
+//   - On outer entry (transition into the composite state-child): inner
+//     engine initializes per its initial=.
+//   - On outer exit: inner engine suspends. Without history= the inner
+//     restarts from initial= on re-entry.
+//
+// Singleton invariant: outer × 1 = 1 inner instance.
+//
+// v1 implementation state (2026-05-11): the parser captures innerEngines
+// per state-child (engine-statechild-parser.ts:1267); usage-analyzer flags
+// `engineNested` for runtime-feature presence. Nested-engine render+dispatch
+// codegen is a Wave 4 follow-on (emit-engine.ts:76 comment) — outer engine
+// compiles + dispatches normally; this file documents the canonical shape
+// and ensures `<engine>...<engine>...</></>` parses + type-checks clean.
+//
+// Per §51.0.K Machine Cohesion footnote, the nested form satisfies the
+// singleton invariant: each outer-instance × one nested-instance.
+
+<program>
+${
+    type AppMode:enum  = { Title, Playing, Paused }
+    type PlayMode:enum = { Exploring, Battle, Inventory }
+}
+
+<engine for=AppMode initial=.Title>
+    <Title rule=.Playing></>
+
+    <Playing rule=(.Title | .Paused)>
+        <engine for=PlayMode initial=.Exploring>
+            <Exploring rule=.Battle></>
+            <Battle rule=.Exploring></>
+            <Inventory></>
+        </>
+    </>
+
+    <Paused rule=.Playing></>
+</>
+
+<div class="game">
+    <h1>App: ${@appMode.variant}</>
+    <button onclick=${@appMode = AppMode.Playing}>Start</>
+    <button onclick=${@appMode = AppMode.Paused}>Pause</>
+    <button onclick=${@appMode = AppMode.Title}>Quit</>
+</div>
+</program>

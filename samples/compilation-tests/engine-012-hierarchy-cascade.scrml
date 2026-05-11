@@ -1,0 +1,83 @@
+// engine-012-hierarchy-cascade — parent-rule cascade dispatch (§51.0.Q.2).
+//
+// Demonstrates the canonical "parent-rule cascade" worked example from
+// SPEC §51.0.Q.2: when code inside a composite writes to either the inner
+// OR the outer engine variable, the static-from-state knowledge follows
+// the canonical §51.0.F rule per variable:
+//
+//   - Write to INNER variable (e.g. @playMode = .Battle): from-state is the
+//     inner state-child the write originates from. Validated against the
+//     INNER state-child's `rule=`.
+//
+//   - Write to OUTER variable (e.g. @appMode = .Paused) from inside the
+//     composite: from-state is the COMPOSITE outer state-child. Validated
+//     against the composite's `rule=`.
+//
+// No new dispatch mechanic — "cascade" is conceptual framing for which
+// `rule=` contract governs which variable's writes from which scope. This
+// gives nested engines the same compile-time discipline as flat engines
+// without introducing a new keyword or runtime machinery.
+//
+// Temporal transitions (<onTimeout>, <onIdle>) are engine-specific per
+// OQ-Harel-7 — a timer on the inner engine fires only while inner is
+// active (requires outer to be in composite). Timers do NOT cascade
+// across the inner/outer boundary.
+//
+// Per §51.0.Q.3, when a write inside a composite is rejected by the outer
+// composite's `rule=`, the diagnostic message extends to name BOTH engines
+// for clarity. (No new error code — extension of E-ENGINE-INVALID-TRANSITION
+// message form.)
+//
+// v1 implementation state (2026-05-11):
+//   - Parser + typer surface the parent-rule contract via existing §51.0.F
+//     mechanic applied per-variable.
+//   - The cascade-miss diagnostic message-extension is a typer follow-on.
+//   - Inner-engine state-child bodies with rich markup are also Wave 4
+//     follow-on — the body-parser currently attributes inner state-children
+//     to the OUTER engine when they carry non-empty bodies. This sample
+//     keeps inner state-children empty and surfaces the cascade-write
+//     pattern via the OUTER composite body and via FILE-LEVEL handlers
+//     (writes to @playMode at file scope hit the inner engine's variable
+//     through the same rule= discipline once inner is active).
+
+<program>
+${
+    type AppMode:enum  = { Title, Playing, Paused }
+    type PlayMode:enum = { Exploring, Battle, Inventory }
+}
+
+<engine for=AppMode initial=.Title>
+    <Title rule=.Playing></>
+
+    <Playing rule=(.Title | .Paused)>
+        // Composite body: nested engine + outer-scoped controls.
+        // Writes to @appMode here are validated against `<Playing>`'s rule=:
+        //   .Title and .Paused are legal targets; anything else fires
+        //   E-ENGINE-INVALID-TRANSITION.
+        <engine for=PlayMode initial=.Exploring>
+            <Exploring rule=.Battle></>
+            <Battle rule=.Exploring></>
+            <Inventory></>
+        </>
+
+        <button onclick=${@appMode = AppMode.Paused}>Pause game</>
+        <button onclick=${@appMode = AppMode.Title}>Quit</>
+    </>
+
+    <Paused rule=.Playing></>
+</>
+
+<div class="game">
+    <h1>App: ${@appMode.variant}</>
+    <p>Inner play-mode: ${@playMode.variant}</>
+    <button onclick=${@appMode = AppMode.Playing}>Start</>
+
+    // File-scope writes to the inner variable @playMode are validated
+    // against whichever inner state-child is active per §51.0.F:
+    //   .Exploring → .Battle    is legal
+    //   .Battle    → .Exploring is legal
+    // Anything else fires E-ENGINE-INVALID-TRANSITION at the write site.
+    <button onclick=${@playMode = PlayMode.Battle}>Fight (Exploring → Battle)</>
+    <button onclick=${@playMode = PlayMode.Exploring}>Flee (Battle → Exploring)</>
+</div>
+</program>

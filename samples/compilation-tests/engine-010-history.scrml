@@ -1,0 +1,59 @@
+// engine-010-history — `history` attribute on a composite state-child (§51.0.N).
+//
+// Demonstrates A5-7 history surface (S67 amendment, SPEC §51.0.N) — a bare
+// `history` attribute on a composite state-child instructs the compiler to
+// synthesize a reactive cell that stores the inner engine's last-active
+// variant on outer-exit, and restores from that cell on outer-re-entry.
+//
+// Target form `.Variant.history` (§51.0.N): used wherever `.Variant` is legal
+// as a `rule=` target or as the right-hand side of an engine-variable write,
+// to mean "transition AND restore inner from history" (vs bare `.Variant`
+// which starts the inner at its initial=).
+//
+// `history` is legal ONLY on composite state-children (those whose body
+// contains a nested <engine>). On a non-composite state-child the typer fires
+// E-HISTORY-NO-INNER-ENGINE per §34. Shallow only this revision per
+// OQ-Harel-4 — deep history is deferred.
+//
+// v1 implementation state (2026-05-11):
+//   - Parser captures `historyAttr: true` (engine-statechild-parser.ts).
+//   - Parser captures `.Variant.history` as `historyForm: true` on rule entries.
+//   - Typer (SYM PASS 11) fires E-HISTORY-NO-INNER-ENGINE on non-composite.
+//   - Codegen flattens `.X.history` to base variant "X" today
+//     (emit-engine.ts:532 — Wave 4 follow-on for synth-cell write/read).
+//   - Tree-shake intent (§51.0.N): when no engine declares `history`, the
+//     usage-analyzer's `engineHistory` flag remains false; synth-cell
+//     emission code path is elided.
+//
+// This sample exists to ensure the canonical history shape parses + type-
+// checks clean and to be the surface adopters reach for. Reading the
+// emitted `__scrml_engine_appMode_transitions` shows the table currently
+// flattens `.Playing.history → "Playing"` (Wave 4 follow-on).
+
+<program>
+${
+    type AppMode:enum  = { Title, Playing, Paused }
+    type PlayMode:enum = { Exploring, Battle, Inventory }
+}
+
+<engine for=AppMode initial=.Title>
+    <Title rule=.Playing></>
+
+    <Playing history rule=(.Title | .Paused)>
+        <engine for=PlayMode initial=.Exploring>
+            <Exploring rule=.Battle></>
+            <Battle rule=.Exploring></>
+            <Inventory></>
+        </>
+    </>
+
+    <Paused rule=.Playing.history></>
+</>
+
+<div class="game">
+    <h1>App: ${@appMode.variant}</>
+    <button onclick=${@appMode = AppMode.Playing}>Start</>
+    <button onclick=${@appMode = AppMode.Paused}>Pause</>
+    <button onclick=${@appMode = AppMode.Title}>Quit</>
+</div>
+</program>

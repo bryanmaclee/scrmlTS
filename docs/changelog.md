@@ -52,9 +52,22 @@ After ratifying the 3-wave plan to close out v0.2.0-remaining, Wave 1 fired in p
 
 - **30 stale forensic worktrees cleaned up** + **pa.md retention rule revised (`47b8729`).** Trigger: A5-7's first dispatch halted at startup-verification because its harness-assigned worktree was created under `scrml-support` (the harness had fallen back to allocating in the sibling repo since `scrmlTS` had 30 locked worktrees blocking new allocation). PA cleanup: `git worktree unlock` + `git worktree remove --force` + `git branch -D` across all 30 forensic carry-overs from S67-S77 era. Disk reclaimed 1.1 GB → 4 KB. **pa.md retention rule revised:** S67 standing rule footer §7 retention bounded to "same session only" (was unbounded); `wrap` definition §6b NEW step makes worktree cleanup explicit before push. Cross-session retention has zero practical forensic use case (work content lives in main via PA file-delta landing commits; per-step granularity is never re-consulted).
 
-- **A5-7 re-dispatched into the now-free slot** — running in proper `scrmlTS` worktree (`scrmlTS/.claude/worktrees/agent-a438d9f15ee276527`, branch `changes/a5-7-tests-and-samples`). Base `47b8729`. Still in flight at S83 wrap-time-not-yet.
+- **A5-7 tests + samples — SHIPPED** (final commit in Wave 1). Dispatched into the re-allocated proper `scrmlTS` worktree (`changes/a5-7-tests-and-samples` branch); landed via S67 file-delta protocol pulling 8 files (4 tests + 4 samples) into main. Agent-side-stale-views (master-list / changelog / editors / lsp/handlers — all modified by sibling Wave 1 dispatches landing earlier) correctly filtered out.
+  - **Files:**
+    - `compiler/tests/unit/engine-a7-history.test.js` (history attribute + `.Variant.history` target form behavior; +381 LOC)
+    - `compiler/tests/unit/engine-a7-internal-rule.test.js` (internal:rule= prefix behavior; +412 LOC)
+    - `compiler/tests/unit/engine-a7-hierarchy.test.js` (nested engine + Machine Cohesion; +388 LOC)
+    - `compiler/tests/integration/engine-a7-cross-feature.test.js` (A7 surface composition; +404 LOC)
+    - `samples/compilation-tests/engine-009-hierarchy-basic.scrml` (+53 LOC)
+    - `samples/compilation-tests/engine-010-history.scrml` (+59 LOC)
+    - `samples/compilation-tests/engine-011-internal-rule.scrml` (+62 LOC)
+    - `samples/compilation-tests/engine-012-hierarchy-cascade.scrml` (+83 LOC)
+  - **Tests:** +48 pass / +10 skip / 0 fail (the 10 skips are intentional Wave-4-deferral markers; each carries cite + repro + remediation pointer). Targeted run 48/10/0 across 4 files (58 tests, 120 expect calls). Sits at low end of +60-120 brief target — agent consolidated where existing a5-2/a5-3/a5-6/computed-delay coverage was already strong; the 48 new tests fill genuine gaps (history behavior, internal-rule behavior, hierarchy behavior, cross-feature composition). Full-suite post-land: 11,233 pass / 87 skip / 1 todo / 0 fail / 539 files.
+  - **Maps consulted:** primary.map.md + domain.map.md + schema.map.md + error.map.md + test.map.md. Load-bearing — `error.map.md` confirmed S67/S79 error code families (E-HISTORY-NO-INNER-ENGINE, E-INTERNAL-RULE-NOT-COMPOSITE, E-TIMER-NAME-*, E-IDLE-*) are real catalog rows fireable from `runSYM`, letting the agent write conformance-style §5/§6 sections against `compileScrml()` results without source-spelunking.
+  - **Bucket 3 DEFERRED** — realistic example app under `examples/` not started; context preserved for follow-on if a third tier is wanted.
+  - **5 COMPILER BUGS SURFACED (NOT fixed per A5-7 scope rule)** — known deferrals from the A5-1+A5-2+A5-3 era now made test-visible. See master-list §0.6 "A7 codegen deferrals" for full citations + repros. Classification (v0.2.0-blocking or v0.3.0-deferred) is a pending USER DECISION at S83 close.
 
-- **v0.2.0 remaining (post-S83 Wave 1 partial):** Code-side: A5-7 tests + samples for A7 (in flight). Materials track: B1 examples rewrite (~20-30h), B2 samples curate (~15-25h). Docs/announce: C1 tutorial rewrite (~8-15h), C2 articles rewrites (~4-8h), C3 README + scrml.dev v0.2.0 announce (~2-4h). B3 + B5 + A6-6 closed; A5-7 will close when its dispatch lands.
+- **v0.2.0 remaining (post-S83 Wave 1 complete):** Materials track: B1 examples rewrite (~20-30h), B2 samples curate (~15-25h). Docs/announce: C1 tutorial rewrite (~8-15h), C2 articles rewrites (~4-8h), C3 README + scrml.dev v0.2.0 announce (~2-4h). **Open question:** the 5 A7 codegen deferrals — counted as v0.2.0-bar or v0.3.0+? See master-list §0.6 row.
 
 - **S82 maps-discipline protocol — third end-to-end test PASSED.** All three of Wave 1's dispatched agents (A5-7 first attempt, B3, B5) reported maps-load-bearing explicitly. Pattern holding.
 

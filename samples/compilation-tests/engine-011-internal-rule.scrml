@@ -1,0 +1,62 @@
+// engine-011-internal-rule — `internal:rule=` prefix on composite state-child (§51.0.O).
+//
+// Demonstrates A5-7 internal-vs-external transition surface (S67 amendment,
+// SPEC §51.0.O) — composite state-children MAY declare two kinds of
+// outgoing transitions:
+//
+//   - Canonical `rule=...`  → EXTERNAL transition. Composite exits (fires
+//     <onTransition> handlers + history write if `history` is set + inner
+//     engine suspends), then re-enters if target is the same composite.
+//
+//   - `internal:rule=...`   → INTERNAL transition. Composite does NOT exit.
+//     Inner-engine lifecycle preserved. No history write/read. No outer
+//     <onTransition> fire.
+//
+// Both prefixes may coexist on the same composite — different targets in
+// each declare different semantics (see <Playing> below).
+//
+// `internal:rule=` is LEGAL ONLY on composite state-children (those with
+// a nested <engine> body). Otherwise the typer fires E-INTERNAL-RULE-NOT-
+// COMPOSITE per §34 — on a non-composite state-child the inner/outer
+// distinction is meaningless.
+//
+// v1 implementation state (2026-05-11):
+//   - Parser captures `internalRule: EngineRuleForm` on each state-child
+//     (engine-statechild-parser.ts).
+//   - Typer (SYM PASS 11) fires E-INTERNAL-RULE-NOT-COMPOSITE on non-
+//     composite state-children carrying internal:rule=.
+//   - Codegen flattens internal:rule= today (emit-engine.ts:76 comment —
+//     Wave 4 follow-on for distinct internal-vs-external write paths).
+//     Both rule= and internal:rule= currently produce the same external
+//     transition behavior. Test coverage at typer level is in
+//     compiler/tests/unit/a5-3-typer-walker.test.js §A5-3.2.
+//
+// This sample exists to ensure the canonical internal:rule= shape parses
+// + type-checks clean and to be the surface adopters reach for.
+
+<program>
+${
+    type AppMode:enum  = { Title, Playing }
+    type PlayMode:enum = { Exploring, Battle }
+}
+
+<engine for=AppMode initial=.Title>
+    <Title rule=.Playing></>
+
+    // <Playing> below: rule=.Title is the EXTERNAL transition (exits composite
+    // to Title); internal:rule=.Playing is an INTERNAL self-loop that preserves
+    // the inner engine's lifecycle. Both may coexist on the same composite.
+    <Playing rule=.Title internal:rule=.Playing>
+        <engine for=PlayMode initial=.Exploring>
+            <Exploring rule=.Battle></>
+            <Battle rule=.Exploring></>
+        </>
+    </>
+</>
+
+<div class="game">
+    <h1>App: ${@appMode.variant}</>
+    <button onclick=${@appMode = AppMode.Playing}>Start</>
+    <button onclick=${@appMode = AppMode.Title}>Quit</>
+</div>
+</program>
