@@ -1,0 +1,52 @@
+// engine-007-cancel-timer — named <onTimeout> + cancelTimer() builtin (§51.0.M.1).
+//
+// Demonstrates A5-6 Feature 1 codegen (S79, 2026-05-10):
+//
+//   1. Optional `name=IDENT` attribute on <onTimeout>. Names match
+//      /^[A-Za-z_][A-Za-z0-9_]*$/ and are scope-local to the state-child.
+//      Named timers are emitted with composite key
+//      `<varName>::<stateName>::n:<name>` (vs index suffix for anonymous);
+//      unique-within-state-child (duplicate fires E-TIMER-NAME-DUPLICATE).
+//
+//   2. `cancelTimer("name")` builtin, recognized in event-handler call-ref
+//      attributes inside arm bodies. Lowers to
+//      `_scrml_engine_clear_named_timer("<varName>", "<armTag>", "<name>")`
+//      using the static (varName, armTag) threaded by Phase A10's arm
+//      context — the dev doesn't need to pass either.
+//
+// v1 limitations to be aware of when reading this sample:
+//
+//   - Only call-ref event-handler form is supported. `onclick=cancelTimer("X")`
+//     works (recognized as a call-ref); `onclick=${cancelTimer("X")}`
+//     (expression-form) falls through to ordinary emission and runtime-fails
+//     with `cancelTimer is not defined`. Function-body calls are also v1-out.
+//
+//   - Names are scope-local to the state-child. cancelTimer("X") inside
+//     <Confirming> can only cancel timers named "X" declared inside
+//     <Confirming>. Unknown names are runtime no-ops (matches
+//     clearTimeout(undefined) browser semantics).
+
+<program>
+${
+    type ConfirmPhase:enum = { Idle, Confirming, Confirmed, Dismissed }
+}
+
+<engine for=ConfirmPhase initial=.Idle>
+    <Idle rule=.Confirming></>
+    <Confirming rule=(.Confirmed | .Dismissed)>
+        <onTimeout name=autoConfirm after=5s to=.Confirmed/>
+        <p>Auto-confirms in 5s. Click <em>Pause</em> to cancel the timer; click <em>Confirm</em> or <em>Dismiss</em> to transition.</>
+        <button onclick=cancelTimer("autoConfirm")>Pause auto-confirm</>
+        <button onclick=${@confirmPhase = ConfirmPhase.Confirmed}>Confirm</>
+        <button onclick=${@confirmPhase = ConfirmPhase.Dismissed}>Dismiss</>
+    </>
+    <Confirmed rule=.Idle></>
+    <Dismissed rule=.Idle></>
+</>
+
+<div class="confirm">
+    <h1>State: ${@confirmPhase.variant}</>
+    <button onclick=${@confirmPhase = ConfirmPhase.Confirming}>Start</>
+    <button onclick=${@confirmPhase = ConfirmPhase.Idle}>Reset</>
+</div>
+</program>
