@@ -15,3 +15,7 @@ docs/SEO-LAUNCH.md
 
 # Per-dispatch agent scratchpad — not tracked
 .tmp/
+
+# Test fixture scratchpads written at runtime by test harnesses (e.g.,
+# debounce-throttle-attribute.test.js compileInline). Regenerated each run.
+compiler/tests/unit/__fixtures__/
