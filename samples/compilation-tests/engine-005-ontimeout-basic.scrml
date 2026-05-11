@@ -1,0 +1,37 @@
+// engine-005-ontimeout-basic — canonical <onTimeout> per-state timer (§51.0.M).
+//
+// Demonstrates A5-4 codegen (S77, 2026-05-10) — a state-child carrying
+// <onTimeout after=DURATION to=.Variant/> arms a timer on entry. The timer
+// fires after the static duration and writes the `to=` variant. Per §51.12
+// each entry re-arms a fresh timer; on exit the timer is cleared (any rule=
+// transition before expiry prevents the fire).
+//
+// Static-literal form: `after=2s` / `after=500ms` / `after=1m` etc. compile to
+// a constant ms value in the emitted timer-config table. Multiple <onTimeout>
+// children per state-child are legal (independent timers each with their own
+// to= target). See engine-006-ontimeout-computed.scrml for the computed-delay
+// form (`after=${expr}<unit>`).
+
+<program>
+${
+    type LoadPhase:enum = { Idle, Loading, Done, TimedOut }
+}
+
+<engine for=LoadPhase initial=.Idle>
+    <Idle rule=.Loading>
+        <onTimeout after=2s to=.Loading/>
+    </>
+    <Loading rule=(.Done | .TimedOut)>
+        <onTimeout after=5s to=.TimedOut/>
+    </>
+    <Done rule=.Idle></>
+    <TimedOut rule=.Idle></>
+</>
+
+<div class="loader">
+    <h1>Phase: ${@loadPhase.variant}</>
+    <p>Idle auto-advances to Loading after 2s. Loading times out to TimedOut after 5s; click <em>Mark Done</em> to commit before timeout.</>
+    <button onclick=${@loadPhase = LoadPhase.Done}>Mark Done</>
+    <button onclick=${@loadPhase = LoadPhase.Idle}>Reset</>
+</div>
+</program>

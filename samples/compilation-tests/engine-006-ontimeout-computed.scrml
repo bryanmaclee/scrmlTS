@@ -1,0 +1,38 @@
+// engine-006-ontimeout-computed — <onTimeout> with computed-delay (§51.12.3.1).
+//
+// Demonstrates A5-5 codegen (S77, 2026-05-10) — the `after=` attribute accepts
+// `${expr}<unit>` where `expr` is any non-negative-number expression and the
+// unit suffix is one of ms/s/m/h. The expression is read at ARM TIME (when the
+// engine enters the state-child), so it sees the current reactive value.
+//
+// Engine-005 (static-literal) compiles `after=2s` to a constant ms value in the
+// emitted timer-config table. The computed form here compiles to an arrow-fn
+// `() => @warningDelayMs` that the runtime invokes on arm; both forms ride the
+// same `__scrml_engine_<varName>_timers` table.
+//
+// Per §51.12.4 the runtime applies `negative/NaN→0 clamp + Math.round` to the
+// computed value, so adopters don't need to defensively coerce.
+
+<program>
+${
+    type SessionPhase:enum = { Active, Warning, Expired }
+    <warningDelayMs> = 5000
+    <expiredDelayMs> = 3000
+}
+
+<engine for=SessionPhase initial=.Active>
+    <Active rule=.Warning>
+        <onTimeout after=${@warningDelayMs}ms to=.Warning/>
+    </>
+    <Warning rule=.Expired>
+        <onTimeout after=${@expiredDelayMs}ms to=.Expired/>
+    </>
+    <Expired rule=.Active></>
+</>
+
+<div class="session">
+    <h1>Session: ${@sessionPhase.variant}</>
+    <p>Warning fires after ${@warningDelayMs}ms; expires ${@expiredDelayMs}ms later.</>
+    <button onclick=${@sessionPhase = SessionPhase.Active}>Reset</>
+</div>
+</program>
