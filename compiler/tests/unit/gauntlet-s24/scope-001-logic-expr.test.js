@@ -473,17 +473,11 @@ describe("S24 §2a slice 2 — if / return / match-subject coverage", () => {
     expect(scope001.some(e => /undeclaredFailArg/.test(e.message))).toBe(true);
   });
 
-  test("undeclared ident in reactive-debounced-decl init → E-SCOPE-001", () => {
-    const src = `<program>
-\${
-  @debounced(300) searchQuery = undeclaredDebouncedInit
-}
-<p>x</>
-</program>
-`;
-    const { scope001 } = compileSrc(src);
-    expect(scope001.some(e => /undeclaredDebouncedInit/.test(e.message))).toBe(true);
-  });
+  // S79 — `undeclared ident in reactive-debounced-decl init` test RETIRED.
+  // Pre-v0.next `@debounced(N) name = expr` is gone (SPEC §6.13). The new
+  // attribute form `<name debounced=Nms> = expr` is a regular state-decl
+  // and inherits state-decl's E-SCOPE-001 init-expression checking via the
+  // existing `state-decl init E-SCOPE-001` test elsewhere in this suite.
 
   test("undeclared ident in value-lift expression → E-SCOPE-001", () => {
     const src = `<program>

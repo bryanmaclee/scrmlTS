@@ -2034,29 +2034,12 @@ describe("upload() built-in", () => {
 });
 
 // ---------------------------------------------------------------------------
-// @debounced(N) modifier parsing
+// S79 — `@debounced(N) name = expr` keyword-form modifier parsing tests
+// RETIRED. The pre-v0.next form is superseded by the canonical state-decl
+// reactivity attribute form `<name debounced=Nms> = expr` (SPEC §6.13).
+// New parser tests for the attribute form live in
+// `compiler/tests/unit/debounce-throttle-attribute.test.js` (S79 dispatch).
 // ---------------------------------------------------------------------------
-
-describe("@debounced(N) modifier", () => {
-  test("@debounced(300) name = expr produces reactive-debounced-decl", () => {
-    const ast = parseAST("${ @debounced(300) search = @input }");
-    const logic = ast.nodes[0];
-    expect(logic.kind).toBe("logic");
-    const debNode = logic.body.find(n => n.kind === "reactive-debounced-decl");
-    expect(debNode).toBeDefined();
-    expect(debNode.name).toBe("search");
-    expect(debNode.delay).toBe(300);
-    expect(debNode.init).toContain("@input");
-  });
-
-  test("@debounced without parens uses default 300ms", () => {
-    const ast = parseAST("${ @debounced search = @input }");
-    const logic = ast.nodes[0];
-    const debNode = logic.body.find(n => n.kind === "reactive-debounced-decl");
-    expect(debNode).toBeDefined();
-    expect(debNode.delay).toBe(300);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // debounce() and throttle() built-in parsing

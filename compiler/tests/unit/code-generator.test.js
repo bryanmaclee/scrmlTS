@@ -1706,31 +1706,12 @@ describe("bind:files directive", () => {
 });
 
 // ---------------------------------------------------------------------------
-// @debounced reactive modifier
+// S79 — @debounced reactive modifier RETIRED. The pre-v0.next AST kind
+// `reactive-debounced-decl` no longer exists; cells now use the canonical
+// state-decl reactivity attribute form `<name debounced=Nms> = expr`
+// (SPEC §6.13). New codegen tests for the attribute form live in
+// `compiler/tests/unit/debounce-throttle-attribute.test.js` (S79 dispatch).
 // ---------------------------------------------------------------------------
-
-describe("@debounced reactive modifier", () => {
-  test("reactive-debounced-decl emits _scrml_reactive_debounced", () => {
-    const ast = makeFileAST("/test/app.scrml", [
-      makeLogicBlock([
-        { kind: "reactive-debounced-decl", name: "search", init: "@input", delay: 300, span: span(0) },
-      ]),
-    ]);
-
-    const result = runCG({
-      files: [ast],
-      routeMap: makeRouteMap(),
-      depGraph: makeDepGraph(),
-      protectAnalysis: makeProtectAnalysis(),
-    });
-
-    expect(result.errors).toHaveLength(0);
-    const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain("_scrml_reactive_debounced");
-    expect(out.clientJs).toContain('"search"');
-    expect(out.clientJs).toContain("300");
-  });
-});
 
 // ---------------------------------------------------------------------------
 // debounce() and throttle() built-in functions

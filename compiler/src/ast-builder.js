@@ -49,6 +49,7 @@ import { parseExprToNode, forEachResetExprInExprNode } from "./expression-parser
 import { decorateValidatorsWithExprNodes } from "./validator-arg-parser.ts";
 import { splitBlocks as _splitBlocksForP2Form1 } from "./block-splitter.js";
 import { scanForTopLevelSemicolon, isEventHandlerAttrName } from "./multi-statement-scan.ts";
+import { parseAfterDuration } from "./codegen/parse-after-duration.ts";
 
 /**
  * Bug 1 fix: re-emit a string literal's raw inner text as a valid JS string
@@ -3299,6 +3300,22 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       : null;
     const pinnedFlag = !!scan.pinned;
 
+    // S79 Phase 2 — parse debounced= / throttled= raw text via parseAfterDuration.
+    // The reactivity field rides forward when at least one duration was captured;
+    // typer (B14 / type-system.ts) handles E-REACTIVITY-ATTR-CONFLICT (both
+    // present) and E-DEBOUNCED-WITH-DERIVED (isConst:true).
+    let reactivity = undefined;
+    if (scan.debouncedRaw !== null && scan.debouncedRaw !== undefined) {
+      const parsed = parseAfterDuration(scan.debouncedRaw);
+      reactivity = reactivity || {};
+      reactivity.debounced = parsed;
+    }
+    if (scan.throttledRaw !== null && scan.throttledRaw !== undefined) {
+      const parsed = parseAfterDuration(scan.throttledRaw);
+      reactivity = reactivity || {};
+      reactivity.throttled = parsed;
+    }
+
     if (isMarkupRHS) {
       // Shape 2: markup-RHS. Parse via parseLiftTag (the existing markup parser
       // shared with `lift` directives). On failure, reset cursor to start of
@@ -3330,6 +3347,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           structuralForm: true,
           isConst: !!isConst,
           shape: "decl-with-spec",
+          // S79 Phase 2 — reactivity attribute (debounced= / throttled=).
+          // Undefined when neither attribute was captured.
+          ...(reactivity ? { reactivity } : {}),
           // Phase A1a Step 11.0c — typed Shape 2 (`<email>: string = <input/>`).
           // typeAnnotation is non-null iff the decl carried a `:T` annotation.
           ...(typeAnnotation ? { typeAnnotation } : {}),
@@ -3377,6 +3397,8 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       shape: isConst ? "derived" : "plain",
       defaultExpr,
       pinned: pinnedFlag,
+      // S79 Phase 2 — reactivity attribute (debounced= / throttled=).
+      ...(reactivity ? { reactivity } : {}),
       span: spanOf(startTok, peek()),
     };
     if (scan.validators.length > 0) {
@@ -3425,6 +3447,16 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     let defaultExprSpan = null;
     // Phase A1a Step 6 — `pinned` bareword modifier flag.
     let pinned = false;
+    // S79 Phase 2 — `debounced=DURATION` / `throttled=DURATION` raw text + span
+    // per SPEC §6.13. Both attributes share the duration grammar reused from
+    // `<onTimeout after=>` (parsed via parseAfterDuration in the caller).
+    // Mutually exclusive — typer (B14 / type-system.ts) fires
+    // E-REACTIVITY-ATTR-CONFLICT on dual-attr; the scanner records both raw
+    // forms if both are present so the typer can locate both spans.
+    let debouncedRaw = null;
+    let debouncedSpan = null;
+    let throttledRaw = null;
+    let throttledSpan = null;
 
     // Edge: bare `<NAME>` form (no validators) — peek(2) is `>` or `>=`.
     // Handled below by the closer check after the validator loop.
@@ -3462,6 +3494,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
               defaultExprRaw,
               defaultExprSpan,
               pinned,
+              debouncedRaw,
+              debouncedSpan,
+              throttledRaw,
+              throttledSpan,
               fusedGtEq: false,
               compoundBody: true,
             };
@@ -3493,6 +3529,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
             defaultExprRaw,
             defaultExprSpan,
             pinned,
+            debouncedRaw,
+            debouncedSpan,
+            throttledRaw,
+            throttledSpan,
             fusedGtEq: false,
             typedDecl: true,
           };
@@ -3506,6 +3546,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           defaultExprRaw,
           defaultExprSpan,
           pinned,
+          debouncedRaw,
+          debouncedSpan,
+          throttledRaw,
+          throttledSpan,
           fusedGtEq: false,
         };
       }
@@ -3520,6 +3564,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           defaultExprRaw,
           defaultExprSpan,
           pinned,
+          debouncedRaw,
+          debouncedSpan,
+          throttledRaw,
+          throttledSpan,
           fusedGtEq: true,
         };
       }
@@ -3599,6 +3647,111 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         defaultExprSpan = { ...valStart.span, end: valLastTok.span.end };
         scanIdx = valIdx;
         continue;
+      }
+
+      // ─── S79 Phase 2 — `debounced=DURATION` / `throttled=DURATION` attributes ───
+      // SPEC §6.13. DURATION grammar reuses parseAfterDuration:
+      //   literal:  Nms / Ns / Nm / Nh
+      //   computed: ${expr}<unit>
+      //
+      // Token-stream shape — DURATION tokenizes as either:
+      //   literal: NUMBER ("300") + IDENT ("ms")  — possibly with whitespace
+      //   computed: PUNCT "$" + PUNCT "{" + ... + PUNCT "}" + IDENT ("ms")
+      //             OR a single STRING/INTERP token if the tokenizer fuses ${...}
+      //
+      // The collector reuses the same depth-track pattern as default=, capturing
+      // raw token text until the next attribute boundary or top-level `>`.
+      // parseAfterDuration is invoked at decl-completion time (caller side) to
+      // validate the captured raw text and produce an AfterDurationResult.
+      if (t.kind === "IDENT" && (t.text === "debounced" || t.text === "throttled")) {
+        const attrName = t.text;
+        const eqTok = tokens[i + scanIdx + 1];
+        if (!eqTok || eqTok.kind !== "PUNCT" || eqTok.text !== "=") {
+          // Not the attribute form — fall through to the generic-IDENT validator
+          // path below (which would treat `debounced` as a bareword validator,
+          // an invalid predicate name; B10 typer rejects unknown predicates).
+        } else {
+          if ((attrName === "debounced" && debouncedRaw !== null) ||
+              (attrName === "throttled" && throttledRaw !== null)) {
+            return null; // duplicate attribute — decline
+          }
+          const valStart = tokens[i + scanIdx + 2];
+          if (!valStart || valStart.kind === "EOF") return null;
+          // Same depth-track collector as default=; stops at top-level `>` or
+          // next attribute start.
+          let parenDepth = 0;
+          let bracketDepth = 0;
+          let braceDepth = 0;
+          let valIdx = scanIdx + 2;
+          const valTexts = [];
+          let valLastTok = null;
+          let expectingExpr = true;
+          while (true) {
+            const vt = tokens[i + valIdx];
+            if (!vt || vt.kind === "EOF") return null;
+            const topLevel = (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0);
+            if (topLevel && vt.kind === "PUNCT" && vt.text === ">") break;
+            if (topLevel && !expectingExpr && (vt.kind === "IDENT" || vt.kind === "KEYWORD")) {
+              // Heuristic: at top-level, an IDENT/KEYWORD when not expecting an
+              // expression is normally the next attribute. EXCEPTION: the unit
+              // suffix (ms/s/m/h) immediately after a NUMBER or `}` is part of
+              // the duration value, not a new attribute. The unit IS an IDENT
+              // and would be hit here right after the NUMBER's expectingExpr=
+              // false transition. Detect: the immediately preceding token IS
+              // a NUMBER or `}`, AND this IDENT is one of the duration unit
+              // suffixes — keep it.
+              const isUnit = (vt.text === "ms" || vt.text === "s" ||
+                              vt.text === "m" || vt.text === "h");
+              const prev = valLastTok;
+              const prevIsNumberOrCloseBrace = prev && (
+                prev.kind === "NUMBER" ||
+                (prev.kind === "PUNCT" && prev.text === "}")
+              );
+              if (!(isUnit && prevIsNumberOrCloseBrace)) break;
+            }
+            if (vt.kind === "PUNCT" && vt.text === "(") { parenDepth++; expectingExpr = true; }
+            else if (vt.kind === "PUNCT" && vt.text === ")") {
+              if (parenDepth === 0) return null;
+              parenDepth--;
+              expectingExpr = false;
+            }
+            else if (vt.kind === "PUNCT" && vt.text === "[") { bracketDepth++; expectingExpr = true; }
+            else if (vt.kind === "PUNCT" && vt.text === "]") {
+              if (bracketDepth === 0) return null;
+              bracketDepth--;
+              expectingExpr = false;
+            }
+            else if (vt.kind === "PUNCT" && vt.text === "{") { braceDepth++; expectingExpr = true; }
+            else if (vt.kind === "PUNCT" && vt.text === "}") {
+              if (braceDepth === 0) return null;
+              braceDepth--;
+              expectingExpr = false;
+            }
+            else if (vt.kind === "PUNCT" && (vt.text === "." || vt.text === ",")) expectingExpr = true;
+            else if (vt.kind === "OPERATOR") expectingExpr = true;
+            else if (vt.kind === "IDENT" || vt.kind === "KEYWORD" || vt.kind === "NUMBER" ||
+                     vt.kind === "STRING" || vt.kind === "AT_IDENT") expectingExpr = false;
+            valTexts.push(vt.kind === "STRING" ? JSON.stringify(vt.text) : vt.text);
+            valLastTok = vt;
+            valIdx++;
+          }
+          if (valTexts.length === 0) return null; // empty value — decline
+          // Join WITHOUT whitespace between tokens — duration values are tightly
+          // shaped (`300ms`, `${expr}ms`); whitespace would change parseAfterDuration's
+          // recognition. The literal regex tolerates whitespace defensively but
+          // the canonical token-text join keeps things tight.
+          const rawValue = valTexts.join("").trim();
+          const valSpan = { ...valStart.span, end: valLastTok.span.end };
+          if (attrName === "debounced") {
+            debouncedRaw = rawValue;
+            debouncedSpan = valSpan;
+          } else {
+            throttledRaw = rawValue;
+            throttledSpan = valSpan;
+          }
+          scanIdx = valIdx;
+          continue;
+        }
       }
 
       // ─── Phase A1a Step 6 — `pinned` bareword modifier ───
@@ -3897,30 +4050,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
     }
 
-    // @debounced(N) MODIFIER: `@debounced(N) name = expr`
-    if (tok.kind === "AT_IDENT" && tok.text === "@debounced") {
-      const startTok = consume();
-      let delay = 300;
-      if (peek().text === "(") {
-        consume();
-        const delayParts = [];
-        while (peek().text !== ")" && peek().kind !== "EOF") {
-          delayParts.push(consume().text);
-        }
-        if (peek().text === ")") consume();
-        delay = parseInt(delayParts.join("").trim(), 10) || 300;
-      }
-      let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
-      if (peek().text === "=" && peek(1)?.text !== "=") {
-        consume();
-        const { expr, span } = collectExpr();
-        return { id: ++counter.next, kind: "reactive-debounced-decl", name, init: expr, initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0), delay, span: spanOf(startTok, peek()) };
-      }
-      const { expr, span } = collectExpr();
-      const _be1 = startTok.text + " " + name + (expr ? " " + expr : "");
-      return { id: ++counter.next, kind: "bare-expr", expr: _be1, exprNode: safeParseExprToNode(_be1, 0), span: spanOf(startTok, peek()) };
-    }
+    // S79 — `@debounced(N) name = expr` keyword-form parse path RETIRED.
+    // The canonical surface is now `<name debounced=Nms> = expr` (SPEC
+    // §6.13). Per S78 deep-dive Approach B (clean-cut, no deprecation
+    // cycle), this parse path was deleted; `@debounced(N)` source will
+    // surface as a generic parse error on the next compile.
 
     // server MODIFIER: `server @varName = expr` → state-decl with isServer: true (§52.4)
     // Guard: only consume `server` when the next token is AT_IDENT.
@@ -5832,50 +5966,9 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // @debounced(N) MODIFIER: `@debounced(N) name = expr`
-    if (tok.kind === "AT_IDENT" && tok.text === "@debounced") {
-      const startTok = consume(); // consume `@debounced`
-      let delay = 300; // default debounce delay
-      if (peek().text === "(") {
-        consume(); // consume `(`
-        const delayParts = [];
-        while (peek().text !== ")" && peek().kind !== "EOF") {
-          delayParts.push(consume().text);
-        }
-        if (peek().text === ")") consume(); // consume `)`
-        delay = parseInt(delayParts.join("").trim(), 10) || 300;
-      }
-      // Expect `name = expr`
-      let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
-        name = consume().text;
-      }
-      if (peek().text === "=" && peek(1)?.text !== "=") {
-        consume(); // consume `=`
-        const { expr, span } = collectExpr();
-        nodes.push({
-          id: ++counter.next,
-          kind: "reactive-debounced-decl",
-          name,
-          init: expr,
-          initExpr: safeParseExprToNode(expr, spanOf(startTok, peek())?.start ?? 0),
-          delay,
-          span: spanOf(startTok, peek()),
-        });
-      } else {
-        // Malformed — emit as bare-expr
-        const { expr, span } = collectExpr();
-        const _be6 = startTok.text + " " + name + (expr ? " " + expr : "");
-        nodes.push({
-          id: ++counter.next,
-          kind: "bare-expr",
-          expr: _be6,
-          exprNode: safeParseExprToNode(_be6, 0),
-          span: spanOf(startTok, peek()),
-        });
-      }
-      continue;
-    }
+    // S79 — `@debounced(N) name = expr` in-function-body keyword-form parse
+    // path RETIRED. See the parallel deletion at the top-level parse path
+    // above for full rationale.
 
     // server MODIFIER: `server @varName = expr` → state-decl with isServer: true (§52.4)
     // Guard: only consume `server` when the next token is AT_IDENT.

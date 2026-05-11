@@ -4353,6 +4353,77 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "state-decl": {
         resolvedType = tAsIs();
+        // S79 / §6.13 — reactivity attribute (debounced= / throttled=) checks.
+        // Three diagnostic codes:
+        //   - E-REACTIVITY-ATTR-CONFLICT — both attributes present on same cell.
+        //   - E-DEBOUNCED-WITH-DERIVED — attribute on a `const`-derived cell.
+        //   - E-DEBOUNCED-WITH-SERVER — attribute on a `<x server>` cell.
+        // Plus an invalid-DURATION fall-through reuses the parseAfterDuration
+        // diagnostic shape (E-CONTRACT-style: "duration ... does not match
+        // LITERAL form OR COMPUTED form").
+        {
+          const reactivityAttr = (n as ASTNodeLike).reactivity as
+            | { debounced?: { kind: string; reason?: string }; throttled?: { kind: string; reason?: string } }
+            | undefined;
+          if (reactivityAttr) {
+            const reactSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+            const cellName = n.name as string | undefined ?? "<anonymous>";
+
+            // Dual-attribute conflict.
+            if (reactivityAttr.debounced && reactivityAttr.throttled) {
+              errors.push(new TSError(
+                "E-REACTIVITY-ATTR-CONFLICT",
+                `E-REACTIVITY-ATTR-CONFLICT: cell <${cellName}> declares BOTH 'debounced=' AND 'throttled=' attributes. ` +
+                `The two reactivity attributes describe competing timing rules (debounce coalesces writes; throttle leading+trailing-fires). ` +
+                `Pick one. (SPEC §6.13.)`,
+                reactSpan,
+              ));
+            }
+
+            // Derived cell — write-side timing on a read-only cell is meaningless.
+            const isDerived = ((n as ASTNodeLike).shape === "derived") ||
+                              ((n as ASTNodeLike).isConst === true);
+            if (isDerived) {
+              errors.push(new TSError(
+                "E-DEBOUNCED-WITH-DERIVED",
+                `E-DEBOUNCED-WITH-DERIVED: cell <${cellName}> is a 'const'-derived cell (read-only) but carries a 'debounced=' or 'throttled=' attribute. ` +
+                `Derived cells are read-only; debounce/throttle is a write-side wrapper; combining is meaningless. ` +
+                `To debounce a derived computation, debounce the upstream source: ` +
+                `\`<source debounced=300ms> = @raw; const <doubled> = @source * 2\`. (SPEC §6.13.4.)`,
+                reactSpan,
+              ));
+            }
+
+            // Server-authoritative cell.
+            const isServerCell = !!(n as ASTNodeLike).isServer;
+            if (isServerCell) {
+              errors.push(new TSError(
+                "E-DEBOUNCED-WITH-SERVER",
+                `E-DEBOUNCED-WITH-SERVER: cell <${cellName}> is a 'server'-authoritative cell but carries a 'debounced=' or 'throttled=' attribute. ` +
+                `Server-authoritative writes go through the §52 server-write path, not the client-side debounce/throttle wrapper; the two surfaces don't compose. ` +
+                `Server-side timing semantics are out of scope for this revision. ` +
+                `Resolution: remove the reactivity attribute, or restructure so the client-side cell carries the timing and the server-authoritative cell receives the resolved value. (SPEC §6.13.5.)`,
+                reactSpan,
+              ));
+            }
+
+            // Invalid-DURATION fall-through. parseAfterDuration produces
+            // `{kind: "invalid", reason}`. Surface as E-CONTRACT-001-RT-style
+            // diagnostic — but use the umbrella E-SYNTAX shape for now.
+            for (const kind of ["debounced", "throttled"] as const) {
+              const dur = reactivityAttr[kind];
+              if (dur && dur.kind === "invalid") {
+                errors.push(new TSError(
+                  "E-SYNTAX-DURATION",
+                  `E-SYNTAX-DURATION: cell <${cellName}> '${kind}=' value is malformed. ${dur.reason ?? "unknown parse failure"}. ` +
+                  `Expected literal-form (Nms / Ns / Nm / Nh) OR computed-form (\${expr}<unit>). ` +
+                  `(SPEC §6.13.3 — same grammar as <onTimeout after=>.)`,
+                  reactSpan,
+                ));
+              }
+            }
+          }
+        }
         // §53.4 — If a type annotation is present and predicated, classify the assignment zone.
         const reactAnnot = (n as ASTNodeLike).typeAnnotation as string | undefined;
         if (reactAnnot) {
@@ -4858,7 +4929,7 @@ function annotateNodes(
       }
 
       // ------------------------------------------------------------------
-      // §2a — throw-stmt / fail-expr / reactive-debounced-decl.
+      // §2a — throw-stmt / fail-expr (reactive-debounced-decl retired S79).
       // All three carry a single ExprNode payload (exprNode / argsExpr /
       // initExpr respectively). Walk it and — for the debounced decl —
       // bind the reactive name into scope after the init check.
@@ -4883,21 +4954,13 @@ function annotateNodes(
         break;
       }
 
-      case "reactive-debounced-decl": {
-        const dbSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
-        const dbInitExpr = (n as Record<string, unknown>).initExpr;
-        if (dbInitExpr) {
-          checkLogicExprIdents(dbInitExpr, dbSpan, scopeChain, typeRegistry, errors, n.name as string | undefined, fnAllDeclared);
-        }
-        if (n.name) {
-          // Same double-bind as state-decl (formerly also reactive-derived-decl;
-          // folded into state-decl per Phase A1a Step 11.5).
-          scopeChain.bind(`@${n.name as string}`, { kind: "reactive", resolvedType: tAsIs() });
-          scopeChain.bind(n.name as string, { kind: "reactive", resolvedType: tAsIs() });
-        }
-        resolvedType = tAsIs();
-        break;
-      }
+      // S79 — `case "reactive-debounced-decl"` RETIRED. The pre-v0.next
+      // `@debounced(N) name = expr` form is superseded by the canonical
+      // state-decl reactivity attribute form `<name debounced=Nms> = expr`
+      // (SPEC §6.13). State-decls with `reactivity` are typed via the
+      // existing `case "state-decl"` arm; reactivity-attribute checks
+      // (E-REACTIVITY-ATTR-CONFLICT, E-DEBOUNCED-WITH-DERIVED,
+      // E-DEBOUNCED-WITH-SERVER) live there.
 
       // ------------------------------------------------------------------
       // while-stmt / if-stmt — W-ASSIGN-001: assignment in condition without double parens (§50.2.3)
@@ -8498,10 +8561,10 @@ function processFile(
     const collectReactives = (nodes: ASTNodeLike[]): void => {
       for (const n of nodes) {
         if (!n || typeof n !== "object") continue;
-        if (
-          (n.kind === "state-decl" || n.kind === "reactive-debounced-decl") &&
-          typeof n.name === "string"
-        ) {
+        // S79 — reactive-debounced-decl AST kind retired; debounced cells now
+        // ride on state-decl with a `reactivity` field (SPEC §6.13). state-decl
+        // alone covers the audit-collection surface.
+        if (n.kind === "state-decl" && typeof n.name === "string") {
           declaredReactives.add(n.name);
         }
         const body = n.body as ASTNodeLike[] | undefined;

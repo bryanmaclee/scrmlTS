@@ -1,8 +1,12 @@
-// @debounced — gauntlet plan lists this but spec has NO normative coverage
-// of @debounced/@throttled as language features. This fixture probes whether
-// they exist in the grammar at all.
-${
-    @debounced query = ""
-}
+// SPEC §6.13 — `<name debounced=Nms> = expr` is the canonical state-decl
+// reactivity attribute form for debounced reactive state. The pre-v0.next
+// `@debounced(N) name = expr` keyword-form was retired at S79 (deep-dive
+// `scrml-support/docs/deep-dives/debounce-and-timing-2026-05-10.md` §6
+// Approach B clean-cut).
+//
+// This fixture exercises the canonical form on a Shape 1 plain reactive cell.
+// Writes to @query are coalesced into a single trailing write 300ms after the
+// most recent write request; subscribers fire on the debounced schedule.
+<query debounced=300ms> = ""
 <input bind:value=@query/>
 <p>${@query}</>

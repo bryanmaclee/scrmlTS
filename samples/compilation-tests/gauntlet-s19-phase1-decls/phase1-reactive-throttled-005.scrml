@@ -1,5 +1,11 @@
-// @throttled — same caveat as @debounced; not in current SPEC.md
-${
-    @throttled scrollY = 0
-}
+// SPEC §6.13 — `<name throttled=Nms> = expr` is the canonical state-decl
+// reactivity attribute form for throttled reactive state, parallel to
+// `debounced=`. The pre-v0.next `@throttled name = expr` keyword-form was
+// retired at S79.
+//
+// Throttle semantics: the first write in any quiescent window emits
+// immediately; subsequent writes within DURATION are suppressed but the
+// most recent value is held; at window-end one trailing fire emits with
+// the held value. (Standard leading+trailing throttle.)
+<scrollY throttled=100ms> = 0
 <p>${@scrollY}</>

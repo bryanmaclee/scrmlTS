@@ -1,1 +1,1 @@
-{"feature":"@throttled","shape":"bare","expectedOutcome":"error","expectedCodes":["UNKNOWN"],"notes":"Same as @debounced — not in spec, may produce parse error. Flag spec ambiguity."}
+{"feature":"throttled=","shape":"attribute","expectedOutcome":"clean","expectedCodes":[],"notes":"S79 — canonical SPEC §6.13 form `<name throttled=Nms>` (clean-cut Approach B). Codegen emits _scrml_reactivity_register('scrollY', 'throttled', 100) sidecar so subsequent writes route through _scrml_reactive_throttled (leading+trailing throttle)."}

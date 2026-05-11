@@ -80,6 +80,14 @@ const _VALIDATOR_RUNTIME_SOURCE = readFileSync(
 export const SCRML_RUNTIME = `// --- scrml reactive runtime ---
 const _scrml_state = {};
 const _scrml_subscribers = {};
+// S79 / §6.13 reactivity attribute registries — hoisted to module top to
+// avoid TDZ when _scrml_reactive_set (called early during module-init by
+// state-decl substrates) consults them. Implementations of the helpers
+// that READ these registries live further down in the utilities chunk.
+const _scrml_reactivity_timers = Object.create(null);
+const _scrml_reactivity_rules = Object.create(null);
+const _scrml_reactivity_bypass = Object.create(null);
+const _scrml_throttle_state = Object.create(null);
 
 // --- derived reactive state (§6.6) ---
 // _scrml_derived_fns: name → () => value  (evaluation function for each derived node)
@@ -262,6 +270,38 @@ function _scrml_reactive_get(name) {
 }
 
 function _scrml_reactive_set(name, value) {
+  // S79 / §6.13 — when a reactivity rule is registered for the cell, route
+  // the write through the timing wrapper. Guarded so cells without a rule
+  // (the common case) take zero overhead beyond a single property lookup.
+  // The bypass-flag avoids infinite recursion (the timer helpers eventually
+  // call back into _scrml_reactive_set with the resolved value).
+  if (typeof _scrml_reactivity_rules === "object" && _scrml_reactivity_rules[name] && !_scrml_reactivity_bypass[name]) {
+    const rule = _scrml_reactivity_rules[name];
+    _scrml_reactivity_bypass[name] = true;
+    try {
+      if (rule.kind === "debounced") {
+        _scrml_reactive_debounced(name, function () { return value; }, rule.ms);
+      } else if (rule.kind === "throttled") {
+        _scrml_reactive_throttled(name, function () { return value; }, rule.ms);
+      } else {
+        // Unknown rule kind — defensive: fall through to immediate set.
+        _scrml_state[name] = value;
+        const dirtied = _scrml_propagate_dirty(name);
+        if (_scrml_subscribers[name]) {
+          for (const fn of _scrml_subscribers[name]) {
+            try { fn(value); } catch(e) { console.error("scrml subscriber error:", e); }
+          }
+        }
+        if (typeof _scrml_trigger === "function") _scrml_trigger(_scrml_state, name);
+        if (dirtied && dirtied.length > 0 && typeof _scrml_trigger === "function") {
+          for (const derived of dirtied) _scrml_trigger(_scrml_state, derived);
+        }
+      }
+    } finally {
+      _scrml_reactivity_bypass[name] = false;
+    }
+    return value;
+  }
   _scrml_state[name] = value;
   // §6.6.3 Phase 2: eagerly propagate dirty flags to all downstream derived nodes
   // before subscribers fire and before this call returns. Synchronous, no re-evaluation.
@@ -282,6 +322,11 @@ function _scrml_reactive_set(name, value) {
   }
   return value;
 }
+
+// S79 / §6.13 — _scrml_reactivity_bypass is declared at the top of the
+// runtime (next to _scrml_state) for TDZ safety; the bypass map short-
+// circuits the timing wrapper when the timer helper itself calls back
+// into _scrml_reactive_set, avoiding infinite recursion.
 
 /**
  * Propagate dirty flags from a written upstream name to all downstream derived nodes.
@@ -375,6 +420,20 @@ function _scrml_reactive_derived(name, fn) {
 //   4. Otherwise no-op (defensive: unknown name, e.g. a future engine cell
 //      whose B22 didn't reject — silent rather than throwing).
 function _scrml_reset(name) {
+  // S79 / §6.13 — cancel any pending debounced/throttled timer for this cell
+  // BEFORE applying the reset value. The cancel-then-apply ordering ensures
+  // a freshly-reset value isn't subsequently overwritten by an in-flight
+  // debounced/throttled write. Guard the call so reset() on cells without
+  // reactivity attributes (the common case) is a no-op + zero allocation.
+  if (typeof _scrml_reactivity_cancel === "function") {
+    _scrml_reactivity_cancel(name);
+  }
+  // Also clear any held throttle pending value so a delayed trailing-fire
+  // (currently armed timer cancelled above) doesn't reappear on the next
+  // throttled write within the window.
+  if (typeof _scrml_throttle_state === "object" && _scrml_throttle_state[name]) {
+    _scrml_throttle_state[name].pending = null;
+  }
   // Default thunk wins per §6.8.2 line 4857.
   if (typeof _scrml_default_fns[name] === "function") {
     _scrml_reactive_set(name, _scrml_default_fns[name]());
@@ -1001,9 +1060,107 @@ function _scrml_throttle(fn, ms) {
   };
 }
 
-function _scrml_reactive_debounced(name, fn, ms) {
-  _scrml_reactive_set(name, fn());
-  // Debounced update would re-evaluate fn after delay
+// ---------------------------------------------------------------------------
+// §6.13 Reactivity attributes — debounced= / throttled= runtime helpers
+// ---------------------------------------------------------------------------
+//
+// Registries (_scrml_reactivity_timers, _scrml_reactivity_rules,
+// _scrml_reactivity_bypass, _scrml_throttle_state) live near the top of
+// the runtime (next to _scrml_state / _scrml_subscribers) so
+// _scrml_reactive_set can consult them during module-init without TDZ
+// faults. The helper functions below READ those registries.
+//
+// _scrml_reactivity_register is the declarative registration API used by
+// the state-decl substrate emitter — codegen emits one call per cell that
+// carries debounced= or throttled=, and subsequent direct
+// _scrml_reactive_set calls route through the timing wrapper without
+// requiring per-assign-site rewrites.
+function _scrml_reactivity_register(name, kind, ms) {
+  _scrml_reactivity_rules[name] = { kind, ms };
+}
+
+// Cancel any pending debounced/throttled timer for the named cell. Called from:
+//   - _scrml_reactive_debounced (each new write — coalesce)
+//   - _scrml_reactive_throttled (when scheduling a trailing-fire after the
+//     window expires; the leading-fire is immediate and doesn't arm)
+//   - _scrml_reset (§6.13 normative cancel-on-reset)
+function _scrml_reactivity_cancel(name) {
+  const handle = _scrml_reactivity_timers[name];
+  if (handle === undefined) return;
+  clearTimeout(handle);
+  delete _scrml_reactivity_timers[name];
+}
+
+// _scrml_reactive_debounced(name, valueFn, ms) — SPEC §6.13.1.
+//
+// Each call arms a timer for ms milliseconds. Re-armed if a new write lands
+// within the window (the previous timer is cancelled; the new one starts).
+// On timer expiry the value-thunk is evaluated and the result is written
+// through _scrml_reactive_set, firing all downstream subscribers + derived
+// recompute on the debounced schedule.
+//
+// ms may be a number (literal-form DURATION) OR a function returning a
+// number (computed-form expr-with-unit lowering — mirror A5-5 codegen
+// pattern). Negative / NaN runtime values clamp to 0 (matches
+// parseAfterDuration runtime semantics for the computed form).
+function _scrml_reactive_debounced(name, valueFn, ms) {
+  _scrml_reactivity_cancel(name);
+  let delay = typeof ms === "function" ? ms() : ms;
+  if (typeof delay !== "number" || !isFinite(delay) || delay < 0) delay = 0;
+  delay = Math.round(delay);
+  const handle = setTimeout(function () {
+    delete _scrml_reactivity_timers[name];
+    _scrml_reactive_set(name, valueFn());
+  }, delay);
+  _scrml_reactivity_timers[name] = handle;
+}
+
+// _scrml_reactive_throttled(name, valueFn, ms) — SPEC §6.13.2.
+//
+// Standard leading+trailing throttle. The first write in any quiescent
+// window emits immediately; subsequent writes within ms of the last emit
+// are suppressed but the most recent suppressed value-thunk is held; at
+// window-end a single trailing fire emits with the held thunk.
+//
+// Per-cell scheduling state lives in _scrml_throttle_state[name]:
+//   { lastEmit: number, pending: valueFn | null }
+// _scrml_reactivity_timers[name] holds the trailing-fire timer handle (so
+// _scrml_reset can cancel it via _scrml_reactivity_cancel).
+// _scrml_throttle_state declared at module top for TDZ safety.
+function _scrml_reactive_throttled(name, valueFn, ms) {
+  let delay = typeof ms === "function" ? ms() : ms;
+  if (typeof delay !== "number" || !isFinite(delay) || delay < 0) delay = 0;
+  delay = Math.round(delay);
+  const now = Date.now();
+  let st = _scrml_throttle_state[name];
+  if (!st) {
+    st = { lastEmit: 0, pending: null };
+    _scrml_throttle_state[name] = st;
+  }
+  const sinceLast = now - st.lastEmit;
+  if (sinceLast >= delay) {
+    // Outside the window — leading-fire immediately.
+    st.lastEmit = now;
+    st.pending = null;
+    _scrml_reactivity_cancel(name);
+    _scrml_reactive_set(name, valueFn());
+    return;
+  }
+  // Inside the window — hold the most recent thunk + arm trailing-fire.
+  st.pending = valueFn;
+  if (_scrml_reactivity_timers[name] === undefined) {
+    const remaining = delay - sinceLast;
+    const handle = setTimeout(function () {
+      delete _scrml_reactivity_timers[name];
+      const stNow = _scrml_throttle_state[name];
+      if (!stNow || stNow.pending === null) return;
+      const thunk = stNow.pending;
+      stNow.pending = null;
+      stNow.lastEmit = Date.now();
+      _scrml_reactive_set(name, thunk());
+    }, remaining);
+    _scrml_reactivity_timers[name] = handle;
+  }
 }
 
 function _scrml_reactive_explicit_set(...args) {

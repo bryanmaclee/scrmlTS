@@ -111,14 +111,11 @@ describe("collectExpr newline boundary — symmetric single-token RHS decls", ()
     expect(stmts[1].kind).toBe("bare-expr");
   });
 
-  test("@debounced decl with single STRING RHS breaks at newline", () => {
-    const stmts = parseLogic(`@debounced(300) x = "hi"\nconsole.log(x)`);
-    expect(stmts).toHaveLength(2);
-    expect(stmts[0].kind).toBe("reactive-debounced-decl");
-    expect(stmts[0].name).toBe("x");
-    expect(stmts[0].init).toBe(`"hi"`);
-    expect(stmts[1].kind).toBe("bare-expr");
-  });
+  // S79 — `@debounced decl with single STRING RHS breaks at newline` RETIRED.
+  // The pre-v0.next `@debounced(N) name = expr` keyword-form parse path is
+  // gone (SPEC §6.13 reactivity attributes). The newline-boundary semantic
+  // for the new form (`<name debounced=Nms> = expr`) rides on the regular
+  // state-decl newline behavior tested elsewhere in this suite.
 
 });
 

@@ -142,13 +142,16 @@ describe("LSP L1 — reactiveVarCompletions", () => {
     const items = reactiveVarCompletions([
       { name: "count", reactiveKind: "reactive" },
       { name: "doubled", reactiveKind: "derived" },
+      // S79 — `@debounced(N)` keyword-form retired; LSP completion now
+      // surfaces the canonical state-decl reactivity attribute form
+      // `<name debounced=Nms>` per SPEC §6.13.
       { name: "deb", reactiveKind: "debounced", delay: 200 },
       { name: "shared", reactiveKind: "reactive", isShared: true },
     ]);
     const byName = Object.fromEntries(items.map(i => [i.label, i]));
     expect(byName.count.detail).toContain("@reactive");
     expect(byName.doubled.detail).toContain("@derived");
-    expect(byName.deb.detail).toContain("@debounced(200)");
+    expect(byName.deb.detail).toContain("debounced=200ms");
     expect(byName.shared.detail).toContain("(shared)");
   });
 

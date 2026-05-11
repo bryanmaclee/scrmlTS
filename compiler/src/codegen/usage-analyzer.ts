@@ -697,7 +697,8 @@ function walkUsage(nodeList: unknown, usage: FeatureUsage): void {
       continue;
     }
 
-    if (kind === "reactive-explicit-set" || kind === "reactive-debounced-decl") {
+    if (kind === "reactive-explicit-set") {
+      // S79 — reactive-debounced-decl retired (§6.13 reactivity attribute).
       walkExprNode(node.initExpr as ExprNode | undefined, usage);
       walkExprNode(node.value as ExprNode | undefined, usage);
       walkExprNode(node.expr as ExprNode | undefined, usage);

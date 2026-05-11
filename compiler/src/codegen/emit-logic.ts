@@ -506,6 +506,63 @@ function _emitInitThunkSidecar(node: any, qualifiedName: string, opts: EmitLogic
   return `_scrml_init_set(${JSON.stringify(encodedName)}, () => ${initBody});`;
 }
 
+/**
+ * S79 / §6.13 — emit the `_scrml_reactivity_register("name", "debounced"|
+ * "throttled", ms)` sidecar for a state-decl carrying `reactivity.debounced`
+ * or `reactivity.throttled`. Once registered, subsequent
+ * `_scrml_reactive_set("name", ...)` calls route through the timing wrapper.
+ *
+ * Literal-form DURATION lowers to a numeric `ms` literal. Computed-form
+ * DURATION (`${expr}<unit>`) lowers to an `() => exprText * unitMultiplier`
+ * arrow-fn (mirror A5-5 codegen pattern at emitEngineTimersTable). The
+ * runtime applies negative/NaN→0 clamp + Math.round.
+ *
+ * SKIP rules:
+ *   - server boundary — reactivity is client-side only.
+ *   - insideFunctionBody — reassignment is not the canonical decl site.
+ *   - derived (`isConst:true`) — A1b/B14 should reject E-DEBOUNCED-WITH-DERIVED
+ *     before codegen; defensive skip.
+ *   - reactivity.debounced.kind === "invalid" or .throttled.kind === "invalid"
+ *     — caller (typer) emits the diagnostic; defensive skip codegen.
+ *   - dual-attr (debounced AND throttled both set) — A1b/B14 should fire
+ *     E-REACTIVITY-ATTR-CONFLICT; defensive skip codegen.
+ */
+function _emitReactivitySidecar(node: any, qualifiedName: string, opts: EmitLogicOpts): string | null {
+  if (opts.boundary === "server") return null;
+  if (opts.insideFunctionBody) return null;
+  const reactivity = node.reactivity;
+  if (!reactivity) return null;
+  if ((node as any).shape === "derived" && (node as any).isConst === true) return null;
+  // Dual-attr is a typer error; skip codegen defensively.
+  if (reactivity.debounced && reactivity.throttled) return null;
+  let kind: string;
+  let dur: any;
+  if (reactivity.debounced) {
+    kind = "debounced";
+    dur = reactivity.debounced;
+  } else if (reactivity.throttled) {
+    kind = "throttled";
+    dur = reactivity.throttled;
+  } else {
+    return null;
+  }
+  if (!dur || dur.kind === "invalid") return null;
+  const ctx = opts.encodingCtx;
+  const encodedName = ctx ? ctx.encode(qualifiedName) : qualifiedName;
+  let msExpr: string;
+  if (dur.kind === "literal") {
+    msExpr = String(dur.ms);
+  } else if (dur.kind === "computed") {
+    // Mirror A5-5 codegen pattern (emit-engine.ts emitEngineTimersTable):
+    // wrap the user expression in parens, multiply by the unit multiplier,
+    // pass as an arrow-fn so the runtime evaluates per-fire.
+    msExpr = `() => (${dur.exprText}) * ${dur.unitMultiplier}`;
+  } else {
+    return null;
+  }
+  return `_scrml_reactivity_register(${JSON.stringify(encodedName)}, ${JSON.stringify(kind)}, ${msExpr});`;
+}
+
 // ---------------------------------------------------------------------------
 // C21 (§14.11 / M10) — Tier 3 predefined-shape compound positional sugar
 // ---------------------------------------------------------------------------
@@ -1174,6 +1231,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       const _qualifiedName = (opts.compoundPathPrefix ? `${opts.compoundPathPrefix}.${node.name}` : node.name);
       const _defaultSidecar = _emitDefaultSidecar(node, _qualifiedName, opts);
       const _initSidecar = _emitInitThunkSidecar(node, _qualifiedName, opts);
+      const _reactivitySidecar = _emitReactivitySidecar(node, _qualifiedName, opts);
       // C7: per-cell validator runner sidecar. For state-decls with non-empty
       // validators[] AND living inside a compound (compoundPathPrefix set),
       // emit a derived computation that walks the validators in declaration
@@ -1205,6 +1263,11 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         if (_defaultSidecar) parts.push(_defaultSidecar);
         if (_validatorSidecar) parts.push(_validatorSidecar);
         if (_inlineMessagesSidecar) parts.push(_inlineMessagesSidecar);
+        // S79 / §6.13 — reactivity-register sidecar. Must run AFTER the main
+        // `_scrml_reactive_set` (init write) so the init isn't routed through
+        // the timing wrapper. Subsequent writes (post-init) see the rule
+        // registered and route through the wrapper.
+        if (_reactivitySidecar) parts.push(_reactivitySidecar);
         return parts.join("\n");
       };
 
@@ -2093,14 +2156,12 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       return `_scrml_reactive_explicit_set(${args});`;
     }
 
-    case "reactive-debounced-decl": {
-      const delay: number = node.delay ?? 300;
-      const init: string = node.init ?? "undefined";
-      const ctx = opts.encodingCtx;
-      const encodedName = ctx ? ctx.encode(node.name) : node.name;
-      const rewrittenDebouncedInit = emitExprField(node.initExpr, init, _makeExprCtx(opts));
-      return `_scrml_reactive_debounced(${JSON.stringify(encodedName)}, () => ${rewrittenDebouncedInit}, ${delay});`;
-    }
+    // S79 — `case "reactive-debounced-decl"` RETIRED. The pre-v0.next
+    // `@debounced(N) name = expr` form is superseded by the canonical
+    // state-decl reactivity attribute form `<name debounced=Nms> = expr`
+    // (SPEC §6.13). State-decls with `reactivity` are emitted via the
+    // existing `case "state-decl"` arm; the new `_emitReactivitySidecar`
+    // helper attaches the `_scrml_reactivity_register` call as a sidecar.
 
     case "debounce-call": {
       const fn = emitExprField(node.fnExpr, node.fn ?? "() => {}", _makeExprCtx(opts));

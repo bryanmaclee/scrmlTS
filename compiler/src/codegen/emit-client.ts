@@ -75,8 +75,9 @@ function hasRuntimeMetaBlocks(fileAST: any): boolean {
 //   timers        markup tag "timer", "poll", or "timeout"
 //   animation     markup tag with animationFrame body, or direct animationFrame call
 //   reconciliation for-stmt with @reactive iterable
-//   utilities     reactive-nested-assign, reactive-debounced-decl, debounce-call,
-//                 throttle-call, upload-call, reactive-explicit-set, bare navigate call
+//   utilities     reactive-nested-assign, debounce-call, throttle-call,
+//                 upload-call, reactive-explicit-set, bare navigate call,
+//                 state-decl with reactivity (debounced= / throttled= per §6.13).
 //   meta          meta node
 //   transitions   logic binding or event binding with transitionEnter/transitionExit
 //   input         markup tag "keyboard", "mouse", or "gamepad"
@@ -193,6 +194,17 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
         if ((node as any).defaultExpr) {
           chunks.add("reset");
         }
+        // S79 / §6.13: a state-decl with `reactivity` set (debounced= /
+        // throttled=) triggers the `utilities` chunk — that's where the
+        // _scrml_reactive_debounced / _scrml_reactive_throttled / register
+        // helpers live. The cancel-on-reset path lives in `_scrml_reset`
+        // ('reset' chunk), so trigger that too — but only when a rule is
+        // actually present (a future write may reset() the cell, and the
+        // reset chunk's call into _scrml_reactivity_cancel needs the
+        // utilities chunk to be present so the lookup resolves).
+        if ((node as any).reactivity) {
+          chunks.add("utilities");
+        }
         // C7 (§55.2 + §55.6): a state-decl with non-empty validators[] triggers
         // the `validators` runtime chunk (14 fire functions + VALIDATOR_RUNTIME
         // map + _scrml_validator_fire dispatch). C7 codegen emits the per-cell
@@ -295,9 +307,8 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
       case "reactive-nested-assign":
         chunks.add("utilities"); // _scrml_deep_set
         break;
-      case "reactive-debounced-decl":
-        chunks.add("utilities"); // _scrml_reactive_debounced
-        break;
+      // S79 — case "reactive-debounced-decl" RETIRED (state-decl with
+      // reactivity field handles the chunk-trigger now).
       case "debounce-call":
         chunks.add("utilities"); // _scrml_debounce
         break;

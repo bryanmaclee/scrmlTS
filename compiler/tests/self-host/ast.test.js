@@ -503,11 +503,11 @@ describe("AST Builder — self-host parity", () => {
     assertParity("<program>${fail AppError::NotFound(msg)}</program>");
   });
 
-  // --- @debounced ---
-
-  test("@debounced reactive decl", () => {
-    assertParity("<program>${@debounced(500) searchTerm = query}</program>");
-  });
+  // S79 — `@debounced` reactive decl test RETIRED. The pre-v0.next
+  // `@debounced(N) name = expr` keyword-form is gone (SPEC §6.13). Self-host
+  // parity for the new attribute form `<name debounced=Nms>` rides on the
+  // existing state-decl parity tests (the attribute is captured by the same
+  // scanStructuralDeclLookahead path that handles default= / pinned).
 
   // --- @shared ---
 

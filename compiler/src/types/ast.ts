@@ -11,6 +11,8 @@
  * No runtime code lives here — types and interfaces only.
  */
 
+import type { AfterDurationResult } from "../codegen/parse-after-duration.js";
+
 // ---------------------------------------------------------------------------
 // Source Location
 // ---------------------------------------------------------------------------
@@ -494,6 +496,32 @@ export interface ReactiveDeclNode extends BaseNode {
    */
   children?: ReactiveDeclNode[];
   /**
+   * S79 Phase 2 — Reactivity attributes (SPEC §6.13).
+   *
+   * `debounced=DURATION` / `throttled=DURATION` wrap the cell's write path
+   * with timing semantics. DURATION grammar reuses parseAfterDuration
+   * (literal `Nms`/`Ns`/`Nm`/`Nh` OR computed `${expr}<unit>`).
+   *
+   * Mutually exclusive: at most one of `debounced` and `throttled` is
+   * present per cell. Dual-attr fires E-REACTIVITY-ATTR-CONFLICT (B14
+   * typer).
+   *
+   * Forbidden on derived cells (`isConst: true`) — fires
+   * E-DEBOUNCED-WITH-DERIVED. Forbidden on `<x server>` cells — fires
+   * E-DEBOUNCED-WITH-SERVER. Both checks live in B14 typer.
+   *
+   * Codegen wraps the write path:
+   *   `debounced` → `_scrml_reactive_debounced(name, () => valueExpr, ms)`
+   *   `throttled` → `_scrml_reactive_throttled(name, () => valueExpr, ms)`
+   *
+   * Computed-form lowers to a runtime msExpr arrow-fn (mirror A5-5
+   * codegen pattern at emit-engine.ts:emitEngineTimersTable).
+   */
+  reactivity?: {
+    debounced?: AfterDurationResult;
+    throttled?: AfterDurationResult;
+  };
+  /**
    * Phase A1a Step 11.0c — typed state-decl annotation (SPEC §6.2 + §53).
    * Raw type-expression text from the `:T` annotation; matches the same
    * STRING-form representation used for typed `let`/`const`/function-param
@@ -635,16 +663,15 @@ export interface RenderSpecNode extends BaseNode {
 // New code uses `ReactiveDeclNode` (kind:"state-decl") with the
 // discriminants above.
 
-/** A debounced reactive declaration: `@debounced(N) name = expr`. */
-export interface ReactiveDebouncedDeclNode extends BaseNode {
-  kind: "reactive-debounced-decl";
-  /** Variable name. */
-  name: string;
-  /** Debounce delay in milliseconds (default 300). */
-  delay: number;
-  /** Structured ExprNode form of the initializer. Populated by ast-builder. */
-  initExpr?: ExprNode;
-}
+// ReactiveDebouncedDeclNode (kind: "reactive-debounced-decl") was retired at
+// S79 — the pre-v0.next `@debounced(N) name = expr` keyword-form modifier is
+// superseded by the canonical state-decl reactivity attribute form
+// `<name debounced=Nms> = expr` (SPEC §6.13, ratified at S78 deep-dive
+// `scrml-support/docs/deep-dives/debounce-and-timing-2026-05-10.md` §6
+// Approach B clean-cut). Per the deep-dive's "no deprecation cycle since
+// no real adopters" decision (corpus footprint = 2 probe fixtures), the
+// pre-v0.next form was deleted outright; the parser will reject the
+// syntax with a generic parse error.
 
 /**
  * A reactive nested assignment: `@obj.path.to.prop = value`.

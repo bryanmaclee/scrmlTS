@@ -290,6 +290,7 @@ describe("test-body §7: emitted JS loads + passes under bun:test", () => {
     expect(testJs).toMatch(/let a = double \( 2 \)\s*\n\s*let b = double \( 3 \)/);
 
     // Spawn `bun test` on the emitted JS — must load + pass cleanly.
+    // Use process.cwd() so this works in both main and worktree checkouts.
     const child = spawnSync("bun", ["test", testJsPath], {
       cwd: process.cwd(),
       encoding: "utf8",

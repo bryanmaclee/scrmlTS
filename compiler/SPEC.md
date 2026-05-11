@@ -4871,9 +4871,12 @@ reset(@compound)          // reset all fields of a compound cell
 
 **Explicit cell argument REQUIRED** — `reset()` with no argument is **E-RESET-NO-ARG** (compile error; see §34).
 
+**Interaction with reactivity attributes (`debounced=` / `throttled=`).** When `reset(@cell)` is called and the cell carries a `debounced=` or `throttled=` attribute (per §6.13) AND has a pending timer in flight, the pending timer SHALL be cancelled before the reset value is applied. The cancel-then-apply ordering ensures the freshly-reset value is not subsequently overwritten by an in-flight debounced/throttled write. Cross-ref §6.13 for the reactivity-attribute surface.
+
 **Cross-references:**
 - §6.2 — Three RHS shapes (which cells support `default=`)
 - §6.3 — Compound state (compound reset semantics; §6.3.5 grounds multi-level)
+- §6.13 — Reactivity attributes (`debounced=` / `throttled=`); reset cancels pending timed writes.
 - §34 — E-RESERVED-IDENTIFIER, E-RESET-NO-ARG, E-RESET-INVALID-TARGET
 
 ---
@@ -5020,6 +5023,93 @@ For the full `protect=` specification, see **§52** (State Authority Declaration
 **Cross-references:**
 - §52 — State Authority Declarations (full `protect=` treatment)
 - §11 — (Reserved — content folded into §6 and §52)
+
+---
+
+### 6.13 Reactivity Attributes — `debounced=` and `throttled=`
+
+**Added:** 2026-05-10 (S79 — debounce/throttle Approach B clean-cut, ratified at S78 deep-dive `scrml-support/docs/deep-dives/debounce-and-timing-2026-05-10.md` §6). Supersedes the pre-v0.next `@debounced(N) name = expr` keyword-form modifier surface (deleted at S79; per the ratified Approach B "no deprecation cycle since no real adopters" decision).
+
+State-cell declarations (§6.2 Shape 1 and Shape 2) MAY carry one of two reactivity attributes that wrap the cell's write path with timing semantics. The attribute sits as a bare attribute on the declaration tag, alongside other state-decl attributes (`default=`, validators, `pinned`).
+
+#### 6.13.1 `debounced=DURATION` — Debounced Writes
+
+```scrml
+<searchTerm debounced=300ms> = ""
+```
+
+Writes to `@searchTerm` are coalesced into a single trailing write that fires `DURATION` after the most recent write request. Each new write within the window restarts the timer; the cell's value updates exactly once, after the window of silence. Subscribers (`when @searchTerm changes {}`, derived cells, render-by-tag, etc.) fire on the debounced write.
+
+#### 6.13.2 `throttled=DURATION` — Throttled Writes
+
+```scrml
+<scrollY throttled=100ms> = 0
+```
+
+Writes to `@scrollY` are throttled. The first write in any window emits immediately; subsequent writes within `DURATION` of the last emit are suppressed but the most recent suppressed value is held. At the end of the window a single trailing write emits with the held value. Subscribers see leading-fire + at-most-one-trailing-fire per window. (Standard leading+trailing throttle semantics.)
+
+#### 6.13.3 DURATION Grammar
+
+`DURATION` accepts the same form set as `<onTimeout after=>` (§51.0.M, §51.12.3, §51.12.3.1):
+
+| Form | Example | Notes |
+|---|---|---|
+| Literal | `300ms`, `2s`, `1m`, `1h` | Constant-folded to integer milliseconds at compile time. |
+| Computed | `${expr}ms`, `${@delay}s`, `${Math.min(1000, @backoff)}ms` | Any non-negative-number expression × unit-multiplier, evaluated per-fire. Negative / NaN clamped to zero by the runtime. |
+
+The grammar SHALL reuse the `parseAfterDuration` helper (`compiler/src/codegen/parse-after-duration.ts`) — the same parser used by `<onTimeout after=>` and the legacy `<machine>` `.From after DURATION => .To` form. Single-level brace match for the computed form (no nested braces inside `${...}`); see the helper's grammar note.
+
+#### 6.13.4 Composition With the Three RHS Shapes (§6.2)
+
+| Shape | Composition with `debounced=` / `throttled=` |
+|---|---|
+| Shape 1 plain reactive cell (`<x debounced=300ms> = ""`) | **Legal.** Writes are wrapped per §6.13.1 / §6.13.2. Reads via `@x` see the debounced/throttled value. |
+| Shape 2 decl-coupled-with-render-spec (`<typingDraft debounced=300ms req length(<=280)> = <textarea/>`) | **Legal.** `bind:value` writes to the cell are debounced/throttled; the auto-validity surface (§6.11, L11) recomputes on each debounced/throttled write. The `touched` flag fires immediately on first interaction (not debounced). |
+| Shape 3 derived (`const <doubled debounced=300ms> = @count * 2`) | **`E-DEBOUNCED-WITH-DERIVED`** (§34). Derived cells are read-only; debounce/throttle is a write-side wrapper; combining is meaningless. To debounce a derived computation, debounce the upstream source: `<source debounced=300ms> = @raw; const <doubled> = @source * 2`. |
+
+#### 6.13.5 Composition Rules
+
+**With `<channel>` shared cells (§38).** Debounce/throttle is **client-side**. The cell's local write is wrapped by the timing rule; the channel broadcast (the wire-distribute) fires on the wrapped write. This matches the 2026-03-28 deep-dive's 7/7 unanimous consensus (per S78 ratification §6.3 OQ-5).
+
+```scrml
+<channel name="chat" topic="lobby">
+  <draft debounced=500ms> = ""
+  // wire-shared draft buffer, debounced 500ms — broadcasts only after typing pause.
+</>
+```
+
+**With the auto-validity surface (`<errors of=@x/>`, `@x.isValid`, `@x.errors` — §6.11, §55).** Validity recomputes on the debounced/throttled write (the timing rule applies to BOTH the cell's value update AND the validity recomputation). The `touched` flag (per L11 Edge C) fires immediately on first `bind:value` / `bind:checked` change OR first focus-out — `touched` is NOT debounced. Adopter mental model: "I'm still typing, don't show field errors yet; I stopped, now show them."
+
+**With `reset(@cell)` (§6.8).** When `reset(@cell)` is called and the cell has a pending debounced/throttled timer, the timer is cancelled before the reset value is applied. See §6.8 for the explicit normative line.
+
+**With derived cells (`const <x>`).** Forbidden — `E-DEBOUNCED-WITH-DERIVED`. See §6.13.4 above.
+
+**With `server` cells (§52, where applicable).** `debounced=` / `throttled=` on a `<x server>` server-authoritative cell is `E-DEBOUNCED-WITH-SERVER`. Server-authoritative writes go through the §52 server-write path, not the client-side debounce/throttle wrapper; the two surfaces don't compose. Server-side timing semantics are out of scope for this revision.
+
+**Both `debounced=` AND `throttled=` on the same cell.** Forbidden — `E-REACTIVITY-ATTR-CONFLICT`. The two attributes describe competing timing rules; pick one.
+
+#### 6.13.6 Normative Statements
+
+- A state-cell declaration MAY carry at most one of `debounced=DURATION` and `throttled=DURATION`.
+- DURATION SHALL match the literal-form grammar (`Nms` / `Ns` / `Nm` / `Nh`) OR the computed-form grammar (`${expr}<unit>`) per §6.13.3 (reusing `parseAfterDuration`).
+- A literal-form DURATION that does not parse SHALL produce a compile error (the same diagnostic shape `<onTimeout after=>` produces).
+- `debounced=` / `throttled=` on a `const`-derived state-decl SHALL fire `E-DEBOUNCED-WITH-DERIVED` (§34).
+- `debounced=` AND `throttled=` on the same state-decl SHALL fire `E-REACTIVITY-ATTR-CONFLICT` (§34).
+- `debounced=` / `throttled=` on a `<x server>` server-authoritative cell SHALL fire `E-DEBOUNCED-WITH-SERVER` (§34).
+- `reset(@cell)` on a cell with `debounced=` / `throttled=` SHALL cancel any pending timer for `cell` before applying the reset value (§6.8).
+- Validity recomputation (§6.11, §55) SHALL fire on each debounced/throttled write — the timing rule is a wrapper around the same write path that triggers ordinary subscribers.
+
+#### 6.13.7 Cross-References
+
+- §6.2 — Three RHS shapes (Shape 1 + Shape 2 admit reactivity attributes; Shape 3 forbids them).
+- §6.8 — `default=` and `reset(@cell)` (reset cancels pending timed writes).
+- §6.11 / §55 — Auto-synthesized validity surface (recomputes on debounced/throttled writes).
+- §34 — `E-DEBOUNCED-WITH-DERIVED`, `E-DEBOUNCED-WITH-SERVER`, `E-REACTIVITY-ATTR-CONFLICT`.
+- §38 — `<channel>` (debounce is client-side; broadcasts on the wrapped write).
+- §51.0.M / §51.12.3 / §51.12.3.1 — DURATION grammar precedent (`<onTimeout after=>` is the parallel surface; `parseAfterDuration` is the shared parser).
+- L17 — Compiler binding-dispatch rule (binding shape is unchanged by `debounced=` / `throttled=`; the timing wrapper sits on the write side of `bind:value` / `bind:checked`).
+- L18 — `reset(@cell)` keyword + `default=` attribute (reset cancels pending timed writes).
+- L20 — Vocabulary smell rule (this section eliminates the pre-v0.next `@debounced(N)` keyword-form, collapsing onto one declarative surface).
 
 ---
 
@@ -14565,6 +14655,9 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-INTERNAL-RULE-NOT-COMPOSITE | §51.0.O, §51.0.Q | The `internal:rule=` prefix appears on a state-child that is not composite (no nested `<engine>` body). The internal-vs-external distinction is meaningful only when there is an inner engine whose lifecycle would be preserved on internal transitions. Use canonical `rule=` on non-composite state-children. (Catalog addition S67 — DD-Harel Approach C Hybrid, Insight 23 grammar decision #4.) | Error |
 | E-VALIDATOR-CIRCULAR-DEP | §55.11 | Two or more validators reference each other via cross-field predicate args (e.g., `<a eq(@b)>` and `<b eq(@a)>`). The validator dependency graph is a DAG; cycles are forbidden. | Error |
 | E-DERIVED-WITH-VALIDATORS | §55.14 | Validators applied to a derived cell (`const <x ...>`). Derived cells are read-only; validators imply gating which is incoherent on a computed value. Use a refinement type instead (`const <x>: number(>=0) = ...`). | Error |
+| E-DEBOUNCED-WITH-DERIVED | §6.13 | A `debounced=` (or `throttled=`) reactivity attribute is applied to a derived cell (`const <x debounced=300ms> = expr`). Derived cells are read-only; debounce/throttle is a write-side wrapper; combining the two is meaningless. Resolution: debounce the upstream source instead (`<source debounced=300ms> = @raw; const <doubled> = @source * 2`). (Catalog addition S79 — debounce/throttle Approach B clean-cut.) | Error |
+| E-DEBOUNCED-WITH-SERVER | §6.13, §52 | A `debounced=` (or `throttled=`) reactivity attribute is applied to a `<x server>` server-authoritative cell. Server-authoritative writes go through the §52 server-write path, not the client-side debounce/throttle wrapper; the two surfaces don't compose. Server-side timing semantics are out of scope for this revision. Resolution: remove the reactivity attribute, or restructure so the client-side cell carries the timing and the server-authoritative cell receives the resolved value. (Catalog addition S79 — debounce/throttle Approach B clean-cut.) | Error |
+| E-REACTIVITY-ATTR-CONFLICT | §6.13 | Both `debounced=DURATION` and `throttled=DURATION` appear on the same state-cell declaration. The two attributes describe competing timing rules (debounce coalesces writes; throttle leading+trailing-fires). Pick one. (Catalog addition S79 — debounce/throttle Approach B clean-cut.) | Error |
 | E-VALIDATOR-INLINE-DYNAMIC | §55.10 | The Level-1 inline message override on a validator (`<name req("…msg…")>`, `<name length(>=2, "…msg…")>`) must be a static string literal. Per L12 Edge F, dynamic expressions / interpolations defeat i18n tooling extraction (messages must be statically discoverable). Use a static literal here, OR define a project-registered message via `data.registerMessages` (Level 2), OR use the `<match for=ValidationError>` escape hatch (Level 4). (Catalog addition S68 — A1b B13.) | Error |
 | E-CHANNEL-INSIDE-PROGRAM | §38.1 | A `<channel>` element appears as a descendant of `<program>` rather than at file top level. v0.next channels are file-level (M19); migrate the declaration to be a sibling of `<program>`. | Error |
 | E-CHANNEL-SHARED-MODIFIER | §38.4 | The `@shared` modifier is used in the source. The modifier is removed in v0.next (M19); reactive cells declared inside a channel body auto-sync by virtue of being declared in the channel body. Remove the `@shared` keyword and use `<name> = init` (V5-strict). | Error |

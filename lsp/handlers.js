@@ -432,13 +432,29 @@ export function extractAnalysisInfo(ast, analysis) {
           // representation of legacy `const @x = expr`. Surface it via the
           // existing "derived" reactiveKind label so hover/symbol/analysis
           // outputs are unchanged.
+          // S79 — `reactive-debounced-decl` retired; debounced cells now ride
+          // on state-decl with a `reactivity.debounced` field (SPEC §6.13).
+          // Surface as the "debounced" reactiveKind so the hover/completion
+          // detail strings render the timing rule.
           const isFoldedDerived = node.shape === "derived" && node.structuralForm === false;
+          let reactiveKind = isFoldedDerived ? "derived" : "reactive";
+          let delay = undefined;
+          if (node.reactivity && node.reactivity.debounced) {
+            reactiveKind = "debounced";
+            const dur = node.reactivity.debounced;
+            delay = dur.kind === "literal" ? dur.ms : (dur.kind === "computed" ? "computed" : undefined);
+          } else if (node.reactivity && node.reactivity.throttled) {
+            reactiveKind = "throttled";
+            const dur = node.reactivity.throttled;
+            delay = dur.kind === "literal" ? dur.ms : (dur.kind === "computed" ? "computed" : undefined);
+          }
           analysis.reactiveVars.push({
             name: node.name?.startsWith("@") ? node.name.slice(1) : node.name,
             span: node.span,
             type: node.typeAnnotation || null,
-            reactiveKind: isFoldedDerived ? "derived" : "reactive",
+            reactiveKind,
             isShared: !!node.isShared,
+            ...(delay !== undefined ? { delay } : {}),
           });
           break;
         }
@@ -451,16 +467,8 @@ export function extractAnalysisInfo(ast, analysis) {
           });
           break;
         }
-        case "reactive-debounced-decl": {
-          analysis.reactiveVars.push({
-            name: node.name?.startsWith("@") ? node.name.slice(1) : node.name,
-            span: node.span,
-            type: null,
-            reactiveKind: "debounced",
-            delay: node.delay,
-          });
-          break;
-        }
+        // S79 — case "reactive-debounced-decl" retired; debounced cells ride
+        // on state-decl with reactivity.debounced (handled in the case above).
         case "tilde-decl":
           analysis.tildeVars.push({ name: node.name, span: node.span });
           break;
@@ -711,8 +719,8 @@ export function buildDocumentSymbols(ast, text) {
         };
       }
       case "state-decl":
-      case "reactive-derived-decl":
-      case "reactive-debounced-decl": {
+      case "reactive-derived-decl": {
+        // S79 — `reactive-debounced-decl` retired (§6.13 reactivity attribute).
         const baseName = stmt.name?.startsWith("@") ? stmt.name.slice(1) : stmt.name;
         // Phase A1a Step 11.5 — fold: state-decl with shape:"derived" +
         // structuralForm:false is the post-fold representation of the legacy
@@ -722,12 +730,26 @@ export function buildDocumentSymbols(ast, text) {
           stmt.kind === "state-decl" &&
           stmt.shape === "derived" &&
           stmt.structuralForm === false;
+        // S79 — surface the new reactivity-attribute timing rule in the
+        // detail string when present. Mirrors the pre-S79 `@debounced(N)`
+        // detail format adapted for the new attribute syntax.
+        let stateDetail;
+        if (isFoldedDerived) {
+          stateDetail = "@derived";
+        } else if (stmt.kind === "state-decl" && stmt.reactivity?.debounced) {
+          const dur = stmt.reactivity.debounced;
+          const msStr = dur.kind === "literal" ? `${dur.ms}ms` : (dur.kind === "computed" ? "computed" : "?");
+          stateDetail = `<${baseName} debounced=${msStr}>`;
+        } else if (stmt.kind === "state-decl" && stmt.reactivity?.throttled) {
+          const dur = stmt.reactivity.throttled;
+          const msStr = dur.kind === "literal" ? `${dur.ms}ms` : (dur.kind === "computed" ? "computed" : "?");
+          stateDetail = `<${baseName} throttled=${msStr}>`;
+        } else {
+          stateDetail = "@reactive" + (stmt.isShared ? " (shared)" : "");
+        }
         const detailMap = {
-          "state-decl": isFoldedDerived
-            ? "@derived"
-            : "@reactive" + (stmt.isShared ? " (shared)" : ""),
+          "state-decl": stateDetail,
           "reactive-derived-decl": "@derived",
-          "reactive-debounced-decl": `@debounced(${stmt.delay ?? 300})`,
         };
         return {
           name: `@${baseName}`,
@@ -910,7 +932,9 @@ export function buildHover(text, offset, analysis) {
           ? "(reactive, derived)"
           : rv.reactiveKind === "debounced"
             ? `(reactive, debounced ${rv.delay ?? 300}ms)`
-            : "(reactive)";
+            : rv.reactiveKind === "throttled"
+              ? `(reactive, throttled ${rv.delay ?? 300}ms)`
+              : "(reactive)";
         const sharedTag = rv.isShared ? " (shared)" : "";
         const lines = [`**@${varName}** ${kindBadge}${sharedTag}`];
         if (rv.type) lines.push("", `Type: \`${rv.type}\``);
@@ -1271,11 +1295,17 @@ export function reactiveVarCompletions(reactiveVars) {
     const name = rv.name?.startsWith("@") ? rv.name.slice(1) : rv.name;
     if (!name || seen.has(name)) continue;
     seen.add(name);
+    // S79 — `@debounced(N)` keyword-form retired (SPEC §6.13). The new
+    // attribute-form details surface as `<name debounced=Nms>` /
+    // `<name throttled=Nms>` to mirror the canonical declaration syntax
+    // the developer types.
     const kindLabel = rv.reactiveKind === "derived"
       ? "@derived"
       : rv.reactiveKind === "debounced"
-        ? `@debounced(${rv.delay ?? 300})`
-        : "@reactive";
+        ? `<${rv.name?.replace(/^@/, "") ?? "x"} debounced=${rv.delay ?? 300}ms>`
+        : rv.reactiveKind === "throttled"
+          ? `<${rv.name?.replace(/^@/, "") ?? "x"} throttled=${rv.delay ?? 300}ms>`
+          : "@reactive";
     const sharedTag = rv.isShared ? " (shared)" : "";
     items.push({
       label: name,

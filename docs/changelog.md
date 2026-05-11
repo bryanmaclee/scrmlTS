@@ -2,7 +2,53 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-10 S78 close, machine-switch wrap — PA-VERIFIED): **11,051 pass / 77 skip / 1 todo / 0 FAIL**. **ALL 6 prior environmental fails CLOSED via root-cause fixes**. Net delta vs S77 close: **+90 pass / +13 skip / +0 todo / -6 fail** across **16 commits** (Phase A10 SHIP + audit fold-in + audit threads). **S78 closed: Phase A10 engine state-child body render SHIPPED end-to-end; 6-deep deferral chain CLOSED; A5-6 Feature 1 (named timer + cancelTimer) UNBLOCKED; SPEC + test conformance audits BOTH COMPLETE; debounce/throttle re-deliberation landed (Approach B ratified — clean cut to `<name debounced=Nms>` attribute form); hardcoded threshold sweep landed (5 prioritized refactors); E-IMPORT-007 unblocked via injectable `gatherLimit`; pre-commit hook INSTALLED on this machine after audit discovered it had been silently uninstalled.**
+Current baseline (2026-05-10 S79 — debounce/throttle Approach B SHIPPED — worktree-internal): **10,353 pass / 62 skip / 1 todo / 0 FAIL** (full PA-verified count comes after PA's land step). 28 NEW unit tests in `compiler/tests/unit/debounce-throttle-attribute.test.js`. Net unit-suite delta: -6 retired pre-v0.next assertions + 28 new = +22 net. 0 regressions across all suites.
+
+### 2026-05-10 (S79 — debounce/throttle Approach B clean-cut SHIPPED)
+
+Implementation of S78 deep-dive ratification (`scrml-support/docs/deep-dives/debounce-and-timing-2026-05-10.md` §6 Approach B). Cross-cutting Tier 3 dispatch (SPEC + parser + codegen + runtime + types + samples + tests + LSP).
+
+**Phase 1 — SPEC authoring:**
+- §6.13 NEW (Reactivity Attributes — `<name debounced=Nms>` / `<name throttled=Nms>`) — full normative subsection covering DURATION grammar (literal + computed via parseAfterDuration reuse), composition with Shape 1/2 (legal) + Shape 3 (E-DEBOUNCED-WITH-DERIVED), with `<channel>` shared cells (client-side broadcast per OQ-5 ratification), with auto-validity surface (recomputes on debounced write; touched fires immediately per OQ-6), with reset() (cancels pending per OQ-3), with `<x server>` cells (E-DEBOUNCED-WITH-SERVER deferred), and dual-attr E-REACTIVITY-ATTR-CONFLICT.
+- §6.8 amendment — paragraph + cross-ref documenting reset(@cell) cancels pending debounced/throttled timer before applying reset value.
+- §34 +3 catalog rows: E-DEBOUNCED-WITH-DERIVED, E-DEBOUNCED-WITH-SERVER, E-REACTIVITY-ATTR-CONFLICT.
+
+**Phase 2 — Parser + Typer + Codegen + Runtime:**
+- types/ast.ts: ReactiveDeclNode gains `reactivity?: { debounced?: AfterDurationResult; throttled?: AfterDurationResult }` field.
+- ast-builder.js scanStructuralDeclLookahead: extended to recognize `debounced=DURATION` / `throttled=DURATION` attributes alongside default= / pinned / validators; parseAfterDuration validates at decl-completion.
+- type-system.ts: B14-style typer checks for E-REACTIVITY-ATTR-CONFLICT, E-DEBOUNCED-WITH-DERIVED, E-DEBOUNCED-WITH-SERVER, E-SYNTAX-DURATION (malformed value).
+- emit-logic.ts: new _emitReactivitySidecar emits `_scrml_reactivity_register("name", kind, ms)` (literal numeric or computed-form arrow-fn mirroring A5-5 pattern).
+- emit-client.ts: utilities chunk-trigger added on state-decl with reactivity.
+- runtime-template.js: hoisted registries to module top (TDZ safety); rewrote `_scrml_reactive_debounced` (was partial — comment said "would re-evaluate fn after delay" but didn't); added `_scrml_reactive_throttled` (NEW — leading+trailing throttle); added `_scrml_reactivity_register` + `_scrml_reactivity_cancel`; wired `_scrml_reactive_set` to consult registry + route through timer (with bypass-flag against recursion); wired `_scrml_reset` to cancel pending timers + clear throttle pending value.
+
+**Phase 3 — clean-cut deletion (per Approach B "no deprecation cycle since no real adopters"; corpus footprint = 2 probe fixtures):**
+- types/ast.ts: ReactiveDebouncedDeclNode interface deleted.
+- ast-builder.js: 2 parse paths deleted (top-level + in-function-body @debounced(N) keyword-form).
+- type-system.ts: case 'reactive-debounced-decl' deleted.
+- emit-logic.ts: case 'reactive-debounced-decl' deleted.
+- emit-client.ts: chunk-detector case deleted.
+- route-inference.ts: 2 case arms simplified.
+- component-expander.ts: case arm + import simplified.
+- usage-analyzer.ts: case arm simplified.
+- lsp/handlers.js: state-decl analysis arm extended to detect reactivity attributes; symbol detail strings updated to canonical `<name debounced=Nms>` form.
+- DEFERRED: imperative `debounce(fn, ms)` / `throttle(fn, ms)` keyword-call retirement (OQ-2; orthogonal to declarative — separate dispatch).
+
+**Phase 4 — tests:**
+- New `compiler/tests/unit/debounce-throttle-attribute.test.js` — 28 unit tests, 7 sections (parser / typer / codegen / computed-form / runtime / migrated samples / regression).
+- 6 retired test assertions across tab.test.js / code-generator.test.js / type-encoding-phase2.test.js / collectexpr-newline-boundary.test.js / gauntlet-s24/scope-001-logic-expr.test.js / self-host/ast.test.js.
+- Updated lsp/completions.test.js to assert new attribute-form detail string.
+
+**Phase 5 — docs:**
+- docs/PA-SCRML-PRIMER.md §4 amended with the new attribute surface; §12 obsolete claim about reactive-debounced-decl being "STILL ACTIVELY CONSTRUCTED" updated to reflect S79 retirement.
+- master-list.md "Last updated" line updated.
+
+**Sample migration:** phase1-reactive-debounced-004.scrml + phase1-reactive-throttled-005.scrml migrated to canonical form (`<query debounced=300ms> = ""` / `<scrollY throttled=100ms> = 0`); expected-JSON flipped from "expects-error" to "expects-clean".
+
+**OQ closures:** OQ-3 (reset cancels pending timed writes — ratified in §6.8 amendment + runtime), OQ-4 (parseAfterDuration reuse — ratified in §6.13.3 + parser), OQ-5 (channel debounce client-side — ratified in §6.13.5), OQ-6 (validity recomputes on debounced write; touched immediate — ratified in §6.13.5), OQ-8 (parallel `throttled=` attribute — ratified + shipped), OQ-9 (computed `${expr}ms` form — ratified + shipped).
+
+**OQ deferred:** OQ-1 (migrator rule — N/A under Approach B clean cut), OQ-2 (imperative keyword-calls retirement — orthogonal, separate dispatch), OQ-7 (server-fn cancellation when debounced calls overlap — out of scope per deep-dive).
+
+Earlier S78 close baseline (preserved for reference): **11,051 pass / 77 skip / 1 todo / 0 FAIL**. **ALL 6 prior environmental fails CLOSED via root-cause fixes**. Net delta vs S77 close: **+90 pass / +13 skip / +0 todo / -6 fail** across **16 commits**.
 
 ### 2026-05-10 (S79 — hardcoded-thresholds Bucket B + C SHIPPED · serve-client timeouts + idempotency-ttl + batch-in-list-cap overrides · 21 unit tests · 0 regressions)
 

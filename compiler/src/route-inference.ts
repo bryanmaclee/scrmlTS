@@ -1249,8 +1249,8 @@ function collectLocalNames(body: LogicStatement[]): Set<string> {
         if ((node as any).name) names.add((node as any).name);
         break;
       case "state-decl":
-      case "reactive-debounced-decl":
         // Phase A1a Step 11.5 — `reactive-derived-decl` folded into state-decl.
+        // S79 — `reactive-debounced-decl` retired (§6.13 reactivity attribute).
         if ((node as any).name) names.add((node as any).name);
         break;
       case "function-decl":
@@ -1409,7 +1409,7 @@ function collectReferencedNames(body: LogicStatement[]): Set<string> {
       case "tilde-decl":
       case "lin-decl":
       case "state-decl":
-      case "reactive-debounced-decl":
+        // S79 — `reactive-debounced-decl` retired (§6.13 reactivity attribute).
         walkExprOrString(n.initExpr, n.init);
         return;
 

@@ -82,7 +82,7 @@ import type {
   TildeDeclNode,
   LinDeclNode,
   ReactiveDeclNode,
-  ReactiveDebouncedDeclNode,
+  // S79 — ReactiveDebouncedDeclNode retired (§6.13 reactivity attribute).
   ReactiveNestedAssignNode,
   FunctionDeclNode,
   IfStmtNode,
@@ -1099,17 +1099,17 @@ function substitutePropsInLogicStmt(
     case "const-decl":
     case "tilde-decl":
     case "lin-decl":
-    case "state-decl":
-    case "reactive-debounced-decl": {
+    case "state-decl": {
       // Phase A1a Step 11.5 — `reactive-derived-decl` folded into state-decl.
-      const n = stmt as LetDeclNode | ConstDeclNode | TildeDeclNode | LinDeclNode | ReactiveDeclNode | ReactiveDebouncedDeclNode;
+      // S79 — `reactive-debounced-decl` retired (§6.13 reactivity attribute).
+      const n = stmt as LetDeclNode | ConstDeclNode | TildeDeclNode | LinDeclNode | ReactiveDeclNode;
       const newInit = subInExpr(n.initExpr);
       const newNode = { ...n, initExpr: newInit } as typeof n;
       // After this declaration, the name shadows any same-named prop for subsequent stmts.
       // Reactive vars use @-prefix; we add both forms to be safe (if prop name is `count`,
       // a `@count` reactive declaration shadows further refs).
       if (n.name) {
-        if (n.kind === "state-decl" || n.kind === "reactive-debounced-decl") {
+        if (n.kind === "state-decl") {
           shadowed.add("@" + n.name);
         } else {
           shadowed.add(n.name);

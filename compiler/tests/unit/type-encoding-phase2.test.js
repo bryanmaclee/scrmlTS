@@ -230,20 +230,10 @@ describe("emitLogicNode with EncodingContext", () => {
     expect(output).not.toContain('"items"');
   });
 
-  test("reactive-debounced-decl uses encoded name", () => {
-    const ctx = new EncodingContext({ enabled: true });
-    const encodedSearch = ctx.register("search", STRING_TYPE);
-
-    const node = {
-      kind: "reactive-debounced-decl",
-      name: "search",
-      init: '""',
-      delay: 300,
-    };
-    const output = emitLogicNode(node, { encodingCtx: ctx });
-    expect(output).toContain(JSON.stringify(encodedSearch));
-    expect(output).not.toContain('"search"');
-  });
+  // S79 — `reactive-debounced-decl uses encoded name` test RETIRED. The
+  // AST kind is gone; the equivalent assertion for the new state-decl
+  // reactivity-attribute form lives in
+  // compiler/tests/unit/debounce-throttle-attribute.test.js.
 
   test("debug mode produces names with $ suffix in output", () => {
     const ctx = new EncodingContext({ enabled: true, debug: true });
