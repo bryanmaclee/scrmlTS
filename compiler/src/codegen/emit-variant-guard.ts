@@ -404,8 +404,55 @@ function emitArmWireFunction(
   // Local lazy imports for the rewriters to avoid circular dependencies.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { rewriteBlockBody } = require("./emit-control-flow.ts") as {
-    rewriteBlockBody: (raw: string) => string;
+    rewriteBlockBody: (
+      raw: string,
+      machineBindings?: any,
+      engineCtx?: any,
+    ) => string;
   };
+
+  // Bug #6 (s83-a7, §51.0.F + §51.0.G + §51.0.H + §51.0.N + §51.0.O + §51.0.Q.1)
+  // — engine context for arm-body event handlers. Without this, an event
+  // handler INSIDE a non-initial engine arm (e.g. `<Error msg>` with
+  // `<button onclick=${@phase = .Loading}/>`) silently bypasses the engine
+  // write-guard once the dispatcher re-mounts the arm. Mirror the threading
+  // done in `emit-event-wiring.ts:emitEventWiring` so arm-wire fn handlers
+  // get the same correctness guarantees as the file-level handlers.
+  //
+  // Tree-shake: when the file has no `<engine>` declarations, all helpers
+  // return null/empty and the EngineRewriteCtx becomes a no-op.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const _engineMod = require("./emit-engine.ts") as {
+    buildEngineBindingsMap: (fileAST: any) => Map<string, any> | null;
+    collectEngineVarNames: (fileAST: any) => Set<string>;
+    collectEnginesWithHooks: (fileAST: any) => Set<string>;
+    collectEnginesWithOnTimeout: (fileAST: any) => Set<string>;
+    collectEnginesWithIdleWatchdog: (fileAST: any) => Set<string>;
+    collectEnginesWithInternalRules: (fileAST: any) => Set<string>;
+    collectEnginesWithHistory: (fileAST: any) => Set<string>;
+  };
+  const _eBindings = _engineMod.buildEngineBindingsMap(ctx.fileAST);
+  const _eVarNames = _engineMod.collectEngineVarNames(ctx.fileAST);
+  const _eHooks = _engineMod.collectEnginesWithHooks(ctx.fileAST);
+  const _eOnTimeout = _engineMod.collectEnginesWithOnTimeout(ctx.fileAST);
+  const _eIdle = _engineMod.collectEnginesWithIdleWatchdog(ctx.fileAST);
+  const _eInternal = _engineMod.collectEnginesWithInternalRules(ctx.fileAST);
+  const _eHistory = _engineMod.collectEnginesWithHistory(ctx.fileAST);
+  const _engineRewriteCtx =
+    _eBindings != null || _eVarNames.size > 0
+      ? {
+          engineBindings: _eBindings,
+          exprCtxExtras: {
+            engineVarNames: _eVarNames.size > 0 ? _eVarNames : null,
+            enginesWithHooks: _eHooks.size > 0 ? _eHooks : null,
+            enginesWithOnTimeout: _eOnTimeout.size > 0 ? _eOnTimeout : null,
+            enginesWithIdleWatchdog: _eIdle.size > 0 ? _eIdle : null,
+            enginesWithInternalRules: _eInternal.size > 0 ? _eInternal : null,
+            enginesWithHistory: _eHistory.size > 0 ? _eHistory : null,
+          },
+        }
+      : null;
+  const _engineExprCtxExtras = _engineRewriteCtx?.exprCtxExtras ?? {};
 
   function buildHandlerExpr(binding: any): string {
     if (binding.handlerExpr) {
@@ -437,7 +484,9 @@ function emitArmWireFunction(
             j++;
           }
           const body = raw.slice(braceOpen + 1, j).trim();
-          return `function(${params}) { ${rewriteBlockBody(body)}; }`;
+          // Bug #6 (s83-a7): thread engine ctx so `@engineVar = .X` +
+          // `.advance(.X)` inside the body route through the write-guard path.
+          return `function(${params}) { ${rewriteBlockBody(body, null, _engineRewriteCtx)}; }`;
         }
       }
       // Arrow function — use as-is via emitExprField rewrite.
@@ -445,10 +494,26 @@ function emitArmWireFunction(
         /^\s*\([^)]*\)\s*=>/.test(binding.handlerExpr) ||
         /^\s*[\w$_][\w$_0-9]*\s*=>/.test(binding.handlerExpr);
       if (isArrow) {
-        return emitExprField(binding.handlerExprNode, binding.handlerExpr, { mode: "client" });
+        // Bug #6 (s83-a7): thread engine ctx into the EmitExprContext so
+        // `.advance(.X)` inside the arrow body dispatches to the C13 path.
+        return emitExprField(binding.handlerExprNode, binding.handlerExpr, {
+          mode: "client",
+          ..._engineExprCtxExtras,
+        });
       }
       // Plain expression / statement — rewrite + wrap.
-      const rewritten = rewriteBlockBody(binding.handlerExpr);
+      // Bug #6 (s83-a7): when handlerExprNode is a single non-assignment
+      // expression, prefer the structured emit path so C13 `.advance(.X)`
+      // detection fires (the string-rewrite fallback doesn't have it).
+      const exprNode = binding.handlerExprNode as { kind?: string } | undefined;
+      if (exprNode && exprNode.kind !== "assign" && exprNode.kind !== "lambda") {
+        const sbody = emitExprField(binding.handlerExprNode, binding.handlerExpr, {
+          mode: "client",
+          ..._engineExprCtxExtras,
+        });
+        return `function(event) { ${sbody}; }`;
+      }
+      const rewritten = rewriteBlockBody(binding.handlerExpr, null, _engineRewriteCtx);
       const isBareRef = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(rewritten.trim());
       const body = isBareRef ? `${rewritten}()` : rewritten;
       return `function(event) { ${body}; }`;

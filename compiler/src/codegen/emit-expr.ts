@@ -554,7 +554,31 @@ function emitCall(node: CallExpr, ctx: EmitExprContext): string {
     const bareName = (node.callee.object as IdentExpr).name.slice(1);
     if (ctx.engineVarNames.has(bareName)) {
       const { emitEngineAdvanceCall } = require("./emit-engine.ts");
-      const targetExpr = emitExpr(node.args[0], ctx);
+      // Bug #2 follow-up (s83-a7-bug-6) — detect the `.X.history` structured
+      // restore-form on the argument. Mirrors emit-logic.ts:detectHistoryForm
+      // applied to the advance call site. Shape: MemberExpr with property
+      // "history" and an inner variant-bearing object (bare-dot ident OR
+      // member-on-member). When detected, strip the `.history` suffix from
+      // the target expression and pass isHistoryRestore=true.
+      let arg0: any = node.args[0];
+      let isHistoryRestore = false;
+      if (
+        arg0 && typeof arg0 === "object" &&
+        arg0.kind === "member" && arg0.property === "history" &&
+        arg0.object && typeof arg0.object === "object"
+      ) {
+        const inner = arg0.object;
+        // Accept bare-dot ident `.Variant` or qualified `Type.Variant` /
+        // `Outer.Type.Variant` chains. Reject calls / brackets / non-variant.
+        if (
+          (inner.kind === "ident" && typeof inner.name === "string" && inner.name.startsWith(".")) ||
+          inner.kind === "member"
+        ) {
+          arg0 = inner;
+          isHistoryRestore = true;
+        }
+      }
+      const targetExpr = emitExpr(arg0, ctx);
       // B17.4 — pass hasHooks so the wrap (capture pre-write + fire-hooks-post)
       // is emitted only when this engine has at least one effect=/<onTransition>
       // arm. Tree-shake: hookless engines emit the bare runtime helper call.
@@ -575,7 +599,7 @@ function emitCall(node: CallExpr, ctx: EmitExprContext): string {
       // threads the per-engine history-map identifier as the trailing (7th)
       // arg. Tree-shake when engine has no composite `history` state-child.
       const hasHistory = ctx.enginesWithHistory ? ctx.enginesWithHistory.has(bareName) : false;
-      return emitEngineAdvanceCall(bareName, targetExpr, hasHooks, hasOnTimeout, hasIdle, hasInternal, hasHistory);
+      return emitEngineAdvanceCall(bareName, targetExpr, hasHooks, hasOnTimeout, hasIdle, hasInternal, hasHistory, isHistoryRestore);
     }
   }
 

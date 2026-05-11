@@ -100,6 +100,84 @@ interface MachineBindingInfo {
   rules: Array<{ from: string; to: string; guard: string | null; label: string | null; effectBody: string | null }>;
 }
 
+/**
+ * §51.0.F + §51.0.G — Engine context threaded into `rewriteBlockBody` so that
+ * event-handler bodies containing `@engineVar = .X` (direct write) AND
+ * `@engineVar.advance(.X)` (loud advance) route through the canonical
+ * write-guard path instead of bypassing it.
+ *
+ * Bug #6 (s83-a7): event-handler emission paths (`emit-event-wiring.ts` +
+ * `emit-variant-guard.ts`'s arm-wire fn) previously called `rewriteBlockBody`
+ * with NO engine context, so `@phase = .Loading` inside `onclick=${...}`
+ * silently emitted a bare `_scrml_reactive_set`. That bypassed `rule=`
+ * enforcement, `<onTransition>` hooks, `internal:rule=` distinct path,
+ * history-cell capture, and the history-restore flag — all of which fire
+ * correctly when the SAME assignment appears inside a function body
+ * (because emit-logic.ts:_emitReactiveSet threads engineBindings there).
+ *
+ * `engineBindings` is the per-engine direct-write info (consumed at the
+ * `@engineVar = .X` site). `exprCtxExtras` carries the partial
+ * EmitExprContext that lets `.advance()` calls inside event-handler bodies
+ * dispatch to `_scrml_engine_advance` via the C13 detection arm in
+ * `emit-expr.ts:emitCall`.
+ */
+export interface EngineRewriteCtx {
+  engineBindings?: Map<string, import("./emit-engine.ts").EngineBindingInfo> | null;
+  exprCtxExtras?: Pick<
+    EmitExprContext,
+    | "engineVarNames"
+    | "enginesWithHooks"
+    | "enginesWithOnTimeout"
+    | "enginesWithIdleWatchdog"
+    | "enginesWithInternalRules"
+    | "enginesWithHistory"
+  > | null;
+}
+
+/**
+ * §51.0.N + §51.0.Q.1 (Bug #2 follow-up for the string-rewrite path) — detect
+ * the `.Variant.history` restore-form on the RHS of an engine-bound direct
+ * assignment when the RHS is only available as raw source text (the case
+ * inside `rewriteBlockBody`, which operates on event-handler body strings
+ * before any ExprNode parse).
+ *
+ * Accepted shapes (mirrors `emit-logic.ts:detectHistoryForm` semantics):
+ *   `.Playing.history`                → strip → `.Playing`
+ *   `AppMode.Playing.history`         → strip → `AppMode.Playing`
+ *   `(.Playing).history`              → strip → `.Playing`
+ *   `AppMode.Playing.history.foo`     → no strip (`.foo` follows)
+ *   `getX().history`                  → no strip (non-variant base)
+ *
+ * The check is conservative — the suffix MUST be exactly `.history` at the
+ * very end of the RHS expression. Inner usages (e.g. computed expressions
+ * referencing `.history` in the middle of a sub-call) are out of scope.
+ */
+function detectHistoryFormFromString(rhs: string): { isHistoryForm: boolean; strippedRhs: string } {
+  const trimmed = rhs.trim();
+  // Suffix must be `.history` (word-final — `.historyExtra` does NOT count).
+  const m = trimmed.match(/^(.*?)\.history\s*$/s);
+  if (!m) return { isHistoryForm: false, strippedRhs: trimmed };
+  const base = m[1].trim();
+  if (base.length === 0) return { isHistoryForm: false, strippedRhs: trimmed };
+  // Base must look like a variant target: either starts with `.` (bare-dot
+  // variant tag) OR is a member expression on a (presumed-enum) ident chain.
+  // Accept `(.X)` parenthesized form too — strip outer parens for the check.
+  let baseForCheck = base;
+  while (baseForCheck.startsWith("(") && baseForCheck.endsWith(")")) {
+    baseForCheck = baseForCheck.slice(1, -1).trim();
+  }
+  if (baseForCheck.length === 0) return { isHistoryForm: false, strippedRhs: trimmed };
+  // Variant shapes accepted:
+  //   `.Foo`               (bare-dot)
+  //   `Type.Foo`           (qualified)
+  //   `Outer.Type.Foo`     (deeper qualified — still ident chain)
+  // Reject: trailing parens (function call), brackets (index), operators.
+  if (!/^(\.)?[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$/.test(baseForCheck)) {
+    return { isHistoryForm: false, strippedRhs: trimmed };
+  }
+  return { isHistoryForm: true, strippedRhs: base };
+}
+
 // ---------------------------------------------------------------------------
 // if / else
 // ---------------------------------------------------------------------------
@@ -957,11 +1035,27 @@ export function splitMultiArmString(s: string): string[] {
  * assignments `@name = expr` must be rewritten here before rewriteExpr
  * processes `@name` as a getter call.
  *
- * When machineBindings is provided, machine-bound reactive assignments
- * are wrapped with emitTransitionGuard instead of a plain _scrml_reactive_set.
+ * When `machineBindings` is provided, machine-bound reactive assignments
+ * are wrapped with `emitTransitionGuard` instead of a plain `_scrml_reactive_set`.
  * This enforces §51 state machine transition rules at runtime.
+ *
+ * When `engineCtx` is provided (Bug #6, s83-a7), engine-bound (`<engine>`-form)
+ * direct assignments route through `emitEngineWriteGuard` — the canonical
+ * write-guard path that threads `rule=` enforcement (§51.0.F), `<onTransition>`
+ * hook firing (§51.0.H), `internal:rule=` distinct path (§51.0.O), history-cell
+ * capture (§51.0.N), and the `.Variant.history` restore-form flag (§51.0.Q.1).
+ * Additionally, `engineCtx.exprCtxExtras` is threaded into every `emitExprField`
+ * call so `.advance(.X)` calls inside the body dispatch to `_scrml_engine_advance`
+ * via the C13 detection arm in `emit-expr.ts:emitCall`.
+ *
+ * Engine binding wins over machine binding when both are present for the same
+ * name (engines are the canonical surface; machines are the deprecated legacy).
  */
-export function rewriteBlockBody(content: string, machineBindings?: Map<string, MachineBindingInfo> | null): string {
+export function rewriteBlockBody(
+  content: string,
+  machineBindings?: Map<string, MachineBindingInfo> | null,
+  engineCtx?: EngineRewriteCtx | null,
+): string {
   const stmts: string[] = [];
   let current = "";
   let depth = 0;
@@ -982,12 +1076,47 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
 
   if (stmts.length === 0) return "";
 
+  // Bug #6 (s83-a7) — build a fresh EmitExprContext for every emitExprField
+  // call inside this body so `.advance(.X)` lowering reaches the C13 dispatch
+  // path. When engineCtx.exprCtxExtras is null/undefined, the spread is a
+  // no-op and we get the same behaviour as the original `{ mode: "client" }`.
+  const exprCtx: EmitExprContext = {
+    mode: "client",
+    ...(engineCtx?.exprCtxExtras ?? {}),
+  };
+
   const results: string[] = [];
   for (const stmt of stmts) {
     const reactiveAssignMatch = stmt.match(/^@([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=)\s*([\s\S]+)$/);
     if (reactiveAssignMatch) {
       const name = reactiveAssignMatch[1];
-      const valueExpr = emitExprField(null, reactiveAssignMatch[2].trim(), { mode: "client" });
+      const rawRhs = reactiveAssignMatch[2].trim();
+      // Bug #6 (s83-a7) — engine binding wins. Engine and machine bindings
+      // cannot legally share a name (a var is either engine-bound, machine-
+      // bound, or plain); when both maps are non-null we still check engine
+      // first to mirror the priority used by emit-logic.ts:_emitReactiveSet.
+      const engineBinding = engineCtx?.engineBindings?.get(name) ?? null;
+      if (engineBinding) {
+        // §51.0.N + §51.0.Q.1 (Bug #2 follow-up) — detect the `.Variant.history`
+        // structured target form on the RHS. When present, strip the `.history`
+        // suffix from the value expression (so the runtime value is the bare
+        // variant tag) AND set isHistoryRestore=true so the runtime helper
+        // arms the pending-history-restore flag for the dispatcher's
+        // composite-arm postMountJs to consume.
+        const hist = detectHistoryFormFromString(rawRhs);
+        const valueExpr = emitExprField(null, hist.strippedRhs, exprCtx);
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { emitEngineWriteGuard } = require("./emit-engine.ts") as {
+          emitEngineWriteGuard: (
+            binding: import("./emit-engine.ts").EngineBindingInfo,
+            newValueExpr: string,
+            isHistoryRestore?: boolean,
+          ) => string[];
+        };
+        results.push(emitEngineWriteGuard(engineBinding, valueExpr, hist.isHistoryForm).join("\n"));
+        continue;
+      }
+      const valueExpr = emitExprField(null, rawRhs, exprCtx);
       const binding = machineBindings?.get(name) ?? null;
       if (binding) {
         // §51.5: Emit transition guard instead of plain reactive_set for machine-bound vars
@@ -1004,7 +1133,7 @@ export function rewriteBlockBody(content: string, machineBindings?: Map<string, 
         results.push(`_scrml_reactive_set("${name}", ${valueExpr})`);
       }
     } else {
-      results.push(emitExprField(null, stmt, { mode: "client" }));
+      results.push(emitExprField(null, stmt, exprCtx));
     }
   }
   return results.join("; ");

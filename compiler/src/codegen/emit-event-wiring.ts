@@ -1,7 +1,16 @@
 import { rewriteReactiveRefs } from "./rewrite.js";
-import { rewriteBlockBody } from "./emit-control-flow.ts";
+import { rewriteBlockBody, type EngineRewriteCtx } from "./emit-control-flow.ts";
 import { emitExprField } from "./emit-expr.ts";
-import { maybeLowerCancelTimerCallRef } from "./emit-engine.ts";
+import {
+  maybeLowerCancelTimerCallRef,
+  buildEngineBindingsMap,
+  collectEngineVarNames,
+  collectEnginesWithHooks,
+  collectEnginesWithOnTimeout,
+  collectEnginesWithIdleWatchdog,
+  collectEnginesWithInternalRules,
+  collectEnginesWithHistory,
+} from "./emit-engine.ts";
 import type { ExprNode } from "../types/ast.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
@@ -293,6 +302,42 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
     return lines;
   }
 
+  // Bug #6 (s83-a7, §51.0.F + §51.0.G + §51.0.H + §51.0.N + §51.0.O + §51.0.Q.1)
+  // — build engine context once for this file so event-handler bodies
+  // containing `@engineVar = .X` (direct write) AND `@engineVar.advance(.X)`
+  // (loud advance) route through the canonical write-guard path. Without
+  // this, event handlers — the most common user-facing surface for engine
+  // transitions — silently bypass rule= enforcement, <onTransition> hooks,
+  // internal:rule= dispatch, history capture, and history-restore.
+  //
+  // Tree-shake: when the file has no `<engine>` declarations,
+  // `buildEngineBindingsMap` returns null and every collect* helper returns
+  // an empty Set. The threaded EngineRewriteCtx is then a no-op object.
+  const engineBindings = buildEngineBindingsMap(ctx.fileAST);
+  const engineVarNames = collectEngineVarNames(ctx.fileAST);
+  const enginesWithHooks = collectEnginesWithHooks(ctx.fileAST);
+  const enginesWithOnTimeout = collectEnginesWithOnTimeout(ctx.fileAST);
+  const enginesWithIdleWatchdog = collectEnginesWithIdleWatchdog(ctx.fileAST);
+  const enginesWithInternalRules = collectEnginesWithInternalRules(ctx.fileAST);
+  const enginesWithHistory = collectEnginesWithHistory(ctx.fileAST);
+  const engineRewriteCtx: EngineRewriteCtx | null =
+    engineBindings != null || engineVarNames.size > 0
+      ? {
+          engineBindings: engineBindings,
+          exprCtxExtras: {
+            engineVarNames: engineVarNames.size > 0 ? engineVarNames : null,
+            enginesWithHooks: enginesWithHooks.size > 0 ? enginesWithHooks : null,
+            enginesWithOnTimeout: enginesWithOnTimeout.size > 0 ? enginesWithOnTimeout : null,
+            enginesWithIdleWatchdog: enginesWithIdleWatchdog.size > 0 ? enginesWithIdleWatchdog : null,
+            enginesWithInternalRules: enginesWithInternalRules.size > 0 ? enginesWithInternalRules : null,
+            enginesWithHistory: enginesWithHistory.size > 0 ? enginesWithHistory : null,
+          },
+        }
+      : null;
+  // Convenience EmitExprContext spread for direct emitExprField calls below
+  // (Case B arrow functions etc. that don't pass through rewriteBlockBody).
+  const engineExprCtxExtras = engineRewriteCtx?.exprCtxExtras ?? {};
+
   lines.push("");
   lines.push("// --- Event handler wiring (compiler-generated) ---");
   lines.push("document.addEventListener('DOMContentLoaded', function() {");
@@ -334,21 +379,55 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
       const fnParsed = parseFnExpression(binding.handlerExpr);
       if (fnParsed !== null) {
         // Case A: fn(params) { body } — rewrite the body, construct function directly.
-        const rewrittenBody = rewriteBlockBody(fnParsed.body);
+        // Bug #6 (s83-a7): thread engineCtx so `@engineVar = .X` + `.advance(.X)`
+        // inside the body route through the canonical write-guard path.
+        const rewrittenBody = rewriteBlockBody(fnParsed.body, null, engineRewriteCtx);
         handlerExpr = `function(${fnParsed.params}) { ${rewrittenBody}; }`;
       } else if (isArrowFunction(binding.handlerExpr)) {
         // Case B: Arrow function — rewrite reactive refs in the expression but
-        // do not add an outer wrapper.
-        handlerExpr = emitExprField(binding.handlerExprNode, binding.handlerExpr, { mode: "client" });
+        // do not add an outer wrapper. Bug #6 (s83-a7): thread engine ctx into
+        // the EmitExprContext so `.advance(.X)` calls inside the arrow body
+        // dispatch to `_scrml_engine_advance` via the C13 detection arm.
+        handlerExpr = emitExprField(binding.handlerExprNode, binding.handlerExpr, {
+          mode: "client",
+          ...engineExprCtxExtras,
+        });
       } else {
         // Case C: Plain expression or statement body. Rewrite and wrap.
-        const rewritten = rewriteBlockBody(binding.handlerExpr);
-        // If the expression is a bare identifier (function reference without call parens),
-        // append () to actually invoke it. onclick=${advance} should call advance(), not
-        // just reference it as a dead expression statement.
-        const isBareRef = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(rewritten.trim());
-        const body = isBareRef ? `${rewritten}()` : rewritten;
-        handlerExpr = `function(event) { ${body}; }`;
+        // Bug #6 (s83-a7): thread engineCtx — this is the canonical
+        // `onclick=${@phase = .Loading}` pattern that must route through
+        // the engine write-guard.
+        //
+        // The C13 `.advance(.X)` detection in `emit-expr.ts:emitCall` operates
+        // on STRUCTURED ExprNodes; the string-fallback path
+        // (`rewriteExprWithDerived`) does NOT detect `.advance` on engine
+        // vars. So when `binding.handlerExprNode` is present AND the body is
+        // a single non-assignment expression (a CallExpr like
+        // `@engineVar.advance(.X)` is the canonical case), prefer the
+        // structured emit path so the C13 detection arm fires.
+        // AssignExprs (`@phase = .X`) keep the `rewriteBlockBody` path so
+        // the engine assign-regex arm (also added by Bug #6) catches them
+        // and dispatches to `emitEngineWriteGuard` — `emitAssign` itself
+        // does NOT have engine-binding interception.
+        const exprNode = binding.handlerExprNode as { kind?: string } | undefined;
+        if (exprNode && exprNode.kind !== "assign" && exprNode.kind !== "lambda") {
+          // Single structured expression — use emitExprField so engine
+          // `.advance(.X)` (and any other structured-only detection in
+          // emit-expr.ts) routes correctly.
+          const body = emitExprField(binding.handlerExprNode, binding.handlerExpr, {
+            mode: "client",
+            ...engineExprCtxExtras,
+          });
+          handlerExpr = `function(event) { ${body}; }`;
+        } else {
+          const rewritten = rewriteBlockBody(binding.handlerExpr, null, engineRewriteCtx);
+          // If the expression is a bare identifier (function reference without call parens),
+          // append () to actually invoke it. onclick=${advance} should call advance(), not
+          // just reference it as a dead expression statement.
+          const isBareRef = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(rewritten.trim());
+          const body = isBareRef ? `${rewritten}()` : rewritten;
+          handlerExpr = `function(event) { ${body}; }`;
+        }
       }
     } else {
       // call-ref path: resolve handler name and serialize arguments

@@ -47,11 +47,13 @@
 //     cost for non-history engines.
 //
 // Note on the buttons in this sample: `onclick=${@appMode = AppMode.Playing}`
-// currently routes through the event-handler shortcut path which bypasses
-// `_scrml_engine_direct_set` (pre-existing — Bug #6 / Wave 2.5 territory).
-// History capture fires through `.advance()` calls and function-body writes;
-// it will also fire through onclick once Bug #6 routes those through the
-// engine write-guard.
+// routes through `_scrml_engine_direct_set` with the history-map threaded
+// as the trailing positional arg — Bug #6 (Wave 2.5, S83 2026-05-11) closed
+// the event-handler bypass. The runtime helper captures the inner-engine
+// variant into `_scrml_state["_appMode_Playing_history"]` on EXTERNAL exit
+// (e.g. Playing → Paused), and a future `.history` restore-form button
+// (`onclick=${@appMode = AppMode.Playing.history}`) restores via the
+// dispatcher's composite-arm postMountJs path.
 
 <program>
 ${

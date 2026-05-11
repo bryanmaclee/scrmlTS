@@ -1836,6 +1836,13 @@ export function emitEngineAdvanceCall(
   hasIdle?: boolean,
   hasInternal?: boolean,
   hasHistory?: boolean,
+  // Bug #2 follow-up (s83-a7-bug-6, S83 2026-05-11) — parity with
+  // `emitEngineWriteGuard`. When the call site detected the structured
+  // `.Variant.history` target form (e.g. `@phase.advance(.Playing.history)`),
+  // pass `isHistoryRestore=true` as the trailing positional arg so the
+  // runtime helper sets the pending-history-restore flag in the EXTERNAL
+  // branch. Position-padding mirrors the direct-write surface.
+  isHistoryRestore?: boolean,
 ): string {
   const tableName = engineTransitionTableName(varName);
   // A5-4 (§51.0.M): when this engine has at least one `<onTimeout>` element,
@@ -1895,7 +1902,27 @@ export function emitEngineAdvanceCall(
       historyArg = `, ${historyName}`;
     }
   }
-  const baseCall = `_scrml_engine_advance(${JSON.stringify(varName)}, ${targetExpr}, ${tableName}${timersArg}${idleArg}${internalArg}${historyArg})`;
+  // Bug #2 follow-up (s83-a7-bug-6) — `.advance(.X.history)` parity. Mirrors
+  // emitEngineWriteGuard isHistoryRestore positional padding. The runtime
+  // helper signature is:
+  //   _scrml_engine_advance(name, target, table, timers, idle, internal,
+  //                         historyMap, isHistoryRestore)
+  // Position-padding: when an earlier optional arg is omitted, fill with null.
+  let historyRestoreArg = ``;
+  if (isHistoryRestore === true) {
+    if (timersArg === `` && idleArg === `` && internalArg === `` && historyArg === ``) {
+      historyRestoreArg = `, null, null, null, null, true`;
+    } else if (idleArg === `` && internalArg === `` && historyArg === ``) {
+      historyRestoreArg = `, null, null, null, true`;
+    } else if (internalArg === `` && historyArg === ``) {
+      historyRestoreArg = `, null, null, true`;
+    } else if (historyArg === ``) {
+      historyRestoreArg = `, null, true`;
+    } else {
+      historyRestoreArg = `, true`;
+    }
+  }
+  const baseCall = `_scrml_engine_advance(${JSON.stringify(varName)}, ${targetExpr}, ${tableName}${timersArg}${idleArg}${internalArg}${historyArg}${historyRestoreArg})`;
   // B17.4 + A5-7 Wave 2.2 — when the engine has hooks, wrap with capture-pre +
   // hook-fire-post. The runtime helper returns `true` for external transitions,
   // `false` for internal — gate the post-commit hook fire on that boolean.
