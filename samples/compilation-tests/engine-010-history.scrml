@@ -15,20 +15,43 @@
 // E-HISTORY-NO-INNER-ENGINE per §34. Shallow only this revision per
 // OQ-Harel-4 — deep history is deferred.
 //
-// v1 implementation state (2026-05-11):
+// v1 implementation state (2026-05-11, post-Bug-3 / Wave 2.3 ship):
 //   - Parser captures `historyAttr: true` (engine-statechild-parser.ts).
 //   - Parser captures `.Variant.history` as `historyForm: true` on rule entries.
 //   - Typer (SYM PASS 11) fires E-HISTORY-NO-INNER-ENGINE on non-composite.
-//   - Codegen flattens `.X.history` to base variant "X" today
-//     (emit-engine.ts:532 — Wave 4 follow-on for synth-cell write/read).
-//   - Tree-shake intent (§51.0.N): when no engine declares `history`, the
-//     usage-analyzer's `engineHistory` flag remains false; synth-cell
-//     emission code path is elided.
+//   - Codegen (emit-engine.ts, A5-7 Wave 2.3, Bug #3) SHIPPED 2026-05-11:
+//       * Per-engine `__scrml_engine_<varName>_history_map` const recording
+//         {outerVariant → innerEngineVarName} for each composite state-child
+//         that carries `history`.
+//       * Per-state-child synth-cell init lines:
+//         `_scrml_state["_<outerVar>_<scTag>_history"] = null;`
+//         (empty-history fallback per §51.0.N — first-entry case).
+//       * historyMap threaded as 7th positional arg to
+//         `_scrml_engine_direct_set` / `_scrml_engine_advance`.
+//       * Runtime helper `_scrml_engine_history_capture_on_exit`
+//         (runtime-template.js) captures inner-engine variant into the synth
+//         cell on EXTERNAL outer-exit when current !== target (real exit,
+//         not self-loop). Internal transitions (§51.0.O) bypass the capture
+//         by construction — the internal branch of the runtime helpers
+//         returns false without touching history.
+//   - Transitions table still flattens `.X.history → "X"`: the `.history`
+//     suffix doesn't change which targets are legal — only the entry
+//     semantics, which the WRITE site drives (not the rule= legality table).
+//   - Restore-on-re-entry observable verification deferred to Bug #2
+//     (Wave 2.4 — inner-engine dispatcher emission). The synth-cell
+//     write/read MECHANISM is fully wired this dispatch; the observable
+//     inner-engine restore-from-cell requires Bug #2's inner-engine
+//     dispatcher to mount on outer re-entry.
+//   - Tree-shake (§51.0.N): when no engine declares `history`, NO history-
+//     map const, NO synth cells, NO write-guard historyArg emit. Zero-byte
+//     cost for non-history engines.
 //
-// This sample exists to ensure the canonical history shape parses + type-
-// checks clean and to be the surface adopters reach for. Reading the
-// emitted `__scrml_engine_appMode_transitions` shows the table currently
-// flattens `.Playing.history → "Playing"` (Wave 4 follow-on).
+// Note on the buttons in this sample: `onclick=${@appMode = AppMode.Playing}`
+// currently routes through the event-handler shortcut path which bypasses
+// `_scrml_engine_direct_set` (pre-existing — Bug #6 / Wave 2.5 territory).
+// History capture fires through `.advance()` calls and function-body writes;
+// it will also fire through onclick once Bug #6 routes those through the
+// engine write-guard.
 
 <program>
 ${

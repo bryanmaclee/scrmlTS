@@ -2316,13 +2316,13 @@ function _scrml_message_for(error, fieldName, cellName) {
 //   - _scrml_engine_check_transition(currentVariant, target, table)
 //       Pure boolean predicate. Looks up the from-variant entry; legal iff
 //       the entry is "*" OR includes the target. No side effects.
-//   - _scrml_engine_advance(varName, target, table, timersTable, idleEntry, internalTable)
+//   - _scrml_engine_advance(varName, target, table, timersTable, idleEntry, internalTable, historyMap)
 //       For \`@var.advance(.X)\`. Reads current variant, checks, throws with
 //       "asserted advance failed" framing on failure, else sets the cell.
 //       Per §51.0.G "loud failure" semantics. Returns true on EXTERNAL
 //       transition, false on INTERNAL transition (§51.0.O). Codegen gates
 //       the post-commit hook-firing call on the return value.
-//   - _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry, internalTable)
+//   - _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry, internalTable, historyMap)
 //       For \`@var = .X\`. Reads current variant, checks, throws plain
 //       E-ENGINE-INVALID-TRANSITION on failure, else sets the cell.
 //       Per §51.0.F direct-write enforcement (Move 12). Returns the same
@@ -2334,6 +2334,17 @@ function _scrml_message_for(error, fieldName, cellName) {
 // hooks fire, no timer clear/arm, no history-cell write. The helper returns
 // false so the codegen-emitted post-commit hook-firing call is skipped.
 // The idle watchdog DOES reset (§51.0.R — internal is engine activity).
+//
+// A5-7 Wave 2.3 (§51.0.N, Bug #3): when historyMap is non-null AND the
+// EXTERNAL branch is taken AND currentVariant is a key in historyMap AND
+// currentVariant !== target (real outer-exit, not self-loop), the helper
+// captures the inner-engine variant from \`_scrml_state[historyMap[current]]\`
+// into the synth history cell \`_scrml_state["_" + varName + "_" + current
+// + "_history"]\` BEFORE the cell write. The internal branch explicitly
+// skips this capture (per §51.0.O — internal does not exit the composite,
+// so its history is never written). The history cell is read-only from
+// user code (synth — §51.0.N "synth cell"); writes from anywhere outside
+// these helpers are not addressable through any user-authored expression.
 //
 // Both throwing helpers funnel through _scrml_engine_check_transition so
 // the lookup logic exists in exactly one place. Codegen emits ONE call per
@@ -2347,7 +2358,33 @@ function _scrml_engine_check_transition(currentVariant, target, table) {
   return false;
 }
 
-function _scrml_engine_advance(varName, target, table, timersTable, idleEntry, internalTable) {
+// A5-7 Wave 2.3 (§51.0.N, Bug #3) — Capture the inner-engine variant into
+// the synth history cell on an external outer-exit. Called by both
+// _scrml_engine_advance and _scrml_engine_direct_set in the EXTERNAL branch
+// BEFORE the cell write, when historyMap is non-null AND historyMap[current]
+// names an inner-engine var.
+//
+// The "real exit" guard (current !== target) ensures a self-loop transition
+// (rule=.X from .X) doesn't capture stale state — a self-loop is conceptually
+// equivalent to a re-entry, where the inner re-initializes per §51.0.N + Q.1.
+// (Self-loop semantics may evolve; current conservative behavior is "do not
+// capture on self-loop"; if user-feedback flags this as wrong, the guard can
+// be widened.)
+function _scrml_engine_history_capture_on_exit(varName, current, target, historyMap) {
+  if (historyMap == null) return;
+  if (current === target) return; // self-loop — not a real exit, do not capture
+  var innerVarName = historyMap[current];
+  if (typeof innerVarName !== "string" || innerVarName.length === 0) return;
+  // Capture the inner-engine var's current value into the synth cell.
+  // The synth cell key matches the codegen convention in
+  // emit-engine.ts:engineHistoryCellKey: "_<outerVar>_<currentVariant>_history".
+  var cellKey = "_" + varName + "_" + current + "_history";
+  // Read inner directly from _scrml_state (synth cells / engine cells live
+  // in the same flat reactive store).
+  _scrml_state[cellKey] = _scrml_state[innerVarName];
+}
+
+function _scrml_engine_advance(varName, target, table, timersTable, idleEntry, internalTable, historyMap) {
   // timersTable (optional, A5-4): per-state-tag timer-config map for engines
   // with at least one <onTimeout>. When provided, clear-on-exit fires before
   // the cell write and arm-on-entry fires after. When null/undefined (engines
@@ -2359,6 +2396,13 @@ function _scrml_engine_advance(varName, target, table, timersTable, idleEntry, i
   // false. Otherwise (or when internalTable is null), the canonical external
   // path runs and returns true. Codegen gates the post-commit hook-firing
   // call on this boolean.
+  // historyMap (optional, A5-7 Wave 2.3 §51.0.N): per-engine HISTORY MAP
+  // {outerVariantTag → innerEngineVarName}. When provided AND the EXTERNAL
+  // branch is taken AND current is a key in the map AND current !== target,
+  // the helper captures _scrml_state[innerEngineVarName] into the synth
+  // cell _scrml_state["_" + varName + "_" + current + "_history"] BEFORE
+  // the cell write. The internal branch (above) skips this capture by
+  // construction (no real exit).
   const current = _scrml_reactive_get(varName);
   // A5-7 Wave 2.2 — internal-path check FIRST. Per §51.0.O an internal
   // transition is preferred when both an internal rule and an external rule
@@ -2388,6 +2432,11 @@ function _scrml_engine_advance(varName, target, table, timersTable, idleEntry, i
       ". The from-state's rule= contract does not permit this target."
     );
   }
+  // A5-7 Wave 2.3 §51.0.N — history capture on EXTERNAL outer-exit. Fires
+  // BEFORE the cell write so the captured inner variant reflects the state
+  // at the moment of exit (not after any side effect of the write). Tree-
+  // shaken via null historyMap.
+  if (historyMap != null) _scrml_engine_history_capture_on_exit(varName, current, target, historyMap);
   // Clear timers attached to the OUTGOING state-child first (timers belong
   // to the from-state — the spec semantics are "armed on entry, cleared on
   // exit"). Re-entering the same state-child clears + re-arms below.
@@ -2403,11 +2452,13 @@ function _scrml_engine_advance(varName, target, table, timersTable, idleEntry, i
   return true;
 }
 
-function _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry, internalTable) {
+function _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry, internalTable, historyMap) {
   // timersTable: see _scrml_engine_advance above.
   // idleEntry (A5-6 §51.0.R): per-engine event-timeout watchdog config or null.
   // internalTable (A5-7 Wave 2.2 §51.0.O): per-engine internal transition
   // table or null. Returns true on external transition, false on internal.
+  // historyMap (A5-7 Wave 2.3 §51.0.N): per-engine history map or null. See
+  // _scrml_engine_advance above for full semantics.
   const current = _scrml_reactive_get(varName);
   // A5-7 Wave 2.2 — internal-path check FIRST (see _scrml_engine_advance).
   if (internalTable != null && _scrml_engine_check_transition(current, target, internalTable)) {
@@ -2426,6 +2477,9 @@ function _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry
       ". The from-state's rule= contract does not permit this target."
     );
   }
+  // A5-7 Wave 2.3 §51.0.N — history capture on EXTERNAL outer-exit (see
+  // _scrml_engine_advance for rationale). Tree-shaken via null historyMap.
+  if (historyMap != null) _scrml_engine_history_capture_on_exit(varName, current, target, historyMap);
   if (timersTable != null) _scrml_engine_clear_state_timers(varName, current, timersTable);
   _scrml_reactive_set(varName, target);
   if (timersTable != null) _scrml_engine_arm_state_timers(varName, target, timersTable, table);

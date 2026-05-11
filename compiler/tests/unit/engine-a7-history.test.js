@@ -348,34 +348,196 @@ describe("engine-a7-history §6 — E-HISTORY-NO-INNER-ENGINE conformance via co
 });
 
 // ===========================================================================
-// Wave-4 deferred behavior — marked .skip with cite
+// §7. Synth-cell + history-map emission (Wave 2.3, Bug #3 — A5-7 codegen)
 // ===========================================================================
 
-describe.skip("engine-a7-history §7 — synth-cell emission (Wave 4 deferral)", () => {
-  test("DEFERRED: composite with history emits @_<outerVar>_<variant>_history synth cell", () => {
-    // Per SPEC §51.0.N: a state-child carrying `history` should cause the
-    // compiler to synthesize a reactive cell `@_<outerVar>_<variantName>_history`
-    // typed as the inner engine's enum.
+describe("engine-a7-history §7 — synth-cell emission + history-map (Bug #3, Wave 2.3)", () => {
+  test("composite with history emits per-engine history-map const + synth-cell init", () => {
+    // Per SPEC §51.0.N: a state-child carrying `history` causes the compiler
+    // to synthesize a reactive cell `@_<outerVar>_<variantName>_history` and a
+    // per-engine history-map const `__scrml_engine_<outerVar>_history_map`
+    // recording {outerVariant → innerEngineVarName}. The synth cell starts at
+    // `null` (empty-history fallback per §51.0.N).
     //
-    // Per emit-engine.ts:532-534 comment, this is a Wave 4 follow-on. The
-    // `.history` target form is currently flattened — the variant name is
-    // recorded without the history modifier. History semantics (write on
-    // outer-exit, restore on outer re-entry) are not yet implemented.
-    //
-    // When synth-cell emission lands, this test should assert:
-    //   expect(clientJs).toContain("_scrml_state[\"_appMode_Playing_history\"]");
-    //   or similar — TBD by codegen author.
+    // Wave 2.3 (Bug #3) ships:
+    //   - history-map const emitted per engine with at least one composite
+    //     history state-child + discoverable inner-engine var.
+    //   - per-state-child synth-cell init line `_scrml_state[<key>] = null;`.
+    //   - history-map threaded as the 7th positional arg to
+    //     `_scrml_engine_direct_set` / `_scrml_engine_advance` at canonical
+    //     write-guard call sites (function bodies, `.advance()` calls;
+    //     event-handler shortcut path bypasses engine-write-guard pending
+    //     Bug #6 — out of scope for Bug #3).
+    const src = `\${
+      type AppMode:enum  = { Title, Playing, Paused }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=.Playing></>
+  <Playing history rule=(.Title | .Paused)>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle></>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+  <Paused rule=.Playing.history></>
+</>`;
+    const { errors, clientJs } = compileToClientJs(src, "history-w23-emit");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+
+    // (1) Per-engine history-map const emitted alongside the transitions
+    //     table. Keyed by outer variant tag; value is inner-engine var name.
+    expect(clientJs).toContain("__scrml_engine_appMode_history_map");
+    expect(clientJs).toMatch(/__scrml_engine_appMode_history_map\s*=\s*Object\.freeze\(\{[\s\S]*?"Playing":\s*"playMode"/);
+
+    // (2) Per-state-child synth-cell init line. Key shape:
+    //     "_<outerVar>_<stateTag>_history" — null at module-init (empty-
+    //     history fallback per §51.0.N "Empty-history fallback" paragraph).
+    expect(clientJs).toContain('_scrml_state["_appMode_Playing_history"] = null');
+
+    // (3) Non-history state-children (Title, Paused) do NOT get synth cells.
+    expect(clientJs).not.toContain('_scrml_state["_appMode_Title_history"]');
+    expect(clientJs).not.toContain('_scrml_state["_appMode_Paused_history"]');
+
+    // (4) Canonical transitions table is preserved (sanity — history surface
+    //     is additive; flattens `.Variant.history` to base variant for
+    //     legality (transitions-table semantics) — distinguishability moves
+    //     to the WRITE form, not the rule= legality).
+    expect(clientJs).toContain("__scrml_engine_appMode_transitions");
   });
 
-  test("DEFERRED: outer-exit writes inner variant to history cell", () => {
-    // Per SPEC §51.0.N: on outer-exit from the composite state-child, the
-    // inner engine's current variant is written to the history cell.
-    // Implementation lives behind the same Wave 4 deferral.
+  test("outer-exit through write-guard threads history-map to runtime helper", () => {
+    // Per SPEC §51.0.N: on outer-exit from a composite carrying `history`,
+    // the inner engine's current variant is written to the history cell. The
+    // runtime path is: codegen passes `__scrml_engine_<varName>_history_map`
+    // as the 7th positional arg to `_scrml_engine_direct_set` /
+    // `_scrml_engine_advance`. The runtime EXTERNAL branch reads
+    // `historyMap[currentVariant]` — when non-null AND current !== target
+    // (real exit, not self-loop), captures `_scrml_state[innerVarName]` into
+    // the synth cell `_scrml_state["_" + outerVar + "_" + current + "_history"]`.
+    //
+    // Test shape: use a function body to write `@appMode = AppMode.Title` —
+    // function-body writes route through emit-logic.ts's engine-binding
+    // dispatch, which calls emitEngineWriteGuard → emits the canonical
+    // `_scrml_engine_direct_set` helper call with the historyMap arg.
+    const src = `\${
+      type AppMode:enum  = { Title, Playing }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=.Playing></>
+  <Playing history rule=.Title>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle></>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+</>
+
+\${ function leavePlaying() { @appMode = AppMode.Title } }`;
+    const { errors, clientJs } = compileToClientJs(src, "history-w23-writeguard");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+
+    // (1) The function body's engine write dispatches through the canonical
+    //     write-guard (NOT the event-handler shortcut path which is Bug #6
+    //     territory — out of scope here).
+    expect(clientJs).toContain("_scrml_engine_direct_set");
+
+    // (2) The history-map identifier is threaded as the trailing positional
+    //     arg. Engine has no timers / no idle / no internal:rule= in this
+    //     test, so the position-padding emits three `null` args before
+    //     the history-map identifier to maintain positional alignment.
+    expect(clientJs).toMatch(
+      /_scrml_engine_direct_set\("appMode",[^,]+,\s*__scrml_engine_appMode_transitions,\s*null,\s*null,\s*null,\s*__scrml_engine_appMode_history_map\)/,
+    );
   });
 
-  test("DEFERRED: outer-re-entry restores inner engine from history cell", () => {
+  test("tree-shake: engine without `history` attr emits NO history-map + NO synth cells", () => {
+    // Per §51.0.N tree-shake invariant: when zero engines in a project
+    // declare `history`, the synth-cell infrastructure + outer-exit write
+    // hook + outer-entry restore hook are all elided from emit. Verifies
+    // the codegen tree-shake contract — adopters who don't use history
+    // pay zero bytes for it.
+    const src = `\${
+      type AppMode:enum  = { Title, Playing }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=.Playing></>
+  <Playing rule=.Title>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle></>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+</>
+
+\${ function go() { @appMode = AppMode.Playing } }`;
+    const { errors, clientJs } = compileToClientJs(src, "history-w23-treeshake");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+
+    // (1) NO history-map const emits anywhere (per-engine tree-shake).
+    expect(clientJs).not.toContain("__scrml_engine_appMode_history_map");
+    expect(clientJs).not.toContain("history_map");
+
+    // (2) NO synth-cell init lines for any state-child.
+    expect(clientJs).not.toContain("_history");
+    expect(clientJs).not.toContain("_scrml_state[\"_appMode");
+
+    // (3) Canonical transitions table + write-guard still emit normally —
+    //     non-history engines are not regressed.
+    expect(clientJs).toContain("__scrml_engine_appMode_transitions");
+    expect(clientJs).toContain("_scrml_engine_direct_set");
+
+    // (4) The write-guard call has NO history-map arg appended. With no
+    //     timers / idle / internal-rule / history, the call shape is the
+    //     canonical 3-arg form (varName, value, table).
+    expect(clientJs).toMatch(
+      /_scrml_engine_direct_set\("appMode",[^,]+,\s*__scrml_engine_appMode_transitions\)/,
+    );
+  });
+});
+
+// ===========================================================================
+// §8. Restore-on-re-entry observable — BLOCKED ON BUG #2 (.skip)
+// ===========================================================================
+//
+// The runtime mechanism for inner-engine state restoration on outer-re-entry
+// via `.Variant.history` target form depends on:
+//   (a) Inner-engine state being live (Bug #1 ✓ shipped — inner-engine
+//       bodies preserved per Phase A10 bodyChildren).
+//   (b) Inner-engine dispatcher EMITTING — Bug #2 (Wave 2.4) territory.
+//       Without an inner-engine dispatcher, the OBSERVABLE "inner restores
+//       to captured variant on outer re-entry" cannot be verified end-to-end;
+//       the synth cell IS written/read by the runtime, but no inner-engine
+//       UI re-renders to read.
+//
+// Bug #3 (Wave 2.3, this dispatch) wires the WRITE MECHANISM completely:
+//   - History map emitted; synth cells initialized; write-on-exit threaded
+//     through `_scrml_engine_direct_set` / `_scrml_engine_advance` via the
+//     7th positional historyMap arg.
+//   - The capture works on every external outer-exit through these helpers
+//     (verifiable as a side-effect of the runtime branch — see runtime-
+//     template.js `_scrml_engine_history_capture_on_exit`).
+//
+// The restore-on-re-entry test below stays .skip with cite until Bug #2 ships.
+describe.skip("engine-a7-history §8 — outer re-entry restore (blocked on Bug #2)", () => {
+  test("outer-re-entry via .Variant.history restores inner engine — blocked on Bug #2", () => {
     // Per SPEC §51.0.N: on outer-re-entry into a composite with `history`,
     // the inner engine restores from the history cell rather than from
     // initial=. Empty cell → fall back to initial=.
+    //
+    // The observable verification needs the inner-engine dispatcher to be
+    // emitted (Bug #2, Wave 2.4) — currently inner-engine bodies are
+    // preserved (Bug #1) but their dispatchers are not wired. Synth cell
+    // write/read mechanism IS in place from Bug #3 (Wave 2.3).
+    //
+    // When Bug #2 lands, this test should:
+    //   1. Compile a composite with history + nested engine.
+    //   2. Drive the outer engine through a sequence:
+    //      enter .Playing → inner advances to non-initial variant →
+    //      exit .Playing → re-enter via .Variant.history form
+    //   3. Assert the inner-engine var matches the captured variant
+    //      (not the inner's initial=).
   });
 });

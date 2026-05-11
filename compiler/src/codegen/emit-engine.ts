@@ -77,8 +77,10 @@ type EngineRuleForm =
  *     `emitEngineInternalTransitionTable` + `engineHasInternalRules`.
  *   - `onTimeoutElements` — A5-4 §51.0.M (shipped) — see
  *     `emitEngineTimersTable` + `engineHasOnTimeoutElements`.
- *   - `historyAttr` — deferred (Wave 2.3 / Bug #3).
- *   - `innerEngines` — deferred (Wave 2.4 / Bug #2).
+ *   - `historyAttr` — A5-7 Wave 2.3 §51.0.N (shipped, Bug #3) — see
+ *     `emitEngineHistoryMap` + `emitEngineHistoryCellInits` +
+ *     `engineHasHistoryAttrs` / `engineHasDiscoverableHistoryAttrs`.
+ *   - `innerEngines` — deferred (Wave 2.4 / Bug #2 — inner-engine dispatcher).
  */
 /**
  * B17.4 — `<onTransition>` element shape (mirrors `OnTransitionEntry` in
@@ -594,9 +596,15 @@ export function resolveEngineInitialVariant(meta: EngineMetadata): string | null
  * because B15 already fired diagnostics for them; the emitted table is
  * defensively empty so runtime cannot dispatch through a malformed entry.
  *
- * The `.history` target form (§51.0.N) is currently flattened — the variant
- * name is recorded without the history modifier. History semantics are
- * out of A1c Wave 4 scope per the BRIEF (S67 §51.0.N is a follow-on).
+ * The `.history` target form (§51.0.N) is flattened HERE — the variant name
+ * is recorded without the history modifier. This is CORRECT: the rule= table
+ * controls legality (which targets are reachable from a given from-state),
+ * and `.Variant.history` is reachable iff `.Variant` is reachable. The
+ * history-vs-fresh entry semantics is a WRITE-SEMANTIC concern handled by
+ * the runtime's history-capture path (per Bug #3 / Wave 2.3, see
+ * `emitEngineHistoryMap` + `_scrml_engine_history_capture_on_exit` in
+ * runtime-template.js). The synth-cell init + history map are emitted as
+ * sibling artifacts (NOT a separate transitions-table entry).
  */
 function encodeRuleEntry(rule: EngineRuleForm): string {
   switch (rule.kind) {
@@ -706,6 +714,268 @@ export function emitEngineInternalTransitionTable(meta: EngineMetadata): string[
   lines.push(entries.join(",\n"));
   lines.push(`});`);
 
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// History synth-cell + history map emission — §51.0.N (Bug #3, Wave 2.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Compute the per-engine HISTORY MAP const
+ * name. Format: `__scrml_engine_<varName>_history_map`. Sibling to the
+ * transitions / internal-transitions / timers / idle tables; emitted ONLY
+ * when at least one state-child in the engine declares `history` AND that
+ * state-child is composite (has an inner engine — typer fired
+ * E-HISTORY-NO-INNER-ENGINE for non-composite cases, so codegen treats
+ * non-composite history-attr as a defensive-no-op).
+ *
+ * Shape (only emitted when `engineHasHistoryAttrs(meta)` is true AND at least
+ * one composite history state-child has a discoverable inner-engine var):
+ *   const __scrml_engine_appMode_history_map = Object.freeze({
+ *     "Playing": "playMode"
+ *   });
+ *
+ * Keys are outer state-child tag names; values are the inner engine's
+ * auto-declared variable name (§51.0.C). The runtime uses this map at
+ * outer-exit to read `_scrml_state[innerVarName]` and write into the synth
+ * history cell `_scrml_state["_" + outerVarName + "_" + outerStateTag +
+ * "_history"]`.
+ *
+ * Tree-shake: when the engine has zero `historyAttr` state-children, the map
+ * is NOT emitted and codegen passes `null` for the historyMap arg at every
+ * write-guard / advance site.
+ */
+export function engineHistoryMapName(varName: string): string {
+  return `__scrml_engine_${varName}_history_map`;
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Compute the per-state-child synth-cell
+ * key. Format: `_<outerVarName>_<stateChildTag>_history`.
+ *
+ * Per SPEC §51.0.N lines 21340-21342:
+ *   "The compiler synthesizes a reactive cell `@_<outerVar>_<variantName>_history`"
+ *
+ * The leading underscore differentiates compiler-synthesized cells from
+ * user-authored cells (user identifiers can't start with `_` followed by a
+ * lowercase letter per scrml grammar). The runtime accesses these via
+ * `_scrml_state[<key>]` directly (no `_scrml_reactive_get` wrapping — these
+ * are write-only-by-compiler / read-only-by-compiler synth cells, like the
+ * §55 validity-surface synth pattern).
+ */
+export function engineHistoryCellKey(outerVarName: string, stateChildTag: string): string {
+  return `_${outerVarName}_${stateChildTag}_history`;
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Does this engine have at least one state-
+ * child carrying `history`?
+ *
+ * The check inspects `engineMeta.stateChildren[].historyAttr` — populated by
+ * the structural parser (`engine-statechild-parser.ts:1480`) and validated by
+ * SYM PASS 11 (composite-only legality — non-composite history-attrs fire
+ * E-HISTORY-NO-INNER-ENGINE per §34).
+ *
+ * Tree-shake control: when this returns false, codegen:
+ *   - emits NO `__scrml_engine_<varName>_history_map` const
+ *   - emits NO history synth-cell init lines
+ *   - passes `null` for the historyMap arg at every write-guard / advance site
+ *   - the runtime branches treat null historyMap as "no history surface
+ *     exists for this engine" and skip the write-on-exit hook
+ *
+ * Counts only entries with `historyAttr === true`. Per typer guarantee, only
+ * composite state-children reach codegen with historyAttr set (non-composite
+ * fired E-HISTORY-NO-INNER-ENGINE earlier — pipeline halts on errors), but
+ * the discovery helper below defensively handles the case where the inner-
+ * engine var name cannot be resolved (returns null, history entry skipped).
+ */
+export function engineHasHistoryAttrs(meta: EngineMetadata): boolean {
+  const sc = meta.stateChildren;
+  if (!Array.isArray(sc) || sc.length === 0) return false;
+  for (const child of sc) {
+    if (child && child.historyAttr === true) return true;
+  }
+  return false;
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Does this engine have at least one
+ * history-bearing composite state-child with a DISCOVERABLE inner-engine var?
+ *
+ * Strictly tighter than `engineHasHistoryAttrs` — the latter checks for the
+ * attribute presence; this one ALSO verifies that the inner-engine var name
+ * can be discovered from the AST (i.e., that `findInnerEngineForStateChild`
+ * returns non-null for at least one of them). Used as the tree-shake gate
+ * for the `_history_map` emit and the historyMap arg threading at call sites.
+ *
+ * The non-discoverable case is defensive: on type-clean input the typer
+ * fired E-HISTORY-NO-INNER-ENGINE for non-composite history attrs (pipeline
+ * halts on errors), so this should always return true when
+ * engineHasHistoryAttrs is true. The defensive separation protects against
+ * legacy / pre-Phase-A10 code paths where bodyChildren is undefined.
+ */
+export function engineHasDiscoverableHistoryAttrs(
+  meta: EngineMetadata,
+  decl: EngineDeclLike,
+): boolean {
+  if (!engineHasHistoryAttrs(meta)) return false;
+  const sc = meta.stateChildren;
+  if (!Array.isArray(sc)) return false;
+  for (const child of sc) {
+    if (!child || child.historyAttr !== true) continue;
+    if (typeof child.tag !== "string" || child.tag.length === 0) continue;
+    const inner = findInnerEngineForStateChild(decl, child.tag);
+    if (inner) return true;
+  }
+  return false;
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Discover the inner engine's auto-declared
+ * variable name for a composite state-child.
+ *
+ * Walks the outer engine-decl's `bodyChildren` to find the markup node with
+ * `tag === stateChildTag`, then descends into that markup node's `children`
+ * looking for the FIRST `engine-decl` node. Returns the inner engine's
+ * `varName` if found, else `null`.
+ *
+ * Phase A10's bodyChildren shape (S78, ast-builder.js:9172-9185) makes nested
+ * engine-decls discoverable as proper AST nodes within the parent markup
+ * state-child node. Pre-A10 engines (legacy zero-child bodies) leave
+ * bodyChildren undefined — caller treats null return as "no inner engine
+ * discoverable, skip history entry" (defensive — the inner engine may exist
+ * raw-text-only in legacy paths, but no codegen hook applies).
+ *
+ * The `historyAttr` on a state-child that has no discoverable inner engine
+ * via this walk is a defensive-no-op: the typer guarantees composite-only,
+ * but in extreme defensive cases (bodyChildren undefined due to non-A10
+ * code path) the helper returns null and codegen elides the history entry.
+ */
+function findInnerEngineForStateChild(
+  decl: EngineDeclLike,
+  stateChildTag: string,
+): { varName: string; forType: string } | null {
+  const bodyChildren = (decl as { bodyChildren?: unknown[] }).bodyChildren;
+  if (!Array.isArray(bodyChildren)) return null;
+  // Find the matching markup state-child node by tag.
+  const match: { children?: unknown[] } | undefined = bodyChildren.find(
+    (c: unknown): c is { kind: string; tag?: string; children?: unknown[] } => {
+      if (!c || typeof c !== "object") return false;
+      const node = c as { kind?: unknown; tag?: unknown };
+      return node.kind === "markup" && node.tag === stateChildTag;
+    },
+  ) as { children?: unknown[] } | undefined;
+  if (!match || !Array.isArray(match.children)) return null;
+  // Walk the matched state-child's children looking for the first engine-decl.
+  // Engine-decls can appear directly or nested inside wrapper markup (e.g. a
+  // <div>...<engine .../>...</div>); a shallow walk catches both.
+  function findEngineDecl(nodes: unknown[]): { varName?: string; governedType?: string } | null {
+    for (const n of nodes) {
+      if (!n || typeof n !== "object") continue;
+      const node = n as { kind?: unknown; varName?: unknown; governedType?: unknown; children?: unknown };
+      if (node.kind === "engine-decl") {
+        return node as { varName?: string; governedType?: string };
+      }
+      if (Array.isArray(node.children)) {
+        const inner = findEngineDecl(node.children);
+        if (inner) return inner;
+      }
+    }
+    return null;
+  }
+  const inner = findEngineDecl(match.children);
+  if (!inner) return null;
+  const vn = typeof inner.varName === "string" ? inner.varName : "";
+  const ft = typeof inner.governedType === "string" ? inner.governedType : "";
+  if (vn.length === 0) return null;
+  return { varName: vn, forType: ft };
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Emit the per-engine HISTORY MAP const.
+ *
+ * Shape (only emitted when `engineHasHistoryAttrs(meta)` is true AND at least
+ * one historyAttr state-child has a discoverable inner engine):
+ *   const __scrml_engine_appMode_history_map = Object.freeze({
+ *     "Playing": "playMode"
+ *   });
+ *
+ * Maps outer state-child tag → inner-engine var name. The runtime consults
+ * this map at outer-exit to address the inner-engine's reactive cell for the
+ * history capture. State-children WITHOUT historyAttr are NOT included in
+ * the map (their absence in the map keys is what tells the runtime "no
+ * history capture for this from-variant").
+ *
+ * Returns an empty array when the engine has zero historyAttr state-children
+ * OR when no historyAttr state-child has a discoverable inner-engine var
+ * (defensive — caller skips emission entirely). The latter case should not
+ * occur on type-clean input (E-HISTORY-NO-INNER-ENGINE rejects non-composite
+ * historyAttr); the defensive skip protects against legacy / pre-A10 paths
+ * where bodyChildren is absent.
+ */
+export function emitEngineHistoryMap(meta: EngineMetadata, decl: EngineDeclLike): string[] {
+  if (!engineHasHistoryAttrs(meta)) return [];
+  const sc = meta.stateChildren;
+  if (!Array.isArray(sc) || sc.length === 0) return [];
+
+  const entries: string[] = [];
+  for (const child of sc) {
+    if (!child || child.historyAttr !== true) continue;
+    if (typeof child.tag !== "string" || child.tag.length === 0) continue;
+    const inner = findInnerEngineForStateChild(decl, child.tag);
+    if (!inner) continue;
+    const key = JSON.stringify(child.tag);
+    const val = JSON.stringify(inner.varName);
+    entries.push(`  ${key}: ${val}`);
+  }
+  if (entries.length === 0) return [];
+
+  const constName = engineHistoryMapName(meta.varName);
+  const lines: string[] = [];
+  lines.push(`// §51.0.N history map for engine ${meta.varName}: ${meta.forType}`);
+  lines.push(`const ${constName} = Object.freeze({`);
+  lines.push(entries.join(",\n"));
+  lines.push(`});`);
+  return lines;
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Emit the synth-cell init lines for every
+ * history-bearing composite state-child in the engine.
+ *
+ * Shape (one line per historyAttr state-child with discoverable inner engine):
+ *   _scrml_state["_appMode_Playing_history"] = null;
+ *
+ * The synth cell starts at `null` (empty history — first-entry case per
+ * §51.0.N "Empty-history fallback"). On outer-exit (external transition out
+ * of the composite), the runtime captures the inner-engine variant into this
+ * cell. On outer re-entry via `.Variant.history` form, the runtime reads this
+ * cell and applies to the inner-engine variable — but the latter
+ * (restore-on-re-entry observable) is partially blocked on Bug #2's inner-
+ * engine dispatcher emission. The synth-cell write/read mechanism itself is
+ * fully wired this dispatch.
+ *
+ * Returns an empty array when the engine has zero historyAttr state-children
+ * (tree-shake).
+ */
+export function emitEngineHistoryCellInits(meta: EngineMetadata, decl: EngineDeclLike): string[] {
+  if (!engineHasHistoryAttrs(meta)) return [];
+  const sc = meta.stateChildren;
+  if (!Array.isArray(sc) || sc.length === 0) return [];
+
+  const lines: string[] = [];
+  for (const child of sc) {
+    if (!child || child.historyAttr !== true) continue;
+    if (typeof child.tag !== "string" || child.tag.length === 0) continue;
+    const inner = findInnerEngineForStateChild(decl, child.tag);
+    if (!inner) continue;
+    const cellKey = engineHistoryCellKey(meta.varName, child.tag);
+    if (lines.length === 0) {
+      lines.push(`// §51.0.N history synth-cell inits for engine ${meta.varName}`);
+    }
+    lines.push(`_scrml_state[${JSON.stringify(cellKey)}] = null;`);
+  }
   return lines;
 }
 
@@ -872,12 +1142,24 @@ export function emitEngineSubstrate(fileAST: any): string[] {
     // A5-6 §51.0.R (S77) — per-engine `<onIdle>` watchdog config const.
     // Sibling to timers table; emitted only when engine declares `<onIdle>`.
     const idleLines = emitEngineIdleWatchdog(meta);
+    // A5-7 Wave 2.3 §51.0.N (Bug #3) — per-engine HISTORY MAP const + synth-
+    // cell inits. The map is read-only metadata (Object.freeze); emitted
+    // alongside the other tables BEFORE the cell init so the runtime helper
+    // call sites can reference the const. The synth-cell inits write
+    // `_scrml_state[<key>] = null` per history-bearing state-child and are
+    // emitted AFTER the variant cell init (consistent with synth-cell
+    // discipline — the canonical cell exists before any synth cell).
+    // Tree-shake: both empty when no state-child carries `history`.
+    const historyMapLines = emitEngineHistoryMap(meta, decl);
+    const historyCellLines = emitEngineHistoryCellInits(meta, decl);
     const cellLines = emitEngineVariantCellInit(meta);
     if (
       tableLines.length === 0 &&
       internalTableLines.length === 0 &&
       timersLines.length === 0 &&
       idleLines.length === 0 &&
+      historyMapLines.length === 0 &&
+      historyCellLines.length === 0 &&
       cellLines.length === 0
     ) continue;
     if (lines.length > 0) lines.push("");
@@ -885,7 +1167,9 @@ export function emitEngineSubstrate(fileAST: any): string[] {
     for (const l of internalTableLines) lines.push(l);
     for (const l of timersLines) lines.push(l);
     for (const l of idleLines) lines.push(l);
+    for (const l of historyMapLines) lines.push(l);
     for (const l of cellLines) lines.push(l);
+    for (const l of historyCellLines) lines.push(l);
     // §51.0.D mount-position marker. The engine renders at its declaration
     // position. C12 deliberately does NOT emit body markup — state-child
     // bodies are RAW TEXT today (per engine-statechild-parser.ts) and a
@@ -1203,6 +1487,21 @@ export interface EngineBindingInfo {
    *  table const identifier (per §51.0.O). Always populated when
    *  `hasInternalRules === true`. */
   internalTableName?: string;
+  /** A5-7 Wave 2.3 (§51.0.N, Bug #3) — TRUE when at least one state-child
+   *  in this engine declares `history` AND has a discoverable inner-engine
+   *  var. When TRUE, write-guard + advance emission pass the per-engine
+   *  history-map identifier as a trailing (7th) argument to
+   *  `_scrml_engine_direct_set` / `_scrml_engine_advance`. The runtime, in
+   *  the EXTERNAL branch (after the internal short-circuit), reads
+   *  `historyMap[currentVariant]` — when non-null AND `currentVariant !==
+   *  target` (real exit), captures `_scrml_state[innerVarName]` into the
+   *  synth cell `_scrml_state["_" + varName + "_" + currentVariant +
+   *  "_history"]`. When FALSE, the 7th arg is omitted (runtime treats
+   *  undefined as null and skips the capture — tree-shake). */
+  hasHistory?: boolean;
+  /** A5-7 Wave 2.3 — Compile-time-baked per-engine history-map const
+   *  identifier (per §51.0.N). Always populated when `hasHistory === true`. */
+  historyMapName?: string;
 }
 
 /**
@@ -1224,6 +1523,7 @@ export function buildEngineBindingsMap(fileAST: unknown): Map<string, EngineBind
     if (!meta || typeof meta.varName !== "string" || meta.varName.length === 0) continue;
     const hasOT = engineHasOnTimeoutElements(meta);
     const hasIR = engineHasInternalRules(meta);
+    const hasH = engineHasDiscoverableHistoryAttrs(meta, decl);
     out.set(meta.varName, {
       varName: meta.varName,
       forType: meta.forType,
@@ -1254,6 +1554,13 @@ export function buildEngineBindingsMap(fileAST: unknown): Map<string, EngineBind
       internalTableName: hasIR
         ? engineInternalTransitionTableName(meta.varName)
         : undefined,
+      // A5-7 Wave 2.3 (§51.0.N, Bug #3): bind whether any state-child
+      // declares `history` AND has a discoverable inner-engine var. When
+      // true, both write-guard and advance emitters pass the history-map
+      // identifier as the trailing (7th) argument; runtime captures inner
+      // variant into the synth history cell on external outer-exit.
+      hasHistory: hasH,
+      historyMapName: hasH ? engineHistoryMapName(meta.varName) : undefined,
     });
   }
   return out.size > 0 ? out : null;
@@ -1287,6 +1594,7 @@ export function emitEngineWriteGuard(binding: EngineBindingInfo, newValueExpr: s
   const hasTimers = !!(binding.hasOnTimeoutElements && binding.timersTableName);
   const hasIdle = !!(binding.hasIdleWatchdog && binding.idleWatchdogName);
   const hasInternal = !!(binding.hasInternalRules && binding.internalTableName);
+  const hasHistory = !!(binding.hasHistory && binding.historyMapName);
   const timersArg = hasTimers ? `, ${binding.timersTableName}` : ``;
   // A5-6 (§51.0.R, S77): when the engine declares <onIdle>, pass the
   // watchdog config identifier as the 5th arg so the runtime resets the
@@ -1320,6 +1628,24 @@ export function emitEngineWriteGuard(binding: EngineBindingInfo, newValueExpr: s
       internalArg = `, ${binding.internalTableName}`;
     }
   }
+  // A5-7 Wave 2.3 (§51.0.N, Bug #3): when ANY state-child declares `history`
+  // AND has a discoverable inner-engine var, pass the per-engine history-map
+  // identifier as the trailing (7th positional) arg. The runtime, in the
+  // EXTERNAL branch (after the internal short-circuit), captures the inner-
+  // engine variant into the synth history cell on real outer-exits.
+  // Position-padding: fill missing earlier slots with `null`.
+  let historyArg = ``;
+  if (hasHistory) {
+    if (!hasTimers && !hasIdle && !hasInternal) {
+      historyArg = `, null, null, null, ${binding.historyMapName}`;
+    } else if (!hasIdle && !hasInternal) {
+      historyArg = `, null, null, ${binding.historyMapName}`;
+    } else if (!hasInternal) {
+      historyArg = `, null, ${binding.historyMapName}`;
+    } else {
+      historyArg = `, ${binding.historyMapName}`;
+    }
+  }
   // B17.4 + A5-7 Wave 2.2 — when the engine has hooks, capture pre-write
   // variant + fire hooks AFTER the runtime helper commits the write (Q2
   // split timing: body fires post-write so observers read the new value).
@@ -1333,11 +1659,11 @@ export function emitEngineWriteGuard(binding: EngineBindingInfo, newValueExpr: s
     const fnName = engineHookFiringFunctionName(binding.varName);
     lines.push(`{`);
     lines.push(`  const __scrml_engine_from = _scrml_reactive_get(${JSON.stringify(binding.varName)});`);
-    lines.push(`  const __scrml_engine_external = _scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg}${idleArg}${internalArg});`);
+    lines.push(`  const __scrml_engine_external = _scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg}${idleArg}${internalArg}${historyArg});`);
     lines.push(`  if (__scrml_engine_external) ${fnName}(__scrml_engine_from, _scrml_reactive_get(${JSON.stringify(binding.varName)}));`);
     lines.push(`}`);
   } else {
-    lines.push(`_scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg}${idleArg}${internalArg});`);
+    lines.push(`_scrml_engine_direct_set(${JSON.stringify(binding.varName)}, ${newValueExpr}, ${binding.tableName}${timersArg}${idleArg}${internalArg}${historyArg});`);
   }
   return lines;
 }
@@ -1387,6 +1713,7 @@ export function emitEngineAdvanceCall(
   hasOnTimeout?: boolean,
   hasIdle?: boolean,
   hasInternal?: boolean,
+  hasHistory?: boolean,
 ): string {
   const tableName = engineTransitionTableName(varName);
   // A5-4 (§51.0.M): when this engine has at least one `<onTimeout>` element,
@@ -1428,7 +1755,25 @@ export function emitEngineAdvanceCall(
       internalArg = `, ${internalName}`;
     }
   }
-  const baseCall = `_scrml_engine_advance(${JSON.stringify(varName)}, ${targetExpr}, ${tableName}${timersArg}${idleArg}${internalArg})`;
+  // A5-7 Wave 2.3 (§51.0.N, Bug #3): when this engine has any state-child
+  // declaring `history` with a discoverable inner-engine var, pass the per-
+  // engine history-map identifier as the trailing (7th positional) argument.
+  // Runtime captures inner variant into the synth history cell on external
+  // outer-exit. Position-padding: fill missing earlier slots with `null`.
+  let historyArg = ``;
+  if (hasHistory === true) {
+    const historyName = engineHistoryMapName(varName);
+    if (timersArg === `` && idleArg === `` && internalArg === ``) {
+      historyArg = `, null, null, null, ${historyName}`;
+    } else if (idleArg === `` && internalArg === ``) {
+      historyArg = `, null, null, ${historyName}`;
+    } else if (internalArg === ``) {
+      historyArg = `, null, ${historyName}`;
+    } else {
+      historyArg = `, ${historyName}`;
+    }
+  }
+  const baseCall = `_scrml_engine_advance(${JSON.stringify(varName)}, ${targetExpr}, ${tableName}${timersArg}${idleArg}${internalArg}${historyArg})`;
   // B17.4 + A5-7 Wave 2.2 — when the engine has hooks, wrap with capture-pre +
   // hook-fire-post. The runtime helper returns `true` for external transitions,
   // `false` for internal — gate the post-commit hook fire on that boolean.
@@ -2668,6 +3013,37 @@ export function collectEnginesWithInternalRules(fileAST: unknown): Set<string> {
   for (const decl of collectC14DerivedEngineDecls(fileAST)) {
     const meta = decl._record?.engineMeta;
     if (meta && engineHasInternalRules(meta) && typeof meta.varName === "string") {
+      out.add(meta.varName);
+    }
+  }
+  return out;
+}
+
+/**
+ * A5-7 Wave 2.3 (§51.0.N, Bug #3) — Build a Set of engine var names that have
+ * at least one state-child carrying `history` AND a discoverable inner-engine
+ * var. Used by emit-expr.ts + emit-reactive-wiring.ts + emit-functions.ts to
+ * gate the history-map arg insertion at `.advance()` and direct-write sites.
+ * Mirrors `collectEnginesWithInternalRules` shape exactly. Includes BOTH
+ * non-derived (C12-scope) and derived (C14-scope) engines.
+ *
+ * Per §51.0.N — `history` is legal only on composite state-children (typer
+ * fires E-HISTORY-NO-INNER-ENGINE for non-composite cases). This collector
+ * uses `engineHasDiscoverableHistoryAttrs` so it also defensively skips
+ * engines where the inner-engine var name can't be resolved from the AST
+ * (legacy / pre-A10 paths where bodyChildren is absent).
+ */
+export function collectEnginesWithHistory(fileAST: unknown): Set<string> {
+  const out = new Set<string>();
+  for (const decl of collectC12EngineDecls(fileAST)) {
+    const meta = decl._record?.engineMeta;
+    if (meta && engineHasDiscoverableHistoryAttrs(meta, decl) && typeof meta.varName === "string") {
+      out.add(meta.varName);
+    }
+  }
+  for (const decl of collectC14DerivedEngineDecls(fileAST)) {
+    const meta = decl._record?.engineMeta;
+    if (meta && engineHasDiscoverableHistoryAttrs(meta, decl) && typeof meta.varName === "string") {
       out.add(meta.varName);
     }
   }

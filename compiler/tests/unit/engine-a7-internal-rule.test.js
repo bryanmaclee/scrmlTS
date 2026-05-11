@@ -505,23 +505,67 @@ describe("engine-a7-internal-rule §7 — distinct write path codegen", () => {
     expect(clientJs).toMatch(/_scrml_engine_direct_set\([\s\S]*?__scrml_engine_appMode_internal_transitions\)/);
   });
 
-  test.skip("history cell is NOT written on internal transition (blocked on Bug #3)", () => {
+  test("history cell is NOT written on internal transition (Bug #3 shipped, Wave 2.3)", () => {
     // Per §51.0.O cross-ref to §51.0.N: internal transitions don't write to
-    // the history cell (because the composite doesn't exit). Verifying this
-    // codegen contract requires the history synth-cell emission to be in
-    // place — that's Bug #3 (history synth-cell), a separate Wave 2.3
-    // dispatch. The runtime path already honors the spec (the internal
-    // branch in _scrml_engine_direct_set does NOT call any history-write
-    // hook; when Bug #3 lands and adds the history-write hook to the
-    // EXTERNAL branch only, the internal branch's skip is by construction).
+    // the history cell (because the composite doesn't exit). Bug #3 (Wave
+    // 2.3) shipped the history synth-cell + history-map emission; the
+    // runtime helper `_scrml_engine_history_capture_on_exit` is called
+    // from the EXTERNAL branch of `_scrml_engine_direct_set` /
+    // `_scrml_engine_advance` only. The INTERNAL branch sets the cell
+    // value directly via `_scrml_state[varName] = target` and returns false
+    // WITHOUT invoking the history-capture helper — by construction.
     //
-    // This test stays .skip until Bug #3 ships. Once the history synth-cell
-    // is emitted, the assertion shape becomes (sketch):
-    //   const src = `... <Playing history rule=.Title internal:rule=.Playing> ...`;
-    //   const { clientJs } = compileToClientJs(src, "ir-w22-hist");
-    //   // Verify the history-write hook is gated on the EXTERNAL boolean
-    //   // (or equivalently: lives in the external branch of _scrml_engine_*_set).
-    //   expect(clientJs).toMatch(/if \(__scrml_engine_external\)[\s\S]*?_appMode_Playing_history/);
+    // The verification this test performs is structural — both bugs (#3 + #4)
+    // landed compatibly: the history-map IS threaded through the write-guard
+    // call site (per Bug #3's 7th positional arg), and the internal-table
+    // IS threaded through the same call site (per Bug #4's 6th positional
+    // arg). The position-padded shape uses `null` slots to maintain
+    // alignment when an engine has BOTH internal:rule= AND history.
+    const src = `\${
+      type AppMode:enum  = { Title, Playing }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=.Playing></>
+  <Playing history rule=.Title internal:rule=.Playing>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle></>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+</>
+
+\${ function leavePlaying() { @appMode = AppMode.Title } }`;
+    const { errors, clientJs } = compileToClientJs(src, "ir-w22-hist");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+
+    // (1) Both surfaces emit their tables — internal AND history.
+    expect(clientJs).toContain("__scrml_engine_appMode_internal_transitions");
+    expect(clientJs).toContain("__scrml_engine_appMode_history_map");
+
+    // (2) History synth cell initialized at module-init.
+    expect(clientJs).toContain('_scrml_state["_appMode_Playing_history"] = null');
+
+    // (3) The write-guard call site threads BOTH the internal table and the
+    //     history map. Position-padded shape (no timers, no idle):
+    //       _scrml_engine_direct_set(name, value, table, null, null,
+    //         internalTable, historyMap)
+    expect(clientJs).toMatch(
+      /_scrml_engine_direct_set\("appMode",[^,]+,\s*__scrml_engine_appMode_transitions,\s*null,\s*null,\s*__scrml_engine_appMode_internal_transitions,\s*__scrml_engine_appMode_history_map\)/,
+    );
+
+    // (4) The runtime-side contract — that the INTERNAL branch of
+    //     `_scrml_engine_direct_set` does NOT call the history-capture
+    //     helper — is implemented at runtime-template.js's
+    //     `_scrml_engine_direct_set` / `_scrml_engine_advance` body. The
+    //     internal branch performs `_scrml_state[varName] = target;
+    //     return false;` directly (no `_scrml_engine_history_capture_on_exit`
+    //     invocation). The history-capture helper is invoked ONLY from the
+    //     EXTERNAL branch of those helpers, AFTER the internal-table check
+    //     short-circuit returned false (i.e., the internal path was NOT
+    //     taken). This is by-construction structural skip — the test
+    //     verifies the codegen surface that ENABLES it (positional-arg
+    //     threading above); runtime-template.js carries the branch logic.
   });
 
   test("tree-shake — composite without internal:rule= emits NO internal-path metadata", () => {

@@ -103,6 +103,18 @@ export interface EmitExprContext {
    * canonical external path).
    */
   enginesWithInternalRules?: Set<string> | null;
+  /**
+   * A5-7 Wave 2.3 (§51.0.N, Bug #3) — engine variable names in the file's
+   * scope that have at least one state-child carrying `history` (with a
+   * discoverable inner-engine var per `findInnerEngineForStateChild`). When
+   * the engine var is in this set, `emitEngineAdvanceCall` passes the per-
+   * engine history-map identifier as the trailing (7th) argument to
+   * `_scrml_engine_advance` so the runtime captures the inner-engine variant
+   * into the synth history cell on external outer-exit. Tree-shaken: engines
+   * without any composite `history` state-child omit the arg (runtime treats
+   * undefined as null and skips the history capture path).
+   */
+  enginesWithHistory?: Set<string> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -559,7 +571,11 @@ function emitCall(node: CallExpr, ctx: EmitExprContext): string {
       // threads the per-engine internal transition table identifier as the
       // trailing (6th) arg. Tree-shake when engine has no `internal:rule=`.
       const hasInternal = ctx.enginesWithInternalRules ? ctx.enginesWithInternalRules.has(bareName) : false;
-      return emitEngineAdvanceCall(bareName, targetExpr, hasHooks, hasOnTimeout, hasIdle, hasInternal);
+      // A5-7 Wave 2.3 (§51.0.N, Bug #3) — pass hasHistory so the helper
+      // threads the per-engine history-map identifier as the trailing (7th)
+      // arg. Tree-shake when engine has no composite `history` state-child.
+      const hasHistory = ctx.enginesWithHistory ? ctx.enginesWithHistory.has(bareName) : false;
+      return emitEngineAdvanceCall(bareName, targetExpr, hasHooks, hasOnTimeout, hasIdle, hasInternal, hasHistory);
     }
   }
 

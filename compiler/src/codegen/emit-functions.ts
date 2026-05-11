@@ -93,7 +93,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
   // C13 (§51.0.F + §51.0.G): mirror machineBindings wiring for new <engine>
   // form. Function bodies that write to engine variables or call .advance()
   // need both maps threaded through the same emit path.
-  const { buildEngineBindingsMap, collectEngineVarNames, collectEnginesWithHooks, collectEnginesWithOnTimeout, collectEnginesWithIdleWatchdog, collectEnginesWithInternalRules } = require("./emit-engine.ts");
+  const { buildEngineBindingsMap, collectEngineVarNames, collectEnginesWithHooks, collectEnginesWithOnTimeout, collectEnginesWithIdleWatchdog, collectEnginesWithInternalRules, collectEnginesWithHistory } = require("./emit-engine.ts");
   const engineBindings = buildEngineBindingsMap(ctx.fileAST);
   const engineVarNames: Set<string> = collectEngineVarNames(ctx.fileAST);
   // B17.4 (§51.0.H): the subset of engines that have at least one effect=/
@@ -113,6 +113,11 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
   // and direct-write call sites inside function bodies get the internal
   // transition table identifier as the trailing arg.
   const enginesWithInternalRules: Set<string> = collectEnginesWithInternalRules(ctx.fileAST);
+  // A5-7 Wave 2.3 (§51.0.N, Bug #3): the subset of engines that have at least
+  // one composite state-child carrying `history` (with a discoverable inner-
+  // engine var). Threaded so .advance() and direct-write call sites inside
+  // function bodies get the history-map identifier as the trailing arg.
+  const enginesWithHistory: Set<string> = collectEnginesWithHistory(ctx.fileAST);
   const lines: string[] = [];
 
   // Map from original function name → generated var name.
@@ -309,6 +314,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
       ...(enginesWithOnTimeout.size > 0 ? { enginesWithOnTimeout } : {}),
       ...(enginesWithIdleWatchdog.size > 0 ? { enginesWithIdleWatchdog } : {}),
       ...(enginesWithInternalRules.size > 0 ? { enginesWithInternalRules } : {}),
+      ...(enginesWithHistory.size > 0 ? { enginesWithHistory } : {}),
     };
     for (let i = 0; i < body.length; i++) {
       const stmt = body[i];
@@ -447,6 +453,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
         ...(enginesWithOnTimeout.size > 0 ? { enginesWithOnTimeout } : {}),
         ...(enginesWithIdleWatchdog.size > 0 ? { enginesWithIdleWatchdog } : {}),
         ...(enginesWithInternalRules.size > 0 ? { enginesWithInternalRules } : {}),
+        ...(enginesWithHistory.size > 0 ? { enginesWithHistory } : {}),
         ...(_returnTypeAnnotation ? { returnTypeAnnotation: _returnTypeAnnotation, enclosingFnName: name } : {}),
       };
       const shortcutLines = emitFnShortcutBody(body, fnOpts, fnKind, hasRetType);
@@ -456,7 +463,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
         }
       }
     } else {
-      const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings, engineBindings, engineVarNames, enginesWithHooks, _returnTypeAnnotation, name, enginesWithOnTimeout, enginesWithIdleWatchdog, enginesWithInternalRules);
+      const scheduled = scheduleStatements(body, fnNode, routeMap, depGraph, filePath, errors, machineBindings, engineBindings, engineVarNames, enginesWithHooks, _returnTypeAnnotation, name, enginesWithOnTimeout, enginesWithIdleWatchdog, enginesWithInternalRules, enginesWithHistory);
       for (const line of scheduled) {
         lines.push(`  ${line}`);
       }
