@@ -2,7 +2,39 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-11 S81 close, PA-verified at pre-commit hook on `dd29e3b`): **10,433 pass / 66 skip / 1 todo / 0 FAIL** (507 files; pre-commit subset). **Full suite** (`bun run test` — includes browser/lsp/commands/self-host): **11,181 pass / 77 skip / 1 todo / 0 FAIL** (535 files). 7 commits across S81: F.1/F.2 adopter-override surface, strict self-host rebuild gate, Phase A10 deferred-items closure, SPEC-INDEX regen, D3 pure-fn monotonicity detection, D1 export-synth modifier propagation, OQ-2 debounce/throttle imperative-form retirement. +42 net new tests vs S80 close; zero regressions across all 7 ships.
+Current baseline (2026-05-11 S82 close, PA-verified at pre-commit hook on `0c80d16`): **10,458 pass / 66 skip / 1 todo / 0 FAIL** (507 files; pre-commit subset). **Full suite** (`bun run test` — includes browser/lsp/commands/self-host): **11,259 tests total / 0 FAIL** (535 files). 0 source code changes this session — all S82 work is doc-system structural fix. 7 commits across S82 (5 scrmlTS + 2 scrml-support): IMPLEMENTATION-ROADMAP + IMPACT-ASSESSMENT historical-banner, pa.md session-start SoT update + maps-discipline protocol, master-list §0.5 trim, shipped change/audit dirs dereffed to scrml-support archive, primary.map.md Task-Shape Routing + feedback loop, project-mapper template extended for future regen.
+
+### 2026-05-11 (S82 close — wrap)
+
+S82 (single-day session, 2026-05-11; same day as S81). **7 commits across 2 repos** under explicit user authorization. Doc-system structural fix — 0 compiler source code changed. Trigger: PA produced an inaccurate "v0.2.0 lacking" list by reading `scrml-support/archive/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md` (S57-frozen, 24+ sessions stale) as authoritative — direct Rule-4 violation. Burned ~22% context on a list that named A1a/A1b/A1c/A5/A6/A7/A8/A9/A10/debounce-throttle (all SHIPPED) as "lacking." User pushed back on the doc-system bloat as root cause; authorized a structural fix over per-item workaround.
+
+- **Ships (in commit order):**
+  - scrmlTS `47d01a6` — S82 session-start rotation (S81 close content → handOffs/hand-off-81.md; fresh hand-off.md created for S82 open).
+  - scrmlTS `01ade6f` — pa.md session-start checklist: added `master-list.md §0` as step 3 (between pa.md and hand-off reads) with explicit warning that `scrml-support/archive/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md` + `IMPACT-ASSESSMENT.md` are HISTORICAL and must NOT be used as current truth. SoT layering recorded: SPEC.md (normative) → master-list.md (live phase status) → docs/changelog.md (per-session landings) → hand-off.md (current session state).
+  - scrml-support `9f3231b` — Replaced quiet "SUPERSEDED" one-liners on `IMPLEMENTATION-ROADMAP.md` + `IMPACT-ASSESSMENT.md` with visible blockquote-styled ⛔ HISTORICAL banners at file top, with explicit redirect to current SoTs and S82-trap citation.
+  - scrmlTS `75287fe` + scrml-support `e5df473` — Paired cross-repo move: shipped change dirs (`a5-7-tests-samples` S80, `debounce-throttle-approach-b` S79, `promotion-ergonomics` Tier-B-shipped material) + 2 disposed audit docs (both `hardcoded-thresholds-*`) dereffed from scrmlTS to `scrml-support/archive/`. Retained in scrmlTS: `predicate-gaps-deep-dive-prep`/`v0next-audit`/`v0next-inventory`/`promotion-ergonomics/TIER-C-SCOPE.md`; `compiler-forgotten-surface-2026-05-06.md` (primer §12 reference doc), `scope-c-findings-tracker.md` (active tracker), `self-host-spec-conformance-2026-05-11.md` (active-deferred per S81 user direction).
+  - scrmlTS `1e352c7` — master-list §0.5 (20-step A1a status table, all ✅ at S61 close) collapsed to a 2-line closure summary. Per-step commit IDs + landings live in changelog S59-S61. Dashboard 538 → 512 lines.
+  - scrmlTS `0c80d16` — **Maps-discipline protocol (the central fix).** `primary.map.md` gained §"Task-Shape Routing" (maps from task shape → 2-4 relevant maps) + §"Use feedback loop" (agent end-reports load-bearing-finding-or-not). `pa.md` gained §"Maps-discipline protocol (S82)" with: dispatch-brief template (paste-verbatim "MAPS — REQUIRED FIRST READ" block naming primary.map.md, task-shape maps, currency commit SHA + date, feedback-report expectation), currency check, map-selection ownership, feedback-loop disposition, losing-battle threshold (< 30% load-bearing after 6-8 weeks). Companion template change in `~/.claude/agents/project-mapper.md` (propagates at next PA session) so future refreshes regenerate the discipline scaffolding.
+
+- **User-voice S82 entries** (4 durable; recorded at `scrml-support/user-voice-scrmlTS.md`):
+  - Frustration signal: *"I am seriously thinking about trying out codex at this point."*
+  - Doc-system structural complaint (verbatim): *"Massive version change, totally breaking. we have road-map, master-list, change-log, maps (which burn massive tokens to do, but im not sure any agent looks at them.) ... why do I have to burn 22% of 1M token context just to give me a list, that is not accurate to where we are in the process."*
+  - Methodology directive on tool retirement (verbatim): *"I have witnessed the maps making a significant difference when they are used. The answer is not to get rid of the right tool because no one uses it. the answer is, teach how to use the tool."* Standing rule: when PA reflexes toward "retire tool no one uses," that's a Rule-3 violation flag.
+  - Direction preference: "address the doc system itself" over "produce a code-verified narrow list." Methodology preference for structural fix > per-item workaround.
+
+- **Tests at close (no source changes, all changes doc-only):**
+  - Pre-commit subset: 10,458 pass / 66 skip / 1 todo / 0 fail (+25 pre-commit pass over S81; incidental conformance fluctuation).
+  - Full suite (`bun run test`): 11,259 tests / 0 fail.
+  - Zero regressions.
+
+- **Cross-machine sync state at S82 close:** scrmlTS 0/0 origin/main; scrml-support 0/0 origin/main. Untracked private article drafts + tools/ dir in scrml-support working tree carried forward unchanged (per pa.md Rule 1).
+
+- **What's now structurally in place for future sessions:**
+  - Session-start checklist directs PA to master-list.md §0 BEFORE any "what's lacking / what's done" question.
+  - Historical roadmap docs carry visible banners that make trap-recurrence costly.
+  - `docs/changes/` + `docs/audits/` carry current-only content (shipped material in scrml-support archive).
+  - Every dev / scrml-writer / pipeline / gauntlet dispatch carries a "MAPS — REQUIRED FIRST READ" block; agents end-report load-bearing-or-not; PA aggregates over time.
+  - First end-to-end test of the protocol is S83 open. **Deliberately no PA-side priming at S82 wrap** — user wants to experience the next session as designed.
 
 ### 2026-05-11 (S81 close — wrap)
 
