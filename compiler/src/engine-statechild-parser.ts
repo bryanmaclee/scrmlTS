@@ -73,6 +73,19 @@ import type {
 } from "./symbol-table";
 
 /**
+ * HTML void elements (mirrors `block-splitter.js` VOID_ELEMENTS). Their opener
+ * tags never have a matching closer in source text. The closer-finder routines
+ * below use this set to AVOID pushing void-element openers onto the lowercase
+ * opener stack (which would otherwise leave an unbalanced phantom opener that
+ * the next `</>` or other lowercase closer would attempt to pop, corrupting
+ * the state-child / engine / onTransition depth counters).
+ */
+const VOID_ELEMENTS_LC = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input",
+  "link", "meta", "source", "track", "wbr",
+]);
+
+/**
  * Determine whether the engine body text appears to be in the LEGACY
  * `<machine>` arrow-rule form (`.From => .To`). The new `<engine>` state-
  * child form uses `<Variant ...>...</>` openers and never uses `=>`.
@@ -714,6 +727,12 @@ export function scanForOnTransitionEntries(
 function findOnTransitionCloser(bodyRaw: string, from: number): number {
   let i = from;
   let depth = 1;
+  // Wave 4 fix (changes/fix-nested-engine-body-parser-lowercase-html, 2026-05-11):
+  // Track lowercase HTML opener depth SEPARATELY (mirrors findStateChildCloser).
+  // Pre-fix, lowercase HTML closers inside an `<onTransition>` body would
+  // prematurely decrement depth (their corresponding openers don't increment
+  // depth via the PascalCase branch below).
+  let lowerDepth = 0;
   while (i < bodyRaw.length) {
     // Skip ${...} interpolation
     if (bodyRaw.startsWith("${", i)) {
@@ -727,14 +746,19 @@ function findOnTransitionCloser(bodyRaw: string, from: number): number {
       i = j;
       continue;
     }
-    // Closer: `</>` (generic) — pops depth.
+    // Closer: `</>` (generic) — pops lowerDepth first, then depth.
     if (bodyRaw.startsWith("</>", i)) {
+      if (lowerDepth > 0) {
+        lowerDepth--;
+        i += 3;
+        continue;
+      }
       depth--;
       if (depth === 0) return i;
       i += 3;
       continue;
     }
-    // Closer: `</onTransition>` (explicit).
+    // Closer: `</onTransition>` (explicit). Always pops depth.
     if (bodyRaw.startsWith("</onTransition", i)) {
       const ch = bodyRaw[i + 14];
       if (ch === undefined || ch === " " || ch === "\t" || ch === "\n" || ch === ">") {
@@ -746,17 +770,23 @@ function findOnTransitionCloser(bodyRaw: string, from: number): number {
         continue;
       }
     }
-    // Closer: `</Variant>` (named state-child closer — pop depth like generic).
+    // Closer: `</Variant>` (uppercase) or `</tag>` (lowercase HTML).
     if (bodyRaw.startsWith("</", i)) {
       const end = bodyRaw.indexOf(">", i);
       if (end < 0) return -1;
+      const closerFirstChar = bodyRaw[i + 2];
+      if (closerFirstChar && closerFirstChar >= "a" && closerFirstChar <= "z") {
+        // Lowercase HTML named closer — pop lowerDepth only.
+        if (lowerDepth > 0) lowerDepth--;
+        i = end + 1;
+        continue;
+      }
       depth--;
       if (depth === 0) return i;
       i = end + 1;
       continue;
     }
-    // Nested opener `<Tag` — increment depth for PascalCase tags. Skip lower-
-    // case / structural-element tags (they are body content, not depth-bearing).
+    // Opener: PascalCase bumps depth, lowercase bumps lowerDepth (unless void).
     if (bodyRaw[i] === "<") {
       const next = bodyRaw[i + 1];
       if (next && next >= "A" && next <= "Z") {
@@ -764,6 +794,23 @@ function findOnTransitionCloser(bodyRaw: string, from: number): number {
         if (openerEnd < 0) return -1;
         if (bodyRaw[openerEnd - 1] !== "/") {
           depth++;
+        }
+        i = openerEnd + 1;
+        continue;
+      }
+      if (next && next >= "a" && next <= "z") {
+        let j = i + 1;
+        while (j < bodyRaw.length) {
+          const c = bodyRaw[j]!;
+          if ((c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "-") j++;
+          else break;
+        }
+        const tagName = bodyRaw.slice(i + 1, j);
+        const openerEnd = findOpenerEnd(bodyRaw, i + 1);
+        if (openerEnd < 0) return -1;
+        const isSelfClose = bodyRaw[openerEnd - 1] === "/";
+        if (!isSelfClose && !VOID_ELEMENTS_LC.has(tagName)) {
+          lowerDepth++;
         }
         i = openerEnd + 1;
         continue;
@@ -801,6 +848,13 @@ function findEngineCloser(bodyRaw: string, from: number): number {
   let i = from;
   let engineDepth = 1;
   let scDepth = 0; // depth of in-flight state-child openers
+  // Wave 4 fix (changes/fix-nested-engine-body-parser-lowercase-html, 2026-05-11):
+  // Track lowercase HTML opener depth SEPARATELY (mirrors findStateChildCloser).
+  // Without this, a lowercase opener inside a nested engine body (`<button>` etc.)
+  // would not increment any counter, but its `</>` closer or `</button>` closer
+  // would pop scDepth (line `</>` branch) or fall into the `else if
+  // (closerName.length > 0)` branch — corrupting state-child accounting.
+  let lowerDepth = 0;
   while (i < bodyRaw.length) {
     // Skip ${...} interpolation
     if (bodyRaw.startsWith("${", i)) {
@@ -814,8 +868,15 @@ function findEngineCloser(bodyRaw: string, from: number): number {
       i = j;
       continue;
     }
-    // Closer: `</>` (generic) — pops scDepth first; closes engine when scDepth=0.
+    // Closer: `</>` (generic). Pop the most-recently-opened element:
+    // lowerDepth (lowercase HTML) first, then scDepth (state-child), then
+    // engineDepth (the engine itself).
     if (bodyRaw.startsWith("</>", i)) {
+      if (lowerDepth > 0) {
+        lowerDepth--;
+        i += 3;
+        continue;
+      }
       if (scDepth > 0) {
         scDepth--;
         i += 3;
@@ -826,8 +887,7 @@ function findEngineCloser(bodyRaw: string, from: number): number {
       i += 3;
       continue;
     }
-    // Closer: `</engine>` (explicit engine closer) or `</Variant>` (named
-    // state-child closer).
+    // Closer: `</engine>`, `</Variant>` (uppercase), or `</tag>` (lowercase HTML).
     if (bodyRaw.startsWith("</", i)) {
       const end = bodyRaw.indexOf(">", i);
       if (end < 0) return -1;
@@ -836,8 +896,15 @@ function findEngineCloser(bodyRaw: string, from: number): number {
         engineDepth--;
         if (engineDepth === 0) return i;
       } else if (closerName.length > 0) {
-        // Named state-child closer (e.g., `</X>`). Pops scDepth.
-        if (scDepth > 0) scDepth--;
+        const firstChar = closerName[0]!;
+        if (firstChar >= "a" && firstChar <= "z") {
+          // Lowercase HTML named closer (`</button>`, ...). Pop lowerDepth
+          // only; do NOT touch scDepth or engineDepth.
+          if (lowerDepth > 0) lowerDepth--;
+        } else {
+          // Named state-child closer (uppercase, e.g., `</X>`). Pops scDepth.
+          if (scDepth > 0) scDepth--;
+        }
       }
       i = end + 1;
       continue;
@@ -891,6 +958,24 @@ function findEngineCloser(bodyRaw: string, from: number): number {
         if (oe < 0) return -1;
         if (bodyRaw[oe - 1] !== "/") {
           scDepth++;
+        }
+        i = oe + 1;
+        continue;
+      }
+      // Lowercase HTML opener. Track unless self-closing or void element.
+      if (next && next >= "a" && next <= "z") {
+        let j = i + 1;
+        while (j < bodyRaw.length) {
+          const c = bodyRaw[j]!;
+          if ((c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "-") j++;
+          else break;
+        }
+        const tagName = bodyRaw.slice(i + 1, j);
+        const oe = findOpenerEnd(bodyRaw, i + 1);
+        if (oe < 0) return -1;
+        const isSelfClose = bodyRaw[oe - 1] === "/";
+        if (!isSelfClose && !VOID_ELEMENTS_LC.has(tagName)) {
+          lowerDepth++;
         }
         i = oe + 1;
         continue;
@@ -965,6 +1050,18 @@ function findOpenerEnd(s: string, open: number): number {
 function findStateChildCloser(rulesRaw: string, from: number, tag: string): number {
   let i = from;
   let depth = 1;
+  // Wave 4 fix (changes/fix-nested-engine-body-parser-lowercase-html, 2026-05-11):
+  // Track lowercase HTML opener depth SEPARATELY so lowercase closers
+  // (`</button>`, `</div>`, etc.) and `</>` closers that match a lowercase
+  // opener do NOT decrement the state-child depth counter. Pre-fix, an outer
+  // composite state-child body like `<Playing>...<button>X</button>...<engine
+  // for=Inner...>...</></>` was prematurely closed at `</button>` (depth: 1 -> 0)
+  // because the `<button>` opener didn't bump depth but `</button>` decremented
+  // it. The leftover content (the inner engine's state-children) was then
+  // attributed to the OUTER engine by `parseEngineStateChildren`, firing
+  // E-ENGINE-STATE-CHILD-INVALID-VARIANT + E-ENGINE-RULE-INVALID-VARIANT.
+  // Symmetric fix applied in `findEngineCloser` + `findOnTransitionCloser`.
+  let lowerDepth = 0;
   while (i < rulesRaw.length) {
     // Skip ${...} interpolation
     if (rulesRaw.startsWith("${", i)) {
@@ -1037,24 +1134,44 @@ function findStateChildCloser(rulesRaw: string, from: number, tag: string): numb
         continue;
       }
     }
-    // Closer: `</>`
+    // Closer: `</>` (generic). Per scrml semantics `</>` closes the
+    // most-recently-opened element. If there is a pending lowercase opener
+    // (lowerDepth > 0), pop it first; the state-child counter is only
+    // decremented when no lowercase opener is in flight.
     if (rulesRaw.startsWith("</>", i)) {
+      if (lowerDepth > 0) {
+        lowerDepth--;
+        i += 3;
+        continue;
+      }
       depth--;
       if (depth === 0) return i;
       i += 3;
       continue;
     }
-    // Closer: `</Variant>`
+    // Closer: `</Variant>` (uppercase) OR `</tag>` (lowercase). Lowercase
+    // closers pop the lowerDepth counter only — they MUST NOT decrement the
+    // state-child depth (their corresponding opener never incremented it).
     if (rulesRaw.startsWith("</", i)) {
       const end = rulesRaw.indexOf(">", i);
       if (end < 0) return -1;
+      const closerFirstChar = rulesRaw[i + 2];
+      if (closerFirstChar && closerFirstChar >= "a" && closerFirstChar <= "z") {
+        // Lowercase named closer (`</button>`, `</div>`, ...). Pop lowerDepth
+        // if positive; otherwise ignore (stray closer, malformed body).
+        if (lowerDepth > 0) lowerDepth--;
+        i = end + 1;
+        continue;
+      }
       depth--;
       if (depth === 0) return i;
       i = end + 1;
       continue;
     }
-    // Nested opener `<Tag` — increment depth (only for Pascal-cased tags;
-    // HTML/lowercase tags don't matter for our state-child counting).
+    // Opener `<...`. PascalCase (uppercase first letter) bumps state-child
+    // depth; lowercase HTML opener bumps lowerDepth. Void elements
+    // (`<br>`, `<input>`, etc.) do NOT have closers — skip without bumping
+    // lowerDepth.
     if (rulesRaw[i] === "<") {
       const next = rulesRaw[i + 1];
       if (next && next >= "A" && next <= "Z") {
@@ -1065,6 +1182,24 @@ function findStateChildCloser(rulesRaw: string, from: number, tag: string): numb
         // Self-closing? `<Tag/>`
         if (rulesRaw[openerEnd - 1] === "/") {
           depth--; // self-close cancels the increment
+        }
+        i = openerEnd + 1;
+        continue;
+      }
+      if (next && next >= "a" && next <= "z") {
+        // Lowercase HTML opener. Determine tag name to classify void status.
+        let j = i + 1;
+        while (j < rulesRaw.length) {
+          const c = rulesRaw[j]!;
+          if ((c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "-") j++;
+          else break;
+        }
+        const tagName = rulesRaw.slice(i + 1, j);
+        const openerEnd = findOpenerEnd(rulesRaw, i + 1);
+        if (openerEnd < 0) return -1;
+        const isSelfClose = rulesRaw[openerEnd - 1] === "/";
+        if (!isSelfClose && !VOID_ELEMENTS_LC.has(tagName)) {
+          lowerDepth++;
         }
         i = openerEnd + 1;
         continue;

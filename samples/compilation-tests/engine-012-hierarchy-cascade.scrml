@@ -31,14 +31,17 @@
 // v1 implementation state (2026-05-11):
 //   - Parser + typer surface the parent-rule contract via existing §51.0.F
 //     mechanic applied per-variable.
-//   - The cascade-miss diagnostic message-extension is a typer follow-on.
-//   - Inner-engine state-child bodies with rich markup are also Wave 4
-//     follow-on — the body-parser currently attributes inner state-children
-//     to the OUTER engine when they carry non-empty bodies. This sample
-//     keeps inner state-children empty and surfaces the cascade-write
-//     pattern via the OUTER composite body and via FILE-LEVEL handlers
-//     (writes to @playMode at file scope hit the inner engine's variable
-//     through the same rule= discipline once inner is active).
+//   - The cascade-miss diagnostic message-extension is a typer follow-on
+//     (Bug #3, Wave 4 typer follow-on).
+//   - Bug #1 (body-parser mis-attribution of inner state-children when the
+//     composite body carried lowercase HTML before the nested <engine>) is
+//     FIXED at changes/fix-nested-engine-body-parser-lowercase-html
+//     (2026-05-11). Composite bodies now accept arbitrary markup before /
+//     after / interleaved with nested <engine> declarations. Inner state-
+//     children may carry non-empty bodies (canonical SPEC §51.0.Q.1 worked
+//     example shape — `<button>` inside `<Exploring>` / `<Battle>`).
+//   - The inner engine's OWN dispatcher emission inside the composite arm
+//     body is Bug #2 (Wave 4 codegen follow-on).
 
 <program>
 ${
@@ -54,9 +57,16 @@ ${
         // Writes to @appMode here are validated against `<Playing>`'s rule=:
         //   .Title and .Paused are legal targets; anything else fires
         //   E-ENGINE-INVALID-TRANSITION.
+        //
+        // Inner state-children carry canonical non-empty bodies per
+        // SPEC §51.0.Q.1 worked example shape.
         <engine for=PlayMode initial=.Exploring>
-            <Exploring rule=.Battle></>
-            <Battle rule=.Exploring></>
+            <Exploring rule=.Battle>
+                <button onclick=${@playMode = PlayMode.Battle}>Fight</>
+            </>
+            <Battle rule=.Exploring>
+                <button onclick=${@playMode = PlayMode.Exploring}>Flee</>
+            </>
             <Inventory></>
         </>
 

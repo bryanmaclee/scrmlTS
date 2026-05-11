@@ -17,13 +17,13 @@
  *
  * KNOWN DEFERRALS (Wave 4 — out of A5-7 source-no-change scope):
  *   - Inner-engine variant restore on outer re-entry.
- *   - Inner engine's own dispatcher emission inside composite arm body.
+ *   - Inner engine's own dispatcher emission inside composite arm body
+ *     (Bug #2 — Wave 4 codegen follow-on).
  *   - Parent-rule cascade compile-time validation (cascade-miss diagnostic
- *     message extension per §51.0.Q.3 — typer follow-on).
- *   - Inner-engine state-child non-empty body parsing (the body-parser today
- *     attributes inner state-children to the outer engine when bodies are
- *     non-empty — surfaced as compiler-bug observation, NOT fixed here).
- *   All marked .skip / documented with cite below per A5-7 brief.
+ *     message extension per §51.0.Q.3 — Bug #3, typer follow-on).
+ *   Inner-engine state-child non-empty body parsing was Bug #1 — FIXED at
+ *   changes/fix-nested-engine-body-parser-lowercase-html (2026-05-11);
+ *   §7 below now exercises the canonical fixtures.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -333,49 +333,95 @@ describe("engine-a7-hierarchy §6 — multi-engine pattern (§51.4)", () => {
 });
 
 // ===========================================================================
-// §7. Compiler bug surfaced (Wave 4) — inner state-child non-empty bodies
+// §7. Inner state-child non-empty body parsing (Wave 4 — body-parser fix)
+//
+// Bug #1 fix-cite (changes/fix-nested-engine-body-parser-lowercase-html,
+// 2026-05-11): `findStateChildCloser` / `findEngineCloser` /
+// `findOnTransitionCloser` in engine-statechild-parser.ts now track
+// lowercase HTML opener depth separately, preventing premature state-child
+// closure when a composite's body contains lowercase markup BEFORE a nested
+// <engine>. Pre-fix this fixture fired
+// E-ENGINE-STATE-CHILD-INVALID-VARIANT + E-ENGINE-RULE-INVALID-VARIANT.
 // ===========================================================================
 
-describe.skip("engine-a7-hierarchy §7 — non-empty inner state-child bodies (Wave 4 / bug surface)", () => {
-  test("DEFERRED: inner state-child with markup body fails — outer typer mis-attributes inner tags", () => {
-    // Compiler-bug observation surfaced by this test:
-    // When an inner engine's state-children carry NON-EMPTY bodies (e.g.,
-    // <Exploring><button>...</button></>), the body-parser today attributes
-    // those inner state-children to the OUTER engine. Two errors fire:
-    //   - E-ENGINE-STATE-CHILD-INVALID-VARIANT for inner tags vs outer enum
-    //   - E-ENGINE-RULE-INVALID-VARIANT for inner rule= targets vs outer enum
+describe("engine-a7-hierarchy §7 — non-empty inner state-child bodies (Bug #1 fix)", () => {
+  test("inner state-child with markup body compiles cleanly — no outer-engine mis-attribution", () => {
+    // Canonical SPEC §51.0.Q.2 worked example: composite state-child with a
+    // nested engine whose inner state-children carry non-empty markup
+    // (`<button>Fight</button>` inside `<Exploring>`).
     //
-    // This is the canonical SPEC §51.0.Q.2 worked example — adopters will
-    // hit this when nesting non-trivial markup inside inner state-children.
-    //
-    // Marked .skip with cite — NOT fixed under A5-7 source-no-change scope.
-    // Tracking ticket: file under hand-off as compiler-bug observation.
-    //
-    // Repro fixture for the bug (would surface 3+ errors if un-.skipped):
-    //   <engine for=AppMode initial=.Title>
-    //     <Title rule=.Playing></>
-    //     <Playing rule=.Title>
-    //       <engine for=PlayMode initial=.Exploring>
-    //         <Exploring rule=.Battle>
-    //           <button>Fight</button>
-    //         </>
-    //         <Battle rule=.Exploring></>
-    //       </>
-    //     </>
-    //   </>
+    // Pre-fix: E-ENGINE-STATE-CHILD-INVALID-VARIANT fired for `<Exploring>`
+    // / `<Battle>` against AppMode + E-ENGINE-RULE-INVALID-VARIANT for the
+    // inner `rule=` targets. Post-fix: clean compilation.
+    const src = `\${
+      type AppMode:enum  = { Title, Playing }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=.Playing></>
+  <Playing rule=.Title>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle>
+        <button>Fight</button>
+      </>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+</>`;
+    const { errors } = compileToClientJs(src, "inner-body");
+    const fatal = errors.filter((e) => e.severity === "error");
+    expect(fatal).toEqual([]);
+    // The mis-attribution codes specifically must be absent.
+    const misAttributionCodes = errors.filter(
+      (e) =>
+        e.code === "E-ENGINE-STATE-CHILD-INVALID-VARIANT" ||
+        e.code === "E-ENGINE-RULE-INVALID-VARIANT",
+    );
+    expect(misAttributionCodes).toEqual([]);
   });
 
-  test("DEFERRED: nested engine dispatcher emission inside composite arm body", () => {
+  test("lowercase markup BEFORE nested <engine> in composite body compiles cleanly", () => {
+    // Adopter pattern: outer-scoped controls (a `<button>` for instance)
+    // sit alongside the nested engine in the composite body. Pre-fix, any
+    // lowercase HTML element BEFORE the nested <engine> opener corrupted
+    // the depth counter inside findStateChildCloser, prematurely closing
+    // <Playing> at `</button>` and leaking the inner engine's state-children
+    // into the outer engine's registry.
+    const src = `\${
+      type AppMode:enum  = { Title, Playing }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=.Playing></>
+  <Playing rule=.Title>
+    <button>Pause game</button>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle></>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+</>`;
+    const { errors } = compileToClientJs(src, "outer-controls");
+    const fatal = errors.filter((e) => e.severity === "error");
+    expect(fatal).toEqual([]);
+  });
+
+  test.skip("DEFERRED (Bug #2): nested engine dispatcher emission inside composite arm body", () => {
     // Per SPEC §51.0.Q.1: nested engine has FULL engine semantics — including
     // its own dispatcher subscribing to the inner variable. Currently the
     // nested engine state-child bodies are parsed but the inner dispatcher /
     // render functions are not emitted to client JS.
     //
+    // Bug #1 (body-parser mis-attribution) is FIXED at
+    // changes/fix-nested-engine-body-parser-lowercase-html (2026-05-11) —
+    // see §7 tests above. The remaining inner-dispatcher emission gap is
+    // tracked separately as Bug #2 (Wave 4 codegen follow-on).
+    //
     // Verification: search clientJs for `__scrml_engine_playMode_transitions`
     // — today this is absent even when the source declares the inner engine.
   });
 
-  test("DEFERRED: cascade-miss diagnostic message extension (§51.0.Q.3)", () => {
+  test.skip("DEFERRED (typer follow-on): cascade-miss diagnostic message extension (§51.0.Q.3)", () => {
     // Per §51.0.Q.3: when a write inside a composite is rejected by the outer
     // composite's `rule=`, the diagnostic message should extend to name BOTH
     // engines for clarity (no new error code — extension of
@@ -383,6 +429,6 @@ describe.skip("engine-a7-hierarchy §7 — non-empty inner state-child bodies (W
     //
     // Per a5-3 §A5-3.8 deferral: direct-write fire-site inside engine
     // state-child bodies is absent (engine bodies are RAW TEXT). Cascade-miss
-    // diagnostic surface is a typer follow-on.
+    // diagnostic surface is a typer follow-on (Bug #3, Wave 4 typer follow-on).
   });
 });

@@ -246,32 +246,46 @@ describe("engine-a7-cross-feature §4 — named timer + cancelTimer inside compo
     expect(clientJs).toMatch(/target:\s*"Confirmed"/);
   });
 
-  test.skip("DEFERRED: cancelTimer call inside composite arm body — surfaces body-parser mis-attribution bug", () => {
+  test("cancelTimer call inside composite arm body lowers correctly (Bug #1 fix)", () => {
     // SPEC §51.0.M.1: cancelTimer("name") is recognized as a builtin when
     // used as an event-handler call-ref attribute inside an engine state-child
-    // body. The composite is an engine state-child, so the call ought to
-    // lower to _scrml_engine_clear_named_timer.
+    // body. The composite is an engine state-child, so the call must
+    // lower to _scrml_engine_clear_named_timer("<varName>", "<armTag>", "<name>").
     //
-    // Today this hits the SAME body-parser bug as engine-a7-hierarchy §7:
-    // any non-empty markup BEFORE the inner <engine> opener in the composite
-    // body causes the inner-engine state-children (e.g. <A rule=.B>) to be
-    // attributed to the OUTER engine. Two errors fire:
-    //   - E-ENGINE-STATE-CHILD-INVALID-VARIANT for inner tags vs outer enum
-    //   - E-ENGINE-RULE-INVALID-VARIANT for inner rule= targets vs outer enum
+    // Pre-fix this hit the body-parser mis-attribution bug: the lowercase
+    // `<button>...</>` markup BEFORE the inner <engine> opener corrupted the
+    // depth counter inside findStateChildCloser, prematurely closing the
+    // composite and attributing the inner-engine state-children (`<A>`, `<B>`)
+    // to the OUTER engine — firing E-ENGINE-STATE-CHILD-INVALID-VARIANT +
+    // E-ENGINE-RULE-INVALID-VARIANT.
     //
-    // Repro fixture (would surface the bug if un-.skipped):
-    //   <Confirming rule=(.Confirmed | .Idle)>
-    //     <onTimeout name=autoConfirm after=5s to=.Confirmed/>
-    //     <button onclick=cancelTimer("autoConfirm")>Pause</>
-    //     <engine for=Sub initial=.A>
-    //       <A rule=.B></>
-    //       <B rule=.A></>
-    //     </>
-    //   </>
-    //
-    // Wave 4 follow-on: body-parser must accept richer markup before/after
-    // nested-engine declarations without leaking inner state-children into
-    // the outer engine's state-child registry.
+    // Fix: changes/fix-nested-engine-body-parser-lowercase-html (2026-05-11)
+    // tracks lowercase HTML opener depth separately. The fixture below now
+    // compiles cleanly AND the cancelTimer call lowers per §51.0.M.1.
+    const src = `\${
+      type AppMode:enum  = { Idle, Confirming, Confirmed }
+      type Sub:enum      = { A, B }
+    }
+<engine for=AppMode initial=.Idle>
+  <Idle rule=.Confirming></>
+  <Confirming rule=(.Confirmed | .Idle)>
+    <onTimeout name=autoConfirm after=5s to=.Confirmed/>
+    <button onclick=cancelTimer("autoConfirm")>Pause</>
+    <engine for=Sub initial=.A>
+      <A rule=.B></>
+      <B rule=.A></>
+    </>
+  </>
+  <Confirmed rule=.Idle></>
+</>`;
+    const { errors, clientJs } = compileToClientJs(src, "canc-comp");
+    const fatal = errors.filter((e) => e.severity === "error");
+    expect(fatal).toEqual([]);
+    // The named-timer composite-key cancelTimer lowering MUST land:
+    //   _scrml_engine_clear_named_timer("appMode", "Confirming", "autoConfirm")
+    expect(clientJs).toContain('_scrml_engine_clear_named_timer("appMode", "Confirming", "autoConfirm")');
+    // And the named-timer entry itself must still be emitted.
+    expect(clientJs).toContain('name: "autoConfirm"');
   });
 
   test("E-TIMER-NAME-INVALID surfaces from inside a composite state-child body", () => {
