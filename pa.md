@@ -259,13 +259,14 @@ increment, recording design insights. Truth flow into storage must not be inhibi
 ### Session-start checklist (this repo only)
 1. Read `pa.md` (this file)
 2. **Read `docs/PA-SCRML-PRIMER.md` IN FULL.** This is the canon snapshot of scrml's syntax, mindset, error model, V5-strict access, three RHS shapes, engine recipe + Tier ladder, validator surface, stdlib catalog, anti-patterns. Costs ~5-7k tokens at session open; saves the 300k-token-relearn-as-you-go cost the S57 PA paid (per S57 user verbatim: *"PA needs to be the second formost expert on scrml, after me, of course"*). Mandatory.
-3. Read `hand-off.md`
-4. Read the last ~10 **contentful** entries from `../scrml-support/user-voice-scrmlTS.md` — skip non-contentful messages (acks, "keep going", "continue", "yes", "ok"); if any of the last 10 are non-contentful, read that many more so you end up with ~10 substantive entries
-5. Rotate `hand-off.md` → `handOffs/hand-off-<N>.md`
-6. Create fresh `hand-off.md`
-7. **FIRST SESSION ONLY:** run `project-mapper` cold to produce `.claude/maps/` + non-compliance report
-8. Prompt user about incremental map refresh on subsequent sessions
-9. Report: caught up + next priority
+3. **Read `master-list.md` §0 (the LIVE v0.2.0 phase dashboard) IN FULL.** This is the authoritative source of truth for "what's done / what's in flight" — refreshed every session-close. Whenever any prompt asks "what's left," "what's lacking," "what's the status of X," "are we ready to ship," etc., master-list §0 is the load-bearing answer, NOT the derivative docs below. **Do NOT use `scrml-support/archive/changes/v0next-spec-impact/IMPLEMENTATION-ROADMAP.md` or `IMPACT-ASSESSMENT.md` as current truth — those are FROZEN at S57 and explicitly marked HISTORICAL.** The S82 PA burned ~22% context producing a wrong "lacking" list from the stale roadmap; do not repeat the mistake. Per pa.md Rule 4 (Spec is normative; derived planning docs are NOT) the SoT layering is: SPEC.md (normative) → master-list.md (live phase status) → docs/changelog.md (per-session landings) → hand-off.md (current session state). Read in that order when triaging "where are we."
+4. Read `hand-off.md`
+5. Read the last ~10 **contentful** entries from `../scrml-support/user-voice-scrmlTS.md` — skip non-contentful messages (acks, "keep going", "continue", "yes", "ok"); if any of the last 10 are non-contentful, read that many more so you end up with ~10 substantive entries
+6. Rotate `hand-off.md` → `handOffs/hand-off-<N>.md`
+7. Create fresh `hand-off.md`
+8. **FIRST SESSION ONLY:** run `project-mapper` cold to produce `.claude/maps/` + non-compliance report
+9. Prompt user about incremental map refresh on subsequent sessions
+10. Report: caught up + next priority
 
 ### PA's agent orchestration responsibilities
 - Dispatch **dev agents** (pipeline, gauntlet devs, scrml writers) with project-mapper output + task-scoped resources
