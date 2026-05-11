@@ -26,11 +26,16 @@
  *   timers        _scrml_timer_start/stop/pause/resume/stop_scope_timers
  *   animation     _scrml_animation_frame, _scrml_cancel_animation_frames, animationFrame
  *   reconciliation _scrml_reconcile_list, _scrml_lis
- *   utilities     _scrml_deep_set, _scrml_debounce, _scrml_throttle, _scrml_reactive_debounced,
+ *   utilities     _scrml_deep_set, _scrml_reactive_debounced,
  *                 _scrml_reactive_throttled (S79 — §6.13 reactivity attr),
  *                 _scrml_reactivity_cancel + _scrml_reactivity_timers + _scrml_throttle_state
  *                 (S79 — per-cell timer registry; consumed by _scrml_reset for cancel-on-reset),
  *                 _scrml_reactive_explicit_set, _scrml_upload, _scrml_navigate
+ *                 (S81 OQ-2 2026-05-11: `_scrml_debounce` + `_scrml_throttle`
+ *                 RETIRED — imperative `debounce(fn,ms)`/`throttle(fn,ms)` keyword-
+ *                 calls replaced by stdlib `scrml:time` imports. State-cell
+ *                 timing still flows through the `_scrml_throttle_state` +
+ *                 `_scrml_reactive_debounced`/`_scrml_reactive_throttled` path.)
  *   meta          _scrml_meta_emit, _scrml_tracking_stack, _scrml_meta_effect
  *   transitions   Transition CSS injection IIFE (scrml-fade/slide/fly animations)
  *   errors        _ScrmlError, NetworkError, ValidationError, SQLError, AuthError, etc.

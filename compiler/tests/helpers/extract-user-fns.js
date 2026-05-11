@@ -75,8 +75,11 @@ const INTERNAL_HELPER_PATTERN = new RegExp(
     "effect(?!_\\d)|" +
     "lift(?!_\\d)|" +
     "replay(?!_\\d)|" +
-    "debounce(?!_\\d)|" +
-    "throttle(?!_\\d)|" +
+    // S81 OQ-2 (2026-05-11): `debounce`/`throttle` REMOVED from internal-
+    // helper filter — _scrml_debounce/_scrml_throttle runtime helpers retired
+    // alongside the imperative keyword-call form. User-defined functions named
+    // `debounce` or `throttle` (legal post-retirement; tokenizer no longer
+    // reserves them) now correctly surface as user fns in extracted lists.
     "upload(?!_\\d)|" +
     "lis(?!_\\d)|" +
     // CSRF / utility — these have arbitrary tails (no `_<digit>` suffix

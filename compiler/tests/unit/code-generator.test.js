@@ -1714,36 +1714,23 @@ describe("bind:files directive", () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// debounce() and throttle() built-in functions
+// debounce() and throttle() built-ins — RETIRED S81 OQ-2 (2026-05-11)
 // ---------------------------------------------------------------------------
+// The imperative `debounce(fn, ms)` / `throttle(fn, ms)` keyword-call form is
+// retired. AST kinds `debounce-call` / `throttle-call` are removed; runtime
+// helpers `_scrml_debounce` / `_scrml_throttle` are removed; codegen case
+// arms removed. Adopters use stdlib `scrml:time.debounce` / `scrml:time.throttle`
+// (regular function calls, shipped at stdlib/time/index.scrml). State-cell
+// timing uses §6.13 attribute form (`<x debounced=Nms>`). The two pre-S81
+// codegen assertions are deleted; new assertions verify the absence of the
+// retired runtime helpers from emitted output.
 
-describe("debounce/throttle built-ins", () => {
-  test("debounce-call node emits _scrml_debounce", () => {
-    const ast = makeFileAST("/test/app.scrml", [
-      makeLogicBlock([
-        { kind: "debounce-call", fn: "handleSearch", delay: 250, span: span(0) },
-      ]),
-    ]);
-
-    const result = runCG({
-      files: [ast],
-      routeMap: makeRouteMap(),
-      depGraph: makeDepGraph(),
-      protectAnalysis: makeProtectAnalysis(),
-    });
-
-    expect(result.errors).toHaveLength(0);
-    const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain("_scrml_debounce");
-    expect(out.clientJs).toContain("250");
-  });
-
-  test("throttle-call node emits _scrml_throttle", () => {
-    const ast = makeFileAST("/test/app.scrml", [
-      makeLogicBlock([
-        { kind: "throttle-call", fn: "handleScroll", delay: 100, span: span(0) },
-      ]),
-    ]);
+describe("debounce/throttle built-ins — RETIRED S81 OQ-2", () => {
+  test("no _scrml_debounce / _scrml_throttle runtime helper emitted by default", () => {
+    // Empty logic block — verifies the retired helpers aren't unconditionally
+    // bundled into compiled output anymore. Pre-S81 they sat inside the
+    // utilities chunk; chunk-detector entries removed at S81.
+    const ast = makeFileAST("/test/app.scrml", [makeLogicBlock([])]);
 
     const result = runCG({
       files: [ast],
@@ -1754,8 +1741,9 @@ describe("debounce/throttle built-ins", () => {
 
     expect(result.errors).toHaveLength(0);
     const out = result.outputs.get("/test/app.scrml");
-    expect(out.clientJs).toContain("_scrml_throttle");
-    expect(out.clientJs).toContain("100");
+    // The two retired helpers MUST NOT appear in default compiled output.
+    expect(out.clientJs).not.toContain("function _scrml_debounce(");
+    expect(out.clientJs).not.toContain("function _scrml_throttle(");
   });
 });
 

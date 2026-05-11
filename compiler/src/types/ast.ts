@@ -1226,27 +1226,15 @@ export interface UploadCallNode extends BaseNode {
   urlExpr?: ExprNode;
 }
 
-/** A debounce call: `debounce(fn, ms)`. Built-in debounce utility. */
-export interface DebounceCallNode extends BaseNode {
-  kind: "debounce-call";
-  /** Function expression (raw string). */
-  fn: string;
-  /** Phase 4: structured ExprNode form of `fn`. Populated by ast-builder. */
-  fnExpr?: ExprNode;
-  /** Delay in milliseconds. */
-  delay: number;
-}
-
-/** A throttle call: `throttle(fn, ms)`. Built-in throttle utility. */
-export interface ThrottleCallNode extends BaseNode {
-  kind: "throttle-call";
-  /** Function expression (raw string). */
-  fn: string;
-  /** Phase 4: structured ExprNode form of `fn`. Populated by ast-builder. */
-  fnExpr?: ExprNode;
-  /** Delay in milliseconds. */
-  delay: number;
-}
+// S81 OQ-2 (2026-05-11): `DebounceCallNode` + `ThrottleCallNode` RETIRED.
+// The imperative `debounce(fn, ms)` / `throttle(fn, ms)` keyword-call form
+// is replaced by:
+//   - state-decl attribute `<x debounced=Nms>` per §6.13 (S79 Approach B)
+//   - stdlib `import { debounce, throttle } from "scrml:time"` (regular calls)
+// Adopters using the retired form must migrate (separate `bun scrml fix`
+// CLI sub-command filed for v0.3.0+ per S81 user-voice). Tokenizer no longer
+// reserves these names as KEYWORDs (see tokenizer.ts ~line 70); they parse
+// as ordinary identifiers + CallExpr.
 
 // ---------------------------------------------------------------------------
 // Discriminated Unions
@@ -1294,8 +1282,6 @@ export type LogicStatement =
   | WhenEffectNode
   | WhenMessageNode
   | UploadCallNode
-  | DebounceCallNode
-  | ThrottleCallNode
   // Block-level nodes can appear inside logic bodies via BLOCK_REF:
   | MarkupNode
   | SQLNode

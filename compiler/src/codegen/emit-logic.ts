@@ -2163,17 +2163,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
     // existing `case "state-decl"` arm; the new `_emitReactivitySidecar`
     // helper attaches the `_scrml_reactivity_register` call as a sidecar.
 
-    case "debounce-call": {
-      const fn = emitExprField(node.fnExpr, node.fn ?? "() => {}", _makeExprCtx(opts));
-      const delay: number = node.delay ?? 300;
-      return `_scrml_debounce(${fn}, ${delay});`;
-    }
-
-    case "throttle-call": {
-      const fn = emitExprField(node.fnExpr, node.fn ?? "() => {}", _makeExprCtx(opts));
-      const delay: number = node.delay ?? 100;
-      return `_scrml_throttle(${fn}, ${delay});`;
-    }
+    // S81 OQ-2 (2026-05-11): `case "debounce-call"` + `case "throttle-call"`
+    // RETIRED. The imperative keyword-call form is replaced by stdlib
+    // imports (`scrml:time.debounce` / `scrml:time.throttle`) which emit as
+    // regular function calls. State-cell timing uses §6.13 attribute form
+    // (`<x debounced=Nms>` — handled by the state-decl reactivity sidecar
+    // path above). Runtime helpers `_scrml_debounce` / `_scrml_throttle` are
+    // removed from runtime-template.js; chunk-detector entries removed from
+    // emit-client.ts.
 
     case "transaction-block": {
       // SPEC §44.6 — transactions are deferred to SPEC-ISSUE-018. The current

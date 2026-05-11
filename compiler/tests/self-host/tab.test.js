@@ -155,7 +155,9 @@ describe("tokenizeLogic parity", () => {
     ["arrow fn", "(a, b) => a + b", 0, 1, 1, []],
     ["complex expr", 'let x = @count > 0 ? "yes" : "no"', 0, 1, 1, []],
     ["all keywords", "if else for while return let const fn lift", 0, 1, 1, []],
-    ["scrml keywords", "fail transaction cleanup upload debounce throttle", 0, 1, 1, []],
+    // S81 OQ-2 (2026-05-11): `debounce`/`throttle` REMOVED from KEYWORDS
+    // (imperative keyword-call form retired). They tokenize as IDENT now.
+    ["scrml keywords", "fail transaction cleanup upload", 0, 1, 1, []],
     ["more keywords", "env public when changes animationFrame broadcast disconnect", 0, 1, 1, []],
     ["top-level keywords", "use using with navigate not", 0, 1, 1, []],
     ["punct chars", "()[]{},.;:!&|+-*/%^~=<>?", 0, 1, 1, []],

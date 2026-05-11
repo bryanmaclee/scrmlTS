@@ -309,12 +309,10 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
         break;
       // S79 — case "reactive-debounced-decl" RETIRED (state-decl with
       // reactivity field handles the chunk-trigger now).
-      case "debounce-call":
-        chunks.add("utilities"); // _scrml_debounce
-        break;
-      case "throttle-call":
-        chunks.add("utilities"); // _scrml_throttle
-        break;
+      // S81 OQ-2 (2026-05-11) — `case "debounce-call"` + `case "throttle-call"`
+      // RETIRED. Imperative form replaced by stdlib `scrml:time.debounce`/
+      // `throttle` imports (regular function calls; chunk-trigger inferred
+      // from the import + the importing module's chunk needs).
       case "upload-call":
         chunks.add("utilities"); // _scrml_upload
         break;

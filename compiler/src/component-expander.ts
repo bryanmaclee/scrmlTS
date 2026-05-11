@@ -102,8 +102,6 @@ import type {
   WhenEffectNode,
   WhenMessageNode,
   CleanupRegistrationNode,
-  DebounceCallNode,
-  ThrottleCallNode,
   UploadCallNode,
   TransactionBlockNode,
   MetaNode,
@@ -1271,14 +1269,10 @@ function substitutePropsInLogicStmt(
       const n = stmt as CleanupRegistrationNode;
       return { ...n, callbackExpr: subInExpr(n.callbackExpr) } satisfies CleanupRegistrationNode;
     }
-    case "debounce-call": {
-      const n = stmt as DebounceCallNode;
-      return { ...n, fnExpr: subInExpr(n.fnExpr) } satisfies DebounceCallNode;
-    }
-    case "throttle-call": {
-      const n = stmt as ThrottleCallNode;
-      return { ...n, fnExpr: subInExpr(n.fnExpr) } satisfies ThrottleCallNode;
-    }
+    // S81 OQ-2 (2026-05-11): `case "debounce-call"` + `case "throttle-call"`
+    // RETIRED. Imperative form lowered to regular CallExpr via stdlib import;
+    // ExprNode substitution already handles regular CallExprs at the
+    // generic recursion path.
     case "upload-call": {
       const n = stmt as UploadCallNode;
       return {

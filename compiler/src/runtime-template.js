@@ -1041,24 +1041,14 @@ function _scrml_deep_set(obj, path, value) {
   return result;
 }
 
-function _scrml_debounce(fn, ms) {
-  let timer;
-  return function(...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), ms);
-  };
-}
-
-function _scrml_throttle(fn, ms) {
-  let last = 0;
-  return function(...args) {
-    const now = Date.now();
-    if (now - last >= ms) {
-      last = now;
-      fn.apply(this, args);
-    }
-  };
-}
+// S81 OQ-2 (2026-05-11): _scrml_debounce + _scrml_throttle RETIRED. These
+// helpers supported the imperative debounce(fn, ms) / throttle(fn, ms)
+// keyword-call form, which is itself retired. Adopters use stdlib
+// scrml:time.debounce / scrml:time.throttle (regular function calls,
+// shipped at stdlib/time/index.scrml). State-cell timing uses the SPEC
+// section 6.13 attribute form ([x debounced=Nms]) which is served by the
+// _scrml_throttle_state + _scrml_reactivity_* helpers below — NOT by the
+// retired plain debounce/throttle helpers.
 
 // ---------------------------------------------------------------------------
 // §6.13 Reactivity attributes — debounced= / throttled= runtime helpers

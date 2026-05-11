@@ -67,7 +67,15 @@ const KEYWORDS = new Set([
   // a state cell to its declared default. Reserved at lex time so the
   // expression-parser (Step 6) can produce a `reset-expr` AST node and
   // the parser (Step 8) can emit E-RESERVED-IDENTIFIER for shadowing.
-  "cleanup", "upload", "debounce", "throttle", "reset",
+  // S81 OQ-2 (2026-05-11): `debounce` and `throttle` retired as KEYWORDs.
+  // The imperative keyword-call form `debounce(fn, ms)` / `throttle(fn, ms)`
+  // is RETIRED in favor of two canonical surfaces:
+  //   - state-decl attribute: `<x debounced=300ms>` per §6.13 (S79 Approach B)
+  //   - stdlib: `import { debounce, throttle } from "scrml:time"` per §41
+  // Adopters now use `debounce`/`throttle` as ordinary identifiers; calls
+  // resolve through the stdlib import. Without the KEYWORD reservation,
+  // names like `let debounce = ...` no longer fire E-RESERVED-IDENTIFIER.
+  "cleanup", "upload", "reset",
   // scrml env access modifier
   "env", "public",
   // scrml reactive effects (§6.7.4)

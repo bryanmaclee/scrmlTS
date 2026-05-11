@@ -7576,97 +7576,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       continue;
     }
 
-    // DEBOUNCE built-in: `debounce(fn, ms)`
-    if (tok.kind === "KEYWORD" && tok.text === "debounce") {
-      const startTok = consume(); // consume `debounce`
-      if (peek().text === "(") {
-        consume(); // consume `(`
-        const fnParts = [];
-        let depth = 1;
-        let lastTok = peek();
-        while (true) {
-          const t = peek();
-          if (t.kind === "EOF") break;
-          if (t.text === "(") depth++;
-          if (t.text === ")") {
-            depth--;
-            if (depth === 0) { lastTok = consume(); break; }
-          }
-          if (t.text === "," && depth === 1) { consume(); break; }
-          lastTok = consume();
-          fnParts.push(lastTok.text);
-        }
-        const delayParts = [];
-        depth = 1;
-        while (depth > 0) {
-          const t = peek();
-          if (t.kind === "EOF") break;
-          if (t.text === "(") depth++;
-          if (t.text === ")") {
-            depth--;
-            if (depth === 0) { lastTok = consume(); break; }
-          }
-          lastTok = consume();
-          delayParts.push(lastTok.text);
-        }
-        if (peek().kind === "PUNCT" && peek().text === ";") consume();
-        nodes.push({
-          id: ++counter.next,
-          kind: "debounce-call",
-          fn: fnParts.join(" ").trim(),
-          fnExpr: safeParseExprToNode(fnParts.join(" ").trim(), spanOf(startTok, lastTok)?.start ?? 0),
-          delay: parseInt(delayParts.join("").trim(), 10) || 300,
-          span: spanOf(startTok, lastTok),
-        });
-      }
-      continue;
-    }
-
-    // THROTTLE built-in: `throttle(fn, ms)`
-    if (tok.kind === "KEYWORD" && tok.text === "throttle") {
-      const startTok = consume(); // consume `throttle`
-      if (peek().text === "(") {
-        consume(); // consume `(`
-        const fnParts = [];
-        let depth = 1;
-        let lastTok = peek();
-        while (true) {
-          const t = peek();
-          if (t.kind === "EOF") break;
-          if (t.text === "(") depth++;
-          if (t.text === ")") {
-            depth--;
-            if (depth === 0) { lastTok = consume(); break; }
-          }
-          if (t.text === "," && depth === 1) { consume(); break; }
-          lastTok = consume();
-          fnParts.push(lastTok.text);
-        }
-        const delayParts = [];
-        depth = 1;
-        while (depth > 0) {
-          const t = peek();
-          if (t.kind === "EOF") break;
-          if (t.text === "(") depth++;
-          if (t.text === ")") {
-            depth--;
-            if (depth === 0) { lastTok = consume(); break; }
-          }
-          lastTok = consume();
-          delayParts.push(lastTok.text);
-        }
-        if (peek().kind === "PUNCT" && peek().text === ";") consume();
-        nodes.push({
-          id: ++counter.next,
-          kind: "throttle-call",
-          fn: fnParts.join(" ").trim(),
-          fnExpr: safeParseExprToNode(fnParts.join(" ").trim(), spanOf(startTok, lastTok)?.start ?? 0),
-          delay: parseInt(delayParts.join("").trim(), 10) || 100,
-          span: spanOf(startTok, lastTok),
-        });
-      }
-      continue;
-    }
+    // S81 OQ-2 (2026-05-11): `debounce(fn, ms)` / `throttle(fn, ms)` special-
+    // form parsing RETIRED. The KEYWORD reservation was dropped at tokenizer.ts
+    // around line 70; `debounce`/`throttle` now tokenize as IDENT and fall
+    // through to regular expression-parsing (CallExpr with ident callee).
+    // Canonical surfaces:
+    //   - state-decl attribute `<x debounced=Nms>` per §6.13 (S79 Approach B)
+    //   - stdlib `import { debounce, throttle } from "scrml:time"` per §41
+    // The companion AST kinds `debounce-call` / `throttle-call` are removed
+    // from types/ast.ts; emit-logic / emit-client / component-expander case
+    // arms removed; runtime helpers `_scrml_debounce` / `_scrml_throttle`
+    // removed from runtime-template.js.
 
     // GIVEN: `given ident [, ident]* => { body }` — §42.2.3 presence guard
     // Single: `given x => { body }` — execute body if x is not null/undefined

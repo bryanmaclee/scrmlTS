@@ -2042,26 +2042,48 @@ describe("upload() built-in", () => {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// debounce() and throttle() built-in parsing
+// debounce() and throttle() built-in parsing — RETIRED S81 OQ-2 (2026-05-11)
 // ---------------------------------------------------------------------------
+// The imperative keyword-call form is retired. Post-retirement,
+// `debounce(handleSearch, 250)` parses as a regular function call (no
+// special AST kind). Tokenizer no longer reserves `debounce`/`throttle` as
+// KEYWORDs (see tokenizer.ts ~line 70); they tokenize as IDENT and the
+// expression-parser produces a generic CallExpr. The canonical surfaces
+// are §6.13 attribute form (`<x debounced=Nms>`) and stdlib
+// `scrml:time.debounce` / `scrml:time.throttle`.
 
-describe("debounce() and throttle() built-ins", () => {
-  test("debounce(fn, ms) produces debounce-call node", () => {
+describe("debounce() and throttle() built-ins — RETIRED S81 OQ-2", () => {
+  test("debounce(fn, ms) NO LONGER produces a special AST kind — parses as bare-expr CallExpr", () => {
     const ast = parseAST("${ debounce(handleSearch, 250) }");
     const logic = ast.nodes[0];
-    const debNode = logic.body.find(n => n.kind === "debounce-call");
-    expect(debNode).toBeDefined();
-    expect(debNode.fn).toBe("handleSearch");
-    expect(debNode.delay).toBe(250);
+    // Pre-S81: produced a `debounce-call` AST kind. Post-S81: no such kind.
+    const oldKindNode = logic.body.find(n => n.kind === "debounce-call");
+    expect(oldKindNode).toBeUndefined();
+    // The form parses as a regular call statement. Exact shape depends on
+    // post-tokenization parsing; the key invariant is "no special kind."
+    const hasDebounceCall = logic.body.some(n =>
+      n && (n.kind === "bare-expr" || n.kind === "expression-statement"));
+    expect(hasDebounceCall).toBe(true);
   });
 
-  test("throttle(fn, ms) produces throttle-call node", () => {
+  test("throttle(fn, ms) NO LONGER produces a special AST kind — parses as bare-expr CallExpr", () => {
     const ast = parseAST("${ throttle(handleScroll, 100) }");
     const logic = ast.nodes[0];
-    const thrNode = logic.body.find(n => n.kind === "throttle-call");
-    expect(thrNode).toBeDefined();
-    expect(thrNode.fn).toBe("handleScroll");
-    expect(thrNode.delay).toBe(100);
+    const oldKindNode = logic.body.find(n => n.kind === "throttle-call");
+    expect(oldKindNode).toBeUndefined();
+    const hasThrottleCall = logic.body.some(n =>
+      n && (n.kind === "bare-expr" || n.kind === "expression-statement"));
+    expect(hasThrottleCall).toBe(true);
+  });
+
+  test("debounce/throttle as user-defined identifier — no longer E-RESERVED-IDENTIFIER", () => {
+    // Pre-S81 these names were reserved at tokenize-time so `let debounce = ...`
+    // fired E-RESERVED-IDENTIFIER. Post-S81 retirement, they're ordinary
+    // identifiers and can be used as variable / function names.
+    const ast = parseAST("${ let debounce = 42 }");
+    const logic = ast.nodes[0];
+    const letDecl = logic.body.find(n => n && n.kind === "let-decl" && n.name === "debounce");
+    expect(letDecl).toBeDefined();
   });
 });
 
