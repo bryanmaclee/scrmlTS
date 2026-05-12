@@ -123,19 +123,16 @@ ${
     <Cape  rule=.Small></>
 </>
 
-// Derived projection from @marioState → HealthRisk. The canonical §51.9
-// "derived engine" form (`<engine for=HealthRisk derived=@marioState>`) does
-// not yet wire through against an auto-declared engine variable in v0.2.0
-// (TS pass fires E-ENGINE-004 because @marioState is registered as
-// _cellKind:"engine", not as a machine-bound reactive cell). For now, use
-// a Tier-1 derived reactive const instead. PA follow-on: Move-14 derived-engine
-// over auto-declared engine variables.
-${
-    const <healthRisk>: HealthRisk = match @marioState {
-        .Small               => HealthRisk::AtRisk
-        .Big | .Fire | .Cape => HealthRisk::Safe
-    }
-}
+// Derived projection from @marioState → HealthRisk via the canonical §51.9
+// derived-engine form. The auto-declared @healthRisk reactively recomputes
+// whenever @marioState changes (no manual wiring). Exhaustiveness is
+// enforced: every variant of MarioState must appear on the LHS of some rule
+// (E-ENGINE-018). The S84 fix (Bug 2) wired this form through against
+// auto-declared engine source variables.
+<engine for=HealthRisk derived=@marioState>
+    .Small               => .AtRisk
+    .Big | .Fire | .Cape => .Safe
+</>
 
 <program>
 <div class="flex justify-center items-center min-h-screen text-white">

@@ -8832,6 +8832,38 @@ function processFile(
       ?? ((fileAST.ast as FileAST | undefined)?.nodes as ASTNodeLike[] | undefined)
       ?? [];
     collectReactiveBindings(topNodes);
+
+    // Bug 2 (v0.2.3, §51.0.C + §51.9) — Engine auto-declared variables are
+    // machine-bound reactive cells per §51.0.C (Move 16): `<engine for=T ...>`
+    // auto-declares a cell of type T named (a) `var=`-override if present,
+    // (b) else lowercase-first of the type name. `validateDerivedMachines`
+    // must see those auto-declared cells via `reactiveBindings` or it false-
+    // fires E-ENGINE-004 when one engine declares `derived=@autoVar` over
+    // another engine's auto-declared variable (e.g.,
+    // `<engine for=HealthRisk derived=@marioState>` after
+    // `<engine for=MarioState ...>`).
+    //
+    // The pre-S84 collector only walked `state-decl` nodes with an explicit
+    // `.machineBinding` (the legacy `<phase>: Phase = ...` shape), which never
+    // populates for auto-declared engine cells. This loop mirrors Bug 9's
+    // scope-chain pre-bind pattern at type-system.ts:5694-5704 — same
+    // registry, same guard semantics:
+    //   - Include derived engines too: `validateDerivedMachines` needs them
+    //     in `reactiveBindings` so its `sourceMachine.isDerived` check can
+    //     fire the §51.9.7 transitive-projection rejection message. Skipping
+    //     derived engines here would silently downgrade §51.9.7 to a generic
+    //     "unknown source variable" error.
+    //   - SHALL-NOT-overwrite: if an explicit state-decl already claimed the
+    //     name with a `.machineBinding`, that's E-ENGINE-VAR-DUPLICATE
+    //     territory at SYM PASS 10.A; skip rather than overwrite so the SYM-
+    //     layer diagnostic surfaces uncontested.
+    for (const machine of machineRegistry.values()) {
+      const varName = machine.name;
+      if (typeof varName !== "string" || varName.length === 0) continue;
+      if (reactiveBindings.has(varName)) continue;
+      reactiveBindings.set(varName, machine);
+    }
+
     validateDerivedMachines(machineRegistry, reactiveBindings, errors, fileSpan);
 
     // §51.11 — E-ENGINE-019: validate every machine's audit target against
