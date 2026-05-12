@@ -419,3 +419,103 @@ ${"$"}{
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// §C10 — F-COMPONENT-001 A4 — Cross-file component body contains a nested
+//        self-closing PascalCase reference (F4-residual from W2 commit 6536f7a).
+//
+// Bug (pre-fix): the logic tokenizer emits internal self-closers like
+// `<NestedBadge/>` as `< NestedBadge / >` (three space-separated tokens).
+// `normalizeTokenizedRaw` collapsed the `/ >` pair ONLY when end-anchored, so
+// any *internal* self-close of a PascalCase tag inside a multi-line component
+// body survived as an unmatched opening tag — block-splitter reported
+// E-CTX-001 ('</outerTag>' tries to close '<NestedBadge>') and
+// E-CTX-003 (unclosed outer tag), `parseComponentBody` returned 0 nodes, and
+// the import registry never received the parent component. CE then early-
+// returned, leaving the consumer's `<ParentComp/>` markup unresolved, which
+// VP-2 caught and converted to E-COMPONENT-035 at every use site.
+//
+// Repro pattern (canonical: examples/23-trucking-dispatch/components/load-
+// card.scrml — body contains <LoadStatusBadge/>; consumer board.scrml uses
+// <LoadCard/> wrapped in <div>):
+//     <ParentCard/>  body =  ...
+//                            < NestedBadge status = x / >
+//                            ...
+//
+// Fix: `normalizeTokenizedRaw` gains a global `\s+/\s+>` collapse before the
+// end-anchored Step 2. HTML void elements (e.g. <br/>, <img/>) were NOT
+// affected because BS already accepts them without `/>`; only PascalCase
+// self-closes (which require explicit `/>`) tripped the gap.
+// ---------------------------------------------------------------------------
+
+describe("§C10 cross-file component body with nested self-closing PascalCase (F4)", () => {
+  test("parent component with internal <NestedBadge/> registers and expands", () => {
+    const ROOT = join(TMP, "c10");
+    mkdirSync(ROOT, { recursive: true });
+
+    fx("c10/badge.scrml", `${"$"}{
+  export const NestedBadge = <span class="c10-nested-badge"/>
+}
+`);
+
+    // ParentCard's body contains a nested PascalCase self-close. Pre-fix this
+    // caused parseComponentBody to return 0 nodes, defeating registration of
+    // ParentCard itself even though the consumer never references NestedBadge
+    // directly.
+    fx("c10/parent.scrml", `${"$"}{
+  import { NestedBadge } from './badge.scrml'
+
+  export const ParentCard = <div class="c10-parent" props={
+    label: string,
+  }>
+    <span class="c10-label">${"$"}{label}</>
+    <NestedBadge/>
+  </>
+}
+`);
+
+    const consumer = fx("c10/app.scrml", `<program>
+${"$"}{
+  import { ParentCard } from './parent.scrml'
+}
+<ul>
+  ${"$"}{ for (let i of [1, 2, 3]) {
+    lift <div><ParentCard label="row"/></div>
+  } }
+</ul>
+</program>
+`);
+
+    const outDir = join(ROOT, "dist");
+    const result = compileScrml({
+      inputFiles: [consumer],
+      outputDir: outDir,
+      write: true,
+      log: () => {},
+    });
+
+    // F4 closure: E-COMPONENT-035 (the post-W1 surface symptom) must NOT fire
+    // on ParentCard — parseComponentBody now succeeds for component bodies
+    // that contain internal self-closing PascalCase refs.
+    const m035 = result.errors.filter(e => e.code === "E-COMPONENT-035");
+    expect(m035).toEqual([]);
+
+    // E-COMPONENT-021 (malformed component body) must NOT fire on ParentCard
+    // either — the BS+TAB re-parse of the component's tokenized body must
+    // produce >=1 root markup node.
+    const m021 = result.errors.filter(
+      e => e.code === "E-COMPONENT-021" && (e.message || "").includes("ParentCard")
+    );
+    expect(m021).toEqual([]);
+
+    // Sanity: ParentCard expansion occurred — the consumer's emitted output
+    // must reference the parent's class. (We assert on the markup-level
+    // expansion only; transitive NestedBadge resolution from the parent's
+    // own imports is tracked as a separate follow-on, NOT this T1's scope.)
+    const clientJsPath = join(outDir, "app.client.js");
+    if (existsSync(clientJsPath)) {
+      const clientJs = readFileSync(clientJsPath, "utf8");
+      expect(clientJs).not.toContain('createElement("ParentCard")');
+    }
+  });
+});

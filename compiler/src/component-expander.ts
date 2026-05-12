@@ -376,9 +376,25 @@ function normalizeTokenizedRaw(raw: string): string {
   //   Runs before self-close handling so `/ >` is preserved.
   s = s.replace(/([A-Za-z0-9_"])\s+>/g, "$1>");
 
+  // Step 1c (F-COMPONENT-001 F4 fix): Collapse self-closing "/ >" globally.
+  //   The logic tokenizer emits `/` and `>` as separate space-padded tokens for
+  //   EVERY self-closing tag in a multi-line component body, not only the body's
+  //   final element. Pre-fix, only the end-anchored Step 2 below collapsed this,
+  //   so an internal self-close like `<LoadStatusBadge status=load.status / >`
+  //   inside a multi-root component body survived as an unmatched opening tag —
+  //   block-splitter then reported E-CTX-001 (mismatched closer) + E-CTX-003
+  //   (unclosed root) and `parseComponentBody` returned 0 nodes, causing
+  //   E-COMPONENT-035 to fire on every cross-file use site. The pattern
+  //   `\s+/\s+>` will not match inside string-literal attribute values because
+  //   the logic tokenizer quote-encloses them, and will not match `</foo>`
+  //   closers (no whitespace between `<` and `/`).
+  s = s.replace(/\s+\/\s+>/g, "/>");
+
   // Step 2: Handle self-closing closer "/ >" at end → "/>"
   //   The logic tokenizer produces `/` and `>` as separate tokens,
-  //   so they appear as "/ >" (with spaces) in the raw.
+  //   so they appear as "/ >" (with spaces) in the raw. Step 1c above handles
+  //   the global case; this end-anchored sweep is retained to also catch the
+  //   trailing-whitespace variant `/ >  $`.
   s = s.replace(/\s+\/\s+>(\s*)$/, "/>");
   s = s.replace(/\s+\/>\s*$/, "/>");
 
