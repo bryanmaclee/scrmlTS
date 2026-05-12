@@ -1,10 +1,12 @@
-# scrmlTS — Session 86 (IN-FLIGHT — landmark session)
+# scrmlTS — Session 86 (CLOSE — LANDMARK session; largest by every dimension)
 
-**Date:** 2026-05-12 (S86; opened afternoon of 2026-05-12 → ongoing)
+**Date:** 2026-05-12 (S86; one full day's work)
 **Previous:** `handOffs/hand-off-85.md` (S85 close)
-**This file:** will rotate to `handOffs/hand-off-86.md` at S87 open
+**This file:** rotates to `handOffs/hand-off-86.md` at S87 open
 
-**Tests in flight:** **11,580 pass / 114 skip / 1 todo / 0 fail / 562 files** at HEAD `d3deed2` (full suite via `bun run test`). Cumulative S85→S86 delta: **+73 pass / +14 skip / +5 files / 0 regressions**.
+**Tests at S86 CLOSE:** **11,593 pass / 114 skip / 1 todo / 0 fail / 563 files** at HEAD `95bd7f9` (full suite via `bun run test`). Cumulative S85→S86 delta: **+86 pass / +14 skip / +6 files / 0 regressions**.
+
+**S86 commits: 15 PA-authored.** Largest session by commit count + scope + ratification breadth. v0.3 landmark session — Wave 2 implementation + Approach A spec anchor + 4 user-ratifications + WebKit unblocked + 4 latent compiler bugs surfaced for triage.
 
 **Semver state:** unchanged — v0.2.6 `efbd1e8` is still the shipped baseline. v0.3.0 tag waits for v0.3 fixture-sweep + adopter content; the Wave 2 compiler + BS-layer + Approach A spec anchor land mid-cycle.
 
@@ -145,13 +147,53 @@ PA ran `bun scrml migrate --program-shape --dry-run --report examples/23-truckin
 
 Partial migration would leave trucking in mixed v0.2/v0.3 state — **right call: defer full migration to Wave 3 v0.3 fixture-sweep** when the safety-harness fix lands. Not part of S86 scope.
 
-### Phase 12 — W-PROGRAM-SPA-INFERRED emission dispatch
+### Phase 12 — W-PROGRAM-SPA-INFERRED emission dispatch + landings
 
-Small compiler-impl dispatch fired background to wire the lint per §40.8.1 normative statements. Brief targets `block-splitter.js`/`symbol-table.ts` (locus hint; mechanism survey applies). Background.
+Small compiler-impl dispatch fired background to wire the lint per §40.8.1 normative statements. Landed at `4cd0b6a` with **filesystem-context guard** as load-bearing implementation detail (filePath must be absolute AND exist on disk) — initially broke 156 self-host parity tests because the lint fires on plain `<program>...</program>` shapes which ARE the parity-test corpus; mitigation aligns with SPEC ("fs-inspection-required") + excludes synthetic test paths. Surfaces meaningful design constraint: v0.3 walker family depends on real filesystem context. +9 tests.
+
+### Phase 13 — Wave 3 v0.3 fixture-sweep SCOPING + reconnaissance
+
+Trucking-dispatch `--dry-run --report` reconnaissance: 36 files scanned; 4 REWRITE auto-clean; 12 unchanged; **20 fail safety-harness** (cross-file-import limitation surfaced by item (a)). Right call: defer full sweep to a Wave 3 v0.3 dispatch when safety-harness fix lands.
+
+SCOPING brief authored at `a918a3a` (~230 LOC; corpus inventory at S86 ground truth — 1031 .scrml in-repo, ~50-120 actually changing; Option A single-dispatch recommendation; pre-flight checklist gated on #13).
+
+### Phase 14 — Wave 3 Playwright D2 (4 critical-path tests) — bombshell findings
+
+Landed at `f32bd00`. **WebKit works fine** (Wave 3 scoping risk #4 RESOLVED with POSITIVE signal; identical pass/fail across Chromium / Firefox / WebKit; no `--no-hot-reload` flag needed). **4 distinct LATENT compiler-bug families surfaced** by faithful AC tests:
+
+1. **14-mario:** bare `n` reference from enum-payload variant destructuring; structural-eq compares to whole enum object (`MarioState`) instead of variant (`MarioState.Small`).
+2. **05-multi-step-form:** compiler emits literal `<InfoStep />` tags inside if-chain branches without inlining component body; match-arm `@currentStep = Step::Preferences` sets whole Step object instead of variant string.
+3. **03-contact-book:** `<program auth="required">` gates server-fn routes by auth cookie; example has no working /login page; add-contact always 404s (likely fixture issue + auth-gate design).
+4. **TodoMVC:** form-submit handler not propagating; edit-mode UI never rendered; 4 W-DEAD-FUNCTION + E-DG-002 in source.
+
+These are V0.2.X-LATENT bugs that the existing happy-dom + Puppeteer harness completely missed because it uses generic "page renders something" checks. Faithful AC tests surface them immediately. E2E results: 19/96 pass, 66/96 fail. Filed for v0.2.x patch / Wave 3.5 triage. DB isolation via `spawnSync('bun', ['-e', ...])` — Playwright runs under Node; can't import bun:sqlite directly.
+
+### Phase 15 — Wave 3 D3 (benchmarks refresh) crashed mid-investigation
+
+D3a (afa1b84a0999559d9) crashed mid-investigation. PA pre-cleanup gate (pa.md S83 `status --short` non-empty → STOP) HELD — worktree retained for forensics; salvage diagnosed instead of deletion-cascade.
+
+Surfaced finding (load-bearing): **`benchmarks/bench-scrml.js` lines 82-96 IIFE-eval pattern is broken against v0.2.6+** — internal runtime symbols (`let`-scoped) not reachable from client IIFE because explicit window-export list doesn't cover all v0.2.6+ codegen symbols. D3a attempted indirect-eval refactor `(0, eval)(combinedScript)` but never verified. runtime-results.json was overwritten with empty scrml results.
+
+Crash-diagnosis doc landed at `24af6a2`. D3b re-dispatch queued (Task #14).
+
+### Phase 16 — Migrate safety-harness cross-file-import fix (Task #13)
+
+Depth-of-survey dispatch picked **Option β (transactional in-place rewrite + verify + restore)** over γ (parse-only) — preserves full-fidelity safety check; smallest mechanical change. Rewritten `sanityCheckParse` reads + backs up original; atomic-writes rewrite to original path; runs compileScrml from project root (cross-file imports resolve naturally); `try/finally` always restores from in-memory backup. Crash window microseconds.
+
+Validation: trucking-dispatch `--dry-run --report` shows **24 REWRITE + 12 failed** (vs pre-fix 4 + 20). The 12 remaining are real v0.3 E-CHANNEL-OUTSIDE-PROGRAM spec violations from imported v0.2 channel files (Wave 3 fixture-sweep target). Unblocks Wave 3 v0.3 sweep.
+
+Out-of-scope follow-up surfaced: `promote.js:442` has identical staged-tmp pattern — same problem will hit `bun scrml promote --match` on multi-file fixtures.
+
+### Phase 17 — Wrap operations (current)
+
+- Final test run: **11,593 / 0 fail / 563 files** ✅
+- Inbox empty ✅
+- **117 worktrees cleaned** at wrap (S83 hit 30; S86 wrap crossed 100). 26 retained with residue (untracked node_modules / bun.lock rollbacks / agent diagnostic probes / .bak files) — pa.md S83 literal rule says STOP on non-empty status; retained for safety. 1 worktree explicitly preserved: D3a per crash-recovery rule.
+- Cross-machine sync: 15 commits ahead of origin (push pending; surface for authorization).
 
 ---
 
-## S86 commit ledger (chronological, 11 PA-authored commits)
+## S86 commit ledger (chronological, 15 PA-authored commits)
 
 | # | Commit | Description |
 |---|---|---|
@@ -164,17 +206,23 @@ Small compiler-impl dispatch fired background to wire the lint per §40.8.1 norm
 | 7 | `d2469c4` | v0.3 Approach A spec-amendment SCOPING doc |
 | 8 | `3f2504e` | SPEC §40.8.1 OQ CLOSED (Option C) + W-PROGRAM-SPA-INFERRED catalog row |
 | 9 | `d3deed2` | SPEC §40.9 Closure Analysis + PIPELINE Stage 7.6 (Approach A spec anchor) |
-| 10 | TBD | (in-flight: W-PROGRAM-SPA-INFERRED emission impl dispatch) |
-| 11 | TBD | (in-flight: Wave 3 D2 — 4 Playwright tests) |
-| 12 | TBD | (in-flight: Wave 3 D3 — benchmarks refresh) |
+| 10 | `0fb6450` | hand-off + master-list incremental update (9-commit snapshot) |
+| 11 | `a918a3a` | v0.3 Wave 3 fixture-sweep SCOPING |
+| 12 | `24af6a2` | Wave 3 D3a crash diagnosis + preserved progress log |
+| 13 | `f32bd00` | Wave 3 D2 — 4 critical-path Playwright specs + DB fixture (WebKit green; 4 latent bug families surfaced) |
+| 14 | `4cd0b6a` | W-PROGRAM-SPA-INFERRED lint emission impl (§40.8.1 closure follow-up) |
+| 15 | `95bd7f9` | Migrate safety-harness Option β transactional in-place fix (Task #13; unblocks Wave 3 v0.3 sweep) |
+| 16 | TBD | (current wrap commit) |
 
 ---
 
 ## State-as-of-snapshot tables
 
-### Tests at HEAD `d3deed2` (full suite)
+### Tests at HEAD `95bd7f9` (full suite — verified S86 close)
 
-11,580 pass / 114 skip / 1 todo / 0 fail / 562 files. Pre-commit hook firing on every commit. Zero regressions across all 9 landings.
+11,593 pass / 114 skip / 1 todo / 0 fail / 563 files. Pre-commit hook firing on every commit. Zero regressions across all 15 landings.
+
+Cumulative S85→S86 delta: +86 pass / +14 skip / +6 files / 0 regressions.
 
 ### Semver tag history (unchanged S86)
 
@@ -205,28 +253,25 @@ Small compiler-impl dispatch fired background to wire the lint per §40.8.1 norm
 - **Wave 4 — adopter content + tutorials** — PENDING.
 - **Closure-analysis compiler implementation** — DEFERRED to subsequent waves (300-640h band per Insight 29).
 
-### Worktree state at snapshot
+### Worktree state at S86 close
 
-| Branch | Status |
-|---|---|
-| worktree-agent-ad9b623edac29ed02 | Wave 2 item (a); retained for forensics |
-| worktree-agent-a2cd5a49f1d5ba5e6 | Wave 2 item (b); retained |
-| worktree-agent-a4386e4b62ffd138b | BS-layer; retained |
-| worktree-agent-a40c38c38575e2c23 | scrml-dev codegen fix; retained |
-| worktree-agent-a7caf51fc47f72889 | Approach A spec anchor; retained |
-| worktree-agent-a16d6354e01f4fc61 | W-PROGRAM-SPA-INFERRED impl; IN FLIGHT |
-| worktree-agent-a943a6c8d1a8af86d | Wave 3 D2; IN FLIGHT |
-| worktree-agent-afa1b84a0999559d9 | Wave 3 D3; IN FLIGHT |
+**117 worktrees cleaned this wrap.** Pre-S86 worktrees had accumulated across MANY prior sessions (S83 hit 30; this wrap crossed 100). pa.md S83 wrap §6b discipline applied: per-worktree status --short gate held → 117 clean worktrees removed cleanly + branch -D + prune. **26 worktrees retained** with residue (status --short non-empty per S83 literal rule — STOP on dirty):
 
-Cleaned at wrap per pa.md S83 retention rule.
+- Sample of retained dirty worktrees inspected: untracked `node_modules` / modified `bun.lock` (post-`bun install` rollback noise) / agent diagnostic probes (`_probe_*.mjs`) / backup files (`SPEC.md.bak`). **NOT at-risk work** per inspection — agent residue from prior dispatches whose actual work landed in main in their respective sessions.
+- **1 worktree explicitly preserved** for genuine at-risk work: `agent-afa1b84a0999559d9` (D3a — crashed mid-investigation; uncommitted bench-scrml.js refactor + emptied runtime-results.json; surfaced finding captured at `24af6a2`).
+
+**pa.md S83 rule sharpening candidate** for S87+: distinguish residue (regeneratable; node_modules / bun.lock / probes / .bak) from at-risk-work (compiler source / docs / tests modified). The current literal-rule "STOP on any non-empty status" prevents loss but also retains regeneratable noise across sessions indefinitely. Refine to:
+- Auto-clean residue patterns (node_modules / bun.lock-only changes / *.mjs probe files / *.bak / *.tmp / *_*.patch).
+- Retain on at-risk-work pattern (compiler/src/* / docs/* / *.scrml / *.md modifications).
+- Or: explicit allowlist of "clean if only these globs are dirty" patterns.
+
+Pre-commit hook: `core.hooksPath = scripts/git-hooks` verified holding at close.
 
 ---
 
-## In-flight threads at this snapshot
+## In-flight threads at S86 close
 
-1. **W-PROGRAM-SPA-INFERRED impl** — small compiler-impl dispatch, ~2-4h walltime.
-2. **Wave 3 D2** — 4 critical-path Playwright tests, ~10-16h walltime.
-3. **Wave 3 D3** — Phase B benchmarks refresh, ~6-12h walltime.
+NONE. All 4 in-flight dispatches returned + landed (W-PROGRAM-SPA-INFERRED + Wave 3 D2 + Migrate safety-harness) OR were diagnosed-as-crashed (Wave 3 D3a).
 
 ---
 

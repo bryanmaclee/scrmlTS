@@ -2,9 +2,9 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-12 S86 IN-FLIGHT, all seven semver tags live on origin — **v0.2.0 `022ee02` + v0.2.1 `d72c074` + v0.2.2 `98e872d` + v0.2.3 `d512266` + v0.2.4 `28cd2ac` + v0.2.5 `2c687b5` + v0.2.6 `efbd1e8`**): **11,577 pass / 114 skip / 1 todo / 0 FAIL** (561 files). v0.2.6 is the current shipped baseline. v0.3 Wave 2 compiler implementation LANDED S86 — migrate `--program-shape` + TAB extension + BS-layer extension; HEAD `2314c8c` (NOT tagged — v0.3.0 waits for Wave 3 fixture sweep + Wave 4 adopter content).
+Current baseline (2026-05-12 S86 CLOSE, all seven semver tags live on origin — **v0.2.0 `022ee02` + v0.2.1 `d72c074` + v0.2.2 `98e872d` + v0.2.3 `d512266` + v0.2.4 `28cd2ac` + v0.2.5 `2c687b5` + v0.2.6 `efbd1e8`**): **11,593 pass / 114 skip / 1 todo / 0 FAIL** (563 files). v0.2.6 is the current shipped baseline. v0.3 Wave 2 compiler implementation LANDED S86 + v0.3 Approach A spec anchor LANDED + WebKit unblocked (3-browser-green Wave 3 D1) + 4 latent compiler-bug families surfaced by faithful Wave 3 D2 e2e tests; HEAD `95bd7f9` (NOT tagged — v0.3.0 waits for Wave 3 v0.3 fixture-sweep + Wave 4 adopter content + triage of 4 surfaced bug families).
 
-### 2026-05-12 (S86 IN-FLIGHT — v0.3 Wave 2 compiler implementation LANDED · BS-layer SPEC §40.8 gap CLOSED · co-location-of-behavior + corpus-ouroboros standing rules ratified)
+### 2026-05-12 (S86 CLOSE — v0.3 Wave 2 LANDED · v0.3 Approach A spec anchor LANDED · §40.8.1 OQ CLOSED · WebKit green 3-browser · scrml-dev codegen fix · migrate safety-harness fix · BS-layer extension · 117-worktree backlog cleaned · S86 the LARGEST session by far)
 
 **Session-defining outcome:** v0.3 Wave 2 — the compiler implementation following S85's spec anchor — landed across two parallel agent dispatches + one follow-up. `bun scrml migrate --program-shape` rewrites legacy v0.2 source into v0.3 shape (5-bucket classification: entry / route / module / schema-anchor / ambiguous). TAB stage recognizes `<page>` symmetric to `<program>` for default-logic body + 7 new top-level decl shapes auto-lift + W-PROGRAM-REDUNDANT-LOGIC + E-PAGE-INVALID-ATTR + E-PAGE-ROUTE-ATTR-FORBIDDEN diagnostics. BS-layer extended to recognize V5-strict state-decl shape inside `<program>` AND `<page>` body — closing the SPEC §40.8 normative-vs-implementation gap that item (b) surfaced. Plus durable PA standing rule ratified S86: idiomatic examples NEVER promote file-top `#{}` styles + the corpus-ouroboros warning sharpening pa.md Rule 4 to the example/fixture corpus.
 
@@ -30,14 +30,50 @@ Current baseline (2026-05-12 S86 IN-FLIGHT, all seven semver tags live on origin
 
 **Cumulative S85→S86 delta:** +70 pass / +14 skip / +4 files / 0 regressions. **Tests at HEAD `2314c8c`:** 11,577 pass / 114 skip / 1 todo / 0 fail / 561 files.
 
-**Open at session-in-flight close:**
-- `scrml dev` server-side codegen divergence (Task #17) — dispatch IN FLIGHT
-- Perf-feel empirical study (S83-queued; user-lean A+B) — dispatch IN FLIGHT
-- WebKit e2e still blocked on `libavif16` (NOT `libavif13` as S85 hand-off said — package-name correction)
-- `<program spa>` boolean OQ — debate not yet planned; deferred per "juggling consequences"
-- Self-host regen to re-enable 18 deferred parity tests (deferred per pa.md S81 self-host-orthogonality)
-- Wave 3 of v0.3 (fixture migration sweep across ~933 files) — gated on Wave 3 dispatch revision + cross-file-import safety-harness fix
-- Wave 4 of v0.3 (adopter content + tutorials)
+**Additional landings at S86 close (after the IN-FLIGHT snapshot above):**
+
+- **`41f7fe9` scrml-dev codegen fix (Task #17 from S85):** important correction — the "dev-vs-static divergence" framing was WRONG; both modes emit identical broken output via the same codegen pipeline (no `options.dev` branch). The S85 hand-off error string was a paraphrase — actual JS engine emits `"Unexpected -"` (hyphen) NOT `"Unexpected ."`. Real bug: cross-file `<channel name="dispatch-board">` emitted as `import { dispatch-board }` — bare kebab identifier = invalid JS. Fix via new `filterChannelImportSpecifiers` helper in emit-channel.ts (98 LOC). **Bonus latent bug closed:** `{ X as Y }` was dropping the `as Y` alias; test §C20.1.4 was locking in the buggy shape; corrected. +3 tests.
+
+- **`3f2504e` SPEC §40.8.1 OQ CLOSED (Option C):** user verbatim "I like c" — SPA-vs-multi-page is filesystem-inferred + `W-PROGRAM-SPA-INFERRED` info-level lint fires on entry-file `<program>` + zero `<page>` siblings + no `pages/` directory. Empty `pages/` dir suppresses. **Methodology signal recorded:** "third option" pattern — when binary OQ has real costs both sides, surfacing a synthesis option that captures both load-bearing benefits without their costs (same shape as Insight 22 test-bind middle path). §34 +1 row.
+
+- **`d3deed2` v0.3 Approach A spec anchor LANDED:** SPEC §40.9 Closure Analysis (Minimal Playable Surface) — 12 sub-sections, ~430 LOC normative + §40.1.1 static role classification (resolves Insight 29 OQ #3 with synchronous-role-classification commit) + §47.5/§52/§41.9 cross-refs + NEW PIPELINE.md Stage 7.6 Reachability Solver (renumbered from working-title 7.5 because BP already there) + §34 +2 codes (E-CLOSURE-001 + W-AUTH-RUNTIME-FALLBACK). Compiler implementation deferred to subsequent waves (300-640h band per Insight 29). Manual 3-way merge with §40.8.1 OQ closure (agent's branch based on `23e6265` pre-OQ-closure). **PA mistake caught by dispatch agent:** perf-feel study was ALREADY DONE at S84/S85 per Insight 29 ratification; PA's hand-off carry-forward menu was stale. **Rule 4 extended to hand-off carry-forward menu** (verify against design-insights.md / master-list before treating carry-forward as live action).
+
+- **`f32bd00` Wave 3 D2 — 4 critical-path Playwright tests:** TodoMVC + 03-contact-book + 05-multi-step-form + 14-mario, 32 ACs × 3 browsers = 96 runs. **WebKit works fine** (Wave 3 scoping risk #4 RESOLVED with POSITIVE signal); identical pass/fail across Chromium / Firefox / WebKit. **4 LATENT compiler-bug families surfaced** by faithful AC tests: (1) 14-mario enum-payload destructuring + structural-eq compares to enum-vs-variant; (2) 05-multi-step-form if-chain branches emit literal `<InfoStep />` without inlining + match-arm sets whole Step object; (3) 03-contact-book server-fn auth gate has no working /login page; (4) TodoMVC form-submit handler not propagating + edit-mode UI never rendered + 4 W-DEAD-FUNCTION + E-DG-002. Filed for v0.2.x patch / Wave 3.5 triage. DB-isolation via `spawnSync('bun', ['-e', ...])` (Playwright runs under Node).
+
+- **`24af6a2` Wave 3 D3a crash diagnosis:** D3a (benchmarks refresh) crashed/timed-out mid-investigation. PA pre-cleanup gate (pa.md S83 status --short non-empty → STOP) held; worktree retained for forensics. Agent surfaced **`bench-scrml.js` IIFE-eval pattern (lines 82-96) is broken against v0.2.6+ compiler** — internal runtime symbols (`let`-scoped) not reachable from client IIFE because explicit window-export list doesn't cover all v0.2.6+ symbols. D3a attempted indirect-eval refactor `(0, eval)(combinedScript)` — never verified. D3b re-dispatch queued.
+
+- **`a918a3a` v0.3 Wave 3 fixture-sweep SCOPING:** authored pre-#13-landing. Corpus inventory at S86 ground truth (1031 .scrml in-repo; ~50-120 actually changing). Dispatchable now that #13 (safety-harness fix) landed.
+
+- **`4cd0b6a` W-PROGRAM-SPA-INFERRED lint emission impl:** wires §40.8.1 lint per spec. **Filesystem-context guard** (filePath must be absolute AND exist on disk) needed because the lint fires on plain `<program>...</program>` shapes which are the self-host parity-test corpus — initially broke 156 parity tests. SPEC-conformant ("fs-inspection-required") + surfaces meaningful design constraint: v0.3 walker family depends on real filesystem context. +9 tests.
+
+- **`95bd7f9` Migrate safety-harness Option β transactional in-place fix:** depth-of-survey dispatch picked Option β (in-place rewrite + verify + restore via try/finally). Trucking-dispatch reconnaissance: 4 REWRITE + 20 failed → **24 REWRITE + 12 failed** post-fix. The 12 remaining failures are real v0.3 E-CHANNEL-OUTSIDE-PROGRAM spec violations from imported v0.2 channel files (Wave 3 fixture-sweep target). Unblocks Wave 3 v0.3 sweep. **Promote.js:442 has identical staged-tmp pattern** — same problem will hit `bun scrml promote --match` on multi-file fixtures; filed as follow-up.
+
+- **117-worktree backlog cleaned at wrap.** Per pa.md S83 wrap §6b — old worktrees from prior sessions accumulated (S83 hit 30; S86 wrap crossed 100). Cleaned 117 worktrees that passed pre-cleanup gate (status --short empty). 26 worktrees retained with residue (untracked `node_modules` / `bun.lock` rollbacks / agent diagnostic probes / `.bak` files — NOT at-risk work but pa.md S83 literal rule says STOP on non-empty status; retain for safety). 1 worktree explicitly preserved: D3a (afa1b84a0999559d9) per crash-recovery rule.
+
+**State at S86 close:**
+- Tests: **11,593 pass / 114 skip / 1 todo / 0 fail / 563 files** at HEAD `95bd7f9`.
+- Cumulative S85→S86 delta: **+86 pass / +14 skip / +6 files / 0 regressions.**
+- Semver tags: unchanged (v0.2.6 `efbd1e8` is shipped baseline); v0.3.0 NOT tagged (Wave 3 v0.3 fixture-sweep + Wave 4 adopter content pending; plus triage of 4 surfaced bug families).
+- **S86 commits: 15 PA-authored.** Largest session by commit count + scope + ratification breadth.
+
+**Open at S86 close:**
+- Wave 3 D3b benchmarks refresh re-dispatch (Task #14 — pending fire; needs the bench-scrml.js eval-pattern fix from D3a's diagnosis).
+- Wave 3 v0.3 fixture-sweep (#14 SCOPING ratified user; ready to fire post-#13 landing).
+- 4 latent compiler-bug families from Wave 3 D2 (14-mario / 05-multi-step-form / 03-contact-book / TodoMVC).
+- W-PROGRAM-SPA-INFERRED + W-AUTH-RUNTIME-FALLBACK emission compiler-impl (#13 closes-of W-PROGRAM-SPA-INFERRED; W-AUTH-RUNTIME-FALLBACK still pending impl).
+- `promote.js:442` staged-tmp pattern follow-up (parallel to migrate.js fix that just landed).
+- v0.3 closure-analysis compiler implementation (300-640h band — multiple subsequent waves; SPEC anchor is in place at `d3deed2`).
+- 26 dirty worktrees retained for safety (residue per sampling; refine pa.md S83 to distinguish residue-vs-work in future).
+- Self-host regen + 18 deferred parity tests + 5 deferred A8-wave tests (per pa.md S81 self-host-orthogonality — post-v1.0.0).
+- Wave 4 v0.3 adopter content + tutorials.
+
+**Methodology signals recorded S86:**
+
+- **"Third option" pattern** (synthesis-vs-binary OQ resolution; same shape as Insight 22 test-bind middle path) — `<program spa>` OQ closed Option C.
+- **Rule 4 extended to hand-off carry-forward menu** — perf-feel duplicate-dispatch was a stale-carry-forward catch.
+- **"Right answer beats easy answer" applied to SPEC-vs-impl divergence** — BS-layer extension over SPEC retreat (Option A).
+- **PA pre-cleanup gate held under fire** — D3a crash + 26 dirty-worktree residue cases both correctly preserved per pa.md S83.
+- **Depth-of-survey-discount frequency at #14** (the dispatch for #13 surfaced that PA's locus-hint was correct, mechanism-hint hypothesis-shaped, agent picked the right option from the surveyed space).
 
 
 
