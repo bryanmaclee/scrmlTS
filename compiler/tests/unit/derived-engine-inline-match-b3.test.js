@@ -24,11 +24,10 @@
  *     `derived=if @a then .B else .C`, etc.)
  *   - Multi-upstream inline-match (`match { @a + @b }`)
  *   - Cross-arm refinements in match-body
- *   - Pipe-alternation arms (`.A | .B => .X`) — codegen's
- *     `rewriteMatchExpr` does not yet recognize alternation; PARSER captures
- *     them in `inlineMatchBody` but codegen emits only the first pattern.
- *     This is the same limitation that affects ${expr}-position match
- *     elsewhere; tracked separately as a rewriteMatchExpr enhancement.
+ *   - Pipe-alternation arms (`.A | .B => .X`) — LANDED v0.2.4 #2 (S84). Both
+ *     the parser (this file's §1) and codegen (§3 below) handle alternation.
+ *     `rewriteMatchExpr` recognises `.A | .B | .C => result` and emits an
+ *     OR-chain condition. Same path lights up for ${expr}-position match.
  *   - Type-system wiring against auto-declared engine variables
  *     (separate pre-existing E-ENGINE-004 bug — see master-list).
  */
@@ -172,5 +171,76 @@ describe("§2 derived=match @x — codegen smoke (closure body shape)", () => {
     expect(out.includes('_scrml_derived_declare("cell"')).toBe(true);
     // Subscribe edge to upstream "c".
     expect(out.includes('_scrml_derived_subscribe("cell", "c")')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3 derived=match @x with pipe-alternation arms — codegen smoke
+//
+// S84 v0.2.4 #2 follow-on: rewriteMatchExpr now handles `.A | .B | .C => result`
+// arms. The derived-engine path inherits the fix because emit-engine.ts's
+// buildDerivedEngineClosureBody lowers the inline-match body through the same
+// rewriter (rewriteExpr → rewriteMatchExpr). This test asserts that the OR-chain
+// condition appears in the emitted closure body.
+// ---------------------------------------------------------------------------
+
+describe("§3 derived=match @x { .A | .B => .X } — pipe-alternation codegen", () => {
+  test("alternation arms lower to OR-chain in derived-engine closure body", async () => {
+    const { emitDerivedEngineSubstrate } = await import("../../src/codegen/emit-engine.ts");
+    const meta = {
+      forType: "C",
+      variants: [],
+      initialVariant: null,
+      derivedExpr: {
+        kind: "inline-match",
+        upstream: "c",
+        matchBody: ".A | .B => .A\n.X | .Y => .X",
+      },
+      varName: "cell",
+      isExported: false,
+      isPinned: false,
+      parentEngine: null,
+      innerEngines: [],
+      historyAttr: undefined,
+      internalRules: undefined,
+      onTimeoutElements: undefined,
+    };
+    const lines = emitDerivedEngineSubstrate(meta);
+    const out = lines.join("\n");
+    // The IIFE body must have an OR-chain for the first arm
+    expect(out).toMatch(/=== "A" \|\| .*?=== "B"/);
+    // And another OR-chain for the second arm
+    expect(out).toMatch(/=== "X" \|\| .*?=== "Y"/);
+    // Substrate emit is unchanged
+    expect(out.includes('_scrml_derived_declare("cell"')).toBe(true);
+    expect(out.includes('_scrml_derived_subscribe("cell", "c")')).toBe(true);
+  });
+
+  test("mixed alternation + singleton arms in derived-engine projection", async () => {
+    const { emitDerivedEngineSubstrate } = await import("../../src/codegen/emit-engine.ts");
+    const meta = {
+      forType: "C",
+      variants: [],
+      initialVariant: null,
+      derivedExpr: {
+        kind: "inline-match",
+        upstream: "c",
+        matchBody: ".A => .A\n.B | .C | .D => .B",
+      },
+      varName: "cell",
+      isExported: false,
+      isPinned: false,
+      parentEngine: null,
+      innerEngines: [],
+      historyAttr: undefined,
+      internalRules: undefined,
+      onTimeoutElements: undefined,
+    };
+    const lines = emitDerivedEngineSubstrate(meta);
+    const out = lines.join("\n");
+    // Singleton arm unchanged
+    expect(out).toMatch(/=== "A"\) return/);
+    // 3-way alternation arm
+    expect(out).toMatch(/=== "B" \|\| .*?=== "C" \|\| .*?=== "D"/);
   });
 });

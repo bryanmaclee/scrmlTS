@@ -633,7 +633,21 @@ export function emitTryStmt(node: any): string {
 
 export interface MatchArm {
   kind: "variant" | "string" | "wildcard" | "not";
+  /**
+   * The arm's primary test value. For single-variant arms this is the variant
+   * name (e.g. `"Big"`); for pipe-alternation arms (§18 follow-on, S84 fix)
+   * it is the FIRST alternate and `tests` carries the full list.
+   */
   test: string | null;
+  /**
+   * Pipe-alternation alternates for `.A | .B | .C => result` arms. When set,
+   * the emitted condition uses an OR-chain (`tag === "A" || tag === "B" || ...`).
+   * For singleton arms this field is omitted/null. Alternation arms MAY NOT
+   * carry payload bindings — per SPEC §51.3.2 / §18.0.3 the same-binding-shape
+   * requirement (E-ENGINE-016) is enforced at parse time by refusing to match
+   * alternation when any alternate has a payload form. (§18 follow-on to S83 B3.)
+   */
+  tests?: string[] | null;
   /**
    * Raw paren contents of a variant-arm binding (if any), e.g. "w, h", "radius: r",
    * "_, h". Parsed into `PayloadBinding[]` at emit time via parseBindingList.
@@ -717,6 +731,31 @@ export function parseBindingList(raw: string): PayloadBinding[] {
  *  10. _ -> expr                  — old wildcard syntax
  */
 export function parseMatchArm(trimmed: string): MatchArm | null {
+  // NEW Form 0 (§18 pipe-alternation): `.A | .B | .C => result` (or `:>`).
+  // Tried BEFORE the single-variant regex so the alternation chain wins.
+  // Alternation arms with payload bindings are NOT supported — the SPEC §51.3.2
+  // same-binding-shape rule (E-ENGINE-016) requires AST-level verification;
+  // codegen here only matches the unit-variant alternation form (no parens
+  // anywhere in the LHS chain).
+  const altMatch = trimmed.match(
+    /^\.\s*([A-Z][A-Za-z0-9_]*)((?:\s*\|\s*\.\s*[A-Z][A-Za-z0-9_]*)+)\s*(?:=>|:>)\s*([\s\S]+)$/,
+  );
+  if (altMatch) {
+    const first = altMatch[1];
+    const rest = altMatch[2]
+      .split("|")
+      .map(s => s.trim().replace(/^\./, "").trim())
+      .filter(s => s.length > 0);
+    const tests = [first, ...rest];
+    return {
+      kind: "variant",
+      test: first,
+      tests,
+      binding: null,
+      result: altMatch[3].trim(),
+    };
+  }
+
   // NEW Form 1 & 2: .Variant => result or .Variant :> result (also with (binding-list))
   // `:>` reads as "narrows to" — distinguishes from JS arrow function `=>`
   // binding-list: zero or more comma-separated bindings, optionally `field: local`
@@ -813,6 +852,25 @@ export function matchArmInlineToMatchArm(node: any): MatchArm | null {
   if (test.startsWith('"') || test.startsWith("'")) {
     return { kind: "string", test, binding: null, result };
   }
+  // §18 pipe-alternation: test is `.A | .B | .C` (no payload binding form).
+  // Tried BEFORE the single-variant regex so the alternation chain wins.
+  const altInlineMatch = test.match(
+    /^\.\s*([A-Z][A-Za-z0-9_]*)((?:\s*\|\s*\.\s*[A-Z][A-Za-z0-9_]*)+)\s*$/,
+  );
+  if (altInlineMatch) {
+    const first = altInlineMatch[1];
+    const rest = altInlineMatch[2]
+      .split("|")
+      .map(s => s.trim().replace(/^\./, "").trim())
+      .filter(s => s.length > 0);
+    return {
+      kind: "variant",
+      test: first,
+      tests: [first, ...rest],
+      binding: null,
+      result,
+    };
+  }
   // Variant arms: test starts with . or ::
   const variantMatch = test.match(/^(?:\.|::)\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(([^)]*)\))?$/);
   if (variantMatch) {
@@ -905,12 +963,31 @@ export function splitMultiArmString(s: string): string[] {
           }
           while (afterName < s.length && s[afterName] === " ") afterName++;
         }
+        // §18 pipe-alternation lookahead: consume `\s*|\s*\.\s*UpperIdent` repetitions
+        // so the LEADING `.A` of `.A | .B | .C => result` registers as the arm start.
+        while (afterName < s.length && s[afterName] === "|") {
+          let p = afterName + 1;
+          while (p < s.length && /\s/.test(s[p])) p++;
+          if (p >= s.length || s[p] !== ".") break;
+          p++;
+          while (p < s.length && /\s/.test(s[p])) p++;
+          if (p >= s.length || !/[A-Z]/.test(s[p])) break;
+          while (p < s.length && /[A-Za-z0-9_]/.test(s[p])) p++;
+          while (p < s.length && /\s/.test(s[p])) p++;
+          afterName = p;
+        }
         const arrow2 = s.slice(afterName, afterName + 2);
         const isFollowedByArrow = arrow2 === "=>" || arrow2 === ":>" || arrow2 === "->";
         if (isFollowedByArrow) {
+          // §18 pipe-alternation: when we ARE an alternate (preceding non-space
+          // is `|`), do NOT register this `.` as a new arm start — the leading
+          // `.A` of the chain already claimed it.
+          let back = i - 1;
+          while (back >= 0 && /\s/.test(s[back])) back--;
+          const isAlternate = back >= 0 && s[back] === "|";
           // Definitive arm start — check original prevCh rule to avoid mid-result property accesses
           const prevCh = i > 0 ? s[i - 1] : null;
-          if (prevCh === null || !/[A-Za-z0-9_$]/.test(prevCh)) {
+          if (!isAlternate && (prevCh === null || !/[A-Za-z0-9_$]/.test(prevCh))) {
             armStartPositions.push(i);
           }
         }
@@ -1286,6 +1363,12 @@ function armCondition(arm: MatchArm, tmpVar: string, tagVar: string): string {
     return `${tmpVar} === null || ${tmpVar} === undefined`;
   }
   if (arm.kind === "variant") {
+    // §18 pipe-alternation: `.A | .B | .C => result` emits OR-chain over the
+    // declared alternates. Singleton arms hit the single-equality path
+    // (regression-preserving — the `tests` field is undefined or length 1).
+    if (arm.tests && arm.tests.length > 1) {
+      return arm.tests.map(t => `${tagVar} === "${t}"`).join(" || ");
+    }
     return `${tagVar} === "${arm.test}"`;
   }
   return `${tmpVar} === ${arm.test}`;
@@ -1311,9 +1394,17 @@ function armCondition(arm: MatchArm, tmpVar: string, tagVar: string): string {
  * normalization. When false, unit-only / scalar arms can keep plain equality.
  */
 export function hasPayloadBindingOrTaggedVariant(arms: MatchArm[]): boolean {
-  return arms.some(
-    a => a.kind === "variant" && (_variantFields?.has(a.test ?? "") || !!a.binding),
-  );
+  return arms.some(a => {
+    if (a.kind !== "variant") return false;
+    if (a.binding) return true;
+    // §18 alternation arms: any alternate that names a payload-bearing variant
+    // (in _variantFields) requires tagVar normalization so the OR-chain compares
+    // .variant strings rather than the tagged-object value itself.
+    if (a.tests && a.tests.length > 1) {
+      return a.tests.some(t => _variantFields?.has(t));
+    }
+    return _variantFields?.has(a.test ?? "") ?? false;
+  });
 }
 
 export function emitVariantBindingPrelude(arm: MatchArm, tmpVar: string): string {

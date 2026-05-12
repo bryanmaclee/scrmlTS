@@ -9,7 +9,19 @@ import { CGError } from "./errors.ts";
 
 interface InlineMatchArm {
   kind: "variant" | "string" | "wildcard" | "not";
+  /**
+   * The arm's primary test value. For single-variant arms this is the variant
+   * name (e.g. `"Big"`); for pipe-alternation arms it is the FIRST alternate
+   * and `tests` carries the full list (e.g. `tests = ["Big", "Fire", "Cape"]`,
+   * `test = "Big"`).
+   */
   test: string | null;
+  /**
+   * Pipe-alternation alternates for `.A | .B | .C => result` arms. When set,
+   * the emitted condition uses an OR-chain (`tag === "A" || tag === "B" || ...`).
+   * For singleton arms this field is omitted/null. (§18 follow-on to S83 B3.)
+   */
+  tests?: string[] | null;
   result: string;
 }
 
@@ -739,6 +751,30 @@ function stripTrailingComma(s: string): string {
 }
 
 function parseInlineMatchArm(text: string): InlineMatchArm | null {
+  // §18 pipe-alternation arm: `.A | .B | .C => result` (or `:>`).
+  // Tried BEFORE the single-variant regex so the alternation chain wins.
+  // We do NOT support payload bindings on alternation arms (per §51.3.2
+  // same-binding-shape rule; a binding present on any alternate falls through
+  // to the single-variant regex below, which will fail to match alternation
+  // and the arm is dropped — emitter handles the dropped-arm comment).
+  const altMatch = text.match(
+    /^\.\s*([A-Z][A-Za-z0-9_]*)((?:\s*\|\s*\.\s*[A-Z][A-Za-z0-9_]*)+)\s*(?:=>|:>)\s*([\s\S]+)$/,
+  );
+  if (altMatch) {
+    const first = altMatch[1];
+    const rest = altMatch[2]
+      .split("|")
+      .map(s => s.trim().replace(/^\./, "").trim())
+      .filter(s => s.length > 0);
+    const tests = [first, ...rest];
+    return {
+      kind: "variant",
+      test: first,
+      tests,
+      result: stripTrailingComma(altMatch[3]),
+    };
+  }
+
   const newVariantMatch = text.match(/^\.\s*([A-Z][A-Za-z0-9_]*)(?:\s*\(\s*(\w+)\s*\))?\s*(?:=>|:>)\s*([\s\S]+)$/);
   if (newVariantMatch) {
     return { kind: "variant", test: newVariantMatch[1], result: stripTrailingComma(newVariantMatch[3]) };
@@ -868,12 +904,31 @@ function _splitMultiArmString(s: string): string[] {
           }
           while (afterName < s.length && s[afterName] === " ") afterName++;
         }
+        // §18 pipe-alternation lookahead: consume `\s*|\s*\.\s*UpperIdent` repetitions.
+        // This lets `.A | .B | .C => result` register `.A` as the arm start.
+        while (afterName < s.length && s[afterName] === "|") {
+          let p = afterName + 1;
+          while (p < s.length && /\s/.test(s[p])) p++;
+          if (p >= s.length || s[p] !== ".") break;
+          p++;
+          while (p < s.length && /\s/.test(s[p])) p++;
+          if (p >= s.length || !/[A-Z]/.test(s[p])) break;
+          while (p < s.length && /[A-Za-z0-9_]/.test(s[p])) p++;
+          while (p < s.length && /\s/.test(s[p])) p++;
+          afterName = p;
+        }
         const arrow2 = s.slice(afterName, afterName + 2);
         const isFollowedByArrow = arrow2 === "=>" || arrow2 === ":>" || arrow2 === "->";
         if (isFollowedByArrow) {
+          // §18 pipe-alternation: when we ARE an alternate (preceding non-space
+          // is `|`), do NOT register this `.` as a new arm start — the leading
+          // `.A` of the chain already claimed it.
+          let back = i - 1;
+          while (back >= 0 && /\s/.test(s[back])) back--;
+          const isAlternate = back >= 0 && s[back] === "|";
           // Definitive arm start — check original prevCh rule to avoid mid-result property accesses
           const prevCh = i > 0 ? s[i - 1] : null;
-          if (prevCh === null || !/[A-Za-z0-9_$]/.test(prevCh)) {
+          if (!isAlternate && (prevCh === null || !/[A-Za-z0-9_$]/.test(prevCh))) {
             armStartPositions.push(i);
           }
         }
@@ -1093,7 +1148,13 @@ export function rewriteMatchExpr(expr: string): string {
         // §42: `not` match arm checks for absence (null or undefined)
         condition = `${tmpVar} === null || ${tmpVar} === undefined`;
       } else if (arm.kind === "variant") {
-        condition = `${tmpVar} === "${arm.test}"`;
+        // §18 pipe-alternation: `.A | .B | .C => result` emits OR-chain.
+        // Singleton variant arms use a single equality check (unchanged path).
+        if (arm.tests && arm.tests.length > 1) {
+          condition = arm.tests.map(t => `${tmpVar} === "${t}"`).join(" || ");
+        } else {
+          condition = `${tmpVar} === "${arm.test}"`;
+        }
       } else {
         condition = `${tmpVar} === ${arm.test}`;
       }

@@ -747,8 +747,18 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // The placeholder is unmasked back to `IdentExpr { name: ".Variant" }` in
   // `esTreeToExprNode` so downstream consumers see a structured AST node
   // (instead of falling into the escape-hatch path on the whole expression).
+  //
+  // §18 pipe-alternation arm patterns (S84 fix): the negation class includes
+  // `|` so that `.A | .B | .C` (inside an already-preprocessed `__scrml_match__`
+  // quoted arm, where the second-and-subsequent `.Variant` are preceded by
+  // ` | ` rather than the leading `"`) stays UN-substituted. This is required
+  // for `rewriteMatchExpr` downstream to recognise the alternation chain and
+  // emit the OR-chain condition. Outside alternation, `x | .Variant` (bitwise
+  // OR with a bare variant) is meaningless in scrml — the canonical absence
+  // check is `is .Variant` (§42), not `|`. So including `|` does not lose
+  // expressivity for valid scrml programs.
   s = s.replace(
-    /(?<![A-Za-z0-9_$\)\]"'`]\s*)\.\s*([A-Z][A-Za-z0-9_]*)/g,
+    /(?<![A-Za-z0-9_$\)\]"'`|]\s*)\.\s*([A-Z][A-Za-z0-9_]*)/g,
     '__scrml_bare_variant_$1__'
   );
 
