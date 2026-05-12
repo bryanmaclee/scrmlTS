@@ -20,7 +20,7 @@
   <db src="../../dispatch.db" protect="password_hash" tables="users, customers">
 
     ${
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -28,7 +28,7 @@
             return ?{`SELECT id, email, role, created_at, last_login_at FROM users WHERE id = ${userId}`}.get()
         }
 
-        server function fetchProfile(sessionToken) {
+        function fetchProfile(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "customer") {
                 return { unauthorized: true }

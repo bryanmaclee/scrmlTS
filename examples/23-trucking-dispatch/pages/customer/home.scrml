@@ -39,7 +39,7 @@
 
     ${
         // F-AUTH-002 inline: cookie -> user.
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -49,7 +49,7 @@
 
         // F-AUTH-001 fallback: role gate. Returns user + their customers row +
         // 5 most recent active loads + 5 most recent invoices.
-        server function fetchHomeData(sessionToken) {
+        function fetchHomeData(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "customer") {
                 return { unauthorized: true }

@@ -65,7 +65,7 @@ ${
   <db src="../../dispatch.db" protect="password_hash" tables="users, drivers, log_entries">
 
     ${
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -73,7 +73,7 @@ ${
             return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
         }
 
-        server function fetchHosData(sessionToken) {
+        function fetchHosData(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -120,7 +120,7 @@ ${
 
         // HOS state change: validate transition, update drivers.current_status,
         // emit hos_change log entry.
-        server function changeHosServer(sessionToken, newStatus) {
+        function changeHosServer(sessionToken, newStatus) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }

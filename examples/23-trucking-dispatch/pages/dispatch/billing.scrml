@@ -27,7 +27,7 @@
         // window so the demo isn't anchored to a moving target.
         const TODAY_ISO = "2026-04-29"
 
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -35,7 +35,7 @@
             return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
         }
 
-        server function fetchInvoicesServer(sessionToken) {
+        function fetchInvoicesServer(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "dispatcher") {
                 return { unauthorized: true }
@@ -72,7 +72,7 @@
         //
         // M6: also mints a payment lin-token per new invoice. The customer
         // consumes the token on Mark Paid. Replays return error.
-        server function ensureInvoicesServer(sessionToken) {
+        function ensureInvoicesServer(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "dispatcher") return { ok: false }
 
@@ -110,7 +110,7 @@
             return { ok: true }
         }
 
-        server function markPaidServer(sessionToken, invoiceId) {
+        function markPaidServer(sessionToken, invoiceId) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "dispatcher") {
                 return { unauthorized: true }

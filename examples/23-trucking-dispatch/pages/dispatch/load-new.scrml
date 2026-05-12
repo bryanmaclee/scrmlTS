@@ -28,7 +28,7 @@
 
     ${
         // F-AUTH-002 inline.
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -36,7 +36,7 @@
             return ?{`SELECT id, email, role FROM users WHERE id = ${userId}`}.get()
         }
 
-        server function fetchCustomersServer(sessionToken) {
+        function fetchCustomersServer(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "dispatcher") {
                 return { unauthorized: true }
@@ -49,7 +49,7 @@
             return { user: user, customers: customers }
         }
 
-        server function createLoadServer(
+        function createLoadServer(
             sessionToken,
             customerId,
             originAddress, originCity, originState,

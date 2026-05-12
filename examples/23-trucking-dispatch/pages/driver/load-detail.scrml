@@ -53,7 +53,7 @@
   <db src="../../dispatch.db" protect="password_hash" tables="users, drivers, loads, customers, assignments, log_entries, lin_tokens">
 
     ${
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -65,7 +65,7 @@
         // Returns unauthorized if the driver isn't currently assigned to the
         // load (loose guard — the driver should never be looking at a load
         // they aren't assigned to).
-        server function fetchLoadDetail(sessionToken, loadId) {
+        function fetchLoadDetail(sessionToken, loadId) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -115,7 +115,7 @@
         // Drives status forward and inserts the matching log entry.
         // Validates the driver is assigned and the source state allows the
         // target. Returns ok or error.
-        server function transitionLoadServer(sessionToken, loadId, newStatus) {
+        function transitionLoadServer(sessionToken, loadId, newStatus) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -174,7 +174,7 @@
 
         // M6: query the most recent unconsumed BOL token for this load
         // (used by driver page to display BOL upload eligibility).
-        server function getActiveBolTokenServer(sessionToken, loadId) {
+        function getActiveBolTokenServer(sessionToken, loadId) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -196,7 +196,7 @@
         // single-use guard. Per F-LIN-001 (M6) the SQL ?{} interpolation
         // does NOT count as `lin` consume per §35.3 rule 1, so the workaround
         // is to copy the lin var into a template literal first.
-        server function uploadBolServer(sessionToken, loadId, filename, lin token: string) {
+        function uploadBolServer(sessionToken, loadId, filename, lin token: string) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -226,7 +226,7 @@
         }
 
         // POD upload (mocked) — stores filename in log_entries.payload.
-        server function uploadPodServer(sessionToken, loadId, filename) {
+        function uploadPodServer(sessionToken, loadId, filename) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -242,7 +242,7 @@
             return { ok: true }
         }
 
-        server function logFuelStopServer(sessionToken, loadId, amount, odometer) {
+        function logFuelStopServer(sessionToken, loadId, amount, odometer) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }
@@ -258,7 +258,7 @@
             return { ok: true }
         }
 
-        server function logBreakdownServer(sessionToken, loadId, description) {
+        function logBreakdownServer(sessionToken, loadId, description) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "driver") {
                 return { unauthorized: true }

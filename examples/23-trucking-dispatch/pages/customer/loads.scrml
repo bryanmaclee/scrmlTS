@@ -29,7 +29,7 @@
   <db src="../../dispatch.db" protect="password_hash" tables="users, customers, loads, assignments, drivers, tractors">
 
     ${
-        server function getCurrentUser(sessionToken) {
+        function getCurrentUser(sessionToken) {
             if (sessionToken is not) return not
             const store = createSessionStore(SESSION_DB_PATH)
             const userId = store.get(sessionToken)
@@ -39,7 +39,7 @@
 
         // F-AUTH-001 fallback: role gate. Returns user + customer + every
         // load for the customer with current-assignment join.
-        server function fetchLoadsServer(sessionToken) {
+        function fetchLoadsServer(sessionToken) {
             const user = getCurrentUser(sessionToken)
             if (user is not || user.role != "customer") {
                 return { unauthorized: true }
