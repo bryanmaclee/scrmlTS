@@ -35,11 +35,16 @@ function compileSource(source, filename = "test.scrml") {
   const filePath = resolve(join(FIXTURE_DIR, filename));
   writeFileSync(filePath, source);
   const result = compileScrml({ inputFiles: [filePath], outputDir: FIXTURE_OUTPUT, write: true });
-  const allErrors = result.errors || [];
-  const fatalErrors = allErrors.filter((e) => e.severity !== "warning");
+  // api.js splits diagnostics into `result.errors` (fatal-grade) and
+  // `result.warnings` (warning-severity, including E-DG-002). Surface both.
+  const fatalErrors = result.errors || [];
+  const warnings = result.warnings || [];
+  // Backward compat: pre-v024-3 `errors` was the union; some assertions
+  // pattern-match on that. Keep the union as `errors`.
+  const allErrors = [...fatalErrors, ...warnings];
   const outPath = join(FIXTURE_OUTPUT, filename.replace(/\.scrml$/, ".client.js"));
   const clientJs = existsSync(outPath) ? readFileSync(outPath, "utf8") : "";
-  return { errors: allErrors, fatalErrors, clientJs };
+  return { errors: allErrors, fatalErrors, warnings, clientJs };
 }
 
 function span() {
@@ -474,6 +479,12 @@ describe("§51.9 follow-up — DOM read-wiring for projected vars", () => {
     // No false-positive E-DG-002 on @order.
     const falseDg = errors.find(e => e.code === "E-DG-002" && /@order/.test(e.message));
     expect(falseDg).toBeUndefined();
+    // v024-3 regression — no false-positive E-DG-002 on the PROJECTED var @ui
+    // either. Pre-fix, `creditReader` redirected reads of @ui to @order only,
+    // leaving @ui with zero credited readers; the unused-reactive sweep then
+    // false-fired E-DG-002 on @ui despite `${@ui}` being read in markup.
+    const falseDgProjected = errors.find(e => e.code === "E-DG-002" && /@ui/.test(e.message));
+    expect(falseDgProjected).toBeUndefined();
   });
 
   test("happy-dom: writing @order updates ${@ui} text content", () => {

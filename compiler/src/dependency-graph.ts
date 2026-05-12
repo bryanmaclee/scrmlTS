@@ -1740,10 +1740,22 @@ export function runDG(input: DGInput): DGOutput {
         }
       }
     }
+    // §51.9 — a read of a projected var (e.g. `@healthRisk`) ALSO credits
+    // its upstream source (e.g. `@marioState`), because the projection is
+    // recomputed transitively through the derived-fn chain. BUT the projected
+    // var itself is ALSO a real reader — without crediting it directly, the
+    // post-walk E-DG-002 sweep would false-fire on every projected var that
+    // has downstream consumers (the redirect would zero out its direct
+    // reader set). Credit BOTH names; when there is no redirect the two
+    // collapse to the same key and only one entry is touched.
     const creditReader = (rawName: string): void => {
-      const effective = projectedToSource.get(rawName) ?? rawName;
-      const readers = reactiveVarReaders.get(effective);
+      const readers = reactiveVarReaders.get(rawName);
       if (readers) readers.add(MARKUP_READER_SENTINEL);
+      const upstream = projectedToSource.get(rawName);
+      if (upstream && upstream !== rawName) {
+        const upstreamReaders = reactiveVarReaders.get(upstream);
+        if (upstreamReaders) upstreamReaders.add(MARKUP_READER_SENTINEL);
+      }
     };
 
     function sweepNodeForAtRefs(node: ASTNode): void {
