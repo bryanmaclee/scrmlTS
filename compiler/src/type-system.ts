@@ -1145,17 +1145,23 @@ function parseEnumBody(
   // -----------------------------------------------------------------------
   // Parse variants from variantsSection (same logic as before).
   // -----------------------------------------------------------------------
-  // §14.4 — split variants on BOTH newlines and top-level commas so a
-  // single-line declaration like
-  //   { Pending, Success(value: number), Failed(error: string) }
-  // yields three variants. splitTopLevel tracks `()` depth, so commas
-  // inside payload field lists stay with their variant. Pre-S28 this
-  // split on "\n" only; payload variants comma-separated on one line
-  // collapsed into a single malformed entry (`name` containing a comma
-  // fails the identifier regex) and the enum registered zero variants —
-  // surfaced as E-ENGINE-004 "Valid variants: ." when referenced from
-  // a `< machine for=Enum>` binding.
-  const lines = splitTopLevel(variantsSection, ["\n", ","]);
+  // §14.4 — split variants on newlines, top-level commas, AND top-level
+  // pipes so all four declared variant-list shapes parse uniformly:
+  //
+  //   Brace + comma:        { Pending, Success, Failed }
+  //   Brace + newline:      { Pending\nSuccess\nFailed }
+  //   Brace + pipe (mixed): { GET | POST | PUT | DELETE }  (emit-library test fixture)
+  //   Bare + pipe:          .Pending | .Success | .Failed  (canonical example form)
+  //
+  // splitTopLevel tracks `()`/`[]`/`{}` depth so commas / pipes inside
+  // payload field lists stay with their variant. The unit-variant arm
+  // below strips a single leading `.` (and surrounding whitespace) so
+  // bar-form variant names like `.Pending` still match the identifier
+  // regex. Pre-S84-v0.2.4-4.5 the bar-form variants registered zero
+  // variants — silently fine when nothing read the enum's variant list,
+  // but visible as "Known variants: (none)" the moment the bare-variant
+  // inference walker tried to validate `.V` against the enum.
+  const lines = splitTopLevel(variantsSection, ["\n", ",", "|"]);
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -1165,11 +1171,18 @@ function parseEnumBody(
     const parenIdx = trimmed.indexOf("(");
 
     if (parenIdx === -1) {
-      // Unit variant — may still be comma-separated on one line (fallback).
-      const unitParts = splitTopLevel(trimmed, [","]);
+      // Unit variant — may still be comma- or pipe-separated on one line.
+      // (Top-level splitTopLevel already handled the common case; this
+      // fallback catches mixed-delimiter declarations.)
+      const unitParts = splitTopLevel(trimmed, [",", "|"]);
       for (const part of unitParts) {
         let text = part.trim();
         if (!text) continue;
+        // Bar-form: each variant may be written as `.Name` — strip the
+        // leading `.` (with optional whitespace) so the identifier regex
+        // matches. See parseEnumBody header comment for the four declared
+        // shapes.
+        if (text.startsWith(".")) text = text.slice(1).trim();
 
         // Check for `renders` clause on this unit variant.
         let renders: { markup: string } | null = null;
@@ -1186,8 +1199,10 @@ function parseEnumBody(
         variants.push({ name, payload: null, renders });
       }
     } else {
-      // Payload variant: `Name(field:type, ...)`
-      const name = trimmed.slice(0, parenIdx).trim();
+      // Payload variant: `Name(field:type, ...)` or bar-form `.Name(...)`.
+      let name = trimmed.slice(0, parenIdx).trim();
+      // Strip a single leading `.` (bar-form parity with the unit-variant arm).
+      if (name.startsWith(".")) name = name.slice(1).trim();
       if (!/^[A-Z][A-Za-z0-9_]*$/.test(name)) continue;
 
       // Find the closing paren for the payload, then check for `renders` after it.
@@ -1440,6 +1455,57 @@ function resolveTypeExpr(expr: string, typeRegistry: Map<string, ResolvedType>):
     const colonIdx = inner.indexOf(":");
     const paramTypeStr = colonIdx !== -1 ? inner.slice(colonIdx + 1).trim() : inner.trim();
     return tSnippet(resolveTypeExpr(paramTypeStr, typeRegistry), false);
+  }
+
+  // S84 v0.2.4 #4.5 (Gap A) — inline-struct type expression
+  //   `{ id: number, title: string, status: Status }`
+  //
+  // Surfaces in array-typed state-decls like `<x>: { f: Enum }[] = [...]`.
+  // Without this branch, the inline-struct annotation falls through to
+  // `tAsIs()` and the bare-variant inference walker loses every field type,
+  // so `{ status: .Todo }` inside the array initializer fires
+  // E-VARIANT-AMBIGUOUS even when `Status` is a statically-known enum.
+  //
+  // Grammar (intentionally narrow — matches what the AST builder produces):
+  //   { name : TypeExpr , name : TypeExpr , ... }
+  // where each TypeExpr recurses into `resolveTypeExpr`. Fields are split
+  // top-level (commas inside nested `{...}`/`[...]`/`(...)` are preserved
+  // via `splitTopLevel`). Anonymous struct name uses the literal source
+  // text so equality / labeling stays distinct from named struct types
+  // declared via `type T :struct = {...}` (those land via typeRegistry).
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const innerBody = trimmed.slice(1, -1).trim();
+    if (innerBody.length > 0) {
+      const fieldParts = splitTopLevel(innerBody, [",", "\n"]);
+      const fields = new Map<string, ResolvedType>();
+      let allFieldsParsedCleanly = true;
+      for (const rawPart of fieldParts) {
+        const part = rawPart.trim();
+        if (part.length === 0) continue;
+        const colonIdx = part.indexOf(":");
+        if (colonIdx <= 0) {
+          // Malformed field — fall back to asIs (don't silently mis-resolve).
+          allFieldsParsedCleanly = false;
+          break;
+        }
+        const fieldName = part.slice(0, colonIdx).trim();
+        const fieldTypeExpr = part.slice(colonIdx + 1).trim();
+        // Field names must look like identifiers (no spaces / punctuation).
+        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fieldName)) {
+          allFieldsParsedCleanly = false;
+          break;
+        }
+        fields.set(fieldName, resolveTypeExpr(fieldTypeExpr, typeRegistry));
+      }
+      if (allFieldsParsedCleanly && fields.size > 0) {
+        // Anonymous struct — use a literal name marker so equality / labeling
+        // stays distinct from named struct types declared via
+        // `type T :struct = {...}` (those land via typeRegistry). The empty-
+        // fields case (`{}`) falls through to `tAsIs()` because an empty
+        // struct is not a useful inference context.
+        return tStruct("<inline>", fields);
+      }
+    }
   }
 
   // Primitive lookup.
@@ -3591,10 +3657,78 @@ function annotateNodes(
   // deprecation cycle's stage 1 (v0.next).
   const fnCpsImplicitFailable = new Set<string>();
 
+  // S84 v0.2.4 #5-followon (Gap B.3) — stack tracking the current enclosing
+  // function's return ResolvedType. Pushed on function-decl entry, popped
+  // on exit. `return-stmt` reads the top of the stack to drive bare-variant
+  // inference against the return-type context. The stack handles nested
+  // function declarations (lambdas / inline `fn` shorthand) naturally.
+  // Null at the top means "no enclosing fn return type" (top-level code).
+  const enclosingFnReturnTypeStack: Array<ResolvedType | null> = [];
+
+  // S84 v0.2.4 #5-followon (Gap B.3/B.4) — pre-collect function signatures
+  // (param types + return type) so the call-arg and return-stmt bare-variant
+  // inference walkers can look up the enclosing function's return type and
+  // each call site's expected param types.
+  //
+  // The runtime function-decl arm (~4147) binds an empty-params FunctionType
+  // into scope today; B20.b deferred populating params because it required
+  // this pre-collection infrastructure. With the pre-pass below we can fix
+  // both gaps: function-decl arm reads from this map at bind time; the new
+  // walkers read directly here when an ExprNode CallExpr is encountered.
+  //
+  // Param types are resolved against the file-level typeRegistry (built
+  // BEFORE this pass runs). Return type is resolved from the function-decl's
+  // `returnType` field (when present) the same way.
+  const fnSignatures = new Map<string, {
+    params: Array<{ name: string; type: ResolvedType }>;
+    returnType: ResolvedType;
+  }>();
+
   function collectFnErrorTypes(nodes: ASTNodeLike[]): void {
     for (const n of nodes) {
       if (n.kind === "function-decl" && n.name) {
         fnAllDeclared.add(n.name as string);
+        // S84 v0.2.4 #5-followon — populate fnSignatures (Gap B.3 + B.4).
+        // Resolve param types against the file's typeRegistry (already
+        // built before annotateNodes runs). Falls back to tAsIs() when
+        // the param has no annotation OR resolves to asIs (unknown type).
+        // Return type comes from the function-decl's `returnType` field
+        // when present (the AST builder records the annotation string
+        // from `function foo() -> Type {...}`).
+        try {
+          const sigParams: Array<{ name: string; type: ResolvedType }> = [];
+          if (Array.isArray(n.params)) {
+            for (const param of (n.params as unknown[])) {
+              const paramName = typeof param === "string"
+                ? param
+                : (param as ASTNodeLike).name as string;
+              const paramAnnot = (typeof param === "object" && param !== null)
+                ? ((param as ASTNodeLike).typeAnnotation as string | undefined)
+                : undefined;
+              if (!paramName) continue;
+              let paramType: ResolvedType = tAsIs();
+              if (paramAnnot) {
+                paramType = resolveTypeExpr(paramAnnot, typeRegistry);
+              }
+              sigParams.push({ name: paramName, type: paramType });
+            }
+          }
+          let returnType: ResolvedType = tAsIs();
+          // AST builder records the return-type annotation under
+          // `returnTypeAnnotation` (the string after `->` or `:`). The
+          // `returnType` field is reserved for the resolved type and
+          // remains `undefined` at the AST level.
+          const returnAnnot = (n as ASTNodeLike).returnTypeAnnotation as string | undefined;
+          if (returnAnnot && typeof returnAnnot === "string") {
+            returnType = resolveTypeExpr(returnAnnot, typeRegistry);
+          }
+          fnSignatures.set(n.name as string, { params: sigParams, returnType });
+        } catch {
+          // Defensive: never break the existing collectFnErrorTypes pass on
+          // signature-collection failure. Missing fnSignatures entry is
+          // tolerable — the call-arg / return-stmt walkers fall through to
+          // existing silent-accept behavior.
+        }
         // Non-pure = declared with `function` AND not marked `pure` (§48.6.2 opt-in).
         if ((n as ASTNodeLike).fnKind !== "fn" && (n as ASTNodeLike).isPure !== true) {
           nonPureFnNames.add(n.name as string);
@@ -4066,6 +4200,20 @@ function annotateNodes(
         // suppress duplicate W-CPS-NEEDS-FAILABLE warnings when the caller
         // is `!`-typed (per body-split soundness design dive §3.4).
         const _enclosingFnCanFail = n.canFail === true;
+        // S84 v0.2.4 #5-followon (Gap B.3): push the enclosing function's
+        // return type onto the stack so nested return-stmts (including
+        // those inside if/while/for/match-arm bodies) see the right
+        // contextType. Pop after walking the body. Lookup via fnSignatures
+        // (pre-pass result). When the function has no `-> T` annotation,
+        // we push null and the return-stmt walker preserves silent-accept.
+        let _enclosingFnReturnType: ResolvedType | null = null;
+        if (typeof n.name === "string") {
+          const sig = fnSignatures.get(n.name as string);
+          if (sig && sig.returnType.kind !== "asIs") {
+            _enclosingFnReturnType = sig.returnType;
+          }
+        }
+        enclosingFnReturnTypeStack.push(_enclosingFnReturnType);
         if (Array.isArray(fnBody)) {
           for (const stmt of fnBody) {
             if (stmt && typeof stmt === "object") {
@@ -4074,6 +4222,7 @@ function annotateNodes(
             visitLogicNode(stmt, boundary);
           }
         }
+        enclosingFnReturnTypeStack.pop();
 
         scopeChain.pop();
 
@@ -4370,13 +4519,24 @@ function annotateNodes(
             // preventing a spurious E-VARIANT-AMBIGUOUS from the no-context
             // branch when the let-decl has no annotation.
             inferBareVariantsAtComparisonSites(initExprForScope, scopeChain, letSpan, errors);
+            // S84 v0.2.4 #5-followon (Gap B.4) — call-arg pre-pass. Same
+            // ordering rationale as comparison-site: resolve bare variants
+            // at typed-function call-arg positions before the LHS-driven
+            // walk runs, so the no-context branch doesn't fire on them.
+            inferBareVariantsAtCallArgs(initExprForScope, fnSignatures, letSpan, errors);
             // B20 §14.10 / M9 — bare-variant inference at LHS let/const-decl
             // annotation. The annotation type drives bare-variant resolution
             // in the initializer. When NO annotation is present, the writer
             // chose `let x = .V` with no type context — per §14.10 line 7174,
             // bare variants are NOT supported there; fire E-VARIANT-AMBIGUOUS.
+            // S84 v0.2.4 #4.5: use the struct-nav walker so array-of-struct
+            // and struct contextTypes refine the per-position type as the
+            // walker descends into nested object/array literals. The walker
+            // falls back to the flat `inferBareVariantsInExpr` for all other
+            // contextType shapes (enum / union / asIs / null / primitive),
+            // preserving the pre-existing behavior.
             if (letAnnot) {
-              inferBareVariantsInExpr(initExprForScope, resolvedType, letSpan, errors);
+              inferBareVariantsWithStructNav(initExprForScope, resolvedType, letSpan, errors);
             } else {
               // No annotation case — pass null as contextType to fire the
               // no-type-context diagnostic on any bare variant. This matches
@@ -4527,9 +4687,13 @@ function annotateNodes(
         // non-machine), surface that type so downstream checks (match exhaustiveness)
         // can see the real type instead of the default asIs placeholder.
         // §54.2 Phase 3d: also surface state types (for substate match exhaustiveness).
+        // S84 v0.2.4 #4.5 (Gap A): also surface array types — array-of-struct
+        // and array-of-enum annotations drive the struct-nav bare-variant
+        // walker; without this, `<cards>: { ... }[] = [...]` keeps
+        // `resolvedType = asIs` and the walker can't navigate.
         if (reactAnnot && resolvedType.kind === "asIs") {
           const reactAnnoType2 = resolveTypeExpr(reactAnnot, typeRegistry);
-          if (reactAnnoType2 && (reactAnnoType2.kind === "enum" || reactAnnoType2.kind === "union" || reactAnnoType2.kind === "struct")) {
+          if (reactAnnoType2 && (reactAnnoType2.kind === "enum" || reactAnnoType2.kind === "union" || reactAnnoType2.kind === "struct" || reactAnnoType2.kind === "array")) {
             resolvedType = reactAnnoType2;
           } else if (stateTypeRegistry) {
             const stateHit = stateTypeRegistry.get(reactAnnot.trim());
@@ -4580,7 +4744,15 @@ function annotateNodes(
                 bvCtxType = prior.resolvedType;
               }
             }
-            inferBareVariantsInExpr(reactInitExprNode, bvCtxType, reactSpan, errors);
+            // S84 v0.2.4 #4.5: struct-nav walker handles array-of-struct and
+            // struct contextTypes (e.g. the kanban shape
+            // `<cards>: { id, title, status: Status }[] = [...]`).
+            inferBareVariantsWithStructNav(reactInitExprNode, bvCtxType, reactSpan, errors);
+            // S84 v0.2.4 #5-followon (Gap B.4) — call-arg inference for
+            // bare variants embedded in calls inside the state-decl init
+            // (`<x>: T = f(.V)`). The struct-nav walker handles the LHS
+            // type; this handles per-call param types.
+            inferBareVariantsAtCallArgs(reactInitExprNode, fnSignatures, reactSpan, errors);
           }
         }
         if (n.name) {
@@ -4692,6 +4864,9 @@ function annotateNodes(
             // helper handles assign/call ROOT shapes only and does not visit
             // binary-expr nodes; this helper covers the disjoint case.
             inferBareVariantsAtComparisonSites(beExprNode, scopeChain, beSpan, errors);
+            // S84 v0.2.4 #5-followon (Gap B.4) — call-arg inference at
+            // bare-expr top-level (e.g. `applyState(.V)` as its own stmt).
+            inferBareVariantsAtCallArgs(beExprNode, fnSignatures, beSpan, errors);
           }
         }
         // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level
@@ -5071,6 +5246,26 @@ function annotateNodes(
           const ifCondExpr = (n as Record<string, unknown>).condExpr;
           if (ifCondExpr) {
             checkLogicExprIdents(ifCondExpr, ifCondSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
+            // S84 v0.2.4 #5-followon (Gap B.1/B.2) — bare-variant inference
+            // at if-stmt / while-stmt condition. Reuses the Bug 5
+            // comparison-site helper, which handles `@cell <op> .V` and the
+            // symmetric `.V <op> @cell` at any nesting depth inside the
+            // condition. Without this wiring, bare variants in conditions
+            // like `if (@phase == .Bogus)` were silently accepted — the
+            // condExpr was checked only for E-SCOPE-001, not for variant
+            // resolution. §14.10 line 7291's "any position where the type
+            // is fixed by the surrounding declaration" covers conditions
+            // implicitly (the cell's type fixes the variant context).
+            inferBareVariantsAtComparisonSites(ifCondExpr, scopeChain, ifCondSpan, errors);
+            // Bare variants that are NOT at a comparison position inside
+            // the condition (e.g. call-arg positions) are resolved by the
+            // call-arg inference walker below — the if/while case does
+            // not fire `inferBareVariantsInExpr(..., null)` because doing
+            // so would surface E-VARIANT-AMBIGUOUS on call-args that the
+            // call-arg walker would correctly resolve. Each helper stamps
+            // `_bareVariantInferredAtBinaryExpr` on resolved idents so the
+            // downstream walkers can deduplicate.
+            inferBareVariantsAtCallArgs(ifCondExpr, fnSignatures, ifCondSpan, errors);
           }
         }
         // §S19 — run `is` / `not`-prefix checks on the RAW condition string
@@ -5241,6 +5436,26 @@ function annotateNodes(
         const retExprNode = (n as Record<string, unknown>).exprNode;
         if (retExprNode) {
           checkLogicExprIdents(retExprNode, retSpan, scopeChain, typeRegistry, errors, undefined, fnAllDeclared);
+          // S84 v0.2.4 #5-followon (Gap B.3) — bare-variant inference at
+          // return-stmt value. Read the enclosing function's return type
+          // from the stack pushed at function-decl entry; when present
+          // (annotated `function f() -> T {...}`), dispatch the flat
+          // walker with T as contextType. Bare variants resolve against
+          // T's variants; typos fire E-TYPE-063; union ambiguity fires
+          // E-VARIANT-AMBIGUOUS. Silent fall-through when the function
+          // has no return annotation (preserves pre-Gap-B behavior for
+          // un-annotated functions).
+          const retCtx = enclosingFnReturnTypeStack.length > 0
+            ? enclosingFnReturnTypeStack[enclosingFnReturnTypeStack.length - 1]
+            : null;
+          if (retCtx) {
+            inferBareVariantsInExpr(retExprNode, retCtx, retSpan, errors);
+          }
+          // S84 v0.2.4 #5-followon (Gap B.4) — call-arg inference within
+          // the return expression. e.g. `return applyState(.V)` — the
+          // call-arg position has its own type context from applyState's
+          // param annotation, distinct from the return-type context.
+          inferBareVariantsAtCallArgs(retExprNode, fnSignatures, retSpan, errors);
         }
         resolvedType = tAsIs();
         break;
@@ -6128,6 +6343,119 @@ function inferBareVariantsInExpr(
 }
 
 /**
+ * S84 v0.2.4 #4.5 (Gap A) — Bare-variant inference with type-context
+ * navigation through struct fields and array elements.
+ *
+ * Companion to `inferBareVariantsInExpr` (flat walker, single context type
+ * for the whole subtree). When the LHS-driven contextType is a struct or
+ * an array-of-struct, the bare variants inside the initializer's struct
+ * literals must each resolve against the CORRESPONDING FIELD'S type, not
+ * the overall context type. The flat walker can't make that distinction;
+ * this walker does.
+ *
+ * Activation rule: invoke this walker INSTEAD OF `inferBareVariantsInExpr`
+ * when contextType is one of:
+ *   - StructType            (e.g. `<x>: { f: Enum } = { f: .V }`)
+ *   - ArrayType of struct   (e.g. `<x>: { f: Enum }[] = [{ f: .V }, ...]`)
+ *   - ArrayType of enum/union (e.g. `<x>: Enum[] = [.V, .W]`)
+ *   - ArrayType of array of {struct|enum|union}  (nested deeper)
+ *
+ * For other contextTypes (enum / union / asIs / null / primitive), the flat
+ * walker `inferBareVariantsInExpr` is sufficient — there's no per-position
+ * context refinement.
+ *
+ * Walker shape: node-aware traversal of ExprNode. At each node, we know the
+ * "expected type at this position." Recursion rules:
+ *   - object literal in struct context → recurse on each prop with
+ *     `struct.fields.get(propName)` as the new context type.
+ *   - array literal in array context → recurse on each element with
+ *     `array.element` as the new context type.
+ *   - any other node → fall back to flat `inferBareVariantsInExpr` with the
+ *     current contextType. (This handles ternary inside an object value,
+ *     binary-comparison, etc. — the flat walker is sufficient because the
+ *     position type does not refine further through these shapes.)
+ *
+ * Bare-variant resolution at each leaf ident is done by the same helper
+ * `resolveBareVariantAgainstType` extracted from `inferBareVariantsInExpr`
+ * — single source of diagnostic wording, identical semantics.
+ */
+function inferBareVariantsWithStructNav(
+  exprNode: unknown,
+  contextType: ResolvedType | null,
+  span: Span,
+  errors: TSError[],
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+  const node = exprNode as { kind?: string } & Record<string, unknown>;
+
+  // Array context — descend into array-literal elements with the element type.
+  if (contextType && contextType.kind === "array" && node.kind === "array") {
+    const elementType = (contextType as ArrayType).element;
+    const elements = Array.isArray(node.elements) ? (node.elements as unknown[]) : [];
+    for (const el of elements) {
+      // Recurse with the element type — handles array-of-struct and
+      // array-of-array shapes.
+      inferBareVariantsWithStructNav(el, elementType, span, errors);
+    }
+    return;
+  }
+
+  // Struct context — descend into object-literal properties with field types.
+  if (contextType && contextType.kind === "struct" && node.kind === "object") {
+    const structType = contextType as StructType;
+    const props = Array.isArray(node.props) ? (node.props as unknown[]) : [];
+    for (const propUnknown of props) {
+      if (!propUnknown || typeof propUnknown !== "object") continue;
+      const prop = propUnknown as Record<string, unknown>;
+      if (prop.kind === "prop") {
+        // Get the field name. The prop key is either a static string or an
+        // expression (computed key); we only navigate when it's a static
+        // string, because computed keys make field lookup undecidable.
+        let fieldName: string | null = null;
+        if (typeof prop.key === "string") {
+          fieldName = prop.key;
+        } else if (prop.key && typeof prop.key === "object" && (prop.key as { kind?: string }).kind === "ident" && typeof (prop.key as { name?: string }).name === "string") {
+          fieldName = (prop.key as { name: string }).name;
+        }
+        const fieldType = fieldName !== null ? structType.fields.get(fieldName) ?? null : null;
+        // Recurse on the value with the field's type — fieldType may be
+        // null for unknown fields (writer typo or shape drift), in which
+        // case the leaf-flat walker still runs with null context per
+        // §14.10 line 7174 wording.
+        inferBareVariantsWithStructNav(prop.value, fieldType, span, errors);
+      } else if (prop.kind === "shorthand") {
+        // Shorthand `{ x }` — the value reference is an ident. Not a
+        // bare-variant shape; skip.
+        continue;
+      } else if (prop.kind === "spread") {
+        // Spread `{ ...other }` — the spread argument's type is the same as
+        // the struct context (a partial-merge). Recurse with the struct
+        // context so bare variants inside the spread (rare) still resolve.
+        inferBareVariantsWithStructNav(prop.argument, structType, span, errors);
+      }
+    }
+    return;
+  }
+
+  // Array context with non-array node (e.g. spread-only init) — fall back
+  // to flat walker with element type to catch any bare variants.
+  if (contextType && contextType.kind === "array") {
+    inferBareVariantsInExpr(exprNode, (contextType as ArrayType).element, span, errors);
+    return;
+  }
+
+  // Struct context with non-object node — fall back to flat walker.
+  if (contextType && contextType.kind === "struct") {
+    inferBareVariantsInExpr(exprNode, contextType, span, errors);
+    return;
+  }
+
+  // Any other contextType (enum / union / asIs / null / primitive) — the
+  // flat walker is sufficient. There's no per-position refinement.
+  inferBareVariantsInExpr(exprNode, contextType, span, errors);
+}
+
+/**
  * Bug 7 (M9) — bare-variant inference at reactive-site bare-expr shapes.
  *
  * Companion to `inferBareVariantsInExpr` for bare-expr statements whose root
@@ -6515,6 +6843,157 @@ function inferBareVariantsAtComparisonSites(
       return;
     }
     // ident / lit / placeholder / paren / etc — no comparison-position children.
+    if (n.kind === "paren") {
+      walk((n as Record<string, unknown>).expr);
+      return;
+    }
+  };
+
+  walk(exprNode);
+}
+
+/**
+ * S84 v0.2.4 #5-followon (Gap B.4) — bare-variant inference at function
+ * call-arg positions.
+ *
+ * Sibling to `inferBareVariantsAtComparisonSites` (Bug 5) and
+ * `inferReactiveSiteBareVariants` (Bug 7). Together with the new
+ * Gap A struct-nav walker they form the complete §14.10 inference family.
+ *
+ * Walker placement: this helper walks an ExprNode tree node-aware (NOT the
+ * flat `forEachIdentInExprNode`), looking for `kind === "call"` nodes whose
+ * callee is an IdentExpr that resolves to a function with known param
+ * types. For each (position, arg) pair where the param type is enum or
+ * union, dispatch `inferBareVariantsInExpr(arg, paramType, ...)`. Resolved
+ * idents get `_bareVariantInferredAtBinaryExpr` stamped (sharing the
+ * Bug 5 flag) so downstream walkers deduplicate.
+ *
+ * Param-type lookup uses the `fnSignatures` map populated by
+ * `collectFnErrorTypes` (file-level pre-pass). The runtime scope chain is
+ * NOT consulted — fnSignatures is the canonical source of param types,
+ * and it's populated for every function-decl in the file at pre-pass
+ * time (no forward-reference problem).
+ *
+ * Silent fall-through cases:
+ *   - Callee is not a simple IdentExpr (e.g. method calls, computed
+ *     callees) — these positions don't fit the §14.10 frame today.
+ *   - Function name not in fnSignatures (external imports, stdlib calls).
+ *   - Function has no param annotations (silent silent — same as today).
+ *   - Arg position has a non-enum / non-union param type — falls through
+ *     to the existing flat walker via the recursive walk below.
+ *
+ * Spec authority:
+ *   §14.10 line 7291 — "any other position where the type is fixed"
+ *   §34            — E-VARIANT-AMBIGUOUS + E-TYPE-063
+ */
+function inferBareVariantsAtCallArgs(
+  exprNode: unknown,
+  fnSignatures: Map<string, {
+    params: Array<{ name: string; type: ResolvedType }>;
+    returnType: ResolvedType;
+  }>,
+  span: Span,
+  errors: TSError[],
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { kind?: string } & Record<string, unknown>;
+
+    if (n.kind === "call") {
+      const callee = n.callee as { kind?: string; name?: string } | undefined;
+      const args = Array.isArray(n.args) ? (n.args as unknown[]) : [];
+
+      // Only handle the simple-ident callee shape. Method calls
+      // (`obj.method(.V)`) fall through silently — they hit the existing
+      // `inferReactiveSiteBareVariants` path when the bare-expr root is
+      // the call itself; otherwise they're not in §14.10 scope today.
+      if (callee && callee.kind === "ident" && typeof callee.name === "string") {
+        const sig = fnSignatures.get(callee.name);
+        if (sig) {
+          for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            const param = sig.params[i];
+            if (!param) continue; // varargs / over-supplied — silent.
+            const paramType = param.type;
+            if (paramType.kind !== "enum" && paramType.kind !== "union") {
+              continue; // non-enum param type — bare variants make no sense here.
+            }
+            // Dispatch the existing flat walker with this arg position's
+            // expected type. Idents stamped here get the standard flag, so
+            // the call-arg's bare-variant gets diagnosed against the right
+            // enum context AND any downstream walker skips it.
+            inferBareVariantsInExpr(arg, paramType, span, errors);
+            // Also stamp the call-arg ident directly if it's a top-level
+            // bare-variant ident. `inferBareVariantsInExpr` doesn't stamp;
+            // it only emits diagnostics. Stamping here lets the comparison-
+            // site walker's flag mechanism (and the let/state-decl flat
+            // walker's flag-check) skip on a second pass.
+            if (arg && typeof arg === "object") {
+              const a = arg as { kind?: string; name?: string };
+              if (a.kind === "ident" && typeof a.name === "string" && a.name.startsWith(".")) {
+                Object.defineProperty(arg, "_bareVariantInferredAtBinaryExpr", {
+                  value: true, enumerable: false, configurable: true, writable: true,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Recurse into every child branch — the call-arg node may itself
+    // contain nested calls (`f(g(.V))`).
+    if (n.kind === "binary" || n.kind === "assign") {
+      walk((n as Record<string, unknown>).left);
+      walk((n as Record<string, unknown>).right);
+      walk((n as Record<string, unknown>).target);
+      walk((n as Record<string, unknown>).value);
+      return;
+    }
+    if (n.kind === "ternary") {
+      walk((n as Record<string, unknown>).condition);
+      walk((n as Record<string, unknown>).consequent);
+      walk((n as Record<string, unknown>).alternate);
+      return;
+    }
+    if (n.kind === "unary") {
+      walk((n as Record<string, unknown>).argument);
+      return;
+    }
+    if (n.kind === "member") {
+      walk((n as Record<string, unknown>).object);
+      return;
+    }
+    if (n.kind === "index") {
+      walk((n as Record<string, unknown>).object);
+      walk((n as Record<string, unknown>).index);
+      return;
+    }
+    if (n.kind === "call") {
+      walk((n as Record<string, unknown>).callee);
+      const args = (n as Record<string, unknown>).args;
+      if (Array.isArray(args)) for (const a of args) walk(a);
+      return;
+    }
+    if (n.kind === "array") {
+      const elements = (n as Record<string, unknown>).elements;
+      if (Array.isArray(elements)) for (const e of elements) walk(e);
+      return;
+    }
+    if (n.kind === "object") {
+      const props = (n as Record<string, unknown>).props;
+      if (Array.isArray(props)) {
+        for (const p of props) {
+          if (p && typeof p === "object") {
+            walk((p as Record<string, unknown>).value);
+            walk((p as Record<string, unknown>).argument);
+          }
+        }
+      }
+      return;
+    }
     if (n.kind === "paren") {
       walk((n as Record<string, unknown>).expr);
       return;

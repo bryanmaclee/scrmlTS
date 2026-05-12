@@ -1861,10 +1861,15 @@ export function parseEnumVariantsFromRaw(raw: string): Array<{ name: string }> {
   body = body.trim();
   if (!body) return variants;
 
-  const parts = body.split("|");
+  // S84 v0.2.4 #4.5: split on `|` AND `,` AND `\n` so the four declared
+  // variant-list shapes parse uniformly (brace+comma, brace+newline,
+  // brace+pipe, bare+pipe). Mirrors parseEnumBody in type-system.ts.
+  const parts = body.split(/[|,\n]/);
   for (const part of parts) {
-    const trimmed = part.trim();
+    let trimmed = part.trim();
     if (!trimmed) continue;
+    // Bar-form: strip a single leading `.` from each variant (`.Pending` → `Pending`).
+    if (trimmed.startsWith(".")) trimmed = trimmed.slice(1).trim();
 
     const parenIdx = trimmed.indexOf("(");
     const name = parenIdx >= 0 ? trimmed.slice(0, parenIdx).trim() : trimmed;
