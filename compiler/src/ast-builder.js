@@ -1649,6 +1649,44 @@ function splitArgs(raw) {
 }
 
 /**
+ * v0.2.4 bug-1-a1: join token texts while preserving token-boundary whitespace
+ * for fusion-risky adjacencies.
+ *
+ * Used by `_parseLiftAttrValue` (lift-tag attribute-value collector). The
+ * tokenizer/parser pair strips inter-token whitespace by the time tokens reach
+ * the lift attr collector — joining with `""` then loses the source-level
+ * boundary between e.g. `not` (KEYWORD) and `t` (IDENT), producing the bogus
+ * identifier `nott` and downstream codegen `nott.completed` in event-handler
+ * attribute values (`onchange=toggle(t.id, not t.completed)`).
+ *
+ * Rule: insert a single space between two parts when the LAST char of the
+ * prior part AND the FIRST char of the next part are both word-shaped
+ * (`[A-Za-z0-9_$@]`). All other adjacencies (e.g. IDENT-`.`, `.`-IDENT,
+ * `(`-IDENT, etc.) join with no space — preserving member access (`t.id`)
+ * and call syntax (`fn(arg)`) verbatim.
+ *
+ * The downstream expression parser (preprocessForAcorn + acorn) is whitespace-
+ * insensitive within member access (`t . id` parses identically to `t.id`),
+ * so adding a single space inside expressions is safe.
+ *
+ * @param {string[]} parts — token texts as collected by `_parseLiftAttrValue`
+ * @returns {string}
+ */
+function _joinPreservingWordBoundary(parts) {
+  if (parts.length === 0) return "";
+  let out = parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const prevEnd = out.charAt(out.length - 1);
+    const nextStart = parts[i].charAt(0);
+    if (/[A-Za-z0-9_$@]/.test(prevEnd) && /[A-Za-z0-9_$@]/.test(nextStart)) {
+      out += " ";
+    }
+    out += parts[i];
+  }
+  return out;
+}
+
+/**
  * Split a string on commas at top-level depth (not inside braces/parens/brackets).
  *
  * @param {string} raw
@@ -2732,7 +2770,19 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         parts.push(ct.text);
         consume();
       }
-      const raw = parts.join("");
+      // v0.2.4 bug-1-a1 — preserve token-boundary whitespace when joining lift
+      // attribute-value tokens. The naive `parts.join("")` fuses adjacent
+      // word-shaped tokens, so `not t.completed` (KEYWORD + IDENT + …) collapses
+      // to `nott.completed` — a bogus identifier. Downstream `splitArgs` then
+      // splits the call args on commas, hands `"nott.completed"` to acorn,
+      // which parses it as a free MemberExpression and emits `nott.completed`
+      // verbatim (the §45.7 `not <operand>` rewrite never matches because the
+      // space it requires has been erased upstream). Solution: when joining
+      // would create such a fusion (last char of prior part is word-shaped AND
+      // first char of next part is word-shaped), insert a single space. This
+      // preserves call-form `toggle(t.id, not t.completed)` correctly while
+      // leaving non-fusing joins (`t` + `.` + `id` → `t.id`) untouched.
+      const raw = _joinPreservingWordBoundary(parts);
       const valSpan = tokenSpan(startValTok, filePath);
       // Detect call-ref shape: identifier ( ... )
       const callMatch = raw.match(/^([A-Za-z_$][A-Za-z0-9_$.]*)\s*\((.*)\)$/s);
