@@ -10,7 +10,7 @@
 // Real-time hookpoint (M5): subscribe to load-:id channel — this page is
 // the perfect surface for real-time-pushed entries from dispatcher.
 
-<program db="../../dispatch.db" auth="required">
+<page db="../../dispatch.db" auth="required">
 
   ${
       import { createSessionStore } from 'scrml:store'
@@ -212,4 +212,4 @@
 
   </>
 
-</program>
+</page>

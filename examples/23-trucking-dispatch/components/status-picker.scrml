@@ -9,7 +9,7 @@
 //   tendered → booked → dispatched → loaded → in_transit → delivered → invoiced → paid
 //                                                                ↘ cancelled (terminal)
 //
-// `<machine>` deferred to M3 — see progress.md decision log. The transition
+// `<engine>` deferred to M3 — see progress.md decision log. The transition
 // rules live as a pure helper here so the dispatcher pages can call
 // `validNextStates(currentStatus)` directly. If invalid → empty array.
 

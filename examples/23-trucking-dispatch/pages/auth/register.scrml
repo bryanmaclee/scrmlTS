@@ -14,7 +14,7 @@
 //   - <db> attribute opener (no leading whitespace)
 //   - `server function` modifier dropped — body content escalates structurally
 
-<program db="../../dispatch.db" auth="optional">
+<page db="../../dispatch.db" auth="optional">
 
   <db src="../../dispatch.db" protect="password_hash" tables="users, customers">
 
@@ -172,4 +172,4 @@
     </div>
   </>
 
-</program>
+</page>

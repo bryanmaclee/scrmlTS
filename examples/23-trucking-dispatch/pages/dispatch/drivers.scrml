@@ -12,7 +12,7 @@
 //   - <db> opener (no whitespace)
 //   - `null` eliminated: `is some` / `is not` for absence
 
-<program db="../../dispatch.db" auth="required">
+<page db="../../dispatch.db" auth="required">
 
   ${
       // F-COMPONENT-001 carryover: imported components only render inside
@@ -195,4 +195,4 @@
 
   </>
 
-</program>
+</page>

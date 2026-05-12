@@ -1,4 +1,6 @@
 // Phase 10: multiple channels in one app (§38)
+// v0.3: channels sit INSIDE program element (SPEC §38.1 — direction
+// reversed from pre-v0.3). Already in v0.3-canonical placement.
 // Should compile clean — each channel gets its own route.
 
 <program>

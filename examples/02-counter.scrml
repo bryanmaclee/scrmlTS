@@ -5,7 +5,7 @@
 
 <program>
 
-${
+
   <count> = 0
   <step>  = 1
 
@@ -14,7 +14,7 @@ ${
   // `reset` is a reserved keyword (§6.8) — `reset(@cell)` is the keyword form.
   // For a clear-to-zero handler, use a distinct name like `clearCount`.
   function clearCount() { reset(@count) }
-}
+
 
 <div class="flex flex-col items-center gap-6 p-8 min-h-screen bg-gray-50">
   <h1 class="text-3xl font-bold text-gray-800">Counter</h1>

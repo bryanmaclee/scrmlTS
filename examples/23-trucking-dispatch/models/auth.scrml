@@ -10,14 +10,14 @@
 //   The login / logout / register / getCurrentUser server functions need
 //   `?{}` SQL access to the `users` and `customers` tables, which requires
 //   them to be in a file whose `<program>` has `db="./dispatch.db"` and
-//   whose `< db>` block lists those tables (§44 + E-SQL-004). Cross-file
+//   whose `<db>` block lists those tables (§44 + E-SQL-004). Cross-file
 //   server-function-with-SQL-access doesn't have a working pattern in
 //   scrml today — exporting a server fn from `models/auth.scrml` and
-//   importing it into a page bypasses the `< db>` ancestor requirement
+//   importing it into a page bypasses the `<db>` ancestor requirement
 //   and emits E-SQL-004.
 //
 //   So the canonical login/logout/register live INLINE in `app.scrml`'s
-//   `< db>` block (M1) and in each page that needs them. M2-M6 will
+//   `<db>` block (M1) and in each page that needs them. M2-M6 will
 //   either inline-duplicate or wrap them in middleware (§40 handle()).
 //
 //   Logged in FRICTION.md as F-AUTH-002.

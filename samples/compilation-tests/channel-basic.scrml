@@ -1,10 +1,14 @@
 // §38 channel-basic.scrml — minimal WebSocket channel sample.
 // See gauntlet-s20-channels/channel-basic-001.scrml for the gauntlet variant.
 //
-// Per §38.1, channels are file-scope SIBLINGS of <program> — `<channel>` inside
-// `<program>` body fires E-CHANNEL-INSIDE-PROGRAM. Channel-declared cells use
-// V5-strict (<x> = init) and are auto-synced across subscribed clients; they
-// remain reachable from <program> via canonical `@cellName` access.
+// v0.3: channel sits INSIDE program element (SPEC §38.1 v0.3 normative —
+// direction reversed from pre-v0.3 E-CHANNEL-INSIDE-PROGRAM, now
+// E-CHANNEL-OUTSIDE-PROGRAM fires on file-top channels). Channel-declared
+// cells use V5-strict (<x> = init) and are auto-synced across subscribed
+// clients; they remain reachable from <program> via canonical `@cellName`
+// access.
+
+<program>
 
 <channel name="chat" topic="general">
   ${
@@ -13,7 +17,6 @@
   }
 </>
 
-<program>
 <div>
   <h1>Chat</>
   <p class="status">Status: ${@status}</>

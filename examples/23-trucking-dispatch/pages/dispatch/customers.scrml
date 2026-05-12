@@ -10,7 +10,7 @@
 // v0.2.4 canonical forms: V5-strict <var> = init; <db> no-whitespace;
 // `is some` / `is not` for absence (no `null` literal).
 
-<program db="../../dispatch.db" auth="required">
+<page db="../../dispatch.db" auth="required">
 
   ${
       import {
@@ -202,4 +202,4 @@
 
   </>
 
-</program>
+</page>

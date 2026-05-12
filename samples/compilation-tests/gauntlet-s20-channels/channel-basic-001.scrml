@@ -1,5 +1,10 @@
 // Phase 10: basic channel declaration (§38)
-// Should compile clean with client IIFE + server route.
+// v0.3: channel sits INSIDE program element (SPEC §38.1 — direction
+// reversed from pre-v0.3 which fired E-CHANNEL-INSIDE-PROGRAM; now
+// E-CHANNEL-OUTSIDE-PROGRAM fires on file-top channels). This fixture
+// is already in v0.3-canonical placement; the retired E-CHANNEL-INSIDE-
+// PROGRAM trigger no longer fires here. Should compile clean (minus
+// any unrelated source issues in this fixture's expression body).
 
 <program>
 ${

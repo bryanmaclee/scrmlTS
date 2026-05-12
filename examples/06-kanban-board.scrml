@@ -5,7 +5,7 @@
 
 <program>
 
-${
+
   type Status:enum = .Todo | .InProgress | .Done
 
   // Each card is a plain object — status is the enum variant.
@@ -22,7 +22,7 @@ ${
   function moveTo(id: number, newStatus: Status) {
     @cards = @cards.map(c => c.id == id ? { ...c, status: newStatus } : c)
   }
-}
+
 
 <div class="board">
   <h1>Board</>

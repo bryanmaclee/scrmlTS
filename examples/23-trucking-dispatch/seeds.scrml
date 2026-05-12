@@ -16,7 +16,7 @@
 // All users share password "demo" so the example is trivially testable.
 // Real auth out of scope — see README + scoping §10.
 //
-// IMPORTANT: This file is imported by app.scrml's `< db>` block. The
+// IMPORTANT: This file is imported by app.scrml's `<db>` block. The
 // `?{}` SQL inside `runSeeds()` resolves against the IMPORTING file's
 // ancestor `<program db="...">` per §44 (E-SQL-004 if absent). When this
 // file is compiled standalone, E-SQL-004 fires — that's expected; the

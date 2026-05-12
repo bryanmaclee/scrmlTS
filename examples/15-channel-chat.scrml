@@ -6,9 +6,12 @@
 //
 // Compare with example 08 (single-user message log, no sync).
 //
-// **v0.2.0 notes:**
-//   - `<channel>` sits at FILE LEVEL — sibling of `<program>`, NEVER child
-//     (E-CHANNEL-INSIDE-PROGRAM).
+// **v0.3 notes:**
+//   - `<channel>` sits INSIDE the entry-file program element — channels
+//     are app-scope shared-state vehicles whose home is the entry-file's
+//     program body (SPEC §38.1 v0.3 direction). A file-top `<channel>`
+//     fires E-CHANNEL-OUTSIDE-PROGRAM (direction REVERSED from pre-v0.3
+//     E-CHANNEL-INSIDE-PROGRAM).
 //   - The `@shared` modifier was REMOVED in v0.next (M19) — cells declared
 //     inside a `<channel>` body auto-sync by virtue of placement
 //     (E-CHANNEL-SHARED-MODIFIER if you still write `@shared`).
@@ -16,8 +19,11 @@
 //     cell; `@messages` reads/writes it from anywhere (cross-scope canonical
 //     access per §38.1).
 
-// File-level channel. Auto-creates the WebSocket endpoint at /_scrml_ws/chat.
-// Every client connecting with topic="lobby" is pub/sub-subscribed together.
+<program>
+
+// Channel as a child of program (v0.3 shape). Auto-creates the WebSocket
+// endpoint at /_scrml_ws/chat. Every client connecting with topic="lobby"
+// is pub/sub-subscribed together.
 //
 // **Canonical channel-scoped V5-strict pattern (SPEC §38.4):** the
 // `postMessage` server function declared inside the channel body writes
@@ -35,8 +41,6 @@
         }
     }
 </>
-
-<program>
 
 ${
     <username> = ""

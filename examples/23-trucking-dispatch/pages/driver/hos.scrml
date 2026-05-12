@@ -4,7 +4,7 @@
 // time-in-current-state, hours-driven-today, hours-on-duty-today, plus
 // the last 24h of hos_change log entries for cycle history.
 //
-// Scoping §7 calls for a `<engine>` here (canonical keyword P1+; legacy `<machine>`
+// Scoping §7 calls for a `<engine>` here (canonical keyword P1+; legacy `<engine>`
 // remains a deprecated alias emitting W-DEPRECATED-001). HOS is client-driven (the app
 // derives state + cumulative hours from log entries + clock); unlike
 // load.status (server-persisted), the machine fits cleanly. The state
@@ -26,7 +26,7 @@
 // directly; the local re-declaration workaround has been removed.
 //
 // FRICTION (F-NULL-001 — see FRICTION.md): file with a `<engine>` block (or
-    // `<machine>` deprecated alias)
+    // `<engine>` deprecated alias)
 // + `null` literals/comparisons in client-fn bodies fires E-SYNTAX-042 in
 // GCP3 even though identical patterns compile clean elsewhere. Workaround:
 // use `is some`/`is not` for absence checks instead of `== null`/`!= null`,

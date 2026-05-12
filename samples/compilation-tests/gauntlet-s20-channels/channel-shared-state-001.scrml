@@ -1,5 +1,10 @@
 // Phase 10: channel with @shared state (§38)
-// Should compile clean.
+// v0.3: channel sits INSIDE program element (SPEC §38.1 — direction
+// reversed from pre-v0.3). Already in v0.3-canonical placement.
+// NOTE: `@shared` modifier was RETIRED in v0.next (E-CHANNEL-SHARED-
+// MODIFIER) — channel-cell auto-sync now comes from placement, not
+// modifier. The line `@shared total = 0` below is a deliberate v0.2
+// shape preserved for documentation.
 
 <program>
 ${

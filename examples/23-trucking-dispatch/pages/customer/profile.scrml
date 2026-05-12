@@ -9,7 +9,7 @@
 // Per F-AUTH-001 + F-AUTH-002 + F-COMPONENT-001 carryforward. Read-mostly,
 // single fetch fn — F-RI-001 narrow pattern with no mutators.
 
-<program db="../../dispatch.db" auth="required">
+<page db="../../dispatch.db" auth="required">
 
   ${
       import { accountStatusLabel, accountStatusClasses, paymentTermsLabel } from '../../components/customer-card.scrml'
@@ -193,4 +193,4 @@
 
   </>
 
-</program>
+</page>

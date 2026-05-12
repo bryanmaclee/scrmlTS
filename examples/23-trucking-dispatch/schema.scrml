@@ -1,6 +1,6 @@
 // Trucking Dispatch — schema reference + shared type aliases (M1).
 //
-// IMPORTANT: scrml's declarative `< schema>` block (§39) requires a
+// IMPORTANT: scrml's declarative `<schema>` block (§39) requires a
 // `<program db="...">` sibling in the SAME file (E-SCHEMA-001). The
 // canonical schema therefore lives in `app.scrml` next to the program
 // root, NOT in this file.
@@ -83,7 +83,7 @@ ${
 }
 
 // -----------------------------------------------------------------------
-// Schema DDL reference (canonical implementation in app.scrml `< schema>`).
+// Schema DDL reference (canonical implementation in app.scrml `<schema>`).
 //
 // 9 tables — users, customers, drivers, tractors, trailers, loads,
 // assignments, log_entries, invoices, messages.
