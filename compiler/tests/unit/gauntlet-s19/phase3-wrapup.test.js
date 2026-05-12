@@ -31,9 +31,17 @@ function compileWholeScrml(source, testName = `s19-p3w-${++tmpCounter}`) {
       write: false,
       outputDir: resolve(tmpDir, "out"),
     });
+    // api.js splits diagnostics into `result.errors` (fatal-grade, excludes
+    // warnings) and `result.warnings` (W-* or severity=="warning"). The C1
+    // test below asserts on the W-ASSIGN-001 warning channel, so surface
+    // warnings directly — and keep `errors` as the legacy union so other
+    // assertions (e.g., the A14 E-SYNTAX-044 check) continue to match.
+    const fatalErrors = result.errors ?? [];
+    const warnings = result.warnings ?? [];
     return {
-      errors: result.errors ?? [],
-      warnings: (result.errors ?? []).filter(e => e.severity === "warning" || e.code?.startsWith("W-")),
+      errors: [...fatalErrors, ...warnings],
+      fatalErrors,
+      warnings,
     };
   } finally {
     if (existsSync(tmpInput)) rmSync(tmpInput);
