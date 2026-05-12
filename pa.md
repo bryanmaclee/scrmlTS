@@ -425,6 +425,26 @@ root, STOP. Re-derive the path from WORKTREE_ROOT.
 
 **Review gate preserved.** PA reviews the diff BEFORE the checkout. The gate is the file-content review, not the merge mechanic.
 
+### Commit discipline — two-sided rule (S83 addendum, both sides independently necessary)
+
+S83 Bug 7 first dispatch destroyed agent work via PA-side cleanup of an uncommitted worktree. The agent reported "HEAD unchanged — work in worktree, no commits" + FILES_TOUCHED + FINAL_SHA + tests-passing — PA misread "no commits" as "branch ready to pull" and proceeded with `git checkout <branch> -- <files>` + `git worktree remove --force`. The checkout pulled the baseline (no diffs because no commits); the worktree-remove destroyed the working-tree content. Re-dispatch was required with the lost agent's diagnosis preserved. User verbatim: *"That was an upsetting mistake."*
+
+**Agent side — every isolation:worktree dispatch brief MUST mandate (verbatim block in the brief):**
+
+> After EVERY edit: `git diff <file>` to verify; `git add <file>`; commit IMMEDIATELY. Don't batch — commit per sub-bucket / per fix.
+>
+> Before reporting "DONE": `git status` MUST be clean (no uncommitted changes). If `git status` shows modified-but-uncommitted files, COMMIT them before reporting. "HEAD unchanged — work in worktree, no commits" is NOT an acceptable terminal report shape.
+
+**PA side — before running `git worktree remove --force` (the new pre-cleanup gate):**
+
+1. Run `git -C <worktree-path> status --short`. If output is non-empty (any uncommitted modifications): STOP. Do NOT delete. Surface to user.
+2. Run `git diff main..<agent-branch> -- <FILES_TOUCHED>` (filtered to the agent's reported FILES_TOUCHED). If the diff is empty AND the agent claimed to make changes: red flag — agent's work is uncommitted in the worktree.
+3. Only after both checks pass (branch has the changes committed; file-delta pulled what was needed) execute the worktree removal.
+
+**Treat `git status` clean + branch tip ahead-of-main as the success signal, not the agent's narrative report.** Reports describe intent; git state describes reality.
+
+**S83 evidence base:** Bug 7 first dispatch — work lost as described above. Wave 4A re-dispatch of Bug 7 + entirety of Wave 4B.1 (Bug 9 + Bug 1 + Bug 3+4+8) used the hardened brief and the new PA-side pre-cleanup gate. **Zero work-lost recurrence across the 4 subsequent dispatches.** The rule held end-to-end. Memory file: `~/.claude/projects/-home-bryan-scrmlMaster-scrmlTS/memory/feedback_agent_commit_discipline.md`.
+
 **Known friction (recoverable, not deal-breaking):**
 
 - **Primer §13.7 / shared-table conflicts.** When two parallel dispatches both add rows to the same documentation table from the same base commit, the second-landing dispatch's primer change reflects the OLD table without the first's row. Manual merge required: take the row + specifics from the second branch's primer, append to the current main primer. ~3 minutes per occurrence. Workaround when known in advance: dispatch one at a time when both will touch the same shared doc surface.

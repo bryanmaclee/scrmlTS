@@ -2,7 +2,60 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-11 S82 close, PA-verified at pre-commit hook on `0c80d16`): **10,458 pass / 66 skip / 1 todo / 0 FAIL** (507 files; pre-commit subset). **Full suite** (`bun run test` — includes browser/lsp/commands/self-host): **11,259 tests total / 0 FAIL** (535 files). 0 source code changes this session — all S82 work is doc-system structural fix. 7 commits across S82 (5 scrmlTS + 2 scrml-support): IMPLEMENTATION-ROADMAP + IMPACT-ASSESSMENT historical-banner, pa.md session-start SoT update + maps-discipline protocol, master-list §0.5 trim, shipped change/audit dirs dereffed to scrml-support archive, primary.map.md Task-Shape Routing + feedback loop, project-mapper template extended for future regen.
+Current baseline (2026-05-11 S83 CLOSE, all three semver tags live on origin — **v0.2.0 `022ee02` + v0.2.1 `d72c074` + v0.2.2 `98e872d`**): **11,457 pass / 77 skip / 1 todo / 0 FAIL** (545 files; `bun run test` full suite incl. browser/lsp/commands/self-host). v0.2.2 is the current shipped baseline; v0.2.3 patch trajectory queued (Bug 2 + trucking-dispatch + C1/C2 docs + perf-feel debate post-empirical-study).
+
+### 2026-05-11 (S83 CLOSE — TRIPLE-TAG release session: v0.2.0 + v0.2.1 + v0.2.2)
+
+**Session-defining outcome:** first three semver tags cut on the repo. v0.2.0 (`022ee02`), v0.2.1 (`d72c074`), v0.2.2 (`98e872d`) all on origin. 11,457 / 77 / 1 / 0 at close — full v0.2.0 surface end-to-end functional plus 8 patch-grade fixes landed in the same session.
+
+**Tags + their scope:**
+
+- **v0.2.0** — first semver baseline. The language as the compiler implements it: V5-strict declaration; Tier 0/1/2 ladder (booleans / `<match>` / `<engine>`); auto-synth validity surface; file-level `<channel>` realtime; schema shared-core vocab; refinement-type predicates; hierarchical engines (rule= + onTransition + onTimeout + onIdle + composite + history + internal:rule=); L1-L22 architectural locks. README rewritten with exhaustive-state-machine framing + new Engine Example (Tier 2) + Features sweep + benchmarks-stale flag. compiler/package.json 0.1.0 → 0.2.0 sync.
+- **v0.2.1** — Wave 4A bundle. **Bug 5** channel @cell server-fn writes broadcast per SPEC §38.4 (route-inference + emit-logic + emit-server). **Bug 6** 17 `<program>` attrs added to attribute-registry. **Bug 7** bare-variant inference at reassignment positions per M9 §14.10. +72 cumulative tests.
+- **v0.2.2** — Wave 4B.1 bundle. **Bug 9 (NEW from Bug 7)** engine auto-declared vars now pre-pass-registered into TS scope chain (Option A — mirrors preBindExportedNames). **Bug 1** `<x server>` bare-attribute V5-strict modifier recognized. **Bug 3** `<engine derived=match @x {...}>` Move-14 inline body parses. **Bug 4** `<channel>` body V5-strict decls. **Bug 8** `let x = call() !{...}` statement boundary detection. +113 cumulative tests (including ~78 conformance fluctuation from new test files). 3-way merge of ast-builder.js between Bug 1 and Bug 3+4+8 produced 0 conflict markers.
+
+**Wave 2 (pre-v0.2.0 baseline closure)** — closed all 5 A7 codegen deferrals surfaced by A5-7 + 1 follow-on Bug #6:
+- **Bug #1** inner-engine state-child non-empty body mis-attribution (Wave 2.1; body-parser depth-counter asymmetry across 3 closer-finders).
+- **Bug #5** cascade-miss diagnostic per §51.0.Q.3 (Wave 2.1; SYM PASS 16 fire-site #9 for direct-write rule= enforcement inside engine state-child bodies).
+- **Bug #4** internal:rule= distinct write path (Wave 2.2; separate transitions table + skip-onTransition + skip-history-cell + skip-timer-arm; 7-source-file threading).
+- **Bug #3** history synth-cell + outer-exit capture (Wave 2.3; per-engine history-map const + capture-on-EXTERNAL-exit runtime helper; INTERNAL branch skips by construction).
+- **Bug #2** inner-engine dispatcher + restore-form expression lowering (Wave 2.4; keystone — widened 7 SYM walkers for nested-engine discovery + Phase A10 postMountJs hook + Approach B 8th positional `isHistoryRestore` arg).
+- **Bug #6** event-handler engine writes thread through write-guard (Wave 2.5; emit-control-flow.ts `rewriteBlockBody` engineBindings threading; closes the most-common-adopter-surface gap).
+
+**Wave 3.1 (materials track) before tags:**
+- **B5** editor support — VSCode TextMate grammar + neovim highlights.scm + LSP handlers.js (3 phase-scoped commits; LSP surface 5x richer — ERROR_DESCRIPTIONS 36→187, KEYWORD_DOCS 6→27).
+- **B1** examples rewrite — 22 examples + 1 LSP test (~20 YELLOW/RED rewritten; 2 GREEN verified; trucking-dispatch DEFERRED ~10-15h follow-on); surfaced the 8 v0.2.x bugs that became Wave 4A + Wave 4B.1.
+- **B2** samples curate (top-level) — 286 files classified, 9 rewrites, 2 drops cross-repo archived; subdirs 509 files deferred.
+- **A6-6** scrml:test API alignment — closed Option Y (no action needed) via design dive; A8 family fully closed.
+- **B3** stdlib data/validate vocab — closed Option Y (already aligned by design) via design dive.
+- **A5-7** tests + samples for A7 engine S67 surface — +48 pass / +10 skip across 4 new tests + 4 new samples; surfaced 5 A7 codegen deferrals which became Wave 2.
+
+**S83 substrate improvements:**
+- **pa.md retention rule revised** — worktree branches bounded to same-session-only (was unbounded). 30 stale forensic worktrees cleaned at S83 open (1.1 GB → 4 KB) after harness allocation failure surfaced the accumulation problem.
+- **pa.md "Commit discipline — two-sided rule" added** — agent-side incremental-commit mandate + PA-side pre-cleanup gate. S83 Bug 7 first dispatch destroyed work by reporting "HEAD unchanged — work in worktree, no commits"; rule prevents recurrence. Held end-to-end across 4 subsequent Wave 4A + Wave 4B.1 dispatches.
+- **README v0.2.0 rewrite** — exhaustive-state-machine framing as opening; Tier 0/1/2 ladder as top-level section; new Engine Example (Tier 2 loader state-machine); Counter (Tier 0) + Full-stack (Shape 2 + auto-synth `@form.isValid`) converted to V5-strict; benchmarks flagged stale (v0.1.0-era) with v0.2.x-patch refresh queued as bug-hunt; Features sweep (10 v0.1.0-flavored references converted including `~var` → `const <var>`, `< machine>` → `<engine>`, sigil-table State row dropped); auto-split bullet expanded with full server-keyword deprecation state (Batches 1+2 SHIPPED S72; W→E→strip targets v0.3.0); examples table extended to include 15-22.
+- **Maps-discipline protocol — 18 consecutive load-bearing reports** (Wave 1 through Wave 4B.1). Pattern strongly holds.
+- **5 feel-of-performance debate panel agents pre-staged** for S84:
+  - `qwik-resumability-expert.md` (A camp; forged S83)
+  - `solid-js-signals-expert.md` (A camp / reactive-graph; cp'd from agentStore S83)
+  - `llvm-pgo-expert.md` (B camp; forged S83)
+  - `nextjs-rsc-app-router-expert.md` (D camp; forged S83)
+  - `scrml-compiler-architect.md` (engineering-realism; forged S83)
+  - `debate-judge.md` (scoring; pre-existing)
+- **Debate plan written** at `scrml-support/docs/deep-dives/perf-feel-debate-plan-2026-05-11.md` (Phase 0 empirical study OQ #1 + Phase 1 debate framing + 5-voice panel + rubric + convener-stance + S84 PA execution checklist + risk register).
+- **`scrml-js-codegen-engineer.md` moved back to agentStore** (with date-suffix to preserve trimmed agents/ version alongside canonical full version in store).
+
+**User-voice S83 (4 entries appended):**
+- Frustration signal: *"That was an upsetting mistake"* (Bug 7 work-lost; triggered pa.md commit-discipline rule).
+- Methodology directive (verbatim): *"queue the perf-feel study for next session, I strongly lean A + B."*
+- Direction confirmation (verbatim): *"we need to land these as bug fix sub-versions. as per semver"* → operationalized as per-wave-bundle semver cadence.
+- Methodology directive (verbatim): *"also fold the commit-discipline lesson into pa.md at wrap. That was an upsetting mistake."* → folded.
+
+**S83 commit count:** 35+ commits across both repos. Three semver tags. Zero regressions throughout. Cross-machine sync clean at close.
+
+**Carry-forward for S84:** Bug 2 (derived-machine validator at `type-system.ts:2349` — different code path from Bug 9; needs own dispatch); trucking-dispatch rewrite (~10-15h B1-followon); C1 tutorial rewrite (~8-15h); C2 articles rewrites (~4-8h); B2 subdirs (509 files in 12 gauntlet-s* dirs, mostly intentionally-failing regression corpus); **perf-feel Phase 0 empirical study (FIRST priority per S83 user directive)**.
+
+---
 
 ### 2026-05-11 (S83 — A6-6 CLOSED as Option Y, A8 family fully done)
 
