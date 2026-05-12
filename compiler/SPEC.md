@@ -14890,6 +14890,8 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-044 | §17.6 | `given` (presence-guard) is applied to a variable whose declared type does not include `\| not`. The guard has nothing to refine — the variable is already known to be non-`not`. Resolution: drop the `given` guard, or widen the variable's type. (Catalog addition S84 Wave 2 #5; full prose at §17.6 line 17929.) | Error |
 | E-CONTRACT-002-RT | §53.11 | **Reserved.** Named shape registry lookup is fully resolved at compile time; this runtime form SHALL NOT be emitted by the runtime. Preserved for forensic search-hit stability and to mirror the runtime/compile-time naming convention used elsewhere in the contract family. (Catalog addition S84 Wave 2 #5; full prose at §53.11 lines 25028-25030.) | Runtime |
 | E-REPLAY-001-RT | §51.14 | Runtime: a replay-mode replay index is out of bounds for the recorded log. Message format: `E-REPLAY-001-RT: replay index {n} out of bounds for log of length {m}`. Thrown by the runtime when a deterministic-replay step attempts to read past the recorded boundary — usually indicates a divergence between record-time and replay-time event-counts. (Catalog addition S84 Wave 2 #5; full prose at §51.14 lines 23495-23541.) | Runtime |
+| E-CLOSURE-001 | §40.9.1, §40.9.11 | Closure analysis fails to terminate — a cycle exists in the reachability graph that the fixed-point operator does not collapse. Defensive; SHOULD NOT fire on valid source because the underlying graphs (§31 DG reactive, §40 auth, §52 server-fn, §41 vendor) are themselves finite. If observed, file a compiler bug — indicates either a missing fixed-point fold case in the Stage 7.6 Reachability Solver (PIPELINE.md Stage 7.6) or a divergence between the input graphs and their finiteness guarantees. (Catalog addition S86 v0.3 Approach A spec-amendment; full prose at §40.9.1.) | Error |
+| W-AUTH-RUNTIME-FALLBACK | §40.1.1, §40.9.5, §40.9.11 | Info-level lint: an auth gate (`<auth role=>`, `<page auth=>`, `<channel auth=>`) uses an async-only check (e.g. a server-fn whose return is not a closed-form predicate over the app-scope role enum) that prevents static role classification. The closure-analysis pass at §40.9 treats the gated component as runtime-only and ships it eagerly in the initial chunk; the auth check is performed at render time. The gate remains LEGAL — the lint surfaces the runtime-fallback trade-off so adopters can make the per-site call on whether to refactor toward a synchronous role check (which would let the closure analysis classify the gated component as IN or OUT for each role variant at compile time). Resolution: use a closed-form predicate over the role enum (`<auth role="admin">`), OR accept the eager-ship default. (Catalog addition S86 v0.3 Approach A spec-amendment; full prose at §40.1.1 + §40.9.5.) | Info |
 
 ---
 
@@ -17109,6 +17111,25 @@ scrml's request pipeline follows a two-tier model:
 
 **Design principle:** Most scrml applications need zero middleware code. The `handle()` function exists for cases that cannot be expressed through `<program>` attributes. The developer reaches for `handle()` only when the compiler-auto tier is insufficient.
 
+### 40.1.1 Static role classification for closure analysis
+
+**Added:** 2026-05-12 (v0.3 Approach A spec-amendment). Cross-ref: §40.9.5 Component 4. The closure-analysis pass at §40.9 consumes the auth model defined in this section as one of its five input components; the static-role-classification requirement here is the §40-side normative anchor for that input.
+
+scrml's auth model SHOULD support static role classification: given a viewer with role `R`, the compiler at compile time MAY determine whether `R` can reach component `C`. The canonical shape for static resolvability is a finite role enum declared at app scope, with auth gates referencing variants of that enum or composing closed-form boolean predicates over them.
+
+**Normative statements:**
+
+- An auth gate (`<auth role=>`, `<page auth=>`, `<channel auth=>`) whose role predicate resolves to a closed-form boolean expression over a statically-declared role enum IS statically resolvable. The compiler MAY use this to classify gated components as IN or OUT for each role variant at compile time.
+- An auth gate whose role predicate depends on an **async backend check** (e.g. a server-fn whose return is not a closed-form predicate over the role enum) is LEGAL but triggers runtime fallback in closure analysis. The gated component is treated as runtime-only and shipped eagerly; the auth check is performed at render time. This matches the current Next.js / Remix behaviour for the equivalent subset and is not a regression.
+- An auth gate using an async-only check that prevents static role classification SHALL emit `W-AUTH-RUNTIME-FALLBACK` (info-level lint; §34, §40.9.11). The lint surfaces the runtime-fallback trade-off explicitly; the gate remains legal.
+- The role enum SHALL be a single scrml-native `:enum` type declared at app scope. Multiple role enums in the same compilation unit are deferred to a subsequent wave (not v0.3.0 scope).
+
+**Cross-references:**
+- §40.9.5 Component 4 — the closure-analysis-side normative statement (this section is the §40-side mirror).
+- §40.9.11 — `W-AUTH-RUNTIME-FALLBACK` info-level lint definition.
+- §34 — `W-AUTH-RUNTIME-FALLBACK` catalog row.
+- Insight 29 OQ #3 — the deliberation that resolved to synchronous-role-classification as the canonical static-resolvability shape.
+
 ### 40.2 Compiler-Auto Middleware — `<program>` Attributes
 
 The following attributes on `<program>` enable automatic middleware generation:
@@ -17565,6 +17586,275 @@ The original OQ framed a binary — explicit `<program spa>` marker vs pure file
 - §4.15 — `<page>` structural-element registration.
 - §47.9.2 — filesystem-to-route-URL inference (the broader Pillar 3 surface).
 
+### 40.9 Closure Analysis (Minimal Playable Surface)
+
+**Added:** 2026-05-12 (v0.3 Approach A spec-amendment target). Direction RATIFIED via Insight 29 (`scrml-support/design-insights.md` line 1827; 5-voice debate verdict 2026-05-11) underwritten by the S84 empirical static-resolvability diagnostic (`scrml-support/docs/diagnostics/reactive-graph-static-resolvability-S84.md` — 99-100% gate PASS across 501 reactive-graph reads/writes / 33 files). Source dive: `scrml-support/docs/deep-dives/smart-app-splitting-feel-of-performance-2026-04-26.md` (Components 1-5 in §"The 'Minimal Playable Surface' Formalization" are the load-bearing normative source).
+
+This section authors the language-level surface for whole-stack reachability analysis. The compiler implementation of the analysis (the 300-640h band per Insight 29) is staged across later v0.3 waves; this section is the SPEC anchor that subsequent compiler waves implement against. Approach B (telemetry-PGO) is OUT OF SCOPE and explicitly deferred to v2 per Insight 29; Approach C (`^{}` overrides) is gated on dive E and not in v0.3 scope.
+
+#### 40.9.0 Overview
+
+scrml's whole-stack compiler owns the reactive graph (§31), the server-fn boundary (§52), auth gates (§40), vendor-unit isolation (§41), and — under the v0.3 program shape (§40.8) — the per-route entry-point list. The compiler MAY use this combined ownership to compute, for every entry point, the minimum set of components, server-fn stubs, auth-gated boundaries, and vendor units that the viewer needs to reach interactive parity on first paint. This computed set is the **playable surface**; it is the input to per-route artifact splitting.
+
+Per-route artifact splitting consumes the playable-surface output: components in the playable surface at interaction-depth `N=0` form the initial chunk; components reachable only within `N≥1` user interactions form prefetch tiers. Components not reachable within any finite `N` for a given viewer's auth role are excluded from that viewer's deliverables.
+
+The structural advantage over module-graph bundlers (Webpack, Rollup) and per-route splitters (Next.js App Router, Astro): scrml's reachability is computed on the **reactive + server-fn + auth + vendor graph** — not the JS module-import graph. Per the S84 diagnostic, 99-100% of this graph is statically resolvable on production-shape scrml apps; the runtime-only catalog is functionally empty.
+
+**Cross-references for the formalization:** §40.9.1 (the `playable_surface` formalization); §40.9.2 through §40.9.6 (the five component definitions); §40.9.7 (per-tier output structure); §40.9.8 (determinism preservation); §40.9.9 (worked example); §40.9.10 (cross-references); §40.9.11 (error codes).
+
+#### 40.9.1 The `playable_surface(entry_point, N)` formalization
+
+The compiler computes for each entry point `E` and each interaction-depth `N ∈ {0, 1, 2, ...}` the set `playable_surface(E, N)` defined as follows:
+
+```
+playable_surface(E, N) :=
+  closure(
+    initially_rendered_components(E)
+    ∪ reactive_dep_closure(initially_rendered_components(E))
+    ∪ server_fn_reachable_within(N, initially_rendered_components(E))
+    ∪ auth_gated_boundaries_visible_to(E.viewer_role)
+    ∪ vendor_units_used_by(initially_rendered_components(E))
+  )
+```
+
+Each component of the union is defined precisely in §40.9.2 through §40.9.6. The five components are computed independently, then unioned and closed under transitive reachability. The outer `closure(...)` SHALL be a fixed-point over the same operators — adding a component to the set MAY admit further reactive deps, further server-fn calls, further auth gates, further vendor units; the fixed point is reached when no operator adds new elements.
+
+**Normative statements:**
+
+- The `playable_surface` function SHALL be deterministic: same source (and same spec semantics) → same set for any `(E, N)` pair.
+- The function SHALL be monotonic in `N`: `playable_surface(E, N) ⊆ playable_surface(E, N+1)` for all `E`, `N`.
+- The function SHALL terminate: the underlying graphs (reactive dep, server-fn call, auth, vendor) are finite, and the fixed-point operator is monotone over a finite lattice. If termination fails (cycle in the reachability graph that the closure operator does not collapse to a fixed point), the compiler SHALL emit `E-CLOSURE-001` (§40.9.11) and halt. `E-CLOSURE-001` is defensive: it SHOULD NOT fire on valid source — the underlying graphs are themselves finite by §31 (DG), §40 (auth), §52 (server-fn), §41 (vendor).
+- Entry-point enumeration follows the v0.3 program shape (§40.8): each `<page>` declaration (per-route file under `pages/...`) and the entry-file `<program>` body contribute one entry point. SPAs (entry file with no `<page>` siblings; §40.8) contribute exactly one entry point.
+
+#### 40.9.2 Component 1 — `initially_rendered_components(entry_point)`
+
+For an entry point `E`, the **initially rendered components** are those child blocks of the entry-point's `<page>` (or the entry-file `<program>` body, for SPAs) that the compiler determines, at compile time, to be unconditionally instantiated on the entry-point's first render, plus those conditionally instantiated where the condition is statically resolvable from initial server state.
+
+**Normative statements:**
+
+- A child block whose render is gated by an `if=` / `else-if=` chain (§17.5) MAY be statically classified as IN or OUT when the condition expression is a closed-form predicate over compile-time-known initial state.
+- A child block whose render is gated by a `<match for=Type on=@cell/>` block (Tier 1, §18.8 / §51.0) MAY be statically classified as IN or OUT when the matched cell's initial value is known at compile time.
+- A child block whose render is gated by a RUNTIME-only signal (a cell whose initial value is not compile-time-resolvable, or a cell that is read but not written before the gate fires) SHALL be admitted to the playable surface as the **worst-case union** of all conditionally-rendered branches. Per the S84 diagnostic (corpus measurement 2026-05-11), runtime-only branches were functionally empty across 33 measured files; the worst-case-union admission therefore over-includes nothing in the corpus-shape measured.
+
+The compile-time evaluator the analysis uses is the same recursive constant-folding pass that §22 (`^{}`) consumes for compile-time meta-blocks. It is NOT a general partial evaluator; it is bounded by the determinism constraints of §22 (no `Date.now()`, no `bun.eval()` of non-deterministic shape, no I/O).
+
+#### 40.9.3 Component 2 — `reactive_dep_closure(C)`
+
+For a set of components `C`, the **reactive dependency closure** is the set of all reactive cells `R` such that there exists a chain of reactive reads / writes / derivations / engine-derived-reads / validator-arg edges (per §31 DG edge kinds) from any component in `C` to `R`. The closure SHALL be computed using the dependency graph emitted by Stage 7 (DG; PIPELINE.md §Stage 7).
+
+**Normative statement on markup-context reads (binding requirement for Stage 7):**
+
+The implementation MUST lift markup-context reactive reads into DG `reads` edges before the closure analysis consumes them. Per the S84 diagnostic, the corpus contains 256 implicit markup reads (`${@x}` interpolation, `bind:value=@x`, `if=@x` condition, `for (... of @x)` markup-iterable) that today credit only the `__markup__` sentinel at `dependency-graph.ts:1720` and emit no graph edge. Without this lift, `reactive_dep_closure(C)` is **structurally incomplete** — it traverses function-body reads (per the Stage 7 fixed-point at `dependency-graph.ts:1631-1670`) but not the markup-context reads that are arguably the more frequent consumer in a UI app.
+
+This is a Stage-7 extension item. The mechanical surface (the `sweepNodeForAtRefs` walker at `dependency-graph.ts:1749-1906` already discovers every markup `@`-read) is tractable; lifting these into `edges.push({ from: <markup-context-node>, to: reactiveNode, kind: "reads" })` is additive over the existing Stage 7 output. The closure-resolvability ceiling identified by S84 (256 unlifted markup reads) MUST close before the analysis can claim soundness on a markup-heavy corpus.
+
+**Normative statement on static resolvability:**
+
+Per the S84 empirical study: across the priority + broader-sweep corpus (33 files / 501 reactive-graph reads/writes), 99-100% of edges are statically resolvable. The remaining ≤1% surfaced from a single SYM PASS 1 typed-decl registration gap (06-kanban-board) — a compiler tooling fix, not a language-design runtime pattern. The runtime-only catalog (`@obj[runtimeExpr]`, `meta.get(<dyn>)`, `meta.bindings[<dyn>]`, runtime-constructed reactive primitives, server-fn-response-shape-unknown) is empirically empty for the corpus measured. The closure analysis MAY assume 99-100% static resolvability on production-shape scrml apps; the worst-case-union admission (per §40.9.2) handles the residual.
+
+**Recovery on dynamic-key reactive access:** A statically-irreducible reactive read (e.g. `@obj[runtimeKey]` where `runtimeKey` is not a compile-time constant) SHALL cause the analysis to admit the entire reactive-cell receiver to the closure (worst-case union over all keys of the receiver). The runtime-only catalog in §40.9.3 is empirically empty in the measured corpus; this clause defines behaviour for adopters who write such patterns.
+
+#### 40.9.4 Component 3 — `server_fn_reachable_within(N, C_set)`
+
+For a set of components `C_set` and an interaction depth `N`, the **server-fn-reachable-within** set is the set of all server functions (per §52 server-fn boundary) that can be invoked via a chain of at most `N` user interactions starting from any component in `C_set`.
+
+**Interaction depth semantics:**
+
+- `N = 0` — server functions invoked synchronously on initial render (e.g., the `^server fetchUser()` call in a state-cell initializer that is read during initial markup). These calls MAY be pre-resolved by the compiler and inlined into the initial chunk (streamed alongside the HTML payload) or pre-warmed via connection pooling.
+- `N = 1` — server functions invoked by a direct user interaction with `C_set` (a click handler, a form submit, a `bind:value=@cell` write that triggers a server-fn-writing reactive chain). The compiler MAY pre-warm the server (connection pool, route warm-up) and prefetch the client-side stub.
+- `N = 2` — server functions invoked from the components newly instantiated by `N = 1` interactions (cascade reachability).
+- `N ≥ 3` — same recurrence; treated as on-demand by default. The compiler MAY surface a per-app override knob in future v0.3.x revisions; v0.3.0 does NOT specify one.
+
+**Normative statements:**
+
+- The server-fn boundary used by the analysis is the §52 boundary as classified by Stage 5 (RI). The analysis SHALL NOT re-classify server-vs-client functions; it consumes RI's classification.
+- The "interaction graph" — edges from event-handler-attached components to the server functions those handlers invoke — is computed as a derived projection over Stage 7 (DG) `calls` + `awaits` edges plus the event-handler-attachment AST shape (`onclick=`, `onsubmit=`, `bind:value=` write paths, `<onTimeout to=>` firing paths per §51.0.M, `<onIdle>` firing paths per §51.0.R, channel `onserver:message=` handler paths per §38).
+- Server-fn calls whose response shape is not statically known (a generic-typed server-fn writing through a union return into a `<match>` block, where the chosen variant determines which components mount) SHALL be treated as worst-case union over all reachable variants. Per S84 the corpus contains zero occurrences of this pattern; the clause defines defensive behaviour.
+
+The closure analysis does NOT execute server functions at compile time. Pre-resolution of `N = 0` calls (the streaming-inline case above) is a compiler optimization permitted but not required; correctness of the playable surface does not depend on it.
+
+#### 40.9.5 Component 4 — `auth_gated_boundaries_visible_to(role)`
+
+For a viewer with role `R`, the **auth-gated boundaries visible to `R`** is the set of all components that, per the §40 auth-attribute classification, the viewer can reach.
+
+**Static-role-classification requirement (resolves Insight 29 OQ #3):**
+
+scrml's §40 auth model SHALL support enough static role analysis to classify, at compile time, whether a viewer with role `R` can reach component `C`. The canonical shape for static resolvability is:
+
+- The application declares a finite **role enum** at compile time (e.g. `type UserRole:enum = { Anonymous, Authenticated, Admin }`).
+- Auth gates (`<auth role="admin">`, `<page auth="required">`, `<channel auth=role-predicate>`) reference variants of this enum or compose role predicates that the compiler can evaluate as closed-form boolean expressions over the role enum.
+- A role check that resolves to a closed-form predicate over the statically-known role enum IS statically resolvable; the analysis classifies the gated component as IN or OUT for each role variant independently.
+
+See also §40.1.1 (Static role classification for closure analysis), which is the §40-side normative statement for this requirement.
+
+**Runtime-fallback semantics:**
+
+Auth gates that depend on **async backend checks** (e.g., `<auth check=await hasPermission(@user, "resource:write")/>` where `hasPermission` is a server function whose return is not a closed-form predicate over the role enum) are LEGAL but trigger runtime fallback in the closure analysis:
+
+- The gated component is treated as runtime-only for the playable-surface computation.
+- Runtime-only auth-gated components ARE admitted to the initial chunk (shipped eagerly), with the auth check performed at render time. This matches the current Next.js / Remix behaviour for the equivalent subset.
+- The compiler SHALL emit `W-AUTH-RUNTIME-FALLBACK` (info-level lint; §40.9.11 / §34) at the auth-gate site so adopters surface the runtime-fallback trade-off explicitly.
+
+**Normative statements:**
+
+- The role enum SHALL be a single scrml-native `:enum` type declared at app scope (the `<program>` body or a file imported into the entry file via §41 `import`). Multiple role enums in the same compilation unit SHALL be a compile error in subsequent waves (deferred; not in v0.3.0 scope).
+- An auth gate whose role predicate is NOT a closed-form expression over the role enum (per the "Runtime-fallback" clause above) SHALL emit `W-AUTH-RUNTIME-FALLBACK`. The lint is info-level — the gate remains legal; the analysis falls back to runtime gating.
+- The closure analysis SHALL compute `auth_gated_boundaries_visible_to(R)` once per role variant. The per-viewer playable surface is the union of the per-role closures for the viewer's authenticated role(s).
+
+#### 40.9.6 Component 5 — `vendor_units_used_by(C_set)`
+
+For a set of components `C_set`, the **vendor units used by `C_set`** is the set of all vendor units (per §41 import system) that any component in `C_set` references — either directly through a `use vendor:<name>` or `import { ... } from 'vendor:<name>'` declaration, or transitively through a component that does.
+
+**Bridge architecture as canonical split unit:**
+
+Per the bridge-architecture analysis (deep-dive C, RUNNING at time of dive H) and the v0.3 vendor isolation surface (§41.6 Vendoring Model), bridges and vendor units are **declared isolation boundaries**. The closure analysis treats each bridge / vendor unit as an opaque atom for splitting purposes:
+
+- Each vendor unit is a candidate split-unit.
+- The vendor unit's internal module graph is NOT subdivided by the closure analysis (the bridge author owns the unit's internal complexity; the unit is the contract).
+- Vendor units referenced ONLY by components reachable at `N ≥ 2` (or unreachable for the viewer's role) are NOT in the initial chunk.
+
+**Cross-reference to §4.12 nested-program execution-context boundary:** Worker / sidecar `<program>` declarations (§4.12, §43) are themselves execution-context boundaries; the closure analysis treats each nested `<program>` as a separate compilation unit with its own per-entry-point closure. The parent `<program>`'s playable surface includes the worker's bridge stub (the message-passing surface), not the worker's body.
+
+**Normative statements:**
+
+- The closure analysis SHALL use the vendor-unit declarations of §41 as the canonical split-unit set. No additional inference is required (vendor units are explicit declarations, not inferred from `import` graph traversal — sharper boundaries, cheaper analysis).
+- A vendor unit referenced by no component in the playable surface for any role MAY be omitted from the per-app deliverables entirely (compiler-side tree-shake at the vendor-unit level).
+- A vendor unit referenced by a single component at `N = 0` SHALL be in that entry-point's initial chunk OR in a tier-N chunk per §40.9.7, at compiler discretion. The reference implementation SHOULD prefer in-initial-chunk for first-render-critical vendor units (e.g., a Tailwind-style classname runtime) and tier-N for non-render-blocking units (e.g., the cm6 code-editor bridge per dive C).
+
+#### 40.9.7 Per-tier output structure (normative)
+
+The closure analysis produces, for each entry point, a tiered chunk plan:
+
+```
+initial_chunk(E)           := minimize_payload(playable_surface(E, N=0))
+prefetch_tier_1(E)         := playable_surface(E, N=1) − initial_chunk(E)
+prefetch_tier_2(E)         := playable_surface(E, N=2) − playable_surface(E, N=1)
+prefetch_tier_N(E)         := playable_surface(E, N) − playable_surface(E, N−1)    [N ≥ 3]
+```
+
+**Normative statements:**
+
+- `initial_chunk(E)` SHALL contain every component, server-fn stub, and vendor unit in `playable_surface(E, N=0)`, minus any payload-level minimization the codegen pass applies (dead-code elimination, name encoding per §47).
+- `prefetch_tier_1(E)` SHALL be idle-prefetched after initial render. The implementation SHOULD use `requestIdleCallback` (or the equivalent Bun-runtime primitive) to schedule the prefetch.
+- `prefetch_tier_2(E)` SHALL be hover-prefetched (link-hover for routes, focus-or-hover for interactive components). The implementation SHOULD wire the hover signal at the same event-attachment site that the existing route-prefetch link wiring uses.
+- `prefetch_tier_N(E)` for `N ≥ 3` SHALL be on-demand: fetched only when the user actually traverses that depth.
+
+The `minimize_payload` operator is the existing codegen pipeline (Stage 8 CG; PIPELINE.md §Stage 8) applied to the playable-surface input. It is NOT a new pass; the closure analysis emits a set, codegen produces the chunk.
+
+#### 40.9.8 Determinism preservation
+
+The closure analysis preserves §47 content-addressing (`Output Name Encoding`) and dive A R1-R4 recoverability (`scrml-support/docs/deep-dives/living-compiler-recoverability-and-comp-time-shape-2026-04-26.md` Recoverability Readings 1-4) by the following rule:
+
+**All inputs to `playable_surface(E, N)` are STATIC** — source files + spec semantics + the role enum declared at app scope. The analysis takes NO telemetry input in v0.3. The output is therefore deterministic-from-source-only: same source produces same closure produces same chunk assignments produces same content addresses.
+
+**Telemetry-version axis explicitly deferred (Insight 29):** Approach B (telemetry-augmented PGO; dive H §"Approach B") is OUT OF SCOPE for v0.3 and queued to v2 per Insight 29's M2 verdict (B-camp llvm-pgo-expert flip-vote). When B is reconsidered (v2 trigger conditions per Insight 29), the spec extension MUST preserve §47 content-addressing by treating the telemetry artifact as a versioned, addressable input. v0.3's deterministic-from-source-only closure is the **floor** that B extends; B does not replace A.
+
+**Cross-references:**
+
+- §47.5 (Scope of Application; amended at this dispatch) — closure-analysis output is incorporated into content-addressing without modification.
+- §47.1.3 (Hash) — the FNV-1a hash inputs do not change.
+- §47.1.4 (Canonical String Normalization) — unchanged.
+
+**Normative statements:**
+
+- The closure analysis SHALL be a pure function of source-tree inputs + the role enum + the §40 / §41 / §52 spec semantics. No runtime input, no telemetry input, no environment-variable input.
+- The analysis output SHALL be incorporated into per-route content addresses (§47) such that two builds of the same source produce identical content addresses for the same per-tier chunks.
+- Dive A R1-R4 reproducibility is preserved by construction: the closure analysis is a deterministic pass over inputs that the comp-time-shape captures.
+
+#### 40.9.9 Worked example
+
+Consider an entry file under the v0.3 multi-page-app shape, with a small trucking-dispatch-like surface:
+
+```scrml
+<program title="Dispatch" db="./app.db" auth="required" cors="*">
+  type UserRole:enum = { Anonymous, Driver, Dispatcher, Admin }
+
+  <channel name="presence">
+    <online> = []
+  </>
+
+  <page auth="required">
+    <Header/>
+    <Dashboard/>
+  </page>
+</program>
+
+<block Header>
+  <nav class="flex items-center gap-3 p-4 border-b">
+    <h1 class="text-xl font-semibold">Dispatch</h1>
+    <a href="/loads" class="text-blue-600">Loads</a>
+    <auth role="admin">
+      <a href="/admin" class="text-red-600">Admin</a>
+    </auth>
+  </nav>
+</block>
+
+<block Dashboard>
+  <state count> = 0
+  <button onclick=${@count = @count + 1}
+          class="px-3 py-1 rounded bg-slate-100">
+    ${@count}
+  </button>
+  <details>
+    <ProfileWidget/>
+  </details>
+</block>
+
+<block ProfileWidget>
+  <state user> = ^server fetchUser()
+  <p class="text-sm text-slate-700">${@user.name}</p>
+</block>
+```
+
+**Analysis for entry point `/` with `viewer_role = Driver`:**
+
+1. **`initially_rendered_components(/)`** = `{ Header, Dashboard }`. The `<details>` body is a runtime-only disclosure (the `open` state is not statically known at first render), so `ProfileWidget` is admitted to the worst-case union — included.
+2. **`reactive_dep_closure({ Header, Dashboard, ProfileWidget })`** = `{ @count, @user, @user.name }`. The `@online` channel cell is NOT in the dep closure of any initially-rendered component (no read path); excluded.
+3. **`server_fn_reachable_within(0, {Header, Dashboard, ProfileWidget})`** = `{ fetchUser }` (`N=0` — `<state user> = ^server fetchUser()` is read on initial render of `ProfileWidget`, which is in the playable surface per (1)).
+4. **`server_fn_reachable_within(1, ...)`** ⊇ (3) plus any server-fn invoked by the click handler on the count button. The click handler writes to `@count` only — no server-fn call. Result: same as (3).
+5. **`auth_gated_boundaries_visible_to(Driver)`** = the `<auth role="admin">` block in `Header` is NOT visible to Driver — the `<a href="/admin">` link is excluded from the chunk for Driver. The `<page auth="required">` gate IS satisfied (Driver is authenticated).
+6. **`vendor_units_used_by(playable_surface)`** = empty in this example (no `use vendor:` declarations). In a richer example with `use vendor:cm6` referenced only inside a `/editor` route, the cm6 unit would be excluded from `/`'s chunks per §40.9.6.
+
+**Per-tier chunk assignment for `/` with viewer Driver:**
+
+```
+initial_chunk(/)         = { Header (without admin link), Dashboard, button handler,
+                             @count signal, ProfileWidget, fetchUser stub, @user }
+prefetch_tier_1(/)       = {} (no N=1 surface beyond N=0 in this example)
+prefetch_tier_2(/)       = {} (no N=2 surface)
+                         (the `/loads` route — referenced by the nav <a> — is its own
+                          entry point; its initial chunk is hover-prefetched per
+                          §40.9.7's tier-2 wiring on the link)
+```
+
+**For viewer Admin**, the same analysis additionally includes the `<auth role="admin">` block (the admin link in Header), and the `/admin` route becomes a hover-prefetch tier-2 candidate.
+
+**For viewer Anonymous**, the `<page auth="required">` gate fails — the playable surface for `/` is empty (the auth redirect to a login route is the analysis's output for that viewer). The login route is a separate entry point with its own playable surface.
+
+#### 40.9.10 Cross-references
+
+- §31 — Dependency Graph (the reactive_dep_closure foundation; markup-context edge emission requirement per §40.9.3).
+- §40.1.1 — Static role classification for closure analysis (the §40-side normative statement).
+- §40.8 — v0.3 program shape (the entry-point enumeration source).
+- §41 — Import System (vendor units, the §40.9.6 split-unit set).
+- §41.9 — Tree-Shaking Behavior (composes with the §40.9.6 vendor-unit closure; the closure analysis is sharper than module-graph tree-shaking but does NOT replace it).
+- §47.5 — Output Name Encoding scope (the §40.9.8 determinism cross-ref).
+- §52 — State Authority Declarations (the §40.9.4 server-fn boundary).
+- §52.10 — Server-fn boundary classification (the §40.9.4 RI input).
+- PIPELINE.md Stage 7.6 (Reachability Solver) — the compiler pass that implements §40.9 (placement: after Stage 7 DG, after Stage 7.5 Batch Planner, before Stage 8 CG).
+- Insight 29 (`scrml-support/design-insights.md` line 1827) — debate verdict ratifying A as v0.3.0 spec-amendment target.
+- S84 diagnostic (`scrml-support/docs/diagnostics/reactive-graph-static-resolvability-S84.md`) — the empirical 99-100% gate PASS underwriting §40.9.2 / §40.9.3.
+- Dive H (`scrml-support/docs/deep-dives/smart-app-splitting-feel-of-performance-2026-04-26.md`) — the formal analysis source for Components 1-5.
+
+#### 40.9.11 Error codes
+
+| Code | Severity | Section | Trigger |
+|---|---|---|---|
+| `E-CLOSURE-001` | Error | §40.9.1 | Closure analysis fails to terminate (cycle in the reachability graph that the fixed-point operator does not collapse). Defensive; SHOULD NOT fire on valid source given the finite-graph guarantees of §31 / §40 / §41 / §52. |
+| `W-AUTH-RUNTIME-FALLBACK` | Info | §40.9.5 | Auth gate uses an async-only check that prevents static role classification. The gated component is treated as runtime-only by the closure analysis (shipped eagerly; auth-check performed at render time). The lint surfaces the trade-off; the gate remains legal. |
+
+Both codes are cataloged in §34 (Error Codes index). The compiler MAY emit `W-AUTH-RUNTIME-FALLBACK` from the Stage 7.6 Reachability Solver (PIPELINE.md §Stage 7.6) or from a Stage-3.3 UVB sub-pass (per §34 fire-site convention); the firing-stage choice is a compiler-implementation concern not normative spec text.
+
 ---
 
 ## 41. Import System — `use` and `import`
@@ -17745,6 +18035,8 @@ When names are brought into scope from multiple `use` declarations or `import` s
 
 - Unused exports from a `use` declaration SHALL NOT appear in the compiled output. The compiler SHALL NOT warn about unused `use` declarations (this would be noisy for `use scrml:ui` which provides many components).
 - Tree-shaking for `use` declarations is resolved at compile time by static reference analysis. Dynamic component references (e.g., computed component names) are not possible in scrml's markup syntax; therefore static tree-shaking is always complete.
+
+**Cross-reference — closure analysis (§40.9.6 Component 5).** Added 2026-05-12 (v0.3 Approach A spec-amendment). Vendor-unit declarations (§41.6 Vendoring Model) and bridge architecture (deep-dive C) provide the canonical split-unit set for the §40.9 closure-analysis pass. The closure analysis treats each vendor unit as an opaque atom (its internal module graph is not subdivided by §40.9.6) and uses the per-component vendor-reference set as input to per-route chunk assignment per §40.9.7. The §41 vendor isolation surface is unchanged by §40.9 — the closure analysis is a downstream consumer that aggregates per-component vendor references into per-entry-point closures.
 
 ### 41.10 Interaction with §21
 
@@ -18753,6 +19045,8 @@ Encoded names do NOT apply to:
 - The public module boundary (§29) SHALL use developer-chosen names for exported identifiers. Internal bindings behind that boundary SHALL use encoded names.
 
 **Cross-reference — test-mode `test-bind` dispatch hook (§19.12.6 / §19.12.7).** When `output.testMode` is enabled, every server-function call site emits a guarded dispatch keyed by the §47-encoded name of the called server function. A `test-bind` declaration inside an enclosing `~{}` block populates a scope-local dispatch table under those same encoded keys; the call-site dispatch consults the table before forwarding to production. The encoded-name surface defined by §47.1–§47.4 is the SOLE keying mechanism — `test-bind` introduces no new naming scheme. When `output.testMode` is disabled (release builds), the dispatch hook is dead-code-eliminated; the production binary is bit-identical to a compilation that contained no `test-bind` declarations. See §19.12.6 (declaration syntax), §19.12.7 (dispatch contract + 0-byte production guarantee), and §34 row `E-TEST-006` (fail-fast on unbound server-fn in active test-bind context).
+
+**Cross-reference — closure-analysis determinism (§40.9.8).** Added 2026-05-12 (v0.3 Approach A spec-amendment). The §40.9 closure-analysis pass (PIPELINE.md Stage 7.6 Reachability Solver) produces per-entry-point chunk assignments that the codegen pass at §Stage 8 consumes alongside the encoded-name surface defined here. The closure-analysis output is **deterministic-from-source-only**: all inputs to `playable_surface(E, N)` are static (source files + spec semantics + the app-scope role enum). The §47 content-addressing surface incorporates the closure-analysis output without modification — same source produces same closure produces same per-tier chunk assignments produces same content addresses per chunk. No additional axis (telemetry version, environment variable, build timestamp) participates in chunk content addresses in v0.3. The Approach B telemetry-PGO surface (dive H §"Approach B"; Insight 29 M2 deferral) is OUT OF SCOPE for v0.3 and queued to v2; when B is reconsidered, the spec extension MUST preserve §47 content-addressing by treating the telemetry artifact as a versioned, addressable input. v0.3's deterministic-from-source-only behaviour is the FLOOR that B extends — B does not replace A.
 
 ---
 
@@ -23938,6 +24232,8 @@ promotion remains a P3-FOLLOW concern.
 - **Channels (§38) and authority.** v0.next channels declared at file level use V5-strict body (`<x> = init` declares; `@x` reads/writes). The authority of a channel-declared cell is "channel-synced" — auto-synced across subscribed clients (§38.4). The `server` authority modifier IS NOT applicable inside a channel body (channel cells are wire-synced, not server-authoritative in the §52 sense). This is documented in §38.4 + the §38.4.1 v1→v0.next migration note.
 
 No spec changes required for §52 under v0.next. Existing semantics hold.
+
+**Cross-reference — closure analysis (§40.9.4 Component 3).** Added 2026-05-12 (v0.3 Approach A spec-amendment). The server-fn boundary classified by Stage 5 (RI) under §52 is one of the five input components to the §40.9 closure analysis (Component 3: `server_fn_reachable_within(N, C_set)`). The closure analysis does NOT re-classify server-vs-client functions; it consumes RI's classification and derives the interaction-graph projection (event-handler-to-server-fn reachability across N user interactions) on top of the §52 boundary. The §52 boundary is unchanged by §40.9 — the closure analysis is a downstream consumer.
 
 ### 52.1 Motivation
 

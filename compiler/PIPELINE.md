@@ -175,6 +175,8 @@ maps to the per-file budgets below when running with full worker parallelism.
 | 6.5 | Meta Check + Eval | META | project-wide |
 | 6.7 | Validity Surface Synthesis | VSS | per-file (after META) |
 | 7 | Dependency Graph Builder | DG | project-wide |
+| 7.5 | Batch Planner (A9 Ext 5) | BP | project-wide (after DG, RI, PA) |
+| 7.6 | Reachability Solver (SPEC ANCHOR — v0.3 §40.9; INACTIVE; impl deferred) | RS | project-wide (after DG with markup-context edges lifted) |
 | 8 | Code Generator | CG | per-file (after DG complete) |
 
 ---
@@ -2327,6 +2329,88 @@ interface LoopHoist {
 
 ---
 
+## Stage 7.6: Reachability Solver (RS) — SPEC ANCHOR
+
+**Added:** 2026-05-12 (v0.3 Approach A spec-amendment target — SPEC.md §40.9). Source: Insight 29 (`scrml-support/design-insights.md` line 1827; 5-voice debate verdict 2026-05-11 ratifying Approach A as the v0.3.0 spec-amendment target). Underwriting empirical study: S84 99-100% static-resolvability gate PASS (`scrml-support/docs/diagnostics/reactive-graph-static-resolvability-S84.md`).
+
+**Status:** SPEC ANCHOR ONLY. The Stage 7.6 stage contract is defined here as normative spec text; the compiler implementation is staged across subsequent v0.3 waves (300-640h band per Insight 29 — markup-context edge emission ~40-80h, reachability solver ~120-240h, §40 auth-graph integration ~40-120h, per-route artifact splitter ~60-120h, integration tests ~40-80h). This stage is INACTIVE in the current pipeline; no compiler source emits it as of S86. Subsequent waves wire it on per the contract below.
+
+**Stage number rationale:** Stage 7.5 is taken by Batch Planner (BP). Stage 7.6 places Reachability Solver immediately after BP and before CG (Stage 8). Both BP and RS consume Stage 7 (DG) output; RS is downstream of BP (RS may consume BP's per-handler coalescing decisions when computing server-fn reachability for `N=0` calls, though the dependency is informational, not strict). The dispatch SCOPING.md §1.6 working title was "Stage 7.5"; renumbered to 7.6 to avoid collision with the landed Stage 7.5 (BP).
+
+**Input contract:**
+- `DependencyGraph` (from Stage 7, finalized; with markup-context `reads` edges lifted per SPEC.md §40.9.3 binding requirement — the closure-resolvability ceiling)
+- `RouteMap` (from RI) — per-route entry-point list per v0.3 program shape (SPEC.md §40.8)
+- `AuthGraph` — derived from §40 auth-attribute classification on `<program>` / `<page>` / `<auth role=>` / `<channel auth=>` declarations
+- `ServerFnBoundary` (from RI / §52) — classified server-fn set
+- `VendorUnitDeclarations` (from MOD / §41) — declared vendor units per file
+- `RoleEnum` (from §40.1.1 static-role-classification) — the app-scope role enum declared in the entry file's `<program>` body
+- `BatchPlan` (from Stage 7.5) — informational only (used for `N=0` server-fn pre-resolution opportunities; RS does NOT modify the batch plan)
+
+**Output contract:**
+```typescript
+interface ReachabilityRecord {
+  closures: Map<EntryPointId, RolePlayableSurface>;
+  diagnostics: ReachabilityDiagnostic[];      // E-CLOSURE-001, W-AUTH-RUNTIME-FALLBACK
+}
+
+interface RolePlayableSurface {
+  byRole: Map<RoleVariant, ChunkPlan>;        // one plan per role variant of the app-scope role enum
+}
+
+interface ChunkPlan {
+  initialChunk: ChunkContents;                // playable_surface(E, N=0), payload-minimized
+  prefetchTier1: ChunkContents;               // playable_surface(E, N=1) − initialChunk
+  prefetchTier2: ChunkContents;               // playable_surface(E, N=2) − playable_surface(E, N=1)
+  prefetchTierN: ChunkContents[];             // N ≥ 3, on-demand
+}
+
+interface ChunkContents {
+  componentNodeIds: Set<NodeId>;              // from DG render-nodes + state-children
+  reactiveCellNodeIds: Set<NodeId>;           // from DG reactive-nodes (via reactive_dep_closure)
+  serverFnNodeIds: Set<NodeId>;               // from RI/§52 boundary (via server_fn_reachable_within)
+  vendorUnitNames: Set<VendorUnitId>;         // from §41 (via vendor_units_used_by)
+}
+```
+
+**Preconditions:**
+- Stage 7 (DG) is finalized and lift-checked.
+- Stage 7.5 (BP) has completed (informational only; not a hard dependency for correctness).
+- Stage 7 DG MUST emit markup-context `reads` edges per SPEC.md §40.9.3 binding requirement. Without this, RS produces an incomplete reactive_dep_closure (the 256-edge ceiling identified by the S84 diagnostic) and the playable surface is structurally under-approximated. The Stage 7 extension is itself a subsequent-wave compiler-implementation item; RS's input contract checks for the lifted edges and aborts with a compiler-internal-invariant error if they are absent.
+- §40 auth-graph derivation has completed (the AuthGraph input).
+- §40.1.1 role enum is declared at app scope. If the application declares no role enum AND uses no auth gates, RS treats every entry point as having a single anonymous viewer role; if the application uses auth gates without declaring a role enum, RS aborts with a compiler error (subsequent wave; not v0.3.0 normative).
+
+**Responsibilities:**
+1. Enumerate entry points per v0.3 program shape (one per `<page>` declaration + the entry-file `<program>` body; SPEC.md §40.8).
+2. For each entry point `E` and each role variant `R`, compute `playable_surface(E, N=0)` per SPEC.md §40.9.1 (the five-component union + closure fixed point).
+3. Extend to `N=1` and `N=2` by chasing the interaction-graph projection of Stage 7 DG `calls` + `awaits` + event-handler-attachment AST edges.
+4. Construct the `ChunkPlan` per role per entry point per SPEC.md §40.9.7.
+5. Emit `W-AUTH-RUNTIME-FALLBACK` (info) for each auth gate whose role predicate is not closed-form over the role enum (per §40.1.1 / §40.9.5).
+6. Emit `E-CLOSURE-001` (error, defensive) if the fixed-point operator fails to converge.
+
+**Invariants:**
+- **Determinism:** same input produces identical `ReachabilityRecord`. All inputs are static (no telemetry, no env, no timestamp) per SPEC.md §40.9.8.
+- **Monotonicity in N:** for any `E` and `R`, `ChunkPlan.initialChunk ⊆ initialChunk ∪ prefetchTier1 ⊆ ... ∪ prefetchTierN`.
+- **No mutation of upstream output:** RS produces a fresh `ReachabilityRecord` and does NOT mutate DG, BatchPlan, RouteMap, AuthGraph, ServerFnBoundary, or VendorUnitDeclarations.
+- **Termination:** the fixed-point operator over finite input graphs terminates by construction; `E-CLOSURE-001` is defensive against compiler-internal-invariant violations only.
+
+**CLI exposure:** `scrml compile --emit-reachability` SHOULD emit the `ReachabilityRecord` as JSON for debugging and test visibility (analogous to `--emit-batch-plan` at §Stage 7.5). Implementation deferred to the compiler-impl wave.
+
+**Complexity:** Linear in the size of the union of (DG nodes × role-enum variants × per-route entry points). Per Insight 29 compiler-architect assessment, RS is whole-program at 1.5-3× SYM's total cost. Per S84 the corpus is well-bounded; RS terminates and produces a bounded output on all measured shapes.
+
+**Dependencies:** Stage 7 (DG with markup-context edge emission) + Stage 7.5 (BP — informational) + RI (RouteMap + ServerFnBoundary) + MOD (VendorUnitDeclarations) + §40 auth-attribute classification (AuthGraph) + §40.1.1 role enum.
+
+**Cross-references:**
+- SPEC.md §40.9 (Closure Analysis — the normative spec surface RS implements).
+- SPEC.md §40.1.1 (Static role classification — the role-enum input).
+- SPEC.md §40.9.3 (Reactive dep closure — the markup-context edge-emission binding requirement).
+- SPEC.md §40.9.4 (Server-fn reachable within N — the interaction-graph projection).
+- SPEC.md §40.9.7 (Per-tier output structure — the ChunkPlan tier definitions).
+- SPEC.md §40.9.8 (Determinism preservation — the no-telemetry-in-v0.3 invariant).
+- Insight 29 (`scrml-support/design-insights.md` line 1827) — debate verdict ratifying A.
+- S84 diagnostic (`scrml-support/docs/diagnostics/reactive-graph-static-resolvability-S84.md`) — 99-100% gate PASS.
+
+---
+
 ## Stage 8: Code Generator (CG)
 
 **Input contract:**
@@ -2651,6 +2735,10 @@ tagged inline.
 | Meta determinism misclassification | A meta block classified as deterministic actually depends on runtime values, or vice versa | TS validates at type level; CG `E-CG-005` as defense-in-depth |
 | SQL/server-context leak to client JS | SQL blocks, transaction blocks, or server-context meta blocks (those referencing `process.env`, `Bun.env`, `bun.eval()`, fs APIs) are emitted into `.client.js` output, exposing DB schema and server infrastructure to the browser | RI escalates containing functions to `'server'`; CG `E-CG-006` as defense-in-depth for nodes not caught by RI; `W-CG-001` for top-level SQL outside any function |
 | Cell with no render-spec used as `<x/>` (v0.next) | `<x/>` render-by-tag use of a cell whose `rhsShape` is `"literal"` (no render-spec) or `"derived-expr"` with non-markup-typed RHS | CG `E-CELL-NO-RENDER-SPEC` (SPEC §6.4) |
+| Closure cycle (v0.3 §40.9, INACTIVE) | Reachability Solver's fixed-point operator fails to converge — cycle in the reachability graph that the closure operator does not collapse. Defensive; SHOULD NOT fire on valid source given the finite-graph guarantees of §31 / §40 / §41 / §52. | RS `E-CLOSURE-001` (SPEC.md §40.9.11) — Stage 7.6 |
+| Auth gate uses async-only check (v0.3 §40.9, INACTIVE) | An auth gate uses a check that is not a closed-form predicate over the app-scope role enum (per SPEC §40.1.1) — closure analysis treats the gated component as runtime-only and ships it eagerly. The gate remains legal; the lint surfaces the trade-off. | RS `W-AUTH-RUNTIME-FALLBACK` info-level lint (SPEC.md §40.1.1, §40.9.5, §40.9.11) — Stage 7.6 |
+| Missing role enum with auth gates (v0.3 §40.9, INACTIVE — DEFERRED) | An application uses auth gates but declares no app-scope role enum. RS cannot classify auth gates statically. Subsequent-wave error; not v0.3.0 normative (the spec only requires synchronous role classification WHERE static analysis is desired — bare absence is acceptable). | RS pre-condition check; surface in a subsequent v0.3 wave with a dedicated diagnostic |
+| Pre-markup-context-edge-emission DG (v0.3 §40.9.3, INACTIVE) | Reachability Solver receives Stage 7 DG output that has not been extended to lift markup-context reactive reads into `reads` edges (per the 256-edge S84 ceiling). The reactive_dep_closure is structurally under-approximated. | Stage 7 extension is a separate compiler-impl wave item; until landed, RS aborts with a compiler-internal-invariant error if any markup-context @-read is found in AST without a corresponding `reads` edge in DG |
 | Implicit coupling | Two stages share a mutable data structure instead of passing by value | All stage outputs are pure values; mutation of upstream output is a contract violation |
 | Undocumented field | Downstream stage uses a field not defined in the upstream contract | All consumed fields must appear in this document |
 | Deferred parsing gap | A downstream stage receives opaque string wrappers where it expects recursively parsed AST nodes | TAB may produce `BareExpr` wrappers in function body positions; each stage documents its handling. BPP (Stage 3.5) was removed — downstream stages receive ASTs as-produced by CE. |
