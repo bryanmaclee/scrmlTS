@@ -196,7 +196,10 @@ describe("bare declarations mixed with explicit logic blocks", () => {
   test("bare fn + explicit logic block both work", () => {
     const source = "<program>\n  fn greet(name) { return \"Hello \" + name }\n  \${ let x = 1 }\n</program>";
     const { errors } = compile(source);
-    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001" && e.code !== "E-PARSE-002");
+    // v0.3 Wave 2: explicit ${ } wrapping in <program> body is now lint-warned
+    // via W-PROGRAM-REDUNDANT-LOGIC (SPEC §40.8). Filter the lint here so the
+    // assertion focuses on fatal-error absence.
+    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001" && e.code !== "E-PARSE-002" && e.code !== "W-PROGRAM-REDUNDANT-LOGIC");
     expect(relevant).toHaveLength(0);
   });
 
@@ -271,24 +274,28 @@ describe("plain text is not lifted to logic blocks", () => {
 // ---------------------------------------------------------------------------
 
 describe("explicit logic block wrapping still works (no regression)", () => {
+  // v0.3 Wave 2 — these tests assert the explicit `${ }` wrapping form
+  // still PARSES the same shape under v0.3. The form now triggers the
+  // W-PROGRAM-REDUNDANT-LOGIC lint (SPEC §40.8) but remains a legal compile;
+  // filter the lint here so the regression assertions focus on parse-shape.
   test("explicit type in logic block still works", () => {
     const source = "<program>\n  \${ type Color:enum = { Red, Green, Blue } }\n</program>";
     const { errors } = compile(source);
-    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001");
+    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001" && e.code !== "W-PROGRAM-REDUNDANT-LOGIC");
     expect(relevant).toHaveLength(0);
   });
 
   test("explicit fn in logic block still works", () => {
     const source = "<program>\n  \${ fn greet(name) { return \"Hello \" + name } }\n</program>";
     const { errors } = compile(source);
-    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001" && e.code !== "E-PARSE-002");
+    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001" && e.code !== "E-PARSE-002" && e.code !== "W-PROGRAM-REDUNDANT-LOGIC");
     expect(relevant).toHaveLength(0);
   });
 
   test("explicit function in logic block still works", () => {
     const source = "<program>\n  \${ function add(a, b) { return a + b } }\n</program>";
     const { errors } = compile(source);
-    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001");
+    const relevant = errors.filter(e => e.code && e.code !== "W-PROGRAM-001" && e.code !== "W-PROGRAM-REDUNDANT-LOGIC");
     expect(relevant).toHaveLength(0);
   });
 

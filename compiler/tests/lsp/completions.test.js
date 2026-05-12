@@ -108,9 +108,14 @@ describe("LSP L1 — buildCompletions", () => {
     // introduced by Insight 26 Batch 1 (W-DEAD-FUNCTION fires here because
     // alpha() has no callers in this minimal fixture; W-DEPRECATED-SERVER-MODIFIER
     // is N/A but listed for symmetry with future fixtures).
+    // v0.3 Wave 2: the explicit `${ }` wrap around top-level decls inside
+    // `<program>` now triggers W-PROGRAM-REDUNDANT-LOGIC (SPEC §40.8). The
+    // test fixture exercises a v0.2-shaped completion site; the lint is
+    // orthogonal to completions.
     const errs = diagnostics.filter(d =>
       d.code !== "W-DEAD-FUNCTION" &&
-      d.code !== "W-DEPRECATED-SERVER-MODIFIER"
+      d.code !== "W-DEPRECATED-SERVER-MODIFIER" &&
+      d.code !== "W-PROGRAM-REDUNDANT-LOGIC"
     );
     expect(errs.length).toBe(0);
     expect(analysis.functions.map(f => f.name)).toContain("alpha");

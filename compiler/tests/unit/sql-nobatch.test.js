@@ -38,7 +38,14 @@ import { join } from "node:path";
 
 function parse(source) {
   const bsOut = splitBlocks("test.scrml", source);
-  return buildAST(bsOut);
+  const result = buildAST(bsOut);
+  // v0.3 Wave 2: filter info-level warnings (e.g. W-PROGRAM-REDUNDANT-LOGIC,
+  // W-PROGRAM-001) from the errors[] array. Test assertions target fatal
+  // errors only; warning-specific positive tests live elsewhere.
+  return {
+    ...result,
+    errors: (result.errors || []).filter(e => e?.severity !== "warning"),
+  };
 }
 
 /** Collect every SQLNode in an AST tree. */

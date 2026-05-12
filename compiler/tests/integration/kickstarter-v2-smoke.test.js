@@ -62,7 +62,15 @@ import { buildAST } from "../../src/ast-builder.js";
 
 function parse(source) {
   const bs = splitBlocks("test.scrml", source);
-  return buildAST(bs);
+  const result = buildAST(bs);
+  // v0.3 Wave 2: filter info-level warnings (e.g. W-PROGRAM-REDUNDANT-LOGIC,
+  // W-PROGRAM-001) so existing `expect(errors.length).toBe(0)` assertions
+  // continue to capture only fatal errors. Warning-specific positive tests
+  // assert on the unfiltered output directly.
+  return {
+    ...result,
+    errors: (result.errors || []).filter(e => e?.severity !== "warning"),
+  };
 }
 
 /** Walk an AST recursively and collect every node with `kind === target`. */

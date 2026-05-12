@@ -310,11 +310,18 @@ function preprocessWorkerAndStateRefs(raw) {
 
 /**
  * Regex that matches text blocks starting with a bare declaration keyword.
+ *
  * Matches (at the start of the raw content, which may have leading whitespace):
  *   server fn <name>  |  server function <name>  |  fn <name>
  *   function <name>   |  type <name>
+ *
+ * v0.3 Wave 2 extension (item b): the `(?:export\s+)?` prefix matches the
+ * `export fn …` / `export function …` / `export type …` shapes; the
+ * `let \w` / `const \w` shapes recognise plain-local declarations (the
+ * derived-state `const <x>` shape is NOT matched here — it's a `<` after
+ * `const`, which is caught by TOPLEVEL_STATE_DECL_RE).
  */
-const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w)/;
+const BARE_DECL_RE = /^\s*(?:export\s+)?(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w|let\s+[A-Za-z_]|const\s+[A-Za-z_])/;
 
 /**
  * Phase A1a Step 11.0d — top-level structural state-decl pattern.
@@ -335,7 +342,7 @@ const BARE_DECL_RE = /^\s*(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function
  *     content. Markup like `<div>hello</>` has `>` followed by content,
  *     never `=` or `:` directly.
  */
-const TOPLEVEL_STATE_DECL_RE = /^\s*(?:const\s+)?<\s*[A-Za-z_][A-Za-z0-9_]*[^>]*>\s*[=:]/;
+const TOPLEVEL_STATE_DECL_RE = /^\s*(?:export\s+)?(?:const\s+)?<\s*[A-Za-z_][A-Za-z0-9_]*[^>]*>\s*[=:]/;
 
 /**
  * P2: regex matching a text block whose only meaningful content is the bare
@@ -687,9 +694,17 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
       // auto-synced reactive cell at the channel scope. Treat channel-direct
       // text children as state-context so TOPLEVEL_STATE_DECL_RE lifts them
       // into synthetic `${...}` blocks (same path as <program> direct text).
+      //
+      // v0.3 Wave 2 — `<page>` is a per-route attribute container (SPEC §4.15,
+      // §40.8); its body parses in default-logic mode symmetrically with
+      // `<program>` body. Treat `<page>` direct text children as state-context
+      // so the top-level declaration regex family (V5-strict state decl,
+      // function/fn/server-fn, type, let/const, etc.) auto-lifts inside the
+      // page body — same path as <program>.
       const isProgramRoot = parentType !== "markup" && block.name === "program";
       const isChannelRoot = parentType !== "markup" && block.name === "channel";
-      const childContext = (isProgramRoot || isChannelRoot) ? "state" : "markup";
+      const isPageRoot = parentType !== "markup" && block.name === "page";
+      const childContext = (isProgramRoot || isChannelRoot || isPageRoot) ? "state" : "markup";
       const newChildren = liftBareDeclarations(block.children || [], errors, filePath, childContext, _p3aSynthCounter);
       result.push({ ...block, children: newChildren });
       continue;
@@ -9652,6 +9667,10 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         // P2 §21.2 Form 1 marker — preserved from synthetic logic block
         // produced by liftBareDeclarations when desugaring `export <Foo>...</>`.
         ...(block._p2Form1 ? { _p2Form1: true, _p2Form1Name: block._p2Form1Name } : {}),
+        // v0.3 Wave 2 — forward the `_synthetic` marker from liftBareDeclarations
+        // so the W-PROGRAM-REDUNDANT-LOGIC walker can distinguish author-written
+        // `${...}` blocks from compiler-synthesised lift wrappers. SPEC §40.8.
+        ...(block._synthetic ? { _synthetic: true } : {}),
       };
     }
 
@@ -10412,6 +10431,168 @@ export function buildAST(bsOutput, tokenizerOverrides) {
           }
         }
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // v0.3 Wave 2 — `<page>` per-route attribute validation + W-PROGRAM-REDUNDANT-LOGIC
+  //
+  // SPEC §4.15, §40.8, §34 catalog rows:
+  //   - E-PAGE-ROUTE-ATTR-FORBIDDEN — `<page route="...">` (doubly forbidden;
+  //     routes are filesystem-inferred per §47.9.2).
+  //   - E-PAGE-INVALID-ATTR — any `<page>` attribute outside {db, auth, csrf,
+  //     ratelimit}.
+  //   - W-PROGRAM-REDUNDANT-LOGIC — `<program>` (or `<page>`) body wraps top-
+  //     level declarations in an unnecessary `${...}` logic block. v0.3 emits
+  //     this as a warning; v0.4 will escalate to error per Q5 deprecation.
+  //
+  // Walker fires post-AST-build over `programNode`/`<page>` direct children.
+  // ---------------------------------------------------------------------------
+  {
+    const PAGE_ALLOWED_ATTRS = new Set(["db", "auth", "csrf", "ratelimit"]);
+
+    // App-wide attributes belong on <program>. Used in diagnostic hinting.
+    const APP_WIDE_ATTRS = new Set([
+      "title", "description", "version", "author", "license",
+      "cors", "cors-max-age", "log", "headers",
+      "idempotency-store", "idempotency-ttl",
+      "channel-reconnect", "batch-in-list-cap",
+      "loginRedirect", "sessionExpiry",
+    ]);
+
+    // Nested-program attributes (worker / sidecar — §43). Used in hinting.
+    const NESTED_PROGRAM_ATTRS = new Set([
+      "name", "lang", "mode", "build", "port", "health", "protect",
+      "callchar", "restart", "max-restarts", "within", "autostart",
+    ]);
+
+    // A LogicStatement kind is "declaration-style" when it's a pure
+    // declaration: state-decl, function-decl, type-decl, let-decl, const-decl,
+    // import/export, use, component-def. These shapes are exactly what v0.3
+    // default-logic body mode auto-lifts; if a `${...}` block's body contains
+    // ONLY these, the wrapping is redundant. Anything else (bare-expr,
+    // if-stmt, for-stmt, return, etc.) signals real work and suppresses the
+    // warning per brief §4.3.3.
+    const DECL_KINDS = new Set([
+      "state-decl",
+      "reactive-decl",
+      "let-decl",
+      "const-decl",
+      "function-decl",
+      "type-decl",
+      "import-decl",
+      "export-decl",
+      "use-decl",
+      "component-def",
+      "tilde-decl",
+      "lin-decl",
+    ]);
+
+    function isAllDeclarationBody(stmts) {
+      if (!Array.isArray(stmts) || stmts.length === 0) return false;
+      for (const s of stmts) {
+        if (!s || !DECL_KINDS.has(s.kind)) return false;
+      }
+      return true;
+    }
+
+    // --- E-PAGE-ROUTE-ATTR-FORBIDDEN + E-PAGE-INVALID-ATTR ---
+    // Walk every markup node whose tag === "page" anywhere in the tree (the
+    // node may live as a direct child of <program> OR at file top level when
+    // the file is a route-file — both are valid block-grammar positions per
+    // §4.15). The validation fires per-attribute; multi-violation files
+    // emit multiple errors.
+    function validatePageAttrs(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.kind === "markup" && node.tag === "page" && Array.isArray(node.attrs)) {
+        for (const attr of node.attrs) {
+          const name = attr && attr.name;
+          if (!name) continue;
+          // E-PAGE-ROUTE-ATTR-FORBIDDEN takes precedence for `route=` (it's a
+          // distinct, more-pointed diagnostic per SPEC §34).
+          if (name === "route") {
+            errors.push(new TABError(
+              "E-PAGE-ROUTE-ATTR-FORBIDDEN",
+              `E-PAGE-ROUTE-ATTR-FORBIDDEN: \`<page>\` does not accept a \`route=\` attribute; ` +
+              `the route URL is inferred from the source filepath (\`path/to/file.scrml\` → \`/path/to/file\`). ` +
+              `To rename the route, rename the file. See SPEC §40.8 and §47.9.2.`,
+              attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 },
+            ));
+            continue;
+          }
+          if (!PAGE_ALLOWED_ATTRS.has(name)) {
+            let hint;
+            if (APP_WIDE_ATTRS.has(name)) {
+              hint = `\`${name}=\` is an application-wide concern — move it to the \`<program>\` opener (the app-host scope).`;
+            } else if (NESTED_PROGRAM_ATTRS.has(name)) {
+              hint = `\`${name}=\` is a nested-program attribute (worker / sidecar — see SPEC §43); it has no meaning on \`<page>\`.`;
+            } else {
+              hint = `The allowed \`<page>\` attribute set is exactly \`{ db, auth, csrf, ratelimit }\` (per-route concerns). ` +
+                `App-wide concerns belong on \`<program>\`; per-element metadata belongs on markup elements inside the page body.`;
+            }
+            errors.push(new TABError(
+              "E-PAGE-INVALID-ATTR",
+              `E-PAGE-INVALID-ATTR: \`<page ${name}=…>\` — ${name} is not in the per-route attribute set. ${hint} See SPEC §4.15 and §40.8.`,
+              attr.span ?? node.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 },
+            ));
+          }
+        }
+      }
+      // Recurse into children (page may live inside program; logic blocks
+      // don't carry markup-page descendants worth walking, but markup/state
+      // children may).
+      const kids = node.children ?? null;
+      if (Array.isArray(kids)) {
+        for (const kid of kids) validatePageAttrs(kid);
+      }
+    }
+
+    for (const topNode of nodes) {
+      validatePageAttrs(topNode);
+    }
+
+    // --- W-PROGRAM-REDUNDANT-LOGIC ---
+    // Walk direct children of <program> AND every <page> (whether at file top
+    // or nested inside <program>). Author-written `${...}` blocks whose body
+    // contains ONLY declaration-style statements fire the warning. Synthetic
+    // lift-wrappers (carrying `_synthetic: true` forwarded from
+    // liftBareDeclarations) are skipped.
+    function emitRedundantLogicWarnings(containerNode, containerTagLabel) {
+      if (!containerNode || !Array.isArray(containerNode.children)) return;
+      for (const child of containerNode.children) {
+        if (
+          child &&
+          child.kind === "logic" &&
+          !child._synthetic &&
+          isAllDeclarationBody(child.body)
+        ) {
+          errors.push(new TABError(
+            "W-PROGRAM-REDUNDANT-LOGIC",
+            `W-PROGRAM-REDUNDANT-LOGIC: A \`<${containerTagLabel}>\` body wraps top-level declarations in a redundant \`\${...}\` logic block. ` +
+            `Under v0.3, \`<${containerTagLabel}>\` body parses in default-logic mode — bare top-level declarations auto-lift to the logic context without explicit \`\${...}\` wrapping. ` +
+            `Remove the redundant \`\${...}\` for cleaner source. See SPEC §40.8.`,
+            child.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 },
+          ));
+          errors[errors.length - 1].severity = "warning";
+        }
+      }
+    }
+
+    // Walk every <program> and <page> markup node in the AST. Both are
+    // valid containers for the v0.3 default-logic body.
+    function visitForRedundantLogic(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.kind === "markup" && (node.tag === "program" || node.tag === "page")) {
+        emitRedundantLogicWarnings(node, node.tag);
+      }
+      const kids = node.children ?? null;
+      if (Array.isArray(kids)) {
+        for (const kid of kids) visitForRedundantLogic(kid);
+      }
+    }
+
+    for (const topNode of nodes) {
+      visitForRedundantLogic(topNode);
     }
   }
 
