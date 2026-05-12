@@ -627,15 +627,18 @@ describe("engine-a7-history §8 — restore-form write-site lowering (Wave 2.4)"
     expect(clientJs).toMatch(/_scrml_reactive_set\("playMode",\s*"Exploring"\)/);
   });
 
-  test(".advance(.Variant.history) — write-site lowering also strips .history", () => {
-    // The `.advance(.Variant.history)` form is also a valid history-restore
-    // write per §51.0.G + §51.0.N. The lowering at emitEngineAdvanceCall is
-    // a Wave 4 follow-on (the test brief lists this as substrate; the
-    // strict-MVP path uses direct-write `@var = .V.history` form which IS
-    // wired above). Per A5-7 brief: ".advance(.X)" history-form lowering is
-    // an additional surface — when not yet wired, this test documents it as
-    // a deferred follow-on. For Wave 2.4, this test asserts that the bare
-    // .advance form still works (no regression).
+  test("bare `.advance(.Variant)` (no `.history`) does NOT thread isHistoryRestore", () => {
+    // Tightened from the prior smoke test (Bug 6 v0.2.4, S84). The old
+    // version asserted only `clientJs.toContain("_scrml_engine_advance")`,
+    // which passes even if `.history` is silently dropped or the
+    // isHistoryRestore flag is silently false. This replacement is a real
+    // POSITIVE assertion on the bare-variant call shape PLUS the tree-shake
+    // negative — parity with the direct-write `bare .Variant` test above
+    // (line 564) and with the §6 positive case in
+    // engine-event-handler-writes.test.js (line 312-346).
+    //
+    // Engine has no `history` attr → no history-map either, so the bare
+    // call shape is the minimal 3-arg form: (name, target, table).
     const src = `\${ type Phase:enum = { Idle, Active } }
 <engine for=Phase initial=.Idle>
   <Idle rule=.Active></>
@@ -645,6 +648,73 @@ describe("engine-a7-history §8 — restore-form write-site lowering (Wave 2.4)"
 \${ function go() { @phase.advance(Phase.Active) } }`;
     const { errors, clientJs } = compileToClientJs(src, "w24-advance-bare");
     expect(errors.filter((e) => e.severity === "error")).toEqual([]);
-    expect(clientJs).toContain("_scrml_engine_advance");
+    // Positive: helper call present with bare-variant target, no `.history`.
+    expect(clientJs).toMatch(
+      /_scrml_engine_advance\("phase",\s*Phase\.Active,\s*__scrml_engine_phase_transitions\)/,
+    );
+    // Sanity: no `.history` chain anywhere on the variant string.
+    expect(clientJs).not.toContain("Phase.Active.history");
+    // Negative: no trailing `true` (no isHistoryRestore on the bare form).
+    expect(clientJs).not.toMatch(
+      /_scrml_engine_advance\("phase"[^)]*,\s*true\)/,
+    );
+  });
+
+  test("`.advance(.X.history)` in function-body context threads isHistoryRestore=true", () => {
+    // Bug 6 v0.2.4 follow-up (S84). Parallel to §6 in
+    // engine-event-handler-writes.test.js (line 312-346, onclick context).
+    //
+    // This test exercises the FUNCTION-BODY context — i.e., the call site
+    // is `${ function f() { @var.advance(.X.history) } }` (statement
+    // position inside a top-level script block), not an event-handler
+    // attribute. Per emit-expr.ts:540-602, both contexts route through the
+    // SAME `.advance` dispatch which detects the `.X.history` arg shape,
+    // strips the `.history` suffix from the target expression, and threads
+    // `isHistoryRestore=true` as the trailing positional arg through
+    // emitEngineAdvanceCall (emit-engine.ts:1831-1937). This test confirms
+    // that fact end-to-end on the function-body emission path.
+    //
+    // Assertion shape mirrors §6 in engine-event-handler-writes.test.js
+    // line 342-345 (the canonical onclick-context positive test):
+    //   1. variant token bare (no `.history` member chain),
+    //   2. no `.history` substring on the variant ref anywhere,
+    //   3. trailing `, true)` (isHistoryRestore as last positional arg).
+    const src = `\${
+      type AppMode:enum  = { Title, Playing, Paused }
+      type PlayMode:enum = { Exploring, Battle }
+    }
+<engine for=AppMode initial=.Title>
+  <Title rule=(.Playing | .Playing.history)></>
+  <Playing history rule=(.Title | .Paused)>
+    <engine for=PlayMode initial=.Exploring>
+      <Exploring rule=.Battle></>
+      <Battle rule=.Exploring></>
+    </>
+  </>
+  <Paused rule=.Playing></>
+</>
+
+\${ function resumeFromHistory() { @appMode.advance(AppMode.Playing.history) } }`;
+    const { errors, clientJs } = compileToClientJs(src, "w24-advance-history-fnbody");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+
+    // Locate the function body so the assertions check the call inside it
+    // (not the dispatcher / synth-cell init code elsewhere in the emitted JS).
+    const fnHeaderIdx = clientJs.indexOf("function _scrml_resumeFromHistory");
+    expect(fnHeaderIdx).toBeGreaterThan(-1);
+    const slice = clientJs.slice(fnHeaderIdx);
+    const callStart = slice.indexOf('_scrml_engine_advance("appMode",');
+    expect(callStart).toBeGreaterThan(-1);
+    const callSlice = slice.slice(callStart, callStart + 500);
+
+    // §6 parity assertion 1: `.history` suffix stripped — variant token is
+    // bare `AppMode.Playing`.
+    expect(callSlice).toMatch(/_scrml_engine_advance\("appMode",\s*AppMode\.Playing[\s,]/);
+    // §6 parity assertion 2: no `.history` member access on the variant
+    // string (would runtime-fail — variant values are strings).
+    expect(callSlice).not.toMatch(/AppMode\.Playing\.history/);
+    // §6 parity assertion 3: isHistoryRestore=true is threaded as the
+    // trailing positional arg.
+    expect(callSlice).toMatch(/,\s*true\)/);
   });
 });
