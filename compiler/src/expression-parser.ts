@@ -755,6 +755,31 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // Replace `not (expr)` prefix negation → `!(expr)`
   s = s.replace(/(?<![A-Za-z0-9_$@])not\s*\(/g, "!(");
 
+  // §45.7 operator-form: `not <operand>` — unary boolean negation → `!<operand>`.
+  // Acorn does not know `not` is a unary operator, so without this rewrite it
+  // would parse `not @x` as Identifier `not` followed by trailing content `@x`,
+  // dropping the operand. By rewriting to `!@x` here, acorn produces a proper
+  // UnaryExpression `{ op: "!", argument: @x }` which esTreeToExprNode then
+  // converts to UnaryExpr correctly.
+  //
+  // The operand is matched conservatively: an optional `@` sigil, identifier
+  // chain (with dotted member access), AND optional bracket-indexing tail.
+  // Function-call parentheses are NOT consumed — JS unary `!` has lower
+  // precedence than function-call, so `!f(x)` parses as `!(f(x))`, which is
+  // the desired semantics. The same applies to method calls like `@x.method()`.
+  //
+  // Lookbehind `(?<![A-Za-z0-9_$@.])` ensures we don't match `not` when it is
+  // a member name (`obj.not foo` would have `.` before — excluded).
+  //
+  // The standalone-value form (`@x = not`, `return not`, `f(not)`, `[a, not, b]`)
+  // is NOT matched here because no operand-ident follows. It falls through to
+  // esTreeToExprNode which converts Identifier `not` → LitExpr { litType: "not" }
+  // (the §42 non-presence value form, which then emits as `null`).
+  s = s.replace(
+    /(?<![A-Za-z0-9_$@.])not\s+(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
+    "!$1"
+  );
+
   // §14.9/§16.6: render name() → __scrml_render_name__()
   s = s.replace(
     /(?<![A-Za-z0-9_$])render\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g,

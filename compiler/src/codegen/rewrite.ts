@@ -701,6 +701,28 @@ function _rewriteNotSegment(segment: string, errors?: any[]): string {
     '($1 === null || $1 === undefined)');
   // `not (expr)` — logical negation before a parenthesized expression → `!(expr)`
   segment = segment.replace(/(?<![A-Za-z0-9_$@])not\s*\(/g, '!(');
+  // §45.7 operator-form: `not <operand>` — unary boolean negation → `!<operand>`.
+  // Must run BEFORE the bare-`not`-to-`null` rule below so the operator-form is
+  // consumed first; otherwise the operand would be left dangling next to a
+  // literal `null`, producing `null <operand>` adjacency (invalid JS).
+  //
+  // The operand is matched conservatively: an optional `@` sigil, identifier
+  // chain (with dotted member access), AND optional bracket-indexing tail
+  // (`[...]`). Function-call parentheses are NOT consumed — JS unary `!` has
+  // lower precedence than function-call, so `!f(x)` parses as `!(f(x))`, which
+  // is the desired semantics.
+  //
+  // Lookbehind `(?<![A-Za-z0-9_$@.])` ensures we don't match `not` when it is
+  // a member name (`obj.not foo` would have `.` before — excluded). The `.` in
+  // the lookbehind class additionally guards against matching `.not` chains.
+  //
+  // The standalone-value form (`@x = not`, `return not`, `f(not)`, `[a, not, b]`)
+  // is NOT matched here because there is no operand-ident following `not`. It
+  // falls through to the bare-`not`-to-`null` rule on the next line.
+  segment = segment.replace(
+    /(?<![A-Za-z0-9_$@.])not\s+(@?[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\[[^\]]*\])*)/g,
+    '!$1'
+  );
   // Bare `not` as a value → `null`
   segment = segment.replace(/(?<![A-Za-z0-9_$@])not(?![A-Za-z0-9_$])/g, 'null');
   return segment;
