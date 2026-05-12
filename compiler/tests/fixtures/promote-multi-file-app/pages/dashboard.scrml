@@ -1,0 +1,34 @@
+// promote-multi-file-app fixture — route file with exhaustive if-else chain
+// over an enum-typed cell AND a cross-file import.
+//
+// The promote --match command should rewrite the chain to a <match> block,
+// and the safety-harness must pass (the import resolves to a real on-disk
+// file under promote-multi-file-app/models/labels.scrml).
+//
+// Pre-fix (per-call tmp staging): this case fired E-IMPORT-006 in the staged
+// tmp dir because models/ did not exist there. Post-fix (option β), the
+// harness writes the rewrite to this file's real path, runs compileScrml
+// with `gather: true` so the real import is gathered, then restores the
+// original. Import resolves; gate passes.
+
+${
+  import { label, APP_NAME } from '../models/labels.scrml'
+
+  type Phase:enum = { Idle, Loading, Error, Success }
+  <phase>: Phase = .Idle
+}
+
+<div>
+  <h1>${APP_NAME}</h1>
+  ${
+    if (@phase is .Idle) {
+      <p>${label("idle")}</p>
+    } else if (@phase is .Loading) {
+      <p>${label("loading")}</p>
+    } else if (@phase is .Error) {
+      <p>${label("error")}</p>
+    } else if (@phase is .Success) {
+      <p>${label("success")}</p>
+    }
+  }
+</>

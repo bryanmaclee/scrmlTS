@@ -1,0 +1,16 @@
+// promote-multi-file-app fixture — pure-fn module file (§21.5).
+//
+// Imported by ../pages/dashboard.scrml. The promote safety-harness fix
+// (option β) must let the importer's compile call resolve `../models/labels.scrml`
+// from the importer's REAL on-disk path. Pre-fix, the staged-tmp implementation
+// resolved `../models/labels.scrml` to a tmp directory where this file did
+// not exist, MOD fired E-IMPORT-006, and the gate failed — even though the
+// rewritten source was structurally valid scrml.
+
+${
+  export fn label(stage: string) -> string {
+    return stage
+  }
+
+  export const APP_NAME = "Promote Harness"
+}
