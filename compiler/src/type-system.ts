@@ -4361,6 +4361,15 @@ function annotateNodes(
             checkTransitionCallsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
             // §54.6.4 Phase 4f: terminal-substate mutation check
             checkTerminalMutationsInExpr(initExprForScope, letSpan, scopeChain, stateTypeRegistry, errors);
+            // S84 v0.2.4 #5 — binary-expr comparison-site pre-pass.
+            // Runs BEFORE the LHS-driven walk so that bare variants in
+            // `let r = @cell == .V` (and symmetric / `!=` / `is` / `is-not`
+            // forms) are resolved against the cell's enum type. Resolved
+            // idents are stamped `_bareVariantInferredAtBinaryExpr=true`
+            // and skipped by the subsequent `inferBareVariantsInExpr` walk —
+            // preventing a spurious E-VARIANT-AMBIGUOUS from the no-context
+            // branch when the let-decl has no annotation.
+            inferBareVariantsAtComparisonSites(initExprForScope, scopeChain, letSpan, errors);
             // B20 §14.10 / M9 — bare-variant inference at LHS let/const-decl
             // annotation. The annotation type drives bare-variant resolution
             // in the initializer. When NO annotation is present, the writer
@@ -4673,6 +4682,16 @@ function annotateNodes(
             // (CallExpr root with member callee). The cell's enum/union type
             // supplies the contextType per §14.10 normative position #2.
             inferReactiveSiteBareVariants(beExprNode, scopeChain, beSpan, errors);
+            // S84 v0.2.4 #5 — bare-variant inference at binary-comparison
+            // positions inside a bare-expr (e.g. an `if` condition that the
+            // parser surfaces as bare-expr, or a free-standing comparison
+            // expression). Stamps `_bareVariantInferredAtBinaryExpr=true` on
+            // resolved idents so any downstream walker that would otherwise
+            // fire E-VARIANT-AMBIGUOUS on the same bare variant defers.
+            // Idempotent w.r.t. `inferReactiveSiteBareVariants` — the Bug 7
+            // helper handles assign/call ROOT shapes only and does not visit
+            // binary-expr nodes; this helper covers the disjoint case.
+            inferBareVariantsAtComparisonSites(beExprNode, scopeChain, beSpan, errors);
           }
         }
         // E-ERROR-002 (§19.4.3): a bare call to a failable function at top-level
@@ -5989,6 +6008,17 @@ function inferBareVariantsInExpr(
     const variantName = raw.slice(1);
     if (!/^[A-Z][A-Za-z0-9_]*$/.test(variantName)) return;
 
+    // §14.10 binary-expr comparison position (S84 v0.2.4 #5): if a prior
+    // pre-pass at `inferBareVariantsAtComparisonSites` has already resolved
+    // this bare-variant ident against the comparison's reactive-cell type,
+    // honor the resolution and skip — re-emitting against `contextType`
+    // (which may be `null` for unannotated `let` / `const`) would produce a
+    // spurious E-VARIANT-AMBIGUOUS. The flag is set by the pre-pass when
+    // BOTH operands meet the binary-comparison shape AND the cell's
+    // resolvedType is enum/union; non-matching shapes leave the flag unset
+    // and the normal `contextType`-driven path runs unchanged.
+    if ((ident as Record<string, unknown>)._bareVariantInferredAtBinaryExpr === true) return;
+
     // Determine the enum that should contain this variant from contextType.
     // Resolution rules (mirrored from §14.10 normative statements):
     //   - null / asIs / unknown / non-enum / non-union → no type context.
@@ -6186,6 +6216,312 @@ function inferReactiveSiteBareVariants(
   }
 
   // No matching shape — silent fall-through.
+}
+
+/**
+ * S84 v0.2.4 #5 — bare-variant inference at binary-expression comparison
+ * positions. Companion to `inferReactiveSiteBareVariants` (Bug 7 — reassignment
+ * shapes) and `inferBareVariantsInExpr` (LHS-declared positions).
+ *
+ * §14.10 enumerates SIX explicit bare-variant inference positions:
+ *   1. state-decl LHS annotation: `<x>: T = .V`
+ *   2. reactive-write reassignment: `@cell = .V where @cell: T` (Bug 7)
+ *   3. function parameter type
+ *   4. function return type
+ *   5. match on-expression type (`<match for=T> | .V => ...`)
+ *   6. engine `for=T` qualifier
+ *
+ * The trailing clause of §14.10 line 7291 — "or any other position where the
+ * type is fixed by the surrounding declaration" — extends the inference rule
+ * to the IMPLICIT seventh position: a binary comparison where one operand is
+ * a reactive cell whose type is statically known. The LHS cell's type fixes
+ * the variant context for the bare `.V` on the other side:
+ *
+ *   `@phase == .Loading`     // @phase: Phase → .Loading resolves vs Phase
+ *   `.Loading == @phase`     // symmetric
+ *   `@phase != .Loading`     // inequality — same context fix
+ *
+ * Per §45.5 `==` (value equality) is distinct from `is` (variant tag check),
+ * BUT both fix the variant context from the cell's enum type — the position
+ * type IS the same in both. This helper handles `==`/`!=` (§45). The `is`
+ * family is structurally identical at the AST level; this helper accepts
+ * `is` / `is-not` operators alongside `==` / `!=` so that
+ * `let x = @phase is .Loading` does not spuriously fire E-VARIANT-AMBIGUOUS
+ * when called from positions (let-decl / const-decl / bare-expr) that do not
+ * otherwise carry a typed context. The diagnostic semantics for `is` proper
+ * (`E-TYPE-062` on non-enum LHS) are owned by `checkIsExpressions` and run
+ * independently.
+ *
+ * Ordered comparisons `<`, `<=`, `>`, `>=` are NOT handled here. Per the
+ * brief, scrml admits ordered comparisons on `number`/`string` only; enums
+ * do not carry an order relation, so `@phase < .Loading` is meaningless at
+ * the type level. If a future spec amendment lifts that restriction, this
+ * helper's operator set extends naturally.
+ *
+ * **Walker placement:** Invoked from the same call sites that already invoke
+ * `inferBareVariantsInExpr`:
+ *
+ *   - let-decl / const-decl init expressions (line ~4356-4378)
+ *   - bare-expr top-level expressions (line ~4671-4675)
+ *
+ * The helper runs BEFORE `inferBareVariantsInExpr`; when it cleanly resolves
+ * a bare-variant ident, it stamps `_bareVariantInferredAtBinaryExpr=true`
+ * (non-enumerable, mirroring B3's `_resolvedStateCell` convention) on the
+ * ident node. `inferBareVariantsInExpr` checks the flag and skips the ident,
+ * preventing a spurious second diagnostic from the no-type-context branch.
+ *
+ * **Silent fall-through cases (no flag stamp, normal path runs):**
+ *   - Cell ident does not resolve in scope.
+ *   - Cell resolvedType is not enum / not union (the comparison is type-
+ *     mismatched; `E-TYPE-062` or `E-EQ-*` upstream owns the report).
+ *   - Operator is not in the supported set (already-handled positions).
+ *   - Bare-variant shape is malformed (defensive).
+ *
+ * Spec authority:
+ *   §14.10 line 7291 — "any other position where the type is fixed"
+ *   §45.5         — `==` vs `is` distinction (both fix the context)
+ *   §34          — E-VARIANT-AMBIGUOUS catalog row
+ */
+function inferBareVariantsAtComparisonSites(
+  exprNode: unknown,
+  scopeChain: ScopeChain,
+  span: Span,
+  errors: TSError[],
+): void {
+  if (!exprNode || typeof exprNode !== "object") return;
+
+  /** Resolve `@name` → enum/union ResolvedType from scopeChain, or null. */
+  const resolveReactiveCellType = (cellRef: string): ResolvedType | null => {
+    const entry = scopeChain.lookup(cellRef) as
+      | { kind?: string; resolvedType?: ResolvedType }
+      | undefined;
+    if (!entry || entry.kind !== "reactive" || !entry.resolvedType) return null;
+    const rt = entry.resolvedType;
+    if (rt.kind === "enum" || rt.kind === "union") return rt;
+    return null;
+  };
+
+  /**
+   * True if `node` is an `@`-prefixed IdentExpr that resolves to a reactive
+   * cell whose resolvedType is enum or union. Returns the resolved type
+   * (for use as contextType), or null on miss.
+   */
+  const resolveReactiveOperand = (node: unknown): ResolvedType | null => {
+    if (!node || typeof node !== "object") return null;
+    const n = node as { kind?: string; name?: string };
+    if (n.kind !== "ident" || typeof n.name !== "string") return null;
+    if (!n.name.startsWith("@")) return null;
+    return resolveReactiveCellType(n.name);
+  };
+
+  /**
+   * True if `node` is a bare-variant IdentExpr (`.Variant` — leading dot
+   * followed by uppercase identifier). Returns the variant name without
+   * the dot, or null on miss.
+   */
+  const matchBareVariantIdent = (node: unknown): string | null => {
+    if (!node || typeof node !== "object") return null;
+    const n = node as { kind?: string; name?: string };
+    if (n.kind !== "ident" || typeof n.name !== "string") return null;
+    const raw = n.name;
+    if (raw.length < 2 || raw[0] !== ".") return null;
+    const variantName = raw.slice(1);
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(variantName)) return null;
+    return variantName;
+  };
+
+  /**
+   * The supported operator set for comparison-position inference. `is` and
+   * `is-not` are included because their structural shape at the AST level is
+   * identical (`binary { op, left, right }` with `right` carrying the bare
+   * variant). The semantic distinction between `==` and `is` (§45.5) is
+   * orthogonal to the type-context-fix rule that drives this helper.
+   */
+  const isComparisonOp = (op: unknown): boolean => {
+    return op === "==" || op === "!=" || op === "is" || op === "is-not";
+  };
+
+  /**
+   * Stamp a non-enumerable flag on the bare-variant ident so the subsequent
+   * `inferBareVariantsInExpr` walk skips it. Mirrors B3's `_resolvedStateCell`
+   * convention (defineProperty + non-enumerable + configurable + writable).
+   */
+  const stampInferredFlag = (ident: object): void => {
+    Object.defineProperty(ident, "_bareVariantInferredAtBinaryExpr", {
+      value: true,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+  };
+
+  /**
+   * Resolve a single bare-variant ident against the supplied enum/union
+   * contextType. Mirrors the diagnostics emitted by `inferBareVariantsInExpr`
+   * (E-TYPE-063 on unknown-in-enum, E-VARIANT-AMBIGUOUS on union ambiguity,
+   * E-TYPE-063 on union-none-declared). The contract here is narrower than
+   * the LHS-declared path: we already know `contextType` is enum or union
+   * (resolveReactiveOperand only returns those kinds), so the null / asIs /
+   * non-enum / non-union branches are unreachable.
+   */
+  const resolveBareVariantAgainstCellType = (
+    ident: object,
+    variantName: string,
+    contextType: ResolvedType,
+  ): void => {
+    if (contextType.kind === "enum") {
+      const enumType = contextType as EnumType;
+      const has = (enumType.variants ?? []).some((v) => v.name === variantName);
+      if (!has) {
+        const known = (enumType.variants ?? []).map((v) => "." + v.name).join(", ");
+        errors.push(new TSError(
+          "E-TYPE-063",
+          `E-TYPE-063: \`.${variantName}\` is not a declared variant of enum ` +
+          `\`${enumType.name}\`. Known variants: ${known || "(none)"}. ` +
+          `Check for a typo or add the variant to the enum declaration (§42).`,
+          span,
+        ));
+      }
+      // Stamp the flag whether the variant resolved cleanly or fired E-TYPE-063 —
+      // either way, the diagnostic is final for this ident and the outer walk
+      // must not also fire E-VARIANT-AMBIGUOUS for the same node.
+      stampInferredFlag(ident);
+      return;
+    }
+
+    if (contextType.kind === "union") {
+      const enumMembers = (contextType as UnionType).members.filter(
+        (m: ResolvedType) => m.kind === "enum",
+      ) as EnumType[];
+      const declarers = enumMembers.filter(
+        (em) => (em.variants ?? []).some((v) => v.name === variantName),
+      );
+      if (declarers.length === 0) {
+        if (enumMembers.length > 0) {
+          const enumNames = enumMembers.map((em) => em.name).join(", ");
+          errors.push(new TSError(
+            "E-TYPE-063",
+            `E-TYPE-063: \`.${variantName}\` is not a declared variant of any enum in ` +
+            `\`${enumNames}\`. Check for a typo or add the variant to one of the enum declarations (§42).`,
+            span,
+          ));
+        }
+        // Stamp the flag; the upstream LHS-driven path must not re-fire on
+        // the same ident from its own no-context branch.
+        stampInferredFlag(ident);
+        return;
+      }
+      if (declarers.length > 1) {
+        const declarerNames = declarers.map((em) => em.name).join(", ");
+        errors.push(new TSError(
+          "E-VARIANT-AMBIGUOUS",
+          `E-VARIANT-AMBIGUOUS: Bare variant \`.${variantName}\` is ambiguous in union-typed ` +
+          `context. Multiple union members declare \`.${variantName}\`: ${declarerNames}. ` +
+          `Qualify the variant — write \`${declarers[0].name}.${variantName}\` or one of the ` +
+          `other enum names — to disambiguate (§14.10).`,
+          span,
+        ));
+        stampInferredFlag(ident);
+        return;
+      }
+      // Exactly one declarer — silent.
+      stampInferredFlag(ident);
+      return;
+    }
+    // Unreachable: resolveReactiveCellType only returns enum/union.
+  };
+
+  /**
+   * Node-aware walk over the expression tree. At every binary-expr with a
+   * supported comparison op, inspect both operands; if one is a reactive cell
+   * (resolvable to enum/union) and the other is a bare-variant ident, resolve.
+   * Recurse into every child branch so nested comparisons (`@a == .A && @b == .B`)
+   * are all visited.
+   */
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const n = node as { kind?: string } & Record<string, unknown>;
+
+    if (n.kind === "binary" && isComparisonOp(n.op)) {
+      const leftCellType = resolveReactiveOperand(n.left);
+      const rightCellType = resolveReactiveOperand(n.right);
+
+      // Pattern A: @cell <op> .V   — LHS cell, RHS bare variant.
+      if (leftCellType && n.right) {
+        const variantName = matchBareVariantIdent(n.right);
+        if (variantName !== null) {
+          resolveBareVariantAgainstCellType(n.right as object, variantName, leftCellType);
+        }
+      }
+      // Pattern B: .V <op> @cell   — RHS cell, LHS bare variant.
+      if (rightCellType && n.left) {
+        const variantName = matchBareVariantIdent(n.left);
+        if (variantName !== null) {
+          resolveBareVariantAgainstCellType(n.left as object, variantName, rightCellType);
+        }
+      }
+    }
+
+    // Recurse into every child branch. The set mirrors `forEachIdentInExprNode`
+    // (expression-parser.ts:2200+) so nested comparisons inside binary, logical,
+    // ternary, assign, member, call, etc. are all visited.
+    if (n.kind === "binary" || n.kind === "assign") {
+      walk((n as Record<string, unknown>).left);
+      walk((n as Record<string, unknown>).right);
+      walk((n as Record<string, unknown>).target);
+      walk((n as Record<string, unknown>).value);
+      return;
+    }
+    if (n.kind === "ternary") {
+      walk((n as Record<string, unknown>).condition);
+      walk((n as Record<string, unknown>).consequent);
+      walk((n as Record<string, unknown>).alternate);
+      return;
+    }
+    if (n.kind === "unary") {
+      walk((n as Record<string, unknown>).argument);
+      return;
+    }
+    if (n.kind === "member") {
+      walk((n as Record<string, unknown>).object);
+      return;
+    }
+    if (n.kind === "index") {
+      walk((n as Record<string, unknown>).object);
+      walk((n as Record<string, unknown>).index);
+      return;
+    }
+    if (n.kind === "call") {
+      walk((n as Record<string, unknown>).callee);
+      const args = (n as Record<string, unknown>).args;
+      if (Array.isArray(args)) for (const a of args) walk(a);
+      return;
+    }
+    if (n.kind === "array") {
+      const elements = (n as Record<string, unknown>).elements;
+      if (Array.isArray(elements)) for (const e of elements) walk(e);
+      return;
+    }
+    if (n.kind === "object") {
+      const props = (n as Record<string, unknown>).properties;
+      if (Array.isArray(props)) {
+        for (const p of props) {
+          if (p && typeof p === "object") {
+            walk((p as Record<string, unknown>).value);
+            walk((p as Record<string, unknown>).argument); // spread
+          }
+        }
+      }
+      return;
+    }
+    // ident / lit / placeholder / paren / etc — no comparison-position children.
+    if (n.kind === "paren") {
+      walk((n as Record<string, unknown>).expr);
+      return;
+    }
+  };
+
+  walk(exprNode);
 }
 
 // ---------------------------------------------------------------------------
