@@ -3720,9 +3720,10 @@ poll body has no observable data-loading effect).
 - If the poll body contains exactly one assignment expression (`@variable = expr`),
   `<#id>.value` reflects the value most recently assigned by that expression.
 - If the poll body contains zero assignment expressions or more than one assignment
-  expression, `<#id>.value` is `undefined`. The compiler SHALL emit W-LIFECYCLE-008
-  when a `<poll>` body contains multiple assignment expressions, because the developer
-  may believe `.value` reflects one of them when it will be `undefined` for all.
+  expression, `<#id>.value` is `not` (the scrml absence sentinel; §42). The compiler
+  SHALL emit W-LIFECYCLE-008 when a `<poll>` body contains multiple assignment
+  expressions, because the developer may believe `.value` reflects one of them when
+  it will be `not` for all.
 - If the body calls a server function and the call fails, `value` retains its previous
   value. The error propagates through the poll body's error context (§19).
 
@@ -3748,7 +3749,7 @@ All normative statements for `<timer>` (§6.7.5) apply to `<poll>`.
 - The compiler SHALL emit W-LIFECYCLE-004 if a `<poll>` body contains no function call.
 - `<#id>.value` SHALL reflect the value of the most recent single-assignment expression
   in the poll body. If the body contains zero or multiple assignment expressions, `value`
-  SHALL be `undefined`.
+  SHALL be `not` (the scrml absence sentinel; §42).
 - The compiler SHALL emit W-LIFECYCLE-008 if a `<poll>` body contains multiple assignment
   expressions.
 
@@ -4330,7 +4331,7 @@ reads inside an `animationFrame` callback body.
 | W-LIFECYCLE-005 | `<timer>` or `<poll>` body calls a server function and `interval` < 500ms | Warning |
 | W-LIFECYCLE-006 | `when` body sole effect is a single `@variable` assignment whose RHS is a pure `@variable` expression; a derived value is strictly superior | Warning |
 | W-LIFECYCLE-007 | `running=false` boolean literal on `<timer>` or `<poll>` | Warning |
-| W-LIFECYCLE-008 | `<poll>` body contains multiple assignment expressions (`.value` will be `undefined`) | Warning |
+| W-LIFECYCLE-008 | `<poll>` body contains multiple assignment expressions (`.value` will be `not` — §42) | Warning |
 | W-LIFECYCLE-009 | `cleanup()` inside a `for` loop body (N registrations will be created) | Warning |
 | W-LIFECYCLE-010 | `when` block has an empty body | Warning |
 | H-LIFECYCLE-001 | `@variable` read inside `when` body is not in the `dep-list` (off by default; suppressed by `reads @var` annotation) | Hint |
@@ -4844,7 +4845,7 @@ When `default=` is present, calling `reset(@cell)` evaluates the `default=` expr
 **Normative statements:**
 
 - `default=` SHALL be an optional attribute on any state-cell declaration (`<name ...> = init`).
-- `default=` is an attribute-value-bearing form (`default=<expr>`); the attribute REQUIRES a value. The canonical scrml form for "reset to absence" is `default=not` (§42 Optional bare-sentinel form). The token `null` is NOT a valid value for `default=` — it is rejected via `E-SYNTAX-042` and surfaced informationally via `W-NULL-IN-SCRML-SOURCE` (§34).
+- `default=` is an attribute-value-bearing form (`default=<expr>`); the attribute REQUIRES a value. The canonical scrml form for "reset to absence" is `default=not` (§42 Optional bare-sentinel form). The tokens `null` and `undefined` are NOT valid values for `default=` — they are rejected via `E-SYNTAX-042` and surfaced informationally via `W-ABSENCE-IN-SCRML-SOURCE` (§34).
 - The `default=` expression SHALL be evaluated AT RESET TIME, not at declaration time. The attribute stores the expression, not a snapshot.
 - If `default=` is absent, `reset(@cell)` SHALL re-evaluate the init expression at reset time and write the result to the cell.
 - `default=` on a `const` derived declaration is **E-DERIVED-WRITE** (assigning to a derived cell is always a write error; reset on derived cells is also an error for the same reason).
@@ -10461,7 +10462,7 @@ match role {
 ```
 
 Compiles. Emits W-MATCH-002: non-exhaustive string match; a role value other than
-`"admin"` or `"editor"` will produce `undefined`. Consider adding an `else` arm.
+`"admin"` or `"editor"` will produce `not` (the scrml absence sentinel; §42). Consider adding an `else` arm.
 
 **Worked example — valid (string match with `_`):**
 
@@ -14702,7 +14703,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-CHANNEL-SHARED-MODIFIER | §38.4 | The `@shared` modifier is used in the source. The modifier is removed in v0.next (M19); reactive cells declared inside a channel body auto-sync by virtue of being declared in the channel body. Remove the `@shared` keyword and use `<name> = init` (V5-strict). | Error |
 | W-PROGRAM-REDUNDANT-LOGIC | §40.8 | (v0.3 Wave 1, info-level) A `<program>` body wraps top-level declarations in a redundant `${...}` logic block. Under v0.3, `<program>` body parses in default-logic mode — bare top-level declarations (`<x> = 0`, `function f() { ... }`) auto-lift to the logic context without explicit `${...}` wrapping. Remove the redundant `${...}` for cleaner source. **Deprecation cycle:** warning in v0.3; v0.4 escalates to error per Q5. | Warning |
 | W-PROGRAM-SPA-INFERRED | §40.8.1 | (v0.3, info-level) The compiler has inferred SPA (single-page application) shape from the filesystem: the entry file declares a top-level `<program>` element, the `<program>` body contains zero `<page>` siblings, and no `pages/` directory exists at the project root. If SPA is your intent, this lint is informational only — no action required. If you intended a multi-page app, add `<page>` declarations to the entry-file `<program>` body or create a `pages/` directory at the project root. To suppress this lint, create an empty `pages/` directory at the project root (signals adopter awareness of the multi-page option). Per §40.8.1 the SPA-vs-multi-page-app shape is filesystem-inferred exclusively; no `<program spa>` boolean attribute exists. | Info |
-| W-NULL-IN-SCRML-SOURCE | §42.1, §6.8, §34 | (v0.3, info-level — S89 regression-guard) The compiler detected the token `null` (or `undefined`) in a scrml source position. Per §42.1, `null` and `undefined` are NOT valid scrml identifiers, value-position literals, type-position tokens, or attribute values — the canonical scrml absence sentinel is `not` (§42 Optional bare-sentinel form). The hard-error counterpart is `E-SYNTAX-042` (rejected at compile time per §42.7). This info-level lint surfaces the appearance at code-review and IDE-hover positions for cases the hard-error path may not yet catch (cross-file partials, foreign-code fragments, partial-paste regions, generated fixtures). Resolution: replace the offending `null` / `undefined` with `not`; for the attribute-default form see §6.8 (`default=not` is the canonical absence form); for the JS-interop boundary see §42.9 (foreign `null` / `undefined` is normalised to `not` on assignment to a scrml variable, no source edit required). Suppression: there is no suppression — the lint mirrors §42's canonical rule. JS-host interop contexts (`^{}` meta blocks bodies, `_{}` foreign-code blocks, codegen-emitted JavaScript fragments, SQL DDL `not null`, wire-format JSON literal descriptions) are NOT scrml source positions and SHALL NOT trigger this lint. Cross-ref §42.1 for the canonical rule, §42.7 for the hard-error rejection list, §6.8.1 for the attribute-default pattern, §42.9 for the JS interop normalisation, and `E-SYNTAX-042` (above) for the corresponding hard error. (Catalog addition S89 — null-eradication 2026-05-13.) | Info |
+| W-ABSENCE-IN-SCRML-SOURCE | §42.1, §6.8, §34 | (v0.3, info-level — S89 regression-guard) The compiler detected an absence-token (`null` or `undefined`) in a scrml source position. Per §42.1, `null` and `undefined` are NOT valid scrml identifiers, value-position literals, type-position tokens, or attribute values — the canonical scrml absence sentinel is `not` (§42 Optional bare-sentinel form). The hard-error counterpart is `E-SYNTAX-042` (rejected at compile time per §42.7). This info-level lint surfaces the appearance at code-review and IDE-hover positions for cases the hard-error path may not yet catch (cross-file partials, foreign-code fragments, partial-paste regions, generated fixtures). Resolution: replace the offending `null` / `undefined` with `not`; for the attribute-default form see §6.8 (`default=not` is the canonical absence form); for the JS-interop boundary see §42.9 (foreign `null` / `undefined` is normalised to `not` on assignment to a scrml variable, no source edit required). Suppression: there is no suppression — the lint mirrors §42's canonical rule. JS-host interop contexts (`^{}` meta blocks bodies, `_{}` foreign-code blocks, codegen-emitted JavaScript fragments, SQL DDL `not null`, wire-format JSON literal descriptions) are NOT scrml source positions and SHALL NOT trigger this lint. Cross-ref §42.1 for the canonical rule, §42.7 for the hard-error rejection list, §6.8.1 for the attribute-default pattern, §42.9 for the JS interop normalisation, and `E-SYNTAX-042` (above) for the corresponding hard error. (Catalog addition S89 — null-eradication 2026-05-13; renamed from `W-NULL-IN-SCRML-SOURCE` by S89 undefined-eradication dispatch 2026-05-13 — the rule covers BOTH absence tokens, so the code name now mirrors the rule shape.) | Info |
 | E-CLOSER-001 | §4.14 | A tag uses `:`-shorthand body but ALSO has an explicit closer (`</>`, `/`, `/>`). Choose one form: `:`-shorthand has no closer; bare-body uses a closer; self-closing has no body. (Stage 0b D4) | Error |
 | E-NAME-COLLIDES-RESERVED | §4.15, §24.4 | A user-declared component or state-type name collides with a reserved scrml structural-element identifier (`engine`, `match`, `errors`, `onTransition` — case-sensitive at registry level). (Stage 0b D4) | Error |
 | E-STRUCTURAL-ELEMENT-MISPLACED | §4.15, §51.0.H, §51.0.M, §55.8 | A scrml-defined structural element is used outside its owning locus. Specific cases: `<onTransition>` outside `<engine>`; `<onTimeout>` outside an engine state-child (S67 — §51.0.M); `<errors>` without a parent context that supports it; etc. The owning section's error subsection documents the precise condition. (Stage 0b D4; S67 amendment.) | Error |
@@ -14816,7 +14817,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-TYPE-042 | §17.6, §45 | Absence checked with `== not`, `=== not`, `== null`, etc. The only normative absence check is `x is not`. (Catalog addition S78 audit; emitted at `compiler/src/codegen/rewrite.ts:669`.) | Error |
 | E-TYPE-045 | §17.6 | `not` used in prefix position as a boolean negation operator (`not (expr)`). `not` is the absence value, not a negation operator — use `!` for boolean negation. (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:5556`.) | Error |
 | E-TYPE-071 | §16.8, §15.14 | `render` invocation appears outside a markup-producing context (component body or markup-typed position). `render` is only valid where its output is consumed as markup. (Catalog addition S78 audit; emitted at `compiler/src/codegen/rewrite.ts:1398`.) | Error |
-| E-TYPE-081 | §18.16 | `partial match` used in a rendering or `lift` context. `partial match` returns a possibly-undefined value, which is incoherent in positions that must produce concrete markup. Resolution: cover all variants, or convert to a value-position match. (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:3753, 4838`.) | Error |
+| E-TYPE-081 | §18.16 | `partial match` used in a rendering or `lift` context. `partial match` returns `T | not` (a possibly-`not` value; §42), which is incoherent in positions that must produce concrete markup. Resolution: cover all variants, or convert to a value-position match. (Catalog addition S78 audit; emitted at `compiler/src/type-system.ts:3753, 4838`.) | Error |
 | E-PROTECT-003 | §8.10.7 | A `BatchPlan.rowCacheColumns` entry includes a `protect` column that also appears in the handler's client-visible return type. Protected fields must not leak to client-visible cache rows. (Catalog addition S78 audit; emitted at `compiler/src/batch-planner.ts:552`.) | Error |
 | E-SYNTAX-042 | §17.6, §45 | `null` or `undefined` appears in a scrml value position. scrml's absence sentinel is `not`; `null`/`undefined` are not valid scrml literals. (Catalog addition S78 audit; emitted at `compiler/src/gauntlet-phase3-eq-checks.js:519, 613`.) | Error |
 | E-SYNTAX-043 | §17.6 | `(x) =>` presence-guard syntax used — replaced by `given x =>`. The old form is removed from the language. (Catalog addition S78 audit; emitted at `compiler/src/ast-builder.js:5002, 7661`.) | Error |
@@ -18230,7 +18231,7 @@ scrml defines a single canonical value for the absence of a meaningful value: `n
 
 **Canonical rule (S89 — strongest form):** The token `null` is NOT a valid scrml expression, attribute value, type token, or identifier. The token `undefined` is NOT a valid scrml expression, attribute value, type token, or identifier. The canonical scrml absence sentinel is `not` (Optional bare-sentinel form — see §42.2.1 for assignment, §42.2.2 for absence-check, §42.3.1 for the `T | not` optional union type, §42.4 for `if=` falsy semantics, §6.8.1 for the `default=not` attribute form).
 
-**Compilers MUST emit `W-NULL-IN-SCRML-SOURCE` info-level lint (§34) on any `null` or `undefined` token in user scrml source.** This is the regression-guard companion to the hard-error path `E-SYNTAX-042` (§42.7). The lint surfaces the appearance at code-review and IDE-hover positions for cases the hard-error walker may not yet catch (cross-file partials, foreign-code fragments, partial-paste regions, generated fixtures).
+**Compilers MUST emit `W-ABSENCE-IN-SCRML-SOURCE` info-level lint (§34) on any `null` or `undefined` token in user scrml source.** This is the regression-guard companion to the hard-error path `E-SYNTAX-042` (§42.7). The lint surfaces the appearance at code-review and IDE-hover positions for cases the hard-error walker may not yet catch (cross-file partials, foreign-code fragments, partial-paste regions, generated fixtures). *(Code renamed from `W-NULL-IN-SCRML-SOURCE` by S89 undefined-eradication dispatch 2026-05-13; the rule covers BOTH absence tokens.)*
 
 **Exclusions (NOT scrml source positions — these do NOT trigger the lint or the hard error):**
 
@@ -18245,6 +18246,40 @@ scrml defines a single canonical value for the absence of a meaningful value: `n
 **JS-host interop boundary (§42.9):** When a JavaScript `null` or `undefined` value crosses the boundary into a scrml variable (via `^{}`, `_{}`, `?{}` SQL, server-function return, or a `use foreign:` import), it is normalised to `not` on assignment. The scrml-side variable holds `not`, NOT the JS literal. No source edit is required at the assignment site.
 
 `not` is both a value and a type. As a type, it is a singleton bottom type whose only member is the value `not`.
+
+#### 42.1.1 Defined Values vs. Absence — `""` is NOT Absence
+
+**Added:** S89, 2026-05-13. User voice (verbatim, strongest terms): "null does NOT EXIST IN SCRML! and never will! yes this extends to undefined. `""` is still defined. it is a string, it is empty but a string none the less".
+
+The canonical rule (§42.1) forbids the absence tokens `null` and `undefined` and routes ALL absence through `not`. This subsection clarifies what is **NOT** absence — which values are DEFINED and SHALL NOT be migrated to `not`.
+
+**Normative statements:**
+
+- The empty string `""` is a DEFINED value — a string of length zero. It IS a `string`. It is NOT absence. A cell containing `""` `is some` (per §42.2.2a) — the cell holds a value.
+- The numeric zero `0` is a DEFINED value — a `number` whose magnitude is zero. It is NOT absence.
+- The boolean `false` is a DEFINED value — a `boolean` whose truth value is false. It is NOT absence.
+- The empty array `[]` is a DEFINED value — an `Array<T>` of length zero. It is NOT absence.
+- The empty object `{}` is a DEFINED value — an object literal with zero fields. It is NOT absence.
+- Migrating any of `""`, `0`, `false`, `[]`, `{}` to `not` SHALL be considered a SEMANTIC ERROR. These defined values represent presence with a particular shape; `not` represents absence. The two are categorically distinct.
+
+**The single absence sentinel:** Only the token `not` represents absence in scrml. JS-host values `null` and `undefined` arriving via interop are normalised to `not` on the scrml side (§42.9); they do NOT survive the boundary. No other value — empty string, zero, false, empty collection — represents absence.
+
+**Predicate consequences (cross-ref §42.2.5):**
+
+| Value | `is some` | `is not` | `req` |
+|---|---|---|---|
+| `not` | FALSE | TRUE | FALSE |
+| `""` | TRUE (defined) | FALSE | FALSE (rejects empty) |
+| `0` | TRUE | FALSE | TRUE (req on numbers does not reject 0; §55.1) |
+| `false` | TRUE | FALSE | TRUE (req on booleans does not reject false; §55.1) |
+| `[]` | TRUE | FALSE | implementation-defined (cross-ref §55.1 collection predicates) |
+| `{}` | TRUE | FALSE | implementation-defined |
+| `"hello"` | TRUE | FALSE | TRUE |
+| `42` | TRUE | FALSE | TRUE |
+
+`is some` answers "does the cell hold a value?" — defined values (including empty ones) answer TRUE. `is not` answers "is the cell empty of value?" — only `not` answers TRUE. `req` answers "is the value MEANINGFUL?" — and rejects the empty string specifically (§42.2.5, §55.1).
+
+**Audit guidance (S89 migration sweeps):** Sweeps that mechanically rewrite `null`/`undefined` to `not` SHALL NOT touch any of `""`, `0`, `false`, `[]`, `{}`. These are NOT absence tokens; rewriting them is a semantic-meaning change, not a naming-token change. Cross-ref §42.7 enumerated source-shape categories — those categories list `null` and `undefined` tokens specifically, NOT the defined-value forms above.
 
 ### 42.2 Syntax
 
@@ -18442,7 +18477,7 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 | Code | Trigger | Severity |
 |---|---|---|
 | E-SYNTAX-042 | `null` or `undefined` appears in scrml value position | Error |
-| W-NULL-IN-SCRML-SOURCE | `null` or `undefined` token detected in scrml source (regression-guard info lint companion to E-SYNTAX-042 — see §34 row for the full reject grammar and exclusion list) | Info |
+| W-ABSENCE-IN-SCRML-SOURCE | `null` or `undefined` token detected in scrml source (regression-guard info lint companion to E-SYNTAX-042 — see §34 row for the full reject grammar and exclusion list) | Info |
 | E-SYNTAX-043 | `(x) =>` presence guard syntax used — replaced by `given x =>` | Error |
 | E-SYNTAX-044 | Property path in `given` position (reserved; not yet supported) | Error |
 | E-TYPE-041 | `not` assigned to a variable of non-optional type `T` | Error |
@@ -18456,8 +18491,8 @@ A function that may return no value SHALL declare its return type as `T | not`. 
 
 - `not` SHALL be the only value representing absence in scrml source.
 - `null` and `undefined` SHALL NOT be valid scrml source tokens in value position.
-- The canonical attribute-default form for "reset to absence" is `default=not` (§6.8.1). The token `null` in attribute-value position is rejected via `E-SYNTAX-042` and surfaced informationally via `W-NULL-IN-SCRML-SOURCE` (§34).
-- Compilers SHALL emit `W-NULL-IN-SCRML-SOURCE` (Info, §34) on any `null` or `undefined` token detected in scrml source, EXCLUDING the JS-host-interop / SQL-DDL / wire-format positions enumerated in §42.1 and in the §34 row text. The lint and `E-SYNTAX-042` are companion paths — the lint surfaces the appearance; the hard error rejects it. Adopters are expected to migrate flagged sites to `not`.
+- The canonical attribute-default form for "reset to absence" is `default=not` (§6.8.1). The tokens `null` and `undefined` in attribute-value position are rejected via `E-SYNTAX-042` and surfaced informationally via `W-ABSENCE-IN-SCRML-SOURCE` (§34).
+- Compilers SHALL emit `W-ABSENCE-IN-SCRML-SOURCE` (Info, §34) on any `null` or `undefined` token detected in scrml source, EXCLUDING the JS-host-interop / SQL-DDL / wire-format positions enumerated in §42.1 and in the §34 row text. The lint and `E-SYNTAX-042` are companion paths — the lint surfaces the appearance; the hard error rejects it. Adopters are expected to migrate flagged sites to `not`.
 - The rejection of `null` / `undefined` (E-SYNTAX-042) SHALL apply uniformly across **every** scrml source position. Two source-shape categories are rejected:
 
   **(1) As a comparison operand** of `==` / `!=` / `===` / `!==`. (Closed by W3 — F-NULL-001 / F-NULL-002 walker-asymmetry fix, 2026-04-30.) Positions:
