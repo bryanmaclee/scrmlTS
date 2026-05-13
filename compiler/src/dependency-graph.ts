@@ -2101,7 +2101,95 @@ export function runDG(input: DGInput): DGOutput {
         const engineMeta = record?.engineMeta as Record<string, unknown> | undefined;
         const varName = engineMeta?.varName;
         if (typeof varName === "string" && varName.length > 0) {
+          // A-1.3 additive: sentinel credit preserved for E-DG-002.
           creditReader(varName);
+          // A-1.5 Shape 3 — engine-cell self-read. The engine block structurally
+          // reads its own cell (it renders variant arms based on the cell value).
+          // Lift that structural read to a real markup-read edge so A-2's closure
+          // analysis sees the engine as a consumer of its own cell.
+          if (markupContextEmitEdges && node.span) {
+            emitMarkupReadEdge(node.span, varName);
+          }
+        }
+        // A-1.5 Shape 1 — engine state-child body raw text.
+        // The engine body lives in engineMeta.stateChildren[i].bodyRaw (raw
+        // text, not walkable AST — see engine-statechild-parser.ts, primer §13.7 B14).
+        // Regex-scan each state-child's bodyRaw for @var refs and emit
+        // markup-read edges for each reactive var found.
+        const stateChildren = engineMeta?.stateChildren;
+        if (Array.isArray(stateChildren)) {
+          for (const sc of stateChildren as Array<Record<string, unknown>>) {
+            const bodyRaw = sc.bodyRaw;
+            if (typeof bodyRaw === "string" && bodyRaw.length > 0) {
+              const atRefs = bodyRaw.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+              if (atRefs) {
+                for (const ref of atRefs) {
+                  const scVarName = ref.slice(1);
+                  creditReader(scVarName);
+                  if (markupContextEmitEdges && node.span) {
+                    emitMarkupReadEdge(node.span, scVarName);
+                  }
+                }
+              }
+            }
+            // A-1.5 Shape 2 — <onTransition> body. Each <onTransition> element
+            // in the state-child may carry a bodyRaw with @var reads (e.g., a
+            // logic-context effect statement that reads a reactive cell).
+            const onTransitionElements = sc.onTransitionElements;
+            if (Array.isArray(onTransitionElements)) {
+              for (const ot of onTransitionElements as Array<Record<string, unknown>>) {
+                const otBodyRaw = ot.bodyRaw;
+                if (typeof otBodyRaw === "string" && otBodyRaw.length > 0) {
+                  const otRefs = otBodyRaw.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+                  if (otRefs) {
+                    for (const ref of otRefs) {
+                      const otVarName = ref.slice(1);
+                      creditReader(otVarName);
+                      if (markupContextEmitEdges && node.span) {
+                        emitMarkupReadEdge(node.span, otVarName);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            // A-1.5 Shape 2b — <onTimeout> computed after= form. The after= value
+            // may be a computed expression ${expr}<unit> (§51.12.3.1). Extract
+            // any @var refs from the expression portion.
+            const onTimeoutElements = sc.onTimeoutElements;
+            if (Array.isArray(onTimeoutElements)) {
+              for (const oto of onTimeoutElements as Array<Record<string, unknown>>) {
+                const afterVal = oto.after;
+                if (typeof afterVal === "string" && (afterVal as string).startsWith("${" )) {
+                  const afterRefs = (afterVal as string).match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+                  if (afterRefs) {
+                    for (const ref of afterRefs) {
+                      const afterVarName = ref.slice(1);
+                      creditReader(afterVarName);
+                      if (markupContextEmitEdges && node.span) {
+                        emitMarkupReadEdge(node.span, afterVarName);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        // A-1.5 Shape 2c — <onIdle> computed after= form. The engine-wide
+        // idle watchdog after= may also use the computed ${expr}<unit> form.
+        const idleWatchdog = engineMeta?.idleWatchdog as Record<string, unknown> | null | undefined;
+        if (idleWatchdog && typeof idleWatchdog.after === "string" && (idleWatchdog.after as string).startsWith("${" )) {
+          const idleRefs = (idleWatchdog.after as string).match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+          if (idleRefs) {
+            for (const ref of idleRefs) {
+              const idleVarName = ref.slice(1);
+              creditReader(idleVarName);
+              if (markupContextEmitEdges && node.span) {
+                emitMarkupReadEdge(node.span, idleVarName);
+              }
+            }
+          }
         }
       }
       // Explicitly walk meta block bodies — ^{} blocks can contain @var reads
