@@ -70,6 +70,21 @@ export function walkNode(node: unknown, visit: AstVisitor): void {
     return;
   }
 
+  // §17.1.1 if-chain (TAB-collapsed): branches:[{condition, element}], elseBranch
+  // The elements live inside branch records (not in `n.branches` directly as nodes),
+  // so the generic Array.isArray(n.branches) fallback would call walkNode on the
+  // {condition, element} record and silently fail to recurse into `element`.
+  // Special-case it so VP-2 catches residual user-component refs inside branches
+  // (Bug 2a backstop — parallel to component-expander.ts walkAndExpand fix).
+  if (kind === "if-chain") {
+    const branches = n.branches as Array<{ condition?: unknown; element?: unknown }> | undefined;
+    for (const b of branches ?? []) {
+      if (b && b.element) walkNode(b.element, visit);
+    }
+    if (n.elseBranch) walkNode(n.elseBranch, visit);
+    return;
+  }
+
   // for-stmt, for-expr, while-stmt, switch-stmt, match-stmt, match-expr: body
   if (
     kind === "for-stmt" ||

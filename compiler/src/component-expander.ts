@@ -2096,11 +2096,100 @@ function walkAndExpand(
       continue;
     }
 
+    // §17.1.1 if-chain (TAB-collapsed): {kind:"if-chain", branches:[{condition, element}], elseBranch}
+    // Component refs inside branches must be expanded — same shape as Bug 6 silent-drop:
+    // pre-fix, the walker fell through to the "pass through unchanged" tail and left
+    // `<MyComponent if=...>` as a literal user-component markup node, which downstream
+    // emit-html rendered as `<MyComponent />` text. Bug 2a / S87 Trio B fix.
+    if (node.kind === "if-chain") {
+      const ifChainNode = node as unknown as {
+        kind: "if-chain";
+        branches?: Array<{ condition: unknown; element: ASTNode }>;
+        elseBranch?: ASTNode | null;
+        [k: string]: unknown;
+      };
+      let chainChanged = false;
+      const newBranches = (ifChainNode.branches ?? []).map((branch) => {
+        const expandedElement = walkAndExpandSingleMarkup(
+          branch.element, registry, filePath, counter, ceErrors
+        );
+        if (expandedElement !== branch.element) {
+          chainChanged = true;
+          return { ...branch, element: expandedElement };
+        }
+        return branch;
+      });
+      let newElseBranch = ifChainNode.elseBranch ?? null;
+      if (newElseBranch) {
+        const expandedElse = walkAndExpandSingleMarkup(
+          newElseBranch, registry, filePath, counter, ceErrors
+        );
+        if (expandedElse !== newElseBranch) {
+          chainChanged = true;
+          newElseBranch = expandedElse;
+        }
+      }
+      if (chainChanged) {
+        result.push({ ...ifChainNode, branches: newBranches, elseBranch: newElseBranch } as unknown as ASTNode);
+      } else {
+        result.push(node);
+      }
+      continue;
+    }
+
     // All other node kinds: pass through unchanged
     result.push(node);
   }
 
   return result;
+}
+
+/**
+ * Expand a single markup node in a slot that requires single-node output
+ * (e.g. an if-chain branch's `element`). When the node is a user-component
+ * reference, expand it via `expandComponentNode` and take the first root
+ * (multi-root expansion in this slot is an edge case — first-root-only
+ * mirrors the lift-expr branch in walkLogicBody, see line ~2199).
+ * When the node is a regular markup wrapper, recurse into its children
+ * via walkAndExpand.
+ */
+function walkAndExpandSingleMarkup(
+  node: ASTNode,
+  registry: Map<string, RegistryEntry>,
+  filePath: string,
+  counter: NodeCounter,
+  ceErrors: CEError[]
+): ASTNode {
+  if (!node || typeof node !== "object") return node;
+
+  if (isUserComponentMarkup(node)) {
+    const expandedNodes = expandComponentNode(node as MarkupNode, registry, filePath, counter, ceErrors);
+    const expanded = expandedNodes[0];
+    if (!expanded || expanded === node) return node;
+    if (!isUserComponentMarkup(expanded)) {
+      // Recurse into the expanded body so any nested component refs get expanded too.
+      const expandedChildren = walkAndExpand(
+        (expanded as MarkupNode).children ?? [],
+        registry, filePath, counter, ceErrors
+      );
+      return { ...(expanded as MarkupNode), children: expandedChildren } as ASTNode;
+    }
+    return expanded;
+  }
+
+  if (node.kind === "markup" || node.kind === "state") {
+    const m = node as MarkupNode;
+    const newChildren = walkAndExpand(m.children ?? [], registry, filePath, counter, ceErrors);
+    const changed = newChildren.length !== (m.children ?? []).length ||
+      newChildren.some((c, i) => c !== (m.children ?? [])[i]);
+    if (changed) return { ...m, children: newChildren } as ASTNode;
+    return node;
+  }
+
+  // Other shapes (nested if-chain, etc.): defer to walkAndExpand by wrapping
+  // in a single-element array. Returns the first (and only) result.
+  const wrapped = walkAndExpand([node], registry, filePath, counter, ceErrors);
+  return wrapped[0] ?? node;
 }
 
 /**
@@ -2337,6 +2426,17 @@ function hasAnyComponentRefs(nodes: ASTNode[]): boolean {
     if (node.kind === "logic" && Array.isArray((node as LogicNode).body)) {
       if (hasAnyComponentRefsInLogic((node as LogicNode).body ?? [])) return true;
     }
+    // §17.1.1 if-chain: descend into branches[].element + elseBranch (Bug 2a fix).
+    if (node.kind === "if-chain") {
+      const ifc = node as unknown as {
+        branches?: Array<{ element?: ASTNode }>;
+        elseBranch?: ASTNode | null;
+      };
+      for (const b of ifc.branches ?? []) {
+        if (b && b.element && hasAnyComponentRefs([b.element])) return true;
+      }
+      if (ifc.elseBranch && hasAnyComponentRefs([ifc.elseBranch])) return true;
+    }
   }
   return false;
 }
@@ -2351,11 +2451,22 @@ function markupTreeHasComponentRef(markupNode: unknown): boolean {
   const m = markupNode as Record<string, unknown>;
   // P3-FOLLOW: route via isUserComponentMarkup().
   if (isUserComponentMarkup(m)) return true;
+  // §17.1.1 if-chain: descend into branches[].element + elseBranch (Bug 2a fix).
+  if (m.kind === "if-chain") {
+    const branches = m.branches as Array<{ element?: unknown }> | undefined;
+    for (const b of branches ?? []) {
+      if (b && b.element && markupTreeHasComponentRef(b.element)) return true;
+    }
+    if (m.elseBranch && markupTreeHasComponentRef(m.elseBranch)) return true;
+    return false;
+  }
   if (Array.isArray(m.children)) {
     for (const child of m.children as unknown[]) {
       if (!child || typeof child !== "object") continue;
       const c = child as Record<string, unknown>;
       if (c.kind === "markup" || c.kind === "state") {
+        if (markupTreeHasComponentRef(child)) return true;
+      } else if (c.kind === "if-chain") {
         if (markupTreeHasComponentRef(child)) return true;
       } else if (c.kind === "logic" && Array.isArray(c.body)) {
         if (hasAnyComponentRefsInLogic(c.body as unknown[])) return true;
