@@ -11,7 +11,9 @@ canonical_url:
 
 **TL;DR: Three things your code already keeps track of, in three different places, with three different libraries. The type system can own all three.**
 
-> **Status (v0.2.x):** the value-predicate layer (`<amount> req gt(0) lt(10000)` on state cells; named-shape predicates `email` / `url` / `uuid` / `pattern(...)`; cross-field args like `eq(@signup.password)`) ships at v0.2.4 — see SPEC §53 + §55. The **lifecycle / typestate** layer (`(null -> string)` field-transition annotations) and the **`lin` linear-type** layer described later in this piece are SPEC-ratified design surfaces that are not yet implemented in the v0.2.4 compiler. Treat those sections as preview of where the contract-as-type idea is going; the value-predicate sections are working today.
+> **Status (v0.2.x):** the value-predicate layer (`<amount> req gt(0) lt(10000)` on state cells; named-shape predicates `email` / `url` / `uuid` / `pattern(...)`; cross-field args like `eq(@signup.password)`) ships at v0.2.4 — see SPEC §53 + §55. The **lifecycle / typestate** layer (`(not -> string)` field-transition annotations) and the **`lin` linear-type** layer described later in this piece are SPEC-ratified design surfaces that are not yet implemented in the v0.2.4 compiler. Treat those sections as preview of where the contract-as-type idea is going; the value-predicate sections are working today.
+
+> **Updated 2026-05-13 (S89):** `(null -> T)` lifecycle syntax has been migrated to `(not -> T)` per scrml canonical absence sentinel (`not`). `null` is not a scrml token; the typestate arrow now uses `not` for the pre-transition variant. TS-contrast snippets and host-language references to `null` are left intact as comparative pedagogy.
 
 I am not an experienced framework developer. I can hobble through React if I HAVE TO. But across about twenty compiler attempts I kept noticing that the same data, on its way through a single feature, gets validated by three independent mechanisms. Zod at the network edge. A custom hook for the loading lifecycle. XState, or a hand-rolled `switch`, for what state can become what state next. Each one a separate library. None of them talking to each other.
 
@@ -126,16 +128,16 @@ Scrml's lifecycle annotation says: *this field starts as type A, and after a def
 type User:struct = {
     id: number,
     email: string,
-    passwordHash: (null -> string),
-    metadata: (!null && !number)
+    passwordHash: (not -> string),
+    metadata: (!not && !number)
 }
 ```
 
-`passwordHash` starts as `null` and transitions, exactly once, to `string`. The compiler tracks the transition. Code written *before* the transition sees `passwordHash` as `null` and cannot read it as a string. Code written *after* sees it as `string` with no nullability check needed. The transition itself is the only place the assignment is allowed.
+`passwordHash` starts as `not` and transitions, exactly once, to `string`. The compiler tracks the transition. Code written *before* the transition sees `passwordHash` as `not` and cannot read it as a string. Code written *after* sees it as `string` with no presence check needed. The transition itself is the only place the assignment is allowed.
 
 ```scrml
 fn finalizeSignup(user: User) {
-    // Before the transition: user.passwordHash is null.
+    // Before the transition: user.passwordHash is not.
     // Reading it as a string here = E-TYPE-001.
 
     user.passwordHash = hash(user.password)   // the transition site
@@ -148,13 +150,13 @@ fn finalizeSignup(user: User) {
 
 This is what "mutable structure life-cycle" actually buys you: a function can refer to the field before AND after the mutation, the compiler knows which side of the transition each reference is on, and the function stays pure because the lifecycle is part of the type.
 
-The contrast with `T | null` is the cost. With `T | null`, *every* read of the field forever has to `if (x !== null)`, even three function calls deep inside business logic that has clearly established the value exists. With `(null -> string)`, the type narrows after the transition and the ceremony tax stops being charged.
+The contrast with `T | null` is the cost. With `T | null`, *every* read of the field forever has to `if (x !== null)`, even three function calls deep inside business logic that has clearly established the value exists. With `(not -> string)`, the type narrows after the transition and the ceremony tax stops being charged.
 
 That is component two. There is no `useFetchState` hook. There is no `idle | loading | success | error` enum the developer has to build by hand for every async-ish thing. The transition is the type.
 
 ### 3. State machine transitions: what state can become what state
 
-For values that move between many named states (not just `null -> T`), scrml's enum types declare the legal moves directly:
+For values that move between many named states (not just `not -> T`), scrml's enum types declare the legal moves directly:
 
 ```scrml
 type OrderStatus:enum = {
@@ -229,7 +231,7 @@ Both branches consume `token` exactly once, so the compiler is satisfied. If onl
 
 Scrml's design move is not "we built better validation." It's that the contract IS the type.
 
-`number(>0 && <10000)` is a type. So is `(null -> string)`. So is `OrderStatus`-with-`transitions`. So is `lin token`. They appear in the same positions every other type appears: variable declarations, struct fields, function parameters, return types. They are checked by the same compiler pass that does ordinary type checking. There is no parallel validation graph. There is no runtime registry. There is no "validation library version drift," because there is no validation library.
+`number(>0 && <10000)` is a type. So is `(not -> string)`. So is `OrderStatus`-with-`transitions`. So is `lin token`. They appear in the same positions every other type appears: variable declarations, struct fields, function parameters, return types. They are checked by the same compiler pass that does ordinary type checking. There is no parallel validation graph. There is no runtime registry. There is no "validation library version drift," because there is no validation library.
 
 When the contract is the type, the developer reads a function signature and reads a complete description of what the function will accept, what state the field has to be in to call it, and what happens after.
 
@@ -245,7 +247,7 @@ Six tokens of signature describe: the order's `status` must be `.Processing`, af
 If the contract is the type, several familiar pieces of every framework codebase stop being needed.
 
 - **Zod (and Yup, Joi, Valibot, Ajv) on the network edge.** The schema is the type. The boundary check fires at the boundary. The bind:value attribute on the input flows from the same predicate.
-- **`useFetchState` / `useAsync` / RTK Query lifecycle hooks.** If "this field is null until it's loaded" is the actual contract, write `(null -> T)` and stop hand-rolling the machine. The compiler narrows the type after the transition site.
+- **`useFetchState` / `useAsync` / RTK Query lifecycle hooks.** If "this field is absent until it's loaded" is the actual contract, write `(not -> T)` and stop hand-rolling the machine. The compiler narrows the type after the transition site.
 - **Most XState machines.** Enum `transitions {}` covers structural permission graphs. `< machine>` covers contextual ones with guards and effects. The library wrapper goes away.
 - **Manual `if (x !== null) { ... }` ceremony three calls deep into business logic.** The narrowing is part of the lifecycle annotation. The compiler knows which side of the transition each reference is on. The defensive `if` chain stops appearing.
 - **Manual single-use enforcement (CSRF, transactions, one-shot promises).** `lin` makes that contract a compile error if you violate it, not a postmortem.
