@@ -412,6 +412,27 @@ function normalizeTokenizedRaw(raw: string): string {
   //   "onClose ? : type" → "onClose?: type"
   s = s.replace(/(\w)\s+\?\s*:/g, "$1?:");
 
+  // Step 4c (Bug 2c — bind:value HTML mangle fix): Rejoin colon-separator
+  // directive prefixes — "bind : value" → "bind:value", "class : active" →
+  // "class:active", "on : click" → "on:click", "transition : fade" →
+  // "transition:fade", "xml : lang" → "xml:lang", etc.
+  //
+  // Symmetric to step 4 (hyphen) and shares its safety profile: the regex
+  // matches `<word>\s+:\s+<word>` globally, which also collapses spaces in
+  // object literal keys (`{key : value}` → `{key:value}`), TS-style
+  // annotations (`name : string` → `name:string`), and ternaries
+  // (`a ? b : c` → `a ? b:c`). All three remain syntactically valid for the
+  // downstream consumer (acorn / propsBlock parser / etc.) so no regression
+  // is introduced.
+  //
+  // Without this step, the markup tokenizer's ATTR_NAME regex
+  // (`[A-Za-z0-9_:\-@]`, tokenizer.ts:248) consumes no whitespace and emits
+  // `bind` and `value` as two separate ATTR_NAME tokens. The `=@firstName`
+  // is then bound to the second name, producing the literal HTML attribute
+  // `bind value="firstName"` — a complete loss of the bind:value reactive
+  // wiring contract (§5.4 / §5.4.1).
+  s = s.replace(/(\w)\s+:\s+(\w)/g, "$1:$2");
+
   // Step 5: Remove spaces around `=` for attributes
   //   "attr = \"val\"" → "attr=\"val\""
   //   Be careful not to affect content inside attribute values.
