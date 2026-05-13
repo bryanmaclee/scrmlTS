@@ -219,34 +219,39 @@ describe("§B: lift-template attribute parser — current-broken-output repros",
     expect(textNodeMatches.length).toBe(1);
   });
 
-  test("§B.2 bind:value=@var inside lift emits literal setAttribute (BROKEN; should emit two-way wiring)", () => {
+  test("§B.2 bind:value=@var inside lift emits two-way wiring (FIXED by LIFT-2 patch)", () => {
     const result = compile(liftBindValueFx);
     expect(result.errors).toEqual([]);
     const js = result.outputs.get(liftBindValueFx).clientJs;
-    // CURRENT BROKEN: literal HTML-attr setter, no event listener.
-    expect(js).toMatch(/setAttribute\("bind:value",\s*_scrml_reactive_get\("editText"\)\)/);
-    // No addEventListener for "input" — confirms no two-way bind wiring.
-    expect(js).not.toMatch(/addEventListener\("input"/);
+    // LIFT-2 FIX: no literal setAttribute("bind:value", ...) call.
+    expect(js).not.toMatch(/setAttribute\("bind:value"/);
+    // Two-way wiring: addEventListener on "input" + reactive get/set/subscribe.
+    expect(js).toMatch(/addEventListener\("input"/);
+    expect(js).toMatch(/_scrml_reactive_get\("editText"\)/);
+    expect(js).toMatch(/_scrml_reactive_set\("editText"/);
+    expect(js).toMatch(/_scrml_reactive_subscribe\("editText"/);
   });
 
-  test("§B.3 if=@expr inside lift emits literal setAttribute (BROKEN; should emit display toggle)", () => {
+  test("§B.3 if=@expr inside lift emits display toggle (FIXED by LIFT-3 patch)", () => {
     const result = compile(liftIfExprFx);
     expect(result.errors).toEqual([]);
     const js = result.outputs.get(liftIfExprFx).clientJs;
-    // CURRENT BROKEN: literal setAttribute("if", String(...)) call.
-    expect(js).toMatch(/setAttribute\("if",\s*String\(/);
-    // No style.display toggle.
-    expect(js).not.toMatch(/style\.display\s*=/);
+    // LIFT-3 FIX: no literal setAttribute("if", ...) call.
+    expect(js).not.toMatch(/setAttribute\("if"/);
+    // Display-style toggle + subscription to the reactive cell.
+    expect(js).toMatch(/style\.display\s*=/);
+    expect(js).toMatch(/_scrml_reactive_subscribe\("editingId"/);
   });
 
-  test("§B.4 onkeydown=fn() inside lift does NOT auto-inject event (BROKEN; top-level injects)", () => {
+  test("§B.4 onkeydown=fn() inside lift auto-injects event (FIXED by LIFT-4 patch)", () => {
     const result = compile(liftOnKeydownFx);
     expect(result.errors).toEqual([]);
     const js = result.outputs.get(liftOnKeydownFx).clientJs;
-    // CURRENT BROKEN: bare-call inside lift emits `_scrml_handleKey_N ( )` (no event).
-    // Spaced formatting: astring inserts spaces inside ().
-    expect(js).toMatch(/_scrml_handleKey_\d+\s*\(\s*\)/);
-    // The correct top-level shape would be `_scrml_handleKey_N(event)`.
-    expect(js).not.toMatch(/_scrml_handleKey_\d+\s*\(\s*event\s*\)/);
+    // LIFT-4 FIX: bare-call empty-args now auto-injects `event` per §5.2.2 +
+    // event-handler-args-e2e.test.js §4 locked invariant. Astring inserts
+    // spaces inside (): `_scrml_handleKey_N ( event )`.
+    expect(js).toMatch(/_scrml_handleKey_\d+\s*\(\s*event\s*\)/);
+    // No bare empty-parens form.
+    expect(js).not.toMatch(/_scrml_handleKey_\d+\s*\(\s*\)/);
   });
 });

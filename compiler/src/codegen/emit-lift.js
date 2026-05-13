@@ -399,18 +399,89 @@ function emitSetAttrs(elVar, attrs) {
     if (attr.value === null) {
       // Boolean attribute
       lines.push(`${elVar}.setAttribute(${JSON.stringify(attr.name)}, "");`);
+    } else if (/^bind:(value|checked|files|group)$/.test(attr.name)) {
+      // LIFT-2 fix (S88) — two-way bind:* wiring inside lift template, parity
+      // with top-level bind:* dispatch per §5.4.1 + emit-bindings.ts:268.
+      //
+      // Pre-fix: emitted literal setAttribute("bind:value", _scrml_reactive_get(...))
+      // which gave NO two-way wiring (no addEventListener, no subscription).
+      //
+      // This fix wires:
+      //   1. Initial sync — set the DOM property from the reactive cell.
+      //   2. User-input → cell — addEventListener fires _scrml_reactive_set.
+      //   3. Cell → DOM — _scrml_reactive_subscribe fires reverse sync.
+      //
+      // Simplifications vs top-level: no numeric coercion (Number/Range), no
+      // enum coercion (<select> + EnumType_toEnum), no compound-path support.
+      // Lift template bind:* in v1 is text-shape only; enrich as friction surfaces.
+      const flavor = attr.name.split(":")[1]; // value | checked | files | group
+      const eventName = flavor === "value" ? "input" : "change";
+      // Extract the reactive var name. attr.value may be "@editText" (tokenized
+      // form may include leading whitespace). Strip the @-prefix.
+      const varRef = attr.value.trim().replace(/^@/, "");
+      const varJSON = JSON.stringify(varRef);
+      lines.push(`${elVar}.${flavor} = _scrml_reactive_get(${varJSON});`);
+      lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function() { _scrml_reactive_set(${varJSON}, ${elVar}.${flavor}); });`);
+      lines.push(`_scrml_reactive_subscribe(${varJSON}, function() { ${elVar}.${flavor} = _scrml_reactive_get(${varJSON}); });`);
+    } else if (attr.name === "if") {
+      // LIFT-3 fix (S88) — conditional display toggle inside lift template,
+      // parity with top-level if= attribute conditional rendering.
+      //
+      // Pre-fix: emitted literal setAttribute("if", String(expr ?? "")) which
+      // attached the raw expression as an HTML attribute with NO display
+      // toggle, NO conditional rendering.
+      //
+      // This fix emits:
+      //   1. An updater function that toggles style.display based on expr.
+      //   2. An initial call to apply the predicate at element-build time.
+      //   3. _scrml_reactive_subscribe for each @-prefixed cell referenced in
+      //      the expression, so changes re-evaluate the predicate.
+      //
+      // The for-loop iterable identifier (e.g. `item` in `if=@editingId == item.id`)
+      // is captured by the per-item factory closure — no subscription needed
+      // because the factory rebuilds per item.
+      const exprJS = emitExprField(null, attr.value, { mode: "client" });
+      const updaterVar = `_scrml_if_${genVar()}`;
+      lines.push(`function ${updaterVar}() { ${elVar}.style.display = (${exprJS}) ? "" : "none"; }`);
+      lines.push(`${updaterVar}();`);
+      // Extract @-prefixed reactive var names from the raw expression. Strip
+      // any dotted-path tail so `@form.field` subscribes to the compound root
+      // `form` (matches the top-level if= subscription granularity).
+      const refMatches = attr.value.match(/@([A-Za-z_$][A-Za-z0-9_$.]*)/g) || [];
+      const uniqueRefs = [...new Set(refMatches.map(r => r.replace(/^@/, "").split(".")[0]))];
+      for (const ref of uniqueRefs) {
+        lines.push(`_scrml_reactive_subscribe(${JSON.stringify(ref)}, ${updaterVar});`);
+      }
     } else if (/^on[a-z]/.test(attr.name)) {
       // BUG-6 fix: event attributes like onclick, ondblclick, onsubmit
       // must use addEventListener, not setAttribute
       const eventName = attr.name.replace(/^on/, "");
+      // LIFT-4 fix (S88) — auto-inject `event` arg for bare-call empty-args
+      // event handlers, parity with top-level per §5.2.2 + the locked
+      // invariant in event-handler-args-e2e.test.js §4 "bare-call
+      // onkeydown=handleKey() threads event".
+      //
+      // Pre-fix: `onkeydown=handleKey()` inside lift emitted
+      // `_scrml_handleKey_N()` (empty parens — event lost). Top-level emits
+      // `_scrml_handleKey_N(event)` for the identical source-level shape.
+      //
+      // Detection: handler is a bare identifier (or dotted path) followed by
+      // an empty argument list and no other content. If matched, replace `()`
+      // with `(event)` BEFORE lowering through emitExprField — emitExprField
+      // sees `handleKey(event)` and produces `_scrml_handleKey_N(event)`.
+      let handlerSource = attr.value;
+      const bareCallMatch = /^\s*([A-Za-z_$][A-Za-z0-9_$.]*)\s*\(\s*\)\s*$/.exec(handlerSource);
+      if (bareCallMatch) {
+        handlerSource = `${bareCallMatch[1]}(event)`;
+      }
       // The value may be a function call like "toggleTodo(todo.id)" or just a name
-      const handlerExpr = attr.value.includes('${') || /\$\s*\{/.test(attr.value)
+      const handlerExpr = handlerSource.includes('${') || /\$\s*\{/.test(handlerSource)
         ? (() => {
             const parts = [];
-            parseLiftContentParts(attr.value, parts);
+            parseLiftContentParts(handlerSource, parts);
             return parts.map(p => p.type === "expr" ? emitExprField(null, p.value, { mode: "client" }) : p.value).join("");
           })()
-        : emitExprField(null, attr.value, { mode: "client" });
+        : emitExprField(null, handlerSource, { mode: "client" });
       lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${handlerExpr}; });`);
     } else {
       // Check if the value contains interpolation (compact or tokenizer-spaced)
@@ -491,6 +562,60 @@ export function emitCreateElementFromMarkup(node, lines) {
     const name = attr.name;
     const val = attr.value;
 
+    // LIFT-2 fix (S88) — bind:* two-way wiring (parity with top-level §5.4.1).
+    // Recognized before kind-dispatch because the wiring is name-driven, not
+    // value-kind-driven. attr.value here is one of: variable-ref (@cell),
+    // expr (@compound.field or general expr).
+    if (val && (val.kind === "variable-ref" || val.kind === "expr") && /^bind:(value|checked|files|group)$/.test(name)) {
+      const flavor = name.split(":")[1]; // value | checked | files | group
+      const eventName = flavor === "value" ? "input" : "change";
+      // For variable-ref: name is the raw "@cell" form (strip the @).
+      // For expr: use raw form to extract the @-prefixed reference. We only
+      // support single-cell bind:* in v1; complex expr forms (e.g.
+      // `bind:value=@cell ?? default`) are forbidden by spec and surfaced
+      // elsewhere — here we just take the first @-ref.
+      const rawRef = val.kind === "variable-ref"
+        ? (val.name || "").replace(/^@/, "")
+        : ((val.raw || "").match(/@([A-Za-z_$][A-Za-z0-9_$.]*)/) || [, ""])[1];
+      if (rawRef) {
+        const varJSON = JSON.stringify(rawRef.split(".")[0]); // compound root if dotted
+        // For dotted paths use _scrml_deep_get/_scrml_deep_set patterns; for v1
+        // single-cell, emit direct get/set. Compound-path bind:value is a
+        // follow-on extension.
+        if (rawRef.includes(".")) {
+          // Dotted compound — defer to existing setAttribute path (no fix in v1).
+          lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, _scrml_reactive_get(${varJSON}));`);
+        } else {
+          lines.push(`${elVar}.${flavor} = _scrml_reactive_get(${varJSON});`);
+          lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function() { _scrml_reactive_set(${varJSON}, ${elVar}.${flavor}); });`);
+          lines.push(`_scrml_reactive_subscribe(${varJSON}, function() { ${elVar}.${flavor} = _scrml_reactive_get(${varJSON}); });`);
+        }
+        continue;
+      }
+    }
+
+    // LIFT-3 fix (S88) — if= conditional display toggle (parity with top-level).
+    if (val && (val.kind === "variable-ref" || val.kind === "expr") && name === "if") {
+      // Get the predicate expression in emitted form.
+      const raw = val.kind === "variable-ref"
+        ? (val.name || "").replace(/^@/, "")
+        : (val.raw || "");
+      const exprJS = emitExprField(val.exprNode, raw, { mode: "client" });
+      const updaterVar = `_scrml_if_${genVar()}`;
+      lines.push(`function ${updaterVar}() { ${elVar}.style.display = (${exprJS}) ? "" : "none"; }`);
+      lines.push(`${updaterVar}();`);
+      // Subscribe to each @-prefixed reactive var in the raw expression. The
+      // for-loop iterable identifier is captured by the per-item factory
+      // closure — not a reactive cell, no subscription needed.
+      const rawText = val.kind === "variable-ref" ? (val.name || "") : (val.raw || "");
+      const refMatches = rawText.match(/@([A-Za-z_$][A-Za-z0-9_$.]*)/g) || [];
+      const uniqueRefs = [...new Set(refMatches.map(r => r.replace(/^@/, "").split(".")[0]))];
+      for (const ref of uniqueRefs) {
+        lines.push(`_scrml_reactive_subscribe(${JSON.stringify(ref)}, ${updaterVar});`);
+      }
+      continue;
+    }
+
     if (!val || val.kind === "absent") {
       lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, "");`);
     } else if (val.kind === "string-literal") {
@@ -506,15 +631,24 @@ export function emitCreateElementFromMarkup(node, lines) {
       }
     } else if (val.kind === "call-ref") {
       // Function call in attribute — reconstruct full call with arguments
+      // LIFT-4 fix (S88) — for event handlers with empty arg list, auto-inject
+      // `event` per §5.2.2 + event-handler-args-e2e.test.js §4. Top-level
+      // emission does this; lift template previously did not.
+      const hasArgs = val.argExprNodes
+        ? val.argExprNodes.length > 0
+        : (val.args || []).length > 0;
       const rewrittenArgs = val.argExprNodes
         ? val.argExprNodes.map(n => emitExprField(n, "", { mode: "client" })).join(", ")
         : (val.args || []).map(a => emitExprField(null, a.trim(), { mode: "client" })).join(", ");
       const rewrittenName = emitExprField(null, val.name, { mode: "client" });
-      const callExpr = `${rewrittenName}(${rewrittenArgs})`;
       if (/^on[a-z]/.test(name)) {
         const eventName = name.replace(/^on/, "");
+        // Auto-inject `event` when source had empty parens.
+        const finalArgs = hasArgs ? rewrittenArgs : "event";
+        const callExpr = `${rewrittenName}(${finalArgs})`;
         lines.push(`${elVar}.addEventListener(${JSON.stringify(eventName)}, function(event) { ${callExpr}; });`);
       } else {
+        const callExpr = `${rewrittenName}(${rewrittenArgs})`;
         lines.push(`${elVar}.setAttribute(${JSON.stringify(name)}, String(${callExpr} ?? ""));`);
       }
     } else if (typeof val === "string") {
