@@ -65,7 +65,7 @@ ${
      *
      * @param pattern      — cron expression
      * @param relativeDate — optional Date or unix-ms timestamp; defaults to now
-     * @returns Date — the next time the pattern fires; null if no future occurrence
+     * @returns Date — the next time the pattern fires; `not` if no future occurrence
      */
     export function nextOccurrence(pattern, relativeDate) {
         return Bun.cron.parse(pattern, relativeDate)

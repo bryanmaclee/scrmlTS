@@ -36,7 +36,7 @@ ${
      */
     export function formatNumber(n, decimals, locale) {
         const opts = {}
-        if (decimals != undefined && decimals != null) {
+        if (decimals is some) {
             opts.minimumFractionDigits = decimals
             opts.maximumFractionDigits = decimals
         }
@@ -70,7 +70,7 @@ ${
      */
     export function truncate(str, maxLength, suffix) {
         if (!str) return str
-        const sfx = suffix != undefined ? suffix : "..."
+        const sfx = suffix is some ? suffix : "..."
         if (str.length <= maxLength) return str
         return str.slice(0, maxLength - sfx.length) + sfx
     }
@@ -151,7 +151,7 @@ ${
     export function formatBytes(bytes, decimals) {
         if (bytes == 0) return "0 Bytes"
         const k = 1024
-        const dm = decimals != undefined ? decimals : 1
+        const dm = decimals is some ? decimals : 1
         const sizes = ["Bytes", "KB", "MB", "GB", "TB", "PB"]
         const i = Math.floor(Math.log(bytes) / Math.log(k))
         const value = bytes / Math.pow(k, i)
@@ -167,7 +167,7 @@ ${
      *   formatPercent(0.4256, 1) → "42.6%"
      */
     export function formatPercent(value, decimals) {
-        const dm = decimals != undefined ? decimals : 0
+        const dm = decimals is some ? decimals : 0
         return `${(value * 100).toFixed(dm)}%`
     }
 

@@ -208,7 +208,7 @@ ${
         if (Array.isArray(obj)) {
             return obj.map(camelizeKeys)
         }
-        if (obj != null && typeof obj == "object") {
+        if (obj is some && typeof obj == "object") {
             const result = {}
             for (const [key, value] of Object.entries(obj)) {
                 result[toCamelCase(key)] = camelizeKeys(value)
@@ -228,7 +228,7 @@ ${
         if (Array.isArray(obj)) {
             return obj.map(snakifyKeys)
         }
-        if (obj != null && typeof obj == "object") {
+        if (obj is some && typeof obj == "object") {
             const result = {}
             for (const [key, value] of Object.entries(obj)) {
                 result[toSnakeCase(key)] = snakifyKeys(value)
@@ -249,8 +249,8 @@ ${
         if (Array.isArray(source)) return source
         const result = { ...target }
         for (const [key, value] of Object.entries(source)) {
-            if (typeof value == "object" && value != null && !Array.isArray(value) &&
-                typeof result[key] == "object" && result[key] != null) {
+            if (typeof value == "object" && value is some && !Array.isArray(value) &&
+                typeof result[key] == "object" && result[key] is some) {
                 result[key] = deepMerge(result[key], value)
             } else {
                 result[key] = value

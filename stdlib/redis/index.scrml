@@ -29,10 +29,10 @@ ${
     import { redis, RedisClient } from "bun"
 
     /**
-     * Get a string value by key. Returns null if the key does not exist.
+     * Get a string value by key. Returns `not` if the key does not exist.
      *
      * @param key — the key to look up
-     * @returns Promise<string | null>
+     * @returns Promise<string | not>
      */
     export async function get(key) {
         return await redis.get(key)

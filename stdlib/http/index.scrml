@@ -28,9 +28,9 @@ ${
 
     async function _request(url, options) {
         const opts = options || {}
-        const timeout = opts.timeout != undefined ? opts.timeout : 10000
+        const timeout = opts.timeout is some ? opts.timeout : 10000
         const retryCount = opts.retry || 0
-        const retryDelay = opts.retryDelay != undefined ? opts.retryDelay : 1000
+        const retryDelay = opts.retryDelay is some ? opts.retryDelay : 1000
         const extraHeaders = opts.headers || {}
 
         const fetchOptions = {
@@ -40,7 +40,7 @@ ${
         for (const [k, v] of Object.entries(extraHeaders)) {
             fetchOptions.headers[k] = v
         }
-        if (opts.body != undefined) {
+        if (opts.body is some) {
             if (typeof opts.body == "string") {
                 fetchOptions.body = opts.body
             } else {
@@ -51,12 +51,12 @@ ${
             }
         }
 
-        let lastError = null
+        let lastError = not
         for (let attempt = 0; attempt <= retryCount; attempt++) {
             if (attempt > 0) {
                 await new Promise(resolve => setTimeout(resolve, retryDelay * attempt))
             }
-            let timeoutId = null
+            let timeoutId = not
             // safeCallAsync-gap: await fetch() and await raw.json()/text() are
             // async-throwing JS-host calls. synchronous safeCall cannot catch
             // async throws. This try/catch is retained until safeCallAsync is
@@ -253,13 +253,13 @@ ${
      */
     export async function retry(fn, opts) {
         const o = opts || {}
-        const maxRetries = o.maxRetries != undefined ? o.maxRetries : 3
-        const baseDelay  = o.baseDelay  != undefined ? o.baseDelay  : 200
-        const factor     = o.factor     != undefined ? o.factor     : 2
-        const jitter     = o.jitter     != undefined ? o.jitter     : 0.2
+        const maxRetries = o.maxRetries is some ? o.maxRetries : 3
+        const baseDelay  = o.baseDelay  is some ? o.baseDelay  : 200
+        const factor     = o.factor     is some ? o.factor     : 2
+        const jitter     = o.jitter     is some ? o.jitter     : 0.2
         const shouldRetry = o.shouldRetry || (() => true)
 
-        let lastErr = null
+        let lastErr = not
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 return await fn()
@@ -292,7 +292,7 @@ ${
     export function multipart(fields) {
         const fd = new FormData()
         for (const [k, v] of Object.entries(fields || {})) {
-            if (v == undefined || v == null) continue
+            if (v is not) continue
             if (v instanceof Blob || v instanceof File) {
                 fd.append(k, v)
             } else {
@@ -315,7 +315,7 @@ ${
         const extras = o.extraFields || {}
         const fields = Object.assign({}, extras, { [fieldName]: file })
         const body = multipart(fields)
-        const requestOpts = Object.assign({}, o, { body, fieldName: undefined, extraFields: undefined })
+        const requestOpts = Object.assign({}, o, { body, fieldName: not, extraFields: not })
         return await _request(url, Object.assign({ method: "POST" }, requestOpts))
     }
 
@@ -324,7 +324,7 @@ ${
 
         assertTruthy(isOk({ ok: true, status: 200 }))
         assertFalsy(isOk({ ok: false, status: 404 }))
-        assertFalsy(isOk(null))
+        assertFalsy(isOk(not))
         assertTruthy(isError({ ok: false, status: 400 }))
         assertTruthy(isError({ ok: false, status: 500 }))
         assertFalsy(isError({ ok: true, status: 200 }))

@@ -48,12 +48,12 @@ ${
     }
 
     /**
-     * Get the first error for a field, or null if valid.
+     * Get the first error for a field, or `not` if valid.
      * Convenient for displaying single-error UIs.
      */
     export function firstError(result, field) {
         const errs = result[field]
-        return errs && errs.length > 0 ? errs[0] : null
+        return errs && errs.length > 0 ? errs[0] : not
     }
 
     // ---------------------------------------------------------------------------
@@ -65,11 +65,11 @@ ${
     }
 
     /**
-     * Field is required (not null, undefined, or empty string).
+     * Field is required (must be `some` value and not the empty string).
      */
     export function required(message) {
         return makeRule((value) => {
-            const valid = value != null && value != undefined && value != ""
+            const valid = value is some && value != ""
             return { valid, message: message || "This field is required" }
         })
     }
@@ -156,7 +156,7 @@ ${
      */
     export function numeric(message) {
         return makeRule((value) => {
-            if (value == "" || value == null || value == undefined) return { valid: true, message: "" }
+            if (value == "" || value is not) return { valid: true, message: "" }
             const valid = !isNaN(Number(value)) && value != ""
             return { valid, message: message || "Must be a number" }
         })
@@ -167,7 +167,7 @@ ${
      */
     export function integer(message) {
         return makeRule((value) => {
-            if (value == "" || value == null || value == undefined) return { valid: true, message: "" }
+            if (value == "" || value is not) return { valid: true, message: "" }
             const valid = Number.isInteger(Number(value))
             return { valid, message: message || "Must be a whole number" }
         })
@@ -316,7 +316,7 @@ ${
         // required rule
         const req = required()
         assertEqual(req.check(""), { valid: false, message: "This field is required" })
-        assertEqual(req.check(null), { valid: false, message: "This field is required" })
+        assertEqual(req.check(not), { valid: false, message: "This field is required" })
         assertEqual(req.check("hello"), { valid: true, message: "This field is required" })
 
         // email rule
@@ -358,7 +358,7 @@ ${
         // firstError helper
         const res = validate({ name: "" }, { name: [required()] })
         assertEqual(firstError(res, "name"), "This field is required")
-        assertEqual(firstError(res, "email"), null)
+        assertEqual(firstError(res, "email"), not)
     }
 }
 </program>

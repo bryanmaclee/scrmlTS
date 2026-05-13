@@ -68,7 +68,7 @@ ${
      */
     export async function signJwt(payload, secret, expiresIn) {
         const now = Math.floor(Date.now() / 1000)
-        const exp = now + (expiresIn != undefined ? expiresIn : 3600)
+        const exp = now + (expiresIn is some ? expiresIn : 3600)
 
         const header = { alg: "HS256", typ: "JWT" }
         const claims = { ...payload, iat: now, exp }
@@ -173,17 +173,17 @@ ${
      * Use for reading non-sensitive fields from a token you already verified.
      *
      * @param token — JWT string
-     * @returns payload object or null if token is absent
+     * @returns payload object or `not` if token is absent
      * @fails JwtError::DecodeFailed if base64url decode or JSON.parse throws
      *
      * Example:
-     *   const payload = decodeJwt(token) !{ ::DecodeFailed(m) -> null }
+     *   const payload = decodeJwt(token) !{ ::DecodeFailed(m) -> not }
      *   if (payload && payload.role == "admin") { ... }
      */
     export function decodeJwt(token) ! -> JwtError {
-        if (!token || typeof token != "string") return null
+        if (!token || typeof token != "string") return not
         const parts = token.split(".")
-        if (parts.length != 3) return null
+        if (parts.length != 3) return not
         const bytes = safeCall(() => base64urlDecode(parts[1])) !{
             | ::Thrown(msg, name) -> {
                 fail JwtError::DecodeFailed(msg)
@@ -216,19 +216,19 @@ ${
 
         // decodeJwt is now failable — use !{} to handle DecodeFailed
         const decoded = decodeJwt(fakeToken) !{
-            | ::DecodeFailed(m) -> null
+            | ::DecodeFailed(m) -> not
         }
-        assertTruthy(decoded != null)
+        assertTruthy(decoded is some)
         assertEqual(decoded.sub, "1234")
         assertEqual(decoded.name, "Alice")
 
-        // decodeJwt null cases — invalid structure returns null (not failable)
-        const r1 = decodeJwt(null) !{ ::DecodeFailed(m) -> null }
-        assertFalsy(r1 != null)
-        const r2 = decodeJwt("not.a.token.at.all.extra") !{ ::DecodeFailed(m) -> null }
-        assertFalsy(r2 != null)
-        const r3 = decodeJwt("") !{ ::DecodeFailed(m) -> null }
-        assertFalsy(r3 != null)
+        // decodeJwt absent cases — invalid structure returns `not` (not failable)
+        const r1 = decodeJwt(not) !{ ::DecodeFailed(m) -> not }
+        assertFalsy(r1 is some)
+        const r2 = decodeJwt("not.a.token.at.all.extra") !{ ::DecodeFailed(m) -> not }
+        assertFalsy(r2 is some)
+        const r3 = decodeJwt("") !{ ::DecodeFailed(m) -> not }
+        assertFalsy(r3 is some)
     }
 }
 </program>

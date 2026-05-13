@@ -92,21 +92,21 @@ ${
     export function memoryAdapter() {
         const store = new Map()
         function expired(entry) {
-            return entry.expiresAt != null && entry.expiresAt <= Date.now()
+            return entry.expiresAt is some && entry.expiresAt <= Date.now()
         }
         return {
             put(key, value, ttlSeconds) {
                 const expiresAt = ttlSeconds && ttlSeconds > 0
                     ? Date.now() + ttlSeconds * 1000
-                    : null
+                    : not
                 store.set(key, { value, expiresAt })
             },
             get(key) {
                 const entry = store.get(key)
-                if (!entry) return null
+                if (!entry) return not
                 if (expired(entry)) {
                     store.delete(key)
-                    return null
+                    return not
                 }
                 return entry.value
             },
@@ -193,7 +193,7 @@ ${
             state:         state,
         }
 
-        let verifier = null
+        let verifier = not
         if (usePKCE) {
             verifier = generateVerifier()
             const challenge = await deriveChallenge(verifier)
@@ -204,7 +204,7 @@ ${
         // Provider-specific extras (e.g. Google's access_type/prompt for refresh).
         if (config.extraAuthParams) {
             for (const [k, v] of Object.entries(config.extraAuthParams)) {
-                if (v != undefined && v != null) params[k] = String(v)
+                if (v is some) params[k] = String(v)
             }
         }
 
@@ -258,7 +258,7 @@ ${
         }
 
         const usePKCE = config.usePKCE != false
-        let verifier = null
+        let verifier = not
         if (usePKCE) {
             verifier = await config.storage.get(_verifierKey(sessionKey))
             await config.storage.del(_verifierKey(sessionKey))
@@ -421,15 +421,15 @@ ${
         // OAuth-standard fields are snake_case; emit camelCase + keep raw.
         const expiresIn = typeof data.expires_in == "number"
             ? data.expires_in
-            : (typeof data.expires_in == "string" ? parseInt(data.expires_in, 10) : null)
-        const expiresAt = expiresIn ? Date.now() + expiresIn * 1000 : null
+            : (typeof data.expires_in == "string" ? parseInt(data.expires_in, 10) : not)
+        const expiresAt = expiresIn ? Date.now() + expiresIn * 1000 : not
 
         return {
-            accessToken:  data.access_token  || null,
-            refreshToken: data.refresh_token || null,
-            idToken:      data.id_token      || null,
+            accessToken:  data.access_token  || not,
+            refreshToken: data.refresh_token || not,
+            idToken:      data.id_token      || not,
             tokenType:    data.token_type    || "Bearer",
-            scope:        data.scope         || null,
+            scope:        data.scope         || not,
             expiresIn:    expiresIn,
             expiresAt:    expiresAt,
             raw:          data,
@@ -452,7 +452,7 @@ ${
     function _buildUrl(base, params) {
         const pairs = []
         for (const [k, v] of Object.entries(params)) {
-            if (v == undefined || v == null || v == "") continue
+            if (v is not || v == "") continue
             pairs.push(encodeURIComponent(k) + "=" + encodeURIComponent(v))
         }
         const query = pairs.join("&")
@@ -467,7 +467,7 @@ ${
     function _formEncode(obj) {
         const pairs = []
         for (const [k, v] of Object.entries(obj || {})) {
-            if (v == undefined || v == null) continue
+            if (v is not) continue
             pairs.push(encodeURIComponent(k) + "=" + encodeURIComponent(v))
         }
         return pairs.join("&")

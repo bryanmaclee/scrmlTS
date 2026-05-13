@@ -68,7 +68,7 @@ ${
      * @param fieldName  — display name of the field
      * @param cellName   — optional qualified cell name; when supplied enables
      *                     Level-1 inline override lookup
-     * @returns          — user-facing string (always; never null/undefined)
+     * @returns          — user-facing string (always; never `not`)
      *
      * Walks Levels 1 → 2 → 3 in order. Level 4 (`<match for=ValidationError>`)
      * is the consumer-side escape hatch and bypasses this function.

@@ -15,7 +15,7 @@ ${
     /**
      * Match a URL pattern against a path string.
      *
-     * Returns null if no match, or { params, query } if matched.
+     * Returns `not` if no match, or { params, query } if matched.
      *
      * Pattern syntax:
      *   /users/:id       — named required parameter
@@ -30,7 +30,7 @@ ${
      *   match("/users/:id", "/users/99?tab=x") → { params: { id: "99" }, query: { tab: "x" } }
      */
     export function match(pattern, path) {
-        if (!path) return null
+        if (!path) return not
 
         const qIdx = path.indexOf("?")
         const rawPath = qIdx >= 0 ? path.slice(0, qIdx) : path
@@ -69,11 +69,11 @@ ${
 
         const regex = new RegExp(regexStr)
         const m = rawPath.match(regex)
-        if (!m) return null
+        if (!m) return not
 
         const params = {}
         keys.forEach((key, idx) => {
-            if (m[idx + 1] != undefined) {
+            if (m[idx + 1] is some) {
                 params[key] = m[idx + 1]
             }
         })
@@ -132,7 +132,7 @@ ${
 
         if (query && Object.keys(query).length > 0) {
             const qs = Object.entries(query)
-                .filter(([, v]) => v != undefined && v != null)
+                .filter(([, v]) => v is some)
                 .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
                 .join("&")
             if (qs) url += "?" + qs
@@ -210,17 +210,17 @@ ${
         assertTruthy(urlWithQuery.includes("tab=profile"))
 
         const m1 = match("/users/:id", "/users/42")
-        assertTruthy(m1 != null)
+        assertTruthy(m1 is some)
         assertEqual(m1.params.id, "42")
 
-        assertFalsy(match("/users/:id", "/posts/1") != null)
+        assertFalsy(match("/users/:id", "/posts/1") is some)
 
         const m2 = match("/files/*", "/files/a/b/c")
-        assertTruthy(m2 != null)
+        assertTruthy(m2 is some)
         assertEqual(m2.params["*"], "a/b/c")
 
         const m3 = match("/users/:id", "/users/99?tab=settings")
-        assertTruthy(m3 != null)
+        assertTruthy(m3 is some)
         assertEqual(m3.params.id, "99")
         assertEqual(m3.query.tab, "settings")
     }

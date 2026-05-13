@@ -59,20 +59,21 @@ ${
     }
 
     /**
-     * Assert a value is null or undefined.
+     * Assert a value is absent (the scrml `not` sentinel — i.e. host-layer
+     * nullish).
      */
     export function assertNull(value, message) {
-        if (value != null && value != undefined) {
-            const msg = message || `Expected null or undefined, got ${JSON.stringify(value)}`
+        if (value is some) {
+            const msg = message || `Expected absent value, got ${JSON.stringify(value)}`
             throw new Error(`[scrml:test] assertNull failed — ${msg}`)
         }
     }
 
     /**
-     * Assert a value is NOT null or undefined.
+     * Assert a value is present (NOT the scrml `not` sentinel).
      */
     export function assertDefined(value, message) {
-        if (value == null || value == undefined) {
+        if (value is not) {
             const msg = message || `Expected a defined value, got ${JSON.stringify(value)}`
             throw new Error(`[scrml:test] assertDefined failed — ${msg}`)
         }
@@ -86,7 +87,7 @@ ${
      */
     export function assertThrows(fn, expectedMessageSubstring) {
         let threw = false
-        let caughtMessage = null
+        let caughtMessage = not
         try {
             fn()
         } catch (e) {
@@ -176,7 +177,7 @@ ${
         // assertFalsy
         assertFalsy(0)
         assertFalsy("")
-        assertFalsy(null)
+        assertFalsy(not)
 
         // assertThrows catches throws
         assertThrows(() => { throw new Error("boom") })
@@ -190,8 +191,7 @@ ${
         assertContains("hello world", "world")
 
         // assertNull
-        assertNull(null)
-        assertNull(undefined)
+        assertNull(not)
 
         // assertDefined
         assertDefined(0)

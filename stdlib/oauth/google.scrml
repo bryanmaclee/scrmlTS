@@ -81,11 +81,11 @@ ${
      * verify the signature against Google's JWKS. Out of scope for v0.2.0.
      *
      * @param tokens — the object returned by exchangeCode()
-     * @returns object — claims (sub, email, ...) or null if no id_token
+     * @returns object — claims (sub, email, ...) or `not` if no id_token
      * @fails OAuthError::ParseFailed if base64url decode or JSON.parse throws
      */
     export function parseIdToken(tokens) ! -> OAuthError {
-        if (!tokens || !tokens.idToken) return null
+        if (!tokens || !tokens.idToken) return not
         const parts = tokens.idToken.split(".")
         if (parts.length != 3) {
             throw new Error("[scrml:oauth/google] parseIdToken: malformed JWT")

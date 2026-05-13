@@ -183,7 +183,7 @@ ${
         assertFalsy(safeCompare("abc", "abd"))
         assertFalsy(safeCompare("abc", "abcd"))
         assertFalsy(safeCompare("abc", ""))
-        assertFalsy(safeCompare(null, "abc"))
+        assertFalsy(safeCompare(not, "abc"))
 
         // Token length: 32 bytes = 64 hex chars
         // UUID format: 36 chars with dashes

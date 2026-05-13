@@ -118,7 +118,7 @@ ${
 
     /**
      * Parse a date string in common formats.
-     * Returns a Date object, or null if parsing fails.
+     * Returns a Date object, or `not` if parsing fails.
      *
      * Supported formats: ISO 8601, "YYYY-MM-DD", "MM/DD/YYYY", "DD/MM/YYYY"
      *
@@ -127,21 +127,21 @@ ${
      *   parseDate("04/01/2026") → Date object
      */
     export function parseDate(str) {
-        if (!str) return null
+        if (!str) return not
         const d = new Date(str)
-        return isNaN(d.getTime()) ? null : d
+        return isNaN(d.getTime()) ? not : d
     }
 
     /**
      * Check if a value is a valid Date or timestamp.
-     * Returns false for null and undefined (not valid date-like values).
+     * Returns false for absent values (not valid date-like values).
      *
      * Example: isValidDate("2026-04-01") → true
      *          isValidDate("not a date") → false
-     *          isValidDate(null) → false
+     *          isValidDate(not) → false
      */
     export function isValidDate(value) {
-        if (value == null || value == undefined) return false
+        if (value is not) return false
         if (value instanceof Date) return !isNaN(value.getTime())
         if (value == "") return false
         const d = new Date(value)
@@ -236,24 +236,24 @@ ${
      *   // handleSearch.cancel() — cancel pending invocation
      */
     export function debounce(fn, delay) {
-        let timer = null
+        let timer = not
         function debounced(...args) {
-            if (timer != null) clearTimeout(timer)
+            if (timer is some) clearTimeout(timer)
             timer = setTimeout(() => {
-                timer = null
+                timer = not
                 fn.apply(this, args)
             }, delay)
         }
         debounced.cancel = function() {
-            if (timer != null) {
+            if (timer is some) {
                 clearTimeout(timer)
-                timer = null
+                timer = not
             }
         }
         debounced.flush = function(...args) {
-            if (timer != null) {
+            if (timer is some) {
                 clearTimeout(timer)
-                timer = null
+                timer = not
                 fn.apply(this, args)
             }
         }
@@ -271,7 +271,7 @@ ${
      */
     export function throttle(fn, limit) {
         let inThrottle = false
-        let lastArgs = null
+        let lastArgs = not
         return function(...args) {
             if (!inThrottle) {
                 fn.apply(this, args)
@@ -280,7 +280,7 @@ ${
                     inThrottle = false
                     if (lastArgs) {
                         fn.apply(this, lastArgs)
-                        lastArgs = null
+                        lastArgs = not
                     }
                 }, limit)
             } else {
@@ -322,7 +322,7 @@ ${
         const date = typeof timestamp == "number" ? new Date(timestamp) : timestamp
         // Intl rejects mixing dateStyle/timeStyle with explicit field-level
         // options. Skip the field-level defaults if the caller passed either.
-        const usingStyles = options && (options.dateStyle != undefined || options.timeStyle != undefined)
+        const usingStyles = options && (options.dateStyle is some || options.timeStyle is some)
         const defaults = usingStyles
             ? {}
             : { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }
@@ -385,7 +385,7 @@ ${
      * @param timestamp — Date | number (defaults to now)
      */
     export function tzOffset(tz, timestamp) {
-        const ts = timestamp == undefined ? Date.now() : (typeof timestamp == "number" ? timestamp : timestamp.getTime())
+        const ts = timestamp is not ? Date.now() : (typeof timestamp == "number" ? timestamp : timestamp.getTime())
         const fmt = new Intl.DateTimeFormat("en-US", {
             timeZone: tz, timeZoneName: "shortOffset"
         })
@@ -414,23 +414,23 @@ ${
     }
 
     /**
-     * Parse an ISO 8601 string strictly — returns a Date or undefined if
+     * Parse an ISO 8601 string strictly — returns a Date or `not` if
      * the input is not a valid ISO timestamp. Distinct from parseDate which
      * is permissive.
      *
      * Examples:
      *   parseISO("2026-04-01T14:34:07Z")     → Date
      *   parseISO("2026-04-01")               → Date (date-only ISO is valid)
-     *   parseISO("April 1 2026")             → undefined (not ISO)
+     *   parseISO("April 1 2026")             → not (not ISO)
      */
     export function parseISO(str) {
-        if (typeof str != "string") return undefined
+        if (typeof str != "string") return not
         // Reject obviously non-ISO formats early
         if (!/^\d{4}-\d{2}(-\d{2})?(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(str)) {
-            return undefined
+            return not
         }
         const d = new Date(str)
-        return isNaN(d.getTime()) ? undefined : d
+        return isNaN(d.getTime()) ? not : d
     }
 
     ~{
@@ -452,12 +452,11 @@ ${
         assertEqual(formatDuration(3700000), "1h 1m")
         assertEqual(formatDuration(3600000), "1h")
 
-        // isValidDate — null/undefined return false
+        // isValidDate — absent (`not`) returns false
         assertTruthy(isValidDate("2026-04-01"))
         assertTruthy(isValidDate(new Date()))
         assertFalsy(isValidDate("not a date"))
-        assertFalsy(isValidDate(null))
-        assertFalsy(isValidDate(undefined))
+        assertFalsy(isValidDate(not))
         assertFalsy(isValidDate(""))
 
         // addTime
@@ -501,9 +500,9 @@ ${
         // parseISO — accepts valid ISO, rejects non-ISO
         assertTruthy(parseISO("2026-04-01T14:34:07Z") instanceof Date)
         assertTruthy(parseISO("2026-04-01") instanceof Date)
-        assertEqual(parseISO("April 1 2026"), undefined)
-        assertEqual(parseISO("not-a-date"), undefined)
-        assertEqual(parseISO(null), undefined)
+        assertEqual(parseISO("April 1 2026"), not)
+        assertEqual(parseISO("not-a-date"), not)
+        assertEqual(parseISO(not), not)
 
         // formatInTimezone — output content varies by ICU version; assert
         // structural characteristics: contains the year and a recognizable

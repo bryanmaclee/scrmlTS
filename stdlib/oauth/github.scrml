@@ -25,7 +25,7 @@ ${
     //     `revoke()` will raise a clear error directing the caller.
     //
     // Userinfo response shape (selected): { id, login, avatar_url, name,
-    // email (may be null if private), public_repos, ... }
+    // email (may be `not` if private), public_repos, ... }
     //
     // To get the user's email when it's private, request scope `user:email`
     // and call https://api.github.com/user/emails after exchangeCode.
@@ -47,7 +47,7 @@ ${
     export function githubConfig(opts) {
         if (!opts) throw new Error("[scrml:oauth/github] opts required")
         const extra = {}
-        if (opts.allowSignup != undefined) {
+        if (opts.allowSignup is some) {
             extra.allow_signup = opts.allowSignup ? "true" : "false"
         }
         if (opts.login) extra.login = opts.login
@@ -61,7 +61,7 @@ ${
             userInfoUrl:     "https://api.github.com/user",
             // No standard revocation endpoint — leave unset; revoke() will
             // throw a clear error directing the caller to GitHub's REST API.
-            revocationUrl:   null,
+            revocationUrl:   not,
             scopes:          opts.scopes || ["read:user", "user:email"],
             usePKCE:         true,
             extraAuthParams: extra,

@@ -31,7 +31,7 @@ ${
      */
     export function join(...segments) {
         const path = require("node:path")
-        const filtered = segments.filter(s => s != null)
+        const filtered = segments.filter(s => s is some)
         if (filtered.length == 0) return "."
         return path.join(...filtered)
     }
@@ -48,7 +48,7 @@ ${
      */
     export function resolve(...segments) {
         const path = require("node:path")
-        const filtered = segments.filter(s => s != null)
+        const filtered = segments.filter(s => s is some)
         if (filtered.length == 0) return path.resolve()
         return path.resolve(...filtered)
     }
@@ -64,7 +64,7 @@ ${
      */
     export function dirname(filePath) {
         const path = require("node:path")
-        if (filePath == null) return "."
+        if (filePath is not) return "."
         return path.dirname(filePath)
     }
 
@@ -80,8 +80,8 @@ ${
      */
     export function basename(filePath, ext) {
         const path = require("node:path")
-        if (filePath == null) return ""
-        if (ext != null) return path.basename(filePath, ext)
+        if (filePath is not) return ""
+        if (ext is some) return path.basename(filePath, ext)
         return path.basename(filePath)
     }
 
@@ -97,7 +97,7 @@ ${
      */
     export function extname(filePath) {
         const path = require("node:path")
-        if (filePath == null) return ""
+        if (filePath is not) return ""
         return path.extname(filePath)
     }
 
@@ -112,8 +112,8 @@ ${
      */
     export function relative(from, to) {
         const path = require("node:path")
-        if (from == null) from = "."
-        if (to == null) to = "."
+        if (from is not) from = "."
+        if (to is not) to = "."
         return path.relative(from, to)
     }
 
@@ -129,7 +129,7 @@ ${
      */
     export function normalize(filePath) {
         const path = require("node:path")
-        if (filePath == null) return "."
+        if (filePath is not) return "."
         return path.normalize(filePath)
     }
 

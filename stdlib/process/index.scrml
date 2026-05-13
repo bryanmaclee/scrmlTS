@@ -30,18 +30,18 @@ ${
     }
 
     /**
-     * Returns the value of an environment variable, or undefined if unset.
+     * Returns the value of an environment variable, or `not` if unset.
      *
-     * Defensive: returns undefined for missing keys rather than throwing.
+     * Defensive: returns `not` for missing keys rather than throwing.
      *
      * Example:
      *   env("HOME")       → "/home/user"
-     *   env("NONEXISTENT") → undefined
+     *   env("NONEXISTENT") → not
      */
     export function env(key) {
-        if (key == undefined || key == null) return undefined
+        if (key is not) return not
         const val = process.env[String(key)]
-        return val != undefined ? val : undefined
+        return val is some ? val : not
     }
 
     /**
@@ -77,7 +77,7 @@ ${
      *   exit(1) — exits with code 1 (error)
      */
     export function exit(code) {
-        process.exit(code != undefined ? code : 0)
+        process.exit(code is some ? code : 0)
     }
 
     /**
@@ -117,7 +117,7 @@ ${
         // validated by the unit tests in compiler/tests/unit/stdlib-process.test.js.
 
         // cwd() — returns a string (working directory path)
-        // env(key) — returns string or undefined
+        // env(key) — returns string or `not`
         // argv() — returns an array
         // platform() — returns a string like "linux", "darwin", "win32"
         // exit(code) — void, terminates process
