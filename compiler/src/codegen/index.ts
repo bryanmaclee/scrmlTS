@@ -40,6 +40,7 @@ import { EncodingContext } from "./type-encoding.ts";
 import { collectDerivedVarNames } from "./reactive-deps.ts";
 import { collectTopLevelLogicStatements } from "./collect.ts";
 import type { CompileContext } from "./context.ts";
+import type { ReachabilityRecord } from "../types/reachability.ts";
 import { resolveDbDriver } from "./db-driver.ts";
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,13 @@ export interface CgInput {
    * Threaded into per-file `CompileContext.exportRegistry`.
    */
   exportRegistry?: Map<string, Map<string, { kind: string; category: string; isComponent: boolean }>> | null;
+  /**
+   * S89 A-2.1 — Stage 7.6 Reachability Solver output (SPEC §40.9).
+   * Threaded into per-file `CompileContext.reachabilityRecord` so the
+   * A-4 codegen wave can consume per-entry-point per-role ChunkPlans.
+   * Optional; falls back to an empty record when absent.
+   */
+  reachabilityRecord?: ReachabilityRecord | null;
 }
 
 export interface CgFileOutput {
@@ -153,6 +161,7 @@ export function runCG(input: CgInput): CgOutput {
     batchPlan = null,
     batchPlannerErrors = [],
     exportRegistry: exportRegistryInput = null,
+    reachabilityRecord: reachabilityRecordInput = null,
   } = input;
 
   // Resolve encoding configuration (§47)
@@ -463,6 +472,7 @@ export function runCG(input: CgInput): CgOutput {
         registry: new BindingRegistry(),
         derivedNames: collectDerivedVarNames(fileAST),
         analysis: analysis ?? null,
+        reachabilityRecord: reachabilityRecordInput,
       };
       const libraryJs: string | null = generateLibraryJs(libCtx) || null;
 
@@ -536,6 +546,9 @@ export function runCG(input: CgInput): CgOutput {
       // C15 — propagate MOD exportRegistry per-file so emit-engine.ts can
       // discriminate cross-file engine mount sites from local components / HTML.
       exportRegistry: exportRegistryInput,
+      // A-2.1 — propagate Stage 7.6 ReachabilityRecord per-file; A-4 codegen
+      // will consume per-entry-point per-role ChunkPlans. Empty until A-2.2+.
+      reachabilityRecord: reachabilityRecordInput,
     };
 
     const hasMarkup = (analysis as any)?.markupNodes?.length > 0;

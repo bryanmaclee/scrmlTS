@@ -50,6 +50,7 @@ Options (compile / dev):
   --convert-legacy-css    Convert <style> blocks to #{...}
   --embed-runtime         Embed runtime inline instead of writing a separate file
   --emit-batch-plan       Print the Stage 7.5 BatchPlan as JSON
+  --emit-reachability     Emit <base>.reachability.json (Stage 7.6 / SPEC §40.9)
   --emit-machine-tests    Emit <base>.machine.test.js for each source (§51.13)
   --watch, -w             Watch for changes and recompile (compile command only)
 

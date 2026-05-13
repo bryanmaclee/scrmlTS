@@ -25,6 +25,7 @@ import { runTS, buildTypeRegistry } from "./type-system.ts";
 import { runMetaChecker } from "./meta-checker.ts";
 import { runDG } from "./dependency-graph.ts";
 import { runBatchPlanner, serializeBatchPlan } from "./batch-planner.ts";
+import { runReachabilitySolver, serializeReachabilityRecord } from "./reachability-solver.ts";
 import { runCG } from "./code-generator.js";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules, resolveModulePath } from "./module-resolver.js";
@@ -1191,6 +1192,20 @@ export function compileScrml(options = {}) {
   // When selfHostModules.bpp is provided, override BPP functions in parser-workarounds.
   if (selfHostModules?.bpp) setBPPOverrides(selfHostModules.bpp);
 
+  // Stage 7.6: Reachability Solver (SPEC §40.9 / PIPELINE Stage 7.6) — A-2.1
+  // scaffold. Consumes finalized DG + RouteMap (+ A-3 AuthGraph in A-2.5+).
+  // Produces a per-entry-point per-role ChunkPlan tree for A-4 codegen
+  // consumption. Current body is a no-op returning an empty record;
+  // subsequent waves (A-2.2..A-2.7) implement the five-component union +
+  // outer fixed point. Pipeline behavior is unchanged at A-2.1.
+  const rsResult = stage("RS", () => runReachabilitySolver({
+    depGraph: dgResult.depGraph,
+    routeMap: riResult.routeMap,
+    batchPlan: bpResult.batchPlan,
+    files: metaFiles,
+  }));
+  collectErrors("RS", rsResult.errors);
+
   // Stage 8: CG (all files)
   // When selfHostModules.runCG is provided, use it instead of the JS original.
   const _runCG = selfHostModules?.runCG ?? runCG;
@@ -1213,6 +1228,9 @@ export function compileScrml(options = {}) {
     // engine mount sites (`<engineVarName/>` resolving to `category: "engine"`)
     // and emit the §21.8 mount-position marker per SPEC §51.0.D.
     exportRegistry: moduleResult.exportRegistry,
+    // A-2.1 — pass Stage 7.6 ReachabilityRecord. Empty at A-2.1; consumed
+    // by A-4 codegen wave once A-2.2..A-2.7 land the closure analysis.
+    reachabilityRecord: rsResult.record,
   }));
   collectErrors("CG", cgResult.errors);
 
@@ -1401,5 +1419,8 @@ export function compileScrml(options = {}) {
     gatheredFiles: inputFiles,
     batchPlan: bpResult.batchPlan,
     batchPlanJson: () => serializeBatchPlan(bpResult.batchPlan),
+    // Stage 7.6 — A-2.1 scaffold. The record is empty until A-2.2+.
+    reachabilityRecord: rsResult.record,
+    reachabilityRecordJson: () => serializeReachabilityRecord(rsResult.record),
   };
 }

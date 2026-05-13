@@ -7,7 +7,7 @@
  * Pretty error output with colors and source locations.
  */
 
-import { statSync, watch, readFileSync, existsSync } from "fs";
+import { statSync, watch, readFileSync, existsSync, writeFileSync } from "fs";
 import { resolve, dirname, join, relative, basename } from "path";
 import { compileScrml, scanDirectory } from "../api.js";
 
@@ -45,6 +45,7 @@ Options:
   --verbose, -v           Show per-stage timing and counts
   --embed-runtime         Embed runtime inline instead of writing a separate file
   --emit-batch-plan       Print the Stage 7.5 BatchPlan as JSON (§PIPELINE)
+  --emit-reachability     Emit <base>.reachability.json for each source (§PIPELINE Stage 7.6 / SPEC §40.9)
   --emit-machine-tests    Emit <base>.machine.test.js for each source (§51.13)
   --watch, -w             Watch for changes and recompile
   --convert-legacy-css    Convert <style> blocks to #{...}
@@ -81,6 +82,7 @@ function parseArgs(args) {
   let mode = 'browser';
   let selfHost = false;
   let emitBatchPlan = false;
+  let emitReachability = false;
   let emitMachineTests = false;
   // W2 §21.7: auto-gather defaults ON. `--no-gather` opts out.
   let gather = true;
@@ -116,6 +118,8 @@ function parseArgs(args) {
       selfHost = true;
     } else if (arg === "--emit-batch-plan") {
       emitBatchPlan = true;
+    } else if (arg === "--emit-reachability") {
+      emitReachability = true;
     } else if (arg === "--emit-machine-tests") {
       emitMachineTests = true;
     } else if (arg === "--no-gather") {
@@ -156,7 +160,7 @@ function parseArgs(args) {
     }
   }
 
-  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitMachineTests, gather };
+  return { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, watchMode, mode, selfHost, emitBatchPlan, emitReachability, emitMachineTests, gather };
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +283,7 @@ function formatLintDiagnostic(diag, cwd) {
  * @returns {{ success: boolean }}
  */
 function runOnce(opts, selfHostModules = null) {
-  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitMachineTests, gather } = opts;
+  const { inputFiles, outputDir, verbose, convertLegacyCss, embedRuntime, mode, emitBatchPlan, emitReachability, emitMachineTests, gather } = opts;
   const cwd = process.cwd();
 
   if (verbose) {
@@ -381,6 +385,21 @@ function runOnce(opts, selfHostModules = null) {
   if (emitBatchPlan && typeof result.batchPlanJson === "function") {
     console.log("\n" + c.dim("// --- BatchPlan (§PIPELINE Stage 7.5) ---"));
     console.log(result.batchPlanJson());
+  }
+
+  // S89 A-2.1 — write <base>.reachability.json next to each compiled output.
+  // The record is empty at A-2.1 (scaffold); A-2.2+ populates per-entry-point
+  // per-role closures. Emission lives here (not inside compileScrml) so the
+  // flag is a CLI-only surface and the api.js write loop stays single-purpose.
+  if (emitReachability && typeof result.reachabilityRecordJson === "function") {
+    const json = result.reachabilityRecordJson();
+    const destDir = result.outputDir;
+    for (const f of inputFiles) {
+      const base = basename(f, ".scrml");
+      const dest = join(destDir, `${base}.reachability.json`);
+      writeFileSync(dest, json);
+      if (verbose) console.log(c.dim(`  [RS] Wrote reachability JSON: ${base}.reachability.json`));
+    }
   }
 
   return { success: true };

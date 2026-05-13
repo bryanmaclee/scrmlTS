@@ -12,6 +12,7 @@ import { BindingRegistry } from "./binding-registry.ts";
 import type { CGError } from "./errors.ts";
 import type { EncodingContext } from "./type-encoding.ts";
 import type { FileAnalysis } from "./analyze.ts";
+import { type ReachabilityRecord, emptyReachabilityRecord } from "../types/reachability.ts";
 
 // Re-export EncodingContext so callers only need to import from context.ts
 export type { EncodingContext };
@@ -76,6 +77,17 @@ export interface CompileContext {
    * SPEC §21.8 + §51.0.D — cross-file engine import via `<EngineName/>`.
    */
   exportRegistry?: Map<string, Map<string, { kind: string; category: string; isComponent: boolean }>> | null;
+  /**
+   * S89 A-2.1 — Reachability Solver output (PIPELINE Stage 7.6 / SPEC §40.9).
+   *
+   * Populated by `runReachabilitySolver` in `api.js` between Stage 7.5 (BP)
+   * and Stage 8 (CG). At A-2.1 the record is empty for every input; A-4
+   * codegen will consume per-entry-point per-role ChunkPlans once A-2.2..
+   * A-2.7 land the algorithm. Optional + nullable so test harnesses that
+   * bypass the full pipeline don't have to construct one — the factory
+   * pre-populates with an empty record for safety.
+   */
+  reachabilityRecord?: ReachabilityRecord | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,5 +126,9 @@ export function makeCompileContext(partial: Partial<CompileContext> & { fileAST:
     // bypass the full pipeline; the C15 cross-file mount walker short-circuits
     // when null.
     exportRegistry: partial.exportRegistry ?? null,
+    // A-2.1 — Reachability Solver record. Defaults to a fresh empty record
+    // so downstream consumers (A-4 codegen wave) can read the shape without
+    // a null-guard; A-2.2+ replaces this with the actual closure analysis.
+    reachabilityRecord: partial.reachabilityRecord ?? emptyReachabilityRecord(),
   };
 }
