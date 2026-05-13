@@ -5449,6 +5449,320 @@ export function walkDerivedEngineWriteRejections(
 }
 
 // ---------------------------------------------------------------------------
+// PASS 12.B (v0.3 Option-d) — W-ENGINE-SELF-WRITE-DETECTED outside-state-child
+// ---------------------------------------------------------------------------
+//
+// Per SPEC §51.0.F (v0.3 Option-d synthesis), self-writes to an engine cell
+// (`@var = .CurrentVariant` from inside `<CurrentVariant>`) are RUNTIME NO-OPS.
+// Fire-site #10 inside `validateEngineA5Extensions` handles the STRICT case
+// (write occurs inside the state-child body whose tag matches the target).
+//
+// THIS WALKER handles the CONSERVATIVE outside-state-child case: writes from
+// function bodies, top-level logic blocks, event handlers OUTSIDE any engine
+// state-child body. The current variant is NOT statically known at these
+// sites — but if the target is a literal `.Variant` matching the engine's
+// declared variants, the write IS A SELF-WRITE WHENEVER the runtime current
+// variant happens to equal that target. Per v0.3 Option-d, that's a no-op.
+//
+// Fire condition: `@<varName> = .<Variant>` OR `@<varName>.advance(.<Variant>)`
+// where `<varName>` resolves to a NON-DERIVED engine cell AND `<Variant>` is
+// listed in the engine's `meta.variants`. Severity: info.
+//
+// This is INTENTIONALLY CONSERVATIVE — it surfaces an opportunity for the
+// adopter to verify intent ("this write may be a no-op when you weren't
+// expecting it"). False positives are acceptable for info-level lints
+// (BRIEF: "info-level allows false positives").
+//
+// SCOPE: walks function-decl bodies and top-level bare-exprs/state-decls.
+// SKIPS engine-decl.bodyChildren descent — fire-site #10 owns those (state-
+// child raw bodies). Recursion mirrors `walkDerivedEngineWriteRejections`.
+
+/**
+ * Resolve a non-derived engine variable to its metadata. Returns null when
+ * the cell does not exist, is not an engine, or IS a derived engine (those
+ * have their own NO-WRITE rejection path via `walkDerivedEngineWriteRejections`).
+ *
+ * Walks the parent-chain (current scope -> enclosing scope -> ... -> file)
+ * so engine cells registered at file scope are reachable from inside nested
+ * function bodies.
+ */
+function lookupNonDerivedEngineMeta(
+  scope: Scope,
+  varName: string,
+): { record: StateCellRecord; meta: EngineMetadata } | null {
+  // Engine cells are registered at file scope by PASS 1.c
+  // (walkRegisterEngines). Walk the parent chain to find the file scope
+  // entry — mirrors `lookupStateCell` semantics for engine cells.
+  let s: Scope | null = scope;
+  while (s !== null) {
+    const rec = s.stateCells.get(varName);
+    if (rec && rec.engineMeta) {
+      const meta = rec.engineMeta;
+      // SKIP derived engines — `walkDerivedEngineWriteRejections` owns those
+      // with E-DERIVED-ENGINE-NO-WRITE; do NOT double-fire info.
+      const dExpr = meta.derivedExpr;
+      if (dExpr !== null && dExpr !== undefined) {
+        if (typeof dExpr === "object"
+            && (dExpr as Record<string, unknown>).kind !== "legacy-source-var") {
+          return null; // §51.0.J derived engine — NO-WRITE owner
+        }
+        // Legacy §51.9 derived (`derivedExpr.kind === "legacy-source-var"`)
+        // is governed by E-ENGINE-017 — also not our concern.
+        return null;
+      }
+      return { record: rec, meta };
+    }
+    s = s.parent;
+  }
+  return null;
+}
+
+/**
+ * Extract a bare-variant tag name (`.Variant`) from an ExprNode value.
+ *
+ * Per `expression-parser.ts:938`, the parser unmasks the preprocessor
+ * placeholder `__scrml_bare_variant_X__` back to `IdentExpr { name: ".X" }`.
+ * So a literal `.Variant` on the RHS of `@phase = .Variant` is an `ident`
+ * ExprNode whose name starts with `.`.
+ *
+ * Qualified forms (`Type.Variant`) are NOT matched — they are `MemberExpr`
+ * shapes; identifier-resolution beyond raw text is out of scope for this
+ * conservative lint (mirrors the fire-site #9 cascade-miss scanner posture).
+ *
+ * Returns the variant name (no leading dot) on match, null otherwise.
+ */
+function extractBareVariantName(expr: any): string | null {
+  if (!expr || typeof expr !== "object") return null;
+  if (expr.kind !== "ident") return null;
+  const name: unknown = expr.name;
+  if (typeof name !== "string") return null;
+  if (!name.startsWith(".")) return null;
+  const bare = name.slice(1);
+  if (bare.length === 0) return null;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(bare)) return null;
+  return bare;
+}
+
+/**
+ * Fire W-ENGINE-SELF-WRITE-DETECTED (info) for an outside-state-child write
+ * to an engine cell. The current variant is dynamic; the target IS a literal
+ * variant of the engine's `for=Type`. Per v0.3 §51.0.F Option-d, the write
+ * is a no-op WHENEVER the runtime current variant equals the target.
+ */
+function fireEngineSelfWriteDetectedOutside(
+  reportNode: any,
+  varName: string,
+  variantName: string,
+  isAdvance: boolean,
+  errors: SYMDiagnostic[],
+  filePath: string,
+): void {
+  const span: SYMDiagnostic["span"] = reportNode?.span ?? {
+    file: filePath, start: 0, end: 0, line: 1, col: 1,
+  };
+  const writeRepr = isAdvance
+    ? `@${varName}.advance(.${variantName})`
+    : `@${varName} = .${variantName}`;
+  errors.push({
+    code: "W-ENGINE-SELF-WRITE-DETECTED",
+    message:
+      `W-ENGINE-SELF-WRITE-DETECTED: \`${writeRepr}\` targets a literal variant ` +
+      `of engine \`@${varName}\`. The enclosing context is OUTSIDE any engine ` +
+      `state-child body, so the runtime current variant is not statically known ` +
+      `here. Per SPEC §51.0.F (v0.3 Option-d synthesis), when the runtime current ` +
+      `variant equals \`.${variantName}\`, this write is an idempotent NO-OP ` +
+      `(no \`<onTransition>\`, no timer rearm, no history capture, no subscriber ` +
+      `notification). If this no-op-when-already-in-state behavior is INTENTIONAL ` +
+      `(e.g., a defensive set in a code path reachable from multiple variants), ` +
+      `this lint is informational only — no action required. If you expected a ` +
+      `state change unconditionally, verify the write target or guard the call ` +
+      `site (\`if (@${varName} != .${variantName}) ...\`).`,
+    span,
+    severity: "info",
+  });
+}
+
+/**
+ * Recursively walk an ExprNode subtree for `@<engineVar> = .<Variant>` and
+ * `@<engineVar>.advance(.<Variant>)` shapes targeting non-derived engine cells.
+ *
+ * Mirrors `checkExprNodeForDerivedEngineWrite` shape (write-detection inside
+ * arbitrary expression trees).
+ */
+function checkExprNodeForOutsideSelfWrite(
+  expr: any,
+  reportNode: any,
+  scope: Scope,
+  errors: SYMDiagnostic[],
+  filePath: string,
+): void {
+  if (!expr || typeof expr !== "object") return;
+  const seen = new WeakSet<object>();
+
+  function walk(n: any): void {
+    if (!n || typeof n !== "object") return;
+    if (seen.has(n)) return;
+    seen.add(n);
+    const k = n.kind;
+
+    // Shape 1: direct write `@varname = .Variant` (op MUST be `"="` — compound-
+    // assigns like `+=` cannot meaningfully target a variant tag).
+    if (k === "assign" && n.op === "=" && n.target && n.target.kind === "ident"
+        && typeof n.target.name === "string" && n.target.name.startsWith("@")) {
+      const varName = n.target.name.slice(1);
+      const hit = lookupNonDerivedEngineMeta(scope, varName);
+      if (hit) {
+        const variantName = extractBareVariantName(n.value);
+        if (variantName !== null
+            && Array.isArray(hit.meta.variants)
+            && hit.meta.variants.includes(variantName)) {
+          fireEngineSelfWriteDetectedOutside(
+            reportNode, varName, variantName, /*isAdvance=*/false, errors, filePath,
+          );
+        }
+      }
+    }
+
+    // Shape 2: `@varname.advance(.Variant)`.
+    if (k === "call" && n.callee && n.callee.kind === "member"
+        && typeof n.callee.property === "string"
+        && n.callee.property === "advance"
+        && n.callee.object && n.callee.object.kind === "ident"
+        && typeof n.callee.object.name === "string"
+        && n.callee.object.name.startsWith("@")) {
+      const varName = n.callee.object.name.slice(1);
+      const hit = lookupNonDerivedEngineMeta(scope, varName);
+      if (hit && Array.isArray(n.args) && n.args.length >= 1) {
+        const variantName = extractBareVariantName(n.args[0]);
+        if (variantName !== null
+            && Array.isArray(hit.meta.variants)
+            && hit.meta.variants.includes(variantName)) {
+          fireEngineSelfWriteDetectedOutside(
+            reportNode, varName, variantName, /*isAdvance=*/true, errors, filePath,
+          );
+        }
+      }
+    }
+
+    // Recurse into structural sub-fields. Same posture as
+    // checkExprNodeForDerivedEngineWrite.
+    for (const key of Object.keys(n)) {
+      if (key === "span" || key.startsWith("_")) continue;
+      const v = (n as any)[key];
+      if (v && typeof v === "object") {
+        if (Array.isArray(v)) {
+          for (const item of v) walk(item);
+        } else {
+          walk(v);
+        }
+      }
+    }
+  }
+
+  walk(expr);
+}
+
+/**
+ * Detect outside-state-child engine self-writes by walking bare-expr +
+ * state-decl AST nodes outside any engine state-child body. SKIPS descent
+ * into `engine-decl.bodyChildren` — fire-site #10 (in
+ * `validateEngineA5Extensions`) owns state-child raw bodies.
+ *
+ * Recursion shape mirrors `walkDerivedEngineWriteRejections` minus the
+ * engine-decl descent.
+ */
+export function walkEngineSelfWriteOutside(
+  nodes: any,
+  scope: Scope,
+  errors: SYMDiagnostic[],
+  filePath: string,
+  visited: WeakSet<object>,
+): void {
+  if (!nodes) return;
+  if (Array.isArray(nodes)) {
+    for (const n of nodes) {
+      walkEngineSelfWriteOutside(n, scope, errors, filePath, visited);
+    }
+    return;
+  }
+  if (typeof nodes !== "object") return;
+  if (visited.has(nodes)) return;
+  visited.add(nodes);
+
+  const node = nodes as any;
+  const kind = node.kind;
+
+  // STOP at engine-decl: fire-site #10 owns the state-child raw bodies; we
+  // do NOT recurse into `bodyChildren` here. The engine-decl's OWN init
+  // (`initial=.X`) is NOT a write event — skip the engine-decl entirely.
+  if (kind === "engine-decl") return;
+
+  // bare-expr: walk its exprNode for assign / advance-call shapes.
+  if (kind === "bare-expr") {
+    if (node.exprNode && typeof node.exprNode === "object") {
+      checkExprNodeForOutsideSelfWrite(node.exprNode, node, scope, errors, filePath);
+    }
+    return; // leaf — no further descent
+  }
+
+  // state-decl: the scrml parser surfaces `@var = expr` (and compound-assign
+  // forms) as state-decl nodes even inside function bodies. Mirrors
+  // `checkStateDeclForDerivedEngineWrite`'s observation. Only fire when the
+  // decl's name resolves to an engine cell AND the init is a bare variant
+  // literal of that engine.
+  if (kind === "state-decl") {
+    const declName: unknown = node.name;
+    if (typeof declName === "string" && declName.length > 0) {
+      const hit = lookupNonDerivedEngineMeta(scope, declName);
+      if (hit && node.initExpr && typeof node.initExpr === "object") {
+        const variantName = extractBareVariantName(node.initExpr);
+        if (variantName !== null
+            && Array.isArray(hit.meta.variants)
+            && hit.meta.variants.includes(variantName)) {
+          fireEngineSelfWriteDetectedOutside(
+            node, declName, variantName, /*isAdvance=*/false, errors, filePath,
+          );
+        }
+      }
+    }
+    // Continue descent — children may carry nested writes (compound state-
+    // decl body, etc.).
+  }
+
+  // function-decl: descend into body using the function's own scope (so
+  // engine cells from enclosing file scope are still resolvable via the
+  // parent-chain walk in lookupNonDerivedEngineMeta).
+  if (kind === "function-decl") {
+    const fnScope = (node as any)._scope ?? scope;
+    if (Array.isArray(node.body)) {
+      walkEngineSelfWriteOutside(node.body, fnScope, errors, filePath, visited);
+    }
+    return;
+  }
+
+  // Generic recursion. Mirrors walkDerivedEngineWriteRejections shape.
+  if (Array.isArray(node.children)) {
+    walkEngineSelfWriteOutside(node.children, scope, errors, filePath, visited);
+  }
+  if (Array.isArray(node.body)) {
+    walkEngineSelfWriteOutside(node.body, scope, errors, filePath, visited);
+  }
+  if (Array.isArray(node.consequent)) {
+    walkEngineSelfWriteOutside(node.consequent, scope, errors, filePath, visited);
+  }
+  if (Array.isArray(node.alternate)) {
+    walkEngineSelfWriteOutside(node.alternate, scope, errors, filePath, visited);
+  }
+  if (Array.isArray(node.arms)) {
+    for (const arm of node.arms) {
+      if (arm && Array.isArray(arm.body)) {
+        walkEngineSelfWriteOutside(arm.body, scope, errors, filePath, visited);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PASS 13 (B17) — components-vs-engines residual fire-site (M20, §51.0.K)
 // ---------------------------------------------------------------------------
 //
@@ -7916,6 +8230,21 @@ export function runSYM(input: SYMInput): SYMResult {
   const visitedB16B = new WeakSet<object>();
   walkDerivedEngineWriteRejections(
     ast.nodes, fileScope, errors, filePath, visitedB16B,
+  );
+
+  // PASS 12.B (v0.3 Option-d) — W-ENGINE-SELF-WRITE-DETECTED outside-state-child.
+  // Walks bare-expr / state-decl / function-decl bodies for `@<engineVar> = .X`
+  // and `@<engineVar>.advance(.X)` writes where `.X` is a literal variant of
+  // a NON-DERIVED engine cell. Fires info-level lint per SPEC §51.0.F (v0.3
+  // Option-d synthesis) — current variant is dynamic; if it equals `.X` at
+  // runtime, the write is a no-op. Inside-state-child writes are owned by
+  // fire-site #10 in PASS 16 (validateEngineA5Extensions); the walker SKIPS
+  // engine-decl.bodyChildren descent. Ordering: AFTER PASS 12 (B16) so derived-
+  // engine NO-WRITE rejection fires first; the lookup helper here returns null
+  // for derived-engine cells so no double-fire on derived writes.
+  const visitedSelfWriteOutside = new WeakSet<object>();
+  walkEngineSelfWriteOutside(
+    ast.nodes, fileScope, errors, filePath, visitedSelfWriteOutside,
   );
 
   // PASS 13 (B17): components-vs-engines residual fire-site (§51.0.K, M20).
