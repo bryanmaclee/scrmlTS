@@ -463,6 +463,20 @@ function _makeExprCtx(opts: EmitLogicOpts): EmitExprContext {
     // runtime history-restore. Onclick context goes through
     // emit-event-wiring.ts:exprCtxExtras which already includes this.
     enginesWithHistory: opts.enginesWithHistory ?? null,
+    // §51.0.F (Option A comprehensive engine-routing) — forward the engine
+    // binding-info map so `emit-expr.ts:emitAssign` can dispatch
+    // `@<engineCell> = <expr>` writes through the canonical write-guard at
+    // ANY expression context (lambda body, ternary RHS, function-call arg,
+    // compound expression, nested assign). Without this forward, expression-
+    // context engine writes silently emit bare `_scrml_reactive_set` and
+    // bypass rule= enforcement / <onTransition> hooks / timer arm-clear /
+    // history capture / Option-d self-write semantics.
+    //
+    // Statement-level engine writes (`@<engineCell> = .X` as a top-level
+    // statement) still route through `_emitReactiveSet` in this file (see
+    // line 975); the ExprNode-level engine-write detection in `emitAssign`
+    // is the missing complement that closes the expression-context gap.
+    engineBindings: opts.engineBindings ?? null,
   };
 }
 

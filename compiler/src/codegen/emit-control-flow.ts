@@ -131,6 +131,12 @@ export interface EngineRewriteCtx {
     | "enginesWithIdleWatchdog"
     | "enginesWithInternalRules"
     | "enginesWithHistory"
+    // §51.0.F (Option A comprehensive engine-routing) — engine binding-info
+    // threaded into nested-expression contexts (arm-result expressions,
+    // event-handler bodies) so `@engineCell = .X` writes appearing inside
+    // a sub-expression (e.g., `.A => myFn(@engineCell = .B)`) route through
+    // the canonical write-guard via `emit-expr.ts:emitAssign`.
+    | "engineBindings"
   > | null;
 }
 
@@ -1336,6 +1342,11 @@ export function emitMatchExpr(node: any, opts?: any): string {
       enginesWithIdleWatchdog: opts?.enginesWithIdleWatchdog ?? null,
       enginesWithInternalRules: opts?.enginesWithInternalRules ?? null,
       enginesWithHistory: opts?.enginesWithHistory ?? null,
+      // §51.0.F (Option A) — forward engine binding-info into nested
+      // expression contexts so `@engineCell = .X` writes appearing inside
+      // arm-result expressions / event-handler bodies route through
+      // `emit-expr.ts:emitAssign`'s engine-routing dispatch.
+      engineBindings,
     },
   } : null;
   // Enrich the EmitExprContext used to lower arm results so `.advance(.X)`

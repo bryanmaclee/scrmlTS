@@ -115,6 +115,26 @@ export interface EmitExprContext {
    * undefined as null and skips the history capture path).
    */
   enginesWithHistory?: Set<string> | null;
+  /**
+   * §51.0.F (Option A comprehensive engine-routing) — engine variable
+   * binding-info map keyed by engine variable name (e.g. `"marioState"`).
+   * When set and the assignment LHS matches a key, `emitAssign` dispatches
+   * the write through the canonical write-guard helper
+   * (`emit-engine.ts:emitEngineWriteGuard`) instead of bare
+   * `_scrml_reactive_set`. Mirrors the engineBindings field in EmitLogicOpts.
+   *
+   * The dispatch wraps the multi-line guard in an IIFE so the value of the
+   * assignment expression is preserved (matching `_scrml_reactive_set`'s
+   * native return-value semantics). This brings ALL expression contexts —
+   * lambda bodies / ternary RHS / function-call args / compound expressions /
+   * nested assigns — into structural parity for engine-write routing
+   * (rule= enforcement / <onTransition> hooks / timer arm-clear / history
+   * capture / Option-d self-write semantics per §51.0.F.1).
+   *
+   * Sibling to `engineVarNames` — engineVarNames covers `.advance(.X)` calls,
+   * engineBindings covers `@<name> = <expr>` direct writes.
+   */
+  engineBindings?: Map<string, import("./emit-engine.ts").EngineBindingInfo> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +497,68 @@ function emitAssign(node: AssignExpr, ctx: EmitExprContext): string {
     const bare = target.name.slice(1);
     if (ctx.mode === "server") {
       return `_scrml_body["${bare}"] ${node.op} ${value}`;
+    }
+    // §51.0.F (Option A comprehensive engine-routing) — when the LHS is an
+    // engine-bound `@<name>` AND we're at expression position, dispatch
+    // through the canonical write-guard helper instead of bare
+    // `_scrml_reactive_set`. Covers ALL expression contexts uniformly:
+    // lambda bodies / ternary RHS / function-call args / compound exprs /
+    // nested assigns. Sibling to `_emitReactiveSet` in emit-logic.ts (which
+    // handles the statement-level path).
+    //
+    // Self-write semantics (§51.0.F.1 Option-d): the runtime helper returns
+    // false on `current === target` and treats it as an idempotent no-op
+    // (no rule= violation). Compile-time `W-ENGINE-SELF-WRITE-DETECTED`
+    // surfaces the situation as an info-level lint upstream.
+    //
+    // Bug 1.7 simplification: NOT applied here. The match-arm-inline path
+    // currently emits via `emitExprField(null, arm.result, ctx)` which falls
+    // through to the string-rewrite pipeline (no ExprNode), so it never
+    // reaches this emitAssign. Bug 1.7's helper sits at that string-rewrite
+    // layer and stays in place.
+    const engineBinding = (node.op === "=" && ctx.engineBindings)
+      ? ctx.engineBindings.get(bare) ?? null
+      : null;
+    if (engineBinding) {
+      // Detect the structured `.Variant.history` restore-form on the RHS so
+      // the runtime helper arms the pending-history-restore flag (§51.0.Q.1).
+      // Mirrors emit-logic.ts:detectHistoryForm + emit-control-flow.ts's
+      // detectHistoryFormFromString — accept either ExprNode shape (member
+      // chain ending in `.history`) or fall back to a string suffix check.
+      let valueExprForGuard = value;
+      let isHistoryRestore = false;
+      const rhs: any = node.value;
+      if (
+        rhs && typeof rhs === "object" &&
+        rhs.kind === "member" && rhs.property === "history" &&
+        rhs.object && typeof rhs.object === "object"
+      ) {
+        const inner = rhs.object;
+        if (
+          (inner.kind === "ident" && typeof inner.name === "string" && inner.name.startsWith(".")) ||
+          inner.kind === "member"
+        ) {
+          valueExprForGuard = emitExpr(inner, ctx);
+          isHistoryRestore = true;
+        }
+      }
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { emitEngineWriteGuard } = require("./emit-engine.ts") as {
+        emitEngineWriteGuard: (
+          binding: import("./emit-engine.ts").EngineBindingInfo,
+          newValueExpr: string,
+          isHistoryRestore?: boolean,
+        ) => string[];
+      };
+      // Bind the value to a temp BEFORE the guard so the guard's embedded
+      // value-expression (which appears multiple times in the with-hooks form
+      // wrapped in a `__scrml_engine_from`/`__scrml_engine_external` block) is
+      // evaluated exactly once. The IIFE returns the temp so the assignment
+      // expression carries the new value into surrounding compound contexts
+      // (matches `_scrml_reactive_set`'s own `return value;` semantics).
+      const guardLines = emitEngineWriteGuard(engineBinding, "__scrml_engine_v", isHistoryRestore);
+      const indented = guardLines.map(l => `  ${l}`).join("\n");
+      return `(function(){\n  const __scrml_engine_v = ${valueExprForGuard};\n${indented}\n  return __scrml_engine_v;\n})()`;
     }
     if (node.op === "=") {
       return `_scrml_reactive_set("${bare}", ${value})`;

@@ -331,6 +331,12 @@ export function emitEventWiring(ctx: CompileContext, fnNameMap: Map<string, stri
             enginesWithIdleWatchdog: enginesWithIdleWatchdog.size > 0 ? enginesWithIdleWatchdog : null,
             enginesWithInternalRules: enginesWithInternalRules.size > 0 ? enginesWithInternalRules : null,
             enginesWithHistory: enginesWithHistory.size > 0 ? enginesWithHistory : null,
+            // §51.0.F (Option A) — forward engine binding-info so nested
+            // expression contexts (lambda body / ternary RHS / call args /
+            // compound exprs) inside event-handler bodies route engine
+            // writes through `emit-expr.ts:emitAssign`'s engine-routing
+            // dispatch.
+            engineBindings: engineBindings,
           },
         }
       : null;
