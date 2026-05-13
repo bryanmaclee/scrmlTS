@@ -2433,6 +2433,19 @@ function _scrml_engine_advance(varName, target, table, timersTable, idleEntry, i
   // the cell write. The internal branch (above) skips this capture by
   // construction (no real exit).
   const current = _scrml_reactive_get(varName);
+  // §51.0.F (v0.3 Option-d synthesis) — IDEMPOTENT SELF-WRITE NO-OP.
+  // When target equals the current variant, this is a self-write — by spec
+  // a true no-op (NOT a rule= violation, even when the from-state's rule=
+  // does not list itself). No <onTransition> fires, no history capture,
+  // no timer rearm, no idle-watchdog reset, no subscriber fire. Returns
+  // false (matches the "no external transition occurred" signal so any
+  // caller that gates post-commit hooks on the return value treats this
+  // as a non-event).
+  // Precedent: _scrml_engine_history_capture_on_exit:2390 already short-
+  // circuits self-loops as "not a real exit"; this guard makes the front-
+  // door helpers consistent with that intuition. W-ENGINE-SELF-WRITE-DETECTED
+  // (info-level) surfaces the no-op at compile time when statically detectable.
+  if (current === target) return false;
   // A5-7 Wave 2.2 — internal-path check FIRST. Per §51.0.O an internal
   // transition is preferred when both an internal rule and an external rule
   // permit the same target (canonical example: composite self-loop
@@ -2497,6 +2510,12 @@ function _scrml_engine_direct_set(varName, target, table, timersTable, idleEntry
   // historyMap (A5-7 Wave 2.3 §51.0.N): per-engine history map or null. See
   // _scrml_engine_advance above for full semantics.
   const current = _scrml_reactive_get(varName);
+  // §51.0.F (v0.3 Option-d synthesis) — IDEMPOTENT SELF-WRITE NO-OP.
+  // See _scrml_engine_advance above for the full rationale. A self-write
+  // (target === current) is a true no-op, NOT a rule= violation. Returns
+  // false (matches the non-external-transition signal). Surfaced at compile
+  // time by W-ENGINE-SELF-WRITE-DETECTED (info-level lint).
+  if (current === target) return false;
   // A5-7 Wave 2.2 — internal-path check FIRST (see _scrml_engine_advance).
   if (internalTable != null && _scrml_engine_check_transition(current, target, internalTable)) {
     // §51.0.O internal write path — see _scrml_engine_advance for full
