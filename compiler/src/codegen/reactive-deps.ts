@@ -129,11 +129,50 @@ export function collectReactiveVarNames(fileAST: Record<string, unknown>): Set<s
     }
   }
 
+  // Bug 1.5 (S87 follow-on) — §51.0.C auto-declared engine variables.
+  // `<engine for=Type>` (and legacy `<machine name=N for=Type>`) declares a
+  // reactive cell whose name is computed by ast-builder per §51.0.C
+  // (lowercase-first-character literal rule). The variable is stamped onto
+  // the `engine-decl` AST node as `node.varName` (ast-builder.js:9508) AND
+  // mirrored to SYM PASS 10.A's `_record.engineMeta.varName` annotation.
+  //
+  // Without this set, markup interpolations like `${@marioState}` get
+  // filtered by `extractReactiveDeps` (`marioState` is not a known reactive
+  // name), `emit-event-wiring.ts:832` sees `varRefs.length === 0`, and the
+  // reactive-display effect is never emitted — the placeholder span stays
+  // blank in the rendered DOM.
+  //
+  // We prefer `fileAST.machineDecls` (ast-builder's pre-collected list of
+  // engine-decl nodes) so we cover engines in markup-child position without
+  // needing the markup visit() loop to reach them. Fall back to walking
+  // engine-decl encountered during the visit (covers test fixtures that
+  // bypass ast-builder's collectHoisted pass).
+  const machineDecls = (fileAST.machineDecls as Array<Record<string, unknown>> | undefined)
+    ?? ((fileAST.ast as Record<string, unknown> | undefined)?.machineDecls as Array<Record<string, unknown>> | undefined);
+  if (Array.isArray(machineDecls)) {
+    for (const decl of machineDecls) {
+      const engineVarName = _resolveEngineVarName(decl);
+      if (engineVarName) names.add(engineVarName);
+    }
+  }
+
   function visit(nodeList: unknown[]): void {
     if (!Array.isArray(nodeList)) return;
     for (const node of nodeList) {
       if (!node || typeof node !== "object") continue;
       const n = node as ASTNode;
+      // Bug 1.5 — engine-decl auto-declares a reactive cell per §51.0.C.
+      // Covers nested `<engine>` (§51.0.Q.1) found inside bodyChildren as
+      // well as engine-decls in fixtures that bypass machineDecls pre-
+      // collection. Idempotent with the machineDecls pre-collected path
+      // above (Set semantics dedupe).
+      if (n.kind === "engine-decl") {
+        const engineVarName = _resolveEngineVarName(n);
+        if (engineVarName) names.add(engineVarName);
+        if (Array.isArray((n as any).bodyChildren)) {
+          visit((n as any).bodyChildren as unknown[]);
+        }
+      }
       if (n.kind === "state-decl" && n.name) {
         names.add(n.name as string);
       }
@@ -257,6 +296,28 @@ export function collectDerivedVarNames(fileAST: Record<string, unknown>): Set<st
 // ---------------------------------------------------------------------------
 // ExprNode-aware reactive ref detection (Phase 4d)
 // ---------------------------------------------------------------------------
+
+/**
+ * Bug 1.5 — resolve the auto-declared variable name of an `engine-decl` AST
+ * node. Prefers SYM PASS 10.A's `_record.engineMeta.varName` annotation
+ * (post-symbol-table); falls back to ast-builder's stamped `node.varName`
+ * (pre-symbol-table or test-fixture path); finally falls back to
+ * `node.engineName` for the legacy `<machine name=N for=Type>` form where
+ * `engineName` carries the auto-derived or `name=`-supplied identifier.
+ *
+ * Returns the name (without `@` prefix) or `null` when none could be
+ * resolved (e.g. parse failure — SYM/TAB diagnostics handle that case).
+ */
+function _resolveEngineVarName(node: unknown): string | null {
+  if (!node || typeof node !== "object") return null;
+  const n = node as Record<string, unknown>;
+  const record = n._record as { engineMeta?: { varName?: unknown } } | undefined;
+  const fromRecord = record?.engineMeta?.varName;
+  if (typeof fromRecord === "string" && fromRecord.length > 0) return fromRecord;
+  if (typeof n.varName === "string" && (n.varName as string).length > 0) return n.varName as string;
+  if (typeof n.engineName === "string" && (n.engineName as string).length > 0) return n.engineName as string;
+  return null;
+}
 
 /**
  * Check whether an ExprNode tree contains any @-prefixed ident (reactive ref).

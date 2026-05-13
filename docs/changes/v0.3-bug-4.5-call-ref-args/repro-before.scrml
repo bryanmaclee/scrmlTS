@@ -1,0 +1,7 @@
+<program>
+${
+    @cell = "hello"
+    function logIt(msg) { console.log(msg) }
+}
+<button onclick=logIt(@cell)>Click</button>
+</program>

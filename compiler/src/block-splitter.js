@@ -633,6 +633,66 @@ export function splitBlocks(filePath, source) {
     }
 
     // -----------------------------------------------------------------------
+    // Section 27.2: '<!-- ... -->' HTML markup-comment suppression.
+    //
+    // SPEC §27.2 lists `<!-- -->` as the markup-context native comment.
+    // Without BS-level suppression, structural tag text inside an HTML
+    // comment (e.g. `<!-- <program> -->`, `<!-- <channel name="foo"> -->`)
+    // would be parsed as a real opener/closer at lines 1064+, corrupting
+    // the block stream. The bug is otherwise unrecoverable downstream
+    // because BS-emitted block frames are already wrong.
+    //
+    // Suppression scope: applies only at non-brace-delimited contexts
+    // (i.e., markup/state/root) — inside `${...}`, `?{...}`, `#{...}`, etc.
+    // the sequence `<!--` is not a comment and falls through as text.
+    // Quote tracking honored to avoid eating `"<!--"` as a comment.
+    //
+    // S87 v0.3 BS-comment-skip dispatch — closes a Wave-3 fixture-sweep
+    // architectural OQ. SPEC §4.7 amendment proposed to PA: drop the
+    // "SHALL NOT handle <!-- -->" exclusion; replace with "SHALL skip
+    // <!-- ... --> at markup/state/root context, mirroring //".
+    // -----------------------------------------------------------------------
+    if (
+      c === "<" &&
+      ch(1) === "!" &&
+      ch(2) === "-" &&
+      ch(3) === "-" &&
+      !inDoubleQuote &&
+      !inSingleQuote &&
+      !topIsBraceContext()
+    ) {
+      flushText();
+      const commentStart = curPos;
+      const commentStartLine = curLine;
+      const commentStartCol = curCol;
+      advance(4); // consume '<!--'
+      // Scan to closing '-->' (or EOF). Nested HTML comments are not a
+      // thing per the HTML spec; first '-->' closes.
+      while (pos < len) {
+        if (source[pos] === "-" && ch(1) === "-" && ch(2) === ">") {
+          advance(3); // consume '-->'
+          break;
+        }
+        step();
+      }
+      // (If we hit EOF without seeing '-->', the comment runs to EOF —
+      //  no error emitted; downstream stages will surface unclosed-marker
+      //  problems if the user truly forgot the closer. This matches how
+      //  unclosed `//` lines are handled — best-effort recovery.)
+      targetChildren().push({
+        type: "comment",
+        raw: source.slice(commentStart, pos),
+        span: { start: commentStart, end: pos, line: commentStartLine, col: commentStartCol },
+        depth: depth(),
+        children: [],
+        name: null,
+        closerForm: null,
+        isComponent: false,
+      });
+      continue;
+    }
+
+    // -----------------------------------------------------------------------
     // Quote state tracking (section 4.8) - applies at markup/state level only.
     // We track global quote state for bare-/ disambiguation.
     // Tag attribute content is handled by scanAttributes() with LOCAL state.

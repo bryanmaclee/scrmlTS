@@ -1843,6 +1843,64 @@ export function runDG(input: DGInput): DGOutput {
                     for (const r of rawRefs) creditReader(r.slice(1));
                   }
                 }
+                // Bug 4.5 / S87 — call-ref attribute values
+                // (`<button onclick=fn(@var)>`) are stored as
+                //   `{ kind: "call-ref", name: "fn", args: ["@var", ...],
+                //      argExprNodes?: [ExprNode, ...] }`
+                // (see ast-builder.js parseAttributes ATTR_CALL branch, line 1239).
+                // Pre-fix: only the `variable-ref` / `expr` / raw-string branches
+                // above were considered, so `@var` inside a call-ref arg never
+                // reached `creditReader`. If `@var` had no other reader, E-DG-002
+                // false-fired on it. (W-DEAD-FUNCTION on the called function is
+                // already correctly handled by route-inference.ts:2087-2100, which
+                // walks call-ref `name` + `args` + `argExprNodes` for the markup-
+                // referenced-names set.)
+                //
+                // Symmetric to Bug 4 (commit cee4469) which extended the
+                // route-inference walkMarkupContext walker to recurse into
+                // string-typed nested expression fields. This is the SIBLING
+                // fix on the dependency-graph "has-readers" walker.
+                if (valObj.kind === "call-ref") {
+                  // ExprNode-first walk for `@var` references (preferred —
+                  // robust against nested member-access like `@compound.field`,
+                  // unary/binary operators, conditional expressions, etc.).
+                  if (Array.isArray(valObj.argExprNodes)) {
+                    for (const en of valObj.argExprNodes) {
+                      if (en && typeof en === "object" && (en as { kind?: string }).kind) {
+                        forEachIdentInExprNode(en as ExprNode, (ident) => {
+                          if (ident.name.startsWith("@")) creditReader(ident.name.slice(1));
+                        });
+                      }
+                    }
+                  }
+                  // String-fallback for raw arg text — covers @var refs whose
+                  // ExprNode parse failed (e.g. parse errors elsewhere) and
+                  // duplicates the ExprNode walk for the simple-ident case
+                  // (creditReader is idempotent on the per-var Set).
+                  if (Array.isArray(valObj.args)) {
+                    for (const arg of valObj.args) {
+                      if (typeof arg === "string") {
+                        const argRefs = arg.match(/@([A-Za-z_$][A-Za-z0-9_$]*)/g);
+                        if (argRefs) {
+                          for (const r of argRefs) creditReader(r.slice(1));
+                        }
+                      }
+                    }
+                  }
+                  // Credit transitive reactive reads from the called function
+                  // body — `<button onclick=updateAll()>` should credit any
+                  // reactive cell that `updateAll` (transitively) reads, same
+                  // as the `extractCallees` path at line 1795-1803 above. The
+                  // call-ref's `name` field is the bare callee identifier.
+                  if (typeof valObj.name === "string" && valObj.name.length > 0) {
+                    const transitiveReads = fnTransitiveReads.get(valObj.name);
+                    if (transitiveReads) {
+                      for (const varName of transitiveReads) {
+                        creditReader(varName);
+                      }
+                    }
+                  }
+                }
               }
             }
           }
