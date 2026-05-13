@@ -1,0 +1,81 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:host — JS-host-throw containment primitive
+    //
+    // Provides safeCall, the single primitive for wrapping JS-host APIs that
+    // natively throw. scrml's error model (§19) does not use try/catch; errors
+    // are values. safeCall is the bridge between JS-host throw semantics and the
+    // scrml failable-function error model.
+    //
+    // Design: approach (α) — hand-authored JS shim in compiler/runtime/stdlib/host.js
+    //
+    // The try/catch lives ONLY in the runtime shim (host.js), never in scrml
+    // source. This file declares the public types and the failable function
+    // signature so that the compiler's type-checker and module-resolution
+    // machinery recognize safeCall correctly.
+    //
+    // Usage:
+    //   ${ import { safeCall, HostError } from 'scrml:host' }
+    //
+    //   server function readFile(path) ! -> HostError {
+    //       const content = safeCall(() => Bun.file(path).text()) !{
+    //           | ::Thrown(message, name) -> {
+    //               fail HostError::Thrown(message, name)
+    //           }
+    //       }
+    //       return content
+    //   }
+    // ---------------------------------------------------------------------------
+
+    /**
+     * HostError — error type produced by safeCall when a JS-host API throws.
+     *
+     * HostError::Thrown is produced when a thunk passed to safeCall throws.
+     * The fields mirror the thrown Error's properties when the thrown value is
+     * an Error instance. For non-Error throws (strings, numbers, null,
+     * undefined), message is a canonical string representation and name is
+     * "UnknownThrow".
+     */
+    export type HostError:enum = {
+        Thrown(message: string, name: string)
+    }
+
+    // ---------------------------------------------------------------------------
+    // safeCall — approach (α) stub
+    //
+    // The body below is a source-level stub. The actual implementation lives in
+    // compiler/runtime/stdlib/host.js (the hand-authored ES module shim) which
+    // is copied to _scrml/host.js at bundle time by bundleStdlibForRun() in
+    // compiler/src/api.js.
+    //
+    // The try/catch is intentionally absent from this scrml source file.
+    // It lives only in the .js shim. This is the same pattern used by
+    // scrml:auth (compiler/runtime/stdlib/auth.js) and
+    // scrml:crypto (compiler/runtime/stdlib/crypto.js).
+    //
+    // The shim's safeCall:
+    //   - Calls thunk() inside a try/catch
+    //   - On success: returns { _scrml_ok: true, value: <return value> }
+    //   - On any throw: returns { _scrml_ok: false, error: { tag: "Thrown",
+    //                              message: <string>, name: <string> } }
+    //
+    // Callers use !{} or match to handle the failable result.
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Call a zero-argument thunk, catching any JS exception.
+     *
+     * Returns the thunk's return value on success.
+     * Returns HostError::Thrown on any thrown value (Error, string, null, etc.).
+     *
+     * @param thunk — a zero-argument function () => T
+     */
+    export function safeCall(thunk) ! -> HostError {
+        // Stub body — runtime is provided by compiler/runtime/stdlib/host.js.
+        // This body is never executed directly; the bundler replaces it with the
+        // hand-authored shim that contains the actual try/catch.
+        return thunk()
+    }
+}
+</program>
