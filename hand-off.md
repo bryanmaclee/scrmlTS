@@ -1,251 +1,284 @@
-# scrmlTS — Session 88 (CLOSE — landmark 17-commit session)
+# scrmlTS — Session 89 (CLOSE — landmark 36-commit session)
 
-**Date:** 2026-05-12 → 2026-05-13 (S88; multi-day session)
-**Previous:** `handOffs/hand-off-87.md` (S87 CLOSE — historic 37-commit session)
-**This file:** rotates to `handOffs/hand-off-88.md` at S89 open
+**Date:** 2026-05-13 (S89; opened directly after S88 wrap)
+**Previous:** `handOffs/hand-off-88.md` (S88 CLOSE — 17-commit session; HEAD `9b98118`)
+**This file:** rotates to `handOffs/hand-off-89.md` at S90 open
 
-**Tests at S88 CLOSE:** **11,912 pass / 117 skip / 1 todo / 0 fail** at HEAD `55f5f20` (full `bun test` — unit + integration + conformance + browser + lsp + commands + self-host). Pre-commit hook fired on every PA-authored commit; pre-push gate clean post-flake-fix.
+**Tests at S89 CLOSE:** **12,065 pass / 117 skip / 1 todo / 0 fail / 604 files** at HEAD `dd891ab` (full `bun test` — unit + integration + conformance + browser + lsp + commands + self-host). +148 vs S88 close.
 
-**Cumulative S87 → S88 delta:** +759 tests / +32 skip / 0 fail / 0 regressions across 17 PA-authored commits.
+**Cumulative S88 → S89 delta:** +148 tests / 0 fail / 0 regressions across 36 PA-authored commits.
 
-**Semver state:** unchanged — v0.2.6 `efbd1e8` still the shipped baseline. v0.3.0 tag waits for full Approach A + Wave 4 adopter content + §36 impl + remaining Phase 3a async + small spec polish.
+**Semver state:** unchanged — v0.2.6 `efbd1e8` still the shipped baseline.
 
-**Cross-machine sync state:** 17 S88 commits AHEAD of origin/main. **PUSH PENDING — to be executed at wrap close per user's "wrap and push" directive.**
+**Cross-machine sync state:** 36 S89 commits AHEAD of origin/main. **PUSH PENDING — to be executed at wrap close.**
 
-**Worktree state:** 9 agent worktrees retained (locked); all work landed on main OR null-completion. Cleanup pending at wrap close per S83 retention rule + S87 dry-run-first memory rule. Dry-run list captured below.
-
----
-
-## S88 — what happened (full session ledger)
-
-### Phase 1 — Session-open + S87 hand-off triage
-
-User-asked S88 open priority. PA caught up via session-start checklist (pa.md + primer + master-list §0 + hand-off-87). S87 had landed historic 37-commit session; v0.3.0 cut path well-cleared but with 5 NEW LIFT-template codegen bug families surfaced as high-priority blockers.
-
-Cross-machine sync at S88 open: scrmlTS 0/0 (S87 push had occurred); scrml-support had uncommitted Insight 30 + 737-line channel-architecture deep-dive from S87.
-
-### Phase 2 — Bookkeeping landings
-
-- **`30743c4`** (S88 deref) — 25 shipped dispatch dirs archived from `docs/changes/` to `scrml-support/archive/changes/`. Companion commit on scrml-support (`dde7e5b`).
-- **`3d90286`** — pa.md hook-policy amendment + S87→S88 hand-off rotation + maps refresh. Documented two valid `core.hooksPath` configurations (A=source-controlled-only / B=local-rich), per pa.md S78 + S88 amendment.
-- **`0b7ea8b`** — pa.md isolation-parameter dispatch rule + primer §13.5 staleness fix (corrected debate-03 entry from "pinned for queued" to "CLOSED S64; do not revisit"). S88 process violation noted: PA dispatched LIFT-1 + LIFT-2/3/4 without `isolation: "worktree"` param; first dispatch ran direct in main. pa.md S88 amendment requires explicit isolation parameter on every dev-agent Agent() call.
-
-### Phase 3 — Approach A SCOPING + v0.4 deferral reversal (User-driven design decision)
-
-Approach A (Insight 29 whole-stack closure analysis) was deferred to v0.4.0 at S84. User reversed S88: *"I know we talked about deferring A to 0.4, but I am not seeing the reason now, start on those tasks as they are unblocked."*
-
-- **`6461f21`** — v0.3 Approach A implementation SCOPING (`docs/changes/v0.3-approach-a-impl/SCOPING.md`). Plan-agent-authored. 300-640h decomposed into 5 sub-waves: A-1 markup-context edge emission / A-2 Reachability Solver / A-3 §40 auth-graph / A-4 per-route artifact splitter / A-5 integration tests. A-1 further decomposed into 8 sub-phases.
-- Two blocker OQs surfaced + ratified by user mid-session:
-  - **OQ #2: source-node granularity.** User picked **Option Y per-interpolation source nodes** (against PA's Option X recommendation).
-  - **OQ #3: A-1.4 sequencing vs LIFT bugs.** User picked Option b (fire A-1.3/.5/.6/.7/.8 first; defer A-1.4 until LIFT codegen stabilizes).
-- User ratified **full Approach A (all 5 waves) in v0.3.0 cut** + Wave 4 adopter content as cut blocker. Cut timeline implications: ~340-690h, realistic ~3-6 months walltime.
-
-### Phase 4 — LIFT bug family closure (5 of 5)
-
-S87 surfaced 5 LIFT-template codegen bug families as v0.3.0 cut blockers. All 5 closed in S88:
-
-- **`be7b261`** — LIFT-1 (CATASTROPHIC parens-attr elides parent + duplicates inner text). Root cause: `_parseLiftAttrValue` had no handler for PUNCT `(` tokens; cursor desync at `parseLiftTag` call sites. Fix in `ast-builder.js`: paren-balancing branch + cursor save/restore at both call sites. Agent direct-to-main (no isolation set — S88 amendment precedent).
-- **`14e21de`** — LIFT-2/3/4 PA-authored after 2 prompt-too-long dispatch failures. `bind:value=` two-way wiring + `if=` display toggle + event auto-injection for bare-call. Touched BOTH paths in emit-lift.js (string-attribute + structured-AST). 3 broken-output anchors flipped to verify-fix.
-- **`88a7d57`** — LIFT-5 (reconciler-factory `_scrml_lift_target` ambient). Fix in `emit-control-flow.ts`: route if-stmt/for-stmt children through container-aware helpers + thread `continueBehavior:"return"`. Cherry-picked after wholesale file-delta would have stomped LIFT-2/3/4 (agent base predated LIFT-2/3/4) — **memory rule saved at `feedback_file_delta_vs_cherry_pick.md`**.
-
-All 5 LIFT families CLOSED. "Per-item interactive markup inside for/lift" pattern (canonical TodoMVC edit-mode shape) is now unblocked end-to-end.
-
-### Phase 5 — Approach A wave A-1 (5 of 5 edge-emission sub-phases landed)
-
-- **`1f516e1`** — A-1.2 markup-read DG node kind + walker scaffold (Option Y per-interpolation). Defines `MarkupReadDGNode` + `findOwningRenderDGNode` + `createMarkupReadNode` + scaffold flag (default false). +11 tests. Behavioral invariant: zero edges emitted (A-1.3 activates).
-- **`da78609`** — A-1.3 activate emission for 4 high-frequency shapes (interp / variable-ref attr / bind:value / if=expr). Edge count delta ~150-200 of 256 S84 ceiling. +13 tests.
-- **`b512db9` + `24b582d`** — A-1.5 engine state-child + onTransition/Timeout/Idle body edges + engine-cell self-read. Per OQ #1 disposition: markup-context (parity with engine-cell-self-read pattern). +14 tests. (Agent direct-to-main despite isolation set — harness inconsistency.)
-- **`55f5f20`** — A-1.4 call-ref + for-iterable + lift-template-body-expr edges. Was DEFERRED in A-1.3 until LIFT codegen closed; unblocked post-LIFT-5. 5 new emitMarkupReadEdge call sites. +16 tests.
-
-A-1 edge-emission complete (5 of 5 shape categories activated). Remaining A-1: A-1.6 consumer audit + A-1.7 S84 ceiling re-measurement + A-1.8 docs (~10-15h to wrap A-1).
-
-### Phase 6 — Stdlib safeCall + safeCallAsync + Phase 3a migrations
-
-- **`05379f9`** — `scrml:host` stdlib primitive: `safeCall(thunk)! -> HostError`. Approach α — stdlib `.scrml` declares + hand-authored JS shim at `compiler/runtime/stdlib/host.js` carries the try/catch. Try/catch lives ONLY in compiled JS, never in scrml source. +24 tests.
-- **`c838e19`** — Phase 3a sync migration: 4 of 8 sync try-blocks migrated (verifyHash + decodeJwt + kv.get + parseIdToken). 4 async-gap try-blocks documented. +4 module error types (CryptoError / JwtError / KvError / OAuthError).
-- **`7491a98`** — safeCallAsync primitive. Mirror of safeCall for async thunks. Non-trivial design discovered: failable-await interaction — `safeCallAsync(thunk) !{...}` doesn't work without explicit `await` first because compiler auto-await applies only to server functions, not stdlib imports. Two-step pattern documented in SCA-19 test + host.js docstring. +20 tests + shared helpers refactored.
-- **`5cb177b`** — Phase 3a async partial: verifyPassword migrated PA-hands-on (1 of 4 remaining async; agent stalled on permission-ask). 3 remaining (jwt verifyJwt + http _request + http retry) DEFERRED to follow-on — http needs scrml-faithful failable refactor (current code has `throw new Error` which is also forbidden — Phase 3c work).
-
-### Phase 7 — Insight 31 ratification (debate-04 §36 retention) + agent infrastructure
-
-- **`20bb16c`** (scrml-support) — debate-04 record + Insight 31 (`scrml-support/design-insights.md`). 4-expert synthesis-mode debate; verdict DESIGN-AND-SHIP (49.5 / 40.0 / 29.0). User ratified in full with synthesis-mode caveat carried forward.
-- Forge follow-up: PA dispatched 3 agent-forge × `phaser-input-expert` / `react-dom-events-expert` / `scrml-structural-primitives-expert`. All 3 failed (2× Write-denial, 1× prompt-too-long). User authorized DROP at S88 — future debates fresh-forge when needed.
-
-### Phase 8 — SPEC amendments bundle (PA-hands-on)
-
-- **`ad9f1f8`** — 3 SPEC amendments:
-  - **§4.7** BS-comment-skip normative softening: BS MAY skip `<!-- -->` at block level (matching shipped S87 BS-comment-skip behavior). `/* */` still forbidden at BS.
-  - **§18.7** mixed positional+named binding clarification: mixed form forbidden + E-TYPE-021 (rationale: AST payloadBindings is strictly positional; mixed-form support would require AST extension without expressive gain).
-  - **§41.4** bun:/node: protocol prefixes added (5 prefixes now legal). New E-IMPORT-007 for bun:/node: in client context. Brief-overclaim surfaced: S87 hand-off said §40.4; that's the wrong section (handle/middleware); correct section is §41.4 Protocol Prefixes. Per pa.md Rule 4.
-
-### Phase 9 — Bug 3a §1 flake fixed (operational pre-push gate unblocked)
-
-- **`ccf2e99`** — Bug 3a §1 SQL round-trip test hardened against happy-dom Headers pollution. Root cause: `compiler/tests/browser/*` registers GlobalRegistrator which replaces Request/Response/Headers with browser-spec polyfills that filter Set-Cookie / Cookie / X-CSRF-Token per CORS forbidden-header rules. Fix: pre-mint CSRF cookie + X-CSRF-Token on every request + conditional skip when happy-dom detected. csrf-baseline.test.js + csrf-bootstrap.test.js + emit-server-sql-emission.test.js cover the orthogonal claims.
-- S87 hand-off + LIFT-1 agent + A-1.2 agent all referenced this as "pre-existing flaky" — actual cause was suite-interaction, not flakiness. Test passes in isolation; fails reliably when browser tests precede it. Operational unblock for every push.
-
-### Phase 10 — Agent infrastructure fixes
-
-- `~/.claude/agents/scrml-js-codegen-engineer.md` REWRITTEN (~200 lines from ~54). Fixes:
-  - `model: sonnet` → `model: opus` (S57 default-down bug recurrence)
-  - Project path: `/home/bryan-maclee/projects/scrml8/` (frozen archive) → `/home/bryan-maclee/scrmlMaster/scrmlTS/`
-  - Tools: added Edit (was missing — forced full Write rewrites)
-  - Review process: removed reference to non-existent scrml-js-codegen-reviewer; references PA-side S67 file-delta protocol
-  - Added comprehensive F4 isolation discipline + S67 file-delta + S83 commit discipline + S88 "do not ask permission" rule
-  - Per pa.md: agent-file edits propagate at NEXT PA session start, not mid-session. Sonnet pattern observed throughout S88 (Co-Author tag "Sonnet 4.6" on all agent commits). Permission-ask pattern surfaced 3 times this session despite explicit briefs forbidding it. Fix propagates S89+.
+**Worktree state:** clean (only main).
 
 ---
 
-## S88 commit ledger (chronological, 17 PA-authored commits on scrmlTS + 1 on scrml-support)
+## S89 — what happened (full session ledger)
+
+### Phase 1 — Session-open + S88 hand-off pickup
+
+User asked S89 priority. PA caught up via session-start checklist. S88 closed with 17-commit landmark (LIFT family closed, Approach A-1 edge emission, safeCall+safeCallAsync, etc.).
+
+User direction: "what's the next priority" → "clean up the worktrees first" → "refresh the maps" → "1 all. concurrent where safe."
+
+### Phase 2 — Worktree + branch cleanup (S89 open hygiene)
+
+`.claude/worktrees/` was empty at S89 open but `git branch` had **102 orphan branches** (88 `worktree-agent-*` + 13 `changes/*` + 1 `main-mirror`). Two-phase cleanup per S87 dry-run-first memory rule:
+- **Phase 1:** 98 fully-merged branches bulk-removed via `git branch -d` (safety net: `-d` refuses unmerged)
+- **Phase 2:** 4 unmerged branches investigated individually — all confirmed dead/superseded (bug-k landed via different path; bun-sql scaffolding only; giti-009-v2 code in main; render-preprocess superseded by Phase 4d Step 8) → `git branch -D`
+
+### Phase 3 — Maps refresh
+
+Full cold-start via `/map` → 10 maps written + 8 skipped (not applicable) + non-compliance report (~30 archival candidates). `primary.map.md` stamped commit `9b98118`.
+
+### Phase 4 — Wave 1 (5 parallel dispatches per user "1 all" directive)
+
+- **1.1 A-1 close-out** `376a219` — 523 markup-read nodes vs 256 ceiling (2.04x); A-5.5 closed ahead of schedule; new measurement script
+- **1.2 W-PROGRAM-SPA-INFERRED** — **NO-OP (Rule-4 finding)** — already shipped S86 at `4cd0b6a`
+- **1.3 Phase 3a jwt verifyJwt** `d0e05c8` — migrated to safeCallAsync, result-shape preserved (different from verifyPassword precedent); +2 tests
+- **1.4 §36 SCOPING** `cfd3132` — Rule-4: §36 ~70% already landed S78/S84; only 11 sub-phases / 12-19h remaining
+- **1.5 Wave 3.7 corpus audit** `32386e7` — 50/77 files clean; 10 §4 items mechanical (~1.5-2.5h); upstream SPEC §6.4 `default=null` dependency surfaced
+
+### Phase 5 — Wave 2 (4 parallel)
+
+- **2.1 stdlib Phase 1.5** `8c608a7` — 21 files / 124 sites null→not/is-some/is-not; self-host parity carve-out for stdlib/compiler/*
+- **2.2 W-TRY-CATCH lint** `6498dd2` — new walker + §34 row + stdlib/http confirmed fires on lines 65/264; +7 tests
+- **2.3 §13.2 SCOPING** `ef2455d` — 5 sub-phases / 25-39h; 6 OQs (Q2 AMEND E-PROG-004 Position C); naming corrected §53.7.x→§13.2
+- **2.4 A-2 Reachability Solver SCOPING** `51c8b82` — 9 sub-phases / 58-101h; algorithm pinned by SPEC §40.9.1 (no viable alt); 10 OQs
+
+### Phase 6 — All 21 OQs ratified (user batch disposition)
+
+User ratified all 21 OQs (5 §36 + 6 §13.2 + 10 A-2) in one batch per agent recommendations.
+
+### Phase 7 — Wave 3 (6 parallel)
+
+- **3.1 §36 Phase 1 SPEC** `b1848f9` — §36.5.1 nested-scope + §36.7.1 W-INPUT-001 (replaces proposed E-INPUT-006) + §36.5.2 SSR + §36.6 _clearFrameState SHOULD; agent proactively cherry-picked W-TRY-CATCH per memory rule
+- **3.2 §13.2 Sub-A** `67a6a81` — §13.2.1+§13.2.2 stdlib Promise<T> + §13.1 stdlib carve-out + §41.4.1 API rule + E-PROG-004 Error→Info
+- **3.3 A-2.1 scaffold** `6023923` — types/reachability.ts (247 LOC) + reachability-solver.ts (152 LOC) + pipeline wiring + --emit-reachability CLI flag; +6 tests
+- **3.4 Wave 3.7 §4 backlog** `38d1ef1` — 8/10 items migrated (2 SKIPPED per §6.4 canonical); kickstarter login() → failable AuthError both v1+v2
+- **3.5 TodoMVC edit-mode** `41fb26c` — Rule-4: §B LIFT anchors already flipped S88; actual S89 work was missing markup (commitEdit/cancelEdit/visibleTodos/@editingId); +1 test; warnings 5→1
+- **3.6 Wave 4 SCOPING** `d8fd5ce` — Rule-4: Wave 4 substantially advanced (tutorial S84, scrml.dev S85, 5 articles publishable); re-baseline 12.75-26.5h; 17 sub-tasks / 5 tracks
+
+### Phase 8 — Wave 4 compiler-impl (2 parallel; one crash + recovery)
+
+- **4.1 §36 Phase 2** `7720257` — 2.A type-system input-state-ref leaf-as-opaque verified (5 regression tests); 2.B E-INPUT-005 walker (7 tests). 47→59 tests in input-state-types.test.js. Agent rebased onto main pre-work.
+- **4.2 §13.2 Sub-B first attempt** — **CRASHED** (API error after 17min / 135 tool uses; agent never committed). Partial Step 1 work recovered via working-tree file-copy → `503c3b4`. Memory rule saved: `feedback_agent_crash_partial_recovery.md`.
+- **4.2-resume** `39eba45` — Steps 1c+2+3+4 cleanly landed per-step commits. Substantive finding: stdlib `.scrml` files not compiled through full pipeline; STDLIB-EXPORT-SEED TAB-only pass needed (Stage 3.105 in api.js). +9 tests. 37 stdlib Promise<T> functions classified.
+
+### Phase 9 — Wave 5 (2 parallel)
+
+- **5.1 §36 Phase 3** `bdbf810` — 3 regression tests (3.A SSR no-emit + 3.B keyboard auto-repeat + 3.C nested-scope cleanup); +10 tests; zero bugs surfaced
+- **5.2 §13.2 Sub-C** `775d836` — Rule-4: closed-as-no-op; Sub-B Step 3 already did the CG work; CLOSURE doc captures scope-diff
+
+### Phase 10 — Wave 6 (6 parallel)
+
+- **6.A §36 Phase 4** `19e174e` — 5 conf-INPUT-* files (12 tests) + frame-accurate integration (4 tests) + input-canvas-demo sample (7 tests). **§36 chain CLOSED end-to-end.**
+- **6.B §13.2 Sub-D + Sub-E** `7876191` — Sub-D Case A no-op (Sub-B Step 4 already covers); Sub-E verifyPassword + verifyJwt migrated to one-line. **§13.2 chain CLOSED.** Finding: stdlib transitive re-exports gap for isAsync propagation (flagged as follow-on).
+- **6.C A-2.2 Component 1** `6023923` → wait re-check SHA — A-2.2 sub-phases A-2.2.a entry-point + A-2.2.b constant-folder primitive + A-2.2.c gate-classifier + A-2.2.d worst-case-union. +82 tests. OQ-A2-D refinement: META was NOT refactored (text-based vs structural-fold); documented as residual.
+- **6.D A-3 SCOPING** `ce39ad4` — AuthGraph schema sketched + refined; 5 sub-phases / 30-49h parallel critical-path; 6 OQs; cross-cutting dependency with A-2.2.b constant-folder
+- **6.E Wave 4 T-track** `deb5c7c` — Tutorial verify+currency+smoke+crosslink. **Substantive finding:** S87 Insight 30 silently invalidated tutorial §8 (taught `<channel>` as file-top sibling; cited retired E-CHANNEL-INSIDE-PROGRAM; snippet no longer compiled). T-1 caught 1/11 FAIL; T-2 fixed → 11/11 PASS. 13 edits across 4 sub-tasks.
+- **6.F Wave 4 D-track** `ccf89c9` — 17 articles classified: 10 ACCURATE-DRAFT + 3 NEEDS-EDIT-BORDERLINE + 4 DO-NOT-PUBLISH-INTERNAL + 2 RETRACT-SUPERSEDED. 3 Q's surfaced for user disposition (kickstarter login + `default=null` + mutability-contracts lifecycle).
+
+### Phase 11 — Wave 7 (5 parallel — null-eradication chain)
+
+User S89 verbatim ruling: *"null does NOT EXIST IN SCRML! and never will!"* + *"yes this extends to undefined. "" is still defined."*
+
+- **7.A SPEC null** `e621d91` — §42 canonical home identified (NOT §13.1 as I'd speculated); 33 sites migrated; W-NULL-IN-SCRML-SOURCE catalog row + SPEC-INDEX refresh
+- **7.B Corpus** `6751aae` — 30 sites in primer + kickstarter + samples + examples
+- **7.C Self-host (partial recovery)** `84f7fe9` — agent over-reached and removed §13.2 Sub-B isAsync infrastructure from module-resolver.js; pre-commit caught regression; PA reverted that file; rest landed
+- **7.D Audit** `31ff1a0` — 2777 sites / 18 M-7C-D-N items; M-7C-D-12 (runtime sentinel) is blocker prerequisite for 9 items
+- **7.E mutability-contracts** `7d6fad8` — `(null → T)` → `(not → T)` lifecycle; 6 sites; 8 legitimate leaves in banner
+
+Memory rule saved: `feedback_null_does_not_exist_in_scrml.md` + `feedback_self_host_is_from_scratch.md` (user clarification: TS impl is scaffold; self-host is from-scratch rewrite).
+
+### Phase 12 — Wave 8 (4 parallel — undefined-eradication mirror)
+
+User ruling extended: `undefined` joins `null` per S89; `""` STAYS (defined value).
+
+- **8.A SPEC undefined** `ca38880` — §42 already enumerated both tokens (load-bearing finding); 6 sites migrated; **W-NULL → W-ABSENCE rename**; new §42.1.1 "Defined Values vs. Absence — `""` is NOT Absence" subsection enshrining the distinction normatively
+- **8.B Corpus undefined** `90eff72` — 6 sites; agent correctly distinguished `""`-adjacent leaves
+- **8.C Self-host undefined SUPERSEDED** `78555f6` — Rule-4: stdlib already clean from Wave 2.1 `8c608a7` which swept both tokens
+- **8.D TS audit undefined** `f63e36a` — 861 sites / 16 M-8C-D-N items; 13 PAIRED with M-7C-D-N items (bundle as edit packets)
+
+### Phase 13 — Wave 9 (2 parallel — compiler/src migration kickoff)
+
+- **9.A bundled paired migration** `99c30da` — **Rule-4 finding (huge)**: ALL items I'd briefed as "non-blocked" are STRUCTURALLY CHAIN-BLOCKED on M-7C-D-12. Parser manufactures `litType: "null"/"undefined"` LitExprs SO the gauntlet detector can flag them (E-SYNTAX-042). Removing in isolation regresses detection. Agent committed classification-only doc; zero code changes.
+- **9.B M-7C-D-12 SCOPING** `dd891ab` — **CRITICAL Rule-4 reframing**: SPEC §42.5 + §42.8 + §12.5.1 + §42.1 S89 exclusions ALREADY RATIFY runtime JS `null` as scrml absence + carve out codegen-emitted JS from W-ABSENCE-IN-SCRML-SOURCE. **Option α IS the SPEC's canonical answer.** Audit's 2777 + 861 sites mostly SPEC-permitted. Agent recommends Option ε (spec-amend audit framing) → close most M-class items as ratified; ~95 sites / 5 items real work remains.
+
+User ratified Option ε.
+
+---
+
+## S89 commit ledger (chronological, 36 commits)
 
 | # | Commit | Description |
 |---|---|---|
-| 1 | `30743c4` | 25 shipped dispatch dirs deref → scrml-support archive |
-| 2 | `3d90286` | pa.md hook-policy amendment + S87→S88 rotation + maps refresh |
-| 3 | `0b7ea8b` | pa.md isolation-parameter rule + primer §13.5 staleness fix |
-| 4 | `be7b261` | LIFT-1 fix — parens-attr cursor desync (closes 1 of 5 LIFT families) |
-| 5 | `14e21de` | LIFT-2/3/4 PA-authored — bind:* + if= + event auto-inject (closes 4 of 5) |
-| 6 | `20bb16c` (scrml-support) | debate-04 record + Insight 31 §36 retention DESIGN-AND-SHIP |
-| 7 | `6461f21` | v0.3 Approach A implementation SCOPING |
-| 8 | `1f516e1` | A-1.2 markup-read DG node kind + scaffold (Option Y) |
-| 9 | `05379f9` | safeCall stdlib primitive (scrml:host) |
-| 10 | `da78609` | A-1.3 high-freq markup-read edge emission (4 shapes) |
-| 11 | `c838e19` | Phase 3a sync migration (4 of 8 try-blocks; 4 async-gap docs) |
-| 12 | `7491a98` | safeCallAsync primitive |
-| 13 | `b512db9` + `24b582d` | A-1.5 engine + onTransition/Timeout/Idle edge emission |
-| 14 | `88a7d57` | LIFT-5 reconciler-factory ambient fix (closes 5 of 5 LIFT families) |
-| 15 | `ccf2e99` | Bug 3a §1 test flake hardened (happy-dom Headers pollution) |
-| 16 | `ad9f1f8` | 3 SPEC amendments (§4.7 BS-comment-skip + §18.7 mixed-binding + §41.4 bun:/node:) |
-| 17 | `5cb177b` | Phase 3a async partial — verifyPassword migrated to safeCallAsync (1 of 4) |
-| 18 | `55f5f20` | A-1.4 call-ref + for-iterable + lift-template-body-expr edges (closes 5 of 5 A-1 edge sub-phases) |
+| 1 | `cfd3132` | §36 SCOPING (~70% already shipped) |
+| 2 | `d0e05c8` | Phase 3a jwt verifyJwt → safeCallAsync |
+| 3 | `376a219` | A-1 close-out (523 nodes vs 256 ceiling) |
+| 4 | `32386e7` | Wave 3.7 corpus audit (50/77 clean) |
+| 5 | `51c8b82` | A-2 Reachability Solver SCOPING |
+| 6 | `6498dd2` | W-TRY-CATCH lint |
+| 7 | `ef2455d` | §13.2 auto-await SCOPING |
+| 8 | `8c608a7` | stdlib Phase 1.5 sweep (21 files) |
+| 9 | `67a6a81` | §13.2 Sub-A SPEC amendment |
+| 10 | `41fb26c` | TodoMVC edit-mode markup landed |
+| 11 | `d8fd5ce` | Wave 4 adopter SCOPING |
+| 12 | `b1848f9` | §36 Phase 1 SPEC amendments |
+| 13 | `6023923` | A-2.1 Reachability Solver scaffold |
+| 14 | `38d1ef1` | Wave 3.7 §4 backlog migration |
+| 15 | `7720257` | §36 Phase 2 (parser/typer + E-INPUT-005) |
+| 16 | `503c3b4` | §13.2 Sub-B Step 1 (partial recovery after crash) |
+| 17 | `39eba45` | §13.2 Sub-B resume (Steps 1c+2+3+4) |
+| 18 | `bdbf810` | §36 Phase 3 regression tests |
+| 19 | `775d836` | §13.2 Sub-C (closed as Sub-B-already-done) |
+| 20 | `19e174e` | §36 Phase 4 (conformance + integration + sample) |
+| 21 | `7876191` | §13.2 Sub-D + Sub-E (chain CLOSED) |
+| 22 | `ce39ad4` | A-3 §40 auth-graph SCOPING |
+| 23 | `deb5c7c` | Wave 4 T-track tutorial |
+| 24 | `ccf89c9` | Wave 4 D-track articles triage |
+| 25 | `783721f` | A-2.2 Component 1 (entry-point + constant-folder) |
+| 26 | `7d6fad8` | mutability-contracts (null→T) → (not→T) |
+| 27 | `e621d91` | SPEC null-eradication §42 |
+| 28 | `6751aae` | Corpus null sweep |
+| 29 | `84f7fe9` | Self-host null (partial recovery) |
+| 30 | `31ff1a0` | TS compiler/src null audit |
+| 31 | `ca38880` | SPEC undefined §42.1.1 + W-ABSENCE rename |
+| 32 | `90eff72` | Corpus undefined sweep |
+| 33 | `78555f6` | Self-host undefined SUPERSEDED |
+| 34 | `f63e36a` | TS compiler/src undefined audit |
+| 35 | `99c30da` | Paired-migration classification (chain-blocked finding) |
+| 36 | `dd891ab` | M-7C-D-12 runtime sentinel SCOPING |
 
 ---
 
-## State-as-of-S88-CLOSE tables
+## State-as-of-S89-CLOSE tables
 
-### Tests at HEAD `55f5f20`
+### Tests at HEAD `dd891ab`
 
-11,912 pass / 117 skip / 1 todo / 0 fail / 560 files (full `bun test` incl. browser + lsp + commands + self-host).
-- Pre-commit subset (unit + integration + conformance): 11,259 / 88 skip / 1 todo / 0 fail.
-- Cumulative S87→S88: +759 pass / +32 skip / 0 fail / 0 regressions across 17 PA-authored commits.
+**12,065 pass / 117 skip / 1 todo / 0 fail / 604 files** (full `bun test`).
+- Cumulative S88→S89: **+148 pass / 0 fail / 0 regressions** across 36 PA-authored commits.
 
-### Semver tag history (unchanged S88)
+### Chains closed end-to-end this session
 
-| Tag | Commit | Scope |
-|---|---|---|
-| v0.2.0 | `022ee02` | First semver baseline (S83) |
-| v0.2.1 | `d72c074` | Wave 4A bundle (S83) |
-| v0.2.2 | `98e872d` | Wave 4B.1 bundle (S83) |
-| v0.2.3 | `d512266` | Bug 2 (S84) |
-| v0.2.4 | `28cd2ac` | Wave 1 + 1.5 robust-v0.2 bundle (S84) |
-| v0.2.5 | `2c687b5` | Wave 2.5 (S85) |
-| v0.2.6 | `efbd1e8` | F-COMPONENT-001 family closure (S85) |
-| (untagged) | `55f5f20` | S88 close — 17 commits + 1 scrml-support; v0.3.0 path advanced significantly |
+- ✅ **§36 input devices** — Phases 1 (SPEC) + 2 (parser/typer + E-INPUT-005) + 3 (regression tests) + 4 (conformance + integration + sample app). Full surface implemented.
+- ✅ **§13.2 auto-await Promise<T>** — Sub-A (SPEC) + Sub-B (typer + classifier + tests) + Sub-C (closed Sub-B-already-done) + Sub-D (closed Sub-B-already-done) + Sub-E (verifyPassword + verifyJwt migration to one-line). Full extension implemented.
+- ✅ **A-1 wave (Approach A)** — close-out (audit + ceiling re-measurement + docs + measurement script); A-5.5 closed ahead of schedule.
+- ✅ **Wave 3.7 corpus audit** — corpus-ouroboros findings landed + §4 backlog migrated (8/10 items).
+- ✅ **null + undefined SPEC layer** — §42 sharpened; §42.1.1 defined-vs-absence; W-ABSENCE-IN-SCRML-SOURCE catalog; primer + kickstarter + samples + examples swept.
+- ✅ **TodoMVC edit-mode** — markup landed post-LIFT-5.
 
-### v0.3.0 cut path status (post-S88)
+### Chains advanced (not closed)
 
-- ✅ **LIFT family (5 of 5)** — all bug families closed (LIFT-1 / LIFT-2/3/4 / LIFT-5). Canonical "per-item interactive markup inside for/lift" pattern unblocked.
-- ✅ **Channel-architecture OQ** (closed S87 via Insight 30)
-- ✅ **SQL emission BLOCKER** (closed S87 via Bug 3a)
-- ✅ **Engine self-write Option (d)** (closed S87)
-- ✅ **Wave 3 v0.3 fixture-sweep COMPLETE** (closed S87)
-- ✅ **debate-04 §36 retention DESIGN-AND-SHIP** ratified S88 (Insight 31)
-- ✅ **Approach A SCOPING** (S88; v0.4 deferral reversed)
-- ✅ **Approach A A-1 edge emission (5 of 5 sub-phases)** landed S88: A-1.2 scaffold + A-1.3 high-freq + A-1.4 call-ref/for/lift + A-1.5 engine
-- ✅ **stdlib host primitive family** — safeCall + safeCallAsync both shipped S88
-- ✅ **Phase 3a sync stdlib migration** (4 of 4 sync sites — S87 c838e19 + S88 verifyHash/decodeJwt/kv.get/parseIdToken)
-- ✅ **3 SPEC amendments** (§4.7 + §18.7 + §41.4) — small spec polish queue cleared
-- ✅ **Bug 3a §1 test flake fixed** — pre-push gate unblocked
-- 🟡 **Phase 3a async migration** — 1 of 4 migrated (verifyPassword); 3 remaining (jwt verifyJwt + http _request + http retry) need follow-on — http blocks also have `throw new Error` (Phase 3c concern)
-- 🟡 **A-1.6 / A-1.7 / A-1.8** — Approach A wrap (consumer audit + S84 re-measurement + docs) ~10-15h to close A-1
-- 🟡 **§36 keyboard+mouse impl** — ratified S88; not started; ~12-25h
-- 🟡 **stdlib Phase 1.5** null/undefined sweep (~50 sites; ~2-4h)
-- 🟡 **W-PROGRAM-SPA-INFERRED** emission impl (~2-4h)
-- 🟡 **W-TRY-CATCH-IN-SCRML-SOURCE** lint (post-Phase-3a regression guard; ~2-4h)
-- 🟡 **Approach A waves A-2 / A-3 / A-4 / A-5** — 260-560h to complete
-- 🟡 **Wave 3.7 fixture sweep** (corpus-ouroboros audit on kickstarter / primer / 5 articles / 22 examples)
-- 🟡 **Wave 4 adopter content** — tutorials + scrml.dev refresh + articles triage (cut blocker per user S88 ratification)
+- 🟡 **A-2 Reachability Solver** — A-2.1 scaffold + A-2.2 Component 1 landed. A-2.3 → A-2.9 pending. ~50-90h critical-path remaining.
+- 🟡 **A-3 §40 auth-graph** — SCOPING only. Sub-phases pending.
+- 🟡 **Wave 4 adopter content** — T-track + D-track + W-track done. A-track (scrml.dev) + R-track (README) pending.
+- 🟡 **null + undefined compiler/src migration** — Audit complete (M-7C-D-1..18 + M-8C-D-1..16). Option ε ratified S89. **M-7C-D-12 impl pending (3 OQs need disposition; 5 tracks / 33-45h).**
 
-### Insights ratified S88
+### Insights ratified S89
 
-- **Insight 31** (S88) — §36 live-input element retention DESIGN-AND-SHIP. Empirical gate: trio + on*= cannot cover justPressed/justReleased frame-accurate edge detection without 10-15 LOC per-app boilerplate. Symmetry gate: Pillar 5 reverse — all other lifecycle-managed event-sources are structural; input devices satisfy identity + lifecycle + composability. Synthesis-mode caveat carried forward (3 of 4 experts synthesized; the one real agent — simplicity-defender — voted CLOSE).
+- **All 21 OQs** from Wave 1.4 §36 + Wave 2.3 §13.2 + Wave 2.4 A-2 SCOPINGs ratified per agent recommendations in single batch.
+- **null + undefined ABSOLUTE rule** — user verbatim S89: "null does NOT EXIST IN SCRML! and never will!" + "yes this extends to undefined. "" is still defined."
+- **Self-host is from-scratch rewrite** — user verbatim S89 (correcting PA's "TS parity" framing): TS impl is temporary scaffold; eventual scrml self-host is human-authored from-scratch showcasing scrml's advantages, NOT a mechanical port.
+- **Skinny arrow `A -> B` semantic** — user verbatim S89: "starts as A, can become B" (lifecycle transition). NOT function type / union / mapping.
+- **M-7C-D-12 disposition: Option ε** (spec-canonical framing) — most "drift" findings actually SPEC-ratified; ~95 sites / 5 items real work remains.
 
-### Memory rules saved S88
+### Memory rules saved S89 (5 new)
 
-- `feedback_stated_intent_vs_corpus_migration.md` — when user has stated normative intent verbatim multiple times, corpus contradicting it is migration backlog, NOT deliberation trigger. The ouroboros is a 5-step cycle (training-data → agent default → corpus → next agent → PA framing → cycle); mitigations on agent / PA / sweep sides.
-- `feedback_file_delta_vs_cherry_pick.md` — when agent's worktree base predates sibling parallel landings on the same files, wholesale file-delta silently overwrites sibling work; cherry-pick (with auto-merge) preserves both. S88 LIFT-5 precedent — pre-commit gate caught it; reverted + cherry-picked.
+- `feedback_land_before_cleanup.md` — file-delta + commit MUST happen per-dispatch BEFORE worktree cleanup; batching cleanup risks gc-induced work loss (§13.2 SCOPING precedent — recovered via reachable SHA)
+- `feedback_agent_crash_partial_recovery.md` — when agent crashes pre-commit, check worktree working tree for uncommitted Step-N work; salvage via direct cp if coherent (§13.2 Sub-B first-attempt precedent)
+- `feedback_null_does_not_exist_in_scrml.md` — ABSOLUTE: null AND undefined do not exist in scrml; `""` IS defined (empty string ≠ absence); migrate to `not`
+- `feedback_self_host_is_from_scratch.md` — self-host is from-scratch rewrite that showcases scrml's advantages; TS parity is temporary scaffold concern, not load-bearing scrml property
+- (plus the existing S86-S88 rules carried forward)
 
-### Cross-machine sync state at S88 close
+### Cross-machine sync state at S89 close
 
-- **scrmlTS:** 17 commits ahead of origin/main. PUSH PENDING — to be executed during wrap close.
-- **scrml-support:** 0/0 (Insight 31 + debate-04 record pushed live at `dde7e5b` + `20bb16c`).
+- **scrmlTS:** 36 commits ahead of origin/main. **PUSH PENDING — wrap-close authorized.**
+- **scrml-support:** check pending — may have writes from this session via debate insights or dive references; verify before push.
 
-### Worktree state at S88 close
+### Worktree state at S89 close
 
-**9 agent worktrees retained** (all locked). All work landed in main OR null-completion:
-
-| Worktree | Branch tip | Disposition |
-|---|---|---|
-| agent-a6cac528db9f0ed0b | `1f516e1` | Phase 3a first dispatch — stopped on permission-ask; superseded by re-dispatch |
-| agent-a839252602ebb607d | `8e351d5` | A-1.3 — landed via `da78609` |
-| agent-a9595b116d2163694 | `2b07a71` | A-1.4 — landed via `55f5f20` |
-| agent-a98d23c15c5ddebba | `30743c4` | LIFT-2/3/4 — NULL completion (prompt-too-long ×2); closed via PA-hands-on `14e21de` |
-| agent-a9a4287e18f9dca1d | `7b6a07b` | safeCall — landed via `05379f9` |
-| agent-aaa250e065939920f | `52d9c04` | Phase 3a re-dispatch — landed via `c838e19` |
-| agent-ab07a92f95ef0c44e | `3c1a8fd` | A-1.2 — landed via `1f516e1` |
-| agent-aca1364ef69708d74 | `95e04cd` | LIFT-5 — landed via cherry-pick `88a7d57` |
-| agent-aee1c224ba6d0fad2 | `dae11db` | safeCallAsync — landed via `7491a98` |
-
-**Cleanup pending at wrap close** per S83 retention rule (DRY-RUN-FIRST per S87 memory rule — list confirmed above).
-
-Pre-commit hook: `core.hooksPath = .git/hooks` configuration B (pre-commit + post-commit + pre-push all active) — user-ratified at S88 over pa.md S78 minimum baseline.
+Clean. Only main checkout. All Wave 1-9 dispatches fully landed + cleaned up.
 
 ---
 
-## Latent items / follow-ons surfaced S88 (for S89+ triage)
+## Open questions to surface immediately (S90 pickup)
 
-| Family | Items | Notes |
-|---|---|---|
-| Phase 3a async remaining | jwt verifyJwt / http _request / http retry | safeCallAsync available since S88. http requires scrml-faithful failable refactor (current `throw new Error` is itself forbidden — Phase 3c concern). |
-| W-TRY-CATCH-IN-SCRML-SOURCE lint | regression-guard after Phase 3a completes | ~2-4h |
-| stdlib Phase 1.5 | E-SYNTAX-042 null/undefined sweep (~50 sites) | mechanical |
-| §36 impl | keyboard + mouse first; gamepad deferred | ~12-25h |
-| W-PROGRAM-SPA-INFERRED impl | §40.8.1 lint emission site | ~2-4h |
-| W-AUTH-RUNTIME-FALLBACK impl | gated on Approach A-2 (Reachability Solver) | post-A-1 wave |
-| §53.7.x amendment | stdlib auto-await on `Promise<T>` stdlib calls | follow-on from safeCallAsync await-discipline finding |
-| Approach A waves | A-2 RS / A-3 auth-graph / A-4 chunk splitter / A-5 integration tests | 260-560h |
-| Wave 3.7 fixture sweep | kickstarter v1 / primer / 5 articles / 22 examples corpus-ouroboros audit | ~6-12h |
-| Wave 4 adopter content | tutorials / scrml.dev refresh / articles triage | ~8-20h (cut blocker per user S88) |
-| TodoMVC edit-mode markup landing | now unblocked post-LIFT-5 | separate dispatch |
+### Q-OPEN-1 — M-7C-D-12 impl Tracks 1-5 (Option ε ratified; 3 OQs remain)
+
+Option ε ratified S89. **3 substantive OQs need disposition before impl:**
+- **OQ-2 wire-envelope JSON shape** — small adjustment for absence-vs-JS-host-null wire distinction
+- **OQ-5 `?? "undefined"` replacement** — separate drift; codegen emits literal `"undefined"` string in init-fallback (emit-server.ts L882/L1047/L1139 + emit-logic.ts 10 sites + scheduling.ts L127-L129)
+- **OQ-6 `E-DERIVED-ENGINE-INITIAL-UNDEFINED-RT` rename** — error code name contains forbidden `undefined` token; likely → `E-DERIVED-ENGINE-INITIAL-ABSENT-RT`
+
+5 tracks / 33-45h aggregate ready to dispatch after OQ-2/5/6 dispositioned. SCOPING at `docs/changes/m-7c-d-12-runtime-sentinel-scoping/SCOPING.md`.
+
+### Q-OPEN-2 — 9.A classification chain-blocked finding
+
+Wave 9.A's classification doc (`99c30da`) showed all "non-blocked" items are actually structurally chain-blocked on M-7C-D-12. After M-7C-D-12 ratification + impl, ~18 (less the closed-as-spec-ratified items) M-7C-D-N + 16 M-8C-D-N items can dispatch as bundled paired edit packets per the audit §6 ordering.
+
+### Q-OPEN-3 — Wave 4.A remaining tracks (A + R)
+
+T-track (tutorial) + D-track (articles) done S89 via Wave 6. **A-track (scrml.dev refresh)** + **R-track (README + currency)** pending. Per 3.6 SCOPING: 4 + 2 sub-tasks; total ~6-12h.
+
+### Q-OPEN-4 — A-2.3 onward (Reachability Solver continuation)
+
+A-2.1 scaffold + A-2.2 Component 1 done. A-2.3 reactive_dep_closure (Component 2; 6-10h) next. Then A-2.4..A-2.9. Multi-month walltime to close A-2 wave.
+
+### Q-OPEN-5 — A-3 sub-phases pending (AuthGraph impl)
+
+SCOPING captured. 5 sub-phases / 30-49h parallel critical path. Depends on A-3's role-enum resolution feeding A-2.5 Component 4.
+
+### Q-OPEN-6 — `default=null` audit-doc closure
+
+Per 6.F D-1 currency table Q2/Q3: kickstarter v2 + primer `default=null` was treated as "canonical per §6.4" at session midpoint; user S89 ruling later invalidated that. Wave 7.B + 7.E migrated the canonical sites. **Check whether docs/audits/articles-currency-table-2026-05-13.md needs an update note reflecting the post-S89 ruling change.**
+
+### Q-OPEN-7 — Sibling repo sync
+
+`scrml-support` may have writes via this session's references (design-insights cites; deep-dives referenced). Run cross-machine sync check on scrml-support before next session.
+
+### Q-OPEN-8 — pa.md S89 amendments
+
+Several memory rules saved this session. Consider whether any reach pa.md update threshold (e.g., null-eradication rule + self-host-is-from-scratch rule are arguably load-bearing across all future sessions; might warrant pa.md addendum).
 
 ---
 
-## Things S89 PA must NOT screw up (S88 additions to standing list)
+## Things S90 PA must NOT screw up (S89 additions to standing list)
 
-- **DO honor S88 file-delta-vs-cherry-pick memory rule** (`feedback_file_delta_vs_cherry_pick.md`). When an agent's worktree base predates sibling parallel landings on the same files, wholesale file-delta silently overwrites sibling work. Cherry-pick `--no-commit <agent-final-sha>` auto-merges. Check `git log <agent-base-sha>..HEAD -- <FILES_TOUCHED>` per file before deciding; if any sibling commits, switch to cherry-pick.
-- **DO honor S88 stated-intent-vs-corpus memory rule** (`feedback_stated_intent_vs_corpus_migration.md`). Corpus is artifact, NOT evidence. When user has stated normative intent verbatim, contradicting corpus is migration backlog, NOT deliberation trigger. The ouroboros is a 5-step cycle.
-- **DO set `isolation: "worktree"` explicitly on every dev-agent Agent() call.** S88 precedent: LIFT-1 + LIFT-2/3/4 dispatched without the parameter; agents worked direct in main. pa.md S88 amendment requires this.
-- **DO note Sonnet default-down was active S88.** All agent commits this session carried "Co-Authored-By: Claude Sonnet 4.6" footer despite pa.md S57 rule that all agents run on Opus. Agent file `~/.claude/agents/scrml-js-codegen-engineer.md` rewritten S88 with `model: opus`; propagates at S89 open. Verify on first S89 dispatch via test runs — Opus should be the default.
-- **DO note permission-ask pattern recurrence.** 3 agents this session stopped to "ask permission" for writes/edits within their own worktrees despite explicit briefs forbidding it. Pattern attributable to Sonnet's training. Agent file fix includes explicit "DO NOT ask permission" directive; propagates S89.
-- **DO note pre-push hook is configured B (richer local).** Full test suite + TodoMVC gauntlet on every push (~5min). Bug 3a §1 flake fix S88 unblocked the operational pre-push gate.
+- **DO NOT** revisit "TS parity" as a load-bearing scrml property. TS impl is scaffold; self-host is from-scratch rewrite. Per `feedback_self_host_is_from_scratch.md`. S89 precedent: PA drifted into "TS parity load-bearing" twice (Wave 2.1 carve-out + Wave 7.C briefing) — both wrong; both corrected.
 
-### Rules permanently load-bearing (unchanged)
+- **DO NOT** treat `null` or `undefined` as canonical scrml tokens in ANY context. They do not exist in scrml. `""` / `0` / `false` / `[]` / `{}` ARE defined values. Per `feedback_null_does_not_exist_in_scrml.md`. S89 precedent: PA encoded `null` carve-outs twice in one session (Wave 1.5 audit treated `default=null` as canonical per §6.4; Wave 2.1 kept `null` in stdlib/compiler/* per "TS parity") — both wrong; full eradication chain fired.
 
-- Rule 1 — no marketing/article/tweet work unless user brings it up
+- **DO NOT** clean up agent worktree BEFORE landing its content into main. Per `feedback_land_before_cleanup.md`. S89 precedent: PA cleaned up §13.2 SCOPING worktree before file-delta; recovery worked because git hadn't gc'd, but could have been lost.
+
+- **DO** check agent's working tree for uncommitted Step-N work when agent crashes pre-commit. Per `feedback_agent_crash_partial_recovery.md`. S89 precedent: §13.2 Sub-B first-attempt agent crashed at 17min/135 tool uses; Step 1a-b work recovered via cp from working tree.
+
+- **DO** trust Rule-4 reconnaissance. S89 had MULTIPLE substantive Rule-4 findings (W-PROGRAM-SPA-INFERRED already-done; §36 70%-already-done; Wave 4 substantially-advanced; §13.2 Sub-C already-Sub-B-done; A-2 algorithm SPEC-pinned; 8.C self-host superseded; 9.A all items chain-blocked; 9.B SPEC-already-ratifies-codegen-null). Agents directed to do scope-reconciliation BEFORE implementing consistently surface these.
+
+### Rules permanently load-bearing (carry forward)
+
+- Rule 1 — no marketing/article/tweet work unless user brings it up (modified S89: user authorized Wave 4 adopter content via "1 all")
 - Rule 2 — full-production-language fidelity
-- Rule 3 — right answer beats easy answer 99.999% of the time
-- Rule 4 — spec is normative; derived planning docs are NOT
+- Rule 3 — right answer beats easy answer 99.999% of the time (validated repeatedly S89; Rule-4 findings ARE the right answers)
+- Rule 4 — spec is normative; derived planning docs are NOT (load-bearing for Wave 9.B's SPEC-ratifies-codegen-null finding)
 - S86 ratifications — idiomatic-examples styling rule + corpus-ouroboros warning + BS-layer over SPEC retreat
 - S87 memory rules — bash-cleanup dry-run + file-delta base SHA check
 - S88 memory rules — file-delta-vs-cherry-pick + stated-intent-vs-corpus migration
+- **S89 NEW memory rules — land-before-cleanup + agent-crash-partial-recovery + null-does-not-exist-in-scrml (including undefined; "" stays) + self-host-is-from-scratch**
 
 ---
 
-## Push state at S88 close
+## Push state at S89 close
 
-17 S88 commits ahead of origin/main. Pre-push gate (full test + TodoMVC gauntlet, ~5min) post-flake-fix should pass clean. **User authorized "wrap and push" — push executes during wrap close.**
+36 S89 commits ahead of origin/main. **User authorized "wrap" → push executes during wrap close.**
+
+Pre-push gate (full test + TodoMVC gauntlet, configuration B, ~5min) should pass clean since test baseline preserved.
 
 ---
 
 ## Tags
 
-#session-88 #close #LANDMARK-17-COMMITS #LIFT-family-5-of-5-closed #approach-a-A1-edge-emission-complete #insight-31-design-and-ship #safe-call-async-shipped #happy-dom-flake-fix-pre-push-unblocked #SPEC-amendments-x3 #brief-overclaim-S40.4-to-S41.4-correction #v0.4-deferral-reversed-full-approach-A-in-v0.3.0 #wave-4-adopter-content-as-cut-blocker #memory-rule-stated-intent-vs-corpus #memory-rule-file-delta-vs-cherry-pick #agent-file-sonnet-defaultdown-fix-propagates-S89
+#session-89 #close #LANDMARK-36-COMMITS #null-eradication-spec-corpus-stdlib-complete #undefined-eradication-spec-corpus-complete #§36-chain-CLOSED #§13.2-chain-CLOSED #A-1-wave-CLOSED #A-2-1-and-A-2-2-landed #A-3-SCOPING-captured #Wave-4-T-and-D-tracks-CLOSED #TodoMVC-edit-mode-shipped #W-NULL-renamed-W-ABSENCE #§42.1.1-defined-vs-absence-normative #memory-rules-x5-saved #self-host-is-from-scratch-ratified #option-ε-spec-canonical-ratified #21-OQs-ratified-batch #Rule-4-findings-8x-substantive

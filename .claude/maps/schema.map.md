@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-12T21:42:04Z  commit: f1555b4
+# updated: 2026-05-13T15:00:00Z  commit: 9b98118
 
 ## TypeScript AST — `compiler/src/types/ast.ts` (1,828 LOC)
 
@@ -44,9 +44,6 @@ tag: "channel"  (always)
 isExport?: boolean               — true when declared as `export <channel name="X">`
 _p3aInlinedFrom?: string         — source file path when CHX inlined this from another file
 _p3aSourceSpan?: Span            — original declaration span when inlined
-
-**NEW S87 Insight 30:** ChannelDeclNode is now the canonical structural alias for channel markup nodes.
-Channel decls remain `kind: "markup"` (no new discriminant); this interface documents P3.A annotations.
 
 ### TextNode  [ast.ts:247]
 kind: "text", value: string
@@ -108,57 +105,47 @@ kind: "relational-predicate", op: ">=" | "<=" | "<" | ">" | "=" | "!=", value: E
 ### RenderSpecNode  [ast.ts:625]
 kind: "render-spec", element: MarkupNode
 
-### ReactiveDeclNode (derived/debounced/nested)  [ast.ts:639-682]
-ReactiveDebouncedDeclNode: kind "reactive-debounced-decl", name, delay: number, initExpr?
-ReactiveNestedAssignNode: kind "reactive-nested-assign", target, path: string[], valueExpr?
-ReactiveArrayMutationNode: kind "reactive-array-mutation", target, method, args: string
-ReactiveExplicitSetNode: kind "reactive-explicit-set", args: string
+### ReactiveNestedAssignNode  [ast.ts:680]
+kind: "reactive-nested-assign", target: string, path: string[], valueExpr?: ExprNode
 
-### FunctionDeclNode  [ast.ts:687]
+### ReactiveArrayMutationNode  [ast.ts:694]
+kind: "reactive-array-mutation", target: string, method: string, args: string
+
+### ReactiveExplicitSetNode  [ast.ts:705]
+kind: "reactive-explicit-set", args: string
+
+### FunctionDeclNode  [ast.ts:714]
 kind: "function-decl", name, params: string[], body: LogicStatement[], fnKind: "function"|"fn",
 isServer, canFail, errorType?, route?, method?, isHandleEscapeHatch?
 
-### EngineDeclNode  [ast.ts:745]
-kind: "engine-decl"; ... (engine declaration with state-child body; see file for full shape)
+### EngineDeclNode  [ast.ts:772]
+kind: "engine-decl"; state-machine declaration with state-child body (see file for full shape)
 
-### Control Flow  [ast.ts:806+]
-IfStmtNode, IfExprNode, ForExprNode, MatchExprNode — standard control flow shapes
+### Control Flow  [ast.ts:833+]
+IfStmtNode, IfExprNode, ForExprNode, ForStmtNode, WhileStmtNode, ReturnStmtNode, ThrowStmtNode,
+SwitchStmtNode, TryStmtNode, MatchStmtNode, MatchArmInlineNode — standard control flow shapes
 
-### WhenEffectNode  [ast.ts:1165]
+### WhenEffectNode  [ast.ts:1192]
 kind: "when-effect"; reactive side-effect trigger
 
-### ASTNode (discriminated union)  [ast.ts:1283]
-... 30+ node kinds — see `export type ASTNode` for full list
+### ASTNode (discriminated union)  [ast.ts:1296]
+30+ node kinds — see `export type ASTNode` for full list
 
-### LogicStatement (union)  [ast.ts:1232]
+### LogicStatement (union)  [ast.ts:1247]
 All statement kinds usable inside logic/meta blocks
 
-### FileAST  [ast.ts:1341]
-filePath: string, nodes: ASTNode[], ... additional pipeline-stamped fields
-channelDecls?: ChannelDeclNode[]  — **NEW S87** hoisted channel decl nodes for CHX lookup
+### FileAST  [ast.ts:1376]
+filePath: string, nodes: ASTNode[], channelDecls?: ChannelDeclNode[], + pipeline-stamped fields
 
-### TABOutput  [ast.ts:1374]
+### TABOutput  [ast.ts:1409]
 filePath, ast: FileAST, errors: TABErrorInfo[]
 
-### AuthConfig / MiddlewareConfig  [ast.ts:1347+]
+### AuthConfig / MiddlewareConfig  [ast.ts:1321+]
 Auth and middleware configuration shapes stamped on program-tag MarkupNodes.
+MiddlewareConfig fields: cors, log, ratelimit, headers, idempotencyStore?, idempotencyTTL?,
+batchInListCap?, corsMaxAge?, channelReconnect?
 
-**AuthConfig.csrf** (S80 narrowing): value-set narrowed to `"auto" | "off"` per §52.13. Invalid literals fire W-ATTR-002. The legacy `csrf="on"` was retired at S80.
-
-**MiddlewareConfig fields** (current shape, ast.ts:1347):
-- `cors: string | null` — CORS origin pattern (e.g. "*")
-- `log: string | null` — Logging mode (e.g. "structured")
-- `ratelimit: string | null` — Rate-limit pattern (e.g. "100/min")
-- `headers: string | null` — Security headers mode (e.g. "strict")
-- `idempotencyStore?: string | null` — A9 Ext 5 (§39.2.6) backend selector
-- `idempotencyTTL?: string | null` — S79 audit fix C.1 (§19.9.6)
-- `batchInListCap?: string | null` — S79 audit fix C.2 (§8.10.6)
-- `corsMaxAge?: string | null` — S81 audit fix F.1 (§39.2.1 ext)
-- `channelReconnect?: string | null` — S81 audit fix F.2 (§38.3.1)
-
-All adopter-override fields are raw strings on the AST; parsed at codegen time by per-field helpers. Silent fallback to default on null/malformed values.
-
-## ExprNode Types — `compiler/src/types/ast.ts` (ExprSpan section, ~1,407+)
+## ExprNode Types — `compiler/src/types/ast.ts` (ExprSpan section ~1,407+)
 
 ExprSpan: { start, end, line?, col? }
 ExprNode (union): IdentExpr | LitExpr | ArrayExpr | ObjectExpr | SpreadExpr | UnaryExpr |
@@ -167,20 +154,31 @@ ExprNode (union): IdentExpr | LitExpr | ArrayExpr | ObjectExpr | SpreadExpr | Un
 
 ## Codegen IR — `compiler/src/codegen/ir.ts`
 
-### HtmlIR  [ir.ts:22]
-parts: string[]
+### HtmlIR  [ir.ts:22]   parts: string[]
+### CssIR  [ir.ts:27]    userCss: string, tailwindCss: string
+### ServerIR  [ir.ts:33]  lines: string[]
+### ClientIR  [ir.ts:38]  lines: string[]
+### FileIR  [ir.ts:43]    filePath: string, html: HtmlIR, css: CssIR, server: ServerIR, client: ClientIR
 
-### CssIR  [ir.ts:27]
-userCss: string, tailwindCss: string
+### TestIR-family  [ir.ts:132+]
+AssertStmt: { kind, ... }, TestCase: { name, asserts, ... },
+TestBindDecl: { name, ... }, TestGroup: { name, cases, ... }, TestIR: { groups, ... }
 
-### ServerIR  [ir.ts:33]
-lines: string[]
+## Dependency Graph Types — `compiler/src/dependency-graph.ts`
 
-### ClientIR  [ir.ts:38]
-lines: string[]
+### DGNode kinds
+function | reactive | render | sql-query | import | meta | markup-read (NEW A-1.2 S88)
 
-### FileIR  [ir.ts:43]
-filePath: string, html: HtmlIR, css: CssIR, server: ServerIR, client: ClientIR
+### MarkupReadDGNode  [dependency-graph.ts:123]
+kind: "markup-read", nodeId: NodeId, sourceRenderNodeId: NodeId | null, ownerScope: string,
+hasLift: boolean, span: Span
+
+Purpose: per-interpolation markup-context read node (Option Y); tracks where each reactive var
+is read from markup context. Activated in A-1.3 (markupContextEmitEdges = true at S88).
+Emission sub-waves: A-1.3 (text-interpolation/attr/bind/if), A-1.4 (call-ref/for-iterable/lift-template), A-1.5 (engine state-child/onTransition/onTimeout/onIdle).
+
+### DGEdgeKind  [dependency-graph.ts:58]
+"calls" | "reads" | "writes" | "renders" | "awaits" | "invalidates" | "validator-reads" | "engine-derived-reads"
 
 ## Codegen Key Interfaces — `compiler/src/codegen/*.ts`
 
@@ -191,33 +189,23 @@ dbVar: string, workerNames: string[], errors: CGError[], registry: BindingRegist
 derivedNames: Set<string>, analysis: FileAnalysis | null, usedRuntimeChunks: Set<string>,
 exportRegistry?: Map<string, Map<string, { kind, category, isComponent }>> | null
 
-### BindingRegistry  [binding-registry.ts:53+]
-EventBinding: { placeholderId, eventName, handlerName, handlerArgs, handlerExpr?, engineArm? }
-LogicBinding: { placeholderId?, expr?, reactiveRefs?, isConditionalDisplay?, varName?, condExpr?, refs?, kind?, chainId?, ... }
-
 ### CGError  [errors.ts:11]
 code: string, message: string, span: CGSpan | object, severity: 'error' | 'warning'
 
-### VariantArm  [emit-variant-guard.ts:106]
-tag: string, payloadBindings: string[], body: any[]
+## scrml:host Runtime Types — `compiler/runtime/stdlib/host.js` (NEW S88)
 
-### VariantGuardOutput  [emit-variant-guard.ts:135]
-mountElementHtml: string, renderFunctionsJs: string, dispatcherJs: string
+### HostError
+Variant constructor object: `HostError.Thrown(message, name) → { variant: "Thrown", data: { message, name } }`
+variants: ["Thrown"]
 
-### VariantGuardOptions  [emit-variant-guard.ts:163]
-idPrefix: string, mountAttr?: string, renderFnPrefix?: string, variantSubscribeName?: string | null
+### safeCall(thunk) → value | scrml-error-shape
+Wraps a synchronous JS-host call; catches any throw and returns `{ __scrml_error: true, type: "HostError", variant: "Thrown", data }`.
 
-### FileAnalysis  [analyze.ts:55]
-filePath, nodes, fnNodes, markupNodes, topLevelLogic, ... (pre-computed AST analysis slices for CG)
-
-## DB Scope Collection — `compiler/src/codegen/emit-server.ts` (NEW S87 Bug 3a)
-
-`collectDbScopes(ast)` returns `Map<dbVar, { connectionString, driver }>`. Both `<db src=>` block form
-and `<program db=>` attribute form produce entries. The emitter scans server output for `_scrml_sql`
-and `_scrml_sql_<n>` tokens and emits `import { SQL } from "bun"; const _scrml_sql = new SQL(...)` declarations at top of file. Closes latent `ReferenceError: _scrml_sql is not defined`.
+### safeCallAsync(thunk) → Promise<value | scrml-error-shape>
+Async sibling of safeCall; wraps an async thunk; resolves to error shape on rejection.
 
 ## Tags
-#scrmlts #map #schema #ast #types #codegen #ir #s87 #channel-decl-node #bug-3a
+#scrmlts #map #schema #ast #types #codegen #ir #s88 #markup-read-dg-node #approach-a #safecall
 
 ## Links
 - [primary.map.md](./primary.map.md)

@@ -2,11 +2,75 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-13 S89 — A-1 wave CLOSED via close-out trio A-1.6 / A-1.7 / A-1.8): **11,912 pass / 117 skip / 1 todo / 0 FAIL** (560 files, unchanged from S88 — close-out is docs-only). v0.2.6 `efbd1e8` is still the shipped baseline. A-1 wave 100% closed (8 of 8 sub-phases SHIPPED).
+Current baseline (2026-05-13 S89 CLOSE — landmark 36-commit session): **12,065 pass / 117 skip / 1 todo / 0 fail / 604 files** (+148 vs S88; 0 regressions). v0.2.6 `efbd1e8` is still the shipped baseline.
 
-### 2026-05-13 (S89 — A-1 wave close-out — A-1.6 consumer audit + A-1.7 S84 ceiling re-measurement + A-1.8 docs landed)
+### 2026-05-13 (S89 CLOSE — landmark 36-commit session — chain closures + null/undefined eradication + A-2 advances)
 
-A-1 wave (Approach A markup-context edge emission) closed end-to-end with the docs-only close-out trio. The 5 code-shipping sub-phases (A-1.2 through A-1.5) landed at S88; S89 wraps the audit + measurement + docs deliverables that were carved out of the S88 dispatch window.
+Substantial multi-wave session: 36 PA-authored commits across 9 waves of parallel dispatches. Two compiler chains closed end-to-end (**§36 input devices Phases 1-4**; **§13.2 auto-await Promise<T> Sub-A through Sub-E**); two more advanced (A-2 Reachability Solver scaffold + Component 1; A-3 §40 auth-graph SCOPING). Plus comprehensive **null+undefined eradication at SPEC/corpus/audit layers** per user S89 verbatim ruling. Plus Wave 4 adopter T-track + D-track CLOSED; A-1 wave close-out trio shipped; Wave 3.7 corpus audit + §4 backlog migration; TodoMVC edit-mode markup landed; W-TRY-CATCH lint shipped.
+
+**§36 input devices chain CLOSED end-to-end:**
+- Phase 1 SPEC at `b1848f9`: §36.5.1 nested-scope + §36.7.1 W-INPUT-001 (replaces proposed E-INPUT-006 per OQ-A γ) + §36.5.2 SSR + §36.6 _clearFrameState SHOULD.
+- Phase 2 parser/typer + E-INPUT-005 at `7720257`: `<#id>` member-access verified leaf-as-opaque (5 regression tests); E-INPUT-005 duplicate-id walker (7 tests). 47→59.
+- Phase 3 regression tests at `bdbf810`: SSR no-emit + auto-repeat + nested-scope cleanup (+10 tests; zero bugs).
+- Phase 4 conformance + integration + sample at `19e174e`: 5 conf-INPUT-* (12 tests) + frame-accurate integration (4 tests) + input-canvas-demo + JSDOM integration (7 tests).
+- Wave 1.4 SCOPING (`cfd3132`) surfaced Rule-4: ~70% already shipped S78/S84.
+
+**§13.2 auto-await Promise<T> chain CLOSED end-to-end:**
+- Sub-A SPEC at `67a6a81`: §13.2.1+§13.2.2 stdlib Promise<T> + §13.1 stdlib carve-out + §41.4.1 stdlib API rule + E-PROG-004 Error→Info (Q2 Position C).
+- Sub-B Step 1 at `503c3b4` (post-crash recovery): FunctionDeclNode.isAsync + ast-builder parsing.
+- Sub-B Steps 1c+2+3+4 at `39eba45`: I-ASYNC-USER-SOURCE info lint + exportRegistry.isAsync flag + isPromiseReturningStdlibFn helper + scheduling.ts classifier + emit-logic.ts guarded-expr auto-await + STDLIB-EXPORT-SEED TAB-only pass. +9 tests. 37 stdlib Promise<T> classified.
+- Sub-C at `775d836`: closed-as-Sub-B-already-done.
+- Sub-D + Sub-E at `7876191`: Sub-D no-op + Sub-E verifyPassword + verifyJwt one-line migration. Stdlib transitive re-export gap surfaced as follow-on.
+
+**A-1 wave close-out** at `376a219`: A-1.6 consumer audit (5 DG consumers; design-intent kind-discriminator finding) + A-1.7 ceiling re-measurement (523 nodes/edges vs 256 S84 ceiling = 2.04x; A-5.5 closed ahead) + A-1.8 docs + new `scripts/measure-markup-read-edges.ts`.
+
+**A-2 Reachability Solver advanced:**
+- A-2.1 scaffold at `6023923`: types/reachability.ts (247 LOC) + reachability-solver.ts (152 LOC) + pipeline wiring + `--emit-reachability` CLI flag. +6 tests.
+- A-2.2 Component 1 at `783721f`: entry-point enumerator + constant-folder primitive (extracted from META per OQ-A2-D) + per-gate classifier + worst-case-union admission. +82 tests.
+
+**A-3 §40 auth-graph SCOPING** at `ce39ad4`: AuthGraph schema; 5 sub-phases / 30-49h critical-path; 6 OQs; cross-cutting OQ-A2-D constant-folder dependency.
+
+**Wave 3.7 corpus audit + §4 backlog** at `32386e7` + `38d1ef1`: 50/77 files clean; 10 §4 items; 8/10 migrated (trucking-dispatch components + 14-mario file-top `#{}` + kickstarter login() → failable AuthError both v1+v2).
+
+**TodoMVC edit-mode markup** at `41fb26c`: Rule-4 — §B LIFT anchors already flipped S88; actual work was missing markup (commitEdit/cancelEdit/visibleTodos/@editingId). +1 test; warnings 5→1.
+
+**Wave 4 adopter content (T + D tracks closed):**
+- Wave 4 SCOPING at `d8fd5ce`: Rule-4 — Wave 4 substantially more advanced; re-baselined ~12.75-26.5h; 17 sub-tasks / 5 tracks.
+- T-track at `deb5c7c`: **Substantive finding — S87 Insight 30 silently invalidated tutorial §8** (taught `<channel>` as file-top sibling; cited retired E-CHANNEL-INSIDE-PROGRAM; snippet broken). T-1 caught 1/11 FAIL → T-2 fixed → 11/11 PASS. 13 edits.
+- D-track at `ccf89c9`: 17 articles classified (10 ACCURATE + 3 BORDERLINE + 4 INTERNAL + 2 RETRACT).
+
+**null + undefined ABSOLUTE eradication** per user S89 verbatim ruling ("null does NOT EXIST IN SCRML! and never will!" + "yes this extends to undefined. \"\" is still defined."). Scope: scrml source only — output JS legitimately uses null/undefined as JS-host primitives per SPEC §42.1 S89 exclusions:
+- 7.A SPEC null at `e621d91`: §42 canonical home; 33 sites; W-NULL-IN-SCRML-SOURCE catalog.
+- 7.B Corpus null at `6751aae`: primer + kickstarter + samples + examples; 30 sites.
+- 7.C Self-host null at `84f7fe9` (partial recovery — agent over-reached on module-resolver.js removing §13.2 Sub-B isAsync infra; PA caught + reverted).
+- 7.D TS null audit at `31ff1a0`: 2777 sites; 18 M-7C-D-N items; M-7C-D-12 (runtime sentinel) blocker prerequisite.
+- 7.E mutability-contracts at `7d6fad8`: `(null → T)` → `(not → T)` lifecycle.
+- 8.A SPEC undefined at `ca38880`: §42 already enumerated both; 6 sites; **W-NULL → W-ABSENCE rename**; **NEW §42.1.1 "Defined Values vs. Absence — `""` is NOT Absence"** normative subsection enshrining `""`/`0`/`false`/`[]`/`{}` as defined values.
+- 8.B Corpus undefined at `90eff72`: 6 sites; correctly distinguished `""`-adjacent leaves.
+- 8.C Self-host undefined at `78555f6`: closed-as-no-op (Wave 2.1 already swept).
+- 8.D TS undefined audit at `f63e36a`: 861 sites; 16 M-8C-D-N items; 13 paired with M-7C-D-N.
+
+**M-7C-D-12 SCOPING** at `dd891ab`: **Critical Rule-4 reframing — SPEC §42.1 S89 exclusions ALREADY RATIFY runtime JS `null` as scrml absence + carve out codegen-emitted JS from W-ABSENCE-IN-SCRML-SOURCE lint.** Option α IS the SPEC's canonical answer. 5 options surfaced; **Option ε (spec-amend audit framing) user-ratified**: audit migration count drops ~860/34 items → ~95/5 items. 5 sub-tracks / 33-45h; 3 substantive OQs remain.
+
+**Other features:**
+- W-TRY-CATCH lint at `6498dd2`: Stage 3.007 LINT-TRY-CATCH walker; §34 row referencing §19.1; fires on stdlib/http lines 65+264. +7 tests.
+- stdlib Phase 1.5 sweep at `8c608a7`: 21 files / 124 sites.
+- Phase 3a jwt verifyJwt at `d0e05c8`: async → safeCallAsync; result-shape preserved. +2 tests.
+- Wave 9.A paired-migration classification at `99c30da`: Rule-4 — ALL "non-blocked" items chain-blocked on M-7C-D-12 (gauntlet detector coupling).
+
+**21 OQs ratified per agent recommendations in single batch** (5 §36 + 6 §13.2 + 10 A-2).
+
+**5 new memory rules saved:** `feedback_land_before_cleanup` · `feedback_agent_crash_partial_recovery` · `feedback_null_does_not_exist_in_scrml` (extended with source-vs-output scope) · `feedback_self_host_is_from_scratch`.
+
+**8 substantive Rule-4 findings:** W-PROGRAM-SPA-INFERRED already-done · §36 ~70%-done · Wave 4 advanced · §13.2 Sub-C already-Sub-B-done · A-2 algorithm SPEC-pinned · Wave 8.C superseded · Wave 9.A chain-blocked · Wave 9.B SPEC-already-ratifies-codegen-null.
+
+**PA process violations + recoveries:** cleanup-before-landing (recovered via reachable SHA; memory rule saved) · agent crash pre-commit (Step 1 recovered via working-tree cp; memory rule saved) · over-reach on module-resolver.js (pre-commit caught; reverted).
+
+---
+
+#### Sub-detail (carved from S88 dispatch window):
+
+**A-1 wave close-out** at `376a219` — original detail:
 
 **A-1.6 consumer audit (`docs/changes/a1-closeout/A1-6-consumer-audit.md`):**
 - 5 DG-node consumers identified in `compiler/src/`: `codegen/scheduling.ts`, `batch-planner.ts`, `codegen/index.ts`, `meta-eval.ts`, `codegen/emit-functions.ts`.

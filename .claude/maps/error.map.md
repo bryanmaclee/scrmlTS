@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-12T21:42:04Z  commit: f1555b4
+# updated: 2026-05-13T15:00:00Z  commit: 9b98118
 
 ## Error Code System
 
@@ -17,7 +17,7 @@ class CGError {
 }
 ```
 
-## Runtime Error Classes  [compiler/src/runtime-template.js:1249+]
+## Runtime Error Classes  [compiler/src/runtime-template.js:1423+]
 
 All extend `_ScrmlError extends Error`.
 
@@ -42,58 +42,69 @@ All extend `_ScrmlError extends Error`.
 | E-BATCH-* | 001, 002 | Batch planner (Stage 7.5) |
 | E-BPP-* | 001 | Body pre-parser (compat shim) |
 | E-BS-* | 000 | Block splitter (Stage 2) |
-| E-CG-* | 001, 002, 003, 006, 010, 014, 015 | Codegen (Stage 8); includes SQL-to-client leak (E-CG-006) |
-| E-CHANNEL-* | 001, 004, 005, 007, 008 | Channel declaration/usage |
-| E-CHANNEL-OUTSIDE-PROGRAM | §38.1 | **NEW S87 Insight 30** — `<channel>` sits outside `<program>` in a file that also has a `<program>`; module-file dispensation for PURE-CHANNEL-FILE shape (replaces retired E-CHANNEL-INSIDE-PROGRAM) |
-| E-CHANNEL-INSIDE-PAGE | §38.1 | **NEW S87** — `<channel>` inside `<page>`; channels must live directly inside `<program>` |
-| E-CHANNEL-INSIDE-PROGRAM | §38.1 | **RETIRED S87 v0.3** — the pre-v0.3 "channel inside program" violation; direction REVERSED |
+| E-CG-* | 001, 002, 003, 006, 010, 014, 015 | Codegen (Stage 8); E-CG-006 = SQL-to-client leak |
+| E-CHANNEL-* | 001, 007, 008 | Channel declaration/usage |
+| E-CHANNEL-OUTSIDE-PROGRAM | §38.1 | `<channel>` at file-top when file ALSO has `<program>` (PURE-CHANNEL-FILE shape is exempt) |
+| E-CHANNEL-INSIDE-PAGE | §38.1 | `<channel>` inside `<page>` — forbidden |
 | E-COMPONENT-* | 010–035 | Component expansion/definition |
 | E-CONTRACT-* | 001–004 | Pipeline contract violations |
 | E-CTRL-* | 001–005, 011 | Control flow errors |
 | E-CTX-* | 001–003 | Context violations |
-| E-DEPRECATED-* | 001 | Deprecated syntax use |
+| E-DEBOUNCED-WITH-DERIVED | §6.13 | Debounced attr on derived cell |
+| E-DEBOUNCED-WITH-SERVER | §6.13 | Debounced attr on server-context cell |
 | E-DG-* | 001, 002 | Dependency graph (Stage 7) |
-| E-ENGINE-* | 001, 003, 004, 005, 010, 013 | Engine declaration/transition; E-ENGINE-001-RT is the runtime guard |
-| E-ENGINE-INVALID-TRANSITION | §51.0.F, §51.0.G | Direct write violating rule= contract; **v0.3 Option-d carve-out:** self-writes are NO-OPS, not violations — see §51.0.F.1 |
+| E-ENGINE-* | 001, 003, 004, 005, 010, 013 | Engine declaration/transition |
+| E-ENGINE-INVALID-TRANSITION | §51.0.F | Direct write violating rule= contract; self-writes (§51.0.F.1) are NO-OPs, not violations |
 | E-ERROR-* | 008 | Error handling surface |
-| E-EXPORT-* | (see SPEC §34) | Export violations |
-| E-IMPORT-* | 007 | Import violations |
-| E-LIFECYCLE-* | 015 | Lifecycle event errors |
+| E-IMPORT-* | 005, 006, 007 | Import violations |
 | E-LIFT-* | 001 | Concurrent lift detection (DG) |
 | E-LOOP-* | 005, 006, 007 | Loop/for-expression errors |
 | E-META-EVAL-* | 002 | Meta-eval errors |
 | E-MONOTONE-* | (see SPEC §34) | Monotonicity analyzer |
-| E-PAGE-INVALID-ATTR | §4.15 | **NEW S86** — `<page>` attribute outside allowed set |
-| E-PAGE-ROUTE-ATTR-FORBIDDEN | §4.15 | **NEW S86** — `route=` specifically forbidden on `<page>` |
-| E-PARSE-* | (see SPEC §34) | Parse-time errors |
+| E-NAME-COLLIDES-STATE | §34 | Name collision with state type |
+| E-ONTRANSITION-NO-TARGET | §34 | onTransition has no target engine |
+| E-PA-* | 002–007 | Protect analyzer |
+| E-PAGE-INVALID-ATTR | §4.15 | `<page>` attribute outside allowed set |
+| E-PAGE-ROUTE-ATTR-FORBIDDEN | §4.15 | `route=` specifically forbidden on `<page>` |
+| E-PARSE-* | 001, 002 | Parse-time errors |
 | E-PARSEVARIANT-* | 001 | Variant parsing failures |
 | E-REPLAY-* | 001-RT | Runtime: replay index errors |
-| E-SQL-* | (see SPEC §34) | SQL validation errors |
-| E-SYNTAX-* | 042, 043, 044, 050 | Syntax violations |
+| E-REACTIVITY-ATTR-CONFLICT | §6.13 | Both debounced + throttled on same cell |
+| E-RESET-* | INVALID-TARGET, NO-ARG | Reset keyword errors |
+| E-RI-* | 002 | Route inference errors |
+| E-SQL-* | 005, 006, 008 | SQL validation errors |
+| E-STATE-* | 004, 005, 006, COMPLETE, PINNED-FORWARD-REF, TERMINAL-MUTATION, TRANSITION-ILLEGAL | State/engine errors |
+| E-STYLE-* | 001 | CSS validation errors |
+| E-SYNTAX-* | 002, 010, 011, 042, 043, 044, 050 | Syntax violations |
 | E-TAILWIND-* | 001 | Tailwind class validation |
 | E-TEST-* | 001–006 | Test block violations (§19.13) |
 | E-TILDE-* | 001, 002 | Tilde-decl must-use violations |
 | E-TIMEOUT-* | 001, 002 | Timeout configuration errors |
 | E-TYPE-* | 001, 004, 006, 020–081 | Type system errors (Stage 6 TS) |
 | E-USE-* | 001, 002, 005 | Usage analysis errors |
-| E-WHITESPACE-* | 001 | Whitespace violations |
-| W-CG-* | 001 | Codegen warnings (SQL/server-context suppressed from client) |
-| W-ENGINE-SELF-WRITE-DETECTED | §51.0.F.1 | **NEW S87 Option (d) synthesis** — info-level lint: engine self-write (`@var = .CurrentVariant` or `.advance(.CurrentVariant)`) detected; self-write is a runtime NO-OP per §51.0.F.1. Two fire-sites: PASS 16 (inside-state-child) at `symbol-table.ts:7259`; PASS 12.B `walkEngineSelfWriteOutside` at `symbol-table.ts:5567`. Joins `W-PROGRAM-SPA-INFERRED` / `I-MATCH-PROMOTABLE` / `D-BATCH-001` family. |
-| W-PROGRAM-REDUNDANT-LOGIC | §4.14 | **NEW S86** — `<program>`/`<page>` body wraps top-level decls in redundant `${...}` block (only fires when content is all-decls) |
-| W-PROGRAM-SPA-INFERRED | (see SPEC §34) | SPA inferred from program attributes |
-| W-DEAD-FUNCTION | (see SPEC §34) | Function never called from markup or server surface |
+| E-VALIDATOR-* | CIRCULAR-DEP, INLINE-DYNAMIC | Validator graph errors |
+| E-VARIANT-AMBIGUOUS | §34 | Variant inference ambiguity |
+| W-CG-* | 001 | Codegen warnings |
+| W-ENGINE-SELF-WRITE-DETECTED | §51.0.F.1 | Info-level: engine self-write detected; runtime NO-OP. Two fire-sites: PASS 16 (inside-state-child) + PASS 12.B (outside-state-child) in symbol-table.ts |
+| W-PROGRAM-REDUNDANT-LOGIC | §4.14 | `<program>`/`<page>` body wraps top-level decls in redundant `${}` block |
 
-## LIFT-template Codegen Bug Families (OPEN — HIGH-PRIORITY for v0.3.0)
+## LIFT-template Codegen Bug Families (S88 STATUS)
 
-These 5 bug families were SURFACED in S87 (anchor tests in lift-li-text-template.test.js + todomvc-fixture-edit-mode.test.js) but NOT YET FIXED. They block canonical TodoMVC edit-mode and "per-item interactive markup inside for/lift" patterns.
+| ID | Status | Description |
+|----|--------|-------------|
+| LIFT-1 | FIXED S88 | `parseLiftTag` returns null for paren-wrapped attr values — cursor desync FIXED; `class:NAME=(parens-expr)` no longer elides parent element |
+| LIFT-2/3/4 BUNDLE | FIXED S88 | `bind:*` two-way wiring / `if=` conditional display / event-arg parity inside lift template — all three wired in emit-lift.js |
+| LIFT-5 | FIXED S88 | `if (cond) { lift ... }` inside `for` — `if/for` children now route through container helpers in reconciler factory (emit-control-flow.ts) |
 
-| ID | Description | Anchor test |
-|----|-------------|-------------|
-| LIFT-1 (CATASTROPHIC) | `class:NAME=(parens-expr)` inside lift template ELIDES parent element + duplicates inner text | todomvc-fixture-edit-mode.test.js §B.1 |
-| LIFT-2/3/4 BUNDLE | `bind:value=@var` / `if=@expr` / `onkeydown=fn()` inside lift template fall back to literal `setAttribute` — no reactive wiring | todomvc-fixture-edit-mode.test.js §B.2/3/4 |
-| LIFT-5 | `if (cond) { lift <li>... }` inside `for (let item of @items)` — reconciler-factory `_scrml_lift_target` ambient state gap; probable runtime breakage | progress.md in v0.3-todomvc-e2e-reverify |
+All 5 LIFT families closed at S88. Anchor tests in `lift-li-text-template.test.js` + `todomvc-fixture-edit-mode.test.js` + `lift-5-reconciler-ambient.test.js` now pass.
 
-Root module: `compiler/src/codegen/emit-lift.js`. Recommended 3-dispatch decomposition for S88.
+## scrml:host HostError Type (NEW S88)
+
+HostError is NOT a subclass of _ScrmlError. It is a variant-constructor object matching the scrml enum variant shape:
+```
+{ variant: "Thrown", data: { message: string, name: string } }
+```
+Used by `safeCall` / `safeCallAsync` return values when a JS-host throw is caught. Sentinel field `__scrml_error: true` distinguishes error shapes from success values.
 
 ## Error Handling Patterns
 
@@ -104,6 +115,8 @@ Root module: `compiler/src/codegen/emit-lift.js`. Recommended 3-dispatch decompo
 | `throw new Error("E-REPLAY-001-RT: ...")` | Runtime guard in compiled output — replay index out of bounds |
 | `try/catch` in pipeline orchestration | api.js wraps each stage; errors collected, not re-thrown |
 | `!{}` error-effect blocks | Compiled user error handlers (pattern-matched on error type) |
+| `safeCall(() => ...)` | S88: JS-host throw containment in stdlib; returns HostError shape instead of throwing |
+| `await safeCallAsync(() => ...)` | S88: async variant of safeCall for async-throwing JS-host APIs |
 
 ## Global Error Boundaries
 
@@ -117,16 +130,16 @@ Root module: `compiler/src/codegen/emit-lift.js`. Recommended 3-dispatch decompo
 
 | File | What it checks |
 |------|----------------|
-| compiler/src/gauntlet-phase1-checks.js (~416 LOC) | Post-TAB diagnostics for Stage 1 issues |
-| compiler/src/gauntlet-phase3-eq-checks.js (~810 LOC) | Post-TAB equality and Phase 3 semantic checks |
-| compiler/src/lint-ghost-patterns.js (~492 LOC) | Pre-Stage-2 lint for ghost/phantom patterns |
+| compiler/src/gauntlet-phase1-checks.js | Post-TAB diagnostics for Stage 1 issues |
+| compiler/src/gauntlet-phase3-eq-checks.js | Post-TAB equality and Phase 3 semantic checks |
+| compiler/src/lint-ghost-patterns.js | Pre-Stage-2 lint for ghost/phantom patterns |
 | compiler/src/lint-i-match-promotable.js | Lint for promotable i-match patterns |
-| compiler/src/validators/ast-walk.ts | **NEW S87** — shared read-only walker; channel placement pre-check for §38.1 (E-CHANNEL-OUTSIDE-PROGRAM) |
-| compiler/src/symbol-table.ts PASS 12.B | `walkEngineSelfWriteOutside` — fires W-ENGINE-SELF-WRITE-DETECTED for outside-state-child self-writes |
-| compiler/src/symbol-table.ts PASS 16 | Inside-state-child W-ENGINE-SELF-WRITE-DETECTED fire-site #10 |
+| compiler/src/validators/ast-walk.ts | Shared read-only walker; channel placement pre-check (E-CHANNEL-OUTSIDE-PROGRAM) |
+| compiler/src/symbol-table.ts PASS 12.B | `walkEngineSelfWriteOutside` — W-ENGINE-SELF-WRITE-DETECTED outside-state-child |
+| compiler/src/symbol-table.ts PASS 16 | Inside-state-child W-ENGINE-SELF-WRITE-DETECTED fire-site |
 
 ## Tags
-#scrmlts #map #error #diagnostics #runtime-errors #error-codes #s87 #lift-bugs #engine-self-write #channel-dispensation
+#scrmlts #map #error #diagnostics #runtime-errors #error-codes #s88 #lift-fixes-complete #safecall #host-error
 
 ## Links
 - [primary.map.md](./primary.map.md)

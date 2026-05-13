@@ -1,6 +1,6 @@
 # events.map.md
 # project: scrmlts
-# updated: 2026-05-12T21:42:04Z  commit: f1555b4
+# updated: 2026-05-13T15:00:00Z  commit: 9b98118
 
 ## Status
 
@@ -22,31 +22,29 @@ The compiler EMITS WebSocket pub/sub code into compiled server output. This is o
 
 Two canonical placements for `<channel>`:
 1. **Inside `<program>`** — standard v0.3 placement. Cross-page shared state.
-2. **PURE-CHANNEL-FILE** (NEW S87) — file-top `<channel>` in a file with NO `<program>`. Module-file dispensation per §38.1 + engine-parity precedent (§21.8/B14). Does NOT fire `E-CHANNEL-OUTSIDE-PROGRAM`.
+2. **PURE-CHANNEL-FILE** — file-top `<channel>` in a file with NO `<program>`. Module-file dispensation per §38.1 + engine-parity precedent. Does NOT fire `E-CHANNEL-OUTSIDE-PROGRAM`.
 
 Violation shape that fires `E-CHANNEL-OUTSIDE-PROGRAM`: `<channel>` at file-top in a file that ALSO contains `<program>` as a sibling.
 Violation shape that fires `E-CHANNEL-INSIDE-PAGE`: `<channel>` inside `<page>`.
 
-Channel placement pre-check is enforced by the shared AST walker in `compiler/src/validators/ast-walk.ts` (NEW S87).
+Channel placement pre-check enforced by shared AST walker in `compiler/src/validators/ast-walk.ts`.
 
-### meta.emit() Runtime Placement (compiler/src/runtime-template.js:1029)
+### meta.emit() Runtime Placement (compiler/src/runtime-template.js)
 
-The runtime has a `meta.emit()` mechanism for compile-time-controlled DOM injection at ^{} block positions. This is a one-way compiler-to-DOM event, not pub/sub.
+The runtime has a `meta.emit()` mechanism for compile-time-controlled DOM injection at ^{} block positions. One-way compiler-to-DOM; not pub/sub.
 
 ### _scrml_effect / _scrml_reactive_subscribe (runtime-template.js)
 
-The compiled client runtime has reactive subscriptions via:
+Reactive subscriptions in compiled client runtime:
 - `_scrml_reactive_subscribe(name, fn)` — subscribe to a named reactive cell; fires on set
 - `_scrml_effect(fn)` — run fn reactively; subscribes to all cells accessed during execution
-
-These are the reactive wiring primitives used by event-wiring emitters. They are in compiled output, not in the compiler itself.
 
 ## Bus Type
 
 None in the compiler process. Compiled outputs use Bun's WebSocket pub/sub API (topic-based) for channel features.
 
 ## Tags
-#scrmlts #map #events #websocket #pubsub #reactive #channels #s87 #insight-30 #pure-channel-file
+#scrmlts #map #events #websocket #pubsub #reactive #channels #s87 #pure-channel-file
 
 ## Links
 - [primary.map.md](./primary.map.md)

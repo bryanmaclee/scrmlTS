@@ -1,6 +1,6 @@
 # config.map.md
 # project: scrmlts
-# updated: 2026-05-10T19:30:00Z  commit: f182f44
+# updated: 2026-05-13T15:00:00Z  commit: 9b98118
 
 ## Environment Variables
 
@@ -25,7 +25,7 @@ timeout = 10000
 ```
 
 ### compiler/package.json  [workspace]
-name: "compiler", version: "0.1.0", dependencies: acorn@^8.16.0, astring@^1.9.0
+name: "compiler", version: "0.2.0", dependencies: acorn@^8.16.0, astring@^1.9.0
 
 ### Root package.json  [project root]
 name: "scrmlts", version: "0.2.0", engines: { bun: ">=1.3.13" }, workspaces: ["compiler"]
