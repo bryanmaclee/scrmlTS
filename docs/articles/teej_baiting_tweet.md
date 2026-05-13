@@ -1,9 +1,16 @@
-I love good coffee.
+# teej baiting tweet (RETRACTED)
 
-Just ordered a cron job.
+**Status: RETRACTED / OFF-TOPIC — archived 2026-05-13 (S89 Wave 4.A D-3).**
 
-I'll try it for 3 months.
+This file is a stub. The full content has been archived to:
 
-My word is good. (My full legal name sits right behind everything I say online.)
+> `scrml-support/archive/articles-skipped/teej_baiting_tweet.md`
 
-If anyone at @terminaldotshop reads this article and offers even one statement of (OMG! ACTUAL F###ing HUMAN) feedback (even public feedback calling the ideas trash), I'll keep my subscription for no less than 2 years.
+## Why retracted
+
+This was a personal tweet draft (9 lines about ordering coffee from terminal.shop + a Teej Hooper bait). Off-topic from scrml; not an article; not for scrml.dev. Should never have lived in `docs/articles/`.
+
+## References
+
+- Wave 4.A D-3 retraction commit: see `docs/audits/articles-currency-table-2026-05-13.md` §1 row 13 + §3 D-3.
+- Wave 4 adopter content SCOPING §4 D-3: "tweet draft + snippet draft; internal-only by name. Confirm disposition (archive or keep as ad-hoc draft)."

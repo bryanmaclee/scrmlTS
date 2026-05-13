@@ -1,5 +1,7 @@
 # scrml LLM Kickstarter — v2 (v0.next)
 
+**Status: DO-NOT-PUBLISH-INTERNAL** — this document is an LLM agent-brief for v0.next / v0.3.0 surface, NEVER for external (dev.to / scrml.dev / social) publication. Per S57 + S89 Wave 4.A D-1 audit, kickstarter v2 remains internal-only; v0.3.0 cut path is in flight (Approach A reachability solver, §36 live-input retention, Phase 3a stdlib migration, scrml:host primitive).
+
 **One-paste context for any LLM about to write scrml.** Read this in full before generating any scrml code. If you've been pasted this document, do not skim.
 
 > v2 supersedes v1 (2026-04-25). v1 described **pre-v0.next** scrml; v2 describes the language **after the S52-S56 deliberation arc** (locks L1-L20, captured in `scrml-support/docs/deep-dives/v0next-s56-deliberation-outcomes-2026-05-04.md`). The two languages share much of their vocabulary (file extension, Bun runtime, `< db>` + `?{}`, `<program>`, `lift`, `bind:value`, `onclick=fn()`, `${expr}`, `#{}`, `lin`, components, stdlib) but the **state model has changed materially**, **engines are now the centerpiece**, and **markup is a first-class value type that can sit anywhere expressions sit** (the load-bearing pillar held since the scrml8 era). If a v1 recipe contradicts a v2 recipe, v2 is correct. Do not back-fill from v1.

@@ -1,5 +1,7 @@
 # scrml LLM Kickstarter — v1
 
+**Status: DO-NOT-PUBLISH-INTERNAL** — this document is an LLM agent-brief, NEVER for external (dev.to / scrml.dev / social) publication. Per pa.md line 319, every scrml-writing dev dispatch MUST include this file in the briefing; per S57 + S89 Wave 4.A D-1 audit, it remains internal-only.
+
 **One-paste context for any LLM about to write scrml.** Read this in full before generating any scrml code. If you've been pasted this document, do not skim.
 
 > v1 supersedes v0 (2026-04-25). Every claim in this document is verified against `compiler/SPEC.md` and the runnable `examples/` directory at scrmlTS commit `b1ce432`. Recipes in §7 each have a corresponding `examples/<n>-*.scrml` you can read end-to-end.

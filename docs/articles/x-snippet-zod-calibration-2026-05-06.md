@@ -5,6 +5,7 @@ session: S65
 status: RATIFIED — Path C (Variant 3 first post; Variant 2 reserved as follow-up reply if critics engage)
 context: debate-05 verdict C-narrow ratified (ship parseVariant, hold parseShape); npm-myth article amended in same session
 posting_strategy: post Variant 3 standalone; if a critic engages with "but X is missing," reply with Variant 2 bullet form
+publishing_posture: DO-NOT-PUBLISH-INTERNAL — PA-only paste-ready snippet, awaiting Bryan's X-posting decision (S89 Wave 4.A D-1)
 ---
 
 ## PASTE-READY (Variant 3 — first post)

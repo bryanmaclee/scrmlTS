@@ -79,6 +79,6 @@ I am sure I am wrong about plenty. But the more I build, the more it feels like 
 
 ## Further reading
 
-- [What npm package do you actually need in scrml?](./npm-myth-draft-2026-04-25.md). The package-list-collapses argument worked through one tier at a time.
-- [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](./lsp-and-giti-advantages-draft-2026-04-25.md). What vertical-integration unlocks, in two pieces of the ecosystem.
+- [What npm package do you actually need in scrml?](./npm-myth-devto-2026-04-28.md). The package-list-collapses argument worked through one tier at a time.
+- [What scrml's LSP can do that no other LSP can, and why giti follows from the same principle](./lsp-and-giti-advantages-devto-2026-04-28.md). What vertical-integration unlocks, in two pieces of the ecosystem.
 - **scrml on GitHub:** [github.com/bryanmaclee/scrmlTS](https://github.com/bryanmaclee/scrmlTS). The working compiler, examples, spec, benchmarks.
