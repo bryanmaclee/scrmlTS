@@ -9,6 +9,7 @@ import { serverRewriteEmitted } from "./rewrite.ts";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import type { CompileContext } from "./context.ts";
 import { emitServerParamCheck, parsePredicateAnnotation } from "./emit-predicates.ts";
+import { resolveDbDriver } from "./db-driver.ts";
 
 /**
  * S79 audit fix C.1 — parse `<program idempotency-ttl="...">` raw value into
@@ -83,6 +84,118 @@ function parseCorsMaxAge(raw: string | null | undefined): number | null {
   if (!/^\d+$/.test(trimmed)) return null;
   const n = parseInt(trimmed, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Bug 3a (S87 follow-on, 2026-05-12) — DB scope collector for `_scrml_sql`
+ * declaration emission.
+ *
+ * Walks the file AST to enumerate every DB scope visible from server code.
+ * Two source shapes are recognized:
+ *
+ *   1. `<program db="path">` — the per-program form (SPEC §40.2 + §44.2).
+ *      Index.ts annotates these with `_dbScope = { dbVar, connectionString,
+ *      driver }` at the codegen entry; we read that annotation directly.
+ *      Scoped variable name: `_scrml_sql_<n>` (n = 1, 2, ...).
+ *
+ *   2. `<db src="path">` — the state-block markup form (SPEC §44.7.1).
+ *      AST shape: `{ kind: "state", stateType: "db", attrs: [...] }`.
+ *      Index.ts does NOT annotate these (they're state nodes, not markup
+ *      `<program>`); we resolve the driver here and use the unscoped
+ *      default name `_scrml_sql` (matches `context.ts:99` +
+ *      `rewrite.ts:251` defaults).
+ *
+ * Both forms produce `{ dbVar, connectionString, driver }` records so the
+ * downstream emit code can declare them uniformly:
+ *
+ *   import { SQL } from "bun";
+ *   const _scrml_sql = new SQL(<connStr>);          // <db src=> form
+ *   const _scrml_sql_1 = new SQL(<connStr1>);       // <program db=> form
+ *
+ * Bun.SQL accepts SQLite paths, `:memory:`, `postgres://...`,
+ * `postgresql://...`, and `mysql://...` directly — driver dispatch happens
+ * inside Bun. We only need to thread the literal connection string.
+ *
+ * Returns a `Map<dbVar, { connectionString, driver }>` so duplicate `<db>`
+ * blocks (rare but legal in pure-fn modules) collapse into one declaration.
+ *
+ * Cross-references:
+ *   - `compiler/src/codegen/index.ts:337-388` — `_dbScope` annotation site
+ *   - `compiler/src/codegen/db-driver.ts` — driver classification
+ *   - SPEC §44.2 (driver resolution), §40.2 (program db= attr)
+ *   - `docs/changes/v0.3-bug-3a-sql-emission/progress.md` — dispatch notes
+ */
+export function collectDbScopes(
+  fileAST: any,
+): Map<string, { connectionString: string; driver: "sqlite" | "postgres" | "mysql" }> {
+  const scopes = new Map<string, { connectionString: string; driver: "sqlite" | "postgres" | "mysql" }>();
+  const nodes: any[] = getNodes(fileAST);
+
+  function walk(children: any[]): void {
+    if (!Array.isArray(children)) return;
+    for (const node of children) {
+      if (!node || typeof node !== "object") continue;
+
+      // Form 1: `<program db=>` with `_dbScope` annotation from index.ts.
+      if (node.kind === "markup" && node.tag === "program" && (node as any)._dbScope) {
+        const ds = (node as any)._dbScope;
+        if (typeof ds.dbVar === "string" && typeof ds.connectionString === "string") {
+          scopes.set(ds.dbVar, {
+            connectionString: ds.connectionString,
+            driver: ds.driver ?? "sqlite",
+          });
+        }
+      }
+
+      // Form 2: `<db src=>` state-block. AST: { kind:"state", stateType:"db", attrs:[...] }.
+      if (node.kind === "state" && node.stateType === "db") {
+        const attrs: any[] = node.attrs ?? node.attributes ?? [];
+        const srcAttr = attrs.find((a: any) => a && a.name === "src");
+        const srcVal: string =
+          srcAttr?.value?.kind === "string-literal"
+            ? srcAttr.value.value
+            : srcAttr?.value?.value ?? srcAttr?.value?.name ?? "";
+        if (typeof srcVal === "string" && srcVal.length > 0) {
+          const driverResult = resolveDbDriver(srcVal);
+          const driver: "sqlite" | "postgres" | "mysql" = driverResult.ok
+            ? driverResult.info.driver
+            : "sqlite";
+          // The default unscoped identifier matches `context.ts:99` and
+          // `rewrite.ts:251` defaults — i.e. what the rewriter already
+          // emitted into the body.
+          if (!scopes.has("_scrml_sql")) {
+            scopes.set("_scrml_sql", { connectionString: srcVal, driver });
+          }
+        }
+      }
+
+      // Recurse into markup children + state children.
+      if (Array.isArray(node.children) && node.children.length > 0) {
+        walk(node.children);
+      }
+    }
+  }
+
+  walk(nodes);
+
+  // Fallback aliasing: if the unscoped `_scrml_sql` identifier is referenced
+  // in the body but no `<db src=>` block contributed it, alias it to the
+  // first `<program db=>` scope (the upstream index.ts annotation tags
+  // descendants with the scoped name, but emit-server.ts does not currently
+  // thread that scoped name into per-handler emit-logic opts — so SQL bodies
+  // continue to use the default `_scrml_sql` identifier even when only
+  // `<program db=>` is in scope). Without this aliasing the default
+  // identifier would fall through to the :memory: WARNING fallback even
+  // though a valid program-scoped connection string is available.
+  if (!scopes.has("_scrml_sql")) {
+    for (const [dbVar, info] of scopes) {
+      if (dbVar.startsWith("_scrml_sql_")) {
+        scopes.set("_scrml_sql", info);
+        break;
+      }
+    }
+  }
+  return scopes;
 }
 
 /**
@@ -1215,9 +1328,106 @@ export function generateServerJs(
     // line 123-ish via \`lines.push("")\` after the import loop).
     const headerEndIdx = finalEmitted.indexOf("\n\n");
     if (headerEndIdx === -1) {
-      return helper + finalEmitted;
+      finalEmitted = helper + finalEmitted;
+    } else {
+      finalEmitted = finalEmitted.slice(0, headerEndIdx) + helper + finalEmitted.slice(headerEndIdx);
     }
-    return finalEmitted.slice(0, headerEndIdx) + helper + finalEmitted.slice(headerEndIdx);
   }
+
+  // Bug 3a (S87 follow-on, 2026-05-12) — `_scrml_sql` declaration emission.
+  // SPEC §44.2 driver resolution + §40.2 program db= attr.
+  //
+  // Every server-fn route emitted above (and the idempotency / structural-eq
+  // helpers) reference `_scrml_sql` (or scoped `_scrml_sql_<n>`) as the
+  // tagged-template handle for Bun.SQL queries. Without a top-of-file
+  // declaration these references throw `ReferenceError: _scrml_sql is not
+  // defined` at first server-fn invocation — the gap surfaced by Wave 3 D2's
+  // first real e2e SQL round-trip (Bug 3 dispatch, S87 commit `279bfc8`).
+  //
+  // Detection: scan the joined output for `_scrml_sql\b` and
+  // `_scrml_sql_\d+\b` token usages. For each unique identifier referenced,
+  // look up its connection string + driver via `collectDbScopes(fileAST)`
+  // and emit `import { SQL } from "bun";` (once) + per-identifier
+  // `const _scrml_sql<suffix> = new SQL(<connStr>);` declarations.
+  //
+  // The `import { SQL } from "bun"` line is emitted only when at least one
+  // declaration is needed (server.js for files without `<db>`/`<program db=>`
+  // remains import-free).
+  //
+  // Bun.SQL driver-prefix discipline: Bun.SQL DEFAULTS to PostgreSQL when
+  // given a bare connection string with no recognized prefix. SQLite paths
+  // (`./contacts.db`, `:memory:`) MUST be passed with a `sqlite:` prefix or
+  // Bun.SQL attempts a postgres connection at module init and throws
+  // `PostgresError: Connection closed`. We normalize the SQLite case here:
+  // when the resolved driver is `sqlite` AND the connection string does not
+  // already start with `sqlite:`, prepend `sqlite:` before passing to
+  // `new SQL(...)`. Postgres / MySQL strings have explicit `postgres://` /
+  // `mysql://` prefixes (per `db-driver.ts`) and pass through verbatim.
+  // For SQLite relative paths (e.g. `./contacts.db`) resolution is
+  // relative to CWD at runtime; this matches typical Bun.SQL usage.
+  const sqlIdentRe = /\b_scrml_sql(?:_\d+)?\b/g;
+  const usedIdents = new Set<string>();
+  let _m: RegExpExecArray | null;
+  while ((_m = sqlIdentRe.exec(finalEmitted)) !== null) {
+    usedIdents.add(_m[0]);
+  }
+  if (usedIdents.size > 0) {
+    const dbScopes = collectDbScopes(fileAST);
+    const declLines: string[] = [];
+    declLines.push("");
+    declLines.push("// --- Bug 3a (§44.2): Bun.SQL handle declarations (compiler-generated) ---");
+    declLines.push("import { SQL } from \"bun\";");
+    // Emit declarations in stable order: default `_scrml_sql` first, then
+    // scoped `_scrml_sql_<n>` ascending. The declaration order must precede
+    // any code that references the handle (the idempotency / structural-eq
+    // helpers above + every server-fn route below).
+    const sortedIdents = Array.from(usedIdents).sort((a, b) => {
+      if (a === "_scrml_sql") return -1;
+      if (b === "_scrml_sql") return 1;
+      const an = parseInt(a.replace("_scrml_sql_", ""), 10);
+      const bn = parseInt(b.replace("_scrml_sql_", ""), 10);
+      return an - bn;
+    });
+    for (const ident of sortedIdents) {
+      const scope = dbScopes.get(ident);
+      if (!scope) {
+        // No matching scope was found in the file AST. This indicates an
+        // upstream invariant violation — the body referenced a SQL handle
+        // but no `<program db=>` / `<db src=>` declared one. Emit a
+        // defensive fallback to `:memory:` and a comment so the resulting
+        // file at least parses; the actual pipeline failure (E-SQL-004 —
+        // `?{}` with no `db=` ancestor) should have fired upstream.
+        declLines.push(
+          `// WARNING: ${ident} referenced but no matching <program db=> / <db src=> found; ` +
+          `falling back to :memory: (likely an upstream E-SQL-004 invariant violation).`,
+        );
+        declLines.push(`const ${ident} = new SQL(":memory:");`);
+        continue;
+      }
+      // SQLite paths require `sqlite:` prefix or Bun.SQL defaults to
+      // postgres at module init (see comment block above).
+      let connStr = scope.connectionString;
+      if (
+        scope.driver === "sqlite" &&
+        !connStr.startsWith("sqlite:") &&
+        connStr !== ":memory:"
+      ) {
+        connStr = "sqlite:" + connStr;
+      }
+      declLines.push(`const ${ident} = new SQL(${JSON.stringify(connStr)});`);
+    }
+    declLines.push("");
+    const declBlock = declLines.join("\n");
+    // Inject after the imports block (first blank line in the file). This
+    // hoists the declarations above all helpers + routes so every reference
+    // resolves at module-init.
+    const headerEndIdx = finalEmitted.indexOf("\n\n");
+    if (headerEndIdx === -1) {
+      finalEmitted = declBlock + finalEmitted;
+    } else {
+      finalEmitted = finalEmitted.slice(0, headerEndIdx) + declBlock + finalEmitted.slice(headerEndIdx);
+    }
+  }
+
   return finalEmitted;
 }
