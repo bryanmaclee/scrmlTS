@@ -1,0 +1,47 @@
+// FX-1 — multi-entry-point + multi-role expansion of §40.9.9 worked example
+// Family: F-1 (cross-wave round-trip via routes/ multi-file path)
+// Tests: compiler/tests/integration/multipage-multirole-integration.test.js
+// A-5 wave; cornerstone fixture; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// File 1/3 — Home route ("/"). Hosts the app-scope role enum (the A-3.2
+// role-enum resolver finds it via the (b)-rule reference-based discovery
+// from variants used in sibling files' <auth> blocks).
+//
+// Shape: <program> top-level wrapper (SPA-style per file); route URL is
+// derived from filesystem path (routes/index.scrml → /) per §47.9.2 +
+// `route-inference.ts buildPageRouteTree`. Per-page `<page path=>`
+// attribute is forbidden (E-PAGE-INVALID-ATTR per SPEC §4.15 + §40.8);
+// the path-attribute shape used in synthetic-AST unit tests does NOT
+// reach this fixture.
+//
+// Cross-cutting demonstration:
+//   - `<count>` reactive cell exercised on this page.
+//   - <auth role="Admin"> block wraps the admin-nav link → admitted only
+//     to Admin chunks per §40.9.5 Component 4.
+//   - Internal `<a href="/loads">` link → A-4.4 wires data-scrml-prefetch
+//     and the initial-chunk IIFE attaches the hover-handler.
+
+<program title="Dispatch Home" auth="required">
+
+type UserRole:enum = { Anonymous, Driver, Admin }
+
+<count> = 0
+
+function increment() {
+  @count = @count + 1
+}
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">Dispatch</h1>
+  <a href="/loads" class="text-blue-600">Loads</a>
+  <auth role="Admin">
+    <a href="/admin" class="text-red-600">Admin</a>
+  </auth>
+</nav>
+
+<button onclick=increment()
+        class="px-3 py-1 rounded bg-slate-100">
+  ${@count}
+</button>
+
+</program>

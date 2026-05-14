@@ -1,0 +1,40 @@
+// FX-1 — multi-entry-point + multi-role expansion of §40.9.9 worked example
+// Family: F-1 (cross-wave round-trip via routes/ multi-file path)
+// Tests: compiler/tests/integration/multipage-multirole-integration.test.js
+// A-5 wave; cornerstone fixture; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// File 2/3 — Loads route ("/loads"). Driver-flavored: shows a roster
+// loaded via a server-fn (`loadDrivers`). The server-fn admission
+// surfaces in Component 3 (server_fn_reachable_within(N=0,...)).
+//
+// Reference UserRole variants `Admin` via no `<auth role=>` block here,
+// but cross-references the home route via `<a href="/">`. The A-4.4
+// hover-prefetch wiring should attach data-scrml-prefetch="/" to the
+// Home link.
+
+<program title="Loads" auth="required">
+
+server function loadDrivers() {
+  lift [
+    { id: 1, name: "Alex" },
+    { id: 2, name: "Sam" },
+  ]
+}
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">Loads</h1>
+  <a href="/" class="text-blue-600">Home</a>
+</nav>
+
+<section class="p-4">
+  <h2 class="text-lg font-medium mb-2">Driver roster</h2>
+  <ul class="list-disc pl-6">
+    ${
+      for (let driver of loadDrivers()) {
+        lift <li class="py-1">${driver.name}</li>
+      }
+    }
+  </ul>
+</section>
+
+</program>

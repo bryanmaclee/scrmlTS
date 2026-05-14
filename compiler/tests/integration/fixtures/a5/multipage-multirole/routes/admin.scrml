@@ -1,0 +1,32 @@
+// FX-1 — multi-entry-point + multi-role expansion of §40.9.9 worked example
+// Family: F-1 (cross-wave round-trip via routes/ multi-file path)
+// Tests: compiler/tests/integration/multipage-multirole-integration.test.js
+// A-5 wave; cornerstone fixture; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// File 3/3 — Admin route ("/admin"). The Admin-only subtree lives under
+// an `<auth role="Admin">` block — Component 4 admits the gated subtree
+// to the Admin chunk and excludes it from the Driver / Anonymous chunks.
+// This is the load-bearing per-role per-page chunk-variance demo.
+//
+// References UserRole variant `Admin` (declared in routes/index.scrml).
+// The (b)-rule role-enum resolver (auth-graph.ts:resolveRoleEnum) finds
+// the enum across the compile unit via this reference.
+
+<program title="Admin" auth="required">
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">Admin</h1>
+  <a href="/" class="text-blue-600">Home</a>
+</nav>
+
+<auth role="Admin">
+  <section class="p-4 border border-red-500 bg-red-50">
+    <h2 class="text-lg font-medium text-red-700">Admin-only controls</h2>
+    <p class="text-sm text-red-600">
+      This subtree is admitted only to chunks where viewer_role = Admin
+      (per §40.9.5 Component 4 closed-form classification).
+    </p>
+  </section>
+</auth>
+
+</program>
