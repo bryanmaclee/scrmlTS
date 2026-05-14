@@ -1,6 +1,6 @@
 # events.map.md
 # project: scrmlts
-# updated: 2026-05-13T23:00:00Z  commit: 71305fe
+# updated: 2026-05-14T00:37:04-06:00  commit: ff9be0e
 
 ## Status
 
@@ -18,7 +18,7 @@ The compiler EMITS WebSocket pub/sub code into compiled server output. This is o
 | ws.publish(ws.data.__topic, raw) | emit-channel.ts | Server broadcasts to all subscribers of a topic |
 | _scrml_srv.publish(topicExpr, msg) | emit-server.ts | Server function publishes data to a channel topic |
 
-### Channel Placement Rules (v0.3, S87 Insight 30)
+### Channel Placement Rules (v0.3, Insight 30)
 
 Two canonical placements for `<channel>`:
 1. **Inside `<program>`** — standard v0.3 placement. Cross-page shared state.
@@ -29,13 +29,17 @@ Violation shape that fires `E-CHANNEL-INSIDE-PAGE`: `<channel>` inside `<page>`.
 
 Channel placement pre-check enforced by shared AST walker in `compiler/src/validators/ast-walk.ts`.
 
-### §36 Input Device Event Model (NEW S89 — CLOSED)
+### §36 Input Device Event Model
 
 `<keyboard id=...>`, `<mouse id=...>`, `<gamepad id=...>` elements compile to input-state capture loops. These are NOT pub/sub channels — they are polled-state mirrors captured via requestAnimationFrame event handlers. Input state is addressed by id and read as reactive cells in scrml source. Duplicate `id=` within a scope fires E-INPUT-005.
 
+### Wire Format Sync Messages (§57 + §16, emit-logic.ts)
+
+The compiler emits sync wire-format messages on every write to a channel-declared cell. The wire format is: `{ __type: "__sync", __key: "<varName>", __val: <value> }`. Receiving end updates the corresponding cell. This is NOT the §57 wire format (which covers server-fn return types `T | not` — absence envelope).
+
 ### meta.emit() Runtime Placement (compiler/src/runtime-template.js)
 
-The runtime has a `meta.emit()` mechanism for compile-time-controlled DOM injection at ^{} block positions. One-way compiler-to-DOM; not pub/sub.
+One-way compiler-to-DOM; not pub/sub. Compile-time-controlled DOM injection at ^{} block positions.
 
 ### _scrml_effect / _scrml_reactive_subscribe (runtime-template.js)
 
@@ -48,7 +52,7 @@ Reactive subscriptions in compiled client runtime:
 None in the compiler process. Compiled outputs use Bun's WebSocket pub/sub API (topic-based) for channel features.
 
 ## Tags
-#scrmlts #map #events #websocket #pubsub #reactive #channels #s89 #pure-channel-file #input-devices
+#scrmlts #map #events #websocket #pubsub #reactive #channels #s90 #pure-channel-file #wire-format #sync-messages
 
 ## Links
 - [primary.map.md](./primary.map.md)

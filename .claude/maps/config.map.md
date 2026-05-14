@@ -1,12 +1,12 @@
 # config.map.md
 # project: scrmlts
-# updated: 2026-05-13T23:00:00Z  commit: 71305fe
+# updated: 2026-05-14T00:37:04-06:00  commit: ff9be0e
 
 ## Environment Variables
 
 | Key | Required | Source | Description |
 |-----|----------|--------|-------------|
-| SCRML_PORT | optional | compiler/src/serve-client.js, compiler/src/commands/serve.js | Dev/compiler server port (default: 3100 for serve command, configured per invocation) |
+| SCRML_PORT | optional | compiler/src/serve-client.js, compiler/src/commands/serve.js | Dev/compiler server port (default: 3100 for serve command) |
 | PORT | optional | compiler/src/commands/build.js | Production server port injected into build output (default: 3000) |
 
 No `.env.example` or `.env.template` present. The compiler is a CLI tool — no application secrets are handled by the compiler process itself. User scrml programs may reference database URLs and secrets, but those are in compiled output, not in compiler source.
@@ -28,7 +28,7 @@ timeout = 10000
 name: "compiler", version: "0.2.0", dependencies: acorn@^8.16.0, astring@^1.9.0
 
 ### Root package.json  [project root]
-name: "scrmlts", version: "0.2.0", engines: { bun: ">=1.3.13" }, workspaces: ["compiler"]
+name: "scrmlts", version: "0.2.0", engines: { bun: ">=1.2.13" }, workspaces: ["compiler"]
 
 ## Runtime Compile Options (CLI flags — not environment-based)
 
@@ -40,12 +40,12 @@ name: "scrmlts", version: "0.2.0", engines: { bun: ">=1.3.13" }, workspaces: ["c
 | --embed-runtime | boolean | Embed runtime inline instead of separate file |
 | --emit-batch-plan | boolean | Print Stage 7.5 BatchPlan as JSON |
 | --emit-machine-tests | boolean | Emit .machine.test.js per source (§51.13) |
-| --emit-reachability | boolean | Emit `<base>.reachability.json` (Stage 7.6 / SPEC §40.9) [NEW S89 A-2.1] |
+| --emit-reachability | boolean | Emit `<base>.reachability.json` (Stage 7.6 / SPEC §40.9) |
 | --watch, -w | boolean | Watch for changes (compile command only) |
 | --port | number | HTTP port for dev server (default: 3000) |
 
 ## Tags
-#scrmlts #map #config #environment #cli-flags #s89
+#scrmlts #map #config #environment #cli-flags #s90
 
 ## Links
 - [primary.map.md](./primary.map.md)

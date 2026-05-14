@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlts
-# updated: 2026-05-13T23:00:00Z  commit: 71305fe
+# updated: 2026-05-14T00:37:04-06:00  commit: ff9be0e
 
 ## Test Framework
 
@@ -8,98 +8,105 @@
 |-------|-------|
 | Runner | bun:test (built-in) |
 | Config | bunfig.toml (`root = "compiler/tests/"`, `timeout = 10000`) |
-| Pretest | `bash scripts/compile-test-samples.sh` — compiles ~289 sample fixtures |
+| Pretest | `bash scripts/compile-test-samples.sh` — compiles ~311 sample fixtures |
 | Run all | `bun test compiler/tests/` |
 | Run subset | `bun test compiler/tests/unit` / `compiler/tests/integration` / `compiler/tests/conformance` |
 | Run single | `bun test compiler/tests/unit/<file>.test.js` |
 | With bail | `bun test ... --bail` (used by pre-commit hook) |
 | Coverage | `bun test compiler/tests/ --coverage` |
 
-## Test Counts (S89 close, 2026-05-13)
-604 files; **12,065 pass / 117 skip / 1 todo / 0 fail** (+148 pass, +14 files vs S88 close at 9b98118)
-Current shipped tag: v0.2.6 (`efbd1e8`). HEAD `71305fe` is on v0.3.0 cut path (untagged).
+## Test Counts (S90 close, 2026-05-14)
 
-## New Tests Since S88 Baseline (9b98118)
+617 files; **12,275 pass / ~117 skip / 1 todo / 0 fail** (+363 pass, +13 files vs S89 close at 71305fe)
+HEAD `ff9be0e` on v0.3.0 cut path (untagged). Current shipped tag: v0.2.6.
 
-**§36 input devices chain (CLOSED S89 Phases 1-4):**
-- conf-INPUT-001..005.test.js: §36 conformance suite — 5 new conformance files
-- input-state-types.test.js: input state type unit tests
-- input-frame-accurate.test.js: frame-accurate input integration test
-- input-canvas-integration.test.js: canvas input integration test
+## New Tests Since S89 Baseline (71305fe)
 
-**§13.2 auto-await chain (CLOSED S89 Sub-A + Sub-B + Sub-E):**
-- auto-await-promise-stdlib.test.js: §13.2 Sub-Phase B stdlib Promise<T> auto-await classifier tests
-- api-js-stdlib-enum-reexport.test.js: STDLIB-EXPORT-SEED pass + stdlib enum re-export tests
-- oq-2-stdlib-runtime-resolution.test.js: OQ-2 stdlib runtime resolution integration test
+**M-7C-D-12 runtime sentinel wave:**
+- compiler/tests/conformance/conf-WIRE-FORMAT-DECODER.test.js — §57 dual-decoder conformance
+- compiler/tests/integration/wire-format-encoder-decoder.test.js — wire format encoder+decoder integration
 
-**Approach A-2 reachability solver (A-2.1 scaffold + A-2.2 Component 1):**
-- reachability-solver-scaffold.test.js: A-2.1 module scaffold tests
-- reachability-entry-points.test.ts: A-2.2 entry-point detection tests
-- reachability-gate-classifier.test.ts: A-2.2 gate classification tests
-- reachability-solver-component-1.test.ts: +82 tests — A-2.2 Component 1 full suite
+**A-2 Reachability Solver Components 2-5:**
+- compiler/tests/unit/reachability-solver-component-2.test.ts — A-2.3 reactive_dep_closure tests
+- compiler/tests/unit/reachability-solver-component-3.test.ts — A-2.4 server_fn_reachable_within tests
+- compiler/tests/unit/reachability-solver-component-4.test.ts — A-2.5 auth_gated_boundaries_visible_to tests
+- compiler/tests/unit/reachability-solver-component-5.test.ts — A-2.6 vendor_units_used_by tests
 
-**TodoMVC edit-mode (post-LIFT-5):**
-- todomvc-fixture-edit-mode.test.js: edit-mode markup fixture + anchor test
+**A-3 AuthGraph wave:**
+- compiler/tests/unit/auth-graph-site-enumerator.test.ts — A-3.1 auth-site enumeration tests
+- compiler/tests/unit/auth-graph-role-enum-resolution.test.ts — A-3.2 role-enum resolution tests
+- compiler/tests/unit/auth-graph-classifier.test.ts — A-3.3 gate classifier + W-AUTH-PAGE-INFERRED tests
+- compiler/tests/unit/auth-graph-redirect-crossref.test.ts — A-3.4 redirect cross-ref + I-AUTH-REDIRECT-UNRESOLVED tests
+
+**Conformance:**
+- compiler/tests/conformance/conf-AUTH-003.test.js — auth gate conformance
+- compiler/tests/conformance/conf-AUTH-004.test.js — auth gate conformance
+- compiler/tests/conformance/conf-AUTH-005.test.js — auth gate conformance
+- compiler/tests/conformance/conf-CG-001-warn.test.js — CG warning conformance
+- compiler/tests/conformance/conf-CG-010.test.js — CG codegen conformance
+- compiler/tests/conformance/conf-CG-014.test.js — CG codegen conformance
 
 ## Test Categories
 
 | Category | Path | Approx Count |
 |----------|------|--------------|
-| Unit (named) | compiler/tests/unit/ (top-level .test.*) | ~372 files |
-| Unit (gauntlet-s*) | compiler/tests/unit/gauntlet-s*/  | ~61 files |
-| Integration | compiler/tests/integration/ | ~41 files |
-| Conformance (top-level) | compiler/tests/conformance/ | ~20 files |
-| Conformance (block-grammar, s32-fn-state-machine, tab) | compiler/tests/conformance/*/ | ~81 files |
+| Unit (named) | compiler/tests/unit/ (top-level .test.*) | ~380 files |
+| Unit (gauntlet-s*) | compiler/tests/unit/gauntlet-s*/ | ~64 files |
+| Integration | compiler/tests/integration/ | ~42 files |
+| Conformance (top-level) | compiler/tests/conformance/ (top-level) | ~25 files |
+| Conformance (subtrees) | compiler/tests/conformance/block-grammar, s32-fn-state-machine, tab | ~77 files |
 | Browser | compiler/tests/browser/ | 11 files |
 | LSP | compiler/tests/lsp/ | 10 files |
 | Self-host | compiler/tests/self-host/ | 4 files |
 | Commands | compiler/tests/commands/ | 4 files |
 | E2E (Playwright) | e2e/tests/ | 5 spec files (3-browser) |
 
-## Unit Test Coverage Highlights (S89 additions in brackets)
+## Unit Test Coverage Highlights (S90 additions in brackets)
+
+**A-2 Reachability Components [NEW S90]**
+reachability-solver-component-2.test.ts [A-2.3 reactive_dep_closure],
+reachability-solver-component-3.test.ts [A-2.4 server_fn_reachable_within],
+reachability-solver-component-4.test.ts [A-2.5 auth_gated_boundaries_visible_to],
+reachability-solver-component-5.test.ts [A-2.6 vendor_units_used_by]
+
+**A-3 AuthGraph [NEW S90]**
+auth-graph-site-enumerator.test.ts [A-3.1],
+auth-graph-role-enum-resolution.test.ts [A-3.2],
+auth-graph-classifier.test.ts [A-3.3 + W-AUTH-PAGE-INFERRED],
+auth-graph-redirect-crossref.test.ts [A-3.4 + I-AUTH-REDIRECT-UNRESOLVED]
+
+**Codegen / Wire Format [NEW S90]**
+wire-format-encoder-decoder.test.js [integration], conf-WIRE-FORMAT-DECODER.test.js [conformance]
+
+**A-2 carried forward from S89:**
+reachability-solver-scaffold.test.js [A-2.1], reachability-entry-points.test.ts,
+reachability-gate-classifier.test.ts, reachability-solver-component-1.test.ts [A-2.2]
 
 **AST / Tokenizer / Parser**
-ast-builder-*.test.js, tokenizer-*.test.js, expression-parser.test.js, block-splitter.test.js, bs-comment-skip.test.js
+ast-builder-*.test.js, tokenizer-*.test.js, expression-parser.test.js, block-splitter.test.js
 
 **Pipeline Stages**
 code-generator.test.js, type-system.test.js, dependency-graph.test.js, protect-analyzer.test.js,
 route-inference.test.js, batch-planner.test.js, symbol-table.test.js, binding-registry.test.js,
 name-resolver (p1e-name-resolver.test.js), module-resolver.test.js,
-dg-markup-read-node-a12.test.js [S88 A-1.2], dg-markup-read-emission-a13.test.js [S88 A-1.3],
-dg-markup-read-emission-a14.test.js [S88 A-1.4], dg-markup-read-emission-a15.test.js [S88 A-1.5]
+dg-markup-read-node-a12.test.js, dg-markup-read-emission-a13.test.js,
+dg-markup-read-emission-a14.test.js, dg-markup-read-emission-a15.test.js
 
-**Approach A-2 Reachability [NEW S89]**
-reachability-solver-scaffold.test.js [A-2.1],
-reachability-entry-points.test.ts [A-2.2],
-reachability-gate-classifier.test.ts [A-2.2],
-reachability-solver-component-1.test.ts [A-2.2 +82 tests]
-
-**§36 Input Devices [NEW S89]**
-input-state-types.test.js, conf-INPUT-001..005.test.js [conformance],
-input-frame-accurate.test.js [integration], input-canvas-integration.test.js [integration]
-
-**§13.2 Auto-await [NEW S89]**
-auto-await-promise-stdlib.test.js, api-js-stdlib-enum-reexport.test.js,
-oq-2-stdlib-runtime-resolution.test.js [integration]
+**Auth / Session**
+session-auth.test.js, state-authority-codegen.test.js, state-authority-parsing.test.js,
+stdlib-auth.test.js, stdlib-oauth.test.js, stdlib-oauth-presets.test.js
+f-auth-002-export-modifiers.test.js [integration]
 
 **Codegen Emitters**
 emit-match.test.js, emit-test.test.js, emit-library.test.js, emit-lift.test.js,
 emit-logic.test.js, engine-body-render.test.js, engine-body-children.test.js,
-emit-expr-engine-routing-option-a.test.js, match-arm-*.test.js,
-lift-li-text-template.test.js, lift-5-reconciler-ambient.test.js [S88 LIFT-5],
-todomvc-fixture-edit-mode.test.js [S89 edit-mode anchor]
-
-**scrml:host / safeCall [S88]**
-safe-call.test.js (24 tests), safe-call-async.test.js (20 tests)
-
-**Engine / State Machines**
-machine-codegen.test.js, machine-parsing.test.js, engine-*.test.js (8 files),
-computed-delay.test.js, timeout.test.js, engine-ontimeout-end-to-end.test.js, engine-self-write-option-d.test.js
+emit-expr-engine-routing-option-a.test.js, match-arm-*.test.js
 
 **Conformance (§34 error codes)**
-conf-INPUT-001..005 [S89 §36], conf-AUTH-003..005, conf-CG-001-warn, conf-CG-010, conf-CG-014,
-conf-CTRL-011, conf-ERROR-008, conf-IMPORT-007, conf-LIFECYCLE-015, conf-LOOP-005..007,
-conf-META-EVAL-002; block-grammar/conf-001..047 (47 files); s32-fn-state-machine/; tab/
+conf-AUTH-003..005 [S90], conf-CG-001-warn, conf-CG-010, conf-CG-014 [S90],
+conf-WIRE-FORMAT-DECODER [S90], conf-INPUT-001..005 [S89], conf-CTRL-011,
+conf-ERROR-008, conf-IMPORT-007, conf-LIFECYCLE-015, conf-LOOP-005..007, conf-META-EVAL-002,
+conf-TRY-CATCH-IN-SCRML-SOURCE; block-grammar/conf-001..047 (47 files); s32-fn-state-machine/; tab/
 
 **Stdlib**
 stdlib-auth.test.js, stdlib-cron.test.js, stdlib-format.test.js, stdlib-fs.test.js,
@@ -114,21 +121,21 @@ stdlib-redis.test.js, stdlib-regex.test.js, stdlib-router.test.js, stdlib-store.
 | compiler/tests/helpers/ | expr.ts — structured ExprNode test construction utilities |
 | compiler/tests/unit/__fixtures__/ | per-test scrml/JS snippet fixtures |
 | compiler/tests/unit/_tmp_*/ | temporary snapshot directories (bug regression fixtures) |
-| compiler/tests/commands/migrate-program-shape-fixtures/ | 7 bucket-classification fixtures for migrate --program-shape |
-| samples/compilation-tests/ | ~289 .scrml fixtures compiled by pretest; dist/ gitignored; input-canvas-demo.scrml [S89] |
+| compiler/tests/commands/migrate-program-shape-fixtures/ | 7 bucket-classification fixtures |
+| samples/compilation-tests/ | ~311 .scrml fixtures compiled by pretest; dist/ gitignored |
 | e2e/ | Playwright: dev-server-fixture.ts; 02-counter, 03-contact-book, 05-multi-step-form, 14-mario, todomvc specs |
 
 ## Pattern
 
 Tests use `bun:test` (`describe`, `test`, `expect`). Unit tests for pipeline passes:
 1. Construct a minimal scrml source string or AST fragment
-2. Run the target stage function directly (`splitBlocks`, `buildAST`, `runDG`, `runReachabilitySolver`, etc.)
+2. Run the target stage function directly (`splitBlocks`, `buildAST`, `runDG`, `runAuthGraph`, `computeAuthGatedBoundariesVisibleTo`, etc.)
 3. Assert on the returned structure using `expect().toEqual()`, `expect().toContain()`, `expect().toMatchObject()`
 
-Integration tests run `compileScrml()` from `api.js` and assert on output HTML, client JS, and server JS strings. Conformance tests assert that a given input produces a specific SPEC §34 error code from the pipeline error array.
+Integration tests run `compileScrml()` from `api.js` and assert on output HTML, client JS, and server JS strings. Conformance tests assert that a given input produces a specific SPEC §34 error code from the pipeline error array. Reachability/auth-graph unit tests drive the component functions directly with fabricated DG/RouteMap/AuthGraph inputs.
 
 ## Tags
-#scrmlts #map #test #bun #conformance #unit #integration #s89 #approach-a2 #reachability #input-devices #auto-await #playwright #e2e
+#scrmlts #map #test #bun #conformance #unit #integration #s90 #approach-a2 #approach-a3 #reachability #auth-graph #wire-format #playwright #e2e
 
 ## Links
 - [primary.map.md](./primary.map.md)
