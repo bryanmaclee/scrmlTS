@@ -425,6 +425,8 @@ Three candidate shapes:
 
 Recommendation: (b) `{"__scrml_absent": true}` — forward-compat with β if ever taken, mirrors the `__scrml_error` envelope already in emit-server.ts L952 (canonical precedent).
 
+**✅ RATIFIED S90 (2026-05-13): Option (b) `{"__scrml_absent": true}`.** Per user disposition. Track 2 implementation (D-12.2a-d) and SPEC §50.x normative wire-format text shall use this envelope shape. Forward-compat with β if ever taken; mirrors the canonical `__scrml_error` envelope precedent at emit-server.ts L952.
+
 ### OQ-3 — Migration sequence (impl-first vs spec-amend-first)
 
 - **(a) Spec-first:** Amend §12.5.1 + new §50.x + §51.0.J language; then implement codegen + tests.
@@ -432,6 +434,8 @@ Recommendation: (b) `{"__scrml_absent": true}` — forward-compat with β if eve
 - **(c) Parallel:** Spec + impl in same wave; coordinate.
 
 Recommendation: **(a) spec-first** — per pa.md Rule 3, spec is the authority; let the spec settle before TS-scaffold codegen lands. Spec amendment is the cheapest test of whether the design is sound.
+
+**✅ RATIFIED S90 (2026-05-13): Parallel-aggressive variant.** User disposition. The OQ-2/5/6 ratifications already lock the design (envelope shape + fallback + rename); T4 spec amendments codify what's ratified, so T4 + T1 + T3 dispatch in parallel from the start. T2 (wire envelope) gates on T4 spec settling. T5 last. Saves ~14-22h walltime vs strict spec-first while preserving Rule-3 "spec wins" intent (T4 lands the spec text, T2 reads it before encoder design).
 
 ### OQ-4 — Backwards-compat for wire format
 
@@ -442,6 +446,8 @@ Does the v0.3 → v0.4 transition support the envelope-tagged wire? Two policies
 
 Recommendation: **(b) dual-decoder** for the scaffold lifetime; (a) clean break at v1.0 / self-host rewrite.
 
+**✅ RATIFIED S90 (2026-05-13): Option (b) dual-decoder for scaffold; (a) clean break at v1.0.** Per user disposition (ratify-on-recommendation batch). Track 2 decoder helper accepts BOTH raw JSON `null` (legacy) AND `{"__scrml_absent": true}` envelope (canonical); encoder emits envelope. Clean break at v1.0 / self-host rewrite.
+
 ### OQ-5 — `?? "undefined"` interpolation: which fallback?
 
 The `emit-server.ts L882` pattern interpolates `stmt.init ?? "undefined"` as JS source. Two replacement options:
@@ -449,6 +455,8 @@ The `emit-server.ts L882` pattern interpolates `stmt.init ?? "undefined"` as JS 
 - **(b) Replace with proper init expression:** Trace upstream; ensure scrml `let x;` (no init) compiles to `let x;` (no init) in JS, not `let x = null;` either. This may break invariants.
 
 Recommendation: **(a) `"null"`** — it preserves the existing semantics (declared-but-uninitialized → scrml-absence which is JS null per §42.5/§42.8) while eliminating the `undefined` keyword string interpolation. The audit's M-8C-D-6 flagging of `"undefined"` interpolation is well-founded; the fix is to use `"null"` instead.
+
+**✅ RATIFIED S90 (2026-05-13): Option (a) replace with `"null"`.** Per user disposition. Track 3 implementation (D-12.3a) shall replace `?? "undefined"` → `?? "null"` at all 16 sites (emit-server.ts ×3, emit-logic.ts ×10, scheduling.ts ×3). Track 3b's CG-level lint forbids literal `undefined` JS-keyword interpolation in compiled output as regression guard.
 
 ### OQ-6 — `E-DERIVED-ENGINE-INITIAL-UNDEFINED-RT` rename (M-8C-D-8)
 
@@ -458,6 +466,8 @@ Should the user-facing runtime error code be renamed?
 
 Recommendation: **(a) rename** — aligned with §42.8 ("No scrml program SHALL directly emit the JavaScript value `undefined`"). Spec amendment §51.0.J + §34 catalog row.
 
+**✅ RATIFIED S90 (2026-05-13): Option (a) rename → `E-DERIVED-ENGINE-INITIAL-ABSENT-RT`.** Per user disposition. Track 4 implementation (D-12.4c) shall update §51.0.J normative text + §34 catalog row + error-message text in compiler source. Breaking change to error catalog is accepted — v0.3 cut is the right window; v0.2.x error catalog snapshot preserved in changelog for forensics.
+
 ### OQ-7 — DevTools / debugger experience
 
 Even under Option α + ε, a scrml-author inspecting variables in browser DevTools sees JS `null`, not `not`. Is this acceptable for the scaffold lifetime?
@@ -466,6 +476,8 @@ Even under Option α + ε, a scrml-author inspecting variables in browser DevToo
 
 Recommendation: **(a) accept** — per pa.md self-host-is-from-scratch, devtools experience is a self-host concern.
 
+**✅ RATIFIED S90 (2026-05-13): Option (a) accept + document.** Per user disposition (ratify-on-recommendation batch). Track 4 T4.4a §12.5.1 / §42.8 amendment shall include a "Runtime Representation" subsection clarifying that DevTools shows JS bit-pattern (null); scrml predicates (`is some` / `is not` / `not`) classify correctly. Native scrml debugger experience is a post-v1.0 self-host concern.
+
 ### OQ-8 — Schema-differ (M-7C-D-15) cross-cutting
 
 SQL DDL has its own NULL keyword. The §42.9 interop boundary normalises SQL `NULL` to scrml `not`. Does the schema-differ migration target change under any of α/β/ε?
@@ -473,11 +485,15 @@ SQL DDL has its own NULL keyword. The §42.9 interop boundary normalises SQL `NU
 
 Recommendation: **Defer M-7C-D-15 to internal cleanup track; no SQL DDL change.**
 
+**✅ RATIFIED S90 (2026-05-13): Defer M-7C-D-15 schema-differ.** Per user disposition (ratify-on-recommendation batch). The §42.9 interop boundary already covers SQL-side `NULL`; schema-differ's internal `default: null` field is JS-host classification (acceptable per the self-host-is-from-scratch rule). No SQL DDL changes. Track 1's AST cleanup is sufficient.
+
 ### OQ-9 — Spec-amendment timeline
 
 The recommended path requires spec amendments (§12.5.1 + new §50.x + §51.0.J + §42.5 clarifying note that wire format uses envelope when type is `T | not`). Does this slot before or after Wave 4 (adopter content) in the v0.3.0 roadmap?
 
 Recommendation: **PA disposition.** Likely AFTER Wave 4 (Wave 4 is adopter content; spec changes are post-cut).
+
+**✅ RATIFIED S90 (2026-05-13): AFTER Wave 4 T+D tracks (already closed S89); concurrent with remaining Wave 4 A+R tracks.** Per user disposition (ratify-on-recommendation batch) — refined by S89 state: Wave 4 T-track tutorial + D-track articles already closed (S89 commits `deb5c7c` + `ccf89c9`); only A-track (scrml.dev refresh) + R-track (README) remain. M-7C-D-12 Track 4 spec amendments dispatch concurrently with the Wave 4 A+R tracks; spec changes are file-disjoint from adopter-content work.
 
 ---
 

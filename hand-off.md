@@ -21,7 +21,36 @@
 
 ## S90 — what happened so far
 
-(open; no work yet)
+### Phase 1 — Session-open hygiene (closed clean)
+- Rotated S89 hand-off → `handOffs/hand-off-89.md`; opened S90 hand-off.
+- Appended S89 verbatim user-voice (4 directives: null/undefined absolute, self-host from-scratch, skinny-arrow lifecycle, "1 all" dispatch authorization) to `../scrml-support/user-voice-scrmlTS.md`.
+- FULL_COLD_START map refresh via project-mapper: 11 maps regenerated; HEAD bumped `9b98118 → 71305fe`; test count `11,912/590 → 12,065/604`; Key Facts narrative S88 → S89 close.
+- Commits + pushes: scrml-support `52d5650..7a3fbea`; scrmlTS `71305fe..e4c4863` (pre-push gate clean: 12,065 pass / 0 fail / 117 skip + TodoMVC gauntlet PASS).
+
+### Phase 2 — M-7C-D-12 OQ dispositions (ALL 9 RATIFIED)
+
+S89 SCOPING `docs/changes/m-7c-d-12-runtime-sentinel-scoping/SCOPING.md` had 9 OQs. S89 already ratified OQ-1 (Option ε). S90 ratifies the remaining 8:
+
+**Explicit user disposition (3 substantive OQs):**
+- **OQ-2 wire-envelope JSON shape** → **(b) `{"__scrml_absent": true}`** — forward-compat with β; mirrors `__scrml_error` canonical precedent (emit-server.ts L952).
+- **OQ-5 `?? "undefined"` fallback** → **(a) replace with `"null"`** — preserves existing semantics per §42.5/§42.8; 16 sites (emit-server.ts ×3, emit-logic.ts ×10, scheduling.ts ×3).
+- **OQ-6 error-code rename** → **(a) `E-DERIVED-ENGINE-INITIAL-UNDEFINED-RT` → `E-DERIVED-ENGINE-INITIAL-ABSENT-RT`** — breaking-change to error catalog accepted at v0.3 cut window.
+
+**Batch-ratified on agent recommendation (5 OQs):**
+- **OQ-3 sequencing** → **Parallel-aggressive variant** (T4 + T1 + T3 NOW; T2 after T4 lands; T5 last). OQ-2/5/6 ratifications already lock the design; saves ~14-22h walltime vs strict spec-first.
+- **OQ-4 backwards-compat** → **(b) dual-decoder for scaffold; (a) clean break at v1.0** — T2 decoder accepts both raw `null` (legacy) and `{__scrml_absent:true}` (canonical).
+- **OQ-7 DevTools experience** → **(a) accept + document** — §12.5.1 / §42.8 "Runtime Representation" subsection clarifies DevTools shows JS bit-pattern; scrml predicates classify correctly.
+- **OQ-8 schema-differ M-7C-D-15** → **DEFER** — §42.9 interop boundary already covers SQL `NULL`; no SQL DDL changes.
+- **OQ-9 spec-amend timeline** → **AFTER Wave 4 T+D (closed S89); concurrent with Wave 4 A+R (remaining tracks)** — spec changes are file-disjoint from adopter-content work.
+
+### Phase 3 — Dispatch (in flight)
+
+Parallel dispatch of 3 of 5 tracks per OQ-3 ratification:
+- **T1 — AST internal cleanup** (10-14h): types/ast.ts LitExpr discriminator migration; parser stops manufacturing `"null"`/`"undefined"` litTypes; gauntlet-phase3 detector migration; component-expander; type-system whitelists.
+- **T3 — `?? "undefined"` fix** (7-8h): 16-site mechanical replace `"undefined"` → `"null"` + new CG-level lint forbidding literal `undefined` JS-keyword interpolation as regression guard.
+- **T4 — SPEC amendments** (4-7h): §12.5.1 + new §50.x + §51.0.J + §34 catalog row + SPEC-INDEX refresh.
+
+T2 (wire envelope, 10-12h) fires after T4 lands. T5 (audit closure docs, 2-4h) last.
 
 ---
 
