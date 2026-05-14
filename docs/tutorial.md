@@ -6,7 +6,7 @@ This tutorial walks you from an empty directory to a small but complete scrml ap
 
 **What scrml is, in one paragraph.** scrml is a single-file language for full-stack web apps. One `.scrml` file compiles to the HTML, JavaScript, CSS, and server routes the app needs. Markup, reactive state, server functions, SQL, real-time channels, and tests all live in the same file; the compiler decides which half runs in the browser and which half runs on the server. The unit of organization is the program, not the tier.
 
-**What this tutorial covers.** The canonical surface of scrml as of v0.3 (the syntax and idioms ratified through the S52-S89 deliberation arc; current shipped binary is v0.2.6, with v0.3.0 cut pending the LIFT-template fixes and the Wave 4 adopter-content sweep that introduced this paragraph). If you find older material online that disagrees with this document (especially anything from before April 2026 — `< machine>` instead of `<engine>`, `@var = 0` for declaration instead of `<var> = 0`, `null`/`undefined`/`===`/`!==` JavaScript literals instead of `is some` / `is not` / `==` / `!=`, `<channel>` as a sibling of `<program>` rather than a child), trust this document. scrml is post-training-cutoff for every LLM, and the language has shifted since.
+**What this tutorial covers.** The canonical surface of scrml as of v0.3 (the syntax and idioms ratified through the S52-S92 deliberation arc; current shipped binary is v0.2.6 + v0.3.0-alpha.0 in flight, with v0.3.0 stable cut pending only the Wave 4 adopter-content sweep — Approach A's whole-stack closure analysis, per-route per-role content-addressed chunk splitting, and `<auth role>` first-class auth gates landed end-to-end across S88-S92). If you find older material online that disagrees with this document (especially anything from before April 2026 — `< machine>` instead of `<engine>`, `@var = 0` for declaration instead of `<var> = 0`, `null`/`undefined`/`===`/`!==` JavaScript literals instead of `is some` / `is not` / `==` / `!=`, `<channel>` as a sibling of `<program>` rather than a child), trust this document. scrml is post-training-cutoff for every LLM, and the language has shifted since.
 
 **Prerequisites.** Working knowledge of JavaScript syntax (`const`/`let`, arrow functions, template strings) and the DOM event model. A passing acquaintance with SQL helps for §2 onward but is not required — every SQL example uses only `SELECT` and `INSERT`.
 
@@ -895,7 +895,39 @@ The compiler emits the WebSocket endpoint (`/_scrml_ws/chat` by default), the me
 
 ---
 
-## 9. The shape, all together
+## 9. Auth gates and per-route bundles
+
+Auth in scrml isn't a runtime check — it's a compile-time visibility constraint. A `<auth role="Admin">` block surrounding markup tells the compiler that only Admin-role visitors will ever reach the gated subtree:
+
+```scrml
+<program auth="required">
+
+<page>
+  <h1>Dashboard</h1>
+
+  <auth role="Admin">
+    <section>
+      <h2>Admin controls</h2>
+      <button onclick=clearCache()>Clear cache</button>
+    </>
+  </auth>
+</page>
+
+</program>
+```
+
+The compiler runs whole-stack closure analysis (§40) — per entry point and per role, it computes exactly which component code, server functions, and stdlib units are reachable. Two consequences fall out:
+
+1. **Per-role bundle variance.** Anonymous visitors download a strictly smaller initial bundle than admins because the gated subtree's atoms aren't shipped to them. The bundles are emitted as content-addressed chunks (FNV-1a hash, §47) so adopter caches stay valid across builds when source bytes don't change.
+2. **Tiered prefetching.** Cross-route navigation prefetches in tiers — visible chunks ship at idle, hover-targets prefetch on hover, deeper navigation pulls on-demand. The `<a href>` markup the compiler sees is enough to wire the prefetch decisions.
+
+The `<auth role>` attribute supports the universal value-bearing-attr shape: string literal (`role="Admin"`), variable ref (`role=@currentRole`), or expression (`role=${@isAdmin ? "Admin" : "Anonymous"}`). Closed-form predicates — variant literals, literal comma-OR, const-refs to role-set values — ship per-role bundles. Runtime predicates (reactive reads, async server-fn checks) emit `W-AUTH-RUNTIME-FALLBACK` and ship the gated component eagerly with a runtime gate.
+
+The `W-CG-CHUNK-* / W-AUTH-*` diagnostic family flags shapes that defeat the analysis — a route linking nowhere (`W-CG-CHUNK-NO-PREFETCH`), a route's internal links resolving nowhere (`W-CG-CHUNK-PREFETCH-UNRESOLVED`), an oversize initial chunk (`W-CG-CHUNK-LARGE`; budget configurable via `--chunk-size-budget`), an empty chunk (`W-CG-CHUNK-EMPTY`), an inferred-`auth` page (`W-AUTH-PAGE-INFERRED`). You fix these in source, not from production.
+
+---
+
+## 10. The shape, all together
 
 By now you have seen every primitive you need to build a working scrml app. Let's collect them in one place — this is the idiomatic shape of a non-trivial scrml file:
 
@@ -978,7 +1010,7 @@ A practical note on the parts: the **engine** owns the top-level lifecycle (the 
 
 ---
 
-## 10. Where to go next
+## 11. Where to go next
 
 You now know enough scrml to write working programs. From here:
 
@@ -1036,6 +1068,11 @@ A fast reference for the keywords and sigils in this tutorial. Each line links b
 - **`==` / `!=`** — equality operators (no `===`/`!==`). §7.
 - **`reset(@cell)`** — language-keyword for resetting state to its default. §5.7.
 - **`<channel name="..." topic="...">`** — real-time shared state; lives inside `<program>` (or at file top in a pure-channel module file). §8.
+- **`<auth role="X">...</auth>`** — compile-time visibility gate; closed-form predicates ship per-role bundles. §9.
+- **`<page>`** — page marker (route entry point); attributes `{db, auth, csrf, ratelimit}`; URL inferred from filesystem layout. §9.
+- **Per-route per-role chunks** — Approach A whole-stack closure analysis (§40) emits per-(entry, role, tier) content-addressed chunks (§47) with idle/hover/on-demand prefetching. §9.
+- **`<onTimeout after=Ns to=.V [name=ID]>`** — engine timeout; named timers cancellable via `cancelTimer("ID")` builtin. §4.3.
+- **`<onIdle after=Ns to=.V>`** — engine-wide event-timeout watchdog; resets on every successful transition. §4.3.
 - **`#{ ... }`** — scoped CSS block. §2.3.
 
 ---
@@ -1071,8 +1108,8 @@ The convergent failures every developer makes coming from another framework. If 
 | `<MyEngine/>` for a same-file engine | The engine renders at its declaration position | §4.3 |
 | Multi-statement inline handler `onclick=fn(); @x = .Y` | Name the function: `function go() { fn(); @x = .Y }` | §3.4 |
 
-If you don't see your case in the table, default to the shape from §9. Don't invent syntax — when in doubt, the canonical reference is the PA primer (`docs/PA-SCRML-PRIMER.md`).
+If you don't see your case in the table, default to the shape from §10. Don't invent syntax — when in doubt, the canonical reference is the PA primer (`docs/PA-SCRML-PRIMER.md`).
 
 ---
 
-*Last updated: 2026-05-13 — v0.3 canonical (post-S87 Insight 30 channel-placement reversal, post-S89 §13.2 auto-await extension; verified against 11/11 tutorial snippets compiling under the current binary).*
+*Last updated: 2026-05-14 — v0.3 canonical (post-S92 Approach A close end-to-end: A-1 markup-context edges + A-2 Reachability Solver + A-3 §40 AuthGraph + A-4 per-route artifact splitter + A-5 integration tests; v0.3.0 cut gated only on remaining Wave 4.A adopter-content sweep). Tutorial snippets verified against current binary at S89; re-verification under S92 HEAD queued for 4.A.R cross-doc final sweep.*
