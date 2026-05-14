@@ -8,30 +8,36 @@ scrml lets you write a complete app in one file: markup, reactive state, scoped 
 SQL, server functions, and inline tests — no build config, no separate server file,
 no state management library.
 
-> ## scrml v0.2.0 — this README describes v0.2.0
+> ## scrml — current state: v0.2.6 shipped + v0.3.0-alpha in flight
 >
-> This README describes scrml **v0.2.0**, the current language as the compiler
-> implements it. The compiler ships v0.2.0 codegen + runtime semantics:
-> **V5-strict** declaration (`<x> = init` decl form + `@x` expression access),
-> the **Tier 0/1/2 ladder** for case analysis (booleans → `<match>` → `<engine>`),
-> auto-synthesized validity surface for forms, file-level `<channel>` blocks for
-> realtime, schema shared-core vocabulary, refinement-type predicates, hierarchical
-> engines with `history` + `<onTimeout>` + `<onIdle>` + `internal:rule=`, and
-> 22 architectural locks (L1–L22).
+> The latest shipped tag is **v0.2.6**. The compiler ships v0.2.6 codegen +
+> runtime semantics: **V5-strict** declaration (`<x> = init` decl form +
+> `@x` expression access), the **Tier 0/1/2 ladder** for case analysis
+> (booleans → `<match>` → `<engine>`), auto-synthesized validity surface for
+> forms, file-level `<channel>` blocks for realtime, schema shared-core
+> vocabulary, refinement-type predicates, hierarchical engines with `history`
+> + `<onTimeout>` + `<onIdle>` + `internal:rule=`, and 22 architectural
+> locks (L1–L22).
 >
-> v0.1.0 was the previous shipped baseline. **v0.1.0-syntax code (using `@var = 0`
-> implicit declaration, `< machine>` for state machines, `~var` for derived
-> values) will not compile against v0.2.0.** No production adopters exist, so
-> there is no v0.compat / migration-tool path — v0.2.0 is the next stable, not
-> a parallel track.
+> **v0.3.0-alpha.0 is in flight** (pkg.json reflects the pre-release tag).
+> Approach A — the whole-stack closure analysis that powers `<auth role>`
+> first-class auth gates, per-route per-role content-addressed chunk splitting
+> with tier-1 / tier-2 / tier-N prefetching, and the W-CG-CHUNK-* + W-AUTH-*
+> diagnostic family — has closed end-to-end (sub-waves A-1 through A-5;
+> v0.3.0 critical path complete). The v0.3.0 cut is gated on Wave 4.A
+> adopter-content refresh.
 >
-> **Semver cadence:** v0.2.0 is the current tag. Bug fixes against the v0.2.0
-> surface ship as **v0.2.x patches** (e.g., v0.2.1 lands the first batch of
-> known-deferred codegen gaps from the post-tag adoption pass). Backward-
-> compatible new features land as **v0.3.0** minors. Backward-breaking changes
-> are reserved for a future major.
+> v0.1.0 was the previous shipped baseline. **v0.1.0-syntax code (using
+> `@var = 0` implicit declaration, `< machine>` for state machines, `~var`
+> for derived values) will not compile against v0.2.x or later.** No
+> production adopters exist, so there is no v0.compat / migration-tool path.
 >
-> If you find articles or LLM-generated scrml that uses pre-v0.2.0 syntax,
+> **Semver cadence:** v0.2.0 → v0.2.6 patches landed across S83 → S85.
+> v0.3.0-alpha.N pre-releases land during the v0.3 development cycle;
+> v0.3.0 stable cuts when Wave 4.A closes. Backward-breaking changes are
+> reserved for a future major.
+>
+> If you find articles or LLM-generated scrml that uses pre-v0.2 syntax,
 > they describe the prior language. Live phase status:
 > [`master-list.md` §0](./master-list.md) (the load-bearing dashboard);
 > recent landings: [`docs/changelog.md`](./docs/changelog.md).
@@ -61,7 +67,7 @@ bun test compiler/tests/
 
 ## What's in here
 
-- `compiler/` — compiler source, the authoritative `SPEC.md` (~26,000 lines) / `SPEC-INDEX.md` / `PIPELINE.md`, **11,200+ tests**, and reference self-host modules
+- `compiler/` — compiler source, the authoritative `SPEC.md` (~26,000 lines) / `SPEC-INDEX.md` / `PIPELINE.md`, **12,500+ tests**, and reference self-host modules
 - `examples/` — **22 runnable single-file scrml apps + the trucking-dispatch multi-page app**
 - `samples/compilation-tests/` — **279 compilation tests** covering every accepted construct
 - `stdlib/` — **16 user-facing stdlib modules** (`auth`, `crypto`, `data`, `format`, `fs`, `http`, `path`, `process`, `router`, `store`, `test`, `time`, `redis`, `cron`, `regex`, `oauth`)
@@ -511,6 +517,7 @@ This isn't bundler-style single-letter renaming — the names are longer than `a
 - **Opt-out per call site.** `?{...}.nobatch()` disables rewriting when you need an exact query shape — useful for `EXPLAIN`, stored-procedure calls, or measured hot paths.
 - **Diagnostics, not silent magic.** `D-BATCH-001` flags near-miss loops that *almost* batch but don't (mutation in body, non-`.get()` chain, etc.), with the exact disqualifier. `E-BATCH-001` rejects `.nobatch()` composition with batched siblings; `E-BATCH-002` guards against the 32 766 `SQLITE_MAX_VARIABLE_NUMBER` ceiling at runtime.
 - **No API boilerplate** — server functions are called like local functions. The compiler generates routes, fetch calls, CSRF tokens, and serialization.
+- **Per-route per-role chunk splitting (Approach A; v0.3).** Whole-stack closure analysis (§40) computes exactly which component code, server functions, and stdlib units are reachable per entry point and per role. A `<auth role="Admin">` block tells the compiler that only Admin-role visitors will reach the gated subtree; other roles get a strictly smaller initial bundle. Cross-route prefetching is tiered (idle / hover / on-demand); every chunk filename embeds a stable FNV-1a content hash (§47) so adopter caches stay valid across builds when source bytes don't change. The W-CG-CHUNK-* + W-AUTH-* diagnostic family flags shapes that defeat the analysis — a route linking nowhere, a gate needing a runtime check.
 
 ### Realtime and Workers
 
@@ -559,7 +566,7 @@ scrml uses sigil-delimited contexts to separate concerns within a single file:
 | Context | Sigil | Purpose |
 |---------|-------|---------|
 | Program | `<program>` | App root — database, protection, config |
-| Markup  | `<tag>` | HTML elements + scrml structural elements (`<engine>`, `<match>`, `<channel>`, `<schema>`, `<errors>`, `<onTransition>`, `<onTimeout>`, `<onIdle>`) + state decls (`<name> = init`) — all live in the markup tree |
+| Markup  | `<tag>` | HTML elements + scrml structural elements (`<engine>`, `<match>`, `<channel>`, `<schema>`, `<errors>`, `<onTransition>`, `<onTimeout>`, `<onIdle>`, `<auth>`, `<page>`) + state decls (`<name> = init`) — all live in the markup tree |
 | Logic   | `${}` | JavaScript expressions and functions |
 | SQL     | `?{}` | Database queries (Bun.SQL tagged-template; SQLite shipping, Postgres in progress); auto-batched N+1 + envelope |
 | CSS     | `#{}` | Scoped styles |
