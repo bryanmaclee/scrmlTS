@@ -306,7 +306,7 @@ describe("§4 channel-auth enumeration", () => {
 // ---------------------------------------------------------------------------
 
 describe("§5 aggregate cases", () => {
-  test("file with no auth surface → empty graph", () => {
+  test("file with no auth surface → empty gates, synthesized _anonymous role enum (A-3.2.b floor)", () => {
     const program = markup("program", [], [markup("h1"), markup("p")]);
     const f = file("/abs/plain.scrml", [program]);
 
@@ -315,11 +315,16 @@ describe("§5 aggregate cases", () => {
     expect(errors).toHaveLength(0);
     expect(graph.gates.size).toBe(0);
     expect(graph.gateToEntryPoint.size).toBe(0);
-    expect(graph.roleEnum).toBeNull();
+    // A-3.2 synthesizes _anonymous when no auth surface exists, per
+    // dispatch brief A-3.2.b + PIPELINE Stage 7.6 line 2380.
+    expect(graph.roleEnum).not.toBeNull();
+    expect(graph.roleEnum!.name).toBe("_anonymous");
+    expect(graph.roleEnum!.isImplicitAnonymous).toBe(true);
+    expect(graph.roleEnum!.variants).toEqual(["_anonymous"]);
     expect(graph.redirectTargets.size).toBe(0);
   });
 
-  test("file with all four AuthSiteKind variants → four gates, one per kind", () => {
+  test("file with all four AuthSiteKind variants → four gates, one per kind (and A-3.2 fires E-AUTH-GRAPH-002 since `admin` references no declared enum)", () => {
     const authBlock = markup("auth", [attr("role", "admin")]);
     const ch = channel([attr("name", "presence"), attr("auth", "required")]);
     const page = markup("page", [
@@ -337,9 +342,14 @@ describe("§5 aggregate cases", () => {
 
     const { graph, errors } = runAuthGraph([f], null);
 
-    expect(errors).toHaveLength(0);
-    expect(graph.gates.size).toBe(4);
+    // A-3.2: `<auth role="admin">` references "admin" but no enum is
+    // declared → E-AUTH-GRAPH-002 fires (per dispatch brief A-3.2.b).
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.code).toBe("E-AUTH-GRAPH-002");
+    expect(graph.roleEnum).toBeNull();
 
+    // Gate enumeration is unaffected by the A-3.2 diagnostic.
+    expect(graph.gates.size).toBe(4);
     const siteKinds = new Set([...graph.gates.values()].map(g => g.siteKind));
     expect(siteKinds.has("program-auth")).toBe(true);
     expect(siteKinds.has("page-auth")).toBe(true);

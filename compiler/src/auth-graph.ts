@@ -44,6 +44,8 @@ import type {
   AuthSiteKind,
   EntryPointId,
   MarkupNodeId,
+  RoleEnum,
+  RoleVariant,
 } from "./types/auth-graph.js";
 
 import type {
@@ -52,6 +54,8 @@ import type {
   ChannelDeclNode,
   FileAST,
   MarkupNode,
+  Span,
+  TypeDeclNode,
 } from "./types/ast.js";
 
 import type { RouteMap } from "./route-inference.js";
@@ -90,6 +94,13 @@ export function runAuthGraph(
     enumerateFile(fileAST, routeMap, gates, gateToEntryPoint, errors);
   }
 
+  // A-3.2: role enum resolution. Runs AFTER per-file enumeration so the
+  // reference-based (b) discovery rule can read the gate set's `role`
+  // attribute values. The resolver also fires E-AUTH-GRAPH-002 (auth
+  // gates reference role variants but no enum is declared / ambiguous
+  // discovery) when applicable.
+  const roleEnum = resolveRoleEnum(files, gates, errors);
+
   // A-3.4 — auth-redirect cross-ref. Projects each gate's `redirect`
   // field into the redirectTargets map verbatim (bare string per OQ-A3-B
   // (a) S90 ratification) and emits info-level I-AUTH-REDIRECT-UNRESOLVED
@@ -98,7 +109,7 @@ export function runAuthGraph(
 
   const graph: AuthGraph = {
     gates,
-    roleEnum: null,           // populated by A-3.2
+    roleEnum,
     gateToEntryPoint,
     redirectTargets,          // populated by A-3.4 above
     errors,
@@ -504,6 +515,536 @@ function resolvePageEntryPoint(
 }
 
 // ---------------------------------------------------------------------------
+// A-3.2 — Role enum resolution (per SCOPING §A-3.2 + OQ-A3-F ratified S90)
+// ---------------------------------------------------------------------------
+
+/**
+ * Discover the app-scope role enum per SPEC §40.1.1 line 17157
+ * ("single scrml-native `:enum` type declared at app scope").
+ *
+ * Per OQ-A3-F ratified S90, A-3.2 implements a (b)+(c) **dual rule** with
+ * reconciliation, falling through to E-AUTH-GRAPH-002 on ambiguity:
+ *
+ *   (b) Reference-based discovery (PRIMARY) — walk the enumerated gate
+ *       set's `role=` attribute values. For each value that is a
+ *       recognized enum-variant identifier (case-sensitive match against
+ *       a declared enum's variants), record the enum that owns it.
+ *       Exactly one match → use it.
+ *
+ *   (c) Entry-file `<program>`-body-scope discovery (FALLBACK) — when (b)
+ *       yields zero matches OR multiple distinct enums, look at the entry
+ *       file's `<program>` body for enum declarations. The first enum
+ *       declared at app entry scope is the role enum.
+ *
+ *   Reconciliation — if (b) finds exactly one enum, use it. If (b) finds
+ *   zero, use (c). If (b) finds multiple, check (c); if (c) matches one
+ *   of the (b) candidates, use it; otherwise fire E-AUTH-GRAPH-002.
+ *
+ * Empty-role-enum + no-role-enum handling (per dispatch brief A-3.2.b):
+ *   - No auth gates anywhere + no role enum found → synthesize
+ *     `_anonymous` single-variant enum per PIPELINE Stage 7.6 line 2380.
+ *   - Auth gates present but no role enum found → fire E-AUTH-GRAPH-002
+ *     with diagnostic citing the gates that reference variants.
+ *
+ * @param files — per-file ASTs from TAB. Used to enumerate TypeDeclNode
+ *   candidates across the whole corpus AND to identify the entry-file
+ *   `<program>` body for (c).
+ * @param gates — per-gate records produced by `runAuthGraph`'s
+ *   enumeration pass. Used as the (b)-rule input.
+ * @param errors — diagnostic sink. E-AUTH-GRAPH-002 fires here when the
+ *   dual rule cannot reconcile to exactly one enum AND auth gates exist.
+ */
+export function resolveRoleEnum(
+  files: FileAST[],
+  gates: Map<MarkupNodeId, AuthGate>,
+  errors: AuthGraphDiagnostic[],
+): RoleEnum | null {
+  // Step 1: collect ALL enum declarations across the corpus. Each entry
+  // pairs an enum's name + parsed variant list + the file it was declared
+  // in + its source span. Enums hoisted to FileAST.typeDecls are the
+  // canonical source — this includes enums declared inside `<program>`
+  // bodies AND top-level scope (TAB hoists both per ast-builder.js).
+  const enumCandidates = collectEnumCandidates(files);
+  if (enumCandidates.length === 0) {
+    return handleNoEnumFound(gates, errors, files);
+  }
+
+  // Step 2: (b) reference-based discovery — find which enums own the
+  // variant names appearing in <auth role="X"> attribute values.
+  const referencedEnums = findEnumsReferencedByGates(gates, enumCandidates);
+
+  // Step 3: dispatch on the (b) result.
+  if (referencedEnums.length === 1) {
+    // (b) found exactly one — use it. This is the empirical signal.
+    return buildRoleEnum(referencedEnums[0]!, false);
+  }
+
+  if (referencedEnums.length === 0) {
+    // (b) found nothing — fall to (c) entry-file program-body scope.
+    const entryEnum = findEntryFileProgramScopeEnum(files, enumCandidates);
+    if (entryEnum) {
+      return buildRoleEnum(entryEnum, false);
+    }
+    // (c) also found nothing — handle no-enum-found path.
+    return handleNoEnumFound(gates, errors, files);
+  }
+
+  // (b) found MULTIPLE distinct enums — reconcile with (c).
+  const entryEnum = findEntryFileProgramScopeEnum(files, enumCandidates);
+  if (entryEnum) {
+    const matched = referencedEnums.find(
+      (cand) => cand.name === entryEnum.name && cand.filePath === entryEnum.filePath,
+    );
+    if (matched) return buildRoleEnum(matched, false);
+  }
+  // Reconciliation failed — ambiguous. Fire E-AUTH-GRAPH-002.
+  fireAmbiguousEnumDiagnostic(referencedEnums, gates, errors);
+  return null;
+}
+
+/**
+ * An enum candidate — a declared `:enum` type, paired with its parsed
+ * variants and source location. Internal to A-3.2; not exported.
+ */
+interface EnumCandidate {
+  name: string;
+  variants: string[];
+  filePath: string;
+  span: Span;
+  /** True when this candidate was declared inside a `<program>` body
+   *  (vs hoisted from a top-level logic block). Drives the (c) fallback. */
+  inProgramScope: boolean;
+}
+
+/**
+ * Walk every `FileAST.typeDecls` AND every `<program>` body's nested
+ * LogicNode typeDecls to enumerate every `:enum` declaration in the
+ * compilation corpus. Each returned candidate carries the file path +
+ * span + an `inProgramScope` flag for (c)-rule disambiguation.
+ *
+ * Variant lists are parsed via `parseEnumVariantsFromRaw` (a local copy
+ * of the symbol-table.ts:4426 parser logic, scoped to A-3.2's needs).
+ *
+ * Empty-variant enums (e.g. `type Role: enum`) are still recorded as
+ * candidates with `variants: []` — A-3.2.b uses the corpus position
+ * (entry-file program-scope) to disambiguate; an empty enum that wins
+ * the role-enum slot will downstream-trigger reachability behaviour
+ * (no variants → no gated_for_role surfaces → A-2.5 worst-case).
+ */
+function collectEnumCandidates(files: FileAST[]): EnumCandidate[] {
+  const out: EnumCandidate[] = [];
+
+  for (const fileAST of files) {
+    if (!fileAST) continue;
+
+    // FileAST.typeDecls is the hoisted list of all type-decls in the
+    // file (across all logic blocks). We use this as the canonical
+    // source so we don't need to re-walk the AST tree for `:enum`
+    // declarations.
+    const hoisted = fileAST.typeDecls ?? [];
+    for (const decl of hoisted) {
+      if (!isEnumDecl(decl)) continue;
+      out.push({
+        name: decl.name,
+        variants: parseEnumVariantsFromRaw(decl.raw ?? ""),
+        filePath: fileAST.filePath,
+        span: decl.span,
+        inProgramScope: isDeclInProgramScope(decl, fileAST),
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * (b)-rule: which enums own variant names referenced by `<auth role=>`
+ * attribute values in the gate set?
+ *
+ * For each gate with a non-null `role` field that is a SINGLE bare
+ * identifier (case-sensitive enum-variant shape), check which enum
+ * candidates declare that variant. Multiple enums declaring the SAME
+ * variant name → all of them are added to the candidate pool (the
+ * caller's reconciliation rule handles the ambiguity).
+ *
+ * Skips:
+ *   - gates with `role: null` (channel-auth without role, malformed gates).
+ *   - gates whose role is a builtin auth-mode token ("required" /
+ *     "optional" / "none") — these are program-auth / page-auth /
+ *     channel-auth keywords, not role-enum-variant references.
+ *   - comma-separated forms (`"admin,dispatcher"`) — A-3.2 reads only
+ *     bare identifiers for the (b) rule; A-3.3 handles complex predicate
+ *     parsing during classification.
+ *
+ * Returns the deduplicated set of enums (by name+filePath) referenced.
+ */
+function findEnumsReferencedByGates(
+  gates: Map<MarkupNodeId, AuthGate>,
+  enumCandidates: EnumCandidate[],
+): EnumCandidate[] {
+  const builtinAuthModes = new Set(["required", "optional", "none"]);
+  const matched: EnumCandidate[] = [];
+  const seen = new Set<string>();  // key: name + "\x00" + filePath
+
+  for (const gate of gates.values()) {
+    // Only auth-role-block gates carry actual variant-identifier role
+    // values; program-auth / page-auth / channel-auth carry the auth-mode
+    // keyword ("required"/"optional"). Per SCOPING §A-3.2.a, the (b) rule
+    // reads `<auth role="X">` specifically.
+    if (gate.siteKind !== "auth-role-block") continue;
+    const role = gate.role;
+    if (!role) continue;
+    // Skip if it's a builtin auth-mode keyword (defensive — auth-role-block
+    // shouldn't see these, but be paranoid).
+    if (builtinAuthModes.has(role)) continue;
+    // Only bare identifiers count for (b). A-3.3 will handle complex
+    // forms (comma-OR, negation, interpolation) during classification.
+    if (!isBareIdentifier(role)) continue;
+
+    for (const cand of enumCandidates) {
+      if (!cand.variants.includes(role)) continue;
+      const key = `${cand.name}\x00${cand.filePath}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      matched.push(cand);
+    }
+  }
+
+  return matched;
+}
+
+/**
+ * (c)-rule: discover the role enum by structural position — the first
+ * enum declared inside the entry file's `<program>` body scope.
+ *
+ * "Entry file" heuristic (no normative SPEC text exists yet; A-3.5 will
+ * formalize when integration wiring lands):
+ *   - The first file in `files[]` with `hasProgramRoot: true`.
+ *   - If none have a program root, the first file with at least one
+ *     enum-in-program-scope candidate.
+ *
+ * "Program-body-scope" enum: an EnumCandidate whose `inProgramScope`
+ * flag is true (set by `collectEnumCandidates`).
+ *
+ * Returns null when no entry-file enum exists.
+ */
+function findEntryFileProgramScopeEnum(
+  files: FileAST[],
+  enumCandidates: EnumCandidate[],
+): EnumCandidate | null {
+  // Prefer files with hasProgramRoot=true.
+  const entryFile = files.find((f) => f && f.hasProgramRoot) ?? files[0];
+  if (!entryFile) return null;
+
+  // First enum in the entry file's program scope. We iterate
+  // `enumCandidates` in collection order (which is FileAST.typeDecls
+  // declaration order per `collectEnumCandidates`) — this gives a
+  // deterministic "first" for repeated runs.
+  for (const cand of enumCandidates) {
+    if (cand.filePath !== entryFile.filePath) continue;
+    if (!cand.inProgramScope) continue;
+    return cand;
+  }
+
+  // Fallback: first enum in the entry file regardless of scope. This
+  // matches the spirit of "app entry scope" when the entry file has
+  // its enum declared at top-level (which TAB still hoists to
+  // FileAST.typeDecls; the inProgramScope flag may be false).
+  for (const cand of enumCandidates) {
+    if (cand.filePath === entryFile.filePath) return cand;
+  }
+  return null;
+}
+
+/**
+ * Build a `RoleEnum` record from a winning candidate. The
+ * `isImplicitAnonymous: false` flag indicates a real adopter-declared
+ * enum (vs the synthesized `_anonymous` fallback).
+ */
+function buildRoleEnum(cand: EnumCandidate, isImplicitAnonymous: boolean): RoleEnum {
+  return {
+    name: cand.name,
+    variants: cand.variants.slice() as RoleVariant[],
+    span: cand.span,
+    filePath: cand.filePath,
+    isImplicitAnonymous,
+  };
+}
+
+/**
+ * Handle the no-enum-found path per dispatch brief A-3.2.b:
+ *
+ *   - If NO auth gates anywhere AND no role enum → synthesize the
+ *     `_anonymous` single-variant floor per PIPELINE Stage 7.6 line 2380.
+ *     Adopter is building a no-auth app.
+ *   - If at least one gate REFERENCES a role-enum variant (i.e. an
+ *     `<auth role="X">` block where X is a bare-identifier) AND no role
+ *     enum is declared → fire E-AUTH-GRAPH-002. Per OQ-A2-F, E-CLOSURE-002
+ *     fires from A-2.5; A-3.2 surfaces the compile-time signal.
+ *   - If only binary auth gates (program-auth / page-auth / channel-auth
+ *     with `auth="required"`/`"optional"`) exist and no role enum is
+ *     declared → no diagnostic; synthesize the `_anonymous` floor so
+ *     downstream traversal still has a role to dispatch on. These gates
+ *     are not role-variant references; they don't require a role enum.
+ */
+function handleNoEnumFound(
+  gates: Map<MarkupNodeId, AuthGate>,
+  errors: AuthGraphDiagnostic[],
+  files: FileAST[],
+): RoleEnum | null {
+  const variantReferencingGates = gatesThatReferenceVariants(gates);
+
+  if (gates.size === 0 || variantReferencingGates.length === 0) {
+    // No variant-referencing gates — synthesize the anonymous floor.
+    // This covers both the "no auth at all" case and the "only binary
+    // gates" case (program-auth / page-auth / channel-auth with
+    // auth=required which doesn't reference role-enum variants).
+    return synthesizeAnonymousEnum(files);
+  }
+
+  // Variant-referencing gates exist but no role enum declared anywhere.
+  // Fire E-AUTH-GRAPH-002 with the first such gate as the span anchor.
+  const firstGate = variantReferencingGates[0]!;
+  errors.push({
+    code: "E-AUTH-GRAPH-002",
+    severity: "error",
+    message:
+      "auth gates reference role variants but no `:enum` is declared at app scope. " +
+      "Declare a single `:enum` type with variants matching the values referenced by " +
+      "`<auth role=>` blocks (SPEC §40.1.1).",
+    span: firstGate.span,
+    filePath: firstGate.filePath,
+  });
+  return null;
+}
+
+/**
+ * Filter: which gates carry a role-enum-variant reference (an
+ * `<auth role="X">` block where X is a bare identifier — the (b) rule
+ * input shape)? Returns gates in iteration order for deterministic
+ * first-fire-site selection.
+ */
+function gatesThatReferenceVariants(
+  gates: Map<MarkupNodeId, AuthGate>,
+): AuthGate[] {
+  const builtinAuthModes = new Set(["required", "optional", "none"]);
+  const out: AuthGate[] = [];
+  for (const gate of gates.values()) {
+    if (gate.siteKind !== "auth-role-block") continue;
+    const role = gate.role;
+    if (!role) continue;
+    if (builtinAuthModes.has(role)) continue;
+    if (!isBareIdentifier(role)) continue;
+    out.push(gate);
+  }
+  return out;
+}
+
+/**
+ * Synthesize the `_anonymous` single-variant floor enum per PIPELINE
+ * Stage 7.6 line 2380. Anchors the span to the entry file when one is
+ * available; falls back to `<synthesized>` otherwise.
+ */
+function synthesizeAnonymousEnum(files: FileAST[]): RoleEnum {
+  const fallbackFile = files.find((f) => f && f.hasProgramRoot) ?? files[0];
+  const fallbackSpan: Span = {
+    file: fallbackFile?.filePath ?? "<synthesized>",
+    start: 0,
+    end: 0,
+    line: 1,
+    col: 1,
+  };
+  return {
+    name: "_anonymous",
+    variants: ["_anonymous"] as RoleVariant[],
+    span: fallbackSpan,
+    filePath: fallbackFile?.filePath ?? "<synthesized>",
+    isImplicitAnonymous: true,
+  };
+}
+
+/**
+ * Fire E-AUTH-GRAPH-002 for the ambiguous-multi-enum case: (b) found
+ * multiple enums AND (c) did NOT resolve. Diagnostic message lists the
+ * conflicting candidate names so the adopter can disambiguate by
+ * collapsing to a single enum or by declaring one at entry-file
+ * program scope.
+ */
+function fireAmbiguousEnumDiagnostic(
+  candidates: EnumCandidate[],
+  gates: Map<MarkupNodeId, AuthGate>,
+  errors: AuthGraphDiagnostic[],
+): void {
+  const names = candidates.map((c) => `\`${c.name}\``).join(", ");
+  const firstGate = gates.values().next().value as AuthGate | undefined;
+  const span: Span = candidates[0]?.span ?? firstGate?.span ?? {
+    file: "<unknown>", start: 0, end: 0, line: 1, col: 1,
+  };
+  errors.push({
+    code: "E-AUTH-GRAPH-002",
+    severity: "error",
+    message:
+      `auth-role gate values match variants from multiple distinct \`:enum\` types ` +
+      `(${names}); add a single role enum at the entry file's \`<program>\` body ` +
+      `scope to disambiguate (SPEC §40.1.1). The (b)+(c) discovery dual rule could ` +
+      `not reconcile to a single enum.`,
+    span,
+    filePath: candidates[0]?.filePath ?? firstGate?.filePath ?? "<unknown>",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// A-3.2 helpers — enum decl detection + variant parsing
+// ---------------------------------------------------------------------------
+
+/** True when the node is a `type X : enum` declaration. */
+function isEnumDecl(decl: ASTNode | TypeDeclNode | null | undefined): decl is TypeDeclNode {
+  if (!decl || typeof decl !== "object") return false;
+  if ((decl as TypeDeclNode).kind !== "type-decl") return false;
+  return (decl as TypeDeclNode).typeKind === "enum";
+}
+
+/**
+ * Heuristic: was the TypeDeclNode declared inside a `<program>` body's
+ * logic block? FileAST.typeDecls is the hoisted aggregate, so we have
+ * to walk the AST to find which LogicNode owned the original
+ * declaration.
+ *
+ * Identifies a decl as "in program scope" when:
+ *   - The file has a `<program>` markup root, AND
+ *   - The decl appears in a LogicNode whose parent chain includes the
+ *     `<program>` markup node.
+ *
+ * For the purposes of A-3.2's (c) rule, we accept any enum hoisted from
+ * a logic block whose parent chain reaches the `<program>` element. A
+ * pragmatic match is sufficient — the worked example in SPEC §40.9.9
+ * places the enum inside the entry file at file scope.
+ *
+ * Implementation: walk the AST from the file's nodes, tracking when
+ * we're inside a `<program>` subtree, and look for the decl by
+ * reference equality + by (name, raw) tuple. We never mutate the AST.
+ */
+function isDeclInProgramScope(decl: TypeDeclNode, fileAST: FileAST): boolean {
+  if (!fileAST.hasProgramRoot) return false;
+  return findDeclInProgramSubtree(fileAST.nodes, decl, false);
+}
+
+/**
+ * Recursive search: traverse the AST in document order; toggle
+ * `insideProgram=true` once we descend into the `<program>` markup
+ * subtree. Within that subtree, any LogicNode whose typeDecls list
+ * contains the target decl returns true.
+ */
+function findDeclInProgramSubtree(
+  nodes: ASTNode[] | undefined,
+  target: TypeDeclNode,
+  insideProgram: boolean,
+): boolean {
+  if (!Array.isArray(nodes)) return false;
+  for (const node of nodes) {
+    if (!node) continue;
+    if (node.kind === "markup") {
+      const enteringProgram = node.tag === "program";
+      const childInside = insideProgram || enteringProgram;
+      if (findDeclInProgramSubtree(node.children, target, childInside)) {
+        return true;
+      }
+    } else if (node.kind === "logic" && insideProgram) {
+      const td = node.typeDecls ?? [];
+      for (const candidate of td) {
+        if (candidate === target) return true;
+        // Reference equality may fail if the hoisting pass cloned the
+        // node. Fall back to structural match on the load-bearing fields.
+        if (
+          candidate
+          && candidate.name === target.name
+          && candidate.typeKind === target.typeKind
+          && candidate.raw === target.raw
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Parse an enum body's raw text to extract variant names. Mirrors
+ * `symbol-table.ts:4426` parseEnumVariantNamesFromRaw — scoped to
+ * A-3.2's needs. Returns an empty array for malformed / empty bodies.
+ *
+ * Recognizes:
+ *   - Comma / newline / pipe separators between variants at paren depth 0.
+ *   - `transitions { ... }` block (stripped — variants come first).
+ *   - Payload-list `(field:type)` (stripped from variant name).
+ *   - `renders ...` suffix (stripped from variant name).
+ *   - Standard variant-name shape: `^[A-Z][A-Za-z0-9_]*$`.
+ *
+ * Empty enums (`type Role: enum` or `type Role: enum = {}`) return [].
+ */
+function parseEnumVariantsFromRaw(raw: string): string[] {
+  const out: string[] = [];
+  let body = (raw || "").trim();
+  if (body.startsWith("{")) body = body.slice(1);
+  if (body.endsWith("}")) body = body.slice(0, -1);
+  body = body.trim();
+  if (!body) return out;
+
+  // Strip a `transitions { ... }` block if present (engine-decl form).
+  let variantsSection = body;
+  {
+    let depth = 0;
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i]!;
+      if (ch === "(" || ch === "[" || ch === "{") { depth++; continue; }
+      if (ch === ")" || ch === "]" || ch === "}") { depth--; continue; }
+      if (depth === 0 && body.slice(i).startsWith("transitions")) {
+        const after = body.slice(i + "transitions".length).trimStart();
+        if (after.startsWith("{")) {
+          variantsSection = body.slice(0, i).trim();
+          break;
+        }
+      }
+    }
+  }
+
+  // Split on `\n`, `,`, and `|` at paren depth 0.
+  const segments: string[] = [];
+  let depth = 0;
+  let buf = "";
+  for (let i = 0; i < variantsSection.length; i++) {
+    const ch = variantsSection[i]!;
+    if (ch === "(" || ch === "[" || ch === "{") { depth++; buf += ch; continue; }
+    if (ch === ")" || ch === "]" || ch === "}") { depth--; buf += ch; continue; }
+    if (depth === 0 && (ch === "\n" || ch === "," || ch === "|")) {
+      if (buf.trim()) segments.push(buf.trim());
+      buf = "";
+      continue;
+    }
+    buf += ch;
+  }
+  if (buf.trim()) segments.push(buf.trim());
+
+  for (const seg of segments) {
+    let text = seg;
+    const paren = text.indexOf("(");
+    if (paren >= 0) text = text.slice(0, paren).trim();
+    const rendersIdx = text.indexOf(" renders ");
+    if (rendersIdx >= 0) text = text.slice(0, rendersIdx).trim();
+    if (!text) continue;
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(text)) continue;
+    out.push(text);
+  }
+  return out;
+}
+
+/** Bare-identifier regex — single PascalCase / lowercase identifier. */
+function isBareIdentifier(s: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(s.trim());
+}
+
+// ---------------------------------------------------------------------------
 // Re-export the public types for convenience (some consumers will only
 // need `runAuthGraph` and the result type — keep the import surface small).
 // ---------------------------------------------------------------------------
@@ -516,6 +1057,8 @@ export type {
   AuthSiteKind,
   EntryPointId,
   MarkupNodeId,
+  RoleEnum,
+  RoleVariant,
 } from "./types/auth-graph.js";
 
 // Helper exported for unit tests that want to interrogate individual
@@ -526,5 +1069,7 @@ export const __test_helpers = {
   walkMarkupNodes,
   crossRefRedirects,
   collectUrlPatterns,
+  parseEnumVariantsFromRaw,
+  isBareIdentifier,
 };
 

@@ -136,7 +136,7 @@ describe("§1 program-auth redirect projection", () => {
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.size).toBe(1);
     expect(graph.redirectTargets.get(program.id)).toBe("/login");
   });
@@ -154,7 +154,7 @@ describe("§1 program-auth redirect projection", () => {
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.get(program.id)).toBe("/auth");
   });
 });
@@ -176,7 +176,7 @@ describe("§2 page-auth redirect projection", () => {
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.size).toBe(1);
     expect(graph.redirectTargets.get(page.id)).toBe("/signin");
   });
@@ -198,7 +198,7 @@ describe("§3 auth-role-block redirect projection (else= and redirect= forms)", 
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.get(authBlock.id)).toBe("/login");
   });
 
@@ -213,7 +213,7 @@ describe("§3 auth-role-block redirect projection (else= and redirect= forms)", 
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.get(authBlock.id)).toBe("/forbidden");
   });
 });
@@ -230,7 +230,7 @@ describe("§4 null redirect when gate has no redirect attr", () => {
 
     const { graph, errors } = runAuthGraph([f], null);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.size).toBe(1);
     expect(graph.redirectTargets.get(authBlock.id)).toBeNull();
   });
@@ -242,7 +242,7 @@ describe("§4 null redirect when gate has no redirect attr", () => {
 
     const { graph, errors } = runAuthGraph([f], null);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.size).toBe(1);
     expect(graph.redirectTargets.get(ch.id)).toBeNull();
   });
@@ -261,7 +261,7 @@ describe("§5 I-AUTH-REDIRECT-UNRESOLVED info diagnostic", () => {
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(1);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(1);
     expect(errors[0]!.code).toBe("I-AUTH-REDIRECT-UNRESOLVED");
     expect(errors[0]!.severity).toBe("info");
     expect(errors[0]!.message).toContain('"/login"');
@@ -278,7 +278,7 @@ describe("§5 I-AUTH-REDIRECT-UNRESOLVED info diagnostic", () => {
 
     const { graph, errors } = runAuthGraph([f], null);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     // Redirect is still projected — only the cross-ref step is skipped.
     expect(graph.redirectTargets.get(program.id)).toBe("/login");
   });
@@ -294,7 +294,7 @@ describe("§5 I-AUTH-REDIRECT-UNRESOLVED info diagnostic", () => {
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.redirectTargets.get(authBlock.id)).toBe("/login");
   });
 });
@@ -320,7 +320,7 @@ describe("§6 multi-gate file — independent redirect projection per gate", () 
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(0);
+    expect(errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED")).toHaveLength(0);
     expect(graph.gates.size).toBe(3);
     expect(graph.redirectTargets.size).toBe(3);
     // program → /login (from authConfig default)
@@ -348,9 +348,9 @@ describe("§6 multi-gate file — independent redirect projection per gate", () 
 
     const { graph, errors } = runAuthGraph([f], rm);
 
-    expect(errors).toHaveLength(1);
-    expect(errors[0]!.code).toBe("I-AUTH-REDIRECT-UNRESOLVED");
-    expect(errors[0]!.message).toContain('"/missing-path"');
+    const redirectErrors = errors.filter(e => e.code === "I-AUTH-REDIRECT-UNRESOLVED");
+    expect(redirectErrors).toHaveLength(1);
+    expect(redirectErrors[0]!.message).toContain('"/missing-path"');
 
     // All three redirects ARE recorded verbatim despite the unresolved.
     expect(graph.redirectTargets.get(program.id)).toBe("/login");
