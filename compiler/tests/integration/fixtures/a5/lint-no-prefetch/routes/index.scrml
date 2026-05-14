@@ -1,0 +1,36 @@
+// FX-8a — lint-no-prefetch fixture (W-CG-CHUNK-NO-PREFETCH, Info)
+// Family: F-5 (W-CG-CHUNK-* family — Q-OPEN-6 split case 1)
+// Tests: compiler/tests/integration/lint-family-e2e-integration.test.js §4
+// A-5 wave; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// File 1/2 — Home route ("/"). NO internal `<a href="/...">` links
+// at all. The only `<a>` element points at an external URL — which
+// emit-html.ts:1551-1574 treats as NEITHER `hasInternalLinks` nor
+// `hasPrefetchableLinks` (the structural-shape filter at the
+// markup walk).
+//
+// EXPECTED DIAGNOSTICS (per Q-OPEN-6 split, S92):
+//   - W-CG-CHUNK-NO-PREFETCH (Info, severity="info") fires for THIS
+//     entry-point — the file is part of a multi-route app
+//     (RouteMap.pages.size === 2 since fixture also has other.scrml)
+//     yet has zero internal links.
+//   - W-CG-CHUNK-PREFETCH-UNRESOLVED does NOT fire (no internal links
+//     means resolution doesn't even attempt — the case-2 branch is
+//     mutually exclusive per the route-splitter else-branch).
+
+<program title="No-Prefetch Home">
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">No-Prefetch Demo — Home</h1>
+  <a href="https://example.com" class="text-blue-600 underline">External</a>
+</nav>
+
+<section class="p-4">
+  <p class="text-sm text-slate-600">
+    This page has zero internal `&lt;a href="/..."&gt;` links — only an
+    external one. Cross-route hover-prefetch wiring is genuinely
+    dead-code here, surfaced as W-CG-CHUNK-NO-PREFETCH (Info).
+  </p>
+</section>
+
+</program>

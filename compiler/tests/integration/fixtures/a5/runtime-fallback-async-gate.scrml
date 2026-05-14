@@ -1,0 +1,53 @@
+// FX-5 — runtime-fallback async-gate fixture (W-AUTH-RUNTIME-FALLBACK)
+// Family: F-4 (W-AUTH-RUNTIME-FALLBACK admission path)
+// Tests: compiler/tests/integration/lint-family-e2e-integration.test.js §1
+// A-5 wave; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// SHAPE: a single SPA with one `<auth check="checkAdminAsync">` block.
+// The `check=` form (SPEC §40.9.5 line 17724) is unconditionally
+// runtime-fallback regardless of the role enum's shape — the
+// async server-fn check drives the verdict at render time.
+//
+// EXPECTED DIAGNOSTICS (post-compile):
+//   - W-AUTH-RUNTIME-FALLBACK (Info, severity="info") fires ONCE for
+//     the auth-role-block gate per `component-4.ts:230-241`.
+//   - NO E-CLOSURE-001 / E-CLOSURE-002 (role enum is declared at
+//     program scope; the gate's check= form uses runtime-fallback
+//     intentionally — not a structural impossibility).
+//   - NO E-AUTH-GRAPH-* cascade (the gate is well-formed: it has
+//     a `check=` attribute, satisfying `classifyAuthRoleBlock`'s
+//     malformed-gate exit at auth-graph.ts:1535).
+//
+// EXPECTED CHUNK BEHAVIOR (per A-2.5.b runtime-fallback semantics):
+//   The gated `<section>` subtree ships EAGERLY in the initial
+//   chunk for ALL roles (closed_form=false collapses to "include
+//   for every effective role"). The auth check runs at render time.
+
+<program title="Async Auth Gate" auth="required">
+
+type UserRole:enum = { Anonymous, Driver, Admin }
+
+server function checkAdminAsync() {
+  // Async predicate — the server consults a slow data store
+  // (e.g. an external policy service) before granting access.
+  // The closure analysis cannot statically classify this gate;
+  // the runtime fallback is intentional.
+  lift true
+}
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">Async Auth Gate Demo</h1>
+</nav>
+
+<auth check="checkAdminAsync">
+  <section class="p-4 border border-amber-500 bg-amber-50">
+    <h2 class="text-lg font-medium text-amber-700">Gated by async check</h2>
+    <p class="text-sm text-amber-600">
+      This subtree ships eagerly to every viewer's initial chunk
+      because checkAdminAsync() is async — closed_form=false per
+      §40.9.5. The auth check runs at render time, not compile time.
+    </p>
+  </section>
+</auth>
+
+</program>

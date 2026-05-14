@@ -1,0 +1,25 @@
+// FX-8b — lint-prefetch-unresolved fixture (W-CG-CHUNK-PREFETCH-UNRESOLVED)
+// File 2/2 — About route ("/about"). Sibling page that exists in
+// the compile unit; needed so RouteMap.pages.size > 1 (the lint
+// gating condition). About has its OWN internal link back to "/" —
+// which DOES resolve to the sibling index.scrml — so this page's
+// `hasPrefetchableLinks` is true and NO PREFETCH lint fires for it.
+// This lets §5 of the test verify the lint-emission case-discrimination
+// is per-EP (NOT global to the compile unit).
+
+<program title="Prefetch-Unresolved About">
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">About</h1>
+  <a href="/" class="text-blue-600">Home (resolves)</a>
+</nav>
+
+<section class="p-4">
+  <p class="text-sm text-slate-600">
+    Has a resolving internal link to "/". Therefore neither
+    PREFETCH lint fires for this page — only the home page's
+    unresolved links surface the warning.
+  </p>
+</section>
+
+</program>

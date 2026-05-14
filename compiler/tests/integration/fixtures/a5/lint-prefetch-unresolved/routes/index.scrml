@@ -1,0 +1,39 @@
+// FX-8b — lint-prefetch-unresolved fixture (W-CG-CHUNK-PREFETCH-UNRESOLVED, Warning)
+// Family: F-5 (W-CG-CHUNK-* family — Q-OPEN-6 split case 2)
+// Tests: compiler/tests/integration/lint-family-e2e-integration.test.js §5
+// A-5 wave; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// File 1/2 — Home route ("/"). Has an internal-shaped `<a href="/nowhere">`
+// link — but `/nowhere` does NOT correspond to any `<page>` in the
+// compile unit (the only sibling file is `about.scrml` → `/about`).
+// emit-html.ts:1551-1574 flips `hasInternalLinks=true` on the
+// internal-shaped href but does NOT flip `hasPrefetchableLinks` (no
+// match in routeMap.pages.urlPattern set).
+//
+// EXPECTED DIAGNOSTICS (per Q-OPEN-6 split, S92):
+//   - W-CG-CHUNK-PREFETCH-UNRESOLVED (Warning, severity="warning")
+//     fires for THIS entry-point — internal-shaped link exists but
+//     does not resolve. Adopters likely intended hover-prefetch but
+//     aren't getting it (typo / missing page).
+//   - W-CG-CHUNK-NO-PREFETCH does NOT fire on this page (the case-1
+//     branch is mutually exclusive — internal links DO exist, just
+//     don't resolve).
+
+<program title="Prefetch-Unresolved Home">
+
+<nav class="flex items-center gap-3 p-4 border-b">
+  <h1 class="text-xl font-semibold">Prefetch-Unresolved Demo — Home</h1>
+  <a href="/nowhere" class="text-red-600">Nowhere (does NOT resolve)</a>
+  <a href="/missing" class="text-red-600">Missing (does NOT resolve either)</a>
+</nav>
+
+<section class="p-4">
+  <p class="text-sm text-slate-600">
+    Two internal-shaped links — neither matches a sibling page in
+    this compile unit (the only sibling is `/about`, not linked
+    here). hasInternalLinks=true, hasPrefetchableLinks=false →
+    W-CG-CHUNK-PREFETCH-UNRESOLVED (Warning).
+  </p>
+</section>
+
+</program>

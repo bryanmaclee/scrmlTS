@@ -1,0 +1,18 @@
+// FX-8a — lint-no-prefetch fixture (W-CG-CHUNK-NO-PREFETCH, Info)
+// File 2/2 — Other route ("/other"). Also has zero internal links.
+//
+// Both pages are eligible for the lint; we expect the Info to fire
+// for BOTH entry-points (one per file). The §4 test asserts both
+// fires AND verifies severity discrimination from PREFETCH-UNRESOLVED.
+
+<program title="No-Prefetch Other">
+
+<section class="p-4">
+  <h1 class="text-xl font-semibold">No-Prefetch Demo — Other</h1>
+  <p class="text-sm text-slate-600">
+    Sibling route. Also has no internal links. Both files in this
+    compile unit fire W-CG-CHUNK-NO-PREFETCH (Info).
+  </p>
+</section>
+
+</program>

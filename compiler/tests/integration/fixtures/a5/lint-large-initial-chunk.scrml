@@ -1,0 +1,107 @@
+// FX-7 — lint-large initial chunk fixture (W-CG-CHUNK-LARGE)
+// Family: F-5 (W-CG-CHUNK-* family end-to-end)
+// Tests: compiler/tests/integration/lint-family-e2e-integration.test.js §3
+// A-5 wave; see scrml-support/docs/deep-dives/a-5-integration-tests-SCOPING-2026-05-14.md
+//
+// SHAPE: a single SPA whose program body is intentionally fat — many
+// reactive cells + many small components — so the composed initial
+// chunk's `payloadJs` is in the kilobyte range. Tests then drive the
+// W-CG-CHUNK-LARGE fire-site by passing an EXPLICIT small
+// `chunkSizeBudgetBytes` (Q-OPEN-5 plumbing) — the fixture stays
+// well under the default 100 000-byte budget so the lint never fires
+// on default settings (regression-guard against accidental fixture
+// inflation).
+//
+// EXPECTED DIAGNOSTICS:
+//   - With `chunkSizeBudgetBytes` UNSET (default 100 000):
+//       NO W-CG-CHUNK-LARGE fires (composed payload << 100 KB).
+//   - With `chunkSizeBudgetBytes: 500` (or any small value below the
+//       composed initial-chunk payload size):
+//       W-CG-CHUNK-LARGE (Warning, severity="warning") fires ONCE
+//       per (EP, role) initial chunk. Single SPA → 1 EP × 1 role
+//       (`_anonymous`) → 1 lint instance.
+//   - The lint message text reports the EFFECTIVE budget (the
+//       passed value), not the default constant — adopters see
+//       what they configured.
+
+<program title="Lint-Large Demo">
+
+${
+  // Many reactive cells — each contributes admission to Component 2's
+  // reactive-dep closure + emit weight to the composed initial chunk
+  // via `emitReactiveCellAtom` per atom-emitter.ts.
+  @counter1 = 0
+  @counter2 = 0
+  @counter3 = 0
+  @counter4 = 0
+  @counter5 = 0
+  @counter6 = 0
+  @label1 = "first"
+  @label2 = "second"
+  @label3 = "third"
+  @label4 = "fourth"
+  @label5 = "fifth"
+  @label6 = "sixth"
+
+  function bump1() { @counter1 = @counter1 + 1 }
+  function bump2() { @counter2 = @counter2 + 1 }
+  function bump3() { @counter3 = @counter3 + 1 }
+  function bump4() { @counter4 = @counter4 + 1 }
+  function bump5() { @counter5 = @counter5 + 1 }
+  function bump6() { @counter6 = @counter6 + 1 }
+
+  function clearAll() {
+    @counter1 = 0
+    @counter2 = 0
+    @counter3 = 0
+    @counter4 = 0
+    @counter5 = 0
+    @counter6 = 0
+  }
+}
+
+<section class="p-4 grid grid-cols-2 gap-3 max-w-3xl mx-auto">
+  <h1 class="col-span-2 text-2xl font-bold">Lint-Large Demo</h1>
+
+  <div class="p-3 border rounded bg-slate-50">
+    <p class="text-sm text-slate-600">${@label1}</p>
+    <p class="text-2xl font-mono">${@counter1}</p>
+    <button onclick=bump1() class="mt-2 px-2 py-1 bg-blue-500 text-white rounded">Bump</button>
+  </div>
+
+  <div class="p-3 border rounded bg-slate-50">
+    <p class="text-sm text-slate-600">${@label2}</p>
+    <p class="text-2xl font-mono">${@counter2}</p>
+    <button onclick=bump2() class="mt-2 px-2 py-1 bg-blue-500 text-white rounded">Bump</button>
+  </div>
+
+  <div class="p-3 border rounded bg-slate-50">
+    <p class="text-sm text-slate-600">${@label3}</p>
+    <p class="text-2xl font-mono">${@counter3}</p>
+    <button onclick=bump3() class="mt-2 px-2 py-1 bg-blue-500 text-white rounded">Bump</button>
+  </div>
+
+  <div class="p-3 border rounded bg-slate-50">
+    <p class="text-sm text-slate-600">${@label4}</p>
+    <p class="text-2xl font-mono">${@counter4}</p>
+    <button onclick=bump4() class="mt-2 px-2 py-1 bg-blue-500 text-white rounded">Bump</button>
+  </div>
+
+  <div class="p-3 border rounded bg-slate-50">
+    <p class="text-sm text-slate-600">${@label5}</p>
+    <p class="text-2xl font-mono">${@counter5}</p>
+    <button onclick=bump5() class="mt-2 px-2 py-1 bg-blue-500 text-white rounded">Bump</button>
+  </div>
+
+  <div class="p-3 border rounded bg-slate-50">
+    <p class="text-sm text-slate-600">${@label6}</p>
+    <p class="text-2xl font-mono">${@counter6}</p>
+    <button onclick=bump6() class="mt-2 px-2 py-1 bg-blue-500 text-white rounded">Bump</button>
+  </div>
+
+  <button onclick=clearAll() class="col-span-2 mt-2 px-3 py-2 bg-red-500 text-white rounded">
+    Reset all counters
+  </button>
+</section>
+
+</program>
