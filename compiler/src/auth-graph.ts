@@ -2,13 +2,20 @@
  * @module auth-graph
  *
  * §40 AuthGraph — auth-site enumerator + (TBD A-3.2) role-enum resolver +
- * (TBD A-3.3) per-gate classifier + (TBD A-3.4) auth-redirect cross-ref.
+ * (TBD A-3.3) per-gate classifier + (S90 A-3.4) auth-redirect cross-ref.
  *
  * S90 wave A-3.1 — auth-site enumeration only. This entry point produces
  * an `AuthGraph` with fully populated `gates` (per-file walk over four
  * AuthSiteKind variants) + best-effort `gateToEntryPoint` cross-ref.
- * Classification (`closed_form`/`gated_for_role`), role-enum resolution,
- * and redirect target cross-ref are left stubbed for downstream sub-phases.
+ * Classification (`closed_form`/`gated_for_role`) and role-enum resolution
+ * are left stubbed for downstream sub-phases.
+ *
+ * S90 wave A-3.4 — auth-redirect cross-ref. `crossRefRedirects` walks the
+ * enumerated gate set, projects each gate's `redirect` field into the
+ * `redirectTargets` map (verbatim path strings per OQ-A3-B (a) S90
+ * ratification — no EntryPointId synthesis), and emits info-level
+ * `I-AUTH-REDIRECT-UNRESOLVED` diagnostics for any redirect path that
+ * does not match a URL pattern in `RouteMap.pages`.
  *
  * Consumer: A-2.5 Component 4 of the Reachability Solver
  * (`auth_gated_boundaries_visible_to(role)`). Per OQ-A2-I disposition, the
@@ -16,15 +23,16 @@
  * `E-CLOSURE-002` (no-role-enum-with-auth-gates) also fires from A-2.5.
  *
  * Pipeline position (per SCOPING §5.3): post-RI, post-TS, post-META, pre-RS.
- * A-3.5 wires this into `api.js` orchestration; A-3.1 leaves the module
- * uncalled by the driver — its only consumers at this stage are the unit
- * tests.
+ * A-3.5 wires this into `api.js` orchestration; A-3.1 + A-3.4 leave the
+ * module uncalled by the driver — its only consumers at this stage are
+ * the unit tests.
  *
  * Cross-references:
  *   - SCOPING: `docs/changes/a3-auth-graph-scoping/SCOPING.md`.
  *   - SPEC.md §40.1.1 — Static role classification (lines 17146-17163).
  *   - SPEC.md §40.9.5 — Component 4 normative statement (lines 17708-17734).
  *   - SPEC.md §40.9.9 — Worked example with `<auth role="admin">` block.
+ *   - SPEC.md §40.4 — `<program>` middleware (loginRedirect default + auth modes).
  *   - PIPELINE.md Stage 7.6 — input contract (lines 2340-2348).
  */
 
@@ -82,11 +90,17 @@ export function runAuthGraph(
     enumerateFile(fileAST, routeMap, gates, gateToEntryPoint, errors);
   }
 
+  // A-3.4 — auth-redirect cross-ref. Projects each gate's `redirect`
+  // field into the redirectTargets map verbatim (bare string per OQ-A3-B
+  // (a) S90 ratification) and emits info-level I-AUTH-REDIRECT-UNRESOLVED
+  // diagnostics for any redirect path not present in RouteMap.pages.
+  crossRefRedirects(gates, routeMap, redirectTargets, errors);
+
   const graph: AuthGraph = {
     gates,
     roleEnum: null,           // populated by A-3.2
     gateToEntryPoint,
-    redirectTargets,          // populated by A-3.4
+    redirectTargets,          // populated by A-3.4 above
     errors,
   };
 
@@ -302,6 +316,102 @@ function buildChannelGate(
 }
 
 // ---------------------------------------------------------------------------
+// A-3.4 — auth-redirect cross-ref
+// ---------------------------------------------------------------------------
+
+/**
+ * Project each gate's redirect target into the `redirectTargets` map and
+ * cross-ref against `RouteMap.pages`. Emits info-level
+ * `I-AUTH-REDIRECT-UNRESOLVED` for any redirect path that does NOT match
+ * a URL pattern in `RouteMap.pages`.
+ *
+ * Behaviour (per OQ-A3-B (a) S90 ratification — bare-string disposition):
+ *   - Iterate every gate in `gates`.
+ *   - Read `gate.redirect` verbatim (already extracted at enumeration time
+ *     in build*Gate constructors from `FileAST.authConfig.loginRedirect`,
+ *     `<page loginRedirect=>`, or `<auth else=/redirect=>`).
+ *   - If the gate has no redirect, store `null` in `redirectTargets`.
+ *   - If the gate has a redirect and `routeMap` is provided, scan
+ *     `routeMap.pages.values()` for a matching `urlPattern`.
+ *   - If no `pages` entry matches the redirect path, emit one
+ *     `I-AUTH-REDIRECT-UNRESOLVED` diagnostic per unresolved gate.
+ *   - When `routeMap` is `null` (unit-test mode), the projection still
+ *     records redirect strings but emits no diagnostics — RouteMap is
+ *     required to confirm resolution.
+ *
+ * Per OQ-A2-E ratified S89: A-3.4 does NOT synthesize new entry-points.
+ * The redirect target IS its own entry-point (if it exists in RouteMap);
+ * absence is the page-author's concern, surfaced as INFO not ERROR.
+ *
+ * Per SPEC §40.4 + route-inference.ts:2443: when `<program auth=>` is set
+ * but no explicit `loginRedirect=` is provided, RI defaults `loginRedirect`
+ * to `"/login"`. A-3.4 preserves this default verbatim — the AuthConfig
+ * already carries the resolved string.
+ *
+ * @param gates           — enumerated gates from A-3.1 (with `gate.redirect`
+ *                          already extracted).
+ * @param routeMap        — RI output. NULL skips diagnostic emission.
+ * @param redirectTargets — output map; populated in-place.
+ * @param errors          — diagnostic stream; appended in-place.
+ */
+function crossRefRedirects(
+  gates: Map<MarkupNodeId, AuthGate>,
+  routeMap: RouteMap | null,
+  redirectTargets: Map<MarkupNodeId, string | null>,
+  errors: AuthGraphDiagnostic[],
+): void {
+  // Build a fast lookup set of URL patterns from RouteMap.pages for
+  // O(gates) total cost rather than O(gates × pages).
+  const urlPatterns: Set<string> | null = routeMap
+    ? collectUrlPatterns(routeMap)
+    : null;
+
+  for (const [nodeId, gate] of gates) {
+    const redirect = gate.redirect;
+
+    // Always record — null when the gate has no redirect, string verbatim
+    // when it does. Consumer (A-2.5) reads this map directly.
+    redirectTargets.set(nodeId, redirect);
+
+    // Cross-ref to RouteMap.pages is best-effort. NULL redirect means
+    // nothing to resolve. NULL routeMap means we're in unit-test mode
+    // and can't verify — skip the diagnostic.
+    if (redirect == null) continue;
+    if (urlPatterns == null) continue;
+
+    if (!urlPatterns.has(redirect)) {
+      errors.push({
+        code: "I-AUTH-REDIRECT-UNRESOLVED",
+        severity: "info",
+        message:
+          `Auth gate redirect target "${redirect}" does not match any ` +
+          `page URL pattern in the route map. The redirect target's own ` +
+          `entry-point must exist independently (per OQ-A2-E — no ` +
+          `entry-point synthesis). Add a page at this path, or correct ` +
+          `the redirect target.`,
+        span: gate.span,
+        filePath: gate.filePath,
+      });
+    }
+  }
+}
+
+/**
+ * Collect the set of URL patterns from `RouteMap.pages` for redirect
+ * cross-ref. `pages` is keyed by file path with `urlPattern` in the value;
+ * we project the urlPattern set for O(1) `has` lookups.
+ */
+function collectUrlPatterns(routeMap: RouteMap): Set<string> {
+  const out = new Set<string>();
+  for (const pageRoute of routeMap.pages.values()) {
+    if (pageRoute && typeof pageRoute.urlPattern === "string") {
+      out.add(pageRoute.urlPattern);
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // AST walking + attr utilities
 // ---------------------------------------------------------------------------
 
@@ -414,5 +524,7 @@ export const __test_helpers = {
   findAttr,
   readStringAttr,
   walkMarkupNodes,
+  crossRefRedirects,
+  collectUrlPatterns,
 };
 

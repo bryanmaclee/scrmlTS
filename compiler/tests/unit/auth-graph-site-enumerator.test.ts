@@ -376,17 +376,21 @@ describe("§5 aggregate cases", () => {
 // ---------------------------------------------------------------------------
 
 describe("§6 AuthGraph shape contract (A-3.1 enumeration-only)", () => {
-  test("A-3.1 leaves roleEnum / redirectTargets stubbed", () => {
+  test("A-3.1 leaves roleEnum stubbed; A-3.4 (now wired) populates redirectTargets", () => {
     const authBlock = markup("auth", [attr("role", "admin")]);
     const page = markup("page", [], [authBlock]);
     const f = file("/abs/stub.scrml", [page]);
 
     const { graph } = runAuthGraph([f], null);
 
-    // Per SCOPING §2.1 — A-3.2 populates roleEnum, A-3.4 populates
-    // redirectTargets. A-3.1 leaves both stubbed.
+    // A-3.2 populates roleEnum (still stubbed at this dispatch).
     expect(graph.roleEnum).toBeNull();
-    expect(graph.redirectTargets.size).toBe(0);
+
+    // A-3.4 NOW wired — redirectTargets has one entry per enumerated gate
+    // (value is null for gates without a redirect attr per the bare-string
+    // verbatim projection rule).
+    expect(graph.redirectTargets.size).toBe(1);
+    expect(graph.redirectTargets.get(authBlock.id)).toBeNull();
 
     // gates + gateToEntryPoint ARE populated by A-3.1.
     expect(graph.gates.size).toBe(1);

@@ -234,7 +234,8 @@ export interface RoleEnum {
  * OQ-A2-I disposition, `W-AUTH-RUNTIME-FALLBACK` is NOT in this list — that
  * fires from A-2.5 (RS). Per OQ-A2-F disposition, `E-CLOSURE-002` also fires
  * from A-2.5. A-3's diagnostics are catastrophic-only (structural-malformed
- * gates, malformed role-enum declarations).
+ * gates, malformed role-enum declarations) plus a single info-level
+ * cross-ref signal (`I-AUTH-REDIRECT-UNRESOLVED`).
  *
  * Codes:
  *   - `E-AUTH-GRAPH-001` — role-enum declared but malformed (e.g., :enum
@@ -245,18 +246,28 @@ export interface RoleEnum {
  *     not in the enum. Fires from A-3.3 (needs role-enum to compare).
  *   - `E-AUTH-GRAPH-004` — `<auth>` block without `role=` AND without
  *     `check=` attribute (malformed gate). Fires from A-3.3.
+ *   - `I-AUTH-REDIRECT-UNRESOLVED` — info-level: a gate carries a redirect
+ *     target path that does NOT match any URL pattern in `RouteMap.pages`.
+ *     Per OQ-A2-E + OQ-A3-B (a) S90 ratification this is INFORMATIONAL ONLY:
+ *     the redirect target is its own entry-point and its absence is the
+ *     page-author's concern, NOT a compile error. Fires from A-3.4
+ *     (`crossRefRedirects`). The §34 catalog row for this code will be
+ *     added in a later A-3.5 SPEC dispatch.
  *
  * A-3.1 NEVER emits diagnostics — enumeration is best-effort. Malformed
  * gates are recorded in `AuthGraph.gates` with `role: null` and surfaced
- * by A-3.3 during classification.
+ * by A-3.3 during classification. A-3.4 may emit `I-AUTH-REDIRECT-UNRESOLVED`
+ * info diagnostics when a gate's redirect target does not match any page
+ * URL pattern.
  */
 export interface AuthGraphDiagnostic {
   code:
     | "E-AUTH-GRAPH-001"
     | "E-AUTH-GRAPH-002"
     | "E-AUTH-GRAPH-003"
-    | "E-AUTH-GRAPH-004";
-  severity: "error" | "warning";
+    | "E-AUTH-GRAPH-004"
+    | "I-AUTH-REDIRECT-UNRESOLVED";
+  severity: "error" | "warning" | "info";
   message: string;
   span: Span;
   filePath: string;
@@ -314,13 +325,30 @@ export interface AuthGraph {
   gateToEntryPoint: Map<MarkupNodeId, EntryPointId>;
 
   /**
-   * Cross-ref: auth-redirect target. For `<program auth="required"
-   * loginRedirect="/login">` and per-page equivalent, records the redirect
-   * target path. A-2.5 reads this to confirm the redirect target IS its
-   * own entry-point per OQ-A2-E (no synthesis). NULL when the gate has
-   * no redirect.
+   * Cross-ref: auth-redirect target. Records the redirect target path
+   * VERBATIM (per OQ-A3-B (a) S90 ratification — bare-string disposition,
+   * NOT a resolved EntryPointId). Sources:
    *
-   * Populated by A-3.4 (`buildRedirectMap`); A-3.1 leaves it EMPTY.
+   *   - `<program auth=... loginRedirect=...>` — program-auth gate (extracted
+   *     from `FileAST.authConfig.loginRedirect`).
+   *   - `<page auth=... loginRedirect=...>` — page-auth gate (extracted from
+   *     the `loginRedirect=` attr on the same `<page>`).
+   *   - `<auth role=... else=...>` — auth-role-block gate (extracted from
+   *     `else=` or fallback `redirect=` attr per SPEC §40.9.9 worked example).
+   *
+   * Value is the redirect path string verbatim (e.g. `"/login"`, `"/auth"`),
+   * or `null` when the gate has no redirect target. Consumer (A-2.5) is
+   * responsible for resolving the path against `RouteMap.pages` if a page
+   * lookup is needed.
+   *
+   * Populated by A-3.4 (`crossRefRedirects`); A-3.1 leaves it EMPTY.
+   *
+   * Per OQ-A2-E ratified S89: A-3 does NOT synthesize new entry-points
+   * for these targets. The redirect target's own entry-point exists
+   * independently and is the page-author's concern. A-3.4 emits an
+   * info-level `I-AUTH-REDIRECT-UNRESOLVED` diagnostic when a redirect
+   * path does not match any URL pattern in `RouteMap.pages` — informational
+   * only, not a compile error.
    */
   redirectTargets: Map<MarkupNodeId, string | null>;
 
