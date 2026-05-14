@@ -158,6 +158,20 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     }
   }
 
+  // A-4.4 — `prefetch` chunk also lights up when this file's HTML
+  // emission produced at least one internal `<a data-scrml-prefetch>`
+  // attribute (i.e. the hover-handler attachment block was emitted
+  // into the initial chunk and the runtime `_scrml_prefetch_tier2`
+  // call target needs to ship). `emit-html.ts` flips the flag during
+  // the markup walk; we read it here to gate the runtime inclusion.
+  //
+  // The same `prefetch` chunk also covers `_scrml_prefetch_tier1`
+  // (A-4.3) — single marker, both runtime functions in the same chunk
+  // range; see `runtime-chunks.ts:CHUNK_MARKERS.prefetch`.
+  if (ctx.hasPrefetchableLinks) {
+    chunks.add("prefetch");
+  }
+
   // Check if an ExprNode tree contains == or != (structural equality)
   function exprNeedsEquality(expr: any): boolean {
     if (!expr || typeof expr !== "object") return false;

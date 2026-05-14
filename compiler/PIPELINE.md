@@ -2555,19 +2555,42 @@ interface ChunkContents {
     the worked-example §40.9.9 viewer=Driver case (`prefetch_tier_1(/) = {}`) is the canonical
     DEAD tree-shake. OQ-A4-G ratification (S91): Option γ — `requestIdleCallback` browser-side
     + `setTimeout(fn, 1)` Safari fallback + Bun-runtime extension point reserved for v0.4.
-    Tier 2 payload remains empty placeholder pending A-4.4.
+  - **A-4.4 tier-2 hover-prefetch emission (S91):** the §40.9.7 tier-2 surface has TWO
+    distinct shapes wired in parallel at this sub-phase.
+    (1) Intra-route deep-interaction prefetch — `composeTier2Chunk` in
+    `route-splitter.ts` mirrors A-4.3's `composeTier1Chunk` contract for the
+    `prefetchTier2` admission set. In v0.3 the RS A-2.5 Component 4 floor admits no
+    components for this surface; the composer is present structurally for v0.4 RS
+    refinement (OQ-A4-B deferred).
+    (2) Cross-route hover prefetch (DOMINANT case) — `emit-html.ts` wires
+    `data-scrml-prefetch="<route>"` attributes onto `<a href="/...">` elements whose
+    static href resolves to a `RouteMap.pages` urlPattern; the wiring sets
+    `ctx.hasPrefetchableLinks = true`. `composeInitialChunk` reads the flag and emits
+    a hover-handler attachment block in the IIFE tail (`mouseenter` + `focus`
+    once-listeners that call `_scrml_prefetch_tier2(route, role)`); the runtime
+    function plus the `_SCRML_CHUNKS` manifest scaffold ship in the SAME `prefetch`
+    runtime chunk as A-4.3's `_scrml_prefetch_tier1`. The hover-handler falls back
+    to `"_anonymous"` role sentinel when `_scrml_current_role()` is not present at
+    runtime (A-4.7 lands the real role-bootstrap). Tree-shake LIVE:
+    `detectRuntimeChunks` activates the `prefetch` chunk on EITHER non-empty tier-1
+    admission OR `hasPrefetchableLinks = true` (A-4.5 adds OR non-empty tier-N).
+    Per OQ-A4-E ratification: `_SCRML_CHUNKS` manifest is the per-app chunk-URL
+    lookup (route × role × tier → URL); A-4.4 ships the placeholder scaffold
+    (`Object.create(null)`), A-4.6 populates with real URLs at HTML emission time.
   - **A-4.5 tier-N (N>=3) on-demand dispatch hook (S91):** ships the runtime-side dispatch
     surface — `_scrml_fetch_chunk(epId, role, tier)` in `compiler/src/runtime-template.js`,
-    appended inside the existing `prefetch` runtime chunk alongside `_scrml_prefetch_tier1`.
-    Per OQ-A2-B Option a (S89) + OQ-A4-D Option a (S91): RS in v0.3 always emits
-    `prefetchTierN: []`, so no codegen path emits a call site for the new function — it is
-    structural-scaffolding shipped for forward-compatibility with v0.4+ tier-N admission.
-    `emit-client.ts:detectRuntimeChunks` extends the `prefetch` chunk activation gate so it
-    lights up when EITHER tier-1 OR tier-N admission is non-empty for any (EP, role) in this
-    file; the v0.3 floor (both empty) elides the chunk entirely (the function's call target
-    is then dead-code-eliminated). Returns `Promise<string>` via `fetch().text()` for a
-    registered tuple OR JS `null` for an unregistered tuple — adopters MUST null-check the
-    return before chaining (canonical scrml absence per §42.5 / §42.8).
+    appended inside the existing `prefetch` runtime chunk alongside `_scrml_prefetch_tier1`
+    and `_scrml_prefetch_tier2`. Per OQ-A2-B Option a (S89) + OQ-A4-D Option a (S91):
+    RS in v0.3 always emits `prefetchTierN: []`, so no codegen path emits a call site
+    for the new function — it is structural-scaffolding shipped for forward-compatibility
+    with v0.4+ tier-N admission. `emit-client.ts:detectRuntimeChunks` extends the
+    `prefetch` chunk activation gate so it lights up when ANY of: non-empty tier-1
+    admission, non-empty tier-N admission, or `ctx.hasPrefetchableLinks = true`.
+    The v0.3 floor with all three signals empty elides the chunk entirely; the function's
+    call target is then dead-code-eliminated. Returns `Promise<string>` via
+    `fetch().text()` for a registered tuple OR JS `null` for an unregistered tuple —
+    adopters MUST null-check the return before chaining (canonical scrml absence per
+    §42.5 / §42.8).
   - **A-4.6 content-addressed chunk hashing (S91):** the A-4.1 `"00000000"` placeholder on
     every emitted `ChunkOutput` is replaced by the real FNV-1a base36 8-char content-addressed
     hash per SPEC §47.5 / §40.9.8 / §47.1.3. The hash is computed over the canonical

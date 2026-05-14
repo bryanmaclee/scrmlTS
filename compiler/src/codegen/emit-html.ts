@@ -410,6 +410,13 @@ export function generateHtml(
   let csrfEnabled: boolean;
   let registry: BindingRegistry | null | undefined;
   let fileAST: any;
+  // S91 A-4.4 — capture the live CompileContext (when present) so the
+  // `<a data-scrml-prefetch>` wiring can both consult `routeMap.pages`
+  // for internal-route resolution AND set `hasPrefetchableLinks` on the
+  // shared ctx. The legacy positional signature has no ctx; the prefetch
+  // wiring is then skipped (test fixtures + non-pipeline callers don't
+  // need it — they emit straight HTML without per-route chunk hooks).
+  let liveCtx: CompileContext | null = null;
   if (ctxOrErrors && typeof ctxOrErrors === "object" && "fileAST" in ctxOrErrors) {
     // New CompileContext signature
     const ctx = ctxOrErrors as CompileContext;
@@ -417,6 +424,7 @@ export function generateHtml(
     csrfEnabled = ctx.csrfEnabled;
     registry = ctx.registry;
     fileAST = ctx.fileAST;
+    liveCtx = ctx;
   } else {
     // Legacy positional signature
     errors = (ctxOrErrors as CGError[] | null) ?? [];
@@ -425,6 +433,72 @@ export function generateHtml(
     fileAST = fileASTLegacy;
   }
   const parts: string[] = [];
+
+  // S91 A-4.4 — Pre-build the set of known-internal URL patterns from
+  // `RouteMap.pages`. Used per `<a href>` attribute to decide whether
+  // to emit `data-scrml-prefetch`. We collect the urlPatterns into a
+  // Set<string> for O(1) lookup; the patterns are exact route paths
+  // (e.g. "/loads", "/admin", "/"). A-4.7 will extend this to handle
+  // pattern-with-params (`/loads/:id`) by URL-template matching; A-4.4
+  // ships exact-match-only (the §40.9.9 worked example uses static
+  // paths).
+  //
+  // Defensive: when `liveCtx` is null (legacy signature) OR
+  // `routeMap.pages` is missing / not a Map, we get the empty set —
+  // every `<a href>` falls through the lookup and no
+  // `data-scrml-prefetch` is emitted. Existing fixtures stay
+  // byte-identical.
+  const internalRoutes: Set<string> = (() => {
+    if (!liveCtx) return new Set<string>();
+    const pages = liveCtx.routeMap?.pages;
+    if (!pages || typeof pages.values !== "function") return new Set<string>();
+    const set = new Set<string>();
+    for (const entry of pages.values()) {
+      const urlPattern: unknown = (entry as { urlPattern?: unknown })?.urlPattern;
+      if (typeof urlPattern === "string" && urlPattern !== "") set.add(urlPattern);
+    }
+    return set;
+  })();
+
+  /**
+   * S91 A-4.4 — Resolve an `<a href>` value to a known internal route
+   * (urlPattern in `RouteMap.pages`) or return `null` if the href is
+   * external / unresolved / not a path.
+   *
+   * Rules (exact-match, conservative — A-4.7 may extend to pattern
+   * matching):
+   *   - Empty / non-string → null.
+   *   - Fragment-only (`#section`) → null.
+   *   - Protocol-bearing (`http://`, `https://`, `mailto:`, etc.) → null.
+   *   - Relative without leading `/` (`foo`, `./bar`) → null (rare
+   *     in scrml apps which use absolute paths).
+   *   - Absolute path NOT matching any `RouteMap.pages.urlPattern` → null.
+   *   - Absolute path that exactly matches a `urlPattern` → the
+   *     pattern (the route key).
+   *
+   * The returned route is the literal urlPattern string from RouteMap;
+   * the runtime hover-handler uses it as the `routePath` arg to
+   * `_scrml_prefetch_tier2(routePath, role)`.
+   */
+  function resolveInternalRoute(hrefRaw: string): string | null {
+    if (typeof hrefRaw !== "string" || hrefRaw === "") return null;
+    if (hrefRaw.startsWith("#")) return null; // fragment-only
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(hrefRaw)) return null; // protocol-bearing
+    if (!hrefRaw.startsWith("/")) return null; // not an absolute path
+    // Strip any query/fragment so `/loads?x=1` and `/loads#top` both
+    // resolve to `/loads`. The runtime handler can still navigate to
+    // the original target on click — we only care about route shape
+    // for prefetch.
+    const q = hrefRaw.indexOf("?");
+    const h = hrefRaw.indexOf("#");
+    let path = hrefRaw;
+    if (q !== -1 || h !== -1) {
+      const cutAt = (q !== -1 && h !== -1) ? Math.min(q, h) : Math.max(q, h);
+      path = hrefRaw.substring(0, cutAt);
+    }
+    if (internalRoutes.has(path)) return path;
+    return null;
+  }
 
   const reactiveVarNames: Set<string> | null = fileAST ? collectReactiveVarNames(fileAST) : null;
   const fnBodyRegistry = fileAST ? buildFunctionBodyRegistry(fileAST) : null;
@@ -1437,6 +1511,48 @@ export function generateHtml(
           parts.push(` ${_drName}`);
         } else {
           parts.push(` ${_drName}="${escapeHtmlAttr(_drVal)}"`);
+        }
+      }
+
+      // S91 A-4.4 — `data-scrml-prefetch` wiring for cross-route
+      // hover-prefetch. When the current element is an `<a>` with a
+      // static `href` value that resolves to a known internal route
+      // (urlPattern in `RouteMap.pages`), inject the
+      // `data-scrml-prefetch="<route>"` attribute. The hover-handler
+      // attachment block emitted by `composeInitialChunk` consumes
+      // this attribute via `querySelectorAll("a[data-scrml-prefetch]")`.
+      //
+      // External links, fragment-only links, and links to unknown
+      // internal routes get NO attribute — the runtime handler skips
+      // them silently. (Per SPEC §40.9.7: hover-prefetch fires only on
+      // explicit route hints; "/foo" with no matching page falls
+      // through to plain navigation.)
+      //
+      // Reactive / templated / expression-valued href attributes are
+      // SKIPPED at A-4.4 — the static-href case is the dominant nav
+      // pattern (`<a href="/loads">` etc.); reactive href values would
+      // require runtime route resolution (deferred to A-4.7+).
+      //
+      // The flag-set side-effect activates the `prefetch` runtime
+      // chunk + the IIFE-tail hover-handler attachment block in
+      // composeInitialChunk; see emit-client.ts:detectRuntimeChunks
+      // and route-splitter.ts:emitPerRouteChunks for the read sites.
+      if (tag === "a" && liveCtx) {
+        for (const attr of attrs) {
+          if (!attr || attr.name !== "href") continue;
+          const val = attr.value;
+          if (!val || val.kind !== "string-literal") continue;
+          const hrefRaw: unknown = (val as { value?: unknown }).value;
+          if (typeof hrefRaw !== "string") continue;
+          // Skip when the href has template interpolation (`${...}`)
+          // — that's a reactive href; the resolved value isn't known
+          // at emit time.
+          if (hasTemplateInterpolation(hrefRaw)) continue;
+          const resolved = resolveInternalRoute(hrefRaw);
+          if (resolved === null) break; // not internal — skip and stop scanning this element
+          parts.push(` data-scrml-prefetch="${escapeHtmlAttr(resolved)}"`);
+          liveCtx.hasPrefetchableLinks = true;
+          break; // exactly one href per <a>; stop after wiring it
         }
       }
 

@@ -1579,9 +1579,15 @@ export function compileScrml(options = {}) {
     if (emitPerRoute && cgResult.chunks && cgResult.chunksManifest) {
       // S91 A-4.3 — surface per-tier byte totals in the verbose log so
       // adopters can sanity-check the tier-1 idle-prefetch payload
-      // budget at a glance.
+      // budget at a glance. S91 A-4.4 extends this to tier-2 chunks;
+      // in v0.3 RS A-2.5 floor admits NO intra-route tier-2 content
+      // (the dominant tier-2 surface is cross-route hover-prefetch,
+      // which fetches OTHER routes' INITIAL chunks — not these
+      // tier-2 files), so the tier-2 count is typically zero.
       let tier1Count = 0;
       let tier1Bytes = 0;
+      let tier2Count = 0;
+      let tier2Bytes = 0;
       for (const chunk of cgResult.chunks.values()) {
         // S91 A-4.3 — Skip the file write when the chunk has an empty
         // payload AND is a non-initial tier. The initial chunk always
@@ -1607,6 +1613,9 @@ export function compileScrml(options = {}) {
         if (chunk.tier === "tier1") {
           tier1Count++;
           tier1Bytes += byteLen;
+        } else if (chunk.tier === "tier2") {
+          tier2Count++;
+          tier2Bytes += byteLen;
         }
         if (verbose) {
           // S91 A-4.2 — surface chunk byte count in the verbose log so
@@ -1632,6 +1641,11 @@ export function compileScrml(options = {}) {
         // initial render — typical for small fixtures + the §40.9.9
         // worked example).
         log(`  [CG] Tier-1 idle-prefetch chunks: ${tier1Count} file(s), ${tier1Bytes} B total`);
+        // A-4.4 tier-2 summary — typically "0 file(s), 0 B" in v0.3 per
+        // the RS A-2.5 intra-route tier-2 admission floor. The dominant
+        // tier-2 surface is the cross-route hover-prefetch path, which
+        // fetches OTHER routes' INITIAL chunks — not files counted here.
+        log(`  [CG] Tier-2 intra-route prefetch chunks: ${tier2Count} file(s), ${tier2Bytes} B total`);
       }
     }
   } else if (!write && cgResult.outputs) {

@@ -359,6 +359,19 @@ export function emitPerRouteChunks(
     const epFilePath = filePathFromEntryPointId(epId);
     const epCtx = (ctxByFile && epFilePath) ? ctxByFile.get(epFilePath) : undefined;
 
+    // -- A-4.4 — read the `hasPrefetchableLinks` flag once per entry
+    // point. The flag is set by `emit-html.ts` when at least one
+    // `<a href="/...">` resolves to a `RouteMap.pages` urlPattern AND
+    // is decorated with `data-scrml-prefetch`. The route-splitter
+    // forwards this single boolean into `composeInitialChunk` for
+    // every role under this entry point (the flag is file-scoped,
+    // not role-scoped — the same set of links exists in HTML for
+    // every viewer role; the *runtime* `_scrml_current_role()` call
+    // decides which target-route chunk URL is fetched at hover-time).
+    const hasPrefetchableLinks = Boolean(
+      (epCtx as undefined | { hasPrefetchableLinks?: boolean })?.hasPrefetchableLinks,
+    );
+
     for (const [role, plan] of rps.byRole) {
       const entry: ChunksManifestEntry = {};
 
@@ -398,11 +411,12 @@ export function emitPerRouteChunks(
 
       // -- initial (A-4.2) -- composer optionally appends an IIFE-tail
       // `_scrml_prefetch_tier1(<tier1Url>)` call when `tier1Url` is
-      // non-null. When the route-splitter has no CompileContext (unit-
-      // test direct invocation with `makeRecord`), the initial-chunk
-      // payload falls back to the empty string; the byte-deterministic
-      // canonical empty is `""` which composes safely with the manifest
-      // determinism contract.
+      // non-null AND a hover-handler attachment block when
+      // `hasPrefetchableLinks` is true. When the route-splitter has no
+      // CompileContext (unit-test direct invocation with `makeRecord`),
+      // the initial-chunk payload falls back to the empty string; the
+      // byte-deterministic canonical empty is `""` which composes
+      // safely with the manifest determinism contract.
       const initialChunk = makeChunkOutput(epId, role, "initial", plan.initialChunk);
       if (epCtx) {
         initialChunk.payloadJs = composeInitialChunk(
@@ -411,6 +425,7 @@ export function emitPerRouteChunks(
           epId,
           role,
           tier1Url,
+          hasPrefetchableLinks,
         );
       }
       // -- A-4.6 -- Hash AFTER payload composition. The tier-1-URL
@@ -428,16 +443,27 @@ export function emitPerRouteChunks(
       chunks.set(tier1Chunk.key, tier1Chunk);
       entry.tier1 = tier1Chunk.key;
 
-      // tier2 — A-4.4 territory; payload remains "" at A-4.6.
+      // -- tier2 (A-4.4 + A-4.6 merged) -- compose payload (A-4.4)
+      // then content-address hash (A-4.6). Empty admission → empty
+      // payloadJs (skipped by api.js write loop); non-empty admission
+      // → real chunk file. Per SCOPING §3.4 the v0.3 RS A-2.5 floor
+      // admits NO components for intra-route tier-2; the composer is
+      // structurally present for v0.4 RS refinement (OQ-A4-B deferred).
+      //
+      // The cross-route hover-prefetch wiring (the dominant case for
+      // tier-2 — nav `<a href>` hovers warming target-route initial
+      // chunks) lives in `composeInitialChunk`'s IIFE-tail attachment
+      // block (driven by `hasPrefetchableLinks` above), NOT here.
+      //
+      // Empty-payload chunks still get a real hash per §40.9.8 (the
+      // canonical empty-input hash is deterministic); the manifest
+      // entry is preserved per OQ-A4-A always-emit. When A-4.4 lands
+      // a real tier-2 composer payload, the hash picks it up.
       const tier2Chunk = makeChunkOutput(epId, role, "tier2", plan.prefetchTier2);
-      // -- A-4.6 -- Empty-payload chunks still get a real hash. The
-      // canonical empty-input hash is a deterministic constant per
-      // §40.9.8; the manifest entry is preserved per OQ-A4-A always-
-      // emit (the file write itself is elided by api.js — but the
-      // manifest still references the hash-named chunk so v0.3 tests
-      // can replay the determinism contract end-to-end). When A-4.4
-      // lands a real tier-2 composer, the hash will pick up the
-      // populated payload automatically.
+      const tier2NonEmpty = !isChunkContentsEmpty(plan.prefetchTier2);
+      if (epCtx && tier2NonEmpty) {
+        tier2Chunk.payloadJs = composeTier2Chunk(plan.prefetchTier2, epCtx, epId, role);
+      }
       finalizeChunkHash(tier2Chunk);
       chunks.set(tier2Chunk.key, tier2Chunk);
       entry.tier2 = tier2Chunk.key;
@@ -468,6 +494,14 @@ export function emitPerRouteChunks(
 // composeInitialChunk — A-4.2 §40.9.7 initial_chunk(E) emitter
 // composeTier1Chunk   — A-4.3 §40.9.7 prefetch_tier_1(E) emitter
 // ---------------------------------------------------------------------------
+
+/**
+ * Anonymous-role sentinel used in the hover-handler fallback when no
+ * `_scrml_current_role()` runtime helper is present (A-4.4 ships with
+ * the placeholder; A-4.7 lands the real role-bootstrap per OQ-A4-E
+ * hybrid). Mirrors `ANONYMOUS_ROLE` below.
+ */
+const HOVER_HANDLER_ROLE_FALLBACK = "_anonymous";
 
 /**
  * Compose the `payloadJs` body for an `initial`-tier chunk from a
@@ -512,6 +546,23 @@ export function emitPerRouteChunks(
  * `_scrml_prefetch_tier1` is tree-shaken from `SCRML_RUNTIME` in that
  * case).
  *
+ * **A-4.4 IIFE-tail hover-handler attachment.** When
+ * `hasPrefetchableLinks` is true (set by `emit-html.ts` after at least
+ * one `<a href="/internal-route">` was wired with
+ * `data-scrml-prefetch`), the IIFE tail also attaches a
+ * `mouseenter` + `focus` once-listener pair that calls
+ * `_scrml_prefetch_tier2(routePath, role)` on first hover/focus.
+ * `_scrml_current_role()` is consulted for the live viewer role with a
+ * `"_anonymous"` fallback (the runtime helper is provided by A-4.7's
+ * role-bootstrap; A-4.4 ships the fallback).
+ *
+ * Per OQ-A4-E ratification (hybrid: ONE HTML per route +
+ * role-bootstrap), the `data-scrml-prefetch` attribute lives on the
+ * `<a>` element so the runtime scan is a single
+ * `document.querySelectorAll("a[data-scrml-prefetch]")` pass — no
+ * server-side per-link prefetch tag, no per-role HTML variance for the
+ * link attachment.
+ *
  * @param contents The `ChunkContents` admission set for `initial` tier.
  * @param ctx The per-file CompileContext for the entry point's source
  *   file. Used to resolve node ids → AST nodes for atom emission.
@@ -523,6 +574,13 @@ export function emitPerRouteChunks(
  *   call is appended to the IIFE tail. `null` (default) emits no
  *   prefetch call — used when the (EP, role)'s tier-1 admission set is
  *   empty so the prefetch runtime is tree-shaken.
+ * @param hasPrefetchableLinks When true, a hover-handler attachment
+ *   block is appended to the IIFE tail. The block scans the DOM for
+ *   `<a data-scrml-prefetch>` elements and wires `mouseenter` +
+ *   `focus` once-listeners. Default `false` — `emit-html.ts` sets
+ *   `ctx.hasPrefetchableLinks` to `true` when at least one internal
+ *   `<a href="/...">` is wired; `emitPerRouteChunks` reads that flag
+ *   and forwards it here.
  * @returns The fully-composed `payloadJs` string.
  */
 export function composeInitialChunk(
@@ -531,6 +589,7 @@ export function composeInitialChunk(
   epId: EntryPointId,
   role: RoleVariant,
   tier1Url: string | null = null,
+  hasPrefetchableLinks: boolean = false,
 ): string {
   const lines: string[] = [];
 
@@ -563,6 +622,61 @@ export function composeInitialChunk(
     lines.push(``);
     lines.push(`  // --- §40.9.7 tier-1 idle prefetch (OQ-A4-G Option γ) ---`);
     lines.push(`  _scrml_prefetch_tier1(${JSON.stringify(tier1Url)});`);
+  }
+
+  // -- A-4.4 IIFE-tail hover-handler attachment for cross-route
+  // prefetch. --
+  //
+  // Scans the DOM for `<a data-scrml-prefetch="<route>">` elements
+  // (wired by `emit-html.ts` when an internal `<a href="/...">` resolves
+  // to a `RouteMap.pages` entry) and attaches a `mouseenter` + `focus`
+  // once-listener pair. On first hover/focus, the listener calls
+  // `_scrml_prefetch_tier2(route, _scrml_current_role())` which issues
+  // a `<link rel="prefetch">` for the target route's initial chunk —
+  // making cross-route navigation feel instant when the user actually
+  // clicks.
+  //
+  // Per OQ-A4-E ratification (hybrid: ONE HTML per route +
+  // role-bootstrap), the role detection is centralized in
+  // `_scrml_current_role()` (provided by A-4.7's role-bootstrap). At
+  // A-4.4 the helper does not yet exist; we fall back to the
+  // `"_anonymous"` sentinel (matches `reachability/component-4.ts`'s
+  // `ANONYMOUS_ROLE`) so the chunk URL composes against the
+  // anonymous-role chunk hash. When A-4.7 lands, the fallback path
+  // becomes the unauth case rather than the default.
+  //
+  // Listener semantics — `{ once: true, passive: true }`:
+  //   - `once: true` — fire exactly once per element. The browser HTTP
+  //     cache handles repeat hovers (the second `<link rel="prefetch">`
+  //     would be a no-op cache hit).
+  //   - `passive: true` — signals that the listener does not call
+  //     `preventDefault()`; browsers can optimize scroll/touch on
+  //     touchscreens (per the §40.9.7 SHOULD on hover signal).
+  //
+  // Tree-shake invariant: when `hasPrefetchableLinks` is false (no
+  // `data-scrml-prefetch` attrs were emitted in HTML), the attachment
+  // block is omitted from the IIFE. The `_scrml_prefetch_tier2` runtime
+  // function is also tree-shaken from SCRML_RUNTIME (the `prefetch`
+  // chunk fails the `detectRuntimeChunks` activation gate).
+  if (hasPrefetchableLinks) {
+    lines.push(``);
+    lines.push(`  // --- §40.9.7 tier-2 hover-prefetch wiring (A-4.4) ---`);
+    lines.push(`  if (typeof document !== "undefined") {`);
+    lines.push(`    var _scrml_links = document.querySelectorAll("a[data-scrml-prefetch]");`);
+    lines.push(`    for (var i = 0; i < _scrml_links.length; i++) {`);
+    lines.push(`      (function (el) {`);
+    lines.push(`        var attach = function () {`);
+    lines.push(`          var route = el.getAttribute("data-scrml-prefetch");`);
+    lines.push(`          var roleFn = (typeof _scrml_current_role === "function")`);
+    lines.push(`            ? _scrml_current_role`);
+    lines.push(`            : function () { return ${JSON.stringify(HOVER_HANDLER_ROLE_FALLBACK)}; };`);
+    lines.push(`          _scrml_prefetch_tier2(route, roleFn());`);
+    lines.push(`        };`);
+    lines.push(`        el.addEventListener("mouseenter", attach, { once: true, passive: true });`);
+    lines.push(`        el.addEventListener("focus", attach, { once: true, passive: true });`);
+    lines.push(`      })(_scrml_links[i]);`);
+    lines.push(`    }`);
+    lines.push(`  }`);
   }
 
   lines.push(`})();`);
@@ -627,6 +741,80 @@ export function composeTier1Chunk(
   // can visually verify which file they are inspecting.
   lines.push(`// scrml tier-1 chunk — entryPoint=${epId} role=${role}`);
   lines.push(`// §40.9.7 prefetch_tier_1(E) — playable_surface(E, N=1) − initial_chunk(E)`);
+  lines.push(`(function () {`);
+  lines.push(`  "use strict";`);
+
+  appendAtomLines(lines, contents, ctx);
+
+  lines.push(`})();`);
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+/**
+ * Compose the `payloadJs` body for a `tier2`-tier chunk from a
+ * `ChunkContents` admission set + the per-file `CompileContext`.
+ *
+ * **§40.9.7 normative shape:**
+ *
+ *   `prefetch_tier_2(E) := playable_surface(E, N=2) − playable_surface(E, N=1)`
+ *
+ * The tier-2 chunk is the DELTA over the tier-1 surface — only the
+ * components / server-fn stubs / reactive cells / vendor units that
+ * become reachable at interaction depth N=2 but were NOT already
+ * admitted at N=1. The §40.9.7 normative wording also describes a
+ * SECOND tier-2 dispatch shape — cross-route hover-prefetch (`<a>`
+ * link hovers warm the target route's INITIAL chunk). A-4.4 implements
+ * both surfaces; this composer handles the intra-route side (i.e. the
+ * chunk file contents when the RS solver admits N=2 components for the
+ * current entry point).
+ *
+ * **Empirical floor (v0.3 SCOPING §3.4).** Per RS A-2.5 Component 4 the
+ * intra-route tier-2 admission set is currently empty (`prefetchTier2.
+ * componentNodeIds = new Set()` floor). The composer is present
+ * structurally for v0.4 RS refinement (OQ-A4-B deferred); it is rarely
+ * invoked in v0.3 (the caller `emitPerRouteChunks` only invokes it
+ * when `isChunkContentsEmpty(contents)` is false, which means the
+ * synthetic unit-test path is the typical exerciser).
+ *
+ * **Cross-route vs intra-route — DO NOT CONFUSE.** Cross-route
+ * hover-prefetch (the dominant case — nav `<a href>` hovers) is wired
+ * by `composeInitialChunk`'s IIFE-tail attachment block. The tier-2
+ * CHUNK FILE here is the intra-route deep-interaction surface
+ * (focus-or-hover on an interactive component fires the chunk fetch
+ * for that component's tier-2 cascade — empty in v0.3).
+ *
+ * **Empty tier-2 contract.** When all four admission sets are empty,
+ * the caller (`emitPerRouteChunks`) MUST skip both the chunk file
+ * write AND any cross-reference to the tier-2 chunk URL. This composer
+ * is NOT called in that case — its non-empty-input contract is
+ * enforced at the call site via `isChunkContentsEmpty`.
+ *
+ * **Determinism (§40.9.8):** byte-identical input → byte-identical
+ * output. Reuses the same canonical comparator + atom emitters as
+ * `composeInitialChunk` / `composeTier1Chunk` to preserve the §40.9.8
+ * hash-input invariant.
+ *
+ * @param contents The `ChunkContents` admission set for `tier2` tier.
+ * @param ctx The per-file CompileContext for the entry point's source
+ *   file. Used to resolve node ids → AST nodes for atom emission.
+ * @param epId Entry-point id (informational; chunk header comment).
+ * @param role Role variant (informational; chunk header comment).
+ * @returns The fully-composed `payloadJs` string.
+ */
+export function composeTier2Chunk(
+  contents: ChunkContents,
+  ctx: CompileContext,
+  epId: EntryPointId,
+  role: RoleVariant,
+): string {
+  const lines: string[] = [];
+
+  // Chunk header — distinct from initial / tier-1 chunks by tier label
+  // so adopters can visually verify which file they are inspecting.
+  lines.push(`// scrml tier-2 chunk — entryPoint=${epId} role=${role}`);
+  lines.push(`// §40.9.7 prefetch_tier_2(E) — playable_surface(E, N=2) − playable_surface(E, N=1)`);
   lines.push(`(function () {`);
   lines.push(`  "use strict";`);
 

@@ -88,6 +88,27 @@ export interface CompileContext {
    * pre-populates with an empty record for safety.
    */
   reachabilityRecord?: ReachabilityRecord | null;
+  /**
+   * S91 A-4.4 — set to `true` by `emit-html.ts` when at least one
+   * internal `<a href="/...">` was wired with `data-scrml-prefetch="..."`
+   * during HTML emission for this file. Two downstream consumers read it:
+   *
+   *   1. `detectRuntimeChunks` in `emit-client.ts` activates the
+   *      `prefetch` runtime chunk so `_scrml_prefetch_tier2` ships.
+   *   2. `emitPerRouteChunks` in `route-splitter.ts` passes the flag
+   *      into `composeInitialChunk` so the IIFE-tail hover-handler
+   *      attachment block is emitted.
+   *
+   * Tree-shake invariant: when the flag stays `false` (no internal
+   * links emitted in HTML), the `_scrml_prefetch_tier2` runtime
+   * function is tree-shaken AND no hover-handler block is emitted into
+   * the initial chunk. A-4.4 test §9 "Runtime function elision
+   * (tree-shake dead)" pins this contract.
+   *
+   * Defaults to `false`. Mutated by `emit-html.ts` during the markup
+   * walk (per-element check on `<a href>` against `RouteMap.pages`).
+   */
+  hasPrefetchableLinks?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,5 +151,9 @@ export function makeCompileContext(partial: Partial<CompileContext> & { fileAST:
     // so downstream consumers (A-4 codegen wave) can read the shape without
     // a null-guard; A-2.2+ replaces this with the actual closure analysis.
     reachabilityRecord: partial.reachabilityRecord ?? emptyReachabilityRecord(),
+    // A-4.4 — `<a data-scrml-prefetch>` emission flag. Defaults to false;
+    // `emit-html.ts` flips it to true when at least one internal `<a href>`
+    // resolves to a `RouteMap.pages` urlPattern.
+    hasPrefetchableLinks: partial.hasPrefetchableLinks ?? false,
   };
 }

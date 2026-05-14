@@ -50,12 +50,31 @@
  *                 _scrml_engine_direct_set (§51.0.F + §51.0.G, C13).
  *                 Tree-shaken when usage.engines is false.
  *   prefetch      _scrml_prefetch_tier1 (§40.9.7 tier-1 idle prefetch, A-4.3) +
- *                 _scrml_fetch_chunk(epId, role, tier) (§40.9.7 tier-N on-demand
- *                 dispatch hook, A-4.5 — structurally shipped, never fires in
- *                 v0.3 per OQ-A2-B Option a + OQ-A4-D Option a).
- *                 Tree-shaken when no chunk has non-empty tier-1 admission AND
- *                 no codegen path emits a `_scrml_fetch_chunk(...)` call (the
- *                 latter ALWAYS holds in v0.3 because RS emits empty tier-N).
+ *                 _scrml_prefetch_tier2 + _SCRML_CHUNKS manifest scaffold
+ *                 (§40.9.7 tier-2 hover prefetch, A-4.4) +
+ *                 _scrml_fetch_chunk(epId, role, tier) (§40.9.7 tier-N
+ *                 on-demand dispatch hook, A-4.5 — structurally shipped,
+ *                 never fires in v0.3 per OQ-A2-B Option a + OQ-A4-D Option a).
+ *
+ *                 The `prefetch` chunk groups ALL THREE prefetch/dispatch
+ *                 surfaces (tier-1 idle, tier-2 hover, tier-N on-demand)
+ *                 under ONE tree-shake gate. Single-marker design (A-4.4 +
+ *                 A-4.5 decision): adding sibling markers would let us
+ *                 tree-shake the three functions independently, but in
+ *                 practice apps that use any of them almost always use
+ *                 at least tier-1. Single chunk keeps the marker table
+ *                 simpler.
+ *
+ *                 Tree-shaken when ALL of:
+ *                   • no chunk has non-empty tier-1 admission
+ *                   • no chunk has non-empty tier-N admission
+ *                   • no `<a data-scrml-prefetch>` was emitted in any
+ *                     HTML file for this compile unit (i.e. no internal
+ *                     `<a href>` linked to a known route).
+ *                 `detectRuntimeChunks` reads `ctx.hasPrefetchableLinks`
+ *                 (A-4.4; set by `emit-html.ts`) plus per-(EP, role)
+ *                 tier-1 / tier-N admission scans (A-4.3 + A-4.5);
+ *                 any signal lights up the chunk.
  *                 OQ-A4-G ratification (S91): Option γ — `requestIdleCallback`
  *                 browser-side with `setTimeout(fn, 1)` Safari fallback;
  *                 Bun-runtime primitive reserved as v0.4 extension point.
@@ -129,6 +148,12 @@ const CHUNK_MARKERS: Record<NonCoreChunkName, string> = {
   scope:          '§6.7.3 Scope-aware cleanup registry',
   timers:         '§6.7.5 / §6.7.6 Timer and Poll runtime',
   animation:      '§6.7.7 animationFrame runtime',
+  // Section marker covers BOTH §40.9.7 tier-1 idle-prefetch (A-4.3) AND
+  // §40.9.7 tier-2 hover-prefetch (A-4.4). The chunk's content runs from
+  // the tier-1 marker through to the next chunk's marker (`meta`); both
+  // runtime functions plus the `_SCRML_CHUNKS` manifest scaffold sit in
+  // that range. See chunk-catalog block above for the single-marker
+  // rationale.
   prefetch:       "§40.9.7 tier-1 idle prefetch runtime (chunk: 'prefetch')",
   meta:           '§22.5 meta.emit() runtime',
   transitions:    'Transition CSS injection',

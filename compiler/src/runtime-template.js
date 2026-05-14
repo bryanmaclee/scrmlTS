@@ -1245,32 +1245,91 @@ function _scrml_prefetch_tier1(chunkUrl) {
 }
 
 // ---------------------------------------------------------------------------
-// §40.9.7 tier-N (N>=3) on-demand dispatch hook — chunk: 'prefetch'
+// §40.9.7 prefetch runtime — chunk: 'prefetch'
+// Hosts BOTH:
+//   • _scrml_prefetch_tier2 (A-4.4) — cross-route hover-prefetch
+//   • _scrml_fetch_chunk    (A-4.5) — tier-N (N>=3) on-demand dispatch
 // ---------------------------------------------------------------------------
 //
-// Per SPEC §40.9.7: "prefetch_tier_N(E) for N >= 3 SHALL be fetched on-demand
-// when the user actually traverses into the deep-interaction surface."
+// Per SPEC §40.9.7:
+//   • "prefetch_tier_2(E) SHALL be hover-prefetched (link-hover for
+//      routes, focus-or-hover for interactive components)."
+//   • "prefetch_tier_N(E) for N >= 3 SHALL be fetched on-demand when
+//      the user actually traverses into the deep-interaction surface."
 //
-// Per OQ-A2-B Option a (S89 ratification) + OQ-A4-D Option a (S91
-// ratification): RS in v0.3 always emits \`prefetchTierN: []\` — A-4.5 ships
-// the runtime dispatch surface as structural scaffolding that v0.4+ can
-// populate WITHOUT touching runtime-template.js again. In v0.3 no codegen
-// path emits a call site for this function, so the entire \`prefetch\`
-// chunk (this function plus \`_scrml_prefetch_tier1\`) is tree-shaken when
-// no tier-1 admission is present either.
+// Per SCOPING §3.4 (A-4 per-route artifact splitter) the §40.9.7 tier-2
+// semantics has two distinct shapes:
+//   1. Cross-route hover prefetch (DOMINANT) — \`<a href="/other-route">\`
+//      hovered → fetch \`/other-route\`'s initial chunk for the viewer's
+//      live role.
+//   2. Intra-route deep-interaction prefetch — empty in v0.3 per RS
+//      A-2.5 floor; structurally supported.
 //
-// Returns a \`Promise<string>\` resolving to the chunk's source bytes when
-// the (epId, role, tier) tuple is registered in \`_SCRML_CHUNKS\` (the
-// content-addressing manifest — A-4.6 populates real entries). Returns
-// JS \`null\` when the tuple is not registered. Per scrml's canonical
-// absence (§42.5 / §42.8) emitted-runtime JS represents scrml \`not\` as
-// JS \`null\`; adopters MUST null-check before chaining \`.then(...)\`.
+// \`_scrml_prefetch_tier2(routePath, role)\` implements case (1).
+// \`_scrml_fetch_chunk(epId, role, tier)\` (A-4.5) is the tier-N dispatch
+// surface; never fires in v0.3 per OQ-A2-B Option a + OQ-A4-D Option a,
+// structural scaffolding for v0.4+.
+
+// _SCRML_CHUNKS — per-app chunks.json manifest mirror.
 //
-// The function is structurally complete BUT never fires in v0.3 because
-// RS emits empty tier-N admission sets. When RS extends to N>=3 in v0.4
-// or later, the codegen route-splitter will emit call sites referencing
-// this function in the appropriate boundary-crossing handlers — no
-// runtime-template.js change required at that point.
+// A-4.4 ships the placeholder scaffold (\`Object.create(null)\` to avoid
+// prototype-pollution surprises). A-4.6 populates real chunk URLs at
+// HTML emission time (a \`<script>\` tag in the initial HTML payload
+// writes \`window._SCRML_CHUNKS = { ... }\` before any chunk script loads).
+//
+// Shape (after A-4.6 populates it):
+//
+//   _SCRML_CHUNKS["/loads"]["Driver"] = {
+//     initial: "/loads/Driver.initial.abc12345.js",
+//     tier1:   "/loads/Driver.tier1.def67890.js",
+//   }
+var _SCRML_CHUNKS = (typeof _SCRML_CHUNKS !== "undefined")
+  ? _SCRML_CHUNKS
+  : Object.create(null);
+
+function _scrml_prefetch_tier2(routePath, role) {
+  if (typeof document === "undefined") return;
+  if (typeof routePath !== "string" || routePath === "") return;
+  if (typeof role !== "string" || role === "") return;
+  // Defensive: pre-A-4.6 \`_SCRML_CHUNKS\` is the empty scaffold.
+  var byRoute = _SCRML_CHUNKS[routePath];
+  if (!byRoute) {
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn(
+        "[scrml] _scrml_prefetch_tier2: no chunk manifest entry for route \\"" +
+        routePath + "\\" (skipping prefetch — A-4.6 will populate _SCRML_CHUNKS)"
+      );
+    }
+    return;
+  }
+  var byRole = byRoute[role];
+  if (!byRole || typeof byRole.initial !== "string") {
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn(
+        "[scrml] _scrml_prefetch_tier2: no chunk for route=\\"" + routePath +
+        "\\" role=\\"" + role + "\\" (skipping prefetch)"
+      );
+    }
+    return;
+  }
+  var link = document.createElement("link");
+  link.rel = "prefetch";
+  link.as = "script";
+  link.href = byRole.initial;
+  document.head.appendChild(link);
+}
+
+// _scrml_fetch_chunk (A-4.5) — tier-N on-demand dispatch. Returns a
+// \`Promise<string>\` resolving to the chunk's source bytes when the
+// (epId, role, tier) tuple is registered in _SCRML_CHUNKS (A-4.6
+// populates real entries). Returns JS \`null\` when the tuple is not
+// registered. Per scrml's canonical absence (§42.5 / §42.8) emitted-
+// runtime JS represents scrml \`not\` as JS \`null\`; adopters MUST null-
+// check before chaining \`.then(...)\`. Structurally complete BUT never
+// fires in v0.3 because RS emits empty tier-N admission sets. When RS
+// extends to N>=3 in v0.4+, the codegen route-splitter will emit call
+// sites referencing this function — no runtime-template.js change
+// required at that point.
 
 function _scrml_fetch_chunk(epId, role, tier) {
   var manifest = (typeof _SCRML_CHUNKS !== "undefined") ? _SCRML_CHUNKS : {};
