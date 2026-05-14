@@ -416,9 +416,24 @@ function buildChannelGate(
 
 /**
  * Project each gate's redirect target into the `redirectTargets` map and
- * cross-ref against `RouteMap.pages`. Emits info-level
- * `I-AUTH-REDIRECT-UNRESOLVED` for any redirect path that does NOT match
- * a URL pattern in `RouteMap.pages`.
+ * cross-ref against `RouteMap.pages`. Emits two distinct diagnostics under
+ * a TWO-TIER severity model (per OQ-1 ratification at
+ * `docs/changes/03-contact-book-auth-redirect-SCOPING/SCOPING.md` §5):
+ *
+ *   1. `I-AUTH-REDIRECT-UNRESOLVED` (info, gate-local) — fires once per
+ *      gate when that gate's specific redirect path does NOT match any
+ *      `RouteMap.pages` entry. Surfaces typos / unimplemented routes
+ *      WITHOUT escalating; the per-gate redirect is the page-author's
+ *      concern per OQ-A2-E + OQ-A3-B (a) S90 ratification.
+ *
+ *   2. `W-AUTH-LOGIN-MISSING` (warning, compilation-scoped) — fires AT
+ *      MOST ONCE per compilation when the structural gap is total: every
+ *      gate that names a redirect names a target that does not resolve.
+ *      Points adopters at `scrml generate auth` to scaffold a working
+ *      login page. The S86 03-contact-book latent bug:
+ *      `<program auth="required">` declared but no `/login` page exists
+ *      anywhere in the compilation unit — the runtime 302 redirects to
+ *      a 404, producing the e2e test tolerance window.
  *
  * Behaviour (per OQ-A3-B (a) S90 ratification — bare-string disposition):
  *   - Iterate every gate in `gates`.
@@ -433,10 +448,16 @@ function buildChannelGate(
  *   - When `routeMap` is `null` (unit-test mode), the projection still
  *     records redirect strings but emits no diagnostics — RouteMap is
  *     required to confirm resolution.
+ *   - After the per-gate sweep, if at least one gate named a redirect
+ *     target AND no gate's redirect resolved, emit ONE
+ *     `W-AUTH-LOGIN-MISSING` warning anchored at the first gate that
+ *     named a redirect.
  *
  * Per OQ-A2-E ratified S89: A-3.4 does NOT synthesize new entry-points.
  * The redirect target IS its own entry-point (if it exists in RouteMap);
- * absence is the page-author's concern, surfaced as INFO not ERROR.
+ * absence is the page-author's concern, surfaced as INFO not ERROR for
+ * the per-gate case and WARNING for the structural-gap case (so adopters
+ * notice the missing /login page loudly enough to act).
  *
  * Per SPEC §40.4 + route-inference.ts:2443: when `<program auth=>` is set
  * but no explicit `loginRedirect=` is provided, RI defaults `loginRedirect`
@@ -461,6 +482,13 @@ function crossRefRedirects(
     ? collectUrlPatterns(routeMap)
     : null;
 
+  // Track structural-gap state for the W-AUTH-LOGIN-MISSING tier-2 lint.
+  // The tier-2 fires once per compilation when EVERY redirect-naming gate
+  // failed to resolve — i.e., no working login page exists anywhere.
+  let firstRedirectGate: AuthGate | null = null;
+  let anyResolved = false;
+  const unresolvedTargets = new Set<string>();
+
   for (const [nodeId, gate] of gates) {
     const redirect = gate.redirect;
 
@@ -474,7 +502,16 @@ function crossRefRedirects(
     if (redirect == null) continue;
     if (urlPatterns == null) continue;
 
-    if (!urlPatterns.has(redirect)) {
+    // Stable first-gate anchor for the tier-2 W-AUTH-LOGIN-MISSING site.
+    // Iteration order over Map respects insertion order — and gates were
+    // inserted in walk order — so this picks the lexically-first gate
+    // that names a redirect.
+    if (firstRedirectGate == null) firstRedirectGate = gate;
+
+    if (urlPatterns.has(redirect)) {
+      anyResolved = true;
+    } else {
+      unresolvedTargets.add(redirect);
       errors.push({
         code: "I-AUTH-REDIRECT-UNRESOLVED",
         severity: "info",
@@ -488,6 +525,33 @@ function crossRefRedirects(
         filePath: gate.filePath,
       });
     }
+  }
+
+  // Tier-2 structural-gap signal — W-AUTH-LOGIN-MISSING.
+  //
+  // Fires when at least one gate names a redirect target AND no gate's
+  // redirect actually resolves to a page in RouteMap.pages. This is the
+  // S86 03-contact-book latent bug shape: <program auth="required">
+  // declared, default loginRedirect="/login" produced by RI, but no
+  // /login page authored anywhere. Per OQ-1 two-tier ratification: the
+  // info-level per-gate I-AUTH-REDIRECT-UNRESOLVED is too quiet (commonly
+  // suppressed) to surface this structural gap loudly enough. The
+  // warning points at `scrml generate auth` so adopters have an exit
+  // path that doesn't require authoring the page from scratch.
+  if (firstRedirectGate != null && !anyResolved && unresolvedTargets.size > 0) {
+    const targets = [...unresolvedTargets].map(t => `"${t}"`).join(", ");
+    errors.push({
+      code: "W-AUTH-LOGIN-MISSING",
+      severity: "warning",
+      message:
+        `Auth gates declare redirect target(s) ${targets} but no page in ` +
+        `the compilation unit matches any of these paths. The runtime ` +
+        `auth-check will 302 to a 404. Author a login page at the redirect ` +
+        `path, or run \`scrml generate auth\` to scaffold one. ` +
+        `(SPEC §40.1.1.)`,
+      span: firstRedirectGate.span,
+      filePath: firstRedirectGate.filePath,
+    });
   }
 }
 

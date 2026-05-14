@@ -262,12 +262,24 @@ export interface RoleEnum {
  *     explicit per-page `auth=` for closure-analysis correctness. Fires
  *     from A-3.3 (`classifyGates`). The §34 catalog row will be added in
  *     a later A-3.5 SPEC dispatch.
+ *   - `W-AUTH-LOGIN-MISSING` — WARNING-level (load-bearing structural-gap
+ *     signal): one or more auth gates declare a redirect target but NO
+ *     page anywhere in the compilation unit's `RouteMap.pages` matches
+ *     ANY redirect target the gates name. Distinct from
+ *     `I-AUTH-REDIRECT-UNRESOLVED` — that fires on a per-gate typo basis
+ *     (info, gate-local) when a specific redirect path does not resolve;
+ *     `W-AUTH-LOGIN-MISSING` fires once per compilation when the structural
+ *     gap is total (auth declared, but no working login page exists at all),
+ *     and points adopters at `scrml generate auth`. Fires from A-3.4
+ *     (`crossRefRedirects`). Per OQ-1 two-tier severity ratification
+ *     (03-contact-book-auth-redirect-SCOPING §5).
  *
  * A-3.1 NEVER emits diagnostics — enumeration is best-effort. Malformed
  * gates are recorded in `AuthGraph.gates` with `role: null` and surfaced
  * by A-3.3 during classification. A-3.4 may emit `I-AUTH-REDIRECT-UNRESOLVED`
  * info diagnostics when a gate's redirect target does not match any page
- * URL pattern.
+ * URL pattern, AND a single `W-AUTH-LOGIN-MISSING` warning when the gap is
+ * total (no auth-redirect target resolves anywhere).
  */
 export interface AuthGraphDiagnostic {
   code:
@@ -276,6 +288,7 @@ export interface AuthGraphDiagnostic {
     | "E-AUTH-GRAPH-003"
     | "E-AUTH-GRAPH-004"
     | "I-AUTH-REDIRECT-UNRESOLVED"
+    | "W-AUTH-LOGIN-MISSING"
     | "W-AUTH-PAGE-INFERRED";
   severity: "error" | "warning" | "info";
   message: string;

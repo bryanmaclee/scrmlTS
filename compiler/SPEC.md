@@ -14939,6 +14939,7 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-AUTH-GRAPH-004 | §40.1.1, §34 | An `<auth>` block is malformed — it lacks BOTH a `role=` attribute AND a `check=` attribute. Such a block has no gate predicate and cannot be classified. Fires from the A-3.3 classifier (`compiler/src/auth-graph.ts` `classifyGates`). Resolution: add a `role="X"` literal (closed-form gate over the role enum) OR a `check="fnName"` server-fn ref (runtime-fallback gate); see §40.9.5 for the closed-form vs. runtime-fallback distinction. (Catalog addition S91 A-3.5; full prose at §40.1.1.) | Error |
 | I-AUTH-REDIRECT-UNRESOLVED | §40.1.1, §34 | Info-level: an `<auth>` / `<page auth=>` / `<program auth=>` gate carries a `redirect=` / `else=` / `loginRedirect=` target path string that does NOT match any URL pattern in the file set's `RouteMap.pages`. The gate REMAINS LEGAL at runtime (per OQ-A2-E + OQ-A3-B (a) S90 ratification the redirect target is the page author's concern, not a compile error) — the lint surfaces a probable typo or unimplemented route so adopters can confirm intent. Fires from the A-3.4 cross-ref pass (`compiler/src/auth-graph.ts` `crossRefRedirects`). Resolution: rename the redirect path to match an existing page URL pattern, OR add the missing page route. (Catalog addition S91 A-3.5; full prose at §40.1.1.) | Info |
 | W-AUTH-PAGE-INFERRED | §40.1.1, §34 | Info-level: a `<page>` element under a `<program auth="required">` enclosing scope lacks an explicit `auth=` attribute. Per OQ-A3-C (b) S90 ratification (explicit-per-page-only inheritance + lint nudge) the gate is NOT auto-inherited at the closure-analysis layer — program-level auth still enforces at the request boundary, but the closure-analyzer ships the page ungated. The lint nudges adopters to add explicit per-page `auth=` so closure analysis can classify the page accurately. Fires from the A-3.3 classifier (`compiler/src/auth-graph.ts` `classifyGates`). Resolution: add `auth="required"` (or the appropriate per-page value) to each `<page>` element, OR accept the program-level boundary enforcement as the sole gate. (Catalog addition S91 A-3.5; full prose at §40.1.1.) | Info |
+| W-AUTH-LOGIN-MISSING | §40.1.1, §40.9.11, §52.13 | Warning-level: a compilation unit contains one or more auth gates (`<program auth=>`, `<page auth=>`, `<auth role=>`, `<channel auth=>`) that declare a redirect target (`loginRedirect=` / `redirect=` / `else=`) but NO page in the compilation unit's `RouteMap.pages` matches ANY of the targets the gates name. Distinct from `I-AUTH-REDIRECT-UNRESOLVED` — that fires per-gate at INFO when one specific redirect path does not resolve; `W-AUTH-LOGIN-MISSING` fires AT MOST ONCE per compilation at WARNING level when the structural gap is TOTAL (no working login page exists anywhere). Fires from the A-3.4 cross-ref pass (`compiler/src/auth-graph.ts` `crossRefRedirects`) after the per-gate sweep, anchored at the first redirect-naming gate. Per OQ-1 two-tier severity ratification (docs/changes/03-contact-book-auth-redirect-SCOPING/SCOPING.md §5): the info-level per-gate signal is too quiet to surface the structural gap loudly enough; the warning loudly nudges adopters at compile time so the runtime-302-to-404 silent-failure window closes. The redirect target remains the page author's concern per OQ-A2-E (no entry-point synthesis); the warning points adopters at `scrml generate auth` to scaffold a working login page. Resolution: author a `<page>` at the gate's redirect target path (default `/login`), OR run `scrml generate auth` to scaffold one keyed to the project's `<db>` schema, OR drop the auth declaration if auth is not actually wired. (Catalog addition S91 03-contact-book-auth-redirect; full prose at §40.1.1 + §52.13.) | Warning |
 
 ---
 
@@ -17908,8 +17909,9 @@ prefetch_tier_2(/)       = {} (no N=2 surface)
 | `E-AUTH-GRAPH-004` | Error | §40.1.1 | `<auth>` block lacks both `role=` and `check=` attributes — no gate predicate. Fires from the A-3.3 per-gate classifier. |
 | `I-AUTH-REDIRECT-UNRESOLVED` | Info | §40.1.1 | Gate's redirect / else / loginRedirect target path does not match any URL pattern in `RouteMap.pages`. Per OQ-A2-E + OQ-A3-B (a) S90 ratification this is informational only — the gate remains legal at runtime; the lint surfaces a probable typo or unimplemented route. Fires from the A-3.4 cross-ref pass. |
 | `W-AUTH-PAGE-INFERRED` | Info | §40.1.1 | `<page>` lacks explicit `auth=` under a `<program auth="required">` enclosing scope. Per OQ-A3-C (b) S90 ratification (explicit-per-page-only inheritance + lint nudge) the gate is NOT auto-inherited at the closure-analysis layer. Fires from the A-3.3 per-gate classifier. |
+| `W-AUTH-LOGIN-MISSING` | Warning | §40.1.1, §52.13 | One or more auth gates declare a redirect target but NO page in the compilation unit's `RouteMap.pages` matches ANY of the targets the gates name. Distinct from `I-AUTH-REDIRECT-UNRESOLVED` — that fires per-gate at INFO when one specific redirect path does not resolve; `W-AUTH-LOGIN-MISSING` fires AT MOST ONCE per compilation at WARNING level when the structural gap is TOTAL (no working login page exists anywhere). Fires from the A-3.4 cross-ref pass after the per-gate sweep; points adopters at `scrml generate auth`. |
 
-All codes are cataloged in §34 (Error Codes index). `W-AUTH-RUNTIME-FALLBACK` and `E-CLOSURE-002` MAY emit from the Stage 7.6 Reachability Solver (PIPELINE.md §Stage 7.6) per OQ-A2-I + OQ-A2-F dispositions. `E-AUTH-GRAPH-002..004` + `I-AUTH-REDIRECT-UNRESOLVED` + `W-AUTH-PAGE-INFERRED` emit from the AuthGraph derivation pass (`compiler/src/auth-graph.ts`) wired in at A-3.5 between RI/MC and RS in `compiler/src/api.js`; the firing-stage choices are compiler-implementation concerns not normative spec text.
+All codes are cataloged in §34 (Error Codes index). `W-AUTH-RUNTIME-FALLBACK` and `E-CLOSURE-002` MAY emit from the Stage 7.6 Reachability Solver (PIPELINE.md §Stage 7.6) per OQ-A2-I + OQ-A2-F dispositions. `E-AUTH-GRAPH-002..004` + `I-AUTH-REDIRECT-UNRESOLVED` + `W-AUTH-PAGE-INFERRED` + `W-AUTH-LOGIN-MISSING` emit from the AuthGraph derivation pass (`compiler/src/auth-graph.ts`) wired in at A-3.5 between RI/MC and RS in `compiler/src/api.js`; the firing-stage choices are compiler-implementation concerns not normative spec text.
 
 ---
 
@@ -24993,6 +24995,18 @@ The `csrf=` attribute accepts:
 
 - `csrf="auto"` — automatic CSRF token injection + verification.
 - `csrf="off"` — no CSRF check.
+
+**Login-page requirement.** When `auth="required"` is declared (whether on
+`<program>`, `<page>`, or `<auth>`) the redirect target (default `/login`)
+SHOULD resolve to a page somewhere in the compilation unit. If no gate's
+redirect target matches any URL pattern in `RouteMap.pages`, the compiler
+SHALL emit `W-AUTH-LOGIN-MISSING` (warning; §34, §40.9.11) — the runtime
+auth-check will 302 to a 404, producing a silent-failure window. The
+recommended path is `scrml generate auth` (§40.1.1 cross-ref), which
+scaffolds an adopter-owned login page keyed to the project's `<db>` schema.
+The redirect target itself remains the page author's concern per OQ-A2-E
+(no entry-point synthesis); the warning loudly nudges authoring without
+forcing it.
 
 #### 52.13.1 `auth="role:X"` — Recognized Shape, Not Yet Implemented
 

@@ -1,12 +1,19 @@
 // Example 03: Contact Book — full-stack in one file.
 // Demonstrates <db> declaration, server functions, V5-strict state decls,
 // form binding, for/lift list rendering. This is a real app.
+//
+// NOTE on auth: this example focuses on the CRUD + persistence story and
+// does NOT declare auth="required" — the contact book is a single-file
+// demo, and an auth gate without a working login page is misleading.
+// To layer auth on top, see examples/23-trucking-dispatch/ (multi-page
+// auth-bearing app with a real /login) or run `scrml generate auth` to
+// scaffold a login page next to this one and add auth="required" yourself.
 
-// State block — protect= forces password_hash to server-only. The compiler
-// generates a server route automatically; we never touch routing code.
-<program auth="required">
+// State block — the compiler generates a server route automatically for
+// server-fn calls; we never touch routing code.
+<program>
 
-<db src="contacts.db" protect="password_hash" tables="contacts">
+<db src="contacts.db" tables="contacts">
 
   ${
     <name>  = ""

@@ -41,6 +41,7 @@ Usage:
   scrml dev <file.scrml|dir> [options]       Compile + watch + serve
   scrml build <dir> [options]                Build production server
   scrml serve [options]                      Start persistent compiler server
+  scrml generate <type> [options]            Scaffold adopter-owned source (e.g. \`scrml generate auth\`)
   scrml migrate <file|dir> [options]         Apply automated source rewrites for deprecated patterns
   scrml promote --match|--engine <file|dir>  Promote tier-1 if-else → <match> or <match> → <engine> (CLI surface; impl pending)
 
@@ -98,7 +99,7 @@ let subcommand = args[0];
 let subArgs = args.slice(1);
 
 // Fall through: if first arg is a .scrml file or a directory, treat as compile
-if (subcommand !== "compile" && subcommand !== "dev" && subcommand !== "build" && subcommand !== "serve" && subcommand !== "init" && subcommand !== "migrate" && subcommand !== "promote") {
+if (subcommand !== "compile" && subcommand !== "dev" && subcommand !== "build" && subcommand !== "serve" && subcommand !== "init" && subcommand !== "migrate" && subcommand !== "promote" && subcommand !== "generate") {
   // Check if it looks like a file or directory rather than a subcommand
   const looksLikeInput = subcommand.endsWith(".scrml") || (() => {
     try { return statSync(subcommand).isDirectory(); } catch { return false; }
@@ -136,4 +137,7 @@ if (subcommand === "init") {
 } else if (subcommand === "promote") {
   const { runPromote } = await import("./commands/promote.js");
   await runPromote(subArgs);
+} else if (subcommand === "generate") {
+  const { runGenerate } = await import("./commands/generate.js");
+  await runGenerate(subArgs);
 }

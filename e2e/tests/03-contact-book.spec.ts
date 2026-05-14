@@ -47,28 +47,17 @@ test.describe("03-contact-book — full-stack persistence", () => {
         const text = msg.text();
         // SSE-disconnect on tab close is expected.
         if (/EventSource|live-reload/i.test(text)) return;
-        // Per AC5: "no console errors except expected server-fetch noise on
-        // initial render." Cold-start renders the for-loop over loadContacts()
-        // before the server-fn wrapper is fully resolvable; the 4xx noise is
-        // tolerable. The known-good noise patterns observed in v0.2.6:
-        //   - "Failed to load resource: ... 404" on /_scrml/__ri_route_*
-        //   - "_scrml_fetch_loadContacts_N is not a function..."
-        //   - "Unexpected token 'N', \"Not found\" is not valid JSON" (response parse)
-        // Note: Chromium logs "Failed to load resource" without the URL in
-        // the message body; the path is logged separately and arrives as a
-        // distinct console event whose `text()` is just the status line.
-        // Widen to any 404 server-fetch noise during initial render.
-        if (/Failed to load resource.*404/i.test(text)) return;
-        if (/_scrml_fetch_loadContacts/i.test(text)) return;
-        if (/Not found.*not valid JSON/i.test(text)) return;
+        // The earlier auth-noise tolerance window (server-fn 404s,
+        // "Not found" JSON parse failures) was closed S91 by removing the
+        // <program auth="required"> declaration from 03-contact-book.scrml.
+        // The example is a CRUD demo, not an auth demo — see the file
+        // header for the migration note. The trucking-dispatch example
+        // covers the auth=required + /login pattern. See
+        // docs/changes/03-contact-book-auth-redirect-SCOPING/SCOPING.md.
         consoleErrors.push(text);
       }
     });
     page.on("pageerror", (err) => {
-      // Per AC5: tolerate the server-fn round-trip uncaught errors that fire
-      // during the initial render before the page is interactive.
-      if (/_scrml_fetch_loadContacts/i.test(err.message)) return;
-      if (/Not found.*not valid JSON/i.test(err.message)) return;
       consoleErrors.push(err.message);
     });
     await page.goto(PATH);

@@ -1,0 +1,128 @@
+// Login page — scaffolded by `scrml generate auth`.
+//
+// This file is now ADOPTER-OWNED. Edit it freely:
+//   - Adjust the form fields (add username, remove "Create account" link, etc.)
+//   - Swap the verifyPassword call for OAuth / magic-link / 2FA
+//   - Style with your own classes (Tailwind classes used here for working-out-of-box)
+//
+// The <page auth="optional"> override is LOAD-BEARING:
+//   - Without it, the global <program auth="required"> gate from your app
+//     would redirect every request here back to /login → infinite loop.
+//   - "optional" tells the request boundary to skip the auth check on this
+//     specific page so unauthenticated users can sign in.
+//
+// Default DB schema this template expects (adjust if your schema differs):
+//   CREATE TABLE users (
+//     id INTEGER PRIMARY KEY,
+//     email TEXT UNIQUE NOT NULL,
+//     password_hash TEXT NOT NULL,
+//     last_login_at TIMESTAMP
+//   );
+//
+// If your <program> declares db="..." the generator wires that path automatically.
+// Otherwise edit the <db src=> attribute below to point at your database file.
+
+<page auth="optional">
+
+  <db src="./app.db" protect="password_hash" tables="users">
+
+    ${
+      import { verifyPassword } from 'scrml:auth'
+
+      <email> = ""
+      <password> = ""
+      <errorMessage> = ""
+      <submitting> = false
+
+      // Server-side login fn — inline because cross-file ?{}-using server fns
+      // hit F-AUTH-002 (E-SQL-004). The `server` modifier is not needed —
+      // the ?{} block escalates the fn structurally.
+      function loginServer(emailArg, passwordArg) {
+        const row = ?{`SELECT id, email, password_hash FROM users WHERE email = ${emailArg}`}.get()
+        if (row is not) {
+          return { error: "Invalid email or password" }
+        }
+
+        const ok = verifyPassword(passwordArg, row.password_hash)
+        if (not ok) {
+          return { error: "Invalid email or password" }
+        }
+
+        ?{`UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ${row.id}`}.run()
+
+        return {
+          user: { id: row.id, email: row.email },
+          redirectTo: "/"
+        }
+      }
+
+      // Client-side submit handler. Awaits the round-trip, then either
+      // surfaces the error inline or navigates to the redirect target.
+      function submit() {
+        if (@submitting) return
+        @errorMessage = ""
+        @submitting = true
+
+        const result = loginServer(@email, @password)
+        if (result.error != "") {
+          @errorMessage = result.error
+          @submitting = false
+          return
+        }
+
+        // Successful login — navigate. Production deployments will typically
+        // set an HttpOnly Set-Cookie on the server response and rely on the
+        // browser to carry it forward. The generator template uses a simple
+        // navigation as the minimum-viable path; replace with your session
+        // strategy.
+        window.location.href = result.redirectTo
+      }
+    }
+
+    <div class="min-h-screen bg-slate-50 flex items-center justify-center px-4 font-sans">
+      <div class="w-full max-w-md bg-white border border-slate-200 rounded-lg shadow-sm p-8">
+        <h1 class="text-2xl font-bold text-slate-900 mb-1">Sign in</h1>
+        <p class="text-sm text-slate-600 mb-6">Welcome back.</p>
+
+        <form onsubmit=submit() class="space-y-4">
+          <div>
+            <label for="login-email" class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <input
+              id="login-email"
+              type="email"
+              bind:value=@email
+              required
+              autocomplete="email"
+              class="w-full px-3 py-2 border border-slate-300 rounded-md"
+            />
+          </div>
+
+          <div>
+            <label for="login-password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+            <input
+              id="login-password"
+              type="password"
+              bind:value=@password
+              required
+              autocomplete="current-password"
+              class="w-full px-3 py-2 border border-slate-300 rounded-md"
+            />
+          </div>
+
+          <div if=(@errorMessage != "") class="bg-red-50 border border-red-200 text-red-800 text-sm rounded-md px-3 py-2">
+            ${@errorMessage}
+          </div>
+
+          <button
+            type="submit"
+            disabled=@submitting
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Sign in
+          </button>
+        </form>
+      </div>
+    </div>
+  </>
+
+</page>

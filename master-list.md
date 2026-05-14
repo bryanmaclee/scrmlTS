@@ -265,6 +265,7 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 - [x][x] `scrml dev <file|dir>` — compile + watch + serve (`compiler/src/commands/dev.js`)
 - [x][x] `scrml build <dir>` — production build (`compiler/src/commands/build.js`)
 - [x][x] `scrml serve` — persistent compiler server (`compiler/src/commands/serve.js`)
+- [x][x] `scrml generate <type>` — scaffold adopter-owned source files (S91 — initial type catalog: `auth`; `compiler/src/commands/generate.js`)
 - [x][x] `scrml compile --self-host` — use self-hosted modules
 
 ---
