@@ -333,8 +333,12 @@ Your worktree path is: <ABSOLUTE-WORKTREE-PATH>
 
 ## Startup verification (do this BEFORE any other tool call)
 
-1. Run `pwd` via Bash. Output MUST equal the worktree path above. Save the
-   output as your WORKTREE_ROOT for the rest of the dispatch.
+1. Run `pwd` via Bash. Output MUST equal the worktree path above AND MUST
+   start with `/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-`.
+   If the path is under any other repo (e.g., `scrml-support/.claude/worktrees/`),
+   STOP and report — this is the S90 CWD-routing failure mode (see pa.md
+   "S90 addendum — Bash shell CWD routes harness worktree allocation"). Save
+   the output as your WORKTREE_ROOT for the rest of the dispatch.
 2. Run `git rev-parse --show-toplevel` via Bash. Output MUST equal WORKTREE_ROOT.
 3. Run `git status --short` via Bash. Confirm tree is clean (or matches the
    expected pre-snapshot).
@@ -409,6 +413,28 @@ If you find yourself about to call `Agent({...})` for a dev-agent task without `
 **Detection — when a dispatch lands without isolation:** the agent's final report's WORKTREE_PATH will be the main checkout (not `.claude/worktrees/agent-<id>/`). If you see that, surface to user as a process violation and check whether main moved without PA-side review.
 
 **Recovery — if a dispatch landed without isolation:** the work is in main with the pre-commit hook as the only gate. PA must `git log -p <agent-SHA>` to retro-review the diff as if it were a file-delta review (the gate that was bypassed). If anything looks wrong, revert + re-dispatch with isolation set correctly. If clean, accept the landing and note the process violation.
+
+### S90 addendum — Bash shell CWD routes harness worktree allocation
+
+**Added 2026-05-14 (S91, after S90 precedent).** The Agent tool's `isolation: "worktree"` parameter provisions worktrees based on **the Bash shell's current CWD** at the moment the Agent call fires. NOT based on the PA's "primary working directory," NOT based on `Additional working directories` config, NOT based on the agent's `subagent_type` or any other dispatch parameter. **Just CWD.**
+
+**S90 precedent.** PA executed a user-voice commit chain in scrml-support via `cd /home/bryan-maclee/scrmlMaster/scrml-support && git add ... && git commit ... && git push ...`. The `cd` PERSISTED across Bash calls (the Bash tool maintains shell state between commands). Subsequent `git -C /home/bryan-maclee/scrmlMaster/scrmlTS <cmd>` invocations did NOT change CWD — `git -C` operates on the named repo but leaves shell CWD untouched. When PA then dispatched three parallel `isolation: "worktree"` agents for the M-7C-D-12 wave, the harness inherited scrml-support as active CWD and provisioned all three worktrees under `scrml-support/.claude/worktrees/agent-<id>/` instead of `scrmlTS/.claude/worktrees/`. The F4 startup-verification block in each brief caught the wrong-repo `pwd` output, agents aborted before any writes. **Zero work lost** — F4 was the protective gate.
+
+**Operational rules:**
+
+1. **After ANY Bash chain that includes `cd <sibling-repo>` during a session**, run an explicit `cd /home/bryan-maclee/scrmlMaster/scrmlTS && pwd` BEFORE the next `Agent({isolation: "worktree"})` dispatch. Treat this as a hard gate — never skip.
+
+2. **Prefer `git -C <repo-path> <command>` for ALL sibling-repo git operations.** `git -C` does NOT change shell CWD. This is the canonical way to commit to scrml-support or any other sibling repo from a scrmlTS-PA session without trapping yourself.
+
+3. **F4 step 1 enforces the prefix check.** The startup-verification block in every dispatch brief MUST require `pwd` output to start with `/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/agent-`. Wrong-repo allocation gets caught BEFORE the agent writes anything. The F4 block above was sharpened S91 to encode this; older briefs (pre-S91) may have looser step-1 wording — verify against the current template before dispatching.
+
+4. **Detection — when wrong-repo allocation happened anyway.** The agent's first-tool-call report shows `WORKTREE_PATH: /home/bryan-maclee/scrmlMaster/scrml-support/.claude/worktrees/agent-<id>` (or similar non-scrmlTS path). The agent should have STOP-aborted at startup verification. If the agent proceeded anyway: TaskStop immediately, surface as process violation.
+
+5. **Recovery — if wrong-repo allocation happened.** Stop the agent(s). Clean up the orphaned sibling-repo worktree(s) (`git -C <sibling> worktree unlock <path>; git -C <sibling> worktree remove --force <path>; git -C <sibling> branch -D <branch>`; then `git -C <sibling> worktree prune`). Reset CWD with `cd /home/bryan-maclee/scrmlMaster/scrmlTS && pwd`. Re-dispatch with same brief.
+
+**S91 precedent during this very session-open:** the first Bash batch of this session included a `cd /home/bryan-maclee/scrmlMaster/scrml-support && git status...` chain. CWD leaked. PA caught it on the next batch (a `head -5 .claude/maps/primary.map.md` failed with "No such file or directory" because relative path resolved against scrml-support CWD which has no maps directory). Reset before any Agent dispatch. Defense held.
+
+**Memory file:** `feedback_agent_isolation_cwd_routing.md` in PA auto-memory captures the rule.
 
 ### Dispatch landing — worktree-as-scratch / file-delta (S67 standing rule)
 
