@@ -1245,6 +1245,41 @@ function _scrml_prefetch_tier1(chunkUrl) {
 }
 
 // ---------------------------------------------------------------------------
+// §40.9.7 tier-N (N>=3) on-demand dispatch hook — chunk: 'prefetch'
+// ---------------------------------------------------------------------------
+//
+// Per SPEC §40.9.7: "prefetch_tier_N(E) for N >= 3 SHALL be fetched on-demand
+// when the user actually traverses into the deep-interaction surface."
+//
+// Per OQ-A2-B Option a (S89 ratification) + OQ-A4-D Option a (S91
+// ratification): RS in v0.3 always emits \`prefetchTierN: []\` — A-4.5 ships
+// the runtime dispatch surface as structural scaffolding that v0.4+ can
+// populate WITHOUT touching runtime-template.js again. In v0.3 no codegen
+// path emits a call site for this function, so the entire \`prefetch\`
+// chunk (this function plus \`_scrml_prefetch_tier1\`) is tree-shaken when
+// no tier-1 admission is present either.
+//
+// Returns a \`Promise<string>\` resolving to the chunk's source bytes when
+// the (epId, role, tier) tuple is registered in \`_SCRML_CHUNKS\` (the
+// content-addressing manifest — A-4.6 populates real entries). Returns
+// JS \`null\` when the tuple is not registered. Per scrml's canonical
+// absence (§42.5 / §42.8) emitted-runtime JS represents scrml \`not\` as
+// JS \`null\`; adopters MUST null-check before chaining \`.then(...)\`.
+//
+// The function is structurally complete BUT never fires in v0.3 because
+// RS emits empty tier-N admission sets. When RS extends to N>=3 in v0.4
+// or later, the codegen route-splitter will emit call sites referencing
+// this function in the appropriate boundary-crossing handlers — no
+// runtime-template.js change required at that point.
+
+function _scrml_fetch_chunk(epId, role, tier) {
+  var manifest = (typeof _SCRML_CHUNKS !== "undefined") ? _SCRML_CHUNKS : {};
+  var entry = manifest[epId] && manifest[epId][role] && manifest[epId][role][tier];
+  if (!entry) return null;
+  return fetch(entry).then(function (r) { return r.text(); });
+}
+
+// ---------------------------------------------------------------------------
 // §22.5 meta.emit() runtime — insert HTML at a ^{} block's DOM position
 // ---------------------------------------------------------------------------
 

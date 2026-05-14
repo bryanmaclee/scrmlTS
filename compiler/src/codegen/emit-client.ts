@@ -97,22 +97,36 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
   const chunks = ctx.usedRuntimeChunks;
   const allNodes: any[] = fileAST?.ast?.nodes ?? fileAST?.nodes ?? [];
 
-  // A-4.3 — `prefetch` chunk lights up when the Stage 7.6 RS has produced
-  // at least one non-empty tier-1 ChunkContents for an entry point in
-  // THIS file. The initial-chunk IIFE emits a tail `_scrml_prefetch_tier1`
-  // call only when admission is non-empty; the runtime function is the
-  // call target. We scan the reachabilityRecord once per file: any
-  // (EP, role) whose tier-1 admission is non-empty causes us to enable
-  // the prefetch runtime chunk.
+  // A-4.3 + A-4.5 — `prefetch` chunk lights up when the Stage 7.6 RS has
+  // produced EITHER:
+  //   (i)  at least one non-empty tier-1 ChunkContents (A-4.3 — idle prefetch
+  //        via `_scrml_prefetch_tier1`); OR
+  //   (ii) at least one non-empty tier-N (N>=3) ChunkContents (A-4.5 — on-
+  //        demand dispatch via `_scrml_fetch_chunk`).
+  // for an entry point in THIS file. The initial-chunk IIFE emits a tail
+  // `_scrml_prefetch_tier1` call when tier-1 admission is non-empty; the
+  // tier-N case is structurally scaffolded (RS emits empty tier-N in v0.3
+  // per OQ-A2-B Option a — no call site emitted by codegen) but the chunk
+  // activation gate accepts it so that when RS extends to N>=3 in v0.4+,
+  // `_scrml_fetch_chunk` automatically lands in the emitted runtime
+  // without requiring a touch to emit-client.ts.
   //
-  // Tree-shake floor (§40.9.9 worked example): every (EP, role) has an
-  // EMPTY tier-1 admission for the worked-example fixture. The scan
-  // here returns false and `_scrml_prefetch_tier1` does NOT land in the
-  // per-file `.client.js`'s runtime slice. (The shared `scrml-runtime.js`
+  // Tree-shake floor (§40.9.9 worked example): every (EP, role) has EMPTY
+  // tier-1 AND tier-N admission for the worked-example fixture. The scan
+  // here returns false and the prefetch chunk does NOT land in the per-
+  // file `.client.js`'s runtime slice. (The shared `scrml-runtime.js`
   // path is full-runtime by design — `runtimeJs = SCRML_RUNTIME` in
   // `index.ts` — and is governed by `embedRuntime: false`. Embed mode
   // uses the per-file `usedRuntimeChunks` and IS subject to the tree-
   // shake.)
+  function chunkContentsNonEmpty(c: any): boolean {
+    return !!c && (
+      c.componentNodeIds.size > 0 ||
+      c.reactiveCellNodeIds.size > 0 ||
+      c.serverFnNodeIds.size > 0 ||
+      c.vendorUnitNames.size > 0
+    );
+  }
   const reach = ctx.reachabilityRecord;
   if (reach && reach.closures && ctx.filePath) {
     for (const [epId, rps] of reach.closures) {
@@ -126,14 +140,16 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
         idStr.startsWith(ctx.filePath + "#");
       if (!fileMatches) continue;
       for (const [, plan] of rps.byRole) {
-        const t1 = plan.prefetchTier1;
-        if (
-          t1 &&
-          (t1.componentNodeIds.size > 0 ||
-            t1.reactiveCellNodeIds.size > 0 ||
-            t1.serverFnNodeIds.size > 0 ||
-            t1.vendorUnitNames.size > 0)
-        ) {
+        if (chunkContentsNonEmpty(plan.prefetchTier1)) {
+          chunks.add("prefetch");
+          break;
+        }
+        // A-4.5 — tier-N admission also lights up the prefetch chunk so
+        // `_scrml_fetch_chunk` is present in the emitted runtime when
+        // any deep-traversal chunk exists. In v0.3 this branch never
+        // fires (RS always emits prefetchTierN: []).
+        const tierN = plan.prefetchTierN;
+        if (Array.isArray(tierN) && tierN.some(chunkContentsNonEmpty)) {
           chunks.add("prefetch");
           break;
         }

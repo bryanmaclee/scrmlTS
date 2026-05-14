@@ -49,13 +49,16 @@
  *   engine        _scrml_engine_check_transition, _scrml_engine_advance,
  *                 _scrml_engine_direct_set (§51.0.F + §51.0.G, C13).
  *                 Tree-shaken when usage.engines is false.
- *   prefetch      _scrml_prefetch_tier1 (§40.9.7 tier-1 idle prefetch, A-4.3).
- *                 Tree-shaken when no chunk has non-empty tier-1 admission
- *                 (i.e. no initial chunk emits `_scrml_prefetch_tier1(...)`
- *                 in its IIFE tail). OQ-A4-G ratification (S91): Option γ —
- *                 `requestIdleCallback` browser-side with `setTimeout(fn, 1)`
- *                 Safari fallback; Bun-runtime primitive reserved as v0.4
- *                 extension point.
+ *   prefetch      _scrml_prefetch_tier1 (§40.9.7 tier-1 idle prefetch, A-4.3) +
+ *                 _scrml_fetch_chunk(epId, role, tier) (§40.9.7 tier-N on-demand
+ *                 dispatch hook, A-4.5 — structurally shipped, never fires in
+ *                 v0.3 per OQ-A2-B Option a + OQ-A4-D Option a).
+ *                 Tree-shaken when no chunk has non-empty tier-1 admission AND
+ *                 no codegen path emits a `_scrml_fetch_chunk(...)` call (the
+ *                 latter ALWAYS holds in v0.3 because RS emits empty tier-N).
+ *                 OQ-A4-G ratification (S91): Option γ — `requestIdleCallback`
+ *                 browser-side with `setTimeout(fn, 1)` Safari fallback;
+ *                 Bun-runtime primitive reserved as v0.4 extension point.
  */
 
 import { SCRML_RUNTIME } from "../runtime-template.js";

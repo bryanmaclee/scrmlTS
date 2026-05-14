@@ -2556,6 +2556,19 @@ interface ChunkContents {
     DEAD tree-shake. OQ-A4-G ratification (S91): Option γ — `requestIdleCallback` browser-side
     + `setTimeout(fn, 1)` Safari fallback + Bun-runtime extension point reserved for v0.4.
     Tier 2 / Tier N payloads remain empty placeholders pending A-4.4 / A-4.5.
+  - **A-4.5 tier-N (N>=3) on-demand dispatch hook (S91):** ships the runtime-side dispatch
+    surface — `_scrml_fetch_chunk(epId, role, tier)` in `compiler/src/runtime-template.js`,
+    appended inside the existing `prefetch` runtime chunk alongside `_scrml_prefetch_tier1`.
+    Per OQ-A2-B Option a (S89) + OQ-A4-D Option a (S91): RS in v0.3 always emits
+    `prefetchTierN: []`, so no codegen path emits a call site for the new function — it is
+    structural-scaffolding shipped for forward-compatibility with v0.4+ tier-N admission.
+    `emit-client.ts:detectRuntimeChunks` extends the `prefetch` chunk activation gate so it
+    lights up when EITHER tier-1 OR tier-N admission is non-empty for any (EP, role) in this
+    file; the v0.3 floor (both empty) elides the chunk entirely (the function's call target
+    is then dead-code-eliminated). Returns `Promise<string>` via `fetch().text()` for a
+    registered tuple OR JS `null` for an unregistered tuple — adopters MUST null-check the
+    return before chaining (canonical scrml absence per §42.5 / §42.8). Tier 2 payload
+    remains empty placeholder pending A-4.4.
 - Consumer: Compiler output writer (writes files to disk)
 
 **Error contract:**
