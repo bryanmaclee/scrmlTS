@@ -58,6 +58,7 @@ import {
   computeReactiveDepClosure,
   type ReadOnlyDependencyGraph,
 } from "./reachability/component-2.ts";
+import { computeServerFnReachableWithin } from "./reachability/component-3.ts";
 import { computeVendorUnitsUsed } from "./reachability/component-5.ts";
 import type { VendorUnitId } from "./types/reachability.ts";
 import type { ConstFoldEnv } from "./codegen/constant-folder.ts";
@@ -84,10 +85,10 @@ const ANONYMOUS_ROLE: RoleVariant = "_anonymous";
 /**
  * Run the Stage 7.6 Reachability Solver.
  *
- * **A-2.6 (S90):** Component 5 (`vendor_units_used_by`) lands.
- * Subsequent waves (A-2.4 + A-2.5 + A-2.7) extend the body —
- * Component 3 server-fn reachability, Component 4 auth-gated
- * boundaries, then the outer fixpoint operator.
+ * **A-2.4 (S90):** Component 3 (`server_fn_reachable_within`) lands,
+ * sibling to A-2.6 Component 5. Subsequent waves (A-2.5 + A-2.7)
+ * extend the body — Component 4 auth-gated boundaries, then the
+ * outer fixpoint operator.
  *
  * Current scope:
  *   1. Enumerate entry points from `input.files` per §40.8 shapes.
@@ -98,13 +99,19 @@ const ANONYMOUS_ROLE: RoleVariant = "_anonymous";
  *      Walks the post-A-1 DG forward from the markup-read substrate
  *      across `reads`/`validator-reads`/`engine-derived-reads` edges
  *      (per OQ-A2-J disposition).
- *   4. For each entry point, compute `vendor_units_used_by` per
+ *   4. For each entry point, compute `server_fn_reachable_within(N, C_set)`
+ *      for N ∈ {0, 1, 2} per §40.9.4 (Component 3) — populates
+ *      `serverFnNodeIds` for `initialChunk` (tier 0) + `prefetchTier1`
+ *      (tier 1 − tier 0) + `prefetchTier2` (tier 2 − tier 1). Per
+ *      OQ-A2-B Option a: N=0/N=1/N=2 only; N≥3 on-demand at runtime,
+ *      not surfaced in the chunk plan.
+ *   5. For each entry point, compute `vendor_units_used_by` per
  *      §40.9.6 (Component 5) — populates `ChunkContents.vendorUnitNames`.
  *      Opacity rule: each §41 vendor unit is admitted as a whole
  *      atom (no internal graph subdivision).
- *   5. Emit a single-role ChunkPlan keyed `_anonymous` (PIPELINE
- *      Stage 7.6 line 2380 placeholder).
- *   6. `serverFnNodeIds` remains empty (A-2.4 lands it).
+ *   6. Emit a single-role ChunkPlan keyed `_anonymous` (PIPELINE
+ *      Stage 7.6 line 2380 placeholder). Component 4 (A-2.5) will
+ *      replace this with proper per-role classification.
  *
  * **Determinism:** entry points + walked nodes are emitted in source
  * order (PIPELINE Stage 7.6 line 2391).
@@ -113,9 +120,10 @@ const ANONYMOUS_ROLE: RoleVariant = "_anonymous";
  *
  * **Termination:** Component 1 is O(markup-nodes); Component 2 is
  * O(|C| × |MarkupReads| + |reactive-edges|) with a visited-set
- * cycle guard. Component 5 is O(|files| × imports + |C|) — single
- * pass per file + per-component file lookup. No fixed-point
- * iteration at this wave; that lands at A-2.7.
+ * cycle guard. Component 3 is O(|markup-spine| + |call-graph-edges|)
+ * also with a visited-set cycle guard. Component 5 is
+ * O(|files| × imports + |C|) — single pass per file + per-component
+ * file lookup. No fixed-point iteration at this wave; that lands at A-2.7.
  */
 export function runReachabilitySolver(input: RSInput): RSOutput {
   const record: ReachabilityRecord = emptyReachabilityRecord();
@@ -140,6 +148,13 @@ export function runReachabilitySolver(input: RSInput): RSOutput {
   const dg = input.depGraph as ReadOnlyDependencyGraph | null | undefined;
   const reactiveClosures = computeReactiveDepClosure(irc, dg);
 
+  // Component 3 (A-2.4) — `server_fn_reachable_within` at N=0/N=1/N=2.
+  // Builds the interaction-graph projection per OQ-A2-H Option α
+  // (pure AST projection — no DG extension). Returns cumulative
+  // tier-0/tier-1/tier-2 sets per entry point; ChunkPlan construction
+  // (below) differences them into per-tier admission per §40.9.7.
+  const serverFnByEntry = computeServerFnReachableWithin(irc, files, dg);
+
   // Component 5 — §41 vendor units referenced by each entry point's
   // component set. Opacity rule (§40.9.6): the vendor unit's internal
   // module graph is NOT subdivided; Component 5 admits the unit as a
@@ -151,9 +166,19 @@ export function runReachabilitySolver(input: RSInput): RSOutput {
     const componentIds: Set<NodeId> = irc.get(ep.id) ?? new Set();
     const reactiveCellIds: Set<NodeId> =
       reactiveClosures.get(ep.id) ?? new Set();
+    const serverFnTiers = serverFnByEntry.get(ep.id) ?? {
+      tier0: new Set<NodeId>(),
+      tier1: new Set<NodeId>(),
+      tier2: new Set<NodeId>(),
+    };
     const vendorUnitNames: Set<VendorUnitId> =
       vendorUnits.get(ep.id) ?? new Set();
-    const plan = makeChunkPlan(componentIds, reactiveCellIds, vendorUnitNames);
+    const plan = makeChunkPlan(
+      componentIds,
+      reactiveCellIds,
+      serverFnTiers,
+      vendorUnitNames,
+    );
     const rps: RolePlayableSurface = { byRole: new Map() };
     rps.byRole.set(ANONYMOUS_ROLE, plan);
     record.closures.set(ep.id satisfies EntryPointId, rps);
@@ -169,32 +194,61 @@ export function runReachabilitySolver(input: RSInput): RSOutput {
 /**
  * Build the per-tier ChunkPlan for a single (entry-point, role) pair.
  *
- * At A-2.6 (Components 1 + 2 + 5), the `initialChunk` admits the
- * initially-rendered component set (Component 1), the transitive
- * reactive-dep closure (Component 2), AND the vendor units referenced
- * by the component set (Component 5). prefetchTier1 / prefetchTier2
- * remain empty — those tiers consume Component 3's interaction-graph
- * projection (A-2.4) which is not yet wired.
+ * At A-2.4 + A-2.6 (Components 1 + 2 + 3 + 5):
+ *   - `initialChunk` admits the initially-rendered component set
+ *     (Component 1), the transitive reactive-dep closure (Component 2),
+ *     the **tier-0 server-fns** (Component 3, `serverFnTiers.tier0`),
+ *     AND the vendor units referenced by the component set (Component 5).
+ *   - `prefetchTier1` admits the **tier-1-minus-tier-0** delta of
+ *     server-fns (Component 3) — these are reachable via one user
+ *     interaction step (onclick / onsubmit / bind:value write paths /
+ *     onserver:message).
+ *   - `prefetchTier2` admits the **tier-2-minus-tier-1** delta of
+ *     server-fns (Component 3) — cascade reachability from N=1
+ *     interactions admitting new components whose initial-render
+ *     calls additional server-fns, plus engine state-child arm-body
+ *     callees (`<onTimeout>` / `<onIdle>` / `<onTransition>` firing paths).
+ *   - `prefetchTierN` remains empty (per OQ-A2-B Option a: N≥3 is
+ *     on-demand at runtime).
  *
- * Monotonicity (PIPELINE Stage 7.6 line 2392): trivially satisfied —
- * `initialChunk ⊆ initialChunk ∪ ∅ ∪ ∅ ∪ ...`.
+ * Monotonicity (PIPELINE Stage 7.6 line 2392): server-fn admission is
+ * tier-cumulative in the SOLVER output (tier1 ⊇ tier0; tier2 ⊇ tier1),
+ * differenced here into per-tier deltas for the chunk plan. The
+ * cumulative property is preserved in the underlying solver state.
  */
 function makeChunkPlan(
   componentNodeIds: Set<NodeId>,
   reactiveCellNodeIds: Set<NodeId>,
+  serverFnTiers: { tier0: Set<NodeId>; tier1: Set<NodeId>; tier2: Set<NodeId> },
   vendorUnitNames: Set<VendorUnitId>,
 ): ChunkPlan {
   return {
     initialChunk: {
       componentNodeIds: new Set(componentNodeIds),
       reactiveCellNodeIds: new Set(reactiveCellNodeIds),
-      serverFnNodeIds: new Set(),
+      serverFnNodeIds: new Set(serverFnTiers.tier0),
       vendorUnitNames: new Set(vendorUnitNames),
     },
-    prefetchTier1: emptyChunkContents(),
-    prefetchTier2: emptyChunkContents(),
+    prefetchTier1: {
+      componentNodeIds: new Set(),
+      reactiveCellNodeIds: new Set(),
+      serverFnNodeIds: differenceSet(serverFnTiers.tier1, serverFnTiers.tier0),
+      vendorUnitNames: new Set(),
+    },
+    prefetchTier2: {
+      componentNodeIds: new Set(),
+      reactiveCellNodeIds: new Set(),
+      serverFnNodeIds: differenceSet(serverFnTiers.tier2, serverFnTiers.tier1),
+      vendorUnitNames: new Set(),
+    },
     prefetchTierN: [],
   };
+}
+
+function differenceSet<T>(a: Set<T>, b: Set<T>): Set<T> {
+  const out = new Set<T>();
+  for (const v of a) if (!b.has(v)) out.add(v);
+  return out;
 }
 
 function emptyChunkContents(): ChunkContents {
