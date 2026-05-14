@@ -43,14 +43,83 @@ S89 SCOPING `docs/changes/m-7c-d-12-runtime-sentinel-scoping/SCOPING.md` had 9 O
 - **OQ-8 schema-differ M-7C-D-15** → **DEFER** — §42.9 interop boundary already covers SQL `NULL`; no SQL DDL changes.
 - **OQ-9 spec-amend timeline** → **AFTER Wave 4 T+D (closed S89); concurrent with Wave 4 A+R (remaining tracks)** — spec changes are file-disjoint from adopter-content work.
 
-### Phase 3 — Dispatch (in flight)
+### Phase 3 — Dispatch (in flight, retry round)
 
 Parallel dispatch of 3 of 5 tracks per OQ-3 ratification:
-- **T1 — AST internal cleanup** (10-14h): types/ast.ts LitExpr discriminator migration; parser stops manufacturing `"null"`/`"undefined"` litTypes; gauntlet-phase3 detector migration; component-expander; type-system whitelists.
-- **T3 — `?? "undefined"` fix** (7-8h): 16-site mechanical replace `"undefined"` → `"null"` + new CG-level lint forbidding literal `undefined` JS-keyword interpolation as regression guard.
-- **T4 — SPEC amendments** (4-7h): §12.5.1 + new §50.x + §51.0.J + §34 catalog row + SPEC-INDEX refresh.
+- **T1 — AST internal cleanup** (10-14h, agent `a72b73107987faddd`): types/ast.ts LitExpr discriminator migration; parser stops manufacturing `"null"`/`"undefined"` litTypes; gauntlet-phase3 detector migration; component-expander; type-system whitelists.
+- **T3 — `?? "undefined"` fix** (7-8h, agent `acb3b94dfdfe860c6`): 16-site mechanical replace `"undefined"` → `"null"` + new CG-level lint forbidding literal `undefined` JS-keyword interpolation as regression guard.
+- **T4 — SPEC amendments** (4-7h, agent `adb60dde9579cd067`): §12.5.1 + new §50.x + §51.0.J + §34 catalog row + SPEC-INDEX refresh.
 
 T2 (wire envelope, 10-12h) fires after T4 lands. T5 (audit closure docs, 2-4h) last.
+
+#### Sub-phase 3.A — First dispatch routing finding (BLOCKED then RECOVERED)
+
+**Symptom.** First-attempt dispatch (T1=`aaa100cd3664eec90`, T3=`a8aacdceef607dff9`, T4=`ad2cc4be28dcc7e5a`) — all three agents reported BLOCKED at startup-verification: harness provisioned their `isolation: "worktree"` worktrees under `/home/bryan-maclee/scrmlMaster/scrml-support/.claude/worktrees/agent-<id>/` instead of `scrmlTS/.claude/worktrees/`. Agents correctly refused to write per F4 + pa.md path-discipline rules.
+
+**Root cause.** The Agent tool's `isolation: "worktree"` provisions worktrees based on the **Bash shell's current CWD**. PA's earlier user-voice commit chain (`cd /home/bryan-maclee/scrmlMaster/scrml-support && git add ... && git commit ... && git push ...`) persisted the shell CWD in scrml-support. Subsequent `git -C /home/bryan-maclee/scrmlMaster/scrmlTS <cmd>` calls do NOT change CWD — only `cd` does. When PA dispatched the three agents, the harness inherited scrml-support as the active CWD and routed worktrees there.
+
+**Recovery.** Zero work-lost — F4 startup-verification block in each brief caught the wrong-repo `pwd` output, agents stopped before any writes. PA:
+1. Ran `TaskStop` on T4 (still in flight; T1 + T3 had already returned BLOCKED).
+2. Cleaned up the orphaned scrml-support locked worktree (`agent-ad2cc4be28dcc7e5a`).
+3. Ran `cd /home/bryan-maclee/scrmlMaster/scrmlTS && pwd` to reset CWD.
+4. Re-dispatched all 3 agents with the same briefs + an added "RETRY DISPATCH" note instructing the F4 verification to enforce the `scrmlTS/.claude/worktrees/` path-prefix check.
+5. Verified post-dispatch: all 3 retry worktrees correctly under `scrmlTS/.claude/worktrees/` at base `725e07c`.
+
+**Memory rule saved.** `feedback_agent_isolation_cwd_routing.md` captures the finding — added to MEMORY.md index. Operational rule for future PA: **after any Bash chain that includes `cd <sibling-repo>` during a session, run an explicit `cd /home/bryan-maclee/scrmlMaster/scrmlTS && pwd` BEFORE the next `Agent({isolation: "worktree"})` dispatch sequence.** Equivalent prevention: never `cd` into sibling repos — use `git -C <path>` for all sibling-repo git operations to keep CWD locked to scrmlTS throughout the session.
+
+**Defense-in-depth confirmed.** This incident validates the F4 + path-discipline brief mandates (pa.md S58 + S88 layers). When the harness routing is broken, the F4 block + "STOP if check fails" is the protective gate. Without it, agents would have written compiler-source changes into scrml-support worktrees and tried to commit/push them — the work would have been lost or polluted. Keep F4 blocks mandatory in every dev-agent brief.
+
+**Defensive brief amendment.** The retry briefs now explicitly require the worktree path to start with `/home/bryan-maclee/scrmlMaster/scrmlTS/.claude/worktrees/`. This sharpens the F4 check from "is this a worktree?" to "is this a worktree IN THE EXPECTED REPO?" — the standing pa.md F4 template should be updated to include this check in S91 maintenance.
+
+### Phase 4 — Track landings (3 of 5 tracks LANDED in main)
+
+All three retry agents completed cleanly. PA file-delta'd each into main, then unified `progress.md` from the three branches.
+
+| Track | Agent | Agent FINAL_SHA | PA landing commit | Lines | Tests delta |
+|---|---|---|---|---|---|
+| **T1** AST cleanup | `a72b73107987faddd` | `46ec263` (5 commits) | `850a298` | +485/-52 | +23 |
+| **T3** codegen + lint | `acb3b94dfdfe860c6` | `16185f5` (6 commits) | `887f420` | +705/-21 | +28 |
+| **T4** SPEC amendments | `adb60dde9579cd067` | `7d76e20` (4 commits) | `8cef7f5` | +173/-58 | 0 |
+| (PA progress unified) | — | — | `e3b1624` | +65/-0 | 0 |
+
+**Tests at S90 progress merge HEAD `e3b1624`:** **11,374 pass / 88 skip / 1 todo / 0 fail / 578 files** (pre-commit gate subset; full-suite count to verify via pre-push hook on next push). Baseline pre-commit was 11,323 / 575 — delta +51 pass / +3 files matches T1 (+23) + T3 (+28).
+
+**T1 substantive findings:**
+- Discriminator strategy: `raw` field discriminates user-source `null`/`undefined` from synthetic/canonical absence. User `null` → `litType:"not", raw:"null"`; canonical `not` keyword → `litType:"not", raw:"not"`; synthetic absence (array hole, reset-RHS, is-* RHS) → `litType:"not", raw:"not"`. `emitStringFromTree` round-trip preserves source-token via `raw`.
+- **Semantic refinement (intentional):** array holes `[1,,3]` now emit JS `null` (was JS `undefined` via `litType:"undefined"` fallback to `node.raw`). Aligned with §42.5/§42.8.
+- Scope-notes (NOT migrated, defensible): `route-inference.ts` JS_KEYWORDS defensive filter; `tokenizer.ts` + `ast-builder.js` VALUE_KEYWORDS lexer-level classifications; `type-system.ts` `tPrimitive("null")` JS-host DOM ref type.
+- **Pre-existing gap surfaced (NOT closed, follow-up):** component PropDecl `defaultValue:"null"` raw-attribute-string bypasses GCP3 walker. Track 1 preserves current behavior. Separate dispatch needed.
+
+**T3 substantive findings:**
+- 16-site migration confirmed (emit-server.ts ×3 / emit-logic.ts ×10 / scheduling.ts ×3).
+- **Lockstep migration** of 3 consumer guards in emit-logic.ts (L612 `=== "undefined"` → `=== "null"`; L1906/L1921 `!== "undefined"` → `!== "null"`) — per SCOPING risk register; the fallback default + consumer guards are a coupled sentinel-pair.
+- **Semantic cascade (intentional, OQ-5 (a)):** `fail E.Variant` (no args) now produces `data: null` instead of `data: undefined`. Pre-existing test migrated.
+- New lint `W-CG-UNDEFINED-INTERPOLATION` (W-CG-* family). Idiom-aware exemptions: paired `null && undefined` (§42.5/§42.8); `typeof X !== "undefined"`; comments; string literals; template-literal text; embedded runtime block (M-7C-D-14 scope) masked.
+- Corpus sanity sweep at agent: 289 samples + 45 stdlib = 334 files compiled, **0 W-CG-UNDEFINED-INTERPOLATION findings**.
+
+**T4 substantive findings:**
+- **§57 NEW Wire Format section** (NOT §50 — that slot was occupied by Assignment-as-Expression since v0.next). 7 subsections at SPEC.md L27050-27144.
+- Rename: `E-DERIVED-ENGINE-INITIAL-UNDEFINED` → `E-DERIVED-ENGINE-INITIAL-ABSENT`. Three SPEC sites updated (§34 / §51.0.J / §55 validators-summary). Note: SCOPING called it `-RT` suffix; actual SPEC code lacks suffix — surgical rename preserves shape. Runtime-emission rename in compiler/src/* is Track 2 territory.
+- §42.8 "Runtime Representation" subsection added (OQ-7).
+- SPEC.md grew 27,037 → 27,144 lines.
+
+**PA-side amendment during T4 landing:** §34 catalog row for `W-CG-UNDEFINED-INTERPOLATION` added directly (both T3 and T4 punted on the row). Row sits in W-CG-* family between W-CG-001 and E-ERRORS-001.
+
+**Process flags surfaced:**
+
+- **T1 agent's `--no-verify` use (one commit, mid-dispatch).** Agent's per-step chain included one `--no-verify` commit (`e37d932`) on a worry about a post-commit hook regex false-positive. Subsequent agent commits ran the full pre-commit gate cleanly. PA file-delta landed only the final tree shape through PA-authored commits — **no `--no-verify` in main's history**. Surfaced for transparency per pa.md S88 rule (process violation but final-state-green). Possible mitigation for future dispatches: brief explicitly forbids `--no-verify` without explicit user authorization (matching pa.md rule). For now: noted; no action required.
+- **Coordination gap between T3 and T4 on §34 W-CG row.** Each agent punted to the other. PA closed during T4 landing. Could be prevented in future briefs by assigning the row explicitly to one agent (recommend: whichever agent owns SPEC.md edits, i.e., spec-amendment Track).
+
+### Phase 5 — Worktree cleanup + push
+
+- All three retry worktrees cleaned per S83 retention rule (content landed in main; cross-session retention unwarranted): `agent-a72b73107987faddd`, `agent-acb3b94dfdfe860c6`, `agent-adb60dde9579cd067` removed + branches deleted. Final state: only main checkout.
+- Push of 4 commits (`725e07c..e3b1624`) backgrounded through pre-push gate (~5min full-suite).
+
+### Remaining M-7C-D-12 work (after this push lands)
+
+- **Track 2 — Wire envelope codegen (10-12h)** — encoder in emit-server.ts that wraps `?? null` in `{"__scrml_absent": true}` envelope when return type is `T | not`; client-side dual-decoder helper (canonical envelope + legacy raw-null fallback per OQ-4); tests. Now unblocked — §57 SPEC text lives at HEAD.
+- **Track 5 — Audit closure docs (2-4h)** — document audit-item closure rationale in master-list + audit appendix; re-grep compiler/src/ post-migration; update audit counts (most M-7C-D-N + M-8C-D-N items close as spec-ratified per Option ε).
+- Then: bundled paired-migration packets per Wave 9.A audit §6 ordering can begin firing.
 
 ---
 
