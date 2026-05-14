@@ -26,6 +26,7 @@ import { runMetaChecker } from "./meta-checker.ts";
 import { runDG } from "./dependency-graph.ts";
 import { runBatchPlanner, serializeBatchPlan } from "./batch-planner.ts";
 import { runReachabilitySolver, serializeReachabilityRecord } from "./reachability-solver.ts";
+import { runAuthGraph } from "./auth-graph.ts";
 import { runCG } from "./code-generator.js";
 import { runMetaEval } from "./meta-eval.ts";
 import { resolveModules, resolveModulePath } from "./module-resolver.js";
@@ -1295,17 +1296,64 @@ export function compileScrml(options = {}) {
   // When selfHostModules.bpp is provided, override BPP functions in parser-workarounds.
   if (selfHostModules?.bpp) setBPPOverrides(selfHostModules.bpp);
 
+  // Stage 7.55: AG — AuthGraph derivation (SPEC §40 / SCOPING §A-3).
+  //
+  // A-3.5 wave-close (S91) wires the A-3 auth-graph pass into the
+  // orchestrator. Position: post-RI / post-TS / post-META / post-BP /
+  // pre-RS, per `compiler/src/auth-graph.ts:36` header note ("post-RI,
+  // post-TS, post-META, pre-RS"). Consumes the post-CE / post-meta file
+  // set + the RI-derived RouteMap (for the gateToEntryPoint cross-ref
+  // and the A-3.4 redirect-target lookup against `RouteMap.pages`).
+  //
+  // The AuthGraph output is threaded into RS at Stage 7.6 below so
+  // Component 4 (`auth_gated_boundaries_visible_to(role)`) can classify
+  // gates closed-form vs. runtime-fallback and emit per-role
+  // ChunkPlans. Without this wire RS Component 4 degrades to the
+  // single-anonymous-role floor; with the wire active, per-role
+  // filtering applies to `componentNodeIds` only (cells + server-fns
+  // pending A-2.7 outer fixpoint + A-4 artifact splitter).
+  //
+  // Self-host hook: `runAuthGraph` is too new for a self-host
+  // counterpart at S91; no selfHostModules.runAuthGraph slot is wired
+  // here. If/when scrml's self-host bootstrap surface grows to include
+  // auth-graph derivation the override slot mirrors the precedent at
+  // L904 (`_runRI = selfHostModules?.runRI ?? runRI`).
+  const _runAuthGraph = selfHostModules?.runAuthGraph ?? runAuthGraph;
+  const agResult = stage("AG", () => _runAuthGraph(metaFiles, riResult.routeMap));
+  collectErrors("AG", agResult.errors);
+  if (verbose) {
+    const gateCount = agResult.graph?.gates?.size ?? 0;
+    let closedForm = 0, runtimeFallback = 0, unclassified = 0;
+    if (agResult.graph?.gates) {
+      for (const gate of agResult.graph.gates.values()) {
+        const c = gate.classification;
+        if (c === null || c === undefined) { unclassified++; continue; }
+        // Per types/auth-graph.ts `RoleClassification`: closed_form boolean
+        // gates one branch; the runtime-fallback case sits on the
+        // gated_for_role: "runtime-fallback" sentinel.
+        if (c.closed_form === true) closedForm++;
+        else runtimeFallback++;
+      }
+    }
+    const roleEnum = agResult.graph?.roleEnum;
+    const roleEnumLabel = roleEnum
+      ? `${roleEnum.name ?? "<unnamed>"} (${roleEnum.variants?.length ?? 0} variants${roleEnum.isImplicitAnonymous ? ", implicit-anonymous" : ""})`
+      : "<unresolved>";
+    log(`  [AG] ${gateCount} auth-gate(s) classified — ${closedForm} closed-form / ${runtimeFallback} runtime-fallback${unclassified > 0 ? ` / ${unclassified} unclassified` : ""}; roleEnum: ${roleEnumLabel}`);
+  }
+
   // Stage 7.6: Reachability Solver (SPEC §40.9 / PIPELINE Stage 7.6) — A-2.1
-  // scaffold. Consumes finalized DG + RouteMap (+ A-3 AuthGraph in A-2.5+).
-  // Produces a per-entry-point per-role ChunkPlan tree for A-4 codegen
-  // consumption. Current body is a no-op returning an empty record;
-  // subsequent waves (A-2.2..A-2.7) implement the five-component union +
-  // outer fixed point. Pipeline behavior is unchanged at A-2.1.
+  // scaffold + A-2.2..A-2.6 Components 1-5. Consumes finalized DG + RouteMap
+  // + A-3 AuthGraph (wired at Stage 7.55 above, S91 A-3.5). Produces a
+  // per-entry-point per-role ChunkPlan tree for A-4 codegen consumption.
+  // Per-role filtering at A-2.5 applies to componentNodeIds only; cells +
+  // server-fns + vendor-units pending A-2.7 outer fixpoint + A-4 splitter.
   const rsResult = stage("RS", () => runReachabilitySolver({
     depGraph: dgResult.depGraph,
     routeMap: riResult.routeMap,
     batchPlan: bpResult.batchPlan,
     files: metaFiles,
+    authGraph: agResult.graph,
   }));
   collectErrors("RS", rsResult.errors);
 
@@ -1525,5 +1573,11 @@ export function compileScrml(options = {}) {
     // Stage 7.6 — A-2.1 scaffold. The record is empty until A-2.2+.
     reachabilityRecord: rsResult.record,
     reachabilityRecordJson: () => serializeReachabilityRecord(rsResult.record),
+    // Stage 7.55 — A-3.5 wire (S91). The AuthGraph is the per-gate
+    // classification surface consumed by RS Component 4 and (future)
+    // A-4 per-role chunk emission. Surfaced on the return so integration
+    // tests and adopter debug tools can inspect classifier output without
+    // re-running the auth-graph pass.
+    authGraph: agResult.graph,
   };
 }

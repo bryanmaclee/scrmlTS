@@ -408,8 +408,8 @@ function runtimeFallbackMessage(gate: AuthGate): string {
     `Auth gate predicate at ${gate.filePath}:${line} cannot be statically resolved against the role enum; ` +
     `gate ships eagerly with runtime check. ` +
     `(Predicate: ${gate.rawPredicate}.) ` +
-    "Resolution: refactor the gate to use a closed-form role-variant predicate (e.g. `<auth role=\"admin\">`), " +
-    "OR accept the eager-ship default and the runtime auth-check cost."
+    "Resolution: refactor the gate to use a closed-form role-variant predicate (e.g. `<auth role=\"Admin\">`), " +
+    "OR accept the eager-ship default and the runtime auth-check cost. (SPEC §40.9.5.)"
   );
 }
 

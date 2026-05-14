@@ -74,6 +74,57 @@ import {
 } from "./codegen/constant-folder.js";
 
 // ---------------------------------------------------------------------------
+// File-shape normalization (CE-shape vs. post-META wrapper)
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize an upstream `FileAST` value into the flat shape `runAuthGraph`
+ * expects. Upstream stages produce two distinct shapes:
+ *
+ *   - CE / pre-TS stages (`ceResults`): top-level `.nodes` / `.authConfig` /
+ *     `.channelDecls` / `.typeDecls` / `.filePath` / `.hasProgramRoot`.
+ *   - Post-TS / META stages (`tsResult.files`): a wrapper
+ *     `{ filePath, ast: FileAST, errors, ... }` where the same surface lives
+ *     one level down under `.ast`.
+ *
+ * The A-3.5 wire-in at `api.js` passes `metaFiles` (post-META, so the wrapped
+ * shape). This helper unwraps once at the boundary and returns a flat
+ * `FileAST`-shaped object so downstream walkers can rely on top-level field
+ * access without per-call duck-typing. Returns `null` when the input is null
+ * / undefined / structurally unrecognizable.
+ *
+ * Mirrors the duck-type pattern at `compiler/src/reachability/component-1.ts`
+ * lines 184-192 — kept here as a one-shot lift rather than per-access for
+ * readability + a single point of failure.
+ */
+function normalizeFileAST(input: unknown): FileAST | null {
+  if (!input || typeof input !== "object") return null;
+  const file = input as Record<string, unknown>;
+
+  // Case 1 — already flat: `nodes` is at the top level. Return as-is (cast).
+  if (Array.isArray(file.nodes)) {
+    return file as unknown as FileAST;
+  }
+
+  // Case 2 — wrapped: dive into `.ast`. The wrapper carries the filePath /
+  // errors / typed-side metadata at the top; the AST surface lives under
+  // `.ast`. We construct a flat projection so all subsequent field accesses
+  // hit the right level.
+  const inner = file.ast as Record<string, unknown> | undefined;
+  if (inner && typeof inner === "object" && Array.isArray(inner.nodes)) {
+    const flatFilePath =
+      (typeof file.filePath === "string" && file.filePath) ||
+      (typeof inner.filePath === "string" ? inner.filePath : "<anon>");
+    return {
+      ...(inner as unknown as FileAST),
+      filePath: flatFilePath,
+    } as FileAST;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -97,12 +148,24 @@ export function runAuthGraph(
   files: FileAST[],
   routeMap: RouteMap | null,
 ): AuthGraphOutput {
+  // Normalize the input file shape. Upstream pipeline stages produce two
+  // different shapes for `FileAST`:
+  //   - CE / pre-TS stages: top-level `.nodes` / `.authConfig` / `.channelDecls`
+  //     / `.typeDecls` / `.filePath` / `.hasProgramRoot`.
+  //   - Post-TS / META stages: a `{ filePath, ast: FileAST, ... }` wrapper where
+  //     the same fields live one level down under `.ast`.
+  // RS Component 1 (reachability/component-1.ts:184-192) uses the same
+  // duck-typed access pattern; A-3.5 wires the AG pass into api.js between
+  // BP and RS where files arrive in the wrapped post-META shape — so we
+  // unwrap once at the boundary and operate on the flat shape internally.
+  const normalizedFiles = files.map(normalizeFileAST).filter((f): f is FileAST => f !== null);
+
   const gates = new Map<MarkupNodeId, AuthGate>();
   const gateToEntryPoint = new Map<MarkupNodeId, EntryPointId>();
   const redirectTargets = new Map<MarkupNodeId, string | null>();
   const errors: AuthGraphDiagnostic[] = [];
 
-  for (const fileAST of files) {
+  for (const fileAST of normalizedFiles) {
     if (!fileAST) continue;
     enumerateFile(fileAST, routeMap, gates, gateToEntryPoint, errors);
   }
@@ -112,7 +175,7 @@ export function runAuthGraph(
   // attribute values. The resolver also fires E-AUTH-GRAPH-002 (auth
   // gates reference role variants but no enum is declared / ambiguous
   // discovery) when applicable.
-  const roleEnum = resolveRoleEnum(files, gates, errors);
+  const roleEnum = resolveRoleEnum(normalizedFiles, gates, errors);
 
   // A-3.3 — per-gate classifier. Runs AFTER role-enum resolution so the
   // classifier can resolve identifier-form predicates against the
@@ -120,7 +183,7 @@ export function runAuthGraph(
   // emits W-AUTH-PAGE-INFERRED info-lint for pages that lack explicit
   // `auth=` under a `<program auth="required">` enclosing scope (per
   // OQ-A3-C (b) S90 ratification — explicit-per-page-only inheritance).
-  classifyGates(files, gates, roleEnum, errors);
+  classifyGates(normalizedFiles, gates, roleEnum, errors);
 
   // A-3.4 — auth-redirect cross-ref. Projects each gate's `redirect`
   // field into the redirectTargets map verbatim (bare string per OQ-A3-B
@@ -420,7 +483,7 @@ function crossRefRedirects(
           `page URL pattern in the route map. The redirect target's own ` +
           `entry-point must exist independently (per OQ-A2-E — no ` +
           `entry-point synthesis). Add a page at this path, or correct ` +
-          `the redirect target.`,
+          `the redirect target. (SPEC §40.1.1.)`,
         span: gate.span,
         filePath: gate.filePath,
       });
@@ -1309,7 +1372,8 @@ function emitPageInferredLints(
         `enclosing scope. Per OQ-A3-C (b) ratification, page-level auth is NOT ` +
         `inherited from <program> for closure analysis; add an explicit auth= ` +
         `attribute to this <page> to participate in per-role chunking. The ` +
-        `<program auth="required"> still enforces at the request boundary.`,
+        `<program auth="required"> still enforces at the request boundary. ` +
+        `(SPEC §40.1.1.)`,
       span: node.span,
       filePath: fileAST.filePath,
     });
@@ -1410,8 +1474,8 @@ function classifyAuthRoleBlock(
       severity: "error",
       message:
         "<auth> block has no `role=` and no `check=` attribute. " +
-        "Declare a role predicate (e.g. `<auth role=\"admin\">`) or a " +
-        "server-fn check (`<auth check=\"hasPermission\">`).",
+        "Declare a role predicate (e.g. `<auth role=\"Admin\">`) or a " +
+        "server-fn check (`<auth check=\"hasPermission\">`). (SPEC §40.1.1.)",
       span: gate.span,
       filePath: gate.filePath,
     });
@@ -1565,7 +1629,8 @@ function classifyStaticRoleString(
         message:
           `<auth role="${name}"> references a variant that is not declared ` +
           `in the role enum \`${roleEnum?.name}\` ` +
-          `(declared variants: ${roleEnum?.variants.join(", ") ?? ""}).`,
+          `(declared variants: ${roleEnum?.variants.join(", ") ?? ""}). ` +
+          `(SPEC §40.1.1.)`,
         span: gate.span,
         filePath: gate.filePath,
       });
