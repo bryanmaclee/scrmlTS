@@ -72,3 +72,44 @@
 - **Coordination gap (closed PA-side):** §34 catalog row for `W-CG-UNDEFINED-INTERPOLATION` was un-claimed by both T3 and T4 (each punted to the other). PA added the row directly during T4 landing.
 - **Worktrees retained for forensic until S90 wrap:** `agent-a72b73107987faddd`, `agent-acb3b94dfdfe860c6`, `agent-adb60dde9579cd067`.
 - **Remaining M-7C-D-12 work:** Track 2 (wire envelope codegen, 10-12h; gated on §57 SPEC text which now lives at HEAD) and Track 5 (audit closure docs, 2-4h).
+
+## S90 Track 5 — Audit closure docs (LANDED, commit `956184f`)
+
+- 2026-05-13T S90 — Track 5 dispatch agent `aa6ff329472c0bfbb`. Worktree at `scrmlTS/.claude/worktrees/agent-aa6ff329472c0bfbb/`. Base `0ed8e55`.
+- D-12.5a: CLOSURE banners added to both audit docs (null-audit + undefined-audit). Each banner provides Option-ε disposition summary, per-item disposition table (M-7C-D-1..18 / M-8C-D-1..16), and §42.1.1 `""`-orthogonality note. master-list §0.6 M-7C-D-12 closure summary added with 5-track dispatch ledger.
+- D-12.5b: Re-grep against compiler/src/ post-T1+T3 (pre-T2). Counts:
+  - `\bnull\b`: 2,777 (81 files) → **2,925 (90 files)** (+148, +9 files)
+  - `\bundefined\b`: 861 (62 files) → **933 (70 files)** (+72, +8 files)
+- **Increases are entirely additive context** — new S89/S90 files (reachability module, lint-try-catch, lint-undefined-interpolation, emit-variant-guard, etc.) + T1 doc-comments explaining the canonical `litType:"not"` discriminator. **ZERO new M-class scrml-semantic-mirror drift** introduced.
+- Classification of remaining sites: J-class (JS-host legit per §42.1 exclusions, ~480 null / ~110 undefined); I-class (TS internal scaffold per pa.md self-host-is-from-scratch, ~1500 null / ~590 undefined); M-class (scrml-semantic-mirror, ~720 null / ~140 undefined — ALL closed-as-spec-ratified under Option ε except M-7C-D-6 T2-in-flight + M-8C-D-6 T3-migrated).
+- Key confirmation: literal `?? "undefined"` pattern from M-8C-D-6 (16 sites) is FULLY ELIMINATED post-T3.
+- **PA landing commit `956184f`** — file-delta excluded progress.md (this file).
+
+## S90 Track 2 — Wire envelope codegen (PARTIAL RECOVERY — work uncommitted in worktree)
+
+- 2026-05-13T S90 — Track 2 dispatch agent `a4402f7f60b722082`. Worktree at `scrmlTS/.claude/worktrees/agent-a4402f7f60b722082/`. Base `0ed8e55`.
+- Agent stalled at the 600s watchdog **mid-deliberation** — agent had identified the right pattern ("the cleanest pattern is to detect `_needsWireEncoder` post-emit via `finalEmitted.includes('_scrml_wire_encode(')`") and was about to apply it when the stream watchdog fired. **No commits made; work is in worktree working tree only.**
+- **Substantive scaffolding completed (per `feedback_agent_crash_partial_recovery.md` salvage assessment — work is coherent):**
+  - **NEW `compiler/src/codegen/wire-format.ts` (~228 lines)** — clean module with:
+    - `returnTypeAllowsAbsence(annot)` predicate handling `T | not`, `not | T`, `T?` postfix sugar, bare `not`, with `splitTopLevelPipe` helper for nested generics (`<>` / `()` / `[]` depth tracking)
+    - `SERVER_WIRE_ENCODER_HELPER` JS-source string constant (inline helper definition for `_scrml_wire_encode`)
+    - `CLIENT_WIRE_DECODER_HELPER` JS-source string constant (dual-decoder definition for `_scrml_wire_decode` per OQ-4 (b))
+    - Comprehensive JSDoc with SPEC §57 + §12.5.1 + §42.5/§42.8 + OQ ratifications cross-refs
+  - **`compiler/src/codegen/emit-server.ts` modifications (+28/-3)**:
+    - Imports `returnTypeAllowsAbsence` + `SERVER_WIRE_ENCODER_HELPER` from wire-format.ts
+    - Two emit sites wrapped with type-gated envelope encoding: CSRF path (L932 area) + non-CSRF path (L1097 area)
+    - Type-gating predicate threaded via `(fnNode as { returnTypeAnnotation?: string }).returnTypeAnnotation`
+  - **`compiler/src/runtime-template.js` modifications (+15)**:
+    - `_scrml_wire_decode` dual-decoder helper inlined in the runtime template (core chunk)
+- **What's MISSING (the bounded remainder agent didn't apply):**
+  1. **Helper-injection wiring.** The `SERVER_WIRE_ENCODER_HELPER` text is imported but NEVER appended to the emitted JS output. Result: `_scrml_wire_encode(_scrml_result)` calls exist but the function definition is absent — compiled JS would fail at runtime. Fix per agent's identified pattern: at end of `generateServerJs`, after `lines.join("\n")`, check `finalEmitted.includes("_scrml_wire_encode(")`; if true, prepend `SERVER_WIRE_ENCODER_HELPER` to the output. ~10-20 lines.
+  2. **Client decoder consumption wiring.** `_scrml_wire_decode` is declared in the runtime but NOT wired into client-side server-fn-response consumption sites (fetch-stub JSON-parse paths). Need to find where `JSON.parse(response.body)` for server-fn returns happens and thread the decoder through. ~30-50 lines.
+  3. **Tests (D-12.2d).** Integration tests for round-trip encoding/decoding; conformance tests for dual-decoder accepting both shapes; pure-`T` regression confirming no envelope wrap. ~100-200 lines.
+- **Process flag**: agent stalled at 600s watchdog (NOT crash). The watchdog killed an agent that was actively deliberating but not emitting tool calls fast enough. Salvageable per the memory rule.
+- **Worktree retained** for forensic + recovery: `agent-a4402f7f60b722082` (locked).
+
+## S90 M-7C-D-12 wave status
+
+- **Closed:** T1 (`850a298`) + T3 (`887f420`) + T4 (`8cef7f5`) + progress merge (`e3b1624`) + hand-off update (`0ed8e55`) + T5 (`956184f`) + this progress update.
+- **Pending (post-S90):** T2 wire envelope codegen — recovery shape (PA-finish vs re-dispatch continuation) pending user disposition.
+- **Test count at HEAD `956184f`**: 11,374 pre-commit gate subset (+51 vs baseline 11,323; +28 from T3 already, T5 + audit-docs add 0).
