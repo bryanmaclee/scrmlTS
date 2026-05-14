@@ -1,22 +1,27 @@
 // Example 14: Mario State Machine
 //
-// Showcases v0.2.0 engine features:
-//   §1a  — enum payload variants + match destructuring
-//          `type PowerUp:enum = { Mushroom(coins: number), ... }`
-//          `match powerUp { .Mushroom(n) => ... }`
+// Showcases v0.3 program-as-container + engine features:
+//   §40.8  — `<program>` is the program-scoped container. Types, state
+//            cells, derived cells, functions, and engines are direct
+//            children of `<program>` (logic-default mode inside the body).
+//            No file-top `${ ... }` wrapper.
+//   §1a   — enum payload variants + match destructuring
+//            `type PowerUp:enum = { Mushroom(coins: number), ... }`
+//            `match powerUp { .Mushroom(n) => ... }`
 //   §51.0 — modern engine state-children + rule= contracts
-//          `<engine for=MarioState initial=.Small>`
-//          `  <Small rule=(.Big | .Fire | .Cape)>...</>`
+//            `<engine for=MarioState initial=.Small>`
+//            `  <Small rule=(.Big | .Fire | .Cape)>...</>`
 //   §51.9 — derived / projection engines
-//          `<engine for=HealthRisk derived=@marioState>`
-//          The auto-declared @healthRisk reactively recomputes when
-//          @marioState changes.
+//            `<engine for=HealthRisk derived=@marioState>`
+//            The auto-declared @healthRisk reactively recomputes when
+//            @marioState changes.
 //
 // Plus the usual: enums, reactive `if=` conditionals, `const <derived>`
 // markup-typed reactives, and Tailwind utility classes for layout +
 // typography on the root container.
 
-${
+<program>
+
     // §1a — payload variants. Each power-up carries a coin reward.
     type PowerUp:enum = {
         Mushroom(coins: number)
@@ -40,8 +45,7 @@ ${
     <gameOver> = false
 
     // §6.6 derived reactives. const <name> = expr is the canonical derived
-    // form (was: `const @name = expr` pre-S58 / `~name` even earlier).
-    // Visible to markup ${@marioEmoji} reads.
+    // form. Visible to markup ${@marioEmoji} reads.
     const <marioEmoji> = match @marioState {
         .Small => "🧍"
         .Big   => "🦸"
@@ -108,67 +112,65 @@ ${
             .Safe   => "POWERED UP — YOU CAN ABSORB A HIT"
         }
     }
-}
 
-// Primary engine — Mario's lifecycle. Auto-declares @marioState via §51.0.C.
-// Body state-children carry rule= transitions per §51.0.F (multi-target form).
-<engine for=MarioState initial=.Small>
-    <Small rule=(.Big | .Fire | .Cape)></>
-    <Big   rule=(.Fire | .Cape | .Small)></>
-    <Fire  rule=.Small></>
-    <Cape  rule=.Small></>
-</>
-
-// Derived projection from @marioState → HealthRisk via the canonical §51.9
-// derived-engine form. The auto-declared @healthRisk reactively recomputes
-// whenever @marioState changes (no manual wiring). Exhaustiveness is
-// enforced: every variant of MarioState must appear on the LHS of some rule
-// (E-ENGINE-018). The S84 fix (Bug 2) wired this form through against
-// auto-declared engine source variables.
-<engine for=HealthRisk derived=@marioState>
-    .Small               => .AtRisk
-    .Big | .Fire | .Cape => .Safe
-</>
-
-<program>
-<div class="flex justify-center items-center min-h-screen text-white font-mono bg-[#1a1a2e]">
-    <div class="bg-gray-800 rounded-2xl p-8 w-96 border border-gray-700 shadow-2xl">
-        <h1 class="text-center text-lg text-yellow-400 mb-6">SUPER MARIO STATE MACHINE</>
-
-        <div class="flex justify-between bg-black rounded-lg p-3 mb-5 text-xs">
-            <div class="flex items-center gap-2">
-                <span class="text-gray-400 uppercase text-xs">LIVES</>
-                <span>${@lives}</>
-            </>
-            <div class="flex items-center gap-2">
-                <span class="text-gray-400 uppercase text-xs">COINS</>
-                <span>${@coins}</>
-            </>
-            <div class="flex items-center gap-2">
-                <span class="text-gray-400 uppercase text-xs">STATE</>
-                <span>${@marioState}</>
-            </>
-        </>
-
-        <div class="flex flex-col items-center justify-center py-8">
-            <span class="text-6xl">${@marioEmoji}</>
-            <span class="text-sm mt-3 text-yellow-400">${@marioName}</>
-        </>
-
-        <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" if=(@healthRisk == HealthRisk::AtRisk && not @gameOver)>${riskBanner(@healthRisk)}</>
-
-        <p class="text-xl text-red-500 my-6 text-center font-bold" if=(@gameOver)>GAME OVER</>
-
-        <div if=(not @gameOver)>
-            <div class="grid grid-cols-3 gap-2 mb-3">
-                <button class="py-3 px-2 bg-green-600 text-white text-xs rounded-lg cursor-pointer border-0" onclick=eatPowerUp(PowerUp::Mushroom(1))>MUSHROOM +1</>
-                <button class="py-3 px-2 bg-yellow-500 text-gray-800 text-xs rounded-lg cursor-pointer border-0" onclick=eatPowerUp(PowerUp::Flower(3))>FLOWER +3</>
-                <button class="py-3 px-2 bg-blue-500 text-white text-xs rounded-lg cursor-pointer border-0" onclick=eatPowerUp(PowerUp::Feather(5))>FEATHER +5</>
-            </>
-            <button class="w-full mt-2 py-3 bg-red-600 text-white text-sm rounded-lg cursor-pointer border-0" onclick=getHurt()>GET HURT</>
-        </>
-
-        <button class="w-full mt-3 py-3 bg-green-600 text-white text-sm rounded-lg cursor-pointer border-0" if=(@gameOver) onclick=restart()>CONTINUE</>
+    // Primary engine — Mario's lifecycle. Auto-declares @marioState via §51.0.C.
+    // Body state-children carry rule= transitions per §51.0.F (multi-target form).
+    <engine for=MarioState initial=.Small>
+        <Small rule=(.Big | .Fire | .Cape)></>
+        <Big   rule=(.Fire | .Cape | .Small)></>
+        <Fire  rule=.Small></>
+        <Cape  rule=.Small></>
     </>
-</>
+
+    // Derived projection from @marioState → HealthRisk via the canonical §51.9
+    // derived-engine form. The auto-declared @healthRisk reactively recomputes
+    // whenever @marioState changes (no manual wiring). Exhaustiveness is
+    // enforced: every variant of MarioState must appear on the LHS of some rule
+    // (E-ENGINE-018).
+    <engine for=HealthRisk derived=@marioState>
+        .Small               => .AtRisk
+        .Big | .Fire | .Cape => .Safe
+    </>
+
+    <div class="flex justify-center items-center min-h-screen text-white font-mono bg-[#1a1a2e]">
+        <div class="bg-gray-800 rounded-2xl p-8 w-96 border border-gray-700 shadow-2xl">
+            <h1 class="text-center text-lg text-yellow-400 mb-6">SUPER MARIO STATE MACHINE</>
+
+            <div class="flex justify-between bg-black rounded-lg p-3 mb-5 text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 uppercase text-xs">LIVES</>
+                    <span>${@lives}</>
+                </>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 uppercase text-xs">COINS</>
+                    <span>${@coins}</>
+                </>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-400 uppercase text-xs">STATE</>
+                    <span>${@marioState}</>
+                </>
+            </>
+
+            <div class="flex flex-col items-center justify-center py-8">
+                <span class="text-6xl">${@marioEmoji}</>
+                <span class="text-sm mt-3 text-yellow-400">${@marioName}</>
+            </>
+
+            <div class="bg-red-900 border border-red-700 text-red-400 px-4 py-2 rounded-lg text-center text-xs mb-4" if=(@healthRisk == HealthRisk::AtRisk && not @gameOver)>${riskBanner(@healthRisk)}</>
+
+            <p class="text-xl text-red-500 my-6 text-center font-bold" if=(@gameOver)>GAME OVER</>
+
+            <div if=(not @gameOver)>
+                <div class="grid grid-cols-3 gap-2 mb-3">
+                    <button class="py-3 px-2 bg-green-600 text-white text-xs rounded-lg cursor-pointer border-0" onclick=eatPowerUp(PowerUp::Mushroom(1))>MUSHROOM +1</>
+                    <button class="py-3 px-2 bg-yellow-500 text-gray-800 text-xs rounded-lg cursor-pointer border-0" onclick=eatPowerUp(PowerUp::Flower(3))>FLOWER +3</>
+                    <button class="py-3 px-2 bg-blue-500 text-white text-xs rounded-lg cursor-pointer border-0" onclick=eatPowerUp(PowerUp::Feather(5))>FEATHER +5</>
+                </>
+                <button class="w-full mt-2 py-3 bg-red-600 text-white text-sm rounded-lg cursor-pointer border-0" onclick=getHurt()>GET HURT</>
+            </>
+
+            <button class="w-full mt-3 py-3 bg-green-600 text-white text-sm rounded-lg cursor-pointer border-0" if=(@gameOver) onclick=restart()>CONTINUE</>
+        </>
+    </>
+
 </program>
