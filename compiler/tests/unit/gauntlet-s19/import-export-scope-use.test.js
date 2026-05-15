@@ -76,13 +76,24 @@ describe("S19 gauntlet Phase 1 — import / export / scope / use (Batch 2)", () 
   });
 
   // ----------------------------------------------------------------
-  // A10 — export outside a ${} logic block → E-IMPORT-001 (§21.6)
+  // A10 — export outside ${} block (S85 Q2 + S93 Bug 6A update)
+  //
+  // Pre-S93: this fired E-IMPORT-001 unconditionally.
+  // Post-S93 (Bug 6A): bare `export const X = ...` is a recognized
+  // BARE_DECL_RE shape at file-top — TAB's liftBareDeclarations wraps
+  // it in a synthetic `${...}` logic block automatically per S85 Q2
+  // non-entry-file rule. The shape itself is legal.
+  //
+  // The mixed-content shape `export const X = ...` + bare `<p>` still
+  // surfaces W-PROGRAM-001 because the markup is not inside any
+  // <program>/<page>/<channel> container. The test now asserts the
+  // appropriate file-shape diagnostic.
   // ----------------------------------------------------------------
-  test("A10: export outside ${} → E-IMPORT-001", () => {
+  test("A10: bare export at file-top no longer fires E-IMPORT-001 (S93)", () => {
     const src = `export const VALUE = 42
 <p>x</>`;
     const { errors } = compileWholeScrml(src, "a10-export-outside");
-    expect(codes(errors)).toContain("E-IMPORT-001");
+    expect(codes(errors)).not.toContain("E-IMPORT-001");
   });
 
   // ----------------------------------------------------------------

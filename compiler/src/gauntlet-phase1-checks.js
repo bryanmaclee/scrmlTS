@@ -173,6 +173,30 @@ function checkTopLevelTextPreamble(blocks, filePath, errors) {
         continue;
       }
 
+      // Bug-batch S93 (Bug 6A — non-entry pure-module file):
+      // Per S85 Q2, non-entry files (modules) have NO `<program>` wrapper
+      // at all — their entire content is logic-default at file-top. Bare
+      // `export type X`, `export function f`, `export fn f`, `export const x`,
+      // `export let x`, `export server function f`, `export server fn f`
+      // forms are valid file-top declarations that TAB's liftBareDeclarations
+      // (BARE_DECL_RE at ast-builder.js:327) lifts into a synthetic `${...}`
+      // logic block automatically. The E-IMPORT-001 was authored when `${}`
+      // was the only logic-context-bearing construct; the rule was never
+      // extended for non-entry files at S85 ratification.
+      //
+      // Suppress E-IMPORT-001 when the export trailer matches one of these
+      // bare-decl shapes — TAB's lift takes over.
+      //
+      // The check is conservative: matches only the trailer-keyword shape;
+      // any other `export` form (e.g. `export X` re-export, `export *`) still
+      // fires E-IMPORT-001 because TAB has no lift for them.
+      const exportTail = trimmed.slice("export".length).replace(/^\s+/, "");
+      const BARE_EXPORT_KEYWORD_RE =
+        /^(?:server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w|let\s+[A-Za-z_]|const\s+[A-Za-z_])/;
+      if (BARE_EXPORT_KEYWORD_RE.test(exportTail)) {
+        continue;
+      }
+
       errors.push(new GauntletError(
         "E-IMPORT-001",
         `E-IMPORT-001: \`export\` declaration is placed outside a \`\${ }\` logic block. ` +

@@ -352,6 +352,28 @@ function findMaxId(nodes: ASTNode[]): number {
 function normalizeTokenizedRaw(raw: string): string {
   let s = raw.trim();
 
+  // Step 0 (Bug-batch S93 — Bug 4): Normalize tokenized HTML comments.
+  //   The logic tokenizer splits `<!-- ... -->` into the token stream
+  //   `< ! - - ... - - >` (with the `<` being an opener token, `!` punct,
+  //   `- -` two hyphen tokens, and the closing `- - >` similarly). When
+  //   the component-def body is re-split by BS, this tokenized form is
+  //   parsed as a sequence of stray tokens — the comment-suppression at
+  //   block-splitter.js:655 only matches the literal four-char prefix
+  //   `<!--` (no spaces). Pre-fix, this caused BS to interpret `<!`
+  //   followed by content as a stray tag opener attempt + text, and the
+  //   downstream component-def body parse failed (zero markup nodes
+  //   returned by `parseComponentBody`), surfacing as E-COMPONENT-020 at
+  //   the use-site (the registry never received the Card component).
+  //
+  //   Collapse back to canonical `<!-- ... -->` so BS's comment skip
+  //   machinery recognizes and discards the comment cleanly.
+  //
+  //   The pattern `<\s*!\s*-\s*-\s*([\s\S]*?)\s*-\s*-\s*>` non-greedily
+  //   matches the tokenized comment span. Body content is preserved
+  //   verbatim (no internal normalization) because comments are
+  //   discarded downstream regardless.
+  s = s.replace(/<\s*!\s*-\s*-\s*([\s\S]*?)\s*-\s*-\s*>/g, "<!-- $1 -->");
+
   // Step 1a': Normalize tokenized BARE closers: "< / >" → "</>"
   //   Multi-line component bodies contain internal bare closers like "</>" that
   //   the logic tokenizer emits as "< / >" (three tokens with spaces). Must run

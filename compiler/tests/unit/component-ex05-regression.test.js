@@ -125,22 +125,29 @@ describe("§Q component defs in ${} blocks — ex05 regression", () => {
     expect(ast.components).toHaveLength(0);
   });
 
-  test("top-level component def (outside ${}) is NOT recognized — documents current limitation", () => {
-    // Top-level `const Name = <div/>` at the file level is treated as text
-    // by the block splitter. CE cannot see it as a component-def.
-    // The `const Name = ` prefix becomes a text node; the `<div/>` becomes
-    // a separate markup block. CE never registers the component.
-    // Referencing it as <TopLevelStep/> at markup level produces E-COMPONENT-020.
+  test("top-level component def (outside ${}) IS recognized after Bug-2 fix (S93+)", () => {
+    // BS-layer corpus-friction bug-batch (S93+): the BARE_DECL_NAME_EQ_AT_END_RE
+    // lift in liftBareDeclarations now pairs a trailing `const Name = ` text
+    // block with its sibling markup block at <program> direct-child level,
+    // synthesizing `${ const Name = <markup-raw> }`. CE registers the
+    // component normally.
+    //
+    // Pre-fix behavior (kept here as commit-history-anchored documentation):
+    //   const TopLevelStep was unrecognized; <TopLevelStep/> fired E-COMPONENT-020.
+    // Post-fix:
+    //   Same shape compiles clean.
     const source = `<program>
 const TopLevelStep = <div class="step"/>
 <TopLevelStep/>
 </program>`;
     const { errors } = runCEOn(source);
 
-    // E-COMPONENT-020: component not found in file scope
+    // E-COMPONENT-020 should NOT fire — the component is now registered.
     const e020 = errors.filter(e => e.code === "E-COMPONENT-020");
-    expect(e020.length).toBeGreaterThanOrEqual(1);
-    expect(e020[0].message).toContain("TopLevelStep");
+    expect(e020).toHaveLength(0);
+    // E-COMPONENT-035 should also NOT fire — CE expanded the use-site.
+    const e035 = errors.filter(e => e.code === "E-COMPONENT-035");
+    expect(e035).toHaveLength(0);
   });
 
   test("lift <InfoStep> inside ${} match arm produces lift-expr with structured markup (Lift Approach C)", () => {

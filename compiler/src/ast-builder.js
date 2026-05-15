@@ -358,6 +358,41 @@ const TOPLEVEL_STATE_DECL_RE = /^\s*(?:export\s+)?(?:const\s+)?<\s*[A-Za-z_][A-Z
  */
 const BARE_EXPORT_AT_END_RE = /(^|\s)export\s*$/;
 
+/**
+ * Bug-batch S93 (Bug 2): regex matching a text block whose TRAILING portion
+ * is a const-or-let component-def header awaiting its markup RHS:
+ *
+ *   `const Name = `       (capture group 1 = leading prefix text)
+ *   `let Name = `         (capture group 2 = "const"/"let" keyword + binding name)
+ *   `export const Name = `
+ *   `export let Name = `
+ *
+ * Used to detect the `const Name = <markup>...</>` Form 2 pattern when
+ * declared as a direct child of `<program>` / `<page>` / file-root. Prior
+ * to the Bug 2 fix, BS-layer split such declarations into a text block
+ * (ending in the bare `const Name = `) and a markup block (the RHS),
+ * and the lift pass did not re-pair them — leaving the const decl orphan-
+ * referenced from the downstream component-expander pass (E-COMPONENT-035).
+ *
+ * Mirrors BARE_EXPORT_AT_END_RE's "trailing payload" shape; the leading
+ * prefix is preserved verbatim as a separate text block so its content
+ * (e.g. a preceding state-decl `<count> = 0`) is re-lifted by the existing
+ * BARE_DECL_RE / TOPLEVEL_STATE_DECL_RE rules.
+ *
+ * Match group 1 captures the prefix; group 2 captures the keyword + name +
+ * `=` trailer (so the synthesized lift can re-build the full statement).
+ *
+ * IMPORTANT — case discrimination: the binding name must start with an
+ * UPPERCASE letter ([A-Z]). Lowercase-name `const m = <main>...</>` is a
+ * regular `const-decl` (whose init expression happens to start with `<`)
+ * and is handled at the markup-render call-site, not as a component-def.
+ * Only PascalCase names like `const TodoRow = <li>...</>` trigger the
+ * component-def auto-lift. (See ast-builder.js:6991 — component-def
+ * recognition gates on `name[0] === name[0].toUpperCase()`.)
+ */
+const BARE_DECL_NAME_EQ_AT_END_RE =
+  /^([\s\S]*?)((?:^|\s)(?:export\s+)?(?:const|let)\s+[A-Z][A-Za-z0-9_]*\s*=\s*)$/;
+
 // ---------------------------------------------------------------------------
 // P2 Form 1 desugaring helpers — body-root absorbs outer attrs (SPEC §21.2)
 //
@@ -990,6 +1025,81 @@ function liftBareDeclarations(blocks, errors, filePath, parentType = null, _p3aS
           _b14IsExport: true,
         });
         i += 1; // skip the engine state block we just consumed
+        continue;
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Bug-batch S93 — Bug 2: `const Name = <markup>` Form 2 auto-lift.
+    //
+    // BS-layer splits `const TodoRow = <li>...</li>` into a TEXT block
+    // (ending in `const TodoRow = `) and a MARKUP block (`<li>...</li>`).
+    // Inside `${...}` wrappers this re-pairs at parseLogicBody time, but
+    // at `<program>` direct-child level the two BS-emitted blocks remain
+    // separate siblings — the const decl orphan is incomplete, the markup
+    // is dangling, and component-expander emits E-COMPONENT-035 at the
+    // use-site.
+    //
+    // Detect: text block whose trailing payload is
+    //     `(?:export\s+)?(?:const|let)\s+NAME\s*=\s*$`
+    // followed by a markup-block sibling. Pair them into a synthetic
+    // logic block:
+    //     `${ <prefix> <const|let> NAME = <markup-raw> }`
+    // The leading text prefix is preserved verbatim as a separate text
+    // block (so any preceding state-decl `<count> = 0` re-traverses the
+    // existing TOPLEVEL_STATE_DECL_RE lift). The trailing `const NAME =
+    // <markup-raw>` is the component-def the user authored.
+    //
+    // Suppressed when parentType === "markup" — inside a non-program
+    // markup element, the text is prose, not a decl trailer.
+    if (
+      block.type === "text" &&
+      parentType !== "markup" &&
+      BARE_DECL_NAME_EQ_AT_END_RE.test(block.raw)
+    ) {
+      const next = blocks[i + 1];
+      if (next && next.type === "markup") {
+        const m = block.raw.match(BARE_DECL_NAME_EQ_AT_END_RE);
+        const prefixRaw = m ? m[1] : "";
+        const trailerRaw = m ? m[2] : "";
+        // Emit the prefix as its own text block so existing lift rules
+        // re-process it (handles a preceding `<count> = 0` state-decl,
+        // a preceding `function f() { ... }` bare-decl, etc.).
+        if (prefixRaw.length > 0) {
+          result.push({
+            ...block,
+            raw: prefixRaw,
+            span: { ...block.span, end: block.span.start + prefixRaw.length },
+          });
+          // Re-run the lift recursively on a 1-block list so the prefix's
+          // own lift rules (BARE_DECL_RE / TOPLEVEL_STATE_DECL_RE) fire.
+          const last = result.pop();
+          const lifted = liftBareDeclarations([last], errors, filePath, parentType, _p3aSynthCounter);
+          for (const b of lifted) result.push(b);
+        }
+        // Pair the trailer `(export )?(const|let) NAME = ` with the next
+        // markup block's verbatim raw. The synthesized logic-body source
+        // is `(export )?(const|let) NAME = <markup-raw>`.
+        const synthBody = trailerRaw.trimStart() + next.raw;
+        const synthFullRaw = "${ " + synthBody + " }";
+        result.push({
+          type: "logic",
+          raw: synthFullRaw,
+          span: {
+            start: block.span.start + prefixRaw.length,
+            end: next.span.end,
+            line: block.span.line,
+            col: block.span.col,
+          },
+          depth: block.depth,
+          children: [],
+          name: null,
+          closerForm: null,
+          isComponent: false,
+          _synthetic: true,
+          _bug2DeclMarkupPair: true,
+        });
+        i += 1; // skip the markup block we just consumed
         continue;
       }
     }
@@ -10958,7 +11068,28 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     middlewareConfig,
   };
 
-  if (!hasProgramRoot) {
+  // Bug-batch S93 (Bug 6B — non-entry pure-module file):
+  // Per S85 Q2 + SPEC §21.5, a "pure-module file" is a file with NO
+  // top-level markup at all — content is exclusively imports/exports/type
+  // /function/const/let declarations. Such files are valid non-entry
+  // modules (the canonical scrml multi-file shape), and W-PROGRAM-001's
+  // "wrap your content in <program>" hint is misleading for them.
+  //
+  // Detection: a file is pure-module when the top-level `nodes` contain
+  // ZERO markup nodes (after liftBareDeclarations has wrapped bare decls
+  // into synthetic logic blocks). Logic-decl/type-decl/component-def/
+  // import-decl/export-decl/channel-decl nodes are all module-shape;
+  // markup nodes (other than embedded inside logic blocks) signal "this
+  // file is a page, not a module".
+  //
+  // When pure-module shape is detected, suppress W-PROGRAM-001 silently
+  // — the file is a recognized canonical shape and needs no warning.
+  const isPureModuleFile =
+    !hasProgramRoot &&
+    nodes.length > 0 &&
+    nodes.every(n => n && n.kind !== "markup");
+
+  if (!hasProgramRoot && !isPureModuleFile) {
     errors.push(new TABError(
       "W-PROGRAM-001",
       `W-PROGRAM-001: No <program> root element found. Consider wrapping your file ` +

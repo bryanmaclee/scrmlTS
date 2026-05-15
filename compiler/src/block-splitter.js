@@ -1060,42 +1060,60 @@ export function splitBlocks(filePath, source) {
       continue;
     }
 
-    // Brace-delimited openers at markup/state level
-    if (c === "$" && ch(1) === "{") {
-      flushText();
-      advance(2);
-      pushBraceContext("logic", curPos, curLine, curCol);
-      continue;
-    }
-    if (c === "?" && ch(1) === "{") {
-      flushText();
-      advance(2);
-      pushBraceContext("sql", curPos, curLine, curCol);
-      continue;
-    }
-    if (c === "#" && ch(1) === "{") {
-      flushText();
-      advance(2);
-      pushBraceContext("css", curPos, curLine, curCol);
-      continue;
-    }
-    if (c === "!" && ch(1) === "{") {
-      flushText();
-      advance(2);
-      pushBraceContext("error-effect", curPos, curLine, curCol);
-      continue;
-    }
-    if (c === "^" && ch(1) === "{") {
-      flushText();
-      advance(2);
-      pushBraceContext("meta", curPos, curLine, curCol);
-      continue;
-    }
-    if (c === "~" && ch(1) === "{") {
-      flushText();
-      advance(2);
-      pushBraceContext("test", curPos, curLine, curCol);
-      continue;
+    // Brace-delimited openers at markup/state level.
+    //
+    // When orphanBraceDepth > 0, we are inside a bare `{ ... }` block at
+    // markup-level (e.g. a type-decl body `type X:enum = { ... }`, a
+    // function-body lift `function f() { ... }`, or a match-expression
+    // body `match @x { ... }`). Inside such a block, sigil-prefixed
+    // brace openers (`${`, `?{`, etc.) are NOT scrml mode-switch boundaries
+    // — they're text content that will be re-parsed by the lift pass
+    // (liftBareDeclarations wraps the surrounding text in `${...}` and the
+    // tokenizer handles template-literal `${...}` correctly inside JS
+    // string contexts).
+    //
+    // Bug-batch S93 (Bug 3 + Bug 3-adjacent): pre-fix, BS treated `${hh}`
+    // inside `function f() { return \`${hh}\` }` as a new logic context
+    // because the program-body markup frame doesn't track JS string state.
+    // Bug 3-adj had the analogous failure for `renders <p>${email}</>` in
+    // a type-decl enum body. Both cases hit `orphanBraceDepth > 0` here.
+    if (orphanBraceDepth === 0) {
+      if (c === "$" && ch(1) === "{") {
+        flushText();
+        advance(2);
+        pushBraceContext("logic", curPos, curLine, curCol);
+        continue;
+      }
+      if (c === "?" && ch(1) === "{") {
+        flushText();
+        advance(2);
+        pushBraceContext("sql", curPos, curLine, curCol);
+        continue;
+      }
+      if (c === "#" && ch(1) === "{") {
+        flushText();
+        advance(2);
+        pushBraceContext("css", curPos, curLine, curCol);
+        continue;
+      }
+      if (c === "!" && ch(1) === "{") {
+        flushText();
+        advance(2);
+        pushBraceContext("error-effect", curPos, curLine, curCol);
+        continue;
+      }
+      if (c === "^" && ch(1) === "{") {
+        flushText();
+        advance(2);
+        pushBraceContext("meta", curPos, curLine, curCol);
+        continue;
+      }
+      if (c === "~" && ch(1) === "{") {
+        flushText();
+        advance(2);
+        pushBraceContext("test", curPos, curLine, curCol);
+        continue;
+      }
     }
 
     // Bare '{' at markup/state level (no preceding sigil) - track as orphan brace.
@@ -1126,6 +1144,15 @@ export function splitBlocks(filePath, source) {
 
       // '</>' — inferred closer (3-char unambiguous token); must precede </identifier> check
       if (next === "/" && ch(2) === ">") {
+        // Bug-batch S93 (Bug 3-adjacent companion): inside an orphan-brace
+        // block, `</>` is part of the brace-body content (it pairs with a
+        // `<tag>` opener that is also being treated as text). Consume as
+        // raw text instead of popping the enclosing frame.
+        if (orphanBraceDepth > 0) {
+          beginText();
+          step(); step(); step();
+          continue;
+        }
         const frame = topFrame();
         if (!frame || (frame.type !== "markup" && frame.type !== "state")) {
           beginText();
@@ -1140,6 +1167,16 @@ export function splitBlocks(filePath, source) {
 
       // '</identifier>' - explicit close tag
       if (next === "/") {
+        // Bug-batch S93 (Bug 3-adjacent companion): same orphan-brace gate
+        // as `</>`. Inside `{ renders <p>${x}</p> }` the `</p>` is text.
+        if (orphanBraceDepth > 0) {
+          beginText();
+          step(); step(); // consume `</`
+          while (pos < len && /[A-Za-z0-9_\-]/.test(source[pos])) step();
+          while (pos < len && source[pos] !== ">" && source[pos] !== "\n") step();
+          if (pos < len && source[pos] === ">") step();
+          continue;
+        }
         flushText();
         advance(2); // consume </
         const tagName = readIdent();
@@ -1200,6 +1237,20 @@ export function splitBlocks(filePath, source) {
 
       // '<letter' or '<_' - markup tag (section 4.1)
       if (/[A-Za-z_]/.test(next)) {
+        // Bug-batch S93 (Bug 3-adjacent): when inside an orphan-brace block
+        // (`type X:enum = { ... }`, `function f() { ... }`, match body),
+        // `<tag>` openers are part of the brace-block content (e.g. a
+        // type-decl variant's `renders <p>...</>` markup-RHS clause is
+        // text inside the type-decl body until the lift pass wraps it in
+        // a synthetic `${...}`). Without this gate, pre-fix BS pushed a
+        // markup context that split the text-block in half and dropped
+        // the variant binding's lexical scope.
+        if (orphanBraceDepth > 0) {
+          beginText();
+          step(); // consume '<' so we don't loop on it
+          continue;
+        }
+
         // Phase A1a Step 11.0d — top-level state-decl signal.
         // SPEC §6.2: `<count> = 0` (Shape 1), `<count>: number = 0` (Shape 1+typed),
         // `<userName req> = <input/>` (Shape 2). At TRUE top level (no enclosing
@@ -1294,6 +1345,16 @@ export function splitBlocks(filePath, source) {
 
       // '< whitespace' - state block (section 4.2)
       if (/\s/.test(next)) {
+        // Bug-batch S93 (Bug 3-adjacent companion): orphan-brace gating —
+        // a `< name>` state-opener inside a `{ ... }` brace block at
+        // markup-level is content text, not a real state push. Mirror the
+        // markup `<TAG>` orphan-brace gate above.
+        if (orphanBraceDepth > 0) {
+          beginText();
+          step(); // consume '<' so we don't loop on it
+          continue;
+        }
+
         // §54.3 transition-decl target: if this `<` follows `ident(...) =>`
         // inside a state body, treat `< Target>` as text, not a state push.
         // The next `{` at state-body level opens a logic body frame.

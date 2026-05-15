@@ -1868,8 +1868,22 @@ describe("W-PROGRAM-001: program root detection", () => {
     expect(result.ast.hasProgramRoot).toBe(false);
   });
 
-  test("file with only logic blocks (no program) emits W-PROGRAM-001", () => {
+  test("file with only logic blocks (pure module shape) suppresses W-PROGRAM-001 (S93 Bug 6B)", () => {
+    // S93 Bug 6B (pure-module file): files with NO top-level markup are
+    // recognized canonical "pure module" shape per S85 Q2 + SPEC §21.5.
+    // The W-PROGRAM-001 "wrap your content in <program>" hint would be
+    // misleading for them — they're correctly module-shaped.
     const src = "${ let x = 1 }";
+    const result = parse(src);
+    const warning = result.errors.find(e => e.code === "W-PROGRAM-001");
+    expect(warning).toBeUndefined();
+  });
+
+  test("file with no program AND top-level markup emits W-PROGRAM-001", () => {
+    // The opposite branch: a file with bare top-level markup but no
+    // <program> wrapper is NOT a pure-module shape — the W-PROGRAM-001
+    // hint is still useful.
+    const src = "<div>content</>";
     const result = parse(src);
     const warning = result.errors.find(e => e.code === "W-PROGRAM-001");
     expect(warning).toBeDefined();

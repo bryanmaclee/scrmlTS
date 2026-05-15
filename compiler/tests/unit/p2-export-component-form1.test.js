@@ -141,11 +141,30 @@ describe("§C E-IMPORT-001 is suppressed for Form 1", () => {
     expect(eImport001.length).toBe(0);
   });
 
-  test("Bare `export ...` (no markup follow) STILL fires E-IMPORT-001", () => {
-    // This is the legacy E-IMPORT-001 case — no Form-1 pairing applies.
+  test("Bare `export type` at file-top is allowed (S85 Q2 + Bug-6A fix)", () => {
+    // S85 Q2 ratification — non-entry files (modules) have NO `<program>`
+    // wrapper; their content is logic-default at file-top, so bare
+    // `export type Foo = ...` lifts cleanly via TAB's BARE_DECL_RE.
+    // Pre-S93 BS-batch this fired E-IMPORT-001 from gauntlet-phase1-checks.js;
+    // post-fix the suppression matches BARE_EXPORT_KEYWORD_RE and falls
+    // through to TAB's lift.
     const src = `export type Foo = number
 `;
     const bsOut = splitBlocks("/test/bad.scrml", src);
+    const tabResult = buildAST(bsOut);
+    const errors = runGauntletPhase1Checks(bsOut, tabResult);
+    const eImport001 = errors.filter(e => e.code === "E-IMPORT-001");
+    expect(eImport001).toHaveLength(0);
+  });
+
+  test("Bare `export X` re-export (no decl keyword) STILL fires E-IMPORT-001", () => {
+    // The bare-export-keyword suppression (S93 Bug 6A) is conservative —
+    // it only matches the bare-decl-keyword shapes that TAB lifts. An
+    // export shape that doesn't have a lift path (e.g. `export X` re-export,
+    // `export *`, `export { x, y }`) still fires E-IMPORT-001.
+    const src = `export { foo, bar } from "./mod"
+`;
+    const bsOut = splitBlocks("/test/reexport.scrml", src);
     const tabResult = buildAST(bsOut);
     const errors = runGauntletPhase1Checks(bsOut, tabResult);
     const eImport001 = errors.filter(e => e.code === "E-IMPORT-001");

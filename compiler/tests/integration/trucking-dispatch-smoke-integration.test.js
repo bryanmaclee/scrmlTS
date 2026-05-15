@@ -190,6 +190,11 @@ describe("trucking-dispatch — pipeline-level invariants", () => {
 
 describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
   // Baseline counts probed at HEAD acbb097 (S92 A-5.4 close).
+  // Refreshed at S93 BS-batch (Bug 6B) — W-PROGRAM-001 now suppressed on
+  // pure-module files (no top-level markup): 34 → 23 for trucking-dispatch
+  // (11 module files affected: types/utility/components/channels modules
+  // in pages/ subdirs lacking <program> wrapper per S85 Q2 non-entry-file
+  // canonical shape).
   // If a new pipeline pass tightens any of these counts, update this
   // map; if a count regresses, investigate the firing site.
   const EXPECTED_BASELINE = {
@@ -201,7 +206,7 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
     "W-CG-CHUNK-PREFETCH-UNRESOLVED": 2,
     "W-CG-UNDEFINED-INTERPOLATION": 53,
     "W-DEAD-FUNCTION": 1,
-    "W-PROGRAM-001": 34,
+    "W-PROGRAM-001": 23,
     "W-PROGRAM-REDUNDANT-LOGIC": 18,
     "W-PROGRAM-SPA-INFERRED": 1,
   };
