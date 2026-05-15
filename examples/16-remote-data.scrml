@@ -35,10 +35,15 @@
     // failable-fn syntax (see example 09). For brevity here, the demo
     // path assumes success; production code would wire the .Failed
     // branch via a failable server function returning `! ContactsError`.
+    // `fetchContacts()` is called as an unbound expression: its result
+    // initializes `~` (SPEC §32). The next line consumes `~` directly
+    // into the .Ready variant payload. No `const rows = ...` needed —
+    // naming an intermediate value used only on the next line is a
+    // cost the language doesn't impose.
     function load() {
       @state = ContactsState::Loading
-      const rows = fetchContacts()
-      @state = ContactsState::Ready(rows)
+      fetchContacts()
+      @state = ContactsState::Ready(~)
     }
   }
 

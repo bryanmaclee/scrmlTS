@@ -1,0 +1,92 @@
+// Example 24: `~` — the last-unbound-expression carry-forward (SPEC §32).
+// scrml's pipeline accumulator. When you write a value-producing
+// expression as a standalone statement (no `let x = ...`, no `return`,
+// no other binding), its result initializes `~`. The NEXT statement
+// can consume `~` to forward that result without naming an intermediate.
+//
+// Mental model: `~` catches what the previous unbound expression dropped.
+// Same intent as the cleanliness of a ternary — naming an intermediate
+// used exactly once is a tax the language shouldn't impose.
+//
+// Scope rules (§32.4): each `${}` body and each function body is its own
+// `~` scope. Outer `~` does NOT leak into nested contexts; nested `~`
+// does NOT leak out. Tree-shake: bodies that never reference `~` get
+// zero `~` overhead.
+//
+// Currently-working shapes (other shapes are queued — see SPEC §32):
+//   - bare call + next-line consume:  `fetch(); const x = process(~)`
+//   - function body:                  `fn(start) { step(start); return next(~) }`
+//
+// Styling: co-located scoped `#{}` per markup section (S86 styling rule).
+
+<program>
+
+  function step1(n: number) -> number { return n + 10 }
+  function step2(n: number) -> number { return n * 3 }
+
+  // Function body has its own `~` scope (§32.4). `step1(start)` is an
+  // unbound call — its result initializes `~`. The `return step2(~)`
+  // line consumes `~`. No `let` between them.
+  function pipeline(start: number) -> number {
+    step1(start)
+    return step2(~)
+  }
+
+  // Top-level pipeline inside an explicit `${}` logic block — also its
+  // own `~` scope. Bare-call initializes `~`; bound consume on the next
+  // line. Replaces the verbose form `const intermediate = step1(2);
+  // const result = step2(intermediate)`.
+  ${
+    step1(2)
+    const result = step2(~)
+  }
+
+  // Function call. Each fn body has its OWN ~ scope, so the outer ~
+  // above is independent of the one inside `pipeline()`.
+  const piped = pipeline(7)
+
+  #{
+    .demo {
+      max-width: 480px;
+      margin: 2rem auto;
+      padding: 1.5rem;
+      font-family: sans-serif;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #eee;
+    }
+    .label { color: #555; }
+    .value { font-weight: 600; font-family: monospace; }
+    .summary {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #f7f7f7;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #333;
+    }
+  }
+  <div class="demo">
+    <h1>~ pipeline</>
+
+    <div class="row">
+      <span class="label">step1(2) → step2(~) at top level</>
+      <span class="value">${result}</>
+    </div>
+
+    <div class="row">
+      <span class="label">pipeline(7) — fn-body ~</>
+      <span class="value">${piped}</>
+    </div>
+
+    <div class="summary">
+      Each line is a bare call (no `let x = ...`); the next line reaches
+      back via `~`. Same intent as ternary expressions — no name on an
+      intermediate value used exactly once.
+    </div>
+  </div>
+
+</program>

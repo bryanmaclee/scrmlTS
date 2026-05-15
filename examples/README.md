@@ -57,6 +57,7 @@ bun compiler/src/cli.js compile examples/01-hello.scrml -o dist/
 | `21-navigation.scrml` | `navigate()` + `route` — page transitions, route params (§20) |
 | `22-multifile/` | `import`/`export` across .scrml files — pure-type files + component reuse (§21) |
 | `23-trucking-dispatch/` | Multi-page reference app (logistics dispatch) — multiple `<page>` files under `routes/`, full-stack with auth + DB + per-page server functions; canonical adopter-scale shape |
+| `24-tilde-pipeline.scrml` | `~` last-unbound-expression carry-forward — bare-call + next-line consume; function-body pipelines; no naming intermediates used once (§32) |
 
 ---
 
