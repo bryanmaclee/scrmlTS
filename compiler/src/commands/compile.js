@@ -283,7 +283,14 @@ function formatError(err, cwd) {
  * @returns {string}
  */
 function formatWarning(warn, cwd) {
-  const label = c.bold(c.yellow("warning"));
+  // Info-level diagnostics (severity:"info" OR I-* prefix) get a cyan
+  // "info" label; canonical warnings get the yellow "warning" label.
+  // Both share the non-fatal partition (result.warnings) per S93 partition
+  // rule; only the label differs to surface severity to the reader.
+  const isInfo =
+    warn.severity === "info" ||
+    (warn.code && warn.code.startsWith("I-"));
+  const label = isInfo ? c.bold(c.cyan("info")) : c.bold(c.yellow("warning"));
   const code = warn.code ? c.dim(`[${warn.code}]`) : "";
   let msg = `${label}${code ? " " + code : ""}: ${warn.message}`;
 

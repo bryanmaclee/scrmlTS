@@ -1671,8 +1671,32 @@ export function compileScrml(options = {}) {
     }
   }
 
-  const errors = allErrors.filter(e => !e.code?.startsWith("W-") && e.severity !== "warning");
-  const warnings = allErrors.filter(e => e.code?.startsWith("W-") || e.severity === "warning");
+  // Diagnostic-stream partition (S93 fix — info-level no longer fatal).
+  //
+  // result.errors: fatal diagnostics that should fail the build. Includes
+  //   E-* prefix codes + any diagnostic with severity:"error" + any
+  //   diagnostic with no prefix/severity (defensive default).
+  //
+  // result.warnings: non-fatal diagnostics surfaced to the developer. Includes
+  //   W-* prefix codes + severity:"warning" + I-* prefix codes +
+  //   severity:"info". The non-fatal bucket carries info-level entries so
+  //   the CLI exits 0 when the only "errors" are informational lints
+  //   (e.g. I-AUTH-REDIRECT-UNRESOLVED on entry files whose /login page
+  //   lives in a separate compile unit, I-MATCH-PROMOTABLE on if-chains
+  //   over enums, etc.).
+  //
+  // Pre-S93 behavior treated info-level as fatal (CLI exit 1 on info-only
+  // files including 07-admin-dashboard and 23-trucking-dispatch). The
+  // partition rule was {W- prefix OR severity:warning} → warnings; everything
+  // else → errors. Info-level fell through to errors. Now: {W-/I- prefix OR
+  // severity:warning/info} → warnings.
+  const isNonFatal = (e) =>
+    e.code?.startsWith("W-") ||
+    e.code?.startsWith("I-") ||
+    e.severity === "warning" ||
+    e.severity === "info";
+  const errors = allErrors.filter(e => !isNonFatal(e));
+  const warnings = allErrors.filter(isNonFatal);
 
   return {
     errors,
