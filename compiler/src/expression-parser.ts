@@ -820,11 +820,25 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   );
 
   // §32 tilde accumulator: replace standalone `~` with placeholder identifier.
-  // Only active inside tilde contexts (after value-lift). Outside tilde context,
-  // `~` is JS bitwise NOT and must not be replaced.
-  if (opts?.tildeActive) {
-    s = s.replace(/(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])/g, "__scrml_tilde__");
-  }
+  //
+  // The regex `(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])` is precisely tuned to match
+  // ONLY bare standalone `~` — not adjacent to identifier characters. Bitwise-NOT
+  // requires an attached operand (`~x`, `~5`), which always has an identifier or
+  // digit character immediately following the `~` and so does NOT match this
+  // regex. The matched form is therefore structurally the tilde-accumulator: it
+  // cannot be a well-formed JS bitwise-NOT.
+  //
+  // Applied unconditionally (no `tildeActive` gate) so that the round-trip
+  //   parseExprToNode → emitStringFromTree → parseExprToNode
+  // is stable for `IdentExpr { name: "~" }` and any expression containing one.
+  // The emitter renders `~` as the bare ident; without unconditional substitution
+  // the re-parse would treat the bare `~` as a malformed bitwise-NOT and produce
+  // a ParseError escape-hatch — breaking the corpus-invariant idempotency check.
+  //
+  // The `opts?.tildeActive` parameter is retained in the signature for backward
+  // compatibility and to allow future tilde-scope-aware diagnostics, but is no
+  // longer load-bearing for this substitution.
+  s = s.replace(/(?<![A-Za-z0-9_$])~(?![A-Za-z0-9_$])/g, "__scrml_tilde__");
 
   return s;
 }
