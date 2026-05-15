@@ -2264,6 +2264,32 @@ export function runRI(input: RIInput): RIOutput {
     for (const top of nodes) walkMarkupContext(top);
   }
 
+  // Walk a function-decl's body subtree looking for any `lift-expr` node.
+  // Used by D5 (W-DEPRECATED-SERVER-MODIFIER) to suppress the "redundant
+  // keyword" lint on functions whose bodies use `lift` — `lift` requires
+  // `server function` body context per SPEC §49.6.2; removing the keyword
+  // would trip E-SYNTAX-002 at parse time. (S93 fix.)
+  function hasLiftInFunctionBody(fnNode: { body?: unknown }): boolean {
+    function walk(n: unknown): boolean {
+      if (!n || typeof n !== "object") return false;
+      const node = n as Record<string, unknown>;
+      if (node.kind === "lift-expr") return true;
+      for (const key in node) {
+        const v = node[key];
+        if (Array.isArray(v)) {
+          for (const item of v) if (walk(item)) return true;
+        } else if (v && typeof v === "object" && (v as any).kind) {
+          if (walk(v)) return true;
+        }
+      }
+      return false;
+    }
+    const body = (fnNode as any).body;
+    if (!Array.isArray(body)) return false;
+    for (const stmt of body) if (walk(stmt)) return true;
+    return false;
+  }
+
   // Now emit D4 (W-DEAD-FUNCTION) + D5 (W-DEPRECATED-SERVER-MODIFIER).
   for (const [fnNodeId, record] of analysisMap) {
     const fnName = record.fnNode.name;
@@ -2303,7 +2329,27 @@ export function runRI(input: RIInput): RIOutput {
     }
 
     // -- D5: W-DEPRECATED-SERVER-MODIFIER -------------------------------
-    if (isExplicitServer) {
+    //
+    // The `server` modifier is redundant ONLY when removing it leaves a
+    // syntactically + semantically equivalent function. Two cases where
+    // removal would BREAK compilation, so the lint must NOT fire:
+    //
+    //   1. Body contains `lift-expr` nodes. Per SPEC §49.6.2, `lift` is
+    //      not valid inside a standard `function` body (E-SYNTAX-002).
+    //      `server function` bodies ARE permitted to use `lift` — the
+    //      keyword is therefore load-bearing for body context, not just
+    //      escalation. The lint's "redundant" framing is wrong for these.
+    //
+    //   2. (future) — any other syntax that requires `server function`
+    //      body context. None known today; placeholder for additions.
+    //
+    // S93 fix: tighten the predicate to skip when the body has any
+    // lift-expr descendant. Surfaced by S93 corpus-cleanup migration:
+    // 7 of 7 W-DEPRECATED-SERVER-MODIFIER sites were "remove server,
+    // file fails to compile" because their bodies used `lift ?{}.all()`.
+    // The lint correctly identified the body's escalation but missed
+    // the body-context constraint.
+    if (isExplicitServer && !hasLiftInFunctionBody(record.fnNode)) {
       const escalation = escalationResults.get(fnNodeId);
       const otherReasons = (escalation?.deduped ?? []).filter(
         r => r.kind !== "explicit-annotation",

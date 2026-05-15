@@ -42,7 +42,7 @@
       // No sync infrastructure for these (§52.5 row 1).
       <draftTitle> = ""
 
-      server function loadTasks() {
+      function loadTasks() {
         return ?{`SELECT id, title, completed, position FROM tasks ORDER BY position`}.all()
       }
 

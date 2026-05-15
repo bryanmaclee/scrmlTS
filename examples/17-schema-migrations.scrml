@@ -38,7 +38,7 @@
       <noteTitle>   = ""
       <noteBody>    = ""
 
-      server function lookupUser(email) {
+      function lookupUser(email) {
         return ?{`SELECT id, display_name FROM users WHERE email = ${email}`}.get()
       }
 

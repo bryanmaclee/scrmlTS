@@ -7,6 +7,40 @@ Adjacent to the BS-layer corpus-friction bug batch at `docs/changes/bs-layer-cor
 
 ---
 
+## S93 follow-up — 3 residual BS-batch edge cases (`${ }` wrappers that still can't be dropped)
+
+After the BS-batch fixes landed (commit `cb1d48c`), the Phase 3 workaround-drop pass attempted to remove `${ }` wrappers from 9 example files. **5 dropped cleanly**, **1 was filed in DEFERRED 1+2 above (09-error-handling)**, and **3 residual cases failed when dropped and were reverted** during the S93 bug-hunt:
+
+### Residual 1 — `examples/12-snippets-slots.scrml` — component-def with `${children}` spread
+
+Component-def `const Card = <div class="card" props={...}> ${children} ... </>` at `<program>` direct-child level. Bug 2 fix handles `const Name = <markup>` LIFT pairing, BUT when the markup body contains `${children}` spread interpolation, dropping the outer `${ }` wrapper produces E-COMPONENT-031 on EVERY component use-site. The spread + slot-render combination trips a downstream pass.
+
+Workaround: keep the outer `${ }` wrapper (W-PROGRAM-REDUNDANT-LOGIC false-positive).
+
+### Residual 2 — `examples/19-lin-token.scrml` — function body with template-literal `${ident}` and `lin` parameter
+
+Function `redeem(lin ticket: string, ...) { return \`Redeemed ticket=${ticket} ...\` }` at `<program>` direct-child level. Bug 3 fix handles template-literal `${ident}` in plain function bodies, BUT the `lin`-parameter binding combined with the template-literal consumption pattern fails — drop produces E-SCOPE-001 on `ticket`. The `lin` declaration's scope-tracking interacts with the BS-layer differently than a normal parameter.
+
+Workaround: keep the outer `${ }` wrapper.
+
+### Residual 3 — `examples/20-middleware.scrml` — multi-line `server function` body
+
+`server function handle(request, resolve) { ... }` with multi-line body containing `const reqId = crypto.randomUUID(); const start = Date.now(); ...` at `<program>` direct-child level. Drop produces E-PARSE-001 on the function body's closing `}` + E-SCOPE-001 on body-local identifiers. Distinct shape from the template-literal Bug 3 — the body has no template literals, just multi-line statements.
+
+Workaround: keep the outer `${ }` wrapper.
+
+### Recommendation
+
+These three residual shapes are siblings of the BS-batch bugs but distinct enough that the existing 18-test regression suite didn't catch them. Worth a follow-up dispatch ("BS-batch v2") with:
+
+1. Regression-test fixtures for each residual shape
+2. Survey of BS-layer + downstream pass interactions for the three patterns
+3. Per-shape fix
+
+Aggregate est: ~6-12h (the surface is now narrow + well-mapped from the S93 BS-batch experience).
+
+---
+
 ## Deferred 1 — `22-multifile/types.scrml` non-entry pure-type file requires `${}` wrapper
 
 ### Symptom

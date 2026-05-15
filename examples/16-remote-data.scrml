@@ -27,7 +27,7 @@
 
     <state>: ContactsState = .NotAsked
 
-    server function fetchContacts() {
+    function fetchContacts() {
       return ?{`SELECT id, name, email FROM contacts ORDER BY name`}.all()
     }
 
