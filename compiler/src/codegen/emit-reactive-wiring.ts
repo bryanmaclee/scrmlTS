@@ -1,6 +1,6 @@
 import { genVar } from "./var-counter.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
-import { emitLogicNode } from "./emit-logic.js";
+import { emitLogicNode, nodeListContainsTildeRef } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import {
   collectTopLevelLogicStatements,
@@ -369,6 +369,23 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
     let groupHasReactiveDeps = false;
     let skipGroup = false;
 
+    // §32 tilde codegen: pre-scan each group (a contiguous run of statements
+    // within a `${}` body — sharing _placeholderId) for `~` references. When
+    // any statement in the group references `~` (including structural ExprNode
+    // form), set up a per-group tildeContext so bare-expr / value-lift nodes
+    // capture results to a generated `_scrml_tilde_N` and consume sites lower
+    // `~` to that var. Each group is an independent `${}` boundary per
+    // SPEC §32.4. `let` shadowing in JS handles nested scopes naturally —
+    // see emitIfExprDecl / emitForExprDecl for the as-expression-decl
+    // counterpart.
+    const groupTildeUsed = nodeListContainsTildeRef(stmts);
+    const groupTildeCtx = groupTildeUsed
+      ? { var: null as string | null, mode: "single" as "single" | "array" }
+      : null;
+    const groupEmitOpts = groupTildeCtx
+      ? { ...emitOpts, tildeContext: groupTildeCtx }
+      : emitOpts;
+
     for (const stmt of stmts) {
       if (isServerOnlyNode(stmt)) {
         errors.push(new CGError(
@@ -381,7 +398,7 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
         ));
         continue;
       }
-      const code = emitLogicNode(stmt, emitOpts);
+      const code = emitLogicNode(stmt, groupEmitOpts);
       if (code) codes.push(code);
       if (stmtContainsLift(stmt)) groupHasLift = true;
       // Check for reactive deps in the emitted code (after @var rewriting)

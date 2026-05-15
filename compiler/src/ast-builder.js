@@ -3141,11 +3141,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         } else {
           stmts.push(node);
         }
-        // Phase 4: track tilde context — value-lift activates, ~ consumption deactivates
-        if (node.kind === "lift-expr" && node.expr && node.expr.kind === "expr") {
+        // Phase 4 / §32 — track tilde context. The tilde accumulator is
+        // initialized by EITHER (1) a `lift` statement with a value-lift
+        // expression, OR (2) an unassigned expression statement (bare-expr
+        // with no binding). The next statement may consume `~`; after one
+        // potentially-consuming statement we deactivate so subsequent
+        // statements do not silently parse `~` as the accumulator (they
+        // would either be a fresh init or a forbidden out-of-scope read,
+        // both of which the type system / RI surface diagnostics for).
+        if (
+          (node.kind === "lift-expr" && node.expr && node.expr.kind === "expr") ||
+          node.kind === "bare-expr"
+        ) {
           _tildeActive = true;
         } else if (_tildeActive) {
-          // Any non-lift statement after a value-lift may consume ~; deactivate after one statement
           _tildeActive = false;
         }
       }
@@ -5994,10 +6003,17 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     const tok = peek();
     if (tok.kind === "EOF") break;
 
-    // Phase 4: update tilde context based on last pushed node
+    // Phase 4 / §32 — update tilde context based on last pushed node.
+    // Tilde is initialized by EITHER (1) a value-lift `lift-expr`, OR
+    // (2) an unassigned expression statement (bare-expr). The next
+    // potentially-consuming statement deactivates the flag — see the
+    // matching block in parseRecursiveBody for the rationale.
     if (nodes.length > 0) {
       const lastNode = nodes[nodes.length - 1];
-      if (lastNode.kind === "lift-expr" && lastNode.expr && lastNode.expr.kind === "expr") {
+      if (
+        (lastNode.kind === "lift-expr" && lastNode.expr && lastNode.expr.kind === "expr") ||
+        lastNode.kind === "bare-expr"
+      ) {
         _tildeActive = true;
       } else if (_tildeActive) {
         _tildeActive = false;

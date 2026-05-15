@@ -1,7 +1,7 @@
 import { genVar } from "./var-counter.ts";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { exprNodeCollectCallees } from "../expression-parser.ts";
-import { emitLogicNode } from "./emit-logic.js";
+import { emitLogicNode, nodeListContainsTildeRef } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import { isServerOnlyNode } from "./collect.ts";
 import { resolveModulePath, isPromiseReturningStdlibFn } from "../module-resolver.js";
@@ -359,6 +359,13 @@ export function scheduleStatements(body: ASTNode[], fnNode: ASTNode, routeMap: R
     ...(calleeMap ? { asyncCalleeMap: calleeMap } : {}),
     ...(exportRegistry ? { asyncExportRegistry: exportRegistry } : {}),
     asyncFilePath: filePath,
+    // §32 — a function body is its own tilde scope (SPEC §32.4). Pre-scan
+    // for `~` references and set up a per-body tildeContext so bare-expr /
+    // value-lift statements capture into the generated tilde var and consume
+    // sites lower `~` to that var. Skipped when the body has no `~`.
+    ...(nodeListContainsTildeRef(body)
+        ? { tildeContext: { var: null as string | null, mode: "single" as "single" | "array" } }
+        : {}),
   };
 
   // Only use complex scheduling (Promise.all) for functions with actual server calls.

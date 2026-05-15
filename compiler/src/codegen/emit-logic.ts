@@ -2681,6 +2681,16 @@ export function emitFnShortcutBody(body: any[], opts: EmitLogicOpts, fnKind: str
       break;
     }
   }
+  // §32 — Tilde scope: a function body is its own tilde scope per SPEC §32.4.
+  // Pre-scan the body for `~` references and set up a tildeContext so bare-
+  // expr / value-lift statements capture into the generated tilde var and
+  // consume sites lower `~` to that var. Without this, a `function f() {
+  // inner(2); return ~ }` shape emits a literal `~` in the return-stmt
+  // (parsed as JS bitwise-NOT — produces NaN at runtime).
+  const tildeUsed = nodeListContainsTildeRef(body);
+  const bodyOpts: EmitLogicOpts = tildeUsed
+    ? { ...opts, tildeContext: { var: null, mode: "single" } }
+    : opts;
   const out: string[] = [];
   for (let i = 0; i < body.length; i++) {
     const stmt = body[i];
@@ -2688,14 +2698,14 @@ export function emitFnShortcutBody(body: any[], opts: EmitLogicOpts, fnKind: str
     let code: string;
     if (i === tailIdx) {
       if (stmt.kind === "bare-expr") {
-        const exprCtx = _makeExprCtx(opts);
+        const exprCtx = _makeExprCtx(bodyOpts);
         const exprCode = stmt.exprNode
           ? emitExpr(stmt.exprNode, exprCtx)
           : emitExprField(null, stmt.expr ?? "", exprCtx);
         code = exprCode ? `return ${exprCode};` : "";
       } else {
         // match/switch emit as IIFE expression strings — wrap in `return ...;`.
-        const rawCode = emitLogicNode(stmt, opts);
+        const rawCode = emitLogicNode(stmt, bodyOpts);
         if (rawCode) {
           const stripped = rawCode.replace(/;\s*$/, "");
           code = `return ${stripped};`;
@@ -2704,7 +2714,7 @@ export function emitFnShortcutBody(body: any[], opts: EmitLogicOpts, fnKind: str
         }
       }
     } else {
-      code = emitLogicNode(stmt, opts);
+      code = emitLogicNode(stmt, bodyOpts);
     }
     if (code) out.push(code);
   }
@@ -3196,9 +3206,12 @@ export function emitLogicBody(nodes: any[], opts: EmitLogicOpts = {}): string[] 
 
 /**
  * Return true if any node (or descendant) in the list contains a `~` reference.
- * Used by emitLogicBody to decide whether tilde tracking is needed.
+ * Used by emitLogicBody to decide whether tilde tracking is needed. Exported
+ * so call-sites that manually iterate statements (emit-reactive-wiring per-
+ * group loop, emit-functions function-body emit, etc.) can also gate
+ * tildeContext setup on the same scan.
  */
-function nodeListContainsTildeRef(nodes: any[]): boolean {
+export function nodeListContainsTildeRef(nodes: any[]): boolean {
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     if (nodeContainsTildeRef(node)) return true;
@@ -3217,9 +3230,76 @@ function nodeContainsTildeRef(node: any): boolean {
       if (hasTildeToken(val.expr)) return true;
     }
   }
+  // §32 tilde codegen — Phase 3 AST shapes carry expressions as structured
+  // ExprNode trees on dedicated fields (exprNode, initExpr, condExpr,
+  // headerExpr, iterExpr). The legacy string-field scan above can't see
+  // `~` inside `describe(~)` when the bare-expr / decl was parsed into
+  // a structured CallExpr → IdentExpr("~") tree. Walk the ExprNode tree
+  // on each known carrier field.
+  for (const field of ["exprNode", "initExpr", "condExpr", "headerExpr", "iterExpr"]) {
+    const expr = node[field];
+    if (expr && typeof expr === "object" && exprContainsTildeRef(expr)) return true;
+  }
+  // lift-expr: node.expr is `{ kind: "expr", expr: string, exprNode?: ExprNode }`
+  // The string side is handled above; also walk the structured exprNode child.
+  if (node.expr && typeof node.expr === "object" && node.expr.exprNode &&
+      exprContainsTildeRef(node.expr.exprNode)) return true;
   // Recurse into body arrays
   if (Array.isArray(node.body) && nodeListContainsTildeRef(node.body)) return true;
   if (Array.isArray(node.children) && nodeListContainsTildeRef(node.children)) return true;
+  // if-expr / match-expr / for-expr alternates and consequents
+  if (Array.isArray(node.consequent) && nodeListContainsTildeRef(node.consequent)) return true;
+  if (node.alternate) {
+    if (Array.isArray(node.alternate) && nodeListContainsTildeRef(node.alternate)) return true;
+    if (typeof node.alternate === "object" && nodeContainsTildeRef(node.alternate)) return true;
+  }
+  return false;
+}
+
+/**
+ * Walk an ExprNode tree looking for `IdentExpr { name: "~" }`. Returns true
+ * on the first match. Used by `nodeContainsTildeRef` so structural expression
+ * trees activate `tildeContext` in `emitLogicBody` just like legacy string
+ * forms do.
+ */
+function exprContainsTildeRef(expr: any): boolean {
+  if (!expr || typeof expr !== "object") return false;
+  // Cycle / depth guard via a small visited set isn't strictly needed —
+  // ExprNode trees are finite and acyclic in well-formed AST — but we avoid
+  // infinite recursion on malformed input by capping at a generous depth.
+  // The recursion below traverses every child field on the union; that's
+  // sufficient for every ExprNode variant that can legally contain `~`.
+  if (expr.kind === "ident" && expr.name === "~") return true;
+  // Walk all child fields that may carry nested expressions
+  for (const k of [
+    "object", "property", "callee", "left", "right", "target", "value",
+    "argument", "test", "consequent", "alternate", "body",
+  ]) {
+    const child = (expr as any)[k];
+    if (child && typeof child === "object") {
+      if (Array.isArray(child)) {
+        for (const item of child) {
+          if (exprContainsTildeRef(item)) return true;
+        }
+      } else {
+        if (exprContainsTildeRef(child)) return true;
+      }
+    }
+  }
+  // CallExpr.arguments, ArrayExpr.elements, ObjectExpr.props
+  for (const k of ["arguments", "elements", "props", "params"]) {
+    const child = (expr as any)[k];
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        if (exprContainsTildeRef(item)) return true;
+        // ObjectExpr.props is an array of `{ kind, key, value, argument }`
+        // — `value` and `argument` are covered by the recursive walk; `key`
+        // can be either a string or an ExprNode for computed keys.
+        if (item && typeof item === "object" && item.key &&
+            typeof item.key === "object" && exprContainsTildeRef(item.key)) return true;
+      }
+    }
+  }
   return false;
 }
 

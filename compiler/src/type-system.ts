@@ -3219,6 +3219,12 @@ function checkLogicExprIdents(
     if (typeof ident.name !== "string") return;
     const raw = ident.name;
     if (!raw) return;
+    // §32 — `~` is the implicit pipeline accumulator. Its scope-validation
+    // is performed by the dedicated tilde-must-use pass (E-TILDE-001 /
+    // E-TILDE-002) rather than the generic E-SCOPE-001 ident check; skip
+    // here so a well-formed `~` consumption doesn't surface a duplicate /
+    // misleading "undeclared identifier" diagnostic.
+    if (raw === "~") return;
     // Skip reactive refs — validated by the DG sweep.
     if (raw.startsWith("@")) return;
     // Skip runtime helpers / underscore convention.
