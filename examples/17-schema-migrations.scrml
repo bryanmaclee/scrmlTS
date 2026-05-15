@@ -47,7 +47,7 @@
       // client function below. 'server' modifier is omitted
       // (body-content inference promotes via ?{}).
       function postNote(authorEmail, title, body) {
-        const user = ?{`SELECT id FROM users WHERE email = ${authorEmail}`}.get()
+        const user = lookupUser(authorEmail)
         if (not user) return
         ?{`
           INSERT INTO notes (user_id, title, body, published)

@@ -347,9 +347,11 @@ describe("§7 E2E — examples/17-schema-migrations.scrml", () => {
       if (output.serverJs) {
         expect(output.serverJs).not.toMatch(/sql-ref:-?\d+/);
         expect(output.serverJs).not.toContain("sql-ref:");
-        // The fix: postNote handler emits a real tagged template for the
-        // `const user = ?{...}.get()` line.
-        expect(output.serverJs).toContain("(await _scrml_sql`SELECT id FROM users WHERE email = ${authorEmail}`)[0] ?? null");
+        // S93 — postNote was migrated to call lookupUser() instead of an
+        // inline SELECT (closes W-DEAD-FUNCTION on lookupUser; richer
+        // example showing cross-function call). lookupUser's body emits a
+        // real tagged template for `?{`SELECT id, display_name ...`}.get()`.
+        expect(output.serverJs).toContain("(await _scrml_sql`SELECT id, display_name FROM users WHERE email = ${email}`)[0] ?? null");
       }
       if (output.clientJs) {
         expect(output.clientJs).not.toMatch(/sql-ref:-?\d+/);

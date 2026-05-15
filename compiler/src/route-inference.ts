@@ -863,6 +863,31 @@ export function walkBodyForTriggers(
       return;
     }
 
+    // S93 fix — guarded-expr wraps the previous statement node with the `!{}`
+    // error-effect handler (ast-builder.js:6019). For `let X = fn() !{ ... }`,
+    // the AST shape is guarded-expr{guardedNode: let-decl{name, initExpr},
+    // arms: [...]}. The wrapped let-decl + its initExpr (containing the
+    // `fn()` call) is a SINGLE-OBJECT field — the generic-fallback recursion
+    // below only walks ARRAY fields and misses it. Without explicit handling,
+    // the call inside `fn() !{...}` is invisible to the call-graph walker
+    // and the callee (e.g. `validate` in examples/09-error-handling.scrml's
+    // handleSubmit) is wrongly classified as dead (W-DEAD-FUNCTION false
+    // positive).
+    if (node.kind === "guarded-expr") {
+      const wrapped = (node as any).guardedNode;
+      if (wrapped && typeof wrapped === "object") visitNode(wrapped);
+      const arms = (node as any).arms;
+      if (Array.isArray(arms)) {
+        for (const arm of arms) {
+          const armBody = arm?.body;
+          if (Array.isArray(armBody)) {
+            for (const stmt of armBody) visitNode(stmt);
+          }
+        }
+      }
+      return;
+    }
+
     // For all other node kinds, recursively visit array fields.
     for (const key of Object.keys(node)) {
       if (key === "span" || key === "id") continue;
@@ -2204,6 +2229,50 @@ export function runRI(input: RIInput): RIOutput {
     }
     if (node.kind === "text" && typeof node.text === "string") {
       collectIdentsFromText(node.text);
+    }
+
+    // S93 fix — test-block (`~{ test "name" { body } }`) bodies are stored
+    // as raw STRINGS in testGroup.tests[*].body (parseTestBody collects raw
+    // statement text rather than parsing to AST). The generic-recursion
+    // below only walks Array + object-with-kind values, so the body strings
+    // are invisible to the markup-reference walker and any function called
+    // ONLY from tests (e.g. setStep in examples/10-inline-tests.scrml) is
+    // wrongly classified as dead.
+    if (node.kind === "test" && node.testGroup) {
+      const tg = node.testGroup as any;
+      // testGroup.tests[*].body is string[]; testGroup.before/after are too.
+      const collect = (s: unknown) => { if (typeof s === "string") collectIdentsFromText(s); };
+      if (Array.isArray(tg.tests)) {
+        for (const t of tg.tests) {
+          if (Array.isArray(t?.body)) for (const stmt of t.body) collect(stmt);
+        }
+      }
+      if (Array.isArray(tg.before)) for (const stmt of tg.before) collect(stmt);
+      if (Array.isArray(tg.after)) for (const stmt of tg.after) collect(stmt);
+    }
+
+    // S93 fix — when-handler bodies (`when message(data) { body }`,
+    // `when worker-msg from <#w>(data) { ... }`, generic `when X { body }`)
+    // carry body as raw string in `bodyRaw` (alongside a parsed `bodyExpr`
+    // ExprNode). Generic recursion would walk bodyExpr (it's an object-with-
+    // kind) but identifiers inside ExprNode trees aren't collected by
+    // walkMarkupContext (which looks at specific fields, not nested ExprNode
+    // kinds). The bodyRaw string is also outside EXPR_STRING_FIELDS. Result:
+    // functions called ONLY from `when` handlers (e.g. sieve in
+    // examples/13-worker.scrml) are wrongly classified as dead.
+    //
+    // Three when-handler kinds in the AST builder:
+    //   - "when-effect" (when message from _scrml_worker_NAME — generic)
+    //   - "when-message" (when message(data) — bare worker event)
+    //   - "when-worker-<eventType>" (when E from <#w>(data) — typed event)
+    if (
+      typeof node.kind === "string" &&
+      (node.kind === "when-effect" ||
+        node.kind === "when-message" ||
+        node.kind.startsWith("when-worker-")) &&
+      typeof node.bodyRaw === "string"
+    ) {
+      collectIdentsFromText(node.bodyRaw);
     }
     // Bug 4 / S87 Trio A: nodes nested INSIDE markup-context logic blocks
     // (if-stmt / while-stmt / for-stmt / return-stmt / let-decl / etc.) carry
