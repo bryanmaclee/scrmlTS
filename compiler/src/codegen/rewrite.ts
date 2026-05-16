@@ -65,6 +65,27 @@ export interface RewriteContext {
   skipPresenceGuard?: boolean;
 }
 
+// S95 Bug 2 — variant payload-field registry (mirrors emit-control-flow.ts's
+// module-level _variantFields). Set per-file alongside that registry via
+// `setVariantFieldsForRewriter` so the string-rewrite path (event-handler
+// bodies, escape-hatch expressions) can lower bare-dot `.Variant(args)`
+// constructor calls to the same canonical `{ variant, data }` tagged-object
+// literal that the structured AST path emits.
+//
+// Without this, the legacy string-rewrite `rewriteEnumVariantAccess` matches
+// the bare-dot ident as a unit variant ("Variant"), producing `"Variant"(args)`
+// — a string-as-function call (runtime TypeError, the surface of Bug 2).
+let _rewriterVariantFields: Map<string, string[]> | null = null;
+let _rewriterVariantFieldCollisions: Set<string> | null = null;
+
+export function setVariantFieldsForRewriter(
+  variantFields: Map<string, string[]> | null,
+  collisions?: Set<string> | null,
+): void {
+  _rewriterVariantFields = variantFields;
+  _rewriterVariantFieldCollisions = collisions ?? null;
+}
+
 /**
  * A single rewrite pass. Takes the current expression string and an optional
  * context, returns the transformed string.
@@ -1385,11 +1406,221 @@ export function rewriteEnumVariantAccess(expr: string): string {
   // applied here — the previous `{variant, value: (arg)}` rewrite mis-named the
   // payload property and couldn't carry multi-field / named-field payloads.
 
-  // Standalone .VariantName (compact form, not preceded by identifier) → "VariantName"
-  expr = expr.replace(/(?<![A-Za-z0-9_$.])\.\s*([A-Z][A-Za-z0-9_]*)\b/g, '"$1"');
+  // S95 Bug 2 — bare-dot payload-variant constructor call.
+  //
+  // `.Variant(args)` is the bare-dot inference shape from §14.10 / §18.0.3
+  // applied to a payload-bearing variant. Before this fix, the regex below
+  // matched `.Variant` (with `\b` between the name and `(`) and rewrote
+  // to `"Variant"(args)` — calling a string as a function. The structured
+  // AST path (`emit-expr.ts:emitCall`) already handles this for ExprNode
+  // input; this string-rewrite path handles escape-hatch (`${...}`),
+  // event-handler bodies, and other legacy emission surfaces.
+  //
+  // Use the per-file variant-fields registry to look up the declared field
+  // names so we can lower `.Variant(arg0, arg1)` to the canonical
+  // `{ variant: "Variant", data: { field0: arg0, field1: arg1 } }` literal,
+  // matching what the constructor function in the frozen enum object
+  // returns (emit-client.ts:emitEnumVariantObjects).
+  //
+  // The match-and-replace below handles ONE level of paren-balanced args.
+  // For arguments containing nested parens / commas (function calls,
+  // ternaries with arrays, etc.) we walk the expression byte-by-byte to
+  // find the matching `)`, then split args at top-level commas. This is
+  // more robust than a single regex.
+  expr = _rewritePayloadVariantConstructorCalls(expr);
+
+  // Standalone .VariantName (unit variant — NOT followed by `(`) → "VariantName".
+  // The `(?!\s*\()` negative lookahead excludes any payload-variant constructor
+  // call form (now handled by `_rewritePayloadVariantConstructorCalls` above).
+  expr = expr.replace(/(?<![A-Za-z0-9_$.])\.\s*([A-Z][A-Za-z0-9_]*)\b(?!\s*\()/g, '"$1"');
   expr = expr.replace(/\b[A-Z][A-Za-z0-9_]*\s*::\s*([A-Z][A-Za-z0-9_]*)/g, '"$1"');
   expr = expr.replace(/\s*::\s*([A-Z][A-Za-z0-9_]*)/g, '"$1"');
   return expr;
+}
+
+/**
+ * S95 Bug 2 — Lower bare-dot payload-variant constructor calls
+ * `.Variant(arg0, arg1, ...)` to the canonical tagged-object literal
+ * `{ variant: "Variant", data: { field0: arg0, field1: arg1, ... } }`.
+ *
+ * Field names come from the per-file variant-fields registry set via
+ * `setVariantFieldsForRewriter`. When the registry is empty, the variant is
+ * unknown, the variant is in the collision set, OR the arg list cannot be
+ * paren-balanced, the call site is LEFT UNCHANGED — the unit-variant rewrite
+ * below will not match (the `(?!\s*\()` lookahead) and the original
+ * `.Variant(args)` survives into output (which is broken JS, but matches
+ * the pre-S95 behavior for unknown variants — adopters get the same
+ * surface). The structured AST path also has the same fall-through policy.
+ *
+ * Argument parsing handles paren-balanced contents (function calls, nested
+ * tuples, ternaries with array literals, etc.) and splits at top-level commas.
+ * Quoted strings (with both `"` and `'` and backtick) are skipped so a comma
+ * inside a string doesn't split args.
+ */
+function _rewritePayloadVariantConstructorCalls(expr: string): string {
+  if (!_rewriterVariantFields || _rewriterVariantFields.size === 0) return expr;
+  // Quick exit: no `.X(` pattern in the expression at all.
+  if (!/\.\s*[A-Z][A-Za-z0-9_]*\s*\(/.test(expr)) return expr;
+
+  const out: string[] = [];
+  let i = 0;
+  const n = expr.length;
+  // Bare-dot variant-call detection: a `.` NOT preceded by an identifier or
+  // another dot (negative lookbehind in regex space), followed by a
+  // PascalCase ident, then optional whitespace, then `(`. We re-implement the
+  // negative lookbehind manually since we're walking the string by hand.
+  while (i < n) {
+    const ch = expr[i];
+    // Skip past string literals (including template literals) so their
+    // contents don't accidentally match.
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      out.push(ch);
+      i++;
+      while (i < n) {
+        const c = expr[i];
+        out.push(c);
+        i++;
+        if (c === "\\" && i < n) {
+          out.push(expr[i]);
+          i++;
+          continue;
+        }
+        if (c === quote) break;
+      }
+      continue;
+    }
+    if (ch !== ".") {
+      out.push(ch);
+      i++;
+      continue;
+    }
+    // Found `.` — check the negative lookbehind.
+    const prev = i > 0 ? expr[i - 1] : "";
+    const prevIsIdent = /[A-Za-z0-9_$.]/.test(prev);
+    if (prevIsIdent) {
+      out.push(ch);
+      i++;
+      continue;
+    }
+    // Scan past whitespace + variant name.
+    let j = i + 1;
+    while (j < n && /\s/.test(expr[j])) j++;
+    if (j >= n || !/[A-Z]/.test(expr[j])) {
+      out.push(ch);
+      i++;
+      continue;
+    }
+    const variantStart = j;
+    while (j < n && /[A-Za-z0-9_]/.test(expr[j])) j++;
+    const variantName = expr.slice(variantStart, j);
+    // Look for `(` after optional whitespace.
+    let k = j;
+    while (k < n && /\s/.test(expr[k])) k++;
+    if (k >= n || expr[k] !== "(") {
+      out.push(ch);
+      i++;
+      continue;
+    }
+    // Found `.Variant(`. Look up the field schema.
+    const collisions = _rewriterVariantFieldCollisions;
+    if (collisions && collisions.has(variantName)) {
+      // Ambiguous variant name across enums in this file — fall through;
+      // the legacy regex below will skip this (negative lookahead) and the
+      // original `.Variant(args)` survives. (Adopters should use qualified
+      // `Enum.Variant(args)` form to disambiguate.)
+      out.push(ch);
+      i++;
+      continue;
+    }
+    const fieldNames = _rewriterVariantFields.get(variantName) ?? null;
+    if (fieldNames === null) {
+      // Unknown variant in registry — pass through unchanged.
+      out.push(ch);
+      i++;
+      continue;
+    }
+    // Walk paren-balanced contents starting at `k` (position of `(`).
+    const argsStart = k + 1;
+    let depth = 1;
+    let m = argsStart;
+    let inStr: string | null = null;
+    while (m < n && depth > 0) {
+      const c = expr[m];
+      if (inStr !== null) {
+        if (c === "\\" && m + 1 < n) {
+          m += 2;
+          continue;
+        }
+        if (c === inStr) inStr = null;
+        m++;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") {
+        inStr = c;
+        m++;
+        continue;
+      }
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      m++;
+    }
+    if (depth !== 0) {
+      // Unbalanced parens — bail out conservatively.
+      out.push(ch);
+      i++;
+      continue;
+    }
+    // Args text is between argsStart and m-1; closing paren is at m-1.
+    const argsText = expr.slice(argsStart, m - 1);
+    // Split at top-level commas (respecting nested parens/brackets/braces +
+    // string literals).
+    const argList: string[] = _splitTopLevelArgs(argsText);
+    const pairCount = Math.min(argList.length, fieldNames.length);
+    const pairs: string[] = [];
+    for (let p = 0; p < pairCount; p++) {
+      pairs.push(`${fieldNames[p]}: ${argList[p].trim()}`);
+    }
+    const dataLiteral = pairs.length === 0 ? "{}" : `{ ${pairs.join(", ")} }`;
+    out.push(`{ variant: ${JSON.stringify(variantName)}, data: ${dataLiteral} }`);
+    i = m; // skip past the closing `)`
+  }
+  return out.join("");
+}
+
+/**
+ * Split a comma-separated argument list at TOP-LEVEL commas, respecting
+ * paren / bracket / brace nesting and quoted-string contents.
+ */
+function _splitTopLevelArgs(args: string): string[] {
+  if (args.trim().length === 0) return [];
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  let inStr: string | null = null;
+  for (let i = 0; i < args.length; i++) {
+    const c = args[i];
+    if (inStr !== null) {
+      if (c === "\\" && i + 1 < args.length) {
+        i++;
+        continue;
+      }
+      if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") {
+      inStr = c;
+      continue;
+    }
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth--;
+    else if (c === "," && depth === 0) {
+      out.push(args.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(args.slice(start));
+  return out;
 }
 
 // ---------------------------------------------------------------------------

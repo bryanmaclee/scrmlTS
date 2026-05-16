@@ -5,7 +5,8 @@ import { collectFunctions, collectServerVarDecls, callableServerVarDecls } from 
 import { emitLogicNode } from "./emit-logic.ts";
 import { getNodes } from "./collect.ts";
 import { collectChannelNodes, emitChannelServerJs, emitChannelWsHandlers, collectChannelFunctionMap, collectChannelCellMap, filterChannelImportSpecifiers } from "./emit-channel.ts";
-import { serverRewriteEmitted } from "./rewrite.ts";
+import { serverRewriteEmitted, setVariantFieldsForRewriter } from "./rewrite.js";
+import { buildVariantFieldsRegistry } from "./emit-client.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import type { CompileContext } from "./context.ts";
 import { emitServerParamCheck, parsePredicateAnnotation } from "./emit-predicates.ts";
@@ -236,6 +237,15 @@ export function generateServerJs(
   }
   const filePath: string = fileAST.filePath;
   const fnNodes: any[] = ctxForCache?.analysis?.fnNodes ?? collectFunctions(fileAST);
+
+  // S95 Bug 2 — set up the variant-fields registry for the rewriter so that
+  // `.Variant(args)` payload-bearing constructor calls in server-fn bodies
+  // (event-handler / escape-hatch paths) lower to the canonical
+  // `{ variant, data }` tagged-object literal. Mirrors the client setup in
+  // emit-client.ts:generateClientJs. Released at the bottom of this function.
+  const { fields: _scrmlVariantFields, collisions: _scrmlVariantCollisions } =
+    buildVariantFieldsRegistry(fileAST);
+  setVariantFieldsForRewriter(_scrmlVariantFields, _scrmlVariantCollisions);
 
   // §8.9.2 / §19.10.5: determine whether a handler receives an implicit
   // per-handler transaction envelope. Applies iff:
@@ -1487,6 +1497,12 @@ export function generateServerJs(
       finalEmitted = finalEmitted.slice(0, headerEndIdx) + declBlock + finalEmitted.slice(headerEndIdx);
     }
   }
+
+  // S95 Bug 2 — release the per-file variant-fields registry from the rewriter.
+  // generateClientJs (which runs after generateServerJs per codegen/index.ts)
+  // will re-populate for its own pass; clearing here keeps state from leaking
+  // when only the server emit runs (e.g. dry-run / partial pipelines).
+  setVariantFieldsForRewriter(null, null);
 
   return finalEmitted;
 }

@@ -10,6 +10,7 @@ import { filterChannelImportSpecifiers } from "./emit-channel.ts";
 import { emitEventWiring } from "./emit-event-wiring.ts";
 import { emitEngineSubstrate, emitDerivedEngineSubstrateForFile, emitCrossFileEngineMountsForFile, emitEngineHookFiringFunctionsForFile, emitEngineInitialArmsForFile, emitEngineBodyRenderForFile, emitDerivedEngineBodyRenderForFile } from "./emit-engine.ts";
 import { setVariantFieldsForFile } from "./emit-control-flow.ts";
+import { setVariantFieldsForRewriter } from "./rewrite.js";
 import { EncodingContext, emitDecodeTable, emitRuntimeReflect } from "./type-encoding.ts";
 import type { CompileContext } from "./context.ts";
 export type { EncodingContext } from "./type-encoding.ts";
@@ -642,8 +643,15 @@ export function generateClientJs(ctx: CompileContext): string {
   // S22 §1a slice 2: publish the file's variant→payload-field lookup so that
   // emitMatchExpr can resolve positional bindings `.Circle(r)` to field names.
   // Cleared at end of this function so state does not leak between files.
+  //
+  // S95 Bug 2 — also publish to the string-rewrite pipeline so that
+  // `.Variant(args)` bare-dot constructor calls in event-handler bodies,
+  // escape-hatch expressions, and other legacy emission surfaces lower to
+  // the canonical `{ variant, data }` tagged-object literal (matches the
+  // structured AST path in emit-expr.ts:emitCall).
   const { fields, collisions } = buildVariantFieldsRegistry(fileAST);
   setVariantFieldsForFile(fields, collisions);
+  setVariantFieldsForRewriter(fields, collisions);
 
   lines.push("// Generated client-side JS for scrml");
   lines.push("// This file is executable browser JavaScript.");
@@ -1225,7 +1233,9 @@ export function generateClientJs(ctx: CompileContext): string {
   }
 
   // S22 §1a slice 2: release the per-file variant registry.
+  // S95 Bug 2: also release the rewriter's mirror.
   setVariantFieldsForFile(null, null);
+  setVariantFieldsForRewriter(null, null);
 
   return clientCode;
 }
