@@ -327,3 +327,104 @@ function startDrag(taskId) {
     expect(clientJs).toContain(`_scrml_engine_direct_set("dragPhase",`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §8. Escape-hatch / event-handler string-rewrite path
+// ---------------------------------------------------------------------------
+
+describe("s95-bug-2 §8 — escape-hatch `\${...}` event-handler path", () => {
+  test("`onclick=\${@phase = .Loaded(n)}` emits tagged-object literal (not string-as-fn)", () => {
+    const src = `<program title="Bug 2 escape-hatch">
+\${
+  type Phase:enum = { Idle, Loaded(count: number) }
+}
+<engine for=Phase initial=.Idle>
+  <Idle   rule=.Loaded></>
+  <Loaded rule=.Idle></>
+</>
+<button onclick=\${@phase = .Loaded(42)}>Test</>
+</>`;
+    const { errors, clientJs } = compileToClientJs(src, "escape-hatch");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+    // The bug surface: the string-rewrite path produced \`"Loaded"(42)\` —
+    // calling the string as a function. After the fix, the rewriter lowers
+    // the bare-dot constructor call to the canonical tagged-object literal.
+    expect(clientJs).not.toMatch(/"Loaded"\(/);
+    expect(clientJs).toMatch(/\{ variant: "Loaded", data: \{ count: 42 \} \}/);
+  });
+
+  test("escape-hatch nested args (function-call argument) lower correctly", () => {
+    const src = `<program title="Bug 2 escape-hatch nested">
+\${
+  type Phase:enum = { Idle, Loaded(count: number) }
+}
+function compute(n) { return n * 2 }
+<engine for=Phase initial=.Idle>
+  <Idle   rule=.Loaded></>
+  <Loaded rule=.Idle></>
+</>
+<button onclick=\${@phase = .Loaded(compute(21))}>Test</>
+</>`;
+    const { errors, clientJs } = compileToClientJs(src, "escape-hatch-nested");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+    // Paren-balanced args survive the rewriter. Function names get renamed
+    // via the function-naming pass (\`compute\` → \`_scrml_compute_<n>\`), so
+    // we match a lax pattern that confirms the call shape is preserved.
+    expect(clientJs).toMatch(/\{ variant: "Loaded", data: \{ count: _scrml_compute_\d+\(21\) \} \}/);
+  });
+
+  test("escape-hatch multi-field variant lowers via named-field pairing", () => {
+    const src = `<program title="Bug 2 escape-hatch multi">
+\${
+  type Phase:enum = { Idle, Error(code: number, msg: string) }
+}
+<engine for=Phase initial=.Idle>
+  <Idle  rule=.Error></>
+  <Error rule=.Idle></>
+</>
+<button onclick=\${@phase = .Error(500, "boom")}>Test</>
+</>`;
+    const { errors, clientJs } = compileToClientJs(src, "escape-hatch-multi");
+    expect(errors.filter((e) => e.severity === "error")).toEqual([]);
+    // Each positional arg pairs with the declared field name in order.
+    expect(clientJs).toMatch(/\{ variant: "Error", data: \{ code: 500, msg: "boom" \} \}/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §9. `is .Variant` operator handles payload-bearing cells via structured AST
+// ---------------------------------------------------------------------------
+//
+// The structured AST path (emit-expr.ts:emitBinary `case "is"`) now wraps the
+// left operand in a tag-extraction conditional so a payload-bearing cell
+// value (`{ variant, data }`) matches the variant tag correctly. Lower-level
+// surfaces (match-arm rendering, dispatcher selection) already normalize tag
+// via their own helpers (tagVar in match, `_tag` in dispatcher).
+//
+// NOTE: The string-rewrite `rewriteIsOperator` path (used by some legacy
+// emission sites for expressions that don't reach the ExprNode AST) still
+// emits the bare `=== "Variant"` shape. That's a follow-up — for engines,
+// the structured path is the primary surface and is now correct.
+
+describe("s95-bug-2 §9 — `is .Variant` AST-path tag normalization", () => {
+  test("emit-expr.ts structured `is .Variant` produces the tag-extraction IIFE shape", () => {
+    // Build a minimal AST and drive emitBinary directly. This bypasses the
+    // parse-level concerns that prevent `is .Dragging` from reaching this
+    // code path in some user-facing contexts (a separate pre-existing
+    // parser issue tracked outside Bug 2).
+    const { emitExpr } = require("../../src/codegen/emit-expr.ts");
+    const node = {
+      kind: "binary",
+      op: "is",
+      left: { kind: "ident", name: "@dragPhase" },
+      right: { kind: "ident", name: ".Dragging" },
+    };
+    const ctx = { mode: "client" };
+    const out = emitExpr(node, ctx);
+    // The new shape: an IIFE that tag-normalizes the left side, then `===` against
+    // the right-side variant-name string.
+    expect(out).toContain('typeof __v.variant === "string"');
+    expect(out).toContain('=== "Dragging"');
+    expect(out).toContain('_scrml_reactive_get("dragPhase")');
+  });
+});
