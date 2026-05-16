@@ -1197,13 +1197,27 @@ export function splitMultiArmString(s: string): string[] {
     i++;
   }
 
-  if (armStartPositions.length <= 1) return [s];
+  if (armStartPositions.length <= 1) {
+    // Single-arm case — strip a trailing arm-separator comma if present
+    // (canonical source syntax `match @x { .V => result, .W => result }` puts
+    // a `,` between arms; if the input slice ends at one, we need it gone).
+    return [s.trim().replace(/,\s*$/, "").trimEnd()];
+  }
 
   const result: string[] = [];
   for (let idx = 0; idx < armStartPositions.length; idx++) {
     const start = armStartPositions[idx];
     const end = idx + 1 < armStartPositions.length ? armStartPositions[idx + 1] : s.length;
-    const arm = s.slice(start, end).trim();
+    // S96 match-form derived codegen fix — each slice between arm-start
+    // positions covers everything UP TO the next arm's start, which includes
+    // the source-level `,` arm-separator. Strip that trailing comma so it
+    // doesn't leak into `arm.result` via the `[\s\S]+$` capture in
+    // parseMatchArm. Pre-fix: `match @x { .A => fn(arg), .B => x }` emitted
+    // `return ...fn(arg),;` (invalid JS) because the `,` was captured into
+    // arm.result and then `;`-terminated. Stripping a trailing comma here
+    // is safe — commas inside the arm body (`fn(a, b)`, `[1, 2]`) are
+    // inside `()`/`[]`/`{}` and never trail the arm at depth 0.
+    const arm = s.slice(start, end).trim().replace(/,\s*$/, "").trimEnd();
     if (arm) result.push(arm);
   }
   return result.length > 0 ? result : [s];

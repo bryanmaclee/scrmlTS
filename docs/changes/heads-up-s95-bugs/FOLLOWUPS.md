@@ -215,26 +215,17 @@ supposed to prevent. The invariant has a hole.
 
 ---
 
-## Bug 6 — `#{ ... }` CSS block inside `<program>` body emits empty `.css` file
+## Bug 6 — `#{ ... }` CSS block inside `<program>` body — **CLOSED S96 as misclassification**
 
-**Spec authority:** §9 CSS Contexts + kickstarter §2 canonical shape (which places `#{}`
-inside `<program>` body, after markup).
+**Original framing (preserved for forensic reference):** The CSS file `triage-board.css` was reported as a 0-byte emit, with the conclusion that the BS layer was dropping the `#{` token after markup in `<program>` body.
 
-**Shape:** standard `#{}` block with ~30 lines of CSS placed inside `<program>` body
-after the main `<div class="board">` markup.
+**S96 verification (commit pending):** the file is **NOT** 0 bytes. Triage-board's `25-triage-board.css` emits **867 bytes** containing all 9 CSS rules from the source `#{...}` block (`body` + 8 utility classes). CSS extraction works correctly through the BS / ast-builder.js (`kind: "css-inline"` produced at line 10151) / collect.ts / emit-css.ts pipeline.
 
-**Actual:** `triage-board.css` emits as 0-byte file. The HTML head still links to it
-(`<link rel="stylesheet" href="triage-board.css">`), so the styling is broken at runtime.
+**Root cause of the misclassification:** the original `wc -l` (line count) returned `0` because the emitted CSS is minified-style — all rules on a single line with no trailing newline. `wc -c` (byte count) reveals 867 bytes. The "0-byte file" claim was a measurement-method artifact, not a real bug.
 
-**Investigation needed:** where in the pipeline the CSS block is being dropped. Possible
-causes:
-- BS-layer dropping the `#{` token after markup in `<program>` body
-- CSS extractor not visiting the post-markup region of `<program>`
-- Auto-lift / v0.3 logic-mode parsing tripping on the trailing `#{` block
+**Cosmetic follow-on (out of scope here):** the emitted CSS has no trailing newline. Possibly worth aligning with the conventional shape (one rule per line) for adopter readability, but the FUNCTIONALITY is correct.
 
-**Workaround attempted:** none yet in S95.
-
-**Severity:** high — CSS is load-bearing for any non-trivial UI.
+**Severity:** none. No code change required. Catalog updated S96.
 
 ---
 
