@@ -317,14 +317,23 @@ function preprocessWorkerAndStateRefs(raw) {
  * Matches (at the start of the raw content, which may have leading whitespace):
  *   server fn <name>  |  server function <name>  |  fn <name>
  *   function <name>   |  type <name>
+ *   import { ... } from ... | import name from ...
  *
  * v0.3 Wave 2 extension (item b): the `(?:export\s+)?` prefix matches the
  * `export fn …` / `export function …` / `export type …` shapes; the
  * `let \w` / `const \w` shapes recognise plain-local declarations (the
  * derived-state `const <x>` shape is NOT matched here — it's a `<` after
  * `const`, which is caught by TOPLEVEL_STATE_DECL_RE).
+ *
+ * `import` is admitted so that `<program>`/`<page>`/`<channel>` direct-child
+ * text beginning with `import { x } from '...'` (the canonical ES form) lifts
+ * into a synthetic `${...}` block under v0.3 default-logic mode (SPEC §40.8).
+ * Without this admission, a text block whose leading statement is `import`
+ * fails the regex match — even when subsequent statements (e.g. `type ...`)
+ * are declaration shapes — because BS merges sibling text fragments into a
+ * single block and the lift gates on the LEADING content.
  */
-const BARE_DECL_RE = /^\s*(?:export\s+)?(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w|let\s+[A-Za-z_]|const\s+[A-Za-z_])/;
+const BARE_DECL_RE = /^\s*(?:export\s+)?(server\s+(?:fn|function)\s|type\s+\w|fn\s+\w|function\s+\w|let\s+[A-Za-z_]|const\s+[A-Za-z_]|import\s+[{a-zA-Z_*"'])/;
 
 /**
  * Phase A1a Step 11.0d — top-level structural state-decl pattern.
