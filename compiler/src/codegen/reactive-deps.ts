@@ -468,6 +468,41 @@ function extractReactiveDepsFromBody(
       callees.push(...extractCalleesFromExprString(exprStr));
     }
 
+    // S96 transitive-dep tracker fix — pre-fix, the if-stmt / while-stmt /
+    // for-stmt's `condition` (string) + `condExpr` (ExprNode) were silently
+    // skipped because the recursion below only descends into Array-valued
+    // children (consequent, alternate, body). That made `@mode` reads in
+    // `if (@mode == "A") { ... }` invisible to derived-cell dep tracking,
+    // even though direct-reads collection in dependency-graph.ts DOES walk
+    // condExpr at line 339. The two paths were inconsistent.
+    //
+    // Mirrors the EXPR_STRING_FIELDS pattern in route-inference.ts:2298 (S87
+    // Trio A fix) + collectReactiveRefsFromExprNode's exprNodeFields list
+    // (dependency-graph.ts:338-341). Both string + ExprNode forms walked.
+    const EXPR_STRING_FIELDS = ["condition", "test", "header", "iterable"] as const;
+    for (const field of EXPR_STRING_FIELDS) {
+      const v = (n as any)[field];
+      if (typeof v === "string" && v) {
+        const fieldDeps = extractReactiveDeps(v, knownReactiveVars);
+        for (const d of fieldDeps) deps.add(d);
+        callees.push(...extractCalleesFromExprString(v));
+      }
+    }
+    const EXPR_NODE_FIELDS = ["condExpr", "testExpr", "headerExpr", "iterExpr"] as const;
+    for (const field of EXPR_NODE_FIELDS) {
+      const v = (n as any)[field];
+      if (v && typeof v === "object" && (v as { kind?: string }).kind) {
+        try {
+          const s = emitStringFromTreeSafe(v);
+          if (s) {
+            const fieldDeps = extractReactiveDeps(s, knownReactiveVars);
+            for (const d of fieldDeps) deps.add(d);
+            callees.push(...extractCalleesFromExprString(s));
+          }
+        } catch { /* defensive — emitStringFromTreeSafe already catches */ }
+      }
+    }
+
     // Recurse into control flow children (but not nested functions)
     for (const key of Object.keys(n)) {
       if (key === "span" || key === "id" || key === "name") continue;
