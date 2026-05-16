@@ -1,328 +1,229 @@
-# scrmlTS — Session 95 (CLOSE)
+# scrmlTS — Session 96 (CLOSE)
 
-**Date:** 2026-05-15 → 2026-05-16
-**Previous:** `handOffs/hand-off-95.md` (S94 CLOSE rotated as S95 OPEN-pickup snapshot)
-
----
-
-## TL;DR for S96 PA pickup
-
-S95 was a **bug-finding-and-fixing marathon** + **strategic infrastructure pass**. Two halves:
-
-**Half 1 (S95 day 1, 2026-05-15) — Heads-up coding session.** User-directed exploratory authorship. PA wrote a triage-board SPA in scrml, surfaced **18 compiler/parser/lint bugs**, filed them in `docs/changes/heads-up-s95-bugs/FOLLOWUPS.md` with severity ranking. Surfaced and ratified the **state-vs-logic axiom CORRIGENDUM** (S94's verbatim contained a drift; user re-stated the load-bearing meaning: state system should be able to fully describe its own transitions). Filed memory + user-voice corrigendum. Also filed the **MISSING-PRIMITIVE** doc (event-with-payload-as-transition-trigger; v0.4+ dispatch candidate). Filed the **communication-norms** rule (shoot-straight; politeness for politeness sake is rejected). PA Rule 5 added.
-
-**Half 2 (S95 day 2, 2026-05-16) — Bug-fix dispatch wave.** **7 bugs landed in 6 dispatches** (one parallel triple + 4 sequential). Path-discipline hardening (`feedback_agent_main_repo_path_leak.md`) held cleanly across all 6. **Catalog 18 → 11 open.** Also: redesigned `scrml-voice-author` agent (drop drafting-in-user-voice; add quote-library + scaffolding + flag modes); first real corpus-refresh (17 quotes / 19 topics); drafted the `building-anyway` article scaffold (question-driven mode); drafted the LLM-efficiency benchmark harness (`benchmarks/llm-efficiency/` — scaffolding complete, real-API integration pending).
-
-**Push state at close:** all 12 commits pushed by wrap step 7 (this commit + push).
+**Date:** 2026-05-16
+**Previous:** `handOffs/hand-off-96.md` (S95 CLOSE rotated as S96 OPEN-pickup snapshot)
 
 ---
 
-## Final state at S95 close
+## TL;DR for S97 PA pickup
 
-- **scrmlTS HEAD:** `6115c74` (Bug 2 final progress log — last of 6 cherry-picks during recovery)
-- **scrmlTS tag:** `v0.3.0` annotated, on `c520369` (unchanged this session)
-- **scrmlTS ahead/behind origin:** 12 commits ahead pre-wrap (13 ahead after wrap-CLOSE); **push authorized + executed by step 7**
-- **scrml-support HEAD:** `bb1eb91` pre-wrap (S94 entry) → wrap-CLOSE adds 1 commit (S95 corrigendum + voice/ corpus seed + 3 new memory rules indexed via MEMORY.md)
-- **scrml-support ahead/behind origin:** 1 ahead pre-wrap; 2 ahead after wrap-CLOSE; **push authorized**
-- **Working tree at end of cherry-picks:** clean modulo S95 wrap-doc work (hand-off + pa.md + S95 artifacts)
-- **Worktrees:** main only (all 7 substantive worktrees cleaned via S83 protocol)
+S96 was a **bug-chip marathon** chipping at the S95-catalog + newly-surfaced followups. **9 commits landed end-to-end**, all pushed, pre-push gate fully restored.
+
+- **TodoMVC 38-fail closed** (dispatch #1) — the pre-existing `--no-verify` blocker
+- **16 of 18 S95-catalog bugs closed**
+- **4 of 5 newly-surfaced followups closed**
+- **pa.md moved to scrml-support** as `pa-scrmlTS.md`; 24-line pointer at `scrmlTS/pa.md`
+- **SPEC-at-session-start directive** added to pa.md session-start checklist (step 3 — read `compiler/SPEC-INDEX.md` in full; before any spec-implication code change, Read the relevant SPEC section directly)
+- **Issue C closed** end-to-end (Option A reactive for-iterable widening, both top-level + nested-in-lift)
+
+**Push state at close:** all 9 scrmlTS commits + 1 scrml-support commit pushed.
+
+---
+
+## Final state at S96 close
+
+- **scrmlTS HEAD:** `2e102a8` (Issue C — reactive for-stmt iterable widened)
+- **scrmlTS tag:** `v0.3.0` annotated on `c520369` (unchanged this session)
+- **scrmlTS ahead/behind origin:** 0/0 — pushed
+- **scrml-support HEAD:** `548a675` (pa-scrmlTS.md home)
+- **scrml-support ahead/behind origin:** 0/0 — pushed
+- **Working tree:** clean (modulo this wrap commit landing master-list + changelog + hand-off + handoff-96 rotation)
+- **Worktrees:** main only (no S96 dispatch used `isolation: "worktree"` — all PA-side direct work)
 - **Inbox:** empty
-- **Hook config:** configuration B (pre-commit + post-commit + pre-push)
+- **Hook config:** configuration B (pre-commit + post-commit + pre-push); pre-push gate fully restored
 
-**Tests at HEAD `6115c74`:** **12,854 pass / 117 skip / 1 todo / 38 fail (PRE-EXISTING) / 657 files / 43,146 expect**.
+**Tests at HEAD `2e102a8`:** **12,892 pass / 117 skip / 1 todo / 0 fail / 657 files / 43,202 expect**.
 
-Delta vs S94 close (12,826 / 117 / 1 / 0 / 650):
-- **+28 pass** (7 bug-fix regression test files added)
-- **+7 files** (one per bug-fix + Bug 2 unit-test update)
-- **+178 expect**
-- **38 fail = PRE-EXISTING TodoMVC browser tree-shake bug** — confirmed unrelated to S95 work by Bug 17, Bug 5, AND Bug 2 agents independently (each reverted-and-reran to verify). Surface as separate dispatch in S96 (root cause: `_scrml_reconcile_list` runtime function exists in `compiler/src/runtime-template.js:938` but missing from emitted `dist/scrml-runtime.*.js` for TodoMVC — tree-shake bug in chunked runtime emission).
+Delta vs S95 close (12,854 / 117 / 1 / 38 / 657 / 43,146):
+- **+38 pass** (the closed TodoMVC fixture)
+- **0 new files** (test count + assertion updates only)
+- **+56 expect**
+- **38 PRE-EXISTING fails → 0** (TodoMVC fixture rewrite + test infrastructure)
 
 ---
 
-## S95 commit ledger (12 scrmlTS + planned 1 scrml-support, chronological)
+## S96 commit ledger (9 scrmlTS + 1 scrml-support, chronological)
 
-### Half 1 (S95 day 1)
-*No commits this day — pure heads-up-coding + S95 ratifications recorded in working files only. Working-tree state preserved into Half 2 wrap.*
-
-### Half 2 (S95 day 2 — bug-fix dispatch wave)
 ```
-f57d881  fix(bug-18): scrml:NAME client imports — lower to runtime registry _scrml_stdlib
-34dedc3  fix(bug-16): bare `import` at <program>-body top-level — admit to v0.3 auto-lift
-2c18b2d  fix(bug-13): class:NAME directive in lift template — emit reactive classList.toggle wiring
-3b48e4d  fix(bug-17): Tailwind scanner descends into lift / for / if / match bodies
-d5c79da  fix(bug-1): JS-style match value-return — payload binding + `_ =>` wildcard arms
-645a5e1  fix(bug-5): nested component CE expansion + post-CE invariant catches phantom DOM
-dd1cd4f  docs(s95-bug-2): initial investigation + fix plan
-a2663ae  fix(s95-bug-2): payload-variant engine writes — codegen + runtime + dispatcher
-61c742a  fix(s95-bug-2): `is .Variant` tag-normalizes payload-bearing cells + regression tests
-a39d25a  fix(s95-bug-2): string-rewrite path also lowers .Variant(args) to tagged-object literal
-b0c81df  test(s95-bug-2): expand integration tests for escape-hatch path + AST is-operator
-6115c74  docs(s95-bug-2): final progress log + test deltas + deferred followups
+1e9df2d  fix(todomvc): canonical-reactive @filter enum + defensive runtime expose (38 browser fails closed)
+d360a88  fix(lint+ri): silence S95 Bug 8 + Bug 9 false-positives + close Bug 7 component-def shape
+bc18aa5  fix(parser): close S95 Bug 15 (fn-body ternary false-fire) + Bug 10 (class:NAME with hyphens+digits)
+cc59982  fix(event-handlers): close S95 Bug 11+12 lift wrapping + Bug 14 spec-aligned bare-call
+c921f0a  docs(s96): replace pa.md with thin pointer to scrml-support/pa-scrmlTS.md
+1b8be2f  fix(codegen): match-form derived codegen — strip arm-separator comma from arm.result + close S95 Bug 6 as misclassification
+5cc5ade  fix(reactive-deps): transitive walker now reads if/while/for condition fields (S96 dep-tracker miss)
+cf92351  fix(type-system): close bare-variant inference miss at state-decl comparison-site
+2e102a8  feat(codegen): Issue C — reactive for-stmt iterable widened from bare @ident to direct+transitive @-refs
 ```
 
-Note: SHAs reflect post-rebase + post-recovery cherry-picks. Original pre-rebase SHAs are in reflog if forensics needed.
+Plus `scrml-support/548a675` — `pa-scrmlTS.md` canonical home for scrmlTS PA directives (companion to scrmlTS's `c921f0a` pointer stub).
 
-Plus 3 commits from origin (your direct GH edits to `docs/index.html` — incorporated via rebase before Bug 2 recovery): `c41a51e` / `f29daf3` / `c313dc5`.
-
-Plus this wrap-CLOSE commit landing master-list + changelog + hand-off + new artifacts.
+Plus this wrap-CLOSE commit landing master-list + changelog + hand-off + rotation.
 
 ---
 
-## 7 bugs closed end-to-end this session (Tier 1+2)
+## 16 S95-catalog bugs closed (out of 18)
 
-| # | Severity | Bug | Commit | Test Δ | Root cause |
-|---|---|---|---|---|---|
-| 18 | Tier 1 adopter-shape disaster | `scrml:NAME` client imports → white screen | `f57d881` | +6 | Codegen emitted bare ES-module specifiers; browser SyntaxError. Fix: runtime registry `_scrml_stdlib.<name>` populated by tree-shakable chunks. |
-| 16 | Tier 1 | Bare `import` outside `${}` → 8-error cascade | `34dedc3` | +9 | BARE_DECL_RE didn't admit `import`. Fix: regex extension; auto-lift now includes imports. |
-| 13 | Tier 1 | `class:NAME=(expr)` emits literal HTML attr | `2c18b2d` | +7 | emit-lift.js codepath fallthrough. Fix: 4-arm dispatch wiring matches top-level pathway. |
-| 17 | Tier 2 silent correctness | Tailwind scanner doesn't descend into lift bodies | `3b48e4d` | +7 | Walker stopped at lift boundary. Fix: NEW `collect-class-names.ts` AST walker with full lift/for/if/match traversal. |
-| 1 | Tier 2 | Match value-return with payload binding → malformed JS | `d5c79da` | +16 | Expression-position MatchExpr routed through legacy string-pipeline; structured emitter had payload-binding lowering. Fix: bridge to structured emitter + `_ =>` recognition at 5 splitter/parser sites. |
-| 5 | Tier 2 | Component `<TaskCard/>` survives to phantom DOM | `645a5e1` | +5 | Two-sided: CE skipped lift-body recursion AND VP-2 invariant didn't fire on resolvedKind==null nodes. Fix: walkLogicBody recurses; VP-2 admits uppercase-tag heuristic. |
-| 2 | Tier 2 | Variant constructor at engine direct-write → `"Variant"(args)` | 6 cherry-picks | +14 | Three-site bug: emit-expr.ts builds tagged-object literal; runtime helper tag-normalizes; dispatcher reads `.variant`/`.data` (was reading dormant `.tag`/`.payload`). Fix: structured AST + string-rewrite + dispatcher coherent. |
+| # | Severity | Bug | Wave / commit |
+|---|---|---|---|
+| 1 | Tier 2 | Match value-return malformed JS | S95 `d5c79da` |
+| 2 | Tier 2 | Variant constructor engine direct-write | S95 `a39d25a` (final) |
+| 5 | Tier 2 | Component phantom DOM | S95 `645a5e1` |
+| 6 | misclassified | `#{}` CSS "0-byte" was measurement artifact | S96 W4 `1b8be2f` |
+| 7 | lint | W-DEAD-FUNCTION component-def shape | S96 W1 `d360a88` |
+| 8 | lint | W-LINT-007 false-pos on type/props | S96 W1 `d360a88` |
+| 9 | lint | W-LINT-013 false-pos on fn-body `@cell = .V` | S96 W1 `d360a88` |
+| 10 | parser | `class:NAME` hyphens-with-digits in lift | S96 W2 `bc18aa5` |
+| 11 | adopter friction | `${(e) => fn(e)}` arrow in lift | S96 W3 `cc59982` |
+| 12 | adopter friction | `${...}` event handler in lift balancing | S96 W3 `cc59982` |
+| 13 | Tier 1 | `class:NAME=(expr)` in lift literal attr | S95 `2c18b2d` |
+| 14 | SPEC violation | Bare-call `fn()` auto-thread event | S96 W3 `cc59982` |
+| 15 | parser | `fn`-body ternary false-fires E-FN-001 | S96 W2 `bc18aa5` |
+| 16 | Tier 1 | Bare `import` at `<program>`-body top-level | S95 `34dedc3` |
+| 17 | Tier 2 | Tailwind scanner descent into lift bodies | S95 `3b48e4d` |
+| 18 | Tier 1 | `scrml:NAME` client import white-screen | S95 `f57d881` |
 
-**Total catalog**: 18 filed (Half 1) → 7 closed (Half 2) = **11 open**.
-
----
-
-## Path-discipline hardening — 6 successful dispatches in a row
-
-After **Bug 16 dispatch leaked 3 Edit calls to MAIN** before agent self-detected via inode comparison, PA filed `feedback_agent_main_repo_path_leak.md` and **hardened every subsequent dispatch brief** with:
-
-1. Mandatory `stat`-based inode check before first Write/Edit
-2. Mandatory read-back verification after every Write/Edit
-3. Mandatory `git -C <main> status --short` before reporting completion
-
-**Six dispatches since (Bug 13, 17, 5, 1, 2 + Bug 2 cherry-pick verification): ZERO main-side leaks.** Each agent verified inodes + reported clean `git -C main status` in final report. **The pattern works under serial AND parallel load.**
-
-**S96 PA: keep this hardening block in every dispatch brief.** The S95 incident proved the slip is real even when the warning is in the brief; the additional verification steps catch it before damage.
+**Remaining 2 S95-catalog open:** Bug 3 (`class:NAME=fn(arg.with.dot)`) + Bug 4 (closure-capture event-handler arg) — both need real-context reproducers (synthetic repros didn't fire in S96).
 
 ---
 
-## State-vs-logic axiom CORRIGENDUM (S95 — load-bearing)
+## 4 of 5 newly-surfaced followups closed
 
-**S94 ratified an axiom statement that had internal tension.** S95 user re-stated the load-bearing meaning. The corrected version is in `scrml-support/user-voice-scrmlTS.md` §S94 CORRIGENDUM. Both quotes preserved (evolution arc is publishable).
+These were filed during S96 waves (NOT in the original S95 catalog):
 
-**Original S94 (verbatim):**
-> "in scrml the state system should be able to handle state exclusively, the logic system should be able to handle the logic that describes the mutation of state, but not necessarily the the state itself."
-
-**S95 corrected reading:**
-> "the state system should be able to fully describe its own transitions. The meta thought being state → state (looks like something that should be handled by the state system)."
-
-**The drift was real.** The prior PA recorded "logic owns verbs / DOES things to state" — that's the misinterpretation. The user's word was "describes" not "performs." S95 PA caught the collapse when the user pushed back on its consequences (the heads-up triage-board architecture produced imperative `function` mutators everywhere, contradicting the ~90/10 `fn()` ratio the axiom predicts).
-
-**Memory file rewritten:** `feedback_state_vs_logic_boundary.md` now carries the corrected reading. Future PA sessions read the corrigendum at session-start MEMORY.md load.
-
-**Operational implication:** the 90/10 `fn()` ratio is forward-looking, NOT a current-corpus check. Mario at 25/75 is **pre-axiom + pre-primitive**. Apply the corrected reading to:
-- Language-addition reviews (strengthen state-self-description? or move state-mutation to logic?)
-- Example-corpus audits (flag "transition-shaped function bodies" as engine-surface-promotion candidates)
-- Dispatch reviews (does this dispatch strengthen state self-description?)
-
----
-
-## Missing primitive — filed as v0.4+ dispatch candidate
-
-`docs/changes/heads-up-s95-bugs/MISSING-PRIMITIVE.md` — the event-with-payload-as-transition-trigger primitive. Without it, the corrected state-vs-logic axiom cannot fire for any UI with event-time data (form input, drop target, click coords, file upload — structurally large class).
-
-**User confirmed S95 verbatim:** *"missing the primitive (ablsolutely)"*. Mario was written prior + pre-primitive.
-
-Three speculative shape sketches in the doc:
-1. **Anchor A — markup-owns** (`<li ondragstart=@dragPhase = .Dragging(task.id)>`) — minimal grammar extension; closes 60-70% of cases
-2. **Anchor B — engine-owns** (`event drop(col: string)` on engine; markup `.fire`) — XState-pattern; type-safer; heavier surface
-3. **Anchor C — third-party binding** — rejected as foreign concept
-
-**PA recommendation (post-dig-in):** Anchor A + narrow L19 relaxation for state-system-only sequences. Closes the common case; defers Anchor B until friction demands it. No deep-dive scoped yet.
-
----
-
-## Three new PA-memory rules filed this session
-
-| Rule | Trigger | Mitigation |
+| Followup | Wave / commit | Outcome |
 |---|---|---|
-| `feedback_dont_soft_classify_bugs.md` | Bug 16 reclassification from "doc gap" → real bug after user pushed back with "what is the reason this isn't a bug?" | Test: spec/lint states a rule + compiler doesn't match it → BUG (not doc gap). PA bias toward polite framing softens severity. |
-| `feedback_communication_norms.md` | S95 user verbatim about field-culture register; politeness rejected as emotional construct irrelevant to LLM interaction | Drop preambles / hedges / "thank you" / "I appreciate." Push back on genuine points. Ask when unclear. Match directness register. |
-| `feedback_agent_main_repo_path_leak.md` | Bug 16 agent leaked 3 Edit calls to main; self-detected via inode | Mandatory `stat` inode check + read-back verify + `git -C main status` before agent reports. Hardened brief block held across 6 subsequent dispatches with zero leaks. |
-
-Plus rewritten: `feedback_state_vs_logic_boundary.md` (corrigendum baked in).
-
-Plus pa.md Rule 5 added: **"Shoot straight; politeness is for fragile flowers."**
-
----
-
-## Strategic infrastructure landed this session
-
-### scrml-voice-author agent — REDESIGNED
-
-Prior version was "draft articles in user's voice" — produced AI-flavored prose user was not satisfied with. Redesigned to **user-writes + agent-supplies-substrate** model.
-
-**Four modes:** `bio-refresh` / `corpus-refresh` / `scaffolding` / `flag`. Quote library is the load-bearing artifact (typos fixed, grammar preserved as voice texture). Evolution arcs preserved (S94 + S95 corrigendum both queryable).
-
-**Files:**
-- `~/.claude/agents/scrml-voice-author.md` — rewritten
-- `scrml-support/voice/quote-library.json` — NEW (17 quotes / 19 topics)
-- `scrml-support/voice/topics-index.md` — NEW
-- `scrml-support/voice/README.md` — NEW (system docs)
-- `scrml-support/voice/user-bio.md` — preserved (extends via bio-refresh)
-
-**First real corpus-refresh executed this session.** 17 quotes covering: state-vs-logic-axiom, language-design, methodology, null-and-undefined, llm-era-adoption, designer-card, tilde-keyword, self-host, communication-norms, production-vs-academic, industry-field-culture, more.
-
-### LLM-efficiency benchmark harness — SCAFFOLDED
-
-`benchmarks/llm-efficiency/` — designed to test whether scrml is structurally more LLM-friendly than React+TS (token efficiency + working-code-on-first-try across 7 models × 1 spec × 2 langs × 3 samples = 42 trials per spec).
-
-**Status:** scaffolding complete; SDK adapters via fetch (zero deps); CLI args / file I/O / prompt assembly all wired. **Pending for first run:** API keys (user-supplied) + React+TS validator setup (`bun add -D esbuild typescript @types/react @types/react-dom` + `bun add react react-dom`) + shared-assertion-logic extraction (factor `assertTriageBoard` from `validators/scrml.ts` to `validators/shared.ts`).
-
-**Files (new):**
-- `benchmarks/llm-efficiency/README.md` — design + measurement axes + honest-bias caveat
-- `benchmarks/llm-efficiency/run.ts` — full runner
-- `benchmarks/llm-efficiency/types.ts` — shared types
-- `benchmarks/llm-efficiency/specs/01-triage-board.md` — first spec
-- `benchmarks/llm-efficiency/prompts/{scrml-system,react-ts-system,user-prompt-template}.md`
-- `benchmarks/llm-efficiency/validators/scrml.ts` — full impl
-- `benchmarks/llm-efficiency/validators/react.ts` — scaffold with "setup required" failure mode
-
-**Estimated cost for full first run:** ~$30-80 in API. User has budget-signaled willing to spend.
-
-### Triage board example shipped — `examples/25-triage-board.scrml`
-
-Working drag-and-drop kanban with Inbox/Doing/Done columns. Demonstrates current-language capability with explicit workaround comments where bugs blocked canonical shape:
-- `function startDrag/endDrag/dropOn` glue tagged "blocked on Bug 2 + missing primitive" (Bug 2 NOW CLOSED; PA-side refactor opportunity in S96)
-- `function allowDrop` tagged "irreducible DOM API ceremony"
-- Pure `fn` helpers: `nextOrderIn`, `taskMovedTo`, `updateIfMatched`, `isDraggingTask`
-
-**Post-Bug-2 refactor opportunity:** the triage board's `DragPhase:enum = { Idle, Dragging }` + separate `<draggingTaskId>` cell can now be refactored to canonical `DragPhase:enum = { Idle, Dragging(id: number) }`. Reduces glue. Roughly 30 min of PA-side cleanup work for S96.
-
-### Article scaffold drafted — `building-anyway-draft-s95.md` (scaffold only, not authored)
-
-Question-driven scaffold for the "I'm building a language nobody will use" essay. 5 questions, each motivated by quote-library quote-ids. **Not yet authored** — user takes the scaffold and writes from there.
+| Match-form derived trailing-comma | W4 `1b8be2f` | ✅ Closed — `splitMultiArmString` strip trailing `,` |
+| Transitive dep tracker incomplete | W5 `5cc5ade` | ✅ Closed — extractReactiveDepsFromBody walks if/while/for condition fields |
+| Bare-variant `==` comparison at state-decl init | W6 `cf92351` | ✅ Closed — inferBareVariantsAtComparisonSites wired at state-decl site |
+| Issue C reactive for-iterable widening | W7 `2e102a8` | ✅ Closed — Option A with V5-strict @-ref predicate; top-level + nested-in-lift |
+| **Chained-ternary derived codegen function-arg strip** | — | 🟡 **Still open** — concrete bug, separate dispatch |
+| **Bare-assignment in attribute value parser ambiguity** | — | 🟡 **Still open** — parser-internal, separate dispatch |
 
 ---
 
-## 11 open bugs remaining in catalog (Tier 3-5 + miscellaneous)
+## Structural change — pa.md moved to scrml-support
 
-| # | Tier | Bug |
-|---|---|---|
-| 3 | parser polish | `class:NAME=fn(arg.with.dot)` rejected as bare identifier |
-| 4 | adopter friction | Bare-call event handler arg swapped with event for component prop captures |
-| 6 | unclear | `#{}` CSS block emits empty (may be Bug 17 in disguise — needs verification) |
-| 7 | lint | W-DEAD-FUNCTION RI doesn't trace component + lift bodies |
-| 8 | lint | W-LINT-007 false-positives on `type X:struct = {…}`, `props={…}` |
-| 9 | lint | W-LINT-013 false-positives on function-body `@cell = .Variant(…)` |
-| 10 | parser | `class:` tokenizer rejects hyphenated names with digits (`bg-blue-500`) |
-| 11 | adopter friction | `${(e) => fn(e)}` expression-form event handler arrow not invoked |
-| 12 | adopter friction | `${...}` event handler inside lift breaks BS-layer balancing |
-| 14 | doc/codegen | Bare-call `fn()` zero-args passes event as stray arg |
-| 15 | parser | `fn`-body parser false-fires E-FN-001 on ternary with object-literal arm |
+S96 mid-session user-ratified move. **scrmlTS/pa.md is now a 24-line pointer**; the authoritative PA directives live at **`scrml-support/pa-scrmlTS.md`** (commit `548a675`).
 
-**Plus 1 broader concern:**
-- Pre-existing TodoMVC browser tree-shake bug (`_scrml_reconcile_list is not defined`, 38 fails) — surface as separate dispatch in S96
+User rationale (verbatim): *"this is a set of rules (for both of us) on how we interact to build this language. But I am a firm believer in 'speaking to my audience'. pa.md is purely about a two party exchange."*
 
-**Plus 1 doc-corpus gap:**
-- `scrml:data` stdlib transforms (sortBy, etc.) read like Array methods but are functions — kickstarter doesn't disambiguate. Filed in FOLLOWUPS as doc-gap.
+- scrmlTS is public/MIT — pa.md's two-party-exchange content was the wrong audience
+- scrml-support is already the storage hub for cross-cutting PA-user content (user-voice, design-insights, deep-dives)
+- The pointer stub satisfies the global `~/.claude/CLAUDE.md` "read pa.md in project root first" convention
+- Naming follows `user-voice-scrmlTS.md` per-repo-suffix pattern (sibling repos `pa-scrml.md` / `pa-giti.md` / `pa-6nz.md` could land same way if migrated)
+- Internal `pa.md Rule N` cross-refs across scrmlTS docs (master-list, primer, hand-off, memory) remain symbolic — rules are content-addressed not location-addressed
+
+**For S97 PA pickup:** the pointer at `scrmlTS/pa.md` redirects to `../scrml-support/pa-scrmlTS.md` — read that file in full at session start.
 
 ---
 
-## Adoption strategy discussion — open threads for S96
+## New PA directive added — SPEC-at-session-start (pa-scrmlTS.md step 3)
 
-S95 had a substantive conversation about scrml's adoption challenge. Two tracks identified:
+User-direct precedent: S96 Wave 3 PA chased Bugs 4 / 11 / 14 from FOLLOWUPS framing without verifying SPEC §5.2.2. User asked *"have you read the spec?"* The spec gave normative answer that resolved three bug classifications in one read (Bug 14 was a real SPEC §5.2.2 violation; Bug 4 was a non-canonical-reproducer misclassification; Bug 11 in top-level worked correctly).
 
-**Track 1 — Compiler correctness.** In flight. 7 bugs landed; 11 open. Goal: adopter following kickstarter doesn't hit white-screen.
+**Now in pa-scrmlTS.md session-start checklist step 3:** Read `compiler/SPEC-INDEX.md` IN FULL (~288 lines; navigation map for the ~410k-token SPEC.md). Before ANY code change with spec implications (event handlers, state decls, engines, match, channels, schema, refinement types, validators, error codes), Read the relevant SPEC section IN FULL via `offset:` + `limit:` — do NOT decide from PRIMER summary or FOLLOWUPS framing. Locked tests can encode spec-divergent behavior — verify against SPEC.
 
-**Track 2 — LLM corpus presence.** Untouched. The chicken-and-egg: no adopters → no corpus → no LLM training → LLMs hallucinate scrml as Svelte/Vue → using scrml is harder than mature languages → no adopters. PA recommended near-term moves:
+Memory file: `feedback_read_spec_at_session_start.md` carries the full directive + rationale.
 
-1. **LLM benchmark first** — harness scaffolded; needs API keys + first run (~$30-80)
-2. **Open-source examples** — trucking-dispatch + the working examples directory; corpus has them locally, public costs little
-3. **"Honest current state" page** on scrml.dev — adopter-pull from technical-skeptical audience
-4. **Voice essays** — 3 high-leverage candidates: null essay, state-vs-logic-axiom evolution arc, "building anyway" (this last one has scaffold drafted)
-5. **Synthetic corpus generation** (deferred — wait for benchmark to validate scrml-is-LLM-friendly claim first)
+---
 
-**Filed S95 user quote — load-bearing for any "build anyway" framing:**
-> "This language is getting 0 adoption. (probably a blessing in disguise, given the constant 'this all works', 'wait, no it doesn't' pattern). ... so it is up to me (and by extension you) to get it to a point that makes it un-ignorable"
+## Issue C closure — Option A reactive for-iterable (Wave 7 detail)
 
-PA pushback the user accepted: "complete the language" alone won't escape the stuck state because LLMs don't know scrml. **Corpus-into-LLM-training is at least as important as completeness, and can start before completeness.**
+The deferred design question from dispatch #1 closed end-to-end. **Option A** (auto-detect reactive iterables when iterable contains `@`-prefix ref direct or transitive) chosen by user; static escape-hatch DEFERRED. V5-strict identifier semantics (§6.1.3 + E-NAME-COLLIDES-STATE) make "no @-ref = snapshot" unambiguous, so the heuristic is principled.
 
-PA boundary the user accepted: **PA accelerates user's leverage on technical + writing tasks; PA cannot deliver public artifacts, partnerships, or "be the human face" of the language.** Those moves are user-decisions.
+**4 cases in the truth table — all verified:**
 
-**S96 open question:** which Track 2 move(s) to fire when. PA lean: LLM benchmark first (cheap; objective evidence either way), then voice essays in parallel with continued Track 1 bug fixes. User has not committed to a specific sequence.
+| Case | Iterable shape | Verdict | Real-code precedent |
+|---|---|---|---|
+| 1 | `@cell` | reactive | (already worked) |
+| 2 | `@cell.filter(...).sort(...)` | **reactive (new)** | `examples/25-triage-board.scrml:134` |
+| 3 | `fn()` w/ transitive `@`-ref | **reactive (new)** | (was synthetic; pattern LLMs would emit) |
+| 4 | `fn()` w/ no `@`-ref (server-fn) | snapshot | `examples/07-admin-dashboard.scrml:144`, `03-contact-book.scrml:101` |
+
+**5 files changed:**
+- `compiler/src/codegen/reactive-deps.ts` — new `iterableHasReactiveRefs(node, fnRegistry)` helper
+- `compiler/src/codegen/emit-client.ts` — `detectRuntimeChunks` for-stmt case widened; builds fnRegistry once
+- `compiler/src/codegen/emit-control-flow.ts` — `emitForStmt` top-level predicate widened; opts.fnBodyRegistry threaded
+- `compiler/src/codegen/emit-logic.ts` — caller threads fnBodyRegistry to emitForStmt
+- `compiler/src/codegen/emit-lift.js` — `emitForStmtWithContainer` nested-in-lift emit widened (creates wrapper inside containerEl + reconcile_list + effect_static)
+
+**Real-code impact (`examples/25-triage-board.scrml`):** the inner task list now emits `_scrml_reconcile_list(...)` + `_scrml_effect_static(...)` for `for (let task of @tasks.filter(...).sort(...))`. Drag-drop mutations on `@tasks` now reactively re-render — this was the canonical kanban-shape footgun Option A is designed to close.
+
+---
+
+## SPEC §5.2.2 Bug 14 closure — Rule 4 in action
+
+Per pa.md Rule 4 (SPEC is normative; derived planning docs are NOT), Bug 14 was a real SPEC violation hiding behind a tutorial + a locked test. Pre-S96:
+
+> **SPEC §5.2.2 line 1128:** `onclick=fn()` SHALL wire `fn` as a click handler. The compiler MUST auto-wrap the call as `function(event) { fn(); }`. `fn` is NOT invoked at render time.
+
+Pre-S96 impl at `emit-event-wiring.ts:479-480` + `emit-lift.js` (two paths): always emitted `function(event) { fn(event); }` — threaded event as first arg. Cited "tutorial §1.5" + a locked test `event-handler-args-e2e.test.js §4 "threads event"`. Tutorial is NOT normative. Test was locking spec-divergent behavior.
+
+Fix at three sites (`emit-event-wiring.ts:479-480`, `emit-lift.js:497-499`, `emit-lift.js:718-721`). Updated 13 locked-test assertions across 5 test files in lockstep. Tutorial §1.5 may still need alignment (out of scope this commit).
+
+Escape-hatch for handlers needing the event remains `onclick=${(e) => fn(e)}` per SPEC §5.2.2 line 1123.
+
+---
+
+## Things S97 PA must NOT screw up (carried + extended)
+
+### pa.md Rules permanently load-bearing (now at `scrml-support/pa-scrmlTS.md`)
+- Rule 1 — no marketing/article/tweet work unless user brings up
+- Rule 2 — full-production-language fidelity
+- Rule 3 — right answer beats easy answer 99.999%
+- Rule 4 — SPEC is normative; derived planning docs are NOT
+- Rule 5 — shoot straight; politeness for politeness sake rejected
+
+### New S96 PA-memory rules permanently load-bearing
+- `feedback_read_spec_at_session_start.md` — PA SHALL read SPEC-INDEX.md at session start; verify spec sections directly before spec-implication changes
+- `feedback_declaration_form_in_reproducers.md` — PA synthetic reproducers must use V5-strict canonical shape per primer §3 (`<x> = 0` at top-level, `@x = 0` only inside `${...}`)
+
+### S96-specific anti-patterns
+- DO NOT use the pre-S96 `wc -l` heuristic for file-emptiness — `wc -c` is the right measurement (Bug 6 misclassification precedent)
+- DO NOT trust FOLLOWUPS framing for compiler-behavior classification without verifying against SPEC text (Bug 14 precedent)
+- DO NOT reproduce bugs with non-canonical scrml shapes (`@x = 0` at top-level for state-decl; `<x> = 0` is canonical) — produces ambiguous test conditions
+- DO NOT extend the chunk-gate predicate without coordinating with the emit-site predicate at the corresponding codepath (Issue C dual-site precedent — chunk-gate fires but emit-lift didn't emit reactive shape, causing dead-code-in-runtime + non-reactive emit)
+
+---
+
+## Open questions to surface immediately (S97 PA pickup)
+
+1. **Chained-ternary derived codegen function-arg strip** — concrete codegen bug surfaced Wave 4. `const <result> = @c == Mode::A ? @ts.filter(function(x){...}) : @c == Mode::B ? ... : @ts` strips the function literal args. Single ternary works; chained ternary breaks. Likely in `emitExprField` / `rewriteExprWithDerived` ternary handling. Concrete repro at `/tmp/ternary-bug.scrml` from S96 (gone after session — easy to recreate).
+2. **Bare-assignment in attribute value parser ambiguity** — `onclick=@x = .V` emits broken HTML `onclick="x" V>` because the HTML-attribute tokenizer can't distinguish `attr=expr-with-equals` from `name=value attr2 attr3`. Per L19 the form IS legal scrml. Worked around in S96 by restoring helper functions + bare-call form. Real fix: attribute parser needs event-handler-attribute → expression-mode contract.
+3. **S95 Bug 3 + Bug 4** — both need REAL-context reproducers. S96 synthetic repros didn't fire. Bug 3 cites `E-COMPONENT-021` suggesting component-def body context. Bug 4 may have been a non-canonical-reproducer misclassification (similar to Bug 14's framing issue).
+4. **Brute-force syntax-stress harness** (user-surfaced S96 mid-session) — throw arbitrary React/Vue/Svelte/TS-shaped syntaxes at the compiler to see how it degrades. Parallel to the LLM-efficiency benchmark (which tests positive scrml generation). Three things it would surface: (a) ghost-pattern lint coverage gaps, (b) silent compile bugs (Bug 14 shape), (c) diagnostic quality. File as v0.3.x dispatch candidate.
+5. **X.com archive ingestion** (user-surfaced S96 mid-session) — user requested X data archive; will follow up when ZIP arrives. PA will write parser + new `scrml-voice-author corpus-refresh source=x-archive` mode. ~1-2 hrs of work once data lands.
+6. **6nz cross-repo notice** (deferred from S96) — Bug 14's revert (per SPEC §5.2.2) MAY break adopter code in 6nz that relied on the auto-threaded event. Should drop a notice to `6nz/handOffs/incoming/` per pa-scrmlTS.md cross-repo-messaging — alongside the closure narrative + suggested escape-hatch (`onclick=${(e) => fn(e)}`). Not done this session.
 
 ---
 
 ## Process wins this session
 
-1. **Path-discipline hardening WORKS.** 6 successful dispatches in a row since the memory file was filed. Brief block is the operational gate.
-2. **Brief-quality feedback loop fires twice.** Bug 13 agent corrected my repro (top-level vs lift); Bug 5 agent corrected my repro (single-level vs nested). **PA bug repros must specify structural-context specifics when bugs are codepath-dependent.** Worth filing as PA memory in S96 if pattern recurs.
-3. **Cherry-pick beats wholesale file-delta when agent base predates sibling landings.** S88 file-delta-vs-cherry-pick memory rule fired correctly during Bug 2 landing. Recovered an 8-commit silent-drop in rebase by cherry-picking from reflog.
-4. **The fat-wrap discipline holds.** User explicitly noted: *"the wraps have been working much better since we have been doing the fat wraps."* Continue.
+1. **All 9 commits passed pre-commit + post-commit hooks** without `--no-verify`. S95's `--no-verify` push (process violation per pa.md S88 amendment) is fully closed — every subsequent push went through the full pre-push gate cleanly.
+2. **Real-code precedent investigation before design lock-in** (Issue C). User said *"look at the implementation surface first"* + *"lets look at an example in actual code not a sterile snippet"* — those redirects forced PA to investigate 3 real-code shapes that exposed a critical nuance (server-fn vs method-chain semantics) supporting Option A with a principled heuristic. Without that, naive auto-detect would have over-activated reactivity on Cases 1+2.
+3. **Spec-vs-impl-vs-test reconciliation discipline** (Bug 14). The SPEC-vs-impl divergence had been locked into a test (S88 LIFT-4 fix). Rule 4 + the new SPEC-at-session-start rule caught it. PA broke the spec-divergent test in lockstep with the impl revert.
+4. **Misclassification catches** (Bugs 4 + 6 + 14). Three FOLLOWUPS entries that turned out to be different shapes than described: Bug 4 was a non-canonical-reproducer artifact, Bug 6 was a `wc -l` measurement artifact, Bug 14 was a real SPEC violation hidden behind a misleading "test locks in this behavior" framing. Each catch saved hours of pursuing the wrong code.
+5. **Hand-off + wrap shape settling.** User observed mid-session that the wrap process (hand-off + master-list + changelog) carries duplication with MEMORY.md + pa.md auto-loaded content. Marked as a trim opportunity for future-PA sessions; not executed this session.
 
 ---
 
 ## Process incidents (worth filing or remembering)
 
-### Rebase silently dropped 8 commits
+### File-has-not-been-read errors during bulk edits
 
-When I ran `git pull --rebase origin main`, git only re-applied 4 of the 12 local commits (Bug 18/16/13/17). Bug 1, Bug 5, and the 6 Bug 2 commits were silently dropped. Detected by checking `git log origin/main..HEAD` and comparing to expected count. Recovered via `git cherry-pick <8 SHAs>` from reflog.
+Wave 3 had several Edit-tool errors of the form "File has not been read yet. Read it first before writing to it" — happened when the file had been previously inspected via `sed` (Bash) but not via the Read tool, so the harness's file-state tracker didn't register it. Workaround: call Read explicitly on each file before any Edit/Write. Add a small Read prelude (5-10 lines of relevant section) before each edit batch on a new file. Cost: 1-3 extra Read calls per multi-file edit batch.
 
-**Root cause unclear** — possibly the rebase determined some commits were "already in upstream" via patch-id heuristic? But origin only touched `docs/index.html`; no overlap with my codegen commits. Worth investigation in S96.
+### Off-mode autopilot loss after ExitPlanMode
 
-**Mitigation for S96:** after every rebase, verify ahead-count matches expected:
-```bash
-git rev-list --left-right --count origin/main...HEAD
-```
-If the "ahead" count doesn't match the pre-rebase count, check reflog and cherry-pick the missing ones.
+After exiting plan mode in S96, the auto-mode flag flipped off. User signaled "lets look at issue C" but the auto-mode-off harness now expects explicit clarification at design forks. Per the post-exit-auto-mode system reminder, PA should ASK clarifying questions when approach is ambiguous rather than make assumptions. This was the right behavior — PA caught itself at the Issue C design choice (auto-detect heuristic shape) and asked the user rather than dispatching.
 
-### Bug 2 dispatch surfaced a triple-coordinated fix
+### Reproducer-shape canonicality (memory rule filed)
 
-PA's Bug 2 brief identified one codegen site. Agent's investigation found THREE coordinated sites needed work:
-1. Structured AST `emit-expr.ts:emitCall`
-2. Runtime helpers in `runtime-template.js` (tag normalization)
-3. `emit-variant-guard.ts` dispatcher (dormant `.tag`/`.payload` reading the wrong keys — never triggered because upstream codegen crashed first)
-
-**Methodology signal:** PA's "single-site bug" framings are sometimes incomplete. Agents finding hidden multi-site coordination is valuable. Brief-quality discipline (file repros that exercise the FULL surface) helps surface this.
-
----
-
-## Open questions to surface immediately (S96 PA pickup)
-
-1. **Track 2 first move?** Benchmark first (PA lean), or voice essays, or both in parallel?
-2. **Triage-board refactor post-Bug-2?** Canonical payload-variant DragPhase. ~30 min PA-side work.
-3. **Bug 6 verification?** May be Bug 17 in disguise. Quick test would resolve.
-4. **Pre-existing browser test failures dispatch?** `_scrml_reconcile_list` runtime tree-shake bug. 38 fails. Substantive dispatch.
-5. **Path-discipline incident: rebase commit-drop?** Investigate or accept as one-off?
-6. **Continue Tier 3+ bug dispatches in parallel with Track 2 work?**
-
----
-
-## Things S96 PA must NOT screw up (carried + extended)
-
-### Rules permanently load-bearing
-- Rule 1 — no marketing/article/tweet work unless user brings it up
-- Rule 2 — full-production-language fidelity
-- Rule 3 — right answer beats easy answer 99.999%
-- Rule 4 — spec is normative; derived planning docs are NOT
-- **Rule 5 (NEW S95) — shoot straight; politeness for politeness sake is for fragile flowers**
-
-### Memory rules permanently load-bearing
-All prior + S95 additions:
-- `feedback_dont_soft_classify_bugs.md` (Bug 16 precedent)
-- `feedback_communication_norms.md` (oil-and-gas register)
-- `feedback_agent_main_repo_path_leak.md` (path-discipline hardening)
-- `feedback_state_vs_logic_boundary.md` (CORRIGENDUM — corrected reading)
-
-### S95-specific
-- **The corrected state-vs-logic axiom** — state self-describes transitions; 90/10 fn() ratio is forward-looking
-- **Missing event-payload primitive** — v0.4+ dispatch candidate; corpus essay material
-- **Voice-author redesign** — `quote-library.json` is the load-bearing artifact; agent does NOT draft IN user voice
-- **Don't conflate adoption ≠ language completeness** — Track 2 corpus work is at least as important
-
-### Anti-patterns
-- DO NOT soft-classify bugs as "doc gap" without applying the spec-states-rule + compiler-matches test
-- DO NOT add preambles / hedges / "thank you" / "I appreciate" to user-facing messages
-- DO NOT paper over user-statement ambiguity with interpretive expansion (S94→S95 corrigendum precedent)
-- DO NOT use wholesale file-delta when sibling landings touched the same file since agent base (S88 precedent)
-- DO NOT skip the post-rebase ahead-count verification (S95 silent-drop precedent)
-- DO NOT relax the hardened path-discipline brief block (proven works across 6 dispatches)
+Multiple S96 reproducer attempts used non-canonical scrml shape (`@x = 0` at file/program top-level instead of canonical `<x> = 0`). This silently changed parser paths and either masked the bug under investigation OR produced confusion about what was actually broken. Now filed as `feedback_declaration_form_in_reproducers.md`. Going forward: PA defaults to V5-strict canonical form in synthetic reproducers per primer §3.
 
 ---
 
 ## Tags
 
-#session-95 #CLOSE #bug-fix-marathon #7-bugs-closed #voice-author-redesign #benchmark-harness-scaffolded #state-vs-logic-corrigendum #missing-primitive-filed #communication-norms-rule-5 #path-discipline-hardening-validated #triage-board-shipped #18-bug-catalog-filed
+#session-96 #CLOSE #bug-chip-marathon #todomvc-38-fail-closed #16-of-18-s95-catalog #4-of-5-followups-closed #pa-md-moved-to-scrml-support #spec-at-session-start-directive #issue-c-option-a-closed #rule-4-spec-wins-bug-14
