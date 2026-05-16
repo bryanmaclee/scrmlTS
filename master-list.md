@@ -224,9 +224,9 @@ All 20 sub-steps (rev 6 decomposition: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11.0a-
 | 3 | `<engine for=T derived=match @x {...}>` Move-14 inline-expression body not parsed | ast-builder.js + symbol-table.ts + emit-engine.ts + dependency-graph.ts | 4B.1 | ✅ CLOSED v0.2.2; **pipe-alternation arms** in match body parsed verbatim but rewriteMatchExpr's single-pattern limitation tracked as B3 follow-on |
 | 4 | `<channel> <messages> = []` top-level V5-strict decl parsed as markup tag | block-splitter.js + ast-builder.js (BS-level tag-nesting bookkeeping fix, mirroring P-FUP-1 pattern) | 4B.1 | ✅ CLOSED v0.2.2; 15-channel-chat workaround dropped |
 | 8 | `let x = call() !{ ... }` statement boundary not detected | block-splitter.js + ast-builder.js (same fix-pattern at brace-context scope) + bonus: parseErrorTokens `.Variant` arm pattern extended (prevented 09-error-handling silent-broken → loud-broken regression) | 4B.1 | ✅ CLOSED v0.2.2 |
-| **2** | `<engine derived=@var>` over auto-declared engine fires E-ENGINE-004 | derived-machine validator (`type-system.ts:2349`) — DIFFERENT code path from Bug 9; uses machineDecls + reactiveBindings map, not scopeChain | **4B.2 (pending)** | ⏸️ **STILL PENDING** — separate dispatch required; queued for v0.2.3 |
+| **2** | `<engine derived=@var>` over auto-declared engine fires E-ENGINE-004 | derived-machine validator (`type-system.ts:2349`) — DIFFERENT code path from Bug 9; uses machineDecls + reactiveBindings map, not scopeChain | 4B.2 | ✅ CLOSED v0.2.3 (`d512266`, S84); §51.9 validator extension threads auto-declared engine vars into `reactiveBindings`; 14-mario reverted to canonical `<engine for=HealthRisk derived=@marioState>` form. **Status corrected S97** — row was stale "STILL PENDING" until S97 cross-check with changelog. |
 
-**Total v0.2.x patches resolved by these gaps:** 8 of 9 closed (89%). Bug 2 is the lone open item for v0.2.3 alongside trucking-dispatch rewrite (B1-followon) + C1 tutorial + C2 articles.
+**Total v0.2.x patches resolved by these gaps:** 9 of 9 closed (100%). All B1-surfaced bugs landed across v0.2.1 / v0.2.2 / v0.2.3.
 
 **Other B1-surfaced follow-ons (NOT v0.2.x-bar, tracked for later):**
 - Pipe-alternation arms in `rewriteMatchExpr` (B3 follow-on; same limitation affects other rewriteMatchExpr call sites).
