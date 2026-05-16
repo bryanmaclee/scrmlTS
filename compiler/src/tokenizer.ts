@@ -145,6 +145,66 @@ function makeToken(kind: string, text: string, start: number, end: number, line:
 }
 
 // ---------------------------------------------------------------------------
+// Event-handler attribute helpers (S97 — SPEC §5.2.3 bare-form parser fix)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors `isEventHandlerAttrName` from `multi-statement-scan.ts`. Inlined
+ * here to avoid a cross-stage import. Keep in sync.
+ *
+ * Recognized event-handler attribute name shapes (per SPEC §5.2.x and §38.6.1):
+ *   - `on<word>`           — DOM events (`onclick`, `oninput`, `onsubmit`, ...)
+ *   - `on:<word>`          — namespaced events (Svelte-derived)
+ *   - `onserver:<word>`    — channel server-direction events (§38.6.1)
+ *   - `onclient:<word>`    — channel client-direction events (§38.6.1)
+ */
+function isEventHandlerAttrName(name: string): boolean {
+  if (typeof name !== "string" || name.length === 0) return false;
+  if (/^on[a-z]+$/i.test(name)) return true;
+  if (/^on:/i.test(name)) return true;
+  if (/^onserver:/i.test(name)) return true;
+  if (/^onclient:/i.test(name)) return true;
+  return false;
+}
+
+/**
+ * Detect whether the chars at `pos` look like a bare-assignment continuation
+ * (`=` not-comparison-not-arrow). Used to decide whether to extend an
+ * event-handler attribute value reader past the initial ident into
+ * expression-mode for the SPEC §5.2.3 bare-assignment shape.
+ *
+ * Skips leading inline whitespace (` ` and `\t`). Does NOT skip newlines —
+ * a newline between the ident and `=` is unusual in attribute values and
+ * likely indicates a tag-split shape (caller should fall through to
+ * ATTR_IDENT).
+ *
+ * SCOPE NOTE — postfix `++`/`--` and compound assigns (`+=`/`-=`/etc.)
+ * are recognized at SPEC §5.2.3 line 1144 but NOT detected here. They
+ * require complementary codegen support that `rewriteReactiveAssign`
+ * (`rewrite.ts:1779`) does not yet provide — its pattern matches only
+ * `_scrml_reactive_get("X") = expr` (not `... += expr` or `...++`).
+ * Detecting them here without that codegen support would produce invalid
+ * JS like `_scrml_reactive_get("X")++` (can't increment a function-call
+ * return value). Filed as v0.3.x follow-up; closing it requires either
+ * (a) extending `rewriteReactiveAssign` to recognize compound-update
+ * patterns and lower to `setter(X, getter(X) <op> expr)`, OR
+ * (b) routing through a new structured emit path. Both are bigger than
+ * this surgical fix.
+ */
+function isBareExprContinuation(raw: string, pos: number): boolean {
+  let i = pos;
+  while (i < raw.length && (raw[i] === " " || raw[i] === "\t")) i++;
+  if (i >= raw.length) return false;
+  const c = raw[i];
+  const n = i + 1 < raw.length ? raw[i + 1] : "";
+
+  // `=` (assignment) — reject `==` (comparison) and `=>` (arrow body)
+  if (c === "=" && n !== "=" && n !== ">") return true;
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Attribute tokenizer — used by markup and state block headers
 // ---------------------------------------------------------------------------
 
@@ -412,6 +472,100 @@ export function tokenizeAttributes(raw: string, baseOffset: number, baseLine: nu
               advance();
             }
             tokens.push(makeToken("ATTR_CALL", JSON.stringify({ name: ident, args }), vs, absOff(), vl, vc));
+          } else if (isEventHandlerAttrName(name) && isBareExprContinuation(raw, pos)) {
+            // S97 — SPEC §5.2.3 bare-assignment event handler.
+            //
+            // L19 normatively recognizes three bare-form shapes:
+            //   1. Bare call           — `onclick=fn()`                  (handled above as ATTR_CALL)
+            //   2. Bare assignment     — `onclick=@phase = .Loading`     (handled HERE)
+            //   3. Bare single-expr    — `onclick=@count++` etc.         (NOT YET — see isBareExprContinuation)
+            //
+            // Without this branch, the unquoted-value reader stops at the
+            // first whitespace after the ident, then the outer loop sees `=`
+            // as an unexpected char, silently swallows it, and misinterprets
+            // the rest as boolean attributes. Symptom on
+            // `<button onclick=@phase = .Loading>`: HTML emitted as
+            // `<button onclick="phase" Loading>` — `@` stripped, value
+            // string-quoted, `.Loading` becomes a bare attribute.
+            //
+            // The fix: when the attribute name is an event handler AND the
+            // continuation after the ident looks like an expression-continuation
+            // operator (`=` not-comparison-not-arrow, `++`, `--`, compound
+            // assigns like `+=`, `??=`), keep reading in expression-mode
+            // (paren/brace/bracket/string-tracked) until the tag-closing `>`
+            // or `/>` at depth 0 outside strings. Emit as ATTR_EXPR — the
+            // downstream parseAttributes ATTR_EXPR branch produces a `kind:
+            // "expr"` value with the full expression text + reactive refs,
+            // and the emit-event-wiring path wraps it as `function(event) {
+            // <expr>; }` per §5.2.2 line 1128.
+            //
+            // SPEC authority:
+            //   - §5.2.3 lines 1140-1152 (bare-form rule + worked example)
+            //   - §50 (assignment-as-expression)
+            //   - §34 / multi-statement-scan E-MULTI-STATEMENT-HANDLER stays
+            //     intact — the multi-statement scanner runs on the captured
+            //     ATTR_EXPR raw text in ast-builder.js post-tokenization.
+            // Read until the bare-form expression ends. Boundary detection:
+            //   - Inside strings / parens / brackets / braces (depth > 0):
+            //     keep reading regardless of whitespace.
+            //   - At depth 0 outside strings: STOP on whitespace ONLY after
+            //     we've consumed the `=` and at least one non-whitespace
+            //     RHS char. (Without this guard, multiple bare-assignment
+            //     handlers on the same element collide — the first reader
+            //     would swallow `onmouseenter=...` etc. up to the tag close.)
+            //   - Also STOP on `>` or `/>` at depth 0 outside strings (tag close).
+            let expr = ident;
+            let parenDepth = 0;
+            let braceDepth = 0;
+            let bracketDepth = 0;
+            let stringCh: string | null = null;
+            let consumedEq = false;        // have we passed the `=` of the bare-assignment?
+            let consumedRhsChar = false;   // and at least one non-ws RHS char?
+            while (pos < raw.length) {
+              const c2 = raw[pos];
+              if (stringCh !== null) {
+                if (c2 === '\\' && pos + 1 < raw.length) {
+                  expr += c2 + raw[pos + 1];
+                  advance(2);
+                  continue;
+                }
+                if (c2 === stringCh) { stringCh = null; }
+                expr += c2;
+                advance();
+                continue;
+              }
+              const atDepthZero = parenDepth === 0 && braceDepth === 0 && bracketDepth === 0;
+              if (atDepthZero) {
+                // Tag close ends the value
+                if (c2 === '/' && raw[pos + 1] === '>') break;
+                if (c2 === '>') break;
+                // Next-attribute boundary: whitespace at depth 0 ends the RHS
+                if (consumedEq && consumedRhsChar && /[ \t\r\n\f]/.test(c2)) break;
+              }
+              if (c2 === '"' || c2 === "'" || c2 === '`') { stringCh = c2; expr += c2; advance(); continue; }
+              if (c2 === '(') { parenDepth++; expr += c2; advance(); continue; }
+              if (c2 === ')') { parenDepth--; expr += c2; advance(); continue; }
+              if (c2 === '[') { bracketDepth++; expr += c2; advance(); continue; }
+              if (c2 === ']') { bracketDepth--; expr += c2; advance(); continue; }
+              if (c2 === '{') { braceDepth++; expr += c2; advance(); continue; }
+              if (c2 === '}') { braceDepth--; expr += c2; advance(); continue; }
+              if (atDepthZero) {
+                if (!consumedEq && c2 === '=') {
+                  consumedEq = true;
+                  expr += c2;
+                  advance();
+                  continue;
+                }
+                if (consumedEq && !/[ \t\r\n\f]/.test(c2)) {
+                  consumedRhsChar = true;
+                }
+              }
+              expr += c2;
+              advance();
+            }
+            // Trim trailing whitespace from the captured expression so the
+            // downstream ExprNode parser doesn't see a trailing space.
+            tokens.push(makeToken("ATTR_EXPR", expr.replace(/\s+$/, ""), vs, absOff(), vl, vc));
           } else {
             tokens.push(makeToken("ATTR_IDENT", ident, vs, absOff(), vl, vc));
           }
