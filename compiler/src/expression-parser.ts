@@ -713,12 +713,43 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
   // This is processed first because match may contain `is` operators inside arms.
   s = preprocessMatchExprs(s);
 
+  // ─── LHS pattern for `is …` predicates (A4 fix S99 — invoice-card scope misfire) ───
+  //
+  // The collectExpr → joinWithNewlines path emits the condition string with
+  // whitespace AROUND each token, so `inv.paid_at is some` reaches this
+  // preprocessor as `inv . paid_at is some`. The prior pattern
+  // `[A-Za-z_$@][A-Za-z0-9_$.]*` allowed `.` inside the character class but
+  // required NO whitespace around the dot — so on the tokenized form the
+  // capture group only grabbed `paid_at`, producing the inverted-receiver
+  // emission `inv . __scrml_is_some__(paid_at)`. Downstream TS scope-walker
+  // then treated `paid_at` as a free-ident call argument and fired
+  // E-SCOPE-001 on the (correctly-bound) property name.
+  //
+  // The widened pattern below captures:
+  //   - the base ident (`[A-Za-z_$@][A-Za-z0-9_$]*` — `@cell`, `inv`, `_x`)
+  //   - followed by zero or more tail segments, each one of:
+  //       · `\s*\.\s*<ident>`   member access, whitespace-tolerant
+  //       · `\([^()]*\)`        non-nested call parens
+  //       · `\[[^\[\]]*\]`      non-nested index brackets
+  //
+  // This preserves the FULL member/call/index chain as the LHS of `is …`,
+  // emitting `__scrml_is_some__(<full chain>)` so the resulting AST is a
+  // BinaryExpr `<member-access> is-some <not>` rather than a member-call
+  // shape that strands the property name as a free ident.
+  //
+  // Note: nested parens or brackets inside a tail segment fall through to
+  // the existing parenthesized-form rules (`\(([^)]+)\) is …`) — per SPEC
+  // §42.2.4 DQ-12 Phase A, parenthesized compound operands are the
+  // currently-supported shape; bare compound expressions without parens
+  // remain a Phase B item.
+  const LHS_IDENT_CHAIN = `[A-Za-z_$@][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*|\\([^()]*\\)|\\[[^\\[\\]]*\\])*`;
+
   // Replace `is not not` (must come before `is not`)
   // Pattern: <expr> is not not — left side is everything before ` is not not`
   // We anchor on ` is not not` as a suffix (for the simple case)
   // For parenthesized forms: (expr) is not not → __scrml_is_not_not__((expr))
   s = s.replace(/\)\s+is\s+not\s+not(?!\s+not)/g, ") is_not_not_PLACEHOLDER");
-  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+not\s+not(?!\s+not)/g, "__scrml_is_not_not__($1)");
+  s = s.replace(new RegExp(`(${LHS_IDENT_CHAIN})\\s+is\\s+not\\s+not(?!\\s+not)`, "g"), "__scrml_is_not_not__($1)");
   s = s.replace(/\)\s*is_not_not_PLACEHOLDER/g, ") __scrml_is_not_not_result__");
 
   // Replace `is not not` via parenthesized form
@@ -729,24 +760,24 @@ function preprocessForAcorn(raw: string, opts?: { tildeActive?: boolean }): stri
 
   // Replace `is not` (absence check)
   s = s.replace(/\)\s+is\s+not(?!\s+not)/g, ")__scrml_is_not_suffix__");
-  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+not(?!\s+not)/g, "__scrml_is_not__($1)");
+  s = s.replace(new RegExp(`(${LHS_IDENT_CHAIN})\\s+is\\s+not(?!\\s+not)`, "g"), "__scrml_is_not__($1)");
   s = s.replace(/\(([^)]+)\)\s+is\s+not(?!\s+not)/g, "__scrml_is_not__(($1))");
   s = s.replace(/\)__scrml_is_not_suffix__/g, "__scrml_is_not__(PLACEHOLDER_PAREN)");
 
   // Replace `is some` / `is given` (presence check)
   s = s.replace(/\)\s+is\s+(?:some|given)/g, ").__scrml_is_some_suffix__");
-  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+(?:some|given)/g, "__scrml_is_some__($1)");
+  s = s.replace(new RegExp(`(${LHS_IDENT_CHAIN})\\s+is\\s+(?:some|given)`, "g"), "__scrml_is_some__($1)");
   s = s.replace(/\(([^)]+)\)\s+is\s+(?:some|given)/g, "__scrml_is_some__(($1))");
   s = s.replace(/\)__scrml_is_some_suffix__/g, "__scrml_is_some__(PLACEHOLDER_PAREN_SOME)");
 
   // Replace `is .Variant` (enum variant check, dot-prefixed)
-  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+(\.[A-Z][A-Za-z0-9_]*)/g,
+  s = s.replace(new RegExp(`(${LHS_IDENT_CHAIN})\\s+is\\s+(\\.[A-Z][A-Za-z0-9_]*)`, "g"),
     '__scrml_is_variant__($1, "$2")');
   s = s.replace(/\(([^)]+)\)\s+is\s+(\.[A-Z][A-Za-z0-9_]*)/g,
     '__scrml_is_variant__(($1), "$2")');
 
   // Replace `is TypeName.Variant` (qualified enum variant check)
-  s = s.replace(/([A-Za-z_$@][A-Za-z0-9_$.]*)\s+is\s+([A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*)/g,
+  s = s.replace(new RegExp(`(${LHS_IDENT_CHAIN})\\s+is\\s+([A-Z][A-Za-z0-9_]*\\.[A-Z][A-Za-z0-9_]*)`, "g"),
     '__scrml_is_variant__($1, "$2")');
 
   // Bare-dot variants (.Variant) as primary expressions (S66 — principled fix per Bryan)

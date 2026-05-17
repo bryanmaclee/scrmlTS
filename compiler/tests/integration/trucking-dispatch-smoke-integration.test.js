@@ -159,22 +159,15 @@ describe("trucking-dispatch — pipeline-level invariants", () => {
     expect(TD_FILES.length).toBe(36);
   });
 
-  // FOLLOW-ON (S99 — A1 dispatch): A2's body-population on `export fn`/
-  // `export function` synth stubs unmasked two distinct fatal-error
-  // patterns. The RI dispatch (commit 0e1dac0,
-  // `route-inference.ts:rewriteServerBlockStubs`) resolved the seeds.scrml
-  // `server { ... }` block stub gap (1 of 3 E-SCOPE-001 fires gone). The
-  // remaining 2 fatal fires are in
-  // examples/23-trucking-dispatch/components/invoice-card.scrml at L15/L16
-  // on `inv.paid_at is some` / `inv.due_at is some`. The `is some` operator
-  // parses to `inv.__scrml_is_some__(paid_at)` and the property name `paid_at`
-  // / `due_at` surfaces as a free-ident call argument; TS's scope walker
-  // then fires E-SCOPE-001 on the (correctly-bound) property name. This is
-  // an ast-builder / type-system parser-coupling bug, OUT OF SCOPE for the
-  // RI dispatch — A1 dispatch handles `symbol-table.ts` / `type-system.ts`
-  // scope-walker behavior. Reopen this test when A1 resolves the `is some`
-  // operator scope misfire.
-  test.skip("compile completes — no fatal severity:error diagnostics [A2-SURFACED — A1 follow-on on is-some operator]", () => {
+  // S99 A4 (commit 9860449) closed the `is some` parser-coupling gap that
+  // surfaced two E-SCOPE-001 fires in invoice-card.scrml. The preprocessor in
+  // expression-parser.ts now captures a whitespace-tolerant member-access
+  // chain as the LHS of `is …` predicates, so `inv.paid_at is some` (which
+  // the collectExpr → joinWithNewlines path emits as `inv . paid_at is some`)
+  // parses to a clean BinaryExpr with a MemberExpr LHS rather than the
+  // inverted member-call shape `inv.__scrml_is_some__(paid_at)`. With both
+  // E-SCOPE-001 fires gone, the no-fatal-error invariant holds end-to-end.
+  test("compile completes — no fatal severity:error diagnostics", () => {
     const result = compileTd();
     const fatal = result.errors.filter((e) => e.severity === "error");
     expect(fatal).toEqual([]);
@@ -287,9 +280,16 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
   //     cleared from exprNode, so TS's scope walker now skips the
   //     bare-expr per the existing guard at type-system.ts §2a line ~4873.
   //     Net E-SCOPE-001 movement: 3 → 2 (server gone; paid_at/due_at A1).
+  //
+  // S99 A4 (commit 9860449) closed the remaining 2 E-SCOPE-001 fires
+  // (`paid_at` / `due_at` in invoice-card.scrml). The expression-parser
+  // preprocessor now captures a whitespace-tolerant member-access chain as
+  // the LHS of `is …` predicates, preserving `inv.paid_at` as a MemberExpr
+  // rather than inverting it into a member-call. Net E-SCOPE-001 movement:
+  // 2 → 0. With both fires gone, the no-fatal-error compile-completion
+  // invariant holds end-to-end (test §1 above is now active).
   const EXPECTED_BASELINE = {
     "E-ROUTE-001": 1,
-    "E-SCOPE-001": 2,
     "I-AUTH-REDIRECT-UNRESOLVED": 1,
     "W-ATTR-001": 20,
     "W-AUTH-001": 20,
