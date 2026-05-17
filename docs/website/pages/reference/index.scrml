@@ -1,0 +1,170 @@
+// scrml.dev /reference — landing page for the reference section
+//
+// Filesystem-routed at /reference. Closes the 404 from the
+// top-bar + sidebar nav links that pointed to /reference.
+//
+// Per architecture DD §6: Day-30 plan is full coverage of Tier 1 +
+// Tier 2 elements / keywords / contexts. This landing page enumerates
+// the categories + lists what's shipped so far vs queued.
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        <header class="not-prose mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                scrml.dev
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900">
+                Reference
+            </h1>
+            <p class="text-lg text-slate-600 mt-2">
+                Every element, keyword, context, and error code in
+                scrml. Reference pages summarize SPEC.md at MDN-rigor;
+                SPEC.md is authoritative when they disagree.
+            </p>
+        </header>
+
+        // ───────────────────────────────────────────────────────────
+        // Elements
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Elements
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-4">
+            Scrml-defined structural elements. NOT HTML &mdash; the
+            grammar treats them as first-class language constructs.
+            See SPEC &sect;4.15 + &sect;24.4 for the registry.
+        </p>
+
+        <ul class="space-y-2 text-slate-700">
+            <li>
+                <a href="/reference/elements/engine" class="font-mono text-blue-700 hover:text-blue-900 underline">
+                    &lt;engine&gt;
+                </a> &mdash; Tier 2 state machine. The canonical structural form for UI as a fully-handled state machine.
+            </li>
+            <li>
+                <a href="/reference/elements/match" class="font-mono text-blue-700 hover:text-blue-900 underline">
+                    &lt;match&gt;
+                </a> &mdash; Tier 1 pattern matching. Structural exhaustiveness, no active rules; promotes mechanically to &lt;engine&gt;.
+            </li>
+            <li>
+                <a href="/reference/elements/errors" class="font-mono text-blue-700 hover:text-blue-900 underline">
+                    &lt;errors&gt;
+                </a> &mdash; First-class element for rendering the auto-synthesized validity surface.
+            </li>
+            <li>
+                <a href="/reference/elements/program" class="font-mono text-blue-700 hover:text-blue-900 underline">
+                    &lt;program&gt;
+                </a> &mdash; The root container. Owns route inference, middleware, channels, documentary metadata.
+            </li>
+            <li class="text-slate-500">
+                <span class="font-mono">&lt;onTransition&gt;</span>,
+                <span class="font-mono">&lt;onTimeout&gt;</span>,
+                <span class="font-mono">&lt;onIdle&gt;</span>,
+                <span class="font-mono">&lt;auth&gt;</span>,
+                <span class="font-mono">&lt;channel&gt;</span>,
+                <span class="font-mono">&lt;schema&gt;</span>,
+                <span class="font-mono">&lt;page&gt;</span>
+                &mdash; queued for the Day-30 build-out.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // Contexts
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Contexts
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-4">
+            Braced regions that switch the grammar mode. Each context
+            has its own dialect; the compiler dispatches by the opener.
+        </p>
+
+        <ul class="space-y-2 text-slate-700">
+            <li>
+                <a href="/reference/contexts/sql" class="font-mono text-blue-700 hover:text-blue-900 underline">
+                    ?{ ... }
+                </a> &mdash; SQL. Per-handler coalescing, N+1 loop hoist, multi-database adaptation.
+            </li>
+            <li class="text-slate-500">
+                <span class="font-mono">${ ... }</span> &mdash; logic.
+                <span class="font-mono">#{ ... }</span> &mdash; CSS.
+                <span class="font-mono">^{ ... }</span> &mdash; meta.
+                <span class="font-mono">_{ ... }</span> &mdash; foreign code.
+                &mdash; queued for the Day-30 build-out.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // Keywords (queued)
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Keywords
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-4">
+            Reserved words with normative semantics. Each gets its own
+            reference page during the Day-30 build-out.
+        </p>
+
+        <ul class="space-y-1 text-slate-700 font-mono text-sm">
+            <li class="text-slate-500">
+                fn, function, lift, lin, pinned, derived, is, not, req, pure, &tilde;, reset, fail, server, default
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // Error codes (queued)
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Error codes
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            Every error code the compiler can emit has a definition in
+            SPEC &sect;34. Per-code pages with the full message, fire
+            conditions, and minimal repro are queued for Day-30; the
+            full catalog lives at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md"
+               class="text-blue-700 hover:text-blue-900 underline">
+                compiler/SPEC.md
+            </a>
+            section 34.
+        </p>
+
+        // ───────────────────────────────────────────────────────────
+        // What this reference IS and ISN'T
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            How to read these pages
+        </h2>
+
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <strong>Each feature page follows an 8-section template:</strong>
+                summary, syntax, worked example, semantics + errors,
+                edge cases, related features, availability, spec link.
+            </li>
+            <li>
+                <strong>Worked examples compile.</strong> Every example
+                on a reference page is a real scrml file that runs
+                against the current compiler.
+            </li>
+            <li>
+                <strong>SPEC.md is the authority.</strong> When a
+                reference page disagrees with SPEC.md, the spec wins.
+                Surface the contradiction and we'll fix the docs.
+            </li>
+        </ul>
+
+    </article>
+
+</>

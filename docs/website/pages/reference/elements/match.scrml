@@ -1,0 +1,359 @@
+// scrml.dev /reference/elements/match
+//
+// Reference page for <match for=Type>. Tier 1 sibling of <engine>
+// per the case-analysis ladder (Tier 0 if= / Tier 1 match / Tier 2
+// engine). Follows the 8-section template established by engine.scrml.
+//
+// SPEC anchors: §18.0 (Tier ladder + two match shapes) + §18.0.1
+// (block form + E-MATCH-NOT-EXHAUSTIVE) + §18.0.2 (rule= inert +
+// effect= forbidden) + §18.0.3 (bare-variant inference in arm
+// patterns) + §56 (Promotion Ergonomics — bun scrml promote --match).
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        // ───────────────────────────────────────────────────────────
+        // Feature page header
+        // ───────────────────────────────────────────────────────────
+
+        <header class="not-prose mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                Reference &rsaquo; Elements
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900 font-mono">
+                &lt;match&gt;
+            </h1>
+            <p class="text-lg text-slate-600 mt-2">
+                Tier 1 pattern matching as a block. Structural
+                exhaustiveness against an enum type; rules-inert; same
+                state-children shape that promotes mechanically to
+                &lt;engine&gt;.
+            </p>
+            <div class="flex gap-4 mt-4 text-xs">
+                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded">
+                    Available since v0.3.0 Wave 1
+                </span>
+                <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md#§18"
+                   class="text-blue-700 hover:text-blue-900 underline">
+                    SPEC §18.0 (normative)
+                </a>
+            </div>
+        </header>
+
+        // ───────────────────────────────────────────────────────────
+        // §2 — Syntax
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Syntax
+        </h2>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>&lt;match for=TypeName [on=expr]&gt;
+  &lt;Variant /&gt;
+  &lt;OtherVariant payload /&gt;
+  ...
+&lt;/match&gt;</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">for=</code>
+            names the discriminating enum type. Every variant of that
+            type must have an arm or the compiler fires
+            <a href="/reference/errors/E-MATCH-NOT-EXHAUSTIVE"
+               class="font-mono text-xs text-rose-700 underline">E-MATCH-NOT-EXHAUSTIVE</a>.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">on=</code>
+            picks the expression to &#109;atch against; if omitted, the
+            block matches the auto-declared engine variable for that
+            type (typically the lowercased first-letter of the type
+            name).
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            There is also a <strong>JS-style</strong> form
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&#109;atch expr &#123;...&#125;</code>
+            for value-return branching in expression position. The two
+            shapes coexist: the block-form &lt;match&gt; is the
+            canonical UI-tree shape; the JS-style form is the
+            canonical value-return shape. Both check exhaustiveness.
+            See SPEC &sect;18 for the JS-style grammar.
+        </p>
+
+        // ───────────────────────────────────────────────────────────
+        // §3 — Worked example
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Worked example
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-3">
+            A loading-state pattern. One enum, one &#109;atch block, four
+            arms &mdash; the compiler enforces that every variant has
+            UI.
+        </p>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>type Phase:enum = { Idle, Loading, Error(msg: string), Success(count: int) }
+
+&lt;phase&gt; = .Idle
+
+&lt;match for=Phase&gt;
+  &lt;Idle&gt;
+    &lt;button onclick=&#36;{@phase = .Loading}&gt;Load&lt;/button&gt;
+  &lt;/Idle&gt;
+  &lt;Loading&gt;
+    Loading...
+  &lt;/Loading&gt;
+  &lt;Error msg&gt;
+    &lt;div&gt;&#36;{msg}&lt;/div&gt;
+  &lt;/Error&gt;
+  &lt;Success count&gt;
+    Got it: &#36;{count} rows
+  &lt;/Success&gt;
+&lt;/match&gt;</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-3">
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.Error</code>
+            and <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.Success</code>
+            carry payload; the arm binds it positionally
+            (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;Error msg&gt;</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;Success count&gt;</code>)
+            and the body reads it bare. Per SPEC &sect;18.0.3 + &sect;18.7.
+        </p>
+
+        // ───────────────────────────────────────────────────────────
+        // §4 — Semantics
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Semantics
+        </h2>
+
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <strong>Exhaustiveness is structural.</strong> The
+                compiler reads the enum's variant list and requires an
+                arm per variant. Missing arms fire
+                <a href="/reference/errors/E-MATCH-NOT-EXHAUSTIVE"
+                   class="font-mono text-xs text-rose-700 underline">E-MATCH-NOT-EXHAUSTIVE</a>.
+                A
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">_</code>
+                wildcard arm covers the residual.
+            </li>
+            <li>
+                <strong>Rules are inert.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">rule=</code>
+                on a &lt;match&gt; arm is accepted syntactically but
+                does NOT enforce transitions &mdash; the surface is
+                the
+                <a href="/reference/elements/engine" class="text-blue-700 hover:text-blue-900 underline">&lt;engine&gt;</a>
+                feature. The compiler fires
+                <a href="/reference/errors/W-MATCH-RULE-INERT"
+                   class="font-mono text-xs text-amber-700 underline">W-MATCH-RULE-INERT</a>
+                as an info lint nudging toward promotion. Per SPEC
+                &sect;18.0.2.
+            </li>
+            <li>
+                <strong>
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">effect=</code>
+                    and
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;onTransition&gt;</code>
+                    are forbidden.
+                </strong>
+                &lt;match&gt; is pass-through case analysis &mdash;
+                state-machine effects belong on
+                <a href="/reference/elements/engine" class="text-blue-700 hover:text-blue-900 underline">&lt;engine&gt;</a>.
+                Fires
+                <a href="/reference/errors/E-MATCH-EFFECT-FORBIDDEN"
+                   class="font-mono text-xs text-rose-700 underline">E-MATCH-EFFECT-FORBIDDEN</a>
+                or
+                <a href="/reference/errors/E-MATCH-ONTRANSITION-FORBIDDEN"
+                   class="font-mono text-xs text-rose-700 underline">E-MATCH-ONTRANSITION-FORBIDDEN</a>.
+            </li>
+            <li>
+                <strong>Bare-variant inference.</strong> Arm patterns
+                may omit the type qualifier
+                (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;Idle&gt;</code>
+                not <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;Phase.Idle&gt;</code>)
+                because
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">for=Phase</code>
+                fixes the scope. Per SPEC &sect;14.10 + &sect;18.0.3.
+            </li>
+            <li>
+                <strong>Promotion is mechanical.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">bun scrml promote --match</code>
+                rewrites a &lt;match&gt; block to an &lt;engine&gt;
+                in place. State-children carry verbatim; the wrapper
+                tag changes. Per SPEC &sect;56.
+            </li>
+        </ul>
+
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">
+            Errors this feature can fire
+        </h3>
+        <ul class="space-y-1 text-sm text-slate-700 font-mono">
+            <li><a href="/reference/errors/E-MATCH-NOT-EXHAUSTIVE" class="text-rose-700 underline">E-MATCH-NOT-EXHAUSTIVE</a></li>
+            <li><a href="/reference/errors/W-MATCH-RULE-INERT" class="text-amber-700 underline">W-MATCH-RULE-INERT</a></li>
+            <li><a href="/reference/errors/E-MATCH-EFFECT-FORBIDDEN" class="text-rose-700 underline">E-MATCH-EFFECT-FORBIDDEN</a></li>
+            <li><a href="/reference/errors/E-MATCH-ONTRANSITION-FORBIDDEN" class="text-rose-700 underline">E-MATCH-ONTRANSITION-FORBIDDEN</a></li>
+            <li><a href="/reference/errors/E-VARIANT-AMBIGUOUS" class="text-rose-700 underline">E-VARIANT-AMBIGUOUS</a></li>
+            <li><a href="/reference/errors/I-MATCH-PROMOTABLE" class="text-blue-700 underline">I-MATCH-PROMOTABLE</a></li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §5 — Edge cases
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Edge cases
+        </h2>
+
+        <ul class="space-y-4 text-slate-700">
+            <li>
+                <strong>The
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">on=</code>
+                    expression is reactive.</strong>
+                When
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">on=</code>
+                reads reactive cells, the &lt;match&gt; block
+                re-evaluates on change. Without
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">on=</code>,
+                the block tracks the auto-declared engine variable for
+                its <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">for=</code>
+                type.
+            </li>
+            <li>
+                <strong>JS-style
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&#109;atch expr &#123;...&#125;</code>
+                    does NOT promote directly.</strong>
+                Its semantic is value-return, not state-machine. If
+                the value-return logic accumulates transition shape,
+                hoist into a block-form &lt;match for=Type&gt; first,
+                then run
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">bun scrml promote</code>.
+            </li>
+            <li>
+                <strong>An if-else chain over enum variants is also
+                promotable.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">if (@phase == .Idle) ... else if (@phase == .Loading) ...</code>
+                fires
+                <a href="/reference/errors/I-MATCH-PROMOTABLE"
+                   class="font-mono text-xs text-blue-700 underline">I-MATCH-PROMOTABLE</a>
+                info-level lint at the discrimination site. Run
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">bun scrml promote --match &lt;file&gt;</code>
+                to lift mechanically. Per SPEC &sect;56.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §6 — Related features
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Related features
+        </h2>
+
+        <ul class="space-y-1 text-slate-700">
+            <li>
+                <a href="/reference/elements/engine" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;engine&gt;
+                </a> &mdash; Tier 2 sibling. Same state-children
+                shape; rules ACTIVE; transitions enforced;
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;onTransition&gt;</code>
+                + <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">effect=</code>
+                allowed.
+            </li>
+            <li>
+                JS-style
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&#109;atch expr &#123;...&#125;</code>
+                &mdash; value-return form. Same exhaustiveness check
+                against the discriminating type.
+            </li>
+            <li>
+                if= / show= &mdash; Tier 0 unstructured branching. No
+                exhaustiveness guarantee; promotes to &lt;match&gt; via
+                the I-MATCH-PROMOTABLE info-level lint.
+            </li>
+            <li>
+                <a href="/reference/elements/errors" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;errors of=expr/&gt;
+                </a> &mdash; the canonical way to render the
+                ValidationError variants when a cell's validators fail.
+                Often appears alongside &lt;match&gt; on form pages.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §7 — Availability
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Availability
+        </h2>
+
+        <table class="w-full text-sm text-left border-collapse">
+            <thead>
+                <tr class="border-b border-slate-300">
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Surface</th>
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Since</th>
+                    <th class="py-2 font-semibold text-slate-900">Notes</th>
+                </tr>
+            </thead>
+            <tbody class="text-slate-700">
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">&lt;match for=Type&gt; block</td>
+                    <td class="py-2 pr-4">S57 D2.8 (2026-05-04)</td>
+                    <td class="py-2 text-xs">Spec §18.0.1; parser+typer A1b B15-style</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">JS-style &#109;atch expr &#123; &#125;</td>
+                    <td class="py-2 pr-4">v0.2</td>
+                    <td class="py-2 text-xs">Pre-existing; ratified L8 — two shapes coexist</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">bun scrml promote --match</td>
+                    <td class="py-2 pr-4">S66 (Tier B SHIPPED 2026-05-07)</td>
+                    <td class="py-2 text-xs">CLI subcommand; idempotent; --dry-run supported</td>
+                </tr>
+                <tr>
+                    <td class="py-2 pr-4 font-mono text-xs">I-MATCH-PROMOTABLE info lint</td>
+                    <td class="py-2 pr-4">S66 (2026-05-07)</td>
+                    <td class="py-2 text-xs">Predicate matrix supports == and is .V at the discrimination site</td>
+                </tr>
+            </tbody>
+        </table>
+
+        // ───────────────────────────────────────────────────────────
+        // §8 — Specification
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Specification
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            This page summarizes <strong>SPEC &sect;18</strong>
+            (Pattern Matching and Enums) plus <strong>&sect;56</strong>
+            (Promotion Ergonomics). The normative text lives at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md"
+               class="text-blue-700 hover:text-blue-900 underline">
+                compiler/SPEC.md
+            </a>
+            in the scrmlTS repository. When this page disagrees with
+            SPEC.md, SPEC.md is authoritative &mdash; surface the
+            contradiction and we'll fix the docs.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4 text-sm">
+            Quick-lookup anchors:
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC-INDEX.md"
+               class="text-blue-700 hover:text-blue-900 underline">SPEC-INDEX.md</a>
+            entries &mdash; <em>&#109;atch block-form &lt;match for=Type&gt;</em>,
+            <em>&#109;atch attribute legality</em>, <em>bare-variant
+            inference (&#109;atch arm patterns)</em>,
+            <em>I-MATCH-PROMOTABLE</em>, <em>bun scrml promote
+            --match</em>.
+        </p>
+
+    </article>
+
+</>

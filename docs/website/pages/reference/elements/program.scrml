@@ -1,0 +1,374 @@
+// scrml.dev /reference/elements/program
+//
+// Reference page for <program>. Root container; entry-point shape.
+// Covers documentary attributes, middleware surface, channels as
+// children (Insight 30, S87 placement reversal), nested program
+// boundaries, and auth.
+//
+// SPEC anchors: §40 (Middleware and Request Pipeline) + §40.7
+// (documentary attributes) + §43 (Nested <program>) + §38.1
+// (channels as <program> children, Insight 30) + §40.1 (<auth role=>
+// first-class element on <program>).
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        // ───────────────────────────────────────────────────────────
+        // Feature page header
+        // ───────────────────────────────────────────────────────────
+
+        <header class="not-prose mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                Reference &rsaquo; Elements
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900 font-mono">
+                &lt;program&gt;
+            </h1>
+            <p class="text-lg text-slate-600 mt-2">
+                The root container of a scrml application. Owns route
+                inference, middleware, documentary metadata, channels,
+                and the per-app auth boundary.
+            </p>
+            <div class="flex gap-4 mt-4 text-xs">
+                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded">
+                    Core since v0.1
+                </span>
+                <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md#§40"
+                   class="text-blue-700 hover:text-blue-900 underline">
+                    SPEC §40 (normative)
+                </a>
+            </div>
+        </header>
+
+        // ───────────────────────────────────────────────────────────
+        // §2 — Syntax
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Syntax
+        </h2>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>&lt;program [attributes]&gt;
+  &lt;page path=... /&gt;
+  &lt;channel name=... /&gt;
+  &lt;auth role=... /&gt;
+  ...
+&lt;/program&gt;</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            The opening &lt;program&gt; carries app-wide attributes
+            (documentary metadata, middleware config, auth defaults).
+            Its body holds the structural children that compose the
+            app: pages, channels, auth gates, top-level reactive
+            state, and inline server functions.
+        </p>
+
+        // ───────────────────────────────────────────────────────────
+        // §3 — Worked example
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Worked example
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-3">
+            A small app with documentary attributes, two pages, a
+            real-time channel for chat, and a logged-in-only admin
+            page.
+        </p>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>&lt;program title="Acme Cards"
+         description="A kanban for the gas patch."
+         version="v0.4.1"
+         author="Bryan MacLee"
+         license="MIT"&gt;
+
+  &lt;page path="/" /&gt;
+  &lt;page path="/board" /&gt;
+
+  &lt;auth role="Admin"&gt;
+    &lt;page path="/admin" /&gt;
+  &lt;/auth&gt;
+
+  &lt;channel name="presence" topic="board"&gt;
+    &lt;online&gt; = []
+  &lt;/channel&gt;
+
+&lt;/program&gt;</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-3">
+            The documentary attributes feed the HTML
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;head&gt;</code>
+            (per SPEC &sect;40.7). The
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;auth role="Admin"&gt;</code>
+            wrapper makes
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">/admin</code>
+            invisible to anonymous bundles (per the Approach A
+            closure-analysis + per-route per-role artifact splitter).
+            The channel body uses V5-strict declarations; its cells
+            auto-sync across connected clients.
+        </p>
+
+        // ───────────────────────────────────────────────────────────
+        // §4 — Semantics
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Semantics
+        </h2>
+
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <strong>One &lt;program&gt; per entry file.</strong>
+                The entry-file &lt;program&gt; declares the app's
+                structural shape: which pages exist, which channels
+                are active, which auth defaults apply. Non-entry files
+                that contain a
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;page&gt;</code>
+                are part of the filesystem-routed page tree, not
+                additional program roots.
+            </li>
+            <li>
+                <strong>Documentary attributes feed &lt;head&gt;.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">title=</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">description=</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">version=</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">author=</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">license=</code>
+                land in the emitted HTML head metadata. Nested
+                &lt;program&gt; blocks with these attributes fire
+                <a href="/reference/errors/W-PROGRAM-TITLE-NESTED"
+                   class="font-mono text-xs text-amber-700 underline">W-PROGRAM-TITLE-NESTED</a>.
+                Per SPEC &sect;40.7.
+            </li>
+            <li>
+                <strong>Channels are children, not file-level
+                siblings.</strong> &lt;channel&gt; declarations live
+                inside the entry-file &lt;program&gt; (sibling of
+                &lt;page&gt;). Pure-channel module files
+                (no &lt;program&gt; in the file) MAY declare channels
+                at file top &mdash; the sharing pattern.
+                <a href="/reference/errors/E-CHANNEL-INSIDE-PROGRAM"
+                   class="font-mono text-xs text-rose-700 underline">E-CHANNEL-INSIDE-PROGRAM</a>
+                fires on misplaced channels in a file that has
+                &lt;program&gt;. Per Insight 30 (S87).
+            </li>
+            <li>
+                <strong>Auth wraps page subtrees.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;auth role="X"&gt;</code>
+                around a &lt;page&gt; (or group of pages) makes those
+                routes per-role. Closed-form predicates ship per-role
+                bundles via the Approach A artifact splitter;
+                runtime-fallback predicates ship eagerly with a
+                runtime gate and emit
+                <a href="/reference/errors/W-AUTH-RUNTIME-FALLBACK"
+                   class="font-mono text-xs text-amber-700 underline">W-AUTH-RUNTIME-FALLBACK</a>.
+                Per SPEC &sect;40.1 + &sect;40.9.
+            </li>
+            <li>
+                <strong>Top-level reactive cells are program scope.</strong>
+                A
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;x&gt; = value</code>
+                declaration inside &lt;program&gt; but outside any
+                &lt;page&gt; is visible to every page. Use for
+                cross-page reactive state (current user, theme,
+                feature flags).
+            </li>
+        </ul>
+
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">
+            Errors this feature can fire
+        </h3>
+        <ul class="space-y-1 text-sm text-slate-700 font-mono">
+            <li><a href="/reference/errors/W-PROGRAM-TITLE-NESTED" class="text-amber-700 underline">W-PROGRAM-TITLE-NESTED</a></li>
+            <li><a href="/reference/errors/W-PROGRAM-001" class="text-amber-700 underline">W-PROGRAM-001</a> &mdash; non-entry-page suppression</li>
+            <li><a href="/reference/errors/E-CHANNEL-INSIDE-PROGRAM" class="text-rose-700 underline">E-CHANNEL-INSIDE-PROGRAM</a></li>
+            <li><a href="/reference/errors/E-CHANNEL-SHARED-MODIFIER" class="text-rose-700 underline">E-CHANNEL-SHARED-MODIFIER</a></li>
+            <li><a href="/reference/errors/W-AUTH-RUNTIME-FALLBACK" class="text-amber-700 underline">W-AUTH-RUNTIME-FALLBACK</a></li>
+            <li><a href="/reference/errors/W-AUTH-LOGIN-MISSING" class="text-amber-700 underline">W-AUTH-LOGIN-MISSING</a></li>
+            <li><a href="/reference/errors/W-AUTH-PAGE-INFERRED" class="text-amber-700 underline">W-AUTH-PAGE-INFERRED</a></li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §5 — Attributes
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Attributes
+        </h2>
+
+        <table class="w-full text-sm text-left border-collapse">
+            <thead>
+                <tr class="border-b border-slate-300">
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Attribute</th>
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Category</th>
+                    <th class="py-2 font-semibold text-slate-900">Meaning</th>
+                </tr>
+            </thead>
+            <tbody class="text-slate-700">
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">title=</td>
+                    <td class="py-2 pr-4">Documentary</td>
+                    <td class="py-2 text-xs">App title; lands in &lt;head&gt; per &sect;40.7</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">description=</td>
+                    <td class="py-2 pr-4">Documentary</td>
+                    <td class="py-2 text-xs">App description; meta tag</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">version= / author= / license=</td>
+                    <td class="py-2 pr-4">Documentary</td>
+                    <td class="py-2 text-xs">Project metadata; head + chunks.json compiler field source</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">db=</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">DB driver resolution; consumed by ?{} blocks (SPEC &sect;44)</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">auth=</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">App-wide auth default (required / public)</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">csrf= / ratelimit=</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">App-wide middleware defaults</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">cors-max-age=N</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">CORS preflight cache; default 86400 (S81 &sect;39.2.1)</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">channel-reconnect=N</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">Project-level channel reconnect default (S81 &sect;38.3.1)</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">idempotency-store=</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">Per-app idempotency-key backend (S72 ratification)</td>
+                </tr>
+                <tr>
+                    <td class="py-2 pr-4 font-mono text-xs">headers= / log=</td>
+                    <td class="py-2 pr-4">Middleware</td>
+                    <td class="py-2 text-xs">Custom response headers / log sink. Full list: SPEC &sect;40.2</td>
+                </tr>
+            </tbody>
+        </table>
+
+        // ───────────────────────────────────────────────────────────
+        // §6 — Edge cases
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Edge cases
+        </h2>
+
+        <ul class="space-y-4 text-slate-700">
+            <li>
+                <strong>Nested &lt;program&gt; blocks.</strong>
+                SPEC &sect;43 supports nested program execution
+                contexts (shared-nothing, lifecycle-bounded, RPC-only
+                between). Nested programs may NOT redeclare
+                documentary attributes that belong on the root
+                (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">title=</code>
+                fires
+                <a href="/reference/errors/W-PROGRAM-TITLE-NESTED"
+                   class="font-mono text-xs text-amber-700 underline">W-PROGRAM-TITLE-NESTED</a>).
+            </li>
+            <li>
+                <strong>SPA-shape files have an implicit
+                &lt;program&gt;.</strong>
+                A file with no top-level &lt;program&gt; but with
+                &lt;page&gt; declarations is treated as a non-entry
+                page within an SPA-style structure. W-PROGRAM-001
+                surfaces this pattern. Multi-file route trees are the
+                canonical Day-30 shape.
+            </li>
+            <li>
+                <strong>Channels and pages are siblings.</strong>
+                A &lt;channel&gt; declared INSIDE a &lt;page&gt; fires
+                <a href="/reference/errors/E-CHANNEL-INSIDE-PROGRAM"
+                   class="font-mono text-xs text-rose-700 underline">E-CHANNEL-INSIDE-PAGE</a>
+                (channel scope is program-wide; nesting it in a page
+                breaks the multi-client sync semantic).
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §7 — Related features
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Related features
+        </h2>
+
+        <ul class="space-y-1 text-slate-700">
+            <li>
+                <span class="font-mono text-slate-500">&lt;page path=...&gt;</span>
+                &mdash; route declaration. Filesystem-routed by
+                default;
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">path=</code>
+                overrides. Reference page queued.
+            </li>
+            <li>
+                <span class="font-mono text-slate-500">&lt;channel name=...&gt;</span>
+                &mdash; real-time multi-client surface. V5-strict body;
+                auto-sync. Reference page queued.
+            </li>
+            <li>
+                <span class="font-mono text-slate-500">&lt;auth role=...&gt;</span>
+                &mdash; per-role visibility. Drives the per-route
+                per-role artifact splitter. Reference page queued.
+            </li>
+            <li>
+                <span class="font-mono text-slate-500">&lt;schema&gt;</span>
+                &mdash; declarative database schema. Cross-checked
+                with ?{} at compile time. Reference page queued.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §8 — Specification
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Specification
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            This page summarizes <strong>SPEC &sect;40</strong>
+            (Middleware and Request Pipeline), <strong>&sect;40.7</strong>
+            (documentary attributes), <strong>&sect;43</strong>
+            (Nested &lt;program&gt;), <strong>&sect;38.1</strong>
+            (channel placement), and <strong>&sect;40.1</strong>
+            (&lt;auth&gt; first-class element). The normative text
+            lives at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md"
+               class="text-blue-700 hover:text-blue-900 underline">
+                compiler/SPEC.md
+            </a>
+            in the scrmlTS repository. When this page disagrees with
+            SPEC.md, SPEC.md is authoritative &mdash; surface the
+            contradiction and we'll fix the docs.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4 text-sm">
+            Quick-lookup anchors:
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC-INDEX.md"
+               class="text-blue-700 hover:text-blue-900 underline">SPEC-INDEX.md</a>
+            entries &mdash;
+            <em>documentary attributes</em>,
+            <em>nested program / workers</em>,
+            <em>channel file-level placement</em>,
+            <em>middleware / handle()</em>,
+            <em>auth-graph</em>.
+        </p>
+
+    </article>
+
+</>
