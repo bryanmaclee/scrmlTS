@@ -1,0 +1,139 @@
+// scrml.dev — landing page (/)
+//
+// Tone: honest current-state. User-ratified at S98B per the architecture
+// DD §8.3 question. Matches Rule 1 + user's S95 voice on adoption
+// framing ("zero adoption is a blessing in disguise right now").
+//
+// What this page does NOT do: marketing-flagship "three big claims with
+// worked examples." That's Option (a). The user picked (b) — honest
+// current-state. Read the Articles section for the why behind any claim.
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        <h1 class="text-4xl font-bold tracking-tight text-slate-900">
+            scrml is a language in active development.
+        </h1>
+
+        <p class="text-xl text-slate-700 mt-6 leading-relaxed">
+            A full-stack language for the browser. Multi-page apps,
+            real-time channels, SQL-as-syntax, state machines as
+            first-class. One file format. The compiler owns the wiring.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-12 mb-4">
+            What works today
+        </h2>
+
+        <ul class="space-y-2 text-slate-700">
+            <li>
+                <strong>v0.3.0</strong> ships per-route per-role chunks,
+                content-addressing, and auth as a compile-time visibility
+                constraint (not a runtime check).
+            </li>
+            <li>
+                <strong>v0.2.x</strong> covers the foundational reactive
+                surface: V5-strict state, validators, the auto-synthesized
+                validity surface, and the pattern-matching ladder.
+            </li>
+            <li>
+                <strong>scrml is post-v0.next.</strong> Engines are the UI
+                centerpiece. Markup is a first-class value type. The server
+                boundary disappears.
+            </li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-12 mb-4">
+            What's pending
+        </h2>
+
+        <ul class="space-y-2 text-slate-700">
+            <li>
+                Engine runtime codegen (A1c Wave 4) — the spec + parser are
+                in; emission is in flight.
+            </li>
+            <li>
+                Self-host. The scrml compiler will eventually be written in
+                scrml. That's a post-v1.0 effort.
+            </li>
+            <li>
+                The full reference surface in these docs. We're at day-1.
+                Day-30 target is every Tier 1 + Tier 2 surface
+                documented at MDN-rigor.
+            </li>
+        </ul>
+
+        <div class="mt-12 p-6 border border-slate-200 rounded-lg bg-slate-50">
+            <h3 class="font-semibold text-slate-900 mb-2">
+                Three flagship pages are live as of today:
+            </h3>
+            <ul class="space-y-1">
+                <li>
+                    <a href="/reference/elements/engine"
+                       class="text-blue-700 hover:text-blue-900 underline">
+                        &lt;engine&gt; — state machines as a first-class element
+                    </a>
+                </li>
+                <li>
+                    <a href="/reference/elements/errors"
+                       class="text-blue-700 hover:text-blue-900 underline">
+                        &lt;errors of=…/&gt; — the auto-synthesized validity surface
+                    </a>
+                </li>
+                <li>
+                    <a href="/reference/contexts/sql"
+                       class="text-blue-700 hover:text-blue-900 underline">
+                        ?{ } — SQL as syntax; the server boundary disappears
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <div class="mt-8 flex flex-wrap gap-3">
+            <a href="/getting-started"
+               class="px-5 py-2.5 bg-slate-900 text-white rounded-md font-medium hover:bg-slate-800">
+                New here? &rarr; Get started
+            </a>
+            <a href="/reference"
+               class="px-5 py-2.5 border border-slate-300 text-slate-900 rounded-md font-medium hover:bg-slate-50">
+                Ready to dig in &rarr; Reference
+            </a>
+            <a href="/articles"
+               class="px-5 py-2.5 border border-slate-300 text-slate-900 rounded-md font-medium hover:bg-slate-50">
+                Want the why? &rarr; Articles
+            </a>
+        </div>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-16 mb-4">
+            Adoption framing — honest
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            scrml has near-zero adoption right now. That's a known state,
+            not a problem we're papering over. LLMs have broken the
+            historical friction-tipping dynamic in language adoption:
+            developers who would have switched stacks in 2018 due to
+            framework friction now use the same stacks with LLM assistance
+            and tolerate the rough edges. The motivation to adopt a new
+            language has waned.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            scrml's bet is that it makes LLMs more efficient too — the
+            same compiler-owned wiring that the developer doesn't have to
+            think about is wiring the LLM doesn't have to think about.
+            But until the language is serious and complete enough to be
+            un-ignorable, adoption is not the expected outcome of this
+            decade's pattern. We're building anyway.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            If that framing resonates &mdash; build something with it. If
+            it doesn't &mdash; the existing stacks are fine and we don't
+            begrudge anyone who stays put.
+        </p>
+
+    </article>
+
+</page>

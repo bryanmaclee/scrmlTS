@@ -1,0 +1,344 @@
+// scrml.dev /reference/elements/engine
+//
+// Flagship feature page #1 (P1 Deliverable B). Demonstrates the
+// 8-section feature template from scrml-dev-mdn-style-architecture
+// deep-dive §1.1.
+//
+// Per architecture DD §4: code examples are pre-compiled day-1
+// (Option A). The traffic-light demo below is intended to be a real
+// scrml file compiled separately and embedded via an iframe; for
+// day-1 the worked example renders as a syntax-highlighted code block
+// with a "View live demo →" link pointing at the compiled artifact.
+//
+// Per master-list §0.1 A1c Wave 4: engine runtime codegen is in
+// flight. The compile-and-run path for the demo may need to wait on
+// Wave 4 close. Until then, the syntax-highlighted block is correct
+// and adopter-readable; only the live-render is deferred.
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        // ───────────────────────────────────────────────────────────
+        // Feature page header — title, since-version, spec-link
+        // ───────────────────────────────────────────────────────────
+
+        <header class="not-prose mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                Reference &rsaquo; Elements
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900 font-mono">
+                &lt;engine&gt;
+            </h1>
+            <p class="text-lg text-slate-600 mt-2">
+                Declares a state machine — the canonical structural form
+                for "UI as a fully-handled state machine."
+            </p>
+            <div class="flex gap-4 mt-4 text-xs">
+                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded">
+                    Available since v0.3.0 Wave 1
+                </span>
+                <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md#§51"
+                   class="text-blue-700 hover:text-blue-900 underline">
+                    SPEC §51.0 (normative)
+                </a>
+            </div>
+        </header>
+
+        // ───────────────────────────────────────────────────────────
+        // §2 — Syntax (bare minimum form)
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Syntax
+        </h2>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>&lt;engine for=TypeName initial=.Variant&gt;
+  &lt;Variant rule=.OtherVariant /&gt;
+  ...
+&lt;/engine&gt;</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">for=</code>
+            names the discriminating enum type. Every variant of that type
+            must have a corresponding state-child or the compiler fires
+            <a href="/reference/errors/E-ENGINE-INCOMPLETE-COVERAGE"
+               class="font-mono text-xs text-rose-700 underline">E-ENGINE-INCOMPLETE-COVERAGE</a>.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">initial=</code>
+            picks the starting variant. <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">rule=</code>
+            on a state-child constrains the legal transitions out of that
+            variant. Compile-time enforcement where statically resolvable;
+            runtime otherwise.
+        </p>
+
+        // ───────────────────────────────────────────────────────────
+        // §3 — Worked example (traffic-light demo)
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Worked example
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-3">
+            A three-state traffic light. One enum type, one engine, three
+            state-children, one button to cycle.
+        </p>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>type Light:enum = { Red, Yellow, Green }
+
+&lt;engine for=Light initial=.Red&gt;
+  &lt;Red    rule=.Green&gt;
+    Stop. Wait for green.
+  &lt;/Red&gt;
+  &lt;Green  rule=.Yellow&gt;
+    Go.
+  &lt;/Green&gt;
+  &lt;Yellow rule=.Red&gt;
+    Slow.
+  &lt;/Yellow&gt;
+&lt;/engine&gt;
+
+&lt;button onclick=Light.advance(.Green)&gt;Cycle&lt;/button&gt;</code></pre>
+
+        <div class="mt-3 text-xs text-slate-500 italic">
+            Live demo deferred to A1c Wave 4 engine runtime codegen.
+            Until then, this block is the canonical scrml. Compile via
+            <code class="font-mono">bun scrml compile</code> against the
+            current scrmlTS HEAD to verify.
+        </div>
+
+        // ───────────────────────────────────────────────────────────
+        // §4 — Semantics
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Semantics
+        </h2>
+
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <strong>Singleton per declaration site.</strong> One
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;engine&gt;</code>
+                tag &rarr; one running machine for that scope. Cross-file
+                mounting is via <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;EngineName/&gt;</code>;
+                the singleton remains one instance per the
+                outer-times-inner invariant per SPEC §51.0.K Machine
+                Cohesion footnote.
+            </li>
+            <li>
+                <strong>Auto-declared variable.</strong> The engine name
+                (e.g., <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">Light</code>)
+                becomes the engine handle. Read the current variant via
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">@Light</code>.
+                Write via
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">Light.advance(.Variant)</code>.
+                Override the auto-name via
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">var=</code>
+                if it would collide.
+            </li>
+            <li>
+                <strong>
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">rule=</code>
+                    is a contract.
+                </strong>
+                Compile-time when the target is statically resolvable;
+                runtime otherwise. Transitions not listed fire
+                <a href="/reference/errors/E-ENGINE-INVALID-TRANSITION"
+                   class="font-mono text-xs text-rose-700 underline">E-ENGINE-INVALID-TRANSITION</a>.
+            </li>
+            <li>
+                <strong>
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">initial=</code>
+                    is required at top-level engines.
+                </strong>
+                Omission fires
+                <a href="/reference/errors/W-ENGINE-INITIAL-MISSING"
+                   class="font-mono text-xs text-amber-700 underline">W-ENGINE-INITIAL-MISSING</a>.
+                Engines without an initial state are usually accidents.
+            </li>
+        </ul>
+
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">
+            Errors this feature can fire
+        </h3>
+        <ul class="space-y-1 text-sm text-slate-700 font-mono">
+            <li><a href="/reference/errors/E-ENGINE-VAR-DUPLICATE" class="text-rose-700 underline">E-ENGINE-VAR-DUPLICATE</a></li>
+            <li><a href="/reference/errors/E-ENGINE-INVALID-TRANSITION" class="text-rose-700 underline">E-ENGINE-INVALID-TRANSITION</a></li>
+            <li><a href="/reference/errors/W-ENGINE-INITIAL-MISSING" class="text-amber-700 underline">W-ENGINE-INITIAL-MISSING</a></li>
+            <li><a href="/reference/errors/W-ENGINE-SELF-WRITE-DETECTED" class="text-amber-700 underline">W-ENGINE-SELF-WRITE-DETECTED</a></li>
+            <li><a href="/reference/errors/E-COMPONENT-ENGINE-SCOPE" class="text-rose-700 underline">E-COMPONENT-ENGINE-SCOPE</a></li>
+            <li><a href="/reference/errors/E-HISTORY-NO-INNER-ENGINE" class="text-rose-700 underline">E-HISTORY-NO-INNER-ENGINE</a></li>
+            <li><a href="/reference/errors/E-INTERNAL-RULE-NOT-COMPOSITE" class="text-rose-700 underline">E-INTERNAL-RULE-NOT-COMPOSITE</a></li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §5 — Edge cases
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Edge cases
+        </h2>
+
+        <ul class="space-y-4 text-slate-700">
+            <li>
+                <strong>Self-writes are runtime no-ops.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">Light.advance(.Red)</code>
+                from inside <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.Red</code>
+                is silently discarded (v0.3 Option-d idempotent self-write
+                semantics). NOT a <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">rule=</code>
+                violation. The compiler emits
+                <a href="/reference/errors/W-ENGINE-SELF-WRITE-DETECTED"
+                   class="font-mono text-xs text-amber-700 underline">W-ENGINE-SELF-WRITE-DETECTED</a>
+                to surface the no-op so it doesn't slip past code review.
+            </li>
+            <li>
+                <strong>
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;engine&gt;</code>
+                    inside a component body fires
+                    <a href="/reference/errors/E-COMPONENT-ENGINE-SCOPE"
+                       class="font-mono text-xs text-rose-700 underline">E-COMPONENT-ENGINE-SCOPE</a>.
+                </strong>
+                Components are multi-instance; engines are singletons.
+                They don't compose. Use a derived engine
+                (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">derived=expr</code>)
+                or pass the current variant in as a prop and let the
+                component render off the read.
+            </li>
+            <li>
+                <strong>Temporal triggers ride on the engine surface.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;onTimeout after=… to=…/&gt;</code>
+                as a child of a state-child is the engine temporal surface.
+                NOT a separate timer system. Per SPEC §51.0.M.
+            </li>
+            <li>
+                <strong>Hierarchy is composite state-children.</strong>
+                Nested <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;engine&gt;</code>
+                declarations inside composite state-children preserve
+                singleton semantics (outer-times-inner = one running inner
+                instance). The
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">history=true</code>
+                attribute on a composite state-child enables shallow
+                history restoration via the
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.Variant.history</code>
+                target form. Per SPEC §51.0.N.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §6 — Related features
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Related features
+        </h2>
+
+        <ul class="space-y-1 text-slate-700">
+            <li>
+                <a href="/reference/elements/match" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;match for=Type&gt;
+                </a> — Tier 1 sibling. Pattern matching as a block;
+                same exhaustiveness check, no active rules.
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">bun scrml promote --match</code>
+                lifts to <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;engine&gt;</code>.
+            </li>
+            <li>
+                <a href="/reference/elements/onTransition" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;onTransition&gt;
+                </a> — effect on transition. Attributes:
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">from=</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">to=</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">once</code>,
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">if=</code>.
+            </li>
+            <li>
+                <a href="/reference/elements/onTimeout" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;onTimeout&gt;
+                </a> — temporal trigger as a state-child child element.
+            </li>
+            <li>
+                <a href="/reference/keywords/derived" class="text-blue-700 hover:text-blue-900 underline">
+                    derived=expr
+                </a> — derived engines. Compute the active variant from
+                another engine's state.
+            </li>
+            <li>
+                <a href="/reference/elements/auth" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;auth role=…&gt;
+                </a> — per-role visibility. Wraps engine state-children
+                that should only render for specific roles.
+            </li>
+        </ul>
+
+        // ───────────────────────────────────────────────────────────
+        // §7 — Availability
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Availability
+        </h2>
+
+        <table class="w-full text-sm text-left border-collapse">
+            <thead>
+                <tr class="border-b border-slate-300">
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Surface</th>
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Since</th>
+                    <th class="py-2 font-semibold text-slate-900">Notes</th>
+                </tr>
+            </thead>
+            <tbody class="text-slate-700">
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">&lt;engine&gt; shape</td>
+                    <td class="py-2 pr-4">S57 D2.8 (2026-05-04)</td>
+                    <td class="py-2 text-xs">Spec ratified; parser S70 (A1c Wave 1 C12-C15 in flight)</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">history= / internal:rule= / nested engines</td>
+                    <td class="py-2 pr-4">S67 (2026-05-08)</td>
+                    <td class="py-2 text-xs">Spec landed S68 1de05ef; parser+typer S70</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">&lt;onTimeout&gt;</td>
+                    <td class="py-2 pr-4">S70 A5-2</td>
+                    <td class="py-2 text-xs">Spec § 51.0.M; runtime rides § 51.12</td>
+                </tr>
+                <tr>
+                    <td class="py-2 pr-4 font-mono text-xs">Idempotent self-write</td>
+                    <td class="py-2 pr-4">v0.3 Option-d (2026-05-12)</td>
+                    <td class="py-2 text-xs">W-ENGINE-SELF-WRITE-DETECTED surfaces the no-op at compile time</td>
+                </tr>
+            </tbody>
+        </table>
+
+        // ───────────────────────────────────────────────────────────
+        // §8 — Spec link
+        // ───────────────────────────────────────────────────────────
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Specification
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            This page summarizes <strong>SPEC §51.0</strong>
+            (<span class="font-mono">~21293-24415</span>). The normative
+            text lives at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md"
+               class="text-blue-700 hover:text-blue-900 underline">
+                compiler/SPEC.md
+            </a>
+            in the scrmlTS repository. When this page disagrees with
+            SPEC.md, SPEC.md is authoritative — surface the contradiction
+            and we'll fix the docs.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4 text-sm">
+            Quick-lookup anchors:
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC-INDEX.md"
+               class="text-blue-700 hover:text-blue-900 underline">SPEC-INDEX.md</a>
+            entries — <em>engine declaration</em>, <em>engines as singleton</em>,
+            <em>auto-declared engine variable</em>, <em>engine mount position</em>,
+            <em>engine rule= contract</em>, <em>idempotent self-write semantics</em>.
+        </p>
+
+    </article>
+
+</page>

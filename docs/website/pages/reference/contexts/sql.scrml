@@ -1,0 +1,319 @@
+// scrml.dev /reference/contexts/sql
+//
+// Flagship feature page #3 (P1 Deliverable B). Covers ?&#123;&#125; SQL context.
+// The flagship claim: the server boundary disappears. SQL is a context,
+// not a library. `?&#123; SELECT … &#125;.all()` is the syntax; the compiler
+// owns the wire format, the parameter binding, the route inference,
+// the connection management, the result typing.
+//
+// Naming note: the URL is /reference/contexts/sql (clean slug).
+// The literal ?&#123;&#125; characters don't play nicely with URL routing.
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        <header class="not-prose mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                Reference &rsaquo; Contexts
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900 font-mono">
+                ?&#123; &#125; &mdash; the SQL context
+            </h1>
+            <p class="text-lg text-slate-600 mt-2">
+                SQL as a language context. No ORM, no query builder, no API
+                layer. The server boundary disappears.
+            </p>
+            <div class="flex gap-4 mt-4 text-xs">
+                <span class="px-2 py-1 bg-emerald-50 text-emerald-700 rounded">
+                    Available since v0.1.0
+                </span>
+                <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md#§8"
+                   class="text-blue-700 hover:text-blue-900 underline">
+                    SPEC §8 (normative)
+                </a>
+            </div>
+        </header>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Syntax
+        </h2>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>?&#123; &lt;sql template literal&gt; &#125;.&lt;result-mode&gt;()</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            The SQL goes inside <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;…&#125;</code>.
+            Bound parameters use template-literal interpolation
+            (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">$&#123;expr&#125;</code>).
+            The result-mode method on the end picks the result shape:
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.all()</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.get()</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.run()</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.values()</code>.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Worked example
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed mb-3">
+            A four-call contact book sketch — INSERT, SELECT, DELETE — all
+            inline in scrml. No API definition, no fetch wrapper, no
+            server route to wire up. The compiler reads the SQL sites,
+            infers which functions need to run server-side (per
+            SPEC §12 route inference), and generates the wire format
+            automatically.
+        </p>
+
+        <pre class="bg-slate-900 text-slate-100 p-4 rounded-md text-sm overflow-x-auto"><code>server function addContact(name, email)
+    runs:  ?&#123;`INSERT INTO contacts (name, email) VALUES (...)`&#125;.run()
+
+server function loadContacts()
+    returns: lift ?&#123;`SELECT id, name, email FROM contacts`&#125;.all()
+
+server function deleteContact(id)
+    runs:  ?&#123;`DELETE FROM contacts WHERE id = ...`&#125;.run()</code></pre>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            The full runnable example lives at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/examples/03-contact-book.scrml"
+               class="font-mono text-blue-700 hover:text-blue-900 underline">examples/03-contact-book.scrml</a>
+            in the scrmlTS repository. Pre-compiled live demo (Option A
+            per the scrml.dev architecture DD) is queued for day-30 once
+            the chunk-splitter dogfood pass settles.
+        </p>
+
+        <div class="mt-3 text-xs text-slate-500 italic">
+            The
+            <code class="font-mono">server function</code>
+            keyword pins the function to server-side execution. Calls from
+            client-side markup auto-await and auto-fetch via the
+            compiler's wire format (SPEC §57). Parameter binding is
+            prepared-statement-safe — interpolations bind, they don't
+            string-concatenate.
+        </div>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Semantics
+        </h2>
+
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <strong>Bound parameters via interpolation, not concatenation.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">$&#123;name&#125;</code>
+                inside a SQL template literal becomes a bound parameter;
+                the compiler emits a prepared statement with parameter
+                binding. SQL injection is structurally prevented.
+            </li>
+            <li>
+                <strong>Four result modes.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.all()</code>
+                returns an array of rows;
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.get()</code>
+                returns one row or
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">not</code>
+                (single-row T | not);
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.run()</code>
+                executes without returning rows (INSERT / UPDATE / DELETE);
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.values()</code>
+                returns columns as arrays.
+            </li>
+            <li>
+                <strong>Per-handler transactions are implicit.</strong>
+                Multiple
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;</code>
+                calls within a single event handler are coalesced into one
+                transaction. Per SPEC §19.10.5. The N+1 loop pattern
+                hoists automatically (SPEC §8.10).
+            </li>
+            <li>
+                <strong>Route inference owns the wiring.</strong> Functions
+                containing
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;</code>
+                are inferred as server-side; their call sites in
+                client-rendered markup auto-await and auto-fetch via the
+                generated wire endpoint (SPEC §12 + §57). The developer
+                writes zero API routes, zero fetch wrappers, zero
+                request/response types.
+            </li>
+            <li>
+                <strong>Multi-database adaptation.</strong>
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;</code>
+                lowers through Bun.SQL's driver layer (SPEC §44). Switch
+                the
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">db=</code>
+                attribute, switch the database. SQLite, Postgres, MySQL.
+                The
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;</code>
+                site is database-agnostic at the language level.
+            </li>
+        </ul>
+
+        <h3 class="text-lg font-semibold text-slate-900 mt-6 mb-2">
+            Errors this feature can fire
+        </h3>
+        <ul class="space-y-1 text-sm text-slate-700 font-mono">
+            <li><a href="/reference/errors/E-SQL-006" class="text-rose-700 underline">E-SQL-006</a> — .prepare() removed (use template-string SQL directly)</li>
+            <li><a href="/reference/errors/E-SQL-008" class="text-rose-700 underline">E-SQL-008</a> — bracket-matched ?&#123; scanner caught unmatched brace</li>
+            <li><a href="/reference/errors/E-RI-002" class="text-rose-700 underline">E-RI-002</a> — server-side ?&#123;&#125; mutation outside expected scope</li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Edge cases
+        </h2>
+
+        <ul class="space-y-4 text-slate-700">
+            <li>
+                <strong>
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.prepare()</code>
+                    is REMOVED.
+                </strong>
+                The pre-v0.next
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">.prepare()</code>
+                method fires
+                <a href="/reference/errors/E-SQL-006"
+                   class="font-mono text-xs text-rose-700 underline">E-SQL-006</a>.
+                Use the template-string form directly:
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;`SELECT …`&#125;.all()</code>.
+            </li>
+            <li>
+                <strong>The bracket-matched scanner allows nested
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&#123;</code>
+                inside SQL.</strong>
+                The
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;</code>
+                scanner per SPEC §44.8 (F-SQL-001) handles nested braces
+                inside JSON-shaped SQL functions
+                (<code class="font-mono text-sm">jsonb_build_object</code>,
+                <code class="font-mono text-sm">json_extract</code>, etc.)
+                without bailing.
+            </li>
+            <li>
+                <strong>The server function boundary is the smallest unit
+                of "must run server-side."</strong>
+                You don't mark
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;</code>
+                sites individually. You mark
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">server function</code>
+                sites; the route-inference pass then ensures
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;</code>
+                sites land inside server-side execution.
+            </li>
+            <li>
+                <strong>
+                    <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">lift</code>
+                    + <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;&#125;.all()</code>
+                    is the canonical "load this data" pattern.
+                </strong>
+                The
+                <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">lift</code>
+                keyword surfaces the return value to the enclosing
+                expression context. In a server function body it propagates
+                the rows back to the caller.
+            </li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Related features
+        </h2>
+
+        <ul class="space-y-1 text-slate-700">
+            <li>
+                <a href="/reference/elements/db" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;db src=… tables=…&gt;
+                </a> — database declaration. Pairs with
+                <code class="font-mono text-sm">?&#123;&#125;</code> sites by lexical
+                scope.
+            </li>
+            <li>
+                <a href="/reference/elements/schema" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;schema&gt;
+                </a> — SQL-mirror schema declarations. Owns table shape
+                + migration diff.
+            </li>
+            <li>
+                <a href="/reference/keywords/lift" class="text-blue-700 hover:text-blue-900 underline">
+                    lift
+                </a> — value surfacing. The canonical "return rows" verb in
+                server function bodies that load data for the caller.
+            </li>
+            <li>
+                <a href="/reference/elements/program" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;program db=…&gt;
+                </a> — app-level database default. Each route can override
+                via
+                <a href="/reference/elements/page" class="text-blue-700 hover:text-blue-900 underline">
+                    &lt;page db=…&gt;
+                </a>.
+            </li>
+            <li>
+                <a href="/learn/server-boundary" class="text-blue-700 hover:text-blue-900 underline">
+                    Learn: The server boundary disappears
+                </a> — narrative walkthrough of route inference + auto-await.
+            </li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Availability
+        </h2>
+
+        <table class="w-full text-sm text-left border-collapse">
+            <thead>
+                <tr class="border-b border-slate-300">
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Surface</th>
+                    <th class="py-2 pr-4 font-semibold text-slate-900">Since</th>
+                    <th class="py-2 font-semibold text-slate-900">Notes</th>
+                </tr>
+            </thead>
+            <tbody class="text-slate-700">
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">?&#123;&#125; SQL context</td>
+                    <td class="py-2 pr-4">v0.1.0</td>
+                    <td class="py-2 text-xs">SPEC §8; foundational from scrml8 era</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">Per-handler implicit transactions</td>
+                    <td class="py-2 pr-4">SPEC §19.10.5</td>
+                    <td class="py-2 text-xs">Coalesces multiple ?&#123;&#125; calls in one event handler</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">N+1 loop hoist</td>
+                    <td class="py-2 pr-4">SPEC §8.10</td>
+                    <td class="py-2 text-xs">Compiler hoists per-row ?&#123;&#125; sites out of loops</td>
+                </tr>
+                <tr class="border-b border-slate-200">
+                    <td class="py-2 pr-4 font-mono text-xs">Bracket-matched scanner (F-SQL-001)</td>
+                    <td class="py-2 pr-4">SPEC §44.8</td>
+                    <td class="py-2 text-xs">Allows nested &#123;&#125; inside JSON-shaped SQL functions</td>
+                </tr>
+                <tr>
+                    <td class="py-2 pr-4 font-mono text-xs">Multi-DB driver adaptation</td>
+                    <td class="py-2 pr-4">SPEC §44</td>
+                    <td class="py-2 text-xs">SQLite / Postgres / MySQL via Bun.SQL</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">
+            Specification
+        </h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            This page summarizes <strong>SPEC §8</strong>
+            (<span class="font-mono">~5364-5925</span>) and cross-refs
+            <strong>SPEC §12</strong> (route inference),
+            <strong>§19.10.5</strong> (implicit transactions),
+            <strong>§44</strong> (multi-DB adaptation),
+            <strong>§57</strong> (wire format). The normative text lives
+            at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/compiler/SPEC.md"
+               class="text-blue-700 hover:text-blue-900 underline">
+                compiler/SPEC.md
+            </a>.
+            When this page disagrees with SPEC.md, SPEC.md is
+            authoritative.
+        </p>
+
+    </article>
+
+</page>

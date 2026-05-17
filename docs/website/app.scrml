@@ -1,0 +1,77 @@
+// scrml.dev — root program
+//
+// The official documentation site for the scrml language. Built as a
+// scrml multi-page app per the Phase 0 architecture deep-dive at
+// scrml-support/docs/deep-dives/scrml-dev-mdn-style-architecture-2026-05-17.md
+//
+// Scope:
+//   - <program> root (this file) — top-bar, footer, no DB, public
+//   - pages/ — filesystem-routed pages via <page>
+//   - components/ — Sidebar / Breadcrumbs / FeaturePageHeader / CodeExample
+//
+// Per S86 styling rule: NO file-top #{} placeholder; Tailwind utility
+// classes inline. Per S89: no null / undefined in scrml source — `not`
+// for absence. Per V5-strict: `<x> = value` at top-level, `@x` in
+// expression positions.
+//
+// Day-1 surface (P1 Deliverable B):
+//   - pages/index.scrml — landing (honest current-state framing)
+//   - pages/reference/elements/engine.scrml — flagship feature page
+//   - pages/reference/elements/errors.scrml — flagship feature page
+//   - pages/reference/contexts/sql.scrml — flagship feature page
+//
+// Day-30 surface (queued): every Tier 1 + Tier 2 element / keyword /
+// context gets its own reference page; 5 narrative tutorials in
+// pages/learn/; 9 ratified articles migrated to pages/articles/.
+
+<program>
+
+    const SITE_NAME = "scrml.dev"
+    const SITE_TAGLINE = "Official documentation for the scrml language"
+    const VERSION = "v0.3.0"
+
+    <header class="border-b border-slate-200 bg-white sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-6 py-3 flex items-center gap-8">
+            <a href="/" class="font-mono font-bold text-lg text-slate-900">scrml.dev</a>
+            <nav class="flex items-center gap-6 text-sm text-slate-700">
+                <a href="/getting-started" class="hover:text-slate-900">Get started</a>
+                <a href="/learn" class="hover:text-slate-900">Learn</a>
+                <a href="/reference" class="hover:text-slate-900">Reference</a>
+                <a href="/articles" class="hover:text-slate-900">Articles</a>
+                <a href="/about" class="hover:text-slate-900">About</a>
+            </nav>
+            <div class="ml-auto flex items-center gap-4">
+                <span class="text-xs text-slate-500 font-mono">${VERSION}</span>
+                <a href="https://github.com/bryanmaclee/scrmlTS"
+                   class="text-sm text-slate-700 hover:text-slate-900">GitHub</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-6 py-10 min-h-screen">
+        // Page-specific content renders here via filesystem routing —
+        // each pages/<route>.scrml file is a `<page>` that lifts into
+        // this main slot per SPEC §40 multi-page composition.
+    </main>
+
+    <footer class="border-t border-slate-200 bg-slate-50 mt-16">
+        <div class="max-w-6xl mx-auto px-6 py-8 text-sm text-slate-600 flex flex-wrap gap-8">
+            <div>
+                <div class="font-semibold text-slate-900 mb-2">scrml</div>
+                <a href="https://github.com/bryanmaclee/scrmlTS" class="block hover:text-slate-900">GitHub</a>
+                <a href="/about/changelog" class="block hover:text-slate-900">Changelog</a>
+                <a href="/about/philosophy" class="block hover:text-slate-900">Philosophy</a>
+            </div>
+            <div>
+                <div class="font-semibold text-slate-900 mb-2">Docs</div>
+                <a href="/getting-started" class="block hover:text-slate-900">Get started</a>
+                <a href="/reference" class="block hover:text-slate-900">Reference</a>
+                <a href="/learn" class="block hover:text-slate-900">Learn</a>
+            </div>
+            <div class="ml-auto text-xs">
+                MIT licensed. <span class="font-mono">${VERSION}</span> docs generated 2026-05-17.
+            </div>
+        </div>
+    </footer>
+
+</program>
