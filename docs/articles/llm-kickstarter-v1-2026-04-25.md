@@ -652,7 +652,11 @@ Note: a template-literal interpolation alone (`\`...${ticket}...\``) does NOT cu
 - **`==` lowering:** in server fn bodies, `==` lowers to `===` for primitives (per §45 single-equality rule + S41 fix). For struct/enum equality, `_scrml_structural_eq` is auto-inlined in server bundles. You don't manage helper imports.
 - **`f => ({ ... })` arrow returning object literal** preserves wrapping parens (S41 fix). Safe to write.
 - **`protect=` is COMMA-separated**, not space-separated: `protect="password_hash, session_token"`. Space-separated is treated as a single field name and fails E-PA-007.
-- **`onclick=fn()`** is a bare call — the parens are included. The event arg auto-injects when the handler is bare-call (`onclick=fn` without parens explicitly passes the event; bare-call `fn()` gets the event as its first arg per §5.2.2).
+- **`onclick=fn()`** is a bare call — the parens are included. **The compiler auto-wraps as `function(event) { fn(); }` per SPEC §5.2.2 normative** — the `event` parameter is bound to the wrapper but **NOT** forwarded to `fn`. (Corrected 2026-05-16 / S96 Bug 14 — earlier wording incorrectly claimed `fn()` "gets the event as its first arg." That was spec-divergent; the test that anchored that claim was locking incorrect behavior. Reverted in scrmlTS commit `cc59982`.) Three shapes to know:
+    - `onclick=fn()` → wrapper-receives-event, `fn` called with no args.
+    - `onclick=fn(literal)` → wrapper-receives-event, `fn` called with the literal.
+    - `onclick=fn` (no parens) → `fn` wired directly as the listener — `fn` itself receives the native event as first arg.
+    - `onclick=${(e) => fn(e)}` → arrow form, explicit event capture. Use this when the handler genuinely needs the event object (preventDefault, target inspection, etc.).
 - **Markup interpolation requires `$`**: `${@var}` inside `<div>`, NOT `{@var}`.
 - **Component close tag is `</>`**, not `</ComponentName>`. The compiler matches by structure.
 - **`<program>` is required** for runnable apps. Without it, W-PROGRAM-001 fires (and most middleware features won't work).
