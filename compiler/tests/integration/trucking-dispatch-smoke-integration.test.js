@@ -159,17 +159,22 @@ describe("trucking-dispatch — pipeline-level invariants", () => {
     expect(TD_FILES.length).toBe(36);
   });
 
-  // FOLLOW-ON (S99 — A2 surfaced): A2's fix populates body+params on
-  // `export function` synth stubs, which then exposes RI's gap on
-  // `export function runSeeds() { server { ... } }` in
-  // examples/23-trucking-dispatch/seeds.scrml — the body now contains
-  // the `server { ... }` block but RI doesn't promote the enclosing
-  // function to server-bound, so the SQL identifiers `paid_at`,
-  // `due_at`, and the `server` keyword itself fire E-SCOPE-001
-  // (3 fatal severity:error). Reopen when RI's route-inference handles
-  // `export function foo() { server { ... } }` promotion to server-bound
-  // (separate scrml-dev-pipeline dispatch candidate).
-  test.skip("compile completes — no fatal severity:error diagnostics [A2-SURFACED RI gap on runSeeds() — separate RI dispatch]", () => {
+  // FOLLOW-ON (S99 — A1 dispatch): A2's body-population on `export fn`/
+  // `export function` synth stubs unmasked two distinct fatal-error
+  // patterns. The RI dispatch (commit 0e1dac0,
+  // `route-inference.ts:rewriteServerBlockStubs`) resolved the seeds.scrml
+  // `server { ... }` block stub gap (1 of 3 E-SCOPE-001 fires gone). The
+  // remaining 2 fatal fires are in
+  // examples/23-trucking-dispatch/components/invoice-card.scrml at L15/L16
+  // on `inv.paid_at is some` / `inv.due_at is some`. The `is some` operator
+  // parses to `inv.__scrml_is_some__(paid_at)` and the property name `paid_at`
+  // / `due_at` surfaces as a free-ident call argument; TS's scope walker
+  // then fires E-SCOPE-001 on the (correctly-bound) property name. This is
+  // an ast-builder / type-system parser-coupling bug, OUT OF SCOPE for the
+  // RI dispatch — A1 dispatch handles `symbol-table.ts` / `type-system.ts`
+  // scope-walker behavior. Reopen this test when A1 resolves the `is some`
+  // operator scope misfire.
+  test.skip("compile completes — no fatal severity:error diagnostics [A2-SURFACED — A1 follow-on on is-some operator]", () => {
     const result = compileTd();
     const fatal = result.errors.filter((e) => e.severity === "error");
     expect(fatal).toEqual([]);
@@ -251,7 +256,40 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
   //     files (schema.scrml, seeds.scrml, etc.) that don't currently match
   //     the Bug 6B pure-module predicate — unchanged from the prior baseline
   //     minus the 20 page-file suppressions.
+  //
+  // S99 A2-followup (RI server-block) + A1-deferred (is-some scope) deltas:
+  //   - E-ROUTE-001: 0 → 1. The RI rewriter (commit 0e1dac0,
+  //     `route-inference.ts:rewriteServerBlockStubs`) clears `exprNode` on
+  //     malformed `server { ... }` bare-expr stubs and leaves the raw
+  //     `expr` text intact for trigger detection. RI's walkBodyForTriggers
+  //     now reaches the raw text and pattern-matches `_customers[i]`-style
+  //     computed member accesses inside `runSeeds()` — firing the existing
+  //     E-ROUTE-001 (computed member access warning). Severity is "warning"
+  //     so it lives in `result.warnings`, not fatal. Expected one fire
+  //     because runSeeds() carries the only `server { ... }` block in the
+  //     trucking-dispatch app.
+  //   - E-SCOPE-001: 0 → 2. A2's body-population for `export fn` /
+  //     `export function` synth stubs also unmasked the TS scope walker
+  //     misfire on the `is some` operator: in
+  //     `components/invoice-card.scrml:invoiceStatus` the conditions
+  //     `inv.paid_at is some` and `inv.due_at is some` parse to
+  //     `inv.__scrml_is_some__(paid_at)` / `inv.__scrml_is_some__(due_at)`
+  //     where the property name surfaces as a free-ident call argument.
+  //     TS treats `paid_at` / `due_at` as undeclared identifiers and fires
+  //     E-SCOPE-001 twice. Pre-A2 the synth body was empty and these never
+  //     surfaced. This is OUT OF SCOPE for the RI dispatch — it is an
+  //     ast-builder / type-system parser-coupling bug, handled by the A1
+  //     dispatch per the brief's scope. The 2 fires are baselined here
+  //     until A1 lands; the "compile completes — no fatal severity:error"
+  //     test stays skipped pending A1.
+  //   - The seeds.scrml `server` E-SCOPE-001 (1 fire pre-this-commit) is
+  //     resolved by the RI rewriter: the spurious `server` ident is
+  //     cleared from exprNode, so TS's scope walker now skips the
+  //     bare-expr per the existing guard at type-system.ts §2a line ~4873.
+  //     Net E-SCOPE-001 movement: 3 → 2 (server gone; paid_at/due_at A1).
   const EXPECTED_BASELINE = {
+    "E-ROUTE-001": 1,
+    "E-SCOPE-001": 2,
     "I-AUTH-REDIRECT-UNRESOLVED": 1,
     "W-ATTR-001": 20,
     "W-AUTH-001": 20,
@@ -263,13 +301,7 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
     "W-PROGRAM-REDUNDANT-LOGIC": 18,
   };
 
-  // FOLLOW-ON (S99 — A2 surfaced): aggregate count drifts because A2's
-  // body-population unmasks 3 new E-SCOPE-001 fires on the runSeeds()
-  // `server { ... }` block. Reopen once RI promotion is fixed (see the
-  // skipped "compile completes" test above for root cause). Per-code
-  // baseline checks for the EXISTING codes still pass and continue to
-  // protect against regression on the rest of the trucking-dispatch surface.
-  test.skip("aggregate diagnostic count matches baseline [A2-SURFACED — see runSeeds() RI follow-on]", () => {
+  test("aggregate diagnostic count matches baseline", () => {
     const result = compileTd();
     const histo = diagHisto(result);
     const observedTotal = Object.values(histo).reduce((s, n) => s + n, 0);
@@ -288,11 +320,7 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
     }
   });
 
-  // FOLLOW-ON (S99 — A2 surfaced): E-SCOPE-001 surfaces as an UNEXPECTED
-  // code because A2's body-population unmasks the runSeeds() RI gap (see
-  // skipped "compile completes" test above). Reopen once RI promotion is
-  // fixed.
-  test.skip("no UNEXPECTED diagnostic codes fire [A2-SURFACED — E-SCOPE-001 from runSeeds() RI gap]", () => {
+  test("no UNEXPECTED diagnostic codes fire", () => {
     const result = compileTd();
     const histo = diagHisto(result);
     const unexpected = Object.keys(histo).filter(

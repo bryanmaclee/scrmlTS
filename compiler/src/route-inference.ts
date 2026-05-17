@@ -513,6 +513,145 @@ function collectWorkerBodyFunctionIds(fileAST: FileAST): Set<number> {
 }
 
 // ---------------------------------------------------------------------------
+// A2-FOLLOWUP (S99) — server-block stub rewriter
+// ---------------------------------------------------------------------------
+
+/**
+ * A2-FOLLOWUP (S99 — A2-anomaly-2-surfaced): rewrite malformed
+ * `server { ... }` block stubs inside function bodies.
+ *
+ * Background. The seeds-style idiom `export function foo() { server { ... } }`
+ * (see examples/23-trucking-dispatch/seeds.scrml `runSeeds`) wraps a function
+ * body in a `server { ... }` block to express developer intent that the body
+ * is server-side. The language has no first-class `server-block` AST node;
+ * `parseLogicBody` sees the bare keyword `server` (KEYWORD), falls through to
+ * `collectExpr`, and the entire `server { ... }` text is captured as a single
+ * `bare-expr` whose `exprNode` is `{kind:"ident", name:"server"}` and whose
+ * `expr` field is the literal string `"server { ...body... }"` (with any
+ * embedded `?{}` BLOCK_REFs rendered as `__scrml_sql_placeholder__`).
+ *
+ * Pre-A2 this gap was hidden — `export function` synth stubs carried an empty
+ * `body: []`, so the bare-expr was never built. Post-A2 (commit c4fc98a),
+ * `parseLogicBody` re-parses params + body on export synth stubs and the
+ * bare-expr surfaces in the AST. Two downstream consequences:
+ *
+ *   1. TS's bare-expr scope walker (type-system.ts §2a, line ~4873) sees
+ *      `exprNode.kind === "ident"` with `name === "server"` and fires
+ *      E-SCOPE-001 (`Undeclared identifier `server``).
+ *   2. RI's `walkBodyForTriggers` (line ~616) takes `emitStringFromTree(exprNode)`
+ *      when `exprNode` is present — which returns just `"server"`, losing the
+ *      entire wrapped body and missing the `?{}` SQL operations that would
+ *      otherwise fire Trigger 1 (server-only-resource).
+ *
+ * Per SPEC §12.2, the compiler infers route placement from body content:
+ * `?{}` is Trigger 1, server-only imports are Trigger 3, etc. The
+ * `server { ... }` wrapper is developer-facing intent — semantically a
+ * transparent wrapper that says "everything inside is server-side." Treating
+ * it as a no-op wrapper is consistent with §12.2's "infer from body content"
+ * rule.
+ *
+ * This pre-pass walks every function-decl body and detects the malformed
+ * stub. The fix is minimal: clear the misleading `exprNode` (so TS's
+ * E-SCOPE-001 walker skips the bare-expr — see type-system.ts line ~4873:
+ * `if (beExprNode) { checkLogicExprIdents(...) }`). The raw `expr` string
+ * is preserved verbatim. Downstream:
+ *
+ *   - TS: skips the scope check (no E-SCOPE-001 on `server`).
+ *   - RI's walkBodyForTriggers: with `exprNode` cleared, line 616 falls
+ *     through to `(node.expr ?? "")` — the raw text containing the embedded
+ *     `?{}` patterns. SERVER_ONLY_PATTERNS[0] (`/\?\{/`) matches, pushing a
+ *     `server-only-resource` Trigger 1 escalation. The enclosing function
+ *     classifies as server-bound.
+ *
+ * Per pa.md Rule 3 + Rule 4 (SPEC normative): the rewriter is a uniform
+ * "function body contains server block → function is server-bound" mechanism
+ * via SPEC §12.2 Trigger 1, not a carve-out for `export function`. Bare
+ * `function foo() { server { ... } }` and exported variants both flow
+ * through the same code path because both produce the same malformed
+ * bare-expr shape (the AST is identical post-A2 — see test fixture A2 in
+ * unit tests).
+ *
+ * Out of scope per dispatch brief: introducing a new `server-block`
+ * structured AST node (would require parseLogicBody changes — A2 surface).
+ * The transparent-wrapper approach is structurally complete for the
+ * route-inference goal: the function escalates via Trigger 1 because of the
+ * `?{}` patterns inside, which is the spec-canonical mechanism.
+ *
+ * Mutates the AST in place. Idempotent: running twice is safe because the
+ * second run finds `exprNode === null` and the guard `!exprNode` skips.
+ */
+function rewriteServerBlockStubs(files: FileAST[]): void {
+  for (const fileAST of files) {
+    const fnNodes = collectFileFunctions(fileAST);
+    for (const fnNode of fnNodes) {
+      const body = Array.isArray(fnNode.body) ? fnNode.body : [];
+      visitForServerBlockStubs(body);
+    }
+  }
+}
+
+/**
+ * Walk a LogicStatement[] body (recursively through control-flow blocks)
+ * and rewrite any malformed `server { ... }` bare-expr stub.
+ *
+ * Does NOT descend into nested function-decl bodies — they are visited
+ * independently by the outer per-function loop in {@link rewriteServerBlockStubs}.
+ * This mirrors the convention used by {@link walkBodyForTriggers} (line ~862)
+ * and {@link findReactiveAssignment} (line ~937).
+ */
+function visitForServerBlockStubs(body: any[]): void {
+  for (const node of body) {
+    rewriteIfServerBlockStub(node);
+    if (!node || typeof node !== "object") continue;
+    // Do not descend into nested function-decl bodies — those are walked
+    // by the outer per-function loop with their own server-block detection.
+    if (node.kind === "function-decl") continue;
+    // Recurse into array-valued children (if-stmt.consequent, for-stmt.body,
+    // while-stmt.body, try-stmt arms, etc.) so a `server { ... }` block
+    // wrapped inside a control-flow block also gets rewritten.
+    for (const key of Object.keys(node)) {
+      if (key === "span" || key === "id") continue;
+      const val = (node as any)[key];
+      if (Array.isArray(val)) {
+        visitForServerBlockStubs(val);
+      }
+    }
+  }
+}
+
+/**
+ * Test whether a node is a malformed `server { ... }` block stub and, if so,
+ * rewrite it in place. The detection criterion is conservative:
+ *
+ *   - kind === "bare-expr"
+ *   - exprNode === {kind: "ident", name: "server"} (the parser's surface form)
+ *   - raw `expr` starts with `server` followed by whitespace then `{`
+ *     (the textual server-block opener)
+ *
+ * The rewrite mutates `exprNode` to `null` and marks `__serverBlockStub = true`.
+ * The raw `expr` text is preserved so RI's `walkBodyForTriggers` can still
+ * scan it for embedded `?{}` patterns (Trigger 1 escalation).
+ */
+function rewriteIfServerBlockStub(node: any): void {
+  if (!node || typeof node !== "object") return;
+  if (node.kind !== "bare-expr") return;
+  const exprNode = node.exprNode;
+  if (!exprNode || typeof exprNode !== "object") return;
+  if (exprNode.kind !== "ident" || exprNode.name !== "server") return;
+  const exprText = typeof node.expr === "string" ? node.expr : "";
+  // Pattern: `server` keyword followed by optional whitespace + `{`. The
+  // tokenized reconstruction inserts a space (`server {\n...`), but the
+  // regex tolerates either form.
+  if (!/^server\s*\{/.test(exprText)) return;
+  // Mark and clear. With exprNode === null, TS's bare-expr scope walker
+  // (type-system.ts §2a line ~4873) skips the identifier check entirely.
+  // RI's walkBodyForTriggers falls through to `node.expr` (string), where
+  // SERVER_ONLY_PATTERNS detects the embedded `?{}` and pushes a Trigger 1.
+  node.__serverBlockStub = true;
+  node.exprNode = null;
+}
+
+// ---------------------------------------------------------------------------
 // FunctionNodeId
 // ---------------------------------------------------------------------------
 
@@ -1801,6 +1940,15 @@ export function runRI(input: RIInput): RIOutput {
     perFileChannelFnMap.set(fileAST.filePath, collectChannelFunctionMap(nodes));
     perFileChannelCellMap.set(fileAST.filePath, collectChannelCellMap(nodes));
   }
+
+  // ------------------------------------------------------------------
+  // Step 2.5: A2-FOLLOWUP (S99) — rewrite malformed `server { ... }`
+  // bare-expr stubs inside function bodies so Trigger 1 (?{} SQL) fires
+  // via the raw expr text, and so TS's E-SCOPE-001 scope walker skips
+  // the misleading `server` ident. See {@link rewriteServerBlockStubs}
+  // for the full design rationale.
+  // ------------------------------------------------------------------
+  rewriteServerBlockStubs(files);
 
   // ------------------------------------------------------------------
   // Step 3: First pass — collect all function nodes and compute DIRECT
