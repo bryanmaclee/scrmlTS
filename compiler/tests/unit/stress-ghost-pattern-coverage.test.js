@@ -195,7 +195,12 @@ const SVELTE_FIXTURES = [
   {
     name: "Svelte $store auto-subscribe",
     src: `<program><div>\${$count}</div></program>`,
-    expect: { category: "generic-error", codePrefix: "E-SCOPE-001" },
+    // S98 (combined-lint-additions-s98 Item 2): W-LINT-024 — `$ident` inside
+    // `${...}` markup-interp slot now produces a specific lint instead of
+    // falling through to the generic E-SCOPE-001 fallback. Approach (a) per
+    // S97 hand-off: narrowest false-positive surface; catches the
+    // load-bearing case (markup-interpolated `$store`).
+    expect: { category: "ghost-caught", code: "W-LINT-024" },
   },
   {
     name: "Svelte writable() store",

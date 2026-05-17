@@ -379,3 +379,77 @@ export const PI = 3.14159
     expect(diagCodes(result)).not.toContain("W-PROGRAM-001");
   });
 });
+
+// ---------------------------------------------------------------------------
+// S98 combined-lint-additions-s98 Item 1 — non-entry `<page>` file
+// suppression for W-PROGRAM-001
+// ---------------------------------------------------------------------------
+
+describe("S98 Item 1 — non-entry `<page>` file suppresses W-PROGRAM-001", () => {
+  // Per SPEC §40.8: multi-page apps declare `<program>` exactly ONCE in the
+  // entry file (typically `app.scrml`). Non-entry page files declare a
+  // `<page>` element at file scope WITHOUT a wrapping `<program>` — the
+  // route's `<page>` sits inside the app's `<program>` declared in the entry
+  // file, NOT inside the page file. The W-PROGRAM-001 lint must not fire on
+  // these page files.
+
+  test("file with top-level `<page>` opener does NOT fire W-PROGRAM-001 (canonical non-entry shape)", () => {
+    const result = compileSrc("home.scrml", `<page>
+  <h1>Welcome</h1>
+</page>
+`);
+    expect(diagCodes(result)).not.toContain("W-PROGRAM-001");
+  });
+
+  test("`<page>` with per-route attributes (db= auth= csrf= ratelimit=) does NOT fire W-PROGRAM-001", () => {
+    // Per SPEC §40.8 + §4.15 the 4 per-route attributes are db/auth/csrf/ratelimit.
+    const result = compileSrc("dashboard.scrml", `<page db="./app.db" auth="required" csrf="auto" ratelimit="100/min">
+  <h1>Dashboard</h1>
+</page>
+`);
+    expect(diagCodes(result)).not.toContain("W-PROGRAM-001");
+  });
+
+  test("`<page>` body with bare logic (default-logic mode) does NOT fire W-PROGRAM-001", () => {
+    // §40.8 normative: <page> body parses in default-logic mode.
+    const result = compileSrc("counter.scrml", `<page>
+  <count> = 0
+  <h1>Count: \${@count}</h1>
+</page>
+`);
+    expect(diagCodes(result)).not.toContain("W-PROGRAM-001");
+  });
+
+  test("`<page>` with leading line-comment does NOT fire W-PROGRAM-001 (comments precede markup)", () => {
+    // Real-world adopter shape (see examples/23-trucking-dispatch/pages/dispatch/billing.scrml
+    // and docs/website/pages/articles/index.scrml) — file starts with `//`
+    // documentation then `<page>` opens at line N.
+    const result = compileSrc("documented.scrml", `// Documented page.
+// Multi-line comment.
+<page>
+  <h1>Hi</h1>
+</page>
+`);
+    expect(diagCodes(result)).not.toContain("W-PROGRAM-001");
+  });
+
+  test("orphan file (no `<page>`, no `<program>`, has bare markup) STILL fires W-PROGRAM-001", () => {
+    // Inverse case: a file with bare markup but neither `<page>` nor
+    // `<program>` is malformed under the v0.3 program-shape rules; the
+    // existing W-PROGRAM-001 hint correctly nudges the adopter.
+    const result = compileSrc("orphan.scrml", `<div>orphan content</>
+`);
+    expect(diagCodes(result)).toContain("W-PROGRAM-001");
+  });
+
+  test("entry file with `<program>` containing `<page>` siblings does NOT fire W-PROGRAM-001", () => {
+    // The entry file's own `<program>` continues to satisfy the lint.
+    const result = compileSrc("app.scrml", `<program title="My App">
+  <page>
+    <h1>Home</h1>
+  </page>
+</program>
+`);
+    expect(diagCodes(result)).not.toContain("W-PROGRAM-001");
+  });
+});

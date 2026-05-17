@@ -11161,7 +11161,25 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     nodes.length > 0 &&
     nodes.every(n => n && n.kind !== "markup");
 
-  if (!hasProgramRoot && !isPureModuleFile) {
+  // S98 (combined-lint-additions-s98 — Item 1): non-entry `<page>` file
+  // suppression. Per SPEC §40.8: a multi-page app declares its top-level
+  // `<program>` exactly ONCE, in the entry file. Non-entry page files
+  // declare a `<page>` element at file scope WITHOUT a wrapping `<program>`
+  // — the route's `<page>` sits inside the app's `<program>` declared in
+  // `app.scrml`, NOT inside the page file. The W-PROGRAM-001 lint fired
+  // here was a false positive for every `<page>` file in a multi-page app
+  // (17 fires across docs/website/, 20 fires across the trucking-dispatch
+  // page subset, all spurious).
+  //
+  // Detection: file has at least one top-level markup node with `tag ===
+  // "page"`. The file-local check is sufficient and consistent with the
+  // SPEC norm — what the file DECLARES (a `<page>` opener) is the signal,
+  // not what sibling files exist. No cross-file plumbing required.
+  const isNonEntryPageFile =
+    !hasProgramRoot &&
+    nodes.some(n => n && n.kind === "markup" && n.tag === "page");
+
+  if (!hasProgramRoot && !isPureModuleFile && !isNonEntryPageFile) {
     errors.push(new TABError(
       "W-PROGRAM-001",
       `W-PROGRAM-001: No <program> root element found. Consider wrapping your file ` +

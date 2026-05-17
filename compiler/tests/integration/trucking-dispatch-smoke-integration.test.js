@@ -47,7 +47,7 @@
  *   W-CG-CHUNK-EMPTY                      =  1   (was 2 pre-S94 — hos no longer own-EP)
  *   W-CG-CHUNK-PREFETCH-UNRESOLVED        =  1   (was 2 pre-S94 — same)
  *   W-DEAD-FUNCTION                       =  1
- *   W-PROGRAM-001                         = 24   (was 23 pre-S94 — hos.scrml file-top)
+ *   W-PROGRAM-001                         =  4   (was 24 pre-S98 — non-entry-<page> suppression)
  *   W-PROGRAM-REDUNDANT-LOGIC             = 18
  *   --- removed at S94 (no fire post-restructure) ---
  *   W-PROGRAM-SPA-INFERRED                =  0   (was 1 pre-S94 — hos.scrml's <program> gone)
@@ -55,7 +55,7 @@
  *   W-CG-UNDEFINED-INTERPOLATION          =  0   (was 53; S93 codegen leak fixes)
  *   --- aggregate ---
  *   errors:    0
- *   warnings:  87
+ *   warnings:  67   (was 87 pre-S98 — 20 page-file false-positives suppressed)
  *   chunks:    >= 1 (per-route)
  *   manifest entryPoints: >= 1
  *
@@ -230,6 +230,17 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
   //     `${...}` import wrapper now fires under `<page>` instead of
   //     `<program>`, same count)
   // Cross-ref: docs/changes/hos-restructure/SURVEY.md §Phase 3.
+  //
+  // S98 combined-lint-additions-s98 Item 1 (2026-05-17):
+  //   - W-PROGRAM-001: 24 → 4. Per SPEC §40.8, non-entry `<page>` files do
+  //     NOT carry their own `<program>` wrapper — the page route sits inside
+  //     app.scrml's `<program>`. The lint previously false-positived on every
+  //     such file (20 page files under examples/23-trucking-dispatch/pages/).
+  //     Post-fix the lint is suppressed when the file declares a top-level
+  //     `<page>` element. The remaining 4 fires are from other module-shape
+  //     files (schema.scrml, seeds.scrml, etc.) that don't currently match
+  //     the Bug 6B pure-module predicate — unchanged from the prior baseline
+  //     minus the 20 page-file suppressions.
   const EXPECTED_BASELINE = {
     "I-AUTH-REDIRECT-UNRESOLVED": 1,
     "W-ATTR-001": 20,
@@ -238,7 +249,7 @@ describe("trucking-dispatch — v0.2-shape diagnostic baseline", () => {
     "W-CG-CHUNK-EMPTY": 1,
     "W-CG-CHUNK-PREFETCH-UNRESOLVED": 1,
     "W-DEAD-FUNCTION": 1,
-    "W-PROGRAM-001": 24,
+    "W-PROGRAM-001": 4,
     "W-PROGRAM-REDUNDANT-LOGIC": 18,
   };
 

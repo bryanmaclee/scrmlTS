@@ -283,6 +283,59 @@ function buildFunctionBodyRanges(source) {
 }
 
 // ---------------------------------------------------------------------------
+// String-literal range detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Build ranges that correspond to single-quoted (`'...'`) and double-quoted
+ * (`"..."`) string literals in the source. Used by W-LINT-024 to skip
+ * `$ident` matches that fall inside a string-literal payload — a literal
+ * `"$store"` is NOT a Svelte auto-subscribe ghost; it's just a string that
+ * happens to contain a `$`-prefixed token.
+ *
+ * Honours `\` escape: `"a\"b"` is one continuous string range.
+ *
+ * Caveats (acceptable trade-offs, mirroring the comment-range builder):
+ *  - Template literals (` `...` `) are NOT tracked. Adopters writing
+ *    `` `${ ... $store ... }` `` will not have the lint suppressed inside
+ *    the backtick body. False-positive cost is low — backtick template
+ *    literals containing `$ident`-shaped text are rare in markup context.
+ *  - Quoted-string detection runs against the FULL source, not only inside
+ *    `${...}` logic blocks. A quoted string in markup-text position (e.g.
+ *    a `<div title="some $store">`) would also suppress, which is the
+ *    right behavior — that's an attribute value, not a Svelte ghost.
+ *
+ * @param {string} source
+ * @returns {Array<[number, number]>}
+ */
+function buildStringRanges(source) {
+  const ranges = [];
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      const start = i;
+      i++;
+      while (i < source.length && source[i] !== quote) {
+        if (source[i] === "\\" && i + 1 < source.length) {
+          i += 2; // skip escaped character
+          continue;
+        }
+        if (source[i] === "\n") break; // unterminated; bail at line end
+        i++;
+      }
+      // Consume the closing quote (if present)
+      if (i < source.length && source[i] === quote) i++;
+      ranges.push([start, i]);
+      continue;
+    }
+    i++;
+  }
+  return ranges;
+}
+
+// ---------------------------------------------------------------------------
 // Pattern definitions
 // ---------------------------------------------------------------------------
 
@@ -293,8 +346,10 @@ function buildFunctionBodyRanges(source) {
  *   correction  — scrml equivalent
  *   see         — spec section
  *   code        — W-LINT-NNN
- *   skipIf      — optional fn(offset, logicRanges, cssRanges, commentRanges, tildeRanges) -> bool
- *                 to skip match. Backwards compatible — patterns may use shorter signatures.
+ *   skipIf      — optional fn(offset, logicRanges, cssRanges, commentRanges,
+ *                 tildeRanges, functionBodyRanges, stringRanges) -> bool
+ *                 to skip match. Backwards compatible — patterns may use
+ *                 shorter signatures.
  */
 const PATTERNS = [
   // Pattern 1: <style> block — unambiguous, no scrml meaning
@@ -728,6 +783,69 @@ const PATTERNS = [
     skipIf: (offset, _logicRanges, _cssRanges, commentRanges) => inRange(offset, commentRanges),
   },
 
+  // Pattern 28: Svelte `$store` auto-subscribe inside `${...}` markup-interp
+  // (W-LINT-024, S98).
+  //
+  // S97 hand-off recorded this as the only remaining `generic-error` in the
+  // brute-force stress harness — every other framework-syntax-in-scrml ghost
+  // produced a specific lint, but Svelte's `$store` auto-subscribe fell
+  // through to generic-error fallback. This pattern closes that gap.
+  //
+  // The Svelte shape: `$store` (where `store` is a writable/readable store)
+  // inside markup auto-dereferences to the store's current value:
+  //   <script>let count = writable(0)</script>
+  //   <p>{$count}</p>            <!-- Svelte: reads the store -->
+  //
+  // The adopter reflexively writes `${ $count }` in scrml expecting the same;
+  // scrml has no store-prefix sigil. The canonical scrml shape is `${ @count }`
+  // for a reactive cell, or `${ count }` for a plain identifier in scope.
+  //
+  // Pattern (approach (a) per S97 hand-off): match `$ident` where `ident`
+  // starts with a letter or `_`. The regex `\$[a-zA-Z_]\w*` matches `$count`
+  // but NOT `${...}` (the `{` is not in the identifier char class) and NOT
+  // bare `$` (requires at least one identifier char).
+  //
+  // Fires ONLY when offset is inside a `${...}` logic-interp block — narrow
+  // false-positive surface, catches the load-bearing case (markup-interpolated
+  // `$store`). The fire condition is INVERTED from most patterns (which skip
+  // INSIDE logic blocks); see Pattern 10 (W-LINT-010) for the same
+  // inverted-skip shape.
+  //
+  // Skip conditions:
+  //   - Outside `${...}`: not a Svelte-ghost context (the lint is narrowly
+  //     scoped to markup interpolation slots per S97 approach-(a)).
+  //   - Inside a string literal: `"$store"` is a literal string, not a
+  //     Svelte ghost (uses stringRanges from `buildStringRanges`).
+  //   - Inside a comment: documentation about Svelte syntax should not
+  //     fire (uses commentRanges).
+  //   - Preceded by `\`: escaped sigil (`\$count`) is opt-out.
+  //
+  // Future extension: approach (b) (`.subscribe(` follow-up) and approach (c)
+  // (scope-aware later-stage detection) per S97 hand-off, gated on friction
+  // signals. (a) lands first because it has the narrowest false-positive
+  // surface and the highest signal-to-noise ratio for the Svelte adopter.
+  {
+    // Negative lookbehind `(?<!\\)` rejects `\$count` (escaped sigil opts
+    // out). Matches `$count`, `$store`, `$_x`, etc. Excludes `${` because
+    // `{` is not in the `[a-zA-Z_]` opener class — the `${...}` interpolation
+    // opener itself never matches.
+    regex: /(?<!\\)\$[a-zA-Z_]\w*/g,
+    ghost: "$store (Svelte auto-subscribe prefix)",
+    correction: "scrml has no store auto-subscription. For reactive cells, use the canonical `@cell` sigil (per V5-strict §6.1) — e.g. `${@count}` instead of `${$count}`. If you have a Svelte store object explicitly, call its `.subscribe()` method directly; scrml does not auto-dereference. See SPEC §6 (state declarations) and §6.1 (V5-strict access).",
+    see: "§6, §6.1",
+    code: "W-LINT-024",
+    skipIf: (offset, logicRanges, _cssRanges, commentRanges, _tildeRanges, _functionBodyRanges, stringRanges) => {
+      // Skip if NOT inside a `${...}` logic-interp block — approach (a)
+      // narrowly scopes the lint to markup-interpolation contexts.
+      if (!inRange(offset, logicRanges)) return true;
+      // Skip if inside a string literal — `"$store"` is literal text.
+      if (inRange(offset, stringRanges || [])) return true;
+      // Skip if inside a comment — documentation about Svelte syntax.
+      if (inRange(offset, commentRanges)) return true;
+      return false;
+    },
+  },
+
   // Pattern 16: W-LIFECYCLE-CANDIDATE — string-discriminator trap.
   //
   // S64 debate-04 verdict A+ #2 (string-switch trap, gingerbill design insight):
@@ -772,6 +890,7 @@ export function lintGhostPatterns(source, filePath) {
   const commentRanges = buildCommentRanges(source);
   const tildeRanges = buildTildeRanges(source);
   const functionBodyRanges = buildFunctionBodyRanges(source);
+  const stringRanges = buildStringRanges(source);
   const diagnostics = [];
 
   for (const pattern of PATTERNS) {
@@ -781,7 +900,7 @@ export function lintGhostPatterns(source, filePath) {
       const offset = match.index;
 
       // Apply false-positive guard
-      if (pattern.skipIf && pattern.skipIf(offset, logicRanges, cssRanges, commentRanges, tildeRanges, functionBodyRanges)) {
+      if (pattern.skipIf && pattern.skipIf(offset, logicRanges, cssRanges, commentRanges, tildeRanges, functionBodyRanges, stringRanges)) {
         continue;
       }
 
