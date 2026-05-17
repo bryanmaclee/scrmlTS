@@ -2,7 +2,72 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-16 S96 CLOSE — bug-chip marathon · 9-commit session · 16 of 18 S95-catalog bugs closed + 4 newly-surfaced followups closed · pa.md moved to scrml-support · SPEC-at-session-start rule added · Issue C reactive for-iterable widened): full `bun run test` **12,892 pass / 117 skip / 1 todo / 0 fail / 657 files / 43,202 expect** at HEAD `2e102a8` (+38 vs S95 close `6115c74`'s 12,854). Pre-push gate fully restored — every commit lands without `--no-verify`. v0.3.0 STABLE `c520369` is the shipped baseline; v0.3.x patch series in flight.
+Current baseline (2026-05-17 S97 CLOSE — 18 commits · all S95/S96/B1 catalogs closed end-to-end · ghost-pattern lint catalog 16 → 23 entries · stress harness scaffolded with living scorecard · 5 new diagnostic codes covering React/Vue/Svelte/Solid/Angular/TS): full `bun run test` **13,019 pass / 117 skip / 1 todo / 0 fail / 667 files / 43,402 expect** at HEAD `b855d0d` (+127 vs S96 close `d3e8325`'s 12,892). Pre-push gate fully restored — every commit lands without `--no-verify`. v0.3.0 STABLE `c520369` is the shipped baseline; v0.3.x patch series in flight.
+
+### 2026-05-17 (S97 CLOSE — 18 commits · all S95/S96/B1 bugs closed end-to-end · ghost-pattern lint catalog +7 entries / +8 frameworks covered · stress harness scaffolded)
+
+**Session-defining outcome:** all three bug catalogs surfaced across S95-S96 closed end-to-end (S95 18/18, S96 followups 5/5, B1-surfaced 7/7 — including 1 new bug discovered during verification). Plus the brute-force syntax-stress harness landed as a living scorecard, and 5 new lint families closed all `uncovered-gap` cases. Lint catalog grew from 16 → 23 patterns. v0.3.x patch series continues — substantial adopter-protection surface added.
+
+**Bug fixes (8 compiler/codegen + 1 docs alignment):**
+
+- **`3b06ad8`** Parser escape-hatch raw-slice misaligned when `preprocessForAcorn` changes string length. `const <r> = @x == E::A ? @items.filter(function(t){...}) : @items` emitted broken JS (missing `}`). Root cause: `parseExprToNode` passed `trimmed` as rawSource but acorn parsed `processed` (post-`::`→`.` rewrite); slice positions off-by-N. Hand-off framed this as "chained-ternary derived codegen function-arg strip" — actual trigger was `::` (or any preprocessor-modifying scrml syntax) + FunctionExpression in arg position, not chaining.
+
+- **`07c345a`** Tokenizer bare-assignment per SPEC §5.2.3 L19. `<button onclick=@phase = .Loading>` (the SPEC §5.2.3 worked-example shape) silently misparsed pre-fix as `<button onclick="phase" Loading>` (`@` stripped, `.Loading` became boolean attr). Fix: tokenizer detects `@`-prefix event-handler value + `=` continuation, switches to expression-mode reader bounded by next attribute whitespace.
+
+- **`5df1a3a`** Compound + postfix bare-form completions. `onclick=@count++` and `onclick=@count += 5` now lower correctly. Extended `rewriteReactiveAssign` to handle compound updates (`+= -= *= /= %= **= <<= >>= >>>= &= |= ^= &&= ||= ??=`) and postfix updates (`++` / `--`); routed UnaryExpr kind through string-rewrite path in emit-event-wiring so postfix updates reach the rewriter (was bypassed via structured emitUnary). Also excluded `-` from value-ident regex in event-handler context so `@count--` doesn't get glued into ident.
+
+- **`2503382`** S95 Bug 4 — `<li ondrop=dropOn(name)>` inside a component template (where `name` is a prop) silently miscompiled. Two coordinated fixes: (1) `normalizeTokenizedRaw` Step 6 collapses tokenized call-form spacing `ident ( args )` → `ident(args)` so the markup tokenizer correctly produces ATTR_CALL; (2) `substituteProps` extended to substitute prop refs in call-ref / variable-ref / expr attribute values (was string-literal-only). Per-instance handler now emits `_scrml_dropOn("zone-a")` and `_scrml_dropOn("zone-b")` correctly.
+
+- **`c451ae6`** Match-arm RHS bare-variant placeholder leak. `match @mode { .Idle => .Active }` emitted unresolved `__scrml_bare_variant_Active__` to client JS — ReferenceError at runtime. Asymmetry root cause: `preprocessMatchExprs` extracts arms as JSON-stringified strings; the bare-variant rewrite's negative-lookbehind shields LHS (after `"`) but not RHS (after space). Fix: unmask placeholders at top of `rewriteEnumVariantAccess`; existing rewrites then handle `.X` per shape.
+
+- **`8c9c891`** `@`-prefix reactive-method-call event handlers routed through structured emit. `onclick=@outer.advance(.Playing.history)` emitted invalid `@outer.advance("Playing".history)` pre-fix. Affected ALL `@<var>.method(args)` bare-call event handlers including `@list.push("x")`, `@items.sort()`. Fix: detect `@`-prefix handlerName in call-ref path, synthesize CallExpr ExprNode, emit via emitExprField — routes to emit-expr.ts emitCall (C13 dispatch for engine `.advance` history-restore + generic member-call lowering for the rest).
+
+- **`0a3388f`** `<X rule=.Y history>` boolean attr swallowed into preceding `rule=` value. Workaround was placing `history` BEFORE `rule=`. Root cause: lookahead `(?=\s+\w+\s*=|\s*\/?\s*$)` in `engine-statechild-parser.ts` only recognized `attr=value` followers or tag close as boundaries. Fix: extended lookahead to also recognize boolean-attr boundaries `\s+\w+(?:\s|=|>|\/|$)`. Applied to both `rule=` and `internal:rule=`.
+
+- **`2fd5f7a`** Master-list correction — Bug 2 (`<engine derived=@var>` over auto-declared engine) had been listed as "STILL PENDING" but actually shipped at `d512266` v0.2.3 (S84). Cross-verified via changelog before treating master-list as truth. Same staleness pattern as S82 precedent.
+
+- **`b503391`** Kickstarter v1 §5.2.2 alignment per S96 Bug 14 revert. Removed stale claim that `onclick=fn()` auto-injects event; replaced with SPEC §5.2.2 normative wrapper shape (`function(event){ fn(); }` — event NOT forwarded) + four-shape table covering `fn()` / `fn(literal)` / `fn` / `${(e) => fn(e)}`.
+
+**B1 follow-ons verification + closures (line 231-236 master-list):**
+
+- **`27c4202`** S97 verification pass — 3 verified-closed (pipe-alternation v0.2.4 Bug 2; comparison-position bare variant v0.2.4 Bug 5; multi-statement fn bodies likely v0.2.4 cluster); 2 still open at verification time (match-arm RHS bare variants; `.advance(.X.history)` event-handler); 1 NEW surfaced (`<X rule=.Y history>` attr-order tokenization).
+
+- **`4e7c70e`** + **`7facfc7`** + **`15ad767`** Master-list status corrections marking each closure (`c451ae6` / `8c9c891` / `0a3388f`). B1 follow-ons now 7/7 closed.
+
+**Brute-force ghost-pattern lint family (NEW — 5 lint codes, 8 frameworks):**
+
+- **`1f390c2`** Stress harness scaffold. 34 fixtures across React/Vue/Svelte/Solid/Angular/JS-paradigm/TypeScript + 4 regression guards. Per-fixture `expect` classification (ghost-caught / compile-error / generic-error / silent-bad-js / clean-pass / uncovered-gap). Living scorecard surfaces (a) lint coverage gaps, (b) silent-compile bugs (Bug 14 shape — 0 found this session = clean baseline), (c) diagnostic quality. Pre-fix scorecard: ghost-caught 12, generic-error 9, uncovered-gap 6.
+
+- **`dd601ad`** W-LINT-016 React hook calls — `useState`, `useEffect`, `useRef`, `useMemo`, `useCallback`, `useContext`, `useReducer`, `useLayoutEffect`, `useTransition`, `useDeferredValue`, `useId`, `useSyncExternalStore`, `useInsertionEffect`. Correction names scrml-primitive forms: `<x> = init`, reactive `${...}`, derived cells, engines.
+
+- **`12e2881`** W-LINT-017 (Vue composition API), W-LINT-018 (Svelte stores), W-LINT-019 (Solid primitives). 50+ entry points across all three frameworks; cross-fire prevention verified per-framework. Svelte `derived(...)` call form fires W-LINT-018 WITHOUT colliding with scrml's `derived=expr` engine attribute (call vs attribute distinguishable by `(` vs `=`).
+
+- **`184c011`** W-LINT-020 (Vue `{{}}` double-brace), W-LINT-021 (Angular `*ngIf` / `(click)=` / `[(ngModel)]=` — 3 sub-patterns sharing code), W-LINT-022 (TypeScript `interface` + untagged `type X = { ... }`). All 6 uncovered-gap fixtures closed. Regression guards: scrml `${expr}` doesn't trip 020, `class:active=(expr)` doesn't trip 021, `type X:struct = {}` doesn't trip 022.
+
+- **`b855d0d`** W-LINT-023 React Fragment opener `<>`. Pattern matches LITERAL two-char `<>`; scrml's bare closer `</>` has `/` between `<` and `>` so chars aren't adjacent — no false-fire. Correction names scrml grouping primitives (wrap in real element, lift iteration, single-root component returns, slots).
+
+**Cross-repo notice (1 dropped, none received):**
+
+- FYI notice dropped at `6nz/handOffs/incoming/2026-05-16-1200-scrmlTS-to-6nz-bug14-event-handler-spec-revert.md` re: S96 Bug 14 SPEC §5.2.2 revert (`onclick=fn()` no longer auto-threads event). Includes escape-hatch example + suggested grep for affected 6nz adopter code.
+
+**Final stress harness scorecard (S97 close):**
+
+| Category | Pre-S97 | S97 close |
+|---|---|---|
+| ghost-caught (specific lint) | 12 | **26** |
+| compile-error (specific E-*) | — | 3 |
+| generic-error (E-SCOPE-001 etc.) | — | 1 (Svelte `$store` auto-subscribe — special $-prefix shape, deferred) |
+| silent-bad-js | — | 0 |
+| clean-pass (regression guards) | — | 4 |
+| uncovered-gap | — | **0** ✅ |
+
+**Process notes:**
+
+- **PA wrap-suggestion reflex correction** (S97 user pushback). At ~43% context used, PA proposed wrap; user correctly noted "lots of headroom, let's get on the medium fixes." Memory rule filed: `feedback_dont_wrap_at_43_percent.md` — pa.md is explicit about not wrapping above 50% remaining; 1M context exists precisely for multi-thread continued work.
+
+- **Master-list staleness pattern continues** (S82 + S97). Both Bug 2 (S97 `2fd5f7a`) and several B1 follow-on entries had stale "still pending" markers despite changelog showing closure. PA cross-verify-against-changelog discipline applied; reinforces pattern noted in S82's 22%-context-burn precedent.
+
+- **Hand-off framing can misframe trigger conditions.** S96 "chained-ternary derived codegen" was actually `::` + FunctionExpression in arg position (not chaining). S96 "remaining `.advance(.X.history)` bug" was actually broader `@<var>.method(args)` bare-call class (event-handler routing). Adopter-shape repro frequently reveals scope different than hand-off cited.
 
 ### 2026-05-16 (S96 CLOSE — bug-chip marathon · 9 commits · TodoMVC 38-fail closed · 16 of 18 S95-catalog bugs closed · 4 newly-surfaced compiler followups closed · pa.md homed at scrml-support · Issue C reactive-iterable widened (Option A) · SPEC-at-session-start rule added)
 
