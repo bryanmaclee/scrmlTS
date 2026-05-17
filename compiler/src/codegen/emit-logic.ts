@@ -1,4 +1,5 @@
 import { genVar } from "./var-counter.ts";
+import { paramName, paramSignature, type ParamLike } from "./utils.ts";
 import { extractSqlParams, rewriteTildeRef, buildTaggedTemplate } from "./rewrite.js";
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
@@ -2636,15 +2637,14 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
       // the paired export-decl handles output in emit-library.
       if (node.fromExport === true) return "";
       const fnName: string = node.name ?? "anon";
-      const params: any[] = node.params ?? [];
-      // Bug fix: strip :Type annotations from string params (e.g. "mario:Mario" → "mario")
-      const paramNames: string[] = params.map((p: any, i: number) =>
-        typeof p === "string" ? p.split(":")[0].trim() : (p.name ?? `_scrml_arg_${i}`)
-      );
+      const params: ParamLike[] = (node.params ?? []) as ParamLike[];
+      // §7.3.2: param signatures carry `name = defaultValue` when defaults are present.
+      // Strip :Type annotations from string params (e.g. "mario:Mario" → "mario").
+      const paramSigs: string[] = params.map((p, i) => paramSignature(p, i));
       const generatorStar: string = node.isGenerator ? "*" : "";
 
       const fnLines: string[] = [];
-      fnLines.push(`function${generatorStar} ${fnName}(${paramNames.join(", ")}) {`);
+      fnLines.push(`function${generatorStar} ${fnName}(${paramSigs.join(", ")}) {`);
 
       // Function body has its own scope for declared names. C5: set
       // `insideFunctionBody` so init-thunk sidecar is suppressed for any

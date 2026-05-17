@@ -293,7 +293,7 @@ ${
     // JS_KEYWORDS lookup, no state-dependent dispatch).
     export function makeIdentOrKeyword(text, span) {
         const kw = JS_KEYWORDS[text]
-        if (kw == undefined) {
+        if (kw is not) {
             return makeToken(TokenKind.Ident, text, span, { name: text })
         }
         return makeToken(kw, text, span, {})

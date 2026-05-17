@@ -5944,55 +5944,96 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (peek().text !== "(") return params;
     consume(); // consume `(`
     let depth = 1;
-    let cur = "";
-    // §53: parse param entries into {name, typeAnnotation?} objects.
+    let cur = "";          // name-and-type part of the current param
+    let defBuf = "";       // default-value part (after `=`) of the current param
+    let inDefault = false; // true once a top-level `=` has been consumed for this param
+    // §53: parse param entries into {name, typeAnnotation?, defaultValue?} objects.
     // "x: number(>0)" → {name: "x", typeAnnotation: "number(>0)"}
     // "x" → {name: "x"}
+    // §7.3.2: default parameter values via `= expr` — "n = 0" → {name: "n", defaultValue: "0"}.
+    //   Defaults compile directly to JavaScript default parameter syntax. The compound forms
+    //   (`==`, `===`, `=>`, `+=`, ...) are tokenized as OPERATOR (multi-char) so the
+    //   bare PUNCT "=" we detect here is unambiguous — it is always the default-value separator.
     // §35.2.1: lin-annotated params — "lin x" or "lin x: string" → {name: "x", isLin: true, ...}
     // Downstream consumers (emit-functions.ts, emit-server.ts, type-system.ts) already
     // handle both string and {name} forms via typeof checks.
-    function pushParam(raw) {
-      const s = raw.trim();
-      if (!s) return;
+    function pushParam(nameRaw, defRaw) {
+      const s = nameRaw.trim();
+      const def = defRaw == null ? null : defRaw.trim();
+      if (!s && !def) return;
       // §35.2.1: detect `lin name` prefix — parameter declared as linear.
       const LIN_PREFIX = /^lin\s+(.+)$/;
       const linMatch = LIN_PREFIX.exec(s);
       const isLin = linMatch !== null;
       const effective = isLin ? linMatch[1].trim() : s;
       const colonIdx = effective.indexOf(':');
+      let entry;
       if (colonIdx === -1) {
-        params.push(isLin ? { name: effective, isLin: true } : { name: effective });
+        entry = { name: effective };
       } else {
         const name = effective.slice(0, colonIdx).trim();
         const typeAnnotation = effective.slice(colonIdx + 1).trim() || null;
-        params.push(isLin ? { name, typeAnnotation, isLin: true } : { name, typeAnnotation });
+        entry = { name, typeAnnotation };
       }
+      if (isLin) entry.isLin = true;
+      if (def && def.length > 0) entry.defaultValue = def;
+      params.push(entry);
+    }
+    // Helper: append `text` to a buffer, inserting a leading space when needed
+    // to prevent concatenation of IDENT/KEYWORD/AT_IDENT tokens. STRING tokens
+    // arrive without their delimiter (tokenizer strips it); when appearing in
+    // a default-value expression, JSON-encode them so the round-tripped source
+    // remains a syntactically-valid JS string literal. Backtick-derived STRING
+    // tokens carry `isTemplate: true` and are re-emitted with backticks so any
+    // embedded `${...}` interpolations survive.
+    function appendTok(bufName, tok) {
+      const buf = bufName === 'cur' ? cur : defBuf;
+      let next = buf;
+      if (buf.length > 0 && (tok.kind === 'IDENT' || tok.kind === 'KEYWORD' || tok.kind === 'AT_IDENT') &&
+          buf[buf.length - 1] !== ' ') {
+        next += ' ';
+      }
+      if (tok.kind === 'STRING') {
+        next += tok.isTemplate ? '`' + tok.text + '`' : JSON.stringify(tok.text);
+      } else {
+        next += tok.text;
+      }
+      if (bufName === 'cur') cur = next;
+      else defBuf = next;
     }
     while (true) {
       const tok = peek();
       if (tok.kind === "EOF") break;
-      if (tok.text === "(" || tok.text === "[" || tok.text === "{") { depth++; cur += tok.text; consume(); }
-      else if (tok.text === ")" || tok.text === "]" || tok.text === "}") {
+      if (tok.text === "(" || tok.text === "[" || tok.text === "{") {
+        depth++;
+        if (inDefault) appendTok('def', tok);
+        else appendTok('cur', tok);
+        consume();
+      } else if (tok.text === ")" || tok.text === "]" || tok.text === "}") {
         depth--;
         if (depth === 0) { consume(); break; }
-        cur += tok.text;
+        if (inDefault) appendTok('def', tok);
+        else appendTok('cur', tok);
         consume();
       } else if (tok.text === "," && depth === 1) {
-        pushParam(cur);
+        pushParam(cur, inDefault ? defBuf : null);
         cur = "";
+        defBuf = "";
+        inDefault = false;
+        consume();
+      } else if (depth === 1 && !inDefault && tok.kind === "PUNCT" && tok.text === "=") {
+        // §7.3.2 default-value separator. PUNCT "=" at top level is unambiguous —
+        // `==`/`===`/`=>`/`+=`/`-=`/`*=`/`/=`/`%=`/`&=`/`|=`/`^=`/`<<=`/`>>=`/`**=`/`??=`/`||=`/`&&=`
+        // are all tokenized as OPERATOR (multi-char), so they cannot reach this branch.
+        inDefault = true;
         consume();
       } else {
-        // Insert a space before IDENT/KEYWORD tokens to prevent concatenation like
-        // `lin token` → `lintoken`. Punctuation tokens (: ( ) > etc.) don't need spaces.
-        if (cur.length > 0 && (tok.kind === 'IDENT' || tok.kind === 'KEYWORD' || tok.kind === 'AT_IDENT') &&
-            cur[cur.length - 1] !== ' ') {
-          cur += ' ';
-        }
-        cur += tok.text;
+        if (inDefault) appendTok('def', tok);
+        else appendTok('cur', tok);
         consume();
       }
     }
-    pushParam(cur);
+    pushParam(cur, inDefault ? defBuf : null);
     return params;
   }
 

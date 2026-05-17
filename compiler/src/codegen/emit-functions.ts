@@ -1,5 +1,5 @@
 import { genVar } from "./var-counter.ts";
-import { routePath } from "./utils.ts";
+import { routePath, paramSignature } from "./utils.ts";
 import { emitLogicNode, emitLogicBody, emitFnShortcutBody } from "./emit-logic.js";
 import { CGError } from "./errors.ts";
 import { isServerOnlyNode, collectFunctions } from "./collect.ts";
@@ -443,6 +443,8 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     const paramNames = params.map((p: Param, i: number) =>
       typeof p === "string" ? p.split(":")[0].trim() : ((p as { name?: string }).name ?? `_scrml_arg_${i}`)
     );
+    // §7.3.2: function-decl signatures carry `name = defaultValue` when defaults are present.
+    const paramSigs = params.map((p: Param, i: number) => paramSignature(p, i));
 
     // Check if this function has any server-call callees that need async.
     // S89 §13.2 Sub-Phase B Step 3 — also classifies stdlib Promise<T>
@@ -454,7 +456,7 @@ export function emitFunctions(ctx: CompileContext): { lines: string[]; fnNameMap
     const generatedName = genVar(name);
     fnNameMap.set(name, generatedName);
 
-    lines.push(`${asyncPrefix}function ${generatedName}(${paramNames.join(", ")}) {`);
+    lines.push(`${asyncPrefix}function ${generatedName}(${paramSigs.join(", ")}) {`);
 
     // A1c C16 — §53.9.1 client-side param boundary checks (Locus 3).
     // Mirrors emit-server.ts §53.9.4 wiring, but throws E-CONTRACT-001-RT
