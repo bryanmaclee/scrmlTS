@@ -108,6 +108,33 @@ const TS_STATE_CHILD_STRUCTURAL_TAGS = new Set<string>([
   "machine",
 ]);
 
+// §51.0.B.1 — local-identifier shape (mirror of parsePayloadBindings'
+// validation regex in engine-statechild-parser.ts). Used to filter out
+// non-identifier attribute names that may slip into the TAB-stage attr list
+// for unusual openers (e.g., the parenthesized named-with-colon form
+// `<Done(rows: r)>` — the block-splitter records `rows:` and `r` as two
+// separate bareword attrs; the trailing-colon name is not a valid scope
+// binding and must be skipped).
+const TS_ENGINE_PAYLOAD_BINDING_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+// B1-FUP (S99) — payload-binding scope extraction from engine state-child
+// opener attrs. Recognizes the three SPEC §51.0.B.1 forms:
+//
+//   1. Bare-attribute / parenthesized form (positional) — attrs[i] =
+//      { name: "rows", value: { kind: "absent" } }. Local name = attr name.
+//   2. Named form — attrs[i] = { name: "rows", value: { kind:
+//      "variable-ref", name: "r" } }. Local name = value name (the RHS
+//      identifier introduced into scope), NOT the field name. Per
+//      §51.0.B.1 normative bullet 2: "Bindings introduced by any of the
+//      three forms SHALL be in scope throughout the state-child body".
+//
+// Reserved attribute names (`rule`, `effect`, `history`, `internal:rule`)
+// are skipped regardless of value shape — per §51.0.B.1 reserved-name
+// precedence. Non-identifier names (e.g., `rows:` from the parenthesized-
+// named-with-colon block-splitter shape) are filtered to avoid scope
+// pollution. The canonical engine-statechild-parser (PASS 11) is the
+// authoritative source for binding validity; this helper performs the
+// minimum extraction needed to introduce the local names into TS scope.
 function extractEngineStateChildPayloadBindings(attrs: unknown): string[] {
   if (!Array.isArray(attrs)) return [];
   const out: string[] = [];
@@ -117,9 +144,33 @@ function extractEngineStateChildPayloadBindings(attrs: unknown): string[] {
     if (typeof name !== "string") continue;
     if (TS_ENGINE_STATE_CHILD_RESERVED_ATTRS.has(name)) continue;
     const value = (a as { value?: unknown }).value;
-    if (value && typeof value === "object" && (value as { kind?: unknown }).kind === "absent") {
-      out.push(name);
+    if (!value || typeof value !== "object") continue;
+    const valueKind = (value as { kind?: unknown }).kind;
+    if (valueKind === "absent") {
+      // Positional / parenthesized form — local is the attr name itself.
+      if (TS_ENGINE_PAYLOAD_BINDING_IDENT_RE.test(name)) {
+        out.push(name);
+      }
+      continue;
     }
+    if (valueKind === "variable-ref") {
+      // Named form `<Done rows=r>` or `<Done (rows=r)>` — local is the
+      // RHS identifier (the variable-ref name), NOT the field-side LHS.
+      // The field name (attr name) must itself be a valid identifier
+      // (filters out unusual block-splitter shapes like `rows:`).
+      const refName = (value as { name?: unknown }).name;
+      if (
+        typeof refName === "string" &&
+        TS_ENGINE_PAYLOAD_BINDING_IDENT_RE.test(refName) &&
+        TS_ENGINE_PAYLOAD_BINDING_IDENT_RE.test(name)
+      ) {
+        out.push(refName);
+      }
+      continue;
+    }
+    // Any other value kind (string-literal, logic-block, etc.) is not a
+    // payload binding — adopter has used the attr surface for a non-
+    // binding attribute (e.g., custom user attr). Skip silently.
   }
   return out;
 }
