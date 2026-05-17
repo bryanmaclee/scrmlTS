@@ -1,0 +1,94 @@
+// lex.scrml — top-level entry point: lex(source) -> Token[].
+//
+// PILLAR 5b classification (DD §D1):
+//   The LEX LOOP is dispatched BY engines (LexMode + BracketStack +
+//   ErrorRecovery) — STATE-shape governs which body runs per character.
+//   The PER-TOKEN EMIT + accumulator append is CALCULATION (pure
+//   accumulation into ctx.tokens; no condition-dependent dispatch
+//   beyond the engine-routed mode).
+//
+//   The `lex` function as a whole is `fn` per D1: it takes a source
+//   string and produces a token array — a calculation classification
+//   at the outermost layer, even though its inner machinery is
+//   engine-shaped. Per D1 OQ1: "the operational test classifies the
+//   LOCUS, and a calculation may contain state-shape subroutines."
+//
+// Status (M1.1): functional end-to-end for InCode-only source. The
+// loop dispatches to dispatchInCode when LexMode == .InCode; for the
+// other modes the LIVE M1.1 SURFACE inlines a stub scan (per the
+// dispatchInCode body) and transitions back to .InCode immediately.
+// The M2+ swap-in moves the per-mode dispatch into the engine-routed
+// state-child bodies in lex-mode.scrml.
+
+${
+    import { makeCursor, isEof } from "./cursor.scrml"
+    import { makeEof, TokenKind } from "./token.scrml"
+    import { LexMode, initialMode, setMode, getMode } from "./lex-mode.scrml"
+    import { makeBracketStack, isBalanced as isStackBalanced } from "./bracket-stack.scrml"
+    import { makeRecovery } from "./error-recovery.scrml"
+    import { dispatchInCode } from "./lex-in-code.scrml"
+
+    // makeLexContext — STATE constructor: collects all engine state into
+    // one ctx object. The CANONICAL form would have each engine as a
+    // file-scope singleton (per §51.0.K Machine Cohesion). The LIVE M1.1
+    // SURFACE bundles them in a per-call ctx for re-entrant lex calls
+    // (the parser project's batch nature makes per-call ctx natural; the
+    // engines retain singleton SHAPE per-invocation).
+    export function makeLexContext() {
+        return {
+            tokens:       [],
+            currentMode:  initialMode(),
+            brackets:     makeBracketStack(),
+            recovery:     makeRecovery(),
+        }
+    }
+
+    // lex — entry point. Pure fn over source string (calculation at the
+    // outermost layer; engine-shaped internals dispatch per character).
+    export function lex(source) {
+        const cursor = makeCursor(source)
+        const ctx = makeLexContext()
+
+        // Safety bound: prevent infinite loops if a state-child body
+        // forgets to advance. Bounded by source.length * 4 (room for
+        // multi-token-per-char emit at scrml-extension sites).
+        const maxIters = (source.length + 1) * 4
+        let iters = 0
+
+        while (!isEof(cursor) && iters < maxIters) {
+            const mode = getMode(ctx)
+            const beforePos = cursor.pos
+
+            if (mode == LexMode.InCode) {
+                dispatchInCode(cursor, ctx)
+            } else {
+                // M1.1: any other LexMode bounces back to InCode immediately.
+                // The transition-into work already happened in dispatchInCode
+                // (the stub scanners consume the body + return to InCode).
+                // This branch should be unreachable in M1.1; left as a
+                // safety net + M1.2+ extension point (real per-state
+                // dispatchers route here).
+                setMode(ctx, LexMode.InCode)
+            }
+
+            // Loop-progress sentinel: every iteration must consume input
+            // (cursor.pos must strictly increase) OR emit a token. If
+            // neither happened, advance the cursor by one to break the
+            // potential infinite loop. This shouldn't fire for M1.1 valid
+            // input; it's the ErrorRecovery engine's runtime backstop.
+            if (cursor.pos == beforePos && !isEof(cursor)) {
+                cursor.pos = cursor.pos + 1
+            }
+            iters = iters + 1
+        }
+
+        // EOF token (always emitted last; matches Acorn's tokenizer surface
+        // and lets the parser sentinel-test cleanly).
+        const last = ctx.tokens.length > 0 ? ctx.tokens[ctx.tokens.length - 1] : not
+        if (last is not || last.kind != TokenKind.EOF) {
+            ctx.tokens.push(makeEof(cursor.pos, cursor.line, cursor.col))
+        }
+
+        return ctx.tokens
+    }
+}

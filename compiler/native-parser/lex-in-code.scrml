@@ -1,0 +1,802 @@
+// lex-in-code.scrml — InCode-state body (DD §D2 + this dispatch's
+// substantive M1.1 work).
+//
+// PILLAR 5b classification (DD §D1):
+//   The PER-CHARACTER DISPATCH inside the InCode body is CALCULATION.
+//   A pure fn takes (cursor, ctx) and returns either:
+//     - (emit a Token at the current cursor; advance the cursor)
+//     - (transition LexMode to a non-InCode state; advance cursor past
+//        the opener; emit any tokens that the opener carries).
+//   No condition-dependent dispatch BEYOND the LexMode the engine has
+//   already routed us to — once we're in InCode, character classification
+//   is a pure function of the source byte (OQ1 boundary clarification:
+//   "MIXED answers default to CALCULATION").
+//
+//   The MULTI-CHARACTER OPERATOR DISAMBIGUATION (e.g., `==` vs `=`,
+//   `===` vs `==`, `*=` vs `*`, `**` vs `*`, `=>` vs `=`) is CALCULATION
+//   per DD §D1 (bounded peek + emit; "the operator IS the operator
+//   regardless of where it appears" — pure fn of input bytes).
+//
+//   The NUMERIC LITERAL VALUE PARSING is CALCULATION per DD §D1 canonical
+//   worked example ("numeric value at the lit-string is a function of
+//   the lit-string — total — calculation").
+//
+//   The IDENTIFIER/KEYWORD DISCRIMINATION is CALCULATION (lookup in
+//   token.scrml's JS_KEYWORDS table; pure fn of input bytes).
+//
+// Status (M1.1): SUBSTANTIVE. Emits all InCode-state tokens for the
+// bench-corpus files (whitespace, identifiers, keywords, numeric
+// literals, punctuation, multi-char operators, string/comment/regex
+// transition triggers). String/comment/regex bodies STUB by scanning
+// to a paired delimiter character and emitting a coarse token; M1.2-M1.4
+// dispatches replace the stub with escape-aware lexing per state.
+//
+// scrml-extensions emitted in M1.1: at-prefix idents -> ScrmlAt token;
+// dot-prefix variants -> BareVariant token; tilde -> Tilde token;
+// question-mark + open-brace -> SqlBlock opener (naive); dollar + open-brace
+// -> LogicEscape opener (naive paired-brace scan). These match the DD §D5
+// MUST ADD list (token surface only; AST surface is M2+).
+
+${
+    import { makeCursor, peekChar, peekCharCode, peekStr, advance, isEof, snapshot, restore } from "./cursor.scrml"
+    import { makeToken, makeIdentOrKeyword, makeEof, TokenKind, QuoteKind } from "./token.scrml"
+    import { makeSpan, pointSpan } from "./span.scrml"
+    import { LexMode, setMode } from "./lex-mode.scrml"
+    import { makeBracketStack, push as pushBracket, pop as popBracket, BracketKind, closerMatchesOpener } from "./bracket-stack.scrml"
+
+    // ---------------------------------------------------------------------
+    // Character-classification predicates (CALCULATION; pure fns).
+    // ---------------------------------------------------------------------
+    export function isWhitespaceCode(c) {
+        return c == 32 || c == 9 || c == 11 || c == 12 || c == 160
+    }
+
+    export function isNewlineCode(c) {
+        return c == 10 || c == 13 || c == 0x2028 || c == 0x2029
+    }
+
+    export function isDigit(c) {
+        return c >= 48 && c <= 57
+    }
+
+    export function isHexDigit(c) {
+        return (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102)
+    }
+
+    export function isIdentStart(c) {
+        return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36
+    }
+
+    export function isIdentCont(c) {
+        return isIdentStart(c) || isDigit(c)
+    }
+
+    // ---------------------------------------------------------------------
+    // parseNumericLiteralValue — CALCULATION (DD §D1 canonical example).
+    // Pure fn over the raw lit-string; returns a JS number.
+    // Handles: integer, decimal, 0x.../0X... hex, 0o.../0O... octal,
+    //          0b.../0B... binary, BigInt suffix `n`, numeric separators `_`.
+    // ---------------------------------------------------------------------
+    export function parseNumericLiteralValue(raw) {
+        // strip trailing 'n' (BigInt) for value parsing
+        let body = raw
+        if (body.length > 0 && body.charAt(body.length - 1) == "n") {
+            body = body.substring(0, body.length - 1)
+        }
+        // strip numeric separators (_)
+        body = body.split("_").join("")
+        if (body.length >= 2 && body.charAt(0) == "0") {
+            const p = body.charAt(1)
+            if (p == "x" || p == "X") return parseInt(body.substring(2), 16)
+            if (p == "o" || p == "O") return parseInt(body.substring(2), 8)
+            if (p == "b" || p == "B") return parseInt(body.substring(2), 2)
+        }
+        return Number(body)
+    }
+
+    // ---------------------------------------------------------------------
+    // Reusable scan helpers (CALCULATION + STATE-write to cursor).
+    // ---------------------------------------------------------------------
+
+    // skipWhitespaceAndNewlines — STATE-write (advances cursor).
+    // Whitespace is dropped (Acorn parity); newlines also skipped. Real
+    // tokenizers compatible with Acorn don't emit Whitespace / Newline
+    // tokens by default; our compareTokenizers normalizes either way.
+    export function skipWhitespaceAndNewlines(cursor) {
+        while (!isEof(cursor)) {
+            const c = peekCharCode(cursor, 0)
+            if (isWhitespaceCode(c) || isNewlineCode(c)) {
+                advance(cursor, 1)
+            } else {
+                break
+            }
+        }
+    }
+
+    // scanIdentifier — STATE-write (advances cursor over the ident body) +
+    // CALCULATION (returns the matched substring + span). isIdentStart is
+    // assumed already true at cursor.pos.
+    export function scanIdentifier(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        advance(cursor, 1)
+        while (!isEof(cursor) && isIdentCont(peekCharCode(cursor, 0))) {
+            advance(cursor, 1)
+        }
+        const text = cursor.source.substring(start, cursor.pos)
+        return { text, span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    // scanNumericLiteral — STATE-write + CALCULATION.
+    // Detects 0x/0o/0b prefixes, scans digits + separators + decimal +
+    // exponent + optional BigInt suffix. Returns the raw substring + span.
+    export function scanNumericLiteral(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+
+        // Prefix handling (0x / 0o / 0b)
+        if (peekCharCode(cursor, 0) == 48 /* 0 */ && !isEof(cursor)) {
+            const next = peekChar(cursor, 1)
+            if (next == "x" || next == "X" || next == "o" || next == "O" || next == "b" || next == "B") {
+                advance(cursor, 2)
+                // scan rest (hex/oct/bin tolerant — pure tolerant scan; value
+                // parse handles validation)
+                while (!isEof(cursor)) {
+                    const c = peekCharCode(cursor, 0)
+                    if (isHexDigit(c) || c == 95 /* _ */) {
+                        advance(cursor, 1)
+                    } else {
+                        break
+                    }
+                }
+                if (peekChar(cursor, 0) == "n") advance(cursor, 1)
+                const raw = cursor.source.substring(start, cursor.pos)
+                return { raw, span: makeSpan(start, cursor.pos, line, col) }
+            }
+        }
+
+        // Integer part (digits + separators)
+        while (!isEof(cursor)) {
+            const c = peekCharCode(cursor, 0)
+            if (isDigit(c) || c == 95 /* _ */) {
+                advance(cursor, 1)
+            } else {
+                break
+            }
+        }
+        // Decimal part
+        if (peekChar(cursor, 0) == ".") {
+            const afterDot = peekCharCode(cursor, 1)
+            if (isDigit(afterDot)) {
+                advance(cursor, 1)
+                while (!isEof(cursor)) {
+                    const c = peekCharCode(cursor, 0)
+                    if (isDigit(c) || c == 95) {
+                        advance(cursor, 1)
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+        // Exponent part
+        const ec = peekChar(cursor, 0)
+        if (ec == "e" || ec == "E") {
+            advance(cursor, 1)
+            const sign = peekChar(cursor, 0)
+            if (sign == "+" || sign == "-") advance(cursor, 1)
+            while (!isEof(cursor)) {
+                const c = peekCharCode(cursor, 0)
+                if (isDigit(c)) {
+                    advance(cursor, 1)
+                } else {
+                    break
+                }
+            }
+        }
+        // BigInt suffix
+        if (peekChar(cursor, 0) == "n") advance(cursor, 1)
+
+        const raw = cursor.source.substring(start, cursor.pos)
+        return { raw, span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    // ---------------------------------------------------------------------
+    // M1.1 STUB scanners for string / template / comment / regex bodies.
+    // These ENTER the relevant LexMode (state transition) and SCAN to the
+    // paired terminator without proper escape handling. M1.2-M1.4 dispatches
+    // replace each with escape-aware scanning.
+    //
+    // The transition mechanic itself (setMode + cursor advance) is real;
+    // only the BODY behavior is stub. This is sufficient to keep
+    // tokenization end-to-end functional for InCode-state-only bench files.
+    // ---------------------------------------------------------------------
+
+    export function stubScanSingleString(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        advance(cursor, 1) // skip opening '
+        while (!isEof(cursor)) {
+            const c = peekChar(cursor, 0)
+            if (c == "\\") {
+                // naive: skip the backslash + next char (handles \', \\, \n etc.)
+                advance(cursor, 2)
+                continue
+            }
+            if (c == "'") {
+                advance(cursor, 1)
+                break
+            }
+            advance(cursor, 1)
+        }
+        return { raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    export function stubScanDoubleString(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        advance(cursor, 1) // skip opening "
+        while (!isEof(cursor)) {
+            const c = peekChar(cursor, 0)
+            if (c == "\\") {
+                advance(cursor, 2)
+                continue
+            }
+            if (c == "\"") {
+                advance(cursor, 1)
+                break
+            }
+            advance(cursor, 1)
+        }
+        return { raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    // Template literal — naive paired-backtick scan. Real template lexing
+    // (M1.2) emits TemplateChunk + LogicEscapeOpen + nested LexMode per
+    // §51.0.Q.1; the stub coalesces the whole thing into one TemplateChunk.
+    export function stubScanTemplate(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        advance(cursor, 1) // skip opening backtick
+        let braceDepth = 0
+        while (!isEof(cursor)) {
+            const c = peekChar(cursor, 0)
+            if (c == "\\") {
+                advance(cursor, 2)
+                continue
+            }
+            if (c == "$" && peekChar(cursor, 1) == "{") {
+                braceDepth = braceDepth + 1
+                advance(cursor, 2)
+                continue
+            }
+            if (c == "}" && braceDepth > 0) {
+                braceDepth = braceDepth - 1
+                advance(cursor, 1)
+                continue
+            }
+            if (c == "`" && braceDepth == 0) {
+                advance(cursor, 1)
+                break
+            }
+            advance(cursor, 1)
+        }
+        return { raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    export function stubScanLineComment(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        // skip both `/` chars
+        advance(cursor, 2)
+        while (!isEof(cursor) && !isNewlineCode(peekCharCode(cursor, 0))) {
+            advance(cursor, 1)
+        }
+        return { raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    export function stubScanBlockComment(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        advance(cursor, 2) // skip /*
+        while (!isEof(cursor)) {
+            if (peekChar(cursor, 0) == "*" && peekChar(cursor, 1) == "/") {
+                advance(cursor, 2)
+                break
+            }
+            advance(cursor, 1)
+        }
+        return { raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    // Regex literal — bounded paired-slash scan honoring `[...]` char-class.
+    // Real regex-context detection lives in the caller (regexAllowed flag);
+    // this just scans the body once we know we're in regex context.
+    export function stubScanRegex(cursor) {
+        const start = cursor.pos
+        const line = cursor.line
+        const col = cursor.col
+        advance(cursor, 1) // skip opening /
+        let inClass = false
+        while (!isEof(cursor)) {
+            const c = peekChar(cursor, 0)
+            if (c == "\\") {
+                advance(cursor, 2)
+                continue
+            }
+            if (c == "[") { inClass = true; advance(cursor, 1); continue }
+            if (c == "]") { inClass = false; advance(cursor, 1); continue }
+            if (c == "/" && !inClass) {
+                advance(cursor, 1)
+                break
+            }
+            if (isNewlineCode(peekCharCode(cursor, 0))) {
+                break
+            }
+            advance(cursor, 1)
+        }
+        // flags
+        const flagsStart = cursor.pos
+        while (!isEof(cursor) && isIdentCont(peekCharCode(cursor, 0))) {
+            advance(cursor, 1)
+        }
+        const pattern = cursor.source.substring(start + 1, flagsStart - 1)
+        const flags = cursor.source.substring(flagsStart, cursor.pos)
+        return { pattern, flags, raw: cursor.source.substring(start, cursor.pos), span: makeSpan(start, cursor.pos, line, col) }
+    }
+
+    // ---------------------------------------------------------------------
+    // regexAllowedAfter — CALCULATION (DD §D4 P3): given the most-recently-
+    // emitted token kind, may a `/` at the current cursor position be a
+    // regex literal? Acorn uses a similar previous-token table.
+    //
+    // Heuristic: regex is ALLOWED after operators, after `(`/`[`/`,`/`;`/`=`,
+    // after keywords like `return`/`typeof`/`in`/`of`/`if`/`else`/`while`/...,
+    // and at the start of input (lastKind == null). It is NOT allowed after
+    // an Ident, NumberLit, StringLit, `)`, `]`, `}`, or a postfix-aware
+    // operator. Default safe: division.
+    // ---------------------------------------------------------------------
+    export function regexAllowedAfter(lastKind) {
+        if (lastKind is not) return true
+        if (lastKind == undefined) return true
+        // Cannot follow values/closing brackets — division is intended.
+        if (lastKind == TokenKind.Ident) return false
+        if (lastKind == TokenKind.NumberLit) return false
+        if (lastKind == TokenKind.StringLit) return false
+        if (lastKind == TokenKind.RegexLit) return false
+        if (lastKind == TokenKind.RParen) return false
+        if (lastKind == TokenKind.RBracket) return false
+        if (lastKind == TokenKind.RBrace) return false
+        if (lastKind == TokenKind.Increment) return false
+        if (lastKind == TokenKind.Decrement) return false
+        if (lastKind == TokenKind.KwThis) return false
+        if (lastKind == TokenKind.KwSuper) return false
+        if (lastKind == TokenKind.KwTrue) return false
+        if (lastKind == TokenKind.KwFalse) return false
+        if (lastKind == TokenKind.KwNull) return false
+        if (lastKind == TokenKind.KwUndefined) return false
+        if (lastKind == TokenKind.BareVariant) return false
+        if (lastKind == TokenKind.ScrmlAt) return false
+        return true
+    }
+
+    // ---------------------------------------------------------------------
+    // dispatchInCode — the per-character dispatch for InCode state.
+    //
+    // CALCULATION wrapper around STATE-writes to cursor + ctx.tokens. Each
+    // invocation either:
+    //   1. emits one or more tokens, advancing cursor past them; OR
+    //   2. detects EOF and emits EOF token (caller terminates the loop).
+    //
+    // Per Pillar 5b: the SHAPE of "which character class am I looking at?"
+    // is calculation (pure fn of input byte under the assumption we're in
+    // InCode state — the engine has already established the condition).
+    //
+    // Returns true if a token was emitted (or EOF reached); false if the
+    // dispatch transitioned LexMode (caller should reroute to the relevant
+    // state-child body in M1.2+; in M1.1 the body work runs inline here).
+    // ---------------------------------------------------------------------
+    export function dispatchInCode(cursor, ctx) {
+        skipWhitespaceAndNewlines(cursor)
+        if (isEof(cursor)) {
+            ctx.tokens.push(makeEof(cursor.pos, cursor.line, cursor.col))
+            return true
+        }
+
+        const c0 = peekChar(cursor, 0)
+        const code0 = peekCharCode(cursor, 0)
+        const startPos = cursor.pos
+        const startLine = cursor.line
+        const startCol = cursor.col
+
+        // -------- Identifiers + keywords --------
+        if (isIdentStart(code0)) {
+            const { text, span } = scanIdentifier(cursor)
+            ctx.tokens.push(makeIdentOrKeyword(text, span))
+            return true
+        }
+
+        // -------- Numeric literals --------
+        // Note: a leading `.` followed by a digit is also a numeric literal
+        // (e.g., `.5`). Handle that below in the `.` branch.
+        if (isDigit(code0)) {
+            const { raw, span } = scanNumericLiteral(cursor)
+            const value = parseNumericLiteralValue(raw)
+            ctx.tokens.push(makeToken(TokenKind.NumberLit, raw, span, { value }))
+            return true
+        }
+
+        // -------- scrml-extension: @ident -> ScrmlAt --------
+        if (c0 == "@" && isIdentStart(peekCharCode(cursor, 1))) {
+            advance(cursor, 1) // skip @
+            const { text, span } = scanIdentifier(cursor)
+            const fullSpan = makeSpan(startPos, cursor.pos, startLine, startCol)
+            ctx.tokens.push(makeToken(TokenKind.ScrmlAt, "@" + text, fullSpan, { name: text }))
+            return true
+        }
+
+        // -------- scrml-extension: ~ -> Tilde --------
+        // Distinguish from bitwise-NOT (BitNot) by next-char heuristic:
+        // BitNot context expects an operand (number/ident/paren); the Tilde
+        // accumulator (§32) appears as a standalone primary expression.
+        // M1.1 emits BitNot universally for `~` (Tilde recognition is M2+).
+        if (c0 == "~") {
+            advance(cursor, 1)
+            const span = makeSpan(startPos, cursor.pos, startLine, startCol)
+            ctx.tokens.push(makeToken(TokenKind.BitNot, "~", span, {}))
+            return true
+        }
+
+        // -------- scrml-extension: ?{ -> SqlBlock opener --------
+        // Per §8 ?{ ... } is a bracket-matched SQL embedding. M1.1 emits a
+        // naive paired-brace scan as a single SqlBlock token; M2+ refines.
+        if (c0 == "?" && peekChar(cursor, 1) == "{") {
+            const sqlStart = cursor.pos
+            const sqlLine = cursor.line
+            const sqlCol = cursor.col
+            advance(cursor, 2) // skip ?{
+            let depth = 1
+            while (!isEof(cursor) && depth > 0) {
+                const cc = peekChar(cursor, 0)
+                if (cc == "\\") { advance(cursor, 2); continue }
+                if (cc == "{") { depth = depth + 1; advance(cursor, 1); continue }
+                if (cc == "}") { depth = depth - 1; advance(cursor, 1); continue }
+                advance(cursor, 1)
+            }
+            const raw = cursor.source.substring(sqlStart, cursor.pos)
+            ctx.tokens.push(makeToken(TokenKind.SqlBlock, raw, makeSpan(sqlStart, cursor.pos, sqlLine, sqlCol), { raw }))
+            return true
+        }
+
+        // -------- scrml-extension: dollar + open-brace -> LogicEscapeOpen --------
+        if (c0 == "$" && peekChar(cursor, 1) == "{") {
+            advance(cursor, 2)
+            const span = makeSpan(startPos, cursor.pos, startLine, startCol)
+            const openerText = "$" + "{"
+            ctx.tokens.push(makeToken(TokenKind.LogicEscapeOpen, openerText, span, {}))
+            return true
+        }
+
+        // -------- String literals (M1.1 STUB transitions) --------
+        if (c0 == "'") {
+            setMode(ctx, LexMode.InSingleString)
+            const { raw, span } = stubScanSingleString(cursor)
+            const cooked = raw.substring(1, raw.length - 1) // strip quotes
+            ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Single }))
+            setMode(ctx, LexMode.InCode)
+            return true
+        }
+        if (c0 == "\"") {
+            setMode(ctx, LexMode.InDoubleString)
+            const { raw, span } = stubScanDoubleString(cursor)
+            const cooked = raw.substring(1, raw.length - 1)
+            ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Double }))
+            setMode(ctx, LexMode.InCode)
+            return true
+        }
+        if (c0 == "`") {
+            setMode(ctx, LexMode.InTemplateBody)
+            const { raw, span } = stubScanTemplate(cursor)
+            const cooked = raw.substring(1, raw.length - 1)
+            ctx.tokens.push(makeToken(TokenKind.TemplateChunk, raw, span, { raw, cooked }))
+            setMode(ctx, LexMode.InCode)
+            return true
+        }
+
+        // -------- Comments (M1.1 STUB transitions) --------
+        if (c0 == "/" && peekChar(cursor, 1) == "/") {
+            setMode(ctx, LexMode.InLineComment)
+            stubScanLineComment(cursor)
+            setMode(ctx, LexMode.InCode)
+            // Comments emit no token (Acorn parity)
+            return true
+        }
+        if (c0 == "/" && peekChar(cursor, 1) == "*") {
+            setMode(ctx, LexMode.InBlockComment)
+            stubScanBlockComment(cursor)
+            setMode(ctx, LexMode.InCode)
+            return true
+        }
+
+        // -------- Regex literal vs Division (DD §D4 P3) --------
+        // `/` resolves to regex iff previous-token context allows.
+        if (c0 == "/") {
+            const lastKind = ctx.tokens.length > 0 ? ctx.tokens[ctx.tokens.length - 1].kind : not
+            if (regexAllowedAfter(lastKind)) {
+                setMode(ctx, LexMode.InRegexBody)
+                const { pattern, flags, raw, span } = stubScanRegex(cursor)
+                ctx.tokens.push(makeToken(TokenKind.RegexLit, raw, span, { pattern, flags }))
+                setMode(ctx, LexMode.InCode)
+                return true
+            }
+            // Division operator path (handled by punctuation/operator block below)
+        }
+
+        // -------- Punctuation + operators (multi-char-aware) --------
+        // Order matters: longest match first (=== before == before =).
+        if (c0 == "=") {
+            if (peekStr(cursor, 3) == "===") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.StrictEqual, "===", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "==") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.Equal, "==", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "=>") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.Arrow, "=>", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Assign, "=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "!") {
+            if (peekStr(cursor, 3) == "!==") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.StrictNotEqual, "!==", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "!=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.NotEqual, "!=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Bang, "!", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "<") {
+            if (peekStr(cursor, 2) == "<=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.LessEqual, "<=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "<<") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.BitShiftLeft, "<<", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.LessThan, "<", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == ">") {
+            if (peekStr(cursor, 3) == ">>>") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.BitShiftRightUnsigned, ">>>", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == ">=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.GreaterEqual, ">=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == ">>") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.BitShiftRight, ">>", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.GreaterThan, ">", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "+") {
+            if (peekStr(cursor, 2) == "++") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.Increment, "++", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "+=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.PlusAssign, "+=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Plus, "+", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "-") {
+            if (peekStr(cursor, 2) == "--") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.Decrement, "--", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "-=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.MinusAssign, "-=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Minus, "-", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "*") {
+            if (peekStr(cursor, 2) == "**") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.StarStar, "**", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            if (peekStr(cursor, 2) == "*=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.StarAssign, "*=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Star, "*", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "/") {
+            // We reach here only if regex was NOT allowed (handled above).
+            if (peekStr(cursor, 2) == "/=") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.SlashAssign, "/=", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Slash, "/", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "%") {
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Percent, "%", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "&") {
+            if (peekStr(cursor, 2) == "&&") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.LogicalAnd, "&&", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.BitAnd, "&", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "|") {
+            if (peekStr(cursor, 2) == "||") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.LogicalOr, "||", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.BitOr, "|", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "^") {
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.BitXor, "^", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "?") {
+            if (peekStr(cursor, 2) == "??") {
+                advance(cursor, 2)
+                ctx.tokens.push(makeToken(TokenKind.NullishCoalesce, "??", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Question, "?", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == ".") {
+            // .Variant (bare variant) — scrml-extension §14.10
+            if (isIdentStart(peekCharCode(cursor, 1))) {
+                // Heuristic: bare-variant if previous token is NOT a value/end
+                // (i.e., we're in expression-primary position). Reuse the
+                // regexAllowedAfter table — same predicate-class.
+                const lastKind = ctx.tokens.length > 0 ? ctx.tokens[ctx.tokens.length - 1].kind : not
+                if (regexAllowedAfter(lastKind)) {
+                    advance(cursor, 1) // skip .
+                    const { text, span } = scanIdentifier(cursor)
+                    const fullSpan = makeSpan(startPos, cursor.pos, startLine, startCol)
+                    ctx.tokens.push(makeToken(TokenKind.BareVariant, "." + text, fullSpan, { name: text }))
+                    return true
+                }
+                // Otherwise: member-access Dot (handled below)
+            }
+            // .5 numeric literal
+            if (isDigit(peekCharCode(cursor, 1))) {
+                const { raw, span } = scanNumericLiteral(cursor)
+                const value = parseNumericLiteralValue(raw)
+                ctx.tokens.push(makeToken(TokenKind.NumberLit, raw, span, { value }))
+                return true
+            }
+            // ...spread
+            if (peekStr(cursor, 3) == "...") {
+                advance(cursor, 3)
+                ctx.tokens.push(makeToken(TokenKind.Ellipsis, "...", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+                return true
+            }
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Dot, ".", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+
+        // -------- Brackets (drive BracketStack engine) --------
+        if (c0 == "(") {
+            pushBracket(ctx.brackets, BracketKind.Paren, makeSpan(startPos, startPos + 1, startLine, startCol))
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.LParen, "(", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == ")") {
+            popBracket(ctx.brackets)
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.RParen, ")", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "{") {
+            pushBracket(ctx.brackets, BracketKind.Brace, makeSpan(startPos, startPos + 1, startLine, startCol))
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.LBrace, "{", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "}") {
+            popBracket(ctx.brackets)
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.RBrace, "}", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "[") {
+            pushBracket(ctx.brackets, BracketKind.Bracket, makeSpan(startPos, startPos + 1, startLine, startCol))
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.LBracket, "[", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == "]") {
+            popBracket(ctx.brackets)
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.RBracket, "]", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == ";") {
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Semicolon, ";", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == ",") {
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Comma, ",", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+        if (c0 == ":") {
+            advance(cursor, 1)
+            ctx.tokens.push(makeToken(TokenKind.Colon, ":", makeSpan(startPos, cursor.pos, startLine, startCol), {}))
+            return true
+        }
+
+        // -------- Unknown character — skip + record (calculation-level
+        // diagnostic; ErrorRecovery activation is M1.3+ work) --------
+        advance(cursor, 1)
+        return true
+    }
+}

@@ -108,3 +108,34 @@ export const scrmlNativeParserStub = {
 
 /** Convenience export — the two-parser tuple a comparator iterates. */
 export const CONFORMANCE_PARSERS = [acornParser, scrmlNativeParserStub];
+
+/**
+ * scrml-native LEXER (M1.1) — the bottom-up, scrml-authored lexer.
+ *
+ * Lives at `compiler/native-parser/` (see README.md there). M1.1 emits a
+ * Token[] for InCode-state source; strings/templates/comments/regex use
+ * stub scans (M1.2-M1.4 dispatches replace them).
+ *
+ * This comparator surface mirrors the parser surface above — `tokenize` is
+ * the lexer equivalent of `parse`. The companion test file is
+ * `compiler/tests/parser-conformance-lexer.test.js` (M1.1; runs the bench
+ * corpus + an inline micro-corpus).
+ *
+ * M2+ wires this into the scrmlNativeParserStub.parse body (replacing the
+ * Acorn passthrough); for M1.1 the two surfaces remain separate so the
+ * lexer can be exercised independently of the parser.
+ */
+// @ts-ignore — JS-host shadow per compiler/native-parser/README.md
+import { lex as scrmlNativeLexFn } from "../../native-parser/lex.js";
+
+export const scrmlNativeLexerM1_1 = {
+  name: "scrml-native-lexer-m1.1",
+  tokenize(source) {
+    if (typeof source !== "string") return { tokens: null, error: "non-string input" };
+    try {
+      return { tokens: scrmlNativeLexFn(source), error: null };
+    } catch (err) {
+      return { tokens: null, error: err && err.message ? err.message : String(err) };
+    }
+  },
+};

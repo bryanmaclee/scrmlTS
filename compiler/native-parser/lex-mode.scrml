@@ -1,0 +1,126 @@
+// lex-mode.scrml — LexMode engine (DD §D2 composed-engines, top-level).
+//
+// PILLAR 5b classification (DD §D1):
+//   LexMode IS the canonical positive STATE example for the parser project.
+//   - Finite named conditions: InCode / InTemplateBody / InSingleString /
+//     InDoubleString / InLineComment / InBlockComment / InRegexBody.
+//   - Transition contract: `'` opens InSingleString; `"` opens InDouble;
+//     a backtick opens InTemplateBody; `//` opens InLineComment; `/*` opens
+//     InBlockComment; `/` in regex-context opens InRegexBody. Each non-
+//     InCode state has rule=.InCode as its return path; EOF terminates.
+//   - "What condition is this in right now?" — yes (the lexer dispatches
+//     per-character based on this question).
+//   - Lifecycle / history: per-template-interpolation re-entry, per-string
+//     entry/exit; the `history` attribute on .InTemplateBody is canonical
+//     per DD §D2 + §51.0.N (deferred from M1.1, gated on M1.2 template body).
+//
+//   Engine is THE correct shape per the §D1 two-table operational test.
+//   `fn`-shape would lose to engine on EVERY axis named in DD §D1.
+//
+// Status (M1.1): canonical <engine> declaration LANDS at top-level (parses +
+// compiles). The state-children bodies are skeletal for M1.2-M1.4:
+//   - InCode  — real body in lex-in-code.scrml (this dispatch's substantive
+//     work; dispatched-to from the loop in lex.scrml).
+//   - InTemplateBody / InSingleString / InDoubleString  — STUB for M1.2
+//     (string + template-literal escape-aware lexing).
+//   - InLineComment / InBlockComment — STUB for M1.3 (comment scanning).
+//   - InRegexBody — STUB for M1.4 (regex literal scanning; needs
+//     prev-token context per DD §D4 P3).
+//
+// In M1.1 the JS-host LIVE SURFACE drives the transition dispatch (see
+// `currentMode` cell + `setMode` calculation below). The <engine> block
+// is the canonical scrml-source shape that the M4+ swap-in lights up.
+//
+// ANOMALY surfaced during M1.1: scrml line-comments (`//`) inside <engine>
+// state-child bodies that contain `${...}` literal text are reached by the
+// block-tokenizer (the comment is not stripped before bracket matching);
+// the inner `${...}` opens a logic context that derails state-child closure
+// detection. Workaround: keep state-child bodies bare for M1.1; long-form
+// commentary lives at file-top. Filed for follow-up review (DD §D4 P-type
+// classification: scrml-language tension surfaced; not blocking).
+
+${
+    type LexMode:enum = {
+        InCode,
+        InTemplateBody,
+        InSingleString,
+        InDoubleString,
+        InLineComment,
+        InBlockComment,
+        InRegexBody,
+    }
+}
+
+// CANONICAL scrml-source SHAPE — the engine declaration. Per §51.0 the
+// engine auto-declares its reactive variable `@lexMode` (per §51.0.C, the
+// for=LexMode → @lexMode lowercasing rule). State-children carry rule=
+// contracts per §51.0.F.
+//
+// Bodies are deliberately BARE in M1.1 (see ANOMALY note above).
+<engine for=LexMode initial=.InCode>
+    <InCode rule=(.InTemplateBody | .InSingleString | .InDoubleString | .InLineComment | .InBlockComment | .InRegexBody)></>
+    <InTemplateBody rule=.InCode></>
+    <InSingleString rule=.InCode></>
+    <InDoubleString rule=.InCode></>
+    <InLineComment  rule=.InCode></>
+    <InBlockComment rule=.InCode></>
+    <InRegexBody    rule=.InCode></>
+</>
+
+${
+    // ---------------------------------------------------------------------
+    // LIVE M1.1 SURFACE — JS-host mirror of the engine above.
+    //
+    // The canonical engine's variable would be `@lexMode` (auto-declared per
+    // §51.0.C). In M1.1 we mirror this with a `currentMode` slot inside the
+    // lex run's `ctx` object (created in lex.scrml). Transitions are simple
+    // assignments — same dispatch shape as the engine's `rule=`, just at the
+    // JS-host layer.
+    //
+    // Pillar 5b note: the SHAPE of the dispatch is state-machine — when the
+    // M4+ swap-in lights up the engine above, every transition site below
+    // becomes a write to @lexMode and the runtime engine's `rule=` enforces.
+    // ---------------------------------------------------------------------
+
+    // LexMode variant tags (mirror of the canonical enum's .Variant names).
+    export const LexMode = Object.freeze({
+        InCode:          "InCode",
+        InTemplateBody:  "InTemplateBody",
+        InSingleString:  "InSingleString",
+        InDoubleString:  "InDoubleString",
+        InLineComment:   "InLineComment",
+        InBlockComment:  "InBlockComment",
+        InRegexBody:     "InRegexBody",
+    })
+
+    // initialMode — calculation (pure fn: returns the .Variant the engine
+    // starts in). Matches `initial=.InCode` on the engine above.
+    export function initialMode() {
+        return LexMode.InCode
+    }
+
+    // setMode — STATE write helper (writes to ctx.currentMode).
+    // In the canonical form this would be `@lexMode = .NewMode`. The runtime
+    // engine's rule= contract validates legal transitions; in M1.1 we trust
+    // the dispatch sites in lex-in-code.scrml to honor the rule= matrix.
+    export function setMode(ctx, mode) {
+        ctx.currentMode = mode
+    }
+
+    // getMode — calculation (read).
+    export function getMode(ctx) {
+        return ctx.currentMode
+    }
+
+    // legalTransitionsFromInCode — calculation: the rule= matrix declared
+    // on the <InCode> state-child as a JS-host lookup table. Used by
+    // dispatchInCode to validate transitions at the live-surface layer.
+    export const LEGAL_FROM_IN_CODE = Object.freeze({
+        InTemplateBody:  true,
+        InSingleString:  true,
+        InDoubleString:  true,
+        InLineComment:   true,
+        InBlockComment:  true,
+        InRegexBody:     true,
+    })
+}
