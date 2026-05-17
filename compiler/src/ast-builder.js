@@ -1225,6 +1225,245 @@ export class TABError extends Error {
 }
 
 // ---------------------------------------------------------------------------
+// E-SWITCH-FORBIDDEN — expression-text scanner
+// ---------------------------------------------------------------------------
+
+/**
+ * §17 + §34: the JS `switch` keyword is universally forbidden in scrml. The
+ * post-parse `collectForbiddenSwitches` walker (S99 A7) catches every
+ * `switch-stmt` AST node, but the walker only fires when the parser produced
+ * a `switch-stmt` node in the AST. Several call sites consume `${...}` body
+ * text as a raw expression string and hand it to acorn via `parseExprToNode`
+ * — when the body's first depth-0 keyword is `switch`, acorn fails the parse
+ * (`switch` is a statement keyword, not an expression) and returns an
+ * `escape-hatch` ExprNode with `estreeType: "ParseError"`. No `switch-stmt`
+ * node ever lands in the AST and the walker has nothing to walk.
+ *
+ * Concrete bypass path (the FOLLOW-UP gap pinned by S99 A7):
+ *   `<button onclick=${ switch (1) { case 1: ... } }>x</button>`
+ *   ─► block-splitter emits one markup block for `<button ...>x</button>`
+ *   ─► tokenizer emits one ATTR_EXPR token holding the raw inner text
+ *      (` switch (1) { case 1: ... } `) — see tokenizer.ts:455-473
+ *   ─► parseAttributes' ATTR_EXPR branch (~L1435) hands the raw to
+ *      safeParseExprToNodeGlobal → parseExprToNode → acorn parseExpression
+ *      → ParseError escape-hatch → silently swallowed
+ *
+ * Other call sites with the same shape:
+ *   - parseAttributes ATTR_BLOCK non-props branch (~L1418): `{...}` brace-block
+ *     value (lambda or event handler) — also fed to safeParseExprToNodeGlobal
+ *   - parseLiftTag attribute-value BLOCK_REF branch (~L2924-2935): inline
+ *     `${...}` value inside a `lift <tag attr=${...}/>` markup (the parser
+ *     unwraps the `${ ... }` shell and passes the inner to safeParseExprToNode)
+ *
+ * Structural fix: at every call site where a `${...}` (or `{...}`) body's
+ * RAW INNER TEXT is sent to acorn-based parsing without going through the
+ * full TAB statement-parser path, ALSO scan the raw text for the `switch`
+ * keyword at depth-0 statement-start position and emit E-SWITCH-FORBIDDEN.
+ *
+ * `findForbiddenSwitchInRaw(raw, innerStartOffset)`:
+ *   - `raw`: the inner expression text (the contents BETWEEN `${` and `}`,
+ *     or BETWEEN `{` and `}`, etc.). Excludes the brace delimiters.
+ *   - `innerStartOffset`: absolute source offset of `raw[0]`. The caller
+ *     computes this from `valTok.span.start + 2` for `${...}` (skip 2 chars
+ *     for `${`) or `valTok.span.start + 1` for `{...}` (skip 1 for `{`).
+ *
+ * Returns an array of `{ absoluteOffset }` — one entry per `switch` keyword
+ * occurrence at depth-0 statement-position. The caller emits one
+ * E-SWITCH-FORBIDDEN per entry, using a span whose `start` equals
+ * `absoluteOffset`; dedup against `collectForbiddenSwitches` is automatic
+ * because dedup is keyed on `(file, span.start)` and the walker can only fire
+ * for switch-stmt nodes — which by definition don't exist on this path.
+ *
+ * String / comment skipping is conservative: line comments (`//`), block
+ * comments (`/* * /`), single-quoted strings, double-quoted strings, and
+ * template literals (`` ` `` ... `` ` ``) are skipped. INSIDE a template
+ * literal's `${...}` interpolation, the scanner re-enters expression mode and
+ * still detects `switch`. Property-access shape (`.switch`) is excluded — a
+ * dot-prefixed `switch` is a JS property name, not a keyword.
+ *
+ * The scanner is intentionally simple: it does NOT track operator context, so
+ * a `switch` used as a freestanding identifier-in-expression-position (e.g.
+ * `let switch = 1`) WOULD also fire — but that's correct: `switch` is a
+ * reserved word in JS and cannot be used as an identifier anywhere either,
+ * per SPEC §17's universal forbid clause.
+ */
+function findForbiddenSwitchInRaw(raw, innerStartOffset) {
+  if (!raw || typeof raw !== "string") return [];
+  // Fast path: no `switch` substring at all.
+  if (raw.indexOf("switch") === -1) return [];
+  const out = [];
+  const n = raw.length;
+  const isWordChar = (ch) => /[A-Za-z0-9_$]/.test(ch);
+
+  // Recursive-ish scan over a region [start, n). `templateDepth` tracks brace
+  // depth inside a template-literal interpolation so we know when to exit
+  // back to the literal context (caller's responsibility — this helper just
+  // walks linearly and skips delimited regions).
+  let i = 0;
+  while (i < n) {
+    const c = raw[i];
+    // Line comment
+    if (c === "/" && raw[i + 1] === "/") {
+      i += 2;
+      while (i < n && raw[i] !== "\n") i++;
+      continue;
+    }
+    // Block comment
+    if (c === "/" && raw[i + 1] === "*") {
+      i += 2;
+      while (i < n - 1 && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    // Double-quoted string
+    if (c === '"') {
+      i++;
+      while (i < n && raw[i] !== '"') {
+        if (raw[i] === "\\" && i + 1 < n) { i += 2; continue; }
+        i++;
+      }
+      i++;
+      continue;
+    }
+    // Single-quoted string
+    if (c === "'") {
+      i++;
+      while (i < n && raw[i] !== "'") {
+        if (raw[i] === "\\" && i + 1 < n) { i += 2; continue; }
+        i++;
+      }
+      i++;
+      continue;
+    }
+    // Template literal — scan inside, but re-enable detection inside `${...}`.
+    if (c === "`") {
+      i++;
+      while (i < n && raw[i] !== "`") {
+        if (raw[i] === "\\" && i + 1 < n) { i += 2; continue; }
+        if (raw[i] === "$" && raw[i + 1] === "{") {
+          // Interpolation: scan inside as expression. Track brace depth so
+          // we close the interpolation correctly. Inside, we still detect
+          // `switch` at any depth (consistent with the outer-loop behavior;
+          // depth here means template-interpolation brace depth, not
+          // statement-vs-expression context).
+          i += 2;
+          let depth = 1;
+          while (i < n && depth > 0) {
+            const cc = raw[i];
+            if (cc === "{") { depth++; i++; continue; }
+            if (cc === "}") {
+              depth--;
+              i++;
+              if (depth === 0) break;
+              continue;
+            }
+            // Skip nested strings inside interpolation (minimal — just
+            // quotes and template literals; avoids false-positives on
+            // string content like `"a switch"`).
+            if (cc === '"' || cc === "'") {
+              const q = cc;
+              i++;
+              while (i < n && raw[i] !== q) {
+                if (raw[i] === "\\" && i + 1 < n) { i += 2; continue; }
+                i++;
+              }
+              i++;
+              continue;
+            }
+            // `switch` keyword inside interpolation
+            if (cc === "s" && raw.slice(i, i + 6) === "switch") {
+              const before = i > 0 ? raw[i - 1] : " ";
+              const after = i + 6 < n ? raw[i + 6] : " ";
+              if (!isWordChar(before) && before !== "." && !isWordChar(after)) {
+                out.push({ absoluteOffset: innerStartOffset + i });
+              }
+            }
+            i++;
+          }
+          continue;
+        }
+        i++;
+      }
+      i++;
+      continue;
+    }
+    // `switch` keyword — word-boundary match, exclude property-access (`.switch`).
+    if (c === "s" && raw.slice(i, i + 6) === "switch") {
+      const before = i > 0 ? raw[i - 1] : " ";
+      const after = i + 6 < n ? raw[i + 6] : " ";
+      if (!isWordChar(before) && before !== "." && !isWordChar(after)) {
+        out.push({ absoluteOffset: innerStartOffset + i });
+        i += 6;
+        continue;
+      }
+    }
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Wrapper around `findForbiddenSwitchInRaw` that emits one TABError per hit
+ * directly into the supplied `errors` array.
+ *
+ * `raw` is the token's text (the content already extracted by the tokenizer —
+ * for `${...}` the inner expression text, for `{...}` the inner block text,
+ * for `(...)` the parenthesized expression including the parens, for `"..."`
+ * the inner string content). `valTokSpan` is the token's span (covers the
+ * entire token including any delimiters).
+ *
+ * `baseOffset` is the absolute source offset of `raw[0]`. Callers compute
+ * this as `valTokSpan.start + delimiterChars` where delimiterChars is the
+ * count of delimiter characters at the start of the token's source:
+ *   2 for `${...}` (skip `$` and `{`)
+ *   1 for `{...}` ATTR_BLOCK (skip `{`)
+ *   1 for `"..."` (skip `"`)
+ *   0 for `(...)` ATTR_EXPR (token text includes parens)
+ *   0 for unquoted / `!...` ATTR_EXPR (no leading delimiter)
+ *
+ * The resulting `span.start` is the exact absolute source offset of the
+ * `switch` keyword — within the same uniqueness space as the inline TAB
+ * fire-site spans, so the post-parse `collectForbiddenSwitches` walker's
+ * dedup index `(file, span.start)` works transparently. (In practice, no
+ * switch-stmt AST node can land here — acorn rejects `switch` as an
+ * expression — so dedup is structurally impossible to violate, but
+ * matching the span shape keeps the invariant clean.)
+ */
+function emitForbiddenSwitchInRaw(raw, valTokSpan, baseOffset, filePath, errors) {
+  if (!raw || !valTokSpan) return;
+  const hits = findForbiddenSwitchInRaw(raw, baseOffset);
+  if (hits.length === 0) return;
+  for (const hit of hits) {
+    const relIndex = hit.absoluteOffset - baseOffset;
+    // Compute line/col by walking the raw prefix.
+    let line = valTokSpan.line;
+    let col = valTokSpan.col + (baseOffset - valTokSpan.start);
+    for (let j = 0; j < relIndex; j++) {
+      if (raw[j] === "\n") { line++; col = 1; }
+      else { col++; }
+    }
+    const span = {
+      file: filePath,
+      start: hit.absoluteOffset,
+      end: hit.absoluteOffset + 6,
+      line,
+      col,
+    };
+    errors.push(new TABError(
+      "E-SWITCH-FORBIDDEN",
+      "E-SWITCH-FORBIDDEN: `switch` is not a scrml keyword. " +
+      "Did you mean: " +
+      "`<match for=Type> ... </match>` for structural exhaustive case-analysis " +
+      "(Tier 1 block form; produces markup or executes statements per arm), " +
+      "or `match expr { .Variant -> ... }` for value-return case-analysis " +
+      "(Tier 1 JS-style form; produces a value in expression position)? " +
+      "See SPEC §18 for match block-form, primer §1 for the tier ladder.",
+      span,
+    ));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Span helpers
 // ---------------------------------------------------------------------------
 
@@ -1430,6 +1669,13 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
               while ((m = refRe.exec(raw)) !== null) {
                 if (!refs.includes(m[1])) refs.push(m[1]);
               }
+              // §17 + §34 E-SWITCH-FORBIDDEN: scan the raw block text for the
+              // `switch` keyword. acorn rejects `switch` as not-an-expression,
+              // returns escape-hatch silently — no switch-stmt AST node lands,
+              // so collectForbiddenSwitches has nothing to walk. Detect here.
+              // Token text is the inner of `{...}` (delimiter `{` skipped),
+              // so baseOffset = valSpan.start + 1.
+              emitForbiddenSwitchInRaw(raw, valSpan, (valSpan?.start ?? 0) + 1, filePath, errors);
               value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0, errors), span: valSpan };
             }
           } else if (valTok.kind === "ATTR_EXPR") {
@@ -1442,6 +1688,15 @@ function parseAttributes(tokens, filePath, errors, isComponent = false) {
             while ((m = refRe.exec(raw)) !== null) {
               if (!refs.includes(m[1])) refs.push(m[1]);
             }
+            // §17 + §34 E-SWITCH-FORBIDDEN: scan attribute expression text for
+            // the `switch` keyword (the S99-A7 FOLLOW-UP gap — see findForbiddenSwitchInRaw
+            // docblock). ATTR_EXPR text may come from any of `${...}` / `(...)` /
+            // `!...` / `"..."` / unquoted — the leading-delimiter count varies, but
+            // for dedup and uniqueness purposes valSpan.start is a safe base
+            // (every distinct `switch` keyword in the source has a unique
+            // relative index within the token text and the token spans don't
+            // overlap across attributes).
+            emitForbiddenSwitchInRaw(raw, valSpan, valSpan?.start ?? 0, filePath, errors);
             value = { kind: "expr", raw, refs, exprNode: safeParseExprToNodeGlobal(raw, filePath, valSpan?.start ?? 0, errors), span: valSpan };
           } else {
             // E-ATTR-001: unexpected token type as attribute value
@@ -2926,12 +3181,20 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       const raw = refTok.block?.raw ?? "";
       // Strip ${ and }
       const inner = raw.replace(/^\$\{\s*/, "").replace(/\s*\}$/, "");
+      const refSpan = tokenSpan(refTok, filePath);
+      // §17 + §34 E-SWITCH-FORBIDDEN: same gap as ATTR_EXPR (S99-A7 FOLLOW-UP).
+      // Inline `${...}` body inside a `lift <tag attr=${...}/>` markup —
+      // safeParseExprToNode hands inner to acorn, which rejects `switch` as
+      // not-an-expression and silently swallows it. Scan the inner text here
+      // so the keyword surfaces a diagnostic. baseOffset uses refSpan.start
+      // for uniqueness; the inner content starts ~2 chars in (after `${`).
+      emitForbiddenSwitchInRaw(inner, refSpan, refSpan?.start ?? 0, filePath, errors);
       return {
         kind: "expr",
         raw: inner,
         refs: [],
-        exprNode: safeParseExprToNode(inner, tokenSpan(refTok, filePath)?.start ?? 0),
-        span: tokenSpan(refTok, filePath),
+        exprNode: safeParseExprToNode(inner, refSpan?.start ?? 0),
+        span: refSpan,
       };
     }
     // Identifier or call: ident / ident.prop / ident(args)

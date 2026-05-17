@@ -124,24 +124,24 @@ describe("E-SWITCH-FORBIDDEN universal coverage (A7)", () => {
     expect(switchErrors(r).length).toBe(1);
   });
 
-  test("FOLLOW-UP: switch in ${} attribute body is currently silent (separate gap)", () => {
-    // A7 follow-up finding: `switch` keyword inside an inline `${...}`
-    // attribute body (event-handler shape) is silently consumed by the
-    // expression collector — it never reaches the parser as a switch-stmt
-    // AST node, so the post-parse walker has nothing to walk. The pre-A7
-    // detector wouldn't have fired here either; this is a PRE-EXISTING
-    // silent gap, not a regression introduced by the A7 fix.
+  test("switch in ${} attribute body fires E-SWITCH-FORBIDDEN (S99 follow-on close)", () => {
+    // S99 FOLLOW-UP gap closed: `switch` keyword inside an inline `${...}`
+    // attribute body (event-handler shape) used to be silently consumed by
+    // the expression collector — it never reached the parser as a
+    // switch-stmt AST node, so A7's post-parse walker had nothing to walk
+    // and the pre-A7 detector wouldn't have fired either.
     //
-    // Tracked as a follow-up (per A2-anomaly-2 Option (a) pattern): a
-    // structural fix would need to detect `switch` token at the start of
-    // a `${...}` attribute body's expression collection. Out of A7's scope.
-    //
-    // This test pins the CURRENT behavior so a future fix that closes the
-    // gap will flip the expectation and serve as the regression guard.
+    // Fix: a structural detector (`findForbiddenSwitchInRaw` /
+    // `emitForbiddenSwitchInRaw`) scans the raw attribute-expression text
+    // at the ATTR_EXPR / ATTR_BLOCK / BLOCK_REF consumption boundary and
+    // emits one E-SWITCH-FORBIDDEN per `switch` keyword (skipping strings,
+    // comments, and property-access `.switch`). Dedup against the A7
+    // walker is structurally safe: the walker only fires for switch-stmt
+    // AST nodes, which acorn cannot produce in expression position.
     const r = parse(
       `<program>\n<button onclick=\${ switch (x) { case 1: lift 1 } }>x</button>\n</program>`,
     );
-    expect(switchErrors(r).length).toBe(0);
+    expect(switchErrors(r).length).toBe(1);
   });
 
   test("named event handler with switch in body fires E-SWITCH-FORBIDDEN", () => {
