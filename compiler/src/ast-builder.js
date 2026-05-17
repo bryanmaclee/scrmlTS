@@ -5259,6 +5259,229 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       };
     }
 
+    // A6 (S99 2026-05-17) — NESTED `fn` KEYWORD-FORM DECLARATION inside a
+    // function body. SPEC §7.3.1 explicitly permits nested fn declarations
+    // (inheriting the §48 purity contract). SPEC §48.11: `fn` ≡ `pure function`.
+    //
+    // Without this handler, `fn testExpr(expr) { ... }` inside an outer
+    // `function bodyUsesCompileTimeApis(body) { ... }` falls through to the
+    // bare-expr default, causing collectExpr to emit "statement boundary not
+    // detected" and TS-stage E-SCOPE-001 (the `testExpr` name never enters
+    // the enclosing function's scope).
+    //
+    // This mirrors the top-level fn handler at line ~7760, adapted for nested
+    // bodies: use `parseRecursiveBody()` (which consumes through the matching
+    // `}`) rather than the top-level main-loop pattern. Accepted prefixes:
+    //   `fn name(...) { ... }`             — bare nested fn
+    //   `async fn name(...) { ... }`       — async nested fn
+    //   `server fn name(...) { ... }`      — server nested fn
+    //   `async server fn name(...) { ... }` — async server nested fn
+    //   `pure fn name(...) { ... }`        — redundant `pure` (W-PURE-REDUNDANT)
+    //   `pure server fn name(...) { ... }` — pure + server nested fn
+    //
+    // `pure` tokenizes as IDENT (not KEYWORD); detect via text + lookahead.
+    // `async` and `server` tokenize as KEYWORDs.
+    //
+    // E-PARSE-002 (top-level "fn only in logic context") is NOT re-fired here:
+    // the enclosing function body is already inside a logic block, which the
+    // outer parseLogicBody validated when it produced the parent function-decl.
+    //
+    // Disambiguation note: the bare `fn` keyword may appear in two roles
+    // inside a function body — as a DECLARATION (`fn name(...) { ... }`) or
+    // as a parameter-name reference (e.g. `return fn(1)` where the enclosing
+    // function has a parameter named `fn`). The lookahead helper below
+    // requires the token immediately AFTER the `fn` keyword (after any
+    // prefix `pure`/`server`/`async`) to be an IDENT or KEYWORD that names
+    // the function. A bare `(` after `fn` indicates a call expression, not a
+    // declaration — fall through to the bare-expr path so the call is parsed
+    // as an expression-statement.
+    //
+    // The top-level fn handler does not need this guard because the main
+    // while-loop does not encounter `fn(...)` call expressions at statement
+    // start — those only arise inside function bodies (the parseOneStatement
+    // territory). Bug discovered against test fixture
+    // `arrow-object-literal-body.test.js §3` where `function process(fn) {
+    // return fn(1) }` placed `fn(1)` at parseOneStatement start (because the
+    // return-handler's `RETURN_DECL_KW` heuristic strips the return value
+    // when next token is `fn` — a pre-existing semantic gap that is out of
+    // scope for A6 but did not produce parse-invalid JS until we added the
+    // nested `fn`-decl recognizer).
+    const _peekAfterFnPrefix = () => {
+      // Walk past `async`/`pure`/`server` prefix and `fn` to the name position.
+      let off = 0;
+      const t0 = peek(off);
+      if (t0?.text === "async" && (t0.kind === "KEYWORD" || t0.kind === "IDENT")) off++;
+      else if (t0?.text === "pure" && (t0.kind === "IDENT" || t0.kind === "KEYWORD")) off++;
+      // Optional `server` (always a KEYWORD).
+      if (peek(off)?.kind === "KEYWORD" && peek(off)?.text === "server") off++;
+      // Now the next token should be `fn`. If not, this isn't a fn-decl shape.
+      if (!(peek(off)?.kind === "KEYWORD" && peek(off)?.text === "fn")) return null;
+      off++;
+      return peek(off);
+    };
+    const _nestedFnAsyncLookahead = tok.kind === "KEYWORD" && tok.text === "async" && (
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "fn") ||
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "server" &&
+       peek(2)?.kind === "KEYWORD" && peek(2)?.text === "fn")
+    );
+    const _nestedFnPureLookahead = tok.kind === "IDENT" && tok.text === "pure" && (
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "fn") ||
+      (peek(1)?.kind === "KEYWORD" && peek(1)?.text === "server" &&
+       peek(2)?.kind === "KEYWORD" && peek(2)?.text === "fn")
+    );
+    const _nestedFnServerLookahead = tok.kind === "KEYWORD" && tok.text === "server" &&
+      peek(1)?.kind === "KEYWORD" && peek(1)?.text === "fn";
+    const _bareNestedFn = tok.kind === "KEYWORD" && tok.text === "fn";
+    // Require the post-`fn` token to be IDENT or KEYWORD (the declaration's name).
+    // A `(` indicates `fn(args)` call form — fall through to bare-expr.
+    const _afterFnName = (_bareNestedFn || _nestedFnAsyncLookahead ||
+      _nestedFnPureLookahead || _nestedFnServerLookahead)
+      ? _peekAfterFnPrefix()
+      : null;
+    const _hasName = _afterFnName && (_afterFnName.kind === "IDENT" || _afterFnName.kind === "KEYWORD");
+    if (
+      _hasName && (
+        _bareNestedFn ||
+        _nestedFnAsyncLookahead ||
+        _nestedFnPureLookahead ||
+        _nestedFnServerLookahead
+      )
+    ) {
+      let isAsync = false;
+      let isPure = false;
+      let isServer = false;
+      let startTok = tok;
+
+      if (tok.text === "async") {
+        isAsync = true;
+        startTok = consume(); // consume `async`
+        if (peek().kind === "KEYWORD" && peek().text === "server") {
+          isServer = true;
+          consume(); // consume `server`
+        }
+      } else if (tok.text === "pure") {
+        isPure = true;
+        startTok = consume(); // consume `pure`
+        if (peek().kind === "KEYWORD" && peek().text === "server") {
+          isServer = true;
+          consume(); // consume `server`
+        }
+      } else if (tok.text === "server") {
+        isServer = true;
+        startTok = consume(); // consume `server`
+      }
+      consume(); // consume `fn`
+
+      let name = "";
+      let nameTok = null;
+      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+        nameTok = peek();
+        name = consume().text;
+      }
+      // §6.8: `reset` is a reserved identifier — declaring `fn reset {...}` shadows the keyword.
+      if (nameTok && nameTok.kind === "KEYWORD" && name === "reset") {
+        errors.push(new TABError(
+          "E-RESERVED-IDENTIFIER",
+          `E-RESERVED-IDENTIFIER: \`fn reset {...}\` shadows the reserved \`reset\` keyword (§6.8). Rename the function (e.g., \`clearCount\`) or use \`reset(@cell)\` instead.`,
+          tokenSpan(nameTok, filePath),
+        ));
+      }
+
+      // fn may optionally have a param list. parseParamList handles default
+      // values (A3) and type annotations (§14).
+      let params = [];
+      if (peek().text === "(") {
+        params = parseParamList();
+      }
+
+      // Parse optional `!` (canFail) and `-> ErrorType` after parameter list.
+      let canFail = false;
+      let errorType = undefined;
+      if (peek().text === "!") {
+        consume(); // consume `!`
+        canFail = true;
+        // Parse optional `-> ErrorType`
+        if (peek().text === "-" && peek(1)?.text === ">") {
+          consume(); // consume `-`
+          consume(); // consume `>`
+          if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+            errorType = consume().text;
+          }
+        }
+      }
+
+      // §19.9.7 (A9 Ext 5): `.idempotent()` modifier (parity with top-level fn).
+      let idempotentModifier = false;
+      if (peek().text === "." && peek(1)?.text === "idempotent" &&
+          peek(2)?.text === "(" && peek(3)?.text === ")") {
+        consume(); consume(); consume(); consume();
+        idempotentModifier = true;
+      }
+
+      // Skip return type annotation — `: TypeName` or `-> TypeName` between `)` and `{`
+      // Refinement-type fix (C16): track paren-depth so `>`/`<` inside refinement
+      // predicates (e.g. `number(>0)`) don't decrement angleDepth and over-consume.
+      let hasReturnType = false;
+      let returnTypeAnnotation = "";
+      if (peek().text === ":") {
+        hasReturnType = true;
+        consume(); // consume `:`
+        let angleDepth = 0;
+        let parenDepth = 0;
+        const _retToks = [];
+        while (peek().kind !== "EOF") {
+          const _t = peek().text;
+          if (_t === "(") { parenDepth++; _retToks.push(consume().text); }
+          else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
+          else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
+          else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else _retToks.push(consume().text);
+        }
+        returnTypeAnnotation = _retToks.join(" ").trim();
+      } else if (!canFail && peek().text === "-" && peek(1)?.text === ">") {
+        hasReturnType = true;
+        consume(); // consume `-`
+        consume(); // consume `>`
+        let angleDepth = 0;
+        let parenDepth = 0;
+        const _retToks = [];
+        while (peek().kind !== "EOF") {
+          const _t = peek().text;
+          if (_t === "(") { parenDepth++; _retToks.push(consume().text); }
+          else if (_t === ")") { parenDepth--; _retToks.push(consume().text); }
+          else if (_t === "<" && parenDepth === 0) { angleDepth++; _retToks.push(consume().text); }
+          else if (_t === ">" && parenDepth === 0) { angleDepth--; _retToks.push(consume().text); }
+          else if (_t === "{" && angleDepth === 0 && parenDepth === 0) break;
+          else _retToks.push(consume().text);
+        }
+        returnTypeAnnotation = _retToks.join(" ").trim();
+      }
+      let body = [];
+      if (peek().text === "{") {
+        consume(); // consume `{`
+        body = parseRecursiveBody();
+      }
+
+      return {
+        id: ++counter.next,
+        kind: "function-decl",
+        name,
+        params,
+        body,
+        fnKind: "fn",
+        isServer,
+        ...(isAsync ? { isAsync: true } : {}),
+        ...(isPure ? { isPure: true } : {}),
+        canFail,
+        errorType,
+        ...(hasReturnType ? { hasReturnType: true } : {}),
+        ...(returnTypeAnnotation ? { returnTypeAnnotation } : {}),
+        ...(idempotentModifier ? { idempotentModifier: true } : {}),
+        span: spanOf(startTok, peek()),
+      };
+    }
+
     // LIN-DECL: `lin name = expr` → linear type variable declaration (§35.2)
     // lin is now a KEYWORD. Detect before TILDE-DECL so bare `lin` as KEYWORD doesn't fall through.
     // A bare `lin` not followed by `IDENT =` falls through to bare-expr (unusual back-compat).

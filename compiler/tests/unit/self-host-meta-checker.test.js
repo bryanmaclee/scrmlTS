@@ -89,18 +89,12 @@ describe("self-host: meta-checker.scrml compilation", () => {
     expect(existsSync(scrmlFile)).toBe(true);
   });
 
-  // PARTIALLY RESOLVED (A1 — S99 cascade): A1 fixed §A/§B/§C scope-walker
-  // gaps (changes/a1-scope-walker-export-class-closures, commits 8f16e01 +
-  // 92ce1f3 + de7af98). After A1, meta-checker.scrml's error count goes
-  // from 8 → 3 E-SCOPE-001. The residual 3 fire on `fn testExpr(...)` and
-  // its references — a SEPARATE gap: nested `fn name(...) { ... }` (the
-  // `fn` keyword form) inside another function. The TAB stage emits a
-  // "statement boundary not detected" warning and parses the nested fn
-  // as a bare-expr, so `testExpr` never enters scope. That is
-  // ast-builder.js parseLogicBody / parseParamList territory and is
-  // owned by the parallel A2-FUP-3 dispatch per A1 task brief. Keep
-  // skipped until A2-FUP-3 lands.
-  test.skip("compiles without errors [A2-SURFACED — A1 partial fix; residual nested-fn-keyword gap owned by A2-FUP-3]", () => {
+  // RESOLVED (A6 — S99 2026-05-17): nested `fn name(...) { ... }` keyword-form
+  // recognition added to parseOneStatement (ast-builder.js). Mirrors the
+  // top-level fn handler at line ~7760, adapted for nested bodies via
+  // parseRecursiveBody. SPEC §7.3.1 + §48.11. Meta-checker compile is now
+  // clean (no E-SCOPE-001 errors).
+  test("compiles without errors", () => {
     const compilerRoot = resolve(dirname(new URL(import.meta.url).pathname), "../../../compiler");
     const cli = resolve(compilerRoot, "src/cli.js");
 
