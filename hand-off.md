@@ -1,165 +1,118 @@
-# scrmlTS — Session 97 (CLOSE)
+# scrmlTS — Session 98 (OPEN)
 
-**Date:** 2026-05-16 → 2026-05-17
-**Previous:** `handOffs/hand-off-97.md` (S96 CLOSE rotated as S97 OPEN-pickup snapshot)
-
----
-
-## TL;DR for S98 PA pickup
-
-S97 was an **18-commit marathon** closing the entire S95 + S96 + B1-followon bug catalogs end-to-end AND scaffolding a brute-force ghost-pattern stress harness + 5 new lint families (covering 8 frameworks/paradigms).
-
-- **S95 catalog: 18/18 closed** (16 from S96 + 2 closed this session via repros that revealed Bug 3 was side-effect-fixed and Bug 4 was a 2-coordinated-fix component-expander issue)
-- **S96 followups: 5/5 closed** (chained-ternary, bare-assign, postfix/compound, match-arm RHS, `.advance(.X.history)`)
-- **B1 follow-ons line 231-236: 7/7 closed** (3 verified-already-closed at v0.2.4 cluster + 3 newly closed S97 + 1 new bug discovered during verification, closed same session)
-- **Brute-force stress harness scaffolded** — 34 fixtures + living scorecard, 0 silent-bad-js found
-- **5 new lint families** — W-LINT-016 (React hooks), 017 (Vue composition API), 018 (Svelte stores), 019 (Solid primitives), 020 (Vue `{{}}`), 021 (Angular), 022 (TS types), 023 (React Fragment). Catalog 16 → 23 patterns
-- **All scrmlTS commits pushed at S97 CLOSE**
+**Date:** 2026-05-17
+**Previous:** `handOffs/hand-off-98.md` (S97 CLOSE rotated as S98 OPEN-pickup snapshot)
 
 ---
 
-## Final state at S97 close
+## Session-open state
 
-- **scrmlTS HEAD:** `b855d0d` (W-LINT-023 React Fragment) + wrap-CLOSE landing on top
-- **scrmlTS tag:** `v0.3.0` annotated on `c520369` (unchanged this session)
-- **scrmlTS ahead/behind origin:** 0/0 after push
-- **scrml-support HEAD:** `548a675` (unchanged this session)
-- **scrml-support ahead/behind origin:** 0/0
-- **Working tree:** clean post-wrap-commit
-- **Worktrees:** main only (S97 was all PA-side direct work — no isolation:worktree dispatches)
-- **Inbox:** empty (incoming/dist/ has old artifacts; no live messages)
-- **Outbox:** 1 message dropped at `6nz/handOffs/incoming/` re: S96 Bug 14 §5.2.2 revert
-- **Hook config:** configuration B (pre-commit + post-commit + pre-push); pre-push gate held across all 18+ commits
-
-**Tests at HEAD `b855d0d`:** **13,019 pass / 117 skip / 1 todo / 0 fail / 667 files / 43,402 expect**.
-
-Delta vs S96 close (12,892 / 117 / 1 / 0 / 657 / 43,202):
-- **+127 pass** (new test files + new fixtures)
-- **+10 new test files** (657 → 667)
-- **+200 expects**
-- **0 regressions** throughout
+- **scrmlTS HEAD:** `16d8aa4` (S97 CLOSE rotate hand-off-97)
+- **scrmlTS ahead/behind origin:** 0/0
+- **scrml-support HEAD:** `f14bb42` (S98-open: merge S85 machine-B user-voice additions into chronological slot)
+- **scrml-support ahead/behind origin:** **1/0 ahead** — push pending
+- **Working tree (scrmlTS):** `M docs/articles/teej_baiting_tweet.md` (pre-session WIP, see Open Question 1)
+- **Working tree (scrml-support):** clean tracked; 5 untracked `voice/articles/2026-05-09-*` files + untracked `tools/` (pre-session WIP, see Open Question 2)
+- **Worktrees:** main only
+- **Inbox (scrmlTS):** empty
+- **Inbox (scrml-support):** empty
+- **Hook config:** configuration B (pre-commit + post-commit + pre-push)
+- **Tests at HEAD:** not yet re-run this session; S97 close baseline was 13,019 pass / 117 skip / 1 todo / 0 fail / 667 files / 43,402 expect
 
 ---
 
-## S97 commit ledger (18 commits, chronological)
+## S98 open — cross-machine sync reconciliation (already done)
 
-```
-3b06ad8  fix(parser): escape-hatch raw slice misaligned when preprocessForAcorn changes string length
-2fd5f7a  docs(master-list): correct stale Bug 2 status — closed v0.2.3, not pending
-07c345a  fix(tokenizer): event-handler bare-assignment shape per SPEC §5.2.3 L19
-5df1a3a  fix(codegen+tokenizer): bare-form postfix update + compound assigns per SPEC §5.2.3
-2503382  fix(component-expander): S95 Bug 4 — prop ref in call-ref attribute args
-27c4202  docs(master-list): S97 verification pass on B1 follow-ons line 231-236
-b503391  docs(kickstarter-v1): correct stale `onclick=fn()` event-injection claim per SPEC §5.2.2
-c451ae6  fix(codegen): match-arm RHS bare-variant placeholder unmask in rewriteEnumVariantAccess
-4e7c70e  docs(master-list): mark match-arm RHS bare-variant CLOSED (c451ae6)
-8c9c891  fix(codegen): route @-prefix reactive-method-call event handlers through structured emit
-7facfc7  docs(master-list): mark .advance(.X.history) CLOSED + last open follow-on
-0a3388f  fix(engine-statechild-parser): rule= value bounded by trailing boolean attr
-15ad767  docs(master-list): mark rule= boolean-attr-boundary CLOSED (0a3388f)
-1f390c2  test(stress): brute-force ghost-pattern coverage harness — initial 34-fixture pass
-dd601ad  feat(lint): W-LINT-016 — React hook calls (useState, useEffect, useRef, ...)
-12e2881  feat(lint): W-LINT-017/018/019 — Vue + Svelte + Solid reactive-primitive lints
-184c011  feat(lint): W-LINT-020 (Vue {{}}), W-LINT-021 (Angular), W-LINT-022 (TS) — close all uncovered-gap
-b855d0d  feat(lint): W-LINT-023 — React Fragment opener `<>`
-```
+Session opened with a cross-machine divergence: this machine's `scrml-support` was 1 commit behind origin (carrying the S96 `pa-scrmlTS.md` canonical-home move), AND carried 5 uncommitted S85 user-voice entries that never reached origin. Origin meanwhile had S86 → S95 user-voice entries this machine never pulled.
 
-Plus this wrap-CLOSE commit landing master-list + changelog + hand-off.
+**Resolution executed S98 open (user-authorized via session-start question):**
+1. Stashed local 102-line `user-voice-scrmlTS.md` modification.
+2. `git pull --ff-only` brought local from `745adde` (S85) to `548a675` (S96).
+3. `git stash pop` produced conflict on user-voice (both sides modified the same region).
+4. Conflict resolved via deterministic Python script: inserted local S85 entries into chronological slot (between origin's S85 Wave-2.5 entry and the `## Session 86` header). No content lost on either side; verbatim preserved.
+5. Committed as `f14bb42 docs(user-voice): merge S85 machine-B additions in chronological slot`.
+
+**Status:** scrml-support has 1 unpushed commit (the merge). Push when user authorizes — likely batched with subsequent S98 work.
 
 ---
 
-## Final stress harness scorecard (S97 close)
+## Carry-forward from S97 close (NOT yet picked up)
 
-| Category | Pre-S97 | S97 close | Delta |
-|---|---|---|---|
-| ghost-caught (specific lint fires) | 12 | **26** | +14 |
-| compile-error (specific E-* fires) | — | 3 | — |
-| generic-error (caught but adopter-unhelpful) | — | 1 (Svelte `$store` only) | — |
-| silent-bad-js (compiles, JS broken) | — | 0 | — |
-| clean-pass (regression guards) | — | 4 | — |
-| **uncovered-gap (silent acceptance)** | — | **0** ✅ | — |
+### From hand-off-98.md (S97 close) §"Open questions to surface immediately"
 
-Lint catalog: **16 → 23 patterns** (+7 entries; W-LINT-016 through W-LINT-023).
+1. **Svelte `$store` auto-subscribe lint** — the only remaining generic-error in the brute-force stress harness. Needs $-prefix ident context detection. v0.3.x candidate. Three approach options listed in S97 hand-off.
+2. **pa-scrmlTS.md kickstarter v1→v2 reference staleness** — confirmed S98 open: `pa-scrmlTS.md:391` still cites `docs/articles/llm-kickstarter-v1-2026-04-25.md`. v2 (`llm-kickstarter-v2-2026-05-04.md`) self-declares as superseding v1. Quick doc decision needed.
+3. **Postfix value-semantic** — `rewriteReactiveAssign` returns NEW value (matches `++x` not `x++`); value-position silently wrong. Document-only finding; vanishingly rare. v0.3.x watch-item.
+4. **`feel-of-performance` empirical study** — S83-queued, deferred S94/S95/S96/S97. Is this still the right priority slot?
+5. **Brute-force harness extension candidates** — Alpine.js / HTMX / Lit / Stencil / Web Components. Trigger when adopter friction signals.
 
----
+### From user-voice-scrmlTS.md S94/S95 (most recent durable directives)
 
-## Bug catalog state at S97 close
+6. **Heads-up coding session** — S94 verbatim: *"I don't think we have pushed the canonical of this language hard enough... next session I want to have a heads-up coding session to see what we can and cannot do with this language."* S95 was supposed to be this; per S95 user-voice it became partially bug-fix-heavy. Not explicitly named in the S97 hand-off carry-forward. Possibly already absorbed, possibly still owed.
+7. **Missing state-system primitive — event-with-payload → transition** — S95 user-direct: scrml currently has no state-system surface for "event with payload triggers transition consuming the payload." Forced into `function` glue today. Blocks the 90/10 fn/function ratio target. Filed as v0.4+ language-design dispatch candidate at `docs/changes/heads-up-s95-bugs/MISSING-PRIMITIVE.md`.
+8. **State-vs-logic boundary axiom (S94 corrected S95)** — the corrected reading: state system should be able to fully DESCRIBE its own transitions; logic CAN describe state mutations but SHOULDN'T HAVE TO. Apply during language-addition reviews + example-corpus audits.
+9. **Track 2 (LLM corpus presence)** — at least as important as Track 1 (compiler correctness). Concrete moves listed S95: LLM benchmark, open-source examples, honest current-state page, voice essays (3 candidates), synthetic corpus generation deferred.
+10. **`building anyway` essay scaffold** — drafted S95 at `scrml-support/voice/articles/building-anyway-draft-s95.md` (scaffold only; user authors). Marketing-adjacent — Rule 1 says don't volunteer unless user raises.
 
-- **S95 catalog**: 18/18 closed end-to-end
-- **S96 followups**: 5/5 closed end-to-end
-- **B1 follow-ons (master-list line 231-236)**: 7/7 closed end-to-end (incl. 1 new surfaced during S97 verification, closed same session)
+### From master memory rules
 
-The "B1 surfaced v0.2.x gaps" table (master-list §0.6 line 217-227) was already 9/9 closed at S96 close after Bug 2 status correction in `2fd5f7a`. So:
-
-**ALL filed compiler bugs are closed.** Remaining items are:
-1. Special-shape: Svelte `$store` auto-subscribe (not yet lint-covered — needs $-prefix ident context detection)
-2. Latent: postfix value-semantic (inline note in `rewriteReactiveAssign` — silently-wrong only in value-position, vanishingly rare in scrml source)
-3. Doc: pa-scrmlTS.md kickstarter v1→v2 staleness (pa.md cites v1, but v2 supersedes per its own header)
-4. Research: `feel-of-performance` empirical study (S83-queued, deferred S94/S95/S96/S97)
-
----
-
-## Process wins this session
-
-1. **Test-baseline integrity**: 0 regressions across 18 commits + 5 wrap-bookkeeping commits. Pre-push gate held throughout — no `--no-verify` invocations.
-2. **Master-list staleness cross-verification**: Bug 2 closed-at-v0.2.3 was carrying as "STILL PENDING"; B1 follow-on entries similarly carrying stale "tracked for later" status when v0.2.4 had closed them. Cross-verify-against-changelog discipline applied; 4 stale entries corrected. Reinforces S82 precedent and the broader Rule 4 principle (derived planning docs are not normative).
-3. **Hand-off framing scope-discovery**: S96 hand-off described "chained-ternary" bug as the trigger; actual trigger was `::` + FunctionExpression in arg position. S96 "remaining `.advance(.X.history)` bug" was actually broader `@<var>.method(args)` class. Adopter-shape repro frequently reveals scope different than hand-off cited. Filed as memory rule candidate.
-4. **Stress harness as living scorecard**: pass/fail encodes "current truth"; trajectory matters. Future sessions can chip at the 1 remaining `generic-error` (Svelte `$store`) without rebuilding the test infrastructure. Fixture additions are cheap (push to one of the framework arrays).
-5. **PA wrap-suggestion reflex correction**: at ~43% context used, PA proposed wrap; user pushed back. Memory rule `feedback_dont_wrap_at_43_percent.md` filed mid-session and immediately applied — wrap only proposed at ~85% remaining (this current wrap fires at user's explicit "wrap and push" trigger).
-
----
-
-## Process incidents (worth noting)
-
-### Test-fixture syntax errors mid-development
-
-Two tests in S97 had to be fixed after initial-write fail:
-- `§1.2 onclick=@compound.field.method(arg)` in `event-handler-reactive-method-call.test.js` — used compound state-decl syntax that doesn't compile cleanly. Replaced with zero-arg `@items.sort()` test.
-- `§1.2 prop ref in conditional if= expression` in `component-prop-substitution-call-ref.test.js` — used `<Badge active=true/>` which fires E-SCOPE-001 on bare `true`/`false`. Replaced with single-arg prop ref test.
-
-Lesson: fixture authoring should compile-check incrementally; canonical scrml fixture shapes per primer §3 / §6 are the safest path.
-
-### One scope-misreading in Bug 4 first attempt
-
-First Bug 4 fix attempt (`substituteProps` extension only) didn't fix the symptom because the upstream `parseComponentBody` re-tokenize via `normalizeTokenizedRaw` was destroying the call-ref shape BEFORE substitution. Reverted, added `normalizeTokenizedRaw` Step 6 first, then re-applied substituteProps fix. Both required end-to-end. Surfaced the layered tokenize-then-substitute pattern in component-expander.
-
----
-
-## Things S98 PA must NOT screw up (carried + extended)
-
-### pa.md Rules permanently load-bearing (now at `scrml-support/pa-scrmlTS.md`)
-- Rule 1 — no marketing/article/tweet work unless user brings up
-- Rule 2 — full-production-language fidelity
-- Rule 3 — right answer beats easy answer 99.999%
-- Rule 4 — SPEC is normative; derived planning docs are NOT
-- Rule 5 — shoot straight; politeness for politeness sake rejected
-
-### S96/S97 PA-memory rules permanently load-bearing
-- `feedback_read_spec_at_session_start.md` — SPEC-INDEX.md read; verify spec sections directly before spec-implication changes (S96 directive)
-- `feedback_declaration_form_in_reproducers.md` — synthetic reproducers use V5-strict canonical shape (S96)
-- `feedback_dont_wrap_at_43_percent.md` — don't propose wrap above 50% remaining; 1M context budget actively tracked by user (S97 NEW)
-
-### S97-specific anti-patterns
-- DO NOT trust master-list "STILL PENDING" markers without cross-verifying against `docs/changelog.md`. The changelog is normative for shipping status; master-list is derived. (S97 precedent: Bug 2 + 4 B1 entries had stale status.)
-- DO NOT trust hand-off bug framing without reproduce-first verification. (S97 precedent: chained-ternary actually `::`+FunctionExpression; `.advance(.X.history)` actually broader `@<var>.method(args)` class.)
-- DO NOT extend the stress harness fixtures without classifying them; the test pass-fail encodes "current truth" — fixtures without classification break the contract.
+11. **lin redesign — Approach B ratified** — per memory rule `project_lin_redesign.md`: deep-dive done, spec amendments drafted, implementation is the next step (NOT another deep-dive/debate). Has this been picked up anywhere in S96/S97? Not visible in the bug-chip catalog work. Verify before any new dispatch on lin.
 
 ---
 
 ## Open questions to surface immediately (S98 PA pickup)
 
-1. **Svelte `$store` auto-subscribe** — the only remaining generic-error fixture. Pattern is `\$[a-zA-Z]\w*` in markup-interp context but distinguishing from legitimate `$identifier` (rare but possible JS identifier with leading `$`) needs more context than the current pre-Stage-2 lint pass has. Possible approaches: (a) require `$ident` to appear inside `${...}` markup-interp slot, (b) require `$ident` followed by `.subscribe(` or specific Svelte API patterns, (c) lint at later stage with scope info. File as v0.3.x candidate.
+1. **The pre-session WIP in `docs/articles/teej_baiting_tweet.md` (scrmlTS) — 10 lines appending the actual tweet text back into a file that S89 explicitly archived as a stub (`# teej baiting tweet (RETRACTED)`).** This contradicts the S89 retraction. Likely cross-machine filesystem-sync residue or another session's experimental edit that never committed. Disposition needed: (a) revert (preserve the S89 retracted-stub shape, content stays in `scrml-support/archive/articles-skipped/`), (b) keep + reframe as un-retraction with intent stated, (c) leave as-is and surface in next session. Rule 1 (no marketing/article work unless user raises) means PA should NOT auto-decide.
+2. **The pre-session WIP in `scrml-support` — `user-voice-scrmlTS.md` merge already handled, but 5 untracked `voice/articles/2026-05-09-*` files (dev.to opener / modularity reply v1+v2 / server-keyword-deprecation) + untracked `tools/` directory remain.** These predate this session. Likely from S85+ adopter-content work that never got committed. Disposition pending user — same Rule 1 framing for the article drafts; `tools/` may be operational scaffolding.
+3. **scrml-support push** — `f14bb42` (S98 user-voice merge) is unpushed. Push now (low risk, append-only verbatim), batch with S98 substantive work, or defer to wrap?
+4. **What's the actual S98 priority?** Several live carry-forwards (heads-up coding from S94/S95; bug-catalog drain — though S97 hand-off says all filed compiler bugs are closed; perf-feel empirical study from S83; lin redesign implementation; Svelte `$store` lint). User direction needed before any dispatch.
 
-2. **pa-scrmlTS.md kickstarter v1→v2 reference staleness** — pa.md cites `docs/articles/llm-kickstarter-v1-2026-04-25.md` for dev-dispatch briefings; v2 (`llm-kickstarter-v2-2026-05-04.md`) self-declares as superseding v1. Should pa.md be updated to point to v2? Or is there a reason v1 is the canonical brief (e.g., v2 might have its own gaps)? Quick doc-side decision needed.
+---
 
-3. **Postfix value-semantic** — inline note in `rewriteReactiveAssign` flags that `setter(X, getter(X) + 1)` lowering returns NEW value (matches `++x` not `x++` semantic). For event-handler statement context the difference is invisible; for value-position the postfix return is silently wrong. Document-only finding; concrete fix would balloon complexity for vanishingly rare scrml shape. File as v0.3.x watch-item.
+## Session-start checklist status
 
-4. **`feel-of-performance` empirical study** — S83-queued, deferred S94/S95/S96/S97. Not picked up. Open question: is this still the right priority slot or has it been superseded by other work?
+- [x] Read `pa-scrmlTS.md` (852 lines, full)
+- [x] Read `docs/PA-SCRML-PRIMER.md` (898 lines, full)
+- [x] Read `compiler/SPEC-INDEX.md` (320 lines, full)
+- [x] Read `master-list.md` §0 dashboard (§0-§0.6, lines 100-271)
+- [x] Read `hand-off.md` (S97 CLOSE, full)
+- [x] Read recent contentful user-voice (S94 entries + all S95 entries, ~205 lines covering 8 substantive blocks)
+- [x] Rotate `hand-off.md` → `handOffs/hand-off-98.md`
+- [x] Create fresh `hand-off.md` (this file)
+- [x] Cross-machine sync hygiene reconciliation (scrml-support fast-forward + user-voice merge)
+- [ ] Confirm push policy with user
+- [ ] Surface priorities + open questions; await direction
 
-5. **Brute-force harness extension candidates** — S97 harness covers React/Vue/Svelte/Solid/Angular/TS/JS-paradigm. Not yet covered: Alpine.js (`x-data`, `x-on:`), HTMX (`hx-get`, `hx-trigger`), Lit (`@event=`, `?bool=`, `.prop=`), Stencil (`@Watch()`, `@Listen()`), Web Components (`customElements.define`, `attachShadow`). Each could add 3-5 fixtures and 1 new lint code. Trigger when adopter friction signals.
+---
+
+## Things S98 PA must NOT screw up (carry-forward, unchanged)
+
+### pa-scrmlTS.md Rules permanently load-bearing
+
+- Rule 1 — no marketing/article/tweet work unless user brings up (relevant TODAY for `teej_baiting_tweet.md` WIP + 5 untracked voice/articles files)
+- Rule 2 — full-production-language fidelity; no "users won't notice" reasoning
+- Rule 3 — right answer beats easy answer 99.999%
+- Rule 4 — SPEC is normative; derived planning docs are NOT (verify against `compiler/SPEC.md` before encoding spec-derived claims)
+- Rule 5 — shoot straight; politeness-for-politeness rejected; push back when warranted
+
+### S96/S97 PA-memory rules permanently load-bearing
+
+- `feedback_read_spec_at_session_start.md` — SPEC-INDEX.md read at open; verify spec sections directly before spec-implication changes
+- `feedback_declaration_form_in_reproducers.md` — synthetic reproducers use V5-strict canonical shape
+- `feedback_dont_wrap_at_43_percent.md` — don't propose wrap above 50% remaining; 1M context budget actively tracked by user
+
+### S97-specific anti-patterns (carry into S98)
+
+- DO NOT trust master-list "STILL PENDING" markers without cross-verifying against `docs/changelog.md`
+- DO NOT trust hand-off bug framing without reproduce-first verification
+- DO NOT extend the stress harness fixtures without classifying them
+
+### S98 NEW (this session — cross-machine sync)
+
+- DO surface cross-machine divergence at session open. The `pa-scrmlTS.md` stub redirect to a file not-yet-pulled was a structural hint that pull was needed; merging the user-voice divergence was load-bearing because the local 102 lines were verbatim user statements (append-only verbatim rule applies). Always: stash → pull → reconcile → commit before any other work touches the divergent paths.
 
 ---
 
 ## Tags
 
-#session-97 #CLOSE #18-commits #all-bug-catalogs-closed #s95-18-of-18 #s96-followups-5-of-5 #b1-followons-7-of-7 #stress-harness-scaffolded #lint-catalog-16-to-23 #5-new-lint-families #zero-regressions #full-production-fidelity
+#session-98 #OPEN #cross-machine-sync-reconciled #user-voice-merge-S85-machine-B #pre-session-WIP-surfaced #carry-forward-from-S97-close #heads-up-coding-still-pending #lin-implementation-still-pending
