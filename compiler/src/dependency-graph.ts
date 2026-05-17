@@ -1080,6 +1080,26 @@ export function runDG(input: DGInput): DGOutput {
   const edges: DGEdge[] = [];
   const errors: DGError[] = [];
 
+  // S99 perf — Edge-existence index for O(1) dedup lookups inside fixpoint and
+  // per-reactive-node loops. Maintained in lockstep with `edges` via `pushEdge`.
+  // Replaces the prior O(E) `edges.some(...)` scans at the fixpoint sites that
+  // S94 perf-characterization identified as the source of DG's super-linear scaling
+  // (8.5× growth in marginal per-file cost across the 28→108-file sweep).
+  const edgeKeySet = new Set<string>();
+  const edgeKey = (from: NodeId, to: NodeId, kind: string): string =>
+    `${from}|${to}|${kind}`;
+  // Helper: push an edge AND register its key. Use everywhere `edges.push` was
+  // previously called so the index never drifts. Returns true if the edge was
+  // newly added, false if it already existed (caller may use this to skip
+  // companion side-effects, e.g. `reactiveVarReaders` registration).
+  const pushEdge = (from: NodeId, to: NodeId, kind: DGEdgeKind): boolean => {
+    const k = edgeKey(from, to, kind);
+    if (edgeKeySet.has(k)) return false;
+    edgeKeySet.add(k);
+    edges.push({ from, to, kind });
+    return true;
+  };
+
   // Build a set of server-boundary function names from RouteMap
   const serverFunctionNames = new Set<string>();
   const functionBoundaryById = new Map<string, Boundary>();
@@ -1091,6 +1111,10 @@ export function runDG(input: DGInput): DGOutput {
 
   // Build a global function name -> DGNode ID mapping (populated during node creation)
   const functionNameToNodeId = new Map<string, NodeId>();
+  // S99 perf — reverse index (nodeId → fnName) maintained in lockstep with
+  // `functionNameToNodeId.set(...)`. Replaces the O(F) iterate-by-value lookup
+  // inside the derived-cell transitive-reads loop.
+  const nodeIdToFunctionName = new Map<NodeId, string>();
   // Build function name -> boundary mapping from RouteMap
   const functionNameToBoundary = new Map<string, Boundary>();
 
@@ -1127,6 +1151,7 @@ export function runDG(input: DGInput): DGOutput {
       nodes.set(nodeId, dgNode);
       if (fnNode.name) {
         functionNameToNodeId.set(fnNode.name, nodeId);
+        nodeIdToFunctionName.set(nodeId, fnNode.name);
         functionNameToBoundary.set(fnNode.name, boundary);
         if (boundary === "server") {
           serverFunctionNames.add(fnNode.name);
@@ -1409,11 +1434,7 @@ export function runDG(input: DGInput): DGOutput {
       const boundary = functionNameToBoundary.get(calleeName) ?? "client";
       const edgeKind: DGEdgeKind = boundary === "server" ? "awaits" : "calls";
 
-      edges.push({
-        from: nodeId,
-        to: calleeNodeId,
-        kind: edgeKind,
-      });
+      pushEdge(nodeId, calleeNodeId, edgeKind);
     }
 
     delete dgNode._pendingCallees;
@@ -1458,7 +1479,7 @@ export function runDG(input: DGInput): DGOutput {
         }
         const targetNodeId = reactiveVarNodeIds.get(varName);
         if (targetNodeId) {
-          edges.push({ from: nodeId, to: targetNodeId, kind: "reads" });
+          pushEdge(nodeId, targetNodeId, "reads");
           const readers = reactiveVarReaders.get(varName);
           if (readers) readers.add(nodeId);
         }
@@ -1472,7 +1493,7 @@ export function runDG(input: DGInput): DGOutput {
         if (calleeNodeId) {
           const boundary = functionNameToBoundary.get(calleeName) ?? "client";
           const edgeKind: DGEdgeKind = boundary === "server" ? "awaits" : "calls";
-          edges.push({ from: nodeId, to: calleeNodeId, kind: edgeKind });
+          pushEdge(nodeId, calleeNodeId, edgeKind);
         }
       }
       delete anyNode._pendingDerivedCallees;
@@ -1501,7 +1522,7 @@ export function runDG(input: DGInput): DGOutput {
       }
       const targetNodeId = reactiveVarNodeIds.get(upstreamVarName);
       if (targetNodeId) {
-        edges.push({ from: nodeId, to: targetNodeId, kind: "engine-derived-reads" });
+        pushEdge(nodeId, targetNodeId, "engine-derived-reads");
         const readers = reactiveVarReaders.get(upstreamVarName);
         if (readers) readers.add(nodeId);
       }
@@ -1553,7 +1574,7 @@ export function runDG(input: DGInput): DGOutput {
             for (const varName of refs) {
               const reactiveNodeId = reactiveVarNodeIds.get(varName);
               if (reactiveNodeId) {
-                edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
+                pushEdge(fnDGNodeId, reactiveNodeId, "reads");
                 const readers = reactiveVarReaders.get(varName);
                 if (readers) readers.add(fnDGNodeId);
               }
@@ -1567,7 +1588,7 @@ export function runDG(input: DGInput): DGOutput {
           if (bodyNode.kind === "state-decl" && bodyNode.name && !_isFoldedDerived) {
             const reactiveNodeId = reactiveVarNodeIds.get(bodyNode.name);
             if (reactiveNodeId) {
-              edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "writes" });
+              pushEdge(fnDGNodeId, reactiveNodeId, "writes");
             }
           }
 
@@ -1586,7 +1607,7 @@ export function runDG(input: DGInput): DGOutput {
             for (const varName of headerRefNames) {
               const reactiveNodeId = reactiveVarNodeIds.get(varName);
               if (reactiveNodeId) {
-                edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
+                pushEdge(fnDGNodeId, reactiveNodeId, "reads");
                 const readers = reactiveVarReaders.get(varName);
                 if (readers) readers.add(fnDGNodeId);
               }
@@ -1608,7 +1629,7 @@ export function runDG(input: DGInput): DGOutput {
             for (const varName of condRefNames) {
               const reactiveNodeId = reactiveVarNodeIds.get(varName);
               if (reactiveNodeId) {
-                edges.push({ from: fnDGNodeId, to: reactiveNodeId, kind: "reads" });
+                pushEdge(fnDGNodeId, reactiveNodeId, "reads");
                 const readers = reactiveVarReaders.get(varName);
                 if (readers) readers.add(fnDGNodeId);
               }
@@ -1762,12 +1783,9 @@ export function runDG(input: DGInput): DGOutput {
             const callerNodeId = functionNameToNodeId.get(fnName);
             const reactiveNodeId = reactiveVarNodeIds.get(varName);
             if (callerNodeId && reactiveNodeId) {
-              const exists = edges.some(
-                e => e.from === callerNodeId && e.to === reactiveNodeId && e.kind === "reads"
-              );
-              if (!exists) {
-                edges.push({ from: callerNodeId, to: reactiveNodeId, kind: "reads" });
-              }
+              // S99 perf — O(1) edge-existence lookup via edgeKeySet (was O(E)
+              // `edges.some(...)` scan inside this fixpoint hot loop).
+              pushEdge(callerNodeId, reactiveNodeId, "reads");
               const readers = reactiveVarReaders.get(varName);
               if (readers) readers.add(callerNodeId);
             }
@@ -1782,16 +1800,31 @@ export function runDG(input: DGInput): DGOutput {
   // contribute reactive deps to the deriving cell. `formatCount(@n)` where
   // `formatCount` is `fn` adds NO transitive deps; `reactiveLog(@n)` where
   // `reactiveLog` is `function` DOES inherit `reactiveLog`'s reactive reads.
+  // S99 perf — bucket calls/awaits edges by `from` node ONCE before the per-
+  // reactive-node loop, replacing the O(R·E) `edges.filter(...)` scan inside
+  // the loop with an O(E) one-shot index build + O(1) lookup. Only edges
+  // emitted by Phase 1 are visible here; the fixpoint above only adds `reads`
+  // edges, never `calls`/`awaits`, so the bucket is stable for this pass.
+  const callOrAwaitEdgesByFrom = new Map<NodeId, DGEdge[]>();
+  for (const e of edges) {
+    if (e.kind !== "calls" && e.kind !== "awaits") continue;
+    let bucket = callOrAwaitEdgesByFrom.get(e.from);
+    if (!bucket) {
+      bucket = [];
+      callOrAwaitEdgesByFrom.set(e.from, bucket);
+    }
+    bucket.push(e);
+  }
   for (const [nodeId, dgNode] of nodes) {
     if (dgNode.kind !== "reactive") continue;
-    const callEdges = edges.filter(e => e.from === nodeId && (e.kind === "calls" || e.kind === "awaits"));
+    const callEdges = callOrAwaitEdgesByFrom.get(nodeId);
+    if (!callEdges) continue;
     for (const callEdge of callEdges) {
       const calledNode = nodes.get(callEdge.to);
       if (!calledNode || calledNode.kind !== "function") continue;
-      let calledFnName: string | null = null;
-      for (const [fnName, fnNodeId] of functionNameToNodeId) {
-        if (fnNodeId === callEdge.to) { calledFnName = fnName; break; }
-      }
+      // S99 perf — O(1) reverse lookup via nodeIdToFunctionName (was O(F)
+      // iterate-by-value of functionNameToNodeId).
+      const calledFnName = nodeIdToFunctionName.get(callEdge.to) ?? null;
       if (!calledFnName) continue;
       // Pure `fn` callees skip transitive read propagation (audit §1.1).
       if (fnPurityMap.get(calledFnName) === true) continue;
@@ -1808,11 +1841,11 @@ export function runDG(input: DGInput): DGOutput {
         }
         const reactiveNodeId = reactiveVarNodeIds.get(varName);
         if (!reactiveNodeId) continue;
-        const exists = edges.some(
-          e => e.from === nodeId && e.to === reactiveNodeId && e.kind === "reads"
-        );
-        if (!exists) {
-          edges.push({ from: nodeId, to: reactiveNodeId, kind: "reads" });
+        // S99 perf — O(1) edge-existence lookup via pushEdge (was O(E)
+        // `edges.some(...)` scan inside this per-reactive-node loop).
+        // pushEdge returns true on first insert; mirror the prior
+        // `if (!exists)` branch by only crediting the reader then.
+        if (pushEdge(nodeId, reactiveNodeId, "reads")) {
           const readers = reactiveVarReaders.get(varName);
           if (readers) readers.add(nodeId);
         }
@@ -1899,7 +1932,7 @@ export function runDG(input: DGInput): DGOutput {
         fileAST.filePath,
       );
       nodes.set(mrNodeId, mrDGNode);
-      edges.push({ from: mrNodeId, to: reactiveNodeId, kind: "reads" });
+      pushEdge(mrNodeId, reactiveNodeId, "reads");
     }
 
     function sweepNodeForAtRefs(node: ASTNode): void {
@@ -2404,13 +2437,9 @@ export function runDG(input: DGInput): DGOutput {
           return;
         }
 
-        const exists = edges.some(
-          (e) => e.from === fromNodeId && e.to === toNodeId
-            && e.kind === "validator-reads",
-        );
-        if (!exists) {
-          edges.push({ from: fromNodeId, to: toNodeId, kind: "validator-reads" });
-        }
+        // S99 perf — O(1) edge-existence lookup via pushEdge (was O(E)
+        // `edges.some(...)` scan inside this per-validator-ident loop).
+        pushEdge(fromNodeId, toNodeId, "validator-reads");
       });
     }
   }
