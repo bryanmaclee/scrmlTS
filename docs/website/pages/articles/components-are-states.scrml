@@ -1,0 +1,47 @@
+// scrml.dev /articles/components-are-states
+//
+// SKELETON — day-1 thin stub. Full content migration is day-30 work
+// alongside the live-compile <CodeExample src=...> component pass.
+// See scrml-support/docs/deep-dives/scrml-dev-mdn-style-architecture-2026-05-17.md §5.
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        <header class="mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                Articles &rsaquo; The why
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900">
+                Components are states
+            </h1>
+            <p class="text-slate-600 mt-3">
+                Why the UI of a scrml app should be a fully-handled state machine — and why that's a language-level claim, not a framework convention.
+            </p>
+        </header>
+
+        <div class="p-4 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-900">
+            <strong>Day-1 scaffold.</strong> The full article body lives at
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/docs/articles/components-are-states-devto-2026-04-29.md"
+               class="font-mono text-amber-900 hover:text-amber-700 underline">
+                docs/articles/components-are-states-devto-2026-04-29.md
+            </a>
+            in the scrmlTS repository. Inline-body migration is queued for
+            day-30 alongside the <code class="font-mono text-xs">&lt;CodeExample src=...&gt;</code>
+            component that lifts the brace-escaping tax from authoring.
+        </div>
+
+        <div class="mt-8 flex gap-3">
+            <a href="https://github.com/bryanmaclee/scrmlTS/blob/main/docs/articles/components-are-states-devto-2026-04-29.md"
+               class="px-4 py-2 bg-slate-900 text-white rounded-md text-sm font-medium hover:bg-slate-800">
+                Read on GitHub &rarr;
+            </a>
+            <a href="/articles"
+               class="px-4 py-2 border border-slate-300 text-slate-900 rounded-md text-sm font-medium hover:bg-slate-50">
+                &larr; All articles
+            </a>
+        </div>
+
+    </article>
+
+</page>

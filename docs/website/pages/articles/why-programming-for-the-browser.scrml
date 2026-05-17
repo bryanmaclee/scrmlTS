@@ -1,0 +1,294 @@
+// scrml.dev /articles/why-programming-for-the-browser
+//
+// Flagship article-page full conversion (proof of P2 pattern).
+// Source: docs/articles/why-programming-for-the-browser-needs-a-different-kind-of-language-devto-2026-04-27.md
+// 84 source lines → ~165 scrml lines. Body preserved verbatim except for:
+//   - Frontmatter dropped (scrml file, not markdown)
+//   - Headers wrapped in <h1>/<h2>/<h3> with Tailwind utility classes
+//   - Inline `code` wrapped in <code class="..."> per S86
+//   - Code blocks escaped via &#36;&#123; etc. for ?{} / ${} sites
+//   - dev.to article links → /articles/<slug> scrml.dev routes
+//
+// dev.to publish gets canonical_url=https://scrml.dev/articles/why-programming-for-the-browser
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        <header class="mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">
+                Articles &rsaquo; The why
+            </div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900">
+                Why programming for the browser needs a different kind of language
+            </h1>
+            <p class="text-sm text-slate-500 mt-3 italic">
+                authored by Claude, rubber stamped by Bryan MacLee &mdash; 2026-04-27
+            </p>
+        </header>
+
+        <p class="text-lg text-slate-700 leading-relaxed">
+            <strong>TL;DR: JavaScript wasn't built for today's browser. scrml is.</strong>
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-6">
+            I am part owner of a small trucking outfit based in northeastern Utah, mostly
+            oil and gas. I drive one of the trucks. I also program. Never professionally,
+            but I love solving puzzles. Not an experienced framework developer. I can
+            hobble through React if I HAVE TO. I've spent quite some time thinking about
+            what a language designed <em>for the browser</em> would actually look like.
+            First in my head, then on paper and whiteboards, then through about twenty
+            compiler attempts before the current one started landing.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            That one is public now. People are starting to look. So I want to write down
+            what I have come to believe.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">The browser has shape</h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            When you sit down to write a browser app, you commit to a specific set of
+            things. Reactive state. A server boundary. SQL. Scoped styles. Forms.
+            WebSocket. Workers. Routing. Authentication. Validation.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            JavaScript was not designed for any of these. JavaScript was a scripting
+            language for a 1995 page-with-a-form. The browser grew up. The language did not.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            So the ecosystem grew up around the language instead. React for components.
+            Redux or Zustand for state. React-router for routing. Prisma or Drizzle for
+            SQL. Zod for validation. Styled-components or Tailwind for styling. Socket.IO
+            for sockets. Vite for the build. Each one is a <em>library</em> that
+            retrofits a piece of the browser's shape onto a language that does not model
+            it. The seams between those libraries are where most of the bugs live. The
+            compiler does not own the whole picture, because the language does not model
+            the whole picture.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            That is the gap. Everything else in this article is what closes when the
+            language does model the picture.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">Six things a browser-language should own</h2>
+
+        <h3 class="text-xl font-semibold text-slate-900 mt-8 mb-3">1. State as a type</h3>
+
+        <p class="text-slate-700 leading-relaxed">
+            In most frameworks, state lives in a hook or a binding
+            (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">useState</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">ref</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">createSignal</code>),
+            each with rules you have to follow: call it the same way every render, do not
+            put it in a conditional, follow the dependency-tracking conventions. The
+            rules are not enforced by the language. You learn them by hitting them.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            What if state were a type? An
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;input&gt;</code>
+            is already a state. It has a value, it changes over time, the user interacts
+            with it. Make user-defined state work the same way.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;Card&gt;</code>
+            declares a state type.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;Card/&gt;</code>
+            instantiates one.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">@count</code>
+            is reactive; the compiler tracks reactivity through
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">fn</code>
+            signatures, through
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">match</code>
+            arms, across the server boundary. Errors that frameworks catch at runtime, or
+            never, become compile errors here. There is no conceptual gap between "the
+            input element is a state" and "the user-defined Card is a state."
+        </p>
+
+        <h3 class="text-xl font-semibold text-slate-900 mt-8 mb-3">2. The server boundary as a type-system question</h3>
+
+        <p class="text-slate-700 leading-relaxed">
+            In framework land, where-this-runs is your problem to remember. The compiler
+            cannot help.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            Mark a function
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">server fn</code>
+            and the compiler does the rest. It partitions everything that function
+            touches as server-only, generates the route, generates the
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">fetch</code>
+            stub on the client, and fails compile if you try to read a server-only
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">@var</code>
+            on the client. You stop writing API routes. You stop writing fetch wrappers.
+            You stop having to remember which file runs where.
+        </p>
+
+        <h3 class="text-xl font-semibold text-slate-900 mt-8 mb-3">3. SQL as a primitive</h3>
+
+        <p class="text-slate-700 leading-relaxed">
+            ORMs are tempting because the noise around SQL strings in JS is real. But
+            ORMs trade one kind of noise for another: query DSLs that approximate SQL but
+            never <em>are</em> SQL, schema files that drift from your database, runtime
+            errors when the generated query does not match the live schema.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            If the compiler owns the SQL block, you do not need an ORM.
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">?&#123;SELECT * FROM users WHERE id = $&#123;@id&#125;&#125;.get()</code>
+            writes a parameterized query. The compiler reads your schema. When it sees a
+            query inside a loop, it pre-fetches with
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">WHERE id IN (...)</code>
+            and rebinds the loop body to a
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">Map</code>
+            lookup. No DataLoader. No manual batching. The loop body looks like the loop
+            body should look.
+        </p>
+
+        <h3 class="text-xl font-semibold text-slate-900 mt-8 mb-3">4. CSS without a build step</h3>
+
+        <p class="text-slate-700 leading-relaxed">
+            Native CSS shipped <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">@scope</code>
+            while we were not looking. A browser-language designed today should compile
+            its scoped styles to that, not to a runtime mangler. One spec change in the
+            browser closed a feature most frameworks still ship as a library.
+        </p>
+
+        <h3 class="text-xl font-semibold text-slate-900 mt-8 mb-3">5. Validation as the type</h3>
+
+        <p class="text-slate-700 leading-relaxed">
+            Zod is genuinely impressive engineering. But what Zod cannot do (what no
+            library can do, because it is structurally outside the language) is fail your
+            build.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            If the type system supports inline predicates
+            (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">let amount: number(&gt;0 &amp;&amp; &lt;10000)</code>),
+            then validation IS the type. Violations are
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">E-CONTRACT-001</code>
+            at compile time. Named shapes
+            (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">email</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">url</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">uuid</code>)
+            are first-class. There is no schema file separate from the type. There is no
+            validate-on-the-edge boilerplate.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            This is what I mean by "mutability contracts." Value predicates are the
+            contract on every write. Presence life-cycle
+            (<code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">not</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">is some</code>,
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">lin</code>)
+            is the contract on read order. State machine transitions are the contract on
+            what comes next. Layer them as you need them. Leave them off where you do
+            not. When you do declare one, a
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">fn</code>
+            can mutate through it and remain provably pure.
+        </p>
+
+        <h3 class="text-xl font-semibold text-slate-900 mt-8 mb-3">6. Realtime and workers as syntax</h3>
+
+        <p class="text-slate-700 leading-relaxed">
+            A <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;channel&gt;</code>
+            declares a WebSocket endpoint. The compiler generates the upgrade route, the
+            client connection manager, auto-reconnect, and pub/sub topic routing.
+            Reactive cells declared inside a channel body sync across every connected
+            client &mdash; no
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">@shared</code>
+            marker required (v0.2.0+).
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            A nested
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">&lt;program&gt;</code>
+            compiles to a Web Worker, a WASM module, or a foreign-language sidecar, with
+            typed RPC, supervised restarts, and
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">when message from &lt;#name&gt;</code>
+            event hooks on the parent side. No
+            <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">new WebSocket()</code>.
+            No <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">postMessage</code>
+            plumbing. No worker-loader config. Almost every nontrivial browser app
+            reaches for sockets and workers eventually; the language can either treat
+            them as primitives or watch you write the same plumbing every time.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">What you give up</h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            A language without npm cannot pretend to have npm's ecosystem on day one. I
+            am still convinced npm is evil, but "npm is evil" is a position about
+            ecosystem dynamics, not a feature parity claim. The vendoring story is rough.
+            The <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">scrml vendor add &lt;url&gt;</code>
+            CLI is on the roadmap and not shipped. Until it ships, ingesting an arbitrary
+            client-side bundle is more work than it should be. That is real. I would
+            rather you know than find out the hard way.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            When you enumerate the npm packages a typical scrml app would actually want,
+            the list collapses. The framework tier, the routing tier, the styling tier,
+            the validation tier, the SQL tier, the realtime tier: all of them are
+            subsumed by the language. What is left is heavyweight client-side widgets
+            (CodeMirror, three.js, Leaflet) and the rounding error of small utility
+            libraries the stdlib will absorb over time.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">What you gain</h2>
+
+        <p class="text-slate-700 leading-relaxed">
+            The biggest single win is not a faster runtime. It is moving the work the
+            runtime is doing into the compiler. A reactive system that wires its
+            dependencies at compile time does no work at runtime to figure out what to
+            update. A query that batches itself at compile time does not need a
+            DataLoader. A boundary that is enforced at compile time does not need a
+            validator on the wire. The runtime does less because the compiler did more.
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            That is the design. It is not anti-framework; frameworks are solving the
+            problems available to libraries. It is not framework fatigue. It is just that
+            when a language is shaped for the problem the browser actually poses, the
+            resulting code is shorter, faster, and provably correct in places where the
+            framework path is "hope your tests catch it."
+        </p>
+
+        <p class="text-slate-700 leading-relaxed mt-4">
+            I am sure I am wrong about plenty. But the more I build, the more it feels
+            like the <em>shape</em> was always there waiting for someone to build the
+            language for it. A little short of perfect is still pretty awesome.
+        </p>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">Further reading</h2>
+
+        <ul class="space-y-2 text-slate-700">
+            <li>
+                <a href="/articles/npm-myth" class="text-blue-700 hover:text-blue-900 underline">
+                    What npm package do you actually need in scrml?
+                </a>
+                &mdash; The package-list-collapses argument worked through one tier at a
+                time.
+            </li>
+            <li>
+                <a href="/articles/lsp-and-giti-advantages" class="text-blue-700 hover:text-blue-900 underline">
+                    What scrml's LSP can do that no other LSP can, and why giti follows from the same principle
+                </a>
+                &mdash; What vertical-integration unlocks, in two pieces of the
+                ecosystem.
+            </li>
+            <li>
+                <strong>scrml on GitHub:</strong>
+                <a href="https://github.com/bryanmaclee/scrmlTS" class="text-blue-700 hover:text-blue-900 underline">
+                    github.com/bryanmaclee/scrmlTS
+                </a>
+                &mdash; The working compiler, examples, spec, benchmarks.
+            </li>
+        </ul>
+
+    </article>
+
+</page>

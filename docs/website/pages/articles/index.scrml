@@ -1,0 +1,187 @@
+// scrml.dev /articles — articles landing
+//
+// Each ratified article from docs/articles/ lives at /articles/<slug>.
+// Per the scrml.dev architecture DD §5: dev.to publishes use
+// canonical_url pointing back to /articles/<slug> so search engines + LLM
+// crawlers see scrml.dev as the source-of-truth URL.
+//
+// Day-1: 9 PUBLISH-READY articles + 3 announce drafts = 12 entries.
+// Flagship full-conversion: why-programming-for-the-browser (proof of
+// pattern). Other 8 are skeleton-with-link-to-source for now; full
+// content migration is day-30 work alongside the live-compile REPL pass.
+
+<page>
+
+    <article class="prose prose-slate max-w-3xl">
+
+        <header class="mb-8 pb-6 border-b border-slate-200">
+            <div class="text-xs font-mono text-slate-500 mb-2">Articles</div>
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900">Articles</h1>
+            <p class="text-slate-600 mt-2">
+                Long-form writing on scrml — the language, the philosophy, what
+                it kills, what it costs. Each article on dev.to publishes with
+                <code class="font-mono text-sm">canonical_url</code> pointing
+                back here.
+            </p>
+        </header>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">The why</h2>
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <a href="/articles/why-programming-for-the-browser"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    Why programming for the browser needs a different kind of language
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    JavaScript wasn't built for today's browser. scrml is. Six
+                    things a browser-language should own at the type level.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/components-are-states"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    Components are states
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    Why the UI of a scrml app should be a fully-handled state
+                    machine — and why that's a language-level claim, not a
+                    framework convention.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/server-boundary-disappears"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    The server boundary disappears
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    What changes when the compiler partitions client and server
+                    automatically: no API routes, no fetch wrappers, no
+                    request/response types.
+                </span>
+            </li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">The what</h2>
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <a href="/articles/tier-ladder-promotion"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    The Tier 0/1/2 promotion ladder
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    From <code class="font-mono text-sm">if=</code> chains to
+                    <code class="font-mono text-sm">&lt;match&gt;</code> blocks
+                    to <code class="font-mono text-sm">&lt;engine&gt;</code>
+                    state machines — and the mechanical promotion CLI between them.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/why-deprecate-overloading"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    Why scrml has to deprecate function and component overloading
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    Overloading is library-syntactic-sugar; structural exhaustiveness
+                    is a language commitment. The two are in tension. The trio
+                    that replaces overloading.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/css-without-build-step"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    CSS without a build step
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    Native <code class="font-mono text-sm">@scope</code> reached
+                    Baseline. A browser-language designed today should compile
+                    its scoped styles to that, not to a runtime mangler.
+                </span>
+            </li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">The why-not (existing tools)</h2>
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <a href="/articles/npm-myth"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    What npm package do you actually need in scrml?
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    Worked through one ecosystem tier at a time: framework,
+                    routing, styling, validation, SQL, realtime — what scrml
+                    subsumes, what's left.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/orm-trap"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    The ORM trap
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    Why an ORM trades one kind of SQL noise for another.
+                    <code class="font-mono text-sm">?{ }</code> + compile-time
+                    schema introspection is the alternative.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/lsp-and-giti-advantages"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    What scrml's LSP can do that no other LSP can
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    SQL column completion. Cross-file go-to-def. Code actions
+                    for tier promotion. What vertical integration unlocks at the
+                    editor layer — and why <a href="https://giti.dev" class="underline">giti</a>
+                    follows from the same principle.
+                </span>
+            </li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold text-slate-900 mt-10 mb-4">Release announcements</h2>
+        <ul class="space-y-3 text-slate-700">
+            <li>
+                <a href="/articles/v0.3.0-announce"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    scrml v0.3.0 — Approach A complete: per-route, per-role, content-addressed
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    The big new thing: whole-stack closure analysis. Per-(entry-point, role, tier) chunks.
+                    <code class="font-mono text-sm">&lt;auth role&gt;</code> as a compile-time visibility constraint.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/v0.2.0-announce"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    scrml v0.2.0 — the foundational reactive surface
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    V5-strict state, validators, the auto-synthesized validity
+                    surface, the pattern-matching ladder.
+                </span>
+            </li>
+            <li>
+                <a href="/articles/roadmap-2026-05-14"
+                   class="text-blue-700 hover:text-blue-900 underline font-medium">
+                    Roadmap from v0.3 forward
+                </a>
+                <span class="text-sm text-slate-500 block">
+                    What's pending, what's in flight, what's next. Honest
+                    current-state framing.
+                </span>
+            </li>
+        </ul>
+
+        <div class="mt-12 p-4 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-600">
+            <strong>Day-1 content depth note.</strong> Article pages on
+            scrml.dev are at day-1 scaffold; only
+            <em>Why programming for the browser…</em> is a full inline body.
+            Others link to the source markdown until the day-30 migration
+            pass folds in inline content + the live-compile
+            <code class="font-mono text-sm">&lt;CodeExample&gt;</code>
+            component. Per the architecture DD at
+            <code class="font-mono text-sm">scrml-support/docs/deep-dives/scrml-dev-mdn-style-architecture-2026-05-17.md</code>.
+        </div>
+
+    </article>
+
+</page>
