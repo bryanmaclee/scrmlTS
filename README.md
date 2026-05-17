@@ -480,9 +480,7 @@ scrml is ~10-14x faster to build than Vite at v0.3.0 (was 8-12x at v0.2.x).
 
 ### Linear Types
 
-- **Exact-once consumption (`lin`)** — values that must be used exactly once. The compiler verifies this statically across all code paths, including branches and loops.
-- **Site-agnostic** — a `lin` value can be created at one site, passed through function calls, and consumed at a completely different site. No manual threading through intermediate stages. If you need the value more than once, assign it to a `const` at the consumption site.
-- See [`docs/lin.md`](./docs/lin.md) for a complete how-to guide: when to reach for `lin`, what counts as consumption, branch and loop rules, cross-`${}`-block usage, closures, and a fix-by-error-code catalog.
+- **Exact-once consumption (`lin`)** — values that must be used exactly once, with restricted intermediate visibility between declaration and consumption. The compiler verifies this statically across branches, loops, closures, and cross-`${}` blocks. See [SPEC §35](compiler/SPEC.md) for the normative surface.
 
 ### Type Safety
 
