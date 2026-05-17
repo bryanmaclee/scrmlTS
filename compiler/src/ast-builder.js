@@ -4340,7 +4340,13 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (tok.kind === "KEYWORD" && tok.text === "let") {
       const startTok = consume();
       let name = "";
-      if (peek().kind === "IDENT") name = consume().text;
+      // A5 (2026-05-17) — destructuring LHS: `let [a, b] = ...` / `let {a, b} = ...`.
+      // parseDestructurePattern consumes through the matching closer; `name`
+      // becomes a structured DestructurePattern node (replacing A1's bare-expr
+      // re-parsing workaround). The downstream `= expr` path is unchanged.
+      if (peek().kind === "PUNCT" && (peek().text === "[" || peek().text === "{")) {
+        name = parseDestructurePattern();
+      } else if (peek().kind === "IDENT") name = consume().text;
       else if (peek().kind === "KEYWORD") name = consume().text;
       const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
       if (peek().text === "=" && peek(1)?.text !== "=") {
@@ -4438,7 +4444,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         // legacy const-decl with empty name — same behavior as today).
       }
       let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
+      // A5 (2026-05-17) — destructuring LHS: `const [a, b] = ...` / `const {a, b} = ...`.
+      // parseDestructurePattern returns a structured DestructurePattern node;
+      // stored on const-decl.name (replacing A1's bare-expr re-parsing path).
+      if (peek().kind === "PUNCT" && (peek().text === "[" || peek().text === "{")) {
+        name = parseDestructurePattern();
+      } else if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
       const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
       if (peek().text === "=" && peek(1)?.text !== "=") {
         consume();
@@ -4752,16 +4763,24 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           if (peek().kind === "KEYWORD" && (peek().text === "const" || peek().text === "let" || peek().text === "var")) {
             consume();
           }
-          // variable name
-          if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          // A5 (2026-05-17) — destructuring LHS: `for (const [a, b] of xs)` or
+          // `for (const {a, b: ren} of xs)`. parseDestructurePattern consumes
+          // through the matching closer; the result is stored in `variable`
+          // as a structured DestructurePattern node (replacing the synth
+          // "item" + iterable-text-preserves-pattern A1 workaround).
+          if (peek().kind === "PUNCT" && (peek().text === "[" || peek().text === "{")) {
+            variable = parseDestructurePattern();
+          } else if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+            // variable name
             variable = consume().text;
           }
           // Accept `of` (scrml canonical); reject `in` (JS-reflex).
           if (peek().kind === "KEYWORD" && peek().text === "in") {
             const inTok = peek();
+            const varDesc = typeof variable === "string" ? variable : "item";
             errors.push(new TABError(
               "E-CTRL-011",
-              "E-CTRL-011: `for (... in ...)` is not supported — scrml uses `for (" + (variable || "item") + " of <iterable>)`. " +
+              "E-CTRL-011: `for (... in ...)` is not supported — scrml uses `for (" + (varDesc || "item") + " of <iterable>)`. " +
               "`in` iterates object keys in JavaScript; scrml iterates values via `of`.",
               tokenSpan(inTok, filePath),
             ));
@@ -5828,6 +5847,205 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
   }
 
   /**
+   * A5 (2026-05-17) — Parse a destructuring pattern from the token stream.
+   *
+   * Assumes the next token is PUNCT `[` (array pattern) or PUNCT `{` (object
+   * pattern). Returns a structured DestructurePattern AST node and consumes
+   * all tokens through the matching closer (`]` / `}`).
+   *
+   * Replaces A1's regex-based `extractDestructuredNames` in type-system.ts.
+   * The structural form is recursive: nested patterns inside elements/
+   * properties are parsed via the same routine.
+   *
+   * Grammar:
+   *   ArrayPattern   ::= '[' ArrayElement (',' ArrayElement)* (',' '...' IDENT)? ']'
+   *   ArrayElement   ::= /(empty: hole)/ | IDENT ('=' DefaultExpr)?
+   *                    | DestructurePattern ('=' DefaultExpr)?
+   *   ObjectPattern  ::= '{' ObjectProp (',' ObjectProp)* (',' '...' IDENT)? '}'
+   *   ObjectProp     ::= IDENT (':' (IDENT | DestructurePattern))? ('=' DefaultExpr)?
+   *
+   * DefaultExpr is the raw token text between `=` and the next top-level
+   * comma / closer; preserved as a string and parsed via safeParseExprToNode.
+   */
+  function parseDestructurePattern() {
+    const startTok = peek();
+    if (startTok.kind !== 'PUNCT' || (startTok.text !== '[' && startTok.text !== '{')) {
+      return null;
+    }
+    const isArray = startTok.text === '[';
+    consume(); // consume opener
+
+    /** Collect token text up to a top-level `,` or the matching pattern closer.
+     *  Returns the raw string; leaves the terminator unconsumed.
+     */
+    function collectDefaultText(closeText) {
+      const buf = [];
+      let d = 0;
+      while (true) {
+        const t = peek();
+        if (t.kind === 'EOF') break;
+        if (d === 0 && t.kind === 'PUNCT' && (t.text === ',' || t.text === closeText)) {
+          break;
+        }
+        if (t.kind === 'PUNCT' && (t.text === '(' || t.text === '[' || t.text === '{')) d++;
+        else if (t.kind === 'PUNCT' && (t.text === ')' || t.text === ']' || t.text === '}')) d--;
+        buf.push(consume().text);
+      }
+      return buf.join(' ').trim();
+    }
+
+    if (isArray) {
+      const elements = [];
+      let rest;
+      // Empty array `[]` short-circuit.
+      if (peek().kind === 'PUNCT' && peek().text === ']') {
+        consume();
+        return { kind: 'destructure-array', elements, ...(rest ? { rest } : {}), span: spanOf(startTok, peek()) };
+      }
+      while (true) {
+        // Hole: a top-level `,` with no preceding element.
+        if (peek().kind === 'PUNCT' && peek().text === ',') {
+          elements.push({ kind: 'hole' });
+          consume(); // consume `,`
+          continue;
+        }
+        // Rest: `...name`. Tokenizer emits `...` as a single OPERATOR token,
+        // but defensively accept the three-dot PUNCT fallback (in case of
+        // tokenizer drift).
+        if (peek().kind === 'OPERATOR' && peek().text === '...') {
+          consume(); // consume `...`
+          if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+            rest = consume().text;
+          }
+          break; // rest must be last
+        }
+        if (peek().kind === 'PUNCT' && peek().text === '.' &&
+            peek(1)?.kind === 'PUNCT' && peek(1).text === '.' &&
+            peek(2)?.kind === 'PUNCT' && peek(2).text === '.') {
+          consume(); consume(); consume(); // consume `...`
+          if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+            rest = consume().text;
+          }
+          break; // rest must be last
+        }
+        // Nested pattern.
+        if (peek().kind === 'PUNCT' && (peek().text === '[' || peek().text === '{')) {
+          const pattern = parseDestructurePattern();
+          let def, defExpr;
+          if (peek().text === '=' && peek(1)?.text !== '=') {
+            consume();
+            def = collectDefaultText(']');
+            if (def) defExpr = safeParseExprToNode(def, 0);
+          }
+          elements.push({ kind: 'nested', pattern, ...(def ? { default: def } : {}), ...(defExpr ? { defaultExpr: defExpr } : {}) });
+        } else if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+          const nameTok = consume();
+          let def, defExpr;
+          if (peek().text === '=' && peek(1)?.text !== '=') {
+            consume();
+            def = collectDefaultText(']');
+            if (def) defExpr = safeParseExprToNode(def, 0);
+          }
+          elements.push({ kind: 'name', name: nameTok.text, ...(def ? { default: def } : {}), ...(defExpr ? { defaultExpr: defExpr } : {}) });
+        } else {
+          // Unexpected token — bail out by consuming it to avoid infinite loop.
+          consume();
+        }
+        if (peek().kind === 'PUNCT' && peek().text === ',') {
+          consume();
+          continue;
+        }
+        break;
+      }
+      if (peek().kind === 'PUNCT' && peek().text === ']') {
+        consume(); // consume `]`
+      }
+      const node = { kind: 'destructure-array', elements, span: spanOf(startTok, peek()) };
+      if (rest) node.rest = rest;
+      return node;
+    } else {
+      // Object pattern.
+      const properties = [];
+      let rest;
+      if (peek().kind === 'PUNCT' && peek().text === '}') {
+        consume();
+        return { kind: 'destructure-object', properties, span: spanOf(startTok, peek()) };
+      }
+      while (true) {
+        // Rest: `...name`. Tokenizer emits `...` as a single OPERATOR token;
+        // accept the three-dot PUNCT fallback defensively (tokenizer-drift).
+        if (peek().kind === 'OPERATOR' && peek().text === '...') {
+          consume(); // consume `...`
+          if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+            rest = consume().text;
+          }
+          break; // rest must be last
+        }
+        if (peek().kind === 'PUNCT' && peek().text === '.' &&
+            peek(1)?.kind === 'PUNCT' && peek(1).text === '.' &&
+            peek(2)?.kind === 'PUNCT' && peek(2).text === '.') {
+          consume(); consume(); consume(); // consume `...`
+          if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+            rest = consume().text;
+          }
+          break; // rest must be last
+        }
+        if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+          const fieldTok = consume();
+          const fieldName = fieldTok.text;
+          let def, defExpr;
+          // Renamed-or-nested form: `fieldName: <bind>`.
+          if (peek().kind === 'PUNCT' && peek().text === ':' && peek(1)?.text !== '=') {
+            consume(); // consume `:`
+            if (peek().kind === 'PUNCT' && (peek().text === '[' || peek().text === '{')) {
+              const pattern = parseDestructurePattern();
+              if (peek().text === '=' && peek(1)?.text !== '=') {
+                consume();
+                def = collectDefaultText('}');
+                if (def) defExpr = safeParseExprToNode(def, 0);
+              }
+              properties.push({ kind: 'nested', fieldName, pattern, ...(def ? { default: def } : {}), ...(defExpr ? { defaultExpr: defExpr } : {}) });
+            } else if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+              const bindName = consume().text;
+              if (peek().text === '=' && peek(1)?.text !== '=') {
+                consume();
+                def = collectDefaultText('}');
+                if (def) defExpr = safeParseExprToNode(def, 0);
+              }
+              properties.push({ kind: 'name', fieldName, bindName, ...(def ? { default: def } : {}), ...(defExpr ? { defaultExpr: defExpr } : {}) });
+            } else {
+              // Malformed `:` — bind to fieldName.
+              properties.push({ kind: 'name', fieldName, bindName: fieldName });
+            }
+          } else {
+            // Shorthand: `{ a }` binds `a` as both field and bind.
+            if (peek().text === '=' && peek(1)?.text !== '=') {
+              consume();
+              def = collectDefaultText('}');
+              if (def) defExpr = safeParseExprToNode(def, 0);
+            }
+            properties.push({ kind: 'name', fieldName, bindName: fieldName, ...(def ? { default: def } : {}), ...(defExpr ? { defaultExpr: defExpr } : {}) });
+          }
+        } else {
+          // Unexpected token — bail out by consuming it to avoid infinite loop.
+          consume();
+        }
+        if (peek().kind === 'PUNCT' && peek().text === ',') {
+          consume();
+          continue;
+        }
+        break;
+      }
+      if (peek().kind === 'PUNCT' && peek().text === '}') {
+        consume(); // consume `}`
+      }
+      const node = { kind: 'destructure-object', properties, span: spanOf(startTok, peek()) };
+      if (rest) node.rest = rest;
+      return node;
+    }
+  }
+
+  /**
    * Parse a for-loop statement inline — used by for-as-expression:
    *   `const names = for (item of items) { lift item.name }`
    * Assumes the `for` keyword token is next (not yet consumed).
@@ -5869,7 +6087,10 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
         if (peek().kind === 'KEYWORD' && (peek().text === 'const' || peek().text === 'let' || peek().text === 'var')) {
           consume();
         }
-        if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
+        // A5 (2026-05-17) — destructuring LHS in for-as-expression.
+        if (peek().kind === 'PUNCT' && (peek().text === '[' || peek().text === '{')) {
+          variable = parseDestructurePattern();
+        } else if (peek().kind === 'IDENT' || peek().kind === 'KEYWORD') {
           variable = consume().text;
         }
         if (peek().kind === 'KEYWORD' && (peek().text === 'of' || peek().text === 'in')) {
@@ -6977,7 +7198,11 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
     if (tok.kind === "KEYWORD" && tok.text === "let") {
       const startTok = consume();
       let name = "";
-      if (peek().kind === "IDENT") name = consume().text;
+      // A5 (2026-05-17) — destructuring LHS: `let [a, b] = ...` / `let {a, b} = ...`.
+      // Top-level parallel to the parseOneStatement let-decl hook above.
+      if (peek().kind === "PUNCT" && (peek().text === "[" || peek().text === "{")) {
+        name = parseDestructurePattern();
+      } else if (peek().kind === "IDENT") name = consume().text;
       else if (peek().kind === "KEYWORD") name = consume().text; // e.g. `let in`
 
       // Optional type annotation: `let name: Type = expr`
@@ -7147,7 +7372,12 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
       }
 
       let name = "";
-      if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
+      // A5 (2026-05-17) — destructuring LHS at top-level const-decl:
+      // `const [a, b] = ...` / `const {a, b} = ...`. Parallels the
+      // parseOneStatement const-decl destructure hook above.
+      if (peek().kind === "PUNCT" && (peek().text === "[" || peek().text === "{")) {
+        name = parseDestructurePattern();
+      } else if (peek().kind === "IDENT" || peek().kind === "KEYWORD") name = consume().text;
 
       // Optional type annotation: `const name: Type = expr`
       const typeAnnotation = peek().text === ':' ? collectTypeAnnotation() : null;
@@ -7759,16 +7989,23 @@ export function parseLogicBody(tokens, filePath, childBlocks, parentBlock, count
           if (peek().kind === "KEYWORD" && (peek().text === "const" || peek().text === "let" || peek().text === "var")) {
             consume();
           }
-          // variable name
-          if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+          // A5 (2026-05-17) — destructuring LHS: `for (const [a, b] of xs)` or
+          // `for (const {a, b: ren} of xs)`. parseDestructurePattern consumes
+          // through the matching closer; the result is stored in `variable`
+          // as a structured DestructurePattern node.
+          if (peek().kind === "PUNCT" && (peek().text === "[" || peek().text === "{")) {
+            variable = parseDestructurePattern();
+          } else if (peek().kind === "IDENT" || peek().kind === "KEYWORD") {
+            // variable name
             variable = consume().text;
           }
           // Accept `of` (scrml canonical); reject `in` (JS-reflex).
           if (peek().kind === "KEYWORD" && peek().text === "in") {
             const inTok = peek();
+            const varDesc = typeof variable === "string" ? variable : "item";
             errors.push(new TABError(
               "E-CTRL-011",
-              "E-CTRL-011: `for (... in ...)` is not supported — scrml uses `for (" + (variable || "item") + " of <iterable>)`. " +
+              "E-CTRL-011: `for (... in ...)` is not supported — scrml uses `for (" + (varDesc || "item") + " of <iterable>)`. " +
               "`in` iterates object keys in JavaScript; scrml iterates values via `of`.",
               tokenSpan(inTok, filePath),
             ));

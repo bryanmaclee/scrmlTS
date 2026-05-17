@@ -4,6 +4,7 @@ import { emitLogicNode } from "./emit-logic.js";
 import { genVar } from "./var-counter.ts";
 import { VOID_ELEMENTS } from "./utils.ts";
 import { iterableHasReactiveRefs } from "./reactive-deps.ts";
+import { isDestructurePattern, emitDestructurePatternText } from "./emit-destructure-pattern.ts";
 
 // ---------------------------------------------------------------------------
 // Render keyword rewriter (§16.6)
@@ -1078,7 +1079,13 @@ export function hasFragmentedLiftBody(body) {
  */
 export function emitForStmtWithContainer(forNode, containerElVar, opts = {}) {
   const lines = [];
-  let varName = forNode.variable ?? forNode.name ?? 'item';
+  // A5 (2026-05-17) — destructuring LHS: render structured pattern to JS text.
+  let varName;
+  if (isDestructurePattern(forNode.variable)) {
+    varName = emitDestructurePatternText(forNode.variable);
+  } else {
+    varName = (typeof forNode.variable === "string" && forNode.variable) || forNode.name || 'item';
+  }
   let iterable = forNode.iterable ?? forNode.collection ?? '[]';
 
   if (typeof iterable === 'string') {

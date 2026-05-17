@@ -4,6 +4,7 @@ import { extractSqlParams, rewriteTildeRef, buildTaggedTemplate } from "./rewrit
 import { emitExpr, emitExprField, type EmitExprContext } from "./emit-expr.ts";
 import { stripLeakedComments, isLeakedComment, splitBareExprStatements, splitMergedStatements } from "./compat/parser-workarounds.js";
 import { emitIfStmt, emitForStmt, emitWhileStmt, emitDoWhileStmt, emitBreakStmt, emitContinueStmt, emitTryStmt, emitMatchExpr, emitSwitchStmt, rewriteBlockBody, splitMultiArmString, parseMatchArm, matchArmInlineToMatchArm, emitVariantBindingPrelude, hasPayloadBindingOrTaggedVariant, type MatchArm } from "./emit-control-flow.ts";
+import { isDestructurePattern, nameOrPatternText } from "./emit-destructure-pattern.ts";
 import { emitLiftExpr, emitCreateElementFromMarkup } from "./emit-lift.js";
 import { extractReactiveDeps, extractReactiveDepsFromExprNode, extractReactiveDepsTransitive, type FunctionBodyRegistry } from "./reactive-deps.ts";
 import { emitStringFromTree, parseExprToNode } from "../expression-parser.ts";
@@ -28,6 +29,29 @@ import { CGError } from "./errors.ts";
  * runtime _scrml_deep_reactive is a no-op on primitives, so wrapping is safe
  * but we avoid it for readability.
  */
+/**
+ * A5 (2026-05-17) — Iterate bound names from a structured DestructurePattern.
+ *
+ * Used by const-decl / let-decl emission to track destructure-bound names in
+ * `opts.declaredNames`. Mirrors type-system.ts iterDestructuredNames.
+ */
+function* _iterDestructureBindNames(p: any): Iterable<string> {
+  if (!p || typeof p !== "object") return;
+  if (p.kind === "destructure-array") {
+    for (const el of (p.elements ?? [])) {
+      if (el?.kind === "name" && typeof el.name === "string") yield el.name;
+      else if (el?.kind === "nested" && el.pattern) yield* _iterDestructureBindNames(el.pattern);
+    }
+    if (p.rest) yield p.rest;
+  } else if (p.kind === "destructure-object") {
+    for (const prop of (p.properties ?? [])) {
+      if (prop?.kind === "nested" && prop.pattern) yield* _iterDestructureBindNames(prop.pattern);
+      else if (prop?.kind === "name" && typeof prop.bindName === "string") yield prop.bindName;
+    }
+    if (p.rest) yield p.rest;
+  }
+}
+
 function _wrapDeepReactive(rewrittenExpr: string, rawExpr: string, initExpr?: any): string {
   // Phase 4d: ExprNode-first — structural detection of deep-reactive-worthy values
   if (initExpr) {
@@ -1318,18 +1342,29 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
 
     case "let-decl": {
       if (node._compileTimeOnly) return "";
-      if (node.name && opts.declaredNames) opts.declaredNames.add(node.name);
+      // A5 (2026-05-17) — `node.name` may be a structured DestructurePattern.
+      // For codegen purposes, render it back to JS source text. For
+      // declaredNames bookkeeping, register each bound ident (the
+      // destructured names) rather than the pattern itself.
+      const _letDeclLhs = nameOrPatternText(node.name);
+      if (isDestructurePattern(node.name)) {
+        if (opts.declaredNames) {
+          for (const bind of _iterDestructureBindNames(node.name)) opts.declaredNames.add(bind);
+        }
+      } else if (node.name && opts.declaredNames) {
+        opts.declaredNames.add(node.name);
+      }
       // If-as-expression: `let a = if (cond) { lift val }`
       if (node.ifExpr) {
-        return emitIfExprDecl(node.name, node.ifExpr, "let", opts);
+        return emitIfExprDecl(_letDeclLhs, node.ifExpr, "let", opts);
       }
       // For-as-expression: `let names = for (item of items) { lift item.name }`
       if (node.forExpr) {
-        return emitForExprDecl(node.name, node.forExpr, "let", opts);
+        return emitForExprDecl(_letDeclLhs, node.forExpr, "let", opts);
       }
       // Match-as-expression: `let result = match expr { .A => { lift val } }`
       if (node.matchExpr) {
-        return emitMatchExprDecl(node.name, node.matchExpr, "let", opts);
+        return emitMatchExprDecl(_letDeclLhs, node.matchExpr, "let", opts);
       }
       // v0.2.4 bug-1-anomaly-2: `let x = ?{...}.method()` — sqlNode-bearing
       // init. Recurse into case "sql" to produce the Bun.SQL tagged template,
@@ -1348,14 +1383,16 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         if (opts.boundary === "server") {
           const sqlStmt = emitLogicNode(node.sqlNode, opts);
           const sqlExpr = sqlStmt.replace(/;\s*$/, "");
-          return `let ${node.name} = ${sqlExpr};`;
+          return `let ${_letDeclLhs} = ${sqlExpr};`;
         }
-        return `let ${node.name}; // SQL-init for ${node.name} — client cannot evaluate _scrml_sql (E-CG-006); use a server function.`;
+        return `let ${_letDeclLhs}; // SQL-init for ${_letDeclLhs} — client cannot evaluate _scrml_sql (E-CG-006); use a server function.`;
       }
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
         const rhs = emitExpr(node.initExpr, _makeExprCtx(opts));
-        if (node.predicateCheck && node.predicateCheck.zone === "boundary") {
+        // predicateCheck is bare-ident only (§53.4 predicated types don't apply
+        // to destructured LHS) — gate on string-name shape.
+        if (node.predicateCheck && node.predicateCheck.zone === "boundary" && typeof node.name === "string") {
           const _pc = node.predicateCheck;
           const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
           const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
@@ -1365,7 +1402,7 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
             `let ${node.name} = ${_checkTmpVar};`,
           ].join("\n");
         }
-        return `let ${node.name} = ${rhs};`;
+        return `let ${_letDeclLhs} = ${rhs};`;
       }
       // Phase 4 simplified fallback: initExpr is missing (rare — e.g. tilde expressions)
       let letInit: string = node.init ?? "";
@@ -1373,29 +1410,32 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         letInit = rewriteTildeRef(letInit, opts.tildeContext.var);
         opts.tildeContext.var = null;
       }
-      if (!letInit) return `let ${node.name};`;
-      if (node.predicateCheck && node.predicateCheck.zone === "boundary") {
+      if (!letInit) return `let ${_letDeclLhs};`;
+      if (node.predicateCheck && node.predicateCheck.zone === "boundary" && typeof node.name === "string") {
         const _pc = node.predicateCheck;
         const _checkTmpVar = genVar(`_scrml_chk_${node.name}`);
         const _checkLines = emitRuntimeCheck(_pc.predicate, _checkTmpVar, node.name, _pc.label ?? null);
         return [`const ${_checkTmpVar} = ${emitExprField(node.initExpr, letInit, _makeExprCtx(opts))};`, ..._checkLines, `let ${node.name} = ${_checkTmpVar};`].join("\n");
       }
-      return `let ${node.name} = ${emitExprField(node.initExpr, letInit, _makeExprCtx(opts))};`;
+      return `let ${_letDeclLhs} = ${emitExprField(node.initExpr, letInit, _makeExprCtx(opts))};`;
     }
 
     case "const-decl":
     case "tilde-decl": {
       if (!node.name) return "";
       if (node._compileTimeOnly) return "";
+      // A5 (2026-05-17) — same as let-decl: `node.name` may be a structured
+      // DestructurePattern (const-decl only; tilde-decl never destructures).
+      const _constDeclLhs = nameOrPatternText(node.name);
       // For tilde-decl: if name was already declared by let-decl, emit as reassignment
-      if (node.kind === "tilde-decl" && opts.declaredNames?.has(node.name)) {
+      if (node.kind === "tilde-decl" && typeof node.name === "string" && opts.declaredNames?.has(node.name)) {
         const init = node.init ?? "";
         const tildeRhs = emitExprField(node.initExpr, init, _makeExprCtx(opts));
         return `${node.name} = ${tildeRhs};`;
       }
       // For tilde-decl with reactive deps: emit as derived reactive (auto-updates)
       // Phase 4d: ExprNode-first reactive dep extraction, string fallback
-      if (node.kind === "tilde-decl") {
+      if (node.kind === "tilde-decl" && typeof node.name === "string") {
         const tildeInit: string = node.init ?? "";
         const tildeDeps = node.initExpr
           ? extractReactiveDepsFromExprNode(node.initExpr)
@@ -1413,18 +1453,24 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
           return lines.join("\n");
         }
       }
-      if (node.kind === "const-decl" && node.name && opts.declaredNames) opts.declaredNames.add(node.name);
+      if (node.kind === "const-decl" && node.name && opts.declaredNames) {
+        if (isDestructurePattern(node.name)) {
+          for (const bind of _iterDestructureBindNames(node.name)) opts.declaredNames.add(bind);
+        } else {
+          opts.declaredNames.add(node.name);
+        }
+      }
       // If-as-expression: `const a = if (cond) { lift val }`
       if (node.ifExpr) {
-        return emitIfExprDecl(node.name, node.ifExpr, "const", opts);
+        return emitIfExprDecl(_constDeclLhs, node.ifExpr, "const", opts);
       }
       // For-as-expression: `const names = for (item of items) { lift item.name }`
       if (node.forExpr) {
-        return emitForExprDecl(node.name, node.forExpr, "const", opts);
+        return emitForExprDecl(_constDeclLhs, node.forExpr, "const", opts);
       }
       // Match-as-expression: `const result = match expr { .A => { lift val } }`
       if (node.matchExpr) {
-        return emitMatchExprDecl(node.name, node.matchExpr, "const", opts);
+        return emitMatchExprDecl(_constDeclLhs, node.matchExpr, "const", opts);
       }
       // v0.2.4 bug-1-anomaly-2: `const x = ?{...}.method()` — sqlNode-bearing
       // init. Mirror of the let-decl handling above. Tilde-decl shares this
@@ -1435,16 +1481,16 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         if (opts.boundary === "server") {
           const sqlStmt = emitLogicNode(node.sqlNode, opts);
           const sqlExpr = sqlStmt.replace(/;\s*$/, "");
-          return `const ${node.name} = ${sqlExpr};`;
+          return `const ${_constDeclLhs} = ${sqlExpr};`;
         }
         // Client boundary: cannot evaluate; emit `const x = null;` (const must
         // have an initializer) + comment so the JS parses and the cause is
         // visible.
-        return `const ${node.name} = null; // SQL-init for ${node.name} — client cannot evaluate _scrml_sql (E-CG-006); use a server function.`;
+        return `const ${_constDeclLhs} = null; // SQL-init for ${_constDeclLhs} — client cannot evaluate _scrml_sql (E-CG-006); use a server function.`;
       }
       // Phase 3 fast path: when initExpr is present, skip all string splitting/merging
       if (node.initExpr) {
-        return `const ${node.name} = ${emitExpr(node.initExpr, _makeExprCtx(opts))};`;
+        return `const ${_constDeclLhs} = ${emitExpr(node.initExpr, _makeExprCtx(opts))};`;
       }
       // Phase 4 simplified fallback: initExpr is missing (rare — e.g. tilde expressions)
       let constInit: string = node.init ?? "";
@@ -1452,8 +1498,8 @@ export function emitLogicNode(node: any, opts: EmitLogicOpts = { boundary: "clie
         constInit = rewriteTildeRef(constInit, opts.tildeContext.var);
         opts.tildeContext.var = null;
       }
-      if (!constInit) return `const ${node.name};`;
-      return `const ${node.name} = ${emitExprField(node.initExpr, constInit, _makeExprCtx(opts))};`;
+      if (!constInit) return `const ${_constDeclLhs};`;
+      return `const ${_constDeclLhs} = ${emitExprField(node.initExpr, constInit, _makeExprCtx(opts))};`;
     }
 
     case "state-decl": {
@@ -2793,7 +2839,13 @@ function _emitIfStmtWithOpts(node: any, opts: EmitLogicOpts): string {
  */
 function _emitForStmtWithTilde(node: any, opts: EmitLogicOpts): string {
   let iterable: string = node.iterable ?? node.collection ?? "[]";
-  let varName: string = node.variable ?? node.name ?? "item";
+  // A5 (2026-05-17) — destructuring LHS: render pattern back to JS source text.
+  let varName: string;
+  if (isDestructurePattern(node.variable)) {
+    varName = nameOrPatternText(node.variable);
+  } else {
+    varName = (typeof node.variable === "string" && node.variable) || node.name || "item";
+  }
 
   if (typeof iterable === "string") {
     // C-style for loop: fall back to plain emitForStmt (tilde not applicable)

@@ -3128,137 +3128,69 @@ function generateDbTypes(
 }
 
 // ---------------------------------------------------------------------------
-// A1 (2026-05-17) — Destructuring pattern name extraction
+// A5 (2026-05-17) — Destructuring pattern name iteration (structural walk)
 // ---------------------------------------------------------------------------
 //
-// The AST builder does NOT (yet) emit structured destructuring patterns. The
-// information survives only in raw text:
+// Replaces A1's regex-based extractDestructuredNames + bare-expr scraping.
+// Since A5, ast-builder.js emits structured DestructurePattern nodes on
+// const-decl.name / let-decl.name / for-stmt.variable for destructured LHS.
+// This walker yields the bound names from a pattern (alias side for object
+// properties; rest names; recursive into nested patterns).
 //
-//   `for (const [a, b] of x)` → for-stmt { variable: "item" (synth),
-//                                          iterable: "[ a , b ] of x" }
-//   `const { a, b: ren } = e` → const-decl { name: "", init: "" }
-//                              + bare-expr { expr: "{ a, b: ren } = e" }
-//
-// To prevent false E-SCOPE-001 on the destructured names, the scope walker
-// must extract names from these raw strings at bind time. This is a workaround
-// over the AST shape — once ast-builder.js emits proper destructuring AST,
-// this regex-based extractor can be retired and replaced with a structural
-// walk. The shape recognised here matches plain JS destructuring grammar with
-// scrml-specific tokenisation (tokenizer interleaves spaces around all
-// punctuation, so `{a,b}` arrives as `{ a , b }`).
-//
-// Returns the list of LHS-bound names (NOT renamed-from names — `{ a: ren }`
-// returns `["ren"]`, not `["a"]`). Defaults (`{ a = 1 }` → `a`) are honoured.
-// Nested patterns (`{ a: { b } }`) recurse one level — deeper nesting falls
-// back to greedy ident extraction, which is safe (over-binding tolerable for
-// scope-resolution, never under-binds).
-//
-// Per pa.md Rule 3 (right answer beats easy): this stays a localised
-// workaround in type-system; the AST builder fix is a separate dispatch.
+// Shape (mirrors types/ast.ts DestructurePattern):
+//   { kind: "destructure-array",  elements: [{kind: "name"|"nested"|"hole", ...}], rest? }
+//   { kind: "destructure-object", properties: [{kind: "name"|"nested", ...}], rest? }
 
-function extractDestructuredNames(patternText: string): string[] {
-  if (typeof patternText !== "string" || patternText.length === 0) return [];
-  const trimmed = patternText.trim();
-  if (trimmed.length === 0) return [];
-
-  // The pattern must begin with `{` (object) or `[` (array). Otherwise it's
-  // either not a destructuring pattern, or it's a single-name binding that
-  // the caller already handled.
-  if (trimmed[0] !== "{" && trimmed[0] !== "[") return [];
-
-  // Slice the matching opener...closer. The tokenizer's whitespace-interleaving
-  // makes a simple bracket-depth walk safe.
-  const open = trimmed[0];
-  const close = open === "{" ? "}" : "]";
-  let depth = 0;
-  let endIdx = -1;
-  for (let i = 0; i < trimmed.length; i++) {
-    const ch = trimmed[i];
-    if (ch === open) depth++;
-    else if (ch === close) {
-      depth--;
-      if (depth === 0) { endIdx = i; break; }
+interface DestructureArrayElementShape {
+  kind: "name" | "nested" | "hole";
+  name?: string;
+  pattern?: DestructurePatternShape;
+}
+interface DestructureObjectPropertyShape {
+  kind: "name" | "nested";
+  fieldName?: string;
+  bindName?: string;
+  pattern?: DestructurePatternShape;
+}
+type DestructurePatternShape =
+  | {
+      kind: "destructure-array";
+      elements: DestructureArrayElementShape[];
+      rest?: string;
     }
-  }
-  if (endIdx < 0) return [];
-  const inner = trimmed.slice(1, endIdx);
+  | {
+      kind: "destructure-object";
+      properties: DestructureObjectPropertyShape[];
+      rest?: string;
+    };
 
-  const names: string[] = [];
+function isDestructurePattern(v: unknown): v is DestructurePatternShape {
+  if (!v || typeof v !== "object") return false;
+  const k = (v as { kind?: unknown }).kind;
+  return k === "destructure-array" || k === "destructure-object";
+}
 
-  if (open === "[") {
-    // Array pattern: split by commas at top depth. Each element is either an
-    // ident (with optional `= default`), a `...rest` (binds rest), or a
-    // nested pattern (recurse). Empty slots ` , , ` skip a position.
-    let cur = "";
-    let d = 0;
-    for (let i = 0; i <= inner.length; i++) {
-      const ch = i < inner.length ? inner[i] : ",";
-      if (ch === "[" || ch === "{") d++;
-      else if (ch === "]" || ch === "}") d--;
-      if (ch === "," && d === 0) {
-        const piece = cur.trim();
-        cur = "";
-        if (piece.length === 0) continue;
-        const corePiece = piece.startsWith("...") ? piece.slice(3).trim() : piece;
-        const eqIdx = corePiece.indexOf("=");
-        const namePart = (eqIdx >= 0 ? corePiece.slice(0, eqIdx) : corePiece).trim();
-        if (namePart[0] === "{" || namePart[0] === "[") {
-          for (const sub of extractDestructuredNames(namePart)) names.push(sub);
-        } else {
-          const m = /^[A-Za-z_$][A-Za-z0-9_$]*$/.exec(namePart);
-          if (m) names.push(namePart);
-        }
-      } else {
-        cur += ch;
+function* iterDestructuredNames(p: DestructurePatternShape): Iterable<string> {
+  if (p.kind === "destructure-array") {
+    for (const el of p.elements) {
+      if (el.kind === "name" && typeof el.name === "string" && el.name.length > 0) {
+        yield el.name;
+      } else if (el.kind === "nested" && el.pattern) {
+        yield* iterDestructuredNames(el.pattern);
       }
+      // holes contribute nothing
     }
+    if (p.rest) yield p.rest;
   } else {
-    // Object pattern: split entries at top depth. Each entry is either
-    //   `name` / `name = default`         -> bind `name`
-    //   `name: alias` / `name: alias = d` -> bind `alias` (alias may nest)
-    //   `...rest`                          -> bind `rest`
-    let cur = "";
-    let d = 0;
-    for (let i = 0; i <= inner.length; i++) {
-      const ch = i < inner.length ? inner[i] : ",";
-      if (ch === "[" || ch === "{") d++;
-      else if (ch === "]" || ch === "}") d--;
-      if (ch === "," && d === 0) {
-        const piece = cur.trim();
-        cur = "";
-        if (piece.length === 0) continue;
-        const corePiece = piece.startsWith("...") ? piece.slice(3).trim() : piece;
-        // Split on the FIRST top-level `:` to detect renaming.
-        let colonIdx = -1;
-        let cd = 0;
-        for (let j = 0; j < corePiece.length; j++) {
-          const cch = corePiece[j];
-          if (cch === "[" || cch === "{") cd++;
-          else if (cch === "]" || cch === "}") cd--;
-          else if (cch === ":" && cd === 0) { colonIdx = j; break; }
-        }
-        let bindPart: string;
-        if (colonIdx >= 0) {
-          bindPart = corePiece.slice(colonIdx + 1);
-        } else {
-          bindPart = corePiece;
-        }
-        // Strip default `= expr` from the bind side.
-        const eqIdx2 = bindPart.indexOf("=");
-        const namePart2 = (eqIdx2 >= 0 ? bindPart.slice(0, eqIdx2) : bindPart).trim();
-        if (namePart2[0] === "{" || namePart2[0] === "[") {
-          for (const sub of extractDestructuredNames(namePart2)) names.push(sub);
-        } else {
-          const m = /^[A-Za-z_$][A-Za-z0-9_$]*$/.exec(namePart2);
-          if (m) names.push(namePart2);
-        }
-      } else {
-        cur += ch;
+    for (const prop of p.properties) {
+      if (prop.kind === "nested" && prop.pattern) {
+        yield* iterDestructuredNames(prop.pattern);
+      } else if (prop.kind === "name" && typeof prop.bindName === "string" && prop.bindName.length > 0) {
+        yield prop.bindName;
       }
     }
+    if (p.rest) yield p.rest;
   }
-
-  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -4697,14 +4629,24 @@ function annotateNodes(
         {
           const bindSpan = (n.span as Span | undefined) ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
           checkLinShadowing(
-            n.name as string | undefined,
+            typeof n.name === "string" ? n.name : undefined,
             bindSpan,
             scopeChain,
             errors,
             (n.kind === "const-decl") ? "const" : "let",
           );
         }
-        if (n.name) {
+        // A5 (2026-05-17) — `n.name` is either a bare-ident string OR a
+        // structured DestructurePattern (replaces A1's bare-expr scrape).
+        // For patterns, walk recursively and bind every yielded name as a
+        // plain `asIs` variable.
+        if (n.name && isDestructurePattern(n.name)) {
+          for (const bind of iterDestructuredNames(n.name as DestructurePatternShape)) {
+            if (!scopeChain.lookup(bind)) {
+              scopeChain.bind(bind, { kind: "variable", resolvedType: tAsIs() });
+            }
+          }
+        } else if (n.name) {
           scopeChain.bind(n.name as string, { kind: "variable", resolvedType });
         }
         // S19 Phase 2: visit embedded match-expr so exhaustiveness/arm checks fire.
@@ -4997,61 +4939,18 @@ function annotateNodes(
       // ------------------------------------------------------------------
       case "bare-expr": {
         resolvedType = tAsIs();
-        // A1 (2026-05-17) — destructuring assignment as bare-expr.
+        // A5 (2026-05-17) — destructuring assignment as bare-expr.
         //
-        // `const { graph, errors: graphErrors } = expr` is split by the AST
-        // builder into an empty `const-decl { name: "", init: "" }` followed
-        // by this bare-expr whose `expr` is the destructuring assignment
-        // text (`"{ graph , errors : graphErrors } = expr"`). The
-        // safeParseExprToNode walker emits the LHS as `escape-hatch` because
-        // it can't parse a bare destructuring pattern, so the LHS pattern's
-        // names never enter scope through the const-decl arm.
-        //
-        // Detect this shape on the raw `expr` text: trim and check whether
-        // it begins with `[` or `{`, then locate the matching `=` at top
-        // depth (NOT `==` / `=>` / `<=` / `>=` / `!=` — those would mean the
-        // LHS isn't an assignment target). If we find one, slice the LHS
-        // pattern and run extractDestructuredNames over it, binding the
-        // names BEFORE checkLogicExprIdents runs (so the LHS names appear
-        // declared when the walker visits the assign-expr target). The RHS
-        // is still walked normally — uses of `expr` on the right side
-        // still flag undeclared identifiers.
-        {
-          const beExprText = (n as Record<string, unknown>).expr;
-          if (typeof beExprText === "string" && beExprText.length > 0) {
-            const trimmed = beExprText.trimStart();
-            if (trimmed[0] === "[" || trimmed[0] === "{") {
-              const open = trimmed[0];
-              const close = open === "[" ? "]" : "}";
-              let pd = 0;
-              let endIdx = -1;
-              for (let i = 0; i < trimmed.length; i++) {
-                const ch = trimmed[i];
-                if (ch === open) pd++;
-                else if (ch === close) {
-                  pd--;
-                  if (pd === 0) { endIdx = i; break; }
-                }
-              }
-              if (endIdx > 0) {
-                // After the pattern, the next non-whitespace character must
-                // be `=` (and NOT `==` / `=>`) to qualify as a destructuring
-                // assignment. Otherwise this is an object/array literal at
-                // statement position — not a binding site.
-                const afterPattern = trimmed.slice(endIdx + 1).trimStart();
-                if (afterPattern.length > 0 && afterPattern[0] === "="
-                    && afterPattern[1] !== "=" && afterPattern[1] !== ">") {
-                  const patternText = trimmed.slice(0, endIdx + 1);
-                  for (const name of extractDestructuredNames(patternText)) {
-                    if (!scopeChain.lookup(name)) {
-                      scopeChain.bind(name, { kind: "variable", resolvedType: tAsIs() });
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        // Historical context: A1 (commit 64b2e54) installed a regex extractor
+        // here because `const { a, b } = expr` had its LHS pattern survive
+        // only in a sibling bare-expr's raw text (`"{ a , b } = expr"`).
+        // A5's parser fix now consumes the pattern at const-/let-decl time
+        // and emits a structured DestructurePattern on `name`, so the
+        // bare-expr fallback is no longer load-bearing for the
+        // declaration-form. Any remaining destructuring-as-bare-expr cases
+        // would need to be re-validated; we'll surface that as A5-FUP if it
+        // arises.
+
         // §2a — E-SCOPE-001 on bare-expr statements (mid-block function calls,
         // assignments parsed as raw expressions, etc.). Tightest-coverage slice;
         // everything else in §2a came first so the bare-expr extension sits on
@@ -5821,39 +5720,17 @@ function annotateNodes(
       case "for-stmt":
       case "for-loop": {
         scopeChain.push(`for:${nodeKey(n)}`);
-        // for-of / for-in form: `variable` is a string name.
+        // for-of / for-in form: `variable` is a string name, OR a structured
+        // DestructurePattern (A5 2026-05-17), OR null for C-style headers.
         const forVar = (n as Record<string, unknown>).variable;
         if (typeof forVar === "string" && forVar.length > 0) {
           scopeChain.bind(forVar, { kind: "variable", resolvedType: tAsIs() });
-        }
-        // A1 (2026-05-17) — destructuring for-of pattern. The AST builder
-        // records a synth `variable: "item"` and preserves the destructuring
-        // pattern only in `iterable` text (e.g. `"[ a , b ] of items"`).
-        // Extract the destructured names from the pattern's prefix and bind
-        // them in the for-loop scope so the body's references resolve cleanly.
-        const iterableRaw = (n as Record<string, unknown>).iterable;
-        if (typeof iterableRaw === "string" && iterableRaw.length > 0) {
-          const trimIter = iterableRaw.trimStart();
-          if (trimIter[0] === "[" || trimIter[0] === "{") {
-            const open = trimIter[0];
-            const close = open === "[" ? "]" : "}";
-            let pd = 0;
-            let endIdx = -1;
-            for (let i = 0; i < trimIter.length; i++) {
-              const ch = trimIter[i];
-              if (ch === open) pd++;
-              else if (ch === close) {
-                pd--;
-                if (pd === 0) { endIdx = i; break; }
-              }
-            }
-            if (endIdx > 0) {
-              const patternText = trimIter.slice(0, endIdx + 1);
-              for (const name of extractDestructuredNames(patternText)) {
-                if (!scopeChain.lookup(name)) {
-                  scopeChain.bind(name, { kind: "variable", resolvedType: tAsIs() });
-                }
-              }
+        } else if (isDestructurePattern(forVar)) {
+          // A5 — structural destructuring walk. Each bound name enters scope
+          // as a plain `asIs` variable (same semantics as A1's regex extractor).
+          for (const bind of iterDestructuredNames(forVar as DestructurePatternShape)) {
+            if (!scopeChain.lookup(bind)) {
+              scopeChain.bind(bind, { kind: "variable", resolvedType: tAsIs() });
             }
           }
         }

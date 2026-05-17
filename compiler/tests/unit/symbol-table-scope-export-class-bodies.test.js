@@ -303,3 +303,94 @@ describe("§D: negative controls — undeclared idents still fire", () => {
     expect(scopeErrorsFor(errors, "a").length).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §E — A5 structural-walk extensions (rest, defaults, nested) — verifies the
+// structural binding path covers the same shapes A1's regex extractor did.
+// ---------------------------------------------------------------------------
+
+describe("§E: A5 structural-walk extensions (rest, default, nested)", () => {
+  test("§E.1 — `const [a, b, ...rest] = pair()` binds rest", () => {
+    const src = `<program>
+\${
+    export function pair() { return [1, 2, 3, 4] }
+    export function go() {
+        const [a, b, ...rest] = pair()
+        return a + b + rest.length
+    }
+}
+</program>
+`;
+    const { errors } = diagnose(src);
+    expect(scopeErrorsFor(errors, "rest")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "a")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "b")).toHaveLength(0);
+  });
+
+  test("§E.2 — `const { a, ...rest } = obj()` binds rest in object pattern", () => {
+    const src = `<program>
+\${
+    export function obj() { return { a: 1, b: 2, c: 3 } }
+    export function go() {
+        const { a, ...rest } = obj()
+        return a + Object.keys(rest).length
+    }
+}
+</program>
+`;
+    const { errors } = diagnose(src);
+    expect(scopeErrorsFor(errors, "rest")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "a")).toHaveLength(0);
+  });
+
+  test("§E.3 — `const { a = 1, b } = obj()` defaults bind `a`", () => {
+    const src = `<program>
+\${
+    export function obj() { return { a: 5, b: 10 } }
+    export function go() {
+        const { a = 1, b } = obj()
+        return a + b
+    }
+}
+</program>
+`;
+    const { errors } = diagnose(src);
+    expect(scopeErrorsFor(errors, "a")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "b")).toHaveLength(0);
+  });
+
+  test("§E.4 — nested `const { a: { b, c } } = obj()` binds inner b, c", () => {
+    const src = `<program>
+\${
+    export function obj() { return { a: { b: 1, c: 2 } } }
+    export function go() {
+        const { a: { b, c } } = obj()
+        return b + c
+    }
+}
+</program>
+`;
+    const { errors } = diagnose(src);
+    expect(scopeErrorsFor(errors, "b")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "c")).toHaveLength(0);
+  });
+
+  test("§E.5 — for-of with nested destructure binds inner names in body scope", () => {
+    const src = `<program>
+\${
+    export function go(pairs) {
+        const out = []
+        for (const [k, { name, kind }] of pairs) {
+            out.push(k + ":" + name + ":" + kind)
+        }
+        return out
+    }
+}
+</program>
+`;
+    const { errors } = diagnose(src);
+    expect(scopeErrorsFor(errors, "k")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "name")).toHaveLength(0);
+    expect(scopeErrorsFor(errors, "kind")).toHaveLength(0);
+  });
+});

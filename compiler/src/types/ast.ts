@@ -364,13 +364,64 @@ export interface MetaNode extends BaseNode {
   parentContext: string;
 }
 
+// -- Destructuring Patterns (A5 2026-05-17) --
+//
+// Structured AST representation of array/object destructuring patterns. The
+// shape replaces A1's text-and-regex workaround in type-system.ts. Carried by
+// `let-decl.name`, `const-decl.name`, and `for-stmt.variable` — the field is a
+// string for bare-ident bindings, or a DestructurePattern for the LHS of a
+// destructured form (`const [a, b] = x`, `for (const {a, b} of xs)`).
+
+/** Array-pattern element. `hole` represents an empty slot in `[a, , b]`. */
+export type DestructureArrayElement =
+  | { kind: "name"; name: string; default?: string; defaultExpr?: ExprNode }
+  | { kind: "nested"; pattern: DestructurePattern; default?: string; defaultExpr?: ExprNode }
+  | { kind: "hole" };
+
+/** Object-pattern property. `nested` carries a deeper pattern at the bound position. */
+export type DestructureObjectProperty =
+  | {
+      kind: "name";
+      /** The source field — `a` in `{ a }`, `a` in `{ a: ren }`. */
+      fieldName: string;
+      /** The bound identifier — `a` in `{ a }`, `ren` in `{ a: ren }`. */
+      bindName: string;
+      default?: string;
+      defaultExpr?: ExprNode;
+    }
+  | {
+      kind: "nested";
+      fieldName: string;
+      pattern: DestructurePattern;
+      default?: string;
+      defaultExpr?: ExprNode;
+    };
+
+export interface DestructureArrayPattern {
+  kind: "destructure-array";
+  elements: DestructureArrayElement[];
+  /** Rest-binding name for `[a, ...rest]`. */
+  rest?: string;
+  span?: Span;
+}
+
+export interface DestructureObjectPattern {
+  kind: "destructure-object";
+  properties: DestructureObjectProperty[];
+  /** Rest-binding name for `{ a, ...rest }`. */
+  rest?: string;
+  span?: Span;
+}
+
+export type DestructurePattern = DestructureArrayPattern | DestructureObjectPattern;
+
 // -- Variable Declarations --
 
 /** A `let` declaration: `let name = expr`. */
 export interface LetDeclNode extends BaseNode {
   kind: "let-decl";
-  /** Variable name. */
-  name: string;
+  /** Variable name, or a destructuring pattern (A5 2026-05-17). */
+  name: string | DestructurePattern;
   /** If-as-expression: `let a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
   /** For-as-expression: `let names = for (item of items) { lift item.name }`. */
@@ -384,8 +435,8 @@ export interface LetDeclNode extends BaseNode {
 /** A `const` declaration: `const name = expr`. */
 export interface ConstDeclNode extends BaseNode {
   kind: "const-decl";
-  /** Variable name. */
-  name: string;
+  /** Variable name, or a destructuring pattern (A5 2026-05-17). */
+  name: string | DestructurePattern;
   /** If-as-expression: `const a = if (cond) { lift val }`. */
   ifExpr?: IfExprNode;
   /** For-as-expression: `const names = for (item of items) { lift item.name }`. */
@@ -890,8 +941,13 @@ export interface MatchExprNode extends BaseNode {
 /** A for loop: `for variable in iterable { body }`. */
 export interface ForStmtNode extends BaseNode {
   kind: "for-stmt";
-  /** Loop variable name. */
-  variable: string;
+  /**
+   * Loop variable. String for bare-ident form (`for (const x of xs)`); a
+   * `DestructurePattern` for destructured LHS (`for (const [a, b] of xs)`,
+   * `for (const {a, b: ren} of xs)`) — A5 2026-05-17.
+   * `null` for C-style `for (init; cond; update)` headers.
+   */
+  variable: string | DestructurePattern | null;
   /** Loop body statements. */
   body: LogicStatement[];
   /** Structured ExprNode form of the iterable. Populated by ast-builder. */

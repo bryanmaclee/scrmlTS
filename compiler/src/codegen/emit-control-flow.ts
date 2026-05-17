@@ -5,6 +5,7 @@ import { hasFragmentedLiftBody, emitConsolidatedLift, emitLiftExpr, emitIfStmtWi
 import { emitTransitionGuard } from "./emit-machines.ts";
 import { emitStringFromTree } from "../expression-parser.ts";
 import { iterableHasReactiveRefs, type FunctionBodyRegistry } from "./reactive-deps.ts";
+import { isDestructurePattern, emitDestructurePatternText } from "./emit-destructure-pattern.ts";
 
 // ---------------------------------------------------------------------------
 // Module-level Tier 2 hoist registry (§8.10)
@@ -283,7 +284,15 @@ export function emitForStmt(
   opts?: { dbVar?: string; declaredNames?: Set<string>; insideFunctionBody?: boolean; fnBodyRegistry?: FunctionBodyRegistry | null },
 ): string {
   const lines: string[] = [];
-  let varName: string = node.variable ?? node.name ?? "item";
+  // A5 (2026-05-17) — `node.variable` may be a structured DestructurePattern.
+  // Render it back to JS source for the for-of LHS. String-form passes through
+  // unchanged (`item`, `entry`, etc.).
+  let varName: string;
+  if (isDestructurePattern(node.variable)) {
+    varName = emitDestructurePatternText(node.variable);
+  } else {
+    varName = (typeof node.variable === "string" && node.variable) || node.name || "item";
+  }
   let iterable: string = node.iterable ?? node.collection ?? "[]";
 
   // §8.10 Tier 2 loop-hoist: if the Batch Planner recorded a LoopHoist
@@ -530,7 +539,13 @@ function substituteHoistedSqlInBody(
  * via spread binding).
  */
 function emitHoistedForStmt(node: any, hoist: any, dbVar: string): string {
-  const loopVar: string = node.variable ?? hoist.loopVar ?? "item";
+  // A5 — destructuring LHS support in the batch-hoisted for-stmt path.
+  let loopVar: string;
+  if (isDestructurePattern(node.variable)) {
+    loopVar = emitDestructurePatternText(node.variable);
+  } else {
+    loopVar = (typeof node.variable === "string" && node.variable) || hoist.loopVar || "item";
+  }
   let iterable: string = node.iterable ?? "[]";
   if (typeof iterable === "string") {
     const forOfMatch = iterable.match(/^\(\s*(?:(?:let|const|var)\s+)?(\w+)\s+of\s+(.*)\s*\)$/s);
