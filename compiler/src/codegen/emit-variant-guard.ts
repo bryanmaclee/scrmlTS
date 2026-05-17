@@ -105,7 +105,22 @@ import type { CompileContext } from "./context.ts";
  */
 export interface VariantArm {
   tag: string;
+  /** Local identifier names introduced into the body's scope per payload
+   *  binding (positional or named-form RHS). The wire-function and render-
+   *  function take these as parameters in this order. */
   payloadBindings: string[];
+  /** B1 (§51.0.B.1) — parallel array of variant payload FIELD names that
+   *  the dispatcher uses to extract values from the runtime payload object
+   *  (`_data[fieldName]`). When provided, the dispatcher emits
+   *  `_data[fieldNames[i]]` instead of `_data[bindings[i]]` — required when
+   *  the local binding name differs from the field name (e.g.,
+   *  `<Done count>` on `Done(rows: int)` per SPEC §51.0.B.1 normative
+   *  statements: positional binding by declaration order, not name).
+   *
+   *  When `undefined`, the dispatcher uses `payloadBindings[i]` as the
+   *  field-lookup key (legacy behavior — assumes binding name = field name).
+   *  Length MUST equal `payloadBindings.length` when provided. */
+  payloadFieldNames?: string[];
   body: any[];
   /**
    * A5-7 Wave 2.4 (§51.0.Q.1, Bug #2) — optional JS snippet emitted into
@@ -309,6 +324,7 @@ function emitArmWireFunction(
   wireFnName: string,
   armContextId: string,
   ctx: CompileContext,
+  payloadBindings: string[] = [],
 ): string {
   // Lazy import for the same circular-dep reasons as emitArmRenderFunction.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -347,14 +363,24 @@ function emitArmWireFunction(
     return !DELEGABLE_EVENTS.has(domEvent);
   });
 
+  // B1 (§51.0.B.1) — payload bindings as wire-fn parameters. The dispatcher
+  // passes `_data[fieldName]` positionals after `_root`, matching the
+  // render-fn signature shape. Bindings are then in scope throughout the
+  // wire-function body — referenced by the same `expr` strings that
+  // generateHtml lowered into `<span data-scrml-logic>` placeholders,
+  // event handlers, etc. Without this, expressions like
+  // `${rows}` produce `el.textContent = rows;` referencing an unbound
+  // free variable → runtime ReferenceError. See SURVEY §4.2 sub-anomaly #3.
+  const wireParams = ["_root", ...payloadBindings].join(", ");
+
   // No bindings to wire → no-op shell so the dispatcher branch stays uniform.
   if (wireableLogic.length === 0 && wireableEvents.length === 0) {
-    return `function ${wireFnName}(_root) { return function() {}; }`;
+    return `function ${wireFnName}(${wireParams}) { return function() {}; }`;
   }
 
   const encodingCtx = ctx.encodingCtx;
   const lines: string[] = [];
-  lines.push(`function ${wireFnName}(_root) {`);
+  lines.push(`function ${wireFnName}(${wireParams}) {`);
   lines.push(`  const _disposers = [];`);
 
   // ---- Logic bindings: textContent + _scrml_effect ----
@@ -671,7 +697,9 @@ export function emitVariantGuardedRender(
   for (const arm of arms) {
     const wireFnName = `${renderFnPrefix}_${idPrefix}_wire_${arm.tag}`;
     const armContextId = `${idPrefix}:${arm.tag}`;
-    wireFnLines.push(emitArmWireFunction(wireFnName, armContextId, ctx));
+    // B1 (§51.0.B.1) — pass payload bindings to wire fn so `el.textContent =
+    // <binding>` expressions resolve as bound parameters, not free vars.
+    wireFnLines.push(emitArmWireFunction(wireFnName, armContextId, ctx, arm.payloadBindings));
   }
   const wireFunctionsJs = wireFnLines.join("\n\n");
 
@@ -759,12 +787,25 @@ export function emitVariantGuardedRender(
     // S95 Bug 2 — the previous shape (`_payload[<index>]` Array lookup) was
     // never realized at runtime; the upstream codegen bug crashed before any
     // payload-bearing variant value reached the dispatcher.
-    const args = arm.payloadBindings
-      .map((bindingName) => `_data && _data[${JSON.stringify(bindingName)}]`)
+    // B1 (§51.0.B.1) — extract by FIELD name (declaration order) when
+    // payloadFieldNames is provided; fall back to binding name otherwise
+    // (legacy path: assumes binding name = field name). The local binding
+    // name passed into render-/wire-fn params is `payloadBindings[i]` per
+    // SPEC §51.0.B.1 positional-binding-by-position-not-by-name semantics.
+    const lookupKeys = (Array.isArray(arm.payloadFieldNames) && arm.payloadFieldNames.length === arm.payloadBindings.length)
+      ? arm.payloadFieldNames
+      : arm.payloadBindings;
+    const args = lookupKeys
+      .map((key) => `_data && _data[${JSON.stringify(key)}]`)
       .join(", ");
+    // B1 (§51.0.B.1) — wire-fn receives `_mount` PLUS the same payload args
+    // the render fn received. Without this, expressions like `${rows}`
+    // inside the arm body resolve `rows` as a free variable in the wire-fn
+    // scope → runtime ReferenceError. Mirror the render-fn args.
+    const wireArgs = args.length > 0 ? `_mount, ${args}` : `_mount`;
     dispatcherLines.push(`  ${head} (_tag === ${JSON.stringify(arm.tag)}) {`);
     dispatcherLines.push(`    _mount.innerHTML = ${fnName}(${args});`);
-    dispatcherLines.push(`    ${disposeVar} = ${wireFnName}(_mount);`);
+    dispatcherLines.push(`    ${disposeVar} = ${wireFnName}(${wireArgs});`);
     // A5-7 Wave 2.4 (§51.0.Q.1, Bug #2) — postMountJs injection point.
     // The engine consumer populates this for composite arms with inner-
     // engine init / history-restore logic. Branch-uniform skip when arm

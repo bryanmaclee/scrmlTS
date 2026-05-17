@@ -1,0 +1,38 @@
+// engine-013-payload-binding-bare — bare-attribute payload binding on
+// engine state-children (§51.0.B.1 amendment S98, B1 dispatch — track 2).
+//
+// Demonstrates the SPEC §51.0.B.1 bare-attribute form: an engine state-
+// child whose variant is payload-bearing MAY declare bindings as bareword
+// attributes on the opener, IN DECLARATION ORDER. The bindings are then
+// in scope throughout the state-child body (markup interpolation,
+// event-handler attribute values, nested logic).
+//
+// Forms shown:
+//   - Bare-attribute single-field: <Done rows rule=.Idle>
+//   - Bare-attribute multi-field:  <Loaded title author count rule=.Idle>
+//
+// The compiler's wire-fn signature includes the payload bindings as
+// positional parameters; the dispatcher extracts _data[fieldName] in
+// declaration order and passes them through. SURVEY §4.2 sub-anomaly #3
+// (runtime ReferenceError in wire-fn) is closed by this form.
+
+<program>
+type Book:enum = {
+    Idle,
+    Loaded(title: string, author: string, count: int)
+}
+
+<engine for=Book initial=.Idle>
+    <Idle rule=.Loaded></>
+    <Loaded title author count rule=.Idle>
+        <h2>${title}</h2>
+        <p>by ${author}</p>
+        <p>${count} pages</p>
+    </>
+</>
+
+<div class="library">
+    <button onclick=${@book = Book.Loaded("The Lottery", "Shirley Jackson", 32)}>Load</button>
+    <button onclick=${@book = .Idle}>Reset</button>
+</div>
+</program>

@@ -342,6 +342,28 @@ export type EngineRuleForm =
   | { kind: "parse-error"; raw: string; reason: string };                                 // unparseable rule=
 
 /**
+ * §51.0.B.1 (S98 amendment) — a payload-binding declaration on an engine
+ * state-child opener. Three accepted source forms (all collapse to the
+ * same `PayloadBinding[]` after parsing):
+ *
+ *   1. Bare-attribute form (positional)  — `<Done rows rule=...>`
+ *   2. Parenthesized form (positional)   — `<Done(rows) rule=...>`
+ *   3. Named form                        — `<Done rows=r rule=...>`
+ *
+ * Forms 1 + 2 emit `{ kind: "positional", name }`. Form 3 emits
+ * `{ kind: "named", field, name }`. Mixed forms within one opener are an
+ * `E-ENGINE-PAYLOAD-ARITY-MISMATCH` per §18.7's mixed-form prohibition.
+ *
+ * `name` is the local identifier introduced into the state-child body's
+ * scope. `field` (named form only) is the variant payload field name on
+ * the LHS of `=` — must match a declared field per §14.4 / §18.7 named
+ * destructuring; mismatch fires `E-TYPE-022` (inherited).
+ */
+export type PayloadBinding =
+  | { kind: "positional"; name: string }
+  | { kind: "named"; field: string; name: string };
+
+/**
  * A5-2 (§51.0.M) — a `<onTimeout after=DURATION to=.Variant/>` self-closing
  * structural element parsed out of an engine state-child body. The `after`
  * attribute is captured as the raw literal-or-computed-expression string
@@ -534,6 +556,28 @@ export interface EngineStateChildEntry {
   /** §51.0.H — `<onTransition>` siblings inside this state-child body.
    *  Empty array when none are present. */
   onTransitionElements: OnTransitionEntry[];
+
+  // ---- B1 NEW (§51.0.B.1 — S98 amendment, track 2 compiler wiring) ----
+
+  /** §51.0.B.1 — payload-binding declarations extracted from the opener
+   *  attribute list. Empty array when the state-child has no bindings (or
+   *  when the variant is a unit variant — that case ALSO fires
+   *  E-ENGINE-PAYLOAD-ON-UNIT-VARIANT in PASS 11).
+   *
+   *  Source forms (all unified into `PayloadBinding[]`):
+   *    - Bare-attribute `<Done rows>`            → [{kind:"positional", name:"rows"}]
+   *    - Parenthesized  `<Done(rows)>`           → [{kind:"positional", name:"rows"}]
+   *    - Named          `<Done rows=r>`          → [{kind:"named", field:"rows", name:"r"}]
+   *
+   *  The parser distinguishes positional vs named by the attribute value
+   *  shape: `{value: {kind: "absent"}}` is bareword (positional);
+   *  `{value: {kind: "variable-ref"}}` with a single ident is named.
+   *  Reserved attribute names (`rule`, `effect`, `history`, `internal:rule`)
+   *  are SKIPPED — they take precedence per §51.0.B.1. Collision between a
+   *  payload field name and a reserved attribute name surfaces as
+   *  `E-ENGINE-PAYLOAD-RESERVED-COLLISION` in PASS 11 by examining the
+   *  variant's declared payload field names. */
+  payloadBindings: PayloadBinding[];
 }
 
 /**
@@ -4483,6 +4527,141 @@ function parseEnumVariantNamesFromRaw(raw: string): string[] {
 }
 
 /**
+ * B1 (§51.0.B.1) — Parse enum variant payload fields from a raw type body.
+ * For each variant, returns its declared payload field names IN ORDER (or
+ * an empty array for unit variants). This is the minimum information PASS
+ * 11 needs to validate payload bindings: arity matching uses count, unit-
+ * variant rejection uses empty-vs-non-empty, reserved-name collision uses
+ * field name list, named-form unknown-field uses field name set.
+ *
+ * Mirror of the variant-name parser above (`parseEnumVariantNamesFromRaw`)
+ * but ALSO captures payload field names. The full type-system parser
+ * (`parseEnumBody` in type-system.ts) parses field types too, but PASS 11
+ * needs only the field NAMES — types matter for the named-form binding type
+ * propagation, which is a §18.7 inheritance handled downstream by the
+ * type-system pass, not B15.
+ *
+ * Returns `Map<variantName, fieldNames[]>`. Unit variants map to `[]`.
+ */
+function parseEnumVariantPayloadFieldsFromRaw(raw: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  let body = (raw || "").trim();
+  if (body.startsWith("{")) body = body.slice(1);
+  if (body.endsWith("}")) body = body.slice(0, -1);
+  body = body.trim();
+  if (!body) return out;
+
+  // Strip transitions { ... } block if present (parallel to variant-name parser).
+  let variantsSection = body;
+  {
+    let depth = 0;
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i]!;
+      if (ch === "(" || ch === "[" || ch === "{") { depth++; continue; }
+      if (ch === ")" || ch === "]" || ch === "}") { depth--; continue; }
+      if (depth === 0 && body.slice(i).startsWith("transitions")) {
+        const after = body.slice(i + "transitions".length).trimStart();
+        if (after.startsWith("{")) {
+          variantsSection = body.slice(0, i).trim();
+          break;
+        }
+      }
+    }
+  }
+
+  // Split variantsSection on `\n`, `,`, and `|` at depth 0 (paren-aware so
+  // payload field lists stay grouped).
+  const segments: string[] = [];
+  let depth = 0;
+  let buf = "";
+  for (let i = 0; i < variantsSection.length; i++) {
+    const ch = variantsSection[i]!;
+    if (ch === "(" || ch === "[" || ch === "{") { depth++; buf += ch; continue; }
+    if (ch === ")" || ch === "]" || ch === "}") { depth--; buf += ch; continue; }
+    if (depth === 0 && (ch === "\n" || ch === "," || ch === "|")) {
+      if (buf.trim()) segments.push(buf.trim());
+      buf = "";
+      continue;
+    }
+    buf += ch;
+  }
+  if (buf.trim()) segments.push(buf.trim());
+
+  for (const seg of segments) {
+    let text = seg.trim();
+    if (text.startsWith(".")) text = text.slice(1).trim();
+    // Strip `renders ...` suffix after the payload list (or after the name
+    // for unit variants).
+    const parenIdx = text.indexOf("(");
+    let name: string;
+    let fields: string[] = [];
+    if (parenIdx >= 0) {
+      name = text.slice(0, parenIdx).trim();
+      const closeParen = text.lastIndexOf(")");
+      if (closeParen > parenIdx) {
+        const fieldList = text.slice(parenIdx + 1, closeParen).trim();
+        if (fieldList) {
+          // Split on commas at depth 0 (in case of nested generics like
+          // `tokens: Token[]` — the brackets are at depth 1).
+          const parts: string[] = [];
+          let d = 0;
+          let fbuf = "";
+          for (let i = 0; i < fieldList.length; i++) {
+            const ch = fieldList[i]!;
+            if (ch === "(" || ch === "[" || ch === "{") { d++; fbuf += ch; continue; }
+            if (ch === ")" || ch === "]" || ch === "}") { d--; fbuf += ch; continue; }
+            if (d === 0 && ch === ",") {
+              if (fbuf.trim()) parts.push(fbuf.trim());
+              fbuf = "";
+              continue;
+            }
+            fbuf += ch;
+          }
+          if (fbuf.trim()) parts.push(fbuf.trim());
+          for (const p of parts) {
+            // `fieldName: typeExpr` — extract just the field name.
+            const colon = p.indexOf(":");
+            if (colon >= 0) {
+              const fn = p.slice(0, colon).trim();
+              if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fn)) fields.push(fn);
+            }
+          }
+        }
+      }
+    } else {
+      // Strip `renders` suffix for unit variants.
+      const rendersIdx = text.indexOf(" renders ");
+      name = rendersIdx >= 0 ? text.slice(0, rendersIdx).trim() : text;
+    }
+    if (!name) continue;
+    if (!/^[A-Z][A-Za-z0-9_]*$/.test(name)) continue;
+    out.set(name, fields);
+  }
+  return out;
+}
+
+/**
+ * B1 (§51.0.B.1) — look up an enum type's variants WITH their payload field
+ * names from the file's `typeDecls`. Returns null when the type was not
+ * found OR is not an enum. Mirror of `getEnumVariantsFromTypeDecls` but
+ * preserves field info needed for payload-binding validation.
+ */
+function getEnumVariantPayloadFieldsFromTypeDecls(
+  typeDecls: any[] | undefined,
+  typeName: string,
+): Map<string, string[]> | null {
+  if (!Array.isArray(typeDecls)) return null;
+  for (const decl of typeDecls) {
+    if (!decl || typeof decl !== "object") continue;
+    if (decl.kind !== "type-decl") continue;
+    if (decl.name !== typeName) continue;
+    if (decl.typeKind !== "enum") return null;
+    return parseEnumVariantPayloadFieldsFromRaw(decl.raw || "");
+  }
+  return null;
+}
+
+/**
  * Look up the variants of an enum type by name in the file's `typeDecls`.
  * Returns the parsed variant-name list, or `null` when the type was not
  * found OR is not an enum (B15 doesn't validate against struct types
@@ -4832,6 +5011,188 @@ export function validateEngineStateChildrenAndRules(
           "error",
         );
         break;
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // B1 (§51.0.B.1, S98 amendment — track 2 compiler-feature wiring) —
+  // payload-binding validation. Three new diagnostic codes per the §34
+  // amendment:
+  //
+  //   - E-ENGINE-PAYLOAD-ON-UNIT-VARIANT — bindings declared on a variant
+  //     that has no payload fields (unit variant per §14.4).
+  //   - E-ENGINE-PAYLOAD-ARITY-MISMATCH — positional binding count ≠
+  //     variant payload field count; OR mixed positional + named forms on
+  //     one opener (§18.7 mixed-form prohibition extends to this locus).
+  //   - E-ENGINE-PAYLOAD-RESERVED-COLLISION — a variant payload field name
+  //     collides with a reserved state-child attribute name
+  //     (`rule`, `effect`, `history`, `internal:rule`). Reserved-name
+  //     precedence makes the bare-attribute form unable to bind such a
+  //     field; the diagnostic directs the adopter to rename the field at
+  //     declaration site OR use the parenthesized form with a non-colliding
+  //     local name.
+  //
+  // Requires variant payload field info from typeDecls. Skipped silently
+  // when the type is unresolved (same pattern as Step 4 + 5 above —
+  // type-system pass will fire its own diagnostic in that case).
+  // ----------------------------------------------------------------------
+  if (variants.length > 0) {
+    const RESERVED_STATE_CHILD_ATTRS = new Set<string>([
+      "rule", "effect", "history", "internal:rule",
+    ]);
+    const variantPayloadFields = getEnumVariantPayloadFieldsFromTypeDecls(
+      fileAst.typeDecls,
+      forType,
+    );
+    if (variantPayloadFields !== null) {
+      for (const sc of stateChildren) {
+        const bindings = sc.payloadBindings;
+        if (!bindings || bindings.length === 0) continue;
+        // Skip state-children with an unknown variant — Step 4.b already
+        // fired E-ENGINE-STATE-CHILD-INVALID-VARIANT. Doubling up on
+        // payload diagnostics would be noisy and unhelpful.
+        if (!variantSet.has(sc.tag)) continue;
+
+        const declaredFields = variantPayloadFields.get(sc.tag) ?? [];
+
+        // -- E-ENGINE-PAYLOAD-ON-UNIT-VARIANT --
+        // Unit variant (no payload fields) cannot host any bindings.
+        if (declaredFields.length === 0) {
+          fireB15Diagnostic(
+            errors,
+            "E-ENGINE-PAYLOAD-ON-UNIT-VARIANT",
+            `E-ENGINE-PAYLOAD-ON-UNIT-VARIANT: state-child \`<${sc.tag}>\` declares ` +
+            `payload binding${bindings.length === 1 ? "" : "s"} ` +
+            `(${bindings.map((b) => b.kind === "positional" ? b.name : `${b.field}=${b.name}`).join(", ")}) ` +
+            `but variant \`.${sc.tag}\` is a unit variant with no payload fields ` +
+            `(declared as \`${sc.tag}\` in \`${forType}\`). Per SPEC §51.0.B.1, ` +
+            `payload bindings are valid only on payload-bearing variants ` +
+            `(declared with named fields per §14.4 — e.g., \`${sc.tag}(field:type)\`). ` +
+            `Either add payload fields to the variant declaration or remove the binding ` +
+            `attributes from the state-child opener.`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+
+        // -- Mixed-form prohibition (E-ENGINE-PAYLOAD-ARITY-MISMATCH) --
+        // §18.7 forbids mixing positional and named bindings in the same
+        // arm pattern; §51.0.B.1 inherits this prohibition.
+        const hasPositional = bindings.some((b) => b.kind === "positional");
+        const hasNamed = bindings.some((b) => b.kind === "named");
+        if (hasPositional && hasNamed) {
+          fireB15Diagnostic(
+            errors,
+            "E-ENGINE-PAYLOAD-ARITY-MISMATCH",
+            `E-ENGINE-PAYLOAD-ARITY-MISMATCH: state-child \`<${sc.tag}>\` mixes positional ` +
+            `and named payload bindings in the same opener. Per SPEC §51.0.B.1 + §18.7, ` +
+            `bindings within one state-child opener must be either ALL positional ` +
+            `(bare-attribute or parenthesized form: \`<${sc.tag} ${declaredFields.join(" ")}>\`) ` +
+            `OR ALL named (field=local form: \`<${sc.tag} ${declaredFields.map((f) => `${f}=<local>`).join(" ")}>\`). ` +
+            `Convert the bindings to a single form.`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+
+        // -- E-ENGINE-PAYLOAD-ARITY-MISMATCH (positional arity) --
+        // Positional bindings: count MUST match variant payload field count
+        // exactly. Per SPEC §51.0.B.1 normative-statements line 21690-21692.
+        if (hasPositional) {
+          if (bindings.length !== declaredFields.length) {
+            const fieldList = declaredFields.join(", ");
+            fireB15Diagnostic(
+              errors,
+              "E-ENGINE-PAYLOAD-ARITY-MISMATCH",
+              `E-ENGINE-PAYLOAD-ARITY-MISMATCH: state-child \`<${sc.tag}>\` declares ` +
+              `${bindings.length} positional payload binding${bindings.length === 1 ? "" : "s"} ` +
+              `but variant \`.${sc.tag}\` has ${declaredFields.length} payload field${declaredFields.length === 1 ? "" : "s"} ` +
+              `(${fieldList}). Per SPEC §51.0.B.1, positional binding count must match the ` +
+              `variant's payload field count exactly. Either list all ${declaredFields.length} ` +
+              `field bindings in declaration order, or use the named form (\`field=local\`) ` +
+              `to bind a subset by field name.`,
+              engineDecl,
+              filePath,
+              "error",
+            );
+            continue;
+          }
+        }
+
+        // -- E-ENGINE-PAYLOAD-RESERVED-COLLISION --
+        // Reserved-name precedence per §51.0.B.1: a payload field name that
+        // collides with a reserved state-child attribute (`rule`, `effect`,
+        // `history`, `internal:rule`) cannot be bound via the bare-attribute
+        // form. We fire this when ANY declared payload field name is in the
+        // reserved set — the binding cannot be reliably extracted via the
+        // bare-attribute path, so the adopter must rename the field OR
+        // restructure to use the parenthesized form's positional binding
+        // with a non-colliding local name.
+        //
+        // Scope: we check the VARIANT'S declared field names against the
+        // reserved set (not just the binding NAMES the adopter wrote).
+        // Rationale: in the bare-attribute form, the parser cannot have
+        // extracted a binding named e.g. `rule` (it would be the rule=
+        // attribute), so checking written-binding names against the reserved
+        // set would miss the silent collision. The variant-side check
+        // surfaces the conflict at the declaration site precisely as
+        // §51.0.B.1 requires.
+        const collidingFields = declaredFields.filter((f) => RESERVED_STATE_CHILD_ATTRS.has(f));
+        if (collidingFields.length > 0) {
+          // Only fire when the adopter is actually trying to bind on this
+          // state-child (i.e., bindings.length > 0 — already guaranteed
+          // above). Otherwise the variant declares a colliding field name
+          // but the state-child has no bindings → no silent collision.
+          fireB15Diagnostic(
+            errors,
+            "E-ENGINE-PAYLOAD-RESERVED-COLLISION",
+            `E-ENGINE-PAYLOAD-RESERVED-COLLISION: variant \`.${sc.tag}\` declares payload ` +
+            `field${collidingFields.length === 1 ? "" : "s"} named \`${collidingFields.join("`, `")}\` ` +
+            `which collide${collidingFields.length === 1 ? "s" : ""} with reserved engine state-child ` +
+            `attribute name${collidingFields.length === 1 ? "" : "s"} ` +
+            `(\`rule\`, \`effect\`, \`history\`, \`internal:rule\` — per §51.0.B/F/H/N/O). ` +
+            `The reserved attribute interpretation takes precedence over payload binding in the ` +
+            `bare-attribute form, so the field cannot be bound via that form on state-child ` +
+            `\`<${sc.tag}>\`. Per SPEC §51.0.B.1, either rename the payload field at its ` +
+            `declaration site (\`${forType}\`) OR use the parenthesized form with a non-colliding ` +
+            `local name (e.g., \`<${sc.tag}(${declaredFields.map((f) => collidingFields.includes(f) ? `${f}_local` : f).join(", ")})>\`).`,
+            engineDecl,
+            filePath,
+            "error",
+          );
+          continue;
+        }
+
+        // -- Named-form unknown-field check (E-TYPE-022 inherited from §18.7) --
+        // For named bindings, each `field` MUST match a declared payload
+        // field name. We fire E-TYPE-022 to align with §18.7's named-form
+        // unknown-field diagnostic. (Adopter fixes by either renaming the
+        // LHS or removing the binding.)
+        if (hasNamed) {
+          const fieldSet = new Set(declaredFields);
+          for (const b of bindings) {
+            if (b.kind === "named" && !fieldSet.has(b.field)) {
+              const fieldList = declaredFields.join(", ");
+              fireB15Diagnostic(
+                errors,
+                "E-TYPE-022",
+                `E-TYPE-022: state-child \`<${sc.tag}>\` named binding \`${b.field}=${b.name}\` ` +
+                `references field \`${b.field}\` which is not declared on variant \`.${sc.tag}\` ` +
+                `of \`${forType}\`. Declared payload fields: ${fieldList}. Per SPEC §18.7 + ` +
+                `§51.0.B.1, named-form bindings bind by declared field name. Either correct the ` +
+                `field name or use positional form (\`<${sc.tag} <local1> <local2>>\`).`,
+                engineDecl,
+                filePath,
+                "error",
+              );
+            }
+          }
+        }
+      }
     }
   }
 

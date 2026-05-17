@@ -70,6 +70,7 @@ import type {
   OnIdleEntry,
   NestedEngineEntry,
   OnTransitionEntry,
+  PayloadBinding,
 } from "./symbol-table";
 
 /**
@@ -84,6 +85,246 @@ const VOID_ELEMENTS_LC = new Set([
   "area", "base", "br", "col", "embed", "hr", "img", "input",
   "link", "meta", "source", "track", "wbr",
 ]);
+
+/**
+ * B1 (§51.0.B.1, S98 amendment) — reserved engine state-child attribute
+ * names. These take PRECEDENCE over payload-binding interpretation per the
+ * amendment's reserved-name precedence rule:
+ *
+ *   "The reserved state-child attribute names — `rule`, `effect`, `history`,
+ *    `internal:rule` — take precedence over payload-binding interpretation
+ *    in the bare-attribute form."  (SPEC §51.0.B.1)
+ *
+ * Mirror of `ENGINE_STATE_CHILD_RESERVED_ATTRS` in `codegen/emit-variant-guard.ts`
+ * (kept in sync — both consult the same SPEC §51.0.B/F/H/N/O reserved set).
+ */
+const RESERVED_STATE_CHILD_ATTRS = new Set<string>([
+  "rule",
+  "effect",
+  "history",
+  "internal:rule",
+]);
+
+/**
+ * B1 (§51.0.B.1, S98 amendment) — extract payload bindings from a state-
+ * child opener's attribute substring.
+ *
+ * `afterTag` is the opener inner-text following the variant tag (everything
+ * between `<Tag` and the closing `>`, excluding self-close `/`). Example:
+ *
+ *   For `<Done rows rule=.Idle>`:    afterTag = " rows rule=.Idle"
+ *   For `<Done(rows) rule=.Idle>`:   afterTag = "(rows) rule=.Idle"
+ *   For `<Done rows=r rule=.Idle>`:  afterTag = " rows=r rule=.Idle"
+ *   For `<OpenAt depth opener span rule=...>`: afterTag = " depth opener span rule=..."
+ *
+ * Distinguishes the three SPEC §51.0.B.1 source forms:
+ *
+ *   1. Bare-attribute form (positional)  — bareword tokens after the tag,
+ *      separated by whitespace, NOT in the reserved set, NOT followed by
+ *      `=`. Each produces `{kind:"positional", name:<bareword>}`.
+ *
+ *   2. Parenthesized form (positional)   — `(name1, name2, ...)` at the
+ *      start of `afterTag`. Each comma-separated identifier produces
+ *      `{kind:"positional", name:<ident>}`. Named-form inside parens
+ *      (`(field: local)`) is ALSO accepted — emits
+ *      `{kind:"named", field, name}`.
+ *
+ *   3. Named form (named-by-field-name)  — `field=local` attribute pair
+ *      where `field` is NOT in the reserved set AND the value is a
+ *      single bareword identifier. Produces
+ *      `{kind:"named", field, name}`.
+ *
+ * Reserved attrs (`rule`, `effect`, `history`, `internal:rule`) and
+ * `rule=`/`internal:rule=`/`effect=` attribute pairs are SKIPPED (they are
+ * not bindings per §51.0.B.1 reserved-name precedence).
+ *
+ * Mixed-form prohibition (§18.7 inheritance via §51.0.B.1): if the result
+ * contains BOTH a `positional` AND a `named` entry, the caller (PASS 11)
+ * fires `E-ENGINE-PAYLOAD-ARITY-MISMATCH`. The parser does not reject
+ * mixed forms itself — it returns them all and lets PASS 11 emit the
+ * diagnostic.
+ *
+ * Returns the bindings in source order. Returns `[]` when no bindings are
+ * present.
+ */
+export function parsePayloadBindings(afterTag: string): PayloadBinding[] {
+  const out: PayloadBinding[] = [];
+  if (typeof afterTag !== "string" || !afterTag) return out;
+
+  // Working copy — strip self-close trailing `/` if present so it doesn't
+  // bleed into the last bareword.
+  let work = afterTag;
+  if (work.endsWith("/")) work = work.slice(0, -1);
+
+  // -----------------------------------------------------------------------
+  // Step 1 — Handle parenthesized form `(name1, name2, ...)` at start.
+  // §51.0.B.1: parenthesized form is positional by default; named-inside-
+  // parens (`(field: local)`) is accepted with named semantics.
+  // -----------------------------------------------------------------------
+  const trimmedLeading = work.replace(/^\s+/, "");
+  if (trimmedLeading.startsWith("(")) {
+    // Find matching close-paren (paren-depth 0 means done).
+    let depth = 1;
+    let j = 1;
+    while (j < trimmedLeading.length && depth > 0) {
+      const ch = trimmedLeading[j];
+      if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+      if (depth === 0) break;
+      j++;
+    }
+    if (depth === 0) {
+      const inner = trimmedLeading.slice(1, j).trim();
+      // Split on commas (no nested parens in field lists per §14.4).
+      const parts = inner.length === 0 ? [] : inner.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+      for (const p of parts) {
+        // Named-inside-parens: `field: local` (with colon).
+        const colonIdx = p.indexOf(":");
+        if (colonIdx >= 0) {
+          const field = p.slice(0, colonIdx).trim();
+          const name = p.slice(colonIdx + 1).trim();
+          if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(field) &&
+              /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+            out.push({ kind: "named", field, name });
+          }
+        } else {
+          // Positional: bare identifier.
+          if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(p)) {
+            out.push({ kind: "positional", name: p });
+          }
+        }
+      }
+      // Skip the `(...)` chunk for the bareword scan below.
+      const skipped = trimmedLeading.length - j - 1;
+      work = trimmedLeading.slice(j + 1);
+      // Compensate for leading-whitespace strip — we want to continue
+      // scanning AFTER the `(...)`, not from the original `afterTag`.
+      void skipped;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 2 — Tokenize remaining attribute substring into name / value pairs.
+  // For each non-reserved bareword (no `=`), record as positional binding.
+  // For each non-reserved `name=local` where `local` is a bare identifier,
+  // record as named binding.
+  // -----------------------------------------------------------------------
+  let i = 0;
+  while (i < work.length) {
+    // Skip whitespace.
+    while (i < work.length && /\s/.test(work[i]!)) i++;
+    if (i >= work.length) break;
+
+    // Read attribute name.
+    const nameStart = i;
+    while (i < work.length) {
+      const c = work[i]!;
+      // Attribute names may include `:` (e.g., `internal:rule`).
+      if (/[A-Za-z0-9_:$\-]/.test(c)) i++;
+      else break;
+    }
+    const attrName = work.slice(nameStart, i);
+    if (!attrName) {
+      // Unexpected character — advance and retry.
+      i++;
+      continue;
+    }
+
+    // Check for `=` following the name.
+    let hasEquals = false;
+    let valueText = "";
+    {
+      let k = i;
+      while (k < work.length && /\s/.test(work[k]!)) k++;
+      if (k < work.length && work[k] === "=") {
+        hasEquals = true;
+        k++;
+        while (k < work.length && /\s/.test(work[k]!)) k++;
+        // Read value — accept:
+        //   - quoted strings "..." / '...'
+        //   - logic-context ${...}
+        //   - parenthesized rule values (.A | .B)
+        //   - dotted identifier paths (.X.history)
+        //   - bare identifiers
+        if (k < work.length) {
+          const c = work[k]!;
+          if (c === '"' || c === "'") {
+            const quote = c;
+            k++;
+            const start = k;
+            while (k < work.length && work[k] !== quote) {
+              if (work[k] === "\\") k += 2;
+              else k++;
+            }
+            valueText = work.slice(start, k);
+            if (k < work.length) k++; // consume closing quote
+          } else if (c === "$" && work[k + 1] === "{") {
+            // ${...} — match balanced braces.
+            k += 2;
+            let depth = 1;
+            const start = k;
+            while (k < work.length && depth > 0) {
+              if (work[k] === "{") depth++;
+              else if (work[k] === "}") depth--;
+              if (depth === 0) break;
+              k++;
+            }
+            valueText = work.slice(start, k);
+            if (k < work.length) k++; // consume `}`
+          } else if (c === "(") {
+            // Parenthesized — match balanced parens.
+            let depth = 1;
+            k++;
+            const start = k;
+            while (k < work.length && depth > 0) {
+              if (work[k] === "(") depth++;
+              else if (work[k] === ")") depth--;
+              if (depth === 0) break;
+              k++;
+            }
+            valueText = work.slice(start, k);
+            if (k < work.length) k++; // consume `)`
+          } else {
+            // Bareword/dotted value — read until whitespace, `>`, `/`.
+            const start = k;
+            while (k < work.length) {
+              const ch = work[k]!;
+              if (/\s/.test(ch) || ch === ">" || ch === "/") break;
+              k++;
+            }
+            valueText = work.slice(start, k);
+          }
+        }
+        i = k;
+      }
+    }
+
+    // Skip reserved attribute names entirely (whether bareword or with `=`).
+    if (RESERVED_STATE_CHILD_ATTRS.has(attrName)) {
+      continue;
+    }
+
+    if (!hasEquals) {
+      // Bareword attribute — positional payload binding.
+      // Validate identifier shape (must be a valid local name).
+      if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(attrName)) {
+        out.push({ kind: "positional", name: attrName });
+      }
+      continue;
+    }
+
+    // `name=value` form. For a NAMED payload binding, value MUST be a bare
+    // identifier (the local name introduced into scope). Anything else
+    // (string literal, `${expr}`, dotted path, paren-list) is NOT a binding.
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(valueText)) {
+      out.push({ kind: "named", field: attrName, name: valueText });
+    }
+    // Else: non-binding attribute (e.g., `class="foo"`, custom user attr).
+    // Ignored — not part of the payload-binding surface.
+  }
+
+  return out;
+}
 
 /**
  * Determine whether the engine body text appears to be in the LEGACY
@@ -1591,6 +1832,15 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
     // sink probe; canonical SPEC §51.0.N example was the trigger.)
     const historyAttr = /(?:^|\s)history(?=\s|>|\/|$)/.test(afterTag);
 
+    // §51.0.B.1 (B1, S98 amendment — track 2 compiler-feature wiring) —
+    // extract payload bindings from the opener's attribute substring. The
+    // parser recognizes all three SPEC §51.0.B.1 forms (bare-attribute,
+    // parenthesized, named); see `parsePayloadBindings` for the form
+    // detection logic. PASS 11 in symbol-table.ts validates these bindings
+    // against the variant's declared payload fields (arity, unit-variant
+    // rejection, reserved-name collision).
+    const payloadBindings = parsePayloadBindings(afterTag);
+
     // Locate body end.
     let bodyStart = openerEnd + 1;
     let bodyEnd: number;
@@ -1720,6 +1970,8 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
       // ---- B17.2 NEW (§51.0.H) ----
       effectRaw,
       onTransitionElements,
+      // ---- B1 NEW (§51.0.B.1) ----
+      payloadBindings,
     });
     i = nextI;
   }

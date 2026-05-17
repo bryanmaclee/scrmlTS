@@ -1240,7 +1240,10 @@ export function emitEngineSubstrate(fileAST: any): string[] {
  * bodies pre-A10 leave bodyChildren undefined). Returns `[]` when no arms
  * have non-empty body — caller treats as tree-shake-empty.
  */
-function buildEngineArms(decl: EngineDeclLike): import("./emit-variant-guard.ts").VariantArm[] | null {
+function buildEngineArms(
+  decl: EngineDeclLike,
+  fileAST?: any,
+): import("./emit-variant-guard.ts").VariantArm[] | null {
   const meta = decl._record?.engineMeta;
   if (!meta || !Array.isArray(meta.stateChildren)) return null;
   const bodyChildren = (decl as any).bodyChildren;
@@ -1251,6 +1254,111 @@ function buildEngineArms(decl: EngineDeclLike): import("./emit-variant-guard.ts"
     extractPayloadBindingsFromAttrs: (attrs: any[]) => string[];
     filterRenderableChildren: (children: any[]) => any[];
   };
+
+  // B1 (§51.0.B.1) — variant payload-field name lookup. Used to resolve
+  // positional-binding LOCAL names → declared FIELD names for the
+  // dispatcher's `_data[fieldName]` payload extraction. SPEC §51.0.B.1
+  // normative statement: "Positional binding ... SHALL assign fields
+  // left-to-right in declaration order, regardless of the chosen local
+  // name. The local name does NOT need to match the field name; the
+  // binding is position-determined, not name-determined."
+  //
+  // `null` when fileAST or typeDecls is unavailable (e.g., when called
+  // from test fixtures that don't supply fileAST) — in that case the
+  // legacy assumption "binding name = field name" is preserved by leaving
+  // `payloadFieldNames` undefined on the arm.
+  const variantFields: Map<string, string[]> | null = (() => {
+    if (!fileAST) return null;
+    const typeDecls = (fileAST as any).typeDecls ?? (fileAST as any).ast?.typeDecls;
+    if (!Array.isArray(typeDecls)) return null;
+    for (const td of typeDecls) {
+      if (!td || td.kind !== "type-decl") continue;
+      if (td.name !== meta.forType) continue;
+      if (td.typeKind !== "enum") return null;
+      // Parse field names from raw — mirror of
+      // symbol-table.ts:parseEnumVariantPayloadFieldsFromRaw, duplicated
+      // here to avoid creating a codegen→symbol-table dep direction that
+      // doesn't already exist. Cheap; runs once per engine.
+      const out = new Map<string, string[]>();
+      let body = (td.raw || "").trim();
+      if (body.startsWith("{")) body = body.slice(1);
+      if (body.endsWith("}")) body = body.slice(0, -1);
+      body = body.trim();
+      if (!body) return out;
+      // Strip transitions block.
+      let vsection = body;
+      {
+        let depth = 0;
+        for (let i = 0; i < body.length; i++) {
+          const ch = body[i]!;
+          if (ch === "(" || ch === "[" || ch === "{") { depth++; continue; }
+          if (ch === ")" || ch === "]" || ch === "}") { depth--; continue; }
+          if (depth === 0 && body.slice(i).startsWith("transitions")) {
+            const after = body.slice(i + 11).trimStart();
+            if (after.startsWith("{")) { vsection = body.slice(0, i).trim(); break; }
+          }
+        }
+      }
+      // Split on \n, comma, pipe at depth 0.
+      const segments: string[] = [];
+      let depth = 0;
+      let buf = "";
+      for (let i = 0; i < vsection.length; i++) {
+        const ch = vsection[i]!;
+        if (ch === "(" || ch === "[" || ch === "{") { depth++; buf += ch; continue; }
+        if (ch === ")" || ch === "]" || ch === "}") { depth--; buf += ch; continue; }
+        if (depth === 0 && (ch === "\n" || ch === "," || ch === "|")) {
+          if (buf.trim()) segments.push(buf.trim());
+          buf = "";
+          continue;
+        }
+        buf += ch;
+      }
+      if (buf.trim()) segments.push(buf.trim());
+      for (const seg of segments) {
+        let text = seg.trim();
+        if (text.startsWith(".")) text = text.slice(1).trim();
+        const parenIdx = text.indexOf("(");
+        if (parenIdx < 0) {
+          const rendersIdx = text.indexOf(" renders ");
+          const name = rendersIdx >= 0 ? text.slice(0, rendersIdx).trim() : text;
+          if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) out.set(name, []);
+          continue;
+        }
+        const name = text.slice(0, parenIdx).trim();
+        const closeParen = text.lastIndexOf(")");
+        const fieldList = closeParen > parenIdx ? text.slice(parenIdx + 1, closeParen).trim() : "";
+        const fields: string[] = [];
+        if (fieldList) {
+          let d = 0;
+          let fbuf = "";
+          const parts: string[] = [];
+          for (let j = 0; j < fieldList.length; j++) {
+            const ch = fieldList[j]!;
+            if (ch === "(" || ch === "[" || ch === "{") { d++; fbuf += ch; continue; }
+            if (ch === ")" || ch === "]" || ch === "}") { d--; fbuf += ch; continue; }
+            if (d === 0 && ch === ",") {
+              if (fbuf.trim()) parts.push(fbuf.trim());
+              fbuf = "";
+              continue;
+            }
+            fbuf += ch;
+          }
+          if (fbuf.trim()) parts.push(fbuf.trim());
+          for (const p of parts) {
+            const colon = p.indexOf(":");
+            if (colon >= 0) {
+              const fn = p.slice(0, colon).trim();
+              if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fn)) fields.push(fn);
+            }
+          }
+        }
+        if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) out.set(name, fields);
+      }
+      return out;
+    }
+    return null;
+  })();
 
   const arms: import("./emit-variant-guard.ts").VariantArm[] = [];
   for (const sc of meta.stateChildren) {
@@ -1265,7 +1373,47 @@ function buildEngineArms(decl: EngineDeclLike): import("./emit-variant-guard.ts"
       continue;
     }
     const attrs = match.attrs ?? match.attributes ?? [];
-    const payloadBindings = extractPayloadBindingsFromAttrs(attrs);
+    // B1 (§51.0.B.1, S98 amendment — track 2 compiler-feature wiring) —
+    // prefer parser-side `sc.payloadBindings` (PayloadBinding[]) when
+    // populated; falls back to the legacy AST-attrs heuristic when absent
+    // (e.g., when buildEngineArms is called on test fixtures that bypass
+    // the SYM PASS 11 path).
+    //
+    // PayloadBinding shape per symbol-table.ts:
+    //   - {kind:"positional", name}        — bare-attribute or paren form
+    //   - {kind:"named",      field, name} — named or paren-named form
+    //
+    // POSITIONAL semantics (§51.0.B.1): the local NAME does not need to
+    // match the field name; binding is position-determined. We resolve
+    // field-name lookup keys against `variantFields[tag]` IN DECLARATION
+    // ORDER when available. Fallback (no fileAST): assume binding name =
+    // field name (legacy heuristic — works when adopter chose matching
+    // local names).
+    //
+    // NAMED semantics: the LHS `field` IS the field name lookup key; the
+    // RHS `name` is the local. Field-name validation against declared
+    // fields is the typer's job (PASS 11 E-TYPE-022).
+    let payloadBindings: string[];
+    let payloadFieldNames: string[] | undefined;
+    const parserBindings = (sc as any).payloadBindings as
+      | Array<{ kind: "positional"; name: string } | { kind: "named"; field: string; name: string }>
+      | undefined;
+    if (Array.isArray(parserBindings) && parserBindings.length > 0) {
+      const declaredFields = variantFields?.get(tag) ?? null;
+      payloadBindings = parserBindings.map((b) => b.name);
+      // Resolve lookup keys: positional → declaredFields[i] (position-based,
+      // SPEC-canonical); named → b.field (name-based). When declaredFields
+      // is unavailable, fall back to b.name for positional (legacy).
+      payloadFieldNames = parserBindings.map((b, i) => {
+        if (b.kind === "named") return b.field;
+        // positional
+        if (declaredFields && i < declaredFields.length) return declaredFields[i];
+        return b.name;
+      });
+    } else {
+      payloadBindings = extractPayloadBindingsFromAttrs(attrs);
+      payloadFieldNames = undefined;
+    }
     const body = filterRenderableChildren(match.children ?? []);
     // A5-7 Wave 2.4 (§51.0.Q.1, Bug #2) — composite state-child post-mount JS.
     // On outer-entry into a composite state-child (one whose body contains a
@@ -1357,9 +1505,9 @@ function buildEngineArms(decl: EngineDeclLike): import("./emit-variant-guard.ts"
       }
     }
     if (postMountJs) {
-      arms.push({ tag, payloadBindings, body, postMountJs });
+      arms.push({ tag, payloadBindings, payloadFieldNames, body, postMountJs });
     } else {
-      arms.push({ tag, payloadBindings, body });
+      arms.push({ tag, payloadBindings, payloadFieldNames, body });
     }
   }
   return arms;
@@ -1395,7 +1543,9 @@ export function emitEngineBodyRenderForFile(
 
   for (const decl of decls) {
     const meta = decl._record!.engineMeta!;
-    const arms = buildEngineArms(decl);
+    // B1 (§51.0.B.1) — pass fileAST so buildEngineArms can resolve
+    // variant payload-field names for positional-binding lookup keys.
+    const arms = buildEngineArms(decl, fileAST);
     if (!arms) continue;
     const out = emitVariantGuardedRender(
       // Engine consumer — variant accessor reads the engine cell. Used
@@ -1447,7 +1597,9 @@ export function emitDerivedEngineBodyRenderForFile(
 
   for (const decl of decls) {
     const meta = decl._record!.engineMeta!;
-    const arms = buildEngineArms(decl);
+    // B1 (§51.0.B.1) — pass fileAST for positional payload-binding field
+    // resolution. See note in emitEngineBodyRenderForFile.
+    const arms = buildEngineArms(decl, fileAST);
     if (!arms) continue;
     const out = emitVariantGuardedRender(
       () => `_scrml_derived_get(${JSON.stringify(meta.varName)})`,
@@ -1490,7 +1642,9 @@ export function emitEngineMountHtml(
 ): string | null {
   if (!isC12EngineDecl(decl)) return null;
   const meta = decl._record!.engineMeta!;
-  const arms = buildEngineArms(decl);
+  // B1 (§51.0.B.1) — pass fileAST from ctx for positional payload-binding
+  // field resolution (see buildEngineArms doc + emitEngineBodyRenderForFile).
+  const arms = buildEngineArms(decl, ctx.fileAST);
   if (!arms) return "";
   const allEmpty = arms.every((a) => a.body.length === 0);
   if (allEmpty) {

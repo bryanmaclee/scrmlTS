@@ -1,0 +1,36 @@
+// engine-014-payload-binding-paren — parenthesized payload binding on
+// engine state-children (§51.0.B.1 amendment S98, B1 dispatch — track 2).
+//
+// Companion to engine-013-payload-binding-bare.scrml. Demonstrates the
+// SPEC §51.0.B.1 parenthesized form — bindings appear inside parentheses
+// immediately after the variant name. This is the §18.0.1-parallel form
+// (block-form match arm payload destructuring) extended to engine state-
+// children. Semantically equivalent to the bare-attribute form; both are
+// positional by default. The parenthesized form is the canonical choice
+// when the field name collides with a reserved attr (rule, history,
+// effect, internal:rule) — escape hatch via positional binding with a
+// non-colliding local name.
+//
+// Forms shown:
+//   - Parenthesized multi-field: <OpenAt(depth, opener, line) rule=...>
+
+<program>
+type BracketStack:enum = {
+    Balanced,
+    OpenAt(depth: int, opener: int, line: int)
+}
+
+<engine for=BracketStack initial=.Balanced>
+    <Balanced rule=.OpenAt></>
+    <OpenAt(depth, opener, line) rule=(.Balanced | .OpenAt)>
+        <p>Depth: ${depth}</p>
+        <p>Opener: ${opener}</p>
+        <p>Line: ${line}</p>
+    </>
+</>
+
+<div class="bracket-stack">
+    <button onclick=${@bracketStack = BracketStack.OpenAt(1, 40, 5)}>Push</button>
+    <button onclick=${@bracketStack = .Balanced}>Reset</button>
+</div>
+</program>
