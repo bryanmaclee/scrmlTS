@@ -265,6 +265,16 @@ export function scanForOnTimeoutEntries(
     return false;
   };
 
+  // S98 (anomaly-1 fix) — precompute comment + string regions so regex
+  // matches falling INSIDE a comment / string don't fire as real openers.
+  const commentRegions = computeCommentRegions(bodyRaw);
+  const inCommentRegion = (idx: number): boolean => {
+    for (const [start, end] of commentRegions) {
+      if (idx >= start && idx < end) return true;
+    }
+    return false;
+  };
+
   // Match self-closing `<onTimeout ...attrs.../>`. Lazy capture for attrs
   // so `>` inside attribute values is handled minimally — `<onTimeout>` does
   // not host structural children, so no quote/paren depth tracking is needed
@@ -274,6 +284,7 @@ export function scanForOnTimeoutEntries(
   while ((m = re.exec(bodyRaw)) !== null) {
     const startIdx = m.index;
     if (inSkipRegion(startIdx)) continue;
+    if (inCommentRegion(startIdx)) continue;
 
     const attrs = m[1] ?? "";
     // Extract `after=` value — accepts:
@@ -347,10 +358,20 @@ export function scanForOnIdleEntries(rulesRaw: string): OnIdleEntry[] {
   const out: OnIdleEntry[] = [];
   if (!rulesRaw) return out;
 
+  // S98 (anomaly-1 fix) — comment + string region mask.
+  const commentRegions = computeCommentRegions(rulesRaw);
+  const inCommentRegion = (idx: number): boolean => {
+    for (const [start, end] of commentRegions) {
+      if (idx >= start && idx < end) return true;
+    }
+    return false;
+  };
+
   const re = /<onIdle\b([^>]*?)\/>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(rulesRaw)) !== null) {
     const startIdx = m.index;
+    if (inCommentRegion(startIdx)) continue;
     const attrs = m[1] ?? "";
 
     // Extract `after=` value — accepts:
@@ -406,8 +427,27 @@ export function scanForNestedEngineEntries(bodyRaw: string): NestedEngineEntry[]
 
   let i = 0;
   while (i < bodyRaw.length) {
+    // S98 (anomaly-1 fix) — comment / string skip. A `<engine>` inside a
+    // comment or string literal MUST NOT be parsed as a nested-engine opener.
+    {
+      const skipped = skipCommentOrString(bodyRaw, i);
+      if (skipped !== i) { i = skipped; continue; }
+    }
     const lt = bodyRaw.indexOf("<engine", i);
     if (lt < 0) break;
+    // Re-scan i..lt for skippable regions that might engulf the candidate.
+    let scanned = i;
+    let hitSkippable = false;
+    while (scanned < lt) {
+      const sk = skipCommentOrString(bodyRaw, scanned);
+      if (sk !== scanned) {
+        if (sk > lt) { i = sk; hitSkippable = true; break; }
+        scanned = sk;
+      } else {
+        scanned++;
+      }
+    }
+    if (hitSkippable) continue;
     // Boundary check: ensure `<engine` is followed by whitespace or `>` (not
     // a longer identifier prefix like `<engineering>`).
     const nextCh = bodyRaw[lt + 7];
@@ -599,8 +639,27 @@ export function scanForOnTransitionEntries(
 
   let i = 0;
   while (i < bodyRaw.length) {
+    // S98 (anomaly-1 fix) — comment / string skip. A `<onTransition>` inside
+    // a comment or string literal MUST NOT be parsed as a real opener.
+    {
+      const skipped = skipCommentOrString(bodyRaw, i);
+      if (skipped !== i) { i = skipped; continue; }
+    }
     const lt = bodyRaw.indexOf("<onTransition", i);
     if (lt < 0) break;
+    // Re-scan i..lt for skippable regions that might engulf the candidate.
+    let scanned = i;
+    let hitSkippable = false;
+    while (scanned < lt) {
+      const sk = skipCommentOrString(bodyRaw, scanned);
+      if (sk !== scanned) {
+        if (sk > lt) { i = sk; hitSkippable = true; break; }
+        scanned = sk;
+      } else {
+        scanned++;
+      }
+    }
+    if (hitSkippable) continue;
     // Boundary check: ensure `<onTransition` is followed by whitespace, `>`,
     // or `/` (not a longer identifier prefix).
     const nextCh = bodyRaw[lt + 13];
@@ -734,6 +793,11 @@ function findOnTransitionCloser(bodyRaw: string, from: number): number {
   // depth via the PascalCase branch below).
   let lowerDepth = 0;
   while (i < bodyRaw.length) {
+    // S98 (anomaly-1 fix) — comment / string skip. See skipCommentOrString.
+    {
+      const skipped = skipCommentOrString(bodyRaw, i);
+      if (skipped !== i) { i = skipped; continue; }
+    }
     // Skip ${...} interpolation
     if (bodyRaw.startsWith("${", i)) {
       let j = i + 2;
@@ -856,6 +920,11 @@ function findEngineCloser(bodyRaw: string, from: number): number {
   // (closerName.length > 0)` branch — corrupting state-child accounting.
   let lowerDepth = 0;
   while (i < bodyRaw.length) {
+    // S98 (anomaly-1 fix) — comment / string skip. See skipCommentOrString.
+    {
+      const skipped = skipCommentOrString(bodyRaw, i);
+      if (skipped !== i) { i = skipped; continue; }
+    }
     // Skip ${...} interpolation
     if (bodyRaw.startsWith("${", i)) {
       let j = i + 2;
@@ -987,6 +1056,128 @@ function findEngineCloser(bodyRaw: string, from: number): number {
 }
 
 /**
+ * S98 (anomaly-1 fix) — comment/string skip helper.
+ *
+ * Engine `rulesRaw` body text is preserved VERBATIM by the AST builder (it
+ * concatenates `child.raw` from each block-splitter child, INCLUDING `comment`
+ * children — see ast-builder.js around line 9886). That means line comments,
+ * block comments, and string literals end up in the text we hand to the
+ * scanners below. Without this helper, a stray `${`, `<X`, `<engine`, or `</>`
+ * inside a comment / string is mis-recognized as live syntax — derailing
+ * depth tracking and (in the original repro) firing
+ * `E-ENGINE-STATE-CHILD-MISSING` because the scanner walked clear past the
+ * real `</>` closer in pursuit of a `}` that lived only in comment prose.
+ *
+ * Returns the index ONE PAST the end of the comment / string region starting
+ * at `i`. Returns `i` (unchanged) when `i` is not the start of any such
+ * region — callers should compare for inequality to decide whether to
+ * `continue` the outer loop.
+ *
+ * Recognized regions:
+ *   - `// ... \n`            line comment (consumes through the newline)
+ *   - `/* ... *\/`           block comment (consumes through the closer)
+ *   - `"..."` / `'...'`      string literals (honors `\` escape)
+ *   - `` `...` ``            backtick template literal (honors `\` escape;
+ *                            interior `${...}` is consumed as part of the
+ *                            literal since the closing backtick is the real
+ *                            terminator and we don't want a stray `${` to
+ *                            kick scanning back into "live syntax" mode)
+ *
+ * Unterminated regions consume to EOF — matches BS-level best-effort
+ * recovery for unclosed `//` / `<!-- -->` (block-splitter.js lines 701-704).
+ */
+function skipCommentOrString(s: string, i: number): number {
+  if (i >= s.length) return i;
+  const c = s[i];
+  const c2 = s[i + 1];
+
+  // Line comment: `// ... \n`
+  if (c === "/" && c2 === "/") {
+    let j = i + 2;
+    while (j < s.length && s[j] !== "\n") j++;
+    if (j < s.length) j++; // consume the newline
+    return j;
+  }
+
+  // Block comment: `/* ... */`
+  if (c === "/" && c2 === "*") {
+    let j = i + 2;
+    while (j < s.length) {
+      if (s[j] === "*" && s[j + 1] === "/") {
+        return j + 2;
+      }
+      j++;
+    }
+    return s.length; // unterminated — consume to EOF
+  }
+
+  // String literals (single / double quote) — honor backslash escape.
+  if (c === '"' || c === "'") {
+    const quote = c;
+    let j = i + 1;
+    while (j < s.length) {
+      const ch = s[j];
+      if (ch === "\\") {
+        j += 2; // skip escaped char
+        continue;
+      }
+      if (ch === quote) return j + 1;
+      j++;
+    }
+    return s.length; // unterminated
+  }
+
+  // Backtick template literal — consume the whole literal, including any
+  // interior `${...}` (the closing backtick is the real terminator). We
+  // honor backslash escape on regular chars but NOT brace-depth: the
+  // template-literal grammar already guarantees balanced braces inside
+  // interpolations, and any imbalance is the user's problem (and would
+  // have surfaced at TAB tokenization, not here).
+  if (c === "`") {
+    let j = i + 1;
+    while (j < s.length) {
+      const ch = s[j];
+      if (ch === "\\") {
+        j += 2;
+        continue;
+      }
+      if (ch === "`") return j + 1;
+      j++;
+    }
+    return s.length; // unterminated
+  }
+
+  return i;
+}
+
+/**
+ * S98 (anomaly-1 fix) — precompute the set of comment + string-literal
+ * regions in a body text. Returns `[start, end)` half-open intervals sorted
+ * by start. Used by the regex-based scanners (`scanForOnTimeoutEntries`,
+ * `scanForOnIdleEntries`) to filter out matches that fall inside a comment
+ * or string. The walker-based scanners (`findStateChildCloser`, etc.) call
+ * `skipCommentOrString` per-iteration instead.
+ *
+ * Pairs symmetrically with `skipCommentOrString` — both must classify the
+ * same character ranges as "skippable", or the two filter paths could
+ * disagree on a borderline character.
+ */
+function computeCommentRegions(s: string): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let i = 0;
+  while (i < s.length) {
+    const skipped = skipCommentOrString(s, i);
+    if (skipped !== i) {
+      out.push([i, skipped]);
+      i = skipped;
+    } else {
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
  * Find the closing `>` for an opener that starts at index `open` in `s`.
  * Respects parentheses for `rule=(.A | .B)`, double-quoted attribute values,
  * AND `${...}` logic-context blocks (B17.2 — needed for `effect=${expr}` and
@@ -1063,6 +1254,14 @@ function findStateChildCloser(rulesRaw: string, from: number, tag: string): numb
   // Symmetric fix applied in `findEngineCloser` + `findOnTransitionCloser`.
   let lowerDepth = 0;
   while (i < rulesRaw.length) {
+    // S98 (anomaly-1 fix) — skip past line/block comments + string literals
+    // FIRST so a stray `${`, `<X`, or `</>` inside comment / string prose is
+    // not mis-recognized as live syntax. See `skipCommentOrString` for
+    // rationale (the AST builder preserves comment text verbatim in rulesRaw).
+    {
+      const skipped = skipCommentOrString(rulesRaw, i);
+      if (skipped !== i) { i = skipped; continue; }
+    }
     // Skip ${...} interpolation
     if (rulesRaw.startsWith("${", i)) {
       let j = i + 2;
@@ -1233,9 +1432,34 @@ export function parseEngineStateChildren(rulesRaw: string): EngineStateChildEntr
 
   let i = 0;
   while (i < rulesRaw.length) {
+    // S98 (anomaly-1 fix) — comment / string skip at top-level scan. A `<X`
+    // inside a `// line comment` or `"string"` MUST NOT be parsed as a
+    // state-child opener.
+    {
+      const skipped = skipCommentOrString(rulesRaw, i);
+      if (skipped !== i) { i = skipped; continue; }
+    }
     // Find next `<` followed by an uppercase letter (state-child opener).
     const lt = rulesRaw.indexOf("<", i);
     if (lt < 0) break;
+    // Comment / string regions between `i` and `lt` may contain stray `<X`
+    // tokens that aren't real openers — re-scan from `i` to `lt` and bail
+    // back to the top of the loop if we hit one. (Cheap: most rulesRaw
+    // strings contain few or no comments.)
+    let scanned = i;
+    let hitSkippable = false;
+    while (scanned < lt) {
+      const sk = skipCommentOrString(rulesRaw, scanned);
+      if (sk !== scanned) {
+        // If the skip region engulfs `lt`, the `<` we found was inside a
+        // comment / string — restart the outer loop from past the region.
+        if (sk > lt) { i = sk; hitSkippable = true; break; }
+        scanned = sk;
+      } else {
+        scanned++;
+      }
+    }
+    if (hitSkippable) continue;
     const next = rulesRaw[lt + 1];
     if (!next || next < "A" || next > "Z") {
       i = lt + 1;

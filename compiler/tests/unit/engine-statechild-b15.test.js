@@ -522,3 +522,171 @@ describe("B15 PASS 11 — legacy arrow-rule bodies", () => {
     expect(errorsByCode(sym, "E-ENGINE-INITIAL-INVALID-VARIANT").length).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// S98 (anomaly-1) — comment + string skip regression.
+//
+// The bug: a `//` line comment containing a literal `${` inside an engine
+// state-child body caused `findStateChildCloser` to enter a logic-context-
+// skip routine that walked past the real `</>` closer in search of a matching
+// `}` (which lived only in comment prose). The malformed depth tracking
+// surfaced as `E-ENGINE-STATE-CHILD-MISSING` for the variants whose closers
+// had been swallowed.
+//
+// Root-cause fix: `skipCommentOrString` + `computeCommentRegions` helpers in
+// engine-statechild-parser.ts, called from every scanner that walks
+// rulesRaw / bodyRaw looking for live syntax. Recognized regions:
+//   - `//` line comments (skip through `\n`)
+//   - `/_*_ ... _*_/` block comments (skip through closer)
+//   - `"..."` / `'...'` strings (honors backslash escape)
+//   - backtick template literals (interior `${...}` treated as opaque)
+// ---------------------------------------------------------------------------
+
+describe("S98 anomaly-1 — engine state-child comment + string skip", () => {
+  // --- parser-level coverage --------------------------------------------
+
+  test("`//` line comment with literal `${` is not a logic-context opener", () => {
+    const rulesRaw = `
+      <InCode rule=.InString>
+        // body: handle \${ opening interpolation
+      </>
+      <InString rule=.InCode>
+        // body: until closing quote
+      </>
+    `;
+    const children = parseEngineStateChildren(rulesRaw);
+    expect(children.map((c) => c.tag)).toEqual(["InCode", "InString"]);
+  });
+
+  test("`//` comment with balanced `${expr}` — both closers still match", () => {
+    const rulesRaw = `
+      <InCode rule=.InString>
+        // body: token-emitting rules; e.g., \${expr} in template literals
+      </>
+      <InString rule=.InCode>
+      </>
+    `;
+    const children = parseEngineStateChildren(rulesRaw);
+    expect(children.map((c) => c.tag)).toEqual(["InCode", "InString"]);
+  });
+
+  test("block comment containing `${` does not derail parsing", () => {
+    const rulesRaw = `
+      <InCode rule=.InString>
+        /* block comment with \${ inside */
+      </>
+      <InString rule=.InCode>
+      </>
+    `;
+    const children = parseEngineStateChildren(rulesRaw);
+    expect(children.map((c) => c.tag)).toEqual(["InCode", "InString"]);
+  });
+
+  test("double-quoted string containing `${` literal", () => {
+    const rulesRaw = `
+      <InCode rule=.InString>
+        // intro: "text with \${ literal"
+      </>
+      <InString rule=.InCode>
+      </>
+    `;
+    const children = parseEngineStateChildren(rulesRaw);
+    expect(children.map((c) => c.tag)).toEqual(["InCode", "InString"]);
+  });
+
+  test("backtick template literal with `${interp}` is one opaque region", () => {
+    const rulesRaw = `
+      <InCode rule=.InString>
+        // template \`with \${interp}\` text
+      </>
+      <InString rule=.InCode>
+      </>
+    `;
+    const children = parseEngineStateChildren(rulesRaw);
+    expect(children.map((c) => c.tag)).toEqual(["InCode", "InString"]);
+  });
+
+  test("stray `<X>` inside a `//` line comment is not parsed as a state-child opener", () => {
+    // Without the top-of-loop comment skip in parseEngineStateChildren, the
+    // `<Fake>` inside the comment would be picked up as a third state-child
+    // opener, requiring a closer that does not exist.
+    const rulesRaw = `
+      <InCode rule=.InString>
+        // see also <Fake> tag in docs
+      </>
+      <InString rule=.InCode>
+      </>
+    `;
+    const children = parseEngineStateChildren(rulesRaw);
+    expect(children.map((c) => c.tag)).toEqual(["InCode", "InString"]);
+  });
+
+  // --- end-to-end SYM coverage ------------------------------------------
+
+  test("M1.1 repro (line comment with literal `${`) compiles without engine diagnostics", () => {
+    const source = `\${
+  type LexMode:enum = { InCode, InString }
+}
+
+<engine for=LexMode initial=.InCode>
+  <InCode rule=.InString>
+    // body: handle \${ opening interpolation
+  </>
+  <InString rule=.InCode>
+    // body: until closing quote
+  </>
+</>
+`;
+    const { sym } = runUpToSYM(source, "lex-mode.scrml");
+    expect(errorsByCode(sym, "E-ENGINE-STATE-CHILD-MISSING")).toEqual([]);
+    expect(errorsByCode(sym, "E-ENGINE-STATE-CHILD-INVALID-VARIANT")).toEqual([]);
+  });
+
+  test("balanced-brace `${expr}` form in line comment also compiles cleanly", () => {
+    const source = `\${
+  type LexMode:enum = { InCode, InString }
+}
+
+<engine for=LexMode initial=.InCode>
+  <InCode rule=.InString>
+    // body: token-emitting rules; e.g., \${expr} in template literals
+  </>
+  <InString rule=.InCode>
+    // body: until closing quote
+  </>
+</>
+`;
+    const { sym } = runUpToSYM(source, "lex-mode.scrml");
+    expect(errorsByCode(sym, "E-ENGINE-STATE-CHILD-MISSING")).toEqual([]);
+  });
+
+  test("multi-variant engine with mixed comment shapes resolves to all variants", () => {
+    const source = `\${
+  type LexMode:enum = {
+    InCode,
+    InTemplateBody,
+    InSingleString,
+    InDoubleString,
+  }
+}
+
+<engine for=LexMode initial=.InCode>
+  <InCode rule=(.InTemplateBody | .InSingleString | .InDoubleString)>
+    // line comment with \${ literal and <Fake> tag
+  </>
+  <InTemplateBody rule=.InCode>
+    // handle \${...} interpolation
+  </>
+  <InSingleString rule=.InCode>
+    // until closing 'quote
+  </>
+  <InDoubleString rule=.InCode>
+    // until closing "quote
+  </>
+</>
+`;
+    const { sym } = runUpToSYM(source, "lex-mode.scrml");
+    expect(errorsByCode(sym, "E-ENGINE-STATE-CHILD-MISSING")).toEqual([]);
+    expect(errorsByCode(sym, "E-ENGINE-STATE-CHILD-INVALID-VARIANT")).toEqual([]);
+  });
+});
