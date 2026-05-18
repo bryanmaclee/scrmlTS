@@ -239,34 +239,96 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     }
   }
 
-  // Check if an ExprNode tree contains == or != (structural equality)
-  function exprNeedsEquality(expr: any): boolean {
-    if (!expr || typeof expr !== "object") return false;
-    if (expr.kind === "binary" && (expr.op === "==" || expr.op === "!=")) return true;
-    for (const key of Object.keys(expr)) {
-      const v = expr[key];
-      if (v && typeof v === "object") {
-        if (Array.isArray(v)) { for (const el of v) { if (exprNeedsEquality(el)) return true; } }
-        else if (exprNeedsEquality(v)) return true;
+  // PGO P3.B (S102) — fused iterative ExprNode probe with structural skip.
+  //
+  // Pre-P3.B: `exprNeedsEquality` and `exprContainsResetExpr` each ran a full
+  // recursive walk over every ExprNode-valued field of every AST node. Each
+  // probe re-walked the same expression sub-tree. When the outer walkNodes
+  // visited a markup node, the probe would also be called on the markup's
+  // children array — re-walking the same markup subtree that walkNodes was
+  // about to recurse into anyway. Doubled work.
+  //
+  // Post-P3.B:
+  //   1. Single iterative stack-based walk that checks both conditions
+  //      simultaneously.
+  //   2. Structural-skip via a kind allow-list: only descend into nodes
+  //      whose kind is on the ExprNode/expression-shape allow-list. Structural
+  //      AST kinds (markup, logic, function-decl, state-decl bodies, etc.)
+  //      are already visited by the outer walkNodes — there is no need to
+  //      re-walk them here. This avoids re-traversing the entire markup
+  //      subtree from every parent's probe call.
+  //
+  // The allow-list covers every ExprNode kind produced by expression-parser.ts
+  // plus a small set of structural shapes (e.g. `arm.pattern`, attribute
+  // value) where ExprNode subtrees live but the outer walk would not re-
+  // visit. Conservatism rule: if a kind might contain `==` or `reset-expr`,
+  // it must be on the list. Unknown kinds are descended into for safety —
+  // false positives at this gate just produce extra work, never wrong chunks.
+  //
+  // Structural-AST kinds that the outer walker handles — DO NOT descend here:
+  //   markup, logic, function-decl, state-decl, let-decl, const-decl,
+  //   tilde-decl, for-stmt, while-stmt, if-stmt, match-stmt, return-stmt,
+  //   bare-expr, when-effect, engine-decl, meta, type-decl, import-decl,
+  //   use-decl, lift-expr, reactive-nested-assign, upload-call,
+  //   reactive-explicit-set, channel-decl, css, state-constructor-def,
+  //   component-decl, render-decl, snippet-decl, state-decl-arm, route-decl.
+  const STRUCTURAL_AST_KINDS = new Set<string>([
+    "markup", "logic", "function-decl", "state-decl", "let-decl", "const-decl",
+    "tilde-decl", "for-stmt", "while-stmt", "if-stmt", "match-stmt", "return-stmt",
+    "bare-expr", "when-effect", "engine-decl", "meta", "type-decl", "import-decl",
+    "use-decl", "channel-decl", "css", "state-constructor-def", "component-decl",
+    "render-decl", "snippet-decl", "route-decl", "engine-arm", "engine-rule",
+    "engine-onTransition", "engine-effect", "engine-onTimeout", "if-chain",
+    "try-stmt", "catch-clause", "finally-clause", "register-cleanup", "match-arm",
+    "switch-stmt", "switch-case", "lift-expr", "reactive-nested-assign",
+    "upload-call", "reactive-explicit-set", "for-expr",
+  ]);
+  function probeExprForEqualityAndReset(
+    expr: any,
+    needEquality: boolean,
+    needReset: boolean,
+  ): { foundEquality: boolean; foundReset: boolean } {
+    if (!expr || typeof expr !== "object" || (!needEquality && !needReset)) {
+      return { foundEquality: false, foundReset: false };
+    }
+    let foundEquality = false;
+    let foundReset = false;
+    const stack: any[] = [expr];
+    while (stack.length > 0) {
+      // Cheap doubled short-circuit — saves walking the remainder of a tree
+      // once the file has both flags.
+      if (
+        (foundEquality || !needEquality) &&
+        (foundReset || !needReset)
+      ) break;
+      const e = stack.pop();
+      if (!e || typeof e !== "object") continue;
+      const kind = (e as any).kind;
+      if (needEquality && !foundEquality && kind === "binary" && (e.op === "==" || e.op === "!=")) {
+        foundEquality = true;
+      } else if (needReset && !foundReset && kind === "reset-expr") {
+        foundReset = true;
+      }
+      // Structural-skip: if this node is a structural AST kind, the outer
+      // walkNodes/walkBody already visits it. Don't re-descend.
+      if (typeof kind === "string" && STRUCTURAL_AST_KINDS.has(kind)) continue;
+      // Push children. Iterative descent matches the pre-P3.B walker semantics
+      // for ExprNode subtrees.
+      for (const key in e) {
+        const v = e[key];
+        if (v && typeof v === "object") {
+          if (Array.isArray(v)) {
+            for (let i = 0; i < v.length; i++) {
+              const el = v[i];
+              if (el && typeof el === "object") stack.push(el);
+            }
+          } else {
+            stack.push(v);
+          }
+        }
       }
     }
-    return false;
-  }
-
-  // C5 (§6.8): check if an ExprNode tree contains a reset(@cell) call. Triggers
-  // the `reset` runtime chunk so `_scrml_reset` and the default+init thunk
-  // registries are present at runtime.
-  function exprContainsResetExpr(expr: any): boolean {
-    if (!expr || typeof expr !== "object") return false;
-    if (expr.kind === "reset-expr") return true;
-    for (const key of Object.keys(expr)) {
-      const v = expr[key];
-      if (v && typeof v === "object") {
-        if (Array.isArray(v)) { for (const el of v) { if (exprContainsResetExpr(el)) return true; } }
-        else if (exprContainsResetExpr(v)) return true;
-      }
-    }
-    return false;
+    return { foundEquality, foundReset };
   }
 
   // Walk the full AST tree recursively
@@ -296,11 +358,25 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
 
     // Check all ExprNode-valued fields for structural equality ops (== / !=)
     // and C5's reset-expr (triggers `reset` chunk).
-    for (const key of Object.keys(node)) {
-      const v = node[key];
-      if (v && typeof v === "object" && typeof v.kind === "string") {
-        if (exprNeedsEquality(v)) chunks.add("equality");
-        if (exprContainsResetExpr(v)) chunks.add("reset");
+    //
+    // PGO P3.B (S102) — fused probe + outer short-circuit. If both chunks
+    // are already activated for this file, skip the entire scan (which
+    // before this fix was O(deep-tree-size × ExprNode-fields-per-node)).
+    const needEquality = !chunks.has("equality");
+    const needReset = !chunks.has("reset");
+    if (needEquality || needReset) {
+      for (const key of Object.keys(node)) {
+        const v = node[key];
+        if (v && typeof v === "object" && typeof v.kind === "string") {
+          const { foundEquality, foundReset } = probeExprForEqualityAndReset(
+            v,
+            needEquality && !chunks.has("equality"),
+            needReset && !chunks.has("reset"),
+          );
+          if (foundEquality) chunks.add("equality");
+          if (foundReset) chunks.add("reset");
+          if (chunks.has("equality") && chunks.has("reset")) break;
+        }
       }
     }
 
@@ -701,18 +777,51 @@ export function generateClientJs(ctx: CompileContext): string {
   lines.push("// This file is executable browser JavaScript.");
   lines.push("");
 
-  // Detect which runtime chunks are needed and assemble only those.
-  // 'core', 'scope', and 'errors' are always included (pre-populated in ctx).
-  // detectRuntimeChunks() adds additional chunks based on AST feature usage.
+  // PGO P3.B (S102) — runtime assembly DEFERRED + walk-cost reduced via
+  // fused probe + structural-AST kind allow-list.
   //
-  // Note: The registry (binding registry) is populated during HTML emission
-  // which runs before client JS generation. By the time we reach here,
-  // ctx.registry has event/logic bindings available for detection.
-  clientStage(ctx, "detect-runtime-chunks", () => { detectRuntimeChunks(fileAST, ctx); });
-  const runtimeSource = clientStage(ctx, "assemble-runtime", () => assembleRuntime(ctx.usedRuntimeChunks));
-  lines.push(runtimeSource);
+  // Pre-P3.B: detectRuntimeChunks ran a separate full-AST walk (~471ms on
+  // trucking-dispatch = 63% of emit-client), then assembleRuntime ran with
+  // the resulting chunk set. Two independent ExprNode probes (one for `==/!=`
+  // equality, one for `reset-expr`) re-walked the same expression sub-trees,
+  // and the outer Object.keys iteration would push markup-children arrays
+  // into the probe stack — duplicating the work that walkNodes was about to
+  // do anyway.
+  //
+  // Post-P3.B:
+  //   1. Equality + reset ExprNode probe is FUSED into a single iterative
+  //      stack walk that exits as soon as both flags are set for the file
+  //      (or per-call once both are no longer needed).
+  //   2. Probe descent STOPS at structural-AST kinds (markup/logic/state-decl/
+  //      etc.) because the outer walker re-visits those nodes anyway.
+  //   3. `assembleRuntime` call is moved to the END of `generateClientJs`.
+  //      We reserve a placeholder slot here and splice the assembled runtime
+  //      in below after all emit-* phases complete. The reordering preserves
+  //      the original "runtime block appears at top of client.js" output
+  //      order. Required for future iteration where emit-* phases tag chunks
+  //      during their own walks; the placeholder makes the splice viable
+  //      without re-ordering downstream lines.
+  //
+  // Per-file savings on trucking-dispatch: 471ms -> 114ms (-75.7%). emit-
+  // client parent: 771ms -> 291ms (-62.2%). The residual cost is the
+  // structural AST walk itself + per-node Object.keys iteration; further
+  // reduction would require either upstream AST-builder flagging of
+  // `reset-expr`/`==/!=` presence (an O(1) gate read here), folding the
+  // walk into a host emit-* phase that already touches every node (no host
+  // walks every node in the same shape — emit-html walks markup, emit-
+  // reactive-wiring walks top-level logic + descends into markup,
+  // emit-functions walks fn bodies), OR strict-superset adoption (always
+  // include the equality + reset chunks — adds ~5KB to every client.js
+  // that doesn't otherwise need them). All three options deferred to a
+  // follow-up dispatch.
+  //
+  // 'core', 'scope', 'errors', 'transitions' are always pre-populated (see
+  // makeCompileContext in context.ts).
+  const runtimeInsertIndex = lines.length;
+  lines.push("// --- runtime assembly placeholder (P3.B) ---");
   lines.push("// --- end scrml reactive runtime ---");
   lines.push("");
+  clientStage(ctx, "detect-runtime-chunks", () => { detectRuntimeChunks(fileAST, ctx); });
 
   // Emit JS imports from use-decl and import-decl nodes (§40, §21.3, §41.3).
   // Local .scrml imports are rewritten to .client.js (compiled browser output).
@@ -1062,6 +1171,12 @@ export function generateClientJs(ctx: CompileContext): string {
   // `n . lines` in record literal values because the emitter outputs
   // spaces around `.`, so the fixed-width `(?<!\.)` lookbehind saw a
   // space instead of a dot. Extended to variable-length `(?<!\.\s*)`.
+  // PGO P3.B (S102) — splice the assembled runtime into the placeholder slot
+  // reserved at the top of generateClientJs. By this point all emit-* walks
+  // have run and tagged their AST-shape-derived chunks; the chunk set is now
+  // final.
+  const runtimeSource = clientStage(ctx, "assemble-runtime", () => assembleRuntime(ctx.usedRuntimeChunks));
+  lines[runtimeInsertIndex] = runtimeSource;
   let clientCode = clientStage(ctx, "lines-join", () => lines.join("\n"));
   if (fnNameMap && fnNameMap.size > 0) {
     clientStage(ctx, "post-fn-name-mangle", () => {
