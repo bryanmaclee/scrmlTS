@@ -1194,6 +1194,30 @@ export function runDG(input: DGInput): DGOutput {
           `Q3=${fmt(quartileAvgs[2])}ms Q4=${fmt(quartileAvgs[3])}ms)`,
       );
       log(`  [DG-CROSS-FILE] ${fmt(crossFileMs)}ms`);
+
+      // PGO P2.2 — emit per-call-site breakdown for the markup AST sweep
+      // (per-file loop #4). The `total` value here is the [DG-PER-FILE]
+      // aggregate computed above (sum of all five per-file loops); the
+      // markup sweep `sweepNodeForAtRefs` total represents loop #4's
+      // contribution. % is reported against the sweep gross
+      // (sweepNodeForAtRefs.total) — NOT against [DG-PER-FILE] — so each
+      // call-site percentage is meaningful relative to the sweep itself.
+      // Sorted descending by total ms. Per-quartile cumulative ms within
+      // each call-site bin enables Q1→Q4 growth-slope reading.
+      if (markupSweepStats) {
+        const sweepTotal = markupSweepStats.sweepNodeForAtRefs.total;
+        const entries = Object.entries(markupSweepStats).sort(
+          (a, b) => b[1].total - a[1].total,
+        );
+        for (const [siteName, stat] of entries) {
+          const pct = sweepTotal > 0 ? (stat.total / sweepTotal) * 100 : 0;
+          log(
+            `  [DG-MARKUP-SWEEP] ${siteName}: ${fmt(stat.total)}ms (${pct.toFixed(1)}% of sweep) ` +
+              `Q1=${fmt(stat.q[0])}ms Q2=${fmt(stat.q[1])}ms ` +
+              `Q3=${fmt(stat.q[2])}ms Q4=${fmt(stat.q[3])}ms`,
+          );
+        }
+      }
     }
     return { depGraph: { nodes, edges }, errors };
   };
@@ -2016,6 +2040,60 @@ export function runDG(input: DGInput): DGOutput {
   // function DG nodes. Any @var read anywhere outside a function still satisfies
   // the "has readers" check for E-DG-002 purposes.
   const MARKUP_READER_SENTINEL = "__markup__";
+
+  // ------------------------------------------------------------------
+  // PGO P2.2 (S102) — markup AST sweep per-call-site characterization.
+  //
+  // P1.3 surfaced that DG super-linear growth lives in the per-file work
+  // loop, with per-file loop #4 (markup AST sweep) carrying ~80ms of 103ms
+  // on trucking-dispatch. This P2.2 instrumentation drills INTO loop #4 and
+  // attributes cumulative cost to specific call sites:
+  //
+  //   creditReader           — closure called per @ref discovered. Sentinel
+  //                            credit for E-DG-002 + projected->source upstream.
+  //   emitMarkupReadEdge     — emission boundary. Calls findOwningRenderDGNode
+  //                            + createMarkupReadNode + pushEdge.
+  //   findOwningRenderDGNode — exported O(n) linear scan over the GLOWING
+  //                            `nodes` Map (the candidate for V8-hash-rehash /
+  //                            growing-data-structure cost growth).
+  //   sweepNodeForAtRefs     — top-level entry-to-exit recursion per top-level
+  //                            AST node (measures gross per-node cost).
+  //   collectReactiveRefs    — ExprNode walker for @var refs.
+  //   collectCallees         — ExprNode walker for direct callees.
+  //   collectMetaVarRefs     — ExprNode walker for meta.get / meta.bindings.
+  //
+  // Output (when `debugPerf` is set; sorted desc by total ms):
+  //
+  //   [DG-MARKUP-SWEEP] <site>: <total>ms (<pct>% of sweep) Q1=...ms Q4=...ms
+  //
+  // Quartiles split the file-index range into 4 even bins, same shape as
+  // [DG-PER-FILE]. Q1 = first 25% of files in iteration order; Q4 = last 25%.
+  // Per-site cumulative ms across all files in a bin (NOT per-file average).
+  //
+  // Granularity discipline (per SCOPING §3.1): instrument at the closure /
+  // helper boundary, NOT inside the recursive walker per AST-node iteration.
+  // Per-call overhead is ~100-200ns × N calls = leaks with flag ON, which is
+  // expected (instrumentation is opt-in). Flag-OFF path is the original
+  // closure (zero overhead) via the ternary-on-debugPerf wrapping pattern.
+  // ------------------------------------------------------------------
+  interface MarkupSweepStat { total: number; q: number[] }
+  const markupSweepStats: Record<string, MarkupSweepStat> | null = debugPerf
+    ? {
+        creditReader:           { total: 0, q: [0, 0, 0, 0] },
+        emitMarkupReadEdge:     { total: 0, q: [0, 0, 0, 0] },
+        findOwningRenderDGNode: { total: 0, q: [0, 0, 0, 0] },
+        sweepNodeForAtRefs:     { total: 0, q: [0, 0, 0, 0] },
+        collectReactiveRefs:    { total: 0, q: [0, 0, 0, 0] },
+        collectCallees:         { total: 0, q: [0, 0, 0, 0] },
+        collectMetaVarRefs:     { total: 0, q: [0, 0, 0, 0] },
+      }
+    : null;
+  const _markupQuartileBin = (fileIdx: number, F: number): number => {
+    if (F <= 0) return 0;
+    const q = Math.floor((fileIdx * 4) / F);
+    return q > 3 ? 3 : q;
+  };
+
   // P1.3 — per-file loop #4: markup AST sweep for @var refs + markup-read edges
   for (let _fileIdx4 = 0; _fileIdx4 < files.length; _fileIdx4++) {
     const rawFile = files[_fileIdx4];
@@ -2049,7 +2127,10 @@ export function runDG(input: DGInput): DGOutput {
     // has downstream consumers (the redirect would zero out its direct
     // reader set). Credit BOTH names; when there is no redirect the two
     // collapse to the same key and only one entry is touched.
-    const creditReader = (rawName: string): void => {
+    // P2.2 — quartile bin for this file (constant within the per-file iteration).
+    const _markupQBin = debugPerf ? _markupQuartileBin(_fileIdx4, files.length) : 0;
+
+    const _baseCreditReader = (rawName: string): void => {
       const readers = reactiveVarReaders.get(rawName);
       if (readers) readers.add(MARKUP_READER_SENTINEL);
       const upstream = projectedToSource.get(rawName);
@@ -2058,6 +2139,20 @@ export function runDG(input: DGInput): DGOutput {
         if (upstreamReaders) upstreamReaders.add(MARKUP_READER_SENTINEL);
       }
     };
+    // P2.2 — tracked variant when debugPerf is set; otherwise the bare closure.
+    // The flag-OFF path is the original `_baseCreditReader` reference — zero
+    // overhead. The flag-ON path adds two `performance.now()` calls per
+    // invocation, which IS overhead but is opt-in.
+    const creditReader: (rawName: string) => void = debugPerf && markupSweepStats
+      ? (rawName: string): void => {
+          const s = performance.now();
+          _baseCreditReader(rawName);
+          const d = performance.now() - s;
+          const slot = markupSweepStats.creditReader;
+          slot.total += d;
+          slot.q[_markupQBin] += d;
+        }
+      : _baseCreditReader;
 
     // -------------------------------------------------------------------------
     // A-1.3 — markup-context read emission (flag activated)
@@ -2082,7 +2177,12 @@ export function runDG(input: DGInput): DGOutput {
     // Helper: push one MarkupReadDGNode + one reads edge for a reactive var read
     // discovered at a markup-context site. Called from the 4 high-frequency shapes
     // below. attrSpan is the span of the interpolation or attribute site.
-    function emitMarkupReadEdge(attrSpan: Span, varName: string): void {
+    //
+    // P2.2 — split base vs tracked. Base shape unchanged. Tracked variant
+    // additionally splits findOwningRenderDGNode time from the rest of the
+    // emission cost (Map writes + pushEdge) so the V8-hash-rehash hypothesis
+    // can be evaluated against the linear-scan-over-growing-nodes hypothesis.
+    const _baseEmitMarkupReadEdge = (attrSpan: Span, varName: string): void => {
       const reactiveNodeId = reactiveVarNodeIds.get(varName);
       if (!reactiveNodeId) return; // var not in DG — nothing to link to
       const sourceRenderNodeId = findOwningRenderDGNode({ span: attrSpan } as ASTNode, nodes);
@@ -2093,12 +2193,58 @@ export function runDG(input: DGInput): DGOutput {
       );
       nodes.set(mrNodeId, mrDGNode);
       pushEdge(mrNodeId, reactiveNodeId, "reads");
-    }
+    };
+    const emitMarkupReadEdge: (attrSpan: Span, varName: string) => void = debugPerf && markupSweepStats
+      ? (attrSpan: Span, varName: string): void => {
+          const reactiveNodeId = reactiveVarNodeIds.get(varName);
+          if (!reactiveNodeId) return;
+          const outerS = performance.now();
+          // Sub-timing — findOwningRenderDGNode is the linear-scan candidate.
+          const fS = performance.now();
+          const sourceRenderNodeId = findOwningRenderDGNode({ span: attrSpan } as ASTNode, nodes);
+          const fD = performance.now() - fS;
+          const fSlot = markupSweepStats.findOwningRenderDGNode;
+          fSlot.total += fD;
+          fSlot.q[_markupQBin] += fD;
+          // Remainder of the emission (Map writes + pushEdge).
+          const { nodeId: mrNodeId, dgNode: mrDGNode } = createMarkupReadNode(
+            attrSpan,
+            sourceRenderNodeId,
+            fileAST.filePath,
+          );
+          nodes.set(mrNodeId, mrDGNode);
+          pushEdge(mrNodeId, reactiveNodeId, "reads");
+          const outerD = performance.now() - outerS;
+          const slot = markupSweepStats.emitMarkupReadEdge;
+          slot.total += outerD;
+          slot.q[_markupQBin] += outerD;
+        }
+      : _baseEmitMarkupReadEdge;
 
     function sweepNodeForAtRefs(node: ASTNode): void {
       // Phase 4d: ExprNode-first reactive ref + callee detection, string fallback
-      const exprRefs = collectReactiveRefsFromExprNode(node as Record<string, unknown>);
-      const exprCallees = collectCalleesFromExprNode(node as Record<string, unknown>);
+      // P2.2 — wrap the 3 ExprNode-walker calls. Each fires per AST node visited
+      // by the recursion; aggregate cost grows with markup size + ExprNode depth.
+      let exprRefs: string[];
+      let exprCallees: string[];
+      if (debugPerf && markupSweepStats) {
+        const s1 = performance.now();
+        exprRefs = collectReactiveRefsFromExprNode(node as Record<string, unknown>);
+        const d1 = performance.now() - s1;
+        const slot1 = markupSweepStats.collectReactiveRefs;
+        slot1.total += d1;
+        slot1.q[_markupQBin] += d1;
+
+        const s2 = performance.now();
+        exprCallees = collectCalleesFromExprNode(node as Record<string, unknown>);
+        const d2 = performance.now() - s2;
+        const slot2 = markupSweepStats.collectCallees;
+        slot2.total += d2;
+        slot2.q[_markupQBin] += d2;
+      } else {
+        exprRefs = collectReactiveRefsFromExprNode(node as Record<string, unknown>);
+        exprCallees = collectCalleesFromExprNode(node as Record<string, unknown>);
+      }
       for (const varName of exprRefs) {
         creditReader(varName);
         // A-1.3 Shape 1 — ${@x} text interpolation inside markup.
@@ -2133,7 +2279,18 @@ export function runDG(input: DGInput): DGOutput {
       // §22 meta: meta.get("name") and meta.bindings.name count as reads of
       // @name. Walks the node's ExprNode fields for these patterns — the
       // normal @var scan misses them because the AST has no "@name" ident.
-      const metaExprRefs = collectMetaVarRefsFromExprNode(node as Record<string, unknown>);
+      // P2.2 — wrap the third ExprNode walker call.
+      let metaExprRefs: string[];
+      if (debugPerf && markupSweepStats) {
+        const sM = performance.now();
+        metaExprRefs = collectMetaVarRefsFromExprNode(node as Record<string, unknown>);
+        const dM = performance.now() - sM;
+        const slotM = markupSweepStats.collectMetaVarRefs;
+        slotM.total += dM;
+        slotM.q[_markupQBin] += dM;
+      } else {
+        metaExprRefs = collectMetaVarRefsFromExprNode(node as Record<string, unknown>);
+      }
       for (const varName of metaExprRefs) {
         creditReader(varName);
       }
@@ -2503,8 +2660,23 @@ export function runDG(input: DGInput): DGOutput {
       }
     }
 
-    for (const topNode of fileAST.nodes) {
-      sweepNodeForAtRefs(topNode);
+    // P2.2 — wrap the top-level sweep entry point. This captures gross
+    // per-file recursion time (including all child sweepNodeForAtRefs calls).
+    // The 3 collect* timings + creditReader / emitMarkupReadEdge timings
+    // measured separately above attribute the cost INSIDE the recursion.
+    if (debugPerf && markupSweepStats) {
+      const sweepS = performance.now();
+      for (const topNode of fileAST.nodes) {
+        sweepNodeForAtRefs(topNode);
+      }
+      const sweepD = performance.now() - sweepS;
+      const slot = markupSweepStats.sweepNodeForAtRefs;
+      slot.total += sweepD;
+      slot.q[_markupQBin] += sweepD;
+    } else {
+      for (const topNode of fileAST.nodes) {
+        sweepNodeForAtRefs(topNode);
+      }
     }
     _tPerFileEnd(_fileIdx4);
   }
