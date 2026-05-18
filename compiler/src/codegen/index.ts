@@ -1208,11 +1208,38 @@ export function runCG(input: CgInput): CgOutput {
             }
           }
 
-          let composedHtml = pageHtml
-            .replace(
-              /<body[^>]*>[\s\S]*?<\/body>/,
-              `<body>\n${composedBody}\n${runtimeTagRewritten ? runtimeTagRewritten + "\n" : ""}${scriptParts.join("\n")}\n</body>`,
-            );
+          // Build the replacement body. Use the FUNCTION form of
+          // `String.prototype.replace` so the replacement string is
+          // treated as a literal — the 2-arg string form interprets
+          // `$&`, `$'`, `$\``, `$N` etc. as backreferences, which
+          // breaks pages whose markup contains literal `$&` (e.g. a
+          // `<code>$&#123;expr&#125;</code>` block used to render
+          // literal `${expr}` text in docs). With the string form,
+          // each `$&` in `composedBody` would be substituted for the
+          // matched `<body>...</body>` chunk, recursively re-injecting
+          // the shell and producing 3+ stacked body blocks.
+          //
+          // Defensive: prefer the LAST `</body>` in the document over
+          // the first. The non-greedy `[\s\S]*?` regex would mis-match
+          // if pageBody itself contained literal `</body>` (e.g. a docs
+          // page discussing the `<body>` HTML element without entity
+          // escapes). Anchoring on the document's actual final
+          // `</body>` keeps the extraction robust even if a future
+          // page slips literal body markup into a code example.
+          const bodyOpenMatch = pageHtml.match(/<body[^>]*>/);
+          const lastBodyClose = pageHtml.lastIndexOf("</body>");
+          const replacementBody = `<body>\n${composedBody}\n${runtimeTagRewritten ? runtimeTagRewritten + "\n" : ""}${scriptParts.join("\n")}\n</body>`;
+          let composedHtml = pageHtml;
+          if (
+            bodyOpenMatch &&
+            bodyOpenMatch.index !== undefined &&
+            lastBodyClose > bodyOpenMatch.index
+          ) {
+            composedHtml =
+              pageHtml.slice(0, bodyOpenMatch.index) +
+              replacementBody +
+              pageHtml.slice(lastBodyClose + "</body>".length);
+          }
 
           // Add the entry's CSS link so shell styles (Tailwind utility
           // classes used by header/footer/nav) reach per-page HTMLs.
@@ -1224,9 +1251,14 @@ export function runCG(input: CgInput): CgOutput {
             // page's own CSS (so per-page CSS — which is more specific
             // — wins on conflicts, consistent with the page-content-
             // overrides-shell intent).
+            //
+            // Use the function form of `.replace()` here too so any
+            // future `$&`/`$N` chars in `entryCssTag` are treated
+            // literally — defense in depth for the same class of bug
+            // fixed above.
             composedHtml = composedHtml.replace(
               /<\/head>/,
-              `${entryCssTag}\n</head>`,
+              () => `${entryCssTag}\n</head>`,
             );
           }
 
