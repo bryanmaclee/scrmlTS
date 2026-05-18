@@ -17,12 +17,16 @@
 //   Engine is THE correct shape per the §D1 two-table operational test.
 //   `fn`-shape would lose to engine on EVERY axis named in DD §D1.
 //
-// Status (M1.1): canonical <engine> declaration LANDS at top-level (parses +
-// compiles). The state-children bodies are skeletal for M1.2-M1.4:
-//   - InCode  — real body in lex-in-code.scrml (this dispatch's substantive
-//     work; dispatched-to from the loop in lex.scrml).
-//   - InTemplateBody / InSingleString / InDoubleString  — STUB for M1.2
-//     (string + template-literal escape-aware lexing).
+// Status (M1.2): canonical <engine> declaration LANDS at top-level (parses +
+// compiles). State-child bodies:
+//   - InCode  — real body in lex-in-code.scrml (M1.1 substantive work).
+//   - InTemplateBody — ACTIVATED M1.2. COMPOSITE STATE-CHILD per §51.0.Q.1
+//     — contains a nested <engine for=LexMode initial=.InCode> for the
+//     ${...} interpolation. Body work in lex-in-template.scrml.
+//   - InSingleString — ACTIVATED M1.2 (escape-aware single-quoted string
+//     scanner; body in lex-in-single-string.scrml).
+//   - InDoubleString — ACTIVATED M1.2 (escape-aware double-quoted string
+//     scanner; body in lex-in-double-string.scrml).
 //   - InLineComment / InBlockComment — STUB for M1.3 (comment scanning).
 //   - InRegexBody — STUB for M1.4 (regex literal scanning; needs
 //     prev-token context per DD §D4 P3).
@@ -38,6 +42,29 @@
 // detection. Workaround: keep state-child bodies bare for M1.1; long-form
 // commentary lives at file-top. Filed for follow-up review (DD §D4 P-type
 // classification: scrml-language tension surfaced; not blocking).
+//
+// ANOMALY-4 surfaced during M1.2: §51.0.Q.1 nested engines that share the
+// outer engine's enum type (`for=LexMode` inside an outer `for=LexMode`):
+//
+//   1. The compiler v0.3 SYM/TS stages fire E-ENGINE-VAR-DUPLICATE +
+//      E-ENGINE-003 against the inner engine's auto-declared `@lexMode`
+//      because both engines auto-derive the same variable name per §51.0.C.
+//      Per §51.0.Q.1's scope-gating rule ("inner variable reachable by
+//      canonical @ access only while outer is in the composite state-child")
+//      the inner SHOULD be able to share the variable name — but the v0.3
+//      checks do not yet implement that scope-gated semantic. Workaround:
+//      `var=innerLexMode` on the inner engine.
+//
+//   2. The compiler v0.3 fires E-ENGINE-STATE-CHILD-MISSING against the
+//      inner engine for every variant not enumerated as a state-child —
+//      even when the spec example (DD §D2's snippet at line 257-264) shows
+//      only the immediately-needed variant. Workaround: enumerate all 7
+//      LexMode variants in the inner engine. (Architecturally OK because
+//      a template-interp body can in principle contain any lexer mode.)
+//
+// Both items filed for follow-up: A) §51.0.Q.1 scope-gated var auto-decl
+// implementation; B) §51.0.B optional partial-enumeration when the variant
+// set is provably narrower in the inner engine's reach. Not blocking M1.2.
 
 ${
     type LexMode:enum = {
@@ -56,10 +83,26 @@ ${
 // for=LexMode → @lexMode lowercasing rule). State-children carry rule=
 // contracts per §51.0.F.
 //
-// Bodies are deliberately BARE in M1.1 (see ANOMALY note above).
+// M1.2: InTemplateBody is a COMPOSITE state-child per §51.0.Q.1 — its body
+// contains a nested <engine for=LexMode initial=.InCode>. The inner engine
+// governs lexing the ${...} interpolation body. The "outer × 1 = 1 inner
+// instance" invariant means each template-literal entry produces a fresh
+// inner instance; nested templates produce stacked instances.
+// InSingleString / InDoubleString remain non-composite (no inner engine
+// needed — bounded scans).
 <engine for=LexMode initial=.InCode>
     <InCode rule=(.InTemplateBody | .InSingleString | .InDoubleString | .InLineComment | .InBlockComment | .InRegexBody)></>
-    <InTemplateBody rule=.InCode></>
+    <InTemplateBody rule=.InCode>
+        <engine for=LexMode var=innerLexMode initial=.InCode>
+            <InCode rule=(.InTemplateBody | .InSingleString | .InDoubleString | .InLineComment | .InBlockComment | .InRegexBody)></>
+            <InTemplateBody rule=.InCode></>
+            <InSingleString rule=.InCode></>
+            <InDoubleString rule=.InCode></>
+            <InLineComment  rule=.InCode></>
+            <InBlockComment rule=.InCode></>
+            <InRegexBody    rule=.InCode></>
+        </>
+    </>
     <InSingleString rule=.InCode></>
     <InDoubleString rule=.InCode></>
     <InLineComment  rule=.InCode></>

@@ -325,18 +325,90 @@ describe("M1.1 lexer conformance — bench corpus", () => {
                 smokeAssertKindDiversity(n, 5);
             });
 
-            // Full byte-identical conformance is M1.2+ for stubbed-state files.
-            // Reserved here as a SKIP that M1.2+ flips to enabled per-file.
+            // M1.2 STRENGTHENED ASSERTIONS — for files whose disposition
+            // includes string and/or template surface, verify that the
+            // M1.2 escape-aware scanners produce StringLit / TemplateChunk
+            // tokens at every expected site. Full byte-identical conformance
+            // against Acorn is deferred to a later M1.x — Acorn's
+            // per-substructure template-token model differs from our
+            // §51.0.Q.1 nested-engine surface in opinionated ways
+            // (Acorn emits template-boundary `\`` / `${` / `}` as separate
+            // token kinds; we emit TemplateChunk + TemplateInterpStart +
+            // TemplateInterpEnd). A normalizing comparator is M1.3+ work.
             if (disposition === "full") {
                 test(`(${disposition}) byte-identical token stream vs Acorn`, () => {
                     const a = tokenizeWithAcorn(source);
                     const n = tokenizeWithNative(source);
                     compareFull(a, n);
                 });
+            } else if (disposition.includes("string") || disposition.includes("template")) {
+                // Count the visible string + template literals in the source
+                // and assert the native lexer produced the right number.
+                test(`(${disposition}) emits StringLit / TemplateChunk per visible literal`, () => {
+                    const n = tokenizeWithNative(source);
+                    expect(n.ok).toBe(true);
+
+                    // Count visible string literals by counting opening
+                    // quotes that are NOT inside a comment OR another
+                    // string. Cheap heuristic: strip line + block comments
+                    // first, then count un-escaped opening quotes.
+                    const stripped = source
+                        .replace(/\/\/.*$/gm, "")
+                        .replace(/\/\*[\s\S]*?\*\//g, "");
+
+                    // Naive count — sufficient for the conformance corpus.
+                    let singleOpens = 0;
+                    let doubleOpens = 0;
+                    let backtickOpens = 0;
+                    let i = 0;
+                    let inSingle = false;
+                    let inDouble = false;
+                    let inBacktick = false;
+                    while (i < stripped.length) {
+                        const c = stripped[i];
+                        if (c === "\\") { i += 2; continue; }
+                        if (inSingle) {
+                            if (c === "'") { inSingle = false; }
+                        } else if (inDouble) {
+                            if (c === '"') { inDouble = false; }
+                        } else if (inBacktick) {
+                            if (c === "`") { inBacktick = false; }
+                        } else {
+                            if (c === "'") { inSingle = true; singleOpens++; }
+                            else if (c === '"') { inDouble = true; doubleOpens++; }
+                            else if (c === "`") { inBacktick = true; backtickOpens++; }
+                        }
+                        i++;
+                    }
+
+                    const stringLits = n.tokens.filter(t => t.kind === TokenKind.StringLit);
+                    expect(stringLits.length).toBe(singleOpens + doubleOpens);
+
+                    if (backtickOpens > 0) {
+                        const chunks = n.tokens.filter(t => t.kind === TokenKind.TemplateChunk);
+                        // Each template literal emits at least one
+                        // TemplateChunk (the final chunk before closing
+                        // backtick); literals with interp emit chunk +
+                        // (chunk × interp-count). Assert at least one
+                        // TemplateChunk per backtick-opened literal.
+                        expect(chunks.length).toBeGreaterThanOrEqual(backtickOpens);
+                    }
+                });
+
+                // Symmetric assertion: every TemplateInterpStart has a
+                // matching TemplateInterpEnd (i.e., the nested-engine
+                // bracket balance is preserved end-to-end).
+                test(`(${disposition}) TemplateInterpStart / TemplateInterpEnd balance`, () => {
+                    const n = tokenizeWithNative(source);
+                    expect(n.ok).toBe(true);
+                    const starts = n.tokens.filter(t => t.kind === TokenKind.TemplateInterpStart).length;
+                    const ends   = n.tokens.filter(t => t.kind === TokenKind.TemplateInterpEnd).length;
+                    expect(starts).toBe(ends);
+                });
             } else {
-                test.skip(`(M1.2+) byte-identical token stream vs Acorn`, () => {
-                    // Pending: M1.2 (strings/templates), M1.3 (comments — already
-                    // dropped like Acorn so close), M1.4 (regex).
+                test.skip(`(M1.3+) byte-identical token stream vs Acorn`, () => {
+                    // Pending: M1.3 (comments — already dropped like Acorn so close),
+                    // M1.4 (regex). Plus the Acorn-template-token-shape normalizer.
                 });
             }
         });
@@ -419,6 +491,151 @@ describe("M1.1 lexer conformance — inline micro-corpus", () => {
             expect(kinds).toEqual(c.expect);
         });
     }
+
+    // -------------------------------------------------------------------
+    // M1.2 — string + template cases. These exercise the new escape-aware
+    // single/double string scanners + the §51.0.Q.1 nested-engine template
+    // scanner via lex-in-template.js.
+    // -------------------------------------------------------------------
+
+    test(`(M1.2-string) single-quoted plain`, () => {
+        const n = tokenizeWithNative("const x = 'hello'");
+        expect(n.ok).toBe(true);
+        const s = n.tokens.find(t => t.kind === TokenKind.StringLit);
+        expect(s).toBeDefined();
+        // cooked is on the original native token; we drop payloads in
+        // normalizeNativeToken, so re-run via direct API for payload access.
+        const raw = scrmlNativeLex("const x = 'hello'");
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit.cooked).toBe("hello");
+        expect(lit.text).toBe("'hello'");
+        expect(lit.quote).toBe("Single");
+    });
+
+    test(`(M1.2-string) double-quoted with newline + tab escapes`, () => {
+        const src = 'const x = "a\\nb\\tc"';
+        const raw = scrmlNativeLex(src);
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit).toBeDefined();
+        expect(lit.cooked).toBe("a\nb\tc");
+        expect(lit.quote).toBe("Double");
+    });
+
+    test(`(M1.2-string) \\u{...} brace-form unicode escape`, () => {
+        const src = "const x = '\\u{1F600}'"; // 😀
+        const raw = scrmlNativeLex(src);
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit).toBeDefined();
+        expect(lit.cooked).toBe("\u{1F600}");
+    });
+
+    test(`(M1.2-string) \\x hex escape`, () => {
+        const src = "const x = '\\x41\\x42'"; // AB
+        const raw = scrmlNativeLex(src);
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit).toBeDefined();
+        expect(lit.cooked).toBe("AB");
+    });
+
+    test(`(M1.2-string) \\u four-digit unicode escape`, () => {
+        const src = "const x = '\\u00E9'"; // é
+        const raw = scrmlNativeLex(src);
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit).toBeDefined();
+        expect(lit.cooked).toBe("é");
+    });
+
+    test(`(M1.2-string) IdentityEscape passthrough`, () => {
+        const src = "const x = '\\q'"; // \q decodes to literal q per IdentityEscape
+        const raw = scrmlNativeLex(src);
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit).toBeDefined();
+        expect(lit.cooked).toBe("q");
+    });
+
+    test(`(M1.2-string) line continuation (backslash + newline)`, () => {
+        const src = 'const x = "a\\\nb"'; // \\<LF> → empty
+        const raw = scrmlNativeLex(src);
+        const lit = raw.find(t => t.kind === TokenKind.StringLit);
+        expect(lit).toBeDefined();
+        expect(lit.cooked).toBe("ab");
+    });
+
+    test(`(M1.2-template) plain template — no interp`, () => {
+        const n = tokenizeWithNative("const x = `hello`");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toContain(TokenKind.TemplateChunk);
+        // No interp tokens
+        expect(kinds.indexOf(TokenKind.TemplateInterpStart)).toBe(-1);
+        expect(kinds.indexOf(TokenKind.TemplateInterpEnd)).toBe(-1);
+    });
+
+    test(`(M1.2-template) single interp`, () => {
+        const n = tokenizeWithNative("`a ${x} b`");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            "TemplateChunk",
+            "TemplateInterpStart",
+            "Ident",
+            "TemplateInterpEnd",
+            "TemplateChunk",
+            "EOF",
+        ]);
+    });
+
+    test(`(M1.2-template) nested templates — §51.0.Q.1 stress`, () => {
+        const n = tokenizeWithNative("`outer ${`inner ${x}`} done`");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        // outer chunk, ${, inner chunk, ${, x, }, inner chunk closing, },
+        // outer chunk closing
+        expect(kinds).toEqual([
+            "TemplateChunk",       // "outer "
+            "TemplateInterpStart", // ${
+            "TemplateChunk",       // "inner "
+            "TemplateInterpStart", // ${
+            "Ident",               // x
+            "TemplateInterpEnd",   // } (inner)
+            "TemplateChunk",       // closing-backtick chunk for inner
+            "TemplateInterpEnd",   // } (outer)
+            "TemplateChunk",       // " done" + closing-backtick chunk
+            "EOF",
+        ]);
+    });
+
+    test(`(M1.2-template) interp with balanced inner braces`, () => {
+        // The classic test — function body inside interp produces balanced
+        // {...} that MUST NOT trigger TemplateInterpEnd until depth-matched.
+        const n = tokenizeWithNative("`val ${(() => { return 1 })()} done`");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        // Exactly one TemplateInterpStart + one TemplateInterpEnd
+        const startCount = kinds.filter(k => k === "TemplateInterpStart").length;
+        const endCount   = kinds.filter(k => k === "TemplateInterpEnd").length;
+        expect(startCount).toBe(1);
+        expect(endCount).toBe(1);
+        // Inner braces are still emitted as LBrace + RBrace tokens
+        expect(kinds).toContain("LBrace");
+        expect(kinds).toContain("RBrace");
+    });
+
+    test(`(M1.2-template) interp with member access — \`val \${obj.x} done\``, () => {
+        const n = tokenizeWithNative("`val ${obj.x} done`");
+        expect(n.ok).toBe(true);
+        const kinds = n.tokens.map(t => t.kind);
+        expect(kinds).toEqual([
+            "TemplateChunk",       // "val "
+            "TemplateInterpStart", // ${
+            "Ident",               // obj
+            "Dot",                 // .
+            "Ident",               // x
+            "TemplateInterpEnd",   // }
+            "TemplateChunk",       // " done`"
+            "EOF",
+        ]);
+    });
 
     // Numeric values: ensure the literal-value parse (DD §D1 canonical
     // calculation example) returns correct results.

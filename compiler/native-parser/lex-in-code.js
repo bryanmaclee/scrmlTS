@@ -7,6 +7,10 @@ import { makeToken, makeIdentOrKeyword, makeEof, TokenKind, QuoteKind } from "./
 import { makeSpan } from "./span.js";
 import { LexMode, setMode } from "./lex-mode.js";
 import { push as pushBracket, pop as popBracket, BracketKind } from "./bracket-stack.js";
+import { dispatchInSingleString } from "./lex-in-single-string.js";
+import { dispatchInDoubleString } from "./lex-in-double-string.js";
+import { dispatchInTemplateBody } from "./lex-in-template.js";
+import { isTemplateInterpClose, emitTemplateInterpClose } from "./lex-in-template.js";
 
 // --- Character-classification predicates ---
 export function isWhitespaceCode(c) {
@@ -289,6 +293,17 @@ export function dispatchInCode(cursor, ctx) {
     const startLine = cursor.line;
     const startCol = cursor.col;
 
+    // Template-interp close (§51.0.Q.1) — if we're inside a template-interp
+    // body and the current `}` matches the depth at which the interp opened,
+    // emit TemplateInterpEnd + transition outer LexMode back to InTemplateBody.
+    // This MUST run before the normal `}` punctuation handling below
+    // (otherwise the `}` would be emitted as a plain RBrace and the template
+    // chunk scanner would never resume).
+    if (c0 === "}" && isTemplateInterpClose(cursor, ctx)) {
+        emitTemplateInterpClose(cursor, ctx);
+        return true;
+    }
+
     // Identifiers + keywords
     if (isIdentStart(code0)) {
         const { text, span } = scanIdentifier(cursor);
@@ -347,29 +362,37 @@ export function dispatchInCode(cursor, ctx) {
         return true;
     }
 
-    // String literals (M1.1 STUB transitions)
+    // String literals (M1.2 — escape-aware bodies in lex-in-single-string.js
+    // and lex-in-double-string.js; the LexMode engine governs the
+    // InCode → InSingleString → InCode transitions via setMode).
     if (c0 === "'") {
-        setMode(ctx, LexMode.InSingleString);
-        const { raw, span } = stubScanSingleString(cursor);
-        const cooked = raw.substring(1, raw.length - 1);
-        ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Single }));
-        setMode(ctx, LexMode.InCode);
+        dispatchInSingleString(cursor, ctx);
         return true;
     }
     if (c0 === "\"") {
-        setMode(ctx, LexMode.InDoubleString);
-        const { raw, span } = stubScanDoubleString(cursor);
-        const cooked = raw.substring(1, raw.length - 1);
-        ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Double }));
-        setMode(ctx, LexMode.InCode);
+        dispatchInDoubleString(cursor, ctx);
         return true;
     }
+
+    // Template literal (M1.2 — §51.0.Q.1 nested-engine pattern).
+    // The opening backtick transitions outer LexMode to InTemplateBody;
+    // the lex loop then routes through dispatchInTemplateBody until the
+    // closing backtick returns us to InCode. ${...} interpolation is
+    // handled by switching mode back to InCode while inside the interp,
+    // with isTemplateInterpClose / emitTemplateInterpClose driving the
+    // resume-to-InTemplateBody when the matching } closes the interp.
     if (c0 === "`") {
+        // Consume the opening backtick + emit no opener token (Acorn's
+        // template surface emits chunks; the opening/closing backticks
+        // are bookend punctuation absorbed by the first/last TemplateChunk's
+        // `raw` boundaries — see lex-in-template.js).
+        advance(cursor, 1);
         setMode(ctx, LexMode.InTemplateBody);
-        const { raw, span } = stubScanTemplate(cursor);
-        const cooked = raw.substring(1, raw.length - 1);
-        ctx.tokens.push(makeToken(TokenKind.TemplateChunk, raw, span, { raw, cooked }));
-        setMode(ctx, LexMode.InCode);
+        // Drive the first chunk synchronously so the outer loop sees the
+        // mode change correctly on its next iteration. (We could also
+        // simply return and let the loop handle it, but doing it inline
+        // here keeps the per-call token-emit invariant consistent.)
+        dispatchInTemplateBody(cursor, ctx);
         return true;
     }
 

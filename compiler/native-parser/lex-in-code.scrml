@@ -43,6 +43,9 @@ ${
     import { makeSpan, pointSpan } from "./span.scrml"
     import { LexMode, setMode } from "./lex-mode.scrml"
     import { makeBracketStack, push as pushBracket, pop as popBracket, BracketKind, closerMatchesOpener } from "./bracket-stack.scrml"
+    import { dispatchInSingleString } from "./lex-in-single-string.scrml"
+    import { dispatchInDoubleString } from "./lex-in-double-string.scrml"
+    import { dispatchInTemplateBody, isTemplateInterpClose, emitTemplateInterpClose } from "./lex-in-template.scrml"
 
     // ---------------------------------------------------------------------
     // Character-classification predicates (CALCULATION; pure fns).
@@ -365,7 +368,6 @@ ${
     // ---------------------------------------------------------------------
     export function regexAllowedAfter(lastKind) {
         if (lastKind is not) return true
-        if (lastKind == undefined) return true
         // Cannot follow values/closing brackets — division is intended.
         if (lastKind == TokenKind.Ident) return false
         if (lastKind == TokenKind.NumberLit) return false
@@ -415,6 +417,16 @@ ${
         const startPos = cursor.pos
         const startLine = cursor.line
         const startCol = cursor.col
+
+        // -------- Template-interp close (§51.0.Q.1) --------
+        // If we're inside a template-interp body and the current `}` matches
+        // the bracket-stack depth at which the interp opened, emit
+        // TemplateInterpEnd + transition outer LexMode back to
+        // InTemplateBody. MUST run before normal `}` punctuation handling.
+        if (c0 == "}" && isTemplateInterpClose(cursor, ctx)) {
+            emitTemplateInterpClose(cursor, ctx)
+            return true
+        }
 
         // -------- Identifiers + keywords --------
         if (isIdentStart(code0)) {
@@ -484,29 +496,27 @@ ${
             return true
         }
 
-        // -------- String literals (M1.1 STUB transitions) --------
+        // -------- String literals (M1.2 — escape-aware dispatchers) --------
         if (c0 == "'") {
-            setMode(ctx, LexMode.InSingleString)
-            const { raw, span } = stubScanSingleString(cursor)
-            const cooked = raw.substring(1, raw.length - 1) // strip quotes
-            ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Single }))
-            setMode(ctx, LexMode.InCode)
+            dispatchInSingleString(cursor, ctx)
             return true
         }
         if (c0 == "\"") {
-            setMode(ctx, LexMode.InDoubleString)
-            const { raw, span } = stubScanDoubleString(cursor)
-            const cooked = raw.substring(1, raw.length - 1)
-            ctx.tokens.push(makeToken(TokenKind.StringLit, raw, span, { raw, cooked, quote: QuoteKind.Double }))
-            setMode(ctx, LexMode.InCode)
+            dispatchInDoubleString(cursor, ctx)
             return true
         }
+
+        // -------- Template literal (M1.2 — §51.0.Q.1 nested-engine) --------
+        // The opening backtick transitions outer LexMode → InTemplateBody;
+        // the lex loop routes through dispatchInTemplateBody for chunk
+        // scanning + ${...} interp recognition. ${ pushes a template frame +
+        // transitions outer LexMode back to InCode; the matching } closes
+        // the interp via isTemplateInterpClose (checked at the top of
+        // dispatchInCode below).
         if (c0 == "`") {
+            advance(cursor, 1) // consume opening backtick
             setMode(ctx, LexMode.InTemplateBody)
-            const { raw, span } = stubScanTemplate(cursor)
-            const cooked = raw.substring(1, raw.length - 1)
-            ctx.tokens.push(makeToken(TokenKind.TemplateChunk, raw, span, { raw, cooked }))
-            setMode(ctx, LexMode.InCode)
+            dispatchInTemplateBody(cursor, ctx)
             return true
         }
 

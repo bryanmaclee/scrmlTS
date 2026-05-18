@@ -102,6 +102,8 @@ export const TokenKind = Object.freeze({
     NumberLit:    "NumberLit",
     StringLit:    "StringLit",
     TemplateChunk:"TemplateChunk",
+    TemplateInterpStart: "TemplateInterpStart",
+    TemplateInterpEnd:   "TemplateInterpEnd",
     RegexLit:     "RegexLit",
     BoolLit:      "BoolLit",
 

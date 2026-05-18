@@ -52,6 +52,8 @@ ${
     //       NumberLit(value: number, raw: string),
     //       StringLit(raw: string, cooked: string, quote: QuoteKind),
     //       TemplateChunk(raw: string, cooked: string),
+    //       TemplateInterpStart,             // `${` inside a template literal — opens nested LexMode interp (§51.0.Q.1)
+    //       TemplateInterpEnd,               // matching `}` that closes the template interp
     //       RegexLit(pattern: string, flags: string),
     //       BoolLit(value: boolean),
     //
@@ -193,6 +195,8 @@ ${
         NumberLit:    "NumberLit",
         StringLit:    "StringLit",
         TemplateChunk:"TemplateChunk",
+        TemplateInterpStart: "TemplateInterpStart",
+        TemplateInterpEnd:   "TemplateInterpEnd",
         RegexLit:     "RegexLit",
         BoolLit:      "BoolLit",
 
