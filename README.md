@@ -351,8 +351,8 @@ form — no API layer, no ORM, no route files, no separate validation schema:
 </>
 
 <form onsubmit=addContact()>
-    <entry.name/>
-    <entry.email/>
+    <entry><name/></>
+    <entry><email/></>
     <errors of=@entry/>
     <button type="submit" disabled=${not @entry.isValid}>Add Contact</>
 </form>
@@ -365,11 +365,9 @@ form — no API layer, no ORM, no route files, no separate validation schema:
     }
 </ul>
 
-${
-    function addContact() {
-        ?{insert into contacts (name, email) values (${@entry.name}, ${@entry.email})}.run()
-        reset(@entry)
-    }
+function addContact() {
+    ?{insert into contacts (name, email) values (${@entry.name}, ${@entry.email})}.run()
+    reset(@entry)
 }
 
 </>
