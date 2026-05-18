@@ -14862,6 +14862,14 @@ Rationale: the unified purity contract preserves the `< machine>` subsystem's re
 | E-PARSEVARIANT-DISCRIMINATOR-MISSING | §41.13 | Runtime: a `parseVariant` call's input has no `tag` field at parse time, or the value is `null`/non-object/non-string. Surfaced via `::ParseError::MissingDiscriminator`. Resolution: ensure the wire format includes the enum-variant-name discriminator; non-conforming wire shapes require server-fn normalization before `parseVariant`. (Runtime; catalog addition S65) | Error |
 | E-PARSEVARIANT-UNKNOWN-VARIANT | §41.13 | Runtime: a `parseVariant` call's input has a `tag` field whose value does not match any variant name in the second-argument enum. Surfaced via `::ParseError::UnknownVariant(tag)`. Resolution: add the variant to the enum, OR normalize the wire format in a server function before `parseVariant`. (Runtime; catalog addition S65) | Error |
 | E-PARSEVARIANT-INVALID-PAYLOAD | §41.13 | Runtime: a variant's payload field has the wrong type or fails a payload predicate during parse. Surfaced via `::ParseError::InvalidPayload(field, reason)`. Resolution: verify the wire format matches the variant payload shape declared in the enum; type-coerce primitive payloads in a server function if the wire format is loosely typed. (Runtime; catalog addition S65) | Error |
+| E-FORMFOR-TYPE-NOT-STRUCT | §41.14, §53.14 | `<formFor for=X/>` was called with a non-struct type identifier. Enum types, named-shape types, refinement-type literals, generic-parameterized types, and arbitrary type expressions are rejected in `for=` position. Resolution: pass a `:struct` type as the `for=` value. For enum-shape boundary parsing, use `parseVariant` (§41.13) instead. (Stage TS — type-system pass; catalog addition S102 — formFor SPEC entry) | Error |
+| E-FORMFOR-SLOT-UNKNOWN | §41.14 | A `<slot name="X">` inside `<formFor for=StructType>` references a name that is neither a struct field of the resolved type nor the reserved `"submit"` slot. Probable cause: typo in the field name (e.g., `slot="emial"` for an `email` field), or a stale slot from a prior struct shape. Resolution: verify the slot name matches a struct field name OR `"submit"`. (Stage Parser/TS; catalog addition S102) | Error |
+| E-FORMFOR-PICK-INVALID-FIELD | §41.14 | `<formFor for=StructType pick=["a", "b", ...]/>` references a field name that is not present on the struct type. Resolution: verify each pick array entry matches a declared struct field name. (Stage TS; catalog addition S102) | Error |
+| E-FORMFOR-OMIT-INVALID-FIELD | §41.14 | `<formFor for=StructType omit=["a", "b", ...]/>` references a field name that is not present on the struct type. Resolution: verify each omit array entry matches a declared struct field name. (Stage TS; catalog addition S102) | Error |
+| E-FORMFOR-PICK-OMIT-CONFLICT | §41.14 | `<formFor>` was called with BOTH `pick=` AND `omit=` attributes simultaneously. The two transforms are mutually exclusive — pick names the only fields to render; omit names fields to exclude (the inverse). Resolution: choose one; if you need both, layer a Pick over an Omit at the type level (`type Visible = Pick<Omit<Struct, "secret">, ...>`) and pass the derived type. (Stage TS; catalog addition S102) | Error |
+| E-FORMFOR-ONSUBMIT-SIGNATURE | §41.14 | The function referenced by `<formFor onsubmit=fn/>` does NOT match the expected signature `fn(values: StructType) ! ErrorType`. Common shapes that fail: handler takes zero args; handler is not failable; handler's first arg type does not match the resolved (post-pick/omit/partial) struct shape. Resolution: align the handler signature with the resolved struct shape, or split the form into multiple `<formFor>` calls with type-matched handlers. (Stage TS; catalog addition S102) | Error |
+| E-FORMFOR-ERROR-STRATEGY-INVALID | §41.14 | `<formFor error-strategy="X"/>` was set to a value other than `"per-field"`, `"summary"`, or `"both"`. Resolution: use one of the three valid strategy values; the default (when the attribute is absent) is `"per-field"`. (Stage Parser/TS; catalog addition S102) | Error |
+| E-FORMFOR-NESTED-STRUCT-NO-SLOT | §41.14 | `<formFor for=StructType/>` has a struct-typed field but no `<slot name="<fieldName>">` override was provided for it. v1.0 does NOT auto-recurse into nested struct fields (deferred to v1.next per OQ-FF-11). Resolution: provide an explicit `<slot name="<fieldName>">` child that renders the nested struct (typically via a sibling `<formFor for=NestedStruct as=@nested/>` call wired through the slot), OR exclude the nested struct field via `omit=["<fieldName>"]`. (Stage TS; catalog addition S102) | Error |
 | I-MATCH-PROMOTABLE | §56 | Info-level lint surfaces an opportunity to promote an `if=` chain or `${ if (...) lift ... }` pattern over an enum-typed cell into a `<match for=Type on=@cell>` (Tier 1) block for structural exhaustiveness, OR into a `<engine for=Type>` (Tier 2) for full transition-validation. Run `bun scrml promote --match <file>[:line]` to mechanically lift the site. The lint is informational only; chains pre-S56 continue to compile cleanly. (Catalog addition S78 — reconciles SPEC §56 cross-ref claim. Emitted at `compiler/src/lint-promotable.ts` and consumed by `compiler/src/commands/promote.js`.) | Info |
 | W-CG-001 | §6 | A top-level `state-decl` / `let-decl` / `const-decl` / SQL block / etc. inside a logic block was suppressed from the client output (server-only emit, or unused). The lint surfaces what was filtered + why so the developer can confirm it was intentional. (Catalog addition S78 audit; emitted at `compiler/src/codegen/emit-reactive-wiring.ts:366`.) | Warning |
 | W-CG-UNDEFINED-INTERPOLATION | §42.5, §42.8 | A literal `undefined` JS-keyword was detected in compiled output (CG-level regression guard). scrml absence is canonically JS `null` per §42.5 / §42.8 — `not` codegens to `null`, never to `undefined`. The lint runs post-emission across the per-file compiled JS and fires on each line containing a bare `undefined` keyword outside the canonical idiom exemptions: paired `null && undefined` absence-detection check (§42.5/§42.8 canon — both must be checked to detect scrml absence under JS-host normalisation); `typeof X !== "undefined"` env-detection (canonical JS idiom in quoted form, not a value-keyword interpolation); comments; string literals; template-literal text; embedded runtime block (hand-written JS, masked via `// --- scrml reactive runtime ---` / `// --- end ---` markers). Resolution: the codegen site emitting the bare `undefined` should be migrated to `null` (per §42.8 "null over undefined" rationale). (Catalog addition S90 — M-7C-D-12 Track 3 ratified per OQ-5 (a); emitted at `compiler/src/codegen/lint-undefined-interpolation.ts`.) | Warning |
@@ -18385,6 +18393,146 @@ Variant semantics:
 - §19 — failable functions + `!{}` handler integration (the call's failure type is `ParseError`).
 
 **Authority:** ratified at debate-05 (`scrml-support/docs/debates/debate-05-boundary-parsing-primitive-2026-05-06.md`) + judge ratification (`scrml-support/docs/debates/debate-05-judgment-2026-05-06.md`) + Path-A architectural commit (S65; `docs/changes/parsevariant-impl/SCOPE.md`).
+
+---
+
+### 41.14 `scrml:data` `formFor` — type-driven form generation from a struct definition
+
+**Added:** S102, 2026-05-18 — ratified by the S102 deep-dive (`scrml-support/docs/deep-dives/formFor-design-2026-05-18.md`; 10 OQs deliberated; 7 closed with HIGH/MED confidence) and the two S102 debate verdicts that resolved the remaining design surface (OQ-FF-1 slot-style customization wins 51.5/60; OQ-FF-2 explicit-attr + slot wins 52/60 with progressive-enhancement ON by default). `formFor` is the SECOND general-position member of the type-as-argument family (cross-ref §53.14), riding the parseVariant precedent from §41.13. It is the `scrml.dev` flagship demo: define a struct once → get a complete form with input rendering, validation, error display, and submit wiring.
+
+**The API:**
+
+```scrml
+import { formFor } from 'scrml:data'
+
+type Signup:struct = {
+    name:    string req length(>=2)
+    email:   string req pattern(/^[^@]+@[^@]+$/)
+    agree:   boolean req
+}
+
+server function persistSignup(values: Signup) ! SignupError {
+    ?{ insert into users { ${values} } }
+}
+
+<formFor for=Signup onsubmit=persistSignup/>
+```
+
+That call expands at compile time into Shape 2 decls + auto-synthesized validity surface (§55.5-§55.7) + `<errors of=>` blocks (§55.8) + a submit button + an outer `<form>` element wired to the handler, all of which the developer could have hand-authored under Shape 2 (§6.2). `formFor` is the structural primitive that derives this tree from the struct definition rather than requiring per-form authorship.
+
+**Call signature (markup-element form):**
+
+```
+<formFor for=StructName
+         [onsubmit=fn]
+         [as=@varName]
+         [pick=["field", ...]]
+         [omit=["field", ...]]
+         [partial=true|false]
+         [error-strategy="per-field"|"summary"|"both"]>
+    [<slot name="<fieldName>">override-markup</slot>]
+    [<slot name="submit">override-button</slot>]
+</formFor>
+```
+
+The element form is canonical. A bare-call form (`const handle = formFor(Signup, ...)`) is reserved for future use; this revision admits only the element form.
+
+#### 41.14.1 Normative statements — type argument
+
+- The `for=` attribute SHALL be a bare scrml-native `:struct` type identifier. Enum types, named-shape types, refinement-type literals, generic-parameterized types, and arbitrary type expressions SHALL NOT be accepted in `for=` position. Violations SHALL emit `E-FORMFOR-TYPE-NOT-STRUCT` at the type-system stage (cross-ref §34). The compile-time enforcement mirrors `parseVariant`'s `E-PARSEVARIANT-TYPE-NOT-ENUM` (§41.13).
+- The compiler SHALL resolve `for=` to the file's `typeRegistry` per §53.14.5; cross-file struct imports use the existing protocol of §21.
+
+#### 41.14.2 Normative statements — auto-synthesized state cell
+
+- `formFor` SHALL synthesize a single compound reactive cell named after the struct type (camel-cased; e.g., `Signup` → `@signup`) unless `as=@varName` is set, in which case the synthesized cell SHALL use the supplied name.
+- Each struct field SHALL produce one Shape 2 sub-cell (§6.2 Shape 2) under the compound cell, with `bind:value` (or render-spec-appropriate equivalent per §5.4.1) wired to the input element.
+- Field default values SHALL be the field's declared default in the struct, or the type's `not`-shaped absence if no default is declared. `null` and `undefined` SHALL NOT be emitted (§42.1 absolute rule).
+- The auto-synthesized validity surface (§55.5-§55.7) SHALL fire on the compound cell: `@signup.isValid`, `@signup.errors`, `@signup.touched`, `@signup.submitted`, plus per-field equivalents (`@signup.email.isValid`, etc.).
+
+#### 41.14.3 Normative statements — submit handler wiring (OQ-FF-2)
+
+- The `onsubmit=` attribute SHALL accept a bare-form event handler per §5.2.3 — a single function reference, a bare call, or a bare assignment. Function literals in attribute values SHALL NOT be accepted (preserves Pillar 5 — no per-primitive mini-DSL in attribute grammar).
+- When `onsubmit=` resolves to a `server function fn(values: StructType) ! ErrorType` (per §12), the compiler SHALL emit a default progressive-enhancement HTTP form fallback: the outer `<form>` element receives `action="/api/<derived-route>" method="POST"` automatically, deriving the route from the server function's name per §12.5 route inference. Adopters SHALL NOT need to set a `progressive=` attribute; PE is structural default.
+- The submit handler signature SHALL match `fn(values: StructType) ! ErrorType`, where `StructType` is the resolved `for=` type (or its `pick`/`omit`/`partial` derivative — see §41.14.5). Handler signature mismatch SHALL emit `E-FORMFOR-ONSUBMIT-SIGNATURE`.
+- A `<button slot="submit">` child SHALL be admitted as a customization slot (per §16 component slots). When absent, the compiler SHALL emit a default submit `<button type="submit">` with `disabled=!@<varName>.isValid` wired (so submission is blocked until all validators pass).
+- Submit dispatch SHALL set `@<varName>.submitted = true` BEFORE invoking the handler, enabling the validity surface's `submitted` field to drive "show errors after first submit attempt" UX patterns.
+
+#### 41.14.4 Normative statements — per-field customization (OQ-FF-1)
+
+- Per-field input customization SHALL use the `<slot name="<fieldName>">` mechanism (§16 component slots). Function-valued attributes for customization (e.g., `render={{ email: ... }}`) SHALL NOT be accepted.
+- The slot scope of a per-field slot SHALL expose the auto-synthesized reactive cell for that field. Inside the slot body, `bind:value=@<varName>.<fieldName>` binds to the canonical cell; alternative slot-scope binding via `:let={(cell) => ...}` per §16.6 parametric-snippet form is also legal.
+- A slot whose `name=` does not match any struct field SHALL emit `E-FORMFOR-SLOT-UNKNOWN` at the parser stage.
+- `<errors of=@<varName>.<fieldName>/>` SHALL be emitted by `formFor` adjacent to each field's input position regardless of slot override. The validity surface is formFor-owned, not slot-owned — slot overrides change the INPUT rendering, not the error rendering.
+- Project-scoped per-type renderer registration (`data.registerRenderer(TypeKey, renderFn)`) is reserved for v1.next as a sibling to `data.registerMessages` (§41.12). This revision does NOT include the registry; per-call slot overrides are the only customization surface in v1.0.
+
+#### 41.14.5 Normative statements — field-set transforms (OQ-FF-3)
+
+- `pick=[...]` SHALL accept an array literal of bare field-name strings. The generated form SHALL include only the named fields. Field names not present on the struct SHALL emit `E-FORMFOR-PICK-INVALID-FIELD`.
+- `omit=[...]` SHALL accept an array literal of bare field-name strings. The generated form SHALL include all struct fields except those named. Field names not present on the struct SHALL emit `E-FORMFOR-OMIT-INVALID-FIELD`.
+- `pick=` and `omit=` SHALL NOT be combined on the same `<formFor>` call. Co-occurrence is `E-FORMFOR-PICK-OMIT-CONFLICT`.
+- `partial=true` SHALL relax the field-level `req` validator on all included fields. The struct type itself is unchanged; only the auto-synthesized validators are relaxed for the form's own validity surface. Combine `partial=true pick=[...]` to make picked fields optional.
+- The submit handler signature with field-set transforms SHALL be `fn(values: Pick<StructType, "field"|"field">) ! ErrorType` or `fn(values: Partial<Pick<StructType, ...>>) ! ErrorType` per the transform applied. The compiler emits a derived type for the call boundary; type-level `Pick<>`/`Omit<>`/`Partial<>` utility types are admitted in this position only (broader utility-type support deferred).
+
+#### 41.14.6 Normative statements — error rendering (OQ-FF-6)
+
+- `error-strategy=` SHALL accept one of three string literal values: `"per-field"` (default), `"summary"`, `"both"`.
+  - `"per-field"` — render an `<errors of=@<varName>.<fieldName>/>` block adjacent to each field input. This is the default.
+  - `"summary"` — render a single `<errors of=@<varName>/>` block at the form level. No per-field error blocks.
+  - `"both"` — render both per-field and summary blocks.
+- Unknown values SHALL emit `E-FORMFOR-ERROR-STRATEGY-INVALID`.
+
+#### 41.14.7 Normative statements — labels (OQ-FF-7)
+
+Label resolution SHALL apply the following layered chain (highest precedence first):
+
+1. **Slot override** — if a `<slot name="<fieldName>">` is provided, the slot body's markup owns the label (the slot replaces the entire field render including label).
+2. **Project-registered labels** — `data.registerLabels({TypeName: {field: "Display label"}})` (cross-ref §41.12 `registerMessages` precedent). Project-scoped registration is the v1.0 mechanism for app-wide branding/i18n. The `registerLabels` API SHALL be admitted as a sibling stdlib export in `scrml:data`.
+3. **Type-field annotation** — RESERVED for v1.next. The shape `type Signup:struct = { email: string @label("Email address") }` is admitted as a future extension; v1.0 does not parse the `@label("...")` annotation.
+4. **Mechanical default** — title-case the field name with intra-word boundary detection (`emailAddress` → "Email Address", `agree` → "Agree", `agreeToTerms` → "Agree To Terms"). This is the fallback when no override or registration applies.
+
+#### 41.14.8 Normative statements — nested struct fields (OQ-FF-11)
+
+- If `for=StructName` has a struct-typed field (`address: Address:struct`), `formFor` SHALL emit a `<slot name="<fieldName>">` for that field with no default content (no auto-rendered nested form). Adopters MUST provide a slot override OR call `<formFor for=Address as=@addressVar/>` separately and wire it through.
+- Auto-recursive nested-struct rendering is RESERVED for v1.next. Empty nested-struct slot without an override SHALL emit `E-FORMFOR-NESTED-STRUCT-NO-SLOT`.
+
+#### 41.14.9 Normative statements — out of scope for v1.0
+
+The following are explicitly NOT in v1.0; planned for v1.next or deferred:
+
+- **Multi-step forms** (OQ-FF-4) — composed via engines (Tier 2 surface, §51). An adopter using multi-step forms declares an engine over a `Step:enum` and conditionally mounts per-step `<formFor for=StepNType pick=[...]>` per state-child. v1.0 ships single-step only.
+- **Read-only / display-only mode** (OQ-FF-12) — `tableFor` (planned family sibling, §53.14.3) covers the display-derived-from-struct case; `formFor` is input-rendering only.
+- **Cross-field validation embedded in formFor** (OQ-FF-5) — adopters add cross-field validators via supplementary `<errors of=...>` blocks after the formFor call OR via cross-field predicates on the auto-synthesized cells per §55.11. No new vocabulary in formFor.
+- **`renderRegister` per-type registry** — reserved for v1.next per OQ-FF-1 verdict.
+- **`@label("...")` type-field annotation** — reserved for v1.next per OQ-FF-7 verdict.
+
+#### 41.14.10 Compile-time recognition
+
+`<formFor for=StructType ...>` is recognized at the **type-system stage** (cross-ref §53.14.5) as a structural element with a struct-typed `for=` attribute. The compiler:
+
+1. Resolves `for=` against the file's `typeRegistry`; validates `kind === "struct"` (cross-ref §53.14.5 step 3); emits `E-FORMFOR-TYPE-NOT-STRUCT` on mismatch.
+2. Resolves `onsubmit=` if present; classifies as server-fn (PE eligible) vs client-fn (PE not applicable); validates signature against the resolved (possibly pick/omit/partial-transformed) struct shape.
+3. Validates `pick=`/`omit=` field names against the struct's field list.
+4. Walks slot children; validates each slot `name=` against the struct's field list (or `"submit"`); emits `E-FORMFOR-SLOT-UNKNOWN` on mismatch.
+5. Annotates the AST node with the resolved struct shape + transform metadata for codegen consumption.
+
+Codegen emits the equivalent Shape 2 + `<errors of=>` + `<form action=...>` markup tree at the call site. The emitted output is standard scrml (Pillar 5) — readable as if hand-authored — and rides existing emission pipelines for §6.2 Shape 2 + §55 validity surface + §16 slots + §5.2.3 event handlers.
+
+#### 41.14.11 Cross-references
+
+- §53.14 — type-as-argument family framing (formFor is the second general-position member).
+- §41.13 — `parseVariant` (first general-position family member; structural precedent for compile-time type-argument recognition).
+- §41.12 — `registerMessages` (precedent for project-scoped stdlib registries; `registerLabels` rides the same pattern).
+- §6.2 — Shape 2 decl-coupled-with-render-spec (the load-bearing primitive formFor emits into).
+- §55.1-§55.15 — auto-synthesized validity surface (compound + per-field; the form's `isValid`/`errors`/`touched`/`submitted` come from here).
+- §55.8 — `<errors of=expr/>` first-class element (per-field + summary rendering).
+- §55.10 — 4-level error message resolution chain (cross-ref for label resolution chain in §41.14.7).
+- §16 — Component Slots (the customization mechanism for per-field + submit slot overrides).
+- §5.2.3 — bare-form event handler (the `onsubmit=` shape).
+- §12.5 — route inference (derives the PE `action=` URL from the server function).
+- §51 — Engines (the multi-step form composition substrate).
+- §34 — `E-FORMFOR-TYPE-NOT-STRUCT`, `E-FORMFOR-SLOT-UNKNOWN`, `E-FORMFOR-PICK-INVALID-FIELD`, `E-FORMFOR-OMIT-INVALID-FIELD`, `E-FORMFOR-PICK-OMIT-CONFLICT`, `E-FORMFOR-ONSUBMIT-SIGNATURE`, `E-FORMFOR-ERROR-STRATEGY-INVALID`, `E-FORMFOR-NESTED-STRUCT-NO-SLOT`.
+
+**Authority:** S102 deep-dive (`scrml-support/docs/deep-dives/formFor-design-2026-05-18.md`) + OQ-FF-1 debate verdict (slot-style 51.5/60; `~/.claude/design-insights.md` S102 entry) + OQ-FF-2 debate verdict (explicit-attr + slot + PE-default 52/60; `~/.claude/design-insights.md` S102 entry) + S102 SCOPING (`docs/changes/formFor-scoping/SCOPING.md`).
 
 ---
 
@@ -26516,7 +26664,7 @@ The type-as-argument family is open with bounded discipline (§53.14.4). The shi
 |---|---|---|
 | `parseVariant(json, EnumType)` | shipped — S65 (§41.13) | PASSES — type-establishment for sum types is irreducible (constructor selection cannot be expressed via predicates) |
 | `serialize(value, EnumType)` | planned (~6-12mo horizon) | PASSES — symmetric to `parseVariant`; round-trip law `parseVariant(serialize(v, T), T) == .Ok(v)` is a structural invariant the language can guarantee |
-| `formFor(StructType)` | planned (FLAGSHIP — `scrml.dev` demo) | PASSES — compile-time structural walk of struct fields → emits `<form>` markup tree using existing Shape 2 + auto-synth validity surface (§55) + `<errors of=>` machinery (§55.8). Not expressible via predicates (predicates do not generate markup) |
+| `formFor(StructType)` | **spec'd S102 (§41.14); impl pending** (FLAGSHIP — `scrml.dev` demo) | PASSES — compile-time structural walk of struct fields → emits `<form>` markup tree using existing Shape 2 + auto-synth validity surface (§55) + `<errors of=>` machinery (§55.8) + §16 slots for customization + §5.2.3 `onsubmit=fn` for handler + §12.5-derived `action=` for progressive enhancement. Not expressible via predicates (predicates do not generate markup). |
 | `schemaFor(StructType)` | planned | PASSES — emits `<schema>` SQL DDL from struct field predicates. Closes the §39 + L4 vocabulary-unification loop ("define type once → schema, form, validator, parser all derive") |
 | `tableFor(StructType, rows)` | planned | PASSES — auto-`<table>` from struct fields + rows; per-column slot overrides; sorting/selection/empty-state attrs. Same family as `formFor` (admin-UI lift) |
 | `variantNames(EnumType)` / reflective metadata | planned | PASSES — exposes variant lists as runtime values, not currently surfaced; small primitive that tightens the family |
@@ -26542,9 +26690,9 @@ The doc `scrml-support/docs/type-as-argument-family-2026-05-06.md` records the d
 Type-as-argument primitives are recognized at the **type-system stage** (`compiler/src/type-system.ts`), not the parser. The parser produces a regular `CallExpression` whose positional arguments are general expressions; an identifier-as-argument is just an `IdentExpr` AST node. The type-system pass:
 
 1. Resolves the call's callee through the file's import registry (cross-ref §41.3 — MOD stage).
-2. If the callee resolves to a recognized type-as-argument primitive (`parseVariant`, future `serialize`/`formFor`/`schemaFor`/`tableFor`/`variantNames`), inspects the type-argument position(s).
-3. Validates the type-argument is a bare `IdentExpr` whose `name` resolves in `typeRegistry` to a type with the expected `kind` (e.g., `:enum` for `parseVariant`/`serialize`/`variantNames`; `:struct` for `formFor`/`schemaFor`/`tableFor`).
-4. On validation failure, emits the per-primitive `E-*-TYPE-NOT-*` error (e.g., `E-PARSEVARIANT-TYPE-NOT-ENUM` for `parseVariant`; future members get sibling codes).
+2. If the callee resolves to a recognized type-as-argument primitive (`parseVariant`, `formFor`, future `serialize`/`schemaFor`/`tableFor`/`variantNames`), inspects the type-argument position(s). For markup-element forms (`<formFor for=Type>`), the `for=` attribute carries the type identifier.
+3. Validates the type-argument is a bare `IdentExpr` whose `name` resolves in `typeRegistry` to a type with the expected `kind` (`:enum` for `parseVariant`/`serialize`/`variantNames`; `:struct` for `formFor`/`schemaFor`/`tableFor`).
+4. On validation failure, emits the per-primitive `E-*-TYPE-NOT-*` error (`E-PARSEVARIANT-TYPE-NOT-ENUM` for `parseVariant`; `E-FORMFOR-TYPE-NOT-STRUCT` for `formFor` (§41.14); future members get sibling codes).
 5. On validation success, annotates the call-expression node with a back-reference to the resolved type so codegen can pick it up directly without re-resolving.
 
 The mechanism is structurally identical to `<engine for=Type>` validation (§51.0; `E-ENGINE-004` at `compiler/src/type-system.ts:1998-2018`) and `<match for=Type>` exhaustiveness checking (§18; `checkEnumExhaustiveness` at `type-system.ts:5267`). New family members SHOULD ride the existing helper extraction (planned: `validateTypeArgument(expr, expectedKind, errors, span)`) rather than re-implementing the lookup-and-classify logic.
