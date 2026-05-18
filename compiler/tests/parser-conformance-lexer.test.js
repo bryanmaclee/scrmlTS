@@ -1,4 +1,4 @@
-// parser-conformance-lexer.test.js — lexer conformance suite (M1.1-M1.3).
+// parser-conformance-lexer.test.js — lexer conformance suite (M1.1-M1.4).
 //
 // Per scrml-native-parser-design-2026-05-17.md §D7 M1 gating criterion (a):
 //   "Lexer-output Token[] for every file in the conformance corpus is
@@ -7,9 +7,13 @@
 //
 // Scope: this test runs the bench corpus through both Acorn's tokenizer
 // and the new compiler/native-parser/lex.js, normalizes outputs to a
-// comparable shape, and asserts kind+text+span match per token. Files
-// with stub-state surface (M1.4 regex bodies) record a SKIP with a
-// reason; activation lands at the milestone named.
+// comparable shape, and asserts kind+text+span match per token. Bench
+// files whose Acorn-vs-native diff requires future normalizer work
+// (notably the regex-token shape difference between Acorn's single
+// regex-token + native's `RegexLit { pattern, flags }` payload) record
+// a SKIP with a milestone-named reason; activation lands at that
+// milestone (M1.5 for regex-token normalizer + `expr-literals.js`
+// full-disposition flip).
 
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "fs";
