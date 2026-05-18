@@ -491,6 +491,7 @@ scrml is ~10-14x faster to build than Vite at v0.3.0 (was 8-12x at v0.2.x).
 scrml has built-in runtime type validation. The type annotation IS the validation schema — no separate schema library, no `z.object()` wrappers, no `z.infer<typeof>` indirection.
 
 ```scrml
+// gate: skip — illustrative fragments (no <program> wrapper; not standalone-runnable)
 <price: number(>0 && <10000)>      = userInput
 <email: string(email)>             = formValue
 <password: string(.length > 7 && .length < 255)> = rawInput
@@ -675,9 +676,19 @@ The [`examples/`](examples/) directory contains curated examples that show what 
 
 - [Tutorial](docs/tutorial.md) — step-by-step introduction, zero to full-stack
 - [Design Notes](DESIGN.md) — rationale and philosophy — why scrml is what it is
-- [Language Specification](compiler/SPEC.md) — full formal spec (~26,000 lines)
+- [Language Specification](compiler/SPEC.md) — full formal spec (~27,000 lines)
 - [Spec Quick-Lookup](compiler/SPEC-INDEX.md) — find any section fast
 - [Pipeline Contracts](compiler/PIPELINE.md) — stage-by-stage compiler pipeline
+
+> **Note on code snippets.** This README's ```scrml fenced examples are
+> compile-gated on every release-tag push (`v0.X.Y`) — they must compile
+> clean and lint clean against the tagged compiler. Snippets in the
+> tutorial, articles, and reference pages are NOT gated and may use
+> in-flight syntax, intentional fragments, or pre-v0.X authoring shapes;
+> treat those as illustrative, not always-runnable, at any given commit.
+> Snippets here marked with a leading `// gate: skip` comment are
+> intentionally illustrative fragments (e.g., they show a state-decl
+> shape without a full `<program>` wrapper).
 
 ## License
 

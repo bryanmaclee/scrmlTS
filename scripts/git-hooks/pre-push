@@ -1,0 +1,80 @@
+#!/bin/bash
+# scrml pre-push hook — full test suite + gauntlet quick check + README gate
+#
+# Source-controlled baseline. Install via `bash scripts/git-hooks/install.sh`
+# from the repo root.
+#
+# README gate (S101): runs `scripts/extract-readme-scrml.js` ONLY when the
+# push payload contains a release-tag ref (`refs/tags/v*`). Regular pushes
+# skip the README gate. Rationale: README.md is the community-facing
+# nominal reference for scrml; release-tag pushes are the cut points
+# where accuracy must be verified.
+
+set -e
+
+# Read pre-push stdin protocol: one line per ref being pushed:
+#   <local-ref> <local-sha> <remote-ref> <remote-sha>
+# Detect any release-tag push (refs/tags/v*) in the payload.
+PUSHING_RELEASE_TAG=0
+PUSHED_REFS=""
+while read local_ref local_sha remote_ref remote_sha; do
+  PUSHED_REFS="$PUSHED_REFS $local_ref"
+  case "$local_ref" in
+    refs/tags/v*)
+      PUSHING_RELEASE_TAG=1
+      ;;
+  esac
+done
+
+echo "=== scrml pre-push: full validation ==="
+
+# 1. Full test suite (every push)
+echo "--- Running full test suite ---"
+TEST_OUTPUT=$(bun test compiler/tests/ 2>&1)
+EXIT_CODE=$?
+
+PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -oP '\d+ pass' | head -1)
+FAIL_COUNT=$(echo "$TEST_OUTPUT" | grep -oP '\d+ fail' | head -1)
+SKIP_COUNT=$(echo "$TEST_OUTPUT" | grep -oP '\d+ skip' | head -1)
+echo "Tests: $PASS_COUNT, $FAIL_COUNT, $SKIP_COUNT"
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "❌ Tests failed — push blocked."
+    echo "$TEST_OUTPUT" | grep -A2 "fail" | head -20
+    exit 1
+fi
+
+# 2. Gauntlet quick check (TodoMVC) — every push
+echo ""
+echo "--- Gauntlet quick check (TodoMVC) ---"
+if [ -f benchmarks/todomvc/app.scrml ]; then
+    bun run compiler/src/cli.js compile benchmarks/todomvc/app.scrml --convert-legacy-css 2>/dev/null
+    if [ -f benchmarks/todomvc/dist/app.client.js ]; then
+        if node --check benchmarks/todomvc/dist/app.client.js 2>/dev/null; then
+            echo "TodoMVC JS: PASS"
+        else
+            echo "⚠ TodoMVC JS: FAIL (node --check)"
+            echo "❌ Push blocked — gauntlet check failed."
+            exit 1
+        fi
+    fi
+fi
+
+# 3. README scrml gate (ONLY on release-tag pushes — S101)
+if [ "$PUSHING_RELEASE_TAG" = "1" ]; then
+    echo ""
+    echo "--- README scrml gate (release-tag push detected) ---"
+    if bun run scripts/extract-readme-scrml.js; then
+        :
+    else
+        echo ""
+        echo "❌ README scrml gate failed — release-tag push blocked."
+        echo "   Fix the failing snippet(s) in README.md or mark them"
+        echo "   illustrative with a leading \`// gate: skip\` line."
+        exit 1
+    fi
+fi
+
+echo ""
+echo "✓ All checks passed — pushing."
