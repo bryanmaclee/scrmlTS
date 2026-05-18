@@ -1065,13 +1065,36 @@ export function generateClientJs(ctx: CompileContext): string {
   let clientCode = clientStage(ctx, "lines-join", () => lines.join("\n"));
   if (fnNameMap && fnNameMap.size > 0) {
     clientStage(ctx, "post-fn-name-mangle", () => {
-      for (const [originalName, mangledName] of fnNameMap) {
-        const callSiteRegex = new RegExp(
-          `(?<!\\.\\s*)\\b${escapeRegex(originalName)}\\b(?=\\s*[(;,}\\]\\n)]|$)`,
-          "g",
-        );
-        clientCode = clientCode.replace(callSiteRegex, mangledName);
-      }
+      // PGO P3.A: collapse the per-name regex loop into a single alternation
+      // pass. The original loop ran one regex over the entire client buffer
+      // for each user function — O(names * bufferSize) on a buffer that
+      // grows linearly with project size. The combined regex makes a single
+      // O(bufferSize) sweep.
+      //
+      // Alternation rules:
+      //   * Names are sorted by length DESC so longer names match before
+      //     prefixes (e.g. `fooBar` wins against `foo`). Word boundaries
+      //     would already prevent `foo` from matching inside `fooBar`, but
+      //     sorting also guards against future name shapes where a name
+      //     happens to be a prefix of another at a word boundary.
+      //   * The lookbehind `(?<!\.\s*)` and the lookahead
+      //     `(?=\s*[(;,}\]\n)]|$)` are preserved BIT-FOR-BIT from the
+      //     per-name regex so behavior remains byte-identical.
+      //   * A single capture group around the alternation lets the
+      //     replacer recover the matched name and look up its mangled form
+      //     via the fnNameMap.
+      const sortedNames = [...fnNameMap.keys()].sort(
+        (a, b) => b.length - a.length,
+      );
+      const alternation = sortedNames.map(escapeRegex).join("|");
+      const combinedRegex = new RegExp(
+        `(?<!\\.\\s*)\\b(${alternation})\\b(?=\\s*[(;,}\\]\\n)]|$)`,
+        "g",
+      );
+      clientCode = clientCode.replace(
+        combinedRegex,
+        (_match, name: string) => fnNameMap.get(name) ?? _match,
+      );
     });
 
     // GITI-001 (giti inbound 2026-04-20): `@data = serverFn(args)` emits
