@@ -4,10 +4,12 @@ date: 2026-05-19
 session: S103
 authority: SPEC §53.14.3 (`serialize(value, EnumType)` listed planned; sliver-test PASSES verdict pre-dates S90 wire-format infrastructure) + §53.14.4 (family discipline: 4 gates per addition) + family-precedent doc `scrml-support/docs/type-as-argument-family-2026-05-06.md`
 family_position: THIRD general-position L22 member candidate (after parseVariant S65 + formFor S102-S103)
-status: SCOPE OPEN — gate-walk surfaces SUBSTANTIVE Gate 2 (synonym-detection) concern; deep-dive RECOMMENDED before dispatch
+status: **STASHED S103** — user selected Path B (pivot to schemaFor). Deep-dive plan reserved at §5 + §7 + §8 OQs for revival if adopter friction signals a serialize-shaped gap OR if schemaFor / tableFor implementations surface an edge that would benefit from L22-serialize-as-primitive. The §53.14.4 discipline pre-flight finding (Gate 2 synonym risk vs `wireEncode(v)` stdlib helper) stands as the load-bearing reason for the stash; revive trigger requires either: (a) ≥2 adopter friction reports requesting compile-time-checked round-trip-law guarantee, (b) formFor/schemaFor/tableFor impl surfaces a value-encoding edge `wireEncode` can't cover, OR (c) reflective-metadata family member needs the symmetric encode-path. Until revival: serialize is NOT on the v0.4-v1.0 roadmap; §53.14.3 family-roster row stays "planned (~6-12mo)" with a footnote pointer to this SCOPING.
 ---
 
-# serialize — SCOPING
+# serialize — SCOPING (STASHED S103)
+
+> **STASH BANNER:** This SCOPING is RESERVED, not active. User ratified Path B at S103 — pivot to schemaFor as the next L22 family member, defer serialize pending one of three revival triggers documented in the YAML status. The pre-flight Gate 2 synonym risk (vs `wireEncode(v)` stdlib helper) stands; the deep-dive plan in §5 + the OQs in §8 are READY-TO-FIRE if revived. Do NOT delete this doc; it is the load-bearing record of the §53.14.4 discipline catching a likely-synonym before spec/impl commits.
 
 ## Pre-flight finding (lead with it per S95 shoot-straight rule)
 
