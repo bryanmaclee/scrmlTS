@@ -38,13 +38,13 @@
 
 ## LOW-MED
 
-### Bug 4 — Bare `?{` / `/` in markup-text body has no docs-mode escape — `spec'd`
+### Bug 4 — Bare `/` in markup-text body parses as element closer — `spec'd`
 
-Writing scrml-about-scrml content (any docs site, README example, blog post about scrml syntax) hits this: bare `?{` opens an SQL context that runs to EOF; bare `/` parses as element closer. Three design options surfaced: docs hardening (entity-escape pattern documentation), docs-mode lint (warn on context-opener outside `<pre>`/`<code>`), markup-text-mode tokenizer awareness (recognize context openers only inside explicit context shapes).
+The `?{` half of the original Bug 4 surface closed at S108 via Approach C-narrow (markup-text-mode locus gate per SPEC §3.1 + §8.1). The bare-`/` half remains open. Writing scrml-about-scrml prose where `/` appears in text (e.g., "`""` / `0` / `[]` are all defined values") can still confuse the BS-layer's `looksLikeCloser` heuristic in edge cases. Per the deep-dive's broad-C disposition, this is a refinement of the bare-`/` look-ahead at `block-splitter.js:1962-1987` — additional ~10-20 LOC. Deferred pending friction signal beyond the dogfood report's single citation.
 
-- **Workaround:** wrap context-opener tokens in `<code>` + entity-encode (`<code>?&#123;</code>`, `<code>&#47;</code>`).
-- **Reproducer + analysis:** [`handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md`](../handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md) §"Bug 4".
-- **Status:** needs deep-dive on design space.
+- **Workaround:** entity-encode (`&#47;`) when `/` appears at scrml-content-as-data positions in prose.
+- **Reproducer + analysis:** [`handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md`](../handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md) §"Bug 4" + deep-dive §"Broad C".
+- **Status:** Q-BUG4-OPEN-5 in deep-dive `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md`; broad-C extension if friction surfaces.
 
 ---
 
@@ -54,6 +54,7 @@ Writing scrml-about-scrml content (any docs site, README example, blog post abou
 - **Bug 3** — `[BS]` / `[TAB]` diagnostics now carry `file:line:col` prefix matching `[W-LINT-*]` shape (commit `2e9f9c3`)
 - **Bug 6** — 2 hallucinated error-code references in `docs/website/pages/` retired to canonical SPEC §34 names (commit `c4d1114`)
 - **Match block-form Phases 1+2+3+4** — structural AST node (S107 `82c48fd`) + 5 SYM diagnostics + arm parser + `:`-shorthand recognition (S107 `c91fae0`) + Phase 3 codegen render dispatch with per-arm render fns + variant-guarded dispatcher (S108) + **Phase 4 `:`-shorthand body codegen** (S108) — bodyRaw parsed as expression via `parseExprToNode`, synthesized into `logic > bare-expr` AST node, routed through standard interpolation path (folds inline for constants per Bug 5 P3; placeholder + reactive binding for `@cell` refs). Tier 1 of the case-analysis ladder is now end-to-end functional for: bare-body markup, self-closing, `:`-shorthand expressions, parenthesized payload bindings. Phase 5 follow-on (wildcard explicit render, payload-binding typer scope, bare-variant inference in nested expression positions) deferred to v0.4+.
+- **Bug 4 (`?{` half) — markup-text-mode SQL locus gate (Approach C-narrow)** — S108 deep-dive at `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md` (530 lines) ratified C-narrow per SPEC §3.1 + §8.1 conformance ("SQL is a child of Logic, not markup-text"). Bare `?{` in markup-text body no longer opens an SQL context — adopters writing scrml-about-scrml docs prose can write `?{` literally without the pre-S108 EOF-cascade. 86% of adopter pages (83 of 96) already used entity-escape workarounds — zero migration cost. SPEC §4.17 amended with the locus-gating principle cross-ref. Companion bare-`/` half deferred (Q-BUG4-OPEN-5; broad-C extension if friction surfaces).
 
 ---
 

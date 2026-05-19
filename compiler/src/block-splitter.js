@@ -1440,12 +1440,32 @@ export function splitBlocks(filePath, source) {
         pushBraceContext("logic", curPos, curLine, curCol);
         continue;
       }
-      if (c === "?" && ch(1) === "{") {
-        flushText();
-        advance(2);
-        pushBraceContext("sql", curPos, curLine, curCol);
-        continue;
-      }
+      // S108 Bug 4 C-narrow (SPEC §3.1 + §8.1 conformance): `?{` is a SQL
+      // opener ONLY in Logic context. The context grid at §3.1 normatively
+      // places SQL as a child of Logic; §8.1 reaffirms ("SQL contexts open
+      // inside Logic via `?{`"). Pre-S108, BS recognized `?{` at the
+      // markup/state level too — that produced the dogfood bug surface
+      // where bare `?{` in markup-text prose ate the rest of the file as
+      // SQL (catastrophic EOF-cascade). The companion brace-context loop
+      // at line 1245 (above) still recognizes `?{` inside `${...}` — that
+      // path IS the §3.1 SQL-inside-Logic case and remains unchanged.
+      //
+      // Composes with S101 (`RAW_CONTENT_ELEMENTS`): S101 made `?{` inert
+      // inside `<pre>` / `<code>`; C-narrow makes `?{` inert in markup-text
+      // body generally. Both rules collapse into "`?{` is a SQL opener only
+      // where SPEC §3.1 normatively places SQL — inside Logic." See
+      // `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md`
+      // for the 5-phase deliberation that produced this verdict.
+      //
+      // Fall-through behavior: when `?{` appears in markup-text, the `?`
+      // accumulates as plain text via the default text-accumulation branch
+      // at the bottom of the loop, and the `{` hits the orphan-brace
+      // handler at ~line 1482 which increments `orphanBraceDepth`. As long
+      // as the author's prose closes the brace (e.g. `?{...}` balanced),
+      // the orphan-brace machinery decrements back to zero on the matching
+      // `}`. Unbalanced `?{` alone produces an `E-CTX-003` unclosed-brace
+      // error with a pointer to the source — much cleaner than the
+      // pre-S108 EOF-cascade.
       if (c === "#" && ch(1) === "{") {
         flushText();
         advance(2);

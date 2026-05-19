@@ -1072,6 +1072,8 @@ Counter is now ${@count}:
 
 **Implementation locus:** `compiler/src/block-splitter.js`. `RAW_CONTENT_ELEMENTS` Set declaration carries the element list; the recognition branch sits between the void-element emit and the normal `pushTagContext` push in the markup-opener path.
 
+**S108 sibling — markup-text-mode SQL gate (Bug 4 C-narrow).** This section's raw-content rule for `<pre>` / `<code>` is one side of a broader locus-gating principle: a sigil-prefix opener is recognized only inside its normatively-permitted parent context. The companion rule, ratified S108 via deep-dive `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md`, gates the `?{` SQL opener on Logic-parent context per §3.1 + §8.1 — bare `?{` in markup-text body is text (the `?` accumulates literally; the `{` is tracked as an orphan-brace and pairs with a matching `}` if present). Together the two rules collapse into the invariant: **`?{` is a SQL opener only where SPEC §3.1 normatively places SQL — inside Logic.** This eliminates the pre-S108 dogfood-bug surface where bare `?{` in adopter prose ("`<p>The ?{ syntax opens SQL</p>`") catastrophically consumed the rest of the file as SQL, producing an EOF-cascade. Adopters no longer need entity-escapes for `?{` in prose. (Q-BUG4-OPEN-1 surfaced the question of extending the same gate to `!{` / `^{` / `_{`; deferred pending friction signal — the dogfood report named only `?{` + `/`.)
+
 ---
 
 ## 5. Attribute Quoting Semantics

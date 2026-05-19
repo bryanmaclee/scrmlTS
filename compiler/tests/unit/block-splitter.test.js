@@ -244,14 +244,21 @@ describe("logic context", () => {
 // ---------------------------------------------------------------------------
 
 describe("sql context", () => {
-  test("bare sql block", () => {
+  // S108 Bug 4 C-narrow: `?{` at top-level / markup-text level no longer
+  // opens a SQL block. SPEC §3.1 + §8.1 place SQL strictly inside Logic
+  // context. The pre-S108 behavior (bare top-level `?{...}` produces a
+  // SQL block) was a divergence from spec; the catastrophic failure
+  // mode it surfaced in adopter docs-prose was the load-bearing reason
+  // to bring the implementation back in line with §3.1.
+  test("bare top-level `?{ SELECT 1 }` is NOT a SQL block (S108 C-narrow conformance)", () => {
     const blocks = split("?{ SELECT 1 }");
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe("sql");
-    expect(blocks[0].raw).toBe("?{ SELECT 1 }");
+    // The `?{` no longer pushes an SQL context; the `?` accumulates as
+    // text, the `{` increments orphan-brace, the `}` decrements. Net
+    // result: a single text block containing the literal source.
+    expect(blocks.every((b) => b.type !== "sql")).toBe(true);
   });
 
-  test("sql inside logic", () => {
+  test("sql inside logic (legitimate per §3.1)", () => {
     const blocks = split("${ ?{ SELECT 1 } }");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe("logic");
@@ -668,13 +675,21 @@ describe("meta context", () => {
     expect(meta.depth).toBe(1);
   });
 
-  test("meta block inside SQL context", () => {
-    const blocks = split("?{ SELECT ^{ id } }");
+  test("meta block inside SQL context (SQL wrapped in logic per S108 C-narrow)", () => {
+    // S108 Bug 4 C-narrow: bare top-level `?{...}` no longer opens SQL
+    // (SPEC §3.1 + §8.1 place SQL inside Logic). Test exercises the
+    // SQL-context meta-recognition by wrapping in the legitimate
+    // §3.1 Logic-parent path: `${ ?{ ... ^{ id } } }`.
+    const blocks = split("${ ?{ SELECT ^{ id } } }");
     expect(blocks).toHaveLength(1);
-    expect(blocks[0].type).toBe("sql");
-    const meta = blocks[0].children.find((c) => c.type === "meta");
+    expect(blocks[0].type).toBe("logic");
+    const sql = blocks[0].children.find((c) => c.type === "sql");
+    expect(sql).toBeDefined();
+    const meta = sql.children.find((c) => c.type === "meta");
     expect(meta).toBeDefined();
-    expect(meta.depth).toBe(1);
+    // Meta depth is 2 — inside ${...} (logic, depth 1) inside ?{...} (sql,
+    // depth 2). Pre-S108 the bare-top-level `?{...}` shape made this 1.
+    expect(meta.depth).toBe(2);
   });
 
   test("meta block inside CSS context", () => {
@@ -955,13 +970,19 @@ describe("<program> root element", () => {
     expect(blocks[0].closerForm).toBe("inferred");
   });
 
-  test("<program> with logic and sql children", () => {
-    const blocks = split('<program db="./test.db">${ let x = 1 }?{ SELECT * FROM users }</program>');
+  test("<program> with logic child + SQL nested inside logic (S108 C-narrow)", () => {
+    // S108 Bug 4 C-narrow: bare `?{...}` directly inside `<program>` markup
+    // body no longer opens SQL — markup-text body is not a Logic context
+    // per SPEC §3.1. SQL must be wrapped in `${...}` to take the
+    // §3.1-canonical SQL-inside-Logic path. Pre-S108 the test exercised
+    // the (since-rejected) markup-text-level recognition.
+    const blocks = split('<program db="./test.db">${ const rows = ?{ SELECT * FROM users } }</program>');
     expect(blocks).toHaveLength(1);
     const children = blocks[0].children.filter(c => c.type !== "text");
-    expect(children).toHaveLength(2);
+    expect(children).toHaveLength(1);
     expect(children[0].type).toBe("logic");
-    expect(children[1].type).toBe("sql");
+    const sql = children[0].children.find(c => c.type === "sql");
+    expect(sql).toBeDefined();
   });
 });
 
