@@ -3,7 +3,7 @@ title: PGO Phase 3 — Optimizations SCOPING (P3.A + P3.B + P3.C)
 date: 2026-05-18
 session: S102
 authority: PGO Phase 2 findings (P2.1 `c565055` + P2.2 `c79ef54`); supersedes pgo-scoping/SCOPING.md §3 P3.1-P3.5 anticipated candidates
-status: SCOPE OPEN — three optimizations dispatch-ready; P3.A + P3.C parallel (different files), P3.B sequences after P3.A (same file)
+status: SHIPPED S102 — P3.A fnNameMap regex collapse (`efdfcc8` −44% pipeline) + P3.B detect-runtime-chunks fused probe (`b1d3595` −72% cumulative) + P3.B-followup AST-builder `hasResetExpr` flag (`857bf63` −71% additional on residual) + P3.C owner-stack for findOwningRenderDGNode (`8ff11f4` −99.7% on that hotspot). Cumulative wave: 2326ms → ~880ms median = −62% trucking-dispatch pipeline reduction. Below the S94 baseline of 1170ms by ~290ms despite Approach A closure-analysis landing since v0.3.0. Byte-identical output verified across all 4 landings. Two follow-ups DEFERRED (anticipated for future PGO pass): `hasEqualityExpr` flag sibling pattern + markup/for-stmt double-walk fold in detectRuntimeChunks lines 568-570 + 587.
 ---
 
 # PGO Phase 3 — Optimizations SCOPING

@@ -4,7 +4,7 @@ date: 2026-05-18
 session: S102
 authority: PGO P1.1 finding (S102 — `f7ff521`); SCOPING precedent `docs/changes/pgo-scoping/SCOPING.md` §2 Phase 2
 baseline: `benchmarks/perf-baseline.json` at HEAD `139bbc5`; refresh-anticipated at HEAD `fb49ced` (P1.3 close) before Phase 2.1 instrumentation lands
-status: SCOPE OPEN — Phase 2.1 dispatch-ready; Phase 2.2 + 2.3 sequenced after 2.1 data
+status: SHIPPED S102 — P2.1 emit-client sub-decomposition (`c565055`) + P2.2 DG markup-sweep per-call-site characterization (`c79ef54`). KEY FINDING: S94 hypothesis REFUTED — emit-bindings + emit-reactive-wiring combined were only 2.6% of emit-client; actual hot path = post-fn-name-mangle 58% + detect-runtime-chunks 33% = 90.7% of emit-client. The Phase 2 attribution data drove the Phase 3 wave (see `docs/changes/pgo-phase-3-scoping/SCOPING.md`).
 ---
 
 # PGO Phase 2 — emit-client deep-dive SCOPING

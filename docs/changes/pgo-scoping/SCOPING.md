@@ -4,7 +4,7 @@ date: 2026-05-18
 session: S102
 authority: S101 user direction ("Profile-guided optimization — chip away wherever we can") + S94 perf characterization baseline
 baseline_doc: docs/changes/perf-characterization/CLOSURE-ANALYSIS-COST.md (S94, 2026-05-15)
-status: SCOPE OPEN — Phase 1 LOW-FRICTION ITEMS dispatch-ready; Phase 2 PROFILING TARGETS depend on Phase 1 data; Phase 3 OPTIMIZATIONS data-driven post-Phase-2
+status: SHIPPED S102 — Phase 1 + Phase 2 + Phase 3 ALL CLOSED end-to-end. Cumulative trucking-dispatch pipeline reduction 2326ms → ~880ms median = −62%. Byte-identical output verified across all Phase 3 landings. S94 hypothesis REFUTED (actual hot path = post-fn-name-mangle 58% + detect-runtime-chunks 33% of emit-client, not the predicted emit-bindings + emit-reactive-wiring at 2.6%). v0.3.3 tag (`5815cf6`) carries the wave. See `docs/changes/pgo-phase-2-scoping/` + `docs/changes/pgo-phase-3-scoping/` for sub-wave SCOPINGs (both also SHIPPED).
 ---
 
 # Profile-Guided Optimization — SCOPING

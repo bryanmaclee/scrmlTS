@@ -3,7 +3,7 @@ title: formFor — SCOPING + L22 family-discipline gate-walk
 date: 2026-05-18
 session: S102
 authority: SPEC §53.14 + `scrml-support/docs/type-as-argument-family-2026-05-06.md` (gate-keeping reference) + L22 lock (S65)
-status: SCOPE OPEN — gate 1+2 pass; gate 3 written; gate 4 (deep-dive) RECOMMENDED FIRE — design surface has 10 OQs that need structured deliberation BEFORE spec / impl
+status: SHIPPED S102 — SPEC §41.14 (`0c16f58`, 11 normative subsections + 8 error codes + §53.14.3/.5/.INDEX) + impl (`e7f5241`, 11 files / +2733 LOC / +58 tests / 8 E-FORMFOR-* codes confirmed firing). FLAGSHIP L22 family member shipped end-to-end. Deep-dive at `scrml-support/docs/deep-dives/formFor-design-2026-05-18.md` (`efdf757`) — 10 OQs deliberated (7 closed HIGH/MED-HIGH + 2 via debates + 1 skipped per HIGH+MED-HIGH methodology rule). OQ-FF-1 debate verdict: slot-style customization 51.5/60. OQ-FF-2 debate verdict: explicit-attr+slot+PE-default 52/60. Canonical example compiles end-to-end with full `<form>` element + PE-default `action=/api/__ri_route_*` + CSRF auto-injection + per-field render via shape-dispatched inputs + title-case labels + error anchors. v1.next deferred items (per-type renderer registry, `@label` annotation, auto-recurse into nested struct fields) tracked in §53.14.3 family-roster.
 family: type-as-argument; FLAGSHIP member; second general-position member after parseVariant
 predecessor: parseVariant (S65, `36a2d88` — first general-position member, set the precedent + helper extraction shape)
 estimated_cost_at_intake: ~25-40h (family-roadmap rough; revised per survey at deep-dive close)
