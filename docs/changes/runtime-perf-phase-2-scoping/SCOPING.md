@@ -4,7 +4,7 @@ date: 2026-05-19
 session: S103
 authority: P1.B runtime instrumentation (`6bc5128`) + P1.C re-measurement (`448fe89`); SCOPING precedent `docs/changes/runtime-perf-scoping/SCOPING.md` §3 Phase 2; PGO Phase 2 SCOPING shape `docs/changes/pgo-phase-2-scoping/SCOPING.md`
 baseline: `benchmarks/RESULTS.md` §"Runtime Performance — happy-dom ... 2026-05-19 v0.3.3 + Vanilla baseline" + per-op breakdown
-status: SCOPE OPEN — Phase 2.1 (select-row) dispatch-ready as highest-priority chip; Phase 2.2 (partial-update) + 2.3 (swap-rows) sequenced after 2.1 lands
+status: OQs RATIFIED S103 (5/5 per PA-lean) — Phase 2.1 PA-DIRECT dispatch-ready; Phase 2.2 sequential after 2.1; Phase 2.3 folds into 2.2; Phase 2/3 strict separation; Real-Chrome validation deferred to post-fix
 ---
 
 # Runtime-perf Phase 2 — per-hotspot attribution SCOPING
@@ -178,13 +178,23 @@ After Phase 2 lands, each Phase 3 chip-away is its own dispatch (per SCOPING pro
 
 ---
 
-## §8. Open questions BEFORE Phase 2 dispatch
+## §8. Open questions — RATIFIED S103 (5/5 per PA-lean)
 
-1. **Q-RT2-OPEN-1 — Phase 2.1 dispatch shape.** PA-direct (lower risk, runtime source archaeology + write-up) vs. scrml-js-codegen-engineer dispatch (in worktree, can also write instrumentation tweaks)? PA recommends PA-direct for the first attribution dive — the SCOPING output is documentation, no code changes needed except possibly tiny instrumentation; engineer dispatch is over-shaped for this. Reserve engineer dispatch for Phase 3 fix work.
-2. **Q-RT2-OPEN-2 — Phase 2.1 + 2.2 sequencing.** Parallel (different files, different ops, no conflict)? OR sequential (Phase 2.1 first, validate the SCOPING shape, then 2.2)? PA recommends sequential — first attribution dive establishes the shape; subsequent dives follow the pattern.
-3. **Q-RT2-OPEN-3 — Phase 2.3 fold into Phase 2.2.** Per §4.2 note, the swap-rows attribution overlaps heavily with partial-update on effect_scheduling + reconcile_list. Fold into 2.2 as a parallel section, or keep as its own SCOPING? PA recommends fold — simpler structure; the Phase 3 chip-aways will likely land as a single dispatch covering both ops.
-4. **Q-RT2-OPEN-4 — Phase 2 + Phase 3 dispatch boundary.** Strict "Phase 2 produces SCOPING only, Phase 3 fixes" — OR — collapsed "Phase 2 attribution + Phase 3 chip-away in one dispatch" when the fix is well-anchored by the data? PA recommends strict separation — preserves the methodology rigor + lets you review Phase 3 SCOPING before authorizing fix work.
-5. **Q-RT2-OPEN-5 — Real-Chrome validation timing.** Defer Playwright validation until at least one Phase 3 chip-away lands (validate the win in real browser)? OR run real-Chrome validation BEFORE Phase 3 to confirm the happy-dom attribution holds in real browsers? PA recommends defer — happy-dom attribution is sufficient signal for Phase 3 design; real-Chrome is the validation step post-fix.
+User ratified all 5 OQs per the recorded PA-leans (S103, 2026-05-19). Each OQ closed below; the ratification is load-bearing for sequencing + dispatch shape.
+
+1. **Q-RT2-OPEN-1 — Phase 2.1 dispatch shape.** **RATIFIED: PA-direct.** Runtime source archaeology + write-up; no code changes needed except possibly tiny instrumentation. Engineer dispatch over-shaped for this; reserved for Phase 3 fix work.
+2. **Q-RT2-OPEN-2 — Phase 2.1 + 2.2 sequencing.** **RATIFIED: sequential.** Phase 2.1 first; first attribution dive establishes the SCOPING shape that subsequent dives follow.
+3. **Q-RT2-OPEN-3 — Phase 2.3 fold into Phase 2.2.** **RATIFIED: fold.** Swap-rows attribution covered as a parallel section inside the Phase 2.2 partial-update SCOPING. Simpler structure; Phase 3 chip-aways will likely land as a single dispatch covering both ops.
+4. **Q-RT2-OPEN-4 — Phase 2 + Phase 3 dispatch boundary.** **RATIFIED: strict separation.** Phase 2 produces SCOPING only; Phase 3 fixes are separate dispatches. Preserves methodology rigor + lets user review Phase 3 SCOPING before authorizing fix work.
+5. **Q-RT2-OPEN-5 — Real-Chrome validation timing.** **RATIFIED: defer to post-fix.** Happy-dom attribution is sufficient signal for Phase 3 design; Playwright real-Chrome validation runs after at least one Phase 3 chip-away lands.
+
+**Operational consequences:**
+
+- Phase 2.1 starts as PA-direct work (no Agent dispatch). Output: `docs/changes/runtime-perf-phase-3-select-row/SCOPING.md`.
+- Phase 2.2 starts AFTER Phase 2.1 lands. Output: `docs/changes/runtime-perf-phase-3-partial-update-and-swap/SCOPING.md` (single SCOPING covering both ops per §3 fold).
+- Phase 2.3 absorbed into Phase 2.2; no separate dispatch.
+- Phase 3 dispatches require their own user authorization at SCOPING-readiness time (one per chip-away).
+- Real-Chrome P1.D-style dispatch is NOT pre-authorized; will surface as a separate ratification once Phase 3 lands.
 
 ---
 
