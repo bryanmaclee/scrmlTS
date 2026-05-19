@@ -132,6 +132,37 @@ describe("Bug 18 — scrml:NAME client imports do not emit as bare ES specifiers
     const htmlContent = readFileSync(join(outDir, "repro.html"), "utf8");
     const clientJs = readFileSync(join(outDir, "repro.client.js"), "utf8");
 
+    // S105 G1 fix — happy-dom env pollution from prior browser tests.
+    //
+    // `compiler/tests/browser/browser-components.test.js` and sibling browser
+    // tests evaluate the SCRML_RUNTIME inside an IIFE per test, registering
+    // reactive effects + subscribers + DOM references via the IIFE's closure.
+    // Those effects PERSIST across test files in the same `bun test ...`
+    // process — the IIFE closure is not GC'd because the runtime maintains
+    // module-level effect references inside.
+    //
+    // Observable failure when this test runs after browser-components in the
+    // same process: stale OLD-runtime effects re-fire after this test does
+    // `document.body.innerHTML = cleanHtml`. The OLD effects query
+    // `[data-scrml-logic="_scrml_logic_N"]` (compile-counter IDs collide
+    // across compiles because each fresh compile resets the counter), find
+    // this test's freshly-rendered spans, and overwrite their content with
+    // stale data ("My Title" / "pending" from combined-021-component-basic).
+    // The OLD effects ALSO overwrite this test's lift target span, replacing
+    // the rendered `<li>` items with stale text. Diagnostic surfaced via
+    // `[G1-DIAG]` instrumentation at S105 investigation.
+    //
+    // Fix: re-register happy-dom from scratch via GlobalRegistrator. The
+    // unregister + register sequence wipes document/window/global state +
+    // detaches any leaked effect subscriptions to old DOM, giving this test
+    // a guaranteed-fresh happy-dom environment.
+    //
+    // Root-cause cleanup (browser-test helpers should not leak effects via
+    // closure) is a v0.4 candidate; the surgical fix here closes the
+    // immediate pre-push gate symptom.
+    GlobalRegistrator.unregister();
+    GlobalRegistrator.register();
+
     // Mirror the existing browser-test loader pattern: strip script tags
     // from the document body, then eval runtime + client in a shared
     // closure so they share lexical scope (same as two adjacent classic
