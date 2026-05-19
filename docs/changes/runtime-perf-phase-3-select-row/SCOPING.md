@@ -4,7 +4,7 @@ date: 2026-05-19
 session: S103
 authority: Phase 2.1 attribution dive (PA-direct, S103); P1.B+P1.C data (`6bc5128` + `448fe89`); runtime-perf-scoping/SCOPING.md §4 anticipated candidates
 phase_parent: docs/changes/runtime-perf-phase-2-scoping/SCOPING.md
-status: SCOPE OPEN — three candidates ranked + 3 OQs pending user disposition; chip-away dispatch-ready after OQ ratification
+status: OQs RATIFIED S103 (3/3 per PA-lean) — Candidate A dispatch authorized; STRICTEST predicate-shape detection scope (`EXPR == @CELL` / `@CELL == EXPR` with const-folded EXPR, equality only); LEGACY system cleanup DEFERRED to post-impl proposal
 ---
 
 # Phase 3 select-row chip-away
@@ -194,11 +194,15 @@ The dispatch shape: scrml-js-codegen-engineer, isolation:worktree, ~8-12h cost c
 
 ---
 
-## §8. Open questions BEFORE Phase 3 dispatch
+## §8. Open questions — RATIFIED S103 (3/3 per PA-lean)
 
-1. **Q-RT3-SR-OPEN-1 — Authorize Candidate A dispatch?** 8-12h cost class. PA recommends YES — Phase 2.1 attribution data + SCOPING anchor candidate A as the highest-impact chip with bounded blast radius.
-2. **Q-RT3-SR-OPEN-2 — Initial scope of predicate-shape detection.** Strictest version (`EXPR == @CELL` / `@CELL == EXPR` with const-folded EXPR, equality only)? OR broader (admit `!=`, `in`, `.includes()`)? PA recommends STRICTEST initial scope — broader shapes are follow-ons if data justifies. The strict version covers the TodoMVC select-row pattern exactly + remove-row's `where todo.id !== removedId` shape needs the `!=` variant which is a 1-line extension.
-3. **Q-RT3-SR-OPEN-3 — Cleanup of LEGACY `_scrml_subscribers` system.** Once predicate-shape binds migrate, what fraction of remaining `_scrml_reactive_subscribe` calls is actually used? If <10%, candidate for retirement in a v0.4+ cleanup pass. PA recommends DEFER — this dispatch doesn't decide; surface the data post-impl as a separate cleanup proposal.
+User ratified all 3 OQs per the recorded PA-leans (S103, 2026-05-19). Each OQ closed below.
+
+1. **Q-RT3-SR-OPEN-1 — Authorize Candidate A dispatch.** **RATIFIED: YES.** 8-12h cost class; scrml-js-codegen-engineer isolation:worktree. Phase 2.1 attribution data + SCOPING anchor Candidate A as the highest-impact chip with bounded blast radius.
+2. **Q-RT3-SR-OPEN-2 — Initial scope of predicate-shape detection.** **RATIFIED: STRICTEST.** Detector accepts ONLY `EXPR == @CELL` / `@CELL == EXPR` where `EXPR` is const-folded statically known; equality only (no `!=` / `in` / `.includes()` in the initial scope). Conservative reject for any other shape (fall back to LEGACY `_scrml_reactive_subscribe`). Broader shapes are follow-ons if post-impl data justifies. The strict version covers TodoMVC select-row exactly; remove-row's `!=` variant is a 1-line extension reserved for follow-on.
+3. **Q-RT3-SR-OPEN-3 — Cleanup of LEGACY `_scrml_subscribers` system.** **RATIFIED: DEFER.** This dispatch does NOT decide. Once Candidate A lands, the implementing agent surfaces post-impl data on remaining `_scrml_reactive_subscribe` usage fraction; PA evaluates as a separate cleanup proposal (likely v0.4+ if usage drops below ~10%).
+
+**Operational consequence:** dispatch is dispatch-ready; brief embeds the strictest predicate-shape detector spec + the conservative fallback rule.
 
 ---
 
