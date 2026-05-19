@@ -148,6 +148,28 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
   // in-walk probe at line ~395 reads this to skip reset-side scanning.
   const __resetExprDefinitivelyAbsent = __hasResetExprFlag === false;
 
+  // PGO Phase 3 follow-up C1 (S106) — sibling Option-2 pattern to hasResetExpr
+  // above. The TAB-time walker `detectEqualityExprPresence` (ast-builder.js)
+  // caches the boolean on `FileAST.hasEqualityExpr`. Reading it here is O(1)
+  // — no descent, no walk. When `true`, pre-activate the `equality` chunk so
+  // the in-walk probe (line ~415 below) sees `chunks.has("equality") === true`
+  // and short-circuits equality-side scanning. When `false`, the boolean
+  // gates `needEquality` in the in-walk probe — the AST is guaranteed to
+  // contain no binary `==` or `!=` operator, so the probe doesn't need to
+  // look. When the field is missing entirely (synthetic AST / legacy caller),
+  // fall back to the pre-fix behaviour (probe scans equality side).
+  // Correctness — chunk-set identity: the `equality` chunk is included iff
+  // the file has at least one `==` / `!=` binary op (or one of the other
+  // gates: match-stmt with enum arms). hasEqualityExpr from TAB encodes
+  // exactly the ExprNode-side predicate, so chunk-set inclusion is byte-
+  // identical to pre-fix. Other gates (kind-based: match-stmt enum arms in
+  // the kind-switch below) are unchanged and still fire independently.
+  const __hasEqualityExprFlag = fileAST?.ast?.hasEqualityExpr ?? fileAST?.hasEqualityExpr;
+  if (__hasEqualityExprFlag === true) {
+    chunks.add("equality");
+  }
+  const __equalityExprDefinitivelyAbsent = __hasEqualityExprFlag === false;
+
   // A-4.3 + A-4.5 — `prefetch` chunk lights up when the Stage 7.6 RS has
   // produced EITHER:
   //   (i)  at least one non-empty tier-1 ChunkContents (A-4.3 — idle prefetch
@@ -402,7 +424,15 @@ function detectRuntimeChunks(fileAST: any, ctx: CompileContext): void {
     // PGO P3.B (S102) — fused probe + outer short-circuit. If both chunks
     // are already activated for this file, skip the entire scan (which
     // before this fix was O(deep-tree-size × ExprNode-fields-per-node)).
-    const needEquality = !chunks.has("equality");
+    // PGO Phase 3 follow-up C1 (S106) — gate `needEquality` on the AST-cached
+    // `hasEqualityExpr` flag (sibling pattern to hasResetExpr below). When the
+    // flag is `false`, the TAB-time walker proved no binary `==`/`!=` exists
+    // anywhere in the AST, so the in-walk probe doesn't need to scan equality-
+    // side. When the flag is `true`, `chunks.add("equality")` was called above
+    // and `chunks.has("equality")` is already true → needEquality is false.
+    // When the flag is `undefined` (synthetic AST / legacy caller), fall back
+    // to the pre-fix behaviour: probe scans equality side.
+    const needEquality = !chunks.has("equality") && !__equalityExprDefinitivelyAbsent;
     // PGO P3.B follow-up (Option 2, S102) — gate `needReset` on the AST-cached
     // `hasResetExpr` flag. When the flag is `false`, we KNOW with certainty
     // no `reset-expr` node exists anywhere in the AST (the TAB-time walker

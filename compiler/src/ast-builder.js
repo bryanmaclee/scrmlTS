@@ -11661,6 +11661,66 @@ function detectResetExprPresence(nodes) {
 }
 
 /**
+ * PGO Phase 3 follow-up C1 (S106) — sibling pattern to detectResetExprPresence
+ * above. Detects whether the assembled AST contains at least one binary `==`
+ * or `!=` expression anywhere in its ExprNode subtrees.
+ *
+ * Result is cached on `FileAST.hasEqualityExpr` and consumed by
+ * `detectRuntimeChunks` in `compiler/src/codegen/emit-client.ts`, which
+ * previously ran (still runs, conditionally) a per-node ExprNode probe descent
+ * looking for `==` / `!=` presence to gate the `equality` runtime chunk.
+ *
+ * **Why TAB:** TAB is the first stage with the fully-assembled AST. Caching a
+ * presence boolean here means every downstream consumer reads it as O(1) — the
+ * same Option-2 sibling-pattern S102's hasResetExpr P3.B-followup established.
+ *
+ * **Walk shape:** mirrors detectResetExprPresence (immediately above). Same
+ * throw-sentinel short-circuit; same enumerable-key descent; same
+ * non-metadata-field filtering. The hot test is `kind === "binary" && (op
+ * === "==" || op === "!=")` — fires the sentinel on first match.
+ *
+ * **Conservatism:** false-negatives MUST NOT happen — a missed `==` would
+ * cause `detectRuntimeChunks` to omit the `equality` chunk and break
+ * `_scrml_structural_eq` references in emitted client JS. False-positives are
+ * harmless (just the `equality` chunk landing when not strictly needed via
+ * the ExprNode path; other gates — e.g. match-stmt with enum arms — still hit
+ * independently). The walker descends into every object child including
+ * ExprNode fields, so any `==` reachable in the AST is detected.
+ *
+ * @param {ASTNode[]} nodes — Top-level AST nodes from buildAST.
+ * @returns {boolean} — true iff any binary `==`/`!=` exists in the AST tree.
+ */
+const EQUALITY_EXPR_SENTINEL = Symbol("EQUALITY_EXPR_PRESENT");
+function detectEqualityExprPresence(nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) return false;
+  function visit(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.kind === "binary" && (node.op === "==" || node.op === "!=")) {
+      throw EQUALITY_EXPR_SENTINEL;
+    }
+    for (const key in node) {
+      if (key === "span" || key === "id" || key === "_scope") continue;
+      const val = node[key];
+      if (Array.isArray(val)) {
+        for (let i = 0; i < val.length; i++) {
+          const item = val[i];
+          if (item && typeof item === "object") visit(item);
+        }
+      } else if (val && typeof val === "object" && typeof val.kind === "string") {
+        visit(val);
+      }
+    }
+  }
+  try {
+    for (const n of nodes) visit(n);
+  } catch (e) {
+    if (e === EQUALITY_EXPR_SENTINEL) return true;
+    throw e;
+  }
+  return false;
+}
+
+/**
  * Walk an ASTNode tree and collect all import-decl, export-decl,
  * type-decl, and component-def nodes that live inside logic blocks.
  * These are hoisted into the FileAST top-level fields.
@@ -12303,6 +12363,12 @@ export function buildAST(bsOutput, tokenizerOverrides) {
   // Walk is short-circuiting via sentinel exception — bails the entire DFS
   // on first reset-expr found.
   const hasResetExpr = detectResetExprPresence(nodes);
+  // PGO Phase 3 follow-up C1 (S106) — sibling Option-2 pattern. Cache
+  // equality-expr presence so detectRuntimeChunks can gate the `equality`
+  // chunk at O(1) without per-node ExprNode descent. Closes one of the two
+  // remaining ExprNode-side probe sub-components after hasResetExpr removed
+  // the reset-side.
+  const hasEqualityExpr = detectEqualityExprPresence(nodes);
 
   const ast = {
     filePath,
@@ -12316,6 +12382,7 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     spans,
     hasProgramRoot,
     hasResetExpr,
+    hasEqualityExpr,
     authConfig,
     middlewareConfig,
   };

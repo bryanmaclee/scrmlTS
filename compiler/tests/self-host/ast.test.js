@@ -154,6 +154,7 @@ function stripIds(obj) {
     if (["openerHadSpaceAfterLt", "legacyMachineKeyword"].includes(key)) continue; // P1.E (uniform opener / NR scaffolding): JS ast-builder records the opener whitespace flag and `<machine>` legacy keyword for NR's W-WHITESPACE-001 / W-DEPRECATED-001 emission; self-host doesn't yet
     if (key === "idempotencyStore") continue; // A9 Ext 5 (S76): JS ast-builder records the §39.2.6 `<program idempotency-store=>` middleware attribute on middlewareConfig; self-host doesn't yet
     if (key === "hasResetExpr") continue; // S102 P3.B-followup: JS ast-builder records hasResetExpr flag on FileAST literal for runtime-chunk-tagging O(1) gate; self-host doesn't yet
+    if (key === "hasEqualityExpr") continue; // S106 PGO P3 follow-up C1: JS ast-builder records hasEqualityExpr flag on FileAST literal for runtime-chunk-tagging O(1) gate (sibling to hasResetExpr); self-host doesn't yet
     if (["_p3aExportName", "_p3aIsExport"].includes(key)) continue; // P3.A: JS ast-builder synthesizes export-tracking fields on function-decl shadow nodes; self-host doesn't yet
     out[key] = stripIds(obj[key]);
   }
