@@ -1,6 +1,6 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-19T12:00:00-06:00  commit: d8427f2
+# updated: 2026-05-19T14:37:51-06:00  commit: 6616a69
 
 ## TypeScript AST — `compiler/src/types/ast.ts` (~1,858 LOC)
 
@@ -49,11 +49,36 @@ _p3aSourceSpan?: Span
 MarkupNode | TextNode | CommentNode | StateNode | StateConstructorDefNode | LogicNode |
 SQLNode | CSSInlineNode | StyleNode | ErrorEffectNode | MetaNode | LogicStatement
 
+### Match block-form AST node (NEW S107 — `kind: "match-block"`)
+
+Produced directly by `compiler/src/ast-builder.js:10521+` (NOT declared in ast.ts; constructed inline as a plain JS object). Phase 1 (S107 commit `82c48fd`) added the dispatch case; Phase 2 (S107 commit `c91fae0`) added downstream re-tokenization via `match-statechild-parser.ts`.
+
+**Shape (JS-only, not in TS ast.ts as of S107):**
+```js
+{
+  id: number,
+  kind: "match-block",
+  span: Span,
+  forType: string,             // bareword struct/enum type ident from `for=` (REQUIRED per §18.0.1)
+  onExprRaw: string | null,    // raw text inside `on=` attribute, or null when omitted (auto-implied subject)
+  armsRaw: string              // raw body text between opener and explicit `</match>` / `</>` closer
+}
+```
+
+**Pipeline lifecycle:**
+- BS (Stage 2): `<match>` is in both `STRUCTURAL_RAW_BODY_ELEMENTS` (raw-body capture; explicit `</match>` required) AND `COMPOUND_LIFT_EXEMPT_TAGS` (no auto-lift as compound state-decl). See `compiler/src/block-splitter.js:123-125` and `:140-144`.
+- TAB (Stage 1 ast-build): `case "match"` dispatcher in ast-builder.js produces the AST node directly. Body text captured via children-concat + raw-slice fallback.
+- SYM PASS 20 (S107 NEW): `compiler/src/symbol-table.ts:8952+` walks `match-block` nodes; re-tokenizes `armsRaw` via match-statechild-parser; fires 5 diagnostics (E-MATCH-ON-REQUIRED / E-MATCH-NOT-EXHAUSTIVE / W-MATCH-RULE-INERT / E-MATCH-EFFECT-FORBIDDEN / E-MATCH-ONTRANSITION-FORBIDDEN).
+- Phase 3 codegen render dispatch (CARRY-FORWARD): not yet implemented. Compiler currently treats `match-block` AST nodes as no-ops at CG stage (the previous "html-fragment pass-through" behavior went away when Phase 1 landed; the node now reaches CG as a `match-block` kind that needs explicit dispatch — TBD).
+
+**v1.next:** consider lifting to a typed ast.ts interface (mirror of `EngineDeclNode`) once Phase 3+4 land; currently the JS-shape lives only in ast-builder.js + match-statechild-parser.ts.
+
 ### FileAST  [ast.ts:1392]
 filePath: string, nodes: ASTNode[], imports, exports, components, typeDecls,
 channelDecls?: ChannelDeclNode[], spans: Record<number, Span>, hasProgramRoot: boolean,
 authConfig: AuthConfig | null, middlewareConfig: MiddlewareConfig | null,
-hasResetExpr?: boolean  [PGO P3.B-followup S102 — cached presence of reset-expr nodes, set by TAB/detectResetExprPresence; consumed by emit-client detectRuntimeChunks O(1) gate]
+hasResetExpr?: boolean  [PGO P3.B-followup S102 — cached presence of reset-expr nodes, set by TAB/detectResetExprPresence; consumed by emit-client detectRuntimeChunks O(1) gate],
+hasEqualityExpr?: boolean  [PGO C1 S106 `c491b12` — sibling Option-2 pattern to hasResetExpr; cached presence of `kind === "binary"` with `op === "==" || op === "!="` nodes; set by TAB/detectEqualityExprPresence (throw-sentinel short-circuit DFS in ast-builder.js); consumed by emit-client.ts to pre-activate chunks.add("equality") when true, gate needEquality probe when false. 15 unit tests.]
 
 ### TABOutput  [ast.ts:1424]
 filePath, ast: FileAST, errors: TABErrorInfo[]
@@ -204,6 +229,58 @@ Exports (constants + function):
 
 Wire envelope shape (canonical, SPEC §57): `{"__scrml_absent": true}`
 
+## §18.0.1 Match Block-Form Parser Types — `compiler/src/match-statechild-parser.ts` (NEW S107, 530 LOC)
+
+Phase 2 re-tokenizes `armsRaw` from `match-block` AST nodes (Phase 1 output) into structured `MatchArmEntry[]` consumed by SYM PASS 20 (5 diagnostics) and future Phase 3 codegen. Mirrors `engine-statechild-parser.ts` (S68 / B15) but for the Tier-1 `<match>` locus.
+
+### MatchArmAttr  [match-statechild-parser.ts:54]
+```typescript
+interface MatchArmAttr {
+  name: string;        // attribute name (e.g. "rule", "effect")
+  valueRaw: string;    // raw attribute value (or empty for bareword attrs)
+  spanStart: number;   // local byte offset within armsRaw
+  spanEnd: number;     // local byte offset within armsRaw
+}
+```
+
+### MatchArmEntry  [match-statechild-parser.ts:63]
+```typescript
+interface MatchArmEntry {
+  variantName: string;        // PascalCase variant ident OR "_" for wildcard
+  isWildcard: boolean;        // true iff variantName === "_"
+  payloadBindingsRaw: string; // raw text inside `(...)` if present, else empty
+  attrs: MatchArmAttr[];
+  bodyForm: "self-closing" | "shorthand" | "bare-body";
+  bodyRaw: string;            // body content (empty for self-closing)
+  spanStart: number;          // local byte offset within armsRaw of whole arm
+  spanEnd: number;            // local byte offset within armsRaw of whole arm
+  openerStart: number;        // local byte offset of arm-opener `<`
+}
+```
+
+### MatchParseDiagnostic  [match-statechild-parser.ts:77]
+```typescript
+interface MatchParseDiagnostic {
+  code: string;    // e.g. "E-MATCH-PARSE-001"
+  message: string;
+  spanStart: number;
+  spanEnd: number;
+}
+```
+
+**Body form recognition (per SPEC §18.0.1 line 9589-9592):**
+- Self-closing `<Variant/>` — no body. `bodyForm: "self-closing"`, `bodyRaw: ""`.
+- `:`-shorthand `<Variant attrs> : expr` — single expression body, terminated by newline OR next arm-opener at the same depth. `bodyForm: "shorthand"`, `bodyRaw: <expr-text>`.
+- Bare-body `<Variant attrs>...</>` or `<Variant attrs>...</Variant>` — markup body terminated by matching closer. `bodyForm: "bare-body"`, `bodyRaw: <body-text>`.
+
+**Payload binding (per SPEC §18.0.1 line 9586-9588, Q-MB-3 ratification):**
+- `(` immediately after the variant name (no whitespace) opens parenthesized identifiers list.
+- Captured as raw text in Phase 2; tokenized in Phase 4 (when the type-system reuse path lands — Q-MB-3 ratified reuse of §51.0.B.1 parenthesized payload parser).
+
+**Span tracking:** all spans are local byte-offsets within `armsRaw`. SYM PASS 20 absolutizes via `match-block.span.start + entry.spanStart`.
+
+**Phase 2 DOES NOT validate.** It tokenizes only. The 5 SYM PASS 20 diagnostics (E-MATCH-ON-REQUIRED / E-MATCH-NOT-EXHAUSTIVE / W-MATCH-RULE-INERT / E-MATCH-EFFECT-FORBIDDEN / E-MATCH-ONTRANSITION-FORBIDDEN) fire after re-tokenization completes.
+
 ## §41.16 tableFor Types — `compiler/src/codegen/emit-table-for.ts` (S105)
 
 Source-level expansion; types used by the type-system §41.16 stage to pass the expansion plan to `expandTableForElement()`. Mirror of formFor + schemaFor pattern (`collectTableForImports` + `walkAndExpandTableForNodes` in type-system.ts).
@@ -268,6 +345,16 @@ peActionUrl: string, errorStrategy: "per-field"|"summary"|"both", partial: boole
 Context threaded through every rewrite pass; all fields optional. Key fields used by paren-form rewrite (S103):
 (no tmpvar field — paren-form single-evaluation is intrinsic to `(expr)` form; `_scrml_tmp_N` interposition removed)
 
+## L22 Family Shared Helper — `_resolveAndCheckL22TypeName` (S106 `6faf7a6`)
+
+NEW S106 — `compiler/src/type-system.ts` helper extracted at third-caller threshold (tableFor S105 was the 4th caller). Handles sub-case-3 (unknown type) + sub-case-4 (wrong kind) shared across the L22 type-as-argument family:
+- parseVariant §41.13 (S65)
+- formFor §41.14 (S102)
+- schemaFor §41.15 (S104)
+- tableFor §41.16 (S105)
+
+Sub-cases 1 + 2 (missing arg / wrong-shape arg) remain caller-specific because they vary by surface form (markup-attr vs call-arg). Net +9 lines (76 ins / 67 del); pure refactor; error message bytes preserved exactly. Positions future variantNames + reflective family members to inherit the helper.
+
 ## Codegen IR — `compiler/src/codegen/ir.ts`
 
 ### HtmlIR  parts: string[]
@@ -301,6 +388,10 @@ workerBundles?: Map<string, string>, clientJsMap?, serverJsMap?
 ### CGError  [errors.ts:11]
 code: string, message: string, span: CGSpan | object, severity: 'error' | 'warning' | 'info'
 (severity includes 'info' since S92 — errors.ts line 15)
+
+## API Layer Helper — `collectErrors` (S107 Bug-3 enrichment)
+
+`compiler/src/api.js:570+` — `collectErrors(stageName: string, errors: Diagnostic[], filePath?: string | null): EnrichedDiagnostic[]`. Optional `filePath` parameter (default `null` for backward-compat). Per-error transform: lifts legacy `bsSpan` → `span` (older block-splitter errors used `bsSpan` to avoid spread-collision on some engines); stamps `enriched.filePath` and `enriched.span.file` from the per-file path. Closes Bug 3 (`[BS]` + `[TAB]` diagnostics now carry `path:line:col` prefix matching `[W-LINT-*]` shape). 6 unit tests at `compiler/tests/unit/bug-3-diagnostic-file-paths.test.js`.
 
 ## scrml:host Runtime Types — `compiler/runtime/stdlib/host.js`
 
@@ -351,7 +442,7 @@ Single | Double | Backtick
 `makeEof(pos, line, col)` → Token
 
 ## Tags
-#scrmlts #map #schema #ast #types #codegen #ir #s105 #v0.3.3 #formfor #emit-form-for #schemafor #emit-schema-for #tablefor #emit-table-for #l22-4-of-6 #FunctionDeclNode-isPinned #auth-graph #wire-format #reachability #approach-a2 #approach-a3 #approach-a4 #route-splitter #fnv1a-hash #chunk-plan #q-open-4 #q-open-5 #q-open-6 #native-parser #token-catalog #m1-5 #hasResetExpr #pgo-p3
+#scrmlts #map #schema #ast #types #codegen #ir #s107 #v0.3.3 #formfor #emit-form-for #schemafor #emit-schema-for #tablefor #emit-table-for #l22-4-of-6 #FunctionDeclNode-isPinned #match-block #match-statechild-parser #MatchArmEntry #MatchArmAttr #spec-18-0-1 #spec-18-0-2 #auth-graph #wire-format #reachability #approach-a2 #approach-a3 #approach-a4 #route-splitter #fnv1a-hash #chunk-plan #q-open-4 #q-open-5 #q-open-6 #native-parser #token-catalog #m1-5 #hasResetExpr #hasEqualityExpr #pgo-p3 #pgo-c1 #oq-tf-13-helper #bug-3-collectErrors
 
 ## Links
 - [primary.map.md](./primary.map.md)
