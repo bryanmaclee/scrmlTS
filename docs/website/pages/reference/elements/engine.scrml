@@ -62,8 +62,8 @@
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">for=</code>
             names the discriminating enum type. Every variant of that type
             must have a corresponding state-child or the compiler fires
-            <a href="/reference/errors/E-ENGINE-INCOMPLETE-COVERAGE"
-               class="font-mono text-xs text-rose-700 underline">E-ENGINE-INCOMPLETE-COVERAGE</a>.
+            <a href="/reference/errors/E-ENGINE-STATE-CHILD-MISSING"
+               class="font-mono text-xs text-rose-700 underline">E-ENGINE-STATE-CHILD-MISSING</a>.
             <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">initial=</code>
             picks the starting variant. <code class="font-mono text-sm bg-slate-100 px-1.5 py-0.5 rounded">rule=</code>
             on a state-child constrains the legal transitions out of that

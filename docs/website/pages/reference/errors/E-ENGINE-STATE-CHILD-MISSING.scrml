@@ -1,4 +1,4 @@
-// scrml.dev /reference/errors/E-ENGINE-INCOMPLETE-COVERAGE — Day-30 placeholder stub
+// scrml.dev /reference/errors/E-ENGINE-STATE-CHILD-MISSING — Day-30 placeholder stub
 
 <page>
 
@@ -9,7 +9,7 @@
                 Reference &rsaquo; Errors
             </div>
             <h1 class="text-4xl font-bold tracking-tight text-rose-700 font-mono">
-                E-ENGINE-INCOMPLETE-COVERAGE
+                E-ENGINE-STATE-CHILD-MISSING
             </h1>
             <p class="text-lg text-slate-600 mt-2">
                 &lt;engine&gt; state-child set does not cover every variant of the enum it switches on.

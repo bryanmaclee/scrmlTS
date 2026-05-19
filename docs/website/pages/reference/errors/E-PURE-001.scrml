@@ -1,4 +1,4 @@
-// scrml.dev /reference/errors/E-PURE-VIOLATION — Day-30 placeholder stub
+// scrml.dev /reference/errors/E-PURE-001 — Day-30 placeholder stub
 
 <page>
 
@@ -9,7 +9,7 @@
                 Reference &rsaquo; Errors
             </div>
             <h1 class="text-4xl font-bold tracking-tight text-rose-700 font-mono">
-                E-PURE-VIOLATION
+                E-PURE-001
             </h1>
             <p class="text-lg text-slate-600 mt-2">
                 pure-marked function performs a non-pure operation (write, IO, mutation).
