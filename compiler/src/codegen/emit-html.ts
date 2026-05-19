@@ -1793,6 +1793,39 @@ export function generateHtml(
       }
       return;
     }
+
+    // S108 Phase 3 — match-block mount slot (SPEC §18.0.1).
+    //
+    // Mirrors the engine-decl case above. Match-blocks have a `<div
+    // data-scrml-match-mount="match_<id>">` mount slot at their source
+    // position; the dispatcher emitted by emit-match.ts:emitMatchBodyRender
+    // ForFile (called from emit-client.ts) writes the matching arm's HTML
+    // into the slot on each cell change.
+    //
+    // Per the helper's Shape A DOMContentLoaded initial-fire bridge, the
+    // mount slot is emitted EMPTY at module-init — no initial-arm seed
+    // (contrast engine-decl, where `initial=` selects a static initial
+    // variant deterministically at parse time; match-block has no such
+    // selector, so the current cell value at module load is runtime-only
+    // authority).
+    //
+    // Tree-shake: when all arm bodies are empty OR `on=` resolution fails
+    // (E-MATCH-ON-REQUIRED upstream), emit-match returns "" / null and we
+    // emit nothing.
+    if (node.kind === "match-block") {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { emitMatchMountHtml } = require("./emit-match.ts") as {
+        emitMatchMountHtml: (node: any, ctx: any) => string | null;
+      };
+      const liveCtx = ctxOrErrors && typeof ctxOrErrors === "object" && "fileAST" in ctxOrErrors
+        ? (ctxOrErrors as CompileContext)
+        : null;
+      if (liveCtx) {
+        const html = emitMatchMountHtml(node, liveCtx);
+        if (html) parts.push(html);
+      }
+      return;
+    }
   }
 
   // §36 Phase 2.B (S89): E-INPUT-005 duplicate input-state-id-within-scope check.

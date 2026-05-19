@@ -10650,12 +10650,49 @@ function buildBlock(block, filePath, parentContextKind, counter, errors, parentS
         }
         armsRaw = armsRaw.trim();
 
+        // Phase 3 (S108) — preserve walkable body children alongside armsRaw,
+        // mirroring engine-decl.bodyChildren (Phase A10 / S78 precedent at
+        // ~line 10996). The block-splitter has ALREADY recursively descended
+        // into the match body and produced typed walkable children. Phase 1
+        // discarded the structure by re-serializing children into armsRaw;
+        // Phase 3 retrofits the AST node to ADDITIONALLY carry bodyChildren
+        // so codegen (emit-match.ts) can walk arm-body markup as AST nodes
+        // and reuse `emitVariantGuardedRender` (the variant-source-agnostic
+        // helper originally factored for engines, now consumed by match-block
+        // per its variant-source-agnostic design intent).
+        //
+        // ADDITIVE field: undefined when block has no children; [] on
+        // parse-failure; else ASTNode[] mirroring block.children.
+        //
+        // **Why discard buildBlock errors during this recurse** (mirrors
+        // engine-decl rationale at line 11017+): match arm-child openers
+        // use the variant-shorthand opener form `<Variant>` /
+        // `<Variant(rows)>` / `<Variant attrs>` / `<_>` (wildcard). These
+        // diverge from standard HTML markup attribute parsing in ways the
+        // authoritative match-statechild-parser handles (SYM PASS 20). The
+        // errors buildBlock would generate here are duplicates of (or weaker
+        // than) what PASS 20 fires; preserving Phase 2's diagnostic surface
+        // requires DROPPING the errors this specific recursive build
+        // produces. Real semantic errors fire downstream.
+        const bodyChildren = [];
+        if (Array.isArray(block.children) && block.children.length > 0) {
+          const _bodyErrors = [];
+          for (const child of block.children) {
+            // Build the child node. parentContextKind="markup" so any nested
+            // markup inside arm bodies is walked with markup-tree semantics.
+            const childNode = buildBlock(child, filePath, "markup", counter, _bodyErrors);
+            if (childNode) bodyChildren.push(childNode);
+          }
+          // _bodyErrors intentionally discarded — see comment block above.
+        }
+
         return {
           id: ++counter.next,
           kind: "match-block",
           forType,       // bareword type name (REQUIRED per §18.0.1; SYM PASS validates)
           onExprRaw,     // raw text of on= attribute (Phase 2 parses via ExprNode pipeline)
           armsRaw,       // raw body text — Phase 2's match-statechild-parser produces MatchArmEntry[]
+          bodyChildren,  // Phase 3 — walkable arm-body AST mirroring block.children (additive; engine-decl precedent)
           span,
           openerHadSpaceAfterLt: block.openerHadSpaceAfterLt === true,
         };

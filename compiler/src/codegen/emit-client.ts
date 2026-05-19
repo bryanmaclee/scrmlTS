@@ -1061,10 +1061,20 @@ export function generateClientJs(ctx: CompileContext): string {
   // PHASE-0-SURVEY §7.3 finalized helper signature.
   const c12BodyRender = clientStage(ctx, "emit-engine-body-render", () => emitEngineBodyRenderForFile(fileAST, ctx));
   const c14BodyRender = clientStage(ctx, "emit-derived-engine-body-render", () => emitDerivedEngineBodyRenderForFile(fileAST, ctx));
-  const allRenderFns = [...c12BodyRender.renderFunctions, ...c14BodyRender.renderFunctions];
-  const allDispatchers = [...c12BodyRender.dispatchers, ...c14BodyRender.dispatchers];
+  // S108 Phase 3 — match-block body render (SPEC §18.0.1). Mirrors C12/C14
+  // engine body-render; consumes the variant-source-agnostic
+  // `emit-variant-guard.ts` helper. Same tree-shake invariant: when no
+  // match-block has any non-empty arm body, returns empty arrays and no
+  // emission happens.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { emitMatchBodyRenderForFile } = require("./emit-match.ts") as {
+    emitMatchBodyRenderForFile: (fileAST: any, ctx: any) => { renderFunctions: string[]; dispatchers: string[] };
+  };
+  const matchBodyRender = clientStage(ctx, "emit-match-body-render", () => emitMatchBodyRenderForFile(fileAST, ctx));
+  const allRenderFns = [...c12BodyRender.renderFunctions, ...c14BodyRender.renderFunctions, ...matchBodyRender.renderFunctions];
+  const allDispatchers = [...c12BodyRender.dispatchers, ...c14BodyRender.dispatchers, ...matchBodyRender.dispatchers];
   if (allRenderFns.length > 0 || allDispatchers.length > 0) {
-    lines.push("// --- engine body render (Phase A10, §51.0.D) ---");
+    lines.push("// --- engine + match body render (Phase A10, §51.0.D + §18.0.1) ---");
     for (const fn of allRenderFns) {
       lines.push(fn);
       lines.push("");

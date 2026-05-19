@@ -1,0 +1,601 @@
+/* SPDX-License-Identifier: MIT
+ *
+ * S108 Phase 3 — Match block-form codegen (SPEC §18.0.1).
+ *
+ * Mirrors `emit-engine.ts` (Phase A10 engine state-child render dispatch).
+ * Consumes Phase 1's `kind: "match-block"` AST node (with `bodyChildren`
+ * retrofit S108 — mirror of engine-decl.bodyChildren / Phase A10 precedent).
+ *
+ * Pipeline integration:
+ *   - `emit-html.ts` dispatch:     `emitMatchMountHtml(node, ctx)` → emits
+ *                                  the `<div data-scrml-match-mount=...>`
+ *                                  slot at the match-block's source position.
+ *   - `emit-client.ts` aggregator: `emitMatchBodyRenderForFile(fileAST, ctx)`
+ *                                  → returns `{ renderFunctions, dispatchers }`
+ *                                  appended next to the C12/C14 engine
+ *                                  body-render block.
+ *
+ * Variant-source-agnostic helper reuse: passes match-block arms to
+ * `emit-variant-guard.ts:emitVariantGuardedRender` — the SAME helper the
+ * engine consumer uses. The helper's JSDoc explicitly anticipates this
+ * second consumer ("future match-block-form consumer will populate from
+ * its own opener parser").
+ *
+ * Phase 3 v1 scope (this landing):
+ *   - Walks every `kind: "match-block"` AST node in the file (recursive).
+ *   - Resolves `on=` to a JS accessor:
+ *       - `on=@cell`             → Shape A (subscribe-only); cellName drives
+ *                                  the dispatcher's `_scrml_reactive_subscribe`.
+ *       - `on=${expr}`           → Shape B (effect mode); expr emitted as-is.
+ *       - `on="literal"` / other → Shape B (effect mode).
+ *       - `on=` absent + engine  → look up `<engine for=<forType>>` in file
+ *         in scope               → use engine's varName, Shape A.
+ *   - Unit variants + parenthesized payload bindings supported.
+ *   - Body markup (text, interp, nested tags, delegable + non-delegable
+ *     events) walked through standard `generateHtml` via the helper's
+ *     `emitArmRenderFunction` + per-arm wire functions.
+ *   - Wildcard `<_>` arms: rendered as a fall-through (no-match) handler;
+ *     the dispatcher's no-default-branch semantic leaves the mount slot
+ *     untouched. Explicit wildcard render is a Phase 4+ enrichment.
+ *
+ * Tree-shake: when ALL arms have empty body, helper returns the empty
+ * triple and this module emits nothing for that match-block (mount slot
+ * is also skipped per emit-html.ts dispatch).
+ *
+ * **Not in Phase 3 v1 scope** (deferred to follow-on phases):
+ *   - `:`-shorthand arm body codegen (Phase 4 — typer + body-walker path)
+ *   - Per-arm reactive re-wire for `${@cell}` interp INSIDE non-initial
+ *     arm bodies (matches engine v1 limitation per PRIMER §7 — fall-through
+ *     to file-level reactive-wiring at module-init; subsequent arm changes
+ *     produce correct static HTML but in-arm `${@cell}` re-subscribes only
+ *     on the initial-arm mount cycle).
+ *   - Bare-variant inference (§18.0.3) — Phase 4 typer integration.
+ *
+ * See `docs/changes/match-block-form-scoping/SCOPING.md` for the 5-phase
+ * arc + ratified OQs.
+ */
+
+import type { CompileContext } from "./context.ts";
+
+interface MatchBlockAstNode {
+  id: number;
+  kind: "match-block";
+  forType: string;
+  onExprRaw: string | null;
+  armsRaw: string;
+  bodyChildren?: any[];
+  span: any;
+}
+
+// ---------------------------------------------------------------------------
+// Walker — collect match-block nodes from anywhere in the file AST
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursive walker that returns every match-block AST node in the file.
+ * Match-blocks can appear inside pages, components, engine arm bodies,
+ * other match-blocks (nested case-analysis is legal per §18.0.1 — the
+ * cross-cutting concern is that an inner match-block consumes its OWN
+ * `on=` cell independent of the outer match-block's cell).
+ */
+function collectMatchBlocks(fileAST: any): MatchBlockAstNode[] {
+  const found: MatchBlockAstNode[] = [];
+  const seen = new WeakSet<object>();
+  function walk(node: any): void {
+    if (!node || typeof node !== "object") return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n);
+      return;
+    }
+    if (node.kind === "match-block") {
+      found.push(node as MatchBlockAstNode);
+      // Recurse into bodyChildren so nested match-blocks inside arm bodies
+      // surface too.
+      if (Array.isArray(node.bodyChildren)) walk(node.bodyChildren);
+      return;
+    }
+    // Recurse into known container fields. Mirror engine-decl + match-block
+    // descent shape — children / body / bodyChildren / nodes / arms.
+    for (const key of ["children", "body", "bodyChildren", "nodes", "arms"]) {
+      if (Array.isArray(node[key])) walk(node[key]);
+    }
+  }
+  walk(fileAST.nodes ?? fileAST.children ?? fileAST);
+  return found;
+}
+
+// ---------------------------------------------------------------------------
+// Engine var lookup — for auto-implied `on=` resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Find an in-scope engine declaration matching `forType`. Used when match-
+ * block has no explicit `on=` (auto-implied per §18.0.1: "Auto-implied
+ * ONLY when an `<engine for=Type>` for the same `Type` is in scope").
+ *
+ * Returns the engine's varName when a match is found; null otherwise.
+ * SYM PASS 20 already fires E-MATCH-ON-REQUIRED when no `on=` + no engine
+ * is in scope — codegen returns null in that case and skips emission for
+ * the match-block (the diagnostic is the user-facing surface).
+ */
+function findEngineVarForType(forType: string, fileAST: any): string | null {
+  if (!forType) return null;
+  const seen = new WeakSet<object>();
+  let result: string | null = null;
+  function walk(node: any): void {
+    if (result !== null) return;
+    if (!node || typeof node !== "object") return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        walk(n);
+        if (result !== null) return;
+      }
+      return;
+    }
+    if (node.kind === "engine-decl") {
+      const meta = node._record?.engineMeta;
+      if (meta && meta.forType === forType && typeof meta.varName === "string") {
+        result = meta.varName;
+        return;
+      }
+    }
+    for (const key of ["children", "body", "bodyChildren", "nodes", "arms"]) {
+      if (Array.isArray(node[key])) {
+        walk(node[key]);
+        if (result !== null) return;
+      }
+    }
+  }
+  walk(fileAST.nodes ?? fileAST.children ?? fileAST);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// `on=` expression resolution
+// ---------------------------------------------------------------------------
+
+interface OnExprResolution {
+  /** JS expression that evaluates to the CURRENT variant value at runtime.
+   *  Used by Shape B (effect mode). Ignored by Shape A (subscribe path
+   *  reads the cell directly via `_scrml_reactive_get(varName)`). */
+  variantExprAccessor: string;
+  /** Reactive cell name when on= is a single `@ident` ref (Shape A) OR
+   *  when on= is auto-implied to an engine variable (Shape A). Null when
+   *  on= is a non-cell expression (Shape B effect mode). */
+  variantSubscribeName: string | null;
+}
+
+/**
+ * Resolve a match-block's `on=` expression text to:
+ *   - the JS accessor expression for the helper's effect-mode dispatcher
+ *   - the reactive cell name for the helper's subscribe-mode dispatcher
+ *     (when on= is a bare `@cell` ref OR when on= is auto-implied to an
+ *      engine variable, both of which are subscribe-eligible)
+ *
+ * Returns null when on= is missing AND no engine for forType is in scope
+ * — that case fires E-MATCH-ON-REQUIRED at SYM time; codegen skips
+ * emission cleanly.
+ */
+function resolveOnExpr(
+  matchBlock: MatchBlockAstNode,
+  fileAST: any,
+): OnExprResolution | null {
+  // Explicit on= form.
+  if (matchBlock.onExprRaw) {
+    const expr = matchBlock.onExprRaw.trim();
+    // Bare cell ref `@ident` — Shape A subscribe.
+    const cellRefMatch = expr.match(/^@([A-Za-z_$][A-Za-z0-9_$]*)$/);
+    if (cellRefMatch) {
+      const cellName = cellRefMatch[1];
+      return {
+        variantExprAccessor: `_scrml_reactive_get(${JSON.stringify(cellName)})`,
+        variantSubscribeName: cellName,
+      };
+    }
+    // `${expr}` interpolation form — strip wrapping + use inner as JS expr.
+    // Shape B (effect mode).
+    let innerExpr = expr;
+    const dollarMatch = expr.match(/^\$\{([\s\S]*)\}$/);
+    if (dollarMatch) {
+      innerExpr = dollarMatch[1].trim();
+    } else {
+      // Strip surrounding quotes for string-literal form.
+      if ((expr.startsWith('"') && expr.endsWith('"')) ||
+          (expr.startsWith("'") && expr.endsWith("'"))) {
+        innerExpr = expr;
+      }
+    }
+    // Bare `@ident.path` (member-access) ref — lower to `_scrml_reactive_get`
+    // on the root ident; subscribe to root cell. Phase 3 v1 limitation:
+    // member-access via subscribe captures changes to the root cell only,
+    // not deep cell changes — acceptable for the typical case where a
+    // compound state's reactive field is read via dotted path.
+    const memberMatch = innerExpr.match(/^@([A-Za-z_$][A-Za-z0-9_$]*)((?:\.[A-Za-z_$][A-Za-z0-9_$]*)*)$/);
+    if (memberMatch) {
+      const rootCell = memberMatch[1];
+      const path = memberMatch[2];
+      return {
+        variantExprAccessor: `(_scrml_reactive_get(${JSON.stringify(rootCell)}))${path}`,
+        variantSubscribeName: rootCell,
+      };
+    }
+    // Fall-through: complex expression → Shape B effect mode.
+    return {
+      variantExprAccessor: innerExpr,
+      variantSubscribeName: null,
+    };
+  }
+  // Auto-implied — find engine in scope.
+  const engineVar = findEngineVarForType(matchBlock.forType, fileAST);
+  if (engineVar) {
+    return {
+      variantExprAccessor: `_scrml_reactive_get(${JSON.stringify(engineVar)})`,
+      variantSubscribeName: engineVar,
+    };
+  }
+  // No on=, no engine — E-MATCH-ON-REQUIRED fires upstream; codegen skips.
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Variant field-name resolution (for positional payload binding)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse declared field names per variant from a type-decl's raw enum body.
+ * Mirrors the engine-side `variantFields` resolution at
+ * `emit-engine.ts:buildEngineArms` (which itself mirrors
+ * `symbol-table.ts:parseEnumVariantPayloadFieldsFromRaw`).
+ *
+ * Returns a Map<variantTag, fieldNames[]> for the named enum type, or
+ * null when the type is unresolvable (e.g., not declared in this file,
+ * cross-file types not yet resolved at codegen time).
+ *
+ * Used to resolve POSITIONAL payload bindings per SPEC §18.0.1 →
+ * §51.0.B.1 normative statement: "Positional binding ... SHALL assign
+ * fields left-to-right in declaration order, regardless of the chosen
+ * local name."
+ */
+function resolveVariantFields(forType: string, fileAST: any): Map<string, string[]> | null {
+  if (!fileAST) return null;
+  const typeDecls = (fileAST as any).typeDecls ?? (fileAST as any).ast?.typeDecls;
+  if (!Array.isArray(typeDecls)) return null;
+  for (const td of typeDecls) {
+    if (!td || td.kind !== "type-decl") continue;
+    if (td.name !== forType) continue;
+    if (td.typeKind !== "enum") return null;
+    const out = new Map<string, string[]>();
+    let body = (td.raw || "").trim();
+    if (body.startsWith("{")) body = body.slice(1);
+    if (body.endsWith("}")) body = body.slice(0, -1);
+    body = body.trim();
+    if (!body) return out;
+    // Strip transitions block (legacy `<machine>` form).
+    let vsection = body;
+    {
+      let depth = 0;
+      for (let i = 0; i < body.length; i++) {
+        const ch = body[i]!;
+        if (ch === "(" || ch === "[" || ch === "{") { depth++; continue; }
+        if (ch === ")" || ch === "]" || ch === "}") { depth--; continue; }
+        if (depth === 0 && body.slice(i).startsWith("transitions")) {
+          const after = body.slice(i + 11).trimStart();
+          if (after.startsWith("{")) { vsection = body.slice(0, i).trim(); break; }
+        }
+      }
+    }
+    // Split on \n, comma, pipe at depth 0.
+    const segments: string[] = [];
+    let depth = 0;
+    let buf = "";
+    for (let i = 0; i < vsection.length; i++) {
+      const ch = vsection[i]!;
+      if (ch === "(" || ch === "[" || ch === "{") { depth++; buf += ch; continue; }
+      if (ch === ")" || ch === "]" || ch === "}") { depth--; buf += ch; continue; }
+      if (depth === 0 && (ch === "\n" || ch === "," || ch === "|")) {
+        if (buf.trim()) segments.push(buf.trim());
+        buf = "";
+        continue;
+      }
+      buf += ch;
+    }
+    if (buf.trim()) segments.push(buf.trim());
+    for (const seg of segments) {
+      let text = seg.trim();
+      if (text.startsWith(".")) text = text.slice(1).trim();
+      const parenIdx = text.indexOf("(");
+      if (parenIdx < 0) {
+        const rendersIdx = text.indexOf(" renders ");
+        const name = rendersIdx >= 0 ? text.slice(0, rendersIdx).trim() : text;
+        if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) out.set(name, []);
+        continue;
+      }
+      const name = text.slice(0, parenIdx).trim();
+      const closeParen = text.lastIndexOf(")");
+      const fieldList = closeParen > parenIdx ? text.slice(parenIdx + 1, closeParen).trim() : "";
+      const fields: string[] = [];
+      if (fieldList) {
+        let d = 0;
+        let fbuf = "";
+        const parts: string[] = [];
+        for (let j = 0; j < fieldList.length; j++) {
+          const ch = fieldList[j]!;
+          if (ch === "(" || ch === "[" || ch === "{") { d++; fbuf += ch; continue; }
+          if (ch === ")" || ch === "]" || ch === "}") { d--; fbuf += ch; continue; }
+          if (d === 0 && ch === ",") {
+            if (fbuf.trim()) parts.push(fbuf.trim());
+            fbuf = "";
+            continue;
+          }
+          fbuf += ch;
+        }
+        if (fbuf.trim()) parts.push(fbuf.trim());
+        for (const p of parts) {
+          const colon = p.indexOf(":");
+          if (colon >= 0) {
+            const fn = p.slice(0, colon).trim();
+            if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(fn)) fields.push(fn);
+          }
+        }
+      }
+      if (/^[A-Z][A-Za-z0-9_]*$/.test(name)) out.set(name, fields);
+    }
+    return out;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Build VariantArm[] for a single match-block
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a match-block AST node + Phase 2 arm structural entries to
+ * `VariantArm[]` consumed by `emitVariantGuardedRender`.
+ *
+ * Returns null when the match-block's armsRaw is empty (parse failure or
+ * empty body; codegen skips).
+ *
+ * **Body parsing.** Match-block bodies are captured by BS as a single raw
+ * text run (per Phase 2's STRUCTURAL_RAW_BODY_ELEMENTS gate that avoided
+ * the `:`-shorthand vs bare-body BS-shape confusion). The `bodyChildren`
+ * field on the match-block AST node consequently holds only that raw text
+ * — not walkable arm-body AST. Phase 3 codegen bridges the gap by
+ * re-parsing each arm's `bodyRaw` (from Phase 2's parseMatchArms output)
+ * through the BS+TAB pipeline as a synthetic fragment. The resulting AST
+ * nodes are the arm's `body` for VariantArm.
+ *
+ * This re-parse runs once per match-block per arm at codegen time. Cost is
+ * minimal: arm bodies are small + the pipeline is fast on tiny inputs.
+ * The synthetic fragment parse runs without typeDecls / imports / engine
+ * context — fine because arm bodies don't declare those (they consume
+ * file-scope state via canonical `@cell` access which is resolved at
+ * codegen-time emission, not at AST construction).
+ */
+function buildMatchArms(
+  matchBlock: MatchBlockAstNode,
+  fileAST: any,
+): import("./emit-variant-guard.ts").VariantArm[] | null {
+  if (!matchBlock.armsRaw || typeof matchBlock.armsRaw !== "string") return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { parseMatchArms } = require("../match-statechild-parser.ts") as {
+    parseMatchArms: (armsRaw: string) => {
+      arms: Array<{
+        variantName: string;
+        isWildcard: boolean;
+        payloadBindingsRaw: string;
+        attrs: Array<{ name: string; valueRaw: string; spanStart: number; spanEnd: number }>;
+        bodyForm: "self-closing" | "shorthand" | "bare-body";
+        bodyRaw: string;
+        spanStart: number;
+        spanEnd: number;
+        openerStart: number;
+      }>;
+      diagnostics: Array<{ code: string; message: string; spanStart: number; spanEnd: number }>;
+    };
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { splitBlocks } = require("../block-splitter.js") as {
+    splitBlocks: (filePath: string, src: string) => any;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildAST } = require("../ast-builder.js") as {
+    buildAST: (bsOutput: any, tokenizerOverrides: any) => any;
+  };
+
+  const result = parseMatchArms(matchBlock.armsRaw);
+  const variantFields = resolveVariantFields(matchBlock.forType, fileAST);
+  const arms: import("./emit-variant-guard.ts").VariantArm[] = [];
+
+  for (const entry of result.arms) {
+    // Wildcard arm `<_>` — Phase 3 v1 limitation: skip codegen for the
+    // wildcard. The helper's no-default-branch semantic produces a
+    // fall-through where the mount slot stays unchanged for unmatched
+    // variants. Explicit wildcard render (mount slot replaced with the
+    // wildcard arm's body) is a Phase 4+ enrichment.
+    if (entry.isWildcard) continue;
+
+    const tag = entry.variantName;
+
+    // Payload bindings — tokenize parenthesized form per §18.0.1 canonical
+    // Tier-1 grammar (`<Ready(rows)>`). Phase 2's parser captures
+    // payloadBindingsRaw as the raw text inside `(...)`; comma-split here.
+    const payloadBindings: string[] = [];
+    if (entry.payloadBindingsRaw) {
+      for (const part of entry.payloadBindingsRaw.split(",")) {
+        const name = part.trim();
+        if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+          payloadBindings.push(name);
+        }
+      }
+    }
+
+    // Body: re-parse bodyRaw via the BS+TAB pipeline as a synthetic fragment.
+    // The resulting nodes become the arm's walkable AST body that
+    // `emitVariantGuardedRender` passes to `generateHtml`.
+    //
+    // self-closing arms (bodyRaw === "") + bare-body arms with empty
+    // content produce zero nodes — handled as empty-arm shape (render fn
+    // returns "" per emit-variant-guard convention).
+    let body: any[] = [];
+    if (entry.bodyForm !== "self-closing" && entry.bodyRaw && entry.bodyRaw.trim().length > 0) {
+      try {
+        const synthSrc = entry.bodyRaw;
+        const synthBs = splitBlocks(`<match:${matchBlock.id}:${tag}>`, synthSrc);
+        const synthTab = buildAST(synthBs, null);
+        if (synthTab && Array.isArray(synthTab.ast?.nodes)) {
+          body = synthTab.ast.nodes;
+        }
+      } catch (_e) {
+        // Defensive: if the arm body fails to parse as a fragment, leave
+        // body empty. SYM PASS 20 + adopter-side fix-it (proper variant
+        // body markup) is the recovery path. Codegen continuing with an
+        // empty arm preserves the dispatcher shape (it'll write "" for
+        // that variant).
+      }
+    }
+
+    // Positional payload field-name resolution — mirror engine-side
+    // §51.0.B.1 logic. When variantFields is available, the i-th payload
+    // binding's runtime data key is the variant's i-th declared field name
+    // (position-determined, not name-determined per SPEC). When unavailable,
+    // payloadFieldNames is left undefined so the helper falls back to
+    // assuming binding name = field name (legacy heuristic).
+    let payloadFieldNames: string[] | undefined;
+    if (payloadBindings.length > 0 && variantFields) {
+      const declaredFields = variantFields.get(tag);
+      if (declaredFields && declaredFields.length >= payloadBindings.length) {
+        payloadFieldNames = payloadBindings.map((_, i) => declaredFields[i]);
+      }
+    }
+
+    if (payloadFieldNames) {
+      arms.push({ tag, payloadBindings, payloadFieldNames, body });
+    } else {
+      arms.push({ tag, payloadBindings, body });
+    }
+  }
+  return arms;
+}
+
+// ---------------------------------------------------------------------------
+// Public — emit mount HTML for one match-block (called from emit-html.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Emit the mount slot HTML for a match-block at its source position.
+ *
+ * Returns:
+ *   - `<div data-scrml-match-mount="<idPrefix>"></div>` when the match-
+ *     block has at least one non-empty arm body
+ *   - `""` (empty string) when ALL arm bodies are empty (tree-shake)
+ *   - `null` when the match-block has no bodyChildren OR no resolvable
+ *     `on=` (auto-implied with no engine in scope — E-MATCH-ON-REQUIRED
+ *     fires upstream; nothing to emit)
+ *
+ * Per SPEC §18.0.1 the static initial-arm body is NOT seeded in the mount
+ * slot at module-init — match-block's dispatcher fires at DOMContentLoaded
+ * with the current cell value (Shape A subscribe) OR via _scrml_effect
+ * (Shape B). Either path produces the correct initial HTML at module
+ * activation. Contrast engine-decl: engine-decl seeds the initial-variant
+ * HTML in the static mount because engines have an explicit `initial=`
+ * attribute selecting that variant deterministically at parse time.
+ * Match-blocks have no such selector — the current cell value at module
+ * load is the runtime authority.
+ */
+export function emitMatchMountHtml(
+  matchBlock: MatchBlockAstNode,
+  ctx: CompileContext,
+): string | null {
+  const arms = buildMatchArms(matchBlock, ctx.fileAST);
+  if (!arms) return null;
+  if (arms.length === 0) return "";
+  const allEmpty = arms.every((a) => !a.body || a.body.length === 0);
+  if (allEmpty) return "";
+
+  const onResolved = resolveOnExpr(matchBlock, ctx.fileAST);
+  if (!onResolved) return null;
+
+  const idPrefix = `match_${matchBlock.id}`;
+  return `<div data-scrml-match-mount="${idPrefix}"></div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Public — emit render functions + dispatchers for every match-block in file
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk the file AST, collect all match-blocks, emit per-arm render fns +
+ * variant-guarded dispatcher for each. Returns `{ renderFunctions: [],
+ * dispatchers: [] }` when the file has no match-blocks OR when all match-
+ * blocks have empty arm bodies (tree-shake).
+ *
+ * Adjacent emission to engine body-render in `emit-client.ts`:
+ *
+ *   ```ts
+ *   const c12BodyRender = emitEngineBodyRenderForFile(fileAST, ctx);
+ *   const c14BodyRender = emitDerivedEngineBodyRenderForFile(fileAST, ctx);
+ *   const matchBodyRender = emitMatchBodyRenderForFile(fileAST, ctx);
+ *   const allRenderFns = [
+ *     ...c12BodyRender.renderFunctions,
+ *     ...c14BodyRender.renderFunctions,
+ *     ...matchBodyRender.renderFunctions,
+ *   ];
+ *   const allDispatchers = [
+ *     ...c12BodyRender.dispatchers,
+ *     ...c14BodyRender.dispatchers,
+ *     ...matchBodyRender.dispatchers,
+ *   ];
+ *   ```
+ */
+export function emitMatchBodyRenderForFile(
+  fileAST: any,
+  ctx: CompileContext,
+): { renderFunctions: string[]; dispatchers: string[] } {
+  const matchBlocks = collectMatchBlocks(fileAST);
+  const renderFunctions: string[] = [];
+  const dispatchers: string[] = [];
+  if (matchBlocks.length === 0) return { renderFunctions, dispatchers };
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { emitVariantGuardedRender } = require("./emit-variant-guard.ts") as {
+    emitVariantGuardedRender: typeof import("./emit-variant-guard.ts").emitVariantGuardedRender;
+  };
+
+  for (const matchBlock of matchBlocks) {
+    const arms = buildMatchArms(matchBlock, fileAST);
+    if (!arms || arms.length === 0) continue;
+    const allEmpty = arms.every((a) => !a.body || a.body.length === 0);
+    if (allEmpty) continue;
+
+    const onResolved = resolveOnExpr(matchBlock, fileAST);
+    if (!onResolved) continue;
+
+    const idPrefix = `match_${matchBlock.id}`;
+    const out = emitVariantGuardedRender(
+      () => onResolved.variantExprAccessor,
+      arms,
+      ctx,
+      {
+        idPrefix,
+        mountAttr: "data-scrml-match-mount",
+        renderFnPrefix: "_scrml_match",
+        // Shape A (subscribe) when on= is a bare cell ref or auto-implied
+        // engine var; Shape B (effect) when on= is a complex expression.
+        // The helper's DOMContentLoaded initial-fire bridges Shape A's
+        // "subscribe doesn't fire at init" gap.
+        variantSubscribeName: onResolved.variantSubscribeName,
+      },
+    );
+    if (out.renderFunctionsJs) renderFunctions.push(out.renderFunctionsJs);
+    if (out.dispatcherJs) dispatchers.push(out.dispatcherJs);
+  }
+
+  return { renderFunctions, dispatchers };
+}
