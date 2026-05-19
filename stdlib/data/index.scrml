@@ -21,5 +21,7 @@ ${
     export { parseVariant, ParseError } from './parse.scrml'
 
     export { registerMessages, messageFor } from './messages.scrml'
+
+    export { formFor, registerLabels } from './form-for.scrml'
 }
 </program>

@@ -33,6 +33,11 @@
 //   from messages.scrml:
 //     registerMessages, messageFor (thin wrappers; delegate to runtime
 //     helpers _scrml_messages_register / _scrml_message_for)
+//
+//   from form-for.scrml:
+//     formFor (defensive fallback; compile-time rewritten by TS stage),
+//     registerLabels (thin wrapper; delegates to runtime helper
+//     _scrml_labels_register)
 
 // ---------------------------------------------------------------------------
 // transform.scrml — data transformation utilities (pure, browser-safe)
@@ -426,4 +431,39 @@ export function messageFor(error, fieldName, cellName) {
   }
   // Fallback when the messages chunk was tree-shaken — return a stub.
   return String(error?.tag || error || "");
+}
+
+// ---------------------------------------------------------------------------
+// form-for.scrml — formFor stub + registerLabels wrapper
+//
+// formFor: canonical usage is the markup element form <formFor for=Struct/>;
+// the compiler's type-system stage rewrites every element before any code
+// emission. If a call site reaches this body it means the rewrite failed —
+// surface as a clear runtime error rather than silent undefined behaviour.
+//
+// registerLabels: thin wrapper around the _scrml_labels_register helper in
+// the runtime template's 'messages' chunk (co-located — see runtime-
+// template.js §41.14.7 block). Mirrors registerMessages — no-op when the
+// helper is absent (tree-shaken away).
+// ---------------------------------------------------------------------------
+
+export function formFor(_StructType, _options) {
+  // Defensive fallback only — see header comment.
+  throw new Error(
+    "scrml:data formFor: internal — call site was not rewritten at compile time. " +
+    "The canonical usage is the markup element form <formFor for=Struct .../>; " +
+    "the bare-call form is reserved for v1.next per SPEC §41.14."
+  );
+}
+
+export function registerLabels(map) {
+  // The runtime helper is defined by the 'messages' chunk in runtime-template.js
+  // (co-located with the messages registry — see §41.14.7 block). Server side,
+  // the helper is available because emit-server inlines the runtime for any
+  // file touching validators OR formFor. Client side, this shim is reached via
+  // the `_scrml_stdlib.data` registry which runs AFTER the runtime is set up.
+  // No-op when the helper is tree-shaken away (consistent with registerMessages).
+  if (typeof _scrml_labels_register === "function") {
+    _scrml_labels_register(map);
+  }
 }

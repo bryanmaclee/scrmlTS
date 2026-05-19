@@ -1,0 +1,107 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:data/form-for — type-driven form generation (L22 family member #2)
+    //
+    // Two user-facing exports:
+    //
+    //   formFor — the type-driven form generator. Canonical usage is the
+    //     MARKUP ELEMENT FORM:
+    //
+    //       <formFor for=Signup onsubmit=persistSignup/>
+    //
+    //     The element form is recognized at the type-system stage and rewritten
+    //     to canonical scrml (Shape 2 decls + <form> + per-field <errors of=>).
+    //     The function body in this module is a defensive fallback only — see
+    //     SPEC §41.14 line 18438. A bare-call form is reserved for v1.next.
+    //
+    //   registerLabels — project-wide Level-2 label registration. Mirrors
+    //     registerMessages (§41.12). Last-write-wins per (struct, field) key
+    //     across multiple calls. Feeds Level-2 of the 4-level label resolution
+    //     chain in §41.14.7.
+    //
+    // 4-level label resolution chain (highest precedence first; per §41.14.7):
+    //
+    //   1. Slot override — <slot name="<fieldName>"> body owns the label.
+    //   2. Project-registered — `registerLabels({TypeName: {field: "Label"}})`.
+    //   3. Type-field annotation — `@label("...")` (RESERVED for v1.next).
+    //   4. Mechanical default — title-case field name (`emailAddress` →
+    //      "Email Address"). v1.0 ALWAYS resolves to Level 4 — registerLabels
+    //      seeds the runtime store for v1.next when consultation lands.
+    //
+    // Usage:
+    //   ${
+    //     import { formFor, registerLabels } from 'scrml:data'
+    //
+    //     registerLabels({
+    //       Signup: {
+    //         email: "Email address",
+    //         agree: "I agree to the terms"
+    //       }
+    //     })
+    //   }
+    //
+    //   <formFor for=Signup onsubmit=persistSignup/>
+    //
+    // Cross-references:
+    //   - SPEC §41.14    — formFor (canonical surface + 8 normative error codes)
+    //   - SPEC §41.14.7  — label resolution chain (registerLabels Level 2)
+    //   - SPEC §41.14.10 — Pillar 5 invariant (emitted output IS canonical scrml)
+    //   - SPEC §53.14.3  — type-as-argument family roster (L22 member #2)
+    //   - SPEC §41.12    — registerMessages precedent for project-wide registries
+    //   - compiler/src/codegen/emit-form-for.ts — source-level AST expander
+    // ---------------------------------------------------------------------------
+
+    /**
+     * registerLabels — project-level Level-2 label registration (§41.14.7).
+     *
+     * @param map — `{ TypeName: { fieldName: "Display label", ... }, ... }`
+     *              Outer keys are struct type names; inner keys are field names
+     *              on that struct; inner values are display-label strings.
+     *
+     * Composes across multiple calls — outer keys merge, inner keys overlay
+     * with last-write-wins per (struct, field). Should be called at app boot
+     * (typically the root `<program>` body or a top-level `${}` block).
+     *
+     * The runtime store is consulted by the formFor expander's Level-2 label
+     * lookup. In v1.0 the expander always resolves to Level 4 (mechanical
+     * title-case default); registerLabels seeds the runtime store so v1.next
+     * Level-2 consultation lights up without API churn. Call sites written
+     * today against registerLabels work unchanged when Level-2 lookup lands.
+     */
+    export function registerLabels(map) {
+        _scrml_labels_register(map)
+    }
+
+    /**
+     * formFor(StructType, ...) — MOD-stage resolution stub.
+     *
+     * The canonical usage is the markup element form:
+     *
+     *   <formFor for=StructType onsubmit=fn/>
+     *
+     * The compiler's type-system stage recognizes the element form and rewrites
+     * it to Shape 2 decls + <form> + per-field <errors of=> at compile time
+     * (see compiler/src/codegen/emit-form-for.ts — `expandFormFor`). The body
+     * of this function is unreachable under a correct compiler — every
+     * `<formFor>` element is rewritten before any code-emission stage runs.
+     *
+     * A bare-call form is RESERVED for v1.next per SPEC §41.14 line 18438. The
+     * v1.0 grammar admits only the element form. This export exists so that
+     *   `import { formFor } from 'scrml:data'`
+     * resolves at MOD stage; the runtime shim throws on the defensive fallback
+     * path (compiler/runtime/stdlib/data.js).
+     *
+     * @param StructType - The struct type identifier (recognized at compile
+     *                     time via the typeRegistry).
+     * @param options    - Reserved for v1.next bare-call form.
+     */
+    export function formFor(StructType, options) {
+        // Unreachable under a correct compiler — every <formFor> element is
+        // rewritten by the type-system stage before this body could execute.
+        // The runtime shim (compiler/runtime/stdlib/data.js) throws on the
+        // defensive fallback path; this source body exists only so
+        // `import { formFor }` resolves.
+    }
+}
+</program>

@@ -2763,6 +2763,81 @@ function _scrml_message_for(error, fieldName, cellName) {
 }
 
 // ---------------------------------------------------------------------------
+// §41.14.7 Label resolution — project-wide Level-2 store (within 'messages' chunk).
+// ---------------------------------------------------------------------------
+// 4-level label resolution chain per SPEC §41.14.7 (highest precedence first):
+//
+//   Level 1: Slot override — <slot name="<fieldName>"> body owns the label.
+//   Level 2: Project-registered — \`registerLabels({TypeName: {field: "..."}})\`
+//            (THIS STORE).
+//   Level 3: Type-field annotation — \`@label("...")\` (RESERVED for v1.next).
+//   Level 4: Mechanical default — title-cased field name.
+//
+// v1.0 the formFor expander always resolves to Level 4. \`registerLabels\` seeds
+// this store so v1.next Level-2 consultation lights up without API churn at
+// the call site. Calls today work unchanged when Level-2 lookup lands.
+//
+// Stored shape: { TypeName: { fieldName: "Display label" } }. Composes across
+// multiple calls — outer-key MERGE, inner-key OVERLAY (last-write-wins per
+// (struct, field)). Mirrors registerMessages composition semantics (§41.12).
+//
+// Co-located with the messages chunk because (a) the helpers are tiny and
+// don't justify a separate chunk; (b) both stores are project-wide app-text
+// registries called from the same top-level boot positions; (c) future
+// 4-level chain consultation will share the formFor / errors emission paths
+// that already pull \`messages\`. Tree-shaken with \`messages\`.
+
+const _scrml_labels_registered = {};
+
+/**
+ * Level-2 label registration — public facade for \`registerLabels\` (stdlib re-export).
+ * Last-write-wins per (TypeName, fieldName) per SPEC §41.14.7. Composes across
+ * multiple calls (each call merges into the table; inner objects overlay).
+ *
+ * @param {Object} map — \`{ TypeName: { fieldName: "Display label", ... }, ... }\`
+ */
+function _scrml_labels_register(map) {
+  if (!map || typeof map !== "object") return;
+  for (const typeName of Object.keys(map)) {
+    const fields = map[typeName];
+    if (!fields || typeof fields !== "object") continue;
+    const existing = _scrml_labels_registered[typeName] || {};
+    for (const fieldName of Object.keys(fields)) {
+      const label = fields[fieldName];
+      if (typeof label === "string") {
+        existing[fieldName] = label;
+      }
+    }
+    _scrml_labels_registered[typeName] = existing;
+  }
+}
+
+/**
+ * Resolve a struct-field label via the 4-level chain. v1.0 walks Level 2 →
+ * Level 4 (Levels 1 and 3 are RESERVED — see header comment). Always returns
+ * a string (never throws, never returns undefined) so consumers can render
+ * unconditionally.
+ *
+ * @param {string} typeName    — struct type name (e.g., "Signup")
+ * @param {string} fieldName   — struct field name (e.g., "email")
+ * @returns {string}           — display label
+ */
+function _scrml_label_for(typeName, fieldName) {
+  // Level 2: project-registered lookup.
+  const fields = _scrml_labels_registered[typeName];
+  if (fields && typeof fields[fieldName] === "string") {
+    return fields[fieldName];
+  }
+  // Level 4: mechanical default — title-cased field name with intra-word
+  // boundary detection. Matches mechanicalLabel() in emit-form-for.ts.
+  if (!fieldName) return "";
+  const spaced = String(fieldName).replace(/([a-z])([A-Z])/g, "$1 $2");
+  return spaced.replace(/(^|\\s)([a-z])/g, function(_m, p1, p2) {
+    return p1 + p2.toUpperCase();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // §51.0.F + §51.0.G Engine state-machine runtime hooks (chunk: 'engine')
 // ---------------------------------------------------------------------------
 // C13: rule= contract enforcement on the auto-declared engine variable.
