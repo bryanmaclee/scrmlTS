@@ -773,10 +773,17 @@ describe("§19 Arbitrary values — effects", () => {
   });
 
   test("shadow-[#fff] passes through to box-shadow", () => {
-    // Note: Tailwind's underscore-as-space convention is intentionally NOT
-    // implemented in v1 (whitespace inside [] would break HTML class scanning).
-    // Users must use a real color function or hex for shadow.
+    // S109 amendment: Tailwind's underscore-as-space convention IS now
+    // implemented (see Bug 1 full-fix). `shadow-[0_2px_4px_rgba(0,0,0,0.1)]`
+    // becomes `box-shadow: 0 2px 4px rgba(0,0,0,0.1)`. Single-value cases
+    // like this one (no `_`) emit verbatim — covered here.
     expect(getTailwindCSS("shadow-[#fff]")).toContain("box-shadow: #fff");
+  });
+
+  test("S109 — shadow-[0_2px_4px_rgba(0,0,0,0.1)] multi-token list emits with `_` -> ` `", () => {
+    // Multi-token box-shadow uses Tailwind's underscore-as-space.
+    expect(getTailwindCSS("shadow-[0_2px_4px_rgba(0,0,0,0.1)]"))
+      .toContain("box-shadow: 0 2px 4px rgba(0,0,0,0.1)");
   });
 });
 

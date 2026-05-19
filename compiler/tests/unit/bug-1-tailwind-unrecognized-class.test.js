@@ -11,12 +11,23 @@
  * Three legitimate causes the lint message points adopters at:
  *   (a) misspelling — `flexx` vs `flex`
  *   (b) Tailwind arbitrary-value class whose particular utility prefix
- *       is not yet supported by the embedded engine —
- *       `grid-cols-[auto_1fr_auto]`
+ *       is not yet supported by the embedded engine — e.g.
+ *       `transition-[opacity_0.5s]` (S109 full fix landed grid-cols-/
+ *       grid-rows-/col-span-/row-span-/aspect-/flex-/grow-/shrink-/
+ *       order-/basis-/col-start/end-/row-start/end-/aspect- families,
+ *       but transition / transform / outline / ring / scale / etc. are
+ *       still deferred)
  *   (c) custom user-defined CSS class (acknowledged false positive)
  *
+ * S109 amendment: previously the §2 / §7 / §8 cases used
+ * `grid-cols-[auto_1fr_auto]` (the dogfood Bug 1 headline) as the
+ * canonical unrecognized arbitrary-value class. That family is NOW
+ * supported by the engine (`grid-template-columns: auto 1fr auto`); the
+ * §1 NEW tests assert it. The unrecognized-arbitrary tests rotated to
+ * `transition-[opacity_0.5s]` (a still-unsupported family).
+ *
  * Coverage:
- *   §1  Recognized utilities — no warning
+ *   §1  Recognized utilities — no warning (incl. S109-new families)
  *   §2  Arbitrary-value class that engine doesn't handle — warning
  *   §3  Misspelled utility — warning
  *   §4  Mixed recognized + unrecognized — warning only on the unrecognized
@@ -116,6 +127,31 @@ describe("§1 Recognized Tailwind utilities — no warning fires", () => {
     const diags = scan('<div></div><span>hi</span>');
     expect(diags).toHaveLength(0);
   });
+
+  // S109 — dogfood Bug 1 FULL fix landed: `grid-cols-[<list>]` etc. now
+  // emit real CSS via getTailwindCSS, so the floor lint stops firing on
+  // these. Asserted explicitly so a future regression on the engine side
+  // is caught immediately (the engine and the lint share a single
+  // source-of-truth via getTailwindCSS).
+  test("S109 dogfood Bug 1 headline `grid-cols-[auto_1fr_auto]` no longer fires (engine emits CSS)", () => {
+    const diags = scan('<div class="grid-cols-[auto_1fr_auto]"></div>');
+    expect(diags).toHaveLength(0);
+  });
+
+  test("S109 — col-span-[2] no longer fires", () => {
+    const diags = scan('<div class="col-span-[2]"></div>');
+    expect(diags).toHaveLength(0);
+  });
+
+  test("S109 — aspect-[16/9] no longer fires", () => {
+    const diags = scan('<div class="aspect-[16/9]"></div>');
+    expect(diags).toHaveLength(0);
+  });
+
+  test("S109 — flex-[1_1_0] no longer fires", () => {
+    const diags = scan('<div class="flex-[1_1_0]"></div>');
+    expect(diags).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -123,17 +159,25 @@ describe("§1 Recognized Tailwind utilities — no warning fires", () => {
 // ---------------------------------------------------------------------------
 
 describe("§2 Arbitrary-value class engine doesn't handle — warning fires", () => {
-  test("`grid-cols-[auto_1fr_auto]` fires (dogfood Bug 1 headline case)", () => {
-    // This is the exact case from the bug surface: grid-template-columns
-    // arbitrary value is silently dropped by the embedded engine; the lint
-    // surfaces the silence so adopters see compile-time friction.
-    const diags = scan('<div class="grid-cols-[auto_1fr_auto]"></div>');
-    expect(firedOn(diags, "grid-cols-[auto_1fr_auto]")).toBe(true);
+  // S109 — after the full fix landed grid-cols-/col-span-/aspect-/etc.,
+  // the canonical unrecognized arbitrary-value pattern is now a
+  // still-unsupported family. transition-/transform-/outline-/ring- are
+  // viable; transition-[<list>] is a realistic adopter case.
+  test("`transition-[opacity_0.5s]` fires (still-unsupported family)", () => {
+    // transition is not in ARBITRARY_PREFIX_MAP (S109 scope is grid/flex
+    // families; transition + transform are future expansion).
+    const diags = scan('<div class="transition-[opacity_0.5s]"></div>');
+    expect(firedOn(diags, "transition-[opacity_0.5s]")).toBe(true);
   });
 
-  test("`grid-cols-[200px_1fr]` fires (variant of headline case)", () => {
-    const diags = scan('<div class="grid-cols-[200px_1fr]"></div>');
-    expect(firedOn(diags, "grid-cols-[200px_1fr]")).toBe(true);
+  test("`outline-[2px_solid_red]` fires (still-unsupported family)", () => {
+    const diags = scan('<div class="outline-[2px_solid_red]"></div>');
+    expect(firedOn(diags, "outline-[2px_solid_red]")).toBe(true);
+  });
+
+  test("`ring-[2px]` fires (still-unsupported family)", () => {
+    const diags = scan('<div class="ring-[2px]"></div>');
+    expect(firedOn(diags, "ring-[2px]")).toBe(true);
   });
 });
 
@@ -174,8 +218,9 @@ describe("§4 Mixed recognized + unrecognized — fires only on the unrecognized
   });
 
   test("recognized + unrecognized + recognized arbitrary fires only on the unrecognized", () => {
-    const diags = scan('<div class="flex grid-cols-[auto_1fr_auto] w-[420px]"></div>');
-    expect(firedOn(diags, "grid-cols-[auto_1fr_auto]")).toBe(true);
+    // S109 — grid-cols-[<list>] now supported, rotated to transition-[...]
+    const diags = scan('<div class="flex transition-[opacity_0.5s] w-[420px]"></div>');
+    expect(firedOn(diags, "transition-[opacity_0.5s]")).toBe(true);
     expect(firedOn(diags, "flex")).toBe(false);
     expect(firedOn(diags, "w-[420px]")).toBe(false);
     expect(diags).toHaveLength(1);
@@ -270,22 +315,24 @@ describe("§6 Suppression — compilerSettings opt-out", () => {
 // ---------------------------------------------------------------------------
 
 describe("§7 Integration — compileScrml surfaces the lint in lintDiagnostics", () => {
-  test("`grid-cols-[auto_1fr_auto]` shows up in lintDiagnostics", () => {
+  test("`transition-[opacity_0.5s]` shows up in lintDiagnostics (S109 rotated case)", () => {
+    // Previously this asserted grid-cols-[auto_1fr_auto], which is now
+    // a recognized class per S109. transition-[...] is the rotated case.
     const source =
       '<markup name="app">\n' +
-      '  <div class="grid-cols-[auto_1fr_auto]"></div>\n' +
+      '  <div class="transition-[opacity_0.5s]"></div>\n' +
       '</>';
     const result = compileSource(source);
     const diags = (result.lintDiagnostics || []).filter(
       d => d.code === "W-TAILWIND-UNRECOGNIZED-CLASS",
     );
-    expect(diags.some(d => d.className === "grid-cols-[auto_1fr_auto]")).toBe(true);
+    expect(diags.some(d => d.className === "transition-[opacity_0.5s]")).toBe(true);
   });
 
   test("lint is non-fatal — compilation still succeeds", () => {
     const source =
       '<markup name="app">\n' +
-      '  <div class="flexx grid-cols-[auto_1fr_auto]"></div>\n' +
+      '  <div class="flexx transition-[opacity_0.5s]"></div>\n' +
       '</>';
     const result = compileSource(source);
     // The unrecognized-class lint is info-level: no E-* code, no fatal exit.
@@ -328,12 +375,14 @@ describe("§7 Integration — compileScrml surfaces the lint in lintDiagnostics"
 
 describe("§8 Diagnostic shape", () => {
   test("carries code, severity, className, line, column, message", () => {
-    const diags = scan('<div class="grid-cols-[auto_1fr_auto]"></div>');
+    // S109 — rotated from grid-cols-[auto_1fr_auto] (now supported) to
+    // transition-[opacity_0.5s] (still unsupported family).
+    const diags = scan('<div class="transition-[opacity_0.5s]"></div>');
     expect(diags).toHaveLength(1);
     const d = diags[0];
     expect(d.code).toBe("W-TAILWIND-UNRECOGNIZED-CLASS");
     expect(d.severity).toBe("info");
-    expect(d.className).toBe("grid-cols-[auto_1fr_auto]");
+    expect(d.className).toBe("transition-[opacity_0.5s]");
     expect(typeof d.line).toBe("number");
     expect(typeof d.column).toBe("number");
     expect(d.line).toBeGreaterThan(0);
@@ -343,11 +392,11 @@ describe("§8 Diagnostic shape", () => {
     expect(d.message).toContain("misspelled");
     expect(d.message).toContain("arbitrary-value");
     expect(d.message).toContain("custom class");
-    expect(d.message).toContain("grid-cols-[auto_1fr_auto]");
+    expect(d.message).toContain("transition-[opacity_0.5s]");
   });
 
   test("message points adopters at the #{} CSS shim workaround for arbitrary values", () => {
-    const diags = scan('<div class="grid-cols-[auto_1fr_auto]"></div>');
+    const diags = scan('<div class="transition-[opacity_0.5s]"></div>');
     expect(diags[0].message).toContain("#{}");
   });
 });
