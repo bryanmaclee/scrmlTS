@@ -12025,6 +12025,106 @@ function detectEqualityExprPresence(nodes) {
 }
 
 /**
+ * PGO Phase 3 follow-up C2 (S108) — fused TAB-time presence walker for the
+ * markup + for-stmt chunk gates inside `detectRuntimeChunks` in
+ * `compiler/src/codegen/emit-client.ts`.
+ *
+ * Returns `{ hasChunkedMarkupTag, hasForStmt }`:
+ *   - `hasChunkedMarkupTag` is true iff the file has at least one markup node
+ *     with tag in {timer, poll, timeout, keyboard, mouse, gamepad}. These tags
+ *     are the ONLY markup tags that activate runtime chunks (timers / input)
+ *     inside `detectFromNode`'s `case "markup"`. `<channel>` is NOT in the set
+ *     — channel uses inline WebSocket code with no runtime-chunk activation
+ *     (see emit-client.ts:600-603).
+ *   - `hasForStmt` is true iff the file has at least one for-stmt node anywhere.
+ *     CONSERVATIVE — the walker does not test iter-reactivity at TAB time (that
+ *     check requires the function-body registry which is only available at
+ *     codegen time). A for-stmt with a non-reactive iter still sets the flag;
+ *     `detectRuntimeChunks` then performs the per-node iter-reactivity check.
+ *     When this flag is `false`, however, the file is guaranteed to contain NO
+ *     for-stmt — so `detectRuntimeChunks` can skip the `buildFunctionBodyRegistry`
+ *     call AND the per-node iter-reactivity probe entirely.
+ *
+ * **Why TAB-time:** Cumulative C2 fold pattern — S102 (hasResetExpr) + S106
+ * (hasEqualityExpr) precedent. TAB is the first stage with the fully-assembled
+ * AST. Caching presence booleans here means downstream consumers read them as
+ * O(1) — no descent, no walk. The walker is a single-pass DFS with a sentinel
+ * exception that fires once BOTH flags are set (the cheapest "stop walking now"
+ * primitive available in JS).
+ *
+ * **Walk shape:** Mirrors `detectResetExprPresence` and `detectEqualityExprPresence`
+ * above. Same enumerable-key descent, same metadata-field filtering, same
+ * throw-sentinel short-circuit. The hot tests are:
+ *   - `kind === "markup" && CHUNKED_MARKUP_TAGS.has(tag)` → set markup flag
+ *   - `kind === "for-stmt"` → set forStmt flag
+ * The walker exits via sentinel once BOTH flags are true (otherwise runs to
+ * completion).
+ *
+ * **Conservatism:** false-negatives MUST NOT happen — a missed chunked-markup-tag
+ * would cause `detectRuntimeChunks` to omit the markup-tag scan and miss the
+ * `timers` / `input` chunks. A missed for-stmt would cause it to skip
+ * `buildFunctionBodyRegistry` and miss the `reconciliation` / `lift` / `deep_reactive`
+ * chunks for reactive for-stmts. False-positives are harmless (just the in-walk
+ * probe doing its existing work — chunk decisions are unchanged).
+ *
+ * **Cumulative benefit:** Cumulatively with S102 (hasResetExpr) + S106
+ * (hasEqualityExpr), this closes the per-node ExprNode probe + kind-test
+ * surfaces for the markup-tag + for-stmt chunk gates. Together they let
+ * `detectRuntimeChunks` tree-shake the major chunk-gate surfaces for files that
+ * don't use those features (a common shape in pure-logic modules / utility
+ * files).
+ *
+ * @param {ASTNode[]} nodes — Top-level AST nodes from buildAST.
+ * @returns {{ hasChunkedMarkupTag: boolean, hasForStmt: boolean }}
+ */
+const MARKUP_FOR_STMT_SENTINEL = Symbol("MARKUP_FOR_STMT_BOTH_PRESENT");
+const CHUNKED_MARKUP_TAGS = new Set([
+  "timer", "poll", "timeout",         // → chunks.add("timers") + chunks.add("deep_reactive")
+  "keyboard", "mouse", "gamepad",     // → chunks.add("input")
+]);
+function detectMarkupForStmtChunkPresence(nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    return { hasChunkedMarkupTag: false, hasForStmt: false };
+  }
+  let hasChunkedMarkupTag = false;
+  let hasForStmt = false;
+  function visit(node) {
+    if (!node || typeof node !== "object") return;
+    const kind = node.kind;
+    if (!hasChunkedMarkupTag && kind === "markup" && typeof node.tag === "string" && CHUNKED_MARKUP_TAGS.has(node.tag)) {
+      hasChunkedMarkupTag = true;
+    } else if (!hasForStmt && kind === "for-stmt") {
+      hasForStmt = true;
+    }
+    // Both flags set — bail the entire DFS via sentinel.
+    if (hasChunkedMarkupTag && hasForStmt) {
+      throw MARKUP_FOR_STMT_SENTINEL;
+    }
+    for (const key in node) {
+      if (key === "span" || key === "id" || key === "_scope") continue;
+      const val = node[key];
+      if (Array.isArray(val)) {
+        for (let i = 0; i < val.length; i++) {
+          const item = val[i];
+          if (item && typeof item === "object") visit(item);
+        }
+      } else if (val && typeof val === "object" && typeof val.kind === "string") {
+        visit(val);
+      }
+    }
+  }
+  try {
+    for (const n of nodes) visit(n);
+  } catch (e) {
+    if (e === MARKUP_FOR_STMT_SENTINEL) {
+      return { hasChunkedMarkupTag: true, hasForStmt: true };
+    }
+    throw e;
+  }
+  return { hasChunkedMarkupTag, hasForStmt };
+}
+
+/**
  * Walk an ASTNode tree and collect all import-decl, export-decl,
  * type-decl, and component-def nodes that live inside logic blocks.
  * These are hoisted into the FileAST top-level fields.
@@ -12673,6 +12773,16 @@ export function buildAST(bsOutput, tokenizerOverrides) {
   // remaining ExprNode-side probe sub-components after hasResetExpr removed
   // the reset-side.
   const hasEqualityExpr = detectEqualityExprPresence(nodes);
+  // PGO Phase 3 follow-up C2 (S108) — fused presence walker for the
+  // chunked-markup-tag + for-stmt chunk-gate surfaces inside
+  // detectRuntimeChunks (markup tag-tests for `timers` / `input` chunks +
+  // for-stmt iter-reactivity probe for `reconciliation` / `lift` / `deep_reactive`
+  // chunks). Single DFS walk with throw-sentinel that fires when BOTH flags
+  // are set. When `hasForStmt === false`, the codegen detectRuntimeChunks
+  // call can skip `buildFunctionBodyRegistry` entirely (no for-stmt → no
+  // iter-reactivity probe needed). When `hasChunkedMarkupTag === false`,
+  // the in-walk markup tag-test block can be elided per node.
+  const { hasChunkedMarkupTag, hasForStmt } = detectMarkupForStmtChunkPresence(nodes);
 
   const ast = {
     filePath,
@@ -12687,6 +12797,8 @@ export function buildAST(bsOutput, tokenizerOverrides) {
     hasProgramRoot,
     hasResetExpr,
     hasEqualityExpr,
+    hasChunkedMarkupTag,
+    hasForStmt,
     authConfig,
     middlewareConfig,
   };
