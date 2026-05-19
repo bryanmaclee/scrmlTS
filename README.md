@@ -8,7 +8,7 @@ scrml lets you write a complete app in one file: markup, reactive state, scoped 
 SQL, server functions, and inline tests — no build config, no separate server file,
 no state management library.
 
-## A note from the designer
+## A note from the developer
 
 This document describes the ***nominal*** language at the time of any version release. It does not describe what the compiler is perfectly capable of doing. I am working full-bore to get the compiler as close to the nominal state as possible. I am just one guy.
 
