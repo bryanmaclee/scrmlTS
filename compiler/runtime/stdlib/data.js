@@ -467,3 +467,27 @@ export function registerLabels(map) {
     _scrml_labels_register(map);
   }
 }
+
+// ---------------------------------------------------------------------------
+// schema-for.scrml — schemaFor defensive fallback
+//
+// Canonical usage is the function-call form interpolated inside a `<schema>`
+// block: `<schema>${ schemaFor(StructType) }</>`. The compiler's type-system
+// stage rewrites every such call into the equivalent shared-core table-
+// declaration fragment BEFORE any code emission. If a call site reaches this
+// body it means the rewrite failed — surface as a clear runtime error rather
+// than silent undefined behaviour.
+//
+// Calls OUTSIDE a `<schema>` block are rejected at compile time with
+// E-SCHEMAFOR-INVALID-CALL-CONTEXT — they never reach this fallback.
+// ---------------------------------------------------------------------------
+
+export function schemaFor(_StructType, _options) {
+  // Defensive fallback only — see header comment.
+  throw new Error(
+    "scrml:data schemaFor: internal — call site was not rewritten at compile time. " +
+    "The canonical usage is `<schema>${ schemaFor(StructType) }</>`; the call " +
+    "site must appear inside a <schema> block via ${...} interpolation per " +
+    "SPEC §41.15."
+  );
+}

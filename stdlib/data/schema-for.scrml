@@ -1,0 +1,116 @@
+<program>
+${
+    // ---------------------------------------------------------------------------
+    // scrml:data/schema-for — type-driven SQL DDL generation (L22 family member #3)
+    //
+    // schemaFor — the type-driven `<schema>` table-declaration generator.
+    //   Canonical usage is the FUNCTION-CALL form interpolated INSIDE a
+    //   `<schema>` block:
+    //
+    //       import { schemaFor } from 'scrml:data'
+    //
+    //       type User:struct = {
+    //           email: string req length(<=120)
+    //           name:  string req length(>=2)
+    //           role:  UserRole req
+    //       }
+    //
+    //       type UserRole:enum = { Admin, Editor, Viewer }
+    //
+    //       <schema>
+    //           ${ schemaFor(User) }
+    //       </>
+    //
+    //   The function-call form is recognized at the type-system stage and
+    //   rewritten to a synthesized `<schema>` `table-declaration` fragment in
+    //   the shared-core vocabulary (§39.5.7). The existing `<schema>` parser
+    //   then lowers the fragment to SQL DDL per §39.5.8.
+    //
+    //   The flagship value-add (per OQ-SCH-12 + SPEC §41.15.6): bare-variant
+    //   enum-typed struct fields automatically lower to
+    //   `text req oneOf([<variant-name-string>, ...])` — closing the enum-
+    //   knowledge-loss-at-DB-boundary gap that hand-authored `<schema>` blocks
+    //   leave open (hand-authored columns routinely store enum fields as bare
+    //   `text not null`, dropping the variant-set constraint).
+    //
+    // Pluralization rule (SPEC §41.15.2):
+    //   The table name is derived from the struct type name via lowercase +
+    //   trailing `s`: `User → users`, `LoadAssignment → loadassignments`.
+    //   Known irregulars (`Person → persons`, `Child → childs`) accepted as
+    //   imperfect; explicit `@table("name")` annotation is RESERVED for
+    //   v1.next.
+    //
+    // Field-set transforms (SPEC §41.15.4):
+    //   schemaFor(T, { pick: ["a", "b"] })   — include only these fields
+    //   schemaFor(T, { omit: ["secret"] })   — include all except these
+    //   pick + omit are mutually exclusive (E-SCHEMAFOR-PICK-OMIT-CONFLICT).
+    //
+    // Multi-table composition (SPEC §41.15.3):
+    //   Multiple schemaFor calls compose by concatenation inside one block:
+    //
+    //       <schema>
+    //           ${ schemaFor(User) }
+    //           ${ schemaFor(Post) }
+    //           ${ schemaFor(Comment) }
+    //       </>
+    //
+    //   Hand-authored table-declarations may interleave with schemaFor calls
+    //   in the same `<schema>` block (e.g., FK columns for nested struct
+    //   fields excluded via `omit:`).
+    //
+    // Failure modes — 8 normative error codes per SPEC §41.15.1, §41.15.4,
+    // §41.15.7, §41.15.8 (also catalogued at SPEC §34):
+    //
+    //   E-SCHEMAFOR-TYPE-NOT-STRUCT          — first arg is not a `:struct` type
+    //   E-SCHEMAFOR-PICK-INVALID-FIELD       — pick names a non-field
+    //   E-SCHEMAFOR-OMIT-INVALID-FIELD       — omit names a non-field
+    //   E-SCHEMAFOR-PICK-OMIT-CONFLICT       — both pick + omit given
+    //   E-SCHEMAFOR-NESTED-STRUCT-NO-FK-V1   — struct field; FK derivation not v1.0
+    //   E-SCHEMAFOR-NO-SQL-MAPPING           — field type has no v1.0 SQL mapping
+    //   E-SCHEMAFOR-VARIANT-PAYLOAD-ENUM-V1  — payload-bearing enum; v1.next
+    //   E-SCHEMAFOR-INVALID-CALL-CONTEXT     — call site not inside `<schema>`
+    //
+    // Cross-references:
+    //   - SPEC §41.15    — schemaFor (canonical surface + 8 normative error codes)
+    //   - SPEC §41.15.2  — pluralization rule (lowercase + trailing `s`)
+    //   - SPEC §41.15.6  — enum-typed field lowering (the flagship)
+    //   - SPEC §39.5.7   — shared-core vocabulary (the emit form)
+    //   - SPEC §39.5.8   — SQL DDL lowering rules
+    //   - SPEC §53.14.3  — type-as-argument family roster (L22 member #3)
+    //   - SPEC §41.13    — parseVariant (family member #1)
+    //   - SPEC §41.14    — formFor (family member #2)
+    //   - compiler/src/codegen/emit-schema-for.ts — source-level expander
+    // ---------------------------------------------------------------------------
+
+    /**
+     * schemaFor(StructType, options) — type-system-stage compile-time recognition.
+     *
+     * The canonical usage is a function-call interpolated inside a `<schema>`
+     * block:
+     *
+     *   <schema>${ schemaFor(StructType[, { pick: [...], omit: [...] }]) }</>
+     *
+     * The compiler's type-system stage recognizes the call expression,
+     * validates against the `typeRegistry` (and the other 7 normative error
+     * codes), then synthesizes the equivalent `<schema>` table-declaration
+     * fragment in the shared-core vocabulary (§39.5.7). The body of this
+     * function is unreachable under a correct compiler — every schemaFor
+     * call inside a `<schema>` block is rewritten before any code-emission
+     * stage runs.
+     *
+     * @param StructType - The `:struct` type identifier (recognized at compile
+     *                     time via the typeRegistry).
+     * @param options    - Optional `{ pick: [...] }` or `{ omit: [...] }` —
+     *                     mutually exclusive field-set transforms.
+     */
+    export function schemaFor(StructType, options) {
+        // Unreachable under a correct compiler — every schemaFor call inside
+        // a `<schema>` block is rewritten by the type-system stage before this
+        // body could execute. Calls OUTSIDE a `<schema>` block are rejected
+        // with E-SCHEMAFOR-INVALID-CALL-CONTEXT at compile time. The runtime
+        // shim (compiler/runtime/stdlib/data.js) throws on the defensive
+        // fallback path; this source body exists only so
+        //   `import { schemaFor }` resolves at MOD stage.
+    }
+}
+</program>

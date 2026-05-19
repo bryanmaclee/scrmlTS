@@ -23,5 +23,7 @@ ${
     export { registerMessages, messageFor } from './messages.scrml'
 
     export { formFor, registerLabels } from './form-for.scrml'
+
+    export { schemaFor } from './schema-for.scrml'
 }
 </program>

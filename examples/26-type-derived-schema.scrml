@@ -1,0 +1,94 @@
+// Example 26: Type-derived schema — `schemaFor(StructType)` (§41.15).
+//
+// Demonstrates v0.4 L22-family type-as-argument primitive #3 (after
+// parseVariant + formFor). The flagship value-add per OQ-SCH-12: bare-
+// variant enum fields automatically lower to `text req oneOf([variants...])`
+// — closing the enum-knowledge-loss-at-DB-boundary gap that hand-authored
+// `<schema>` blocks routinely leak.
+//
+// Compare with `examples/17-schema-migrations.scrml` which uses the
+// SQL-mirror hand-authored form. This example shows the type-derived
+// alternative: define each type ONCE in the struct + enum decls, then
+// `schemaFor(...)` emits the equivalent shared-core table-declaration
+// inside the `<schema>` block.
+//
+// What the compiler does at S104:
+//   1. Recognizes `${ schemaFor(User) }` inside `<schema>` at type-system
+//      stage (§41.15.9 + §53.14.5).
+//   2. Walks the User struct's fields; for the enum-typed `role` field
+//      with a bare-variant enum, captures the variant set.
+//   3. Emits the equivalent shared-core text:
+//        users {
+//            email: text req length(<=120)
+//            name:  text req length(>=2, <=80)
+//            role:  text req oneOf(['Admin', 'Editor', 'Viewer'])
+//        }
+//   4. Replaces the `${...}` interpolation in-place with that text. The
+//      downstream `<schema>` parser ingests the body identically to a
+//      hand-authored declaration. `scrml migrate` then lowers everything
+//      to SQL DDL per §39.5.8:
+//        CREATE TABLE users (
+//            email  TEXT NOT NULL CHECK (length(email) <= 120),
+//            name   TEXT NOT NULL CHECK (length(name) >= 2)
+//                                CHECK (length(name) <= 80),
+//            role   TEXT NOT NULL CHECK (role IN ('Admin','Editor','Viewer'))
+//        );
+//
+// The L22 vocabulary-unification loop closes here:
+//   - `email: string req length(<=120)`     (struct field)        →
+//   - `<email req length(<=120)>`           (state-cell validator, §55.2) →
+//   - `email TEXT NOT NULL CHECK (length(email) <= 120)` (SQL DDL)
+//
+// Same predicate text fires in three loci; defined once at the type level.
+//
+// Cross-references:
+//   SPEC §41.15      — schemaFor (the whole feature)
+//   SPEC §41.15.2    — pluralization rule (User → users)
+//   SPEC §41.15.6    — bare-variant enum auto-lowering (the flagship)
+//   SPEC §39.5.7     — shared-core vocabulary (the emit form)
+//   SPEC §39.5.8     — SQL DDL lowering rules
+//   SPEC §53.14.3    — type-as-argument family roster (L22 member #3)
+//   examples/17-schema-migrations.scrml — SQL-mirror hand-authored alternative
+
+${
+    import { schemaFor } from 'scrml:data'
+
+    type UserRole:enum = { Admin, Editor, Viewer }
+
+    type User:struct = {
+        email: string req length(<=120)
+        name:  string req length(>=2, <=80)
+        role:  UserRole req
+    }
+
+    type TaskStatus:enum = { Pending, Active, Completed, Archived }
+
+    type Task:struct = {
+        title:    string req length(<=200)
+        notes:    string
+        owner:    string req length(>=1)
+        priority: integer min(1) max(5)
+        status:   TaskStatus req
+    }
+}
+
+<program db="./tasks.sqlite">
+
+    // Type-derived schema — the table-declarations are SYNTHESIZED from the
+    // struct + enum types above. The compiler expands each schemaFor call
+    // at compile time; the emitted text is the same as if the schema had
+    // been hand-authored from scratch.
+    //
+    // The flagship enum-lowering (§41.15.6 / OQ-SCH-12): the `role` and
+    // `status` columns automatically receive an `oneOf([variants...])`
+    // predicate (which §39.5.8 lowers to a SQL `CHECK (col IN (...))`).
+    // Hand-authored `<schema>` blocks routinely store enum-typed columns
+    // as bare `text not null`, dropping the variant-set constraint —
+    // `INSERT INTO users (..., role) VALUES (..., 'BogusRole')` slips
+    // through unstoppable. schemaFor mechanically encodes the constraint.
+    <schema>
+        ${ schemaFor(User) }
+        ${ schemaFor(Task) }
+    </>
+
+</program>

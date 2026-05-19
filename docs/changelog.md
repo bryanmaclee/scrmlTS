@@ -2,7 +2,48 @@
 
 A rolling log of what just landed and what's actively underway in the compiler. For the full spec and pipeline docs see `compiler/SPEC.md` and `compiler/PIPELINE.md`.
 
-Current baseline (2026-05-19 **S103 CLOSE** — Phase 3 select-row chip-away −98% wall-clock · 561× Chrome recovery · L22 family schemaFor SPEC'd · serialize STASHED · Playwright Chrome bench Q-RUNTIME-OPEN-2 closed · ~23-commit session): pre-commit subset **12,807 pass / 88 skip / 1 todo / 0 fail / 668 files / 43,219 expect**. Delta vs S102 (+89 pass / +5 files / +189 expect / -1 fail / 0 regressions; the S102 self-host bootstrap fail did NOT propagate — dist gitignored, pre-commit doesn't run self-host parity). Three major arcs: (1) Phase 3 select-row Candidate A + `!=` extension — value-indexed predicate-bind subscription; select-row 4.97ms → 0.12ms happy-dom + 0.30ms Chrome (vs 168.2ms v0.3.0 STABLE = **561× faster**); avg vs React 6.1× faster (was 3.1×). (2) L22 family — formFor stdlib re-export shipped + §53.14.3 row flipped; serialize STASHED per §53.14.4 Gate 2 synonym-risk verdict; Path B pivot to schemaFor — SPEC §41.15 NEW + 8 error codes + §39.5.8 enum row + §53.14.5 recognition extension + INDEX refresh; schemaFor impl pending ~12-18h. (3) Playwright real-Chrome bench port — validates Phase 3 work end-to-end; v0.3.3 wins 1/10 outright + competitive across the board; 2026-05-14 v0.3.0 STABLE row preserved as Historical.
+Current baseline (2026-05-18 **S104** — schemaFor impl SHIPPED): pre-commit subset **~12,870 pass / 0 fail** (baseline 12,807 + 62 new schemaFor tests + 1 sample fixture). **THE FLAGSHIP closing announcement:** OQ-SCH-12 enum lowering — `schemaFor(StructType)` automatically lowers bare-variant enum-typed struct fields to `text req oneOf([variant-names...])`, which §39.5.8 then expands to `CHECK (col IN ('Pending','Active',...))`. This closes the enum-knowledge-loss-at-DB-boundary gap that hand-authored `<schema>` blocks routinely leak: 23-trucking-dispatch currently has 7 enum columns stored as bare `text not null` — `INSERT INTO loads VALUES (..., 'BogusStatus')` slips through unstoppable. schemaFor mechanically encodes the constraint, making the variant set a load-bearing DB invariant rather than a developer-recall-checklist. Two-line authoring (`type Status:enum = { Pending, ... }` + `status: Status req` in struct) replaces three-step manual SQL CHECK authoring + remembering to update it on every variant addition. schemaFor is the THIRD active L22 type-as-argument family member (after parseVariant S65 + formFor S102-S103), closing the §39+L4 vocabulary-unification loop ("define type once → schema, form, validator, parser all derive") waiting since L4 landed S58.
+
+### 2026-05-18 (S104 — schemaFor impl SHIPPED — closing the enum-knowledge-loss-at-DB-boundary gap; L22 family member #3)
+
+**Session-defining outcome — OQ-SCH-12 enum-lowering: the FLAGSHIP value-add.**
+
+Enum-typed struct fields automatically lower to `text req oneOf([variant-names...])` in the emitted shared-core schema body — which §39.5.8 expands to `CHECK (col IN ('Pending','Active',...))` in the generated SQL DDL. Hand-authored `<schema>` blocks routinely store enum-typed columns as bare `text not null`, dropping the variant-set constraint at the DB boundary (a data-integrity bug class scrml has lived with as long as `<schema>` blocks have existed). 23-trucking-dispatch currently has 7 enum columns affected. schemaFor mechanically encodes the constraint so this category of bug becomes structurally impossible.
+
+**What landed:**
+
+- **`compiler/src/codegen/emit-schema-for.ts`** (NEW, ~330L). Pure expander module: `pluralizeStructName` per SPEC §41.15.2 (lowercase + trailing `s`; SPEC text supersedes the deep-dive's snake_case framing); `classifyFieldForSql` — primitive/predicated/bare-enum/payload-enum/nested-struct/no-mapping discrimination; `renderValidator` preserves source-form predicate text including `oneOf` brackets; `lowerFieldToSharedCore` — per-field text emission with **flagship enum oneOf injection**; `expandSchemaFor` produces the table-declaration text fragment.
+
+- **`compiler/src/type-system.ts` schemaFor section** (+552L). `collectSchemaForImports` gathers locals bound to imported `schemaFor` from `'scrml:data'`. `walkAndExpandSchemaForCalls` is a two-pass walker: Pass A descends every `<schema>` state node's children, finds `logic` blocks whose body is a single bare-expr containing a schemaFor call, validates, then replaces the `logic` child with a synthesized `text` node carrying the expanded body. Pass B walks every other ExprNode in the file; any schemaFor call there is `E-SCHEMAFOR-INVALID-CALL-CONTEXT`. `_processSchemaForCallInSchemaContext` validates type-arg + options + per-field SQL-mappability, firing the 7 inside-schema error codes. The walker mirrors parseVariant's CallExpression shape (NOT formFor's markup-element shape) per OQ-SCH-1 debate verdict (Form B function-call 50/60 vs Form A markup-element 39/60 vs Form C block-attribute 37/60).
+
+- **8 E-SCHEMAFOR-\* error codes wired with normative SPEC text:** TYPE-NOT-STRUCT, PICK-INVALID-FIELD, OMIT-INVALID-FIELD, PICK-OMIT-CONFLICT, NESTED-STRUCT-NO-FK-V1, NO-SQL-MAPPING, VARIANT-PAYLOAD-ENUM-V1, INVALID-CALL-CONTEXT.
+
+- **stdlib re-export** — `stdlib/data/schema-for.scrml` (NEW ~110L) mirroring `form-for.scrml` shape; +1 line in `stdlib/data/index.scrml`; defensive runtime fallback in `compiler/runtime/stdlib/data.js` (~24L) that throws a clear runtime error if a call site somehow reaches the body (would indicate rewrite failure).
+
+- **62 tests** (+53 unit at `compiler/tests/unit/schema-for.test.js`, +9 integration at `compiler/tests/integration/schema-for.test.js`). Per-error-code coverage: 8 fire tests + 8 no-fire acceptance tests confirmed. Integration coverage: full pipeline round-trip (schemaFor → expanded text → `parseSchemaBlock` → `diffSchema` → CREATE TABLE SQL); multi-table composition; interleaved hand-authored + schemaFor; pluralization rule (`User → users`, `LoadAssignment → loadassignments`, `News → news`); flagship enum-lowering end-to-end (Task struct with Status enum field → `oneOf(['Pending','Active','Archived'])` → `CHECK (status IN ('Pending','Active','Archived'))`).
+
+- **Sample + example** — `samples/compilation-tests/schemaFor-basic.scrml` (NEW ~40L) for compilation-fixture coverage; `examples/26-type-derived-schema.scrml` (NEW ~95L) for the walkthrough demo. Example 17 (SQL-mirror schema-migrations) is preserved unchanged per SCOPE §3 PA decision.
+
+**Architectural finding from the Step 1 survey** — the `<schema>` block body is currently pass-through text at compile time (`parseSchemaBlock` runs only at `scrml migrate` time, not in the compile pipeline). The schemaFor walker hooks at the type-system stage after the existing formFor walker, replacing `logic` children of `<schema>` state nodes with synthesized text children. After the rewrite, the `<schema>` body is a flat text body indistinguishable from hand-authored content; the downstream `scrml migrate` regex parser ingests it identically.
+
+**Architectural finding from Step 3** — struct field types in the typeRegistry resolve to `asIs` (not `predicated:string` or `primitive:string`) when the field declaration carries any trailing validator predicates (e.g., `email: string req length(<=120)`). The schemaFor walker recovers the actual base-type via the leading token of the raw clause text, then re-resolves through typeRegistry. This mirrors formFor's identical fallback at type-system.ts:10321-10326. The `asIs`-fallback also recovers user-declared enum/struct types referenced as field types (`role: UserRole req` resolves through the typeRegistry's enum entry, which schemaFor classifies as a bare-variant enum for the flagship lowering).
+
+**Family economics datum.** schemaFor cost was ~5-7h actual (vs ~12-18h SCOPING-deep-dive estimate). The lower-end materialization is because the §53.14.4 helper-extraction discipline was correctly NOT applied this dispatch (per SCOPE §3.2 + §3.3 — extract helpers when the third caller surfaces them, not preemptively). formFor's `parseValidatorClauses` was reused verbatim; the struct-field-raw-clauses map was reused verbatim from the existing type-system.ts §41.14 build pass.
+
+**L22 family roster at S104 close:**
+
+| Member | Status |
+|---|---|
+| `parseVariant(json, EnumType)` | shipped S65 |
+| `serialize(value, EnumType)` | STASHED S103 (§53.14.4 Gate 2 synonym-risk verdict; revival triggers documented) |
+| `formFor(StructType)` | shipped S102-S103 (impl + stdlib re-export) |
+| `schemaFor(StructType)` | **shipped S104 (THIS SESSION)** |
+| `tableFor(StructType, rows)` | planned |
+| `variantNames(EnumType)` / reflective metadata | planned |
+
+3 active members shipped + 1 STASHED + 2 planned. The §53.14.4 discipline gate is empirically working (3 rejected at debate-05 + 1 STASHED vs 4 advanced).
+
+---
 
 ### 2026-05-19 (S103 CLOSE — Phase 3 select-row −98% wall · 561× Chrome recovery · L22 family schemaFor SPEC'd · serialize STASHED · Playwright Q-RUNTIME-OPEN-2 closed · 23-commit session)
 

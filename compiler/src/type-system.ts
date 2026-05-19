@@ -4068,6 +4068,75 @@ function annotateNodes(
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // §41.15 / §53.14 — schemaFor function-call recognition + AST rewrite pass.
+  //
+  // schemaFor is the THIRD general-position member of the §53.14 type-as-
+  // argument family (after parseVariant §41.13 + formFor §41.14). The TS pass:
+  //
+  //   1. Collect local names that bind to `schemaFor` from imports of
+  //      `'scrml:data'`.
+  //   2. Two-pass walk:
+  //      Pass A — walk `<schema>` state nodes' children; find logic blocks
+  //               whose body contains a schemaFor CallExpression; validate
+  //               per §41.15.1-§41.15.8 (the 8 normative error codes); on
+  //               success rewrite the logic child with a synthesized text
+  //               node carrying the expanded shared-core table-declaration.
+  //      Pass B — walk EVERY OTHER expression position in the file looking
+  //               for schemaFor calls; each such call is rejected with
+  //               E-SCHEMAFOR-INVALID-CALL-CONTEXT.
+  //
+  // The function-call form is canonical per OQ-SCH-1 (Form B 50/60 vs Form
+  // A markup-element 39/60 vs Form C block-attribute 37/60). Pillar 5
+  // invariant per §41.15.9 — the emitted text is standard scrml schema
+  // syntax, readable as if hand-authored.
+  // ---------------------------------------------------------------------------
+  const schemaForLocals = new Set<string>();
+  function collectSchemaForImports(nodes: ASTNodeLike[]): void {
+    for (const n of nodes) {
+      if (!n || typeof n !== "object") continue;
+      if (n.kind === "import-decl" && (n as ASTNodeLike).source === "scrml:data") {
+        const specifiers = (n as ASTNodeLike).specifiers as Array<{ imported?: string; local?: string }> | undefined;
+        if (Array.isArray(specifiers)) {
+          for (const spec of specifiers) {
+            if (spec && spec.imported === "schemaFor" && typeof spec.local === "string") {
+              schemaForLocals.add(spec.local);
+            }
+          }
+        } else if (Array.isArray(n.names)) {
+          // Defensive fallback when specifiers wasn't populated.
+          for (const name of n.names as unknown[]) {
+            if (typeof name === "string" && name === "schemaFor") {
+              schemaForLocals.add("schemaFor");
+            }
+          }
+        }
+      }
+      const body = n.body as ASTNodeLike[] | undefined;
+      if (Array.isArray(body)) collectSchemaForImports(body);
+      const children = n.children as ASTNodeLike[] | undefined;
+      if (Array.isArray(children)) collectSchemaForImports(children);
+    }
+  }
+  collectSchemaForImports(_allTopNodes);
+
+  // Walk for schemaFor calls. The walker handles both passes internally:
+  // valid call sites inside `<schema>` blocks are expanded + rewritten;
+  // invalid call sites anywhere else are rejected with
+  // E-SCHEMAFOR-INVALID-CALL-CONTEXT.
+  if (schemaForLocals.size > 0) {
+    const _sfDefaultSpan: Span = { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+    walkAndExpandSchemaForCalls(
+      _allTopNodes,
+      schemaForLocals,
+      typeRegistry,
+      _structFieldRawClauses,
+      errors,
+      filePath,
+      _sfDefaultSpan,
+    );
+  }
+
   function visitNode(node: unknown): ResolvedType {
     if (!node || typeof node !== "object") return tUnknown();
 
@@ -10416,6 +10485,506 @@ function walkAndExpandFormForNodes(
   }
 
   walkAndSplice(nodes);
+}
+
+// ---------------------------------------------------------------------------
+// §41.15 — schemaFor validation + AST rewrite helpers.
+//
+// Recognition + validation runs at the type-system stage per §53.14.5.
+// The expander synthesizes the shared-core `<schema>` table-declaration
+// text fragment (cross-ref compiler/src/codegen/emit-schema-for.ts).
+//
+// Architectural decisions:
+//   - Function-call form `${ schemaFor(StructType[, options]) }` interpolated
+//     inside a `<schema>` block (Form B per OQ-SCH-1 50/60 verdict).
+//   - Two-pass walker: Pass A processes calls inside `<schema>` state nodes
+//     (valid context); Pass B processes calls anywhere else (invalid
+//     context — E-SCHEMAFOR-INVALID-CALL-CONTEXT).
+//   - After validation success, the parent `logic` child of the `<schema>`
+//     state node is replaced with a synthesized `text` node carrying the
+//     expanded table-declaration body. The downstream schema-differ.js
+//     parser ingests the text identically to hand-authored content.
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the `{pick: ["a"], omit: ["b"]}` options object literal that may
+ * appear as args[1] of a schemaFor call. Returns:
+ *   { ok: true, pick, omit } — on a recognized shape (pick/omit may be null)
+ *   { ok: false, reason }    — when the shape is unrecognized
+ *
+ * Accepts object-literal ExprNodes with kind:"object" + properties[].
+ */
+function _sfParseOptionsArg(
+  optionsArg: unknown,
+): { ok: true; pick: string[] | null; omit: string[] | null } | { ok: false; reason: string } {
+  if (!optionsArg || typeof optionsArg !== "object") {
+    return { ok: false, reason: "options argument is not an object" };
+  }
+  const o = optionsArg as { kind?: string; properties?: unknown[]; props?: unknown[] };
+  if (o.kind !== "object") {
+    return { ok: false, reason: `options argument is a ${o.kind ?? "unknown"} expression, not an object literal` };
+  }
+  // Per the actual ObjectExpr shape from the expression parser:
+  //   { kind: "object", props: [{ kind: "prop", key: <string>, value: <ExprNode>, computed: false }] }
+  // (the older `properties` field is a defensive fallback only)
+  const props = (Array.isArray(o.props) ? o.props : Array.isArray(o.properties) ? o.properties : []) as Array<{ key?: unknown; value?: unknown }>;
+  let pick: string[] | null = null;
+  let omit: string[] | null = null;
+  for (const p of props) {
+    if (!p || typeof p !== "object") continue;
+    // `key` may be a bare string (current expression-parser shape) OR an
+    // identifier-node `{kind:"ident",name:"pick"}` (defensive fallback).
+    let keyName: string | undefined;
+    const k = p.key as unknown;
+    if (typeof k === "string") {
+      keyName = k;
+    } else if (k && typeof k === "object") {
+      const ko = k as { name?: string; value?: string };
+      keyName = (ko.name ?? ko.value) as string | undefined;
+    }
+    if (keyName !== "pick" && keyName !== "omit") continue;
+    const val = p.value as { kind?: string; elements?: unknown[]; items?: unknown[] } | undefined;
+    if (!val || typeof val !== "object") {
+      return { ok: false, reason: `'${keyName}' is not an array literal` };
+    }
+    if (val.kind !== "array") {
+      return { ok: false, reason: `'${keyName}' is a ${val.kind ?? "unknown"} expression, not an array literal` };
+    }
+    const elems = (Array.isArray(val.elements) ? val.elements : Array.isArray(val.items) ? val.items : []) as Array<{ kind?: string; value?: unknown; name?: string; litType?: string; raw?: string }>;
+    const out: string[] = [];
+    for (const el of elems) {
+      if (!el || typeof el !== "object") {
+        return { ok: false, reason: `'${keyName}' contains a non-string entry` };
+      }
+      // Accept the lit-node shape from expression-parser:
+      //   {kind:"lit", litType:"string", value:"name", raw:'"name"'}
+      // AND the bare-ident shape (rare but valid for unquoted entries):
+      //   {kind:"ident", name:"name"}
+      if (el.kind === "lit" && el.litType === "string" && typeof el.value === "string") {
+        out.push(el.value as string);
+      } else if (el.kind === "string" && typeof el.value === "string") {
+        // Defensive fallback if a different parser tag string literals.
+        out.push(el.value as string);
+      } else if (el.kind === "ident" && typeof el.name === "string") {
+        out.push(el.name as string);
+      } else {
+        return { ok: false, reason: `'${keyName}' contains an unrecognized entry shape (${el.kind ?? "unknown"}${el.litType ? ":" + el.litType : ""})` };
+      }
+    }
+    if (keyName === "pick") pick = out;
+    if (keyName === "omit") omit = out;
+  }
+  return { ok: true, pick, omit };
+}
+
+/**
+ * Process a single schemaFor CallExpr inside a `<schema>` block context.
+ * Validates per §41.15.1, §41.15.4, §41.15.7, §41.15.8 (the 7 inside-schema
+ * error codes; E-SCHEMAFOR-INVALID-CALL-CONTEXT is fired by the outside-
+ * schema branch). On success, returns the expanded text body. On failure,
+ * emits the appropriate error to `errors` and returns null.
+ *
+ * Implementation note: this function is called by the schemaFor walker's
+ * "valid context" branch; the walker handles AST splicing once a valid
+ * expansion is produced.
+ */
+function _processSchemaForCallInSchemaContext(
+  call: { args?: unknown[]; span?: Span } & Record<string, unknown>,
+  typeRegistry: Map<string, ResolvedType>,
+  structFieldRawClauses: Map<string, Map<string, string>>,
+  errors: TSError[],
+  defaultSpan: Span,
+): { textBody: string } | null {
+  // Late-load the codegen module to keep the import dependency clean.
+  const codegen = require("./codegen/emit-schema-for.ts") as typeof import("./codegen/emit-schema-for.ts");
+  const span = (call.span as Span | undefined) ?? defaultSpan;
+
+  const args = (call.args ?? []) as Array<{ kind?: string; name?: string } & Record<string, unknown>>;
+
+  // §41.15.1 — Validate first positional argument is a bare struct identifier.
+  const typeArg = args[0];
+  if (!typeArg || typeof typeArg !== "object" || typeArg.kind !== "ident" || typeof typeArg.name !== "string") {
+    const got = typeArg && typeof typeArg === "object" ? (typeArg.kind ?? "unknown") : typeof typeArg;
+    errors.push(new TSError(
+      "E-SCHEMAFOR-TYPE-NOT-STRUCT",
+      `E-SCHEMAFOR-TYPE-NOT-STRUCT: First argument to \`schemaFor\` must be a bare \`:struct\` type identifier ` +
+      `(e.g. \`schemaFor(User)\`). Got: ${got}. See SPEC §41.15.1.`,
+      span,
+    ));
+    return null;
+  }
+  const structTypeName = typeArg.name as string;
+  const resolved = typeRegistry.get(structTypeName);
+  if (!resolved) {
+    errors.push(new TSError(
+      "E-SCHEMAFOR-TYPE-NOT-STRUCT",
+      `E-SCHEMAFOR-TYPE-NOT-STRUCT: \`schemaFor(${structTypeName})\` references unknown type '${structTypeName}'. ` +
+      `The first argument must name a scrml-native \`:struct\` type declared in this file ` +
+      `(or imported via \`\${ import { ${structTypeName} } from './path.scrml' }\`). See SPEC §41.15.1.`,
+      span,
+    ));
+    return null;
+  }
+  if (resolved.kind !== "struct") {
+    errors.push(new TSError(
+      "E-SCHEMAFOR-TYPE-NOT-STRUCT",
+      `E-SCHEMAFOR-TYPE-NOT-STRUCT: \`schemaFor(${structTypeName})\` references type '${structTypeName}' which is a ${resolved.kind}, not a struct. ` +
+      `\`schemaFor\` only accepts scrml-native \`:struct\` types — the field set is what drives the auto-generated DDL. ` +
+      `For enum-shape boundary parsing, use \`parseVariant\` (§41.13); for form generation, use \`formFor\` (§41.14). ` +
+      `See SPEC §41.15.1.`,
+      span,
+    ));
+    return null;
+  }
+  const structType = resolved as StructType;
+
+  // §41.15.4 — Validate options arg (if present): pick, omit, mutual exclusion.
+  let pickList: string[] | null = null;
+  let omitList: string[] | null = null;
+  if (args.length >= 2) {
+    const optsResult = _sfParseOptionsArg(args[1]);
+    if (!optsResult.ok) {
+      // The shape was unrecognized. We surface this through the pick/omit
+      // codes since the only documented option keys are pick/omit and any
+      // structural issue points at one or the other.
+      errors.push(new TSError(
+        "E-SCHEMAFOR-PICK-INVALID-FIELD",
+        `E-SCHEMAFOR-PICK-INVALID-FIELD: \`schemaFor(${structTypeName}, ...)\` options argument is malformed — ${optsResult.reason}. ` +
+        `Expected shape: \`{ pick: ["fieldA", "fieldB"] }\` or \`{ omit: ["fieldA"] }\` with bare field-name strings. ` +
+        `See SPEC §41.15.4.`,
+        span,
+      ));
+      return null;
+    }
+    pickList = optsResult.pick;
+    omitList = optsResult.omit;
+    if (pickList && omitList) {
+      errors.push(new TSError(
+        "E-SCHEMAFOR-PICK-OMIT-CONFLICT",
+        `E-SCHEMAFOR-PICK-OMIT-CONFLICT: \`schemaFor(${structTypeName}, ...)\` was given BOTH \`pick\` AND \`omit\` options. ` +
+        `The two transforms are mutually exclusive — \`pick\` names the only fields to include; \`omit\` names fields to exclude. ` +
+        `Resolution: choose one. For combined transforms, layer Pick over Omit at the type level. See SPEC §41.15.4.`,
+        span,
+      ));
+      return null;
+    }
+    if (pickList) {
+      for (const fieldName of pickList) {
+        if (!structType.fields.has(fieldName)) {
+          errors.push(new TSError(
+            "E-SCHEMAFOR-PICK-INVALID-FIELD",
+            `E-SCHEMAFOR-PICK-INVALID-FIELD: \`schemaFor(${structTypeName}, { pick: [...] })\` references field '${fieldName}' which is not present on struct '${structTypeName}'. ` +
+            `Declared fields: ${[...structType.fields.keys()].join(", ")}. See SPEC §41.15.4.`,
+            span,
+          ));
+          return null;
+        }
+      }
+    }
+    if (omitList) {
+      for (const fieldName of omitList) {
+        if (!structType.fields.has(fieldName)) {
+          errors.push(new TSError(
+            "E-SCHEMAFOR-OMIT-INVALID-FIELD",
+            `E-SCHEMAFOR-OMIT-INVALID-FIELD: \`schemaFor(${structTypeName}, { omit: [...] })\` references field '${fieldName}' which is not present on struct '${structTypeName}'. ` +
+            `Declared fields: ${[...structType.fields.keys()].join(", ")}. See SPEC §41.15.4.`,
+            span,
+          ));
+          return null;
+        }
+      }
+    }
+  }
+
+  // Compute the included field set per pick/omit.
+  const allFieldNames = [...structType.fields.keys()];
+  let includedFieldNames: string[];
+  if (pickList) {
+    includedFieldNames = pickList;
+  } else if (omitList) {
+    const omitSet = new Set(omitList);
+    includedFieldNames = allFieldNames.filter(f => !omitSet.has(f));
+  } else {
+    includedFieldNames = allFieldNames;
+  }
+
+  // §41.15.5/§41.15.6/§41.15.7/§41.15.8 — per-field SQL-mapping classification.
+  // The typeRegistry stores struct fields' resolved types — but the type-decl
+  // parser strips trailing validator predicates and drops the resolved kind
+  // to `asIs` when the field declaration carries any predicate at all (e.g.
+  // `email: string req length(<=120)`). To recover the actual base-type for
+  // classification we fall back to the leading token in the raw clause text.
+  // Mirrors the formFor (§41.14) fallback at line 10321-10326.
+  const rawClauses = structFieldRawClauses.get(structTypeName) ?? new Map<string, string>();
+  const includedFields: import("./codegen/emit-schema-for.ts").SchemaForFieldInfo[] = [];
+  for (const fieldName of includedFieldNames) {
+    let fieldType = structType.fields.get(fieldName) as unknown;
+    const ftKind = (fieldType && typeof fieldType === "object")
+      ? ((fieldType as { kind?: string }).kind ?? "unknown")
+      : "unknown";
+    if (ftKind === "asIs" || ftKind === "unknown") {
+      // Recover the type-token from the raw clause + re-resolve through
+      // typeRegistry. This catches:
+      //   - primitive bases dropped to asIs by predicate-trailing
+      //     (`email: string req` → "asIs" → "string" → typeRegistry primitive)
+      //   - user-declared enum/struct types referenced as field types
+      //     (`role: UserRole req` → "asIs" → "UserRole" → typeRegistry enum)
+      const clauseRaw = rawClauses.get(fieldName) ?? "";
+      const m = clauseRaw.match(/^([A-Za-z_$][A-Za-z0-9_$]*)/);
+      if (m) {
+        const tokenName = m[1];
+        const resolved = typeRegistry.get(tokenName);
+        if (resolved) {
+          fieldType = resolved;
+        }
+      }
+    }
+    const mapping = codegen.classifyFieldForSql(fieldType);
+    if (mapping.kind === "nested-struct") {
+      errors.push(new TSError(
+        "E-SCHEMAFOR-NESTED-STRUCT-NO-FK-V1",
+        `E-SCHEMAFOR-NESTED-STRUCT-NO-FK-V1: \`schemaFor(${structTypeName})\` has a struct-typed field '${fieldName}' but v1.0 does NOT derive foreign-key columns from cross-type struct references ` +
+        `(OQ-SCH-4 ratified out-of-scope; deferred to v1.next). ` +
+        `Resolution: omit the nested struct field via \`schemaFor(${structTypeName}, { omit: ["${fieldName}"] })\` and hand-author the FK column inside the same \`<schema>\` block per §41.15.3 interleaving (e.g., \`${fieldName}_id: integer req references(<Table>.id)\`), OR refactor the struct to use a flat \`_id\` field instead of the nested struct reference. ` +
+        `See SPEC §41.15.7.`,
+        span,
+      ));
+      return null;
+    }
+    if (mapping.kind === "payload-enum") {
+      errors.push(new TSError(
+        "E-SCHEMAFOR-VARIANT-PAYLOAD-ENUM-V1",
+        `E-SCHEMAFOR-VARIANT-PAYLOAD-ENUM-V1: \`schemaFor(${structTypeName})\` has field '${fieldName}' typed as a payload-bearing enum '${mapping.enumName}' (one or more variants carry payload data). ` +
+        `v1.0 does NOT lower payload enums to SQL — the choice between a JSON column (flexible; loses CHECK constraint precision) vs a separate-table join (relational; requires FK derivation per OQ-SCH-4) is deferred to v1.next. ` +
+        `Bare-variant enums (no payloads) DO lower per §41.15.6 — \`text req oneOf([...])\`. ` +
+        `Resolution: refactor to a bare-variant enum if the payload is not load-bearing, OR exclude the field via \`omit: ["${fieldName}"]\` and hand-author a JSON column / separate table as needed. ` +
+        `See SPEC §41.15.6.`,
+        span,
+      ));
+      return null;
+    }
+    if (mapping.kind === "no-mapping") {
+      errors.push(new TSError(
+        "E-SCHEMAFOR-NO-SQL-MAPPING",
+        `E-SCHEMAFOR-NO-SQL-MAPPING: \`schemaFor(${structTypeName})\` has field '${fieldName}' whose declared type (${mapping.typeKind}) has no v1.0 SQL mapping. ` +
+        `Unmappable shapes include function types, Promise types, foreign-code types, deep-reactive proxy types, arrays, and arbitrary opaque types. ` +
+        `Resolution: exclude the field via \`schemaFor(${structTypeName}, { omit: ["${fieldName}"] })\`, OR refactor the struct to use a mappable shape (primitive scalar / string / number / boolean / enum / scrml-native temporal type). ` +
+        `See SPEC §41.15.8.`,
+        span,
+      ));
+      return null;
+    }
+
+    // Parse the validator clauses from the raw struct-body text. The
+    // validator-clauses parser lives in emit-form-for.ts (which emit-schema-
+    // for.ts re-imports for the FormForValidator shape).
+    const clauseRaw = rawClauses.get(fieldName) ?? "";
+    const formForModule = require("./codegen/emit-form-for.ts") as typeof import("./codegen/emit-form-for.ts");
+    const validators = formForModule.parseValidatorClauses(clauseRaw);
+
+    // Resolve column type + bare-variant set per the classification result.
+    const columnType = mapping.kind === "ok" ? mapping.columnType : "text";
+    const bareVariantNames = mapping.kind === "bare-enum" ? mapping.variants : [];
+
+    includedFields.push({
+      name: fieldName,
+      columnType,
+      validators,
+      bareVariantNames,
+    });
+  }
+
+  // Build the table-declaration body text.
+  const tableName = codegen.pluralizeStructName(structTypeName);
+  const expansion: import("./codegen/emit-schema-for.ts").SchemaForExpansion = {
+    tableName,
+    structName: structTypeName,
+    includedFields,
+    span,
+  };
+  const textBody = codegen.expandSchemaFor(expansion);
+
+  // Annotate the call-node with the resolved metadata for diagnostics +
+  // downstream consumers. The walker handles the AST splice.
+  (call as Record<string, unknown>).schemaForStruct = structTypeName;
+  (call as Record<string, unknown>).schemaForTableName = tableName;
+
+  return { textBody };
+}
+
+/**
+ * Walk the file's AST and process every schemaFor call. The walker handles
+ * BOTH passes internally:
+ *
+ *   - When inside a `<schema>` state node's `children` array: a `logic` child
+ *     whose body contains a schemaFor call is the canonical site. The call
+ *     is validated; on success the entire `logic` child is replaced with a
+ *     synthesized `text` node carrying the expanded table-declaration body.
+ *   - Anywhere else: a schemaFor call is `E-SCHEMAFOR-INVALID-CALL-CONTEXT`.
+ *
+ * The two passes share the recognition predicate but emit different errors.
+ */
+function walkAndExpandSchemaForCalls(
+  nodes: ASTNodeLike[],
+  schemaForLocals: Set<string>,
+  typeRegistry: Map<string, ResolvedType>,
+  structFieldRawClauses: Map<string, Map<string, string>>,
+  errors: TSError[],
+  filePath: string,
+  defaultSpan: Span,
+): void {
+  // Track which call-nodes were already processed in a valid context so
+  // Pass B (invalid-context) doesn't double-fire on them.
+  const processedCalls = new WeakSet<object>();
+
+  /**
+   * Returns the schemaFor call-node found inside `logic` block body, if any.
+   * The expected shape is:
+   *   logic.body = [{ kind: "bare-expr", exprNode: { kind: "call", callee: {kind:"ident",name:"<local>"}, ... } }]
+   * We accept bare-expr-only logic bodies (single CallExpression).
+   */
+  function findSchemaForCallInLogicBody(logicBody: unknown): ASTNodeLike | null {
+    if (!Array.isArray(logicBody)) return null;
+    // Find the single bare-expr (skipping incidental whitespace / no-op nodes).
+    let bareExpr: ASTNodeLike | null = null;
+    for (const n of logicBody) {
+      if (!n || typeof n !== "object") continue;
+      const nn = n as ASTNodeLike;
+      if (nn.kind === "bare-expr") {
+        if (bareExpr) return null;  // multiple statements — not a pure schemaFor interpolation
+        bareExpr = nn;
+      } else {
+        // Any non-bare-expr in the logic body invalidates the "pure schemaFor interpolation" shape.
+        return null;
+      }
+    }
+    if (!bareExpr) return null;
+    const expr = (bareExpr as ASTNodeLike).exprNode as ASTNodeLike | undefined;
+    if (!expr || typeof expr !== "object") return null;
+    if (expr.kind !== "call") return null;
+    const callee = (expr as ASTNodeLike).callee as { kind?: string; name?: string } | undefined;
+    if (!callee || callee.kind !== "ident" || typeof callee.name !== "string") return null;
+    if (!schemaForLocals.has(callee.name)) return null;
+    return expr;
+  }
+
+  /**
+   * Pass A — walk `<schema>` state nodes' children; expand valid schemaFor
+   * calls; on success splice the logic child with the synthesized text node.
+   */
+  function expandInSchemaChildren(schemaNode: ASTNodeLike): void {
+    const children = schemaNode.children as ASTNodeLike[] | undefined;
+    if (!Array.isArray(children)) return;
+    // Walk forward and collect indices to splice. Logic-block replacement
+    // is 1-to-1 (text node in place of logic), so simple in-place
+    // replacement is safe without index re-anchoring.
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (!child || typeof child !== "object") continue;
+      if (child.kind !== "logic") continue;
+      const callNode = findSchemaForCallInLogicBody(child.body);
+      if (!callNode) continue;
+      processedCalls.add(callNode as object);
+      const result = _processSchemaForCallInSchemaContext(
+        callNode as { args?: unknown[]; span?: Span } & Record<string, unknown>,
+        typeRegistry,
+        structFieldRawClauses,
+        errors,
+        defaultSpan,
+      );
+      if (!result) {
+        // Validation failed; the error was already pushed. Leave the logic
+        // child in place so codegen's defensive-fallback path fires (which
+        // throws a clear error pointing the adopter back to the diagnostic).
+        continue;
+      }
+      // Splice in the synthesized text node carrying the expanded table-
+      // declaration body. The downstream schema-differ.js parser reads the
+      // `<schema>` state's children as raw text + ignores non-text shapes,
+      // so the text node is sufficient.
+      const span = (callNode as ASTNodeLike).span ?? schemaNode.span ?? defaultSpan;
+      const synthTextNode: ASTNodeLike = {
+        id: ((child as { id?: number }).id ?? 0),
+        kind: "text",
+        value: result.textBody,
+        span,
+        _schemaForSynth: true,
+      } as unknown as ASTNodeLike;
+      children[i] = synthTextNode;
+    }
+  }
+
+  /**
+   * Outer walker — finds `<schema>` state nodes for Pass A, then descends
+   * into children for nested searching, then runs Pass B on every remaining
+   * (un-processed) schemaFor call elsewhere in the tree.
+   */
+  function walkPassA(arr: ASTNodeLike[] | undefined): void {
+    if (!Array.isArray(arr)) return;
+    for (const n of arr) {
+      if (!n || typeof n !== "object") continue;
+      if (n.kind === "state" && (n as ASTNodeLike).stateType === "schema") {
+        expandInSchemaChildren(n);
+      }
+      // Recurse — schema blocks may nest (rare) and we also need to find
+      // siblings deeper in the tree.
+      const cChildren = (n as ASTNodeLike).children as ASTNodeLike[] | undefined;
+      if (Array.isArray(cChildren)) walkPassA(cChildren);
+      const cBody = (n as ASTNodeLike).body as ASTNodeLike[] | undefined;
+      if (Array.isArray(cBody)) walkPassA(cBody);
+    }
+  }
+
+  /**
+   * Pass B — every schemaFor CallExpression NOT inside a `<schema>` block
+   * is invalid context.
+   */
+  function walkPassB(arr: ASTNodeLike[] | undefined): void {
+    if (!Array.isArray(arr)) return;
+    for (const n of arr) {
+      if (!n || typeof n !== "object") continue;
+
+      // Walk ExprNode payloads via the standard forEachCallInExprNode helper.
+      const EXPR_FIELDS = ["exprNode", "initExpr", "argsExpr", "condExpr", "headerExpr",
+                            "iterExpr", "conditionExpr", "guardExpr", "valueExpr", "rhsExpr"];
+      for (const f of EXPR_FIELDS) {
+        const v = (n as Record<string, unknown>)[f];
+        if (v && typeof v === "object") {
+          try {
+            forEachCallInExprNode(v as any, (call) => {
+              if (processedCalls.has(call as unknown as object)) return;
+              const callee = (call as { callee?: { kind?: string; name?: string } }).callee;
+              if (!callee || callee.kind !== "ident" || typeof callee.name !== "string") return;
+              if (!schemaForLocals.has(callee.name)) return;
+              const span = ((call as { span?: Span }).span as Span | undefined) ?? defaultSpan;
+              errors.push(new TSError(
+                "E-SCHEMAFOR-INVALID-CALL-CONTEXT",
+                `E-SCHEMAFOR-INVALID-CALL-CONTEXT: \`schemaFor(...)\` was called outside a \`<schema>\` block. ` +
+                `The function-call form is canonical INSIDE \`<schema>\` blocks only (per OQ-SCH-1 + OQ-SCH-2 verdicts; the output is a table-declaration fragment that requires the \`<schema>\` parser context). ` +
+                `Resolution: wrap the call inside a \`<schema>\${ schemaFor(...) }</>\` block. ` +
+                `See SPEC §41.15.8.`,
+                span,
+              ));
+            });
+          } catch {
+            // Defensive — forEachCallInExprNode is exhaustive per ExprNode kinds.
+          }
+        }
+      }
+
+      // Recurse through markup / logic structures. We DO NOT recurse into
+      // `<schema>` blocks again — Pass A already handled them.
+      if (n.kind === "state" && (n as ASTNodeLike).stateType === "schema") continue;
+
+      const cChildren = (n as ASTNodeLike).children as ASTNodeLike[] | undefined;
+      if (Array.isArray(cChildren)) walkPassB(cChildren);
+      const cBody = (n as ASTNodeLike).body as ASTNodeLike[] | undefined;
+      if (Array.isArray(cBody)) walkPassB(cBody);
+    }
+  }
+
+  walkPassA(nodes);
+  walkPassB(nodes);
 }
 
 // ---------------------------------------------------------------------------

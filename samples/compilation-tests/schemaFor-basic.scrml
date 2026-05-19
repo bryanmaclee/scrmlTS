@@ -1,0 +1,40 @@
+// schemaFor-basic.scrml
+//
+// Minimal compilation fixture exercising §41.15 schemaFor (L22 family
+// member #3). Verifies that:
+//   - schemaFor is imported from scrml:data (MOD-stage resolution)
+//   - schemaFor(StructType) inside a <schema> block compiles cleanly
+//   - The flagship enum-lowering (§41.15.6 / OQ-SCH-12) fires: the bare-
+//     variant `Status` enum lowers to oneOf(['Pending', ...]) automatically
+//
+// Cross-references:
+//   SPEC §41.15      — schemaFor surface + 8 normative error codes
+//   SPEC §41.15.2    — pluralization (User → users, Task → tasks)
+//   SPEC §41.15.6    — bare-variant enum auto-lowering (the flagship)
+//   compiler/src/codegen/emit-schema-for.ts — source-level expander
+
+${
+    import { schemaFor } from 'scrml:data'
+
+    type Status:enum = { Pending, Active, Archived }
+
+    type Task:struct = {
+        title:  string req length(<=120)
+        notes:  string
+        status: Status req
+    }
+
+    type User:struct = {
+        email: string req length(<=120)
+        name:  string req length(>=2, <=80)
+    }
+}
+
+<program db="./tasks.sqlite">
+
+    <schema>
+        ${ schemaFor(User) }
+        ${ schemaFor(Task) }
+    </>
+
+</program>

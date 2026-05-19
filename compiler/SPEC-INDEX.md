@@ -187,7 +187,8 @@ Total lines: 27,144 | Total sections: 57 + appendices  (S90 M-7C-D-12 Track 4: �
 - use / import system → §41 (16493-16742)
 - registerMessages / scrml:data → §41.12 (16698+) (L12, D4)
 - formFor — type-driven form generation FLAGSHIP (S102 — L22 family second general-position member; SHIPPED S102-S103 end-to-end incl. stdlib re-export) → §41.14 (18389+)
-- schemaFor — type-driven SQL DDL generation (S103 — L22 family THIRD general-position member; SPEC'D, impl pending) → §41.15 (~18540+)
+- schemaFor — type-driven SQL DDL generation (S104 — L22 family THIRD general-position member; SHIPPED S104 incl. stdlib re-export + 62 tests + flagship enum-lowering per OQ-SCH-12) → §41.15 (~18540+)
+- schemaFor compiler-source impl (S104 — type-system walker + emit-schema-for.ts expander + 8 E-SCHEMAFOR-* codes wired) → compiler/src/type-system.ts (collectSchemaForImports + walkAndExpandSchemaForCalls + _processSchemaForCallInSchemaContext) + compiler/src/codegen/emit-schema-for.ts
 - schemaFor function-call form `${ schemaFor(Users) }` inside `<schema>` (OQ-SCH-1 debate verdict Form B 50/60) → §41.15.1
 - schemaFor `pick:`/`omit:` field-set transforms → §41.15.4
 - schemaFor predicate → SQL CHECK lowering (per §39.5.8) → §41.15.5
