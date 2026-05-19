@@ -408,6 +408,15 @@ function buildMatchArms(
   const { buildAST } = require("../ast-builder.js") as {
     buildAST: (bsOutput: any, tokenizerOverrides: any) => any;
   };
+  // S108 Phase 4 — `:`-shorthand body codegen uses parseExprToNode directly
+  // to treat the bodyRaw as an expression (not as markup). The synthesized
+  // logic-node + bare-expr shape routes through generateHtml's existing
+  // interpolation path → either folds inline (constants) or emits placeholder
+  // + reactive binding (cells / non-constants).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { parseExprToNode } = require("../expression-parser.ts") as {
+    parseExprToNode: (raw: string, filePath: string, offset: number, opts?: { tildeActive?: boolean }) => any;
+  };
 
   const result = parseMatchArms(matchBlock.armsRaw);
   const variantFields = resolveVariantFields(matchBlock.forType, fileAST);
@@ -436,15 +445,51 @@ function buildMatchArms(
       }
     }
 
-    // Body: re-parse bodyRaw via the BS+TAB pipeline as a synthetic fragment.
-    // The resulting nodes become the arm's walkable AST body that
-    // `emitVariantGuardedRender` passes to `generateHtml`.
+    // Body: shape varies by Phase 2 bodyForm classification.
     //
-    // self-closing arms (bodyRaw === "") + bare-body arms with empty
-    // content produce zero nodes — handled as empty-arm shape (render fn
-    // returns "" per emit-variant-guard convention).
+    //   - self-closing      → empty arm (render fn returns "")
+    //   - bare-body         → re-parse bodyRaw via BS+TAB as markup fragment
+    //                         (Phase 3 path — works for full markup like
+    //                         `<p>Idle</p>` + `${@count}` interpolation +
+    //                         nested tags + event handlers)
+    //   - shorthand (`:expr`) → parse bodyRaw as EXPRESSION via parseExprToNode,
+    //                         synthesize a `logic > bare-expr` AST node
+    //                         (Phase 4 — S108 add). The expression flows
+    //                         through generateHtml's logic-node case which
+    //                         either folds inline (constants per Bug 5 P3
+    //                         §7.4.2) or emits placeholder + binding (cells /
+    //                         non-foldable expressions).
+    //
+    // The shorthand path is the v1 adopter-visible gap that S108 Phase 4
+    // closes — pre-Phase-4 the bodyRaw flowed through the bare-body re-parse
+    // path, producing literal-text nodes including quotes (e.g., `"Press to
+    // load"` rendered as `"Press to load"` with the quotes). The expression-
+    // parser path resolves bare identifiers, literals, member access,
+    // function calls — anything `${expr}` accepts inside markup.
     let body: any[] = [];
-    if (entry.bodyForm !== "self-closing" && entry.bodyRaw && entry.bodyRaw.trim().length > 0) {
+    if (entry.bodyForm === "shorthand" && entry.bodyRaw && entry.bodyRaw.trim().length > 0) {
+      try {
+        const filePath = (fileAST?.filePath as string | undefined) ?? `<match:${matchBlock.id}:${tag}>`;
+        const exprNode = parseExprToNode(entry.bodyRaw, filePath, 0);
+        // Synthesize `logic` > `bare-expr` AST node so generateHtml's
+        // existing interpolation handling fires unchanged.
+        const span = matchBlock.span ?? { file: filePath, start: 0, end: 0, line: 1, col: 1 };
+        body = [{
+          kind: "logic",
+          body: [{
+            kind: "bare-expr",
+            exprNode,
+            expr: entry.bodyRaw.trim(),
+            span,
+          }],
+          span,
+        }];
+      } catch (_e) {
+        // Defensive — leave body empty on parse failure; SYM PASS 20 surfaces
+        // an explicit diagnostic at adopter side.
+      }
+    } else if (entry.bodyForm !== "self-closing" && entry.bodyRaw && entry.bodyRaw.trim().length > 0) {
+      // bare-body: re-parse as markup fragment (Phase 3 path).
       try {
         const synthSrc = entry.bodyRaw;
         const synthBs = splitBlocks(`<match:${matchBlock.id}:${tag}>`, synthSrc);
@@ -453,11 +498,7 @@ function buildMatchArms(
           body = synthTab.ast.nodes;
         }
       } catch (_e) {
-        // Defensive: if the arm body fails to parse as a fragment, leave
-        // body empty. SYM PASS 20 + adopter-side fix-it (proper variant
-        // body markup) is the recovery path. Codegen continuing with an
-        // empty arm preserves the dispatcher shape (it'll write "" for
-        // that variant).
+        // Defensive: same recovery shape as the shorthand path.
       }
     }
 

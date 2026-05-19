@@ -12,14 +12,6 @@
 
 ## MED-HI
 
-### `<match>` block-form `:`-shorthand body — `in-impl` (Phase 4 deferred)
-
-The block-form `<match for=Type>` Tier 1 case-analysis is end-to-end functional as of S108 Phase 3 (codegen render dispatch ships). Bare-body form works (`<Idle>...</>`), self-closing form works (`<Idle/>`), the dispatcher correctly switches on the cell value, payload bindings via parenthesized form (`<Ready(rows)>`) work. The remaining v1 gap is **`:`-shorthand body codegen** — `<Idle> : "Press to load"` doesn't render the expression value; it renders the literal text including quotes. The Phase 2 parser captures the shape correctly; Phase 4 (typer integration) is needed for codegen to evaluate the shorthand expression and emit the result.
-
-- **Workaround:** use bare-body shape: `<Idle>Press to load</>` instead of `<Idle> : "Press to load"`.
-- **Impl arc:** 5-phase SCOPING at [`docs/changes/match-block-form-scoping/SCOPING.md`](./changes/match-block-form-scoping/SCOPING.md); Phases 1+2+3 shipped (S107 `82c48fd` + `c91fae0` + S108).
-- **Target:** v0.4 minor release.
-
 ### Bug 1 — Tailwind arbitrary-value classes silently no-op — `floor-shipped` (S108) — full fix open
 
 `grid-cols-[auto_1fr_auto]`, plus any `<utility>-[<value>]` class whose particular utility prefix is not yet supported by the embedded engine (NOTE: investigation during the FLOOR fix found `w-[420px]` and `text-[clamp(1rem,2vw,1.5rem)]` ARE handled by the engine today — only certain prefix families like `grid-cols-*` are missing). Layout breaks silently for unsupported prefixes.
@@ -59,7 +51,7 @@ Writing scrml-about-scrml content (any docs site, README example, blog post abou
 - **Bug 5 (all phases)** — `${IDENT}` non-reactive interpolation: Phase 1 textContent at DOMContentLoaded (S107 `c70176e`) + Phase 2 Anomalies B+C closure (S107 `a7fbfa8`) + Phase 3 constant-folding (Option γ) + SPEC §7.4.2 normative section (S108). Constants like `const VERSION = "v0.3.0"` + `${VERSION}` now fold inline at compile time — zero placeholder, zero JS wiring, zero runtime cost.
 - **Bug 3** — `[BS]` / `[TAB]` diagnostics now carry `file:line:col` prefix matching `[W-LINT-*]` shape (commit `2e9f9c3`)
 - **Bug 6** — 2 hallucinated error-code references in `docs/website/pages/` retired to canonical SPEC §34 names (commit `c4d1114`)
-- **Match block-form Phases 1+2+3** — structural AST node (S107 `82c48fd`) + 5 SYM diagnostics + arm parser + `:`-shorthand (S107 `c91fae0`) + codegen render dispatch with per-arm render fns + variant-guarded dispatcher (S108). Tier 1 of the case-analysis ladder is now end-to-end functional for unit variants + parenthesized payload bindings. Phase 4/5 (wildcard explicit render, bare-variant inference, per-arm reactive re-wire) deferred.
+- **Match block-form Phases 1+2+3+4** — structural AST node (S107 `82c48fd`) + 5 SYM diagnostics + arm parser + `:`-shorthand recognition (S107 `c91fae0`) + Phase 3 codegen render dispatch with per-arm render fns + variant-guarded dispatcher (S108) + **Phase 4 `:`-shorthand body codegen** (S108) — bodyRaw parsed as expression via `parseExprToNode`, synthesized into `logic > bare-expr` AST node, routed through standard interpolation path (folds inline for constants per Bug 5 P3; placeholder + reactive binding for `@cell` refs). Tier 1 of the case-analysis ladder is now end-to-end functional for: bare-body markup, self-closing, `:`-shorthand expressions, parenthesized payload bindings. Phase 5 follow-on (wildcard explicit render, payload-binding typer scope, bare-variant inference in nested expression positions) deferred to v0.4+.
 
 ---
 

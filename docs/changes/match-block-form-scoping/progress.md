@@ -160,3 +160,42 @@ Phase 2 shipped end-to-end in one session-arc. All 5 diagnostics + parser + SPEC
 **Phase 2 actual effort:** ~2.5h (was estimated ~2-3h). Same shape as estimate; no surprises after the BS-layer approach was locked.
 
 **Next: Phase 3** — codegen render dispatch. Per-arm body emission with reactive subscription on `onExpr` cell. Mirrors engine state-child render dispatch shape. Estimate ~3-5h.
+
+## 2026-05-19 (S108) — Phase 3 SHIPPED — codegen render dispatch
+
+Phase 3 v1 landed at `ef9d219`. New file `compiler/src/codegen/emit-match.ts` (~430 LOC) consumes the variant-source-agnostic `emit-variant-guard.ts:emitVariantGuardedRender` helper (factored at S78 specifically for this match-block-form reuse). Pipeline integration: `emit-html.ts` dispatches `kind: "match-block"` to `emitMatchMountHtml` (mount slot at source position); `emit-client.ts` aggregates `emitMatchBodyRenderForFile` alongside C12/C14 engine body-render.
+
+**Phase 3 v1 scope:**
+- on= resolution: `on=@cell` (Shape A subscribe), `on=${expr}` (Shape B effect or Shape A on root @cell), `on=@cell.path` (Shape A on root), auto-implied via in-scope engine var
+- Unit variants + parenthesized payload bindings (canonical §18.0.1 Tier-1 form)
+- Positional payload field-name resolution per §51.0.B.1 (declaration order)
+- Tree-shake on all-empty arm bodies
+- Multiple match-blocks per file → independent dispatchers indexed by AST id
+
+**Body parsing approach:** match's BS-layer STRUCTURAL_RAW_BODY_ELEMENTS gate (Phase 2) captures arm-children as a single raw text run — `bodyChildren` on the AST node carries just the text run, NOT walkable arm-body AST. Phase 3 codegen bridges by re-parsing each arm's `bodyRaw` via the BS+TAB pipeline as a synthetic fragment. Cost minimal; arm bodies are small.
+
+**9 new unit tests in `match-block-phase3-codegen.test.js`** — AST retrofit shape + mount HTML + dispatcher + Shape A subscribe + tree-shake + multiple matches + auto-implied on=.
+
+**Tests at HEAD:** 13,096 pass / 88 skip / 1 todo / 0 fail / 682 files (+9 from Phase 2 close; 0 regressions).
+
+## 2026-05-19 (S108) — Phase 4 SHIPPED — `:`-shorthand body codegen
+
+Phase 4 v1 landed. Closes the v0.3.x adopter-visible gap left by Phase 3: `<Variant> : expr` shorthand body now renders the expression value (not the literal source text including quotes).
+
+**Implementation:** `compiler/src/codegen/emit-match.ts:buildMatchArms` extended with a `bodyForm === "shorthand"` branch. The bodyRaw is parsed as an **expression** (not as markup) via `expression-parser:parseExprToNode`. The resulting ExprNode is wrapped in a synthesized `logic > bare-expr` AST node and pushed as the arm's body. generateHtml's existing logic-node interpolation case fires unchanged:
+- Compile-time-known constants (literal, `const`-bound, simple arith on consts) → folded inline via Bug 5 P3 path (`tryFoldInterpolation` → `escapeHtmlText`)
+- Reactive cell refs (`@x`) → placeholder + reactive `_scrml_effect` subscription
+- Non-foldable non-reactive (e.g., `someFn()`) → placeholder + one-shot textContent at DOMContentLoaded
+
+**Pre-Phase-4 behavior:** bodyRaw flowed through the bare-body re-parse path (BS+TAB on the expression text as if it were markup). For `"Press to load"` this produced a single text node with the QUOTED source-string as text content. Output rendered as literal `"Press to load"` with quotes. Phase 4 closes this gap.
+
+**6 new unit tests in `match-block-phase4-shorthand.test.js`** — string literal / const reference (fold) / reactive cell / compound reactive expression + regressions for bare-body + self-closing.
+
+**Phase 4 v1 deferred (Phase 5 follow-ons):**
+- Bare-variant inference in arm patterns (§18.0.3) — currently handled by Phase 2 SYM PASS for top-level arm openers; nested-position inference (e.g., `<Idle> : @phase = .Loading` writing a bare variant) is broader typer work.
+- Payload-binding typer scope (`<Ready(rows)> : doSomething(rows)` — the `rows` local needs to be in the typer's scope when checking the arm body). Codegen passes `payloadBindings` to the wire-fn params; the typer-side scope extension is a sibling enhancement.
+- Wildcard `<_>` explicit render — currently the helper's no-default-branch fall-through means unmatched variants keep the mount unchanged; explicit wildcard render is a Phase 5 enrichment.
+
+**Tests at HEAD (Phase 4):** 10,909 pass / 40 skip / 0 fail (unit only; +6 from Phase 3 close in unit dir).
+
+**Next:** Phase 5 polish (samples + integration tests + browser test for runtime arm-swap on reactive change + PRIMER §18 refresh) OR move on to other priority items.
