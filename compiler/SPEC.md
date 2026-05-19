@@ -5281,6 +5281,73 @@ The L1 pillar (§1.4) raises markup to a first-class value type in scrml. `let a
 
 **Why this matters:** under the pillar, scrml has ONE expression language with markup as a first-class participant. Under any other framing, markup-as-expression looks like a special template construct. The pillar makes markup uniform with strings, numbers, and objects — which is the design intent.
 
+#### 7.4.2 Expressions Interpolated INTO Markup Body (Stage 0b D4 — L1 reverse direction)
+
+**Added:** 2026-05-19 (S108, Bug 5 Phase 3) — closes Q-BUG5-OPEN-1 ratified at S107. Section §7.4 / §7.4.1 covers the markup-AS-expression direction (a markup value used in a logic context). §7.4.2 covers the reverse direction — an expression value interpolated into a markup body via `${expr}` syntax. Both directions manifest the same §1.4 pillar (markup-as-first-class-value); making both normatively explicit closes the spec gap surfaced by Bug 5 (markup-as-value pillar misfiring on the most common adopter shape — interpolating a top-level constant into markup).
+
+**The interpolation form.** Inside a markup body, `${expr}` is a value-interpolation site. The expression `expr` is evaluated and its string representation is rendered at that position in the DOM.
+
+```scrml
+const VERSION = "v0.3.0"
+<span class="version-pill">${VERSION}</span>
+```
+
+- The `${...}` delimiters are the canonical interpolation syntax in markup body.
+- `expr` MAY be any valid scrml expression: a literal, a `const`-bound local, a reactive cell access (`@x`), a method call, an arithmetic expression, etc.
+- The compiler SHALL evaluate `expr` and render its string representation at the interpolation site.
+
+**Normative statements:**
+
+- `${expr}` in markup-body position SHALL evaluate `expr` and display its string value at render time.
+- When `expr` references one or more reactive cells (`@x` access), the interpolation site SHALL re-render whenever any referenced cell changes — the standard reactive subscription contract (cross-ref §6.1 V5-strict access).
+- When `expr` references NO reactive cells AND the expression collapses to a compile-time-known constant value (literal, `const`-bound to a literal, simple arithmetic on constants, `bun.eval()`-produced literal per §30.2), the compiler MAY inline the string value directly into the emitted HTML at that position. This is a permitted optimization — the rendered output is observationally equivalent.
+- When `expr` references NO reactive cells AND does NOT collapse to a compile-time constant (e.g., `${Date.now()}`, `${Math.random()}`, `${someJsLibCall()}`), the compiler SHALL emit a one-shot evaluation at module initialization that writes the result to the interpolation site. The site SHALL NOT re-evaluate after initial render.
+- The reactive case (deps present) and the non-reactive non-constant case (deps absent, expression not foldable) SHALL be observationally distinguished only by whether subsequent state changes trigger re-render — both produce the value at module init.
+- When `expr` does NOT resolve in scope, the compiler SHALL emit `E-NAME-NOT-FOUND` (or the applicable lookup-failure diagnostic per the resolver's normal contract). Interpolation does NOT bypass normal name resolution.
+- The string conversion rule SHALL be JavaScript's standard `String()` coercion. `null` and `undefined` produce the literal strings `"null"` and `"undefined"` respectively (cross-ref §42 absence-value handling — adopters writing `${@maybe-empty-cell}` should use `${@cell ?? "default"}` or rely on the validator surface).
+
+**Worked examples:**
+
+**Compile-time-known constant — folded inline (the v0.3.x-canonical shape for version pills, footer years, env config):**
+```scrml
+const VERSION = "v0.3.0"
+<span class="version-pill">${VERSION}</span>
+```
+Compiler MAY emit:
+```html
+<span class="version-pill">v0.3.0</span>
+```
+Zero placeholder, zero runtime cost.
+
+**Reactive cell — reactive subscription:**
+```scrml
+<count> = 0
+<span>Count: ${@count}</span>
+```
+Compiler SHALL emit a placeholder + reactive subscription. The span text updates whenever `@count` changes.
+
+**Non-reactive non-constant — one-shot binding at module init:**
+```scrml
+<span>Loaded at: ${Date.now()}</span>
+```
+Compiler SHALL emit a placeholder + one-shot textContent write at `DOMContentLoaded`. The span text is set once at module init and does not update.
+
+**Tilde accumulator in interpolation body (multi-statement form):**
+```scrml
+<span>${ const result = computeValue(); ~ = result }</span>
+```
+The `~` accumulator inside `${...}` follows §32 semantics. The final `~` reference is the interpolation value; the surrounding statements are evaluation context. The compiler SHALL produce correct textContent emission for the final `~` value.
+
+**Cross-references:**
+- §1.4 — markup-as-first-class-value pillar (L1)
+- §3 — context model interpolation grid (existing `${@x}` reactive form)
+- §6.1 — V5-strict access (reactive cell read form)
+- §7.4 / §7.4.1 — markup-AS-expression (the reverse direction)
+- §7.6 — file-level scope (const-in-markup-interpolation rule, line ~5349)
+- §22 — meta blocks (`bun.eval()` compile-time evaluation; folds into the constant case)
+- §32 — `~` accumulator (interpolation-body tilde semantics)
+- §42 — absence value (`null` / `undefined` / `not` coercion behavior)
+
 ### 7.5 Type Annotation Grammar
 
 Type annotations appear on variable declarations, function parameters, and function return types throughout scrml logic contexts. The grammar below formalizes what is used informally in spec examples.

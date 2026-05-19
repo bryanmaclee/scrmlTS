@@ -6,31 +6,19 @@
 >
 > **Per-gap status:** `spec'd` = SPEC normative + compiler does nothing · `scoping` = SCOPING.md authored, OQs open · `in-impl` = implementation arc actively in flight · `blocked` = waiting on something else
 >
-> Updated 2026-05-19 (S107).
-
----
-
-## HIGH
-
-### `<match>` block-form (SPEC §18.0.1 + §18.0.2 + §18.0.3) — `in-impl` (Phase 1 active)
-
-The block-form `<match for=Type [on=expr]> ... </>` is spec'd as the Tier 1 rung of the case-analysis ladder (§17.0), but the compiler currently captures the entire block as opaque HTML pass-through. Compile succeeds, the block doesn't render in the browser, and zero of the §18.0.2 safety lints fire (no `W-MATCH-RULE-INERT`, no `E-MATCH-EFFECT-FORBIDDEN`, no `E-MATCH-ONTRANSITION-FORBIDDEN`, no `E-MATCH-NOT-EXHAUSTIVE`). The Tier 0/1/2 ladder's middle rung is unrealized.
-
-- **Workaround:** use `<engine>` (Tier 2) instead; it's fully implemented and provides exhaustiveness + active rule= enforcement + transition handlers.
-- **Impl arc:** 5-phase SCOPING at [`docs/changes/match-block-form-scoping/SCOPING.md`](./changes/match-block-form-scoping/SCOPING.md) (~12-19h aggregate); 4 OQs ratified S107; Phase 1 (parser) active.
-- **Target:** v0.4 minor release.
-
-### Bug 5 Phase 3 — `${IDENT}` constant-folding optimization + SPEC §7.4.2 normative section — `scoping`
-
-`${VERSION}` and similar non-reactive interpolations work end-to-end as of S107 Phase 1+2 (one-shot textContent write at DOMContentLoaded), but the SPEC has no normative statement on `${expr}` in markup-body position (the existing §7.4 covers the reverse direction — markup-AS-expression in logic). Phase 3 adds the missing SPEC §7.4.2 + constant-folding optimization (compile-time inline literal values into markup) + tilde-context threading + multi-binding placeholder dedup.
-
-- **Workaround:** none needed (Phase 1+2 closed the headline symptom; this is polish).
-- **Impl arc:** SCOPING at [`docs/changes/bug-5-const-interpolation-scoping/SCOPING.md`](./changes/bug-5-const-interpolation-scoping/SCOPING.md); Q-BUG5-OPEN-1/2/3 ratified, Phases 1+2 shipped (commits `c70176e` + `a7fbfa8`).
-- **Target:** v0.4 minor release.
+> Updated 2026-05-19 (S108).
 
 ---
 
 ## MED-HI
+
+### `<match>` block-form `:`-shorthand body — `in-impl` (Phase 4 deferred)
+
+The block-form `<match for=Type>` Tier 1 case-analysis is end-to-end functional as of S108 Phase 3 (codegen render dispatch ships). Bare-body form works (`<Idle>...</>`), self-closing form works (`<Idle/>`), the dispatcher correctly switches on the cell value, payload bindings via parenthesized form (`<Ready(rows)>`) work. The remaining v1 gap is **`:`-shorthand body codegen** — `<Idle> : "Press to load"` doesn't render the expression value; it renders the literal text including quotes. The Phase 2 parser captures the shape correctly; Phase 4 (typer integration) is needed for codegen to evaluate the shorthand expression and emit the result.
+
+- **Workaround:** use bare-body shape: `<Idle>Press to load</>` instead of `<Idle> : "Press to load"`.
+- **Impl arc:** 5-phase SCOPING at [`docs/changes/match-block-form-scoping/SCOPING.md`](./changes/match-block-form-scoping/SCOPING.md); Phases 1+2+3 shipped (S107 `82c48fd` + `c91fae0` + S108).
+- **Target:** v0.4 minor release.
 
 ### Bug 1 — Tailwind arbitrary-value classes silently no-op — `spec'd`
 
@@ -62,11 +50,12 @@ Writing scrml-about-scrml content (any docs site, README example, blog post abou
 
 ---
 
-## Closed in S107 (for reference; will rotate out)
+## Closed in S107-S108 (for reference; will rotate out)
 
-- **Bug 5 Phase 1+2** — `${IDENT}` non-reactive interpolation now wires textContent + Anomalies B+C closed (commits `c70176e` + `a7fbfa8`)
+- **Bug 5 (all phases)** — `${IDENT}` non-reactive interpolation: Phase 1 textContent at DOMContentLoaded (S107 `c70176e`) + Phase 2 Anomalies B+C closure (S107 `a7fbfa8`) + Phase 3 constant-folding (Option γ) + SPEC §7.4.2 normative section (S108). Constants like `const VERSION = "v0.3.0"` + `${VERSION}` now fold inline at compile time — zero placeholder, zero JS wiring, zero runtime cost.
 - **Bug 3** — `[BS]` / `[TAB]` diagnostics now carry `file:line:col` prefix matching `[W-LINT-*]` shape (commit `2e9f9c3`)
 - **Bug 6** — 2 hallucinated error-code references in `docs/website/pages/` retired to canonical SPEC §34 names (commit `c4d1114`)
+- **Match block-form Phases 1+2+3** — structural AST node (S107 `82c48fd`) + 5 SYM diagnostics + arm parser + `:`-shorthand (S107 `c91fae0`) + codegen render dispatch with per-arm render fns + variant-guarded dispatcher (S108). Tier 1 of the case-analysis ladder is now end-to-end functional for unit variants + parenthesized payload bindings. Phase 4/5 (wildcard explicit render, bare-variant inference, per-arm reactive re-wire) deferred.
 
 ---
 

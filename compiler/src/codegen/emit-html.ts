@@ -1682,8 +1682,9 @@ export function generateHtml(
     // For logic blocks embedded in markup, emit a placeholder span for client JS
     if (node.kind === "logic") {
       if (node.body?.length === 1 && node.body[0]?.kind === "bare-expr") {
+        const bareExpr = node.body[0];
         // Phase 4d Step 8: ExprNode-first; runtime-only string fallback (bare-expr.expr TS field deleted)
-        const expr: string = node.body[0].exprNode ? emitStringFromTree(node.body[0].exprNode) : (node.body[0].expr ?? "");
+        const expr: string = bareExpr.exprNode ? emitStringFromTree(bareExpr.exprNode) : (bareExpr.expr ?? "");
         if (/\bbun\s*\.\s*eval\s*\(/.test(expr)) {
           const evalErrors: any[] = [];
           const inlined: string = rewriteBunEval(expr, evalErrors);
@@ -1697,6 +1698,64 @@ export function generateHtml(
             if (errors) {
               for (const e of evalErrors) errors.push(new CGError(e.code, e.message, node.span ?? { file: "", start: 0, end: 0, line: 1, col: 1 }));
             }
+            return;
+          }
+        }
+
+        // S108 Bug 5 Phase 3 — Constant-fold (Option γ) for non-bun.eval forms.
+        //
+        // SPEC §7.4.2 (S108 amendment) normative permission: "When `expr`
+        // references NO reactive cells AND the expression collapses to a
+        // compile-time-known constant value (literal, `const`-bound to a
+        // literal, simple arithmetic on constants, `bun.eval()`-produced
+        // literal per §30.2), the compiler MAY inline the string value
+        // directly into the emitted HTML at that position. This is a
+        // permitted optimization — the rendered output is observationally
+        // equivalent."
+        //
+        // The canonical adopter shape this folds is:
+        //   const VERSION = "v0.3.0"
+        //   <span class="pill">${VERSION}</span>
+        // → inline `v0.3.0` directly into the HTML body, zero placeholder,
+        // zero JS wiring, zero runtime cost.
+        //
+        // Falls through to the existing placeholder + binding path when:
+        //   - any reactive cell reference (`@x`) appears in the expr
+        //   - any unresolved identifier (not in file-level const env) appears
+        //   - the expression collapses to null/undefined (runtime String()
+        //     coercion semantics preserved per SPEC §7.4.2 normative statement)
+        //   - the expression collapses to a compound value (array/object —
+        //     inline would emit `[object Object]` which is worse adopter UX
+        //     than runtime String() coercion)
+        //
+        // Tilde guard: when expr contains a `~` reference, the rewriter at
+        // emit-reactive-wiring.ts hoists multi-statement bodies to file
+        // scope BEFORE this branch runs. The hoisted form is a synthetic
+        // `_scrml_tilde_N` reference — NOT in the const env — so the fold
+        // correctly defers to the runtime path. No special tilde handling
+        // needed here.
+        //
+        // Helper module: ./const-fold-env.ts — builds the env once per
+        // file (cached on fileAST._constFoldEnvCache) and provides
+        // tryFoldInterpolation + escapeHtmlText.
+        const liveCtxForFold = ctxOrErrors && typeof ctxOrErrors === "object" && "fileAST" in ctxOrErrors
+          ? (ctxOrErrors as CompileContext)
+          : null;
+        if (liveCtxForFold && bareExpr.exprNode) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { tryFoldInterpolation, escapeHtmlText } = require("./const-fold-env.ts") as {
+            tryFoldInterpolation: (exprNode: any, fileAST: any) => string | null;
+            escapeHtmlText: (s: string) => string;
+          };
+          const folded = tryFoldInterpolation(bareExpr.exprNode, liveCtxForFold.fileAST);
+          if (folded !== null) {
+            // Mark the logic node as constant-folded so the file-scope statement
+            // walker (collectTopLevelLogicStatements + emit-reactive-wiring.ts's
+            // Anomaly-B skip clause) skips emitting the orphan bare-expr like
+            // `"hello";` at file scope. Without this marker, the literal still
+            // emits as a no-op statement at file-scope JS (visible bloat).
+            (node as any)._constantFolded = true;
+            parts.push(escapeHtmlText(folded));
             return;
           }
         }

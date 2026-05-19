@@ -387,6 +387,14 @@ export function emitReactiveWiring(ctx: CompileContext): string[] {
       : emitOpts;
 
     for (const stmt of stmts) {
+      // S108 Bug 5 Phase 3 — Skip statements from constant-folded logic wrappers.
+      // emit-html.ts inlines the folded value directly into the HTML body; the
+      // bare-expr (literal / ident / arithmetic) that produced the fold has
+      // nothing to emit at file scope. Without this skip, `${"hello"}` produces
+      // an orphan `"hello";` no-op statement at file scope (visible noise).
+      if ((stmt as any)._constantFolded === true) {
+        continue;
+      }
       if (isServerOnlyNode(stmt)) {
         errors.push(new CGError(
           "W-CG-001",

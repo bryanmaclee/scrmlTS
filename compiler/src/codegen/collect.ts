@@ -218,6 +218,15 @@ export function collectTopLevelLogicStatements(fileAST: FileAST): Node[] {
           if ((node as any)._placeholderId && !child._placeholderId) {
             child._placeholderId = (node as any)._placeholderId;
           }
+          // S108 Bug 5 Phase 3 — Propagate the constant-folded marker from the
+          // logic wrapper (set by emit-html.ts when an interpolation folds to a
+          // compile-time literal). emit-reactive-wiring.ts's file-scope walker
+          // (Anomaly B skip clause) consumes this marker to skip emitting the
+          // orphan bare-expr at file scope — the value has already been inlined
+          // into the HTML at the interpolation site by emit-html.ts.
+          if ((node as any)._constantFolded && !(child as any)._constantFolded) {
+            (child as any)._constantFolded = true;
+          }
           result.push(child);
         }
       }

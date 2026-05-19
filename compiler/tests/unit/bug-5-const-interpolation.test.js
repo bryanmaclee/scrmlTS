@@ -117,32 +117,37 @@ function compile(path) {
 // §1: Headline Bug 5 — `${const-string}` produces textContent write
 // ---------------------------------------------------------------------------
 
-describe("§1: Bug 5 — `${const-string}` in markup body wires textContent at DOMContentLoaded", () => {
+describe("§1: Bug 5 — `${const-string}` in markup body folded to inline literal (S108 Phase 3)", () => {
   test("compile succeeds", () => {
     const result = compile(constStringFx);
     expect(result.errors).toEqual([]);
   });
 
-  test("client.js contains an `el.textContent = VERSION` write inside reactive-display-wiring block", () => {
-    const result = compile(constStringFx);
-    const js = result.outputs.get(constStringFx).clientJs;
-    expect(js).toMatch(/Reactive display wiring ---[\s\S]*el\.textContent\s*=\s*VERSION\s*;/);
-  });
-
-  test("html still has the data-scrml-logic placeholder span (target for the textContent write)", () => {
+  // S108 Phase 3 amendment: const-string interpolation is constant-folded
+  // inline per SPEC §7.4.2 (the compiler MAY inline compile-time-known constants).
+  // The Phase 1/2 β-path tests (placeholder + textContent wiring) are SUPERSEDED
+  // by the fold optimization; observational outcome is the same (value renders
+  // at the interpolation site) but the implementation is cleaner.
+  test("html contains the folded literal value v0.3.0 directly inside the version pill", () => {
     const result = compile(constStringFx);
     const html = result.outputs.get(constStringFx).html;
-    expect(html).toMatch(/<span class="version-pill"><span data-scrml-logic="_scrml_logic_\d+"><\/span><\/span>/);
+    expect(html).toMatch(/<span class="version-pill">v0\.3\.0<\/span>/);
   });
 
-  test("no `_scrml_effect` subscription (nothing reactive to track)", () => {
+  test("html has NO data-scrml-logic placeholder inside the version pill (folded inline)", () => {
+    const result = compile(constStringFx);
+    const html = result.outputs.get(constStringFx).html;
+    const pillMatch = html.match(/<span class="version-pill">[^<]*<\/span>/);
+    expect(pillMatch).not.toBeNull();
+    expect(pillMatch[0]).not.toContain("data-scrml-logic");
+  });
+
+  test("no `_scrml_effect` subscription emitted (folded — no wiring needed)", () => {
     const result = compile(constStringFx);
     const js = result.outputs.get(constStringFx).clientJs;
-    // The wiring block for the const interpolation should NOT have a _scrml_effect call.
-    // It's a one-shot write, not a subscription. Match only the relevant wiring block by
-    // scoping to a small region after the "Reactive display wiring" marker.
-    const wiringSection = js.split("--- Reactive display wiring ---")[1] ?? "";
-    expect(wiringSection).not.toMatch(/_scrml_effect\(function\(\)\s*\{\s*el\.textContent\s*=\s*VERSION/);
+    // The fold path emits NO wiring at all for this interpolation. The whole
+    // "Reactive display wiring" section may not even exist for this file.
+    expect(js).not.toMatch(/_scrml_effect\(function\(\)\s*\{\s*el\.textContent\s*=\s*VERSION/);
   });
 });
 
@@ -150,16 +155,19 @@ describe("§1: Bug 5 — `${const-string}` in markup body wires textContent at D
 // §2: `${const-number}` — same shape, numeric value
 // ---------------------------------------------------------------------------
 
-describe("§2: `${const-number}` in markup body wires textContent", () => {
+describe("§2: `${const-number}` folded to inline string (S108 Phase 3)", () => {
   test("compile succeeds", () => {
     const result = compile(constNumberFx);
     expect(result.errors).toEqual([]);
   });
 
-  test("client.js wires `el.textContent = YEAR` (number coerces to string at runtime)", () => {
+  test("html contains the folded value 2026 directly in the footer", () => {
+    // S108 Phase 3 — const number folds via partiallyEvaluateExpr; the value
+    // is inlined as its string coercion ("2026") per SPEC §7.4.2 normative
+    // statement on String() coercion.
     const result = compile(constNumberFx);
-    const js = result.outputs.get(constNumberFx).clientJs;
-    expect(js).toMatch(/Reactive display wiring ---[\s\S]*el\.textContent\s*=\s*YEAR\s*;/);
+    const html = result.outputs.get(constNumberFx).html;
+    expect(html).toMatch(/<footer>© 2026<\/footer>/);
   });
 });
 
@@ -167,16 +175,19 @@ describe("§2: `${const-number}` in markup body wires textContent", () => {
 // §3: `${"string-literal"}` — literal interpolation
 // ---------------------------------------------------------------------------
 
-describe("§3: `${\"string-literal\"}` in markup body wires textContent", () => {
+describe("§3: `${\"string-literal\"}` folded to inline literal (S108 Phase 3)", () => {
   test("compile succeeds", () => {
     const result = compile(literalStringFx);
     expect(result.errors).toEqual([]);
   });
 
-  test("client.js wires `el.textContent = \"hello\"`", () => {
+  test("html contains the literal 'hello' inline in the span", () => {
+    // S108 Phase 3 — string literal in `${...}` position folds to inline
+    // text per SPEC §7.4.2. Phase 1/2 β-path (placeholder + textContent
+    // wiring) is SUPERSEDED for the literal case.
     const result = compile(literalStringFx);
-    const js = result.outputs.get(literalStringFx).clientJs;
-    expect(js).toMatch(/Reactive display wiring ---[\s\S]*el\.textContent\s*=\s*"hello"\s*;/);
+    const html = result.outputs.get(literalStringFx).html;
+    expect(html).toMatch(/<span>hello<\/span>/);
   });
 });
 
@@ -287,24 +298,28 @@ describe("§8: reactive-display-wiring block is NOT empty for const interpolatio
 // §9: Phase 2 — Anomaly C (phantom placeholder from decl-only logic body) closed
 // ---------------------------------------------------------------------------
 
-describe("§9 (Phase 2): Anomaly C — bare `const` decl in <program> body does NOT emit phantom <span data-scrml-logic>", () => {
-  test("const-string fixture: HTML has ONE data-scrml-logic placeholder (the ${VERSION} target), NOT two", () => {
+describe("§9 (Phase 2 + Phase 3): Anomaly C — bare `const` decl does NOT emit phantom placeholder; Phase 3 fold also obviates the intended placeholder", () => {
+  test("const-string fixture: HTML has ZERO data-scrml-logic placeholders (folded inline; no placeholder needed)", () => {
     const result = compile(constStringFx);
     const html = result.outputs.get(constStringFx).html;
-    // Pre-Phase-2: HTML had `<span data-scrml-logic="_scrml_logic_1"></span>` rendered
-    // OUTSIDE the version-pill span (phantom from implicit logic-wrap of `const VERSION = ...`).
-    // Post-Phase-2: only the intended interpolation placeholder remains.
+    // Pre-Phase-2: HTML had two `data-scrml-logic` placeholders — one phantom
+    // from the implicit-logic-wrap of `const VERSION = ...` (Anomaly C) and
+    // one intended for the `${VERSION}` interpolation.
+    // Phase 2 closed Anomaly C → 1 placeholder.
+    // Phase 3 (S108) folds `${VERSION}` to inline literal "v0.3.0" → 0 placeholders.
     const placeholderCount = (html.match(/data-scrml-logic="_scrml_logic_\d+"/g) ?? []).length;
-    expect(placeholderCount).toBe(1);
+    expect(placeholderCount).toBe(0);
   });
 
-  test("const-string fixture: the surviving placeholder is INSIDE the version-pill span (not outside)", () => {
+  test("const-string fixture: no phantom placeholder sibling before <span class=\"version-pill\">", () => {
     const result = compile(constStringFx);
     const html = result.outputs.get(constStringFx).html;
-    // Match shape: `<span class="version-pill"><span data-scrml-logic="..."></span></span>`.
-    // Anomaly C symptom: a SIBLING `<span data-scrml-logic="..."></span>` BEFORE the version-pill.
-    expect(html).toMatch(/<span class="version-pill"><span data-scrml-logic="_scrml_logic_\d+"><\/span><\/span>/);
+    // Anomaly C symptom (pre-Phase 2): a `<span data-scrml-logic="..."></span>`
+    // sibling BEFORE the version-pill. Both Phase 2 (closed Anomaly C) and
+    // Phase 3 (folded the interpolation) ensure this shape never appears.
     expect(html).not.toMatch(/<span data-scrml-logic="[^"]+"><\/span><span class="version-pill">/);
+    // Version pill contains the folded literal directly
+    expect(html).toMatch(/<span class="version-pill">v0\.3\.0<\/span>/);
   });
 });
 

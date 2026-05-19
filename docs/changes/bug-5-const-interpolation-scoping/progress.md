@@ -61,3 +61,28 @@ Anomalies B + C closed. Tilde context threading + multi-binding dedup re-scoped 
 Phase 3 will fold these into the constant-folding + SPEC §7.4.2 work since both touch the same surfaces. Aggregate estimate: ~5-8h (was Phase 3's ~3-5h + the deferred ~2-3h).
 
 **Next step:** Phase 3 dispatch decision (constant-folding + SPEC §7.4.2 + tilde threading + multi-binding dedup) OR queue Phase 3 + take another high-impact item (e.g., Bug 3 trivial QoL fix).
+
+## 2026-05-19 (S108) — Phase 3 SHIPPED — constant-folding (Option γ) + SPEC §7.4.2 normative section
+
+**Q-BUG5-OPEN-1 ratified (SPEC amendment):** §7.4.2 "Expressions Interpolated INTO Markup Body" added between §7.4.1 (markup-as-expression) and §7.5 (type annotation grammar). Closes the spec gap — both directions of the §1.4 markup-as-value pillar (markup-AS-expression in logic, AND expression interpolated-INTO-markup) are now normatively explicit. Permits compile-time inlining for constant cases as an observationally-equivalent optimization.
+
+**Q-BUG5-OPEN-2 implemented (Option γ hybrid):** new `compiler/src/codegen/const-fold-env.ts` exports `getConstFoldEnvForFile(fileAST)` + `tryFoldInterpolation(exprNode, fileAST)` + `escapeHtmlText(s)`. emit-html.ts logic-case extended with the fold check at line ~1700 — runs BEFORE placeholder allocation. When the bare-expr folds to a primitive string/number/boolean via `partiallyEvaluateExpr`, the value is inlined directly into the HTML stream (HTML-escaped via `escapeHtmlText`) and a `_constantFolded` marker is set on the parent logic node so downstream walkers skip the now-redundant statement emission. Constant-fold env is cached per-fileAST via `fileAST._constFoldEnvCache`.
+
+**File-scope orphan suppression:** `collect.ts:collectTopLevelLogicStatements` propagates the new `_constantFolded` marker from parent to children (mirroring the pre-existing `_placeholderId` propagation). `emit-reactive-wiring.ts` skips stmts marked `_constantFolded` so the folded literal does NOT produce an orphan `"hello";` / `VERSION;` no-op at file-scope (which Phase 2's Anomaly-B regex didn't catch for non-IDENT shapes like string literals).
+
+**Tilde threading (Q-BUG5-OPEN-6):** verified via the existing P1 tilde-guard. The fold path does NOT attempt to fold tilde expressions (`~` is treated as RUNTIME by `partiallyEvaluateExpr` — see `constant-folder.ts:217` `node.name === "~" return RUNTIME`); tilde flows through the unchanged β-path with the Phase 1 tilde-guard preserved as a safety net. No new code path needed.
+
+**Multi-binding placeholder dedup:** deferred — the canonical adopter shape (`${VERSION}` appearing N times in markup) is now optimized by the fold itself (N inline literals, zero placeholders). The pre-existing case where the SAME `${@cell}` appears N times in markup still emits N placeholders + N wirings, but this is a separate optimization with its own design surface (sharing one DOM-level effect across N placeholders vs separate effects). Filed as v0.4+ follow-on; not v0.3.x bar.
+
+**Files changed:**
+- `compiler/SPEC.md` — §7.4.2 normative section added (~60 lines)
+- `compiler/src/codegen/const-fold-env.ts` — NEW (~155 LOC: env builder + cache + fold wrapper + escape helper)
+- `compiler/src/codegen/emit-html.ts` — logic-case fold path (BEFORE placeholder allocation) + `_constantFolded` marker
+- `compiler/src/codegen/collect.ts` — propagate `_constantFolded` from logic wrapper to children
+- `compiler/src/codegen/emit-reactive-wiring.ts` — skip stmts marked `_constantFolded`
+- `compiler/tests/unit/bug-5-phase-3-const-fold.test.js` — NEW (14 tests covering string/number/boolean fold + reactive-not-folded regression + compound expression + HTML escape + forward fold + SPEC presence + e2e generateHtml integration)
+- `compiler/tests/unit/bug-5-const-interpolation.test.js` — §1/§2/§3/§9 updated to reflect Phase 3 fold reality (assertions on inline literal in HTML instead of placeholder + textContent wiring; Phase 2 anomaly-C "ZERO placeholders" instead of "ONE placeholder")
+
+**Tests at HEAD:** 13,110 pass / 88 skip / 1 todo / 0 fail / 683 files / 44,496 expect. Delta vs Phase 2 close (13,054/0): +56 pass / +5 files / +161 expect / 0 fail / 0 regressions. Of the +56: +14 new Phase 3 fold tests + +9 from match-block Phase 3 (this session's other landing) + +34 from Bug 1 Tailwind floor lint (agent dispatch, parallel session).
+
+**Bug 5 Phase 3 SHIPPED. Bug 5 arc complete.** Phase 1 (Anomaly A, S107 `c70176e`) + Phase 2 (Anomalies B + C, S107 `a7fbfa8`) + Phase 3 (Option γ constant-folding + SPEC §7.4.2, S108) close the bug end-to-end.
