@@ -1170,6 +1170,15 @@ const ARBITRARY_PREFIX_MAP = {
   // `outline-offset-[2px]` or specify the full shorthand.
   "outline": "outline",
   "outline-offset": "outline-offset",
+  // Transform shorthand (S108 Bug 1 v3)
+  //
+  // `transform-[rotate(45deg)_scale(1.5)]` -> `transform: rotate(45deg) scale(1.5)`
+  // The list-path joins the underscore-separated function-call values with
+  // spaces. Individual function calls (`rotate(...)`, `scale(...)`, `skew(...)`,
+  // `translate(...)`, `matrix(...)`, `matrix3d(...)`, `rotate3d(...)`,
+  // `translate3d(...)`, `scale3d(...)`, `skewx(...)`, `skewy(...)`) are
+  // whitelisted in VALID_MATH_FUNCTIONS so they pass through verbatim.
+  "transform": "transform",
 };
 
 // Prefix → emit-transform map for arbitrary-value classes whose CSS
@@ -1181,6 +1190,25 @@ const ARBITRARY_PREFIX_MAP = {
 const ARBITRARY_DECL_TRANSFORM = {
   "col-span": (v) => `grid-column: span ${v.css} / span ${v.css}`,
   "row-span": (v) => `grid-row: span ${v.css} / span ${v.css}`,
+  // Directional translate/scale (S108 Bug 1 v3) — emit modern CSS individual
+  // transform properties. Single-axis form sets only the named axis; the
+  // other axis is `0` (translate) / `1` (scale) per CSS default. Adopters
+  // mixing translate-x + translate-y on the same element get the last one
+  // declared (CSS class order); coordinated multi-axis adopters should use
+  // `translate-[<x>_<y>]` (single utility with the list shape) instead.
+  "translate-x": (v) => `translate: ${v.css} 0`,
+  "translate-y": (v) => `translate: 0 ${v.css}`,
+  "scale-x":     (v) => `scale: ${v.css} 1`,
+  "scale-y":     (v) => `scale: 1 ${v.css}`,
+  // Directional rotate / skew (S108 Bug 1 v3) — emit `transform: <fn>(<value>)`.
+  // The modern `rotate` CSS property is equivalent to rotate-z; `rotate-x` and
+  // `rotate-y` are 3D-only and require the `transform` shorthand (no standalone
+  // CSS prop). Skew has no standalone CSS prop at all — always transform.
+  "rotate-x": (v) => `transform: rotateX(${v.css})`,
+  "rotate-y": (v) => `transform: rotateY(${v.css})`,
+  "rotate-z": (v) => `transform: rotateZ(${v.css})`,
+  "skew-x":   (v) => `transform: skewX(${v.css})`,
+  "skew-y":   (v) => `transform: skewY(${v.css})`,
 };
 
 // Overloaded prefixes — property depends on value shape.
@@ -1245,8 +1273,17 @@ const VALID_MATH_FUNCTIONS = new Set([
   "calc", "min", "max", "clamp", "var",
   "repeat", "minmax", "fit-content",
   "cubic-bezier", "steps",
+  // 2D transform functions (S108 Bug 1 v3 transform shorthand support).
+  // Names are lowercased before lookup (CSS function names are case-insensitive).
+  "rotate", "scale", "translate", "skew",
+  "rotatex", "rotatey", "rotatez",
+  "translatex", "translatey", "translatez",
+  "scalex", "scaley", "scalez",
+  "skewx", "skewy",
+  // 3D + matrix transform functions (S108 Bug 1 v2 baseline).
   "rotate3d", "translate3d", "scale3d", "matrix", "matrix3d",
-  "skew", "skewx", "skewy",
+  // Perspective + filter helpers commonly used in transform contexts.
+  "perspective",
 ]);
 
 // CSS-wide keywords accepted as bare values.

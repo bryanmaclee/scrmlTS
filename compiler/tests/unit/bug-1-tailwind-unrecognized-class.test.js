@@ -170,9 +170,9 @@ describe("§2 Arbitrary-value class engine doesn't handle — warning fires", ()
     expect(firedOn(diags, "skew-[10deg]")).toBe(true);
   });
 
-  test("`translate-x-[10px]` fires (still-unsupported family)", () => {
-    const diags = scan('<div class="translate-x-[10px]"></div>');
-    expect(firedOn(diags, "translate-x-[10px]")).toBe(true);
+  test("`ring-[2px]` fires (still-unsupported family)", () => {
+    const diags = scan('<div class="ring-[2px]"></div>');
+    expect(firedOn(diags, "ring-[2px]")).toBe(true);
   });
 
   test("`ring-[2px]` fires (still-unsupported family)", () => {
