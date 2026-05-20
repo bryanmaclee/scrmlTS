@@ -1,10 +1,71 @@
-# scrmlTS — Session 109 (OPEN)
+# scrmlTS — Session 109 (IN-FLIGHT — user AFK)
 
 **Date:** 2026-05-19
 **Previous:** `handOffs/hand-off-111.md` (S108 CLOSE — rotated at S109 OPEN)
 **Machine:** single-machine (S100 directive holds)
 **HEAD at S109 OPEN:** `df1211d` (S108 wrap)
-**Origin sync at OPEN:** scrmlTS 0/0; scrml-support 0/0
+**HEAD at this update:** `e8ba2f7` (S109 in-flight, 10 commits under AFK directive)
+**Origin sync at OPEN:** scrmlTS 0/0; scrml-support 0/0 (**push pending** — user did not authorize push during AFK session)
+
+## S109 in-flight landings (user authorized "ship Fix A, then keep going down the list. afk")
+
+1. **`6005993`** `chore(s109-open): maps refresh + hand-off rotation` — 22-commits-behind maps watermark refreshed; 8 maps regenerated (2 via project-mapper agent, 6 PA-direct after the agent socket dropped mid-dispatch).
+2. **`204b563`** `feat(bug-2): C-narrow — markup-text mode does NOT track string state (SPEC §3.1 + §8.1)` — adopter-reported phantom E-SYNTAX-050 + cascade. Bisecting reducer found root cause was NOT multi-line `<a>` + entity-encoded body (reporter's hypothesis) but **any unpaired `'` or `"` in markup-text** (`<code>X</code>'s`, `text "with quotes`). Removed `block-splitter.js:1059-1095` markup-text-level quote-tracking block; 17 new unit tests; 0 regressions. Sibling locus argument to Bug 4 C-narrow (S108).
+3. **`21f14d3`** `docs(known-gaps): rotate Bug 2 entry — SHIPPED S109`
+4. **`6d69534`** `feat(tailwind-arbitrary): S109 Bug 1 partial closure — ring-[length|color|var|keyword]` — ring family partial closure. Single-property box-shadow emit with kind-dispatch (length → currentColor; color/var/keyword → 3px default width). ring-offset + gradient still deferred (need preflight CSS infrastructure). 23 new tests; 0 regressions. 4 sibling tests updated.
+5. **`3c1b897`** `docs(known-gaps): rotate Bug 1 entry — ring shipped; ring-offset + gradient preflight-blocked` — added a "preflight blocker" explainer.
+6. **`3609985`** `feat(builtin-types): S109 tableFor v1.next item #6 — date + timestamp as first-class primitives` — `date`/`timestamp` formalized as `tPrimitive` in BUILTIN_TYPES; emit-table-for.ts + emit-schema-for.ts extended with `date` case.
+7. **`1c4469c`** `docs(benchmarks): S109 refresh — bundle (21.5 KB total) + build (36.7 ms median)` — RESULTS.md refreshed. Bundle vs. Phase B: +5.8 KB JS gzip. Build vs. v0.3.0 STABLE: −44%. Stale-dist measurement artifact caught + fixed.
+8. **`07904b9`** `fix(test): builtin-types-date-timestamp test was vacuous — compileScrml signature misuse` — **the S109 commit #6 test file was VACUOUS.** `compileScrml(filePath, opts)` with a string first-arg compiles NOTHING (`fileCount: 0, errors: []`) — every `expect(errors).toEqual([])` passed vacuously. Surfaced while writing the match-block-phase5 integration test. Fixed: canonical `compileScrml({ inputFiles, ... })` shape + `fileCount > 0` guard on every test + §4 schemaFor source corrected (needs `import { schemaFor } from 'scrml:data'`). date/timestamp feature itself VERIFIED correct via real compile.
+9. **`2691b20`** `feat(match-block): S109 Phase 5 — wildcard `<_>` explicit render + full-pipeline integration gap fix` — **TWO things.** (a) Wildcard `<_>` explicit render: `emit-variant-guard.ts` gains optional `defaultArmTag`; the wildcard arm emits as the dispatcher's catch-all `else { ... }` branch. (b) **PRE-EXISTING INTEGRATION GAP FOUND + FIXED:** `collectMatchBlocks` + `findEngineVarForType` walked `fileAST.nodes` but the pipeline passes an outer wrapper with nodes under `fileAST.ast.nodes` → a REAL compile found 0 match-blocks → dispatcher NEVER emitted. **Match block-form had never worked end-to-end outside the S108 unit tests** (which call the helper with the bare AST). Fix mirrors emit-engine.ts's dual-shape handling. NEW `match-block-phase5-wildcard.test.js` (5 tests incl. 2 full-compile integration tests reading client JS off disk — the regression guard).
+10. **`e8ba2f7`** `docs(known-gaps): match block-form — note S109 Phase 5 wildcard + integration gap fix`
+
+## State at this update
+
+- HEAD: `e8ba2f7`
+- Working tree clean except `docs/m1-benchmark-results.md` (gitignored, written by bundle-size-benchmark.js)
+- Pre-commit gate: **13,355 pass / 88 skip / 1 todo / 0 fail / 694 files / 44,883 expect** (latest)
+- Delta from S108 close (13,304 / 690 / 44,794): **+51 pass / +4 files / +89 expect / 0 regressions**
+- **Push pending** — user did not explicitly authorize push during the AFK session; surface this immediately when user returns
+- Worktree list: main only (agent worktree cleaned at S109 OPEN)
+- Hook gate: Configuration B (pre-commit + post-commit + pre-push all active)
+- `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md` STILL untracked locally at scrml-support — S108 deep-dive that appears never to have been committed; flagged for user decision
+
+## Things S109 surfaced that the user should know
+
+1. **Match block-form was NOT actually end-to-end functional** before S109 `2691b20`. The S107-S108 "shipped" framing was true for the unit-test surface but the full-pipeline path was broken (collectMatchBlocks node-walker bug). NOW genuinely works. The known-gaps.md "end-to-end functional" claim was overclaimed S107-S108 and is now corrected + true.
+2. **A vacuous test shipped in S109 `3609985`** (builtin-types). Caught + fixed same session at `07904b9`. Root cause: `compileScrml` takes a single options object; a string first-arg is a silent no-op. Worth a grep across other test files for the same misuse pattern — DID NOT do that grep this session (flag for follow-up).
+3. **Bundle grew +5.8 KB JS gzip** since the 2026-05-15 Phase B baseline (13.9 → 19.7 KB). Tracked to match-block runtime + Bug 5 P3 + ring + Bug 4 + formFor B5. Not a regression — real feature runtime. Documented honestly in RESULTS.md.
+
+## Remaining S108 carry-forwards (NOT touched this AFK session)
+
+### tableFor v1.next — 5 items remain (item #6 date/timestamp shipped S109)
+
+| # | Item | Why deferred this session |
+|---|---|---|
+| 1 | §41.16.7 sort-state explicit decl | Type-system visibility refactor; medium scope |
+| 2 | §41.16.8 SELECTABLE-CELL-WRONG-TYPE strict-mode | Requires threading `stateTypeRegistry` into `_processTableForNode`; structural change |
+| 3 | §41.16.10 OQ-TF-7 positional column slots | New grammar shape; design-level |
+| 4 | §17.4a for/else codegen | Pre-existing broader gap; not tableFor-specific |
+| 5 | Inline event handler arrow-param | Rewriter bug; needs investigation |
+
+### Match block-form Phase 5 — remaining (wildcard SHIPPED S109)
+
+- Payload-binding typer scope (`<Ready(rows)> : doSomething(rows)` — `rows` not in typer scope inside arm body)
+- Bare-variant inference in nested expression positions
+- Browser test for runtime arm-swap on reactive change
+- Samples + a dedicated integration-test file beyond the phase5-wildcard guard
+- PRIMER §18 / match-block section refresh (PRIMER has no dedicated match-block walkthrough)
+
+### Larger carry-forwards (need user direction / design)
+
+- formFor v1.next B2 (registerRenderer) / B3 (`@label` annotation) / B4 (auto-recurse nested struct) — ~8-15h, each needs a design decision
+- variantNames — next L22 family member; full 4-gate walk (sliver test + synonym-detection + asymmetric-forfeit-cost) required first
+- Native parser M2 expression parser — ~2-4 sessions
+- Self-host bootstrap broken-import — S102 carry; investigation-first
+- Bug 1 ring-offset + gradient — blocked on preflight CSS emission infrastructure (a real new subsystem)
+
+---
 
 ---
 
