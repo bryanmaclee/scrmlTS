@@ -28,7 +28,7 @@ import { splitBlocks } from "../../src/block-splitter.js";
 import { buildAST } from "../../src/ast-builder.js";
 import { rewriteSqlRefs } from "../../src/codegen/rewrite.js";
 import { compileScrml } from "../../src/api.js";
-import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -61,12 +61,33 @@ function collectSql(node, acc = []) {
   return acc;
 }
 
+// `compileScrml` takes a SINGLE options object — `compileScrml(stringPath)`
+// is a silent no-op (compiles nothing, returns `{ fileCount: 0, errors: [] }`).
+// `write: true` emits to disk; the result object has no per-file `serverJs` /
+// `clientJs` fields, so the emitted JS is read back off the output dir.
+// Returns `{ result, emittedJs }` where emittedJs is every `.js` file in the
+// output dir concatenated. `fileCount` is asserted > 0 by callers so a
+// vacuous no-compile can never pass.
 function compile(source) {
   const dir = mkdtempSync(join(tmpdir(), "scrml-nobatch-"));
   const file = join(dir, "test.scrml");
+  const outDir = join(dir, "dist");
   writeFileSync(file, source);
   try {
-    return compileScrml(file);
+    const result = compileScrml({
+      inputFiles: [file],
+      outputDir: outDir,
+      write: true,
+      verbose: false,
+      log: () => {},
+    });
+    let emittedJs = "";
+    try {
+      for (const f of readdirSync(outDir)) {
+        if (f.endsWith(".js")) emittedJs += readFileSync(join(outDir, f), "utf8") + "\n";
+      }
+    } catch { /* outDir may not exist if compile failed — emittedJs stays "" */ }
+    return { result, emittedJs };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -216,9 +237,13 @@ describe("§8 end-to-end compile: no `.nobatch(` in emitted JS", () => {
       "} }",
       "</>",
     ].join("\n");
-    const result = compile(source);
-    const outputs = [result.serverJs, result.clientJs, result.libraryJs, result.html, result.css].filter(Boolean);
-    const all = outputs.join("\n");
-    expect(all).not.toContain(".nobatch(");
+    const { result, emittedJs } = compile(source);
+    // Guard against a vacuous no-compile (string-first-arg API misuse).
+    expect(result.fileCount).toBeGreaterThan(0);
+    expect(result.errors).toEqual([]);
+    // The emitted JS must exist (the server fn produces a server-JS chunk)
+    // AND must not leak the compile-time `.nobatch()` marker.
+    expect(emittedJs.length).toBeGreaterThan(0);
+    expect(emittedJs).not.toContain(".nobatch(");
   });
 });
