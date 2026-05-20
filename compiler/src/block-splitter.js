@@ -38,7 +38,10 @@
  *   §4.4                 Closer forms (trailing, explicit, inferred/bare)
  *   §4.6 (PA-001)        `<` suppression inside brace-delimited contexts
  *   §4.7 (PA-002)        `//` comment suppression to end of line
- *   §4.8 (PA-004)        Bare `/` only recognized outside braces and outside quoted strings
+ *   §4.8 (PA-004)        Bare `/` only recognized outside braces; markup-text mode
+ *                        does NOT track string state per Bug 2 C-narrow S109 (locus
+ *                        argument: strings live in Logic context + attr-value scope,
+ *                        not in markup-text body — sibling to Bug 4 C-narrow S108)
  *
  * Component vs HTML element convention:
  *   HTML elements use lowercase names (<div>, <input>, <button>).
@@ -1049,50 +1052,50 @@ export function splitBlocks(filePath, source) {
     }
 
     // -----------------------------------------------------------------------
-    // Quote state tracking (section 4.8) - applies at markup/state level only.
-    // We track global quote state for bare-/ disambiguation.
-    // Tag attribute content is handled by scanAttributes() with LOCAL state.
-    // Inside brace-delimited contexts, quote tracking is skipped because
-    // brace contexts only need to count { and } depth; regex literals and
-    // other quote-containing patterns can cause false state transitions.
+    // Quote state tracking RETIRED in markup-text mode (Bug 2 C-narrow, S109).
+    //
+    // Pre-S109 behavior: at markup/state level (outside braces), a stray `'`
+    // or `"` toggled a global "in-string" mode and the rest of the file was
+    // consumed as raw content until the matching quote appeared. This was
+    // intended to protect the bare-`/` closer heuristic from misfiring inside
+    // paired-quote strings in markup-text (e.g., `<p>"text /<tag>" more</p>`).
+    //
+    // The protection was **net-negative**:
+    //   - common bug class: unpaired quote in markup-text prose
+    //     (`<code>X</code>'s` / `text 'with apostrophe` / typo'd `"`)
+    //     ate the rest of the file → silent cascade of unclosed-element
+    //     errors with a wrong line number. The dogfood Bug 2 report was the
+    //     surfacing — adopter wrote scrml-about-scrml prose with possessive
+    //     apostrophe-s and compile blew up.
+    //   - rare protected class: paired-quote string containing `/<X` in
+    //     markup-text body. Author can entity-escape (`&#47;` / `&lt;`) if
+    //     this ever happens in real prose.
+    //
+    // Locus argument (mirrors Bug 4 C-narrow at SPEC §4.17, S108): strings
+    // live in **Logic context** (inside braces) and in **attribute values**
+    // (handled by scanAttributes() with LOCAL state). Markup-text body is
+    // text — no string concept. Tracking string state at the markup-state
+    // level was an over-reach.
+    //
+    // The bare-`/` closer recognizer at line ~1973 already requires next
+    // non-whitespace == `<` or EOF (looksLikeCloser) — plain `/` in text
+    // doesn't fire it. The string-mode protection was only load-bearing for
+    // the very narrow `quote-/<X-quote` shape; that shape is now a
+    // documented edge case with an entity-escape workaround.
+    //
+    // The inDoubleQuote / inSingleQuote variables remain declared (line ~214)
+    // and reset at tag-context boundaries (~1706, ~1736, ~1899, ~1933,
+    // ~1962). Those resets are now defensive no-ops in markup-text. The
+    // `//` comment scanner (line ~969) and `<!--` HTML comment scanner
+    // (line ~1011) gate on `!inDoubleQuote && !inSingleQuote` — those gates
+    // are trivially true now in markup-text (which is the right behavior:
+    // `//` and `<!--` are well-defined comment markers regardless of nearby
+    // text-level apostrophes).
+    //
+    // Deep-dive cross-ref: `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md`
+    // §"Broad C extension" + Q-BUG4-OPEN-5 (this is the sibling locus violation
+    // closed at S109).
     // -----------------------------------------------------------------------
-    if (!topIsBraceContext()) {
-      if (!inSingleQuote && c === '"') {
-        const escaped = curPos > 0 && source[curPos - 1] === "\\";
-        if (!escaped) inDoubleQuote = !inDoubleQuote;
-        beginText();
-        step();
-        continue;
-      }
-      if (!inDoubleQuote && c === "'") {
-        const escaped = curPos > 0 && source[curPos - 1] === "\\";
-        if (!escaped) {
-          if (inSingleQuote) {
-            // Close the string
-            inSingleQuote = false;
-          } else {
-            // Only open single-quote string mode if the ' is NOT embedded in a word.
-            // Apostrophes in contractions (We'll, it's, can't) are preceded by a
-            // letter/digit and should NOT suppress a subsequent bare '/' closer.
-            // A word-initial ' (preceded by whitespace, '>', or start) IS a string.
-            const prev = curPos > 0 ? source[curPos - 1] : " ";
-            if (!/[A-Za-z0-9]/.test(prev)) {
-              inSingleQuote = true;
-            }
-          }
-        }
-        beginText();
-        step();
-        continue;
-      }
-
-      // Inside a quoted string: everything is raw content
-      if (inDoubleQuote || inSingleQuote) {
-        beginText();
-        step();
-        continue;
-      }
-    }
 
     // -----------------------------------------------------------------------
     // Brace-delimited context handling
