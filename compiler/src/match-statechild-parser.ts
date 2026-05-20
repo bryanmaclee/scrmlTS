@@ -515,8 +515,18 @@ export function extractEnumVariants(rawText: string): string[] {
       continue;
     }
     variants.push(name);
-    // Skip payload arglist `(...)` if present
-    if (pos < len && s[pos] === "(") {
+    // Skip whitespace BEFORE checking for the payload arglist. The enum
+    // type-decl's `raw` is tokenizer-JOINED text — `Ready(count: int)` in
+    // source arrives here as `Ready ( count : int )` with spaces around the
+    // parens. S109 fix: pre-S109 the `s[pos] === "("` check ran immediately
+    // after the name and saw the space, NOT the `(`, so the payload skip
+    // never fired — `count` + `int` were then read as PHANTOM variant names,
+    // firing a spurious E-MATCH-NOT-EXHAUSTIVE on every payload-bearing enum
+    // used in a `<match for=Type>` block. (Match block-form Phase 5.)
+    let probe = pos;
+    while (probe < len && /\s/.test(s[probe])) probe++;
+    if (probe < len && s[probe] === "(") {
+      pos = probe;
       let depth = 1;
       pos++;
       while (pos < len && depth > 0) {

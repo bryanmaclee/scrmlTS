@@ -351,4 +351,92 @@ describe("extractEnumVariants helper", () => {
     const variants = extractEnumVariants("{ Idle, Ready(rows), Failed(msg: string) }");
     expect(variants).toEqual(["Idle", "Ready", "Failed"]);
   });
+
+  // S109 Phase 5 — the enum type-decl's `raw` field is tokenizer-JOINED text:
+  // `Ready(count: int)` in source arrives as `Ready ( count : int )` with
+  // spaces around the parens. Pre-S109, extractEnumVariants checked `s[pos]
+  // === "("` immediately after the variant name and saw the SPACE, not the
+  // `(`, so the payload-skip never fired — `count` + `int` were read as
+  // phantom variants and fired a spurious E-MATCH-NOT-EXHAUSTIVE. Fixed by
+  // skipping whitespace before the `(` probe.
+  test("strips payload arglists with tokenizer-joined spacing (S109 regression guard)", () => {
+    const variants = extractEnumVariants("{ Idle , Ready ( count : int ) }");
+    expect(variants).toEqual(["Idle", "Ready"]);
+  });
+
+  test("strips multi-field payload arglists with tokenizer spacing", () => {
+    const variants = extractEnumVariants(
+      "{ A ( x : int ) , B ( y : string , z : int ) , C }"
+    );
+    expect(variants).toEqual(["A", "B", "C"]);
+  });
+
+  test("trailing unit variant after a spaced payload variant", () => {
+    const variants = extractEnumVariants("{ Idle , Ready ( count : int ) , Done }");
+    expect(variants).toEqual(["Idle", "Ready", "Done"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §12: payload-bearing enums — exhaustiveness no longer spuriously fails
+//      (S109 Phase 5 — extractEnumVariants tokenizer-spacing fix)
+// ---------------------------------------------------------------------------
+
+describe("§12: payload-bearing enum in <match> — no spurious E-MATCH-NOT-EXHAUSTIVE", () => {
+  test("`Ready(count: int)` enum + both arms covered → exhaustive (no false positive)", () => {
+    const r = compile(`\${
+    type Phase:enum = { Idle, Ready(count: int) }
+    <phase>: Phase = .Idle
+}
+<page>
+    <match for=Phase on=@phase>
+        <Idle> : "waiting"
+        <Ready> : "ready"
+    </match>
+</>
+`);
+    // Pre-S109 this fired `E-MATCH-NOT-EXHAUSTIVE: missing arm(s) for
+    // variant(s): .count, .int` — the payload field name + type were read
+    // as phantom variants.
+    expect(findDiagnostic(r, "E-MATCH-NOT-EXHAUSTIVE")).toBeNull();
+  });
+
+  test("payload-bearing variant with a binding `<Ready(count)>` compiles clean", () => {
+    const r = compile(`\${
+    type Phase:enum = { Idle, Ready(count: int) }
+    <phase>: Phase = .Idle
+}
+<page>
+    <match for=Phase on=@phase>
+        <Idle> : "waiting"
+        <Ready(count)> : count
+    </match>
+</>
+`);
+    expect(findDiagnostic(r, "E-MATCH-NOT-EXHAUSTIVE")).toBeNull();
+    // The payload binding path is reachable now — no scope/name errors on
+    // `count` referenced in the `:`-shorthand arm body.
+    expect(findDiagnostic(r, "E-NAME-NOT-FOUND")).toBeNull();
+    expect((r.errors || []).length).toBe(0);
+  });
+
+  test("genuinely-missing variant STILL fires E-MATCH-NOT-EXHAUSTIVE (regression guard)", () => {
+    const r = compile(`\${
+    type Phase:enum = { Idle, Ready(count: int), Done }
+    <phase>: Phase = .Idle
+}
+<page>
+    <match for=Phase on=@phase>
+        <Idle> : "waiting"
+        <Ready> : "ready"
+    </match>
+</>
+`);
+    // `Done` is genuinely uncovered — the fix must NOT suppress real misses.
+    const d = findDiagnostic(r, "E-MATCH-NOT-EXHAUSTIVE");
+    expect(d).not.toBeNull();
+    expect(d.message).toContain(".Done");
+    expect(d.message).not.toContain(".count");
+    expect(d.message).not.toContain(".int");
+  });
 });
