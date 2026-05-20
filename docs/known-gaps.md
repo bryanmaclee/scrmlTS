@@ -12,7 +12,12 @@
 
 ## MED-HI
 
-### Bug 1 — Tailwind arbitrary-value classes silently no-op — `full-fix-shipped` (S108) for grid/flex/aspect + transition/timing + transforms (individual + shorthand + directional) + outline; ring + gradient + safelist still open
+### Bug 1 — Tailwind arbitrary-value classes silently no-op — `full-fix-shipped` (S108-S109) for grid/flex/aspect + transition/timing + transforms (individual + shorthand + directional) + outline + ring (length/color/var/keyword); ring-offset + gradient + safelist still open
+
+**S109 — `ring-[length|color|var|keyword]` SHIPPED** (commit `6d69534`). Single-property `box-shadow` emit with kind-dispatch — `ring-[3px]` → `box-shadow: 0 0 0 3px currentColor`; `ring-[red]` / `ring-[#ff0000]` / `ring-[var(--c)]` → `box-shadow: 0 0 0 3px <value>` (3px default width matching Tailwind's named `ring-3`). Variants compose (`md:` / `dark:` / `hover:` / `focus:`). 23 new unit tests at `compiler/tests/unit/bug-1-tailwind-ring-family.test.js`.
+
+**Still deferred (`ring-offset-*` + `bg-gradient-*` + `from-*` / `to-*` / `via-*`):** These require Tailwind's preflight `*, ::before, ::after` custom-property layer (`--tw-ring-offset-shadow` / `--tw-ring-shadow` / `--tw-gradient-stops`). scrml doesn't yet have preflight CSS emission infrastructure. Once that lands, both `ring-offset-*` and the entire gradient family can ride the same machinery.
+
 
 **S108 — FULL-FIX FOR GRID/FLEX/ASPECT + TRANSITION/TIMING + TRANSFORMS + OUTLINE FAMILIES SHIPPED** in three waves. Wave 1 (S108 `37f8f62`): grid family (`grid-cols-`, `grid-rows-`, `col-span-`, `row-span-`, `col-start/end-`, `row-start/end-`), flex family (`flex-`, `grow-`, `shrink-`, `order-`, `basis-`), aspect family (`aspect-`) + universal underscore-as-space convention + ratio shape `aspect-[16/9]` + grid-track CSS functions (`repeat()`, `minmax()`, `fit-content()`). Wave 2 (S108 v2 follow-on `bdb9287`): transition/timing family (`transition-`, `duration-`, `delay-`, `ease-`) with `cubic-bezier()` + `steps()` function support; modern individual transform props (`rotate-`, `scale-`, `translate-`); outline family (`outline-`, `outline-offset-`). Wave 3 (S108 v3 follow-on): transform shorthand (`transform-[rotate(45deg)_scale(1.5)]`) + directional `translate-x-` / `translate-y-` / `scale-x-` / `scale-y-` (emit modern individual CSS props with single-axis form) + directional `rotate-x-` / `rotate-y-` / `rotate-z-` / `skew-x-` / `skew-y-` (emit `transform: <fn>(...)` shorthand). VALID_MATH_FUNCTIONS expanded with all 2D + 3D transform function names (`rotate`, `scale`, `translate`, `skew`, `rotateX/Y/Z`, etc.).
 
@@ -20,11 +25,13 @@
 
 **S108 full-fix coverage:** 66-test wave-1 + 26-test wave-2 + 23-test wave-3 across `compiler/tests/unit/bug-1-tailwind-{arbitrary-value-emit,minor-families,transform-shorthand}.test.js`.
 
-**Remaining open** — Tailwind compound utilities that DON'T map 1:1 to a single CSS property: `ring-*` / `ring-offset-*` (box-shadow stack trick) + `bg-gradient-*` / `from-*` / `to-*` / `via-*` (gradient stop-color compound) + string-shaped values like `content-["text"]` + `font-[Inter]` (quoted strings need bracket-parser extension). All continue firing the lint with the `#{}` workaround. Also still open: safelist / `@apply` mechanism to distinguish custom user-defined classes from typos so the lint is precise on mixed Tailwind+custom-CSS codebases.
+**Remaining open** — Tailwind compound utilities that DON'T map 1:1 to a single CSS property AND require preflight CSS emission: `ring-offset-*` (offset machinery via `--tw-ring-offset-shadow`) + `bg-gradient-*` / `from-*` / `to-*` / `via-*` (gradient stop-color compound via `--tw-gradient-stops`) + string-shaped values like `content-["text"]` + `font-[Inter]` (quoted strings need bracket-parser extension). All continue firing the lint with the `#{}` workaround. Also still open: safelist / `@apply` mechanism to distinguish custom user-defined classes from typos so the lint is precise on mixed Tailwind+custom-CSS codebases.
+
+**The `*, ::before, ::after` preflight blocker:** Tailwind v3 emits a preflight stylesheet that sets default custom properties on every element (`--tw-ring-inset: ; --tw-ring-offset-width: 0px; --tw-ring-offset-color: #fff; --tw-ring-color: ...; --tw-gradient-from: ...; --tw-gradient-to: ...; --tw-gradient-stops: ...`). The named utilities then write into those custom properties + emit compound declarations like `box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)` that compose three contributions at runtime. scrml currently emits each utility as a self-contained declaration (no shared custom-property layer). The preflight emission would need to fire ONCE per build (not per file) and inject the defaults globally. Filed as a follow-on for ring-offset + gradient ratification.
 
 - **Workaround (for still-deferred families):** drop a `#{}` CSS shim block with the rules written by hand.
 - **Reproducer + analysis:** [`handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md`](../handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md) §"Bug 1".
-- **Status:** FLOOR closed S108; full-fix for grid/flex/aspect + transition/timing + individual transforms + outline shipped S108; ring + gradient + transform shorthand + safelist still open.
+- **Status:** FLOOR closed S108; full-fix for grid/flex/aspect + transition/timing + individual transforms + outline + transform shorthand + directional shipped S108; ring (length/color/var/keyword single-property emit) shipped S109; ring-offset + gradient (preflight-blocked) + string-shaped values + safelist still open.
 
 ---
 
