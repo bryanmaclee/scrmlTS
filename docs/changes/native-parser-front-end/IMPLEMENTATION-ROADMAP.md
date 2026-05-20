@@ -162,18 +162,48 @@ node sink + `delegationStack`; punch-list P1), `block-context.scrml`/.js (the
 Milestone-level scope only — the charter dive + S98 D7 have the detail. Each gets a
 per-sub-step decomposition appended to this roadmap when its turn comes (as M2/MK1 did).
 
+### §3.1 MK2 — `TagFrame` engine (DECOMPOSED S113 — DISPATCH-READY)
+
+**Decomposed S113** (PA, from charter dive Q1.F `TagFrame` sketch + Q1.G composite
+picture + Q2.A heuristic table + Q4.A/Q4.B). MK2's turn in the markup chain — MK1 ✅.
+
+**Goal (charter Q4.A MK2 gating):** tag-tree + closer-form output equivalent to the
+current BS block tree on the conformance corpus; the 5 BS classifier heuristics
+demonstrably do not exist (one regression test per Q2.A #1-5).
+
+**Scope boundary:** MK2 is the `<tag>` TREE — opener/closer pairing, the 3 closer
+forms, `TagKind`. It is NOT `BodyMode`/`DisplayTextLiteral` (§4.18 quoted-text — that
+is MK3). A state-child's body MODE is carried as `TagFrame` payload but the `BodyMode`
+engine itself lands at MK3.
+
+**Inputs:** charter dive Q1.F (`TagFrame` 3-variant engine sketch + `TagKind` calc) +
+Q1.G (how `BlockContext`/`BodyMode`/`TagFrame`/`DisplayTextLiteral` compose) + Q2.A
+(the 12 heuristics — MK2 eliminates the 5 classifier ones) + R1 seam punch-list P4/P5.
+MK1's `block-context.scrml` + `parse-markup.scrml` are the substrate to extend (MK2
+wires `TagFrame` into the `.InMarkupTag` boundary MK1.2 established).
+
+**File ownership (new files under `compiler/native-parser/`):** `tag-frame.scrml`/.js
+(the `<engine for=TagFrame>` + the `TagKind` calc + the structural-element registry).
+MK2 EXTENDS `block-context.scrml` + `parse-markup.scrml` (MK1's files) to dispatch into
+`TagFrame` at the `.InMarkupTag` boundary. MK2 does NOT create the JS-parser files (M2
+owns those) and does NOT create `body-mode.scrml` (MK3 owns it).
+
+| Sub-step | Scope | Est. | Depends |
+|---|---|---|---|
+| **MK2.1** | **`TagFrame` engine skeleton + opener recognition + `TagKind` calc.** `tag-frame.scrml` — `type TagFrame:enum` (`Closed` / `OpenExpectingChildren(name, kind, depth, span)` / `OpenSelfClosed(name, kind, span)` per Q1.F — payload-bearing state-children, the `bracket-stack.scrml` `.OpenAt` pattern) + `<engine for=TagFrame initial=.Closed>` + `rule=` contract. `type TagKind:enum = {Html, Component, ScrmlStructural, StateOpener}` + the `TagKind` **calculation** — a pure `fn` of opener name + whitespace shape (`<ident` vs `< ident`) + first-char case + structural-element-registry membership (per Q1.F + D1 OQ1 negative-example rule: pure-function-of-input-bytes ⇒ calculation, NOT an engine). The structural-element registry (`<engine>`/`<match>`/`<errors>`/`<onTransition>`/`<onTimeout>`/`<onIdle>`/`<channel>`/`<page>`/`<auth>` — SPEC §4.15 / §24.4). Opener recognition: tokenize the `<ident ...>` opener (one-pass attribute tokenizer), compute `TagKind`, push the frame. Wire into `parse-markup`'s `.InMarkupTag` dispatch. | 8-18h | MK1 ✅ |
+| **MK2.2** | **Closer forms + tag-tree pairing + mismatch recovery.** The 3 closer forms — `</>` (inferred), `</name>` (explicit), `/>` (self-closing) — recognized **structurally** (closed set; no `looksLikeCloser` bare-`/` guess). `TagFrame` `rule=` contract: opener pushes `.OpenExpectingChildren`, closer pops to `.Closed`; the stack IS the depth count (eliminates BS heuristic #5 `scanCompoundBlockEnd`). Mismatched `</name>` dispatches the `ErrorRecovery` engine (E-CTX-001 panic-mode — the same recovery the JS layer uses, scoped to block grammar). Output: the `<tag>` tree via recursive-descent / stack discipline. | 9-20h | MK2.1 |
+| **MK2.3** | **`TagKind`-driven classification completion + punch-list P4/P5 + conformance.** The grammar decides decl-vs-markup-vs-structural from `TagKind` + what follows the opener (eliminates BS heuristics #1 `isAfterTransitionArrow` + #4 `classifyOpenerForCompoundScan` — the recursive classifier). Punch-list **P4** — `markupValueAllowedAfter(lastKind)` discriminator (the JS layer's `InCode` dispatch consumes it). Punch-list **P5** — `TagFrame` exposes stack depth (for `CloseCondition.TagFrameBalanced`). Conformance: tag-tree + closer-form output equivalent to BS on the conformance corpus; one regression test per Q2.A #1-5 (the 5 classifier heuristics demonstrably gone). | 8-17h | MK2.2 |
+
+---
+
 - **M3 — JS statement parser.** Statement grammar; function bodies parsed **in-line**
   (subsumes BPP — `body-pre-parser.ts` deletes by construction); error-recovery engine
   accumulates skipped tokens + re-syncs. Gating: Tier 1+2 PASS full statement subset.
 - **M4 — full bounded JS subset.** All D5 MUST PARSE + MUST ADD; `preprocessForAcorn`
   regex cascades NOT NEEDED. Gating: Tier 1+2 full corpus; Tier 3 spans PASS-with-deltas.
-- **MK2 — `TagFrame` engine.** The `<tag>` tree, 3 closer forms (`</>`/`</name>`/`/>`),
-  structural-element recognition, `TagKind` (closed-rule calc). Punch-list P4
-  (`markupValueAllowedAfter`), P5 (`TagFrame` exposes stack depth). Gating: tag-tree +
-  closer output equivalent to BS; the 5 BS classifier heuristics demonstrably gone.
-  **Blocked-precondition:** OQ-2/R3 (§4.18.1/§40.8 program-body mode) — RESOLVED S111
-  (`78faa65`: `default-logic` is a distinct THIRD body-mode). MK2 detailed design honors
-  three body-modes (free-text / code-default / default-logic).
+- **MK2 — `TagFrame` engine** — ✅ DECOMPOSED S113 into MK2.1 / MK2.2 / MK2.3; see §3.1
+  above. (Blocked-precondition OQ-2/R3 §4.18.1/§40.8 program-body mode was RESOLVED S111
+  `78faa65` — `default-logic` is a distinct THIRD body-mode; MK2 honors all three modes.)
 - **MK3 — `BodyMode` + `DisplayTextLiteral`.** §4.18 native quoted-text. Punch-list P6
   (reuse M1's template-literal engine shape), P7 (thread `bodyMode` into delegation
   frames). Gating: every §4.18 worked example parses; `E-UNQUOTED-DISPLAY-TEXT` fires
@@ -242,6 +272,9 @@ within one quarter.
 | **MK1.1** shared ctx + BlockContext skeleton | ✅ landed S112 | scrml-js-codegen-engineer (worktree) | S112 | parse-ctx + block-context + parse-markup (.scrml+.js); makeParseContext (node sink + delegationStack) + 9-variant BlockContext engine + trampoline; skeleton step, full suite 16,213/0 |
 | MK1.2 context-boundary recognition | ✅ landed S112 | scrml-js-codegen-engineer (worktree) | S112 | 7 block-opener sigils + brace-depth closing + `<ident` boundary + `.InLogicEscape` DelegationFrame push; nested-context stack; +45 unit tests; full suite 16,372/0 |
 | MK1.3 comments + sub-context stubs + conformance | ✅ landed S112 | scrml-js-codegen-engineer (worktree) | S112 | structural `//` + `<!-- -->` comment recognition (BS heuristics #6/#7 eliminated); 5 sub-context sketch-depth dispatchers; markup block-tree conformance harness vs the block-splitter oracle (D-1..D-4 divergences documented); +65 tests; full suite 16,649/0. **MK1 ladder complete.** |
-| M3 / M4 / MK2 / MK3 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
+| **MK2.1** TagFrame engine + opener recognition + TagKind | ⬜ pending | — | — | §3.1 — DISPATCH-READY |
+| MK2.2 closer forms + tag-tree pairing + mismatch recovery | ⬜ pending | — | — | §3.1 — depends MK2.1 |
+| MK2.3 TagKind classification + P4/P5 + conformance | ⬜ pending | — | — | §3.1 — depends MK2.2 |
+| M3 / M4 / MK3 / MK4 / M5 / M6 | ⬜ pending | — | — | decompose when scheduled (§3) |
 
 **Legend:** ⬜ pending · ⏳ in flight · ✅ complete · 🟥 blocked

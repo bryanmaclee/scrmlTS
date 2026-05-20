@@ -1,19 +1,20 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-20T13:42:44-06:00  commit: 78faa65
+# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
 
 This is a compiler. There is no database schema or external API schema.
 The "schemas" below are the compiler's internal data structures: the AST node
-union, the codegen IR, the symbol table, and the auth-graph / reachability types.
+union, the codegen IR, the symbol table, the auth-graph / reachability types,
+and (NEW) the native-parser's Expr AST + engine catalog.
 scrml *source files* (`.scrml`) declare their own data via `<schema>` blocks,
 struct/enum `<Type>` declarations, and `schemaFor()` — that is runtime DDL the
 compiler emits, not a schema of this codebase.
 
-## AST Node Types  [compiler/src/types/ast.ts — 1927 lines]
+## AST Node Types — live pipeline  [compiler/src/types/ast.ts — 1927 lines]
 
 Discriminated union; every node has `kind` (string literal), `id`, `span`.
 `ASTNode` (line 1381) is the top-level union; `LogicStatement` (1332) the
-statement sub-union.
+statement sub-union. UNCHANGED since commit 78faa65.
 
 ### Source Location
 Span [ast.ts:21] — file, start, end (byte offsets), line, col
@@ -61,6 +62,79 @@ ImportSpecifier [1146] · TransactionBlockNode [1256] · CleanupRegistrationNode
 WhenEffectNode [1277] · WhenMessageNode [1291] · UploadCallNode [1302]
 ErrorArm [165] · SQLChainedCall [182] · LiftTarget [195]
 
+## Native-Parser Expr AST  [compiler/native-parser/ast-expr.{scrml,js}]
+
+NEW since 78faa65. The expression-AST catalog the scrml-native parser (M2)
+produces. SEPARATE from the live ast.ts union above — consumed only by
+native-parser tests, not the pipeline.
+
+### ExprKind  [ast-expr.js:5 — Object.freeze enum, 28 variants]
+Primary literals:   Ident · NumberLit · StringLit · BoolLit · RegexLit · TemplateLit
+scrml extensions:   AtCell · BareVariant
+Keyword atoms:      This · Super
+Composite:          Array · Object · Paren
+Operators (M2.2):   Unary · Update · Binary · Logical · Assignment · Conditional · Sequence
+Call/member (M2.3): Call · New · Member · TaggedTemplate · Arrow · Function
+Pattern/body-stub:  RestElement · AssignmentPattern · BlockStub
+
+### Sub-kind enums
+ArrayElementKind   [ast-expr.js:51] = Item · Spread · Hole
+ObjectPropertyKind [ast-expr.js:57] = KeyValue · Shorthand · Spread · Method
+
+### Node constructors  [ast-expr.js:66-220 — 35 `make*` pure constructors]
+makeIdent · makeNumberLit · makeStringLit · makeBoolLit · makeRegexLit
+makeTemplateLit · makeTemplateQuasi · makeAtCell · makeBareVariant · makeThis
+makeSuper · makeArray · makeObject · makeParen · makeArrayItem · makeArraySpread
+makeArrayHole · makeObjectKeyValue · makeObjectShorthand · makeObjectSpread
+makeObjectMethod · makeUnary · makeUpdate · makeBinary · makeLogical
+makeAssignment · makeConditional · makeSequence · makeCall · makeNew · makeMember
+makeArrow · makeFunction · makeTaggedTemplate · makeRestElement
+makeAssignmentPattern · makeBlockStub  ·  isExpr (predicate)
+
+## Native-Parser Token catalog  [compiler/native-parser/token.{scrml,js}]
+
+TokenKind     [token.js:5]   — Object.freeze enum, nested-by-category; all JS-subset
+                               token kinds (keywords, idents, numerics, punctuation,
+                               operators) + scrml extensions + (M1.2) TemplateInterpStart
+                               / TemplateInterpEnd + RegexLit token
+QuoteKind     [token.js:125] — Single · Double · Backtick
+JS_KEYWORDS   [token.js:131] — keyword-string → TokenKind lookup table
+Constructors: makeToken · makeIdentOrKeyword · makeEof
+Span          [span.js]      — { start, end, line, col } struct; pure-data construction
+
+## Native-Parser Engine declarations (state-shape, Pillar 5b)
+
+All declared as `<engine>` in the `.scrml` canonical; the `.js` shadow carries
+the live JS-host mirror. See domain.map.md for the composed-engines architecture.
+
+LexMode      [lex-mode.scrml:112]   — JS-lexer context engine; initial `.InCode`;
+  7 state-children: InCode · InTemplateBody · InSingleString · InDoubleString ·
+  InLineComment · InBlockComment · InRegexBody. `.InTemplateBody` is a COMPOSITE
+  state-child nesting `<engine for=LexMode var=innerLexMode>` (§51.0.Q.1).
+BracketStack [bracket-stack.scrml]  — bracket-depth + opener-frame engine; variants
+  `.Balanced` / `.OpenAt(depth, opener, span)`; live frame stack in the `.js` shadow.
+ErrorRecovery[error-recovery.scrml] — parse-error recovery engine; 3 state-children:
+  ParsingNormally · AccumulatingSkipped · ReSynchronized; full rule= matrix.
+ParseMode    [parse-mode.scrml:92]  — JS expression/statement context engine; initial
+  `.TopLevel`; 7 state-children: TopLevel · InExpression · InArrayLiteral ·
+  InObjectLiteral · InFunctionBody · InClassBody · InArguments. `.InObjectLiteral`
+  is COMPOSITE (nests an inner `<engine for=ParseMode var=innerParseMode>`).
+BlockContext [block-context.scrml:155] — MARKUP-LAYER context-grid engine; initial
+  `.TopLevel`; 10 state-children: TopLevel · InMarkupTag · InLogicEscape · InCss ·
+  InSql · InErrorEffect · InMeta · InTest · InForeignCode. `.InMarkupTag` nests a
+  BodyMode engine; `.InLogicEscape` nests the LexMode engine graph (markup→JS seam).
+BodyMode     (nested, declared inside block-context.scrml) — markup-tag body mode;
+  `.FreeText` / `.CodeDefault` (§4.18; substantive body is MK3's job).
+
+## Native-Parser parse-context object  [compiler/native-parser/parse-ctx.{scrml,js}]
+
+`makeParseContext()` [parse-ctx.js:20] — the shared seam substrate; EXTENDS M1's
+`makeLexContext` (adds an AST node sink + a delegation-frame stack).
+Helpers: appendNode · nodeCount · appendBlock · makeBlockNode · makeDelegationFrame
+· pushDelegationFrame · popDelegationFrame · topDelegationFrame · delegationDepth
+· inDelegation. Close-condition constructors: closeOnBraceDepth ·
+closeOnTagFrameBalanced · closeOnAttrTerminator · closeOnShorthandEol.
+
 ## Codegen IR  [compiler/src/codegen/ir.ts — 253 lines]
 
 ### FileIR [ir.ts:43] — top-level IR for one compiled .scrml file
@@ -98,10 +172,11 @@ RoleClassificationEntry [244]
 RSInput [271] · RSOutput [323] · RSError [343]
 
 ## Tags
-#scrmlts #map #schema #ast #ir #compiler #types
+#scrmlts #map #schema #ast #ir #compiler #types #native-parser #expr-ast
 
 ## Links
 - [primary.map.md](./primary.map.md)
 - [master-list.md](../../master-list.md)
 - [pa.md](../../pa.md)
 - [domain.map.md](./domain.map.md)
+- [structure.map.md](./structure.map.md)

@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-20T13:42:44-06:00  commit: 78faa65
+# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
 
 This compiler does not `throw` to signal user-facing errors. Each pipeline
 stage collects structured *diagnostic* objects (code + message + span +
@@ -11,7 +11,7 @@ source, not this map.
 
 ## Per-Stage Diagnostic Classes (one per pipeline stage)
 All have the same shape: `{ code, message, span, severity }` where
-severity ∈ "error" | "warning" | "info".
+severity ∈ "error" | "warning" | "info". UNCHANGED since commit 78faa65.
 
 TABError  — compiler/src/ast-builder.js:1232 — Stage 3 (Tokenizer + AST Builder). Extends `Error` (the one diagnostic class that is a real throwable; also used as a collected diagnostic).
 PAError   — compiler/src/protect-analyzer.ts:126 — Stage 4 (protect= Analyzer)
@@ -49,6 +49,16 @@ SPEC §19 defines scrml's *runtime* error model — `fail`, `?` (propagate),
 `!` (assert), `errorBoundary`, `renders` clause, the renderable error enum,
 implicit per-handler transactions. The compiler *emits* this; these are not
 error-handling patterns of the scrmlts repo itself.
+
+## Native-Parser Error Handling  [compiler/native-parser/]
+The native-parser front-end (parallel track) models recovery as an `<engine>`,
+not thrown errors: `error-recovery.scrml` declares the `ErrorRecovery` engine
+(`.ParsingNormally` / `.AccumulatingSkipped` / `.ReSynchronized`) — the
+DD §D4 P4 canonical positive state example. At the current milestones (M1/M2/MK1)
+several scanners (string / comment / regex bodies) TOLERATE EOF / unterminated
+input and defer the diagnostic to a later milestone rather than failing — see
+native-parser/README.md "M1.4 status". No native-parser diagnostic codes are
+wired into the live SPEC §34 catalog yet.
 
 ## Dedicated Lint Passes (emit W-*/I-* diagnostics)
 compiler/src/lint-ghost-patterns.js — W-LINT-001..015 ghost-pattern detection

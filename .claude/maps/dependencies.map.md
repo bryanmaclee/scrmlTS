@@ -1,6 +1,6 @@
 # dependencies.map.md
 # project: scrmlts
-# updated: 2026-05-20T13:42:44-06:00  commit: 78faa65
+# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
 
 The repo is a Bun workspace: root `scrmlts` + `compiler` workspace member.
 External-dependency surface is intentionally tiny — scrml's "no-build" pitch.
@@ -28,7 +28,7 @@ typescript@^5.0.0 (dev) — extension build
 Bun >= 1.3.13 (package.json `engines`) — the only supported runtime
 No transpile step — `.ts` source runs directly under Bun.
 
-## Internal Module Graph
+## Internal Module Graph — live pipeline (compiler/src/)
 The compiler pipeline is a linear chain orchestrated by `api.js`.
 api.js imports, in pipeline order:
   block-splitter → ast-builder → name-resolver / symbol-table → module-resolver
@@ -50,8 +50,37 @@ binding-registry.ts, type-encoding.ts).
 reachability-solver.ts → reachability/{component-1..5, entry-points,
 gate-classifier, outer-fixpoint}.
 
+## Internal Module Graph — native-parser (compiler/native-parser/)
+SEPARATE track. NOT reachable from api.js or any compiler/src/ module
+(grep-confirmed: no compiler/src/ file imports native-parser). Each module is a
+`.scrml` canonical + `.js` shadow; the graph below is the `.js` import structure.
+
+JS layer (lexer + expression parser):
+  lex.js → cursor, span, token, lex-mode, bracket-stack, error-recovery,
+           lex-in-{code, single-string, double-string, template,
+                   line-comment, block-comment, regex}
+  lex-in-code.js → token, span + delegates to the per-mode lex-in-* dispatchers
+  lex-in-{double-string,template}.js → reuse `scanStringEscape` from lex-in-single-string
+  parse-expr.js → token-cursor, ast-expr, parse-mode, span, token
+  token-cursor.js → token  (walks lex()'s Token[])
+  ast-expr.js → span  (Expr-node constructors)
+  parse-mode.js → engine declaration (ParseMode)
+
+Markup layer (MK1):
+  parse-markup.js → block-context, parse-ctx, token, span
+  parse-ctx.js → extends M1's makeLexContext; adds node-sink + delegation-stack
+  block-context.js → engine declaration (BlockContext; composite state-children
+                     nest BodyMode + LexMode engines)
+
+Consumers (tests only):
+  compiler/tests/parser-conformance-lexer.test.js  → lex.js (vs Acorn oracle)
+  compiler/tests/parser-conformance-expr.test.js   → parse-expr.js + ast-expr.js
+  compiler/tests/parser-conformance-markup.test.js → parse-markup.js + parse-ctx.js
+  compiler/tests/parser-conformance/parsers.js     → harness adapter
+  compiler/tests/integration/anomaly-2-export-fn-body-stripping.test.js → reproduces ANOMALY-2
+
 ## Tags
-#scrmlts #map #dependencies #compiler #bun
+#scrmlts #map #dependencies #compiler #bun #native-parser
 
 ## Links
 - [primary.map.md](./primary.map.md)
