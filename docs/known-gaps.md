@@ -6,7 +6,7 @@
 >
 > **Per-gap status:** `spec'd` = SPEC normative + compiler does nothing · `scoping` = SCOPING.md authored, OQs open · `in-impl` = implementation arc actively in flight · `blocked` = waiting on something else
 >
-> Updated 2026-05-19 (S108).
+> Updated 2026-05-19 (S109).
 
 ---
 
@@ -26,14 +26,6 @@
 - **Reproducer + analysis:** [`handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md`](../handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md) §"Bug 1".
 - **Status:** FLOOR closed S108; full-fix for grid/flex/aspect + transition/timing + individual transforms + outline shipped S108; ring + gradient + transform shorthand + safelist still open.
 
-### Bug 2 — Phantom `E-SYNTAX-050` on multi-line `<a>` + entity-encoded element-name body — `spec'd`
-
-`<a href="..." \n class="...">\n &lt;program&gt;\n </a>` triggers `E-SYNTAX-050: Bare '/' is no longer a valid closer` on a line containing no `/`. The error reports a wrong line number; cascade of unrelated "unclosed" errors follows. Compile fails on apparently-valid source.
-
-- **Workaround:** collapse the `<a>` opener onto a single line OR change attribute ordering (the exact axis isn't bisected yet).
-- **Reproducer + analysis:** [`handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md`](../handOffs/incoming/read/2026-05-19-0614-side-session-to-scrmlTS-PA-dogfood-bug-surface.md) §"Bug 2".
-- **Status:** not yet SCOPING'd; needs minimal bisecting reducer.
-
 ---
 
 ## LOW-MED
@@ -48,7 +40,10 @@ The `?{` half of the original Bug 4 surface closed at S108 via Approach C-narrow
 
 ---
 
-## Closed in S107-S108 (for reference; will rotate out)
+## Closed in S107-S109 (for reference; will rotate out)
+
+- **Bug 2 — Phantom `E-SYNTAX-050` cascade on unpaired quote in markup-text body** — S109 C-narrow fix (commit `204b563`). PA bisecting reducer found the original report's hypothesis (multi-line `<a>` + entity-encoded element-name) was wrong; the actual trigger was any unpaired `'` or `"` in markup-text body (e.g., `<code>X</code>'s` possessive apostrophe-s, `text "with double quote`). Root cause: `block-splitter.js:1059-1095` ran global string-mode tracking in markup-text mode; an unpaired quote eated rest of file as raw content, causing `</p>` (and every other closer) to be missed → unclosed-element cascade with wrong line numbers. Fix: removed the markup-text-level quote-tracking block entirely. Locus argument (sibling to Bug 4 C-narrow at SPEC §4.17, S108): strings live in Logic context + attribute-value scope, not markup-text body. 17 new unit tests at `compiler/tests/unit/bug-2-markup-text-quote-not-tracked.test.js`; 0 regressions; 13,321 / 0 fail post-fix. Regression class (documented): the very rare `paired-quote-/<X-quote` shape in markup-text body now fires E-SYNTAX-050 where it didn't before — workaround `&#47;` / `&lt;` entity-escape.
+
 
 - **Bug 5 (all phases)** — `${IDENT}` non-reactive interpolation: Phase 1 textContent at DOMContentLoaded (S107 `c70176e`) + Phase 2 Anomalies B+C closure (S107 `a7fbfa8`) + Phase 3 constant-folding (Option γ) + SPEC §7.4.2 normative section (S108). Constants like `const VERSION = "v0.3.0"` + `${VERSION}` now fold inline at compile time — zero placeholder, zero JS wiring, zero runtime cost.
 - **Bug 3** — `[BS]` / `[TAB]` diagnostics now carry `file:line:col` prefix matching `[W-LINT-*]` shape (commit `2e9f9c3`)
