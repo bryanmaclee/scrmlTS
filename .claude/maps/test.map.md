@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlts
-# updated: 2026-05-19T14:37:51-06:00  commit: 6616a69
+# updated: 2026-05-20T00:30:00Z  commit: df1211d
 
 ## Test Framework
 
@@ -16,17 +16,52 @@
 | With bail | `bun test ... --bail` (used by pre-commit hook) |
 | Coverage | `bun test compiler/tests/ --coverage` |
 
-## Test Counts (S107 / post-v0.3.3 era, 2026-05-19, HEAD `6616a69`)
+## Test Counts (S108 / post-v0.3.3 era, 2026-05-19, HEAD `df1211d`)
 
-Pre-commit subset (unit + integration + conformance): **13,087 pass / 88 skip / 1 todo / 0 fail / 681 files / 44,430 expect**
-Full suite (`bun test compiler/tests/`): **15,930 pass / 169 skip / 1 todo / 0 fail / 714 files / 46,845 expect**
+Pre-commit subset (unit + integration + conformance): **13,304 pass / 88 skip / 1 todo / 0 fail / 690 files / 44,794 expect**
+Full suite (`bun test compiler/tests/`): **16,147 pass / 169 skip / 1 todo / 0 fail / 723 files / 47,209 expect**
 Native-parser conformance: **97 pass / 0 skip / 0 fail** (parser-conformance-lexer.test.js, M1.4 / M1.5 template-mode tracking)
 
-Prior watermarks: S106 close (`c491b12`) — 13,024 pass / 92 skip / 1 todo / 0 fail / 677 files / 44,306 expect (pre-commit); 15,867 pass / 173 skip / 710 files / 46,721 expect (full). S105 close (`75ae8c5`) — 12,998 pass / 92 skip / 675 files (pre-commit); 15,841 pass / 173 skip / 708 files / 46,663 expect (full). S104 close — 12,872 pass / 88 skip / 670 files / 43,337 expect (pre-commit); 15,709 pass / 169 skip (full). S103 close — 12,807 pass / 668 files. S101 close — 12,645 pass / 658 files. S92 close — 12,694 pass / 638 files.
+Prior watermarks: S107 close (`c91fae0`) — 13,087 pass / 88 skip / 1 todo / 0 fail / 681 files / 44,430 expect (pre-commit); 15,930 pass / 169 skip / 714 files / 46,845 expect (full). S106 close (`c491b12`) — 13,024 pass / 92 skip / 677 files (pre-commit); 15,867 pass / 173 skip / 710 files / 46,721 expect (full). S105 close — 12,998 pass / 675 files (pre-commit); 15,841 pass / 708 files (full). S104 close — 12,872 / 670 files; 15,709 (full). S103 — 12,807 / 668. S101 — 12,645 / 658. S92 — 12,694 / 638.
 
-S107 delta vs S106 close: **+63 pass / +4 files / +124 expect / 0 fail / 0 regressions** (full pre-push gate). New tests by track: 19 bug-5 Phase 1 + 7 bug-5 Phase 2 + 6 bug-3 + 9 match-block Phase 1 + 18 match-block Phase 2 = 59 new + 4 fixture-shape edits to existing engine-event-handler-writes brittleness (60+ updated assertions total).
+S108 delta vs S107 close: **+217 pass / +9 files / +364 expect / 0 fail / 0 regressions** (full pre-push gate). New tests by track (~209 new tests across 9 new test files): 9 match-block Phase 3 + 6 match-block Phase 4 = 15 (match block-form codegen closure) + 14 bug-5 Phase 3 (const-fold) + 34 bug-1 floor (W-TAILWIND-UNRECOGNIZED-CLASS) + 66 bug-1 wave 1 (grid/flex/aspect) + 26 bug-1 wave 2 (transition/timing/transforms/outline) + 23 bug-1 wave 3 (transform shorthand + directional) + 8 bug-4 C-narrow + 25 PGO C2 fold.
 
-## New Tests Since S106 Baseline (S107 — 4 new test files, 1112 lines, 59 new tests)
+## New Tests Since S107 Baseline (S108 — 9 new test files)
+
+**Match block-form Phase 3 codegen (NEW S108 — `ef9d219`):**
+- `compiler/tests/unit/match-block-phase3-codegen.test.js` — exercises `compiler/src/codegen/emit-match.ts` (~430 LOC) consumer reusing variant-source-agnostic `emit-variant-guard.ts:emitVariantGuardedRender` helper. on= resolution Shape A subscribe / Shape B effect / auto-implied via in-scope engine. Tree-shake on all-empty arms. Multiple match-blocks per file → independent dispatchers indexed by AST id. 9 tests.
+
+**Match block-form Phase 4 `:`-shorthand body codegen (NEW S108 — `204b303`):**
+- `compiler/tests/unit/match-block-phase4-shorthand.test.js` — `:`-shorthand body codegen via parseExprToNode + synthesized `logic > bare-expr` AST routed through generateHtml's interpolation case. Constants fold via Bug 5 P3; cells emit placeholder + reactive binding. 6 tests.
+
+**Bug-5 `${IDENT}` const-interpolation Phase 3 const-fold (NEW S108 — `811181e`):**
+- `compiler/tests/unit/bug-5-phase-3-const-fold.test.js` — exercises new `compiler/src/codegen/const-fold-env.ts` (~155 LOC) Option γ constant-folding env via partiallyEvaluateExpr. Cached env; `_constantFolded` marker threads through `collect.ts` + `emit-reactive-wiring.ts` to suppress orphan literal at file-scope. Closes Bug 5 arc end-to-end. 14 tests.
+
+**Bug-1 Tailwind W-TAILWIND-UNRECOGNIZED-CLASS floor lint (NEW S108 — `0b2a8fe..dce4f06`):**
+- `compiler/tests/unit/bug-1-tailwind-unrecognized-class.test.js` — exercises `findUnrecognizedClasses` lint wired into compileScrml via api.js; suppressible via `compilerSettings.lintTailwindUnrecognizedClass = "off"`. 34 tests.
+
+**Bug-1 Tailwind FULL fix waves (NEW S108):**
+- `compiler/tests/unit/bug-1-tailwind-arbitrary-value-emit.test.js` (wave 1, `37f8f62`) — grid/flex/aspect families + underscore-as-space + ratio shape + grid-track CSS functions (repeat/minmax/fit-content). 66 tests.
+- `compiler/tests/unit/bug-1-tailwind-minor-families.test.js` (wave 2, `bdb9287`) — transition/timing family (transition/duration/delay/ease) + cubic-bezier/steps function support + individual transforms (rotate/scale/translate) + outline family. 26 tests.
+- `compiler/tests/unit/bug-1-tailwind-transform-shorthand.test.js` (wave 3, `a40ac64`) — `transform-*` shorthand + 9 directional decl-transforms (translate-x/y, scale-x/y, rotate-x/y/z, skew-x/y) + 14 more function names in VALID_MATH_FUNCTIONS. 23 tests.
+
+**Bug-4 `?{` markup-text-mode C-narrow gate (NEW S108 — `eba8ded`):**
+- `compiler/tests/unit/bug-4-docs-mode-escape.test.js` — verifies removal of `?{` recognition from block-splitter.js markup-text loop (~line 1443 + comment block). `?{` is now a SQL opener only inside Logic context per SPEC §3.1 + §8.1 / §4.17. 8 dedicated tests; 3 existing block-splitter.test.js cases updated to C-narrow semantics.
+
+**PGO Phase 3 C2 fold (NEW S108 — `1bf2135..ae9bca4`):**
+- `compiler/tests/unit/pgo-c2-markup-forstmt-fold.test.js` — `detectMarkupForStmtChunkPresence` TAB-time walker caches `hasChunkedMarkupTag` + `hasForStmt` booleans on FileAST. emit-client.ts gates `buildFunctionBodyRegistry` (skip when no for-stmt) + elides markup tag-test per-node when no chunked-markup-tag. Mirrors S102 hasResetExpr + S106 hasEqualityExpr Option-2 pattern. 25 tests.
+
+## New Tests Since S106 Baseline (S107 — carry-forward inventory)
+
+**Match block-form Phase 1 + 2 (S107):**
+- `match-block-parser-phase1.test.js` (236L, 9 tests) — ast-builder dispatcher `kind: "match-block"` AST node.
+- `match-block-phase2.test.js` (354L, 18 tests) — match-statechild-parser.ts + 5 SYM PASS 20 diagnostics.
+
+**Bug-3 [BS] / [TAB] file:line:col carry (S107):**
+- `bug-3-diagnostic-file-paths.test.js` (147L, 6 tests) — api.js `collectErrors(stageName, errors, filePath)` enrichment.
+
+**Bug-5 `${IDENT}` Phase 1+2 (S107):**
+- `bug-5-const-interpolation.test.js` (375L, 26 tests) — Phase 1 (19) + Phase 2 (7); fixture-shape edits to `engine-event-handler-writes.test.js` (regex pattern for cross-test ordering stability).
 
 **Match block-form Phase 1 (NEW S107 — `82c48fd`):**
 - `compiler/tests/unit/match-block-parser-phase1.test.js` (236 lines, 9 tests) — exercises ast-builder.js dispatcher case `block.name === "match"` produces `kind: "match-block"` AST node directly (NOT via the markup pipeline). Verifies: forType (bareword from `for=`); onExprRaw (raw `on=` text or null); armsRaw (raw body text between opener + `</match>` / `</>` closer); STRUCTURAL_RAW_BODY_ELEMENTS BS gate; `:`-shorthand cases parsed correctly (Phase 1 deferred to Phase 2).

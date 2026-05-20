@@ -1,6 +1,6 @@
 # INDEX.md
 # project: scrmlts
-# updated: 2026-05-19T14:37:51-06:00  commit: 6616a69
+# updated: 2026-05-20T00:30:00Z  commit: df1211d
 
 > This file is a navigation alias. See `primary.map.md` for the full map index, project fingerprint, task-shape routing, and key facts.
 
@@ -9,26 +9,26 @@
 | Map | Contents |
 |-----|----------|
 | [primary.map.md](./primary.map.md) | Fingerprint, map index, task routing, key facts |
-| [structure.map.md](./structure.map.md) | Directory layout, entry points, S107 NEW match-statechild-parser.ts + 4 new tests + known-gaps.md + match-block-form-scoping/ |
-| [dependencies.map.md](./dependencies.map.md) | Runtime + dev packages, internal pipeline graph (unchanged S104-S107) |
-| [schema.map.md](./schema.map.md) | AST node types, IR types, MatchArmEntry / MatchArmAttr / MatchParseDiagnostic [S107], FileAST.hasResetExpr [S102] + hasEqualityExpr [S106], FunctionDeclNode.isPinned [S105], FormForExpansion/SchemaForExpansion/TableForExpansion |
+| [structure.map.md](./structure.map.md) | Directory layout, entry points. **S108 NEW: emit-match.ts (~430L, match block Phase 3+4 codegen) + const-fold-env.ts (~155L, Bug 5 P3 Option γ).** Bug 4 C-narrow at block-splitter.js. Tailwind full-fix at tailwind-classes.js. PGO C2 in ast-builder.js + emit-client.ts. |
+| [dependencies.map.md](./dependencies.map.md) | Runtime + dev packages, internal pipeline graph (unchanged S104-S108) |
+| [schema.map.md](./schema.map.md) | AST node types, IR types. S108: **kind:"match-block" routed end-to-end via emit-match.ts**; `_constantFolded` marker on bare-expr/logic statements (Bug 5 P3); existing MatchArmEntry / MatchArmAttr / MatchParseDiagnostic [S107]. FileAST.hasResetExpr [S102] + hasEqualityExpr [S106] + **hasForStmt / hasChunkedMarkupTag [S108 PGO C2]**. FunctionDeclNode.isPinned [S105]. FormForExpansion/SchemaForExpansion/TableForExpansion. |
 | [config.map.md](./config.map.md) | Env vars (SCRML_PORT, PORT), CLI flags including --emit-per-route + --chunk-size-budget |
 | [build.map.md](./build.map.md) | npm scripts, CLI subcommands, pre-commit hook, pre-push (release-tag README gate) |
-| [error.map.md](./error.map.md) | CGError, runtime error classes, E-/W-/I- code families. S107: +4 E-MATCH-* + W-MATCH-RULE-INERT (SYM PASS 20) + bug-3 [BS]/[TAB] file:line:col carry. S105: +13 E-TABLEFOR-* + PASS 19 pinned-fn. |
-| [test.map.md](./test.map.md) | bun:test, 714 files, 15,930 pass / 169 skip / 0 fail (S107 HEAD); pre-commit 13,087 / 681 files; +4 new test files S107 |
-| [domain.map.md](./domain.map.md) | 40+ pipeline concepts. S107: match block-form §18.0.1 + SYM PASS 20 + STRUCTURAL_RAW_BODY_ELEMENTS + bug-3 + bug-5 + known-gaps. S106: Phase 3.B B2 SHIPPED + PGO C1 + OQ-TF-13 helper. |
-| [events.map.md](./events.map.md) | Channel placement, WebSocket pub/sub in compiled output (unchanged S91-S107) |
-| [native-parser.map.md](./native-parser.map.md) | M1.x ladder (M1.1-M1.5 COMPLETE); 97 conformance tests; (unchanged S107) |
-| [non-compliance.report.md](./non-compliance.report.md) | S107 refresh — known-gaps.md NEW (compliant) + match-block-form-scoping NEW (compliant) + Bug 6 closed; 2 uncertain (pre-S87 article + PRIMER stale) |
+| [error.map.md](./error.map.md) | CGError, runtime error classes, E-/W-/I- code families. **S108: +1 W-TAILWIND-UNRECOGNIZED-CLASS (Bug 1 floor lint).** S107: +4 E-MATCH-* + W-MATCH-RULE-INERT (SYM PASS 20) + bug-3 [BS]/[TAB] file:line:col carry. S105: +13 E-TABLEFOR-* + PASS 19 pinned-fn. |
+| [test.map.md](./test.map.md) | bun:test, **723 files**, **16,147 pass / 169 skip / 0 fail (S108 HEAD)**; pre-commit **13,304 / 690 files / 44,794 expect**; **+9 new test files S108** (match Phase 3+4 / Bug 5 P3 / Bug 1 unrecognized + arbitrary + minor + transform / Bug 4 / PGO C2). |
+| [domain.map.md](./domain.map.md) | 40+ pipeline concepts. **S108: match block-form Phases 3+4 SHIPPED + Bug 5 P3 const-fold + SPEC §7.4.2 + Bug 1 floor lint W-TAILWIND-UNRECOGNIZED-CLASS + Bug 1 full-fix 3 waves + Bug 4 `?{` C-narrow (SPEC §4.17) + formFor B5 L2 label-store + PGO C2 fold.** S107: match block-form §18.0.1 + SYM PASS 20 + STRUCTURAL_RAW_BODY_ELEMENTS + bug-3 + bug-5 + known-gaps. |
+| [events.map.md](./events.map.md) | Channel placement, WebSocket pub/sub in compiled output (unchanged S91-S108) |
+| [native-parser.map.md](./native-parser.map.md) | M1.x ladder (M1.1-M1.5 COMPLETE); 97 conformance tests; (unchanged S108) |
+| [non-compliance.report.md](./non-compliance.report.md) | S108 refresh — match-block-form-scoping CLOSED in main branch (Phases 1-4 shipped); Bug 5 P3 scoping closed; Bug 1 floor + full fix landed; Bug 4 C-narrow deep-dive in scrml-support. |
 
 ## State at HEAD
 
-Commit: `6616a69`  Session: S107 close (2026-05-19)
-Tests: 15,930 pass / 169 skip / 1 todo / 0 fail / 714 files (full pre-push)
-Pre-commit subset: 13,087 pass / 88 skip / 1 todo / 0 fail / 681 files / 44,430 expect
+Commit: `df1211d`  Session: S108 close (2026-05-19)
+Tests: 16,147 pass / 169 skip / 1 todo / 0 fail / 723 files (full pre-push)
+Pre-commit subset: 13,304 pass / 88 skip / 1 todo / 0 fail / 690 files / 44,794 expect
 
 ## Tags
-#scrmlts #map #index #navigation #s107 #v0.3.3
+#scrmlts #map #index #navigation #s108 #v0.3.3
 
 ## Links
 - [primary.map.md](./primary.map.md)

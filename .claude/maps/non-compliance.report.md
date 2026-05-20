@@ -1,15 +1,21 @@
 # non-compliance.report.md
 # project: scrmlts
-# generated: 2026-05-19T14:37:51-06:00
-# scan mode: INCREMENTAL_UPDATE (S107 / post-v0.3.3 era — commit 6616a69)
-# prior baseline: 2026-05-19 @ d8427f2 (S106 close)
+# generated: 2026-05-20T00:30:00Z
+# scan mode: INCREMENTAL_UPDATE (S108 / post-v0.3.3 era — commit df1211d)
+# prior baseline: 2026-05-19 @ 6616a69 (S107 close)
 
 ## Summary
 
-Total docs scanned: ~192 (prior ~185 + ~7 new docs from S107 wave: `docs/known-gaps.md` + `docs/changes/match-block-form-scoping/` SCOPING.md + progress.md + handOffs/incoming/read/ archived bug reports + 4 hand-off rotations)
-Compliant: ~187
+Total docs scanned: ~196 (prior ~192 + ~4 new docs from S108 wave: scrml-support deep-dive `bug-4-docs-mode-escape-2026-05-19.md` + 9 new test files in compiler/tests/unit + known-gaps.md rotated 4× + handoff rotation + 1 hand-off rotation S107 → S108 → S109)
+Compliant: ~193 (incl. all S108 wave docs)
 Non-compliant: 0 fresh items this session
-Uncertain: 2 (1 carries forward from S105 baseline; 1 NEW S107 from dogfood Bug 6 commit body)
+Uncertain: 2 (carries forward from S107 — neither resolved this session)
+
+## S108 → S109 OPEN status flips (auto-resolved since S107 close)
+
+- `docs/changes/match-block-form-scoping/` — was `in-impl` at S107 close; **Phases 3+4 SHIPPED S108** end-to-end via emit-match.ts (~430L) + `:`-shorthand body codegen. SCOPING document should rotate `SCOPE-CLOSED` footer or have its remaining Phase 5 polish carry-forward annotated. (Action: surface to user at S109; not flagged as non-compliance because progress.md is append-only by convention and the SCOPING is a live dispatch artifact.)
+- `docs/known-gaps.md` — was `HIGH match block-form in-impl` + `HIGH Bug 5 P3 scoping` + `MED-HI Bug 1 Tailwind spec'd` + `MED-HI Bug 2 phantom E-SYNTAX-050 spec'd` + `LOW-MED Bug 4 docs-mode escape spec'd` at S107 close. **Rotated 4× during S108**: Bug 5 P3 closed; Bug 1 floor + full-fix-3-waves closed; Bug 4 C-narrow closed; match `:`-shorthand closed; bare-`/` half retained as deferred. Open at S109: Bug 2 (MED-HI) + Bug 4 bare-`/` half (LOW-MED) + Bug 1 still-deferred families (ring/gradient/string-shaped/safelist).
+- `scrml-support/docs/deep-dives/bug-4-docs-mode-escape-2026-05-19.md` (NEW S108) — 530-line deep-dive ratified Approach C-narrow per SPEC §3.1 + §8.1 conformance ("SQL is a child of Logic, not markup-text"). 11 prior-art systems analyzed, 372 workaround occurrences in adopter corpus, 86% of pages used entity-escapes. **NOTE: scrml-support working-tree was untracked at S109 OPEN — this file exists locally but may not have been committed yet. Surface to user.**
 
 ---
 
@@ -168,7 +174,7 @@ The following categories were scanned and found compliant at S107 HEAD:
 `.claude/maps/INDEX.md` was stale at last scan (S88 close, commit `9b98118`). Refreshed at this S107 maps refresh to align test counts + commit SHA.
 
 ## Tags
-#non-compliance #project-mapper #cleanup #scrmlts #s107 #v0.3.3 #match-block-shipped #bug-3-shipped #bug-5-shipped #bug-6-shipped #known-gaps #spec-18-0-1 #spec-18-0-2 #spec-34-plus-one #dogfood-bugs
+#non-compliance #project-mapper #cleanup #scrmlts #s108 #v0.3.3 #match-block-shipped-end-to-end #bug-5-p3-closed #bug-1-floor-plus-full-fix-3-waves #bug-4-c-narrow #form-for-b5-shipped #pgo-c2-fold #spec-7-4-2 #spec-4-17 #spec-26-4 #spec-41-14-7 #w-tailwind-unrecognized-class #known-gaps-rotated-4x #scrml-support-untracked
 
 ## Links
 - [project master-list](../../master-list.md)

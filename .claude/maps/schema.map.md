@@ -1,6 +1,15 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-19T14:37:51-06:00  commit: 6616a69
+# updated: 2026-05-20T00:30:00Z  commit: df1211d
+
+## S108 additions (additive — see catalog below for full inventory)
+
+| Item | Where | What |
+|------|-------|------|
+| `kind: "match-block"` routing | `ast-builder.js` produces; `compiler/src/codegen/emit-match.ts` (NEW S108, ~430L) consumes | Phase 3+4 codegen consumer fully wired. Reuses `emit-variant-guard.ts:emitVariantGuardedRender` helper. `:`-shorthand body form (Phase 4) parses via `parseExprToNode` + synthesized `logic > bare-expr` AST. |
+| `_constantFolded?: boolean` | bare-expr / logic-statement nodes via `collect.ts` + Bug 5 P3 const-folding pass | Marks expressions that evaluated to compile-time literals inlined directly into HTML. Consumers (orphan-filter at `emit-reactive-wiring.ts:389`) skip emit. Companion to NEW `compiler/src/codegen/const-fold-env.ts` (~155L, cached env via `partiallyEvaluateExpr`). |
+| `FileAST.hasForStmt: boolean` | `ast-builder.js` (NEW S108 PGO C2) | TAB-time short-circuit DFS via `detectMarkupForStmtChunkPresence` walker. emit-client.ts gates `buildFunctionBodyRegistry` when false. |
+| `FileAST.hasChunkedMarkupTag: boolean` | `ast-builder.js` (NEW S108 PGO C2) | TAB-time short-circuit DFS. emit-client.ts elides markup tag-test per-node when false. |
 
 ## TypeScript AST — `compiler/src/types/ast.ts` (~1,858 LOC)
 

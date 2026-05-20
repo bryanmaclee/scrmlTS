@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-19T14:37:51-06:00  commit: 6616a69
+# updated: 2026-05-20T00:15:42Z  commit: df1211d
 
 ## Error Code System
 
@@ -120,7 +120,7 @@ All extend `_ScrmlError extends Error`.
 | E-STATE-* | 004, 005, 006, COMPLETE, PINNED-FORWARD-REF, TERMINAL-MUTATION, TRANSITION-ILLEGAL | State/engine errors |
 | E-STYLE-* | 001 | CSS validation errors |
 | E-SYNTAX-* | 002, 010, 011, 042, 043, 044, 050 | Syntax violations; E-SYNTAX-042 = `null`/`undefined` in scrml source position |
-| E-TAILWIND-* | 001 | Tailwind class validation |
+| E-TAILWIND-* | 001 | Tailwind class validation (unsupported variant/arbitrary-value syntax) |
 | E-TEST-* | 001–006 | Test block violations (§19.13) |
 | E-TILDE-* | 001, 002 | Tilde-decl must-use violations |
 | E-TIMEOUT-* | 001, 002 | Timeout configuration errors |
@@ -175,6 +175,7 @@ W-CG-CHUNK-NO-PREFETCH and W-CG-CHUNK-PREFETCH-UNRESOLVED are mutually exclusive
 | W-ENGINE-SELF-WRITE-DETECTED | info | Engine self-write detected; runtime NO-OP (two fire-sites: symbol-table.ts PASS 12.B + PASS 16) |
 | W-INPUT-001 | warning | §36 input device warning |
 | W-MATCH-RULE-INERT | warning | `rule=` attribute declared on any `<match>` arm — `match` is a case-analysis Tier 1 locus; rule= is engine-only (§51) and is INERT here (the compiler accepts but does not enforce). SPEC §18.0.2 line 9625; fire-site: symbol-table.ts SYM PASS 20 (S107) |
+| **W-TAILWIND-UNRECOGNIZED-CLASS** | **info** | **NEW S108 §34 +1 row: Any class name inside `class="..."` that does NOT resolve via `getTailwindCSS()`. Covers typos, unsupported arbitrary values, and custom CSS classes (acknowledged false-positive at floor level). Fire-site: tailwind-classes.js `findUnrecognizedClasses()` → wired in api.js lintTailwindUnrecognizedClass path. Suppressed per file via `compilerSettings.lintTailwindUnrecognizedClass: "off"`. FLOOR lint (Bug 1 S108); full-fix CSS-emission expansion also in S108 (3 waves)** |
 | W-PROGRAM-REDUNDANT-LOGIC | warning | Redundant `${}` block in program/page body |
 | W-TRY-CATCH-IN-SCRML-SOURCE | warning | Try/catch in scrml source (Stage 3.007; fires on stdlib/http lines 65/264) |
 
@@ -219,12 +220,13 @@ W-CG-CHUNK-NO-PREFETCH and W-CG-CHUNK-PREFETCH-UNRESOLVED are mutually exclusive
 | compiler/src/reachability/outer-fixpoint.ts | E-CLOSURE-001 |
 | compiler/src/codegen/route-splitter.ts emitChunkLints() | W-CG-CHUNK-* family + W-CG-CHUNK-PREFETCH-UNRESOLVED |
 | compiler/src/engine-statechild-parser.ts | E-TIMER-NAME-DUPLICATE + E-TIMER-NAME-INVALID (§51.0.M.1) |
-| compiler/src/match-statechild-parser.ts | **NEW S107** — re-tokenizes `armsRaw` from `match-block` AST nodes into structured `MatchArmEntry[]` (530 lines). Recognizes 3 body forms (self-closing / `:`-shorthand / bare-body) + wildcard `<_>` + parenthesized payload bindings. Span tracking is local byte-offsets within `armsRaw`; SYM PASS 20 absolutizes via `match-block.span.start`. Parse-time diagnostics carry `E-MATCH-PARSE-*` shape (Phase 2 internal; not in §34) |
+| compiler/src/match-statechild-parser.ts | S107 — re-tokenizes `armsRaw` from `match-block` AST nodes into structured `MatchArmEntry[]` (530 lines). Recognizes 3 body forms (self-closing / `:`-shorthand / bare-body) + wildcard `<_>` + parenthesized payload bindings. Span tracking is local byte-offsets within `armsRaw`; SYM PASS 20 absolutizes via `match-block.span.start`. Parse-time diagnostics carry `E-MATCH-PARSE-*` shape (Phase 2 internal; not in §34) |
 | compiler/src/type-system.ts §41.14 pass | E-FORMFOR-* (8 codes; S102) |
 | compiler/src/type-system.ts §41.15 pass | E-SCHEMAFOR-* (8 codes; S104) — `collectSchemaForImports` + `walkAndExpandSchemaForCalls` two-pass (Pass A inside `<schema>` body; Pass B everywhere-else fires E-SCHEMAFOR-INVALID-CALL-CONTEXT) |
 | compiler/src/type-system.ts §41.16 pass | E-TABLEFOR-* (13 codes; S105) — `collectTableForImports` + `walkAndExpandTableForNodes` (mirror of formFor + schemaFor pattern) |
 | compiler/src/symbol-table.ts SYM PASS 19 | E-STATE-PINNED-FORWARD-REF for `pinned fn` (S105) — walks every CallExpr in every ExprNode payload; fires when readPos < declSpan.start. **Distinct from B4 cell+import pinned-forward-ref check** (which uses `declSpan.end` because non-fn pinned forms forbid self-reference); A4 fn-pinned uses `declSpan.start` because fn semantics admit self-recursion |
 | **compiler/src/symbol-table.ts SYM PASS 20 (NEW S107)** | 5 match-block diagnostics per SPEC §18.0.1 + §18.0.2. Sequence (in fire order): **(1) E-MATCH-ON-REQUIRED** — `on=` missing AND no in-scope `<engine for=T>` (per Q-MB-5 ratification, new §34 row). **(2) E-MATCH-NOT-EXHAUSTIVE** — variants missing AND no `<_>` wildcard arm. **(3) W-MATCH-RULE-INERT** — `rule=` on any arm. **(4) E-MATCH-EFFECT-FORBIDDEN** — `effect=` on any arm. **(5) E-MATCH-ONTRANSITION-FORBIDDEN** — `<onTransition>` element in any arm body. Walks `match-block` AST nodes (ast-builder S107 Phase 1 produces `kind: "match-block"` with `forType` + `onExprRaw` + `armsRaw`); re-tokenizes via `match-statechild-parser.ts` |
+| **compiler/src/tailwind-classes.js `findUnrecognizedClasses()` (NEW S108)** | W-TAILWIND-UNRECOGNIZED-CLASS info-level lint. Scans `class="..."` attributes; fires for any class name not resolved by `getTailwindCSS()`. Wired in api.js via `lintTailwindUnrecognizedClass` compilerSettings knob (default: `"warn"`; disable via `"off"`). Bug 1 FLOOR fix (S108 `e9bd611`). §34 +1 row. |
 | compiler/src/codegen/rewrite.ts _rewriteParenthesizedIsOp | E-TYPE-042 for `!(x is not)` shape (S103 paren-form rewrite) |
 
 ## Bug-3 Diagnostic File-Path Carry (S107 `2e9f9c3`)
@@ -240,6 +242,50 @@ W-CG-CHUNK-NO-PREFETCH and W-CG-CHUNK-PREFETCH-UNRESOLVED are mutually exclusive
 
 **No new diagnostic codes.** This is a presentation-layer fix on existing E-BS-* / E-PARSE-* / E-CTX-* / etc. The codes themselves are unchanged.
 
+## Bug-4 C-narrow — `?{` SQL Locus Gate (S108 `eba8ded`)
+
+**Problem (pre-S108):** `?{` was recognized as a SQL block opener in markup-text context (the loop walking markup-text characters at block-splitter.js line ~1443 included `?{`). Bare `?{` in markup-text prose produced a catastrophic EOF-cascade where the rest of the file was consumed as SQL body.
+
+**Fix:** Removed `?{` from the markup-text brace-context loop. `?{` is now recognized as a SQL opener ONLY inside Logic context (`${...}` inner loop at line ~1245 remains unchanged — that IS the §3.1 SQL-inside-Logic case). SPEC §3.1 + §8.1 normative placement confirmed: SQL contexts open inside Logic via `?{`.
+
+**Composes with:** S101 `RAW_CONTENT_ELEMENTS` (which made `?{` inert inside `<pre>`/`<code>`). Both rules collapse to: "`?{` is a SQL opener only where SPEC §3.1 normatively places SQL — inside Logic."
+
+**SPEC impact:** §4.17 amended with Bug 4 C-narrow cross-ref (§3.1 + §8.1); §3.1 + §8.1 context-grid normative confirmation.
+
+**Tests:** `compiler/tests/unit/bug-4-docs-mode-escape.test.js` — 8 unit tests covering `?{` inert in markup-text + recognized inside `${...}` unchanged.
+
+**No new diagnostic codes.**
+
+## Bug-5 `${IDENT}` Non-Reactive Interpolation Codegen Fix (S107 Phases 1+2 + S108 Phase 3)
+
+**Problem:** Bug 5 HIGH severity — `${VERSION}` and similar non-reactive const interpolations emitted empty placeholders + orphan no-op JS. Markup-as-value pillar misfired on its simplest shape.
+
+**Fix sites (Phases 1+2 SHIPPED S107; Phase 3 SHIPPED S108):**
+- **Phase 1** `compiler/src/codegen/emit-event-wiring.ts:928` — missing-else branch: when identifier is non-reactive (const-folded), emit one-shot `textContent` write inside DOMContentLoaded callback. Closes headline.
+- **Phase 2** `compiler/src/codegen/emit-html.ts:1672` — new `stmtContainsRenderableLogic(node)` classifier gates synth-span emission on body content; closes phantom `<span data-scrml-logic>` Anomaly B.
+- **Phase 2** `compiler/src/codegen/emit-reactive-wiring.ts:389` — orphan-filter regex matches pure-read shapes and elides them from file-scope output; closes Anomaly C.
+- **Phase 3 (S108)** `compiler/src/codegen/const-fold-env.ts` — NEW file: `getConstFoldEnvForFile(fileAST)` builds `ConstFoldEnv` from all file-scope `const-decl` nodes; one-pass forward fold; result cached on `fileAST._constFoldEnvCache`.
+- **Phase 3 (S108)** `compiler/src/codegen/emit-html.ts:~1707` — SPEC §7.4.2 inline fold path: calls `tryFoldInterpolation(exprNode, fileAST)`; when constant resolves, inlines escaped value directly into HTML body; stamps `(node as any)._constantFolded = true`.
+- **Phase 3 (S108)** `compiler/src/codegen/emit-reactive-wiring.ts:~390` — `_constantFolded === true` check skips file-scope statement emit for folded nodes; prevents `"hello";` orphan no-op.
+
+**Tests:** `compiler/tests/unit/bug-5-phase-3-const-fold.test.js` — 14 unit tests (S108); prior: `bug-5-const-interpolation.test.js` — 26 tests (S107 Phases 1+2).
+
+**SPEC:** §7.4.2 S108 amendment: "When `expr` references NO reactive cells AND the expression collapses to a compile-time-known constant value, the compiler MAY inline the string value directly into the emitted HTML at that position."
+
+**No new diagnostic codes.** Pure codegen optimization.
+
+## Bug-1 Tailwind Arbitrary-Value + FLOOR Lint (S108 3-wave landing)
+
+**Problem:** Large swath of Tailwind arbitrary-value classes (`grid-cols-[...]`, `rotate-[...]`, etc.) emitted no CSS AND no diagnostic — silent no-op.
+
+**Fix (Bug 1 full-fix S108 3 waves + FLOOR lint):**
+- **FLOOR lint (S108 Wave 1):** `findUnrecognizedClasses(source)` → W-TAILWIND-UNRECOGNIZED-CLASS (severity: `info`). Informs adopter any class name that failed lookup; false-positive acknowledged at floor level (custom CSS classes trigger it too); suppressed via `compilerSettings.lintTailwindUnrecognizedClass: "off"`. §34 +1 row.
+- **Wave 1 (S108 `e9bd611`):** §26.4 + §26.5 SPEC section drafts for grid/flex/aspect family + underscore-as-space convention + ratio shape + decl-transform path.
+- **Wave 2 (S108 `bdb9287`):** CSS-emission expansion — transition, timing (cubic-bezier/steps), individual transforms (rotate/scale/skew/translate), outline, outline-offset.
+- **Wave 3 (S108 `a40ac64`):** CSS-emission expansion — transform shorthand + directional transforms (rotate-x/y/z, scale-x/y/z, translate-x/y/z, skew-x/y).
+
+**Tests:** 4 new test files (158 tests total) — bug-1-tailwind-unrecognized-class (39) + bug-1-tailwind-arbitrary-value-emit (66) + bug-1-tailwind-minor-families (26) + bug-1-tailwind-transform-shorthand (23).
+
 ## Reactive Boolean Attribute Dispatch (S105)
 
 Three boolean HTML attrs use setAttribute/removeAttribute toggle via `_scrml_effect` rather than literal `attr=value` interpolation:
@@ -249,27 +295,10 @@ Three boolean HTML attrs use setAttribute/removeAttribute toggle via `_scrml_eff
 | compiler/src/codegen/emit-html.ts:41 | `REACTIVE_BOOL_ATTRS = new Set(["disabled", "readonly", "required"])` — Set membership gate |
 | compiler/src/codegen/emit-html.ts:1508 | Dispatch site — boolean-shape attributes route through reactive effect emit; runtime calls setAttribute(name,"") on true, removeAttribute(name) on false |
 | compiler/runtime/scrml-runtime.js _scrml_effect | Runtime toggle target |
-| compiler/tests/unit/reactive-bool-attrs.test.js | 13 unit tests (S105) — happy-path each attr + interaction with @cell + interaction with formFor follow-on case |
-
-Closes §41.14 formFor follow-on: `disabled=!@<cellName>.isValid` on the synthesized submit button was silently dropping prior to S105. Extension candidate set: `checked`, `selected`, `hidden`, `open`, `multiple`, `loop`, `muted` (deferred — extend the Set when adopter friction surfaces).
-
-## Bug-5 `${IDENT}` Non-Reactive Interpolation Codegen Fix (S107)
-
-**Problem:** Bug 5 HIGH severity — `${VERSION}` and similar non-reactive const interpolations were emitting empty placeholders + orphan `IDENT;` no-op JS statements at file-scope. Markup-as-value pillar misfired on its simplest shape.
-
-**Fix sites (Phases 1 + 2 SHIPPED S107):**
-- **Phase 1** `compiler/src/codegen/emit-event-wiring.ts:928` — missing-else branch in interpolation dispatch: when the identifier is non-reactive (const-folded), emit a one-shot `textContent` write inside the DOMContentLoaded callback. Closes the headline symptom.
-- **Phase 2** `compiler/src/codegen/emit-html.ts:1672` — new `stmtContainsRenderableLogic(node)` classifier gates synth-span emission on body content; closes phantom `<span data-scrml-logic>` Anomaly B (decl-only logic bodies were producing empty spans).
-- **Phase 2** `compiler/src/codegen/emit-reactive-wiring.ts:389` — orphan-filter regex matches pure-read shapes (`IDENT;` / `IDENT.path;` / `_scrml_reactive_get("x");`) and elides them from file-scope output; closes Anomaly C (orphan no-op JS).
-
-**Tests:** `compiler/tests/unit/bug-5-const-interpolation.test.js` — 26 unit tests (19 Phase 1 + 7 Phase 2). Existing `engine-event-handler-writes.test.js` had 4 brittle assertions on `_scrml_attr_onclick_2` hardcoded counter; refactored to regex pattern.
-
-**Phase 3 carry-forward:** SPEC §7.4.2 normative section + constant-folding optimization + tilde-context threading + multi-binding placeholder dedup (~5-8h aggregate). Filed in `docs/known-gaps.md` HIGH section.
-
-**No new diagnostic codes.** Pure codegen fix.
+| compiler/tests/unit/reactive-bool-attrs.test.js | 13 unit tests (S105) |
 
 ## Tags
-#scrmlts #map #error #diagnostics #runtime-errors #error-codes #s107 #v0.3.3 #formfor #e-formfor #schemafor #e-schemafor #tablefor #e-tablefor #pinned-fn #pass-19 #pass-20 #match-block #e-match-not-exhaustive #e-match-effect-forbidden #e-match-ontransition-forbidden #e-match-on-required #w-match-rule-inert #spec-18-0-1 #spec-18-0-2 #bug-3-file-line-col #bug-5-const-interpolation #bug-6-retired-codes #e-engine-state-child-missing #e-pure-001 #reactive-bool-attrs #wire-format #auth-graph #w-cg-undefined #closure #auth-runtime-fallback #w-cg-chunk #w-auth-login-missing #route-splitter #q-open-6 #payload-binding #named-timers #raw-content #paren-form-fix
+#scrmlts #map #error #diagnostics #runtime-errors #error-codes #s108 #v0.3.3 #formfor #e-formfor #schemafor #e-schemafor #tablefor #e-tablefor #pinned-fn #pass-19 #pass-20 #match-block #e-match-not-exhaustive #e-match-effect-forbidden #e-match-ontransition-forbidden #e-match-on-required #w-match-rule-inert #spec-18-0-1 #spec-18-0-2 #bug-1-tailwind #w-tailwind-unrecognized-class #spec-26-4 #spec-26-5 #bug-4-c-narrow #spec-3-1 #spec-8-1 #bug-5-phase-3 #const-fold-env #spec-7-4-2 #bug-3-file-line-col #bug-6-retired-codes #e-engine-state-child-missing #e-pure-001 #reactive-bool-attrs #wire-format #auth-graph #w-cg-undefined #closure #auth-runtime-fallback #w-cg-chunk #w-auth-login-missing #route-splitter #q-open-6 #payload-binding #named-timers #raw-content #paren-form-fix
 
 ## Links
 - [primary.map.md](./primary.map.md)
