@@ -4,8 +4,12 @@
 **Previous:** `handOffs/hand-off-111.md` (S108 CLOSE — rotated at S109 OPEN)
 **Machine:** single-machine (S100 directive holds)
 **HEAD at S109 OPEN:** `df1211d` (S108 wrap)
-**HEAD at this update:** `e8ba2f7` (S109 in-flight, 10 commits under AFK directive)
+**HEAD at this update:** `dc4b562` (S109 in-flight, 12 commits under AFK directive)
 **Origin sync at OPEN:** scrmlTS 0/0; scrml-support 0/0 (**push pending** — user did not authorize push during AFK session)
+
+**Post-hand-off-commit landings (after `0d2e988`):**
+11. **`dc4b562`** `fix(test): sql-nobatch §8 end-to-end test was vacuous` — a SECOND vacuous-compileScrml test, PRE-EXISTING (predates S109), found via the post-`07904b9` grep sweep. Same `compileScrml(stringPath)` misuse + a stale `result.serverJs`-shape assumption. Fixed: options-object form + read emitted JS off disk + `fileCount`/`errors`/`emittedJs.length` guards. The grep sweep across `compiler/tests/` confirmed NO remaining string-first-arg call sites — only comment references. Vacuous-test follow-up from S109 surfaced-findings #2 is now CLOSED.
+12. (this hand-off touch-up)
 
 ## S109 in-flight landings (user authorized "ship Fix A, then keep going down the list. afk")
 
@@ -34,7 +38,7 @@
 ## Things S109 surfaced that the user should know
 
 1. **Match block-form was NOT actually end-to-end functional** before S109 `2691b20`. The S107-S108 "shipped" framing was true for the unit-test surface but the full-pipeline path was broken (collectMatchBlocks node-walker bug). NOW genuinely works. The known-gaps.md "end-to-end functional" claim was overclaimed S107-S108 and is now corrected + true.
-2. **A vacuous test shipped in S109 `3609985`** (builtin-types). Caught + fixed same session at `07904b9`. Root cause: `compileScrml` takes a single options object; a string first-arg is a silent no-op. Worth a grep across other test files for the same misuse pattern — DID NOT do that grep this session (flag for follow-up).
+2. **A vacuous test shipped in S109 `3609985`** (builtin-types). Caught + fixed same session at `07904b9`. Root cause: `compileScrml` takes a single options object; a string first-arg is a silent no-op. **Grep sweep DONE** (`dc4b562`) — found one MORE pre-existing vacuous test (`sql-nobatch.test.js §8`), fixed it; no remaining string-first-arg call sites in `compiler/tests/`.
 3. **Bundle grew +5.8 KB JS gzip** since the 2026-05-15 Phase B baseline (13.9 → 19.7 KB). Tracked to match-block runtime + Bug 5 P3 + ring + Bug 4 + formFor B5. Not a regression — real feature runtime. Documented honestly in RESULTS.md.
 
 ## Remaining S108 carry-forwards (NOT touched this AFK session)
