@@ -191,12 +191,23 @@ export interface VariantGuardOutput {
  *   Engines always pass `meta.varName`; future match-block consumer
  *   passes null when the `on=` expression is non-cell (then the helper
  *   tracks via `_scrml_effect`).
+ * - `defaultArmTag` — when set, names the arm (by its `tag`) that is the
+ *   catch-all / fall-through arm. The dispatcher emits this arm as a final
+ *   `else { ... }` branch instead of an `else if (_tag === ...)` branch —
+ *   so it renders whenever no named arm matched. Used by the match-block
+ *   consumer for wildcard `<_>` arms (SPEC §18.0.1 — `<_>` matches any
+ *   remaining variant). The default arm carries no payload bindings (a
+ *   wildcard does not name a specific variant, so there is no payload to
+ *   bind). Engines never set this — engine state-children are exhaustive
+ *   over the enum and have no wildcard. When undefined, behavior is
+ *   unchanged (no default branch; unmatched `_tag` leaves the mount as-is).
  */
 export interface VariantGuardOptions {
   idPrefix: string;
   mountAttr?: string;
   renderFnPrefix?: string;
   variantSubscribeName?: string | null;
+  defaultArmTag?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -771,8 +782,24 @@ export function emitVariantGuardedRender(
   dispatcherLines.push(`  if (${disposeVar}) { ${disposeVar}(); ${disposeVar} = null; }`);
 
   // Switch on tag, call matching render fn + wire fn.
-  for (let i = 0; i < arms.length; i++) {
-    const arm = arms[i];
+  //
+  // S109 Match block-form Phase 5 — wildcard `<_>` explicit render. When
+  // `opts.defaultArmTag` is set, the arm with that tag is the catch-all:
+  // it is emitted as a final `else { ... }` branch (renders whenever no
+  // named arm matched), NOT as an `else if (_tag === ...)`. Engines never
+  // set defaultArmTag (state-children are exhaustive); only the match-block
+  // consumer passes it for `<_>` arms. The default arm is filtered out of
+  // the if/else-if chain here and emitted below the loop.
+  const defaultArmTag = opts.defaultArmTag;
+  const switchArms = defaultArmTag
+    ? arms.filter((a) => a.tag !== defaultArmTag)
+    : arms;
+  const defaultArm = defaultArmTag
+    ? arms.find((a) => a.tag === defaultArmTag)
+    : undefined;
+
+  for (let i = 0; i < switchArms.length; i++) {
+    const arm = switchArms[i];
     const fnName = `${renderFnPrefix}_${idPrefix}_render_${arm.tag}`;
     const wireFnName = `${renderFnPrefix}_${idPrefix}_wire_${arm.tag}`;
     const head = i === 0 ? `if` : `else if`;
@@ -820,9 +847,29 @@ export function emitVariantGuardedRender(
     }
     dispatcherLines.push(`  }`);
   }
-  // No default branch — when _tag does not match any arm, the mount keeps
-  // its previous content. Conservative behavior; consumers that want a
-  // fallback should add an arm with the appropriate tag.
+  // S109 — wildcard `<_>` default branch. When `opts.defaultArmTag` named an
+  // arm, emit it here as the catch-all: `else { ... }` when there are named
+  // arms above, or an unconditional block when the match-block has ONLY a
+  // wildcard arm (legal but unusual — renders the wildcard for every value).
+  // The default arm carries no payload bindings, so the render fn is called
+  // with no args and the wire fn receives only `_mount`.
+  if (defaultArm && defaultArm.body && defaultArm.body.length > 0) {
+    const dfnName = `${renderFnPrefix}_${idPrefix}_render_${defaultArm.tag}`;
+    const dwireFnName = `${renderFnPrefix}_${idPrefix}_wire_${defaultArm.tag}`;
+    if (switchArms.length > 0) {
+      dispatcherLines.push(`  else {`);
+    } else {
+      // Only-a-wildcard match-block — no `if` above to attach `else` to.
+      dispatcherLines.push(`  {`);
+    }
+    dispatcherLines.push(`    _mount.innerHTML = ${dfnName}();`);
+    dispatcherLines.push(`    ${disposeVar} = ${dwireFnName}(_mount);`);
+    dispatcherLines.push(`  }`);
+  }
+  // No default branch when defaultArmTag is unset — when _tag does not match
+  // any arm, the mount keeps its previous content. Conservative behavior;
+  // consumers that want a fallback either set `opts.defaultArmTag` (match
+  // block-form `<_>`) or add an arm with the appropriate tag.
   dispatcherLines.push(`}`);
 
   // Subscribe to variant changes — fires on set, not at init.

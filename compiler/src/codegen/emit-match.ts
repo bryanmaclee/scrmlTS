@@ -34,9 +34,13 @@
  *   - Body markup (text, interp, nested tags, delegable + non-delegable
  *     events) walked through standard `generateHtml` via the helper's
  *     `emitArmRenderFunction` + per-arm wire functions.
- *   - Wildcard `<_>` arms: rendered as a fall-through (no-match) handler;
- *     the dispatcher's no-default-branch semantic leaves the mount slot
- *     untouched. Explicit wildcard render is a Phase 4+ enrichment.
+ *   - Wildcard `<_>` arms: S109 Phase 5 — explicit render. The wildcard
+ *     arm (parser tag `_`) is built like any other arm; the consumer
+ *     passes `defaultArmTag: "_"` to emitVariantGuardedRender so the
+ *     dispatcher renders the wildcard body as its catch-all `else { ... }`
+ *     branch (fires whenever no named arm matched the current variant).
+ *     Pre-S109 the wildcard was skipped in codegen — the mount slot stayed
+ *     untouched for unmatched variants.
  *
  * Tree-shake: when ALL arms have empty body, helper returns the empty
  * triple and this module emits nothing for that match-block (mount slot
@@ -102,7 +106,16 @@ function collectMatchBlocks(fileAST: any): MatchBlockAstNode[] {
       if (Array.isArray(node[key])) walk(node[key]);
     }
   }
-  walk(fileAST.nodes ?? fileAST.children ?? fileAST);
+  // The pipeline passes the OUTER file-result object whose AST nodes live
+  // under `fileAST.ast.nodes` — NOT a bare AST with top-level `.nodes`.
+  // (Unit tests pass `tab.ast` directly, which DOES have top-level `.nodes`.)
+  // Mirror emit-engine.ts:collectC12EngineDecls — accept BOTH shapes.
+  // S109: this `.ast?.nodes` fallback was MISSING pre-S109; full-pipeline
+  // compiles found 0 match-blocks here (emitMatchMountHtml still emitted the
+  // mount slot because it receives the node directly from emit-html's walk)
+  // — the dispatcher + render fns were silently never emitted. Match
+  // block-form Phase 5 integration gap; see docs/changes/match-block-form-scoping/.
+  walk(fileAST.nodes ?? fileAST.ast?.nodes ?? fileAST.children ?? fileAST);
   return found;
 }
 
@@ -150,7 +163,9 @@ function findEngineVarForType(forType: string, fileAST: any): string | null {
       }
     }
   }
-  walk(fileAST.nodes ?? fileAST.children ?? fileAST);
+  // Accept both the bare-AST shape (`.nodes`) and the pipeline's outer
+  // file-result wrapper (`.ast.nodes`) — see collectMatchBlocks note.
+  walk(fileAST.nodes ?? fileAST.ast?.nodes ?? fileAST.children ?? fileAST);
   return result;
 }
 
@@ -423,20 +438,23 @@ function buildMatchArms(
   const arms: import("./emit-variant-guard.ts").VariantArm[] = [];
 
   for (const entry of result.arms) {
-    // Wildcard arm `<_>` — Phase 3 v1 limitation: skip codegen for the
-    // wildcard. The helper's no-default-branch semantic produces a
-    // fall-through where the mount slot stays unchanged for unmatched
-    // variants. Explicit wildcard render (mount slot replaced with the
-    // wildcard arm's body) is a Phase 4+ enrichment.
-    if (entry.isWildcard) continue;
-
-    const tag = entry.variantName;
+    // Wildcard arm `<_>` — S109 Match block-form Phase 5: explicit render.
+    // Pre-S109 the wildcard was SKIPPED in codegen (the helper's
+    // no-default-branch semantic left the mount slot unchanged for
+    // unmatched variants). S109 emits the wildcard as a real arm with the
+    // sentinel tag `_`; emitMatchBodyRenderForFile passes `defaultArmTag: "_"`
+    // so emitVariantGuardedRender renders it as the dispatcher's catch-all
+    // `else { ... }` branch (SPEC §18.0.1 — `<_>` matches any remaining
+    // variant). The wildcard carries NO payload bindings — it does not name
+    // a specific variant, so there is no variant payload to bind.
+    const tag = entry.variantName; // `_` for the wildcard; PascalCase otherwise
 
     // Payload bindings — tokenize parenthesized form per §18.0.1 canonical
     // Tier-1 grammar (`<Ready(rows)>`). Phase 2's parser captures
     // payloadBindingsRaw as the raw text inside `(...)`; comma-split here.
+    // Skipped for the wildcard arm (no variant → no payload).
     const payloadBindings: string[] = [];
-    if (entry.payloadBindingsRaw) {
+    if (!entry.isWildcard && entry.payloadBindingsRaw) {
       for (const part of entry.payloadBindingsRaw.split(",")) {
         const name = part.trim();
         if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
@@ -619,6 +637,11 @@ export function emitMatchBodyRenderForFile(
     if (!onResolved) continue;
 
     const idPrefix = `match_${matchBlock.id}`;
+    // S109 Phase 5 — when a wildcard `<_>` arm is present (tag `_`), pass
+    // `defaultArmTag: "_"` so the helper renders it as the dispatcher's
+    // catch-all `else` branch. When absent, `defaultArmTag` stays undefined
+    // and the helper emits no default branch (pre-S109 behavior).
+    const hasWildcard = arms.some((a) => a.tag === "_");
     const out = emitVariantGuardedRender(
       () => onResolved.variantExprAccessor,
       arms,
@@ -632,6 +655,7 @@ export function emitMatchBodyRenderForFile(
         // The helper's DOMContentLoaded initial-fire bridges Shape A's
         // "subscribe doesn't fire at init" gap.
         variantSubscribeName: onResolved.variantSubscribeName,
+        ...(hasWildcard ? { defaultArmTag: "_" } : {}),
       },
     );
     if (out.renderFunctionsJs) renderFunctions.push(out.renderFunctionsJs);
