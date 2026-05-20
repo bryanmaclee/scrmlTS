@@ -1,0 +1,331 @@
+// ast-expr.scrml — Expr AST node catalog (DD §D3 type catalog).
+//
+// PILLAR 5b classification (DD §D1):
+//   The Expr enum + its node constructors are PURE DATA + CALCULATION.
+//   An Expr node is a struct-typed discriminated-union value describing an
+//   already-parsed expression — it has NO ongoing identity, NO transitions,
+//   NO lifecycle, and there is NO sensible "what condition is this node in
+//   right now?" question. Per DD §D1 the negative example "AST node
+//   construction from already-confirmed parts (makeIfStmt) is a pure
+//   constructor — calculation" applies verbatim. Engine-shape does NOT
+//   apply at the AST-catalog layer.
+//
+//   What IS state (and lives in parse-mode.scrml, NOT here): the ParseMode
+//   the parser is currently in. The AST nodes this file constructs are the
+//   OUTPUT of the parse — pure values, not state.
+//
+// Status (M2.1): COMPILABLE skeleton. JS-escape carries the live tag-style
+// surface today. The `type Expr:enum = { ... }` declaration is preserved in
+// commented canonical form for the M5 swap-in to scrml-native tagged
+// variants. The M2.1 scope is PRIMARY EXPRESSIONS — the constructors for
+// primary-expression node kinds (Ident, NumberLit, StringLit, BoolLit,
+// RegexLit, TemplateLit, AtCell, BareVariant, Array, Object, Paren) are
+// substantive; the operator / call / member / arrow / function node-kind
+// constructors (Binary, Unary, Logical, Assignment, Conditional, Sequence,
+// Call, New, Member, Arrow, Function) are PRESENT in the enum + as
+// constructors so downstream M2.2-M2.4 dispatches build on a stable
+// catalog, but M2.1's parser only EMITS the primary-expression kinds.
+//
+// DD §D3 cross-ref: the existing compiler/src/types/ast.ts defines an
+// ExprNode union (LitExpr / IdentExpr / BinaryExpr / UnaryExpr / CallExpr /
+// MemberExpr / ...). The native parser's Expr enum is the M5 swap-in
+// target shape; the M2.x CONFORMANCE oracle is Acorn's ESTree output
+// (DD §D6) — the conformance test maps Expr kinds onto ESTree node `type`
+// strings. The native enum is intentionally MORE typed than ESTree's
+// `type: string` discriminator (DD §D3: "the scrml-native form fixes this
+// — TokenKind/Expr is an enum, not a string").
+
+${
+    // CANONICAL scrml-source shape (PILLAR 5b reference) — tagged-variant
+    // enum per DD §D3. PRESERVED in commented form pending the M5 swap-in
+    // (payload-bearing variants reach the limits of what the compiler
+    // accepts today; for M2.1 the live surface below is plain JS, mirroring
+    // M1's token.scrml concession).
+    //
+    //   type Expr:enum = {
+    //       // --- Primary — literals (M2.1) ---
+    //       Ident(name: string, span: Span),
+    //       NumberLit(value: number, raw: string, span: Span),
+    //       StringLit(value: string, raw: string, span: Span),
+    //       BoolLit(value: boolean, span: Span),
+    //       RegexLit(pattern: string, flags: string, span: Span),
+    //       TemplateLit(quasis: TemplateQuasi[], exprs: Expr[], span: Span),
+    //
+    //       // --- Primary — scrml extensions surfaced by M1 (M2.1) ---
+    //       AtCell(name: string, span: Span),          // @cell per §6.1
+    //       BareVariant(name: string, span: Span),     // .X per §14.10
+    //
+    //       // --- Primary — composite (M2.1) ---
+    //       Array(elements: ArrayElement[], span: Span),
+    //       Object(properties: ObjectProperty[], span: Span),
+    //       Paren(expression: Expr, span: Span),       // ( expr ) grouping
+    //
+    //       // --- Operators (M2.2) — present in the catalog; not emitted at M2.1 ---
+    //       Unary(op: string, operand: Expr, prefix: boolean, span: Span),
+    //       Update(op: string, operand: Expr, prefix: boolean, span: Span),
+    //       Binary(op: string, left: Expr, right: Expr, span: Span),
+    //       Logical(op: string, left: Expr, right: Expr, span: Span),
+    //       Assignment(op: string, target: Expr, value: Expr, span: Span),
+    //       Conditional(test: Expr, consequent: Expr, alternate: Expr, span: Span),
+    //       Sequence(expressions: Expr[], span: Span),
+    //
+    //       // --- Call / member / arrow / function (M2.3) — catalog-only at M2.1 ---
+    //       Call(callee: Expr, args: Expr[], optional: boolean, span: Span),
+    //       New(callee: Expr, args: Expr[], span: Span),
+    //       Member(object: Expr, property: Expr, computed: boolean, optional: boolean, span: Span),
+    //       Arrow(params: Pattern[], body: Expr, isAsync: boolean, span: Span),
+    //       Function(name: string | not, params: Pattern[], body: Stmt[], isAsync: boolean, span: Span),
+    //   }
+    //
+    //   type ArrayElement:enum = {
+    //       Item(expression: Expr),
+    //       Spread(expression: Expr),
+    //       Hole,                                      // elision: [1, , 3]
+    //   }
+    //
+    //   type ObjectProperty:enum = {
+    //       KeyValue(key: Expr, value: Expr, computed: boolean),
+    //       Shorthand(name: string),                   // { x }
+    //       Spread(expression: Expr),                  // { ...rest }
+    //   }
+    //
+    //   type TemplateQuasi:struct = { raw: string, cooked: string }
+    //
+    // LIVE M2.1 SURFACE (JS host) — an Expr node is a plain JS object with
+    // `kind` as a string tag (one of the ExprKind variant names below).
+    // Payload fields ride alongside `kind` per-variant. Every node carries
+    // `span: Span` (reuses span.scrml's struct).
+    //
+    // Pillar 5b note: kind-as-string-tag is a known M2.1 concession to the
+    // M5 self-host swap — identical to M1's token.scrml concession. The
+    // CANONICAL form above is the scrml-source target; the JS-host surface
+    // mirrors it 1:1 with string-tagged discriminated-union dispatch.
+
+    // ---------------------------------------------------------------------
+    // ExprKind — string-tag registry. Order mirrors the canonical enum.
+    // ---------------------------------------------------------------------
+    export const ExprKind = Object.freeze({
+        // Primary — literals
+        Ident:       "Ident",
+        NumberLit:   "NumberLit",
+        StringLit:   "StringLit",
+        BoolLit:     "BoolLit",
+        RegexLit:    "RegexLit",
+        TemplateLit: "TemplateLit",
+
+        // Primary — scrml extensions surfaced by M1
+        AtCell:      "AtCell",
+        BareVariant: "BareVariant",
+
+        // Primary — composite
+        Array:  "Array",
+        Object: "Object",
+        Paren:  "Paren",
+
+        // Operators (M2.2)
+        Unary:       "Unary",
+        Update:      "Update",
+        Binary:      "Binary",
+        Logical:     "Logical",
+        Assignment:  "Assignment",
+        Conditional: "Conditional",
+        Sequence:    "Sequence",
+
+        // Call / member / arrow / function (M2.3)
+        Call:     "Call",
+        New:      "New",
+        Member:   "Member",
+        Arrow:    "Arrow",
+        Function: "Function",
+    })
+
+    // ArrayElementKind — discriminator for array-literal element forms.
+    export const ArrayElementKind = Object.freeze({
+        Item:   "Item",
+        Spread: "Spread",
+        Hole:   "Hole",
+    })
+
+    // ObjectPropertyKind — discriminator for object-literal property forms.
+    export const ObjectPropertyKind = Object.freeze({
+        KeyValue:  "KeyValue",
+        Shorthand: "Shorthand",
+        Spread:    "Spread",
+    })
+
+    // ---------------------------------------------------------------------
+    // Primary-expression node constructors (CALCULATION — pure fns over
+    // already-confirmed parts; DD §D1 negative example "makeIfStmt").
+    // Each returns a plain object with `kind` + payload + `span`.
+    // ---------------------------------------------------------------------
+
+    // makeIdent — identifier reference. `name` is the identifier text.
+    export function makeIdent(name, span) {
+        return { kind: ExprKind.Ident, name, span }
+    }
+
+    // makeNumberLit — numeric literal. `value` is the parsed number;
+    // `raw` is the source text (kept for span-faithful round-trips).
+    export function makeNumberLit(value, raw, span) {
+        return { kind: ExprKind.NumberLit, value, raw, span }
+    }
+
+    // makeStringLit — string literal. `value` is the cooked (escape-
+    // resolved) string; `raw` is the source text incl. quotes.
+    export function makeStringLit(value, raw, span) {
+        return { kind: ExprKind.StringLit, value, raw, span }
+    }
+
+    // makeBoolLit — boolean literal (`true` / `false`).
+    export function makeBoolLit(value, span) {
+        return { kind: ExprKind.BoolLit, value, span }
+    }
+
+    // makeRegexLit — regular-expression literal. `pattern` + `flags` are
+    // the M1 RegexLit token's payload (verbatim per lex-in-regex.scrml).
+    export function makeRegexLit(pattern, flags, raw, span) {
+        return { kind: ExprKind.RegexLit, pattern, flags, raw, span }
+    }
+
+    // makeTemplateLit — template literal. `quasis` is an array of
+    // { raw, cooked } string parts; `exprs` is the array of interpolated
+    // Expr nodes. Per ECMA-262 quasis.length == exprs.length + 1.
+    export function makeTemplateLit(quasis, exprs, span) {
+        return { kind: ExprKind.TemplateLit, quasis, exprs, span }
+    }
+
+    // makeTemplateQuasi — one cooked/raw chunk of a template literal.
+    export function makeTemplateQuasi(raw, cooked) {
+        return { raw, cooked }
+    }
+
+    // makeAtCell — scrml @cell reference (§6.1 V5-strict reactive-cell
+    // access). `name` is the cell name WITHOUT the leading `@`.
+    export function makeAtCell(name, span) {
+        return { kind: ExprKind.AtCell, name, span }
+    }
+
+    // makeBareVariant — scrml bare variant `.X` (§14.10 bare-variant
+    // inference). `name` is the variant name WITHOUT the leading `.`.
+    export function makeBareVariant(name, span) {
+        return { kind: ExprKind.BareVariant, name, span }
+    }
+
+    // makeArray — array literal. `elements` is an array of array-element
+    // values built via makeArrayItem / makeArraySpread / makeArrayHole.
+    export function makeArray(elements, span) {
+        return { kind: ExprKind.Array, elements, span }
+    }
+
+    // makeObject — object literal. `properties` is an array of object-
+    // property values built via makeObjectKeyValue / makeObjectShorthand /
+    // makeObjectSpread.
+    export function makeObject(properties, span) {
+        return { kind: ExprKind.Object, properties, span }
+    }
+
+    // makeParen — parenthesized grouping ( expr ). Carried as an explicit
+    // node so span-faithful round-trips and diagnostics can point at the
+    // parentheses; downstream consumers that don't care unwrap `.expression`.
+    export function makeParen(expression, span) {
+        return { kind: ExprKind.Paren, expression, span }
+    }
+
+    // --- Array-element constructors ---
+    export function makeArrayItem(expression) {
+        return { kind: ArrayElementKind.Item, expression }
+    }
+    export function makeArraySpread(expression) {
+        return { kind: ArrayElementKind.Spread, expression }
+    }
+    export function makeArrayHole() {
+        return { kind: ArrayElementKind.Hole }
+    }
+
+    // --- Object-property constructors ---
+    // makeObjectKeyValue — `key: value` (or `[computed]: value` when
+    // `computed` is true). `key` is an Expr (Ident / StringLit / NumberLit
+    // for the non-computed forms; any Expr for computed).
+    export function makeObjectKeyValue(key, value, computed) {
+        return { kind: ObjectPropertyKind.KeyValue, key, value, computed }
+    }
+    // makeObjectShorthand — `{ x }` shorthand. `name` is the identifier.
+    export function makeObjectShorthand(name) {
+        return { kind: ObjectPropertyKind.Shorthand, name }
+    }
+    // makeObjectSpread — `{ ...rest }`.
+    export function makeObjectSpread(expression) {
+        return { kind: ObjectPropertyKind.Spread, expression }
+    }
+
+    // ---------------------------------------------------------------------
+    // Operator / call / member node constructors — present so M2.2-M2.4
+    // dispatches build on a stable catalog. M2.1's parser does NOT emit
+    // these; they are documented extension points (parse-expr.scrml's
+    // header lists where the M2.2-M2.4 parsers slot in).
+    // ---------------------------------------------------------------------
+
+    // makeUnary — prefix unary operator (`!x`, `-x`, `typeof x`, `void x`,
+    // `delete x`, `~x`). M2.2.
+    export function makeUnary(op, operand, prefix, span) {
+        return { kind: ExprKind.Unary, op, operand, prefix, span }
+    }
+    // makeUpdate — `++` / `--` (prefix or postfix). M2.2.
+    export function makeUpdate(op, operand, prefix, span) {
+        return { kind: ExprKind.Update, op, operand, prefix, span }
+    }
+    // makeBinary — arithmetic / comparison / bitwise binary operator. M2.2.
+    export function makeBinary(op, left, right, span) {
+        return { kind: ExprKind.Binary, op, left, right, span }
+    }
+    // makeLogical — `&&` / `||` / `??`. Separate node-kind per ESTree. M2.2.
+    export function makeLogical(op, left, right, span) {
+        return { kind: ExprKind.Logical, op, left, right, span }
+    }
+    // makeAssignment — `=` and compound-assign (`+=`, `??=`, ...). M2.2.
+    export function makeAssignment(op, target, value, span) {
+        return { kind: ExprKind.Assignment, op, target, value, span }
+    }
+    // makeConditional — ternary `test ? consequent : alternate`. M2.2.
+    export function makeConditional(test, consequent, alternate, span) {
+        return { kind: ExprKind.Conditional, test, consequent, alternate, span }
+    }
+    // makeSequence — comma `a, b, c`. M2.2.
+    export function makeSequence(expressions, span) {
+        return { kind: ExprKind.Sequence, expressions, span }
+    }
+    // makeCall — function call `callee(args)`. `optional` true for `?.()`. M2.3.
+    export function makeCall(callee, args, optional, span) {
+        return { kind: ExprKind.Call, callee, args, optional, span }
+    }
+    // makeNew — `new callee(args)`. M2.3.
+    export function makeNew(callee, args, span) {
+        return { kind: ExprKind.New, callee, args, span }
+    }
+    // makeMember — `object.property` or `object[property]`. `computed` true
+    // for the bracket form; `optional` true for `?.`. M2.3.
+    export function makeMember(object, property, computed, optional, span) {
+        return { kind: ExprKind.Member, object, property, computed, optional, span }
+    }
+    // makeArrow — arrow function. `body` is an Expr (concise) or a block
+    // forwarded to M3's statement parser. M2.3.
+    export function makeArrow(params, body, isAsync, span) {
+        return { kind: ExprKind.Arrow, params, body, isAsync, span }
+    }
+    // makeFunction — function expression. `body` is a Stmt[] from M3. M2.3.
+    export function makeFunction(name, params, body, isAsync, span) {
+        return { kind: ExprKind.Function, name, params, body, isAsync, span }
+    }
+
+    // ---------------------------------------------------------------------
+    // isExpr — calculation (predicate). True iff `node` looks like an Expr
+    // node (has a `kind` field naming a known ExprKind). Used by the
+    // conformance harness + parser self-checks.
+    // ---------------------------------------------------------------------
+    export function isExpr(node) {
+        if (node is not) {
+            return false
+        }
+        return ExprKind[node.kind] != not
+    }
+}

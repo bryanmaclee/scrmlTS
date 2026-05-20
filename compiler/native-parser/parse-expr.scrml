@@ -1,0 +1,581 @@
+// parse-expr.scrml — the JS expression parser (DD §D2 + M2 milestone).
+//
+// The expression parser consumes M1's `lex(source): Token[]` output (through
+// token-cursor.scrml) and produces `Expr` AST nodes (ast-expr.scrml) per
+// S98 D3. It is the second composed-engines layer of the scrml-native
+// parser — M1 is the lexer, M2 is the expression parser, M3 the statement
+// parser.
+//
+// PILLAR 5b classification (DD §D1):
+//   The parser SUBSTRATE is engine-shaped STATE. `ParseMode` (parse-mode.scrml)
+//   is the context engine — the parser dispatches primary-expression rules
+//   per-token based on WHICH ParseMode is active (the §D1 operational test's
+//   first row: "code that runs depends on WHICH condition is currently
+//   active"). The token cursor's POSITION is state (token-cursor.scrml).
+//
+//   PARSING A PRIMARY EXPRESSION, once the ParseMode is fixed, is
+//   CALCULATION. Per DD §D1 OQ1: "the operational test classifies the
+//   LOCUS, and a calculation may contain state-shape subroutines." Given a
+//   confirmed token run in a known ParseMode, the primary-expression AST
+//   node is a pure function of the token run — no ambient context beyond
+//   the engine-routed mode. So every `parse*` function below is `fn`-shape
+//   (a pure calculation over the cursor's current view); the STATE is the
+//   cursor + the ParseMode engine those functions consult.
+//
+//   This is the DD §D1 charter applied: state-shape (ParseMode engine +
+//   cursor) governs WHICH rule runs; the rule bodies are calculation. A
+//   free `mode` integer threaded through every parse-fn would be the
+//   "scattered context flags" anti-template §D1 rejects — hence ParseMode
+//   is a named engine, consulted/transitioned in named places only.
+//
+// SCOPE — M2.1 (this dispatch): PRIMARY EXPRESSIONS ONLY.
+//   parsePrimary dispatches:
+//     - number / string / template / regex / boolean literals (M1 LEXES
+//       these to tokens; M2.1 BUILDS the Expr AST nodes from those tokens)
+//     - identifiers
+//     - @-cells (ScrmlAt tokens) — §6.1 V5-strict reactive-cell access
+//     - bare variants (.X — §14.10) — M1 lexes `.ident` to a BareVariant
+//       token; M2.1 builds the BareVariant Expr node
+//     - parenthesized expressions ( expr )
+//     - array literals [ ... ] (incl. spread + holes)
+//     - object literals { ... } (key-value, shorthand, spread, computed key)
+//
+// EXTENSION POINTS — LATER M2 sub-steps. parseExpression below is the
+// single recursion seam. At M2.1 parseExpression == parsePrimary. The
+// later sub-steps REPLACE parseExpression's body, leaving parsePrimary
+// (and the array/object element recursion through parseExpression)
+// untouched:
+//   - M2.2 — operator expressions: parseExpression becomes the
+//     precedence-climbing core (binary / unary / update / assignment /
+//     conditional / sequence). The seam: parseExpression() calls down to
+//     parseUnary() ... parsePrimary().
+//   - M2.3 — call / member / arrow-head / function-expression: a
+//     parsePostfix layer wraps parsePrimary (member access, calls,
+//     optional chaining); arrow + function-expression heads.
+//   - M2.4 — scrml-extension expression forms (D5 MUST ADD): `is` / `not` /
+//     `match expr {}` / `~` / `?{sql}` / `<#id>` / `render` / `lift` /
+//     `fail` / `::Variant`. These close the 5+ preprocessForAcorn
+//     Acorn-workaround failure modes (M2 gating criterion).
+//
+// .scrml<->.js shadow discipline (README ANOMALY-2): this .scrml carries
+// the canonical Pillar 5b SHAPE; the 1:1 .js shadow is the executable
+// surface tests import. Verify via parser-conformance-expr.test.js against
+// the .js — not by compiling the .scrml.
+
+${
+    import { makeTokenCursor, current, currentKind, peek, peekKind, advance, atEnd, snapshot, restore } from "./token-cursor.scrml"
+    import { TokenKind } from "./token.scrml"
+    import { makeSpan } from "./span.scrml"
+    import { ParseMode, initialParseMode, getParseMode, setParseMode, enterMode, exitMode } from "./parse-mode.scrml"
+    import {
+        makeIdent, makeNumberLit, makeStringLit, makeBoolLit, makeRegexLit,
+        makeTemplateLit, makeTemplateQuasi, makeAtCell, makeBareVariant,
+        makeArray, makeArrayItem, makeArraySpread, makeArrayHole,
+        makeObject, makeObjectKeyValue, makeObjectShorthand, makeObjectSpread,
+        makeParen,
+    } from "./ast-expr.scrml"
+
+    // ---------------------------------------------------------------------
+    // makeParseExprContext — STATE constructor: collects the parser's
+    // engine state into one ctx object. The CANONICAL form would have the
+    // ParseMode engine as a file-scope singleton (§51.0.K Machine
+    // Cohesion); the LIVE SURFACE bundles it in a per-call ctx for
+    // re-entrant parse calls (the parser's batch nature makes per-call ctx
+    // natural — same shape as M1's makeLexContext).
+    //
+    // Fields:
+    //   cursor           — the token cursor (token-cursor.scrml).
+    //   currentParseMode — the ParseMode engine's live variable (the
+    //                      canonical `@parseMode`). parse-mode.scrml's
+    //                      get/set/enter/exit helpers operate on this.
+    //   errors           — diagnostic accumulator. M2.1 records a
+    //                      structured { code, message, span } for each
+    //                      parse fault; the full error-recovery engine
+    //                      (error-recovery.scrml) wires in at M3.
+    // ---------------------------------------------------------------------
+    export function makeParseExprContext(tokens) {
+        return {
+            cursor:           makeTokenCursor(tokens),
+            currentParseMode: initialParseMode(),
+            errors:           [],
+        }
+    }
+
+    // recordError — STATE write: append a structured diagnostic. Pure
+    // accumulation (calculation per DD §D1 — "per-token emit + accumulator
+    // append is calculation"). M2.1 keeps a flat list; M3's error-recovery
+    // engine adds skipped-token accumulation + re-sync.
+    export function recordError(ctx, code, message, span) {
+        ctx.errors.push({ code, message, span })
+    }
+
+    // ---------------------------------------------------------------------
+    // parseExpression — the SINGLE RECURSION SEAM (see file header
+    // "EXTENSION POINTS"). At M2.1 an expression IS a primary expression.
+    // M2.2 replaces this body with the precedence-climbing operator core;
+    // parsePrimary and the array/object element recursion stay unchanged
+    // because they call through this seam.
+    //
+    // Calculation: a pure fn over the cursor's current view (the ParseMode
+    // engine routes which rule runs; this body is the rule).
+    // ---------------------------------------------------------------------
+    export function parseExpression(ctx) {
+        return parsePrimary(ctx)
+    }
+
+    // ---------------------------------------------------------------------
+    // parsePrimary — parse one PRIMARY expression. Dispatches on the
+    // current token's kind. Calculation per DD §D1: given a confirmed
+    // token run in a known ParseMode, the primary-expression node is a
+    // pure function of the token run.
+    //
+    // The dispatch order matters only where two kinds could both start a
+    // primary (none overlap at M2.1 — each TokenKind starts exactly one
+    // primary form). On an unrecognized token, records E-EXPR-UNEXPECTED
+    // and returns `not` so the caller can re-sync (M3 error-recovery).
+    // ---------------------------------------------------------------------
+    export function parsePrimary(ctx) {
+        const cursor = ctx.cursor
+        const kind = currentKind(cursor)
+
+        // --- Numeric literal — M1 NumberLit token carries .value + .text ---
+        if (kind == TokenKind.NumberLit) {
+            const tok = advance(cursor)
+            return makeNumberLit(tok.value, tok.text, tok.span)
+        }
+
+        // --- String literal — M1 StringLit token carries .cooked + .text ---
+        if (kind == TokenKind.StringLit) {
+            const tok = advance(cursor)
+            return makeStringLit(tok.cooked, tok.text, tok.span)
+        }
+
+        // --- Boolean literal — M1 lexes `true` / `false` to KwTrue / KwFalse ---
+        if (kind == TokenKind.KwTrue) {
+            const tok = advance(cursor)
+            return makeBoolLit(true, tok.span)
+        }
+        if (kind == TokenKind.KwFalse) {
+            const tok = advance(cursor)
+            return makeBoolLit(false, tok.span)
+        }
+
+        // --- Regex literal — M1 RegexLit token carries .pattern + .flags ---
+        if (kind == TokenKind.RegexLit) {
+            const tok = advance(cursor)
+            return makeRegexLit(tok.pattern, tok.flags, tok.text, tok.span)
+        }
+
+        // --- Template literal — M1 emits TemplateChunk + [InterpStart ...
+        // InterpEnd TemplateChunk]*; M2.1 reassembles into a TemplateLit ---
+        if (kind == TokenKind.TemplateChunk) {
+            return parseTemplateLiteral(ctx)
+        }
+
+        // --- Identifier ---
+        if (kind == TokenKind.Ident) {
+            const tok = advance(cursor)
+            return makeIdent(tok.name, tok.span)
+        }
+
+        // --- @-cell — M1 ScrmlAt token; .name is WITHOUT the leading @ ---
+        if (kind == TokenKind.ScrmlAt) {
+            const tok = advance(cursor)
+            return makeAtCell(tok.name, tok.span)
+        }
+
+        // --- Bare variant .X — M1 BareVariant token; .name is WITHOUT
+        // the leading dot (§14.10 bare-variant inference) ---
+        if (kind == TokenKind.BareVariant) {
+            const tok = advance(cursor)
+            return makeBareVariant(tok.name, tok.span)
+        }
+
+        // --- Parenthesized expression ( expr ) ---
+        if (kind == TokenKind.LParen) {
+            return parseParenExpression(ctx)
+        }
+
+        // --- Array literal [ ... ] ---
+        if (kind == TokenKind.LBracket) {
+            return parseArrayLiteral(ctx)
+        }
+
+        // --- Object literal { ... } ---
+        if (kind == TokenKind.LBrace) {
+            return parseObjectLiteral(ctx)
+        }
+
+        // --- Unrecognized — record + return `not`. M3's error-recovery
+        // engine consumes the skipped tokens + re-syncs; M2.1 records the
+        // fault and stops, leaving the caller to decide. ---
+        const here = current(cursor)
+        const span = here is not ? makeSpan(0, 0, 1, 1) : here.span
+        recordError(ctx, "E-EXPR-UNEXPECTED", "unexpected token in expression position: " + String(kind), span)
+        return not
+    }
+
+    // ---------------------------------------------------------------------
+    // parseParenExpression — `( expr )`. Consumes the LParen, parses one
+    // expression through the recursion seam (in .InExpression mode), then
+    // consumes the RParen. The grouping is kept as an explicit Paren node
+    // (ast-expr.scrml) so span-faithful diagnostics can point at the
+    // parens; conformance unwraps it (Acorn produces no paren node).
+    //
+    // M2.3 NOTE: `(` is also the head of an arrow function's parameter
+    // list. M2.1 parses `(...)` strictly as a grouped expression; the
+    // arrow-vs-paren disambiguation (bounded lookahead-with-commit per
+    // DD OQ3) is M2.3 work — it slots in HERE, snapshotting the cursor
+    // and committing to arrow or paren after the `=>` lookahead.
+    // ---------------------------------------------------------------------
+    export function parseParenExpression(ctx) {
+        const cursor = ctx.cursor
+        const open = advance(cursor)   // consume (
+        const prior = enterMode(ctx, ParseMode.InExpression)
+        const inner = parseExpression(ctx)
+        exitMode(ctx, prior)
+        const endSpan = expectRParen(ctx, open)
+        const span = makeSpan(open.span.start, endSpan.end, open.span.line, open.span.col)
+        return makeParen(inner, span)
+    }
+
+    // ---------------------------------------------------------------------
+    // parseArrayLiteral — `[ elem, elem, ... ]`. Elements may be:
+    //   - an expression item (the common case)
+    //   - a spread `...expr`
+    //   - a hole (elision) — consecutive commas, e.g. `[1, , 3]`
+    // Parses in .InArrayLiteral mode; each element expression re-enters
+    // .InExpression through the recursion seam.
+    // ---------------------------------------------------------------------
+    export function parseArrayLiteral(ctx) {
+        const cursor = ctx.cursor
+        const open = advance(cursor)   // consume [
+        const prior = enterMode(ctx, ParseMode.InArrayLiteral)
+        const elements = []
+
+        // The element loop. A `]` closes; a `,` after an element separates;
+        // a `,` with no element before it (or two `,` in a row) is a hole.
+        while (atEnd(cursor) == false && currentKind(cursor) != TokenKind.RBracket) {
+            // Hole — a comma in element position means an elided slot.
+            if (currentKind(cursor) == TokenKind.Comma) {
+                elements.push(makeArrayHole())
+                advance(cursor)   // consume the ,
+                continue
+            }
+
+            // Spread element ...expr
+            if (currentKind(cursor) == TokenKind.Ellipsis) {
+                advance(cursor)   // consume ...
+                const innerPrior = enterMode(ctx, ParseMode.InExpression)
+                const spreadExpr = parseExpression(ctx)
+                exitMode(ctx, innerPrior)
+                elements.push(makeArraySpread(spreadExpr))
+            } else {
+                // Plain element expression.
+                const innerPrior = enterMode(ctx, ParseMode.InExpression)
+                const itemExpr = parseExpression(ctx)
+                exitMode(ctx, innerPrior)
+                elements.push(makeArrayItem(itemExpr))
+            }
+
+            // After an element: either a `,` separator or the closing `]`.
+            if (currentKind(cursor) == TokenKind.Comma) {
+                advance(cursor)   // consume the separator ,
+            } else {
+                break
+            }
+        }
+
+        exitMode(ctx, prior)
+        const close = expectRBracket(ctx, open)
+        const span = makeSpan(open.span.start, close.end, open.span.line, open.span.col)
+        return makeArray(elements, span)
+    }
+
+    // ---------------------------------------------------------------------
+    // parseObjectLiteral — `{ prop, prop, ... }`. Properties may be:
+    //   - key-value `key: value` — key is Ident / StringLit / NumberLit
+    //   - computed key `[expr]: value`
+    //   - shorthand `{ x }` — equivalent to `{ x: x }`
+    //   - spread `{ ...rest }`
+    // Parses in .InObjectLiteral mode (a §51.0.Q.1 COMPOSITE state-child —
+    // the property-value position re-enters .InExpression).
+    //
+    // M2.3 NOTE: object methods + getters/setters (`{ foo() {} }`,
+    // `{ get x() {} }`) are M2.3/M4 — they need the function-body parser.
+    // M2.1 parses the data-property forms; a method shape records
+    // E-EXPR-OBJECT-METHOD-UNSUPPORTED rather than mis-parsing it.
+    // ---------------------------------------------------------------------
+    export function parseObjectLiteral(ctx) {
+        const cursor = ctx.cursor
+        const open = advance(cursor)   // consume {
+        const prior = enterMode(ctx, ParseMode.InObjectLiteral)
+        const properties = []
+
+        while (atEnd(cursor) == false && currentKind(cursor) != TokenKind.RBrace) {
+            // Spread property { ...rest }
+            if (currentKind(cursor) == TokenKind.Ellipsis) {
+                advance(cursor)   // consume ...
+                const innerPrior = enterMode(ctx, ParseMode.InExpression)
+                const spreadExpr = parseExpression(ctx)
+                exitMode(ctx, innerPrior)
+                properties.push(makeObjectSpread(spreadExpr))
+            } else {
+                const prop = parseObjectProperty(ctx)
+                if (prop is not) {
+                    // parseObjectProperty already recorded the error;
+                    // stop to avoid an infinite loop on a malformed prop.
+                    break
+                }
+                properties.push(prop)
+            }
+
+            // After a property: either a `,` separator or the closing `}`.
+            if (currentKind(cursor) == TokenKind.Comma) {
+                advance(cursor)   // consume the separator ,
+            } else {
+                break
+            }
+        }
+
+        exitMode(ctx, prior)
+        const close = expectRBrace(ctx, open)
+        const span = makeSpan(open.span.start, close.end, open.span.line, open.span.col)
+        return makeObject(properties, span)
+    }
+
+    // parseObjectProperty — one non-spread object-literal property.
+    // Returns a key-value or shorthand property, or `not` on a malformed
+    // (e.g. method-shaped) property.
+    export function parseObjectProperty(ctx) {
+        const cursor = ctx.cursor
+        const startKind = currentKind(cursor)
+
+        // Computed key [ expr ] : value
+        if (startKind == TokenKind.LBracket) {
+            advance(cursor)   // consume [
+            const keyPrior = enterMode(ctx, ParseMode.InExpression)
+            const keyExpr = parseExpression(ctx)
+            exitMode(ctx, keyPrior)
+            expectRBracket(ctx, current(cursor))
+            if (expectColon(ctx) == false) {
+                return not
+            }
+            const valuePrior = enterMode(ctx, ParseMode.InExpression)
+            const valueExpr = parseExpression(ctx)
+            exitMode(ctx, valuePrior)
+            return makeObjectKeyValue(keyExpr, valueExpr, true)
+        }
+
+        // Identifier / string / number key. Build the key Expr node.
+        let keyNode = not
+        if (startKind == TokenKind.Ident) {
+            const tok = advance(cursor)
+            keyNode = makeIdent(tok.name, tok.span)
+        } else if (startKind == TokenKind.StringLit) {
+            const tok = advance(cursor)
+            keyNode = makeStringLit(tok.cooked, tok.text, tok.span)
+        } else if (startKind == TokenKind.NumberLit) {
+            const tok = advance(cursor)
+            keyNode = makeNumberLit(tok.value, tok.text, tok.span)
+        } else {
+            const here = current(cursor)
+            const span = here is not ? makeSpan(0, 0, 1, 1) : here.span
+            recordError(ctx, "E-EXPR-OBJECT-KEY", "expected an object-literal property key", span)
+            return not
+        }
+
+        // What follows the key decides the property form:
+        //   `:` -> key-value
+        //   `,` or `}` -> shorthand (Ident keys only)
+        //   `(` -> a method — M2.3/M4, not supported at M2.1
+        const afterKind = currentKind(cursor)
+
+        if (afterKind == TokenKind.Colon) {
+            advance(cursor)   // consume :
+            const valuePrior = enterMode(ctx, ParseMode.InExpression)
+            const valueExpr = parseExpression(ctx)
+            exitMode(ctx, valuePrior)
+            return makeObjectKeyValue(keyNode, valueExpr, false)
+        }
+
+        if (afterKind == TokenKind.Comma || afterKind == TokenKind.RBrace) {
+            // Shorthand — legal only for an identifier key.
+            if (keyNode.kind != "Ident") {
+                recordError(ctx, "E-EXPR-OBJECT-SHORTHAND", "shorthand object property requires an identifier key", keyNode.span)
+                return not
+            }
+            return makeObjectShorthand(keyNode.name)
+        }
+
+        if (afterKind == TokenKind.LParen) {
+            recordError(ctx, "E-EXPR-OBJECT-METHOD-UNSUPPORTED", "object-literal methods are parsed at M2.3 (function-body parser)", keyNode.span)
+            return not
+        }
+
+        recordError(ctx, "E-EXPR-OBJECT-PROP", "malformed object-literal property", keyNode.span)
+        return not
+    }
+
+    // ---------------------------------------------------------------------
+    // parseTemplateLiteral — reassemble M1's template token run into a
+    // TemplateLit Expr node. M1 (lex-in-template.scrml) emits:
+    //
+    //   TemplateChunk [ TemplateInterpStart <expr-tokens> TemplateInterpEnd
+    //                   TemplateChunk ]*
+    //
+    // The opening backtick is already absorbed by M1 (the first
+    // TemplateChunk starts right after it); the LAST TemplateChunk's `raw`
+    // includes the closing backtick (`cooked` does not). Per ECMA-262 a
+    // TemplateLiteral has quasis.length == exprs.length + 1.
+    //
+    // Each interpolation body is parsed through the recursion seam in
+    // .InExpression mode. M2.1's seam (parseExpression == parsePrimary)
+    // parses a primary; M2.2+ widens it transparently.
+    // ---------------------------------------------------------------------
+    export function parseTemplateLiteral(ctx) {
+        const cursor = ctx.cursor
+        const quasis = []
+        const exprs = []
+
+        const firstChunk = advance(cursor)   // the leading TemplateChunk
+        // M1 (lex-in-template.scrml) absorbs the OPENING backtick before it
+        // emits the first TemplateChunk — so the chunk's span starts one
+        // char AFTER the backtick. The TemplateLit node's span should cover
+        // the whole `...` including both backticks (source-faithful, and
+        // Acorn-equivalent), so the start backs up one char to the opener.
+        // The final chunk's `raw` already includes the closing backtick, so
+        // `endPos` covers the closer without adjustment.
+        const startSpan = firstChunk.span
+        const templateStart = startSpan.start > 0 ? startSpan.start - 1 : 0
+        // The opening backtick sits on the same line as the first chunk
+        // (a chunk cannot begin before its own opener), one column earlier.
+        const templateCol = startSpan.col > 1 ? startSpan.col - 1 : startSpan.col
+        quasis.push(makeTemplateQuasi(stripTrailingBacktick(firstChunk.raw), firstChunk.cooked))
+        let endPos = firstChunk.span.end
+
+        // Each loop iteration consumes one [ InterpStart expr InterpEnd
+        // TemplateChunk ] group. The loop ends when the next token is no
+        // longer a TemplateInterpStart (the last chunk was already taken).
+        while (currentKind(cursor) == TokenKind.TemplateInterpStart) {
+            advance(cursor)   // consume ${  (TemplateInterpStart)
+
+            const interpPrior = enterMode(ctx, ParseMode.InExpression)
+            const interpExpr = parseExpression(ctx)
+            exitMode(ctx, interpPrior)
+            exprs.push(interpExpr)
+
+            // Consume the closing } (TemplateInterpEnd). If it is missing
+            // (malformed template), record + stop.
+            if (currentKind(cursor) == TokenKind.TemplateInterpEnd) {
+                advance(cursor)
+            } else {
+                const here = current(cursor)
+                const span = here is not ? startSpan : here.span
+                recordError(ctx, "E-EXPR-TEMPLATE-INTERP", "unterminated template interpolation", span)
+                break
+            }
+
+            // The chunk after the interpolation.
+            if (currentKind(cursor) == TokenKind.TemplateChunk) {
+                const chunk = advance(cursor)
+                quasis.push(makeTemplateQuasi(stripTrailingBacktick(chunk.raw), chunk.cooked))
+                endPos = chunk.span.end
+            } else {
+                // Malformed — M1 should always emit a chunk after an
+                // interp close; record defensively.
+                const here = current(cursor)
+                const span = here is not ? startSpan : here.span
+                recordError(ctx, "E-EXPR-TEMPLATE-CHUNK", "expected a template chunk after interpolation", span)
+                break
+            }
+        }
+
+        const span = makeSpan(templateStart, endPos, startSpan.line, templateCol)
+        return makeTemplateLit(quasis, exprs, span)
+    }
+
+    // stripTrailingBacktick — calculation: M1's final TemplateChunk `raw`
+    // includes the closing backtick; a quasi's `raw` should not. (`cooked`
+    // is already backtick-free.) A non-final chunk's raw has no backtick;
+    // this is a no-op for those.
+    export function stripTrailingBacktick(raw) {
+        if (raw is not) {
+            return ""
+        }
+        if (raw.length > 0 && raw.charAt(raw.length - 1) == "`") {
+            return raw.substring(0, raw.length - 1)
+        }
+        return raw
+    }
+
+    // ---------------------------------------------------------------------
+    // expect* helpers — consume a required closing token, recording a
+    // structured diagnostic when it is absent. Each returns a Span: the
+    // consumed token's span on success, or a zero-width span at the
+    // opener on failure (so the caller's node still gets a sane span).
+    // Calculation: a pure check + advance over the cursor's current view.
+    // ---------------------------------------------------------------------
+    export function expectRParen(ctx, opener) {
+        const cursor = ctx.cursor
+        if (currentKind(cursor) == TokenKind.RParen) {
+            const tok = advance(cursor)
+            return tok.span
+        }
+        recordError(ctx, "E-EXPR-UNCLOSED-PAREN", "expected ')' to close a parenthesized expression", opener.span)
+        return makeSpan(opener.span.end, opener.span.end, opener.span.line, opener.span.col)
+    }
+
+    export function expectRBracket(ctx, opener) {
+        const cursor = ctx.cursor
+        if (currentKind(cursor) == TokenKind.RBracket) {
+            const tok = advance(cursor)
+            return tok.span
+        }
+        const oSpan = opener is not ? makeSpan(0, 0, 1, 1) : opener.span
+        recordError(ctx, "E-EXPR-UNCLOSED-BRACKET", "expected ']' to close an array literal", oSpan)
+        return makeSpan(oSpan.end, oSpan.end, oSpan.line, oSpan.col)
+    }
+
+    export function expectRBrace(ctx, opener) {
+        const cursor = ctx.cursor
+        if (currentKind(cursor) == TokenKind.RBrace) {
+            const tok = advance(cursor)
+            return tok.span
+        }
+        recordError(ctx, "E-EXPR-UNCLOSED-BRACE", "expected '}' to close an object literal", opener.span)
+        return makeSpan(opener.span.end, opener.span.end, opener.span.line, opener.span.col)
+    }
+
+    // expectColon — consume a required `:`. Returns true on success,
+    // false (after recording) when absent.
+    export function expectColon(ctx) {
+        const cursor = ctx.cursor
+        if (currentKind(cursor) == TokenKind.Colon) {
+            advance(cursor)
+            return true
+        }
+        const here = current(cursor)
+        const span = here is not ? makeSpan(0, 0, 1, 1) : here.span
+        recordError(ctx, "E-EXPR-EXPECTED-COLON", "expected ':' in object-literal property", span)
+        return false
+    }
+
+    // ---------------------------------------------------------------------
+    // parseExpr — the M2.1 ENTRY POINT. Takes M1's Token[] (the lex output)
+    // and returns { ast, errors }:
+    //   ast    — the parsed Expr node, or `not` when the input had no
+    //            parseable primary expression at its head.
+    //   errors — the structured-diagnostic list (empty on a clean parse).
+    //
+    // M2.1 parses ONE primary expression at the head of the token stream.
+    // The full statement-level parser is M3; the call/member/operator
+    // widening is M2.2-M2.4. The conformance harness
+    // (parser-conformance-expr.test.js) calls this entry point.
+    // ---------------------------------------------------------------------
+    export function parseExpr(tokens) {
+        const ctx = makeParseExprContext(tokens)
+        const ast = parseExpression(ctx)
+        return { ast, errors: ctx.errors }
+    }
+}
