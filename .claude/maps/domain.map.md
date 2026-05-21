@@ -1,6 +1,6 @@
 # domain.map.md
 # project: scrmlts
-# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
+# updated: 2026-05-21T04:30:00-06:00  commit: e613621
 
 The domain of this repo is *compiling the scrml language*. scrml is a
 single-file, full-stack reactive web language: one `.scrml` source compiles to
@@ -14,7 +14,8 @@ input, performs a bounded transformation, and hands a well-typed output to the
 next. Stages 1–CE are per-file parallel (one Bun worker each); MOD and the
 cross-file stages are project-wide synchronization points.
 Hard target: a 4000-line project compiles from scratch in under 1 second.
-The live pipeline (compiler/src/) is UNCHANGED since commit 78faa65.
+The live pipeline (compiler/src/) is UNCHANGED since commit 78faa65 — verified at
+`e613621` (the entire S113 13-dispatch native-parser arc edited zero compiler/src/ files).
 
 | # | Stage | Abbrev | Source file(s) |
 |---|---|---|---|
@@ -60,30 +61,60 @@ The front-end is a stack of trampoline loops, each dispatching by an `<engine>`:
 JS layer:
 - M1 — LEXER. `lex(source): Token[]` (lex.scrml) is a loop dispatching by the
   `LexMode` engine. 7 lex modes (InCode + 6 sub-modes for strings, templates,
-  comments, regex). COMPLETE (M1.1-M1.4, S99-S103).
+  comments, regex). ✅ COMPLETE (M1.1-M1.4, S99-S103; M1.5 verified S113).
 - M2 — EXPRESSION PARSER. `parse-expr` consumes M1's Token[] through
   `token-cursor` and emits `Expr` AST (ast-expr) via precedence-climbing,
-  dispatching by the `ParseMode` engine. IN FLIGHT — M2.1 primary expressions +
-  M2.2 operator expressions + M2.3 call/member/arrow heads landed at S112.
-- M3 — STATEMENT PARSER. Subsumes the body-pre-parser. Pending.
-- M4 — full bounded JS subset. Pending.
+  dispatching by the `ParseMode` engine. ✅ COMPLETE (M2.1-M2.4, S112-S113).
+  M2.4 closed the 5+ `preprocessForAcorn` Acorn-workaround failure modes —
+  one regression test per fixed class (the M2 gating criterion).
+- M3 — STATEMENT PARSER. `parse-stmt` consumes M1's Token[] and emits `Stmt`
+  AST (ast-stmt). Function bodies parsed IN-LINE — subsumes the live
+  `body-pre-parser.ts` (BPP deletes by construction at M6). ✅ COMPLETE
+  (M3.1-M3.4, S113). M3 extends ParseMode with `.InBlock`. Error recovery
+  wired into M1's ErrorRecovery engine (panic-mode resync on `;` /
+  statement-start keywords / `}`).
+- M4 — full bounded JS subset (residual D5 MUST-PARSE/ADD coverage + the
+  full-corpus conformance close). M4.1 (`await`/`yield` operators + `function*`
+  full wiring; `inAsync`/`inGenerator` ctx slots) ✅ COMPLETE (S113). M4.2
+  (K6 destructuring unification + `noIn` flag) + M4.3 (Tier 1+2 full corpus)
+  pending.
 
 Markup layer:
 - MK1 — CONTEXT GRID. `parse-markup` is a trampoline dispatching by the
   `BlockContext` engine — recognizes the 7 block-opener sigils + the `<ident`
-  markup-tag boundary, producing a typed block-stream. IN FLIGHT — MK1.1-MK1.3
-  landed at S112. MK1 does NOT build the `<tag>` tree.
-- MK2 — `TagFrame` engine: the tag tree, 3 closer forms, `TagKind`. Pending.
-- MK3 — `BodyMode` + `DisplayTextLiteral`: §4.18 native quoted-text. Pending.
-- MK4 — markup↔JS seam; re-tokenizer-scaffolding deletion. Pending.
+  markup-tag boundary, producing a typed block-stream. ✅ COMPLETE
+  (MK1.1-MK1.3, S112). MK1 does NOT build the `<tag>` tree.
+- MK2 — `TagFrame` engine: the `<tag>` tree, 3 closer forms (`</>`, `</name>`,
+  `/>`), `TagKind` (Html / Component / ScrmlStructural / StateOpener),
+  `TagClass`, the §4.15 / §24.4 structural registry, opener tokenization, and
+  mismatch recovery via `E-MARKUP-002`. ✅ COMPLETE (MK2.1-MK2.3, S113).
+  MK2.3 closed 5 BS classifier heuristics (regression test per heuristic).
+- MK3 — `BodyMode` + `DisplayTextLiteral`: §4.18 native quoted-text.
+  ✅ COMPLETE (MK3.1-MK3.3, S113). `BodyMode` 2-variant engine (`.FreeText` /
+  `.CodeDefault`) populated via tag-frame `bodyMode` payload; `DisplayTextLiteral`
+  3-variant engine (`Outside` / `InLiteralText` / `InInterpolation`); `"..."`
+  literal with `\"`/`\\`/`\${` escape set; `${...}` interpolation delegates to
+  M2's expression parser; `E-UNQUOTED-DISPLAY-TEXT` (§4.18.7) fires as a parse
+  outcome in code-default bodies.
+- MK4 — markup↔JS seam; re-tokenizer-scaffolding deletion. Pending (gated on
+  M4).
+
+JS-host third body-mode (§40.8 `default-logic` — NOT MK3's scope): `<program>`
+/ `<page>` body parses in `default-logic` mode, a distinct third mode that
+§4.18 explicitly does NOT classify. The native-parser `body-mode.js` declares
+`ProgramBodyMode` enum + `isProgramBodyElementName` for `<program>`/`<page>`.
 
 ### Native-parser engines (state-shape; Pillar 5b)
 LexMode       — JS-lexer context (which lexing mode is active right now).
 BracketStack  — bracket depth + opener-frame stack.
 ErrorRecovery — parse-error recovery (ParsingNormally / AccumulatingSkipped / ReSynchronized).
-ParseMode     — JS expression/statement parsing context.
+ParseMode     — JS expression/statement parsing context (incl. `.InBlock` for M3).
 BlockContext  — markup-layer context grid (which scrml context the cursor is in).
-BodyMode      — markup-tag body mode (free-text vs code-default, §4.18).
+TagFrame      — markup-tag tree (3 variants: Closed / OpenExpectingChildren(payload) /
+                OpenSelfClosed(payload)). Payload-bearing per `bracket-stack` precedent.
+BodyMode      — markup-tag body mode (FreeText / CodeDefault, §4.18).
+DisplayTextLiteral — display-text-literal scanner (Outside / InLiteralText /
+                     InInterpolation, §4.18.3-§4.18.4).
 (Engine state-child catalog: see schema.map.md.)
 
 ### Authority
@@ -91,6 +122,8 @@ Native-parser design lives in scrml-support (deep-dives), NOT this repo:
 `scrml-native-parser-design-2026-05-17.md` (S98 DD) and
 `scrml-native-parser-front-end-charter-2026-05-20.md` (charter B).
 In-repo working artifact: `docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md`.
+Per-sub-step progress notes: `docs/changes/native-parser-front-end/progress-*.md` (one
+per dispatched M-/MK-/K-step — 13 at HEAD).
 
 ## Core Language Concepts (what the compiler processes)
 V5-strict access model — two declaration forms; `<x> = init` declares, `@x` reads/writes a reactive cell (SPEC §6, §1.6).
@@ -111,7 +144,7 @@ Validators + auto-synthesized validity surface — 14 universal-core predicates 
 Inline type predicates — refinement types `number(>0 && <10000)`, `string(email)`; SPARK zones (SPEC §53).
 Type-as-argument family (L22) — `parseVariant` / `formFor` / `schemaFor` / `tableFor` — types passed as values (SPEC §41.13-§41.15, §53.14).
 `<schema>` + migrations — SQL DDL, column types, migration diff (SPEC §39).
-§4.18 quoted-text model — native display-text literal; in-flight arc (docs/changes/quoted-text-model/).
+§4.18 quoted-text model — native display-text literal; MK3 implements natively at the native-parser; the older quoted-text-model BS-retrofit (Waves 2-7) is SUPERSEDED by charter B.
 Output name encoding — emitted JS var names use kind prefixes + a hash scheme (SPEC §47).
 
 ## Compiler Analysis Concepts (passes that classify, not transform)
@@ -143,7 +176,7 @@ SPEC-INDEX.md — section navigation map.
 PIPELINE.md (compiler/PIPELINE.md) — normative stage contracts + lock map (L1-L22) + failure-mode catalog.
 
 ## Tags
-#scrmlts #map #domain #compiler #pipeline #scrml-language #native-parser #composed-engines
+#scrmlts #map #domain #compiler #pipeline #scrml-language #native-parser #composed-engines #charter-b
 
 ## Links
 - [primary.map.md](./primary.map.md)

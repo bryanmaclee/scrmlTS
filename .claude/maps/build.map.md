@@ -1,15 +1,16 @@
 # build.map.md
 # project: scrmlts
-# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
+# updated: 2026-05-21T04:30:00-06:00  commit: e613621
 
 Build tool: Bun (no transpile step — `.ts` runs directly).
 No Dockerfile, no docker-compose, no CI workflow files (.github/, .gitlab-ci, Jenkinsfile).
 The only CI-equivalent automation is git hooks under scripts/git-hooks/.
+UNCHANGED since 87453fb (S113 native-parser arc added no build scripts / CLI flags / hooks).
 
 ## npm Scripts (package.json)
 compile        — `bun run compiler/src/cli.js compile` — compile a .scrml file/dir
 pretest        — `bash scripts/compile-test-samples.sh` — runs automatically before `test`
-test           — `bun test compiler/tests/` — full test suite (730 files)
+test           — `bun test compiler/tests/` — full test suite (731 files)
 test:coverage  — `bun test compiler/tests/ --coverage`
 watch          — `bun --watch compiler/src/cli.js compile` — recompile on change
 bench          — `bun run compiler/src/cli.js compile samples/compilation-tests/ --timing`

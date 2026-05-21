@@ -1,238 +1,228 @@
 # non-compliance.report.md
 # project: scrmlts
-# generated: 2026-05-20T17:07:32-06:00
-# scan mode: FULL_COLD_START
+# generated: 2026-05-21T04:30:00-06:00
+# scan mode: INCREMENTAL_UPDATE (S114 OPEN — refresh against e613621)
 
 ## Summary
 
-Total docs scanned: 203 (excluding node_modules, framework-comparison dirs,
+Refresh scope: the S113 13-dispatch native-parser arc landed 4 milestones + M4.1
++ K2 with zero `compiler/src/` edits. Most prior-scan non-compliance findings are
+UNCHANGED (the `docs/changes/**` regrowth is the dominant baseline, surveyed by
+the 2026-05-20 scan and unchanged in shape). This refresh adds:
+
+  - SPEC editorial inconsistency: §4.18.3 vs §4.18.4 escape-count (NEW finding —
+    surfaced by MK3.2 implementation).
+  - Native-parser-local `E-STMT-*` / `E-EXPR-*` diagnostic codes (32 distinct codes)
+    NOT in SPEC §34 — intentional pre-M5; flag for the §34 reconciliation that
+    must land alongside the pipeline swap-in.
+  - K9 + K10 native-parser `.scrml` cleanups (in-flight, NOT bugs — 9 of 27
+    files still fail `.scrml`-compile post-K2; the `.js` shadows execute fine).
+  - 15 new `docs/changes/native-parser-front-end/progress-*.md` per-dispatch
+    files — KEEP-LIVE while the arc is in flight, mirror the prior scan's
+    handling of the M2.1 / MK1.* progress notes.
+  - `docs/changes/` regrew 89 dirs (was 91; net -2 — small natural churn).
+
+Total docs scanned: ~200 (excluding node_modules, framework-comparison dirs,
 .git/.jj/.claude, handOffs/, dist/, docs/website/**/dist/)
 Compliant: ~98
-Non-compliant: ~101
-Uncertain: 4
+Non-compliant: ~99 (prior baseline)
+Uncertain: 5 (prior 4 + the §4.18 SPEC editorial item)
+NEW items added this scan: 3 (SPEC §4.18 editorial; native-parser §34 codes; K9/K10 ledger)
 
-The doc-compliance picture is essentially unchanged from the prior scan
-(commit 78faa65). The dominant non-compliance is still `docs/changes/**` — a
-working area the S61 and S79 maps-refresh scans already swept (S79 cut it to 4
-KEEP-LIVE dirs; governing matrix: `docs/curation/2026-05-05-changes-dir-disposition.md`).
-It has since regrown to **91 dirs** across the S80–S112 arc (3 new since the
-prior scan). Per the "current truth only" scope principle, completed-and-landed
-dispatch dirs belong in `scrml-support/archive/changes/`; in-flight
-scoping/proposal docs are non-compliant for a dev-scoped repo map regardless.
-This is not new drift — it is the recurring regrowth the prior scans both flagged.
+## NEW since prior scan (87453fb → e613621)
 
-## Delta since the prior scan (commit 78faa65)
+### NEW item 1 — SPEC §4.18.3 vs §4.18.4 escape-count editorial inconsistency
+**Type:** SPEC editorial (no code or doc to deref — flagged for the user to
+correct at a future SPEC amendment).
+**Location:** `compiler/SPEC.md`, §4.18.3 (line ~1158) + §4.18.4 (line ~1182).
+**Detail:** §4.18.3 normatively states: *"A literal double-quote `\"` inside a
+display-text literal SHALL be written as the escape sequence `\"`. The backslash
+escape sequence `\\` produces a literal backslash. **These are the only two
+escape sequences inside a display-text literal**"* — a closed two-element set.
+But §4.18.4 (the immediately-following subsection on interpolation) introduces
+a third: *"A literal `${` sequence intended as display text … SHALL be escaped
+— `\${` produces the literal two-character sequence `${`."* — a third escape.
+The two normative statements contradict on the cardinality.
 
-New docs added since 78faa65 (12-commit window):
-- `docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md` — front-matter
-  `status: ACTIVE`, the live charter-B native-parser tracking artifact → UNCERTAIN
-  (KEEP-LIVE candidate; see below). The native-parser README and structure.map.md
-  cite it as the implementation roadmap for the in-flight M-ladder.
-- `docs/changes/native-parser-front-end/SPIKE-markup-js-seam-2026-05-20.md` —
-  front-matter `status: draft-for-PA-review`, dated current → spike doc for the
-  active arc; UNCERTAIN (KEEP-LIVE while the arc is in flight).
-- `docs/changes/m2-1-native-parser-substrate/progress.md` — a just-landed dispatch
-  progress file (M2.1 substrate; the work is committed at 4c2c4a0/038dd57/etc.) →
-  NON-COMPLIANT (completed dispatch; deref to archive once the M2 arc closes).
-- `docs/changes/quoted-text-model/IMPLEMENTATION-ROADMAP.md` was UPDATED to
-  self-mark "STATUS SUPERSEDED — S111 charter-B pivot" (Waves 2-7 PAUSED). It is
-  now a frozen/superseded planning doc — see flag below.
+The native parser implements the CORRECT 3-escape union (`\"` / `\\` / `\${`) —
+see `compiler/native-parser/display-text-literal.js:130` `LEGAL_FROM_IN_LITERAL_TEXT`
+and `classifyEscape`/`scanLiteralEscape`. MK3.2's progress note flagged the
+inconsistency explicitly (see `docs/changes/native-parser-front-end/progress-mk3.2.md`).
 
-`compiler/native-parser/README.md` was updated (39-line diff) and remains
-COMPLIANT: it is a current source-tree README; every backticked identifier in it
-(`lex`, `LexMode`, `BlockContext`, `ParseMode`, `BracketStack`, `ErrorRecovery`,
-`makeParseContext`) grep-resolves into `compiler/native-parser/*.js`. Its "M1.4
-status" table is the accurate current status of the M1 lexer.
+**Suggested disposition:** SPEC editorial amendment to §4.18.3 — replace
+"the only two" with the correct enumeration ("these escape sequences — `\"`,
+`\\`, and `\${` (§4.18.4) — are the legal escapes inside a display-text
+literal"). Spec-only landing; no code change required (native parser already
+implements the union).
+
+### NEW item 2 — Native-parser-local `E-STMT-*` / `E-EXPR-*` codes not in SPEC §34
+**Type:** intentional pre-M5 gap; flag for M5 §34 reconciliation.
+**Location:** `compiler/native-parser/parse-stmt.js` + `parse-expr.js`.
+**Detail:** Grep-confirmed: the native parser emits **32 distinct
+`E-STMT-*`/`E-EXPR-*` codes** (e.g. `E-STMT-MISSING-SEMICOLON`,
+`E-STMT-RETURN-OUTSIDE-FUNCTION`, `E-EXPR-UNCLOSED-PAREN`,
+`E-EXPR-MATCH-ARROW`, …). SPEC §34 (the normative error-code catalog) contains
+**zero** `E-STMT-*` or `E-EXPR-*` rows at HEAD `e613621`.
+
+This is INTENTIONAL — the native parser is a parallel track; until M5 (pipeline
+swap behind `--parser=scrml-native`) these codes are not user-visible (only
+`parser-conformance-*.test.js` consumes them). At M5 the native parser becomes
+selectable user-facing; at M6 it becomes the ONLY front-end. The §34 catalog
+must be reconciled at M5 (add the codes that survive triage; map / merge any
+that overlap existing §34 codes — e.g. `E-STMT-MISSING-SEMICOLON` may merge
+into existing `E-SYNTAX-*`).
+
+The codes the native parser does emit that ARE in SPEC §34 — `E-MARKUP-002`,
+`E-CTX-001`, `E-CTX-003`, `E-UNQUOTED-DISPLAY-TEXT`, `E-PARSE-001` — are
+correctly placed.
+
+**Suggested disposition:** Track as part of the M5 dispatch brief. NOT a
+non-compliance to act on now; the M5 brief should include a §34-reconciliation
+task that audits all `E-STMT-*` / `E-EXPR-*` for keep / merge / rename decisions
++ SPEC amendment. Until then this is a known parallel-track condition.
+
+### NEW item 3 — K9 + K10 native-parser `.scrml`-compile cleanups (NOT bugs)
+**Type:** in-flight cleanup ledger; flag for tracking, not for action.
+**Location:** `docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md`
+§4.4 K-ledger rows K9 + K10.
+**Detail:** The roadmap §4.4 K-ledger tracks `.scrml`-compile-cleanness of the
+27 native-parser `.scrml` files. At HEAD `e613621`:
+
+  - K2 ✅ FIXED S113 (M1.x cluster) — `char-classify.scrml` leaf extracted;
+    `lex-in-code` + `lex-in-regex` + `lex` compile clean.
+  - K7 ✅ FIXED S113 (M3.3) — `JS_KEYWORDS` own-property guard in `token.scrml`.
+  - K9 — markup-layer twin of K2: `block-context.scrml` ↔ `parse-ctx.scrml`
+    circular import (E-IMPORT-002) + aliased imports across `block-context` /
+    `parse-ctx` / `parse-markup` / `tag-frame`. **Open. 9 of 27 native-parser
+    `.scrml` files still fail compile post-K2.** Must be fixed before M6
+    (self-host). Mirror the K2 recipe.
+  - K10 — `ast-expr.scrml` ~L575 uses `!= not` (E-EQ-002); should be `is not`.
+    `parse-expr.scrml` + `parse-stmt.scrml` import `ast-expr` and transitively
+    inherit the compile failure. **Open. One-line fix. Sequence post-M4** to
+    avoid collision with M4.2/M4.3 edits to `ast-expr.scrml`.
+  - K3/K4/K5 — M1 lexer maximal-munch gaps (compound-assign / `?.` /
+    `#`/`~`/`::`); parse-expr-coupled; **post-M4 sequence**.
+  - K8 — whole-parser `function`→`fn` refactor (K2-unblocked); standalone.
+  - K6 — folded into M4.2.
+
+The `.js` shadows are UNAFFECTED by K8-K10 — the full test suite passes
+(17,812/0 at HEAD). These are scrml-source-side cleanups that pre-date the
+swap-in, NOT regressions or bugs.
+
+**Suggested disposition:** Continue tracking in IMPLEMENTATION-ROADMAP §4.4
+K-ledger (which is the authoritative tracker — this report just surfaces it).
+No deref. The K-ledger format works.
+
+### NEW item 4 — `docs/changes/native-parser-front-end/progress-*.md` (15 files)
+**Type:** in-flight progress notes; KEEP-LIVE while the arc is in flight.
+**Location:** `docs/changes/native-parser-front-end/progress-{m1x-cluster, m2.4,
+m3.1, m3.2, m3.3, m3.4, m4.1, mk2.1, mk2.2, mk2.3, mk3.1, mk3.2, mk3.3}.md` +
+the prior `SPIKE-markup-js-seam-2026-05-20.md` + `IMPLEMENTATION-ROADMAP.md`.
+**Detail:** Mirror the prior scan's UNCERTAIN/KEEP-LIVE handling of the M2.1 /
+MK1.* progress notes. These are per-dispatch landing reports for the active
+charter-B arc; the roadmap §5 progress table is the single source of truth.
+**Suggested disposition:** HOLD all as KEEP-LIVE for the duration of the arc.
+Deref `docs/changes/native-parser-front-end/` to `scrml-support/archive/changes/`
+only when M6 lands (the entire arc closes together — charter Q5 retirement).
+
+## Inherited from prior scan (87453fb) — UNCHANGED
+
+The substantive content of the 2026-05-20 scan stands. Quoting the headline
+findings without re-enumerating each entry:
+
+- **docs/changes/** — 89 directories (was 91; M2.1 substrate dir landed and
+  M2.2/M2.3 dispatched without spawning new dirs, so churn is small).
+  Dominant non-compliance: completed-and-landed dispatch dirs that should
+  deref to `scrml-support/archive/changes/`. **Per the S61/S79 precedent and
+  the S91 maps refresh, this remains the PA-decided batch deref item.**
+  Disposition matrix: `docs/curation/2026-05-05-changes-dir-disposition.md`.
+- **docs/audits/** — 7 of 9 historical audit reports → deref to
+  `scrml-support/archive/audits/`. Two KEEP-LIVE (compiler-forgotten-surface,
+  scope-c-findings-tracker).
+- **docs/changes/quoted-text-model/** — 4 files SUPERSEDED by charter B
+  (the dir self-marks `STATUS SUPERSEDED — S111 charter-B pivot`; Waves 2-7
+  are explicitly throwaway since charter B implements §4.18 natively in MK3).
+  **MK3 has now LANDED at S113** — Wave 1 (the §4.18 SPEC amendment, already
+  in `SPEC.md`) is now realized in code by the native parser. The quoted-text-
+  model `IMPLEMENTATION-ROADMAP.md`'s "Waves 2-7 are unnecessary under charter
+  B" claim is now empirically verified. Deref to
+  `scrml-support/archive/changes/quoted-text-model/` is the recommended next
+  step; confirm with PA before executing.
+- **docs/articles/*-devto-*.md + drafts** — 16 published-marketing files.
+  Deref to `scrml-support/docs/articles/`.
+- **docs/website/** — 3 source files (1 superseded announce, 1 draft roadmap,
+  1 current announce). Deref the two superseded; HOLD the current per PA call.
+- **docs/curation/2026-05-05-changes-dir-disposition.md** — historical
+  curation log; HOLD until the `docs/changes/` deref executes, then archive.
+- **docs/pinned-discussions/w-program-001-warning-scope.md** — parked decision.
+  Deref to `scrml-support/docs/`.
+- **docs/m1-benchmark-results.md** — gitignored per-run dump; delete.
 
 ## Map-set state
 
-The prior scan deleted stale map files (`events.map.md`, `native-parser.map.md`,
-`INDEX.md`, `non-compliance.md`). None have regrown. This FULL_COLD_START
-regenerated all 8 applicable maps (structure, dependencies, schema, config,
-build, error, test, domain) + primary + this report. No new map files were
-created — no conditional-map trigger fired (this is a compiler, not a web app).
-
-## Non-compliant docs
-
-### docs/changes/** — 91 directories (per-feature working dirs)
-**Reason:** combo (location + name-heuristic + content-heuristic)
-**Detail:** `docs/changes/` is the in-flight working area. Its files are
-`SCOPING.md`, `progress.md`, `BRIEF.md`, `SURVEY.md`, `SCOPE.md`, `CLOSURE.md`,
-`DEFERRED.md`, `*-AUDIT-*.md`, `SPIKE-*.md`, `DISPATCH-*.md`, `anomaly-report.md`,
-`pre-snapshot.md`, `IMPLEMENTATION-ROADMAP.md` — by name and content these are
-planning / progress / proposal / audit docs describing in-flight or just-landed
-work, not current-truth reference. The changelog confirms many describe SHIPPED
-features — those dirs are completed dispatches.
-**Suggested disposition:**
-  - Dirs describing SHIPPED-and-merged work → `deref to scrml-support/archive/changes/<dir>/`
-    (the S61/S79 precedent — flat layout). This is the large majority:
-    e.g. `null-eradication-*` (S89), `undefined-eradication-*` (S89),
-    `formFor-*` / `schemaFor-*` / `tableFor-*` (S102-S103), `§13.2-impl-phase-*`,
-    `§36-impl-phase-*` / `§36-input-devices-impl`, `a1-closeout`,
-    `a2-1-module-scaffold`, `a2-2-component-1`, `a-2-8-emit-reachability-canonical`,
-    `a2-reachability-solver-scoping`, `a3-auth-graph-scoping`,
-    `a-4-2..a-4-7` + `a-4-per-route-artifact-splitter-SCOPING`,
-    `a9-ext4-body-split-min-viable`, `match-block-form-scoping`,
-    `m1-1-native-lexer-skeleton`, `m1-2-strings-and-templates`,
-    `m2-1-native-parser-substrate` (NEW — M2.1 substrate landed S112),
-    `m-7c-d-12-runtime-sentinel-scoping`, `m-7c-d-paired-migration`,
-    `bench-refresh-v0.3.0`, `bs-layer-corpus-friction-bugs`,
-    `bug-5-const-interpolation-scoping`, `canonical-examples-sweep`,
-    `cg-006-server-only-body-emission`, `combined-lint-additions-s98`,
-    `fix-lift-async-iife-paren`, `heads-up-s95-bugs`, `mpa-entity-decoding-fix`,
-    `phase-3a-async-jwt`, `s100-tailwind-engine-extension`,
-    `scrml-dev-codegen-divergence`, `stdlib-phase-1-5-null-sweep`,
-    `tilde-codegen`, `tilde-gaps-567`, `todomvc-edit-mode-landing`,
-    `v0.3-approach-a-spec`, `v0.3-todomvc-e2e-reverify`,
-    `wave-3-7-audit`, `wave-3-7-backlog-migration`, `wave-4-adopter-content-scoping`,
-    `wave-4-d-track`, `wave-4-t-track`, `w-try-catch-lint`,
-    `auth-redirect-tightening`, `bare-variant-inference-nested`,
-    `03-contact-book-auth-redirect` + `-SCOPING`, `d-ri-pages`, `hos-restructure`,
-    `pgo-scoping` / `pgo-phase-2-scoping` / `pgo-phase-3-scoping`,
-    `perf-characterization`, `runtime-perf-scoping` + `runtime-perf-phase-*`,
-    `v0.3.x-spa-tree-shake`, `serialize-scoping` (STASHED — superseded by schemaFor).
-  - The CURRENT in-flight arc — `native-parser-front-end/` — should be HELD as
-    KEEP-LIVE until the native-parser M-ladder lands (see "Uncertain docs").
-  - `quoted-text-model/` is now SUPERSEDED — see the dedicated flag below.
-  - PA must verify per-dir SHIPPED status against the changelog and cherry-pick
-    KEEP-LIVE exceptions before any batch deref, exactly as the S61/S79 matrix did.
-
-### docs/changes/quoted-text-model/ — 4 files (SUPERSEDED arc)
-**Reason:** content-heuristic (the dir's `IMPLEMENTATION-ROADMAP.md` now self-marks
-"STATUS SUPERSEDED — S111 charter-B pivot; Waves 2-7 PAUSED")
-**Detail:** `IMPLEMENTATION-ROADMAP.md`, `INVESTIGATION-PLAN.md`,
-`SPIKE-bs-mode-flag.md`, `wave-1-progress.md`. The prior scan held this dir as
-UNCERTAIN/KEEP-LIVE because §4.18 was authored from it. The S111 charter-B pivot
-PAUSED Waves 2-7 (they retrofit the block-splitter, which charter B deletes).
-Wave 1 landed (§4.18 in SPEC). The roadmap explicitly says the remaining waves
-are throwaway. The dir is now a frozen historical-decision record.
-**Suggested disposition:** deref to `scrml-support/archive/changes/quoted-text-model/`.
-Wave-1's landed content is already in SPEC §4.18 (the current truth); the dir
-itself is no longer live. Confirm with the PA that no Wave-1 follow-up is pending.
-
-### docs/audits/ — 7 of 9 files (historical audit reports)
-**Reason:** location + name-heuristic (filenames carry dates older than the current SPEC mtime)
-**Detail:** Audits are point-in-time forensic snapshots; they belong in
-`scrml-support/archive/audits/` (the destination the S79 sweep created). The 7:
-  - `null-audit-compiler-src-2026-05-13.md` — null-eradication arc audit (work landed S89)
-  - `undefined-audit-compiler-src-2026-05-13.md` — undefined-eradication audit (landed S89)
-  - `happy-dom-perf-regression-s87-2026-05-12.md` — S87 perf regression snapshot
-  - `self-host-spec-conformance-2026-05-11.md` — S-era self-host conformance audit
-  - `articles-currency-table-2026-05-13.md` — article currency snapshot
-  - `wave-3-7-corpus-ouroboros-2026-05-13.md` — wave-3-7 corpus audit
-  - `scrml-dev-content-spec-fidelity-2026-05-19.md` — recent (S109) — verify still active before deref
-**Suggested disposition:** deref to `scrml-support/archive/audits/`.
-NOT flagged (S79 explicitly designated KEEP-LIVE, still compliant):
-  `compiler-forgotten-surface-2026-05-06.md`, `scope-c-findings-tracker.md`
-  (the latter is an active findings tracker, not a frozen audit).
-
-### docs/articles/*-devto-*.md + drafts — 16 files (published marketing articles)
-**Reason:** location
-**Detail:** dev.to / blog publications and one tweet draft
-(`teej_baiting_tweet.md`, `x-snippet-zod-calibration-2026-05-06.md`). They are
-adopter-marketing content, not compiler reference. Articles describe the language
-at a past version snapshot and drift relative to current SPEC by design.
-**Suggested disposition:** deref to `scrml-support/docs/articles/` (or an
-`articles-published/` subdir). Keep only if the project deliberately ships its
-own marketing corpus from the repo — PA decides. The `llm-kickstarter-v1` and
-`-v2` files are version-stamped LLM primers; v1 (2026-04-25) is superseded by v2
-— deref v1 at minimum.
-
-### docs/website/ — 3 source files (landing-page announcement drafts)
-**Reason:** content-heuristic (front-matter `status: draft`) + location
-**Detail:**
-  - `v0.2.0-announce-2026-05-05.md` — `status: draft`; superseded by the v0.3.0 announce
-  - `roadmap-from-v0.3-2026-05-14.md` — `status: draft`; a forward-looking roadmap (aspirational by definition)
-  - `v0.3.0-announce-2026-05-14.md` — `status: published` — the current announce; the other two are stale relative to it
-(`docs/website/dist/` + `docs/website/**/dist/` are generated HTML — out of scope, not flagged.)
-**Suggested disposition:** v0.2.0-announce → deref to scrml-support (superseded);
-roadmap → deref to scrml-support/docs/ (roadmaps are not current-truth);
-v0.3.0-announce → KEEP if the repo ships its own site content, else deref.
-
-### docs/curation/2026-05-05-changes-dir-disposition.md
-**Reason:** name-heuristic (dated curation working doc) + content (a one-shot disposition matrix)
-**Detail:** The S61/S79 curation execution log; its work is done (records "all 10
-batches complete; 207 deref operations"). A historical process artifact, not current truth.
-**Suggested disposition:** deref to `scrml-support/archive/` — but it is the
-authoritative precedent for the `docs/changes/` deref above, so HOLD it until
-that deref is executed, then archive it alongside.
-
-### docs/pinned-discussions/w-program-001-warning-scope.md
-**Reason:** content-heuristic (a parked decision-needed discussion)
-**Detail:** Per `scope-c-findings-tracker.md`'s own description, pinned-discussions
-are "decisions the user has parked for later conversation" — open/unresolved
-design questions, not current truth.
-**Suggested disposition:** deref to `scrml-support/docs/` (parked discussions
-belong with deep-dives / debates). If resolved by SPEC since, delete.
-
-### docs/m1-benchmark-results.md
-**Reason:** name-heuristic + .gitignore says it is a per-run dump
-**Detail:** `.gitignore` line 19 explicitly lists this path — a raw per-run dump
-that should never be tracked; the curated committed file is `benchmarks/RESULTS.md`.
-Present in the working tree but ignored.
-**Suggested disposition:** delete (regenerated artifact; not tracked).
+This refresh updated 8 map files (primary / structure / dependencies / schema /
+config / build / error / test) + this report. No new map files were created;
+no conditional-map trigger fired (this remains a compiler, not a web app).
+The 9th map — `domain.map.md` — was also updated to reflect the M-ladder
+status. Total maps at HEAD: 9 (8 substantive + primary) + this report.
 
 ## Uncertain docs (needs human review)
 
-### docs/changes/native-parser-front-end/  (2 files: IMPLEMENTATION-ROADMAP.md, SPIKE-markup-js-seam-2026-05-20.md)
-**Reason:** This dir is the working area for the CURRENT in-flight arc.
-`IMPLEMENTATION-ROADMAP.md` carries front-matter `status: ACTIVE` (S112);
-`compiler/native-parser/README.md` and structure.map.md both cite the roadmap as
-the live tracking artifact for the M-ladder (M1 complete; M2 + MK1 in flight).
-The SPIKE doc (`status: draft-for-PA-review`, dated 2026-05-20) is the R1 markup-JS
-seam scoping spike feeding the MK milestones.
-**What to check:** Confirm the native-parser-front-end arc is still in flight
-(it is, per the README and the S112 commit history). If so, HOLD both files as
-KEEP-LIVE — they are the live roadmap + spike for an active multi-quarter arc.
-Deref the whole dir to `scrml-support/archive/changes/` only when M6 lands.
+Same as prior scan (4 items), plus NEW item 1 above:
 
-### docs/changes/predicate-gaps-deep-dive-prep/ (1 file: SCOPE.md)
-**Reason:** S79 matrix explicitly designated this KEEP-LIVE. Whether it is still
-live for the current arc is unclear from the changelog.
-**What to check:** If the predicate-gaps deep-dive has been completed, deref to
-`scrml-support/archive/changes/`. If still prep material, HOLD.
+### NEW (this scan) — `compiler/SPEC.md` §4.18.3 vs §4.18.4 escape-count
+**Reason:** Editorial inconsistency between two adjacent normative
+subsections. The native parser implements the union (correct); the SPEC says
+"only two" in §4.18.3 but defines a third in §4.18.4.
+**What to check:** PA-decide whether to land this as a SPEC editorial
+amendment now (small surface; ~2-line edit to §4.18.3), or batch it with a
+future §4.18 amendment.
 
-### docs/changes/v0next-audit/ + v0next-inventory/  (PARSER-AUDIT, SCOPE-MAP, SCOPE-SUPPLEMENT, ARTICLE-TRUTHFULNESS-AUDIT — all dated 2026-05-05)
-**Reason:** S79 matrix designated both KEEP-LIVE (cited by master-list §0.3 at the
-time). The v0.next arc has since progressed through v0.3; these 2026-05-05 audit
-snapshots are likely now historical. `v0next-audit/PARSER-AUDIT-2026-05-05.md` in
-particular predates the native-parser charter and audits the OLD Acorn-based
-parser — almost certainly superseded.
-**What to check:** Confirm master-list no longer cites them as live. If confirmed
-stale, deref to `scrml-support/archive/audits/`.
+### Carried — `docs/changes/native-parser-front-end/` (now 16 files: IMPLEMENTATION-ROADMAP.md + SPIKE-markup-js-seam-2026-05-20.md + 15 progress-*.md)
+**Reason:** Current in-flight arc. ALL files KEEP-LIVE per prior-scan precedent.
 
-### docs/audits/scrml-dev-content-spec-fidelity-2026-05-19.md
-**Reason:** Recent (S109, dated 2026-05-19 — within 30 days of the current SPEC
-mtime). It may still be an active content-fidelity tracker rather than a frozen audit.
-**What to check:** If the dev-content fidelity sweep it tracks is complete, deref
-to `scrml-support/archive/audits/`. If still being worked, HOLD.
+### Carried — `docs/changes/predicate-gaps-deep-dive-prep/SCOPE.md`
+**Reason:** S79 matrix KEEP-LIVE; status unchanged.
+
+### Carried — `docs/changes/v0next-audit/` + `v0next-inventory/`
+**Reason:** Likely now historical; PA should confirm against current master-list.
+
+### Carried — `docs/audits/scrml-dev-content-spec-fidelity-2026-05-19.md`
+**Reason:** Recent enough that it may still be an active tracker.
 
 ## Compliant — confirmed current-truth (mapped or map-eligible)
 
 compiler/SPEC.md, compiler/SPEC-INDEX.md, compiler/PIPELINE.md — authoritative,
-  at current HEAD (SPEC.md mtime == commit time).
+  at current HEAD (SPEC.md mtime ≈ commit time). NOTE: SPEC.md has the
+  §4.18.3/§4.18.4 escape-count editorial item (new flag above) — still
+  current-truth on every other axis.
 README.md, DESIGN.md, scrmlFormula.md — current project reference.
 docs/tutorial.md, docs/lin.md, docs/external-js.md — current language reference docs.
 docs/known-gaps.md — explicitly the "honest current state" spec-vs-impl drift
   ledger; describes drift accurately — compliant by design.
-docs/changelog.md — current rolling log (S112 baseline).
+docs/changelog.md — current rolling log (S113 baseline; updated this window).
 docs/PA-SCRML-PRIMER.md — current PA primer.
-pa.md, master-list.md, hand-off.md — current project operating docs.
+pa.md, master-list.md, hand-off.md — current project operating docs (hand-off.md
+  rotated to S114 OPEN at e613621).
 compiler/src/codegen/README.md — current source-tree README.
-compiler/native-parser/README.md — CURRENT source-tree README; updated this window;
-  every backticked identifier grep-resolves into compiler/native-parser/*.js;
-  its "M1.4 status" + "M-ladder" tables are accurate current status.
+compiler/native-parser/README.md — CURRENT source-tree README; M-ladder table
+  ALIGNED with HEAD (M1/M2/M3 ✅, MK1/MK2/MK3 ✅, M4.1 ✅) — every backticked
+  identifier grep-resolves into compiler/native-parser/*.js. UPDATED S113.
+docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md — the
+  authoritative M-ladder + K-ledger tracker; §5 progress table is the single
+  source of truth. CURRENT.
 e2e/README.md, examples/README.md, examples/VERIFIED.md, editors/neovim/README.md,
   scripts/git-hooks/README.md, benchmarks/README dirs, samples gauntlet READMEs —
   current dir-local READMEs.
 examples/23-trucking-dispatch/{README,FRICTION}.md — current example docs.
 
 ## Tags
-#non-compliance #project-mapper #cleanup #scrmlts #docs-changes #scope-principle #native-parser
+#non-compliance #project-mapper #cleanup #scrmlts #docs-changes #scope-principle #native-parser #spec-editorial
 
 ## Links
 - [primary.map.md](./primary.map.md)
 - [project master-list](../../master-list.md)
 - [project pa.md](../../pa.md)
 - [docs/changes curation matrix](../../docs/curation/2026-05-05-changes-dir-disposition.md)
+- [native-parser IMPLEMENTATION-ROADMAP](../../docs/changes/native-parser-front-end/IMPLEMENTATION-ROADMAP.md)
 - [scrml-support archive convention](../../../scrml-support/pa.md)

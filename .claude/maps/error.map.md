@@ -1,6 +1,6 @@
 # error.map.md
 # project: scrmlts
-# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
+# updated: 2026-05-21T04:30:00-06:00  commit: e613621
 
 This compiler does not `throw` to signal user-facing errors. Each pipeline
 stage collects structured *diagnostic* objects (code + message + span +
@@ -11,7 +11,8 @@ source, not this map.
 
 ## Per-Stage Diagnostic Classes (one per pipeline stage)
 All have the same shape: `{ code, message, span, severity }` where
-severity ∈ "error" | "warning" | "info". UNCHANGED since commit 78faa65.
+severity ∈ "error" | "warning" | "info". UNCHANGED since commit 78faa65;
+re-verified at e613621 (the S113 native-parser arc edited zero compiler/src/ files).
 
 TABError  — compiler/src/ast-builder.js:1232 — Stage 3 (Tokenizer + AST Builder). Extends `Error` (the one diagnostic class that is a real throwable; also used as a collected diagnostic).
 PAError   — compiler/src/protect-analyzer.ts:126 — Stage 4 (protect= Analyzer)
@@ -51,14 +52,33 @@ implicit per-handler transactions. The compiler *emits* this; these are not
 error-handling patterns of the scrmlts repo itself.
 
 ## Native-Parser Error Handling  [compiler/native-parser/]
-The native-parser front-end (parallel track) models recovery as an `<engine>`,
-not thrown errors: `error-recovery.scrml` declares the `ErrorRecovery` engine
-(`.ParsingNormally` / `.AccumulatingSkipped` / `.ReSynchronized`) — the
-DD §D4 P4 canonical positive state example. At the current milestones (M1/M2/MK1)
-several scanners (string / comment / regex bodies) TOLERATE EOF / unterminated
-input and defer the diagnostic to a later milestone rather than failing — see
-native-parser/README.md "M1.4 status". No native-parser diagnostic codes are
-wired into the live SPEC §34 catalog yet.
+The native-parser front-end models recovery as an `<engine>` — the
+`ErrorRecovery` engine (`error-recovery.scrml`, 3 state-children
+`.ParsingNormally` / `.AccumulatingSkipped` / `.ReSynchronized`; the DD §D4 P4
+canonical positive state example). M3.4 wired statement-level panic-mode
+recovery into this engine — accumulate skipped tokens, re-synchronize on `;` /
+statement-start keywords / closing braces.
+
+The native parser EMITS diagnostics that target the SPEC §34 catalog (NOT
+private codes). Verified at HEAD:
+
+  E-MARKUP-002 — mismatched explicit closer name (tag-frame.js:1131; SPEC §4.4.1)
+  E-CTX-001    — unterminated tag / display-text literal / `${...}` interpolation
+                 at EOF (tag-frame.js:1179, display-text-literal.js:410/623; SPEC §3.2)
+  E-CTX-003    — stray closer with nothing open (tag-frame.js:1117; SPEC §3.2)
+  E-UNQUOTED-DISPLAY-TEXT — bare prose in a code-default body that is not valid
+                 code (parse-markup.js, display-text-literal.js; SPEC §4.18.7)
+  E-PARSE-001 — malformed escape in a display-text literal (per SPEC §4.18.3;
+                native-parser implements the 3-escape union; see non-compliance
+                report on the §4.18.3 vs §4.18.4 editorial inconsistency)
+
+K7 (M1 lexer prototype-pollution — `JS_KEYWORDS[text]` resolving inherited
+Object.prototype names) was FIXED S113 (M3.3) via an own-property guard
+(`Object.prototype.hasOwnProperty.call(...)`) in `token.scrml`/.js.
+
+Pre-M3 string / comment / regex scanners TOLERATE EOF / unterminated input and
+defer the diagnostic to a later milestone rather than failing — see
+native-parser/README.md "M1.4 status". These remain unchanged.
 
 ## Dedicated Lint Passes (emit W-*/I-* diagnostics)
 compiler/src/lint-ghost-patterns.js — W-LINT-001..015 ghost-pattern detection
@@ -80,7 +100,7 @@ These surface as raw stack traces if an invariant is violated — that is the
 intended "compiler bug" signal, distinct from user-facing diagnostics.
 
 ## Tags
-#scrmlts #map #error #diagnostics #compiler #lint
+#scrmlts #map #error #diagnostics #compiler #lint #native-parser
 
 ## Links
 - [primary.map.md](./primary.map.md)

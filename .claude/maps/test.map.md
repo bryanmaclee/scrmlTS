@@ -1,6 +1,6 @@
 # test.map.md
 # project: scrmlts
-# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
+# updated: 2026-05-21T04:30:00-06:00  commit: e613621
 
 ## Test Framework
 Runner: `bun test` (Bun built-in test runner)
@@ -14,45 +14,61 @@ Run a subtree: `bun test compiler/tests/conformance`
 Run e2e: `bun run e2e`  (or `playwright test --config=e2e/playwright.config.ts`)
 Pre-test hook: `bash scripts/compile-test-samples.sh` runs automatically before `test`.
 
-## Test Categories  [compiler/tests/ — 730 total .test.js/.test.ts files]
-unit         — compiler/tests/unit/**            — 514 files — per-pass / per-construct unit tests (largest bucket)
-integration  — compiler/tests/integration/**     —  75 files — multi-stage pipeline + canonical-corpus smoke tests
-conformance  — compiler/tests/conformance/**     — 105 files — one test per SPEC §34 error code + block-grammar subdir
-browser      — compiler/tests/browser/**         —  12 files — runtime behavior under happy-dom
-lsp          — compiler/tests/lsp/**             —  10 files — language-server feature tests
-commands     — compiler/tests/commands/**        —   6 files — CLI subcommand tests (init/migrate/promote/...)
-self-host    — compiler/tests/self-host/**       —   4 files — self-hosting compiler-module tests
-parser-conformance — compiler/tests/parser-conformance-*.test.js — 3 root files (see below)
+## Test Categories  [compiler/tests/ — 731 total .test.js/.test.ts files]
+unit         — compiler/tests/unit/**            — ~514 files — per-pass / per-construct unit tests (largest bucket)
+integration  — compiler/tests/integration/**     —  ~75 files — multi-stage pipeline + canonical-corpus smoke tests
+conformance  — compiler/tests/conformance/**     — ~105 files — one test per SPEC §34 error code + block-grammar subdir
+browser      — compiler/tests/browser/**         —  ~12 files — runtime behavior under happy-dom
+lsp          — compiler/tests/lsp/**             —  ~10 files — language-server feature tests
+commands     — compiler/tests/commands/**        —   ~6 files — CLI subcommand tests (init/migrate/promote/...)
+self-host    — compiler/tests/self-host/**       —   ~4 files — self-hosting compiler-module tests
+parser-conformance — compiler/tests/parser-conformance-*.test.js — 4 root files (see below; +1 since prior map)
 e2e          — e2e/tests/**.spec.ts              —   6 files — Playwright (02-counter, 03-contact-book,
                                                    05-multi-step-form, 14-mario, todomvc, docs-website)
 
-## Native-Parser Conformance Suite  (NEW since 78faa65)
-Three root test files drive the scrml-native parser (compiler/native-parser/)
+Full-suite pass count grew 16,840 → 17,812 over the S113 native-parser arc
+(+972 tests across the 13 dispatched milestone landings).
+
+## Native-Parser Conformance Suite
+Four root test files drive the scrml-native parser (compiler/native-parser/)
 against an Acorn-style oracle + inline micro-corpora. They are the single source
 of truth for current native-parser pass/skip/fail status.
 
-parser-conformance-lexer.test.js  — M1.1-M1.4 lexer; runs bench corpus + inline
+parser-conformance-lexer.test.js  — M1.1-M1.5 lexer; runs bench corpus + inline
   micro-corpus through both Acorn's tokenizer and native-parser/lex.js; asserts
-  kind+text+span per token. One bench file (`expr-literals.js`) records a SKIP
-  for the M1.5 regex-token normalizer.
-parser-conformance-expr.test.js   — M2.1 (primary expressions) + M2.2 (operator
-  expressions) + M2.3 (call/member/arrow heads); exercises native-parser/parse-expr.js
-  + ast-expr.js; conformance Tier 1 (node-kind sequence) + Tier 2 (ident/literal values).
-parser-conformance-markup.test.js — MK1.2 markup BlockContext context-boundary
-  recognition; exercises native-parser/parse-markup.js + parse-ctx.js against the
+  kind+text+span per token. `expr-literals.js` flipped to `full` byte-identical
+  disposition at S102 (`bcb48c9f`); M1.5 verified at S113.
+parser-conformance-expr.test.js   — M2 (M2.1 primary, M2.2 operators, M2.3
+  call/member/arrow heads, M2.4 scrml-extension forms) + M4.1 (await/yield as
+  expression operators); exercises native-parser/parse-expr.js + ast-expr.js;
+  conformance Tier 1 (node-kind sequence) + Tier 2 (ident/literal values).
+parser-conformance-stmt.test.js   — NEW S113. M3 (M3.1 substrate, M3.2 control-
+  flow, M3.3 functions/classes/import/export/try-throw, M3.4 error-recovery +
+  full statement conformance); exercises native-parser/parse-stmt.js +
+  ast-stmt.js. Tier 1+2 vs Acorn-oracle. 171 test sites at HEAD.
+parser-conformance-markup.test.js — MK1 (BlockContext context-boundary
+  recognition) + MK2 (TagFrame engine + closer-form pairing + TagKind/TagClass
+  classification — 5 BS classifier heuristics demonstrably gone) + MK3 (BodyMode
+  + DisplayTextLiteral §4.18 native quoted-text + E-UNQUOTED-DISPLAY-TEXT).
+  Exercises native-parser/parse-markup.js + parse-ctx.js + tag-frame.js +
+  body-mode.js + display-text-literal.js. Tested vs the BS oracle on the
   markup-bench fixtures.
 
-parser-conformance.test.js  — older parser-conformance harness driver (predates the
-  three native-parser suites; uses the same harness modules).
+parser-conformance.test.js  — older parser-conformance harness driver (predates
+  the four native-parser suites; uses the same harness modules).
 
 ### Harness  [compiler/tests/parser-conformance/]
 corpus-enumerator.js — enumerates corpus files
 parsers.js           — parser adapter (Acorn oracle + native-parser entry)
 tier-diff.js         — Tier 1/2 diff comparator
-bench/               — 12 JS corpus files (expr-*, stmt-*, decl-*) — the JS-subset corpus
-markup-bench/        — 8 `.scrml` corpus files (NEW): comments-html, comments-line,
+bench/               — 12 JS corpus files (expr-arrow, expr-async-await,
+                       expr-literals, expr-optional-chain, expr-spread-rest,
+                       expr-template-literal, expr-yield-generator, stmt-control-flow,
+                       stmt-import-export, stmt-try-catch, decl-class, decl-destructure) —
+                       the JS-subset corpus
+markup-bench/        — 8 `.scrml` corpus files: comments-html, comments-line,
                        css-block, foreign-code, logic-basic, logic-nested-braces,
-                       markup-tags, multi-context — the markup-layer corpus for MK1
+                       markup-tags, multi-context — the markup-layer corpus
 
 ## Fixtures & Factories
 compiler/tests/fixtures/ — promote-match-canonical.scrml; promote-multi-file-app/ (CLI promote fixtures)
@@ -76,7 +92,8 @@ must check the correct bucket — W-*/I- codes land in `result.warnings`, not
 `result.errors` (see error.map.md partition rule). Conformance tests are
 named `conf-<CODE>.test.js`, one per SPEC §34 error code. The native-parser
 conformance suites instead diff native-parser output against an Acorn oracle
-and record milestone-named SKIPs for not-yet-implemented surface.
+(JS layer) or the live block-splitter (markup layer) and assert per-tier
+parity; new tests land alongside their owning M-/MK-sub-step.
 
 ## Tags
 #scrmlts #map #test #bun-test #playwright #conformance #native-parser

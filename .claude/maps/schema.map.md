@@ -1,11 +1,12 @@
 # schema.map.md
 # project: scrmlts
-# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
+# updated: 2026-05-21T04:30:00-06:00  commit: e613621
 
 This is a compiler. There is no database schema or external API schema.
 The "schemas" below are the compiler's internal data structures: the AST node
 union, the codegen IR, the symbol table, the auth-graph / reachability types,
-and (NEW) the native-parser's Expr AST + engine catalog.
+the native-parser's Expr + Stmt ASTs, the engine catalog, and the markup-layer
+state-shape (TagFrame / BodyMode / DisplayTextLiteral).
 scrml *source files* (`.scrml`) declare their own data via `<schema>` blocks,
 struct/enum `<Type>` declarations, and `schemaFor()` — that is runtime DDL the
 compiler emits, not a schema of this codebase.
@@ -14,7 +15,7 @@ compiler emits, not a schema of this codebase.
 
 Discriminated union; every node has `kind` (string literal), `id`, `span`.
 `ASTNode` (line 1381) is the top-level union; `LogicStatement` (1332) the
-statement sub-union. UNCHANGED since commit 78faa65.
+statement sub-union. UNCHANGED since commit 78faa65; verified at e613621.
 
 ### Source Location
 Span [ast.ts:21] — file, start, end (byte offsets), line, col
@@ -64,32 +65,71 @@ ErrorArm [165] · SQLChainedCall [182] · LiftTarget [195]
 
 ## Native-Parser Expr AST  [compiler/native-parser/ast-expr.{scrml,js}]
 
-NEW since 78faa65. The expression-AST catalog the scrml-native parser (M2)
-produces. SEPARATE from the live ast.ts union above — consumed only by
-native-parser tests, not the pipeline.
+The expression-AST catalog the scrml-native parser produces. SEPARATE from the
+live ast.ts union above — consumed only by native-parser tests, not the pipeline.
 
-### ExprKind  [ast-expr.js:5 — Object.freeze enum, 28 variants]
+### ExprKind  [ast-expr.js:5 — Object.freeze enum, 37 variants at HEAD]
 Primary literals:   Ident · NumberLit · StringLit · BoolLit · RegexLit · TemplateLit
-scrml extensions:   AtCell · BareVariant
-Keyword atoms:      This · Super
+scrml extensions (M1): AtCell · BareVariant
+Keyword atoms (M2.3): This · Super
 Composite:          Array · Object · Paren
 Operators (M2.2):   Unary · Update · Binary · Logical · Assignment · Conditional · Sequence
 Call/member (M2.3): Call · New · Member · TaggedTemplate · Arrow · Function
 Pattern/body-stub:  RestElement · AssignmentPattern · BlockStub
+scrml-extension exprs (M2.4 — D5 MUST ADD, 9 forms):
+                    NotValue · Tilde · Sql · InputStateRef · IsCheck · Match ·
+                    Render · Lift · Fail
+Async / generator (M4.1 — D5 MUST PARSE; promoted from M3.3 statement-position-only):
+                    Await · Yield
 
 ### Sub-kind enums
-ArrayElementKind   [ast-expr.js:51] = Item · Spread · Hole
-ObjectPropertyKind [ast-expr.js:57] = KeyValue · Shorthand · Spread · Method
+ArrayElementKind   [ast-expr.js:70] = Item · Spread · Hole
+ObjectPropertyKind [ast-expr.js:76] = KeyValue · Shorthand · Spread · Method
+IsCheckOp          [ast-expr.js:89] = Not · Some · Given · NotNot · Variant (§42 / §18.17)
+MatchArmPatternKind [ast-expr.js ~97] = Variant · Wildcard · IsPattern (§18.2)
 
-### Node constructors  [ast-expr.js:66-220 — 35 `make*` pure constructors]
-makeIdent · makeNumberLit · makeStringLit · makeBoolLit · makeRegexLit
-makeTemplateLit · makeTemplateQuasi · makeAtCell · makeBareVariant · makeThis
-makeSuper · makeArray · makeObject · makeParen · makeArrayItem · makeArraySpread
-makeArrayHole · makeObjectKeyValue · makeObjectShorthand · makeObjectSpread
-makeObjectMethod · makeUnary · makeUpdate · makeBinary · makeLogical
-makeAssignment · makeConditional · makeSequence · makeCall · makeNew · makeMember
-makeArrow · makeFunction · makeTaggedTemplate · makeRestElement
-makeAssignmentPattern · makeBlockStub  ·  isExpr (predicate)
+### Node constructors  [ast-expr.js — `make*` pure constructors]
+makeIdent · makeNumberLit · makeStringLit · makeBoolLit · makeRegexLit ·
+makeTemplateLit · makeTemplateQuasi · makeAtCell · makeBareVariant · makeThis ·
+makeSuper · makeArray · makeObject · makeParen · makeArrayItem · makeArraySpread ·
+makeArrayHole · makeObjectKeyValue · makeObjectShorthand · makeObjectSpread ·
+makeObjectMethod · makeUnary · makeUpdate · makeBinary · makeLogical ·
+makeAssignment · makeConditional · makeSequence · makeCall · makeNew · makeMember ·
+makeArrow · makeFunction · makeTaggedTemplate · makeRestElement ·
+makeAssignmentPattern · makeBlockStub · (M2.4) makeNotValue · makeTilde · makeSql ·
+makeInputStateRef · makeIsCheck · makeMatch · makeMatchArm · makeRender · makeLift ·
+makeFail · (M4.1) makeAwait · makeYield · isExpr (predicate)
+
+## Native-Parser Stmt AST  [compiler/native-parser/ast-stmt.{scrml,js}]
+
+NEW at S113 (M3). Statement-level AST catalog; consumed by `parse-stmt`.
+
+### StmtKind  [ast-stmt.js:17 — Object.freeze enum]
+M3.1 (substrate):       Block · ExprStmt · Empty · VarDecl
+M3.2 (control-flow):    If · While · DoWhile · For · ForIn · ForOf · Return ·
+                        Break · Continue · Labeled
+M3.3 (decl + module + legacy try/throw):
+                        FunctionDecl · ClassDecl · Import · Export · Try · Throw
+
+### Sub-kind enums
+VarDeclKind         [46]   = Let · Const · Var
+ClassMemberKind     [60]   = Method · Property (ESTree MethodDefinition / PropertyDefinition)
+MethodKind          [67]   = Constructor · Method · Get · Set
+ImportSpecifierKind [79]   = Named · Default · Namespace
+BindingKind         [94]   = Ident · ObjectPat · ArrayPat   (M3.1 real binding patterns;
+                            M2.3 `parseParamTarget` literal stand-ins are K6, M4.2 unifies)
+BindingPropertyKind [104]  — object-destructuring property discriminator
+BindingElementKind  [114]  — array-destructuring element discriminator
+
+### Node constructors  [ast-stmt.js — `make*` pure constructors]
+makeBlock · makeExprStmt · makeEmpty · makeVarDecl · makeVarDeclarator ·
+makeIf · makeWhile · makeDoWhile · makeFor · makeForIn · makeForOf ·
+makeReturn · makeBreak · makeContinue · makeLabeled ·
+makeFunctionDecl · makeClassDecl · makeImport · makeExport · makeTry · makeThrow ·
+makeMethodDef · makePropertyDef ·
+makeImportNamed · makeImportDefault · makeImportNamespace · makeExportSpecifier ·
+makeCatchClause · makeBindingIdent · makeObjectPattern · makeArrayPattern ·
+makeAssignmentPattern
 
 ## Native-Parser Token catalog  [compiler/native-parser/token.{scrml,js}]
 
@@ -99,7 +139,7 @@ TokenKind     [token.js:5]   — Object.freeze enum, nested-by-category; all JS-
                                / TemplateInterpEnd + RegexLit token
 QuoteKind     [token.js:125] — Single · Double · Backtick
 JS_KEYWORDS   [token.js:131] — keyword-string → TokenKind lookup table
-Constructors: makeToken · makeIdentOrKeyword · makeEof
+Constructors: makeToken · makeIdentOrKeyword (own-property guard per K7 fix) · makeEof
 Span          [span.js]      — { start, end, line, col } struct; pure-data construction
 
 ## Native-Parser Engine declarations (state-shape, Pillar 5b)
@@ -116,15 +156,29 @@ BracketStack [bracket-stack.scrml]  — bracket-depth + opener-frame engine; var
 ErrorRecovery[error-recovery.scrml] — parse-error recovery engine; 3 state-children:
   ParsingNormally · AccumulatingSkipped · ReSynchronized; full rule= matrix.
 ParseMode    [parse-mode.scrml:92]  — JS expression/statement context engine; initial
-  `.TopLevel`; 7 state-children: TopLevel · InExpression · InArrayLiteral ·
-  InObjectLiteral · InFunctionBody · InClassBody · InArguments. `.InObjectLiteral`
-  is COMPOSITE (nests an inner `<engine for=ParseMode var=innerParseMode>`).
+  `.TopLevel`; state-children incl. TopLevel · InExpression · InArrayLiteral ·
+  InObjectLiteral · InFunctionBody · InClassBody · InArguments · `.InBlock` (M3).
+  `.InObjectLiteral` is COMPOSITE (nests an inner `<engine for=ParseMode var=innerParseMode>`).
 BlockContext [block-context.scrml:155] — MARKUP-LAYER context-grid engine; initial
   `.TopLevel`; 10 state-children: TopLevel · InMarkupTag · InLogicEscape · InCss ·
-  InSql · InErrorEffect · InMeta · InTest · InForeignCode. `.InMarkupTag` nests a
-  BodyMode engine; `.InLogicEscape` nests the LexMode engine graph (markup→JS seam).
-BodyMode     (nested, declared inside block-context.scrml) — markup-tag body mode;
-  `.FreeText` / `.CodeDefault` (§4.18; substantive body is MK3's job).
+  InSql · InErrorEffect · InMeta · InTest · InForeignCode · plus InProgramBody (§40.8
+  `default-logic` body — distinct third mode). `.InMarkupTag` nests a BodyMode engine
+  (K1 forward-ref RESOLVED at MK3.1); `.InLogicEscape` nests the LexMode engine graph
+  (markup→JS seam, MK4-pending).
+TagFrame     [tag-frame.scrml]      — markup `<tag>` tree engine; 3 state-children:
+  `.Closed` · `.OpenExpectingChildren(name, kind, depth, span, bodyMode)` ·
+  `.OpenSelfClosed(name, kind, span)`. Payload-bearing per the `bracket-stack`
+  `.OpenAt` precedent. Carries `TagKind` (Html / Component / ScrmlStructural /
+  StateOpener) + `TagClass` payload — the structural registry is §4.15 + §24.4.
+BodyMode     [body-mode.scrml]      — markup-tag body mode engine; 2 state-children:
+  `.FreeText` · `.CodeDefault` (§4.18.1). Populated via `tag-frame.bodyMode` payload
+  at body recognition. Also exports `ProgramBodyMode` enum + `isProgramBodyElementName`
+  for the §40.8 `default-logic` third mode (NOT classified by §4.18).
+DisplayTextLiteral [display-text-literal.scrml] — display-text literal scanner engine;
+  3 state-children: `.Outside` · `.InLiteralText` · `.InInterpolation` (§4.18.3-§4.18.4).
+  Literal escape set: `\"` / `\\` / `\${` (NOTE: §4.18.3 says "only two" but §4.18.4
+  adds the third — see non-compliance.report.md; native parser implements the correct
+  3-escape union).
 
 ## Native-Parser parse-context object  [compiler/native-parser/parse-ctx.{scrml,js}]
 
@@ -134,6 +188,21 @@ Helpers: appendNode · nodeCount · appendBlock · makeBlockNode · makeDelegati
 · pushDelegationFrame · popDelegationFrame · topDelegationFrame · delegationDepth
 · inDelegation. Close-condition constructors: closeOnBraceDepth ·
 closeOnTagFrameBalanced · closeOnAttrTerminator · closeOnShorthandEol.
+
+`makeParseStmtContext()` [parse-stmt.js:147] — M3's statement-parser-side context
+(token-cursor + diagnostics + `functionDepth` for return-legality tracking +
+`inAsync`/`inGenerator` slots for M4.1 await/yield context).
+
+## Native-Parser TagKind / TagClass calc  [compiler/native-parser/tag-frame.{scrml,js}]
+
+TagKind        [tag-frame.js:56]  — opener-classifier enum:
+  Html · Component · ScrmlStructural · StateOpener
+TagClass       [tag-frame.js:73]  — additional MK2.3 classification axis
+TagFrameKind   [tag-frame.js:86]  — internal frame-state discriminator
+STRUCTURAL_ELEMENTS [tag-frame.js:121] — §4.15 / §24.4 registry: engine, match, errors,
+  onTransition, onTimeout, onIdle, channel, page, auth, ...
+tokenizeOpener / recognizeOpener / classifyTag / firstChildElementClass — the
+pipeline an `<ident ...>` opener flows through to compute TagKind + TagClass.
 
 ## Codegen IR  [compiler/src/codegen/ir.ts — 253 lines]
 
@@ -172,7 +241,7 @@ RoleClassificationEntry [244]
 RSInput [271] · RSOutput [323] · RSError [343]
 
 ## Tags
-#scrmlts #map #schema #ast #ir #compiler #types #native-parser #expr-ast
+#scrmlts #map #schema #ast #ir #compiler #types #native-parser #expr-ast #stmt-ast #tag-frame #body-mode
 
 ## Links
 - [primary.map.md](./primary.map.md)

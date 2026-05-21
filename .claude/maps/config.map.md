@@ -1,17 +1,18 @@
 # config.map.md
 # project: scrmlts
-# updated: 2026-05-20T17:07:32-06:00  commit: 87453fb
+# updated: 2026-05-21T04:30:00-06:00  commit: e613621
 
 No `.env`, `.env.example`, or `.env.template` file exists in the repo
 (`.gitignore` lists `.env` / `.env.local` defensively, but no such file is present).
 No `scrml.config.*` / `.scrmlrc` project config file exists.
 There is no runtime application here — this is a compiler invoked by CLI flags.
+UNCHANGED since 87453fb (S113 native-parser arc added no env vars or config files).
 
 ## Environment Variables
 
 Only two environment variables are read anywhere in the codebase, both for
 dev/serve-port selection in the generated/served output. (The native-parser
-modules read no environment variables — grep-confirmed.)
+modules read no environment variables — grep-confirmed at e613621.)
 
 SCRML_PORT — optional — dev server / compiler-server listen port.
   Read in compiler/src/serve-client.js:57 (falls back to a DEFAULT_PORT) and
